@@ -799,6 +799,16 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_probe_disabled = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_no_atomic_candidate = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_plan_promoted_candidate = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_selected = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_selected_mask_sum = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_all_or_none_input_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_selected_from_probe = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_selected_from_promotion = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_blocked_by_no_plan_candidate = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_capture = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_registered_valid = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum = 0;
@@ -2949,6 +2959,43 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
     ++g_replay_liq_sideband_stats
       .w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectPlanPromotedCandidate) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_plan_promoted_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelected) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_select_selected;
+  }
+  g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_select_selected_mask_sum +=
+    dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedMask;
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectAllOrNoneInputMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_all_or_none_input_mask;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromProbe) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_selected_from_probe;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromPromotion) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_selected_from_promotion;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPromoteDisabled) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByNoPlanCandidate) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_blocked_by_no_plan_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPartialPlanMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectInvalidProbePromotionMaskMismatch) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture) {
     ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_capture;
   }
@@ -3334,7 +3381,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v55\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v56\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4587,6 +4634,36 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << "    \"w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask\": "
       << g_replay_liq_sideband_stats
         .w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask
+      << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_plan_promoted_candidate\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_plan_promoted_candidate << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_selected\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_select_selected << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_selected_mask_sum\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_selected_mask_sum << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_all_or_none_input_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_all_or_none_input_mask << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_selected_from_probe\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_selected_from_probe << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_selected_from_promotion\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_selected_from_promotion << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_blocked_by_no_plan_candidate\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_blocked_by_no_plan_candidate << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch
       << ",\n"
       << "    \"w2_retire_record_physical_bundle_suppress_boundary_capture\": "
       << g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_capture << ",\n"

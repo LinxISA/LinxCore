@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v55"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v56"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -616,6 +616,16 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_probe_disabled",
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_no_atomic_candidate",
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask",
+    "w2_retire_record_physical_bundle_suppress_select_plan_promoted_candidate",
+    "w2_retire_record_physical_bundle_suppress_select_selected",
+    "w2_retire_record_physical_bundle_suppress_select_selected_mask_sum",
+    "w2_retire_record_physical_bundle_suppress_select_all_or_none_input_mask",
+    "w2_retire_record_physical_bundle_suppress_select_selected_from_probe",
+    "w2_retire_record_physical_bundle_suppress_select_selected_from_promotion",
+    "w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled",
+    "w2_retire_record_physical_bundle_suppress_select_blocked_by_no_plan_candidate",
+    "w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask",
+    "w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch",
     "w2_retire_record_physical_bundle_suppress_boundary_capture",
     "w2_retire_record_physical_bundle_suppress_boundary_registered_valid",
     "w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum",

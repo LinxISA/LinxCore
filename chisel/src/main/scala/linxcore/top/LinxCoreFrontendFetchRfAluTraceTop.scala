@@ -1461,6 +1461,26 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeBlockedByPartialMask =
     Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectPlanPromotedCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelected =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedMask =
+    Output(UInt(4.W))
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectAllOrNoneInputMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromProbe =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromPromotion =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPromoteDisabled =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByNoPlanCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPartialPlanMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectInvalidProbePromotionMaskMismatch =
+    Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid =
@@ -8687,6 +8707,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
 
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressSelectWiring {
   def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
       select: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect,
       plan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
       probe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
@@ -8702,6 +8723,27 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
     select.io.probeSelected := probe.io.selected
     select.io.probeSelectedMask := probe.io.selectedMask
     select.io.probeAllOrNoneInputMask := probe.io.allOrNoneInputMask
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectPlanPromotedCandidate :=
+      select.io.planPromotedCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelected :=
+      select.io.selected
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedMask :=
+      select.io.selectedMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectAllOrNoneInputMask :=
+      select.io.allOrNoneInputMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromProbe :=
+      select.io.selectedFromProbe
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectSelectedFromPromotion :=
+      select.io.selectedFromPromotion
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPromoteDisabled :=
+      select.io.blockedByPromoteDisabled
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByNoPlanCandidate :=
+      select.io.blockedByNoPlanCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectBlockedByPartialPlanMask :=
+      select.io.blockedByPartialPlanMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressSelectInvalidProbePromotionMaskMismatch :=
+      select.io.invalidProbePromotionMaskMismatch
   }
 }
 
@@ -9056,6 +9098,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       flush
     )
     LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressSelectWiring.connect(
+      io,
       modules.retireRecordPhysicalBundleSuppressSelect,
       modules.retireRecordPhysicalBundleSuppressPlan,
       modules.retireRecordPhysicalBundleSuppressProbe,
