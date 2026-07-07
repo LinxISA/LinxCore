@@ -194,14 +194,11 @@ lifetime. This is a design handoff, not an implementation failure.
 
 ## Next Owner
 
-R603 should make the boundary ownership explicit before live suppression. Two
-valid directions are available:
-
-- carry a registered identity/lifecycle proof bundle with the R601 mask and
-  consume that bundle instead of the already-cleared retained record, or
-- move the physical suppression consumption point earlier while still avoiding
-  the same-cycle circular guard boundary that R601 was created to avoid.
-
-Do not connect the R601/R602 mask to physical guard suppression until the next
-owner proves a nonzero `eligibleRegisteredMask` or replaces it with an
-equivalent, documented ownership predicate.
+R603 added
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary` and
+chose the carried-bundle direction: it registers the capture-time `rid`,
+`loadLsId`, and lifecycle row with the R601 mask, producing five eligible
+registered masks in the same generated replay-LIQ run while R602 still records
+five missing-record blockers. The next owner may consume the carried ownership
+bundle as input evidence for live suppression, but only as an atomic
+ROB/RF/wakeup/lifecycle bundle.

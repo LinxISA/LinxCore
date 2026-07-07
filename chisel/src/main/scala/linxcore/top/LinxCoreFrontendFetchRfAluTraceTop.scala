@@ -23,6 +23,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1498,6 +1499,32 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLifecycleRowMismatch =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCaptureOwnership =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCapturedOwnershipValid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredRidValid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLoadLsIdValid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLifecycleRowReady =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredBundleReady =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipEligibleRegisteredMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNoCapturedOwnership =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingRid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLoadLsId =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLifecycleRow =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNotFullMask =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
@@ -8652,6 +8679,54 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressOwnershipBoundaryWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      ownership: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary,
+      boundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      lifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      enable: Bool,
+      flush: Bool): Unit = {
+    ownership.io.enable := enable
+    ownership.io.flush := flush
+    ownership.io.capture := boundary.io.capture
+    ownership.io.captureRid := retireRecord.io.record.rid
+    ownership.io.captureLoadLsId := retireRecord.io.record.loadLsId
+    ownership.io.captureLifecycleRowReady := lifecycleEvidence.io.providerRowClearReady
+    ownership.io.captureLifecycleRowIndex := lifecycleEvidence.io.providerRowClearIndex
+    ownership.io.registeredValid := boundary.io.registeredValid
+    ownership.io.registeredFullMask := boundary.io.registeredFullMask
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCaptureOwnership :=
+      ownership.io.captureOwnership
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCapturedOwnershipValid :=
+      ownership.io.capturedOwnershipValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredCandidate :=
+      ownership.io.registeredCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredRidValid :=
+      ownership.io.registeredRidValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLoadLsIdValid :=
+      ownership.io.registeredLoadLsIdValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLifecycleRowReady :=
+      ownership.io.registeredLifecycleRowReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredBundleReady :=
+      ownership.io.registeredOwnershipBundleReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipEligibleRegisteredMask :=
+      ownership.io.eligibleRegisteredMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNoCapturedOwnership :=
+      ownership.io.blockedByNoCapturedOwnership
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingRid :=
+      ownership.io.blockedByMissingRid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLoadLsId :=
+      ownership.io.blockedByMissingLoadLsId
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLifecycleRow :=
+      ownership.io.blockedByMissingLifecycleRow
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNotFullMask :=
+      ownership.io.blockedByNotFullMask
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8817,6 +8892,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
     LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressIdentityProofWiring.connect(
       io,
       modules.retireRecordPhysicalBundleSuppressIdentityProof,
+      modules.retireRecordPhysicalBundleSuppressBoundary,
+      modules.retireRecord,
+      modules.retireRecordLifecycleEvidence,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressOwnershipBoundaryWiring.connect(
+      io,
+      modules.retireRecordPhysicalBundleSuppressOwnershipBoundary,
       modules.retireRecordPhysicalBundleSuppressBoundary,
       modules.retireRecord,
       modules.retireRecordLifecycleEvidence,
@@ -9727,6 +9811,8 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordPhysicalBundleSuppressBoundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
     retireRecordPhysicalBundleSuppressIdentityProof:
       LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof,
+    retireRecordPhysicalBundleSuppressOwnershipBoundary:
+      LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9874,6 +9960,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary),
       retireRecordPhysicalBundleSuppressIdentityProof =
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof(
+          idEntries = p.robEntries,
+          liqEntries = p.robEntries)),
+      retireRecordPhysicalBundleSuppressOwnershipBoundary =
+        Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary(
           idEntries = p.robEntries,
           liqEntries = p.robEntries)),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),

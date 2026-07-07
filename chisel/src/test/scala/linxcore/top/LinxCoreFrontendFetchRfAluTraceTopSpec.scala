@@ -1403,6 +1403,43 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io
       .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask
       .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCaptureOwnership.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipCapturedOwnershipValid
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredCandidate
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredRidValid
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLoadLsIdValid
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredLifecycleRowReady
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipRegisteredBundleReady
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipEligibleRegisteredMask
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNoCapturedOwnership
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingRid
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLoadLsId
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByMissingLifecycleRow
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipBlockedByNotFullMask
+      .getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1479,6 +1516,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeSelected"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressOwnershipEligibleRegisteredMask"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))
