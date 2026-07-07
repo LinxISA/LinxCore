@@ -10,16 +10,17 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The current priority is replay-LIQ LRET/W2 clear phasing. R571-R574 prove that
-source return, return publish, LRET payload, publish-control fire, and LRET
-enqueue acceptance can all overlap occupied W2, and that the registered LRET FIFO
-entry becomes pending/drain-valid/drain-fired with drain permit ready on the
-following cycle. R574 also proves those accepted W2-overlap enqueues coincide
-with W2 completion clear, clear intent, side-effect fire-complete, and live
-clear, so the follow-up necessarily observes W2 already cleared. The next packet
-should design a default-off W2 clear/retire phasing experiment or model-derived
-W2 side-effect retire boundary before changing W2 storage replacement, W1/W2
-advance ordering, or LRET FIFO capacity.
+The current priority is replay-LIQ retained physical-bundle replacement
+evidence, with a clear separation between positive replay-fixture proof and
+CoreMark no-regression coverage. R571-R574 prove the LRET/W2 clear phasing
+gap; R575-R610 develop the retained retire-record, all-or-none suppression, and
+selector-origin audit path. R611 scales the promoted selector-origin CoreMark
+observation to 4096 raw QEMU rows and passes 3369 compared rows with zero
+mismatches, but natural CoreMark replay-LIQ activity remains zero in that early
+window. The next packet should not linearly scale the same early CoreMark
+prefix for replay-suppress replacement proof; either find a later
+CoreMark/direct-boot window with natural returned-load phasing or return to
+focused replay fixtures for positive retained physical-bundle evidence.
 
 ## Packet Start Baseline
 

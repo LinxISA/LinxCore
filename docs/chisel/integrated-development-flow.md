@@ -15,6 +15,16 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R611 extends the promoted selector-origin CoreMark observation
+to 4096 raw QEMU rows with clean LinxCore/LinxCoreModel/QEMU provenance. The
+generated-RTL/QEMU gate passes with 3369 compared rows, zero mismatches, and
+zero QEMU/DUT CBSTOP rows, but the replay-LIQ sideband counters remain zero
+for natural CoreMark replay activity. Treat R611 as no-regression/audit
+coverage only. Do not keep linearly scaling early CoreMark prefixes as
+replacement proof; the next replay-LIQ owner should either target a later
+direct-boot window that naturally produces returned-load phasing or return to
+focused replay fixtures for positive retained physical-bundle evidence.
+
 The next Chisel packet should start from the R550 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
