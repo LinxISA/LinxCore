@@ -15,10 +15,30 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R622 adds
-`tools/chisel/build_replay_liq_activation_gap_report.py`, which classifies why
-the R621 candidate-present generated-RTL prefix still does not activate
-replay-LIQ. The report at
+Latest packet: R623 adds
+`tools/chisel/build_replay_liq_eligible_store_proof_report.py` and reruns the
+focused replay fixture at current head with the R616 selector-origin preset.
+The generated-RTL/QEMU gate at
+`generated/r623-replay-eligible-store-focused-xcheck` passes with 18 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Its sideband counters now
+meet the R622 next-probe contract on a focused fixture:
+`load_lookup_execute_with_eligible_store=18`,
+`load_lookup_execute_with_wait_store=12`, `resident_store_eligible=18`,
+`resident_store_wait_store_valid=12`, `resolve_queue_push_accepted=8`,
+`resolve_queue_valid=66`, `mdb_conflict_valid=6`,
+`mdb_fanout_record_valid=6`, `wait_replay_capture_accepted=12`,
+`liq_alloc_accepted=6`, `replay_queue_out_fire=6`,
+`lret_w2_slot_accepted=6`, and `w2_promotion_live=5`. The report at
+`generated/r623-replay-liq-eligible-store-proof-report/report/replay_liq_eligible_store_proof_report.json`
+therefore proves current-head focused-fixture replay-LIQ activation through
+resident-store overlap, ResolveQ, MDB, LIQ, replay output, and W2 promotion.
+It does not convert the R621/R622 CoreMark prefix into natural replay-LIQ
+replacement proof; the next CoreMark/natural workload packet still needs the
+same activation counters nonzero in that workload.
+
+R622 adds `tools/chisel/build_replay_liq_activation_gap_report.py`, which
+classifies why the R621 candidate-present generated-RTL prefix still does not
+activate replay-LIQ. The report at
 `generated/r622-replay-liq-activation-gap-report/report/replay_liq_activation_gap_report.json`
 confirms the memory path is active (`load_lookup_valid=180`,
 `store_stq_resident=512`, store dequeue counters nonzero), but no load lookup

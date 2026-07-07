@@ -431,3 +431,43 @@ The next generated-RTL replay-LIQ proof attempt must first find or construct a
 run where `load_lookup_execute_with_eligible_store > 0`; otherwise QEMU
 store/load address clusters remain commit-stream hints rather than live
 resident-store overlap stimuli.
+
+## R623 Focused Eligible-Store Proof
+
+R623 constructs the missing eligible-store stimulus on the focused replay
+fixture and records the proof boundary:
+
+```bash
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROMOTE=1 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_LIVE_MASK=1 \
+FETCH_REPLAY_LIQ_REQUIRE_PRESET=replay-physical-suppress-selector-origin \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r623-replay-eligible-store-focused-xcheck \
+  --expected-rows 18 \
+  --capture-rows 32 \
+  --max-seconds 10 \
+  --reduced-store-replay-liq \
+  --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py
+python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py \
+  --validate-only generated/r623-replay-liq-eligible-store-proof-report/report/replay_liq_eligible_store_proof_report.json
+```
+
+The generated-RTL/QEMU run passes with 18 compared rows, zero mismatches, and
+zero QEMU/DUT CBSTOP rows. Sideband counters prove the focused activation
+chain: `load_lookup_execute_with_eligible_store=18`,
+`load_lookup_execute_with_wait_store=12`, `resident_store_eligible=18`,
+`resolve_queue_push_accepted=8`, `resolve_queue_valid=66`,
+`mdb_conflict_valid=6`, `mdb_fanout_record_valid=6`,
+`wait_replay_capture_accepted=12`, `liq_alloc_accepted=6`,
+`replay_queue_out_fire=6`, `lret_w2_slot_accepted=6`, and
+`w2_promotion_live=5`.
+
+Treat R623 as current-head focused-fixture replay-LIQ activation proof. It does
+not replace the R621/R622 CoreMark boundary: natural CoreMark replacement still
+requires the same nonzero activation counters in a CoreMark or natural workload
+generated-RTL run.

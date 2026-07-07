@@ -59,12 +59,17 @@ R622 packages the activation-gap classification with
 traffic, but `resident_store_eligible=0`,
 `load_lookup_execute_with_eligible_store=0`, `resolve_queue_push_accepted=0`,
 `resolve_queue_valid=0`, `mdb_conflict_valid=0`, and `liq_alloc_accepted=0`.
-The next packet should not treat R621 as natural replay-LIQ replacement proof.
-Find or construct a reduced-top stimulus with
-`load_lookup_execute_with_eligible_store > 0` before spending more CoreMark
-Verilator time on replay-LIQ replacement proof, or continue using the R616
-preset on focused replay fixtures for positive retained physical-bundle
-evidence.
+R623 constructs that reduced-top stimulus by rerunning the focused
+`replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` fixture at current head with the R616
+selector-origin preset and records it with
+`build_replay_liq_eligible_store_proof_report.py`. The R623 generated-RTL/QEMU
+gate passes 18 compared rows with zero mismatches and zero CBSTOP rows, and
+the sideband chain is positive through eligible resident-store overlap,
+ResolveQ, MDB fanout, LIQ allocation, replay output, and W2 promotion. This is
+focused-fixture activation proof; the next packet should still find a
+CoreMark or natural workload command with
+`load_lookup_execute_with_eligible_store > 0` before claiming natural
+replay-LIQ replacement proof.
 
 ## Packet Start Baseline
 
