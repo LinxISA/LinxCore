@@ -31,11 +31,18 @@ candidates. R616 returns to the focused replay-fixture path by adding
 `FETCH_REPLAY_LIQ_REQUIRE_PRESET=replay-physical-suppress-selector-origin`,
 a named validator preset for the positive R610 selector-origin proof, and
 proves it on `generated/r616-replay-suppress-preset-xcheck` with 18 compared
-rows and zero mismatches. The next packet should not linearly scale these
-store-only CoreMark intervals for replay-suppress replacement proof. Either run
-a deliberately broader QEMU-only scanner sweep with a new interval-selection
-idea, improve checkpoint/interval selection, or use the R616 preset on focused
-replay fixtures for positive retained physical-bundle evidence.
+rows and zero mismatches. R617 improves checkpoint/interval selection by
+teaching the locator to map reduced-preview candidates back to raw QEMU row
+windows when given `--raw-input`, and by making scanner candidate reports emit
+absolute raw dynamic-window hints. The R612 top candidate maps to raw skip 1715
+and capture 6, and a QEMU-only scanner gate reproduces that store/load pair.
+A PC-filter preflight for the same range fails to observe the load at the first
+dynamic occurrence, so future generated-RTL CoreMark probes must first pass a
+QEMU-only expected-memory-PC preflight. The next packet should not linearly
+scale the store-only CoreMark intervals for replay-suppress replacement proof.
+Either use the new raw-window hints to design a stateful generated-RTL path,
+try a different interval-selection hypothesis, or use the R616 preset on
+focused replay fixtures for positive retained physical-bundle evidence.
 
 ## Packet Start Baseline
 

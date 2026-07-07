@@ -168,7 +168,13 @@ def run_interval(args: argparse.Namespace, skip_rows: int, qemu_args: list[str])
         max_second_row=-1,
         dedupe_pairs=not args.no_dedupe_pairs,
     )
-    candidate_summary = write_summary(events, candidates, args.top)
+    candidate_summary = write_summary(
+        events,
+        candidates,
+        args.top,
+        row_space="raw",
+        raw_rows_by_event_row={event.row: skip_rows + event.row for event in events},
+    )
     candidate_path = report_dir / "replay_liq_qemu_candidates.json"
     candidate_path.write_text(json.dumps(candidate_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

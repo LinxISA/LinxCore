@@ -166,6 +166,27 @@ def find_candidates(
     return out
 
 
+def event_key(event: MemoryEvent) -> tuple[int, int, bool, int, int, int]:
+    return (event.pc, event.insn, event.is_store, event.addr, event.size, event.data)
+
+
+def raw_row_mapping(events: list[MemoryEvent], raw_events: list[MemoryEvent]) -> dict[int, int]:
+    raw_by_key: dict[tuple[int, int, bool, int, int, int], list[int]] = {}
+    for raw in raw_events:
+        raw_by_key.setdefault(event_key(raw), []).append(raw.row)
+
+    next_index: dict[tuple[int, int, bool, int, int, int], int] = {}
+    out: dict[int, int] = {}
+    for event in events:
+        key = event_key(event)
+        index = next_index.get(key, 0)
+        raw_rows = raw_by_key.get(key, [])
+        if index < len(raw_rows):
+            out[event.row] = raw_rows[index]
+        next_index[key] = index + 1
+    return out
+
+
 def event_dict(event: MemoryEvent) -> dict[str, Any]:
     return {
         "row": event.row,
@@ -201,11 +222,96 @@ def pc_histogram(events: Iterable[MemoryEvent]) -> list[dict[str, Any]]:
     return rows
 
 
-def write_summary(events: list[MemoryEvent], candidates: list[dict[str, Any]], top: int) -> dict[str, Any]:
+def candidate_probe_hint(
+    candidate: dict[str, Any],
+    *,
+    row_space: str,
+    raw_rows_by_event_row: dict[int, int],
+) -> dict[str, Any]:
+    first = candidate["first"]
+    second = candidate["second"]
+    first_row = int(first["row"])
+    second_row = int(second["row"])
+    pc_lo = int(candidate["pc_lo"])
+    pc_hi = int(candidate["pc_hi"])
+    stores = [first["pc"] if first["op"] == "store" else second["pc"]]
+    loads = [first["pc"] if first["op"] == "load" else second["pc"]]
+    hint: dict[str, Any] = {
+        "row_space": row_space,
+        "input_window": {
+            "start_row": first_row,
+            "end_row": second_row,
+            "capture_rows": second_row - first_row + 1,
+        },
+        "pc_filter": {
+            "pc_lo": f"0x{pc_lo:x}",
+            "pc_hi": f"0x{pc_hi:x}",
+            "args": ["--pc-lo", f"0x{pc_lo:x}", "--pc-hi", f"0x{pc_hi:x}"],
+            "caveat": (
+                "PC filtering can select an earlier dynamic occurrence of the same PC range. "
+                "Run a QEMU-only preflight with expected memory PCs before spending generated-RTL time."
+            ),
+        },
+        "expected_memory_pcs": {
+            "store_pcs": stores,
+            "load_pcs": loads,
+            "args": ["--expect-store-pcs", ",".join(stores), "--expect-load-pcs", ",".join(loads)],
+        },
+    }
+    if first_row in raw_rows_by_event_row and second_row in raw_rows_by_event_row:
+        raw_first = raw_rows_by_event_row[first_row]
+        raw_second = raw_rows_by_event_row[second_row]
+        hint["raw_dynamic_window"] = {
+            "qemu_skip_rows": raw_first,
+            "capture_rows": raw_second - raw_first + 1,
+            "args": ["--qemu-skip-rows", str(raw_first), "--capture-rows", str(raw_second - raw_first + 1)],
+            "claim_boundary": (
+                "This reproduces the dynamic QEMU window only. Skipped raw rows are not "
+                "generated-RTL replacement evidence because the reduced DUT cannot "
+                "reconstruct skipped architectural state."
+            ),
+        }
+    else:
+        hint["raw_dynamic_window_unavailable"] = (
+            "Candidate rows are not known raw QEMU row indices. Pass --raw-input with "
+            "the matching qemu.live.raw.jsonl before using --qemu-skip-rows."
+        )
+    return hint
+
+
+def annotate_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    top: int,
+    row_space: str,
+    raw_rows_by_event_row: dict[int, int],
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for item in candidates[:top]:
+        row = dict(item)
+        row["probe_hint"] = candidate_probe_hint(
+            item,
+            row_space=row_space,
+            raw_rows_by_event_row=raw_rows_by_event_row,
+        )
+        annotated.append(row)
+    return annotated
+
+
+def write_summary(
+    events: list[MemoryEvent],
+    candidates: list[dict[str, Any]],
+    top: int,
+    *,
+    row_space: str = "unknown",
+    raw_rows_by_event_row: dict[int, int] | None = None,
+) -> dict[str, Any]:
     store_count = sum(1 for event in events if event.is_store)
     load_count = len(events) - store_count
+    raw_rows = raw_rows_by_event_row or {}
     return {
         "schema": "linxcore.replay_liq_qemu_candidate_locator.v1",
+        "row_space": row_space,
         "event_count": len(events),
         "store_count": store_count,
         "load_count": load_count,
@@ -215,7 +321,12 @@ def write_summary(events: list[MemoryEvent], candidates: list[dict[str, Any]], t
             "evidence still requires generated-RTL sideband counters and a passing "
             "QEMU/DUT comparator manifest."
         ),
-        "top_candidates": candidates[:top],
+        "top_candidates": annotate_candidates(
+            candidates,
+            top=top,
+            row_space=row_space,
+            raw_rows_by_event_row=raw_rows,
+        ),
         "memory_pc_histogram": pc_histogram(events)[:top],
     }
 
@@ -246,12 +357,28 @@ def run_self_test() -> None:
         raise AssertionError("self-test did not find candidates")
     if candidates[0]["kind"] != "store_before_load" or not candidates[0]["exact_overlap"]:
         raise AssertionError("self-test top candidate is not the exact store/load pair")
+    summary = write_summary(
+        events,
+        candidates,
+        1,
+        row_space="raw",
+        raw_rows_by_event_row={event.row: event.row for event in events},
+    )
+    raw_window = summary["top_candidates"][0]["probe_hint"].get("raw_dynamic_window")
+    if raw_window is None or raw_window["qemu_skip_rows"] != 0 or raw_window["capture_rows"] != 2:
+        raise AssertionError("self-test did not annotate the raw dynamic window")
     tmp.unlink(missing_ok=True)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, help="QEMU raw or reduced expected JSONL")
+    parser.add_argument(
+        "--raw-input",
+        type=Path,
+        default=None,
+        help="matching qemu.live.raw.jsonl used to annotate reduced-preview candidates with raw row windows",
+    )
     parser.add_argument("--output", type=Path, help="write JSON summary to this path")
     parser.add_argument("--top", type=int, default=20, help="number of candidates to print/write")
     parser.add_argument("--lookback-rows", type=int, default=512, help="maximum row distance between paired memory events")
@@ -273,6 +400,12 @@ def main(argv: list[str]) -> int:
     if args.input is None:
         raise SystemExit("error: --input is required unless --self-test is the only action")
     events = load_events(args.input)
+    row_space = "raw" if args.input.name == "qemu.live.raw.jsonl" else "reduced"
+    raw_rows_by_event_row: dict[int, int] = {}
+    if args.raw_input is not None:
+        raw_rows_by_event_row = raw_row_mapping(events, load_events(args.raw_input))
+    elif row_space == "raw":
+        raw_rows_by_event_row = {event.row: event.row for event in events}
     candidates = find_candidates(
         events,
         lookback_rows=args.lookback_rows,
@@ -281,7 +414,13 @@ def main(argv: list[str]) -> int:
         max_second_row=args.max_second_row,
         dedupe_pairs=not args.no_dedupe_pairs,
     )
-    summary = write_summary(events, candidates, args.top)
+    summary = write_summary(
+        events,
+        candidates,
+        args.top,
+        row_space=row_space,
+        raw_rows_by_event_row=raw_rows_by_event_row,
+    )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w", encoding="utf-8") as f:
@@ -295,11 +434,15 @@ def main(argv: list[str]) -> int:
     for item in summary["top_candidates"]:
         first = item["first"]
         second = item["second"]
+        raw_window = item.get("probe_hint", {}).get("raw_dynamic_window")
+        raw_filter = ""
+        if isinstance(raw_window, dict):
+            raw_filter = f" raw_skip={raw_window['qemu_skip_rows']} raw_capture={raw_window['capture_rows']}"
         print(
             f"score={item['score']} kind={item['kind']} exact={int(item['exact_overlap'])} "
             f"same_line={int(item['same_line'])} rows={first['row']}->{second['row']} "
             f"pcs={first['pc']}->{second['pc']} addrs={first['addr']}->{second['addr']} "
-            f"pc_filter={hex(int(item['pc_lo']))}..{hex(int(item['pc_hi']))}"
+            f"pc_filter={hex(int(item['pc_lo']))}..{hex(int(item['pc_hi']))}{raw_filter}"
         )
     return 0
 

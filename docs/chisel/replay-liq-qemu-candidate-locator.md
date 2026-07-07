@@ -38,10 +38,18 @@ windows; generated RTL sideband counters remain the acceptance surface.
 ```bash
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --input generated/<run>/traces/qemu.live.expected.preview.jsonl \
+  --raw-input generated/<run>/traces/qemu.live.raw.jsonl \
   --output generated/<run>/report/replay_liq_qemu_candidates.json \
   --top 20 \
   --lookback-rows 1024
 ```
+
+Use `--raw-input` when scanning a reduced preview and the matching raw trace is
+available. The reduced preview can filter or skip rows relative to the raw QEMU
+stream; its candidate row numbers are therefore not safe `--qemu-skip-rows`
+arguments by themselves. With `--raw-input`, each top candidate includes a
+`probe_hint.raw_dynamic_window` with absolute raw `--qemu-skip-rows` and
+`--capture-rows` arguments for QEMU-only reproduction.
 
 For later raw intervals that do not form a strict reduced-row prefix, capture
 raw QEMU rows only and run the locator directly on `qemu.live.raw.jsonl`:
@@ -110,7 +118,13 @@ usable phase without hand-inspecting every per-interval report.
 
 The JSON report schema is
 `linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field is
-part of the contract: candidate output is not QEMU/DUT proof.
+part of the contract: candidate output is not QEMU/DUT proof. R617 adds
+`row_space` and per-candidate `probe_hint` fields. `probe_hint.pc_filter`
+contains a PC-range preflight fragment, but PC filtering can select an earlier
+dynamic occurrence of the same PC range. Run the QEMU-only wrapper with the
+candidate's `expected_memory_pcs.args` before spending generated-RTL time on
+that range. `probe_hint.raw_dynamic_window` is only QEMU-only dynamic-window
+reproduction; skipped raw rows are not generated-RTL replacement evidence.
 
 ## Logic Design
 
@@ -268,3 +282,51 @@ This is still candidate-location evidence only. The broader sampled CoreMark
 steady-state intervals do not expose natural replay-LIQ load clusters, so the
 next positive-proof packet should return to focused replay fixtures unless a
 new QEMU-only interval-selection hypothesis is being tested.
+
+## R617 Evidence
+
+R617 annotates locator candidates with raw-row probe hints. Re-running the R612
+reduced-preview candidate scan with the matching raw trace:
+
+```bash
+python3 tools/chisel/find_replay_liq_qemu_candidates.py \
+  --input generated/r612-coremark-qemu-memory-candidates-16384/traces/qemu.live.expected.preview.jsonl \
+  --raw-input generated/r612-coremark-qemu-memory-candidates-16384/traces/qemu.live.raw.jsonl \
+  --output generated/r617-coremark-qemu-memory-candidate-hints/replay_liq_qemu_candidates_with_raw_hints.json \
+  --top 5 \
+  --lookback-rows 1024
+```
+
+The top R612 reduced-preview candidate remains the exact store-before-load pair
+at PCs `0x4000d7e6 -> 0x4000d7f2`, address `0x4ffefb68`, but it now carries
+`probe_hint.raw_dynamic_window.args = ["--qemu-skip-rows", "1715",
+"--capture-rows", "6"]`. This matters because the candidate's reduced rows
+`1585 -> 1589` are not raw row offsets.
+
+The matching QEMU-only scanner gate:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --build-dir generated/r617-coremark-qemu-candidate-hint-scan \
+  --skips 1715 \
+  --capture-rows 6 \
+  --lookback-rows 8 \
+  --exact-overlap-only \
+  --no-dedupe-pairs \
+  --top 3 \
+  --max-seconds 45 \
+  --wrapper-timeout-seconds 20 \
+  --stop-on-candidate
+```
+
+It reports one interval, one load-bearing interval, and one candidate-bearing
+interval. The per-interval candidate report repeats the absolute raw dynamic
+window `--qemu-skip-rows 1715 --capture-rows 6`.
+
+R617 also ran a PC-filter preflight on `0x4000d7e6..0x4000d7f3` with expected
+store PC `0x4000d7e6` and expected load PC `0x4000d7f2`. That preflight failed
+because the first dynamic occurrence of the PC range does not include the load.
+Do not convert this candidate into a generated-RTL CoreMark run by PC filter
+alone; first find a stateful unskipped capture strategy or prove a QEMU-only
+expected-memory-PC preflight for the exact generated-RTL command shape.

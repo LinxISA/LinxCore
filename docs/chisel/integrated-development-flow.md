@@ -15,10 +15,24 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R616 adds a named replay-LIQ sideband validator preset for the
-R610 positive selector-origin proof and wires it through the generated-RTL and
-QEMU/ELF wrappers as `FETCH_REPLAY_LIQ_REQUIRE_PRESET`. The fresh focused
-fixture `generated/r616-replay-suppress-preset-xcheck` uses
+Latest packet: R617 extends the replay-LIQ CoreMark candidate locator so
+reduced-preview candidate reports can be annotated with matching raw QEMU row
+windows via `--raw-input`. Candidate reports now include `row_space`,
+`probe_hint.pc_filter`, expected memory-PC preflight args, and, when raw mapping
+is available, a `raw_dynamic_window` with absolute `--qemu-skip-rows` and
+`--capture-rows` arguments. The R612 top reduced-preview candidate
+(`0x4000d7e6 -> 0x4000d7f2`, address `0x4ffefb68`) maps to raw skip 1715 and
+capture 6. A QEMU-only scanner gate at
+`generated/r617-coremark-qemu-candidate-hint-scan` reproduces that raw window
+with 2 memory events, 1 store, 1 load, and 1 candidate. A separate PC-filter
+preflight on the same PC range proves the caveat: the first dynamic PC-range
+occurrence has no load, so agents must not spend generated-RTL time on a
+PC-filtered CoreMark probe until a QEMU-only expected-PC preflight passes.
+
+R616 adds a named replay-LIQ sideband validator preset for the R610 positive
+selector-origin proof and wires it through the generated-RTL and QEMU/ELF
+wrappers as `FETCH_REPLAY_LIQ_REQUIRE_PRESET`. The fresh focused fixture
+`generated/r616-replay-suppress-preset-xcheck` uses
 `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` with promoted retained physical-bundle
 suppress selection enabled. It passes 18 compared rows with zero mismatches,
 and the preset requires the full positive chain: nonzero wait replay capture,
