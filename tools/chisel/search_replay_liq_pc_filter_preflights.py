@@ -21,7 +21,8 @@ from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 WRAPPER = ROOT_DIR / "tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh"
-SCHEMA = "linxcore.replay_liq_pc_filter_preflight_search.v1"
+SCHEMA = "linxcore.replay_liq_pc_filter_preflight_search.v2"
+LEGACY_SCHEMAS = {"linxcore.replay_liq_pc_filter_preflight_search.v1", SCHEMA}
 
 DEFAULT_CANDIDATES = (
     ROOT_DIR
@@ -51,12 +52,89 @@ def count_rows(path: Path) -> int:
         return sum(1 for line in f if line.strip())
 
 
+def load_preview_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
 def parse_int(value: Any) -> int:
     if isinstance(value, int):
         return value
     if isinstance(value, str):
         return int(value, 0)
     raise ValueError(f"expected integer-like value, got {value!r}")
+
+
+def row_bool(row: dict[str, Any], key: str) -> bool:
+    value = row.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes"}
+    return False
+
+
+def row_int(row: dict[str, Any], key: str) -> int:
+    value = row.get(key, 0)
+    try:
+        return parse_int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def state_seed_audit(preview: Path) -> dict[str, Any]:
+    first_active = None
+    for row in load_preview_rows(preview):
+        if not row_bool(row, "skip"):
+            first_active = row
+            break
+    if first_active is None:
+        return {
+            "status": "unknown",
+            "reason": "no non-skipped reduced preview row was available for RF state audit",
+        }
+
+    has_visible_source = row_bool(first_active, "src0_valid") or row_bool(first_active, "src1_valid")
+    memory_needs_state = row_bool(first_active, "mem_valid") and (
+        row_int(first_active, "mem_addr") != 0
+        or row_int(first_active, "mem_wdata") != 0
+        or row_int(first_active, "mem_rdata") != 0
+    )
+    dst_needs_state = row_bool(first_active, "dst_valid") and row_int(first_active, "dst_data") != 0
+    common = {
+        "first_pc": f"0x{row_int(first_active, 'pc'):x}",
+        "first_insn": f"0x{row_int(first_active, 'insn'):x}",
+        "mem_valid": row_bool(first_active, "mem_valid"),
+        "dst_valid": row_bool(first_active, "dst_valid"),
+        "src0_valid": row_bool(first_active, "src0_valid"),
+        "src1_valid": row_bool(first_active, "src1_valid"),
+    }
+    if (memory_needs_state or dst_needs_state) and not has_visible_source:
+        return {
+            **common,
+            "status": "insufficient",
+            "reason": (
+                "first non-skipped reduced row has memory/destination data but no visible "
+                "source operands, so the Verilator harness cannot preload the architectural "
+                "RF state needed to start generated RTL at this PC filter"
+            ),
+        }
+    return {
+        **common,
+        "status": "ready",
+        "reason": "first reduced row exposes source operands or does not require hidden RF state",
+    }
 
 
 def candidate_pc_list(candidate: dict[str, Any], op: str) -> list[str]:
@@ -185,6 +263,7 @@ def run_preflight(args: argparse.Namespace, candidate: dict[str, Any], qemu_args
     preview = trace_dir / "qemu.live.expected.preview.jsonl"
     raw_rows = count_rows(raw_trace)
     preview_rows = count_rows(preview)
+    seed_audit = state_seed_audit(preview)
 
     if process.returncode == 0:
         status = "pass"
@@ -219,12 +298,28 @@ def run_preflight(args: argparse.Namespace, candidate: dict[str, Any], qemu_args
         "stderr": str(report_dir / "pc-filter-preflight.stderr.txt"),
         "raw_rows": raw_rows,
         "preview_rows": preview_rows,
+        "state_seed_audit": seed_audit,
     }
 
 
 def build_summary(args: argparse.Namespace, candidates: list[dict[str, Any]], trials: list[dict[str, Any]]) -> dict[str, Any]:
     pass_trials = [trial for trial in trials if trial.get("status") == "pass"]
+    ready_trials = [
+        trial
+        for trial in pass_trials
+        if isinstance(trial.get("state_seed_audit"), dict)
+        and trial["state_seed_audit"].get("status") == "ready"
+    ]
     blocked_statuses = {"empty", "reducer_failed", "expected_pc_mismatch", "timeout", "wrapper_failed"}
+    if ready_trials:
+        generated_status = "ready"
+        generated_reason = "At least one QEMU-only PC-filter preflight passed exact memory-PC guards and RF state-seed audit"
+    elif pass_trials:
+        generated_status = "blocked"
+        generated_reason = "Passing QEMU-only PC-filter preflights lacked enough visible source state for generated-RTL RF preload"
+    else:
+        generated_status = "blocked"
+        generated_reason = "No scanned PC-filter candidate produced a passing guarded reduced preview"
     return {
         "schema": SCHEMA,
         "status": "pass",
@@ -247,16 +342,14 @@ def build_summary(args: argparse.Namespace, candidates: list[dict[str, Any]], tr
             "candidate_count": len(candidates),
             "trial_count": len(trials),
             "pass_count": len(pass_trials),
+            "state_seed_ready_count": len(ready_trials),
             "blocked_count": sum(1 for trial in trials if trial.get("status") in blocked_statuses),
             "first_pass": pass_trials[0] if pass_trials else None,
+            "first_generated_rtl_ready": ready_trials[0] if ready_trials else None,
         },
         "generated_rtl": {
-            "status": "ready" if pass_trials else "blocked",
-            "reason": (
-                "At least one QEMU-only PC-filter preflight passed exact memory-PC guards"
-                if pass_trials
-                else "No scanned PC-filter candidate produced a passing guarded reduced preview"
-            ),
+            "status": generated_status,
+            "reason": generated_reason,
         },
         "trials": trials,
     }
@@ -264,7 +357,8 @@ def build_summary(args: argparse.Namespace, candidates: list[dict[str, Any]], tr
 
 def validate_report(report: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if report.get("schema") != SCHEMA:
+    schema = report.get("schema")
+    if schema not in LEGACY_SCHEMAS:
         errors.append("report: unexpected schema")
     if report.get("status") != "pass":
         errors.append("report: status must be pass")
@@ -284,6 +378,16 @@ def validate_report(report: dict[str, Any]) -> list[str]:
     pass_count = sum(1 for trial in trials if isinstance(trial, dict) and trial.get("status") == "pass")
     if summary.get("pass_count") != pass_count:
         errors.append("summary: pass_count mismatch")
+    seed_ready_count = sum(
+        1
+        for trial in trials
+        if isinstance(trial, dict)
+        and trial.get("status") == "pass"
+        and isinstance(trial.get("state_seed_audit"), dict)
+        and trial["state_seed_audit"].get("status") == "ready"
+    )
+    if schema == SCHEMA and summary.get("state_seed_ready_count") != seed_ready_count:
+        errors.append("summary: state_seed_ready_count mismatch")
     generated = report.get("generated_rtl")
     if not isinstance(generated, dict):
         errors.append("generated_rtl: missing section")
@@ -295,6 +399,12 @@ def validate_report(report: dict[str, Any]) -> list[str]:
             continue
         if trial.get("status") not in {"pass", "empty", "reducer_failed", "expected_pc_mismatch", "timeout", "wrapper_failed"}:
             errors.append(f"trials: unexpected status {trial.get('status')!r}")
+        seed = trial.get("state_seed_audit")
+        if schema == SCHEMA and trial.get("status") == "pass":
+            if not isinstance(seed, dict):
+                errors.append("trials: passing v2 trial missing state_seed_audit")
+            elif seed.get("status") not in {"ready", "insufficient", "unknown"}:
+                errors.append(f"trials: unexpected state_seed_audit status {seed.get('status')!r}")
     return errors
 
 
@@ -303,9 +413,9 @@ def sample_report() -> dict[str, Any]:
         "schema": SCHEMA,
         "status": "pass",
         "claim_boundary": "QEMU-only preflight, not replay-LIQ proof",
-        "summary": {"trial_count": 2, "pass_count": 1},
+        "summary": {"trial_count": 2, "pass_count": 1, "state_seed_ready_count": 1},
         "generated_rtl": {"status": "ready"},
-        "trials": [{"status": "empty"}, {"status": "pass"}],
+        "trials": [{"status": "empty"}, {"status": "pass", "state_seed_audit": {"status": "ready"}}],
     }
 
 
@@ -322,6 +432,10 @@ def run_self_test() -> None:
     failing["trials"][0]["status"] = "unknown"
     if not validate_report(failing):
         raise AssertionError("bad trial status was not detected")
+    failing = copy.deepcopy(passing)
+    failing["summary"]["state_seed_ready_count"] = 0
+    if not validate_report(failing):
+        raise AssertionError("state-seed ready-count mismatch was not detected")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

@@ -91,7 +91,12 @@ mismatch at `pc=0x4000d7e6`: QEMU expects `rd1=1342110568`, while the DUT
 reports `rd1=18446744073709551608`. The next owner should classify that
 writeback mismatch before trying wider CoreMark PC filters, or pivot to
 checkpoint/state replay or a legal natural workload shard that reaches
-eligible-store overlap from reset.
+eligible-store overlap from reset. R627 performs that classification by adding
+an RF state-seed audit to the PC-filter search: the same QEMU-only preflight
+still passes, but generated RTL is now blocked because the first non-skipped
+row has memory/destination data and no visible source operands to preload.
+Future PC-filter attempts need `state_seed_audit.status="ready"` in addition
+to exact memory-PC guards before Verilator.
 
 ## Packet Start Baseline
 

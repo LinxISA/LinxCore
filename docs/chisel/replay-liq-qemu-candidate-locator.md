@@ -553,3 +553,34 @@ records a first-row dst/wb mismatch: PC and instruction match
 DUT reports `(rd=1, value=18446744073709551608)`. Treat this as a
 generated-RTL failure classification packet, not natural CoreMark replay-LIQ
 activation proof.
+
+## R627 PC-Filter State-Seed Audit
+
+R627 turns the R626 failure into a pre-Verilator audit in
+`tools/chisel/search_replay_liq_pc_filter_preflights.py` schema v2. The scanner
+now keeps two decisions separate:
+
+- QEMU-only trial status: did the PC filter produce a legal reduced preview
+  with the expected memory PCs?
+- generated-RTL readiness: does the first non-skipped reduced row expose enough
+  source state for the Verilator harness to preload architectural RF state?
+
+Running the same top candidate:
+
+```bash
+python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
+  --build-dir generated/r627-replay-liq-pc-filter-state-seed-search \
+  --max-trials 12 \
+  --pc-span-limit 256 \
+  --capture-rows 32 \
+  --max-seconds 20 \
+  --stop-on-pass
+```
+
+produces `status=pass` for the QEMU-only trial but
+`generated_rtl.status="blocked"`. The first reduced row is
+`pc=0x4000d7e6`, `insn=0x02a50041`, `mem_valid=1`, `dst_valid=1`,
+`src0_valid=0`, and `src1_valid=0`, so the harness cannot reconstruct the
+hidden register state needed to start the reduced top at that PC. Future
+agents must require `state_seed_audit.status="ready"` before promoting any
+PC-filter preflight to generated RTL.

@@ -15,7 +15,22 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R626 adds
+Latest packet: R627 updates
+`tools/chisel/search_replay_liq_pc_filter_preflights.py` to schema v2 with an
+RF state-seed audit. The R627 QEMU-only search at
+`generated/r627-replay-liq-pc-filter-state-seed-search/report/pc_filter_preflight_search.json`
+still finds the R617/R621 top candidate PC filter and passes exact memory-PC
+guards, but it now blocks generated RTL because the first non-skipped reduced
+row (`pc=0x4000d7e6`, `insn=0x02a50041`) has memory/destination data and no
+visible source operands (`src0_valid=0`, `src1_valid=0`). That explains the
+R626 generated-RTL mismatch as an illegal reduced-top launch shape: QEMU had
+already executed the hidden predecessor state, while the Verilator harness
+started from reset and could not preload the architectural RF value needed for
+the store address. Future PC-filter promotion must require both exact
+memory-PC guards and `state_seed_audit.status="ready"` before spending
+Verilator time.
+
+R626 adds
 `tools/chisel/search_replay_liq_pc_filter_preflights.py` and
 `tools/chisel/build_replay_liq_pc_filter_activation_report.py`. The QEMU-only
 search at
@@ -34,7 +49,8 @@ QEMU expects `(rd=1, value=1342110568)`, while the DUT reports
 therefore classifies this as failed generated-RTL PC-filter evidence, not
 replay-LIQ activation proof or natural CoreMark replacement evidence. The next
 owner should classify the first-row writeback mismatch before running wider
-CoreMark PC filters.
+CoreMark PC filters. R627 classifies that mismatch as missing RF state-seed
+coverage for the PC-filtered reduced-top launch.
 
 R625 adds
 `tools/chisel/build_replay_liq_natural_activation_probe_plan.py`, expands the
