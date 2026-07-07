@@ -24,10 +24,12 @@ that prefix is store-only. R613 adds guarded QEMU-only row skipping and raw-only
 capture so agents can sample later intervals without forcing a strict reduced
 prefix. R614 adds a reusable interval scanner and samples skip offsets 16,384,
 65,536, and 262,144 with 2,048 rows each; every sampled interval has 146
-memory events, all stores, zero loads, and zero candidates. The next packet
-should not linearly scale these store-only CoreMark intervals for
-replay-suppress replacement proof. Either run a deliberately broader
-QEMU-only scanner sweep to find a load-bearing interval, improve
+memory events, all stores, zero loads, and zero candidates. R615 broadens the
+scanner with range generation and samples skip offsets 524,288 through
+2,097,152; every 256-row interval again has only stores, zero loads, and zero
+candidates. The next packet should not linearly scale these store-only CoreMark
+intervals for replay-suppress replacement proof. Either run a deliberately
+broader QEMU-only scanner sweep with a new interval-selection idea, improve
 checkpoint/interval selection, or return to focused replay fixtures for
 positive retained physical-bundle evidence.
 

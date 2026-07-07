@@ -15,20 +15,18 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R614 adds
-`tools/chisel/scan_replay_liq_qemu_intervals.py`, a sequential wrapper around
-the R613 skipped raw-QEMU capture plus the R612 candidate locator. It preserves
-the same no-proof claim boundary: skipped raw intervals are candidate-selection
-hints only, because the reduced Verilator top cannot reconstruct skipped
-architectural state. Manual R614 samples at skip offsets 16,384, 65,536, and
-262,144 each captured 2,048 CoreMark raw rows; each interval reported 146
-memory events, all stores, zero loads, and zero candidates. Together with the
-R613 skip-4096 sample and R612 16K all-window scan, the direct-boot CoreMark
-prefix and sampled later steady-state windows remain poor natural replay-LIQ
-targets. Do not spend Verilator time on these skipped windows as replacement
-proof. Either use the scanner for a broader, explicitly QEMU-only sweep, or
-return to focused replay fixtures for positive retained physical-bundle
-evidence.
+Latest packet: R615 extends
+`tools/chisel/scan_replay_liq_qemu_intervals.py` with inclusive
+`--skip-range START:STOP:STEP` generation, duplicate skip removal, aggregate
+load/candidate summary fields, and flushed interval progress output. The R615
+QEMU-only sweep samples skip offsets 524,288, 1,048,576, 1,572,864, and
+2,097,152 with 256 raw rows each. Every interval completes its bounded trace,
+times out only at the wrapper process boundary, and reports 18 memory events,
+all stores, zero loads, and zero candidates. Together with R612-R614, the
+sampled direct-boot CoreMark windows are not yielding natural replay-LIQ load
+clusters. Do not spend Verilator time on these skipped windows as replacement
+proof. Unless a future owner chooses a much broader QEMU-only sweep, return to
+focused replay fixtures for positive retained physical-bundle evidence.
 
 The next Chisel packet should start from the R550 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar

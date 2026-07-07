@@ -39,6 +39,31 @@ def parse_int_list(value: str) -> list[int]:
     return out
 
 
+def parse_skip_range(value: str) -> list[int]:
+    parts = [part.strip() for part in value.split(":")]
+    if len(parts) != 3 or any(not part for part in parts):
+        raise argparse.ArgumentTypeError("skip ranges must use start:stop:step")
+    start, stop, step = (int(part, 0) for part in parts)
+    if start < 0 or stop < 0:
+        raise argparse.ArgumentTypeError("skip range bounds must be non-negative")
+    if step <= 0:
+        raise argparse.ArgumentTypeError("skip range step must be positive")
+    if stop < start:
+        raise argparse.ArgumentTypeError("skip range stop must be >= start")
+    return list(range(start, stop + 1, step))
+
+
+def dedupe_preserve_order(values: list[int]) -> list[int]:
+    out: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
 def count_rows(path: Path) -> int:
     with path.open("r", encoding="utf-8") as f:
         return sum(1 for line in f if line.strip())
@@ -163,6 +188,8 @@ def run_interval(args: argparse.Namespace, skip_rows: int, qemu_args: list[str])
 
 
 def write_scan_summary(args: argparse.Namespace, intervals: list[dict[str, Any]]) -> dict[str, Any]:
+    load_intervals = [item for item in intervals if int(item.get("load_count", 0)) > 0]
+    candidate_intervals = [item for item in intervals if int(item.get("candidate_count", 0)) > 0]
     summary = {
         "schema": "linxcore.replay_liq_qemu_interval_scan.v1",
         "claim_boundary": (
@@ -174,10 +201,16 @@ def write_scan_summary(args: argparse.Namespace, intervals: list[dict[str, Any]]
             "elf": str(args.elf),
             "build_dir": str(args.build_dir),
             "skips": args.skips,
+            "skip_ranges": args.skip_ranges_raw,
             "capture_rows": args.capture_rows,
             "lookback_rows": args.lookback_rows,
             "top": args.top,
         },
+        "scanned_interval_count": len(intervals),
+        "load_interval_count": len(load_intervals),
+        "candidate_interval_count": len(candidate_intervals),
+        "first_load_interval": load_intervals[0] if load_intervals else None,
+        "first_candidate_interval": candidate_intervals[0] if candidate_intervals else None,
         "intervals": intervals,
     }
     args.build_dir.mkdir(parents=True, exist_ok=True)
@@ -203,8 +236,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--skips",
         type=parse_int_list,
-        default=parse_int_list("4096,16384,65536,262144"),
+        default=None,
         help="comma-separated filtered-row skip offsets",
+    )
+    parser.add_argument(
+        "--skip-range",
+        action="append",
+        default=[],
+        metavar="START:STOP:STEP",
+        help="inclusive filtered-row skip range; may be repeated",
     )
     parser.add_argument("--capture-rows", type=int, default=2048, help="raw rows to capture per interval")
     parser.add_argument("--max-seconds", type=int, default=60, help="QEMU watchdog per interval")
@@ -236,6 +276,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         raise SystemExit("error: --lookback-rows must be positive")
     if args.top <= 0:
         raise SystemExit("error: --top must be positive")
+    args.skip_ranges_raw = list(args.skip_range)
+    skips = args.skips if args.skips is not None else parse_int_list("4096,16384,65536,262144")
+    for skip_range in args.skip_range:
+        skips.extend(parse_skip_range(skip_range))
+    args.skips = dedupe_preserve_order(skips)
     if args.output is None:
         args.output = args.build_dir / "report/interval_scan_summary.json"
     if args.output.parent != Path("."):
@@ -261,7 +306,8 @@ def main(argv: list[str]) -> int:
             f"timeout={int(bool(interval.get('wrapper_timed_out', False)))} "
             f"rows={interval.get('raw_rows', 0)} events={interval.get('event_count', 0)} "
             f"stores={interval.get('store_count', 0)} loads={interval.get('load_count', 0)} "
-            f"candidates={interval.get('candidate_count', 0)}"
+            f"candidates={interval.get('candidate_count', 0)}",
+            flush=True,
         )
         if interval.get("error"):
             break
@@ -271,7 +317,7 @@ def main(argv: list[str]) -> int:
             break
 
     summary = write_scan_summary(args, intervals)
-    print(f"interval-scan-summary={args.output}")
+    print(f"interval-scan-summary={args.output}", flush=True)
     return 1 if any(item.get("error") for item in summary["intervals"]) else 0
 
 

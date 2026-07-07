@@ -88,6 +88,7 @@ python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
   --elf tests/benchmarks/build/coremark_real.elf \
   --build-dir generated/<run> \
   --skips 4096,16384,65536,262144 \
+  --skip-range 524288:2097152:524288 \
   --capture-rows 2048 \
   --max-seconds 60
 ```
@@ -100,6 +101,12 @@ boundary as the locator: skipped raw QEMU intervals are candidate hints only.
 If the wrapped QEMU command leaves a complete raw trace but does not return,
 the scanner records `wrapper_timed_out=true`, terminates the wrapper process
 group, and still runs the locator on the complete bounded trace.
+Use `--skip-range START:STOP:STEP` for inclusive non-adjacent sweeps; repeated
+ranges are appended to explicit `--skips` and duplicate offsets are removed
+while preserving first occurrence order. The summary includes aggregate
+`load_interval_count`, `candidate_interval_count`, `first_load_interval`, and
+`first_candidate_interval` fields so agents can tell whether a sweep found a
+usable phase without hand-inspecting every per-interval report.
 
 The JSON report schema is
 `linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field is
@@ -225,3 +232,39 @@ behavior. The next agent should either run a broader QEMU-only scanner sweep
 with non-adjacent skips to find a load-bearing phase, or return to the focused
 replay fixtures that already produce positive retained physical-bundle
 sidebands.
+
+## R615 Evidence
+
+R615 extends the scanner interface with inclusive skip ranges and aggregate
+summary fields, then runs a bounded non-adjacent sweep:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --build-dir generated/r615-coremark-qemu-interval-scan \
+  --skips 524288 \
+  --skip-range 1048576:2097152:524288 \
+  --capture-rows 256 \
+  --max-seconds 45 \
+  --wrapper-timeout-seconds 20 \
+  --stop-on-load
+```
+
+The summary artifact is
+`generated/r615-coremark-qemu-interval-scan/report/interval_scan_summary.json`.
+It reports schema `linxcore.replay_liq_qemu_interval_scan.v1`,
+`scanned_interval_count=4`, `load_interval_count=0`, and
+`candidate_interval_count=0`. Each interval completed the bounded raw trace and
+timed out only at the wrapper process boundary after capture:
+
+| Skip rows | Raw rows | Memory events | Stores | Loads | Candidates |
+|---:|---:|---:|---:|---:|---:|
+| 524,288 | 256 | 18 | 18 | 0 | 0 |
+| 1,048,576 | 256 | 18 | 18 | 0 | 0 |
+| 1,572,864 | 256 | 18 | 18 | 0 | 0 |
+| 2,097,152 | 256 | 18 | 18 | 0 | 0 |
+
+This is still candidate-location evidence only. The broader sampled CoreMark
+steady-state intervals do not expose natural replay-LIQ load clusters, so the
+next positive-proof packet should return to focused replay fixtures unless a
+new QEMU-only interval-selection hypothesis is being tested.
