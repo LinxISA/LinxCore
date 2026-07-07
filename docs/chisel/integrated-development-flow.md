@@ -15,7 +15,20 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R627 updates
+Latest packet: R628 runs the R627 state-seed audit across all 12 narrow exact
+store-before-load CoreMark PC-filter candidates from the expanded R625 report.
+The report at
+`generated/r628-replay-liq-pc-filter-state-seed-scan12/report/pc_filter_preflight_search.json`
+has `trial_count=12`, `pass_count=1`, `state_seed_ready_count=0`, and
+`generated_rtl.status="blocked"`. The only QEMU-pass trial remains the
+R617/R621 top candidate, and it is blocked by `state_seed_audit.status=
+"insufficient"` on the first row. The other 11 candidates produce QEMU rows but
+fail reduced-row extraction (`preview_rows=0`). R628 also adds
+`--stop-on-generated-ready` and prints `state_seed=<status>` in scanner
+progress output so future agents can search for generated-RTL-ready PC filters
+without stopping at a QEMU-only pass that cannot seed RF state.
+
+R627 updates
 `tools/chisel/search_replay_liq_pc_filter_preflights.py` to schema v2 with an
 RF state-seed audit. The R627 QEMU-only search at
 `generated/r627-replay-liq-pc-filter-state-seed-search/report/pc_filter_preflight_search.json`
@@ -67,7 +80,7 @@ therefore remains blocked for these CoreMark PC filters. The next viable paths
 are checkpoint/state replay for skipped raw windows, a legal natural workload
 or benchmark shard whose unskipped prefix reaches eligible-store overlap, or a
 new PC-filtered QEMU-only preflight that produces a legal reduced preview with
-the exact expected memory PCs.
+the exact expected memory PCs and passes the RF state-seed audit.
 
 R624 adds
 `tools/chisel/scan_replay_liq_activation_artifacts.py`, a cheap generated

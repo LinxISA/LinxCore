@@ -450,6 +450,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--max-seconds", type=int, default=30)
     parser.add_argument("--wrapper-timeout-seconds", type=int, default=None)
     parser.add_argument("--stop-on-pass", action="store_true")
+    parser.add_argument("--stop-on-generated-ready", action="store_true")
     parser.add_argument("--validate-only", type=Path, default=None)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER)
@@ -506,9 +507,17 @@ def main(argv: list[str]) -> int:
         print(
             "pc-filter-preflight "
             f"label={trial['label']} status={trial['status']} "
-            f"raw_rows={trial['raw_rows']} preview_rows={trial['preview_rows']}",
+            f"raw_rows={trial['raw_rows']} preview_rows={trial['preview_rows']} "
+            f"state_seed={trial.get('state_seed_audit', {}).get('status', 'none')}",
             flush=True,
         )
+        if (
+            args.stop_on_generated_ready
+            and trial["status"] == "pass"
+            and isinstance(trial.get("state_seed_audit"), dict)
+            and trial["state_seed_audit"].get("status") == "ready"
+        ):
+            break
         if args.stop_on_pass and trial["status"] == "pass":
             break
 

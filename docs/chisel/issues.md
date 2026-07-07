@@ -1,5 +1,39 @@
 # Chisel Issues
 
+## CHISEL-ISSUE-011: CoreMark PC Filters Pass QEMU Guards Without RTL Launch State
+
+Status: open
+
+Impact:
+
+- A PC-filtered CoreMark QEMU preflight can pass exact store/load PC guards but
+  still be illegal for generated RTL because the reduced preview starts after
+  hidden predecessor rows have produced architectural register state.
+- R626 demonstrated the failure mode on `pc=0x4000d7e6`: QEMU expected
+  `rd1=1342110568`, but the generated RTL started from reset/RF preload state
+  and reported `rd1=18446744073709551608`.
+- R628 scanned all 12 narrow exact store-before-load PC-filter candidates from
+  the expanded R625 report and found no generated-RTL-ready shape.
+
+Evidence:
+
+- `generated/r626-replay-liq-pc-filter-activation-report/report/replay_liq_pc_filter_activation_report.json`
+  classifies the first generated-RTL attempt as failed before manifest
+  generation.
+- `generated/r627-replay-liq-pc-filter-state-seed-search/report/pc_filter_preflight_search.json`
+  adds `state_seed_audit.status="insufficient"` for the top candidate.
+- `generated/r628-replay-liq-pc-filter-state-seed-scan12/report/pc_filter_preflight_search.json`
+  reports `trial_count=12`, `pass_count=1`, `state_seed_ready_count=0`, and
+  `generated_rtl.status="blocked"`.
+
+Current mitigation:
+
+- Require both exact memory-PC guards and `state_seed_audit.status="ready"`
+  before promoting any PC-filtered QEMU-only preflight to generated RTL.
+- Use `--stop-on-generated-ready` for broader PC-filter searches.
+- Prefer checkpoint/state replay or a legal natural workload shard from reset
+  for the next CoreMark replay-LIQ activation attempt.
+
 ## CHISEL-ISSUE-001: Local JVM/SBT Toolchain Missing
 
 Status: closed

@@ -584,3 +584,29 @@ produces `status=pass` for the QEMU-only trial but
 hidden register state needed to start the reduced top at that PC. Future
 agents must require `state_seed_audit.status="ready"` before promoting any
 PC-filter preflight to generated RTL.
+
+## R628 Full Narrow PC-Filter State-Seed Scan
+
+R628 runs the v2 scanner over all 12 narrow exact store-before-load candidates
+from the R625 expanded CoreMark report:
+
+```bash
+python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
+  --build-dir generated/r628-replay-liq-pc-filter-state-seed-scan12 \
+  --max-trials 12 \
+  --pc-span-limit 256 \
+  --capture-rows 32 \
+  --max-seconds 20
+```
+
+The report records `trial_count=12`, `pass_count=1`,
+`state_seed_ready_count=0`, and `generated_rtl.status="blocked"`. The top
+candidate is QEMU-pass but RF-state insufficient; the other 11 candidates
+capture QEMU rows but produce `preview_rows=0`, so reduced-row extraction fails
+before memory-PC or RF-state readiness can be proven. This closes the current
+12-candidate narrow PC-filter path for generated RTL.
+
+The scanner now supports `--stop-on-generated-ready`, which stops only when a
+passing QEMU-only trial also has `state_seed_audit.status="ready"`. Use that
+mode for future broader PC-filter searches; do not use a plain QEMU pass as a
+generated-RTL launch authorization.

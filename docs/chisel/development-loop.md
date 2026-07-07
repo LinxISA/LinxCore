@@ -96,7 +96,12 @@ an RF state-seed audit to the PC-filter search: the same QEMU-only preflight
 still passes, but generated RTL is now blocked because the first non-skipped
 row has memory/destination data and no visible source operands to preload.
 Future PC-filter attempts need `state_seed_audit.status="ready"` in addition
-to exact memory-PC guards before Verilator.
+to exact memory-PC guards before Verilator. R628 scans all 12 narrow exact
+store-before-load CoreMark PC filters under the v2 audit: one QEMU-only trial
+passes but remains RF-state insufficient, and the other 11 fail reduced-row
+extraction. The next owner should stop spending on these narrow PC filters and
+move to checkpoint/state replay, a legal natural workload shard from reset, or
+a broader QEMU-only search that can find a state-seed-ready PC-filter shape.
 
 ## Packet Start Baseline
 
