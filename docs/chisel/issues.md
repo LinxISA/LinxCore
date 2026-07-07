@@ -14,6 +14,9 @@ Impact:
   and reported `rd1=18446744073709551608`.
 - R628 scanned all 12 narrow exact store-before-load PC-filter candidates from
   the expanded R625 report and found no generated-RTL-ready shape.
+- R629 adds an explicit RF seed artifact path and proves the top PC-filter
+  generated-RTL replay can pass the neutral comparator when seeded from the
+  R621 raw prefix, but replay-LIQ activation counters remain zero.
 
 Evidence:
 
@@ -25,14 +28,22 @@ Evidence:
 - `generated/r628-replay-liq-pc-filter-state-seed-scan12/report/pc_filter_preflight_search.json`
   reports `trial_count=12`, `pass_count=1`, `state_seed_ready_count=0`, and
   `generated_rtl.status="blocked"`.
+- `generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl` reconstructs 17
+  reduced GPR seed rows before raw row 1715, including `x1=0x4ffefb70`.
+- `generated/r629-coremark-pc-filter-seeded-trace-replay/report/crosscheck_manifest.json`
+  passes with `compared_rows=3`, `mismatch_count=0`, and zero CBSTOP rows.
 
 Current mitigation:
 
-- Require both exact memory-PC guards and `state_seed_audit.status="ready"`
-  before promoting any PC-filtered QEMU-only preflight to generated RTL.
-- Use `--stop-on-generated-ready` for broader PC-filter searches.
-- Prefer checkpoint/state replay or a legal natural workload shard from reset
-  for the next CoreMark replay-LIQ activation attempt.
+- For a PC-filter launch whose first reduced row lacks visible source operands,
+  build an explicit RF seed from the matching unfiltered QEMU raw prefix and
+  pass it through `--rf-seed` / `FETCH_RF_SEED`.
+- Keep `state_seed_audit.status="ready"` as the no-extra-seed fast path; an
+  insufficient audit is now recoverable only if a raw-prefix RF seed artifact is
+  available and cited.
+- Do not claim replay-LIQ proof from a seeded comparator pass alone. The next
+  CoreMark replay-LIQ activation attempt still needs nonzero eligible-store,
+  ResolveQ, MDB, LIQ allocation, replay-output, and row-mutation counters.
 
 ## CHISEL-ISSUE-001: Local JVM/SBT Toolchain Missing
 

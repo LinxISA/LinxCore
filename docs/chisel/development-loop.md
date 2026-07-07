@@ -102,6 +102,15 @@ passes but remains RF-state insufficient, and the other 11 fail reduced-row
 extraction. The next owner should stop spending on these narrow PC filters and
 move to checkpoint/state replay, a legal natural workload shard from reset, or
 a broader QEMU-only search that can find a state-seed-ready PC-filter shape.
+R629 implements the first checkpoint/state-replay step by adding an explicit
+RF seed artifact path. `build_frontend_fetch_rf_seed.py` can reconstruct
+reduced GPR launch state from a QEMU raw prefix, and `--rf-seed` /
+`FETCH_RF_SEED` passes that state into the generated-RTL harness. The seeded
+R629 trace replay of the top PC filter passes the neutral comparator, proving
+the R626 first-row RF launch mismatch is resolved for that shape. It still has
+zero replay-LIQ activation counters, so the next packet must target a seeded
+window or natural shard that produces eligible-store, ResolveQ, MDB, LIQ, and
+replay-output sideband activity.
 
 ## Packet Start Baseline
 

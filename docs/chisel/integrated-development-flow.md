@@ -15,7 +15,25 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R628 runs the R627 state-seed audit across all 12 narrow exact
+Latest packet: R629 adds an explicit reduced scalar RF seed artifact boundary
+for the live fetch RF/ALU Verilator harness. The new
+`tools/chisel/build_frontend_fetch_rf_seed.py` reconstructs reduced GPR launch
+state from a QEMU raw prefix, and the harness accepts that state through
+`--rf-seed` / `FETCH_RF_SEED`. For the R617/R621 top CoreMark PC filter,
+R629 builds
+`generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl` from
+`generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.raw.jsonl`
+before raw row 1715, producing 17 reduced GPR seed rows including
+`x1=0x4ffefb70`. Replaying the successful R629 QEMU preflight trace through the
+reduced-store replay-LIQ generated RTL at
+`generated/r629-coremark-pc-filter-seeded-trace-replay/report/crosscheck_manifest.json`
+passes with `compared_rows=3`, `mismatch_count=0`, and no CBSTOP rows. This
+closes the R626 first-row RF launch-state mismatch for the top PC filter, but
+it is not replay-LIQ activation proof: the R629 sideband stats still report
+zero eligible-store, ResolveQ, MDB, LIQ allocation, replay-output, and row
+mutation counters.
+
+R628 runs the R627 state-seed audit across all 12 narrow exact
 store-before-load CoreMark PC-filter candidates from the expanded R625 report.
 The report at
 `generated/r628-replay-liq-pc-filter-state-seed-scan12/report/pc_filter_preflight_search.json`

@@ -71,6 +71,7 @@ struct Args {
   std::string memory_bin;
   std::string memory_hex;
   std::string expected_rows;
+  std::string rf_seed;
   std::string sideband_stats;
   std::uint64_t memory_base = 0x1000;
   bool admit_marker_rows = false;
@@ -4981,6 +4982,7 @@ void trace_top_debug_pipeline(
             << " [--expected-rows <rows.jsonl>]"
             << " [--memory-bin <program.bin> --memory-base <addr>]"
             << " [--memory-hex <sparse.mem>]"
+            << " [--rf-seed <seed.jsonl>]"
             << " [--sideband-stats <stats.json>]"
             << " [--admit-marker-rows]"
             << " [--disable-store-memory-mutation]"
@@ -5013,6 +5015,8 @@ Args parse_args(int argc, char **argv) {
       args.memory_hex = argv[++i];
     } else if (arg == "--expected-rows" && i + 1 < argc) {
       args.expected_rows = argv[++i];
+    } else if (arg == "--rf-seed" && i + 1 < argc) {
+      args.rf_seed = argv[++i];
     } else if (arg == "--sideband-stats" && i + 1 < argc) {
       args.sideband_stats = argv[++i];
     } else if (arg == "--memory-base" && i + 1 < argc) {
@@ -5244,6 +5248,64 @@ std::vector<ExpectedRow> load_expected_rows_jsonl(const std::string &path) {
   return rows;
 }
 
+std::map<std::uint8_t, std::uint64_t> load_rf_seed_jsonl(const std::string &path) {
+  std::ifstream in(path);
+  if (!in) {
+    std::cerr << "failed to open RF seed: " << path
+              << " error=" << std::strerror(errno) << "\n";
+    std::exit(2);
+  }
+
+  std::map<std::uint8_t, std::uint64_t> seed;
+  std::string line;
+  std::uint64_t line_no = 0;
+  while (std::getline(in, line)) {
+    ++line_no;
+    line = trim_copy(line);
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    if (line.find("\"type\"") != std::string::npos &&
+        line.find("\"META\"") != std::string::npos) {
+      continue;
+    }
+    const std::string context = path + ":" + std::to_string(line_no);
+    if (json_has_key(line, "valid") && !json_bool(line, "valid", true, context)) {
+      continue;
+    }
+    if (!json_has_key(line, "data")) {
+      std::cerr << "RF seed row is missing data at " << context << "\n";
+      std::exit(2);
+    }
+    std::uint8_t reg = 0;
+    if (json_has_key(line, "arch_reg")) {
+      reg = json_u8(line, "arch_reg", 0, context);
+    } else if (json_has_key(line, "arch_tag")) {
+      reg = json_u8(line, "arch_tag", 0, context);
+    } else if (json_has_key(line, "reg")) {
+      reg = json_u8(line, "reg", 0, context);
+    } else {
+      std::cerr << "RF seed row is missing arch_reg/arch_tag/reg at " << context << "\n";
+      std::exit(2);
+    }
+    if (reg >= 24) {
+      std::cerr << "RF seed row targets unsupported reduced GPR arch tag at "
+                << context << " reg=" << static_cast<unsigned>(reg) << "\n";
+      std::exit(2);
+    }
+    const std::uint64_t data = json_u64(line, "data", 0, context);
+    const auto [it, inserted] = seed.emplace(reg, data);
+    if (!inserted && it->second != data) {
+      std::cerr << "RF seed has conflicting data for reg="
+                << static_cast<unsigned>(reg)
+                << " first=" << it->second
+                << " later=" << data << "\n";
+      std::exit(2);
+    }
+  }
+  return seed;
+}
+
 void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_startValid = 0;
   dut.io_startPc = 0;
@@ -5349,8 +5411,10 @@ void init_rf(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint8_t arch_tag, st
   dut.eval();
 }
 
-std::map<std::uint8_t, std::uint64_t> initial_rf_preloads(const std::vector<ExpectedRow> &rows) {
-  std::map<std::uint8_t, std::uint64_t> preloads;
+std::map<std::uint8_t, std::uint64_t> initial_rf_preloads(
+    const std::vector<ExpectedRow> &rows,
+    const std::map<std::uint8_t, std::uint64_t> &seed_preloads) {
+  std::map<std::uint8_t, std::uint64_t> preloads = seed_preloads;
   std::map<std::uint8_t, bool> produced;
 
   const auto observe_source = [&](bool valid, std::uint8_t reg, std::uint64_t data) {
@@ -7862,7 +7926,10 @@ int main(int argc, char **argv) {
 
   VLinxCoreFrontendFetchRfAluTraceTop dut;
   reset(dut);
-  for (const auto &[arch_tag, data] : initial_rf_preloads(rows)) {
+  const auto seed_preloads = args.rf_seed.empty()
+                                 ? std::map<std::uint8_t, std::uint64_t>{}
+                                 : load_rf_seed_jsonl(args.rf_seed);
+  for (const auto &[arch_tag, data] : initial_rf_preloads(rows, seed_preloads)) {
     init_rf(dut, arch_tag, data);
   }
 

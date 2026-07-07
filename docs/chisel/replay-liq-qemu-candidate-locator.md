@@ -610,3 +610,58 @@ The scanner now supports `--stop-on-generated-ready`, which stops only when a
 passing QEMU-only trial also has `state_seed_audit.status="ready"`. Use that
 mode for future broader PC-filter searches; do not use a plain QEMU pass as a
 generated-RTL launch authorization.
+
+## R629 RF-Seeded PC-Filter Replay
+
+R629 adds an explicit RF seed artifact path for PC-filter launches that pass
+QEMU memory-PC guards but start after hidden predecessor state. Build the seed
+for the top R617/R621 candidate from the unfiltered R621 raw prefix:
+
+```bash
+python3 tools/chisel/build_frontend_fetch_rf_seed.py \
+  --input generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.raw.jsonl \
+  --before-row 1715 \
+  --output generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl
+python3 tools/chisel/build_frontend_fetch_rf_seed.py \
+  --validate-only generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl
+```
+
+The seed contains 17 reduced GPR rows and records
+`source_corrections=1`; the launch-critical row is `x1=0x4ffefb70`, which lets
+the first PC-filtered store produce QEMU's expected `rd1/mem_addr=0x4ffefb68`.
+
+The direct live-QEMU wrapper was flaky for this narrow PC-filter during R629
+and sometimes timed out with zero captured rows. Use the scanner-owned passing
+raw trace as the replay source for generated RTL:
+
+```bash
+python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
+  --build-dir generated/r629-replay-liq-pc-filter-seed-preflight-repeat \
+  --max-trials 1 \
+  --pc-span-limit 256 \
+  --capture-rows 32 \
+  --max-seconds 60 \
+  --stop-on-generated-ready
+
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+BUILD_DIR=generated/r629-coremark-pc-filter-seeded-trace-replay \
+FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
+FETCH_QEMU_TRACE=generated/r629-replay-liq-pc-filter-seed-preflight-repeat/candidate00-pc4000d7e6-4000d7f3/traces/qemu.live.raw.jsonl \
+FETCH_QEMU_MAX_ROWS=0 \
+FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 \
+FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 \
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 \
+FETCH_DISABLE_STORE_MEMORY_MUTATION=1 \
+FETCH_RF_SEED=generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+```
+
+The generated-RTL replay passes the neutral comparator:
+`generated/r629-coremark-pc-filter-seeded-trace-replay/report/crosscheck_manifest.json`
+reports `compared_rows=3`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows.
+This proves the R626 first-row RF launch-state mismatch is fixed for the top
+PC filter. It is not replay-LIQ activation proof: sideband stats in the same
+report still have zero eligible-store, ResolveQ, MDB, LIQ allocation,
+replay-output, and row-mutation counters. The next natural CoreMark packet
+must use RF seeding only as launch infrastructure and still require positive
+replay-LIQ sideband counters.

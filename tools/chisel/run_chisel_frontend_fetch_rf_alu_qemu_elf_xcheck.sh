@@ -28,6 +28,7 @@ QEMU_ONLY=0
 QEMU_RAW_ONLY=0
 EXPECT_LOAD_PCS=""
 EXPECT_STORE_PCS=""
+RF_SEED=""
 FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET:-}"
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
 FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO:-}"
@@ -90,6 +91,8 @@ Options:
   --expect-store-pcs <csv>
                           Require the reduced preview's store PC sequence to
                           equal a comma-separated hex/decimal list
+  --rf-seed <seed.jsonl>  Explicit reduced scalar RF seed rows to pass to the
+                          generated-RTL harness before source-derived preloads
 
 Environment:
   FETCH_REPLAY_LIQ_REQUIRE_PRESET=<csv>
@@ -171,6 +174,7 @@ while [[ $# -gt 0 ]]; do
     --qemu-raw-only) QEMU_RAW_ONLY=1; QEMU_ONLY=1; shift ;;
     --expect-load-pcs) EXPECT_LOAD_PCS="$2"; shift 2 ;;
     --expect-store-pcs) EXPECT_STORE_PCS="$2"; shift 2 ;;
+    --rf-seed) RF_SEED="$2"; shift 2 ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -648,6 +652,7 @@ FETCH_ALLOW_RESIDUAL_REPLAY_LIQ_WAIT="${ALLOW_RESIDUAL_REPLAY_LIQ_WAIT}" \
 FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET}" \
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" \
 FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO}" \
+FETCH_RF_SEED="${RF_SEED}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"
