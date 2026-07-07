@@ -1,6 +1,6 @@
 # LinxCore Chisel Development Loop
 
-Date: 2026-07-06
+Date: 2026-07-07
 
 ## Purpose
 
@@ -38,11 +38,15 @@ absolute raw dynamic-window hints. The R612 top candidate maps to raw skip 1715
 and capture 6, and a QEMU-only scanner gate reproduces that store/load pair.
 A PC-filter preflight for the same range fails to observe the load at the first
 dynamic occurrence, so future generated-RTL CoreMark probes must first pass a
-QEMU-only expected-memory-PC preflight. The next packet should not linearly
-scale the store-only CoreMark intervals for replay-suppress replacement proof.
-Either use the new raw-window hints to design a stateful generated-RTL path,
-try a different interval-selection hypothesis, or use the R616 preset on
-focused replay fixtures for positive retained physical-bundle evidence.
+QEMU-only expected-memory-PC preflight. R618 packages the current handoff with
+`build_replay_liq_selector_context_pack.py`: it validates the R611 zero-natural
+CoreMark no-regression counters, the R616 positive selector-origin fixture
+counters, and the R617 raw-window hint in one manifest while preserving that
+claim boundary. The next packet should not linearly scale the store-only
+CoreMark intervals for replay-suppress replacement proof. Either use the R618
+context pack to design a stateful generated-RTL path, try a different
+interval-selection hypothesis, or use the R616 preset on focused replay
+fixtures for positive retained physical-bundle evidence.
 
 ## Packet Start Baseline
 

@@ -330,3 +330,19 @@ because the first dynamic occurrence of the PC range does not include the load.
 Do not convert this candidate into a generated-RTL CoreMark run by PC filter
 alone; first find a stateful unskipped capture strategy or prove a QEMU-only
 expected-memory-PC preflight for the exact generated-RTL command shape.
+
+## R618 Context Pack
+
+R618 adds a separate context-pack validator rather than changing the locator
+claim. Run:
+
+```bash
+python3 tools/chisel/build_replay_liq_selector_context_pack.py
+python3 tools/chisel/build_replay_liq_selector_context_pack.py \
+  --validate-only generated/r618-replay-liq-selector-context-pack/report/replay_liq_selector_context_pack.json
+```
+
+The manifest combines R611 zero-natural CoreMark no-regression evidence, R616
+positive focused selector-origin proof, and the R617 raw-window hint. It is
+valid only if those remain distinct: the R617 raw dynamic window is an
+address-cluster hint, not generated-RTL/DUT replay-LIQ proof.

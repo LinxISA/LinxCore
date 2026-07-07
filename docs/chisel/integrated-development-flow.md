@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-06
+Date: 2026-07-07
 
 ## Purpose
 
@@ -15,9 +15,26 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R617 extends the replay-LIQ CoreMark candidate locator so
-reduced-preview candidate reports can be annotated with matching raw QEMU row
-windows via `--raw-input`. Candidate reports now include `row_space`,
+Latest packet: R618 adds
+`tools/chisel/build_replay_liq_selector_context_pack.py`, a current
+replay-LIQ selector context-pack builder/validator. Its generated manifest at
+`generated/r618-replay-liq-selector-context-pack/report/replay_liq_selector_context_pack.json`
+keeps three evidence classes separate: R611 CoreMark generated-RTL/QEMU
+no-regression with zero natural replay-LIQ activity, R616 focused replay
+fixture proof with positive selector-origin counters, and the R617 QEMU-only
+raw-window candidate hint. The tool validates the R611 manifest
+(`3369` compared rows, zero mismatches), all required CoreMark replay-LIQ/MDB
+counters at zero, the R616 manifest (`18` compared rows, zero mismatches), all
+required positive selector-origin counters nonzero with probe/partial/invalid
+selector counters zero, and a positive QEMU candidate hint with raw skip 1715
+and capture 6. Its claim boundary is part of the gate: CoreMark is
+zero-natural-replay no-regression, the focused fixture is positive
+selector-origin proof, and the QEMU row window is an address-cluster hint only,
+not DUT proof.
+
+R617 extends the replay-LIQ CoreMark candidate locator so reduced-preview
+candidate reports can be annotated with matching raw QEMU row windows via
+`--raw-input`. Candidate reports now include `row_space`,
 `probe_hint.pc_filter`, expected memory-PC preflight args, and, when raw mapping
 is available, a `raw_dynamic_window` with absolute `--qemu-skip-rows` and
 `--capture-rows` arguments. The R612 top reduced-preview candidate
