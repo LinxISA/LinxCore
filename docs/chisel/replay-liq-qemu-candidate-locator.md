@@ -520,3 +520,36 @@ filters. It needs one of: checkpoint/state replay for skipped raw windows, a
 legal natural workload shard whose unskipped prefix reaches eligible-store
 overlap from reset, or a QEMU-only PC-filter preflight that first passes both
 reduced-row extraction and exact memory-PC guards.
+
+## R626 PC-Filter Preflight Search and Failed RTL Attempt
+
+R626 adds an automated QEMU-only search over narrow exact store-before-load
+CoreMark candidates:
+
+```bash
+python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
+  --build-dir generated/r626-replay-liq-pc-filter-preflight-search-v2 \
+  --max-trials 12 \
+  --pc-span-limit 256 \
+  --capture-rows 32 \
+  --max-seconds 20 \
+  --stop-on-pass
+python3 tools/chisel/build_replay_liq_pc_filter_activation_report.py
+python3 tools/chisel/build_replay_liq_pc_filter_activation_report.py \
+  --validate-only generated/r626-replay-liq-pc-filter-activation-report/report/replay_liq_pc_filter_activation_report.json
+```
+
+The first scanned candidate passes the QEMU-only guard:
+`0x4000d7e6..0x4000d7f3` captures 6 raw rows, reduces 5 preview rows, and
+contains the expected store/load PCs `0x4000d7e6 -> 0x4000d7f2`. This only
+authorizes spending Verilator time on the same shape; it is not replay-LIQ
+proof.
+
+The matching generated-RTL attempt reaches the guarded row and fails before
+`crosscheck_manifest.json` or sideband stats are emitted. The saved stderr at
+`generated/r626-coremark-pc-filter-4000d7e6-4000d7f2-rtl-xcheck-abs/report/generated-rtl-attempt.stderr.txt`
+records a first-row dst/wb mismatch: PC and instruction match
+(`0x4000d7e6`, `0x02a50041`), QEMU expects `(rd=1, value=1342110568)`, and the
+DUT reports `(rd=1, value=18446744073709551608)`. Treat this as a
+generated-RTL failure classification packet, not natural CoreMark replay-LIQ
+activation proof.

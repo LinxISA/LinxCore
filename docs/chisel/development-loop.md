@@ -82,10 +82,16 @@ packages a natural activation probe plan with
 address clusters and 12 narrow exact store-before-load candidates, but the
 known top PC filter is empty and three sampled untried narrow filters are empty
 or illegal reduced prefixes. Do not spend Verilator on those PC filters. The
-next owner should either add checkpoint/state replay for skipped raw windows,
-construct a legal natural workload shard that reaches eligible-store overlap
-from reset, or find a PC-filter preflight that passes exact memory-PC guards
-and reduced-row extraction.
+R626 adds an automated QEMU-only PC-filter preflight search. It finds a passing
+guarded preflight for the top R617/R621 candidate
+(`0x4000d7e6..0x4000d7f3`, 6 raw rows, 5 preview rows, expected store PC
+`0x4000d7e6`, expected load PC `0x4000d7f2`), but the matching generated-RTL
+attempt fails before crosscheck-manifest generation with a first-row dst/wb
+mismatch at `pc=0x4000d7e6`: QEMU expects `rd1=1342110568`, while the DUT
+reports `rd1=18446744073709551608`. The next owner should classify that
+writeback mismatch before trying wider CoreMark PC filters, or pivot to
+checkpoint/state replay or a legal natural workload shard that reaches
+eligible-store overlap from reset.
 
 ## Packet Start Baseline
 

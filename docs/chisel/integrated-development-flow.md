@@ -15,7 +15,28 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R625 adds
+Latest packet: R626 adds
+`tools/chisel/search_replay_liq_pc_filter_preflights.py` and
+`tools/chisel/build_replay_liq_pc_filter_activation_report.py`. The QEMU-only
+search at
+`generated/r626-replay-liq-pc-filter-preflight-search-v2/report/pc_filter_preflight_search.json`
+finds a guarded CoreMark PC-filter preflight for the R617/R621 top candidate:
+`0x4000d7e6..0x4000d7f3` captures 6 raw QEMU rows, reduces 5 preview rows, and
+passes exact memory-PC guards for store PC `0x4000d7e6` and load PC
+`0x4000d7f2`. The matching generated-RTL attempt at
+`generated/r626-coremark-pc-filter-4000d7e6-4000d7f2-rtl-xcheck-abs` builds
+the reduced store replay-LIQ Verilator top, but fails before common
+crosscheck-manifest generation. The first guarded row has matching PC and
+instruction (`pc=0x4000d7e6`, `insn=0x02a50041`) but a dst/wb mismatch:
+QEMU expects `(rd=1, value=1342110568)`, while the DUT reports
+`(rd=1, value=18446744073709551608)`. The R626 report at
+`generated/r626-replay-liq-pc-filter-activation-report/report/replay_liq_pc_filter_activation_report.json`
+therefore classifies this as failed generated-RTL PC-filter evidence, not
+replay-LIQ activation proof or natural CoreMark replacement evidence. The next
+owner should classify the first-row writeback mismatch before running wider
+CoreMark PC filters.
+
+R625 adds
 `tools/chisel/build_replay_liq_natural_activation_probe_plan.py`, expands the
 R621 CoreMark candidate report to 100 entries, and records three additional
 QEMU-only PC-filter preflights. The report at
