@@ -10,6 +10,8 @@
 - Purpose: QEMU -> runner -> DUT co-sim smoke (`trigger_pc == boot_pc`) plus forced-mismatch negative path.
 - `test_stage_connectivity.sh`
 - Purpose: stage naming lint, no-stub lint, and top-level stage-prefix connectivity checks.
+- `test_linxcore_migration_spec.sh`
+- Purpose: locks the migrated LinxCore draft to `BID_W=ceil(log2(BROB_ENTRIES))`, the F4/IB final-fetch boundary, D3 admission ownership, and E/W coordinate semantics.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
@@ -39,6 +41,7 @@ bash /Users/zhoubot/LinxCore/tests/test_trace_schema_and_mem.sh
 bash /Users/zhoubot/LinxCore/tests/test_rob_bookkeeping.sh
 bash /Users/zhoubot/LinxCore/tests/test_cosim_smoke.sh
 bash /Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh
+bash /Users/zhoubot/LinxCore/tests/test_linxcore_migration_spec.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh
