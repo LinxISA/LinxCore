@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
@@ -2170,6 +2170,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val useReducedStoreDispatchStq: Boolean = false,
     val useReducedStoreStaAddressExecBridge: Boolean = false,
     val useReducedLoadReplayLiqAlloc: Boolean = false,
+    val useReducedLiveLoadLiq: Boolean = false,
     val reducedStoreStdExecDelayCycles: Int = 0,
     val reducedReplayLiqW2CompletionDelayCycles: Int = 0,
     val reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0,
@@ -2464,6 +2465,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     archRegWidth = p.archRegWidth,
     physRegWidth = p.physRegWidth
   ))
+  val reducedLiveLoadLiqCapture = Module(new ReducedLiveLoadLiqCapture(
+    idEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    // LIQ models 64-byte lines and therefore owns a seven-bit byte-size field;
+    // the scalar execute lookup's narrower encoded size is zero-extended here.
+    sizeWidth = 7,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
+  ))
   val reducedLoadReplayResolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.robEntries,
     liqEntries = p.robEntries,
@@ -2518,6 +2529,32 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     }
     data(0) := value
     ready(0) := true.B
+  }
+
+  // W2 may complete an older direct row while a younger live-LIQ load returns
+  // in the same cycle.  Keep their local T/U results in age order instead of
+  // silently dropping one through the single-value helper.
+  private def pushLocalPair(
+      data: Vec[UInt],
+      ready: Vec[Bool],
+      olderValid: Bool,
+      olderValue: UInt,
+      youngerValid: Bool,
+      youngerValue: UInt): Unit = {
+    when(olderValid && youngerValid) {
+      for (idx <- (2 until localQueueDepth).reverse) {
+        data(idx) := data(idx - 2)
+        ready(idx) := ready(idx - 2)
+      }
+      data(1) := olderValue
+      ready(1) := true.B
+      data(0) := youngerValue
+      ready(0) := true.B
+    }.elsewhen(olderValid) {
+      pushLocal(data, ready, olderValue)
+    }.elsewhen(youngerValid) {
+      pushLocal(data, ready, youngerValue)
+    }
   }
 
   val markerRedirectPending = RegInit(false.B)
@@ -2932,22 +2969,26 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedStoreMemoryAcceptedVec(base + 1) := commitStoreValid && commitStoreCrosses
   }
 
-  reducedStoreMemoryOverlay.io.flush := io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
-  reducedStoreMemoryOverlay.io.storeReqs := reducedStoreMemoryReqs
-  reducedStoreMemoryOverlay.io.storeAcceptedMask := reducedStoreMemoryAcceptedVec.asUInt
-  reducedStoreMemoryOverlay.io.loadValid := useReducedStoreDispatchStq.B && execute.io.loadLookupValid
-  reducedStoreMemoryOverlay.io.loadAddr := execute.io.loadLookupAddr
-  reducedStoreMemoryOverlay.io.baseLoadData := io.loadLookupData
-
-  reducedStoreResidentForward.io.enable := useReducedStoreDispatchStq.B
-  reducedStoreResidentForward.io.loadValid := useReducedStoreDispatchStq.B && execute.io.loadLookupValid
-  reducedStoreResidentForward.io.loadAddr := execute.io.loadLookupAddr
-  reducedStoreResidentForward.io.loadSize := execute.io.loadLookupSize
-  reducedStoreResidentForward.io.loadBid := execute.io.loadLookupBid
+  val reducedLiveLoadLiqEnabled =
+    useReducedStoreDispatchStq.B && useReducedLiveLoadLiq.B
   val reducedLoadLookupLsId = lsidToReducedStoreId(execute.io.loadLookupLsId)
-  reducedStoreResidentForward.io.loadLsId := reducedLoadLookupLsId
-  reducedStoreResidentForward.io.baseLoadData := reducedStoreMemoryOverlay.io.loadData
-  reducedStoreResidentForward.io.rows := path.io.storeStqRows
+  // The physical-memory overlay and resident-store forwarding lookup must
+  // follow the arbiter, not just E1.  A first-pass live load leaves E1 as soon
+  // as LIQ accepts it; its later E2 base lookup otherwise saw raw harness
+  // memory and missed committed-store visibility.
+  LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring.connect(
+    overlay = reducedStoreMemoryOverlay,
+    residentForward = reducedStoreResidentForward,
+    lookupArbiter = loadLookupArbiter,
+    liq = reducedLoadReplayLiqAllocPath,
+    execute = execute,
+    executeLoadLsId = reducedLoadLookupLsId,
+    path = path,
+    storeReqs = reducedStoreMemoryReqs,
+    storeAcceptedMask = reducedStoreMemoryAcceptedVec.asUInt,
+    baseLoadData = io.loadLookupData,
+    flush = io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B,
+    enable = useReducedStoreDispatchStq.B)
 
   val executeLoadLookupDst = Wire(new LoadReplayDestination(p.archRegWidth, p.physRegWidth))
   executeLoadLookupDst.valid := execute.io.loadLookupDst.valid
@@ -2957,9 +2998,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   executeLoadLookupDst.physTag := execute.io.loadLookupDst.physTag
   executeLoadLookupDst.oldPhysTag := execute.io.loadLookupDst.oldPhysTag
 
+  LinxCoreFrontendFetchRfAluTraceTopLiveLoadLiqCaptureWiring.connect(
+    capture = reducedLiveLoadLiqCapture,
+    execute = execute,
+    loadDst = executeLoadLookupDst,
+    loadLsId = reducedLoadLookupLsId,
+    enable = reducedLiveLoadLiqEnabled,
+    flush = reducedStoreFlush)
+
   reducedLoadWaitReplaySlot.io.flush := reducedStoreFlush
   reducedLoadWaitReplaySlot.io.captureValid :=
-    useReducedStoreDispatchStq.B && execute.io.loadLookupValid && reducedStoreResidentForward.io.waitBlocked
+    useReducedStoreDispatchStq.B && !useReducedLiveLoadLiq.B && execute.io.loadLookupValid &&
+      reducedStoreResidentForward.io.waitBlocked
   reducedLoadWaitReplaySlot.io.capturePc := execute.io.loadLookupPc
   reducedLoadWaitReplaySlot.io.captureAddr := execute.io.loadLookupAddr
   reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
@@ -2984,12 +3034,29 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayRelaunchQueue.io.enqueueValid :=
     useReducedStoreDispatchStq.B && reducedLoadWaitReplaySlot.io.relaunch.valid
   reducedLoadReplayRelaunchQueue.io.enqueue := reducedLoadWaitReplaySlot.io.relaunch
+  // This legacy-named enable gates the shared LIQ/return machinery for both
+  // wait-store replays and first-pass ordinary scalar load admission.
   val reducedLoadReplayLiqAllocEnabled =
-    useReducedStoreDispatchStq.B && useReducedLoadReplayLiqAlloc.B
+    useReducedStoreDispatchStq.B && (useReducedLoadReplayLiqAlloc.B || useReducedLiveLoadLiq.B)
+  // Legacy replay candidates arrive after a source-return snapshot has already
+  // owned their row transition. First-pass live loads instead enter LIQ in
+  // Wait, launch through E2/E3/E4, and only then become return candidates.
+  // Keeping the source-return mutation path out of live admission prevents it
+  // from turning a newly allocated row into Repick before LIQ launch accepts.
+  val reducedReplayLiqLegacySourceReturnEnabled =
+    reducedLoadReplayLiqAllocEnabled && !reducedLiveLoadLiqEnabled
+  val reducedReplayLiqCandidateValid =
+    useReducedStoreDispatchStq.B && useReducedLoadReplayLiqAlloc.B &&
+      reducedLoadReplayRelaunchQueue.io.outValid
+  val reducedLiqCandidateFromLive = reducedLiveLoadLiqCapture.io.candidateValid
   reducedLoadReplayLiqAllocPath.io.flush := reducedStoreFlush
   reducedLoadReplayLiqAllocPath.io.candidateValid :=
-    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayRelaunchQueue.io.outValid
-  reducedLoadReplayLiqAllocPath.io.candidate := reducedLoadReplayRelaunchQueue.io.out
+    reducedLiqCandidateFromLive || reducedReplayLiqCandidateValid
+  reducedLoadReplayLiqAllocPath.io.candidate := Mux(
+    reducedLiqCandidateFromLive,
+    reducedLiveLoadLiqCapture.io.candidate,
+    reducedLoadReplayRelaunchQueue.io.out)
+  reducedLiveLoadLiqCapture.io.allocReady := reducedLoadReplayLiqAllocPath.io.candidateConsumeReady
 
   val reducedStoreResidentReplayWakeHoldValid = RegInit(false.B)
   val reducedStoreResidentReplayWakeHoldAge = RegInit(0.U(4.W))
@@ -3028,8 +3095,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqBaseDataAlign.io.loadValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqBaseDataAlign.io.loadAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
   reducedReplayLiqBaseDataAlign.io.loadSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
-  reducedReplayLiqBaseDataAlign.io.loadData := io.loadLookupData
-  loadLookupArbiter.io.executeValid := execute.io.loadLookupValid
+  reducedReplayLiqBaseDataAlign.io.loadData := reducedStoreResidentForward.io.loadData
+  // First-pass ordinary loads transfer lookup ownership to LIQ. FRET.STK's
+  // synthetic RA return is explicitly not LIQ eligible, so it must retain the
+  // direct execute lookup; otherwise the final condition-false return samples
+  // the idle arbiter's zero data and redirects to address zero.
+  loadLookupArbiter.io.executeValid :=
+    execute.io.loadLookupValid && (!reducedLiveLoadLiqEnabled || !execute.io.loadLiqEligible)
   loadLookupArbiter.io.executeAddr := execute.io.loadLookupAddr
   loadLookupArbiter.io.executePc := execute.io.loadLookupPc
   loadLookupArbiter.io.replayValid := reducedReplayLiqBaseDataAlign.io.requestValid
@@ -3063,12 +3135,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayLiqStoreSnapshotReady =
     LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring.connectInputs(
       path = reducedReplayLiqSourceReturnStoreSnapshotPath,
-      enable = reducedLoadReplayLiqAllocEnabled,
+      enable = reducedReplayLiqLegacySourceReturnEnabled,
       flush = reducedReplayLiqStoreSnapshotHardFlush,
       preciseFlush = reducedReplayLiqStoreSnapshotPreciseFlush,
       liveArmPolicyEnable = true.B,
       liveArmRawSinkAvailable = true.B,
-      rowMutationLiveEnable = true.B,
+      rowMutationLiveEnable = reducedReplayLiqLegacySourceReturnEnabled,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
@@ -3089,14 +3161,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedRequestByteMask = reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask,
       selectedLineData = reducedReplayLiqStoreSnapshotLineData,
       selectedValidMask = reducedReplayLiqStoreSnapshotValidMask,
-      legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
+      legacySnapshotReady = reducedReplayLiqLegacySourceReturnEnabled
     )
   LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring.connect(
     source = reducedReplayLiqSourceReturnStoreSnapshotPath,
     liqPath = reducedLoadReplayLiqAllocPath,
     sourceReadiness = reducedReplayLiqSourceReturnReadiness,
     scbLive = reducedReplayLiqSourceReturnScbLiveControl,
-    enable = reducedLoadReplayLiqAllocEnabled,
+    enable = reducedReplayLiqLegacySourceReturnEnabled,
     flush = reducedStoreFlush,
     launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
     baseDataReady = reducedReplayLiqBaseDataReady,
@@ -3120,6 +3192,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       publishReady = reducedReplayLiqReturnPublishReady,
       lretPayload = reducedReplayLiqReturnLretPayload,
       enable = reducedLoadReplayLiqAllocEnabled,
+      allowLaunchDirectReturn = !reducedLiveLoadLiqEnabled,
       e2BaseData = reducedReplayLiqE2BaseData,
       e2BaseValidMask = reducedReplayLiqE2BaseValidMask,
       lretSinkReady = reducedReplayLiqReturnLretSinkReady,
@@ -3163,11 +3236,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     liveEnable = reducedReplayLiqReturnSideEffectLiveControl.io.wakeupLiveEnable,
     wakeupRequired = reducedReplayLiqReturnWakeupCandidate.io.wakeupRequired)
   reducedReplayLiqLaunchReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqLaunchReadiness.io.launchValid := reducedReplayLiqLaunchReturnPathValid
+  reducedReplayLiqLaunchReadiness.io.launchValid := Mux(
+    reducedLiveLoadLiqEnabled,
+    reducedLoadReplayLiqAllocPath.io.launchValid,
+    reducedReplayLiqLaunchReturnPathValid)
   reducedReplayLiqLaunchReadiness.io.baseLookupGranted := loadLookupArbiter.io.replayGranted
   reducedReplayLiqLaunchReadiness.io.baseDataReturned := reducedReplayLiqBaseDataAlign.io.dataReturned
-  reducedReplayLiqLaunchReadiness.io.scbReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqLaunchReadiness.io.returnReady := reducedReplayLiqReturnReadiness.io.returnReady
+  reducedReplayLiqLaunchReadiness.io.scbReturned := Mux(
+    reducedLiveLoadLiqEnabled,
+    true.B,
+    reducedReplayLiqSourceReturnReadiness.io.sourceReturned)
+  // Live ordinary loads reserve their return path after E4. Requiring an LRET
+  // pipe before E2 launch would make launch wait on the result it must create.
+  reducedReplayLiqLaunchReadiness.io.returnReady := Mux(
+    reducedLiveLoadLiqEnabled,
+    true.B,
+    reducedReplayLiqReturnReadiness.io.returnReady)
   reducedLoadReplayLiqAllocPath.io.launchEnable := reducedReplayLiqLaunchReadiness.io.launchEnable
   val reducedReplayLiqMarkResolvedIndex =
     Mux(reducedReplayLiqReturnCompleteValid,
@@ -3180,9 +3264,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2BaseData := reducedReplayLiqE2BaseData
   reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := reducedReplayLiqE2BaseValidMask
   reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := reducedReplayLiqBaseDataReady
-  reducedLoadReplayLiqAllocPath.io.e2ScbReturned := reducedReplayLiqSourceReturnReadiness.io.scbSourceReturned
-  reducedLoadReplayLiqAllocPath.io.e2StqReturned := reducedReplayLiqSourceReturnReadiness.io.storeSourceReturned
-  reducedLoadReplayLiqAllocPath.io.e2ReturnReady := reducedReplayLiqReturnReadiness.io.returnReady
+  reducedLoadReplayLiqAllocPath.io.e2ScbReturned := Mux(
+    reducedLiveLoadLiqEnabled,
+    true.B,
+    reducedReplayLiqSourceReturnReadiness.io.scbSourceReturned)
+  reducedLoadReplayLiqAllocPath.io.e2StqReturned := Mux(
+    reducedLiveLoadLiqEnabled,
+    true.B,
+    reducedReplayLiqSourceReturnReadiness.io.storeSourceReturned)
+  // E2/E3/E4 must be able to produce the live row's first return candidate.
+  // The LRET pipe is reserved by the post-E4 return owner, so feeding its
+  // current readiness back into E2 would turn every otherwise-complete live
+  // load into ReturnPortBlocked and requeue it forever.
+  reducedLoadReplayLiqAllocPath.io.e2ReturnReady := Mux(
+    reducedLiveLoadLiqEnabled,
+    true.B,
+    reducedReplayLiqReturnReadiness.io.returnReady)
   LinxCoreFrontendFetchRfAluTraceTopR453ReplayLiqRefillTieOff.connect(reducedLoadReplayLiqAllocPath)
   val reducedLoadReplayResolvePreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
@@ -3238,7 +3335,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextScbReturned
   reducedReplayResolvedRowHitRecord.io.resolvedStqReturned :=
     reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextStqReturned
-  val reducedLoadReplayResolvePushFromLhq = reducedLoadReplayLiqAllocPath.io.lhqRecordValid
+  // A first-pass live row remains resident through W2, where the normal
+  // resolve/writeback/wakeup owner consumes its LRET. The older replay path
+  // still mirrors its LHQ record into ResolveQ and uses that queue's clear
+  // ownership; doing so for a live row would clear the resolved LIQ entry
+  // before W2 can establish the matching lifecycle proof.
+  val reducedLoadReplayResolvePushFromLhq =
+    !reducedLiveLoadLiqEnabled && reducedLoadReplayLiqAllocPath.io.lhqRecordValid
   val reducedLoadReplayResolvePushFromReplay =
     reducedReplayResolvedRowHitRecord.io.recordValid && !reducedLoadReplayResolvePushFromLhq
   val reducedLoadReplayResolvePushRecord =
@@ -3502,7 +3605,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayRelaunchQueue.io.outValid && !reducedLoadReplayLiqAllocEnabled
   reducedLoadReplayCompletionDrain.io.candidate := reducedLoadReplayRelaunchQueue.io.out
   reducedLoadReplayCompletionDrain.io.completeValid :=
-    useReducedStoreDispatchStq.B && !useReducedLoadReplayLiqAlloc.B && execute.io.completeValid
+    useReducedStoreDispatchStq.B && !reducedLoadReplayLiqAllocEnabled && execute.io.completeValid
   reducedLoadReplayCompletionDrain.io.completeMemLoad :=
     execute.io.completeRow.mem.valid && !execute.io.completeRow.mem.isStore
   reducedLoadReplayCompletionDrain.io.completePc := execute.io.completeRow.pc
@@ -3514,7 +3617,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayCompletionDrain.io.completeLsId := reducedCompleteLoadLsId
   reducedLoadReplayRelaunchQueue.io.outReady := Mux(
     reducedLoadReplayLiqAllocEnabled,
-    reducedLoadReplayLiqAllocPath.io.candidateConsumeReady,
+    reducedLoadReplayLiqAllocPath.io.candidateConsumeReady && !reducedLiqCandidateFromLive,
     reducedLoadReplayCompletionDrain.io.consumeReady
   )
 
@@ -3588,10 +3691,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := backendPipeFlush
-  issue.io.releaseValid := execute.io.releaseValid
-  issue.io.releaseBid := execute.io.releaseBid
-  issue.io.releaseRid := execute.io.releaseRid
-  issue.io.releaseStid := execute.io.releaseStid
+  LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(issue, execute)
   issue.io.readyMask := rf.io.readyMask
   issue.io.localTReadyMask := localTReady.asUInt
   issue.io.localUReadyMask := localUReady.asUInt
@@ -3700,7 +3800,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     flush = reducedStoreFlush,
     requestEnable = reducedReplayLiqReturnLretSink.io.drainValid,
     sourceValid = reducedReplayLiqReturnLretSink.io.drainValid,
-    sourceMask = 0.U(1.W)
+    // IEX drain is allowed only when the residency stage can retain the
+    // payload.  Reporting an always-empty mask lets LRET consume a second
+    // return while the single residency slot is occupied, which drops that
+    // load before W1/W2 can complete it.
+    sourceMask = reducedReplayLiqReturnPipeResidencySlot.io.occupied.asUInt
   )
   val reducedReplayLiqReturnIexPipeOccupiedMask =
     reducedReplayLiqReturnIexPipeOccupancy.io.pipeOccupiedMask
@@ -4049,6 +4153,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW1Slot,
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnCompleteValid)
+  val reducedReplayLiqW2SideEffectLiveRequested = Mux(
+    reducedLiveLoadLiqEnabled,
+    reducedReplayLiqReturnPipeW2Modules.completionCandidate.io.resolveRequired,
+    reducedReplayLiqReturnPipeW2Modules.atomicLiveRequestControl.io.sideEffectLiveRequested)
   LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring.connect(
     reducedReplayLiqReturnPipeW2Modules.completionCandidate,
     reducedReplayLiqReturnPipeW2Modules.slot,
@@ -4064,7 +4172,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.resolveSinkReady,
     reducedReplayLiqReturnPipeW2Modules.writebackSinkReady,
     reducedReplayLiqReturnPipeW2Modules.wakeupSinkReady,
-    reducedReplayLiqReturnPipeW2Modules.atomicLiveRequestControl.io.sideEffectLiveRequested,
+    reducedReplayLiqW2SideEffectLiveRequested,
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.sinkReady,
     !rfWritebackArbiter.io.selectedExecute,
     reducedLoadReplayLiqAllocEnabled,
@@ -4126,12 +4234,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
+  val reducedReplayLiqW2CommitRowFillEnable = Mux(
+    reducedLiveLoadLiqEnabled,
+    reducedReplayLiqReturnPipeW2Modules.sideEffectFireComplete.io.fireComplete,
+    reducedReplayLiqReturnPipeW2Modules.rowFillEnableControl.io.rowFillEnable)
   LinxCoreFrontendFetchRfAluTraceTopW2CommitRowCandidateWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2Modules.commitRowCandidate,
     reducedReplayLiqReturnPipeW2Modules.commitRowTraceSource,
     reducedReplayLiqReturnPipeW2Modules.slot,
-    reducedReplayLiqReturnPipeW2Modules.rowFillEnableControl.io.rowFillEnable,
+    reducedReplayLiqW2CommitRowFillEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4173,10 +4285,28 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqHeadRow.stqReturned &&
       !reducedReplayLiqHeadRow.waitStore &&
       !reducedReplayLiqReturnCompleteTargetsHead
+  // A first-pass live load bypasses the legacy ResolveQ owner.  Retire the
+  // exact Resolved LIQ row only when the matching W2 transaction has issued
+  // all of its architectural side effects.  This is deliberately an
+  // existing-clear request: the legacy lifecycle gate remains unchanged for
+  // replay-owned rows, while the live path makes completion and retirement
+  // one atomic W2 event.
+  val reducedReplayLiqLiveW2ClearValid =
+    reducedLiveLoadLiqEnabled &&
+      reducedReplayLiqReturnPipeW2Modules.sideEffectFireComplete.io.fireComplete &&
+      reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady.io.rowClearReady
   val reducedReplayLiqExistingClearValid =
-    reducedLoadReplayResolveClearPending || reducedReplayLiqHeadCompleteRepickClear
+    Mux(
+      reducedLiveLoadLiqEnabled,
+      reducedReplayLiqLiveW2ClearValid,
+      reducedLoadReplayResolveClearPending || reducedReplayLiqHeadCompleteRepickClear
+    )
   val reducedReplayLiqExistingClearIndex =
-    Mux(reducedLoadReplayResolveClearPending, reducedLoadReplayResolveClearIndex, reducedReplayLiqHeadIndex)
+    Mux(
+      reducedLiveLoadLiqEnabled,
+      reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady.io.rowClearIndex,
+      Mux(reducedLoadReplayResolveClearPending, reducedLoadReplayResolveClearIndex, reducedReplayLiqHeadIndex)
+    )
   LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2Modules.replayRowClearRequest,
@@ -4482,11 +4612,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)
   val localCompleteU =
     execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 30.U)
+  val reducedReplayLiqLiveLocalComplete =
+    reducedLiveLoadLiqEnabled &&
+      reducedReplayLiqReturnPipeW2Modules.sideEffectFireComplete.io.fireComplete &&
+      reducedReplayLiqReturnPipeW2Modules.slot.io.entryDst.valid
+  val reducedReplayLiqLiveLocalCompleteT =
+    reducedReplayLiqLiveLocalComplete &&
+      (reducedReplayLiqReturnPipeW2Modules.slot.io.entryDst.kind === DestinationKind.T)
+  val reducedReplayLiqLiveLocalCompleteU =
+    reducedReplayLiqLiveLocalComplete &&
+      (reducedReplayLiqReturnPipeW2Modules.slot.io.entryDst.kind === DestinationKind.U)
+  val localTCompleteCount = localCompleteT.asUInt + reducedReplayLiqLiveLocalCompleteT.asUInt
+  val localUCompleteCount = localCompleteU.asUInt + reducedReplayLiqLiveLocalCompleteU.asUInt
 
   val localTPendingAfterComplete =
-    Mux(localCompleteT && localTPendingCount =/= 0.U, localTPendingCount - 1.U, localTPendingCount)
+    Mux(localTPendingCount >= localTCompleteCount, localTPendingCount - localTCompleteCount, 0.U)
   val localUPendingAfterComplete =
-    Mux(localCompleteU && localUPendingCount =/= 0.U, localUPendingCount - 1.U, localUPendingCount)
+    Mux(localUPendingCount >= localUCompleteCount, localUPendingCount - localUCompleteCount, 0.U)
 
   when(localReset) {
     for (idx <- 0 until localQueueDepth) {
@@ -4501,11 +4643,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     localTPendingCount := localTPendingAfterComplete + localDstAllocT.asUInt
     localUPendingCount := localUPendingAfterComplete + localDstAllocU.asUInt
 
-    when(localCompleteT) {
-      pushLocal(localTData, localTReady, execute.io.completeRow.wb.data)
-    }.elsewhen(localCompleteU) {
-      pushLocal(localUData, localUReady, execute.io.completeRow.wb.data)
-    }
+    pushLocalPair(
+      localTData,
+      localTReady,
+      localCompleteT,
+      execute.io.completeRow.wb.data,
+      reducedReplayLiqLiveLocalCompleteT,
+      reducedReplayLiqReturnPipeW2Modules.slot.io.entryData)
+    pushLocalPair(
+      localUData,
+      localUReady,
+      localCompleteU,
+      execute.io.completeRow.wb.data,
+      reducedReplayLiqLiveLocalCompleteU,
+      reducedReplayLiqReturnPipeW2Modules.slot.io.entryData)
   }
 
   issue.io.issueReady := execute.io.inReady
@@ -4514,6 +4665,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := reducedStoreResidentForward.io.loadData
   execute.io.loadLookupWaitBlocked := reducedStoreResidentForward.io.waitBlocked
+  execute.io.loadLiqEnable := reducedLiveLoadLiqEnabled
+  execute.io.loadLiqAccepted := reducedLiveLoadLiqCapture.io.captureAccepted
   execute.io.stackPointerData := scalarSpValue
   execute.io.flushValid := backendPipeFlush
   execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
@@ -4526,6 +4679,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     blockBranchTakenValid := false.B
     blockBranchTaken := false.B
   }.elsewhen(blockBoundaryConsumed) {
+    // The architectural block condition belongs to the marker boundary. An
+    // older FRET.STK samples it in E1 and carries that sample to W2, so this
+    // younger boundary may clear the shared latch without leaking an old SETC
+    // result into a later conditional marker.
     blockBranchTakenValid := false.B
     blockBranchTaken := false.B
   }.elsewhen(execute.io.branchConditionValid) {
@@ -7241,12 +7398,14 @@ private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring 
       publishReady: LoadReplayReturnPublishReady,
       lretPayload: LoadReplayReturnLretPayload,
       enable: Bool,
+      allowLaunchDirectReturn: Bool,
       e2BaseData: UInt,
       e2BaseValidMask: UInt,
       lretSinkReady: Bool,
       wakeupSinkReady: Bool): (Bool, Bool) = {
     val returnCompleteValid = allocPath.io.returnCompleteValid
-    val launchReturnPathValid = allocPath.io.launchValid && !returnCompleteValid
+    val launchReturnPathValid =
+      allowLaunchDirectReturn && allocPath.io.launchValid && !returnCompleteValid
     val returnPathValid = returnCompleteValid || launchReturnPathValid
     val returnPathSourcesReturned =
       Mux(returnCompleteValid, true.B, sourceReadiness.io.sourceReturned)
@@ -9537,6 +9696,34 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRowFillEnableCont
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopLiveLoadLiqCaptureWiring {
+  def connect(
+      capture: ReducedLiveLoadLiqCapture,
+      execute: ReducedScalarAluExecute,
+      loadDst: LoadReplayDestination,
+      loadLsId: ROBID,
+      enable: Bool,
+      flush: Bool): Unit = {
+    capture.io.captureEnable := enable
+    capture.io.flush := flush
+    capture.io.loadValid := execute.io.loadLookupValid && execute.io.loadLiqEligible
+    capture.io.loadPc := execute.io.loadLookupPc
+    capture.io.loadAddr := execute.io.loadLookupAddr
+    capture.io.loadSize := execute.io.loadLookupSize
+    capture.io.loadReturnSignExtend := execute.io.loadLookupReturnSignExtend
+    capture.io.loadDst := loadDst
+    capture.io.loadSourceTraceValid := execute.io.loadLookupSourceTraceValid
+    capture.io.loadSource0 := execute.io.loadLookupSource0
+    capture.io.loadSource1 := execute.io.loadLookupSource1
+    capture.io.loadBid := execute.io.loadLookupBid
+    capture.io.loadGid := execute.io.loadLookupGid
+    capture.io.loadRid := execute.io.loadLookupRid
+    capture.io.loadLsId := loadLsId
+    capture.io.youngestStoreId := execute.io.loadLookupBid
+    capture.io.youngestStoreLsId := loadLsId
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -10394,6 +10581,57 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring {
       clearRequest.io.blockedByNoLifecycleRow
     io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleCommitDisabled :=
       clearRequest.io.blockedByLifecycleCommitDisabled
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring {
+  def connect(
+      overlay: ReducedStoreMemoryOverlay,
+      residentForward: ReducedStoreResidentForward,
+      lookupArbiter: LoadLookupArbiter,
+      liq: ReducedLoadReplayLiqAllocPath,
+      execute: ReducedScalarAluExecute,
+      executeLoadLsId: ROBID,
+      path: DecodeRenameROBPath,
+      storeReqs: Vec[STQCommitDrainRequest],
+      storeAcceptedMask: UInt,
+      baseLoadData: UInt,
+      flush: Bool,
+      enable: Bool): Unit = {
+    val lookupIsReplay = lookupArbiter.io.replayGranted
+    val lookupValid = enable && lookupArbiter.io.lookupValid
+    val lookupSize = Mux(lookupIsReplay, liq.io.launchSelectedSize, execute.io.loadLookupSize)
+    val lookupBid = Mux(lookupIsReplay, liq.io.launchSelectedBid, execute.io.loadLookupBid)
+    val lookupLsId = Mux(lookupIsReplay, liq.io.launchSelectedLoadLsId, executeLoadLsId)
+
+    overlay.io.flush := flush
+    overlay.io.storeReqs := storeReqs
+    overlay.io.storeAcceptedMask := storeAcceptedMask
+    overlay.io.loadValid := lookupValid
+    overlay.io.loadAddr := lookupArbiter.io.lookupAddr
+    overlay.io.baseLoadData := baseLoadData
+
+    residentForward.io.enable := enable
+    residentForward.io.loadValid := lookupValid
+    residentForward.io.loadAddr := lookupArbiter.io.lookupAddr
+    residentForward.io.loadSize := lookupSize
+    residentForward.io.loadBid := lookupBid
+    residentForward.io.loadLsId := lookupLsId
+    residentForward.io.baseLoadData := overlay.io.loadData
+    residentForward.io.rows := path.io.storeStqRows
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
+  def connect(issue: ReducedScalarIssueQueue, execute: ReducedScalarAluExecute): Unit = {
+    issue.io.releaseValid := execute.io.releaseValid
+    issue.io.releaseBid := execute.io.releaseBid
+    issue.io.releaseRid := execute.io.releaseRid
+    issue.io.releaseStid := execute.io.releaseStid
+    issue.io.secondaryReleaseValid := execute.io.liqReleaseValid
+    issue.io.secondaryReleaseBid := execute.io.liqReleaseBid
+    issue.io.secondaryReleaseRid := execute.io.liqReleaseRid
+    issue.io.secondaryReleaseStid := execute.io.liqReleaseStid
   }
 }
 

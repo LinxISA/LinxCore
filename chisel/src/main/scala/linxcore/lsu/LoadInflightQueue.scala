@@ -540,7 +540,9 @@ class LoadInflightQueue(
       rows(e4Index).storeBypass := pipeline.io.e4ForwardMask.orR
 
       when(e4Resolved) {
-        rows(e4Index).status := LoadInflightStatus.Resolved
+        // Preserve the E4 hit as Repick until the return owner publishes its
+        // LRET and markResolved accepts the terminal row state.
+        rows(e4Index).status := LoadInflightStatus.Repick
         rows(e4Index).waitStore := false.B
         rows(e4Index).waitStoreInfo := zeroWait
         rows(e4Index).l1Hit := false.B

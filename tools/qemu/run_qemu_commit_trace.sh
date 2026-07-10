@@ -66,6 +66,10 @@ if [[ ! -f "${ELF}" ]]; then
   echo "error: ELF not found: ${ELF}" >&2
   exit 2
 fi
+if [[ ! "${MAX_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "error: --max-seconds must be a non-negative integer: ${MAX_SECONDS}" >&2
+  exit 2
+fi
 
 if [[ ${#QEMU_ARGS[@]} -eq 0 ]]; then
   QEMU_ARGS=(-nographic -monitor none -machine virt -kernel "${ELF}")
@@ -97,9 +101,43 @@ fi
 
 TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 run_cmd=("${QEMU_BIN}" "${QEMU_ARGS[@]}")
-if [[ "${MAX_SECONDS}" =~ ^[0-9]+$ ]] && [[ "${MAX_SECONDS}" -gt 0 ]] && [[ -n "${TIMEOUT_BIN}" ]]; then
-  run_cmd=("${TIMEOUT_BIN}" "${MAX_SECONDS}" "${run_cmd[@]}")
-fi
+
+run_with_python_timeout() {
+  local seconds="$1"
+  shift
+
+  python3 - "${seconds}" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+seconds = int(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(command, start_new_session=True)
+
+try:
+    raise SystemExit(process.wait(timeout=seconds))
+except subprocess.TimeoutExpired:
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    raise SystemExit(124)
+PY
+}
+
+run_qemu_with_timeout() {
+  if [[ "${MAX_SECONDS}" -eq 0 ]]; then
+    "${run_cmd[@]}"
+  elif [[ -n "${TIMEOUT_BIN}" ]]; then
+    "${TIMEOUT_BIN}" "${MAX_SECONDS}" "${run_cmd[@]}"
+  else
+    run_with_python_timeout "${MAX_SECONDS}" "${run_cmd[@]}"
+  fi
+}
 
 env_args=(
   "LINX_COMMIT_TRACE=${OUT}"
@@ -113,7 +151,7 @@ fi
 
 (
   export "${env_args[@]}"
-  "${run_cmd[@]}"
+  run_qemu_with_timeout
 )
 
 if [[ "${OUT_IS_FIFO}" -eq 0 && ! -s "${OUT}" ]]; then

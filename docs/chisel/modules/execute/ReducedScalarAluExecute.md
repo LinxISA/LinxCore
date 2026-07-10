@@ -33,8 +33,9 @@
 `ReducedScalarAluExecute` is the first Chisel scalar execute owner behind the
 frontend trace path. It consumes one `RenamedUop`, computes a reduced
 model-derived ALU subset, and emits both a ROB completion index and a
-writeback-shaped `CommitTraceRow`. It also emits the reduced issue-queue
-release identity when the row reaches W2.
+writeback-shaped `CommitTraceRow`. It emits the normal reduced issue-queue
+release identity when a row reaches W2, plus a distinct E1 release identity
+when an ordinary load transfers completion ownership to LIQ.
 
 This is not the final scalar integer execution unit. Source values are supplied
 by the owning wrapper: the R81 top uses explicit testbench operands, while the
@@ -62,6 +63,21 @@ pipes request and consume those source operands before W2. The sideband is
 disabled for the synthetic `FRET.STK` RA-load return path and is not
 reconstructed from ROB allocation rows.
 
+When the top enables live LIQ admission, `loadLiqEnable/loadLiqAccepted`
+replace the direct E-stage ordinary-load result path with an explicit E1
+ownership handshake. `loadLiqEligible` qualifies that handoff. A valid
+eligible load holds in E until accepted; on acceptance it does not enter direct
+W1/W2 completion, and the LIQ-owned LRET/W1/W2 path becomes the sole
+completion/writeback owner. `FRET.STK` RA-load returns deliberately report
+`loadLiqEligible=false`: until LIQ carries their synthetic RA writeback, SP
+restore, and redirect atomically, they retain direct execute ownership. The
+synthetic RA-load form is selected by an explicit not-taken condition, or by
+an absent condition with no live target owner;
+when the condition is absent, an active block or SETC target remains the
+redirect owner when present, and no target falls back to the RA load. In this
+mode LIQ, rather than the direct resident-store lookup,
+owns ordinary load store-forward wait and replay handling.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -73,8 +89,9 @@ reconstructed from ROB allocation rows.
 | input | `flushValid` | `Bool` | pulse | Clears E/W1/W2 pipeline state and suppresses same-cycle completion/redirect outputs. |
 | input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, `OP_HL_LD_PCR`, and the R132 `FRET.STK` RA-load path. |
 | input | `loadLookupWaitBlocked` | `Bool` | combinational with E-stage load lookup | R266 reduced LSU hold request. Asserted by the owning top when the load data path found a wait-hit against an older not-ready resident store. |
+| input | `loadLiqEnable`, `loadLiqAccepted` | `Bool`, `Bool` | combinational with E-stage load lookup | Enables E1-to-LIQ admission and reports acceptance by the LIQ adapter. When enabled, `loadLiqAccepted` is the only condition that releases a load from E. |
 | input | `fretStkFallbackTargetValid`, `fretStkFallbackTarget` | `Bool`, `UInt(pcWidth.W)` | combinational | Active-marker fallback target used by reduced `FRET.STK` when no explicit SETC target is live. |
-| input | `fretStkConditionValid`, `fretStkConditionTaken` | `Bool`, `Bool` | combinational | Latest reduced SETC condition. `FRET.STK` takes the latched/fallback target only when the condition is absent or taken; a valid false condition selects the RA-load return path when the restore range includes `x10`. |
+| input | `fretStkConditionValid`, `fretStkConditionTaken` | `Bool`, `Bool` | sampled in E1 | Latest reduced SETC condition. `FRET.STK` takes the latched/fallback target when it is present and the condition is absent or taken; a valid false condition, or an absent condition with no target owner, selects the RA-load return path when the restore range includes `x10`. The E1 sample travels with the return through W1/W2, so a younger marker boundary cannot alter the already-issued return. |
 | input | `stackPointerData` | `UInt(64.W)` by default | combinational | Reduced SP shadow used by macro `FENTRY` rows and R132 `FRET.STK` RA-load address generation. |
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
@@ -87,9 +104,12 @@ reconstructed from ROB allocation rows.
 | output | `releaseGid` | `ROBID` | with `releaseValid` | Group identity copied from the W2 uop for reduced replay completion matching. |
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
+| output | `liqReleaseValid` | `Bool` | valid | A live E1 load was accepted by LIQ and has no direct W2 completion. |
+| output | `liqReleaseBid`, `liqReleaseRid`, `liqReleaseStid` | mixed | with `liqReleaseValid` | Issue-queue identity of that LIQ-owned E1 load. This is independent of the normal W2 release port. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
 | output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LT`, `OP_SETC_LTU`, `OP_SETC_LTUI`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
+| output | `loadLiqEligible` | `Bool` | with `loadLookupValid` | The lookup is an ordinary scalar load that may transfer E1 completion ownership to LIQ. False for the synthetic `FRET.STK` RA-load return, which remains on direct execute until LIQ owns its RA/SP/redirect effects. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
 | output | `loadLookupPc` | `UInt(pcWidth.W)` | with `loadLookupValid` | R269 PC sideband for the reduced wait-store replay slot. |
 | output | `loadLookupBid`, `loadLookupGid`, `loadLookupRid` | `ROBID` | with `loadLookupValid` | R274 model ROB identity sidecars for reduced replay candidates. |
@@ -102,15 +122,17 @@ reconstructed from ROB allocation rows.
 | output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from the loaded RA for R132 load-return rows, otherwise from `C.SETC.TGT`/`SETC.TGT` first and active-marker fallback second. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
-| output | `loadWaitHold` | `Bool` | state/diagnostic | The current E-stage load lookup is held because `loadLookupWaitBlocked` is asserted. |
+| output | `loadWaitHold` | `Bool` | state/diagnostic | The current E-stage load lookup is held by the direct wait-store input, or by LIQ allocation backpressure when live admission is enabled. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
 | output | `unsupportedOpcode` | `UInt(opcodeWidth.W)` | with `unsupported` | Unsupported opcode ID for diagnostics. |
 
 ## State
 
 - `eValid/eUop/eSrcData`: accepted renamed uop and source values.
-- `w1Valid/w1Uop/w1SrcData/w1Result/w1Supported`: first writeback pipe stage.
-- `w2Valid/w2Uop/w2SrcData/w2Result/w2Supported`: completion pipe stage.
+- `w1Valid/w1Uop/w1SrcData/w1Result/w1Supported`: first writeback pipe stage,
+  including the E1-sampled `FRET.STK` condition.
+- `w2Valid/w2Uop/w2SrcData/w2Result/w2Supported`: completion pipe stage,
+  including the same return-local condition sample.
 
 The pipe is intentionally single-issue and in-order for the reduced frontend
 trace path.
@@ -190,7 +212,7 @@ The Chisel module implements the first reduced subset:
 | `OP_CMP_EQI` | `1` when `srcData(0) == in.imm`, otherwise `0` |
 | `OP_CSEL` | `srcData(0)` when `srcData(2) != 0`, otherwise `srcData(1)` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
-| `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
+| `OP_FRET_STK` | redirect-only while a live SETC/marker target is selected; on an explicit condition-false path, or when no condition and no target owner exist, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_HL_SB_PCR` | `0`, with a reduced 1-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
@@ -461,6 +483,12 @@ rows. The reduced issue queue has already marked the row issued when execute
 accepted it; an unsupported reduced opcode must still release that resident
 queue entry so the top does not deadlock while surfacing `unsupported`.
 
+`liqReleaseValid` is intentionally separate. A first-pass live load accepted
+by LIQ is suppressed from W1/W2 to prevent a duplicate direct completion, but
+the issued queue row must still be released. W2 and E1 handoff may coincide,
+so collapsing the two identities onto one release port would leave one issued
+row resident and eventually prevent the top from becoming idle.
+
 For R266 load wait-hold, the E-stage load remains resident while
 `loadLookupWaitBlocked` is asserted. Older W1/W2 work continues to drain; the
 held load does not advance to W1, does not emit completion/release, and keeps
@@ -486,14 +514,23 @@ vector, and tile loads remain future return-payload owners.
 ## Timing
 
 The reduced pipe captures a uop into E when `inValid && inReady`, computes the
-result when E advances to W1, and emits completion and release from W2. There
-is no downstream completion backpressure yet, so the owning top must only
-connect this module to a completion consumer that can accept one completion
-when `completeValid` pulses.
+result when E advances to W1, and emits completion and the normal release from
+W2. There is no downstream completion backpressure yet, so the owning top must
+only connect this module to a completion consumer that can accept one
+completion when `completeValid` pulses. A live LIQ handoff instead emits the
+separate E1 `liqRelease*` identity in its acceptance cycle.
 
 If `loadWaitHold` is asserted, W1/W2 still drain but E does not advance. The
 hold is cleared only by `flushValid` or by the owning top deasserting
 `loadLookupWaitBlocked` for the same resident E-stage load.
+
+With `loadLiqEnable`, an E-stage entry with `loadLiqEligible` instead holds
+until `loadLiqAccepted`. That accepted ordinary load is deliberately suppressed
+from direct W1, so it cannot race or duplicate the LIQ-owned completion.
+`FRET.STK` RA-load returns are not eligible and therefore continue through
+direct W1/W2, preserving their coupled RA writeback, SP restore, and redirect.
+`inReady` may accept a replacement uop in the acceptance cycle; if allocation
+is blocked, the original eligible E-stage metadata remains stable.
 
 ## Flush/Recovery
 
@@ -519,9 +556,10 @@ frontend rows to read earlier Chisel writebacks through renamed physical tags.
 `completeSrcPhysValid/Tag` are diagnostic sidebands used by the live
 CoreMark harness to correlate issue-time source physical tags with the
 writeback/rename map when debugging alias or premature-free hazards.
-`releaseValid/Bid/Gid/Rid/Stid` feed `ReducedScalarIssueQueue` so the queue
-removes the issued row only after this pipe reaches the reduced release point.
-The same W2 identity feeds `ReducedLoadReplayCompletionDrain` in the reduced
+`releaseValid/Bid/Gid/Rid/Stid` and `liqReleaseValid/Bid/Rid/Stid` feed the
+two release lanes of `ReducedScalarIssueQueue`, so a normal W2 row and an
+LIQ-owned E1 load can each retire their issued residency in the same cycle.
+The W2 identity still feeds `ReducedLoadReplayCompletionDrain` in the reduced
 top, ensuring a queued replay candidate is drained only by the exact load row
 that produced it.
 

@@ -22,6 +22,10 @@ class ReducedScalarIssueQueueIO(
   val releaseBid = Input(new ROBID(p.robEntries))
   val releaseRid = Input(new ROBID(p.robEntries))
   val releaseStid = Input(UInt(p.threadIdWidth.W))
+  val secondaryReleaseValid = Input(Bool())
+  val secondaryReleaseBid = Input(new ROBID(p.robEntries))
+  val secondaryReleaseRid = Input(new ROBID(p.robEntries))
+  val secondaryReleaseStid = Input(UInt(p.threadIdWidth.W))
 
   val readyMask = Input(UInt((1 << p.physRegWidth).W))
   val localTReadyMask = Input(UInt(4.W))
@@ -114,17 +118,32 @@ class ReducedScalarIssueQueue(
   }
 
   val rawReleaseMatches = Wire(Vec(depth, Bool()))
+  val primaryReleaseMatches = Wire(Vec(depth, Bool()))
+  val rawSecondaryReleaseMatches = Wire(Vec(depth, Bool()))
+  val secondaryReleaseMatches = Wire(Vec(depth, Bool()))
   val releaseMatches = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
     rawReleaseMatches(idx) := valid(idx) && issued(idx) &&
       sameRobId(entries(idx).bid, io.releaseBid) &&
       sameRobId(entries(idx).rid, io.releaseRid) &&
       (entries(idx).threadId === io.releaseStid)
-    val earlierMatch =
+    val earlierPrimaryMatch =
       if (idx == 0) false.B else VecInit((0 until idx).map(rawReleaseMatches(_))).asUInt.orR
-    releaseMatches(idx) := io.releaseValid && rawReleaseMatches(idx) && !earlierMatch
+    primaryReleaseMatches(idx) := io.releaseValid && rawReleaseMatches(idx) && !earlierPrimaryMatch
+
+    rawSecondaryReleaseMatches(idx) := valid(idx) && issued(idx) &&
+      sameRobId(entries(idx).bid, io.secondaryReleaseBid) &&
+      sameRobId(entries(idx).rid, io.secondaryReleaseRid) &&
+      (entries(idx).threadId === io.secondaryReleaseStid) &&
+      !primaryReleaseMatches(idx)
+    val earlierSecondaryMatch =
+      if (idx == 0) false.B else VecInit((0 until idx).map(rawSecondaryReleaseMatches(_))).asUInt.orR
+    secondaryReleaseMatches(idx) :=
+      io.secondaryReleaseValid && rawSecondaryReleaseMatches(idx) && !earlierSecondaryMatch
+    releaseMatches(idx) := primaryReleaseMatches(idx) || secondaryReleaseMatches(idx)
   }
-  val releaseFire = io.releaseValid && rawReleaseMatches.asUInt.orR
+  val releaseCount = PopCount(releaseMatches.asUInt)
+  val releaseFire = releaseMatches.asUInt.orR
 
   val entrySourceReady = Wire(Vec(depth, Vec(3, Bool())))
   val entryAllSourcesReady = Wire(Vec(depth, Bool()))
@@ -225,7 +244,7 @@ class ReducedScalarIssueQueue(
     keep(idx) := valid(idx) && !releaseMatches(idx)
   }
 
-  val baseCount = count - releaseFire.asUInt
+  val baseCount = count - releaseCount
   val nextEntries = Wire(Vec(depth, new RenamedUop(p)))
   val nextValid = Wire(Vec(depth, Bool()))
   val nextIssued = Wire(Vec(depth, Bool()))

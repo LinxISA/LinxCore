@@ -88,7 +88,7 @@ object LoadReplayReturnPipeW2CommitRowCandidateReference {
         metadataReady &&
         sourceTraceReady &&
         sizeSupported &&
-        destinationGpr
+        hasDestination
     val completeRowValid = rowFillCandidateValid && rowFillEnable
     val row = Row(
       valid = completeRowValid,
@@ -134,7 +134,7 @@ object LoadReplayReturnPipeW2CommitRowCandidateReference {
         candidateValid && targetValid && identityValid && metadataReady && sourceTraceReady && sizeSupported && !hasDestination,
       blockedByNonGprDestination =
         candidateValid && targetValid && identityValid && metadataReady && sourceTraceReady && sizeSupported &&
-          slotDst.valid && !destinationGpr,
+          false,
       blockedByRowFillDisabled = rowFillCandidateValid && !rowFillEnable)
   }
 }
@@ -252,7 +252,7 @@ class LoadReplayReturnPipeW2CommitRowCandidateSpec extends AnyFunSuite {
     assert(noSource.blockedByNoSourceTrace)
   }
 
-  test("reports invalid target identity size and destination blockers") {
+  test("reports invalid target identity size and missing-destination blockers while accepting local destinations") {
     val invalidTarget = LoadReplayReturnPipeW2CommitRowCandidateReference(
       enable = true,
       flush = false,
@@ -333,7 +333,9 @@ class LoadReplayReturnPipeW2CommitRowCandidateSpec extends AnyFunSuite {
     assert(invalidTarget.blockedByInvalidTarget)
     assert(invalidIdentity.blockedByInvalidIdentity)
     assert(invalidSize.blockedByInvalidSize)
-    assert(nonGpr.blockedByNonGprDestination)
+    assert(!nonGpr.blockedByNonGprDestination)
+    assert(nonGpr.rowFillCandidateValid)
+    assert(nonGpr.completeRowValid)
   }
 
   test("suppresses disabled flushed and empty slots") {

@@ -6,14 +6,15 @@ CHISEL_DIR="${ROOT_DIR}/chisel"
 FETCH_MARKER_ROWS_TRACE_TOP="${FETCH_MARKER_ROWS_TRACE_TOP:-0}"
 FETCH_REDUCED_STORE_DISPATCH_STQ="${FETCH_REDUCED_STORE_DISPATCH_STQ:-0}"
 FETCH_REDUCED_STORE_REPLAY_LIQ="${FETCH_REDUCED_STORE_REPLAY_LIQ:-0}"
+FETCH_REDUCED_STORE_LIVE_LOAD_LIQ="${FETCH_REDUCED_STORE_LIVE_LOAD_LIQ:-0}"
 selected_top_count=0
-for selected_top in "${FETCH_MARKER_ROWS_TRACE_TOP}" "${FETCH_REDUCED_STORE_DISPATCH_STQ}" "${FETCH_REDUCED_STORE_REPLAY_LIQ}"; do
+for selected_top in "${FETCH_MARKER_ROWS_TRACE_TOP}" "${FETCH_REDUCED_STORE_DISPATCH_STQ}" "${FETCH_REDUCED_STORE_REPLAY_LIQ}" "${FETCH_REDUCED_STORE_LIVE_LOAD_LIQ}"; do
   if [[ "${selected_top}" == "1" ]]; then
     selected_top_count=$((selected_top_count + 1))
   fi
 done
 if (( selected_top_count > 1 )); then
-  echo "error: FETCH_MARKER_ROWS_TRACE_TOP, FETCH_REDUCED_STORE_DISPATCH_STQ, and FETCH_REDUCED_STORE_REPLAY_LIQ are mutually exclusive" >&2
+  echo "error: FETCH_MARKER_ROWS_TRACE_TOP, FETCH_REDUCED_STORE_DISPATCH_STQ, FETCH_REDUCED_STORE_REPLAY_LIQ, and FETCH_REDUCED_STORE_LIVE_LOAD_LIQ are mutually exclusive" >&2
   exit 2
 fi
 if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
@@ -24,6 +25,10 @@ elif [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
   SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"
   TOP_MODULE="LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop"
   EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop"
+elif [[ "${FETCH_REDUCED_STORE_LIVE_LOAD_LIQ}" == "1" ]]; then
+  SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-live-load-liq-trace-top"
+  TOP_MODULE="LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop"
+  EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop"
 elif [[ "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
   SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-trace-top"
   TOP_MODULE="LinxCoreFrontendFetchRfAluReducedStoreTraceTop"
@@ -35,6 +40,7 @@ else
 fi
 TOP_SV="${SV_DIR}/${TOP_MODULE}.sv"
 BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck}"
+VERILATOR_BUILD_JOBS="${VERILATOR_BUILD_JOBS:-0}"
 if [[ "${BUILD_DIR}" != /* ]]; then
   BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"
 fi
@@ -225,6 +231,8 @@ if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
   TB_ARGS+=(--admit-marker-rows)
 elif [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
   VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP"
+elif [[ "${FETCH_REDUCED_STORE_LIVE_LOAD_LIQ}" == "1" ]]; then
+  VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP"
 elif [[ "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
   VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_TRACE_TOP"
 fi
@@ -239,6 +247,7 @@ verilator \
   --top-module "${TOP_MODULE}" \
   --exe "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp" \
   --build \
+  --build-jobs "${VERILATOR_BUILD_JOBS}" \
   -Mdir "${OBJ_DIR}" \
   -o linxcore_frontend_fetch_rf_alu_trace_top_tb \
   -CFLAGS "${VERILATOR_CFLAGS}"
@@ -246,7 +255,7 @@ verilator \
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" "${TB_ARGS[@]}"
 
 SIDEBAND_VALIDATOR_ARGS=("${SIDEBAND_STATS}")
-if [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
+if [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" || "${FETCH_REDUCED_STORE_LIVE_LOAD_LIQ}" == "1" ]]; then
   SIDEBAND_VALIDATOR_ARGS+=(--expect-reduced-store-replay-liq)
 fi
 if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_PRESET}" ]]; then

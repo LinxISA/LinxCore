@@ -1827,6 +1827,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_storeStqInsertValid"))
   }
 
+  test("reduced-store live-load-LIQ wrapper elaborates E1 admission and LIQ ownership") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop(
+        CoreParams(robEntries = 8, commitWidth = 2),
+        mapQDepth = 8)
+    )
+
+    assert(sv.contains("module LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop"))
+    assert(sv.contains("module ReducedLiveLoadLiqCapture"))
+    assert(sv.contains("io_captureAccepted"))
+    assert(sv.contains("io_candidateValid"))
+    assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
+    assert(sv.contains("module LoadInflightQueue"))
+  }
+
   test("reduced-store replay-LIQ wrapper elaborates allocation consumer diagnostics") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(

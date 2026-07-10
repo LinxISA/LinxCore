@@ -139,6 +139,8 @@ class LinxCoreFrontendAluTraceTop(
   execute.io.srcData := io.operandData
   execute.io.loadLookupData := 0.U
   execute.io.loadLookupWaitBlocked := false.B
+  execute.io.loadLiqEnable := false.B
+  execute.io.loadLiqAccepted := false.B
   execute.io.stackPointerData := io.operandData(1)
   execute.io.flushValid := io.frontendFlushValid
   execute.io.fretStkFallbackTargetValid := false.B

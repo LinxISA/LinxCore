@@ -7,6 +7,21 @@ The adapter lets Chisel, pyCircuit, and QEMU traces flow into the existing
 `tools/trace/crosscheck_qemu_linxcore.py` comparator without baking producer
 details into the comparator itself.
 
+## Partial sideband on harness failure
+
+When the generated-RTL trace harness exhausts its bounded commit wait, it
+still writes the requested `--sideband-stats` JSON before exiting nonzero. The
+partial report is diagnostic evidence only; it must not be used as a passing
+comparison result, but it preserves LIQ/LRET event counts needed to locate a
+stalled ownership boundary.
+
+The fetch/RF/ALU driver also samples the commit monitor immediately after each
+drain tick. A legal two-wide retirement can expose the following completed ROB
+row only after that edge; collecting only before the next expected-row advance
+would silently omit it and create a false QEMU/DUT divergence. The pending
+commit queue therefore remains the sole source of comparator order, but it is
+filled both before and after a drain edge.
+
 ## Tools
 
 - `tools/chisel/commit_trace_jsonl.h`
@@ -124,6 +139,19 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --max-seconds 5
 ```
 
+For first-pass scalar-load ownership, the generated-RTL wrapper accepts
+`--reduced-store-live-load-liq`. It selects the distinct
+`LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop`, where an E1 load
+must allocate in LIQ before its LRET/W1/W2 completion. Use the existing
+reduced-store/replay-LIQ options only for their respective harnesses: all four
+top selections are mutually exclusive. A bounded live-load run must retain
+the manifest and sideband statistics and show LIQ allocation plus launch
+before it is treated as evidence of the new owner.
+
+`VERILATOR_BUILD_JOBS` controls the Verilator `--build-jobs` value used by the
+fetch/RF/ALU runner. It defaults to `0` (Verilator auto-parallelism); set an
+explicit positive value only when host contention requires a lower bound.
+
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
 smokes and a live QEMU/CoreMark window. It accepts a flat or nested commit
 JSONL with `--input-trace`, normalizes it through `trace_schema_adapter.py`,
@@ -155,6 +183,13 @@ empty-trace error rather than hanging. Direct-boot CoreMark-style ET_DYN images
 currently carry physical load segments at `0x40000000`, while the Linx QEMU
 `virt` machine defaults to 128 MiB of RAM. Use an explicit memory argument for
 that class of ELF:
+
+`tools/qemu/run_qemu_commit_trace.sh --max-seconds N` is a hard wall-clock
+limit on every supported host. It uses `timeout`/`gtimeout` when available and
+otherwise starts QEMU in a Python-owned process group, sends `SIGTERM`, then
+escalates to `SIGKILL` after two seconds. A timed-out producer returns `124`;
+bounded-prefix callers may retain already captured rows, but must never leave a
+QEMU process running because a host lacks GNU coreutils.
 
 ```bash
 bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \

@@ -4,6 +4,9 @@
 #elif defined(LINXCORE_REDUCED_STORE_TRACE_TOP)
 #include "VLinxCoreFrontendFetchRfAluReducedStoreTraceTop.h"
 #define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreTraceTop
+#elif defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
+#include "VLinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop.h"
+#define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop
 #elif defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
 #include "VLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop.h"
 #define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop
@@ -963,7 +966,8 @@ void remember_replay_lret_committed_load(const ReplayLretRobId &id) {
 }
 
 void observe_replay_lret_commit_history(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
-#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
+    defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
   if (dut.io_commit_rows_0_valid && dut.io_commit_rows_0_mem_valid &&
       !dut.io_commit_rows_0_mem_isStore && dut.io_commit_rows_0_rob_valid) {
     ++g_replay_liq_sideband_stats.lret_commit_history_load_rows;
@@ -988,7 +992,8 @@ void observe_replay_lret_commit_history(const VLinxCoreFrontendFetchRfAluTraceTo
 }
 
 void observe_replay_lret_shadow_fifo(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
-#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
+    defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
   if (dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
     ++g_replay_liq_sideband_stats.lret_shadow_drain;
     if (g_replay_lret_shadow_queue.empty()) {
@@ -1034,7 +1039,8 @@ void observe_cycle(bool event, std::uint64_t cycle, std::uint64_t &first, std::u
 
 void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   ++g_replay_liq_sideband_stats.cycles_sampled;
-#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
+    defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
   const std::uint64_t cycle = g_replay_liq_sideband_stats.cycles_sampled;
   const std::uint64_t stq_occupied_mask =
       static_cast<std::uint64_t>(dut.io_storeStqOccupiedMask);
@@ -3383,7 +3389,8 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
   }
   out << "{\n"
       << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v56\",\n"
-#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
+    defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
       << "  \"reduced_store_replay_liq_top\": false,\n"
@@ -5742,6 +5749,14 @@ void trace_top_debug_pipeline(
             << " marker_redirect_pc=0x" << std::hex
             << static_cast<unsigned long long>(dut.io_blockMarkerStopRedirectPc)
             << std::dec
+            << " marker_active=" << static_cast<unsigned>(dut.io_blockMarkerActiveValid)
+            << " marker_active_bid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_blockMarkerActiveBid)
+            << " marker_active_target=0x"
+            << static_cast<unsigned long long>(dut.io_blockMarkerActiveTarget)
+            << " marker_target=0x"
+            << static_cast<unsigned long long>(dut.io_blockMarkerTarget)
+            << std::dec
             << " marker_lifecycle_fire=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleFire)
             << " marker_source_valid=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceValid)
             << " marker_source_bid=("
@@ -5990,6 +6005,9 @@ void expect_row(
                 << " dense_count=" << static_cast<unsigned>(dut->io_denseSlotQueueCount)
                 << " marker_barrier=" << static_cast<unsigned>(dut->io_admittedMarkerDrainBarrier)
                 << "\n";
+    }
+    if (!g_replay_liq_sideband_stats_path.empty()) {
+      write_replay_liq_sideband_stats(g_replay_liq_sideband_stats_path);
     }
     std::exit(1);
   }
@@ -7642,6 +7660,10 @@ void commit_expected_row(
       if (pending_commits.empty()) {
         clear_inputs(dut);
         tick(dut);
+        // A two-wide commit can make the following completed ROB row visible
+        // immediately after this edge.  Preserve it before returning to the
+        // caller, which is about to advance the expected-row cursor.
+        collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU trace top post-drain commit");
       }
       return;
     }
@@ -7675,6 +7697,11 @@ void commit_expected_row(
         fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
       }
       tick(dut);
+      // `tick` evaluates the state after the active edge.  Sample that
+      // commit window as well: otherwise a completed row immediately after a
+      // drained dual-commit window is retired without ever entering the
+      // harness's pending-commit queue.
+      collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU trace top post-drain commit");
       return;
     }
     if (observed_commit_window) {
@@ -7854,7 +7881,41 @@ void commit_expected_row(
             << " retiredMask=0x"
             << hex_port(dut.io_retiredMask)
             << std::dec
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
+    defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
+            << " liqOccupied=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqOccupiedMask)
+            << " liqWait=0x" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqWaitMask)
+            << " liqLaunchWait=0x" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchWaitMask)
+            << " liqLaunchUnblocked=0x" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchUnblockedWaitMask)
+            << " liqLaunchCandidate=0x" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchCandidateMask)
+            << " liqLaunchMask=0x" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchMask)
+            << std::dec
+            << " liqLaunchValid=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchValid)
+            << " liqLaunchDrive=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchDriveValid)
+            << " liqLaunchReady=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReady)
+            << " liqLaunchAccepted=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchAccepted)
+            << " liqBaseLookupValid=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupValid)
+            << " liqBaseLookupGranted=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupGranted)
+            << " liqBaseDataReturned=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseDataReturned)
+            << " liqLaunchReadinessCandidate=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessCandidateValid)
+            << " liqLaunchReadinessBaseData=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBaseDataReady)
+            << " liqLaunchReadinessSources=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessSourcesReturned)
+            << " liqLaunchReadinessReady=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessReady)
+            << " liqLaunchEnable=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessEnable)
+            << " liqLaunchBlockNoCandidate=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByNoCandidate)
+            << " liqLaunchBlockLookup=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByBaseLookup)
+            << " liqLaunchBlockData=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByBaseData)
+            << " liqLaunchBlockScb=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByScb)
+            << " liqReturnValid=" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnCompleteValid)
+            << " liqReturnCandidate=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnCompleteCandidateMask)
+            << std::dec
+#endif
             << "\n";
+  if (!g_replay_liq_sideband_stats_path.empty()) {
+    write_replay_liq_sideband_stats(g_replay_liq_sideband_stats_path);
+  }
   std::exit(1);
 }
 

@@ -61,11 +61,11 @@ identityValid = slotBid.valid && slotGid.valid && slotRid.valid
 metadataReady = instructionValid && instructionLen != 0
 sourceTraceReady = sourceTraceValid
 sizeSupported = slotSize in {1, 2, 4, 8}
-destinationGpr = slotDst.valid && slotDst.kind == Gpr
+hasDestination = slotDst.valid && slotDst.kind != None
 
 rowFillCandidateValid =
   candidateValid && targetValid && identityValid &&
-  metadataReady && sourceTraceReady && sizeSupported && destinationGpr
+  metadataReady && sourceTraceReady && sizeSupported && hasDestination
 
 completeRowValid = rowFillCandidateValid && rowFillEnable
 ```
@@ -89,10 +89,15 @@ R366 wires the candidate in `LinxCoreFrontendFetchRfAluTraceTop` before
 - diagnostics are exposed as
   `reducedLoadReplayLiqLretPipeW2CommitRowCandidate*`.
 
-Because the R367 control cannot assert `rowFillEnable` in the integrated top,
-the candidate can expose coherent row-fill evidence only as a diagnostic and
-cannot assert `completeRowValid`; `ReducedRobCompletionArbiter` still receives
-no replay row replacement payload.
+The live-LIQ path drives `rowFillEnable` directly from the W2 all-side-effect
+fire. That produces the complete row atomically with resolve, writeback where
+applicable, wakeup, and LIQ retirement.
+
+The commit image is destination-class agnostic: GPR, local T, and local U
+loads all have architectural `dst`/`wb` and memory trace data. GPR-only RF
+writeback remains a separate W2 policy; a local destination is not a reason to
+discard the ROB completion row. The legacy non-GPR blocker output is retained
+for interface compatibility and remains false for a valid local destination.
 
 R552 adds generated-RTL sideband counters for this candidate's specific
 blockers. The replay-loop fixture shows the resident W2 candidate is present
@@ -121,8 +126,8 @@ prerequisite/lifecycle readiness before `rowFillEnable` can promote
 
 - Replay-row lifecycle readiness and final live request promotion through the
   R367 row-fill enable owner.
-- Non-GPR destination commit-row policy if replay loads to local T/U state must
-  become visible in the monitored commit stream.
+- Local T/U value delivery is owned by the integrated W2 local-result path;
+  this candidate only supplies the architectural commit image.
 
 ## Verification
 
@@ -136,5 +141,5 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 
 Reference tests cover valid row-fill evidence, dormant row-fill disable, missing
 instruction metadata, missing source trace, invalid target, invalid identity,
-invalid size, non-GPR destination, disabled/flush/empty suppression, and Chisel
-elaboration.
+invalid size, accepted local destination, disabled/flush/empty suppression, and
+Chisel elaboration.

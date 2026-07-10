@@ -53,13 +53,15 @@ keeps the row resident until the existing ALU release path removes it.
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `inValid` | `Bool` | valid | Rename output row is available for enqueue. |
-| output | `inReady` | `Bool` | ready | Queue can accept the row, including same-cycle release from a full queue. |
+| output | `inReady` | `Bool` | ready | Queue can accept the row, including one or two same-cycle releases from a full queue. |
 | input | `in` | `RenamedUop` | with `inValid` | Renamed scalar row, physical sources, destination physical tag, ROB identity, and decoded sidecars. |
 | input | `flushValid` | `Bool` | valid | Clears the reduced queue. |
 | input | `releaseValid` | `Bool` | valid | ALU pipe has reached the reduced release point for an issued row. |
 | input | `releaseBid` | `ROBID` | with `releaseValid` | Block identity of the issued row to remove. |
 | input | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity of the issued row to remove. |
 | input | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID of the issued row to remove. |
+| input | `secondaryReleaseValid` | `Bool` | valid | Independent second release lane, used when a live E1 load transfers ownership to LIQ while another row reaches W2. |
+| input | `secondaryReleaseBid`, `secondaryReleaseRid`, `secondaryReleaseStid` | mixed | with `secondaryReleaseValid` | Issued-row identity to remove on the independent second release lane. |
 | input | `readyMask` | `UInt(physRegCount.W)` | combinational | Reduced scalar RF ready-table snapshot used to initialize and update resident source-ready bits. |
 | input | `localTReadyMask`, `localUReadyMask` | `UInt(4.W)` | combinational | Reduced local T/U queue readiness snapshots for source aliases in the live CoreMark prefix. |
 | output | `readValid` | `Vec(3, Bool)` | combinational | Valid source lanes for the selected ready row. |
@@ -76,7 +78,7 @@ keeps the row resident until the existing ALU release path removes it.
 | output | `pickFire` | `Bool` | pulse | P1 selected a resident row and the queue locked it in-flight. |
 | output | `issueFire` | `Bool` | pulse | I2 row accepted by execute. This does not deallocate queue residency. |
 | output | `cancelFire` | `Bool` | pulse | I1 read readiness failed and the selected row's in-flight lock was cleared. |
-| output | `releaseFire` | `Bool` | pulse | One issued row matched the release identity and was removed. |
+| output | `releaseFire` | `Bool` | pulse | At least one issued row matched a release identity and was removed. Two distinct rows may retire in one cycle. |
 | output | `enqueueDstValid` | `Bool` | pulse | Enqueued row allocated a scalar GPR destination physical tag. T/U destinations do not clear scalar RF readiness. |
 | output | `enqueueDstTag` | `UInt(physRegWidth.W)` | with `enqueueDstValid` | Destination physical tag to mark not-ready in the RF. |
 | output | `empty`, `full` | `Bool` | diagnostic | Occupancy status. |
@@ -162,13 +164,14 @@ classes, physical tags, and relative tags. These are diagnostic-only outputs
 used by the live QEMU harness to distinguish true local-source waits from
 stale local-overlay backpressure.
 
-`releaseValid` removes the first in-flight row whose `(bid, rid, stid)` matches
-the release payload. Remaining rows are compacted toward slot 0, preserving
-FIFO order. In-flight rows are ineligible for another pick, but they do not
-force the queue back to head-only issue: a younger ready non-issued row can be
-picked while an older in-flight row waits for W2 release. This follows the C++
-model's select/release split without deallocating on P1 pick or execute
-acceptance.
+Each release lane removes at most one in-flight row whose `(bid, rid, stid)`
+matches its release payload. The primary lane has priority if both lanes name
+the same row; otherwise two distinct issued rows may be removed in one cycle.
+Remaining rows are compacted toward slot 0, preserving FIFO order. In-flight
+rows are ineligible for another pick, but they do not force the queue back to
+head-only issue: a younger ready non-issued row can be picked while an older
+in-flight row waits for W2 release. This follows the C++ model's
+select/release split without deallocating on P1 pick or execute acceptance.
 
 On enqueue, `enqueueDstValid/enqueueDstTag` publish the allocated destination
 physical tag so the RF can mark that tag not-ready at queue admission. That

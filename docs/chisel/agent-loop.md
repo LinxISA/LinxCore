@@ -17,6 +17,65 @@ anchored to a real retirement and trace oracle.
 
 ## Latest Loop State
 
+R633-R656 closes the first-pass ordinary-load LIQ ownership gap in the reduced
+live CoreMark lane. `ReducedLiveLoadLiqCapture` now transfers ordinary E1 loads
+to LIQ; LIQ owns the selected E2/E3/E4 lookup/forward, LRET, W1/W2, commit-row
+completion, writeback/wakeup, and resolved-row clear. The legacy source-return
+route remains disabled for these first-pass rows. The shared store overlay is
+now driven by the selected lookup-arbiter request, so a live LIQ load sees
+committed-store bytes at E2 rather than an immutable E1-only harness lookup.
+
+The generated RTL evidence is
+`generated/r656-coremark-live-load-liq-fret-no-target-ra-xcheck`: the
+Verilator harness exhausts its bounded reference and writes 1,468 matching DUT
+and QEMU-shaped architectural rows with zero comparator mismatches. Its live
+LIQ sideband confirms 178 accepted allocations, 178 E2 launches, 191 E4 return
+candidates, 178 W2 slot accepts, 178 W2 side-effect completions, 178
+commit-row candidates, and 178 lifecycle-ready clears. The validation gate
+requires nonzero allocation, launch, return, W2-slot, W2-side-effect, and
+commit-row counters. This proves the bounded first-pass LIQ path; it is not a
+terminal full-CoreMark exit proof.
+
+The same packet fixes two trace-top false frontiers. The harness now samples a
+post-edge commit slot after drain, preserving a legal two-wide commit that
+previously stopped the r649 comparison at the `C.MOVR` around row 940. FRET
+ownership is now explicit: the active SETC condition is sampled in FRET E1 and
+carried through W1/W2, while the shared boundary latch may clear for a younger
+marker; a valid false condition selects the RA load, and an absent condition
+selects RA only when neither a SETC nor active-marker target exists. Synthetic
+FRET RA loads stay direct-execute owned and retain direct sparse-memory lookup
+when live LIQ is enabled. The first loop sequence at `0x4000d2d4`, its final
+RA return, and the later no-target RA return at `0x4000d7f2` all pass within
+r656.
+
+Next: increase the bounded QEMU/CoreMark capture or add a terminal workload
+driver, then classify the next first-divergence row. Preserve r656 reports and
+sideband statistics before pruning its reproducible object directory.
+
+skill-evolve: update linx-core (FRET condition/target sampling and direct
+lookup ownership are reusable live-LIQ invariants).
+
+R633 establishes the first-pass ordinary-load LIQ admission packet. The new
+`ReducedLiveLoadLiqCapture` owns the E1-to-LIQ handshake; when the new
+reduced-store live-load-LIQ harness is selected, an ordinary scalar load holds
+in execute until LIQ allocation accepts it and is then suppressed from direct
+execute W1/W2 completion. The shared LIQ launch, LRET, and W1/W2 return path
+is enabled for that row. `ReducedLiveLoadLiqCaptureSpec`, the execute
+elaboration gate, the complete fetch/RF/ALU top suite, and the no-load
+three-row generated-RTL fixture all pass. The first-load generated-binary
+probe records nonzero LIQ allocation, base lookup, LRET, W1, W2, ROB
+completion, and RF-writeback sideband events; however,
+`liq_launch_accepted=0`, so it is not E2/E3/E4 launch proof. The LDI/SDI/LDI
+probe reaches matching commits for the first load and store, then fails to
+retire the second load at `pc=0x1000a`: the issue head is the older issued LDI
+with physical source tag 0 ready, while ROB row 2 remains incomplete. The
+sideband shows two allocations and no accepted LIQ launch, identifying the
+current return path as prematurely completing its pre-launch candidate rather
+than closing real E2/E3/E4 ownership. Do not claim a nonzero LIQ-launch proof
+or architectural CoreMark completion from R633. The next packet must gate
+return publication on accepted launch, then repair any remaining return-side
+lifecycle ownership before rerunning this fixture.
+
 R620 executes the safe R619 preflight path and records the outcome with
 `tools/chisel/build_replay_liq_selector_preflight_report.py`. The raw skipped
 QEMU-only command for the R617/R618 candidate passes with 6 raw rows, 5 reduced

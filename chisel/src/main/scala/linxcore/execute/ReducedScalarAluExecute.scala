@@ -20,6 +20,8 @@ class ReducedScalarAluExecuteIO(
   val srcData = Input(Vec(3, UInt(p.immWidth.W)))
   val loadLookupData = Input(UInt(p.immWidth.W))
   val loadLookupWaitBlocked = Input(Bool())
+  val loadLiqEnable = Input(Bool())
+  val loadLiqAccepted = Input(Bool())
   val stackPointerData = Input(UInt(p.immWidth.W))
   val flushValid = Input(Bool())
   val fretStkFallbackTargetValid = Input(Bool())
@@ -42,6 +44,7 @@ class ReducedScalarAluExecuteIO(
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val loadLookupSize = Output(UInt(p.memSizeWidth.W))
   val loadLookupReturnSignExtend = Output(Bool())
+  val loadLiqEligible = Output(Bool())
   val loadLookupPc = Output(UInt(p.pcWidth.W))
   val loadLookupBid = Output(new ROBID(p.robEntries))
   val loadLookupGid = Output(new ROBID(p.robEntries))
@@ -62,6 +65,10 @@ class ReducedScalarAluExecuteIO(
   val releaseGid = Output(new ROBID(p.robEntries))
   val releaseRid = Output(new ROBID(p.robEntries))
   val releaseStid = Output(UInt(p.threadIdWidth.W))
+  val liqReleaseValid = Output(Bool())
+  val liqReleaseBid = Output(new ROBID(p.robEntries))
+  val liqReleaseRid = Output(new ROBID(p.robEntries))
+  val liqReleaseStid = Output(UInt(p.threadIdWidth.W))
 
   val accepted = Output(Bool())
   val busy = Output(Bool())
@@ -576,6 +583,11 @@ class ReducedScalarAluExecute(
   val w1Supported = Reg(Bool())
   val w1StackPointerData = Reg(UInt(p.immWidth.W))
   val w1FretStkLoadReturn = Reg(Bool())
+  // FRET.STK consumes the block SETC condition in E1. Keep that decision
+  // with the uop through W1/W2: fetch may cross a later BSTART and clear the
+  // shared block-condition latch before this older return completes.
+  val w1FretStkConditionValid = RegInit(false.B)
+  val w1FretStkConditionTaken = RegInit(false.B)
 
   val w2Valid = RegInit(false.B)
   val w2Uop = Reg(new RenamedUop(p))
@@ -584,6 +596,8 @@ class ReducedScalarAluExecute(
   val w2Supported = Reg(Bool())
   val w2StackPointerData = Reg(UInt(p.immWidth.W))
   val w2FretStkLoadReturn = Reg(Bool())
+  val w2FretStkConditionValid = RegInit(false.B)
+  val w2FretStkConditionTaken = RegInit(false.B)
   val setcTargetValid = RegInit(false.B)
   val setcTarget = RegInit(0.U(p.pcWidth.W))
 
@@ -594,14 +608,17 @@ class ReducedScalarAluExecute(
   val eLoadPcr =
     eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
       eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR)
-  val eFretStkConditionAllowsLoad = !io.fretStkConditionValid || !io.fretStkConditionTaken
-  val eFretStkTargetWouldWin =
-    (setcTargetValid || io.fretStkFallbackTargetValid) &&
-      (!io.fretStkConditionValid || io.fretStkConditionTaken)
+  // An explicit not-taken condition selects the synthetic RA-load form. An
+  // absent condition instead keeps a live SETC/marker target authoritative;
+  // if neither target owner exists, the only defined FRET.STK continuation is
+  // the synthetic RA return.
+  val eFretStkHasRedirectTarget = setcTargetValid || io.fretStkFallbackTargetValid
+  val eFretStkConditionAllowsLoad =
+    (io.fretStkConditionValid && !io.fretStkConditionTaken) ||
+      (!io.fretStkConditionValid && !eFretStkHasRedirectTarget)
   val eFretStkLoadReturn =
     eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK) &&
       eFretStkConditionAllowsLoad &&
-      !eFretStkTargetWouldWin &&
       fretStkRestoresRa(eUop.insnRaw)
   io.loadLookupValid := !io.flushValid && eValid && (eLoadC || eLoadByteI || eLoadI || eLoadPcr || eFretStkLoadReturn)
   io.loadLookupAddr := Mux(
@@ -617,6 +634,12 @@ class ReducedScalarAluExecute(
   val eLoadLookupSize = Mux(eLoadByteI, 1.U(p.memSizeWidth.W), 8.U(p.memSizeWidth.W))
   io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
   io.loadLookupReturnSignExtend := io.loadLookupValid && loadReturnSignExtend(eUop.opcode)
+  // FRET.STK's optional RA read has architectural effects beyond a normal
+  // load: it synthesizes the RA destination, restores SP, and redirects.
+  // Keep that return on the direct execute path until LIQ owns all of those
+  // effects as one transaction.
+  val eLoadLiqEligible = io.loadLookupValid && !eFretStkLoadReturn
+  io.loadLiqEligible := eLoadLiqEligible
   io.loadLookupPc := Mux(io.loadLookupValid, eUop.pc, 0.U)
   io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
   io.loadLookupGid := Mux(io.loadLookupValid, eUop.gid, ROBID.disabled(p.robEntries))
@@ -638,7 +661,11 @@ class ReducedScalarAluExecute(
     io.loadLookupSource1.reg := fitReg(eUop.src(1).archTag)
     io.loadLookupSource1.data := eSrcData(1)
   }
-  val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked
+  // A live-LIQ load is retired from E1 only after the allocator handshake.
+  // In that mode LIQ, not the direct execute lookup, owns store-forward waits.
+  val eLoadLiqRetire = eLoadLiqEligible && io.loadLiqEnable && io.loadLiqAccepted
+  val eLoadWaitHold =
+    io.loadLookupValid && Mux(eLoadLiqEligible && io.loadLiqEnable, !io.loadLiqAccepted, io.loadLookupWaitBlocked)
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
 
@@ -656,17 +683,21 @@ class ReducedScalarAluExecute(
     w2Supported := w1Supported
     w2StackPointerData := w1StackPointerData
     w2FretStkLoadReturn := w1FretStkLoadReturn
+    w2FretStkConditionValid := w1FretStkConditionValid
+    w2FretStkConditionTaken := w1FretStkConditionTaken
 
     when(eLoadWaitHold) {
       w1Valid := false.B
     }.otherwise {
-      w1Valid := eValid
+      w1Valid := eValid && !eLoadLiqRetire
       w1Uop := eUop
       w1SrcData := eSrcData
       w1Result := eResult
       w1Supported := eSupported
       w1StackPointerData := io.stackPointerData
       w1FretStkLoadReturn := eFretStkLoadReturn
+      w1FretStkConditionValid := io.fretStkConditionValid
+      w1FretStkConditionTaken := io.fretStkConditionTaken
 
       eValid := accept
       when(accept) {
@@ -676,7 +707,7 @@ class ReducedScalarAluExecute(
     }
   }
 
-  io.inReady := !io.flushValid && !eValid
+  io.inReady := !io.flushValid && (!eValid || eLoadLiqRetire)
   io.accepted := accept
   io.busy := !io.flushValid && (eValid || w1Valid || w2Valid)
   io.loadWaitHold := !io.flushValid && eLoadWaitHold
@@ -685,7 +716,7 @@ class ReducedScalarAluExecute(
   io.completeLsId := Mux(io.completeValid, w2Uop.lsid, 0.U)
   val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
   val w2FretStkFallbackTargetValid = io.fretStkFallbackTargetValid
-  val w2FretStkConditionAllowsTarget = !io.fretStkConditionValid || io.fretStkConditionTaken
+  val w2FretStkConditionAllowsTarget = !w2FretStkConditionValid || w2FretStkConditionTaken
   val w2FretStkTargetTaken =
     (setcTargetValid || w2FretStkFallbackTargetValid) && w2FretStkConditionAllowsTarget
   val w2FretStkTarget = Mux(setcTargetValid, setcTarget, io.fretStkFallbackTarget)
@@ -753,6 +784,14 @@ class ReducedScalarAluExecute(
   io.releaseGid := w2Uop.gid
   io.releaseRid := w2Uop.rid
   io.releaseStid := w2Uop.threadId
+  // A first-pass live load hands its completion ownership to LIQ in E1, so
+  // it must release its issue-queue residency there rather than waiting for a
+  // W2 row that will intentionally never exist.  Keep this a separate port:
+  // a W2 completion and an E1 LIQ handoff may occur in the same cycle.
+  io.liqReleaseValid := !io.flushValid && eLoadLiqRetire
+  io.liqReleaseBid := Mux(io.liqReleaseValid, eUop.bid, ROBID.disabled(p.robEntries))
+  io.liqReleaseRid := Mux(io.liqReleaseValid, eUop.rid, ROBID.disabled(p.robEntries))
+  io.liqReleaseStid := Mux(io.liqReleaseValid, eUop.threadId, 0.U)
   io.unsupported := !io.flushValid && w2Valid && !w2Supported
   io.unsupportedOpcode := w2Uop.opcode
 }
@@ -956,7 +995,6 @@ object ReducedScalarAluExecute {
       conditionValid: Boolean,
       conditionTaken: Boolean,
       targetPending: Boolean = false): Boolean = {
-    val targetWouldWin = targetPending && (!conditionValid || conditionTaken)
-    restoresRa && (!conditionValid || !conditionTaken) && !targetWouldWin
+    restoresRa && ((conditionValid && !conditionTaken) || (!conditionValid && !targetPending))
   }
 }

@@ -108,7 +108,7 @@ class LoadReplayReturnPipeW2CommitRowCandidate(
       metadataReady &&
       sourceTraceReady &&
       sizeSupported &&
-      destinationGpr
+      hasDestination
   val completeRowValid = rowFillCandidateValid && io.rowFillEnable
 
   val row = Wire(new CommitTraceRow(traceParams))
@@ -170,6 +170,6 @@ class LoadReplayReturnPipeW2CommitRowCandidate(
     candidateValid && targetValid && identityValid && metadataReady && sourceTraceReady && sizeSupported && !hasDestination
   io.blockedByNonGprDestination :=
     candidateValid && targetValid && identityValid && metadataReady && sourceTraceReady && sizeSupported &&
-      io.slotDst.valid && !destinationGpr
+      false.B
   io.blockedByRowFillDisabled := rowFillCandidateValid && !io.rowFillEnable
 }

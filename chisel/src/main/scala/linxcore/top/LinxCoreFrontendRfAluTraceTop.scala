@@ -182,6 +182,10 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.releaseBid := execute.io.releaseBid
   issue.io.releaseRid := execute.io.releaseRid
   issue.io.releaseStid := execute.io.releaseStid
+  issue.io.secondaryReleaseValid := false.B
+  issue.io.secondaryReleaseBid := ROBID.disabled(p.robEntries)
+  issue.io.secondaryReleaseRid := ROBID.disabled(p.robEntries)
+  issue.io.secondaryReleaseStid := 0.U
   issue.io.readyMask := rf.io.readyMask
   issue.io.localTReadyMask := 0.U
   issue.io.localUReadyMask := 0.U
@@ -215,6 +219,8 @@ class LinxCoreFrontendRfAluTraceTop(
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := 0.U
   execute.io.loadLookupWaitBlocked := false.B
+  execute.io.loadLiqEnable := false.B
+  execute.io.loadLiqAccepted := false.B
   execute.io.stackPointerData := scalarSpValue
   execute.io.flushValid := io.frontendFlushValid
   execute.io.fretStkFallbackTargetValid := false.B

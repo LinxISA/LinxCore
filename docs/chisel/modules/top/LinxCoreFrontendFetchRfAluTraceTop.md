@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
 - Reduced-store replay-LIQ harness: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop.scala`
+- Reduced-store live-load-LIQ harness: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop.scala`
 - Marker-row harness: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluMarkerRowsTraceTop.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTopSpec.scala`
 - Verilator driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`
@@ -139,6 +140,19 @@ F4, and advances its PC from F4's decoded byte count. The decoded row then
 passes through reduced decode/rename/ROB allocation, reduced scalar issue,
 RF-backed source reads, reduced ALU execute, RF writeback, and monitored ROB
 commit.
+
+`LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop` is the explicit
+opt-in harness for ordinary scalar-load ownership. It enables store dispatch,
+the shared LIQ return machinery, and `useReducedLiveLoadLiq`. A valid E1 load
+therefore allocates through `ReducedLiveLoadLiqCapture` before LIQ launch and
+LRET/W1/W2 completion; it cannot also complete through the direct execute
+load-data path. The existing replay-LIQ wrapper remains the wait-store replay
+exercise surface, while the live-load wrapper is the bounded CoreMark probe
+for first-pass LIQ allocation and launch.
+
+The live wrapper deliberately does not let pre-E4 LRET-pipe availability gate
+LIQ launch readiness. E2 must create the E4 result before the return pipeline
+can claim it; requiring the opposite ordering would deadlock a valid load.
 
 The top proves one more replacement step on the CoreMark path: the harness now
 serves instruction bytes through reusable binary or sparse fetch-memory image
@@ -304,7 +318,11 @@ and splits marker redirects from scalar execute redirects: marker redirects
 restart the frontend path, while scalar redirects also flush backend issue,
 execute, rename/ROB cleanup, report queues, and the full-BID BROB block state.
 `FRET.STK` takes its next PC from an explicit SETC target when present and
-otherwise from the active marker target, `FENTRY` uses an internal SP shadow
+otherwise from the active marker target. The shared SETC condition is consumed
+at the next marker boundary, while `ReducedScalarAluExecute` snapshots it in
+FRET E1 and carries that return-local sample through W1/W2. Thus a younger
+frontend-consumed `BSTART` cannot alter an older in-flight FRET, yet an old
+condition cannot leak into a later conditional block. `FENTRY` uses an internal SP shadow
 for its macro stack update, ranged `FENTRY` store data is suppressed for the
 reduced trace contract, and the issue picker preserves a selected-ready
 snapshot so later RF/local readiness drops do not cancel an already selected
@@ -1398,7 +1416,7 @@ store).
 | output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingUsesLocal`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness, whether the dec/ren head actually needs local operands, and producer-pending gate visible to issue selection and live-stall diagnostics. |
 | output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, head row fields, source lane shape, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
-| output | `loadLookupValid`, `loadLookupAddr`, `loadLookupPc`, `loadLookupDst*`, `loadLookupExecuteGranted`, `loadLookupReplayGranted` | mixed | diagnostic | Arbiter-selected reduced sparse-memory load lookup request. Execute has priority for `OP_C_LDI`/`OP_LDI` and resident wait-store replay-slot loads; replay-LIQ base lookup may drive the port only when execute is idle. The execute path also exposes the current load destination, and the replay path carries the row's BID/GID/RID internally. |
+| output | `loadLookupValid`, `loadLookupAddr`, `loadLookupPc`, `loadLookupDst*`, `loadLookupExecuteGranted`, `loadLookupReplayGranted` | mixed | diagnostic | Arbiter-selected reduced sparse-memory load lookup request. Execute has priority for `OP_C_LDI`/`OP_LDI`, `FRET.STK` RA-load returns, and resident wait-store replay-slot loads; replay-LIQ base lookup may drive the port only when execute is idle. The execute path also exposes the current load destination, and the replay path carries the row's BID/GID/RID internally. `FRET.STK` remains direct-execute owned rather than live-LIQ admitted until LIQ can atomically perform its synthetic RA writeback, SP restore, and redirect. |
 | output | `reducedStoreDispatchEnabled` | `Bool` | diagnostic | Static top parameter reflection for the optional reduced STQ dispatch path. |
 | output | `reducedStoreExec*` | mixed | diagnostic | R239 reduced store execution-result bridge diagnostics: store completion capture, duplicate/blocked capture, STA/STD queue-head matches, valid mask, and buffer count. |
 | output | `reducedStoreStaExecValid`, `reducedStoreStdExecValid` | `Bool` | diagnostic | R239 explicit STA/STD execution-result validity presented to `StoreDispatchSTQPath`. |
@@ -2300,7 +2318,10 @@ unrelated older issue activity.
 For a conditional active block, the top captures
 `ReducedScalarAluExecute.branchCondition*` and presents the pending decision to
 `DecodeRenameROBPath` until the next marker boundary consumes it. The latch is
-cleared on start/restart/frontend flush and after the boundary drains.
+cleared on start/restart/frontend flush and after the boundary drains. An
+in-flight `FRET.STK` samples that state in E1, then carries its own condition
+through W1/W2; the shared boundary latch may therefore clear without changing
+the older return's redirect/load choice.
 Execute-owned scalar redirects, currently `FRET.STK`, share the reduced
 frontend restart path and also pulse `DecodeRenameROBPath.scalarRedirectValid`
 so stale active marker target state cannot leak into the return target body.
@@ -4128,6 +4149,7 @@ fixture.
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r302-replay-liq-return-pipe-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r303-replay-liq-return-pipe-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r446-replay-liq-sideband-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_LIVE_LOAD_LIQ=1 BUILD_DIR=generated/live-load-liq-fixture-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r447-sideband-contract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r448-replay-liq-stage-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayMdbLookupWaitPlan`
@@ -4221,3 +4243,57 @@ fixture.
 - `bash -n tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash -n tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
 - `BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6 FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl FETCH_QEMU_MAX_ROWS=0 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+### Live LIQ first-pass launch ownership
+
+When `useReducedLiveLoadLiq` is selected, an ordinary scalar load is admitted
+to LIQ as a `Wait` row and must transition through the LIQ E2/E3/E4 forwarding
+pipeline before it is eligible for LRET. The older source-return snapshot path
+continues to own replay-queue candidates but is disabled for first-pass live
+admission. This prevents a source-snapshot row mutation from turning an
+unlaunched live row into `Repick` and bypassing `liq_launch_accepted`.
+
+The live path initially treats its SCB/STQ source sidebands and E2 return port
+as returned. LRET capacity is evaluated only after E4 produces a return
+candidate. Store data dependencies remain explicit in `LoadForwardPipeline`:
+an unavailable resident-store byte produces `waitStore`, and
+`ResidentStoreReplayWakeup` unblocks and relaunches that LIQ row once the store
+data is ready.
+
+After E4, a live row is retained in `Resolved` until W2 has performed its
+resolve, GPR writeback, wakeup, commit-row, and lifecycle-clear transaction.
+The legacy replay route may publish an LHQ record to `ResolveQ` and let that
+queue clear the row; first-pass live loads must not use that shortcut because
+it invalidates the W2 lifecycle proof. W2 therefore asserts its sink-live
+request directly from a live completion candidate, while the existing atomic
+request gate continues to validate the full row-clear and commit prerequisites
+before promoting the transaction. For live loads, the commit-row fill is owned
+by the same W2 side-effect-fire completion that issues resolve, writeback, and
+wakeup. This keeps the ROB's completed trace image—including `mem.valid`,
+address, data, and size—atomic with architectural completion instead of
+leaving the pre-execute rename image in place.
+
+That same W2 completion selects the uniquely matching `Resolved` LIQ entry as
+an explicit clear request. It cannot retire a row before the architectural
+effects have fired, and it cannot clear an ambiguous match. The legacy
+`ResolveQ`/head-repick clear sources remain active only for the legacy replay
+route, so a live row cannot be stranded after a successful W2 transaction.
+
+W2 also delivers LIQ-owned local T/U results into the same reduced local-value
+queues used by direct W2 completion. If a direct W2 row and a younger live-LIQ
+row target the same local class in one cycle, both values are retained in age
+order. This keeps local aliases (`r31` for T and `r30` for U) architecturally
+visible while the LIQ path suppresses the direct execute completion.
+
+The shared store-memory overlay and resident-store forwarding lookup are driven
+by the selected `LoadLookupArbiter` request. Consequently, an E2 lookup for a
+live LIQ row receives the same committed-store overlay and resident-store
+bytes that a direct E1 lookup would receive. Driving those structures solely
+from E1 is incorrect: LIQ deliberately frees E1 at capture, so a later base
+lookup would otherwise read the immutable harness image and lose a preceding
+CoreMark store.
+
+LRET's IEX drain permit also reflects the actual residency-slot occupancy. The
+single-slot reduced return pipe must backpressure LRET while that slot advances
+to W1; an always-empty permit mask would consume a second return and lose it
+before W2. This is payload preservation, not a throughput policy: the waiting
+LRET entry drains on the next cycle after residency clears.
