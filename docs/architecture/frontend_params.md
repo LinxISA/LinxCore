@@ -2,9 +2,9 @@
 
 Frontend parameters are exposed at:
 
-- `/Users/zhoubot/LinxCore/src/linxcore_top.py`
-- `/Users/zhoubot/LinxCore/src/top/top.py`
-- `/Users/zhoubot/LinxCore/src/bcc/ifu/icache.py`
+- `rtl/LinxCore/src/linxcore_top.py`
+- `rtl/LinxCore/src/top/top.py`
+- `rtl/LinxCore/src/bcc/ifu/icache.py`
 
 ## Parameters
 
@@ -45,7 +45,7 @@ Frontend parameters are exposed at:
 
 ## TB-L2 Miss Model
 
-- `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp` uses:
+- `rtl/LinxCore/tb/tb_linxcore_top.cpp` uses:
   - `PYC_IC_MISS_CYCLES` (default `20`)
 - Contract:
   - single blocking miss,

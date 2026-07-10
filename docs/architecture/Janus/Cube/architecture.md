@@ -970,7 +970,8 @@ Cycle 20: 释放 ACC slice
 // TMU → CUBE 写完成（通过 node3）
 input  wire        tmu_cube_wr_done_valid
 input  wire [7:0]  tmu_cube_wr_done_tag      // 响应tag（匹配请求）
-input  wire [63:0] tmu_cube_wr_done_bid      // BID
+input  wire [STID_W-1:0] tmu_cube_wr_done_stid
+input  wire [BID_W-1:0] tmu_cube_wr_done_bid
 ```
 
 **ACC slice 释放**：
@@ -1051,9 +1052,9 @@ Cycle 10-40:  acccvt 执行（与 tmatmul 后半段并行）
 input  wire        bctrl_cube_cmd_valid      // 命令有效
 output wire        cube_bctrl_cmd_ready      // CUBE 就绪
 input  wire [2:0]  bctrl_cube_cmd_kind       // 命令种类
-input  wire [7:0]  bctrl_cube_cmd_tag        // 命令标签
+input  wire [STID_W-1:0] bctrl_cube_cmd_stid
+input  wire [BID_W-1:0] bctrl_cube_cmd_tag   // tag == BID
 input  wire [63:0] bctrl_cube_cmd_payload    // 指令编码
-input  wire [63:0] bctrl_cube_cmd_bid        // BID
 input  wire [7:0]  bctrl_cube_cmd_epoch      // Epoch
 ```
 
@@ -1086,11 +1087,15 @@ acccvt:
 ```verilog
 // 遵循命名规范：cube_brob_<signal>
 output wire        cube_brob_rsp_valid       // 响应有效
-output wire [7:0]  cube_brob_rsp_tag         // 响应标签
-output wire [63:0] cube_brob_rsp_bid         // BID
+input  wire        brob_cube_rsp_ready
+output wire [STID_W-1:0] cube_brob_rsp_stid
+output wire [BID_W-1:0] cube_brob_rsp_tag    // tag == BID
+output wire [7:0]  cube_brob_rsp_epoch
 output wire [3:0]  cube_brob_rsp_status      // 状态码
 output wire        cube_brob_rsp_trap_valid  // 异常有效
-output wire [31:0] cube_brob_rsp_trap_cause  // 异常原因
+output wire [63:0] cube_brob_rsp_trapno
+output wire [63:0] cube_brob_rsp_traparg0
+output wire        cube_brob_rsp_trap_bi
 ```
 
 **状态码**：
@@ -1107,17 +1112,18 @@ output wire [31:0] cube_brob_rsp_trap_cause  // 异常原因
 ```verilog
 // 遵循命名规范：bcc_cube_<signal>
 input wire        bcc_cube_flush_fire        // 冲刷事件
-input wire [63:0] bcc_cube_flush_bid         // 第一个被杀死的 BID
+input wire [STID_W-1:0] bcc_cube_flush_stid  // 目标 BROB ring
+input wire [BROB_ENTRIES-1:0] bcc_cube_flush_kill_mask
 ```
 
 **冲刷处理**：
-1. CUBE 接收 `bcc_cube_flush_fire` 和 `bcc_cube_flush_bid`
-2. 比较进行中操作的 BID
-3. 取消 `bid > flush_bid` 的操作：
+1. CUBE 接收 `bcc_cube_flush_fire`、`flush_stid` 和 BROB 生成的 kill mask
+2. 用操作携带的 `(STID,BID)` 查询对应 ring/mask；禁止比较 BID 数值大小
+3. 取消 `op.stid == flush_stid && flush_kill_mask[op.bid]` 的操作：
    - 清空 ISQ 中年轻的 uop
    - 取消进行中的 MAC 计算
    - 释放被取消操作的 ACC slices
-4. 继续 `bid <= flush_bid` 的操作
+4. 继续 kill mask 未命中的操作
 5. 清理 ACC 链状态
 
 ---
@@ -1280,4 +1286,3 @@ input wire [63:0] bcc_cube_flush_bid         // 第一个被杀死的 BID
 
 **文档状态**：设计中 v2.0  
 **最后更新**：2026-06-03
-

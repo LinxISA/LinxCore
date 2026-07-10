@@ -8,6 +8,18 @@
 > **Source**: Forked from the existing BCC architecture notes and narrowed to Chapters 1-8
 > **Dependencies**: TMU-Core interface specification, Vector Core AS, Vector OOO AS, Vector TileLSU AS
 
+> **Canonical-stage crosswalk:** This draft preserves historical/local stage
+> labels in Chapter 8 for provenance; they are not the LinxCore pipeline
+> contract. Apply `pipeline-stage-catalog.md`: F0 is thread/PC control;
+> F1-F3 are cache request, return/ECC, and instruction assembly; historical
+> F4 plus F5/CT/pred_buf/INST_BUF behavior converges into canonical F4/IB;
+> historical D0/R0/R1/D2/I0/E0/W0/C0 labels map by function into canonical
+> D1-D3, S1-S3, P/I/E/W, and R0-R4. Canonical CMT/FLS publish at R2 and restart
+> state publishes at R4. Do not use this draft to create a serial F4 -> F5/IB
+> architectural pipeline.
+> Historical `BID/TID` on a shared block path means canonical `(STID,BID)`;
+> PE/engine-local TID is a separate subordinate qualifier.
+
 ---
 
 ## Change Log
@@ -95,7 +107,7 @@ BROB 提供 block 顺序提交点；TileRename 提供 TileRegister 空间和 tag
 | TileReg dependency | 使用 TileRename 映射表 index 作为 Tile tag，在 BISQ 中解依赖 |
 | GPR parameter passing | B.IOR getlist/setlist 做 GPR ptag 查询/分配，支持重复形参 |
 | Block issue | Vector/Cube/TMA 分类型 BISQ，按 ready/config/age/credit 发射 |
-| Block commit | BROB 按 BID 顺序 commit，驱动 GPR MAPQ -> CMAP 和 TileRename release |
+| Block commit | BROB 按 live-ring head/age 顺序 commit，驱动 GPR MAPQ -> CMAP 和 TileRename release；禁止用 BID 数值大小判断年龄 |
 | Special core integration | 支持 dispatch、get src data、dst ptag write、dst tile resolve、bid resolve、flush |
 | Recovery | flush 覆盖 IFU、PE、CMD_ISQ、BISQ、TileRename、特殊核在途状态 |
 | Area discipline | BCC 在满足性能需求下需要极限压缩，乱序能力可裁剪 |
@@ -408,7 +420,7 @@ BROB 的两个关键时间点:
 BROBEntry {
   valid: 1
   tid: TID_W
-  bid: BID_W or full BID
+  bid: BID_W  // complete BROB slot identity; wrap/age state is separate
   block_type: BLOCKTYPE_W
   body_pc: PC_W
   offset: OFFSET_W
@@ -522,7 +534,7 @@ BCC 后端包含两条并行但相互协同的执行域:
 | E1-En | Execute | ALU、branch、multiply、scalar LSU、BN 或 block-config 操作 | result / exception / resolve |
 | W0 | Writeback / wakeup | 写物理寄存器和状态表，广播 ptag wakeup | completed ROB entry |
 | C0 | PE ROB commit | 按线程顺序提交 scalar uop，更新精确状态和释放微指令资源 | committed scalar state |
-| BC | BROB commit | 按 BID 顺序提交 block，更新 GPR CMAP 并释放 TileReg | committed block state |
+| BC | BROB commit | 按 BROB live-ring head/age 顺序提交 block，更新 GPR CMAP 并释放 TileReg | committed block state |
 
 ### 8.3 F0: SMT Thread Selection and Redirect
 

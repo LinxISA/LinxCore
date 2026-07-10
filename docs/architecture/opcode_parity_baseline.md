@@ -5,12 +5,12 @@ This document captures the opcode/decode parity baseline used for the QEMU-align
 ## Sources
 
 - QEMU decode ground truth:
-  - `/Users/zhoubot/qemu/target/linx/insn16.decode`
-  - `/Users/zhoubot/qemu/target/linx/insn32.decode`
-  - `/Users/zhoubot/qemu/target/linx/insn48.decode`
-  - `/Users/zhoubot/qemu/target/linx/insn64.decode`
+  - `emulator/qemu/target/linx/insn16.decode`
+  - `emulator/qemu/target/linx/insn32.decode`
+  - `emulator/qemu/target/linx/insn48.decode`
+  - `emulator/qemu/target/linx/insn64.decode`
 - LinxCore catalog:
-  - `/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml`
+  - `rtl/LinxCore/src/common/opcode_catalog.yaml`
 
 ## Measured Inventory
 
@@ -55,5 +55,5 @@ To keep existing LinxCore backend behavior stable during renumbering:
 
 ## Current Gate
 
-- `python3 /Users/zhoubot/LinxCore/tools/generate/check_decode_parity.py`
+- `python3 rtl/LinxCore/tools/generate/check_decode_parity.py --qemu-linx-dir emulator/qemu/target/linx --catalog rtl/LinxCore/src/common/opcode_catalog.yaml`
 - Expected result: `decode parity check passed: 281 mnemonics`

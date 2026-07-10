@@ -657,7 +657,8 @@ output wire [5:0]  fixpipe_tstore_req_tile
 output wire [15:0] fixpipe_tstore_req_offset
 output wire [15:0] fixpipe_tstore_req_size
 output wire [2047:0][7:0] fixpipe_tstore_req_data
-output wire [63:0] fixpipe_tstore_req_bid
+output wire [STID_W-1:0] fixpipe_tstore_req_stid
+output wire [BID_W-1:0] fixpipe_tstore_req_bid
 ```
 
 **输出缓冲**：
@@ -841,4 +842,3 @@ K=64              ~95%          接近峰值
 
 **文档状态**：完成  
 **最后更新**：2026-06-02
-

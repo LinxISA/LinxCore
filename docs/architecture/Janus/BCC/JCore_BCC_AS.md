@@ -9,6 +9,16 @@
 > **Format Reference**: `E:\Workarea\DavinciOO\Davinci_BlockROB_v1.md`, `E:\Workarea\DavinciOO\Davinci_BCC_ScalarPipeline_v1.md`
 > **Dependencies**: TMU-Core interface specification, JCore BCC AS, Vector-OOO AS, Tile-side LSU AS
 
+> **Canonical-stage crosswalk:** This draft retains historical F4/F5/CT and
+> other local pipeline labels as source evidence only. The normative LinxCore
+> mapping is `F0 -> F1 -> F2 -> F3 -> F4/IB -> D1`; F4 and IB are one final
+> fetch stage, while CT/template handling is an owner within that boundary,
+> not a serial F5 architectural stage. Backend behavior maps by function to
+> canonical D1-D3, S1-S3, P/I/E/W, and R0-R4, with CMT/FLS at R2 and restart
+> state at R4. See `pipeline-stage-catalog.md`.
+> Historical `BID/TID` on a shared block path means canonical `(STID,BID)`;
+> PE/engine-local TID is a separate subordinate qualifier.
+
 ---
 
 ## Change Log
@@ -66,7 +76,7 @@ BROB 提供 block 顺序提交点；TileRename 提供 TileRegister 空间和 tag
 | TileReg dependency | 使用 TileRename 映射表 index 作为 Tile tag，在 BISQ 中解依赖 |
 | GPR parameter passing | B.IOR getlist/setlist 做 GPR ptag 查询/分配，支持重复形参 |
 | Block issue | Vector/Cube/TMA 分类型 BISQ，按 ready/config/age/credit 发射 |
-| Block commit | BROB 按 BID 顺序 commit，驱动 GPR MAPQ -> CMAP 和 TileRename release |
+| Block commit | BROB 按 live-ring head/age 顺序 commit，驱动 GPR MAPQ -> CMAP 和 TileRename release；禁止用 BID 数值大小判断年龄 |
 | Special core integration | 支持 dispatch、get src data、dst ptag write、dst tile resolve、bid resolve、flush |
 | Recovery | flush 覆盖 IFU、PE、CMD_ISQ、BISQ、TileRename、特殊核在途状态 |
 | Area discipline | BCC 在满足性能需求下需要极限压缩，乱序能力可裁剪 |
@@ -78,7 +88,8 @@ BROB 提供 block 顺序提交点；TileRename 提供 TileRegister 空间和 tag
 - LSU 适配、OS 引入特性、Stash 机制仍为 TBD。
 - TileRename 卷绕暂按 CA 不实现记录，后续需与 Vector 地址计算同步定稿。
 - LTPR 属于 option 特性，是否实现需要结合性能仿真。
-- BROB depth、BID width、flush 精确语义需要 RTL/建模确认。
+- BROB 默认 256 entries，`BID_W=ceil(log2(BROB_ENTRIES))`（默认 8 bit）；
+  wrap/age/flush 使用独立 live-ring 状态，不扩宽 BID。
 - 《TMU-Core接口规格.xlsx》的信号位宽需进一步抽取。
 
 ---
@@ -482,7 +493,7 @@ BROB 的两个关键时间点:
 BROBEntry {
   valid: 1
   tid: TID_W
-  bid: BID_W or full BID
+  bid: BID_W  // complete BROB slot identity; wrap/age state is separate
   block_type: BLOCKTYPE_W
   body_pc: PC_W
   offset: OFFSET_W
@@ -787,7 +798,7 @@ dot -Tpng E:\Workarea\design_documents\BCC\diagrams\tilerename_bisq.dot -o E:\Wo
 
 | Block | State | Main Cost Driver | Notes |
 |-------|-------|------------------|-------|
-| BROB | TBD entries x entry width | BID/TID/type/resolve/Tile/GPR metadata | depth and BID width TBD |
+| BROB | 256 default entries x entry width | BID/TID/type/resolve/Tile/GPR metadata | `BID_W=ceil(log2(BROB_ENTRIES))`; wrap/age separate |
 | TileRename maps | T/U/M/N map entries | offset/size/valid/ready | entry depth TBD |
 | ReadyTable | one bit per TileMap entry | wakeup CAM/broadcast | must align with map depth |
 | BISQ | per queue entries | Tile fields + GPR config + DIM + age | Vector/Cube/TMA separate |
@@ -826,7 +837,7 @@ dot -Tpng E:\Workarea\design_documents\BCC\diagrams\tilerename_bisq.dot -o E:\Wo
 
 | ID | Question | Priority |
 |----|----------|----------|
-| OQ-1 | BROB depth、BID width、BID wrap/sequence 方案如何定稿？ | High |
+| OQ-1 | 非默认 BROB depth 的 PPA 取值如何选择？BID width 仍严格由 `ceil(log2(entries))` 派生，wrap/sequence 独立。 | High |
 | OQ-2 | TileRename map depth 与 ReadyTable depth 各 hand 是否相同？ | High |
 | OQ-3 | TileRename flush rollback 使用 checkpoint、walk 回收还是 BID-tagged reclaim？ | High |
 | OQ-4 | TileRename 是否需要支持 partition 内卷绕？若支持，Vector 地址计算如何同步？ | High |

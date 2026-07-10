@@ -41,8 +41,10 @@ semantics; those remain normative in the canonical contract pages.
 ### `top/top.py`
 
 - Provides the full explicit IFU composition path.
-- Instantiates the canonical `F0`, `F1`, `F2`, `F3`, `F4` stage modules, memory
-  wrappers, backend, block-control path, LSU, and engine integrations.
+- Instantiates the current frontend modules, memory wrappers, backend,
+  block-control path, LSU, and engine integrations. The current module names
+  are not yet one-to-one with canonical `F0 -> F1 -> F2 -> F3 -> F4/IB`
+  ownership.
 - Serves as the reference stage-to-stage wiring map for stage-connectivity and
   trace contract alignment.
 
@@ -60,32 +62,44 @@ semantics; those remain normative in the canonical contract pages.
 
 In the full IFU path, the top-level composition is:
 
-- `F0`: PC-select
-- `F1`: I-cache lookup control
-- `F2`: I-cache data staging and ECC
-- `F3`: stitch/predict/boundary/template control
-- `IB`: instruction-buffer decoupling
-- `F4`: 4-slot decode window
+- `F0`: thread arbitration, redirect selection, and next-PC control
+- `F1`: translation and I-cache request/lookup launch
+- `F2`: fetch-return staging and integrity/ECC handling
+- `F3`: variable-length assembly, cross-line carry, and byte-stream ordering
+- `F4/IB`: final predecode/prediction and block-boundary metadata, plus the
+  fourth fetch-stage instruction buffer
 
 In the export/bring-up path, the native IFU source may be replaced by a
-host-fed instruction-buffer module. That substitution is allowed only because
-the downstream architectural stage ownership remains intact at `IB/F4`.
+host-fed F4/IB module. That substitution must preserve the same F4/IB-to-D1
+contract and must not create a serial `IB -> F4` stage.
+
+Current `f1.py`/`f2.py`/`f3.py` responsibilities do not yet match those target
+boundaries one-to-one. The `f3.py` internal IB contributes to F4/IB state;
+`f4.py` and Chisel `F4DecodeWindow` are legacy names for a D1-ingress
+continuous-view helper and do not define F4.
 
 ## Decode, dispatch, and backend composition
 
-The top-level composition must preserve the promoted stage ownership from `F0`
-through the baseline issue/wakeup slice:
+The top-level composition must preserve this ownership:
 
-- `D1`: decode and ordering-id allocation
-- `D2`: rename request/translation and ROB-visible boundary resolution
-- `D3`: renamed-uop latch
-- `S1`: post-rename dispatch preparation
-- `S2`: IQ entry write
-- `P1`: IQ pick
+- `D1`: early decode, exception detection, split/fuse recognition, and group
+  formation
+- `D2`: operand extraction, boundary resolution, and resource-demand
+  preparation
+- `D3`: atomic admission, physical rename, and ordering-ID acceptance
+- `S1`: admitted-uop speculative-buffer capture
+- `S2`: IQ entry allocation/write
+- `S3/IQ`: resident and pick-visible IQ state
+- `P0`: optional registered preselect
+- `P1`: final IQ pick
 - `I1`: operand-read planning and RF arbitration
-- `I2`: issue-confirm and IQ deallocation
-- `E1`: first execute stage
-- `W1`: late wakeup and resolve
+- `I2`: bypass selection and issue confirmation; only non-speculative,
+  non-cancellable transfers deallocate here
+- `E1..En`: absolute per-pipe execute cycles
+- `W1..Wn`: producer-relative actual data-bypass/result/writeback ages overlaid
+  on E stages, with earlier speculative wakeup separately E-qualified
+- `R0..R4`: completion intake, R2 commit/flush publication, recovery, and R4
+  restart
 
 The backend family may realize these through finer-grained submodules, but the
 named architectural boundaries must remain visible to connectivity, trace, and
@@ -102,8 +116,13 @@ The top-level composition must preserve explicit boundaries for:
 Required composition consequences:
 
 - `BID` is allocated by `BROB`.
-- `cmd_tag == bid[7:0]` across the command fabric.
-- Flush and rollback use full-width `BID` ordering.
+- `BROB_ENTRIES` is per STID; `BID_W = ceil(log2(BROB_ENTRIES))`; each default
+  256-entry ring uses an 8-bit BID.
+- Shared block interfaces carry `(STID,BID)` separately.
+  `(cmd_stid,cmd_tag) == (stid,bid)` across the command fabric; narrower
+  configurations zero-extend BID onto the default 8-bit tag bus.
+- Wrap and age are separate per-STID BROB state. Flush and rollback consume an
+  STID-qualified BROB kill set and never use unsigned BID comparisons.
 - Block completion remains `scalar_done && (needs_engine ? engine_done : 1)`.
 
 ## Memory and LSU composition

@@ -15,8 +15,9 @@ Any pipeline-stage change (add/remove/rename/reorder) must update all of:
 - `rtl/LinxCore/tools/trace/build_linxtrace_view.py`
 - `rtl/LinxCore/tools/linxcoresight/lint_linxtrace.py`
 - `rtl/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py`
-- `/Users/zhoubot/LinxCoreSight/src/lib/linxtrace.ts`
-- `/Users/zhoubot/LinxCoreSight/src/components/LinxTraceViewer.tsx`
+- `$LINXCORESIGHT_ROOT/src/lib/linxtrace.ts` in the named external
+  LinxCoreSight checkout
+- `$LINXCORESIGHT_ROOT/src/components/LinxTraceViewer.tsx`
 
 ## Mandatory metadata in every trace
 

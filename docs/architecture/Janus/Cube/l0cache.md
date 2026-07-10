@@ -492,10 +492,10 @@ CUBE 接收 flush
   - 简单
   - 但下一个 block 需要重新加载
 
-优化策略：按 BID 清空
-  - 只清空被 flush 的 block 的数据
+优化策略：按 STID-qualified BROB kill context 清空
+  - 只清空 `entry.stid == flush_stid && kill_mask[entry.bid]` 的数据
   - 保留其他 block 的数据
-  - 需要跟踪每个 entry 的 BID
+  - 需要跟踪每个 entry 的 `(STID,BID)`；禁止用 BID 数值比较年龄
 ```
 
 ---
@@ -682,4 +682,3 @@ wire [2:0]  mshr_occupancy;       // 当前使用的 MSHR 数
 
 **文档状态**：完成  
 **最后更新**：2026-06-02
-

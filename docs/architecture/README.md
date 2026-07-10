@@ -6,13 +6,14 @@ interface documentation.
 ## Contract pages
 
 - `overview.md`
+- `NAMING.md` (parameter and stage-name governance; not separately published)
 - `microarchitecture.md`
 - `interfaces.md`
 - `verification-matrix.md`
 - `module-catalog.md`
 - `pipeline-stage-catalog.md`
 
-These pages are mirrored into the superproject publication paths:
+The six publication pages below are mirrored into the superproject paths:
 
 - `docs/architecture/linxcore/overview.md`
 - `docs/architecture/linxcore/microarchitecture.md`
@@ -31,6 +32,7 @@ Do not edit the superproject mirrors by hand.
 - `block_fabric_contract.md`
 - `code_template_unit.md`
 - `lsid_memory_ordering.md`
+- `block_private_rf.md`
 - `stages/BROB.md`
 
 ## Janus engine directories
@@ -40,6 +42,15 @@ Do not edit the superproject mirrors by hand.
 - `Janus/TMA/`: Tile Memory Access specifications
 - `Janus/Cube/`: CUBE matrix accelerator specifications and design notes
 - `Janus/Vector/`: Vector Core specifications
+
+These subdirectories are subsystem notes and may use local or historical
+pipeline names. They do not override the canonical BID or stage taxonomy in
+`microarchitecture.md`, `NAMING.md`, and `pipeline-stage-catalog.md`.
+
+The ARM material and Linx migration drafts under `docs/temp/` are
+non-normative reference inputs. In particular, serial `IB/F4`,
+`F4DecodeWindow`-as-stage, and 64-bit-BID wording there must not be copied into
+the canonical contract.
 
 ## Structural specification chapters
 

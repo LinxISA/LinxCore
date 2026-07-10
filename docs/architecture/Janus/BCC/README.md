@@ -4,6 +4,12 @@
 > 来源: BROB / BlockRename / BlockISQ / JCore BCC AS / TileRename / BCC OoO / Tile侧LSU / Vector-OOO 讨论材料
 > 状态: 详细整理稿，图示采用 mermaid 先行表达，原始图中 `a` 占位后续可替换为正式图片
 
+> **Canonical identity crosswalk:** these drafts historically write `BID/TID`.
+> On every shared block resolve/commit/flush path, that pair means canonical
+> `(STID,BID)`: STID selects the per-thread BROB ring and BID is its
+> `BID_W`-bit slot. A PE/engine-local TID, where present, is an additional
+> subordinate qualifier and never replaces STID.
+
 ## 文档导航
 
 | 文件 | 内容 |
@@ -71,7 +77,7 @@ flowchart LR
   BISQ --> VEC["Vector Core"]
   BISQ --> CUBE["Cube Core"]
   BISQ --> TMA["TMA<br/>Tile Memory Access"]
-  VEC --> BROB["IFU_BROB<br/>BID order commit"]
+  VEC --> BROB["IFU_BROB<br/>per-STID ring-order commit"]
   CUBE --> BROB
   TMA --> BROB
   BROB --> TR
@@ -127,7 +133,7 @@ IFU/Decode 解析块头
   -> CMD_ISQ/BISQ 收集配置，config counter 归零后置 configReady
   -> BlockISQ 根据 Tile ready、GPR ready、allInstReceived、age、credit 发射给特殊核
   -> 特殊核 get/set GPR 或执行 TileOP，完成后返回 ptag write / Tile resolve / BID resolve
-  -> BROB 按 BID 顺序 commit，驱动 GPR MAPQ -> CMAP，驱动 TileRename release
+  -> BROB 每 STID 按 live-ring head/age 顺序 commit，驱动 GPR MAPQ -> CMAP，驱动 TileRename release
 ```
 
 ## 术语速查
@@ -151,6 +157,8 @@ IFU/Decode 解析块头
 ## 待补材料
 
 - 《TMU-Core接口规格.xlsx》中的 Dispatch / Core req / Resolve / Flush 接口字段需要抽取进接口章节。
-- BROB depth、BID 位宽、per-thread partition、flush 精确语义需要和 RTL/建模规格对齐。
+- BROB 默认每 STID 256 entries，`BID_W=ceil(log2(BROB_ENTRIES))`（默认
+  8 bit）；shared 接口携带 `(STID,BID)`，flush 使用该 STID ring 的
+  head/tail/wrap kill context。非默认 depth 的 PPA 仍需建模。
 - TileRename wrap 策略当前按“CA 暂不实现内部卷绕”记录，后续需与 Vector 地址计算一起定稿。
 - BCC 乱序能力裁剪、SMT QoS、长尾调度、面积压缩需要结合系统性能建模继续定量。

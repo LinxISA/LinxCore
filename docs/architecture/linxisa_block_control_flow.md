@@ -25,20 +25,27 @@ This note records the block-structured control-flow contract used for lockstep p
 - Boundary chooser applies, in order:
   1. epoch-matched deferred correction (if pending),
   2. current block state (`br_kind`, `commit_cond`, `commit_tgt`, static target).
-- `BSTART/BSTOP` are ROB-visible, D2-resolved entries.
+- `BSTART/BSTOP` are D2-classified boundary entries; D3 atomically admits their
+  ROB/BROB/checkpoint resources before they become ROB-visible.
 
 ## 4) BSTART split behavior
 
 - `BSTART` at block head opens a block.
 - `BSTART` encountered in block body terminates previous block and may restart fetch at the same PC (`C.BSTART.STD` split behavior), then execute again as block head.
+- The same-PC head reentry carries the already allocated `(STID,BID)`,
+  checkpoint, and boundary epoch. It does not allocate/retire a duplicate
+  marker or fire scalar completion a second time.
 
 This is the key behavior needed to avoid branch drift in CoreMark.
 
 ## 5) Recovery safety
 
-- Recovery targets must resolve to valid `BSTART` metadata entries.
-- Invalid target raises precise trap:
-  - `TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`.
+- Recovery targets must resolve to legal block-start metadata: a `BSTART*`
+  entry or a valid template start (`FENTRY`, `FEXIT`, `FRET.*`).
+- Invalid target raises precise architectural `E_BLOCK(EC_CFI)` with
+  `EC_CFI_KIND=CFI_BAD_TARGET`, `TRAPARG0=source PC/TPC`, and `ECSTATE.BI=0`.
+- `TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)` is a legacy internal diagnostic
+  only and must be mapped to that architectural envelope.
 
 ## 6) QEMU mapping (reference)
 

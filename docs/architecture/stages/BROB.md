@@ -7,29 +7,49 @@ Canonical contract summary:
 
 BROB is the lifetime tracker for block-structured execution.
 
-BROB entries are indexed by **BID**.
+BROB is partitioned per STID. Entries within one partition are indexed by
+**BID**; shared interfaces identify a block as `(STID,BID)`.
+
+This page specifies the full target behavior. Current Chisel and pyCircuit
+BROB helpers implement reduced metadata tracking and do not by themselves prove
+full allocation/retirement pointers, per-STID active state, integrated
+recovery, or stale-response-safe BID reuse.
 
 ## 1) Architectural model
 
 - All blocks are treated uniformly.
 - Blocks may execute out-of-order.
 - Blocks may resolve/complete out-of-order.
-- Only the **oldest** block may retire.
+- Only the **oldest block within one STID** may retire from that ring.
 - Any block may be flushed.
-- Exceptions are precise: a younger block may detect an exception early, but the exception is reported only when the oldest block retires.
+- Exceptions are precise per STID: a younger block may detect an exception
+  early, but it is reported only when that STID's head reaches it. An
+  unresolved head in one STID does not block an eligible head in another STID
+  except for a separately specified shared retire-port limit.
 
 ## 2) DSE parameters
 
-- `BROB_ENTRIES` (power-of-2). Default: 128
+- `N_STID` (configured hardware-thread contexts, at least 1). Default: 1;
+  multi-STID is a supported target configuration.
+- `BROB_ENTRIES` (power-of-2, at least 2, per STID). Default: 256
 - `BROB_ALLOC_PER_CYCLE` default: 1
 - `BROB_COMPLETE_PER_CYCLE` default: 1
 - `BROB_RETIRE_PER_CYCLE` default: 1
-- `N_ENGINE` (engine sources for completion). Default: 5
-  - Default engine list: `scalar, vec, tma, cube, tau`
+- `N_NONSCALAR_ENGINE` (non-scalar completion sources). Default promoted list:
+  4 (`vec, tma, cube, tau`); deferred types such as TEPL/FIXP require an
+  explicit owner before inclusion.
 
 Derived:
 
-- `BID_W = log2(BROB_ENTRIES)`
+- `STID_W = max(1, ceil(log2(N_STID)))`
+- `BID_W = ceil(log2(BROB_ENTRIES))`
+- `BROB_PTR_W = BID_W + 1` for an internal `{wrap, bid}` pointer realization
+
+BID is the complete external row index within one STID's BROB. The pointer wrap
+bit, allocation generation, occupancy, and optional DFX sequence are separate
+state and must not be concatenated above BID. For each default 256-entry
+partition, BID is 8 bits. STID is carried separately and is never packed above
+BID.
 
 ## 3) Entry state encoding
 
@@ -47,20 +67,33 @@ Notes:
 
 ## 4) Flush semantics
 
-Flush event carries **`first_killed_bid`**.
+The canonical flush request identifies `(flush_stid, flush_bid)`, with
+`flush_bid` naming the youngest surviving live block in that STID. The selected
+BROB ring resolves age from its current head, tail, occupancy, and internal
+wrap state.
 
-- After flush, blocks with `bid >= first_killed_bid` are killed.
-- Tail is rolled back precisely:
-  - `tail := first_killed_bid`
+- Keep the live prefix from head through `flush_bid`.
+- Kill the live ring interval from `successor(flush_bid)` through the
+  pre-flush tail.
+- Publish `brob_kill_stid` plus
+  `brob_kill_mask[BROB_ENTRIES-1:0]`, or an exactly equivalent ring-qualified
+  context, to every `(STID,BID)`-carrying queue.
+- Roll tail back to `successor(flush_bid)` and update occupancy atomically.
+
+Unsigned comparisons such as `bid > flush_bid` are illegal because BID wraps.
+An interface using `first_killed_bid` is legal only when it also carries the
+live ring context needed to distinguish the interval; the bare index is not an
+age predicate.
 
 ## 5) Interfaces (valid/ready)
 
 Signal naming MUST follow `producer_consumer_signal`.
 
-### 5.1 Allocation (from D3)
+### 5.1 Allocation (from decode/resource admission)
 
 - `d3_brob_alloc_valid`
 - `d3_brob_alloc_ready`
+- `d3_brob_alloc_stid`
 - `d3_brob_alloc_kind` (engine target/type)
 - `d3_brob_alloc_body_tpc` (if applicable)
 - `d3_brob_alloc_pred` (optional)
@@ -69,19 +102,32 @@ Signal naming MUST follow `producer_consumer_signal`.
 
 - `biq_brob_issue_valid`
 - `biq_brob_issue_ready`
+- `biq_brob_issue_stid`
 - `biq_brob_issue_bid`
 
 ### 5.3 Completion (from engines)
 
-Design intent: BROB must service multiple engines attempting to complete in the same cycle.
+BROB has a dedicated scalar boundary-completion input that sets `scalar_done`
+for the selected `(STID,BID)`. It is not counted as a non-scalar engine
+response. A `BSTART` retire targets the old active block; a `BSTOP` retire
+targets the current active block.
 
-- Engines should not be backpressured; a completion collector/skid FIFO is expected in front of BROB.
+For a block whose type requires a non-scalar participant, one accepted response
+from its selected engine owner sets `engine_done`. Completion is
+`scalar_done && (!needs_engine || engine_done)`; no source may set both bits for
+one event.
+
+Design intent: BROB must losslessly service multiple non-scalar engines
+attempting to complete in the same cycle. The collector either accepts the
+required simultaneous burst or deasserts ready independently per lane while
+each producer holds valid and payload stable.
 
 Inputs (conceptual):
 
-For each engine `e` in `[0..N_ENGINE-1]`:
+For each engine `e` in `[0..N_NONSCALAR_ENGINE-1]`:
 
 - `engX_brob_complete_valid`
+- `engX_brob_complete_stid`
 - `engX_brob_complete_bid`
 - `engX_brob_complete_exception`
 - `engX_brob_complete_trapno`
@@ -91,26 +137,44 @@ For each engine `e` in `[0..N_ENGINE-1]`:
 Arbitration:
 
 - BROB consumes up to `BROB_COMPLETE_PER_CYCLE` completions per cycle.
-- If multiple completions contend, select the **oldest BID first**.
+- If multiple completions contend, first select the oldest live completion
+  within each STID by that ring's age from head. Then arbitrate fairly (RR by
+  default) among eligible STIDs for each shared completion port. There is no
+  cross-STID age comparison.
+- `(complete_stid, complete_bid)` must name a live issued row. BROB rejects
+  completion for a free or flushed slot.
+- Per-STID BID reuse is held off until all possible responses for the old
+  occupant have drained. A transport that cannot guarantee this must echo a
+  separate command epoch/transaction ID; that field is not part of BID.
 
 ### 5.4 Retire output
 
 - `brob_retire_valid`
 - `brob_retire_ready`
+- `brob_retire_stid`
 - `brob_retire_bid`
 - `brob_retire_exception`
 - `brob_retire_trapno/traparg0/bi`
 
 Retire rule:
 
-1) If head has pending exception: raise/report trap and stop retiring further blocks.
-2) Else commit block side effects.
-3) Advance head.
+1) Determine each STID's eligible head independently.
+2) Arbitrate fairly among eligible STIDs when shared retire bandwidth is
+   narrower than `N_STID`.
+3) If the selected head has a pending exception, report it precisely and stop
+   further retirement for that STID in the cycle.
+4) Otherwise commit that block's side effects and advance only that STID's
+   head.
 
 ## 6) Invariants (for unit tests)
 
 - Head retires in order only.
 - Tail advances on alloc, rolls back on flush.
-- A BID cannot be reused until it is past head (ring discipline).
-- Completion for a flushed BID must be dropped.
-- A younger block’s exception must not be reported before the head reaches it.
+- A `(STID,BID)` slot cannot be reused until no scalar row, engine command, memory side
+  effect, cleanup record, or response can still name the prior occupant.
+- Completion for a flushed `(STID,BID)` must be dropped.
+- A younger block’s exception must not be reported before that STID's head
+  reaches it.
+- Every age comparison is within one STID and uses that BROB ring's context or
+  generated kill mask; no consumer infers age from BID magnitude or compares
+  blocks across STIDs as if they shared one ring.

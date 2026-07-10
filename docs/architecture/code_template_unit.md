@@ -6,16 +6,17 @@ Canonical contract summary:
 
 ## Purpose
 
-`CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`, `FRET_STK`) into a one-uop-per-cycle stream and asserts an IFU block while template execution is active.
+`CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`,
+`FRET_STK`) into a one-uop-per-cycle stream for the owning STID. It is an
+internal producer at F4/IB, not a serial F5 stage.
 
 Source:
 
 - `rtl/LinxCore/src/bcc/backend/code_template_unit.py`
 - `rtl/LinxCore/docs/architecture/macro_instruction_generation.md`
 
-Generated split modules:
+Generated split modules (on demand; they may be absent before generation):
 
-- `rtl/LinxCore/generated/cpp/linxcore_top/CodeTemplateUnit__*.hpp`
 - `rtl/LinxCore/generated/verilog/linxcore_top/CodeTemplateUnit__*.v`
 
 ## Uop model
@@ -35,7 +36,8 @@ Address model:
 
 Primary outputs:
 
-- `block_ifu` (frontend stall)
+- owning `uop_stid`, `uop_bid`, and checkpoint identity
+- per-STID expansion hold/backpressure
 - `uop_valid`, `uop_kind`, `uop_reg`, `uop_addr`, `uop_size`
 - `uop_is_sp_sub`, `uop_is_store`, `uop_is_load`, `uop_is_sp_add`, `uop_is_setc_tgt`
 
@@ -112,13 +114,37 @@ Primary outputs:
 
 ## Backend integration
 
-`LinxCoreBackend` uses `CodeTemplateUnit` outputs to:
+Canonical target integration is:
+
+1. F4 predecode marks a template parent, sends it through D1/D2, and holds
+   later ordinary records only for that STID. F4 does not allocate BID.
+2. D3 atomically reserves one `(STID,BID)`, checkpoint/resource credits, N
+   child ROB rows, and a final template completion/trace row. The child count
+   and resource demand are derived from the classified template.
+3. CTU fills the reserved child rows in program order. Children reuse and
+   validate the parent's `(STID,BID)`; they allocate ordinary rename/IQ/LSU
+   resources from the reservation and never allocate a new BROB slot unless a
+   child is itself an architecturally legal new boundary.
+4. Children pass through normal execute/LSU, precise trap, commit, and trace
+   ownership. The final template row becomes complete only after expansion and
+   all child rows complete, and therefore retires after all child side effects.
+5. A flush removes filled and unfilled reserved rows, cancels CTU state by STID
+   and checkpoint, and cannot expose partial wrong-path side effects.
+6. No CTU child writes PRF, D-memory, `setc`, or architectural state directly.
+7. Global frontend serialization is legal only in an explicitly single-STID
+   configuration; an SMT implementation must not stall unrelated STIDs.
+
+The current reduced `LinxCoreBackend` integration instead uses CTU outputs to:
 
 - gate pipeline run (`can_run = base_can_run & ~block_ifu`)
 - arbitrate template load/store use of the D-memory path
 - drive template PRF updates (SP adjust and register restore)
 - drive explicit `setc.tgt` updates for `FRET_STK/FRET_RA`
 - preserve commit/redirect semantics
+
+Those direct-write/global-block paths are implementation evidence only. They
+must converge to the canonical path above before claiming precise multi-STID
+LinxCore behavior.
 
 Integration point:
 

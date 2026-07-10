@@ -7,6 +7,12 @@
 > **Parent**: [JCore_BCC_AS.md](JCore_BCC_AS.md)
 > **Topic**: Vector Core, Block Dispatch, Loop Ctrl, VIFU, ISQ, Vector Tile Access, TBuffer
 
+> **Stage-name scope:** VIFU labels in this appendix are local Vector-core
+> implementation labels, not the canonical LinxCore BCC pipeline. Where the
+> appendix discusses the BCC/core frontend, use `pipeline-stage-catalog.md`:
+> F0 is frontend control, F1-F4 are the four fetch stages, and F4 aliases IB.
+> A lane count never defines F4.
+
 ---
 
 ## Change Log
@@ -550,11 +556,12 @@ TBuffer 是 Tile Access Unit 内置的 Temporal Buffer。
 
 | Field | Width | Description |
 |-------|-------|-------------|
-| Tag | 12-bit | 请求地址比较，判断 hit/miss；hit 需判断 BID 相同，BID 不同直接 miss |
+| Tag | 12-bit | 请求地址比较，判断 hit/miss；hit 需判断 `(STID,BID)` 相同，否则直接 miss |
 | Data | 2048-bit | 缓存数据 |
 | State | 2-bit | 2: Modified, 1: Shared, 0: Invalid |
 | WMask | 2-bit? | 1024-bit data write mask；128 lane 写最小带宽为 `128*8=1024-bit` |
-| BID | 5-bit | 用于 flush 和 block 完成时 writeback |
+| STID | `STID_W` | 独立 BROB ring / thread context |
+| BID | `BID_W` (default 8) | 每 STID 256-entry BROB slot，用于 flush 和 block 完成时 writeback |
 | GID | 5-bit | 用于 flush 和 block 完成时 writeback |
 
 TBuffer 可接受请求:

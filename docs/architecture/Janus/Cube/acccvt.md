@@ -197,12 +197,20 @@ Stage 10:  TileStore 请求生成
 output wire        acccvt_acc_rd_req_valid
 input  wire        acc_acccvt_rd_req_ready
 output wire [6:0]  acccvt_acc_rd_req_slice   // Slice ID
-output wire [63:0] acccvt_acc_rd_req_bid
+output wire [STID_W-1:0] acccvt_acc_rd_req_stid
+output wire [BID_W-1:0] acccvt_acc_rd_req_bid
 
 // ACC Pool → FixPipe
 input  wire        acc_acccvt_rd_rsp_valid
+input  wire [STID_W-1:0] acc_acccvt_rd_rsp_stid
+input  wire [BID_W-1:0] acc_acccvt_rd_rsp_bid
+input  wire [6:0]  acc_acccvt_rd_rsp_slice
 input  wire [255:0][7:0] acc_acccvt_rd_rsp_data  // 256 B
 ```
+
+Concurrent reads are associated by `(STID,BID,slice_id)`; an implementation
+that omits echoed fields must guarantee and document strictly in-order
+responses on an STID-dedicated lane.
 
 **读取流程**：
 ```
@@ -416,7 +424,8 @@ struct tilestore_req_t {
     offset:         16 bits;        // Tile 内偏移
     size:           16 bits;        // 写入大小
     data:           2048 B;         // 数据（burst）
-    bid:            64 bits;        // BID
+    stid:           STID_W bits;    // independent BROB ring / thread context
+    bid:            BID_W bits;     // complete BROB slot identity
     slice_id:       7 bits;         // 对应的 ACC slice
 };
 ```
@@ -440,6 +449,8 @@ struct tilestore_req_t {
    cube_tmu_wr_req_tile = tile_dst
    cube_tmu_wr_req_offset = offset
    cube_tmu_wr_req_data = data
+   cube_tmu_wr_req_stid = stid
+   cube_tmu_wr_req_bid = bid
 3. TMU 仲裁和写入 TileReg
 4. 等待写完成响应
 ```
@@ -451,9 +462,13 @@ struct tilestore_req_t {
 // TMU → CUBE
 input wire        tmu_cube_wr_done_valid
 input wire [5:0]  tmu_cube_wr_done_tile
-input wire [63:0] tmu_cube_wr_done_bid
+input wire [STID_W-1:0] tmu_cube_wr_done_stid
+input wire [BID_W-1:0] tmu_cube_wr_done_bid
 input wire [6:0]  tmu_cube_wr_done_slice_id
 ```
+
+Completion matches `(STID,BID,slice_id)` (or a stronger echoed transaction
+identity) before freeing the ACC slice.
 
 **完成操作**：
 ```
@@ -655,4 +670,3 @@ wire [2:0]  tilestore_queue_occupancy; // 队列占用
 
 **文档状态**：完成  
 **最后更新**：2026-06-02
-

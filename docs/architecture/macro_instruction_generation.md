@@ -1,12 +1,15 @@
 # LinxCore Macro Instruction Generation
 
-This document describes how macro-like instructions are generated and executed in the standalone LinxCore path.
+This document records expansion order plus the reduced standalone
+implementation. The canonical target lifecycle is
+`code_template_unit.md`: F4 marks the parent, D3 reserves child rows plus a
+final template row, and CTU children use normal precise backend ownership.
 
 Relevant files:
 
-- `/Users/zhoubot/LinxCore/src/common/decode.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/code_template_unit.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/backend.py`
+- `rtl/LinxCore/src/common/decode.py`
+- `rtl/LinxCore/src/bcc/backend/code_template_unit.py`
+- `rtl/LinxCore/src/bcc/backend/backend.py`
 
 ## 1) Macro classes
 
@@ -18,9 +21,18 @@ Current macro classes:
   - `FRET_STK`
   - `FRET_RA`
 
-## 2) Frame template decode and execute model
+## 2) Current reduced frame-template model
 
-Frame templates decode as normal ops and enter ROB. When a frame template reaches ROB head and is done, backend starts `CodeTemplateUnit`, blocks IFU, and emits one template-uop per cycle.
+In the current reduced implementation, frame templates decode as normal ops
+and enter ROB. When one reaches ROB head and is done, backend starts
+`CodeTemplateUnit`, globally blocks IFU, and emits one template-uop per cycle.
+The target instead uses the D3 atomic parent/child reservation and final-row
+ordering defined in `code_template_unit.md`.
+
+That ROB-head/global-IFU-block/direct-child path is reduced implementation
+evidence, not the normative multi-STID lifecycle. It must not bypass D3 atomic
+reservation, child ROB/rename/LSU ownership, final-template-row ordering, or
+checkpoint recovery.
 
 CTU uop kinds:
 
@@ -110,7 +122,7 @@ Template expansion uops are emitted as retire-visible events in co-sim trace pat
 
 This behavior is compared lockstep against QEMU trace by:
 
-- `/Users/zhoubot/LinxCore/cosim/linxcore_lockstep_runner.cpp`
+- `rtl/LinxCore/cosim/linxcore_lockstep_runner.cpp`
 
 ## 6) Interaction with block redirect authority
 

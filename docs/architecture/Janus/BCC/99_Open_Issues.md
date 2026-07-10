@@ -74,7 +74,7 @@
 
 | ID | Issue | Priority |
 |----|-------|----------|
-| BROB-1 | BROB entries、BID slot/sequence 宽度待定。 | High |
+| BROB-1 | 默认每 STID 256 entries、`BID_W=ceil(log2(entries))`、wrap/sequence 独立已定；仅非默认 depth 的 PPA 选择待定。 | High |
 | BROB-2 | block resolve 与 flush 同拍冲突优先级待定。 | High |
 | BROB-3 | block commit 与 PE ROB flush 同拍优先级待定。 | High |
 | BROB-4 | Tile resource release 是否释放 dst 或 old mapping，需要结合 Tile architecture 语义澄清。 | High |

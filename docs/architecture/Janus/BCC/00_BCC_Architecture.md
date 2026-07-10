@@ -7,6 +7,9 @@
 > **Parent**: [JCore_BCC_AS.md](JCore_BCC_AS.md)
 > **Topic**: BCC 顶层、块头路径、Tile/GPR 第一层状态、BROB/TileRename/BISQ 主链路
 
+> **Identity crosswalk:** historical `BID/TID` on shared paths means canonical
+> `(STID,BID)`; engine/PE-local TID is a separate subordinate qualifier.
+
 ---
 
 ## Change Log
@@ -150,10 +153,10 @@ sequenceDiagram
 
   CORE->>RF: dst_ptag write 或 set GPR
   RF->>RF: wakeup 依赖该 ptag 的 uop/block config
-  CORE->>BROB: bid_resolve + dst_tile tag/type
+  CORE->>BROB: (STID,BID) resolve + dst_tile tag/type
   BROB->>TR: block resolve wakeup dst Tile tag
   TR->>BISQ: ReadyTable置1，BISQ src tag wakeup
-  BROB->>BROB: 按 BID 顺序等待 oldest resolved
+  BROB->>BROB: 每 STID 按 live-ring head/age 等待 oldest resolved
   BROB->>REN: block commit，GPR MAPQ -> CMAP
   BROB->>TR: block commit，释放 TileRename 映射/空间 credit
 ```
@@ -191,8 +194,8 @@ flowchart LR
 | Core req / Get src data | VEC/CUBE/TMA -> BCC RF | 根据 get_src_ptag 读取 RF，固定 latency，不被反压，需要 3 路独立读口 |
 | Dst ptag write | VEC/TMA 等 -> BCC | 写回 dst ptag，并 wakeup 依赖 ptag 的指令 |
 | Dst Tile resolve | VEC/CUBE/TMA -> BROB/TileRename | block resolve 时唤醒依赖 dst Tile tag 的 BISQ entry |
-| BID resolve | VEC/CUBE/TMA -> BROB | 标记 block 执行完成，供 BROB 顺序 commit |
-| BCC flush | BROB/PE_ROB -> VEC/CUBE/TMA | 清理特殊核内投机 block/uop 状态 |
+| BID resolve | VEC/CUBE/TMA -> BROB | 以 `(STID,BID)` 标记 block 执行完成，供该 STID ring 顺序 commit |
+| BCC flush | BROB/PE_ROB -> VEC/CUBE/TMA | 以 STID-qualified kill context 清理特殊核内投机 block/uop 状态 |
 
 ## 7. 顺序与乱序边界
 

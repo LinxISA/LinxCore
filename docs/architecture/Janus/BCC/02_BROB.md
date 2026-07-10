@@ -7,6 +7,12 @@
 > **Parent**: [JCore_BCC_AS.md](JCore_BCC_AS.md)
 > **Keywords**: IFU_BROB, BID, TID, block resolve, block commit, GPR CMAP, Tile wakeup, Tile release
 
+> **Canonical identity rule:** each STID owns an independent BROB ring;
+> `BROB_ENTRIES=256` by default and
+> `BID_W=ceil(log2(BROB_ENTRIES))` (default 8). Shared interfaces carry
+> `(STID,BID)` and determine age from that ring's head/tail/wrap state, never
+> from unsigned BID magnitude.
+
 ---
 
 ## Change Log
@@ -59,7 +65,7 @@ BROB 负责:
 3. 记录 block type、PC/offset、下游目标核等信息。
 4. 记录 block 的 dst Tile tag/type，用于 resolve wakeup 和 commit release。
 5. 接收 scalar_PE、VEC、CUBE、TMA 的 block resolve。
-6. 按 BID 顺序 commit block。
+6. 每个 STID 按 BROB live-ring head/age 顺序 commit block。
 7. 在 block commit 时驱动 GPR MAPQ -> CMAP。
 8. 在 block commit 时驱动 TileRename 释放资源。
 9. 在 flush/replay 时广播到特殊核、BIQ/BISQ、TileRename、PE front/backend。
@@ -71,8 +77,8 @@ BROB 负责:
 | 字段 | 含义 |
 | --- | --- |
 | `valid` | entry 有效 |
-| `tid` | 线程 ID |
-| `bid` | block ID 或 BROB entry index |
+| `stid` | 独立 BROB ring / 线程上下文 |
+| `bid` | `BID_W`-bit BROB entry index |
 | `block_type` | scalar / vector / cube / agu / mtc 等 |
 | `body_pc` | 块体起始 PC，来自 B.TEXT/BSTART 相关信息 |
 | `offset` | 块体 offset 或跳转 offset |
@@ -118,10 +124,10 @@ sequenceDiagram
   participant TR as TileRename/ReadyTable
   participant BISQ as BlockISQ
 
-  CORE->>BROB: bid_resolve(BID,TID,status,dst_tile?)
+  CORE->>BROB: bid_resolve(STID,BID,status,dst_tile?)
   BROB->>BROB: entry.resolved = 1
   alt dst_tile_vld
-    BROB->>TR: wakeup(dst_tile_type,dst_tile_tag,TID)
+    BROB->>TR: wakeup(dst_tile_type,dst_tile_tag,STID)
     TR->>TR: ReadyTable[tag] = 1
     TR->>BISQ: broadcast tag ready
     BISQ->>BISQ: matching srcN_rdy = 1
@@ -240,7 +246,8 @@ flush 影响:
 - 清理无效投机 TileOP。
 - 清理 CMD_ISQ 中对应 younger block 的块头配置。
 - 清理 BISQ 中 younger block entry。
-- 通知特殊核丢弃对应 BID 之后在途状态。
+- 通知特殊核按 `flush_stid` 和该 BROB ring 的 kill mask 丢弃在途状态，
+  不使用 BID 数值“之后”关系。
 - 配合 scalar PE 恢复 GPR MAPQ/CMAP 状态。
 - 配合 TileRename 回收被 flush block 分配但未 commit 的 TileReg 映射和空间。
 

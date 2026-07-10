@@ -276,7 +276,8 @@ Writeback / Resolve:
 Flush:
 
 - BROB/PE ROB 汇聚 flush 后广播给特殊核。
-- 特殊核需清理对应 BID 之后的投机状态。
+- 特殊核需按 `flush_stid` 和该 BROB ring 生成的 kill mask 清理投机状态；
+  禁止用 BID 数值大小表示“之后”。
 
 ## 17. CA 实现要点
 
