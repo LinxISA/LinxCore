@@ -3,6 +3,7 @@ from __future__ import annotations
 from pycircuit import Circuit, const, function, module, spec
 
 from common.util import make_consts
+from ..helpers import onehot_from_tag
 from .index_mux import banked_mux_by_uindex
 from .recovery_checks import build_lsu_violation_detect_stage
 from ..rob import (
@@ -1755,6 +1756,26 @@ def build_rob_bank_top(
     for i in range(rob_depth):
         store_pending = store_pending | (entry_outputs["valid"][i] & entry_outputs["is_store"][i])
 
+    # A redirect retains the older ROB prefix (BID <= flush_bid).  Rename
+    # recovery must keep every physical destination owned by that prefix out
+    # of the free list, including values that have not yet reached CMAP.
+    # Otherwise a redirect can reallocate a retained producer's tag before it
+    # commits, corrupting dependent IQ entries.
+    flush_survivor_pdst_mask = c(0, width=1 << ptag_w)
+    tag0 = c(0, width=ptag_w)
+    for idx in range(rob_depth):
+        committing = c(0, width=1)
+        idx_c = c(idx, width=rob_w)
+        for slot in range(commit_w):
+            committing = committing | (commit_fires[slot] & commit_idxs_now[slot].__eq__(idx_c))
+        keep = entry_outputs["valid"][idx] & (~flush_bid.ult(entry_outputs["block_bid"][idx])) & (~committing)
+        pdst = entry_outputs["pdst"][idx]
+        pdst_oh = onehot_from_tag(m, tag=pdst, width=1 << ptag_w, tag_width=ptag_w)
+        flush_survivor_pdst_mask = (keep & (~pdst.__eq__(tag0)))._select_internal(
+            flush_survivor_pdst_mask | pdst_oh,
+            flush_survivor_pdst_mask,
+        )
+
     m.output("head_o", head.out())
     m.output("tail_o", tail.out())
     m.output("count_o", count.out())
@@ -1784,6 +1805,7 @@ def build_rob_bank_top(
     m.output("commit_pack_o", _pack_values(m, commit_slot_packs))
 
     m.output("store_pending_o", store_pending)
+    m.output("flush_survivor_pdst_mask_o", flush_survivor_pdst_mask)
     m.output("lsu_older_store_pending_lane0_o", lsu_store_scan["older_store_pending_o"])
     m.output("lsu_forward_hit_lane0_o", lsu_store_scan["forward_hit_o"])
     m.output("lsu_forward_data_lane0_o", lsu_store_scan["forward_data_o"])

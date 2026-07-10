@@ -18,9 +18,9 @@ def build_rename_bank_top(
     clk = m.clock("clk")
     rst = m.reset("rst")
     do_flush = m.input("do_flush", width=1)
+    flush_survivor_pdst_mask = m.input("flush_survivor_pdst_mask", width=pregs)
     dispatch_fire = m.input("dispatch_fire", width=1)
     disp_alloc_mask = m.input("disp_alloc_mask", width=pregs)
-    m.input("flush_checkpoint_id", width=6)
     macro_uop_reg = m.input("macro_uop_reg", width=6)
     wb_set_mask = m.input("wb_set_mask", width=pregs)
 
@@ -205,13 +205,17 @@ def build_rename_bank_top(
             committed_ready | onehot_from_tag(m, tag=tag_i, width=pregs, tag_width=ptag_w),
             committed_ready,
         )
-    committed_free = (~committed_ready) & c((1 << pregs) - 1, width=pregs)
+    flush_in_use = committed_ready | flush_survivor_pdst_mask
+    committed_free = (~flush_in_use) & c((1 << pregs) - 1, width=pregs)
     free_next = dispatch_fire._select_internal(free_live & (~disp_alloc_mask), free_live)
     free_next = do_flush._select_internal(committed_free, free_next)
     free_mask_reg.set(free_next)
 
     ready_next = (ready_mask_reg.out() & (~disp_alloc_mask)) | wb_set_mask
-    ready_next = do_flush._select_internal(committed_ready | wb_set_mask, ready_next)
+    # Surviving ROB entries retain their previous readiness; they are not
+    # necessarily committed or complete when a younger redirect occurs.
+    flush_ready = committed_ready | (ready_mask_reg.out() & flush_survivor_pdst_mask) | wb_set_mask
+    ready_next = do_flush._select_internal(flush_ready, ready_next)
     ready_mask_reg.set(ready_next)
 
     for i in range(aregs):

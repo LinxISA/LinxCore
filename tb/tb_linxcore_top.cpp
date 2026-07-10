@@ -698,6 +698,7 @@ int main(int argc, char **argv) {
     }
   }
   const bool rawTraceProbes = envFlag("PYC_RAW_TRACE_PROBES");
+  const bool debugMacroPrf = envFlag("PYC_DEBUG_MACRO_PRF");
 
   const bool traceVcd = envFlag("PYC_VCD");
   const bool traceLinxTrace = envFlag("PYC_LINXTRACE");
@@ -2216,8 +2217,24 @@ int main(int argc, char **argv) {
     std::uint64_t rawCommitFire3 = 0;
     std::uint64_t rawCommitPc3 = 0;
     std::uint64_t rawCommitRob3 = 0;
+    std::uint64_t lsuResidentValid = 0;
+    std::uint64_t lsuResidentPc = 0;
+    std::uint64_t lsuPick0Valid = 0;
+    std::uint64_t lsuPick0Pc = 0;
+    std::uint64_t lsuInflightMask = 0;
+    std::uint64_t lsuReadyMask = 0;
+    std::uint64_t lsuWaitHit = 0;
+    std::uint64_t lsuWaitSl = 0;
+    std::uint64_t lsuWaitSr = 0;
+    std::uint64_t lsuWaitSp = 0;
     std::uint64_t aluResidentValid = 0;
     std::uint64_t aluResidentPc = 0;
+    std::uint64_t aluInflightMask = 0;
+    std::uint64_t aluReadyMask = 0;
+    std::uint64_t aluWaitHit = 0;
+    std::uint64_t aluWaitSl = 0;
+    std::uint64_t aluWaitSr = 0;
+    std::uint64_t aluWaitSp = 0;
     std::uint64_t aluPick0Valid = 0;
     std::uint64_t aluPick0Pc = 0;
     std::uint64_t aluPick1Valid = 0;
@@ -2305,7 +2322,17 @@ int main(int argc, char **argv) {
                 << " raw3(f=" << s.rawCommitFire3
                 << ",pc=" << toHex(s.rawCommitPc3)
                 << ",rob=" << s.rawCommitRob3 << ")"
+                << " lsu_iq(res=" << s.lsuResidentValid << "@" << toHex(s.lsuResidentPc)
+                << ",pick0=" << s.lsuPick0Valid << "@" << toHex(s.lsuPick0Pc)
+                << ",inflight=" << toHex(s.lsuInflightMask)
+                << ",ready=" << toHex(s.lsuReadyMask)
+                << ",wait=" << s.lsuWaitHit
+                << "[" << s.lsuWaitSl << "," << s.lsuWaitSr << "," << s.lsuWaitSp << "])"
                 << " alu_iq(res=" << s.aluResidentValid << "@" << toHex(s.aluResidentPc)
+                << ",inflight=" << toHex(s.aluInflightMask)
+                << ",ready=" << toHex(s.aluReadyMask)
+                << ",wait=" << s.aluWaitHit
+                << "[" << s.aluWaitSl << "," << s.aluWaitSr << "," << s.aluWaitSp << "]"
                 << ",pick0=" << s.aluPick0Valid << "@" << toHex(s.aluPick0Pc)
                 << ",pick1=" << s.aluPick1Valid << "@" << toHex(s.aluPick1Pc) << ")"
                 << " p1(slot0=" << s.p1v0 << "@" << toHex(s.p1pc0)
@@ -2814,6 +2841,118 @@ int main(int argc, char **argv) {
         }
       }
       if (rawTrace.is_open()) {
+        if (rawTraceProbes) {
+          auto *backend = dut.linxcore_top_root->janus_backend.get();
+          auto *dispatch = backend->dispatch_frontend.get();
+          auto *rename = backend->rename_bank.get();
+          auto *rob = backend->rob_bank.get();
+          auto *lsu = backend->lsu_stage.get();
+          if (lsu->issue_fire_lane0_raw.value() && !lsu->issue_fire_lane0_eff.value()) {
+            rawTrace << "{"
+                     << "\"type\":\"lsu_issue_block\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"pc\":" << backend->iq_lsu_bank->issue_pick_pc0_o.value() << ","
+                     << "\"rob\":" << backend->iq_lsu_bank->issue_pick_rob0_o.value() << ","
+                     << "\"is_load\":" << lsu->ex0_is_load.value() << ","
+                     << "\"is_store\":" << lsu->ex0_is_store.value() << ","
+                     << "\"lsid\":" << lsu->ex0_lsid.value() << ","
+                     << "\"issue_ptr\":" << lsu->lsid_issue_ptr.value() << ","
+                     << "\"lsid_block\":" << lsu->lsu_lsid_block_lane0.value() << ","
+                     << "\"older_store\":" << lsu->rob_older_store_pending_lane0.value()
+                     << "}\n";
+          }
+          if (rename->do_flush.value()) {
+            rawTrace << "{"
+                     << "\"type\":\"rename_flush\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"free_mask\":" << rename->free_mask_q.value() << ","
+                     << "\"flush_bid\":" << rob->flush_bid.value() << ","
+                     << "\"survivor_pdst_mask\":" << rob->flush_survivor_pdst_mask_o.value()
+                     << "}\n";
+          }
+          auto writeRenameCommit = [&](int slot,
+                                       bool fire,
+                                       std::uint64_t dstKind,
+                                       std::uint64_t dstAreg,
+                                       std::uint64_t pdst) {
+            if (!fire) {
+              return;
+            }
+            rawTrace << "{"
+                     << "\"type\":\"rename_commit\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"slot\":" << slot << ","
+                     << "\"dst_kind\":" << dstKind << ","
+                     << "\"dst_areg\":" << dstAreg << ","
+                     << "\"pdst\":" << pdst << ","
+                     << "\"free_mask\":" << rename->free_mask_q.value() << ","
+                     << "\"cmap4\":" << rename->cmap4.value() << ","
+                     << "\"cmap24\":" << rename->cmap24.value()
+                     << "}\n";
+          };
+          writeRenameCommit(0, rename->commit_fire0.value(), rename->rob_dst_kind0.value(),
+                            rename->rob_dst_areg0.value(), rename->rob_pdst0.value());
+          writeRenameCommit(1, rename->commit_fire1.value(), rename->rob_dst_kind1.value(),
+                            rename->rob_dst_areg1.value(), rename->rob_pdst1.value());
+          writeRenameCommit(2, rename->commit_fire2.value(), rename->rob_dst_kind2.value(),
+                            rename->rob_dst_areg2.value(), rename->rob_pdst2.value());
+          writeRenameCommit(3, rename->commit_fire3.value(), rename->rob_dst_kind3.value(),
+                            rename->rob_dst_areg3.value(), rename->rob_pdst3.value());
+          auto writeIqAlloc = [&](const char *bank,
+                                  int slot,
+                                  bool fire,
+                                  std::uint64_t rob,
+                                  std::uint64_t pc,
+                                  std::uint64_t op,
+                                  std::uint64_t srcl,
+                                  std::uint64_t srcr,
+                                  std::uint64_t srcp,
+                                  std::uint64_t pdst,
+                                  std::uint64_t hasDst) {
+            if (!fire) {
+              return;
+            }
+            rawTrace << "{"
+                     << "\"type\":\"iq_alloc\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"bank\":\"" << bank << "\","
+                     << "\"slot\":" << slot << ","
+                     << "\"rob\":" << rob << ","
+                     << "\"pc\":" << pc << ","
+                     << "\"op\":" << op << ","
+                     << "\"srcl\":" << srcl << ","
+                     << "\"srcr\":" << srcr << ","
+                     << "\"srcp\":" << srcp << ","
+                     << "\"pdst\":" << pdst << ","
+                     << "\"has_dst\":" << hasDst << ","
+                     << "\"rename_free_mask\":" << rename->free_mask_q.value() << ","
+                     << "\"dispatch_alloc_mask\":" << dispatch->disp_alloc_mask.value() << ","
+                     << "\"rename_flush\":" << rename->do_flush.value()
+                     << "}\n";
+          };
+          auto emitIqAllocs = [&](const char *bank, auto *iq) {
+            writeIqAlloc(bank, 0, iq->disp_fire0.value() && iq->disp_to0.value(), iq->disp_rob_idx0.value(),
+                         iq->disp_pc0.value(), iq->disp_op0.value(), iq->disp_srcl_tag0.value(),
+                         iq->disp_srcr_tag0.value(), iq->disp_srcp_tag0.value(), iq->disp_pdst0.value(),
+                         iq->disp_need_pdst0.value());
+            writeIqAlloc(bank, 1, iq->disp_fire1.value() && iq->disp_to1.value(), iq->disp_rob_idx1.value(),
+                         iq->disp_pc1.value(), iq->disp_op1.value(), iq->disp_srcl_tag1.value(),
+                         iq->disp_srcr_tag1.value(), iq->disp_srcp_tag1.value(), iq->disp_pdst1.value(),
+                         iq->disp_need_pdst1.value());
+            writeIqAlloc(bank, 2, iq->disp_fire2.value() && iq->disp_to2.value(), iq->disp_rob_idx2.value(),
+                         iq->disp_pc2.value(), iq->disp_op2.value(), iq->disp_srcl_tag2.value(),
+                         iq->disp_srcr_tag2.value(), iq->disp_srcp_tag2.value(), iq->disp_pdst2.value(),
+                         iq->disp_need_pdst2.value());
+            writeIqAlloc(bank, 3, iq->disp_fire3.value() && iq->disp_to3.value(), iq->disp_rob_idx3.value(),
+                         iq->disp_pc3.value(), iq->disp_op3.value(), iq->disp_srcl_tag3.value(),
+                         iq->disp_srcr_tag3.value(), iq->disp_srcp_tag3.value(), iq->disp_pdst3.value(),
+                         iq->disp_need_pdst3.value());
+          };
+          emitIqAllocs("lsu", backend->iq_lsu_bank.get());
+          emitIqAllocs("bru", backend->iq_bru_bank.get());
+          emitIqAllocs("alu", backend->iq_alu_bank.get());
+          emitIqAllocs("cmd", backend->iq_cmd_bank.get());
+        }
         for (const auto &ev : allEvents) {
           const char *stageName = "UNK";
           if (ev.sid >= 0 && ev.sid < static_cast<int>(kTraceStageNames.size())) {
@@ -3056,6 +3195,22 @@ int main(int argc, char **argv) {
     const std::uint64_t blkEvtKindDbg = kindVal;
     const std::uint64_t blkEvtPcDbg = blkEvtPc;
 
+    if (debugMacroPrf && (ctuUopValidDbg || ctuStartFireDbg)) {
+      auto *backend = dut.linxcore_top_root->janus_backend.get();
+      auto *rename = backend->rename_bank.get();
+      auto *prf = backend->prf.get();
+      std::cerr << "macro_prf_dfx cycle=" << cycleNow
+                << " head_pc=" << toHex(dut.rob_head_pc.value())
+                << " start=" << (ctuStartFireDbg ? 1 : 0)
+                << " uop=" << (ctuUopValidDbg ? 1 : 0)
+                << " map(sp=s" << rename->smap1.value()
+                << ",c" << rename->cmap1.value()
+                << ") ready=" << toHex(rename->ready_mask_q.value())
+                << " macro_prf(we=" << prf->wen8.value()
+                << ",tag=" << prf->waddr8.value()
+                << ",data=" << toHex(prf->wdata8.value()) << ")\n";
+    }
+
     if (ctuHeadIsMacroDbg || macroActiveDbg || macroWaitCommitDbg || ctuStartFireDbg || ctuDbgForceCycles > 0) {
       pushCtuDbg(CtuDebugSnapshot{
           false,
@@ -3101,7 +3256,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (((dut.cycles.value() - startCycle) <= 24) || ctuDbgForceCycles > 0 || xcheckEnabled) {
+    if (((dut.cycles.value() - startCycle) <= 24) || ctuDbgForceCycles > 0 || xcheckEnabled || noRetireStreak >= 16) {
       auto *backend = dut.linxcore_top_root->janus_backend.get();
       auto *dispatch = backend->dispatch_frontend.get();
       auto *commitTrace = backend->backend_commit_trace.get();
@@ -3158,8 +3313,24 @@ int main(int argc, char **argv) {
           backend->raw_commit_fire3_dbg.value(),
           backend->raw_commit_pc3_dbg.value(),
           backend->raw_commit_rob3_dbg.value(),
+          lsuIq->resident_valid_o.value(),
+          lsuIq->resident_pc_o.value(),
+          lsuIq->issue_pick_valid0_o.value(),
+          lsuIq->issue_pick_pc0_o.value(),
+          lsuIq->inflight_mask.value(),
+          lsuIq->ready_mask.value(),
+          lsuIq->head_wait_hit_o.value(),
+          lsuIq->head_wait_sl_o.value(),
+          lsuIq->head_wait_sr_o.value(),
+          lsuIq->head_wait_sp_o.value(),
           aluIq->resident_valid_o.value(),
           aluIq->resident_pc_o.value(),
+          aluIq->inflight_mask.value(),
+          aluIq->ready_mask.value(),
+          aluIq->head_wait_hit_o.value(),
+          aluIq->head_wait_sl_o.value(),
+          aluIq->head_wait_sr_o.value(),
+          aluIq->head_wait_sp_o.value(),
           aluIq->issue_pick_valid0_o.value(),
           aluIq->issue_pick_pc0_o.value(),
           aluIq->issue_pick_valid1_o.value(),

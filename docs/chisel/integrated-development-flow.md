@@ -1023,6 +1023,21 @@ Evidence:
   reaches a later resident LSU-IQ `OP_SDI` head at `0x1459A`; this is a new
   operand/readiness or LSU-issue divergence, not evidence that I2 residency is
   still broken.
+- Recovery must not rebuild the physical-register free list from CMAP alone:
+  a BID redirect retains an older ROB prefix, and any destination owned by that
+  prefix remains unavailable until its producer retires. The `rob_bank`
+  survivor-PDST mask feeds `rename_bank` recovery so retained operands keep
+  both allocation ownership and their existing readiness. This removes the
+  observed duplicate tag-16 allocation and advances the direct boot from 68
+  to 94 retired rows.
+- The next first divergence is LSU sequence recovery, not register rename.
+  Global LSID cursor recovery is invalid in both directions: resetting the
+  cursor to the allocation tail strands retained rows (for example LSID 12
+  behind tail 19), while never resetting it can leave a restarted stream with
+  a later candidate LSID ahead of the required cursor. The next repair must
+  checkpoint the LSID allocation/issue boundary at the BSTART checkpoint and
+  restore that boundary on the corresponding BID redirect. Do not commit a
+  partial global-reset workaround as an LSU ordering fix.
 - The short driver compares a raw-row bound, while its comparator bound is in
   architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore
   end with a `trace_length` tail mismatch even after every compared

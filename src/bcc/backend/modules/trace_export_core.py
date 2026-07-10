@@ -782,7 +782,7 @@ def _build_trace_export_core(
     # --- rename bank (hierarchical; owns SMAP/CMAP/freelist/ready/checkpoints) ---
     ren_dispatch_fire = m.new_wire(width=1)
     ren_disp_alloc_mask = m.new_wire(width=p.pregs)
-    ren_flush_checkpoint_id = m.new_wire(width=6)
+    ren_flush_survivor_pdst_mask = m.new_wire(width=p.pregs)
     ren_macro_uop_reg = m.new_wire(width=6)
     ren_wb_set_mask = m.new_wire(width=p.pregs)
 
@@ -808,9 +808,9 @@ def _build_trace_export_core(
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_survivor_pdst_mask": ren_flush_survivor_pdst_mask,
         "dispatch_fire": ren_dispatch_fire,
         "disp_alloc_mask": ren_disp_alloc_mask,
-        "flush_checkpoint_id": ren_flush_checkpoint_id,
         "macro_uop_reg": ren_macro_uop_reg,
         "wb_set_mask": ren_wb_set_mask,
     }
@@ -993,6 +993,7 @@ def _build_trace_export_core(
         },
         **rob_bank_args,
     )
+    m.assign(ren_flush_survivor_pdst_mask, rob_bank["flush_survivor_pdst_mask_o"])
     rob_head = rob_bank["head_o"]
     rob_tail = rob_bank["tail_o"]
     rob_count = rob_bank["count_o"]
@@ -1803,13 +1804,9 @@ def _build_trace_export_core(
     issue_fire = issue_fires_eff[0]
     lsid_issue_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_ptr_live + c(1, width=32), lsid_issue_ptr_live)
     lsid_complete_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_complete_ptr_live + c(1, width=32), lsid_complete_ptr_live)
-    frontend_flush = do_flush | macro_start
-    # Frontend flush drops younger packets after they may already have consumed
-    # speculative LSIDs at dispatch. Rebase the LSU issue/complete cursors to
-    # the current allocation head so cancelled IDs cannot permanently block the
-    # next surviving load/store.
-    lsid_issue_ptr_live = frontend_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
-    lsid_complete_ptr_live = frontend_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
+    # Recovery retains the older ROB prefix, including its in-order memory
+    # stream. Keep both cursors on that stream: rebasing them to the current
+    # allocation tail skips retained LSIDs while the frontend drains.
 
     issue_is_loads = []
     issue_is_stores = []
@@ -2007,7 +2004,6 @@ def _build_trace_export_core(
     macro_prf_data = macro_reg_write._select_internal(macro_load_data_eff, macro_prf_data)
     macro_prf_data = macro_sp_write_restore._select_internal(macro_sp_val + macro_frame_adj, macro_prf_data)
     macro_prf_data = macro_sp_write_init._select_internal(macro_sp_val - macro_frame_adj, macro_prf_data)
-
     # Load result (uses dmem_rdata in the same cycle raddr is set).
     load8 = dmem_rdata._trunc(width=8)
     load16 = dmem_rdata._trunc(width=16)
@@ -2426,7 +2422,6 @@ def _build_trace_export_core(
     # Wire rename bank inputs (hierarchical SMAP/CMAP + ready/free).
     m.assign(ren_dispatch_fire, dispatch_fire)
     m.assign(ren_disp_alloc_mask, disp_alloc_mask)
-    m.assign(ren_flush_checkpoint_id, state.flush_checkpoint_id.out())
 
     wb_set_mask = c(0, width=p.pregs)
     for slot in range(p.issue_w):
