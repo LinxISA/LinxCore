@@ -1075,6 +1075,16 @@ def _build_trace_export_core(
     iq_lsu_issue_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.lsu_w)]
     iq_cmd_issue_fires = [m.new_wire(width=1)]
     iq_cmd_issue_idxs = [m.new_wire(width=p.iq_w)]
+    # Each split IQ only observes execution lanes it can own.  The ROB tag is
+    # still checked locally because the CMD queue shares the final ALU lane.
+    iq_alu_complete_fires = [m.new_wire(width=1) for _ in range(p.alu_w)]
+    iq_alu_complete_robs = [m.new_wire(width=p.rob_w) for _ in range(p.alu_w)]
+    iq_bru_complete_fires = [m.new_wire(width=1) for _ in range(p.bru_w)]
+    iq_bru_complete_robs = [m.new_wire(width=p.rob_w) for _ in range(p.bru_w)]
+    iq_lsu_complete_fires = [m.new_wire(width=1) for _ in range(p.lsu_w)]
+    iq_lsu_complete_robs = [m.new_wire(width=p.rob_w) for _ in range(p.lsu_w)]
+    iq_cmd_complete_fires = [m.new_wire(width=1)]
+    iq_cmd_complete_robs = [m.new_wire(width=p.rob_w)]
 
     iq_common_disp_args = {}
     for slot in range(p.dispatch_w):
@@ -1141,6 +1151,18 @@ def _build_trace_export_core(
         iq_cmd_bank_args[f"alloc_idx{slot}"] = iq_cmd_alloc_idxs[slot]
 
     for slot in range(p.alu_w):
+        iq_alu_bank_args[f"complete_fire{slot}"] = iq_alu_complete_fires[slot]
+        iq_alu_bank_args[f"complete_rob{slot}"] = iq_alu_complete_robs[slot]
+    for slot in range(p.bru_w):
+        iq_bru_bank_args[f"complete_fire{slot}"] = iq_bru_complete_fires[slot]
+        iq_bru_bank_args[f"complete_rob{slot}"] = iq_bru_complete_robs[slot]
+    for slot in range(p.lsu_w):
+        iq_lsu_bank_args[f"complete_fire{slot}"] = iq_lsu_complete_fires[slot]
+        iq_lsu_bank_args[f"complete_rob{slot}"] = iq_lsu_complete_robs[slot]
+    iq_cmd_bank_args["complete_fire0"] = iq_cmd_complete_fires[0]
+    iq_cmd_bank_args["complete_rob0"] = iq_cmd_complete_robs[0]
+
+    for slot in range(p.alu_w):
         iq_alu_bank_args[f"issue_fire{slot}"] = iq_alu_issue_fires[slot]
         iq_alu_bank_args[f"issue_idx{slot}"] = iq_alu_issue_idxs[slot]
     for slot in range(p.bru_w):
@@ -1163,6 +1185,7 @@ def _build_trace_export_core(
             "ptag_w": p.ptag_w,
             "dispatch_w": p.dispatch_w,
             "issue_w": p.alu_w,
+            "completion_w": p.alu_w,
             "pregs": p.pregs,
         },
         **iq_alu_bank_args,
@@ -1177,6 +1200,7 @@ def _build_trace_export_core(
             "ptag_w": p.ptag_w,
             "dispatch_w": p.dispatch_w,
             "issue_w": p.bru_w,
+            "completion_w": p.bru_w,
             "pregs": p.pregs,
         },
         **iq_bru_bank_args,
@@ -1191,6 +1215,7 @@ def _build_trace_export_core(
             "ptag_w": p.ptag_w,
             "dispatch_w": p.dispatch_w,
             "issue_w": p.lsu_w,
+            "completion_w": p.lsu_w,
             "pregs": p.pregs,
         },
         **iq_lsu_bank_args,
@@ -1205,6 +1230,7 @@ def _build_trace_export_core(
             "ptag_w": p.ptag_w,
             "dispatch_w": p.dispatch_w,
             "issue_w": 1,
+            "completion_w": 1,
             "pregs": p.pregs,
         },
         **iq_cmd_bank_args,
@@ -2073,6 +2099,24 @@ def _build_trace_export_core(
             rob_bru_query_checkpoint_id,
         ),
     )
+
+    lsu_base = 0
+    bru_base = p.lsu_w
+    alu_base = p.lsu_w + p.bru_w
+    for slot in range(p.lsu_w):
+        pipe_slot = lsu_base + slot
+        m.assign(iq_lsu_complete_fires[slot], exec_pipe[f"i2_fire_{pipe_slot}_o"])
+        m.assign(iq_lsu_complete_robs[slot], exec_pipe[f"i2_rob_{pipe_slot}_o"])
+    for slot in range(p.bru_w):
+        pipe_slot = bru_base + slot
+        m.assign(iq_bru_complete_fires[slot], exec_pipe[f"i2_fire_{pipe_slot}_o"])
+        m.assign(iq_bru_complete_robs[slot], exec_pipe[f"i2_rob_{pipe_slot}_o"])
+    for slot in range(p.alu_w):
+        pipe_slot = alu_base + slot
+        m.assign(iq_alu_complete_fires[slot], exec_pipe[f"i2_fire_{pipe_slot}_o"])
+        m.assign(iq_alu_complete_robs[slot], exec_pipe[f"i2_rob_{pipe_slot}_o"])
+    m.assign(iq_cmd_complete_fires[0], exec_pipe[f"i2_fire_{cmd_slot}_o"])
+    m.assign(iq_cmd_complete_robs[0], exec_pipe[f"i2_rob_{cmd_slot}_o"])
 
     w2_pack = exec_pipe["w2_pack_o"]
     aux_out_pack = exec_pipe["aux_out_pack_o"]

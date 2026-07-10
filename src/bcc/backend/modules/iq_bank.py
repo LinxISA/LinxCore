@@ -5,6 +5,108 @@ from pycircuit import Circuit, module
 from ..helpers import mask_bit
 
 
+def _pack_lsb_first(m: Circuit, values):
+    """Pack values so values[0] occupies the least-significant bits."""
+
+    packed = values[-1]
+    for index in range(len(values) - 2, -1, -1):
+        packed = m.concat(packed, values[index])
+    return packed
+
+
+@module(name="LinxCoreIqBankCompletion")
+def build_iq_bank_completion(
+    m: Circuit,
+    *,
+    iq_depth: int = 32,
+    rob_w: int = 6,
+    completion_w: int = 1,
+) -> None:
+    """Compute the per-entry I2 release mask outside the stateful IQ owner.
+
+    Keeping this compare cone separate keeps the resident-bank module below
+    pyCircuit's generated-C++ compilation budget without changing ownership:
+    the caller alone consumes these outputs to update valid/inflight state.
+    """
+
+    c = m.const
+    complete_fire_pack = m.input("complete_fire_pack", width=completion_w)
+    complete_rob_pack = m.input("complete_rob_pack", width=completion_w * rob_w)
+    rob_pack = m.input("rob_pack", width=iq_depth * rob_w)
+    complete_fire = [complete_fire_pack.slice(lsb=slot, width=1) for slot in range(completion_w)]
+    complete_rob = [
+        complete_rob_pack.slice(lsb=slot * rob_w, width=rob_w) for slot in range(completion_w)
+    ]
+    complete_bits = []
+    for i in range(iq_depth):
+        rob_i = rob_pack.slice(lsb=i * rob_w, width=rob_w)
+        complete_i = c(0, width=1)
+        for slot in range(completion_w):
+            complete_i = complete_i | (complete_fire[slot] & complete_rob[slot].__eq__(rob_i))
+        complete_bits.append(complete_i)
+    m.output("complete_mask_o", _pack_lsb_first(m, complete_bits))
+
+
+@module(name="LinxCoreIqBankObserve")
+def build_iq_bank_observe(
+    m: Circuit,
+    *,
+    iq_depth: int = 32,
+    rob_w: int = 6,
+    ptag_w: int = 6,
+    pregs: int = 64,
+) -> None:
+    """Compute diagnostic wait/residency views without owning IQ state."""
+
+    c = m.const
+    ready_mask = m.input("ready_mask", width=pregs)
+    head_idx = m.input("head_idx", width=rob_w)
+    valid_pack = m.input("valid_pack", width=iq_depth)
+    rob_pack = m.input("rob_pack", width=iq_depth * rob_w)
+    pc_pack = m.input("pc_pack", width=iq_depth * 64)
+    srcl_pack = m.input("srcl_pack", width=iq_depth * ptag_w)
+    srcr_pack = m.input("srcr_pack", width=iq_depth * ptag_w)
+    srcp_pack = m.input("srcp_pack", width=iq_depth * ptag_w)
+    sub_head = (~head_idx) + c(1, width=rob_w)
+
+    wait_hit = c(0, width=1)
+    wait_sl = c(0, width=ptag_w)
+    wait_sr = c(0, width=ptag_w)
+    wait_sp = c(0, width=ptag_w)
+    wait_best_age = c((1 << rob_w) - 1, width=rob_w)
+    resident_valid = c(0, width=1)
+    resident_pc = c(0, width=64)
+    resident_rob = c(0, width=rob_w)
+    resident_best_age = c((1 << rob_w) - 1, width=rob_w)
+    for i in range(iq_depth):
+        valid_i = valid_pack.slice(lsb=i, width=1)
+        rob_i = rob_pack.slice(lsb=i * rob_w, width=rob_w)
+        pc_i = pc_pack.slice(lsb=i * 64, width=64)
+        srcl_i = srcl_pack.slice(lsb=i * ptag_w, width=ptag_w)
+        srcr_i = srcr_pack.slice(lsb=i * ptag_w, width=ptag_w)
+        srcp_i = srcp_pack.slice(lsb=i * ptag_w, width=ptag_w)
+        sl_rdy = mask_bit(m, mask=ready_mask, idx=srcl_i, width=pregs)
+        sr_rdy = mask_bit(m, mask=ready_mask, idx=srcr_i, width=pregs)
+        sp_rdy = mask_bit(m, mask=ready_mask, idx=srcp_i, width=pregs)
+        blocked = valid_i & (~(sl_rdy & sr_rdy & sp_rdy))
+        age = rob_i + sub_head
+        resident_take = valid_i & ((~resident_valid) | (age < resident_best_age))
+        resident_valid = resident_take._select_internal(c(1, width=1), resident_valid)
+        resident_pc = resident_take._select_internal(pc_i, resident_pc)
+        resident_rob = resident_take._select_internal(rob_i, resident_rob)
+        resident_best_age = resident_take._select_internal(age, resident_best_age)
+        take = blocked & ((~wait_hit) | (age < wait_best_age))
+        wait_hit = take._select_internal(c(1, width=1), wait_hit)
+        wait_sl = take._select_internal(srcl_i, wait_sl)
+        wait_sr = take._select_internal(srcr_i, wait_sr)
+        wait_sp = take._select_internal(srcp_i, wait_sp)
+        wait_best_age = take._select_internal(age, wait_best_age)
+    m.output(
+        "observe_pack_o",
+        m.concat(resident_rob, resident_pc, resident_valid, wait_sp, wait_sr, wait_sl, wait_hit),
+    )
+
+
 @module(name="LinxCoreIqBankHeld")
 def build_iq_bank_top(
     m: Circuit,
@@ -15,6 +117,7 @@ def build_iq_bank_top(
     ptag_w: int = 6,
     dispatch_w: int = 4,
     issue_w: int = 2,
+    completion_w: int = 1,
     pregs: int = 64,
 ) -> None:
     clk = m.clock("clk")
@@ -63,6 +166,16 @@ def build_iq_bank_top(
         issue_fire.append(m.input(f"issue_fire{slot}", width=1))
         issue_idx.append(m.input(f"issue_idx{slot}", width=iq_w))
 
+    # A pick only reserves an entry.  The execution pipe returns this
+    # completion witness when the row crosses the I2 confirmation boundary.
+    # Use the ROB tag rather than a queue-local index because one pipe can be
+    # fed by any of the split IQ banks (including the CMD overlay lane).
+    complete_fire = []
+    complete_rob = []
+    for slot in range(completion_w):
+        complete_fire.append(m.input(f"complete_fire{slot}", width=1))
+        complete_rob.append(m.input(f"complete_rob{slot}", width=rob_w))
+
     valid = []
     rob = []
     op = []
@@ -91,13 +204,33 @@ def build_iq_bank_top(
         has_dst.append(m.out(f"has_dst{i}", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1)))
         block_bid.append(m.out(f"block_bid{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)))
 
+    rob_values = [rob[i].out() for i in range(iq_depth)]
+    completion = m.new(
+        build_iq_bank_completion,
+        name="iq_completion",
+        bind={
+            "complete_fire_pack": _pack_lsb_first(m, complete_fire),
+            "complete_rob_pack": _pack_lsb_first(m, complete_rob),
+            "rob_pack": _pack_lsb_first(m, rob_values),
+        },
+        params={"iq_depth": iq_depth, "rob_w": rob_w, "completion_w": completion_w},
+    ).outputs
+    inflight_mask = m.out(
+        "inflight_mask",
+        clk=clk,
+        rst=rst,
+        width=iq_depth,
+        init=c(0, width=iq_depth),
+        en=c(1, width=1),
+    )
+
     sub_head = (~head_idx) + c(1, width=rob_w)
     can_issue = []
     for i in range(iq_depth):
         sl_rdy = mask_bit(m, mask=ready_mask, idx=srcl[i].out(), width=pregs)
         sr_rdy = mask_bit(m, mask=ready_mask, idx=srcr[i].out(), width=pregs)
         sp_rdy = mask_bit(m, mask=ready_mask, idx=srcp[i].out(), width=pregs)
-        can_issue.append(valid[i].out() & sl_rdy & sr_rdy & sp_rdy)
+        can_issue.append(valid[i].out() & (~inflight_mask.out().slice(lsb=i, width=1)) & sl_rdy & sr_rdy & sp_rdy)
 
     pick_valid = []
     pick_idx = []
@@ -118,37 +251,37 @@ def build_iq_bank_top(
         pick_valid.append(v)
         pick_idx.append(idx)
 
-    wait_hit = c(0, width=1)
-    wait_sl = c(0, width=ptag_w)
-    wait_sr = c(0, width=ptag_w)
-    wait_sp = c(0, width=ptag_w)
-    wait_best_age = c((1 << rob_w) - 1, width=rob_w)
-    resident_valid = c(0, width=1)
-    resident_pc = c(0, width=64)
-    resident_rob = c(0, width=rob_w)
-    resident_best_age = c((1 << rob_w) - 1, width=rob_w)
-    for i in range(iq_depth):
-        sl_rdy = mask_bit(m, mask=ready_mask, idx=srcl[i].out(), width=pregs)
-        sr_rdy = mask_bit(m, mask=ready_mask, idx=srcr[i].out(), width=pregs)
-        sp_rdy = mask_bit(m, mask=ready_mask, idx=srcp[i].out(), width=pregs)
-        blocked = valid[i].out() & (~(sl_rdy & sr_rdy & sp_rdy))
-        age = rob[i].out() + sub_head
-        resident_take = valid[i].out() & ((~resident_valid) | (age < resident_best_age))
-        resident_valid = resident_take._select_internal(c(1, width=1), resident_valid)
-        resident_pc = resident_take._select_internal(pc[i].out(), resident_pc)
-        resident_rob = resident_take._select_internal(rob[i].out(), resident_rob)
-        resident_best_age = resident_take._select_internal(age, resident_best_age)
-        take = blocked & ((~wait_hit) | (age < wait_best_age))
-        wait_hit = take._select_internal(c(1, width=1), wait_hit)
-        wait_sl = take._select_internal(srcl[i].out(), wait_sl)
-        wait_sr = take._select_internal(srcr[i].out(), wait_sr)
-        wait_sp = take._select_internal(srcp[i].out(), wait_sp)
-        wait_best_age = take._select_internal(age, wait_best_age)
+    observe = m.new(
+        build_iq_bank_observe,
+        name="iq_observe",
+        bind={
+            "ready_mask": ready_mask,
+            "head_idx": head_idx,
+            "valid_pack": _pack_lsb_first(m, [valid[i].out() for i in range(iq_depth)]),
+            "rob_pack": _pack_lsb_first(m, [rob[i].out() for i in range(iq_depth)]),
+            "pc_pack": _pack_lsb_first(m, [pc[i].out() for i in range(iq_depth)]),
+            "srcl_pack": _pack_lsb_first(m, [srcl[i].out() for i in range(iq_depth)]),
+            "srcr_pack": _pack_lsb_first(m, [srcr[i].out() for i in range(iq_depth)]),
+            "srcp_pack": _pack_lsb_first(m, [srcp[i].out() for i in range(iq_depth)]),
+        },
+        params={"iq_depth": iq_depth, "rob_w": rob_w, "ptag_w": ptag_w, "pregs": pregs},
+    ).outputs
+    wait_hit = observe.slice(lsb=0, width=1)
+    wait_sl = observe.slice(lsb=1, width=ptag_w)
+    wait_sr = observe.slice(lsb=1 + ptag_w, width=ptag_w)
+    wait_sp = observe.slice(lsb=1 + (2 * ptag_w), width=ptag_w)
+    resident_valid = observe.slice(lsb=1 + (3 * ptag_w), width=1)
+    resident_pc = observe.slice(lsb=2 + (3 * ptag_w), width=64)
+    resident_rob = observe.slice(lsb=66 + (3 * ptag_w), width=rob_w)
 
+    next_inflight_bits = []
     for i in range(iq_depth):
-        clear_i = do_flush & valid[i].out() & flush_bid.ult(block_bid[i].out())
+        flush_kill_i = do_flush & valid[i].out() & flush_bid.ult(block_bid[i].out())
+        complete_i = valid[i].out() & completion.slice(lsb=i, width=1)
+        clear_i = flush_kill_i | complete_i
+        issue_i = c(0, width=1)
         for slot in range(issue_w):
-            clear_i = clear_i | (issue_fire[slot] & issue_idx[slot].__eq__(c(i, width=iq_w)))
+            issue_i = issue_i | (issue_fire[slot] & issue_idx[slot].__eq__(c(i, width=iq_w)))
         next_rob = rob[i].out()
         next_op = op[i].out()
         next_pc = pc[i].out()
@@ -192,6 +325,14 @@ def build_iq_bank_top(
         next_valid = valid[i].out()
         next_valid = clear_i._select_internal(c(0, width=1), next_valid)
         next_valid = set_i._select_internal(c(1, width=1), next_valid)
+        # A flush cancels any pre-I2 attempt while keeping non-killed rows
+        # resident for retry.  Completion and wrong-path kill release the
+        # reservation; a newly dispatched row never inherits it.
+        next_inflight = issue_i._select_internal(c(1, width=1), inflight_mask.out().slice(lsb=i, width=1))
+        next_inflight = clear_i._select_internal(c(0, width=1), next_inflight)
+        next_inflight = do_flush._select_internal(c(0, width=1), next_inflight)
+        next_inflight = set_i._select_internal(c(0, width=1), next_inflight)
+        next_inflight_bits.append(next_inflight)
         valid[i].set(next_valid)
         rob[i].set(next_rob)
         op[i].set(next_op)
@@ -205,6 +346,8 @@ def build_iq_bank_top(
         pdst[i].set(next_pdst)
         has_dst[i].set(next_has_dst)
         block_bid[i].set(next_block_bid)
+
+    inflight_mask.set(_pack_lsb_first(m, next_inflight_bits))
 
     valid_bits = []
     for i in range(iq_depth):

@@ -993,6 +993,13 @@ The packet established these contracts:
   BID to two BSTARTs in the same bundle.
 - A BSTOP redirect uses the closing row's BID, not a following split BSTART's
   live BID, so its flush drops speculative rows in that newer block.
+- The live split IQ banks now preserve a picked row as `valid + inflight`.
+  `inflight` suppresses repick; the row deallocates only when its execution
+  lane returns a qualified I2 confirmation keyed by ROB identity. A flush
+  clears the reservation on retained rows so a cancelled pre-I2 attempt can
+  retry. The generated execution pipe treats the I2-to-E1 transfer as the
+  non-cancellable handoff: P1/I1/I2 cancellation remains flush-qualified,
+  while accepted E/W work is not removed by a later redirect.
 - `tools/generate/run_linxcore_top_cpp.sh` fingerprints the actual
   `linxcore_top.hpp` umbrella and all generated headers. It must rebuild the
   testbench object when that fingerprint changes; timestamp checks alone are
@@ -1008,6 +1015,14 @@ Evidence:
   no-retire head at `0x12528` (`OP_BIC`). The row is valid but not done and has
   no resident IQ/execution-pipe owner after a later redirect. This is the next
   backend residency/flush owner; it is not terminal-CoreMark success.
+- The I2-residency repair eliminates that `0x12528` loss. Generated C++ now
+  elaborates within the pyCircuit per-module budget by placing the I2
+  completion-match and read-only IQ observation cones in helper modules rather
+  than weakening the ownership rule. `tests/test_runner_protocol.sh` and the
+  generated runner compile pass. The same direct boot now retires 68 rows and
+  reaches a later resident LSU-IQ `OP_SDI` head at `0x1459A`; this is a new
+  operand/readiness or LSU-issue divergence, not evidence that I2 residency is
+  still broken.
 - The short driver compares a raw-row bound, while its comparator bound is in
   architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore
   end with a `trace_length` tail mismatch even after every compared

@@ -117,8 +117,16 @@ def build_backend_exec_pipe(
                 for field in field_widths:
                     prev_fields[field] = regs[prev_stage][field][slot].out()
 
-            keep_on_flush = prev_fields["valid"] & (~flush_bid_i.ult(prev_fields["block_bid"]))
-            next_valid = flush_i._select_internal(keep_on_flush, prev_fields["valid"])
+            # P1/I1/I2 are the cancellable issue attempt.  E1 latches the
+            # final I2 transfer in the same cycle, after which the row is an
+            # accepted execution-pipe owner and must not be removed by a
+            # later redirect.  This matches I2 being the IQ deallocation
+            # boundary rather than merely an early pipeline label.
+            if stage_idx <= 3:
+                keep_on_flush = prev_fields["valid"] & (~flush_bid_i.ult(prev_fields["block_bid"]))
+                next_valid = flush_i._select_internal(keep_on_flush, prev_fields["valid"])
+            else:
+                next_valid = prev_fields["valid"]
             regs[stage]["valid"][slot].set(next_valid)
             for field, width in field_widths.items():
                 next_value = next_valid._select_internal(prev_fields[field], c(0, width=width))
@@ -131,11 +139,22 @@ def build_backend_exec_pipe(
             m.output(f"probe_{stage}_pc_{slot}", regs[stage]["pc"][slot].out())
             m.output(f"probe_{stage}_rob_{slot}", regs[stage]["rob"][slot].out())
 
+    # I2 is the sole IQ release witness.  It is qualified by the same flush
+    # rule used by the I2->E1 transfer so a cancelled attempt stays resident.
+    for slot in range(issue_w):
+        i2_keep_on_flush = regs["i2"]["valid"][slot].out() & (
+            ~flush_bid_i.ult(regs["i2"]["block_bid"][slot].out())
+        )
+        i2_fire = regs["i2"]["valid"][slot].out() & ((~flush_i) | i2_keep_on_flush)
+        m.output(f"i2_fire_{slot}_o", i2_fire)
+        m.output(f"i2_rob_{slot}_o", regs["i2"]["rob"][slot].out())
+
     w2_meta = []
     w2_data = []
     for slot in range(issue_w):
-        w2_keep_on_flush = regs["w2"]["valid"][slot].out() & (~flush_bid_i.ult(regs["w2"]["block_bid"][slot].out()))
-        visible_valid = regs["w2"]["valid"][slot].out() & ((~flush_i) | w2_keep_on_flush)
+        # W2 is downstream of an accepted I2 transfer and therefore is not
+        # cancellable by a later redirect.
+        visible_valid = regs["w2"]["valid"][slot].out()
         w2_meta.append(
             m.concat(
                 regs["w2"]["block_bid"][slot].out(),
@@ -168,10 +187,7 @@ def build_backend_exec_pipe(
     bru_e1_checkpoint = c(0, width=6)
     bru_e1_epoch = c(0, width=16)
     if 0 <= bru_slot < issue_w:
-        bru_keep_on_flush = regs["e1"]["valid"][bru_slot].out() & (
-            ~flush_bid_i.ult(regs["e1"]["block_bid"][bru_slot].out())
-        )
-        bru_e1_valid = regs["e1"]["valid"][bru_slot].out() & ((~flush_i) | bru_keep_on_flush)
+        bru_e1_valid = regs["e1"]["valid"][bru_slot].out()
         bru_e1_rob = regs["e1"]["rob"][bru_slot].out()
         bru_e1_value = regs["e1"]["value"][bru_slot].out()
         bru_e1_op = regs["e1"]["op"][bru_slot].out()
@@ -185,10 +201,7 @@ def build_backend_exec_pipe(
     cmd_w2_op = c(0, width=12)
     cmd_w2_block_bid = c(0, width=64)
     if 0 <= cmd_slot < issue_w:
-        cmd_keep_on_flush = regs["w2"]["valid"][cmd_slot].out() & (
-            ~flush_bid_i.ult(regs["w2"]["cmd_block_bid"][cmd_slot].out())
-        )
-        cmd_w2_valid = regs["w2"]["valid"][cmd_slot].out() & ((~flush_i) | cmd_keep_on_flush)
+        cmd_w2_valid = regs["w2"]["valid"][cmd_slot].out()
         cmd_w2_rob = regs["w2"]["rob"][cmd_slot].out()
         cmd_w2_value = regs["w2"]["value"][cmd_slot].out()
         cmd_w2_op = regs["w2"]["op"][cmd_slot].out()
