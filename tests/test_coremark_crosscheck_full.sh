@@ -12,8 +12,18 @@ COMMIT_TEXT="${TMP_DIR}/coremark_dut_commit.txt"
 LINXTRACE_OUT="${TMP_DIR}/coremark_full.linxtrace"
 QEMU_FIFO="${TMP_DIR}/qemu_trace.fifo"
 LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
-QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+KEEP_TMP="${COREMARK_KEEP_TMP:-0}"
+if [[ -n "${QEMU_BIN:-}" ]]; then
+  QEMU_BIN="${QEMU_BIN}"
+elif [[ -x "${LINX_ROOT}/emulator/qemu/build-linx/qemu-system-linx64" ]]; then
+  # Match the Chisel cross-check lane: this build emits LINX_COMMIT_TRACE.
+  QEMU_BIN="${LINX_ROOT}/emulator/qemu/build-linx/qemu-system-linx64"
+else
+  QEMU_BIN="${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+fi
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-30}"
+PYC_MAX_COMMITS="${PYC_MAX_COMMITS:-0}"
+PYC_MAX_CYCLES="${PYC_MAX_CYCLES:-50000000}"
 
 resolve_coremark_elf() {
   local cand
@@ -68,7 +78,11 @@ cleanup() {
   if [[ -n "${reader_pid:-}" ]]; then kill "${reader_pid}" >/dev/null 2>&1 || true; fi
   stop_qemu_for_elf
   rm -f "${QEMU_FIFO}"
-  rm -rf "${TMP_DIR}"
+  if [[ "${KEEP_TMP}" == "1" ]]; then
+    echo "coremark full evidence retained at ${TMP_DIR}" >&2
+  else
+    rm -rf "${TMP_DIR}"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -95,8 +109,8 @@ bash "${ROOT_DIR}/tools/image/elf_to_memh.sh" "${CORE_ELF}" "${CORE_MEMH}" >/dev
 
 PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP=0x0000000007fefff0 \
-PYC_MAX_COMMITS=0 \
-PYC_MAX_CYCLES=50000000 \
+PYC_MAX_COMMITS="${PYC_MAX_COMMITS}" \
+PYC_MAX_CYCLES="${PYC_MAX_CYCLES}" \
 PYC_IDLE_LOOP_PC_A="${PYC_IDLE_LOOP_PC_A:-0x00000000000124A6}" \
 PYC_IDLE_LOOP_PC_B="${PYC_IDLE_LOOP_PC_B:-0x00000000000124A8}" \
 PYC_IDLE_LOOP_STREAK="${PYC_IDLE_LOOP_STREAK:-2048}" \

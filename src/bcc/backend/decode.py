@@ -11,11 +11,13 @@ from common.isa import (
     BK_ICALL,
     BK_IND,
     BK_RET,
+    OP_BSTART_MSEQ,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
     OP_C_BSTOP,
+    OP_C_BSTART_MSEQ,
     OP_C_BSTART_COND,
     OP_C_BSTART_DIRECT,
     OP_C_BSTART_STD,
@@ -71,9 +73,14 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
     )
 
     disp_count = c(0, width=3)
+    # With BROB_ALLOC_PER_CYCLE=1, a decode group may allocate at most one
+    # block identity.  Stop at the first boundary so a later BSTART cannot
+    # accidentally inherit the first marker's BID from the same F4 bundle.
+    group_open = c(1, width=1)
+    group_has_row = c(0, width=1)
 
     for slot in range(dispatch_w):
-        v = f4_valid & f4_bundle[f"valid{slot}"]
+        candidate_valid = f4_valid & f4_bundle[f"valid{slot}"]
         off = f4_bundle[f"off_bytes{slot}"]
         pc = f4_pc + off._zext(width=64)
 
@@ -100,6 +107,8 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
             OP_C_BSTART_STD,
             OP_C_BSTART_COND,
             OP_C_BSTART_DIRECT,
+            OP_C_BSTART_MSEQ,
+            OP_BSTART_MSEQ,
             OP_BSTART_STD_FALL,
             OP_BSTART_STD_DIRECT,
             OP_BSTART_STD_COND,
@@ -107,6 +116,12 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         )
         is_bstop = op.__eq__(c(OP_C_BSTOP, width=12))
         is_boundary = is_bstart | is_bstop
+        group_boundary = is_boundary | is_macro
+        # A group may begin with a boundary, but if an older row was already
+        # admitted the boundary starts the next group.  No younger row may
+        # compact around that deferred boundary.
+        boundary_after_row = group_has_row & group_boundary
+        v = candidate_valid & group_open & (~boundary_after_row)
         is_start = (
             _op_is(
                 m,
@@ -114,6 +129,8 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
                 OP_C_BSTART_STD,
                 OP_C_BSTART_COND,
                 OP_C_BSTART_DIRECT,
+                OP_C_BSTART_MSEQ,
+                OP_BSTART_MSEQ,
                 OP_BSTART_STD_FALL,
                 OP_BSTART_STD_DIRECT,
                 OP_BSTART_STD_COND,
@@ -218,6 +235,8 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         m.output(f"checkpoint_id{slot}", ckpt_tag)
         m.output(f"uop_uid{slot}", uop_uid)
         disp_count = disp_count + v._zext(width=3)
+        group_has_row = v._select_internal(c(1, width=1), group_has_row)
+        group_open = (candidate_valid & group_boundary)._select_internal(c(0, width=1), group_open)
 
     m.output("dispatch_count", disp_count)
     m.output("dec_op", f4_bundle["op0"])

@@ -21,7 +21,8 @@ PYC_ROOT_DIR="$(find_pyc_root)" || {
   exit 2
 }
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
+# This is the generated umbrella included directly by tb_linxcore_top.cpp.
+HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 CALLFRAME_CFG="${GEN_CPP_DIR}/.callframe_size"
 PARAM_HASH_CFG="${GEN_CPP_DIR}/.pyc_param_hash"
@@ -49,6 +50,7 @@ fi
 TB_CXX="${CXX:-clang++}"
 TB_CXXFLAGS_CFG="${GEN_CPP_DIR}/.tb_cxxflags"
 TB_MANIFEST_HASH_CFG="${GEN_CPP_DIR}/.tb_manifest_hash"
+TB_HEADER_HASH_CFG="${GEN_CPP_DIR}/.tb_header_hash"
 BUILD_LOCK_DIR="${GEN_CPP_DIR}/.tb_build_lock"
 BUILD_LOCK_OWNER="${BUILD_LOCK_DIR}/owner.pid"
 LOCK_STALE_SECS="${PYC_TB_LOCK_STALE_SECS:-900}"
@@ -97,6 +99,35 @@ if not p.exists():
     print("")
 else:
     print(hashlib.sha256(p.read_bytes()).hexdigest())
+PY
+}
+
+# The testbench includes the generated top header, whose constructor and
+# primitive bindings are inline.  Its transitive generated headers also carry
+# inline bindings. Filesystems with coarse timestamp resolution can regenerate
+# those headers and leave their mtimes equal to the existing object, so an
+# mtime-only dependency check can link a stale testbench against a new model.
+# Track the content of the complete generated header set as a build input.
+read_header_hash() {
+  python3 - <<'PY' "${GEN_CPP_DIR}"
+import hashlib
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+if not root.is_dir():
+    print("")
+else:
+    headers = sorted(root.glob("*.hpp"))
+    if not headers:
+        print("")
+    else:
+        h = hashlib.sha256()
+        for header in headers:
+            h.update(header.name.encode("utf-8"))
+            h.update(b"\\0")
+            h.update(header.read_bytes())
+            h.update(b"\\0")
+        print(h.hexdigest())
 PY
 }
 
@@ -168,6 +199,7 @@ if [[ "${need_regen}" -ne 0 ]]; then
 fi
 
 CURRENT_MANIFEST_HASH="$(read_manifest_hash)"
+CURRENT_HEADER_HASH="$(read_header_hash)"
 GEN_SRC_OBJ_PAIRS=()
 while IFS= read -r pair; do
   GEN_SRC_OBJ_PAIRS+=("${pair}")
@@ -183,6 +215,8 @@ elif [[ ! -f "${CPP_MANIFEST}" ]]; then
 elif [[ -z "${CURRENT_MANIFEST_HASH}" ]]; then
   need_build=1
 elif [[ ! -f "${TB_MANIFEST_HASH_CFG}" || "$(cat "${TB_MANIFEST_HASH_CFG}")" != "${CURRENT_MANIFEST_HASH}" ]]; then
+  need_build=1
+elif [[ ! -f "${TB_HEADER_HASH_CFG}" || "$(cat "${TB_HEADER_HASH_CFG}")" != "${CURRENT_HEADER_HASH}" ]]; then
   need_build=1
 elif [[ ! -f "${TB_CXXFLAGS_CFG}" || "$(cat "${TB_CXXFLAGS_CFG}")" != "${TB_CXXFLAGS}" ]]; then
   need_build=1
@@ -290,6 +324,8 @@ PY
     need_build_locked=1
   elif [[ ! -f "${TB_MANIFEST_HASH_CFG}" || "$(cat "${TB_MANIFEST_HASH_CFG}")" != "${CURRENT_MANIFEST_HASH}" ]]; then
     need_build_locked=1
+  elif [[ ! -f "${TB_HEADER_HASH_CFG}" || "$(cat "${TB_HEADER_HASH_CFG}")" != "${CURRENT_HEADER_HASH}" ]]; then
+    need_build_locked=1
   elif [[ ! -f "${TB_CXXFLAGS_CFG}" || "$(cat "${TB_CXXFLAGS_CFG}")" != "${TB_CXXFLAGS}" ]]; then
     need_build_locked=1
   elif [[ "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
@@ -354,7 +390,7 @@ PY
     if [[ ! -f "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
       compile_pairs+=("${TB_TRACE_UTIL_SRC}"$'\t'"${TB_TRACE_UTIL_OBJ}")
     fi
-    if [[ ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" || ( -f "${PYC_LINXTRACE_HDR}" && "${PYC_LINXTRACE_HDR}" -nt "${TB_MAIN_OBJ}" ) ]]; then
+    if [[ ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" || ( -f "${PYC_LINXTRACE_HDR}" && "${PYC_LINXTRACE_HDR}" -nt "${TB_MAIN_OBJ}" ) || ! -f "${TB_HEADER_HASH_CFG}" || "$(cat "${TB_HEADER_HASH_CFG}")" != "${CURRENT_HEADER_HASH}" ]]; then
       compile_pairs+=("${TB_SRC}"$'\t'"${TB_MAIN_OBJ}")
     fi
 
@@ -471,6 +507,7 @@ PY
     mv -f "${tmp_exe}" "${TB_EXE}"
     printf '%s\n' "${TB_CXXFLAGS}" > "${TB_CXXFLAGS_CFG}"
     printf '%s\n' "${CURRENT_MANIFEST_HASH}" > "${TB_MANIFEST_HASH_CFG}"
+    printf '%s\n' "${CURRENT_HEADER_HASH}" > "${TB_HEADER_HASH_CFG}"
   fi
 
   cleanup_lock

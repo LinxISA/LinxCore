@@ -327,6 +327,10 @@ def build_commit_slot_step(m: Circuit) -> None:
     # with the BSTART-carried BID, not the older active block BID that is being
     # closed.
     redirect_bid_sel = is_bstart._select_internal(block_bid_this, redirect_bid_sel)
+    # BSTOP closes the block named by its ROB row.  The active-domain register
+    # may already name the BID opened by a preceding split BSTART, so using it
+    # here would preserve the speculative rows that the stop redirects over.
+    redirect_bid_sel = is_bstop._select_internal(rob_block_bid, redirect_bid_sel)
     redirect_bid = redirect_pre._select_internal(redirect_bid_sel, redirect_bid)
     redirect_ckpt_sel = rob_checkpoint_id
     redirect_checkpoint_id = redirect_pre._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)

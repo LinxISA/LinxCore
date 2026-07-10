@@ -2242,10 +2242,12 @@ def _build_trace_export_core(
         decode_fields = unpack_slot_pack(decode_pack, decode_specs, slot)
         dispatch_fields = unpack_slot_pack(dispatch_pack, dispatch_specs, slot)
         slot_take_new_bid = dispatch_fields["disp_fire"] & decode_fields["is_bstart"] & brob_alloc_ready_i
-        # Keep the current slot on the live block identity. A dispatched BSTART
-        # only hands the freshly allocated BID to younger same-packet slots.
-        slot_block_uid = disp_block_uid_live
-        slot_block_bid = disp_block_bid_live
+        # BSTART is the first member of its new block.  It must carry the
+        # allocated BID itself, not the old assignment-domain BID; otherwise
+        # boundary retirement selects a stale flush domain and wrong-path
+        # words following the marker can survive the redirect.
+        slot_block_uid = slot_take_new_bid._select_internal(brob_alloc_bid_i, disp_block_uid_live)
+        slot_block_bid = slot_take_new_bid._select_internal(brob_alloc_bid_i, disp_block_bid_live)
         disp_valids.append(decode_fields["valid"])
         disp_pcs.append(decode_fields["pc"])
         disp_ops.append(decode_fields["op"])
@@ -2748,11 +2750,11 @@ def _build_trace_export_core(
         # leave `macro_wait_commit` stuck high.
         macro_committed = macro_committed | (state.macro_wait_commit.out() & macro_commit_pc_match)
     macro_wait_n = macro_committed._select_internal(consts.zero1, macro_wait_n)
-    # Once the template engine has finished, do not keep the macro in the
-    # wait-to-commit window indefinitely. In the current block-fed bring-up
-    # path the parent marker can be consumed by the redirect handoff, so CTU
-    # completion itself must release the latch.
-    macro_wait_n = done_macro._select_internal(consts.zero1, macro_wait_n)
+    # Completion transfers ownership from the template engine to the parent
+    # macro retirement path. Keep the latch asserted until that parent commits:
+    # CTU uses ``macro_wait_commit && !macro_active`` as the only condition
+    # that permits the serialized architectural parent to retire. Clearing it
+    # on completion restarts the still-resident parent every cycle.
 
     # Suppress one synthetic C.BSTART boundary-dup right after a macro
     # commit handoff (macro commit advances to a new PC).
@@ -2807,11 +2809,23 @@ def _build_trace_export_core(
         m.output(f"raw_commit_pc{slot}_dbg", commit_pcs[slot])
         m.output(f"raw_commit_rob{slot}_dbg", commit_idxs[slot])
 
-    macro_trace_fire = macro_uop_valid
-    macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
     macro_trace_pc = state.macro_pc.out()
     macro_trace_len = state.macro_len.out()
     macro_trace_seq_pc = macro_trace_pc + macro_trace_len._zext(width=64)
+    macro_trace_is_fentry = macro_op.__eq__(c(OP_FENTRY, width=12))
+    macro_trace_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
+    macro_trace_is_fret = op_is(macro_op, OP_FRET_RA, OP_FRET_STK)
+    # QEMU commits one architectural template-parent row. FENTRY's init
+    # SP_SUB is internal; its final save-store publishes the parent writeback
+    # together with the last store sideband. A zero-save FENTRY instead emits
+    # its SP_SUB as the complete parent operation.
+    macro_trace_done_fentry = (
+        (macro_uop_is_sp_sub & macro_stacksize.__eq__(consts.zero64))
+        | (macro_uop_is_store & step_done)
+    )
+    macro_trace_fentry_parent = macro_trace_is_fentry & macro_trace_done_fentry
+    macro_trace_fire = macro_uop_valid & ((~macro_trace_is_fentry) | macro_trace_done_fentry)
+    macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
     macro_enc = map_template_child_encoding(
         m,
         macro_op=macro_op,
@@ -2825,14 +2839,28 @@ def _build_trace_export_core(
     macro_trace_wb_load = macro_reg_write
     macro_trace_wb_sp_sub = macro_uop_is_sp_sub & macro_adj_nonzero
     macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero & (~macro_is_fret_stk)
-    macro_trace_wb_valid = macro_trace_fire & (macro_trace_wb_load | macro_trace_wb_sp_sub | macro_trace_wb_sp_add)
+    macro_trace_wb_fentry_parent = macro_trace_fentry_parent & macro_adj_nonzero
+    macro_trace_wb_valid = macro_trace_fire & (
+        macro_trace_wb_load
+        | macro_trace_wb_sp_sub
+        | macro_trace_wb_sp_add
+        | macro_trace_wb_fentry_parent
+    )
     macro_trace_wb_rd = c(0, width=6)
     macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
-    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add)._select_internal(c(1, width=6), macro_trace_wb_rd)
+    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add | macro_trace_wb_fentry_parent)._select_internal(c(1, width=6), macro_trace_wb_rd)
     macro_trace_wb_data = consts.zero64
     macro_trace_wb_data = macro_trace_wb_load._select_internal(macro_load_data_eff, macro_trace_wb_data)
     macro_trace_wb_data = macro_trace_wb_sp_add._select_internal(macro_sp_val + macro_frame_adj, macro_trace_wb_data)
     macro_trace_wb_data = macro_trace_wb_sp_sub._select_internal(macro_sp_val - macro_frame_adj, macro_trace_wb_data)
+    macro_trace_fentry_wb_data = macro_uop_is_sp_sub._select_internal(
+        macro_sp_val - macro_frame_adj,
+        macro_sp_base,
+    )
+    macro_trace_wb_data = macro_trace_wb_fentry_parent._select_internal(
+        macro_trace_fentry_wb_data,
+        macro_trace_wb_data,
+    )
     macro_trace_mem_store = macro_store_fire
     macro_trace_mem_load = macro_uop_is_load & macro_reg_is_gpr & macro_reg_not_zero
     macro_trace_mem_valid = macro_trace_fire & (macro_trace_mem_store | macro_trace_mem_load)
@@ -2841,7 +2869,9 @@ def _build_trace_export_core(
     macro_trace_mem_wdata = macro_trace_mem_store._select_internal(macro_store_data, consts.zero64)
     macro_trace_mem_rdata = macro_trace_mem_load._select_internal(macro_load_data_eff, consts.zero64)
     macro_trace_mem_size = macro_trace_mem_valid._select_internal(c(8, width=4), consts.zero4)
-    macro_trace_src0_valid = macro_trace_fire & (macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load)
+    macro_trace_src0_valid = macro_trace_fire & (
+        macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load
+    ) & (~macro_trace_fentry_parent)
     macro_trace_src0_reg = c(1, width=6)
     macro_trace_src0_reg = macro_store_fire._select_internal(macro_uop_reg, macro_trace_src0_reg)
     macro_trace_src0_data = macro_sp_val
@@ -2852,10 +2882,6 @@ def _build_trace_export_core(
     macro_trace_dst_valid = macro_trace_wb_valid
     macro_trace_dst_reg = macro_trace_wb_rd
     macro_trace_dst_data = macro_trace_wb_data
-    macro_trace_is_fentry = macro_op.__eq__(c(OP_FENTRY, width=12))
-    macro_trace_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
-    macro_trace_is_fret = op_is(macro_op, OP_FRET_RA, OP_FRET_STK)
-    macro_trace_done_fentry = (macro_uop_is_sp_sub & macro_stacksize.__eq__(consts.zero64)) | (macro_uop_is_store & step_done)
     macro_trace_done_fexit = macro_uop_is_load & step_done & macro_trace_is_fexit
     macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
     macro_trace_next_pc = macro_trace_pc
@@ -2938,7 +2964,7 @@ def _build_trace_export_core(
             "trace_fire": macro_trace_fire,
             "pc": macro_trace_pc,
             "rob": rob_head,
-            "op": macro_enc["op"],
+            "op": macro_trace_fentry_parent._select_internal(macro_op, macro_enc["op"]),
             "value": head_value,
             "len": state.macro_len.out(),
             "insn_raw": state.macro_insn_raw.out(),

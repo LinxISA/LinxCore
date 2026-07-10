@@ -971,6 +971,53 @@ row is not a compiler bug until the row normalization has been checked.
 - pyCircuit remains a parity oracle until the Chisel path has equivalent
   module, generated-RTL, QEMU-row, and model evidence.
 
+### PyCircuit terminal-CoreMark packet (2026-07-11)
+
+The live generated-C++ terminal lane is owned by
+`src/bcc/backend/modules/trace_export_core.py`, with
+`tb/tb_linxcore_top.cpp` as its harness and
+`tests/test_coremark_crosscheck_full.sh` as the QEMU/DUT driver. Do not
+substitute the older `src/bcc/backend/engine.py` path when diagnosing this
+lane.
+
+The packet established these contracts:
+
+- A template instruction emits one architectural parent row. For `FENTRY`,
+  the final save-store carries the parent PC, SP writeback, and final store
+  sideband; internal `SP_SUB` and store children are not separate QEMU rows.
+- Template completion keeps `macro_wait_commit` asserted until the parent
+  retires. Clearing it at completion restarts the resident parent instead of
+  handing it to serialized retirement.
+- All MSEQ `BSTART` encodings are D2-resolved allocation boundaries. A
+  single-allocator D1 group stops at its first boundary so it cannot assign one
+  BID to two BSTARTs in the same bundle.
+- A BSTOP redirect uses the closing row's BID, not a following split BSTART's
+  live BID, so its flush drops speculative rows in that newer block.
+- `tools/generate/run_linxcore_top_cpp.sh` fingerprints the actual
+  `linxcore_top.hpp` umbrella and all generated headers. It must rebuild the
+  testbench object when that fingerprint changes; timestamp checks alone are
+  insufficient on coarse-resolution filesystems.
+
+Evidence:
+
+- `PYC_MAX_COMMITS=20` produced a six-architectural-row QEMU/DUT prefix with
+  zero semantic mismatches when compared with
+  `crosscheck_qemu_linxcore.py --max-commits 6`.
+- The unrestricted terminal attempt advanced from the former six-row
+  `0x124A6/0x124A8` wrong-path loop to 45 architectural rows before a new
+  no-retire head at `0x12528` (`OP_BIC`). The row is valid but not done and has
+  no resident IQ/execution-pipe owner after a later redirect. This is the next
+  backend residency/flush owner; it is not terminal-CoreMark success.
+- The short driver compares a raw-row bound, while its comparator bound is in
+  architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore
+  end with a `trace_length` tail mismatch even after every compared
+  architectural row matches. Treat that as a harness-window limitation, not a
+  semantic pass for a wider window.
+
+Closeout: `skill-evolve: no-update` (the existing LinxCore workflow already
+requires first-divergence ownership and generated-C++ validation; this packet
+adds no reusable skill rule).
+
 ## Agent Packet Template
 
 Use this shape when launching a LinxCore packet:
