@@ -17,6 +17,24 @@ anchored to a real retirement and trace oracle.
 
 ## Latest Loop State
 
+R657-R659 scale the r656 live-LIQ implementation without changing source. The
+QEMU-only 4,096-raw-row capture produces 3,962 reduced-preview rows; the r656
+generated binary compares 3,370 architectural DUT/QEMU rows with zero
+mismatches. The subsequent 16,384-raw-row capture produces 16,250
+reduced-preview rows; the same binary compares 14,780 architectural rows with
+zero mismatches. Both runs use the sparse ELF image generated from
+`coremark_real.elf`, disable harness store-memory mutation, and pass the
+nonzero LIQ allocation/launch/return/W2/commit-row sideband validator. The
+second run reports 178 accepted LIQ allocations and launches, 191 return
+candidates, 178 W2 slot accepts, 178 W2 side-effect completions, and 178 W2
+commit-row candidates.
+
+The scale result demonstrates repeated dynamic CoreMark execution through the
+new LIQ and FRET paths. It remains bounded trace replay: QEMU is stopped after
+the requested raw prefix and the generated-RTL harness has no architectural
+program-exit/score-report driver. Do not call R659 terminal CoreMark completion
+or extrapolate it to unimplemented cache/refill, trap, and full-LSU behavior.
+
 R633-R656 closes the first-pass ordinary-load LIQ ownership gap in the reduced
 live CoreMark lane. `ReducedLiveLoadLiqCapture` now transfers ordinary E1 loads
 to LIQ; LIQ owns the selected E2/E3/E4 lookup/forward, LRET, W1/W2, commit-row
