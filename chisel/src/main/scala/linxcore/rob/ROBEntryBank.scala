@@ -31,7 +31,8 @@ class ROBEntryBankIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val lsidWidth: Int = 32,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val stidCount: Int = 1)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
@@ -168,6 +169,9 @@ class ROBEntryBankIO(
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
   val retiredMask = Output(UInt(entries.W))
+  val recoveryOldestValid = Output(Vec(stidCount, Bool()))
+  val recoveryOldestRid = Output(Vec(stidCount, new ROBID(entries)))
+  val recoveryOldestBlockBid = Output(Vec(stidCount, UInt(traceParams.blockBidWidth.W)))
 }
 
 class ROBEntryBank(
@@ -177,7 +181,8 @@ class ROBEntryBank(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val lsidWidth: Int = 32,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val stidCount: Int = 1)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
@@ -185,12 +190,23 @@ class ROBEntryBank(
   require(traceParams.commitWidth > 0, "commitWidth must be positive")
   require(traceParams.commitWidth <= entries, "commitWidth cannot exceed entries")
   require(traceParams.robValueWidth >= log2Ceil(entries), "ROB trace value must hold entry index")
+  require(stidCount > 0, "ROB must track at least one STID")
+  require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "ROB STID count must fit stidWidth")
 
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth, lsidWidth, tidWidth))
+  val io = IO(new ROBEntryBankIO(
+    entries,
+    traceParams,
+    mapQDepth,
+    peIdWidth,
+    stidWidth,
+    lsidWidth,
+    tidWidth,
+    stidCount
+  ))
 
   private def zeroRow: CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
@@ -325,6 +341,24 @@ class ROBEntryBank(
   io.occupiedMask := occupiedVec.asUInt
   io.completedMask := completedVec.asUInt
   io.retiredMask := retiredVec.asUInt
+
+  val recoveryWatermark = Module(new ROBRecoveryWatermark(
+    entries,
+    stidCount,
+    stidWidth,
+    traceParams.blockBidWidth
+  ))
+  recoveryWatermark.io.commitHead := commitValue
+  for (idx <- 0 until entries) {
+    recoveryWatermark.io.rowValid(idx) := rows(idx).valid
+    recoveryWatermark.io.rowStatus(idx) := status(idx)
+    recoveryWatermark.io.rowStid(idx) := rowStid(idx)
+    recoveryWatermark.io.rowRid(idx) := rowRid(idx)
+    recoveryWatermark.io.rowBlockBid(idx) := rows(idx).blockBid
+  }
+  io.recoveryOldestValid := recoveryWatermark.io.oldestValid
+  io.recoveryOldestRid := recoveryWatermark.io.oldestRid
+  io.recoveryOldestBlockBid := recoveryWatermark.io.oldestBlockBid
 
   val flushPrune = Module(new ROBFlushPrune(entries, peIdWidth, stidWidth, tidWidth))
   flushPrune.io.flush := io.flush

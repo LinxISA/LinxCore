@@ -100,6 +100,12 @@ final class RefBrob(entries: Int, stidCount: Int = 1) {
       table(stid)(i) = RefBrobEntry()
     }
   }
+
+  def oldest(stid: Int = 0): Option[RefBrobEntry] =
+    table(stid)
+      .filter(entry => entry.status != RefBrobStatus.Free && entry.status != RefBrobStatus.Flushed)
+      .sortBy(_.bid)
+      .headOption
 }
 
 class BROBSpec extends AnyFunSuite {
@@ -194,11 +200,25 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.entry(bid1, stid = 1).status == RefBrobStatus.Allocated)
   }
 
+  test("BROB reference selects oldest live full BID and completion independently per STID") {
+    val brob = new RefBrob(entries = 4, stidCount = 2)
+    assert(brob.alloc(6, RefBlockType.Scalar, stid = 0))
+    assert(brob.alloc(4, RefBlockType.Scalar, stid = 0))
+    assert(brob.alloc(5, RefBlockType.Engine, stid = 1))
+    brob.scalarDone(4, stid = 0)
+
+    assert(brob.oldest(stid = 0).exists(entry => entry.bid == 4 && entry.status == RefBrobStatus.Completed))
+    assert(brob.oldest(stid = 1).exists(entry => entry.bid == 5 && entry.status == RefBrobStatus.Allocated))
+  }
+
   test("Chisel BROB elaborates explicit per-STID lifecycle ports") {
     val sv = ChiselStage.emitSystemVerilog(new BrobMetaTracker(entries = 4, stidCount = 2))
     assert(sv.contains("io_allocStid"))
     assert(sv.contains("io_scalarDoneStid"))
     assert(sv.contains("io_flushStid"))
     assert(sv.contains("io_queryStid"))
+    assert(sv.contains("io_oldestValid_1"))
+    assert(sv.contains("io_oldestBid_1"))
+    assert(sv.contains("io_oldestComplete_1"))
   }
 }

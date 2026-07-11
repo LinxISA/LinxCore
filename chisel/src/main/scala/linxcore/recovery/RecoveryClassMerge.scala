@@ -33,6 +33,7 @@ class RecoveryClassMergeIO(
   val inDroppedByComplete = Output(Bool())
   val inMerged = Output(Bool())
 
+  val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
 
@@ -332,13 +333,13 @@ class RecoveryClassMerge(
       val targetPeProvenance =
         if (peCount == 1) peScopedProvenance(lane)(0) else peScopedProvenance(lane)(inPeIndex)
       val targetPeOlder = targetPeEffective &&
-        FlushControl.checkOlder(targetPeBus, inBus, io.oldestBid(lane))
+        FlushControl.checkOlder(targetPeBus, inBus, io.oldestBid(lane), io.oldestValid(lane))
       val flushOlder = flushEffective &&
-        FlushControl.checkOlder(flushBus(lane), inBus, io.oldestBid(lane))
+        FlushControl.checkOlder(flushBus(lane), inBus, io.oldestBid(lane), io.oldestValid(lane))
       val inputOlderThanFlush = flushEffective &&
-        FlushControl.checkOlder(inBus, flushBus(lane), io.oldestBid(lane))
+        FlushControl.checkOlder(inBus, flushBus(lane), io.oldestBid(lane), io.oldestValid(lane))
       val replayOlder = replayEffective &&
-        FlushControl.checkOlder(replayBus(lane), inBus, io.oldestBid(lane))
+        FlushControl.checkOlder(replayBus(lane), inBus, io.oldestBid(lane), io.oldestValid(lane))
 
       when(inputGlobalFlush) {
         when(flushOlder) {
@@ -373,7 +374,12 @@ class RecoveryClassMerge(
               nextFlush(lane) := mergedReq
               nextFlushProvenance(lane) := mergedProvenance
               for (pe <- 0 until peCount) {
-                when(peEffective(pe) && FlushControl.checkOlder(mergedBus, peBus(lane)(pe), io.oldestBid(lane))) {
+                when(peEffective(pe) && FlushControl.checkOlder(
+                  mergedBus,
+                  peBus(lane)(pe),
+                  io.oldestBid(lane),
+                  io.oldestValid(lane)
+                )) {
                   resolve(
                     peScopedProvenance(lane)(pe).causeMask,
                     io.in.peId =/= pe.U
@@ -383,7 +389,12 @@ class RecoveryClassMerge(
                     0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
                 }
               }
-              when(replayEffective && FlushControl.checkOlder(mergedBus, replayBus(lane), io.oldestBid(lane))) {
+              when(replayEffective && FlushControl.checkOlder(
+                mergedBus,
+                replayBus(lane),
+                io.oldestBid(lane),
+                io.oldestValid(lane)
+              )) {
                 resolve(globalReplayProvenance(lane).causeMask, true.B)
                 nextReplay(lane).valid := false.B
                 nextReplayProvenance(lane) := 0.U.asTypeOf(nextReplayProvenance(lane))
@@ -398,21 +409,31 @@ class RecoveryClassMerge(
           nextFlush(lane) := io.in
           nextFlushProvenance(lane) := io.inProvenance
           for (pe <- 0 until peCount) {
-            when(peEffective(pe) && FlushControl.checkOlder(inBus, peBus(lane)(pe), io.oldestBid(lane))) {
+            when(peEffective(pe) && FlushControl.checkOlder(
+              inBus,
+              peBus(lane)(pe),
+              io.oldestBid(lane),
+              io.oldestValid(lane)
+            )) {
               resolve(peScopedProvenance(lane)(pe).causeMask, true.B)
               nextPeScoped(lane)(pe).valid := false.B
               nextPeScopedProvenance(lane)(pe) :=
                 0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
             }
           }
-          when(replayEffective && FlushControl.checkOlder(inBus, replayBus(lane), io.oldestBid(lane))) {
+          when(replayEffective && FlushControl.checkOlder(
+            inBus,
+            replayBus(lane),
+            io.oldestBid(lane),
+            io.oldestValid(lane)
+          )) {
             resolve(globalReplayProvenance(lane).causeMask, true.B)
             nextReplay(lane).valid := false.B
             nextReplayProvenance(lane) := 0.U.asTypeOf(nextReplayProvenance(lane))
           }
         }
       }.elsewhen(inputGlobalReplay) {
-        when(io.oldestBlockComplete(lane)) {
+        when(io.oldestValid(lane) && io.oldestBlockComplete(lane)) {
           io.inDroppedByComplete := true.B
           resolve(io.inProvenance.causeMask, true.B)
         }.elsewhen(
@@ -428,7 +449,12 @@ class RecoveryClassMerge(
           nextReplay(lane) := io.in
           nextReplayProvenance(lane) := io.inProvenance
           for (pe <- 0 until peCount) {
-            when(peEffective(pe) && FlushControl.checkOlder(inBus, peBus(lane)(pe), io.oldestBid(lane))) {
+            when(peEffective(pe) && FlushControl.checkOlder(
+              inBus,
+              peBus(lane)(pe),
+              io.oldestBid(lane),
+              io.oldestValid(lane)
+            )) {
               resolve(peScopedProvenance(lane)(pe).causeMask, true.B)
               nextPeScoped(lane)(pe).valid := false.B
               nextPeScopedProvenance(lane)(pe) :=

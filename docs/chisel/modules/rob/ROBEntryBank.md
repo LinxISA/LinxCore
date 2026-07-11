@@ -97,6 +97,11 @@ lookup semantics.
 R638 adds the direct RID-indexed `ROBFullBidLookup`. It returns the resident
 row's allocator-stamped `blockBid` only after exact BID/GID/RID and
 PE/STID/TID identity plus ring-projection validation.
+R648 adds the parameterized `ROBRecoveryWatermark` child. It scans resident
+rows from the current commit pointer independently for each STID, skips free,
+invalid, and already retired rows, and publishes the first wrap-qualified RID
+plus that exact row's allocator-stamped full block BID. This is observation
+only and does not alter commit or delayed deallocation.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -153,6 +158,7 @@ deallocation or recovery semantics into that module.
 | output | `deallocBlockLastValid`, `deallocBlockLastBid`, `deallocBlockLastGid`, `deallocBlockLastBlockBid` | mixed | diagnostic/source | First block-last row freed by the deallocation walk; future `CleanCMAP` scheduling point plus full 64-bit block identity |
 | output | `size` | `UInt` | diagnostic | Resident non-free row count; retired rows remain resident |
 | output | `outstandingCount` | `UInt` | diagnostic | Model `osdSize`-like count; decremented at commit, not dealloc |
+| output | `recoveryOldestValid`, `recoveryOldestRid`, `recoveryOldestBlockBid` | per-STID vectors | with valid | Oldest non-retired resident scalar identity in circular commit order; full block BID belongs to the exact selected row |
 | output | `flushApplied` | `Bool` | diagnostic | A matching valid row was found and the bank applied the prune mask |
 | output | `flushDirectMatchMask` | `UInt(entries.W)` | diagnostic | Rows directly covered by the flush BID or BID/RID predicate |
 | output | `flushPruneMask` | `UInt(entries.W)` | diagnostic | Rows cleared by the model-style prune region |

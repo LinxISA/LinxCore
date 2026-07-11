@@ -20,6 +20,7 @@ import linxcore.rob.{
   ROBFullBidLookupResult,
   ROBID,
   ROBMemoryOrderCommit,
+  RecoveryWatermarkJoin,
   ROBRowCommitTraceLookupResult,
   ROBRowStatusLookupResult
 }
@@ -34,7 +35,8 @@ class DispatchROBAllocatorIO(
     val trapCauseWidth: Int = 32,
     val mapQDepth: Int = 32,
     val stidWidth: Int = 8,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val stidCount: Int = 1)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
@@ -122,6 +124,11 @@ class DispatchROBAllocatorIO(
   val blockAllocatedMask = Output(UInt(entries.W))
   val blockCompleteMask = Output(UInt(entries.W))
   val blockPendingMask = Output(UInt(entries.W))
+  val recoveryOldestValid = Output(Vec(stidCount, Bool()))
+  val recoveryOldestBlockBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val recoveryOldestBid = Output(Vec(stidCount, new ROBID(entries)))
+  val recoveryOldestRid = Output(Vec(stidCount, new ROBID(entries)))
+  val recoveryOldestBlockComplete = Output(Vec(stidCount, Bool()))
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(entries, lsidWidth)))
@@ -239,7 +246,8 @@ class DispatchROBAllocator(
     trapCauseWidth,
     mapQDepth,
     stidWidth,
-    lsidWidth
+    lsidWidth,
+    stidCount
   ))
 
   private def bidToRobId(bid: UInt): ROBID = {
@@ -275,7 +283,8 @@ class DispatchROBAllocator(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     lsidWidth = lsidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    stidCount = stidCount
   ))
 
   val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
@@ -393,6 +402,20 @@ class DispatchROBAllocator(
   io.blockAllocatedMask := brob.io.allocatedMask
   io.blockCompleteMask := brob.io.completeMask
   io.blockPendingMask := brob.io.pendingMask
+  val recoveryWatermark = Module(new RecoveryWatermarkJoin(entries, stidCount, bidWidth))
+  for (stid <- 0 until stidCount) {
+    recoveryWatermark.io.brobValid(stid) := brob.io.oldestValid(stid)
+    recoveryWatermark.io.brobBlockBid(stid) := brob.io.oldestBid(stid)
+    recoveryWatermark.io.brobComplete(stid) := brob.io.oldestComplete(stid)
+    recoveryWatermark.io.robValid(stid) := rob.io.recoveryOldestValid(stid)
+    recoveryWatermark.io.robRid(stid) := rob.io.recoveryOldestRid(stid)
+    recoveryWatermark.io.robBlockBid(stid) := rob.io.recoveryOldestBlockBid(stid).pad(bidWidth)
+  }
+  io.recoveryOldestValid := recoveryWatermark.io.oldestValid
+  io.recoveryOldestBlockBid := recoveryWatermark.io.oldestBlockBid
+  io.recoveryOldestBid := recoveryWatermark.io.oldestBid
+  io.recoveryOldestRid := recoveryWatermark.io.oldestRid
+  io.recoveryOldestBlockComplete := recoveryWatermark.io.oldestBlockComplete
 
   io.completeAccepted := rob.io.completeAccepted
   io.completeIgnored := rob.io.completeIgnored

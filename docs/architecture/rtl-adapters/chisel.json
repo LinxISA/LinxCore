@@ -120,7 +120,7 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
-          "symbols": ["BrobMetaTracker", "allocValid", "scalarDoneValid", "engineDoneValid", "retireValid", "flushValid"]
+          "symbols": ["BrobMetaTracker", "allocValid", "scalarDoneValid", "engineDoneValid", "retireValid", "flushValid", "oldestValid", "oldestBid", "oldestComplete"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/bctrl/BIDRingOrder.scala",
@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and the full fetch/RF/ALU composition connects one execute-redirect source, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Full-BID BROB pointer recovery, multi-STID oldest-block watermarks, and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
+      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and supplies owner-selected per-STID oldest BID/RID/completion watermarks, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Full-BID BROB pointer recovery and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -191,7 +191,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala",
-          "symbols": ["RecoverySourceArbiter", "sourceReady", "sourceAccepted", "pendingMask", "lanePendingMask", "selectedSource"]
+          "symbols": ["RecoverySourceArbiter", "oldestValid", "sourceReady", "sourceAccepted", "pendingMask", "lanePendingMask", "selectedSource"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProvenance.scala",
@@ -199,7 +199,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala",
-          "symbols": ["RecoveryClassMerge", "globalFlushPendingMask", "globalReplayPendingMask", "pePendingMask", "inDroppedByOlder", "inDroppedByComplete", "inMerged", "outProvenance", "resolvedMask"]
+          "symbols": ["RecoveryClassMerge", "oldestValid", "globalFlushPendingMask", "globalReplayPendingMask", "pePendingMask", "inDroppedByOlder", "inDroppedByComplete", "inMerged", "outProvenance", "resolvedMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala",
@@ -207,7 +207,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala",
-          "symbols": ["RecoveryBackendControl", "robFullBidLookupRequest", "intentConsumed", "sourceResolvedMask", "consumedPayloadSourceMask", "robFlush"]
+          "symbols": ["RecoveryBackendControl", "robFullBidLookupRequest", "oldestValid", "intentConsumed", "sourceResolvedMask", "consumedPayloadSourceMask", "robFlush"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySource.scala",
@@ -234,12 +234,16 @@
           "symbols": ["ROBFullBidLookup", "identityValid", "scopeMatched", "ringProjectionMatched", "blockedByStaleRid"]
         },
         {
+          "path": "chisel/src/main/scala/linxcore/rob/ROBRecoveryWatermark.scala",
+          "symbols": ["ROBRecoveryWatermark", "RecoveryWatermarkJoin", "commitHead", "rowBlockBid", "oldestValid", "oldestRid", "oldestBlockBid"]
+        },
+        {
           "path": "chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala",
-          "symbols": ["DispatchROBAllocator", "fullBidLookupRequest", "fullBidLookup"]
+          "symbols": ["DispatchROBAllocator", "fullBidLookupRequest", "fullBidLookup", "recoveryOldestValid", "recoveryOldestBlockBid", "recoveryOldestBid", "recoveryOldestRid"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
-          "symbols": ["RecoveryCleanupROBProbe", "RecoveryBackendControl", "ScalarLSURecoverySource", "ROBEntryBank", "sourceResolvedMask", "consumedPayloadSourceMask", "robFlushPruneMask"]
+          "symbols": ["RecoveryCleanupROBProbe", "RecoveryBackendControl", "ScalarLSURecoverySource", "ROBEntryBank", "RecoveryWatermarkJoin", "sourceResolvedMask", "consumedPayloadSourceMask", "robOldestValidMask", "joinedOldestValidMask", "robFlushPruneMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala",

@@ -3603,8 +3603,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.recoveryNonLsuSources(0) := scalarRedirectRecovery.io.source
   path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
   path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
-  path.io.recoveryOldestBid := 0.U.asTypeOf(path.io.recoveryOldestBid)
-  path.io.recoveryOldestBlockComplete := 0.U.asTypeOf(path.io.recoveryOldestBlockComplete)
   path.io.recoveryIntentReady := true.B
 
   val acceptedRecoveryFlush = Wire(chiselTypeOf(path.io.recoveryIntent.flush))

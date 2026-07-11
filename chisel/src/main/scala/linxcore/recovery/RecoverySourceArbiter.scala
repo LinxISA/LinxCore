@@ -22,6 +22,7 @@ class RecoverySourceArbiterIO(
   val sourceReady = Output(Vec(sourceCount, Bool()))
   val sourceAccepted = Output(Vec(sourceCount, Bool()))
   val sourceBlockedByStid = Output(Vec(sourceCount, Bool()))
+  val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
 
   val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
@@ -92,7 +93,12 @@ class RecoverySourceArbiter(
     for (source <- 0 until sourceCount) {
       val belongs = pending(source) && (requests(source).stid === lane.U)
       val winnerRequest = if (sourceCount == 1) annotated(0) else annotated(winner)
-      val winnerOlder = FlushControl.checkOlder(winnerRequest, annotated(source), io.oldestBid(lane))
+      val winnerOlder = FlushControl.checkOlder(
+        winnerRequest,
+        annotated(source),
+        io.oldestBid(lane),
+        io.oldestValid(lane)
+      )
       val replace = belongs && (!found || !winnerOlder)
       winner = Mux(replace, source.U, winner)
       found = found || belongs

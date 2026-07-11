@@ -72,6 +72,10 @@ int main(int argc, char **argv) {
     dut.io_oldestValid = 1;
     dut.io_oldestBid = 1;
     dut.io_oldestRid = 0;
+    dut.io_joinBrobValidMask = 0;
+    dut.io_joinBrobBlockBid0 = 0;
+    dut.io_joinBrobBlockBid1 = 0;
+    dut.io_joinBrobCompleteMask = 0;
     dut.io_intentReady = 0;
     tick(dut);
     tick(dut);
@@ -89,6 +93,32 @@ int main(int argc, char **argv) {
     dut.io_allocValid = 0;
     dut.eval();
     require(dut.io_robSize == 3, "ROB did not retain three resident rows");
+    require(dut.io_robOldestValidMask == 0x3,
+            "ROB did not publish independent oldest watermarks for both STIDs");
+    require(dut.io_robOldestRid0 == 0 && !dut.io_robOldestRid0Wrap &&
+                dut.io_robOldestBlockBid0 == 0x11,
+            "STID0 watermark did not preserve the first resident RID and full block BID");
+    require(dut.io_robOldestRid1 == 2 && !dut.io_robOldestRid1Wrap &&
+                dut.io_robOldestBlockBid1 == 0x13,
+            "STID1 watermark was ordered against STID0 or lost row identity");
+
+    dut.io_joinBrobValidMask = 0x3;
+    dut.io_joinBrobBlockBid0 = 0x10;
+    dut.io_joinBrobBlockBid1 = 0x13;
+    dut.io_joinBrobCompleteMask = 0x1;
+    dut.eval();
+    require(dut.io_joinedOldestValidMask == 0x2,
+            "marker-only BROB mismatch did not suppress the incoherent STID0 watermark");
+    require((dut.io_joinedOldestCompleteMask & 0x1) == 0,
+            "incoherent watermark leaked BROB completion state");
+
+    dut.io_joinBrobBlockBid0 = 0x11;
+    dut.eval();
+    require(dut.io_joinedOldestValidMask == 0x3 &&
+                dut.io_joinedOldestBid0 == 1 && dut.io_joinedOldestRid0 == 0,
+            "exact full-BID match did not publish coherent ring BID and RID");
+    require((dut.io_joinedOldestCompleteMask & 0x1) != 0,
+            "coherent watermark lost the exact BROB completion state");
 
     dut.io_ringValid = 1;
     dut.io_ringNuke = 1;
@@ -255,6 +285,27 @@ int main(int argc, char **argv) {
     wait_for_cleanup(dut, 0x14,
                      "round robin did not retain the STID0 replacement");
     drain_recovery(dut, "cross-STID replacement sequence did not drain");
+
+    dut.io_oldestValid = 0;
+    dut.io_oldestBid = 7;
+    dut.io_fullValid = 1;
+    dut.io_fullBlockBid = 7;
+    dut.io_fullStid = 0;
+    dut.io_fullPe = 0;
+    dut.io_peerFullValid = 1;
+    dut.io_peerFullBlockBid = 3;
+    dut.io_peerFullStid = 0;
+    dut.io_peerFullPe = 0;
+    dut.eval();
+    require(dut.io_fullAccepted && dut.io_peerFullAccepted,
+            "invalid-oldest arbitration reports were not admitted together");
+    tick(dut);
+    dut.io_fullValid = 0;
+    dut.io_peerFullValid = 0;
+    dut.eval();
+    require(dut.io_arbiterSelectedValid && dut.io_arbiterSelectedBlockBid == 3,
+            "invalid oldest watermark still influenced same-STID source arbitration");
+    drain_recovery(dut, "invalid-oldest arbitration sequence did not drain");
 
     std::cout << "recovery-cleanup-rob-probe-status=pass\n";
     return 0;

@@ -55,7 +55,15 @@ routes scalar-LSU lookup ports through `DispatchROBAllocator` to resident
 `ROBEntryBank` rows and exports the shared cleanup handshake. The full
 fetch/RF/ALU composition connects one retained scalar redirect source. Direct
 BCC/IEX/PE trigger-owner wiring, the canonical scalar-LSU source connection,
-full BROB pointer recovery, and multi-STID oldest-block watermarks remain open.
+and full BROB pointer recovery remain open. R648 removes the external
+oldest-state placeholders: the decode/rename path now supplies coherent
+per-STID BROB/ROB watermarks selected by their resident owners and qualified by
+an exact allocator-stamped full block BID match. `oldestValid` is carried
+beside the BID through `RecoveryFabric`, `RecoverySourceArbiter`, and
+`RecoveryClassMerge`; invalid state cannot trigger oldest-BID priority or
+completed-oldest replay rejection. The canonical scalar-LSU
+source is still disconnected until the reduced MDB report has atomic retained
+delivery into that adapter.
 R647 carries parameterized source provenance through arbitration, class merge,
 and registered cleanup. The backend exposes resolved-cause and consumed-payload
 masks so source-private order/LSID sidecars are applied only for the request

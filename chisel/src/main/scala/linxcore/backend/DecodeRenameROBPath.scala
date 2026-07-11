@@ -130,8 +130,11 @@ class DecodeRenameROBPathIO(
     stidWidth,
     tidWidth
   ))
-  val recoveryOldestBid = Input(Vec(scalarStidCount, new ROBID(p.robEntries)))
-  val recoveryOldestBlockComplete = Input(Vec(scalarStidCount, Bool()))
+  val recoveryOldestValid = Output(Vec(scalarStidCount, Bool()))
+  val recoveryOldestBlockBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val recoveryOldestBid = Output(Vec(scalarStidCount, new ROBID(p.robEntries)))
+  val recoveryOldestRid = Output(Vec(scalarStidCount, new ROBID(p.robEntries)))
+  val recoveryOldestBlockComplete = Output(Vec(scalarStidCount, Bool()))
   val recoveryIntentReady = Input(Bool())
   val recoveryIntent = Output(new RecoveryCleanupIntent(
     p.robEntries,
@@ -697,8 +700,14 @@ class DecodeRenameROBPath(
   recovery.io.lsuSource := io.lsuRecoverySource
   recovery.io.lsuFullBidLookupRequest := io.lsuFullBidLookupRequest
   recovery.io.robFullBidLookup := allocator.io.fullBidLookup
-  recovery.io.oldestBid := io.recoveryOldestBid
-  recovery.io.oldestBlockComplete := io.recoveryOldestBlockComplete
+  recovery.io.oldestValid := allocator.io.recoveryOldestValid
+  recovery.io.oldestBid := allocator.io.recoveryOldestBid
+  recovery.io.oldestBlockComplete := allocator.io.recoveryOldestBlockComplete
+  io.recoveryOldestValid := allocator.io.recoveryOldestValid
+  io.recoveryOldestBlockBid := allocator.io.recoveryOldestBlockBid
+  io.recoveryOldestBid := allocator.io.recoveryOldestBid
+  io.recoveryOldestRid := allocator.io.recoveryOldestRid
+  io.recoveryOldestBlockComplete := allocator.io.recoveryOldestBlockComplete
   recovery.io.intentReady := io.recoveryIntentReady
 
   val cleanup = Wire(chiselTypeOf(recovery.io.intent))
@@ -1528,8 +1537,6 @@ object DecodeRenameROBPath {
     path.io.recoveryNonLsuSources := 0.U.asTypeOf(path.io.recoveryNonLsuSources)
     path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
     path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
-    path.io.recoveryOldestBid := 0.U.asTypeOf(path.io.recoveryOldestBid)
-    path.io.recoveryOldestBlockComplete := VecInit(Seq.fill(path.scalarStidCount)(false.B))
     path.io.recoveryIntentReady := true.B
   }
 }

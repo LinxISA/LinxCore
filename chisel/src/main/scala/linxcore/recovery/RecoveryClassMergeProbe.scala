@@ -77,6 +77,7 @@ class RecoveryClassMergeProbe extends Module {
   request.fetchTpcValid := io.inFetchTpcValid
   merge.io.in := request
   merge.io.inProvenance := RecoveryProvenance.single(io.inSource, io.inValid, 4)
+  merge.io.oldestValid := VecInit(true.B, true.B)
   merge.io.oldestBid(0) := id(io.oldestBid0)
   merge.io.oldestBid(1) := id(io.oldestBid1)
   merge.io.oldestBlockComplete := io.oldestBlockComplete.asBools

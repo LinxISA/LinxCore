@@ -45,7 +45,8 @@ class BrobMetaTrackerIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val blockTypeWidth: Int = 4,
-    val trapCauseWidth: Int = 32)
+    val trapCauseWidth: Int = 32,
+    val stidCount: Int = 1)
     extends Bundle {
   val allocValid = Input(Bool())
   val allocBid = Input(UInt(bidWidth.W))
@@ -85,6 +86,9 @@ class BrobMetaTrackerIO(
   val allocatedMask = Output(UInt(entries.W))
   val completeMask = Output(UInt(entries.W))
   val pendingMask = Output(UInt(entries.W))
+  val oldestValid = Output(Vec(stidCount, Bool()))
+  val oldestBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val oldestComplete = Output(Vec(stidCount, Bool()))
 }
 
 class BrobMetaTracker(
@@ -103,7 +107,16 @@ class BrobMetaTracker(
   require(stidCount > 0, "BROB must track at least one STID")
   require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "BROB STID count must fit stidWidth")
 
-  val io = IO(new BrobMetaTrackerIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
+  val io = IO(new BrobMetaTrackerIO(
+    entries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    blockTypeWidth,
+    trapCauseWidth,
+    stidCount
+  ))
 
   private def resetMeta: BrobEntryMeta = {
     val meta = Wire(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
@@ -233,4 +246,22 @@ class BrobMetaTracker(
   io.allocatedMask := allocatedBits.asUInt
   io.completeMask := completeBits.asUInt
   io.pendingMask := pendingBits.asUInt
+
+  for (stid <- 0 until stidCount) {
+    var found: Bool = false.B
+    var selectedBid: UInt = 0.U(bidWidth.W)
+    var selectedComplete: Bool = false.B
+
+    for (idx <- 0 until entries) {
+      val candidate = BrobEntryMeta.isAllocated(table(stid)(idx).status)
+      val select = candidate && (!found || table(stid)(idx).bid < selectedBid)
+      selectedBid = Mux(select, table(stid)(idx).bid, selectedBid)
+      selectedComplete = Mux(select, BrobEntryMeta.isComplete(table(stid)(idx)), selectedComplete)
+      found = found || candidate
+    }
+
+    io.oldestValid(stid) := found
+    io.oldestBid(stid) := selectedBid
+    io.oldestComplete(stid) := selectedComplete
+  }
 }

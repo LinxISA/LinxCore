@@ -132,6 +132,10 @@ dispatch agents consume a real block owner.
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID pass-through surface for `BrobMetaTracker`. |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
+| output | `recoveryOldestValid` | `Vec(stidCount, Bool)` | qualifier | BROB and ROB both have oldest state and their allocator-stamped full block BIDs match exactly. |
+| output | `recoveryOldestBlockBid` | `Vec(stidCount, UInt(bidWidth.W))` | with valid | BROB-owned full block identity. |
+| output | `recoveryOldestBid`, `recoveryOldestRid` | `Vec(stidCount, ROBID)` | with valid | Ring-BID projection and ROB-owned wrap-qualified RID for eligibility checks. |
+| output | `recoveryOldestBlockComplete` | `Vec(stidCount, Bool)` | with valid | Completion state of the exact BROB oldest entry. |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `commitMemoryOrder` | `Vec(commitWidth, ROBMemoryOrderCommit)` | diagnostic/source | ROB commit-window native ID plus LSID sidecars forwarded from `ROBEntryBank` |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
@@ -179,6 +183,14 @@ and `allocRobWrap` so `DecodeRenameROBPath` can stamp the exact native RID
 into the queued row; the slot value alone is insufficient after the reduced
 8-entry ROB wraps. BROB identity is `(STID, full BID)`; equal full BID values
 in different STIDs are valid and are not globally ordered.
+
+R648 joins two independent state owners without weakening identity. BROB
+selects the oldest live full BID and completion state in each STID. ROB scans
+circular commit order for that STID's oldest non-retired RID and republishes
+the full block BID stored with the same row. The joined watermark is valid only
+when those full BIDs are equal. A marker-only older BROB entry therefore cannot
+be paired with a younger scalar ROB RID. The full BID remains block-control
+authority; `recoveryOldestBid` is only its ring projection.
 
 The T/U cleanup and retire-source sidecars are forwarded unmodified to
 `ROBEntryBank` at allocation time, but the reduced R76 path intentionally

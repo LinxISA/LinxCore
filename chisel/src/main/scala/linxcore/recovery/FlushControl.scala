@@ -169,7 +169,11 @@ object FlushControl {
   def lessEqualBidRid(srcBid: ROBID, srcRid: ROBID, dstBid: ROBID, dstRid: ROBID): Bool =
     ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.lessEqual(srcRid, dstRid))
 
-  def checkOlder(srcSignal: FlushBus, dstSignal: FlushBus, oldestBid: ROBID): Bool = {
+  def checkOlder(
+      srcSignal: FlushBus,
+      dstSignal: FlushBus,
+      oldestBid: ROBID,
+      oldestValid: Bool = true.B): Bool = {
     val srcType = srcSignal.req.typ
     val dstType = dstSignal.req.typ
     val sameStid = srcSignal.req.stid === dstSignal.req.stid
@@ -201,14 +205,16 @@ object FlushControl {
         }.otherwise {
           result := Mux(
             baseOnBid,
-            ROBID.lessEqual(srcSignal.req.bid, dstSignal.req.bid) || ROBID.equal(srcSignal.req.bid, oldestBid),
+              ROBID.lessEqual(srcSignal.req.bid, dstSignal.req.bid) ||
+                (oldestValid && ROBID.equal(srcSignal.req.bid, oldestBid)),
             lessEqualBidRid(srcSignal.req.bid, srcSignal.req.rid, dstSignal.req.bid, dstSignal.req.rid)
           )
         }
       }.otherwise {
         result := Mux(
           baseOnBid,
-          ROBID.lessEqual(srcSignal.req.bid, dstSignal.req.bid) || ROBID.equal(srcSignal.req.bid, oldestBid),
+          ROBID.lessEqual(srcSignal.req.bid, dstSignal.req.bid) ||
+            (oldestValid && ROBID.equal(srcSignal.req.bid, oldestBid)),
           lessEqualBidRid(srcSignal.req.bid, srcSignal.req.rid, dstSignal.req.bid, dstSignal.req.rid)
         )
       }

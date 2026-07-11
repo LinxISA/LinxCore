@@ -75,6 +75,9 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 | Output | `allocatedMask` | `UInt(entries.W)` | combinational | Live slots. |
 | Output | `completeMask` | `UInt(entries.W)` | combinational | Complete slots. |
 | Output | `pendingMask` | `UInt(entries.W)` | combinational | Live but incomplete slots. |
+| Output | `oldestValid[stidCount]` | `Vec[Bool]` | combinational | Selected STID lane has a live block. |
+| Output | `oldestBid[stidCount]` | `Vec[UInt(bidWidth.W)]` | with `oldestValid` | Lowest live full BID independently selected in each STID. |
+| Output | `oldestComplete[stidCount]` | `Vec[Bool]` | with `oldestValid` | Completion predicate of that exact selected block. |
 
 ## State
 
@@ -116,6 +119,11 @@ another lane's block order.
   STIDs. `Flushed` entries remain
   excluded from allocated/pending/complete masks but are accepted by
   `allocReady` so reduced block-control cleanup can reuse killed slots.
+- Recovery watermark selection scans live entries independently in every STID
+  lane and returns the lowest full BID plus completion state of that exact
+  entry. It never compares BID age across STIDs. The downstream allocator must
+  match this full BID against the full block BID stored with its selected ROB
+  row before publishing a coherent BID/RID pair.
 
 ## Timing
 

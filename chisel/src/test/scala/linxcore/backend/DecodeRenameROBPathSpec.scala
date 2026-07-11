@@ -975,6 +975,11 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_lsuFullBidLookup_blockBid"))
     assert(sv.contains("io_recoveryIntent_blockFlushBid"))
     assert(sv.contains("io_recoveryIntentConsumed"))
+    assert(sv.contains("io_recoveryOldestValid_0"))
+    assert(sv.contains("io_recoveryOldestBlockBid_0"))
+    assert(sv.contains("io_recoveryOldestBid_0_value"))
+    assert(sv.contains("io_recoveryOldestRid_0_wrap"))
+    assert(sv.contains("io_recoveryOldestBlockComplete_0"))
     assert(sv.contains("io_robDeallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_robDeallocTURetireSource_0_peId"))
     assert(sv.contains("io_robDeallocTURetireSource_0_isLast"))
@@ -1055,5 +1060,10 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_commitStid"))
     assert(sv.contains("io_enq_bits_stid"))
     assert(sv.contains("GPRReservationTracker"))
+    assert(sv.contains("io_recoveryOldestValid_1"))
+    assert(sv.contains("io_recoveryOldestBlockBid_1"))
+    assert(sv.contains("io_recoveryOldestBid_1_value"))
+    assert(sv.contains("io_recoveryOldestRid_1_wrap"))
+    assert(sv.contains("io_recoveryOldestBlockComplete_1"))
   }
 }

@@ -25,6 +25,7 @@ class RecoveryFabricIO(
   val sourceAccepted = Output(Vec(sourceCount, Bool()))
   val sourceBlockedByStid = Output(Vec(sourceCount, Bool()))
   val sourceBlockedByPe = Output(Vec(sourceCount, Bool()))
+  val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
 
@@ -117,11 +118,13 @@ class RecoveryFabric(
     filteredSources(source).valid := io.sources(source).valid && peInRange
   }
   sourceArbiter.io.sources := filteredSources
+  sourceArbiter.io.oldestValid := io.oldestValid
   sourceArbiter.io.oldestBid := io.oldestBid
   sourceArbiter.io.outReady := classMerge.io.inReady
 
   classMerge.io.in := sourceArbiter.io.out
   classMerge.io.inProvenance := sourceArbiter.io.outProvenance
+  classMerge.io.oldestValid := io.oldestValid
   classMerge.io.oldestBid := io.oldestBid
   classMerge.io.oldestBlockComplete := io.oldestBlockComplete
   classMerge.io.outReady := cleanup.io.reqReady

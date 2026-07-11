@@ -68,7 +68,11 @@ object FlushControlReference {
       mtcReplay = req.execEngine == ExecRefType.Mem
     )
 
-  def checkOlder(srcSignal: FlushBusRef, dstSignal: FlushBusRef, oldestBid: Id): Boolean = {
+  def checkOlder(
+      srcSignal: FlushBusRef,
+      dstSignal: FlushBusRef,
+      oldestBid: Id,
+      oldestValid: Boolean = true): Boolean = {
     if (srcSignal.req.stid != dstSignal.req.stid) {
       return false
     }
@@ -104,7 +108,8 @@ object FlushControlReference {
       }
     }
 
-    if (baseOnBid && (lessEqual(srcSignal.req.bid, dstSignal.req.bid) || srcSignal.req.bid == oldestBid)) {
+    if (baseOnBid &&
+      (lessEqual(srcSignal.req.bid, dstSignal.req.bid) || (oldestValid && srcSignal.req.bid == oldestBid))) {
       return true
     }
 
@@ -188,5 +193,6 @@ class FlushControlSpec extends AnyFunSuite {
     val dst = annotate(FlushReqRef(typ = NukeFlush, bid = Id(value = 3)))
     assert(!lessEqual(src.req.bid, dst.req.bid))
     assert(checkOlder(src, dst, Id(value = 7)))
+    assert(!checkOlder(src, dst, Id(value = 7), oldestValid = false))
   }
 }

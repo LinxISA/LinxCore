@@ -7,9 +7,10 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
   test("retained recovery arbitration selects model-oldest reports without cross-STID BID ordering") {
     final case class Req(source: Int, stid: Int, bid: Int)
 
-    def sameStidWinner(requests: Seq[Req], oldest: Int): Req =
+    def sameStidWinner(requests: Seq[Req], oldest: Int, oldestValid: Boolean = true): Req =
       requests.reduceLeft { (winner, next) =>
-        val winnerOlder = winner.stid == next.stid && (winner.bid <= next.bid || winner.bid == oldest)
+        val winnerOlder = winner.stid == next.stid &&
+          (winner.bid <= next.bid || (oldestValid && winner.bid == oldest))
         if (winnerOlder) winner else next
       }
 
@@ -23,6 +24,7 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
     assert(laneWinners.map(_.stid) == Seq(0, 1))
     assert(laneWinners.head.bid == 3)
     assert(laneWinners(1).bid == 7)
+    assert(sameStidWinner(Seq(Req(0, 0, 7), Req(1, 0, 3)), oldest = 7, oldestValid = false).bid == 3)
   }
 
   test("ring recovery remains blocked until the cleanup consumer accepts it") {
@@ -60,6 +62,8 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
     assert(sv.contains("RingFullBidRecoveryBridge"))
     assert(sv.contains("ROBFullBidLookup"))
     assert(sv.contains("ROBEntryBank"))
+    assert(sv.contains("RecoveryWatermarkJoin"))
+    assert(sv.contains("io_joinedOldestValidMask"))
     assert(sv.contains("io_robFlushPruneMask"))
     assert(sv.contains("io_cleanupBlockFlushValid"))
     assert(sv.contains("io_cleanupBlockFlushBid"))

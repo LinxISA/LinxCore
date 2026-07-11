@@ -56,6 +56,7 @@ class RecoveryBackendControlIO(
     tidWidth
   ))
 
+  val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
   val intentReady = Input(Bool())
@@ -133,6 +134,7 @@ class RecoveryBackendControl(
   io.robFullBidLookupRequest := io.lsuFullBidLookupRequest
   io.lsuFullBidLookup := io.robFullBidLookup
 
+  recovery.io.oldestValid := io.oldestValid
   recovery.io.oldestBid := io.oldestBid
   recovery.io.oldestBlockComplete := io.oldestBlockComplete
   recovery.io.intentReady := io.intentReady

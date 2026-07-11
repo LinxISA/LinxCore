@@ -712,7 +712,8 @@ class ROBEntryBankSpec extends AnyFunSuite {
         entries = 8,
         traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
         mapQDepth = 8,
-        stidWidth = 4
+        stidWidth = 4,
+        stidCount = 2
       )
     )
 
@@ -761,6 +762,10 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_flushPruneMask"))
     assert(sv.contains("io_flushCommitRebased"))
     assert(sv.contains("io_commitContractError"))
+    assert(sv.contains("ROBRecoveryWatermark"))
+    assert(sv.contains("io_recoveryOldestValid_1"))
+    assert(sv.contains("io_recoveryOldestRid_1_wrap"))
+    assert(sv.contains("io_recoveryOldestBlockBid_1"))
     assert(sv.contains("CommitTraceMonitor"))
     assert(DestinationKind.T.asUInt.litValue == 2)
     assert(DestinationKind.U.asUInt.litValue == 3)

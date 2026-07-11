@@ -161,6 +161,7 @@ class RecoveryProducerProbe extends Module {
   slow.io.sourceReady := recovery.io.sourceReady(1)
   stall.io.sourceReady := recovery.io.sourceReady(2)
   pe.io.sourceReady := recovery.io.sourceReady(3)
+  recovery.io.oldestValid := VecInit(true.B, true.B)
   recovery.io.oldestBid(0) := id(0.U)
   recovery.io.oldestBid(1) := id(0.U)
   recovery.io.oldestBlockComplete := VecInit(false.B, false.B)

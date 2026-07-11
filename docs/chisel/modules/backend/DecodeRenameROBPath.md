@@ -118,6 +118,16 @@ redirect source, while reduced trace shells call `tieOffRecovery` explicitly.
 The full composition may redirect fetch immediately, but backend/ROB/BROB,
 rename, issue, store, LIQ, and ResolveQ mutation is qualified by the registered
 intent-consumption pulse.
+R648 replaces the former externally supplied, zero-tied oldest BID/completion
+inputs with owner-selected outputs from `DispatchROBAllocator`. For every
+configured scalar STID the path now publishes `recoveryOldestValid`, exact
+full block BID, ring-BID projection, wrap-qualified RID, and completion state.
+`RecoveryBackendControl` consumes the internal ring BID and completion vectors.
+The valid qualifier requires the BROB oldest full BID to equal the full block
+BID stored with the ROB-selected row, so marker-only blocks cannot create a
+mixed-generation watermark. The qualifier is carried into recovery source
+arbitration and class merge; no comparison helper may infer validity from BID
+payload bits.
 R547 adds the `deallocHoldMask` forwarding path through
 `DispatchROBAllocator` to `ROBEntryBank`. The path does not own the hold
 policy; the reduced replay-LIQ top drives it from outstanding returned-load

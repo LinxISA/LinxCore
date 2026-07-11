@@ -4,7 +4,7 @@ import chisel3._
 import linxcore.commit.CommitTraceParams
 import linxcore.common.{BoundaryKind, DestinationKind}
 import linxcore.lsu.ScalarLSURecoverySource
-import linxcore.rob.{ROBEntryBank, ROBID}
+import linxcore.rob.{RecoveryWatermarkJoin, ROBEntryBank, ROBID}
 
 class RecoveryCleanupROBProbeIO extends Bundle {
   val allocValid = Input(Bool())
@@ -27,6 +27,10 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val oldestValid = Input(Bool())
   val oldestBid = Input(UInt(3.W))
   val oldestRid = Input(UInt(3.W))
+  val joinBrobValidMask = Input(UInt(2.W))
+  val joinBrobBlockBid0 = Input(UInt(16.W))
+  val joinBrobBlockBid1 = Input(UInt(16.W))
+  val joinBrobCompleteMask = Input(UInt(2.W))
   val intentReady = Input(Bool())
 
   val ringReady = Output(Bool())
@@ -55,6 +59,17 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val robFlushApplied = Output(Bool())
   val robFlushPruneMask = Output(UInt(8.W))
   val robSize = Output(UInt(4.W))
+  val robOldestValidMask = Output(UInt(2.W))
+  val robOldestRid0 = Output(UInt(3.W))
+  val robOldestRid0Wrap = Output(Bool())
+  val robOldestBlockBid0 = Output(UInt(16.W))
+  val robOldestRid1 = Output(UInt(3.W))
+  val robOldestRid1Wrap = Output(Bool())
+  val robOldestBlockBid1 = Output(UInt(16.W))
+  val joinedOldestValidMask = Output(UInt(2.W))
+  val joinedOldestBid0 = Output(UInt(3.W))
+  val joinedOldestRid0 = Output(UInt(3.W))
+  val joinedOldestCompleteMask = Output(UInt(2.W))
 }
 
 class RecoveryCleanupROBProbe extends Module {
@@ -74,8 +89,10 @@ class RecoveryCleanupROBProbe extends Module {
   val rob = Module(new ROBEntryBank(
     entries = entries,
     traceParams = traceParams,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    stidCount = 2
   ))
+  val watermarkJoin = Module(new RecoveryWatermarkJoin(entries, stidCount = 2, bidWidth = 16))
 
   private def id(value: UInt): ROBID = {
     val out = Wire(new ROBID(entries))
@@ -127,6 +144,7 @@ class RecoveryCleanupROBProbe extends Module {
   backend.io.nonLsuSources(0) := fullReq
   backend.io.nonLsuSources(1) := peerFullReq
   backend.io.lsuSource := lsuSource.io.source
+  backend.io.oldestValid := VecInit(io.oldestValid, true.B)
   backend.io.oldestBid(0) := id(io.oldestBid)
   backend.io.oldestBid(1) := id(3.U)
   backend.io.oldestBlockComplete := VecInit(false.B, false.B)
@@ -212,6 +230,26 @@ class RecoveryCleanupROBProbe extends Module {
   io.robFlushApplied := rob.io.flushApplied
   io.robFlushPruneMask := rob.io.flushPruneMask
   io.robSize := rob.io.size
+  io.robOldestValidMask := rob.io.recoveryOldestValid.asUInt
+  io.robOldestRid0 := rob.io.recoveryOldestRid(0).value
+  io.robOldestRid0Wrap := rob.io.recoveryOldestRid(0).wrap
+  io.robOldestBlockBid0 := rob.io.recoveryOldestBlockBid(0)
+  io.robOldestRid1 := rob.io.recoveryOldestRid(1).value
+  io.robOldestRid1Wrap := rob.io.recoveryOldestRid(1).wrap
+  io.robOldestBlockBid1 := rob.io.recoveryOldestBlockBid(1)
+  watermarkJoin.io.brobValid := io.joinBrobValidMask.asBools
+  watermarkJoin.io.brobBlockBid(0) := io.joinBrobBlockBid0
+  watermarkJoin.io.brobBlockBid(1) := io.joinBrobBlockBid1
+  watermarkJoin.io.brobComplete := io.joinBrobCompleteMask.asBools
+  watermarkJoin.io.robValid := rob.io.recoveryOldestValid
+  watermarkJoin.io.robRid := rob.io.recoveryOldestRid
+  for (stid <- 0 until 2) {
+    watermarkJoin.io.robBlockBid(stid) := rob.io.recoveryOldestBlockBid(stid)
+  }
+  io.joinedOldestValidMask := watermarkJoin.io.oldestValid.asUInt
+  io.joinedOldestBid0 := watermarkJoin.io.oldestBid(0).value
+  io.joinedOldestRid0 := watermarkJoin.io.oldestRid(0).value
+  io.joinedOldestCompleteMask := watermarkJoin.io.oldestBlockComplete.asUInt
 }
 
 object EmitRecoveryCleanupROBProbe extends App {
