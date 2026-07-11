@@ -53,7 +53,9 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val arbiterSelectedBlockBid = Output(UInt(16.W))
   val cleanupIntentValid = Output(Bool())
   val cleanupBlockFlushValid = Output(Bool())
-  val cleanupBlockFlushBid = Output(UInt(16.W))
+  val cleanupBlockFlushBid = Output(UInt(3.W))
+  val cleanupBlockFlushPointerValid = Output(Bool())
+  val cleanupBlockFlushPointer = Output(UInt(16.W))
   val sourceResolvedMask = Output(UInt(3.W))
   val consumedPayloadSourceMask = Output(UInt(3.W))
   val robFlushApplied = Output(Bool())
@@ -225,6 +227,8 @@ class RecoveryCleanupROBProbe extends Module {
   io.cleanupIntentValid := backend.io.intent.valid
   io.cleanupBlockFlushValid := backend.io.intent.blockFlushValid
   io.cleanupBlockFlushBid := backend.io.intent.blockFlushBid
+  io.cleanupBlockFlushPointerValid := backend.io.intent.blockFlushPointerValid
+  io.cleanupBlockFlushPointer := backend.io.intent.blockFlushPointer
   io.sourceResolvedMask := backend.io.sourceResolvedMask
   io.consumedPayloadSourceMask := backend.io.consumedPayloadSourceMask
   io.robFlushApplied := rob.io.flushApplied

@@ -109,6 +109,13 @@ Maintenance is globally serialized even when it targets different STIDs; lane
 locality is a state-ownership guarantee, not a claim of simultaneous commit or
 flush bandwidth.
 
+Global block cleanup requires two separate identities in
+`RecoveryCleanupIntent`: canonical `blockFlushBid` for the Linx architectural
+block slot and a valid owner-resolved `blockFlushPointer` for implementation
+age against MapQ/checkpoint rows. This module never widens canonical BID; it
+uses only the resolved pointer for generation-aware pruning and asserts if a
+global block cleanup arrives without that sidecar.
+
 ## STID Ownership
 
 Source lookup, destination update, checkpoint capture, block commit, cleanup,
@@ -238,7 +245,8 @@ future dispatch/commit/top integration packet and for cross-check trace hooks.
 
 The shared free list, per-lane maps, ordered MapQ commit, checkpoint restore,
 and survivor replay are ISA-neutral OOO mechanisms. Their architectural keys
-are Linx `(STID, full BID, RID, GID)` identities and Linx recovery intents.
+are Linx `(STID, BID, RID, GID)` identities plus explicit internal pointer
+context where generation-aware storage still requires it.
 This owner does not import ARM register banking, condition-code state,
 exception levels, barriers, or memory-ordering rules. Any future ISA-neutral
 rename optimization must preserve the Linx block identity and recovery

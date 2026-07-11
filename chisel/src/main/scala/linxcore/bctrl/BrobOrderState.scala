@@ -35,6 +35,7 @@ class BrobOrderStateIO(
     val stidCount: Int)
     extends Bundle {
   private val countWidth = log2Ceil(entries + 1)
+  private val blockBidWidth = BID.slotBits(entries)
 
   val allocValid = Input(Bool())
   val allocBid = Input(UInt(bidWidth.W))
@@ -42,7 +43,9 @@ class BrobOrderStateIO(
 
   val recoveryValid = Input(Bool())
   val recoveryStid = Input(UInt(stidWidth.W))
-  val recoveryPivotBid = Input(UInt(bidWidth.W))
+  val recoveryPivotBid = Input(UInt(blockBidWidth.W))
+  val recoveryTransportPointerValid = Input(Bool())
+  val recoveryTransportPointer = Input(UInt(bidWidth.W))
   val recoveryInclusive = Input(Bool())
 
   val headResident = Input(Vec(stidCount, Bool()))
@@ -120,7 +123,7 @@ class BrobOrderState(
   val recoveryResolver = Module(new BrobLiveBidResolver(entries, bidWidth, stidWidth, stidCount))
   recoveryResolver.io.candidateValid := io.recoveryValid
   recoveryResolver.io.candidateStid := io.recoveryStid
-  recoveryResolver.io.candidateBid := BID.slot(io.recoveryPivotBid, entries)
+  recoveryResolver.io.candidateBid := io.recoveryPivotBid
   recoveryResolver.io.headPointer := commitCursor
   recoveryResolver.io.liveCount := liveCount
 
@@ -165,7 +168,7 @@ class BrobOrderState(
   io.recoveryCanonicalMatch := recoveryResolver.io.matchValid
   io.recoveryResolvedPivotBid := recoveryResolvedPivotBid
   io.recoveryLegacyPointerMismatch := io.recoveryValid && recoveryResolver.io.matchValid &&
-    io.recoveryPivotBid =/= recoveryResolvedPivotBid
+    io.recoveryTransportPointerValid && io.recoveryTransportPointer =/= recoveryResolvedPivotBid
   io.recoveryWindowValid := recoveryWindowValid
   io.recoveryFirstKilledBid := recoveryFirstKilledBid
   io.recoveryOldAllocBid := selectedRecoveryTail

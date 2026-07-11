@@ -40,7 +40,9 @@ class RecoveryProducerProbeIO extends Bundle {
   val classPePendingMask = Output(UInt(4.W))
   val intentValid = Output(Bool())
   val intentType = Output(UInt(3.W))
-  val intentBlockBid = Output(UInt(16.W))
+  val intentBlockBid = Output(UInt(3.W))
+  val intentBlockPointerValid = Output(Bool())
+  val intentBlockPointer = Output(UInt(16.W))
   val intentStid = Output(UInt(1.W))
   val intentPeId = Output(UInt(1.W))
   val intentImmediate = Output(Bool())
@@ -183,6 +185,8 @@ class RecoveryProducerProbe extends Module {
   io.intentValid := recovery.io.intent.valid
   io.intentType := recovery.io.intent.flush.req.typ.asUInt
   io.intentBlockBid := recovery.io.intent.blockFlushBid
+  io.intentBlockPointerValid := recovery.io.intent.blockFlushPointerValid
+  io.intentBlockPointer := recovery.io.intent.blockFlushPointer
   io.intentStid := recovery.io.intent.flush.req.stid
   io.intentPeId := recovery.io.intent.flush.req.peId
   io.intentImmediate := recovery.io.intent.flush.req.immediateFlush

@@ -84,6 +84,10 @@ bits are diagnostic only and cannot select a different suffix.
 resolved pointer for rename and queue consumers. If the selected STID has no
 unique live match, those downstream state mutations are suppressed together
 with BROB recovery; a consumed malformed request cannot split recovery owners.
+R656 narrows allocator `blockFlushBid` to `BID_W` and carries the source
+implementation pointer on separate valid/payload inputs. The source pointer is
+used only for mismatch diagnostics; order state and metadata suffix selection
+consume the canonical slot and owner live window.
 The allocator can elaborate multiple lanes independently, but the current
 `DecodeRenameROBPath` composition is guarded to one STID until GPR mapQ block
 commit also keys entries by STID.
@@ -146,7 +150,9 @@ dispatch agents consume a real block owner.
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
-| input | `block*Done*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID completion, recovery, and query surface. |
+| input | `block*Done*`, `blockQuery*` | mixed | valid/query | Exact internal pointer plus STID completion and query surface during migration. |
+| input | `blockFlushBid` | `UInt(BID_W.W)` | with `blockFlushValid` | Canonical Linx BID slot resolved against the selected STID live window. |
+| input | `blockFlushPointerValid/blockFlushPointer` | mixed | diagnostic context | Separate source implementation pointer; never recovery age authority. |
 | input | `blockExplicitStoreCountValid/Bid/Stid/Value` | mixed | valid/ready | Authoritative CTU/tile count event; accepted after the retained publisher takes ownership of a live exact identity. |
 | output | `blockExplicitStoreCountReady/Accepted/Canceled` | `Bool` | handshake/diagnostic | Producer ownership transfer or later accepted-recovery cancellation. |
 | output | `blockStoreCount*Pending/*Collision/*Conflict` | mixed | diagnostic | Retained source state, arbitration class, and inconsistent frozen-count evidence. |

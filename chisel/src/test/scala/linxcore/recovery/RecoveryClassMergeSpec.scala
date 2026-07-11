@@ -57,6 +57,7 @@ class RecoveryClassMergeSpec extends AnyFunSuite {
     assert(sv.contains("io_classGlobalFlushPendingMask"))
     assert(sv.contains("io_classBlockedByPe"))
     assert(sv.contains("io_intent_blockFlushBid"))
+    assert(sv.contains("io_intent_blockFlushPointer"))
     assert(sv.contains("io_sourceResolvedMask"))
     assert(sv.contains("io_consumedPayloadSourceMask"))
   }

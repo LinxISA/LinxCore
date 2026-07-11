@@ -25,7 +25,10 @@ static void wait_for_cleanup(VRecoveryCleanupROBProbe &dut,
     for (int cycle = 0; cycle < max_cycles; ++cycle) {
         dut.eval();
         if (dut.io_cleanupPending && dut.io_cleanupIntentValid &&
-            dut.io_cleanupBlockFlushValid && dut.io_cleanupBlockFlushBid == block_bid) {
+            dut.io_cleanupBlockFlushValid &&
+            dut.io_cleanupBlockFlushBid == (block_bid & 0x7) &&
+            dut.io_cleanupBlockFlushPointerValid &&
+            dut.io_cleanupBlockFlushPointer == block_bid) {
             return;
         }
         tick(dut);
@@ -157,8 +160,10 @@ int main(int argc, char **argv) {
                      "accepted ring recovery was not retained as cleanup intent");
     require(!dut.io_robFlushApplied && dut.io_robSize == 3,
             "blocked cleanup intent modified ROB state");
-    require(dut.io_cleanupBlockFlushValid && dut.io_cleanupBlockFlushBid == 0x12,
-            "exact ROB lookup did not authorize the allocator-owned full BID");
+    require(dut.io_cleanupBlockFlushValid && dut.io_cleanupBlockFlushBid == 0x2 &&
+                dut.io_cleanupBlockFlushPointerValid &&
+                dut.io_cleanupBlockFlushPointer == 0x12,
+            "exact ROB lookup did not split canonical BID from internal pointer");
     tick(dut);
     require(dut.io_cleanupPending && dut.io_robSize == 3,
             "cleanup intent was not held under consumer backpressure");
@@ -206,7 +211,8 @@ int main(int argc, char **argv) {
 
     dut.io_intentReady = 1;
     dut.eval();
-    require(dut.io_robFlushApplied && dut.io_cleanupBlockFlushBid == 0x11,
+    require(dut.io_robFlushApplied && dut.io_cleanupBlockFlushBid == 0x1 &&
+                dut.io_cleanupBlockFlushPointer == 0x11,
             "oldest selected request was not applied before replacement");
     require(dut.io_sourceResolvedMask == 0x2 &&
                 dut.io_consumedPayloadSourceMask == 0x2,

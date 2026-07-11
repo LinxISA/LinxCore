@@ -87,13 +87,14 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 |---|---|
 | `valid` | Registered cleanup intent is valid. |
 | `flush` | Annotated `FlushBus` for ROB and backend consumers. |
-| `blockFlushValid/blockFlushBid` | Full-BID block cleanup for true global flushes. Ring-only input keeps valid low. |
+| `blockFlushValid/blockFlushBid` | True global block cleanup plus canonical `BID_W` slot. Ring-only input keeps valid low. |
+| `blockFlushPointerValid/blockFlushPointer` | Explicit implementation pointer context split from BID. Full-pointer requests qualify it; the BROB-resolved cleanup view replaces it before generation-aware mutation. |
 | `blockFlushInclusive` | True only for model miss-predict recovery, where the reported BID is the first killed block rather than a surviving pivot. |
 | `robPruneValid` | ROB/PE-ROB prune path should consume `flush`. |
 | `bctrlFlushValid` | BCTRL should take the model `flush` path. |
 | `bctrlReplayValid` | BCTRL should take the model `replay` path. |
 | `bctrlSimtRecoveredValid` | PE-scoped SIMT/MTC replay should run the BROB SIMT recovery sweep, except `SIMT_INNER_FLUSH`. |
-| `renameFlushValid` | Scalar rename should take the model `flush` path. |
+| `renameFlushValid` | Scalar rename should take the model `flush` path; raw ring compatibility input cannot assert it without resolved pointer context. |
 | `renameReplayValid` | Scalar rename should take the model `replay` path. |
 | `backendFlushValid` | Backend PE/IEX/LSU/tile cleanup should consume `flush`. |
 | `reportQueueFlushValid` | Younger report queues should be filtered by the selected signal. |
@@ -115,13 +116,18 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 - `pendingValid`: valid bit for the registered cleanup intent.
 - `pendingProvenance`: metadata registered atomically with a full-BID request;
   ring-only input stores empty provenance.
-- `FullBidRecoveryBridge`: combinational child used to preserve the full BID
-  and produce the ring `FlushBus` from the registered request.
+- `FullBidRecoveryBridge`: combinational child used to split the source's exact
+  implementation pointer into canonical BID plus ring `FlushBus` context.
 
 The boundary accepts a new request when empty or when the current intent is
 being consumed. A simultaneous consume and accept replaces the pending request.
 Full-BID input wins a same-cycle source conflict; ring input observes
 `ringReqReady=false` and must remain valid.
+
+The raw ring compatibility input may still drive ring-qualified ROB pruning and
+frontend/backend cleanup, but it cannot request BROB/BCTRL or scalar rename
+mutation. Those generation-aware owners require the canonical BID to be
+resolved to a valid internal pointer first.
 
 ## Logic Design
 
@@ -140,6 +146,14 @@ Ring-qualified requests drive typed ROB, rename, backend, frontend, and LSU
 cleanup, but suppress `blockFlushValid` and `bctrlFlushValid`: a ROBID slot and
 wrap bit are not a full Linx block BID. A future allocator/BROB lookup must add
 that authority; truncation or zero-extension is forbidden.
+
+For retained full-pointer requests, `blockFlushBid` is always the low canonical
+`BID_W` slot and `blockFlushPointer` carries the exact source pointer under
+`blockFlushPointerValid`. `DecodeRenameROBPath` asks the selected STID BROB
+window to resolve the canonical slot, then replaces the pointer in the
+downstream cleanup view. BROB never consumes the pointer as BID; scalar rename
+asserts that global block cleanup cannot mutate MapQ/SMAP without the resolved
+pointer sidecar.
 
 `RecoveryEligibilityControl` precedes ring acceptance in `ScalarLSU`. A
 non-immediate BID-based request waits until `request.bid <= oldestBid`; an
@@ -195,12 +209,13 @@ owner work:
 
 The generated-RTL probe allocates three real ROB rows across two STIDs with
 full generation sidebands. It retains a non-oldest nuke, rejects an eligible
-wrong-RID lookup without consuming the report, then recovers full BID `0x12`.
+wrong-RID lookup without consuming the report, then recovers source pointer
+`0x12` with canonical BID `0x2`.
 The promoted request asserts block authority, remains held while its consumer
 is blocked, and prunes only the target STID0 row on acceptance while preserving
 the younger STID1 row. R639 places `RecoverySourceArbiter` ahead of this
 boundary. The same run proves simultaneous retained admission, selection of
-older full BID `0x11` over `0x12` within STID0, retention and
+older implementation pointer `0x11` over `0x12` within STID0, retention and
 consume-plus-replacement of the younger source, rejection of an uninstantiated
 STID, and round-robin serialization of an incomparable STID1 request.
 R640 replaces the probe's separate eligibility/promotion instances with

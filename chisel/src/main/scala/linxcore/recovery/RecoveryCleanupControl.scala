@@ -11,10 +11,14 @@ class RecoveryCleanupIntent(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8)
     extends Bundle {
+  private val blockBidWidth = BID.slotBits(entries)
+
   val valid = Bool()
   val flush = new FlushBus(entries, peIdWidth, stidWidth, tidWidth)
   val blockFlushValid = Bool()
-  val blockFlushBid = UInt(bidWidth.W)
+  val blockFlushBid = UInt(blockBidWidth.W)
+  val blockFlushPointerValid = Bool()
+  val blockFlushPointer = UInt(bidWidth.W)
   val blockFlushInclusive = Bool()
   val robPruneValid = Bool()
   val bctrlFlushValid = Bool()
@@ -144,14 +148,16 @@ class RecoveryCleanupControl(
   io.intent.valid := pendingValid
   io.intent.flush := activeFlush
   io.intent.blockFlushValid := globalFlush && !pendingIsRing
-  io.intent.blockFlushBid := bridge.io.blockFlushBid
+  io.intent.blockFlushBid := BID.slot(bridge.io.blockFlushBid, entries)
+  io.intent.blockFlushPointerValid := pendingValid && !pendingIsRing
+  io.intent.blockFlushPointer := bridge.io.blockFlushBid
   io.intent.blockFlushInclusive :=
     globalFlush && !pendingIsRing && (pendingReq.typ === FlushType.MissPredFlush)
   io.intent.robPruneValid := pendingValid
   io.intent.bctrlFlushValid := globalFlush && !pendingIsRing
   io.intent.bctrlReplayValid := globalReplay || peScopedReplay
   io.intent.bctrlSimtRecoveredValid := simtRecovered
-  io.intent.renameFlushValid := globalFlush
+  io.intent.renameFlushValid := globalFlush && !pendingIsRing
   io.intent.renameReplayValid := globalReplay || peScopedReplay
   io.intent.backendFlushValid := pendingValid
   io.intent.reportQueueFlushValid := pendingValid

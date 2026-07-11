@@ -170,6 +170,10 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
   }
 
   test("Chisel RecoveryCleanupControl elaborates registered cleanup intent outputs") {
+    val intent = new RecoveryCleanupIntent(entries = 8, bidWidth = 16)
+    assert(intent.blockFlushBid.getWidth == 3)
+    assert(intent.blockFlushPointer.getWidth == 16)
+
     val sv = ChiselStage.emitSystemVerilog(new RecoveryCleanupControl(entries = 8, bidWidth = 16))
 
     assert(sv.contains("module RecoveryCleanupControl"))
@@ -178,6 +182,12 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
     assert(sv.contains("io_ringReqReady"))
     assert(sv.contains("io_ringAccepted"))
     assert(sv.contains("io_intent_bctrlFlushValid"))
+    assert(sv.contains("io_intent_blockFlushPointerValid"))
+    assert(sv.contains("io_intent_blockFlushPointer"))
+    val renameFlushAssignment = sv.linesIterator
+      .find(line => line.contains("assign io_intent_renameFlushValid"))
+      .getOrElse(fail("missing renameFlushValid assignment"))
+    assert(renameFlushAssignment.contains("pendingIsRing"))
     assert(sv.contains("io_intent_blockFlushInclusive"))
     assert(sv.contains("io_intent_robPruneValid"))
     assert(sv.contains("io_intent_frontendRestartValid"))

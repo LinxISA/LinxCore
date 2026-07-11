@@ -27,7 +27,9 @@ static void wait_for_intent(VRecoveryProducerProbe &dut,
     for (int cycle = 0; cycle < max_cycles; ++cycle) {
         dut.eval();
         if (dut.io_intentValid && dut.io_intentType == type &&
-            dut.io_intentBlockBid == block_bid && dut.io_intentStid == stid) {
+            dut.io_intentBlockBid == (block_bid & 0x7) &&
+            dut.io_intentBlockPointerValid &&
+            dut.io_intentBlockPointer == block_bid && dut.io_intentStid == stid) {
             return;
         }
         tick(dut);

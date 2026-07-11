@@ -14,7 +14,9 @@ class BrobOrderStateProbeIO extends Bundle {
   val retireReady = Input(Bool())
   val recoveryValid = Input(Bool())
   val recoveryStid = Input(UInt(2.W))
-  val recoveryPivotBid = Input(UInt(4.W))
+  val recoveryPivotBid = Input(UInt(3.W))
+  val recoveryTransportPointerValid = Input(Bool())
+  val recoveryTransportPointer = Input(UInt(4.W))
   val recoveryInclusive = Input(Bool())
 
   val allocApplied = Output(Bool())
@@ -56,6 +58,8 @@ class BrobOrderStateProbe extends Module {
   order.io.recoveryValid := io.recoveryValid
   order.io.recoveryStid := io.recoveryStid
   order.io.recoveryPivotBid := io.recoveryPivotBid
+  order.io.recoveryTransportPointerValid := io.recoveryTransportPointerValid
+  order.io.recoveryTransportPointer := io.recoveryTransportPointer
   order.io.recoveryInclusive := io.recoveryInclusive
   order.io.headResident := meta.io.oldestValid
   order.io.headComplete := meta.io.oldestComplete

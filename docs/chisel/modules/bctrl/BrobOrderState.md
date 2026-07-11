@@ -79,6 +79,11 @@ is required. A zero-match request is rejected; more than one match violates the
 bounded-window invariant and asserts. The resolved internal pointer, not any
 migration-era upper transport bits, is the recovery pivot.
 
+The Chisel input width enforces this contract: `recoveryPivotBid` is
+`log2(entries)` bits. Optional `recoveryTransportPointerValid` and
+`recoveryTransportPointer` exist only for migration diagnostics; they cannot
+change the resolved pointer or killed suffix.
+
 The accepted cleanup decision is translated to `recoveryFirstKilledBid`:
 
 - miss-predict: `firstKilled = pivot`;

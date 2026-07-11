@@ -93,6 +93,16 @@ from this resolved pointer. Any wider transport value may be checked for
 agreement and reported as a migration mismatch, but its upper bits cannot
 select the retained or killed interval.
 
+The Chisel cleanup boundary represents this split explicitly:
+
+- `block_flush_bid[BID_W-1:0]` is the canonical external slot;
+- `block_flush_pointer_valid` qualifies internal ring context;
+- `block_flush_pointer` is the resolved implementation pointer used by
+  generation-aware consumers such as scalar rename.
+
+The pointer is not BID, is not sent as an engine command tag, and cannot replace
+`(flush_stid, block_flush_bid)` on architectural interfaces.
+
 ## 5) Interfaces (valid/ready)
 
 Signal naming MUST follow `producer_consumer_signal`.

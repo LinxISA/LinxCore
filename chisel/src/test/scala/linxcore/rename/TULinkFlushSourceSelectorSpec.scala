@@ -233,7 +233,8 @@ class TULinkFlushSourceSelectorSpec extends AnyFunSuite {
     assert(io.lsuSource.uSeq.value.getWidth == 3)
     assert(io.source.tSeq.value.getWidth == 3)
     assert(io.source.bid.value.getWidth == 3)
-    assert(io.cleanup.blockFlushBid.getWidth == 16)
+    assert(io.cleanup.blockFlushBid.getWidth == 3)
+    assert(io.cleanup.blockFlushPointer.getWidth == 16)
   }
 
   test("TULinkFlushSourceSelector elaborates as the ROB/LSU source boundary owner") {

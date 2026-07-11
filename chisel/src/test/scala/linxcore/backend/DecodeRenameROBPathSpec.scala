@@ -975,6 +975,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_lsuFullBidLookupRequest_rid_value"))
     assert(sv.contains("io_lsuFullBidLookup_blockBid"))
     assert(sv.contains("io_recoveryIntent_blockFlushBid"))
+    assert(sv.contains("io_recoveryIntent_blockFlushPointer"))
     assert(sv.contains("io_recoveryIntentConsumed"))
     assert(sv.contains("io_recoveryOldestValid_0"))
     assert(sv.contains("io_recoveryOldestBlockBid_0"))

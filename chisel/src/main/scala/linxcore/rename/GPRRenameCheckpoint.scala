@@ -353,7 +353,8 @@ class GPRRenameCheckpoint(
   }
 
   val cleanupValid = io.cleanup.valid && (io.cleanup.renameFlushValid || io.cleanup.renameReplayValid)
-  val flushFire = io.cleanup.valid && io.cleanup.renameFlushValid && cleanupStidInRange
+  val cleanupPointerReady = !io.cleanup.renameFlushValid || io.cleanup.blockFlushPointerValid
+  val flushFire = io.cleanup.valid && io.cleanup.renameFlushValid && cleanupStidInRange && cleanupPointerReady
   val replayFire = io.cleanup.valid && !io.cleanup.renameFlushValid &&
     io.cleanup.renameReplayValid && cleanupStidInRange
   val commitFire = !cleanupValid && io.commitValid && commitStidInRange
@@ -365,6 +366,11 @@ class GPRRenameCheckpoint(
   val renameCanFire = !cleanupValid && !io.commitValid && !io.checkpointValid &&
     renameStidInRange && hasFreePhys && hasFreeMapQ
   val renameAccepted = io.renameValid && renameCanFire
+
+  when(io.cleanup.valid && io.cleanup.renameFlushValid) {
+    assert(io.cleanup.blockFlushPointerValid,
+      "rename flush must carry resolved internal pointer separately from canonical BID")
+  }
 
   val restoreBid = ROBID.sub(io.cleanup.flush.req.bid, 1.U)
   val cleanupRenamePtr = Mux1H(cleanupStidMatch, renamePtr)
@@ -389,12 +395,12 @@ class GPRRenameCheckpoint(
     flushPruneVec(idx) :=
       flushEntry.valid && Mux(
         io.cleanup.flush.baseOnBid,
-        io.cleanup.blockFlushBid <= flushEntry.fullBid,
-        (io.cleanup.blockFlushBid < flushEntry.fullBid) ||
-          ((io.cleanup.blockFlushBid === flushEntry.fullBid) && sameBlockPrune))
+        io.cleanup.blockFlushPointer <= flushEntry.fullBid,
+        (io.cleanup.blockFlushPointer < flushEntry.fullBid) ||
+          ((io.cleanup.blockFlushPointer === flushEntry.fullBid) && sameBlockPrune))
     flushSameBidSurvivorVec(idx) :=
       flushEntry.valid && !flushPruneVec(idx) && !io.cleanup.flush.baseOnBid &&
-        (io.cleanup.blockFlushBid === flushEntry.fullBid)
+        (io.cleanup.blockFlushPointer === flushEntry.fullBid)
     commitHitVec(idx) := commitEntry.valid && (commitEntry.fullBid === io.commitBlockBid)
   }
   for (idx <- 0 until mapQDepth) {
@@ -518,8 +524,8 @@ class GPRRenameCheckpoint(
         for (arch <- 0 until archRegs) {
           val committedBeforeFlush =
             !io.cleanup.flush.baseOnBid &&
-              ((cleanupCmapFullBid(arch) < io.cleanup.blockFlushBid) ||
-                ((cleanupCmapFullBid(arch) === io.cleanup.blockFlushBid) &&
+              ((cleanupCmapFullBid(arch) < io.cleanup.blockFlushPointer) ||
+                ((cleanupCmapFullBid(arch) === io.cleanup.blockFlushPointer) &&
                   Mux(io.cleanupOrderValid, cleanupCmapOrder(arch) <= io.cleanupOrder,
                     ROBID.less(cleanupCmapRid(arch), io.cleanup.flush.req.rid))))
           when(restoreFromCheckpoint && committedBeforeFlush) {

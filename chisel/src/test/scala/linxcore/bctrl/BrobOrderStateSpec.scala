@@ -175,6 +175,10 @@ class BrobOrderStateSpec extends AnyFunSuite {
   }
 
   test("Chisel BrobOrderState elaborates parameterized order and recovery state") {
+    val io = new BrobOrderStateIO(entries = 8, bidWidth = 16, stidWidth = 2, stidCount = 2)
+    assert(io.recoveryPivotBid.getWidth == 3)
+    assert(io.recoveryTransportPointer.getWidth == 16)
+
     val sv = ChiselStage.emitSystemVerilog(
       new BrobOrderState(entries = 8, bidWidth = 16, stidWidth = 2, stidCount = 2)
     )
@@ -184,6 +188,8 @@ class BrobOrderStateSpec extends AnyFunSuite {
     assert(sv.contains("io_liveCount_1"))
     assert(sv.contains("io_recoveryWindowValid"))
     assert(sv.contains("io_recoveryResolvedPivotBid"))
+    assert(sv.contains("io_recoveryTransportPointerValid"))
+    assert(sv.contains("io_recoveryTransportPointer"))
     assert(sv.contains("io_recoveryLegacyPointerMismatch"))
     assert(sv.contains("io_retireFire"))
   }

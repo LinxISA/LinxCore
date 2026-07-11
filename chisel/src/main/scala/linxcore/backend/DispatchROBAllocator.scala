@@ -41,6 +41,7 @@ class DispatchROBAllocatorIO(
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
+  private val blockBidWidth = BID.slotBits(entries)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries))
@@ -132,7 +133,9 @@ class DispatchROBAllocatorIO(
   val blockRetireMetadataAccepted = Output(Bool())
   val blockRetireMetadataIgnored = Output(Bool())
   val blockFlushValid = Input(Bool())
-  val blockFlushBid = Input(UInt(bidWidth.W))
+  val blockFlushBid = Input(UInt(blockBidWidth.W))
+  val blockFlushPointerValid = Input(Bool())
+  val blockFlushPointer = Input(UInt(bidWidth.W))
   val blockFlushStid = Input(UInt(stidWidth.W))
   val blockFlushInclusive = Input(Bool())
   val blockFlushFirstKilledBid = Output(UInt(bidWidth.W))
@@ -475,6 +478,8 @@ class DispatchROBAllocator(
   blockOrder.io.recoveryValid := io.blockFlushValid
   blockOrder.io.recoveryStid := io.blockFlushStid
   blockOrder.io.recoveryPivotBid := io.blockFlushBid
+  blockOrder.io.recoveryTransportPointerValid := io.blockFlushPointerValid
+  blockOrder.io.recoveryTransportPointer := io.blockFlushPointer
   blockOrder.io.recoveryInclusive := io.blockFlushInclusive
   blockOrder.io.headResident := brob.io.oldestValid
   blockOrder.io.headComplete := VecInit((0 until stidCount).map { stid =>

@@ -25,6 +25,16 @@ static void idle(VBrobOrderStateProbe &dut) {
     dut.io_recoveryValid = 0;
 }
 
+static void set_recovery(VBrobOrderStateProbe &dut, unsigned stid,
+                         unsigned pointer, bool inclusive) {
+    dut.io_recoveryValid = 1;
+    dut.io_recoveryStid = stid;
+    dut.io_recoveryPivotBid = pointer & 0x7;
+    dut.io_recoveryTransportPointerValid = 1;
+    dut.io_recoveryTransportPointer = pointer;
+    dut.io_recoveryInclusive = inclusive;
+}
+
 static void allocate(VBrobOrderStateProbe &dut, unsigned stid, unsigned bid) {
     idle(dut);
     dut.io_allocValid = 1;
@@ -64,6 +74,8 @@ int main(int argc, char **argv) {
     dut.io_recoveryValid = 0;
     dut.io_recoveryStid = 0;
     dut.io_recoveryPivotBid = 0;
+    dut.io_recoveryTransportPointerValid = 0;
+    dut.io_recoveryTransportPointer = 0;
     dut.io_recoveryInclusive = 0;
     tick(dut);
     tick(dut);
@@ -155,10 +167,7 @@ int main(int argc, char **argv) {
     require(dut.io_liveCount_0 == 3, "recovery fixture did not contain three live blocks");
 
     // Inclusive recovery names the first killed block and retains [head, pivot).
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 5;
-    dut.io_recoveryInclusive = 1;
+    set_recovery(dut, 0, 5, true);
     dut.eval();
     require(dut.io_recoveryWindowValid && dut.io_recoveryApplied &&
                 dut.io_recoveryFirstKilledBid == 5 && dut.io_recoveryRetainedCount == 2,
@@ -171,10 +180,7 @@ int main(int argc, char **argv) {
 
     // A preserved pivot restores to its successor without moving the head.
     allocate(dut, 0, 5);
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 4;
-    dut.io_recoveryInclusive = 0;
+    set_recovery(dut, 0, 4, false);
     dut.eval();
     require(dut.io_recoveryApplied && dut.io_recoveryFirstKilledBid == 5 &&
                 dut.io_recoveryRetainedCount == 2,
@@ -189,10 +195,7 @@ int main(int argc, char **argv) {
     dut.io_allocValid = 1;
     dut.io_allocStid = 0;
     dut.io_allocBid = 5;
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 4;
-    dut.io_recoveryInclusive = 0;
+    set_recovery(dut, 0, 4, false);
     dut.eval();
     require(dut.io_recoveryApplied && !dut.io_allocApplied,
             "accepted recovery did not dominate a simultaneous allocation");
@@ -202,10 +205,7 @@ int main(int argc, char **argv) {
             "recovery/allocation overlap changed the retained window");
 
     // An out-of-window pivot is rejected atomically by order and metadata owners.
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 9;
-    dut.io_recoveryInclusive = 1;
+    set_recovery(dut, 0, 9, true);
     dut.eval();
     require(!dut.io_recoveryWindowValid && !dut.io_recoveryApplied,
             "out-of-window recovery pivot was accepted");
@@ -258,10 +258,7 @@ int main(int argc, char **argv) {
                 dut.io_nonFlushPrefixCount_0 == 3,
             "non-flush prefix did not cross full-BID rollover");
 
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 15;
-    dut.io_recoveryInclusive = 1;
+    set_recovery(dut, 0, 15, true);
     dut.eval();
     require(dut.io_recoveryApplied && dut.io_recoveryRetainedCount == 1,
             "rollover recovery did not retain only the pre-pivot head");
@@ -280,10 +277,8 @@ int main(int argc, char **argv) {
 
     // The external BID is only the canonical slot. Legacy upper pointer bits
     // may disagree, but cannot override resolution within the live window.
-    dut.io_recoveryValid = 1;
-    dut.io_recoveryStid = 0;
-    dut.io_recoveryPivotBid = 8;
-    dut.io_recoveryInclusive = 1;
+    set_recovery(dut, 0, 8, true);
+    dut.io_recoveryTransportPointer = 8;
     dut.eval();
     require(dut.io_recoveryCanonicalMatch && dut.io_recoveryApplied &&
                 dut.io_recoveryResolvedPivotBid == 0 &&

@@ -3,6 +3,7 @@ package linxcore.rename
 import chisel3._
 
 import linxcore.backend.GPRReservationTracker
+import linxcore.bctrl.BID
 import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.ROBID
 
@@ -94,7 +95,9 @@ class GPRRenameStidProbe extends Module {
   cleanup.flush.req.bid := robId(io.flushFullBid(2, 0))
   cleanup.flush.baseOnBid := true.B
   cleanup.blockFlushValid := io.flushValid
-  cleanup.blockFlushBid := io.flushFullBid
+  cleanup.blockFlushBid := BID.slot(io.flushFullBid, entries)
+  cleanup.blockFlushPointerValid := io.flushValid
+  cleanup.blockFlushPointer := io.flushFullBid
   cleanup.renameFlushValid := io.flushValid
 
   rename.io.srcArchTags := VecInit(Seq.fill(3)(io.queryArch))

@@ -759,7 +759,8 @@ class DecodeRenameROBPath(
   canonicalCleanup.valid := cleanup.valid && cleanupCanonicalMatch
   canonicalCleanup.flush.req.valid := cleanup.flush.req.valid && cleanupCanonicalMatch
   when(cleanup.blockFlushValid && allocator.io.blockFlushCanonicalMatch) {
-    canonicalCleanup.blockFlushBid := allocator.io.blockFlushResolvedPivotBid
+    canonicalCleanup.blockFlushPointerValid := true.B
+    canonicalCleanup.blockFlushPointer := allocator.io.blockFlushResolvedPivotBid
   }
 
   io.recoveryNonLsuSourceReady := recovery.io.nonLsuSourceReady
@@ -1169,6 +1170,8 @@ class DecodeRenameROBPath(
   allocator.io.blockEngineTrapCause := 0.U
   allocator.io.blockFlushValid := cleanup.valid && cleanup.blockFlushValid
   allocator.io.blockFlushBid := cleanup.blockFlushBid
+  allocator.io.blockFlushPointerValid := cleanup.blockFlushPointerValid
+  allocator.io.blockFlushPointer := cleanup.blockFlushPointer
   allocator.io.blockFlushStid := cleanup.flush.req.stid
   allocator.io.blockFlushInclusive := cleanup.blockFlushInclusive
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
