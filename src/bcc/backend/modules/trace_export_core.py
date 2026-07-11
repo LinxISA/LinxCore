@@ -2897,7 +2897,13 @@ def _build_trace_export_core(
         | (macro_uop_is_store & step_done)
     )
     macro_trace_fentry_parent = macro_trace_is_fentry & macro_trace_done_fentry
+    macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
+    macro_trace_fret_parent = macro_trace_is_fret & macro_trace_done_fret
+    macro_trace_parent = macro_trace_fentry_parent | macro_trace_fret_parent
+    # QEMU exposes FENTRY/FRET.* as one architectural parent row.  Their
+    # template children are internal execution work, not independent commits.
     macro_trace_fire = macro_uop_valid & ((~macro_trace_is_fentry) | macro_trace_done_fentry)
+    macro_trace_fire = macro_trace_fire & ((~macro_trace_is_fret) | macro_trace_done_fret)
     macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
     macro_enc = map_template_child_encoding(
         m,
@@ -2919,6 +2925,7 @@ def _build_trace_export_core(
         | macro_trace_wb_sp_add
         | macro_trace_wb_fentry_parent
     )
+    macro_trace_wb_valid = macro_trace_fret_parent._select_internal(consts.zero1, macro_trace_wb_valid)
     macro_trace_wb_rd = c(0, width=6)
     macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
     macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add | macro_trace_wb_fentry_parent)._select_internal(c(1, width=6), macro_trace_wb_rd)
@@ -2937,7 +2944,9 @@ def _build_trace_export_core(
     macro_trace_mem_store = macro_store_fire
     macro_trace_mem_load = macro_uop_is_load & macro_reg_is_gpr & macro_reg_not_zero
     macro_trace_mem_valid = macro_trace_fire & (macro_trace_mem_store | macro_trace_mem_load)
+    macro_trace_mem_valid = macro_trace_fret_parent._select_internal(consts.zero1, macro_trace_mem_valid)
     macro_trace_mem_is_store = macro_trace_fire & macro_trace_mem_store
+    macro_trace_mem_is_store = macro_trace_fret_parent._select_internal(consts.zero1, macro_trace_mem_is_store)
     macro_trace_mem_addr = macro_uop_addr
     macro_trace_mem_wdata = macro_trace_mem_store._select_internal(macro_store_data, consts.zero64)
     macro_trace_mem_rdata = macro_trace_mem_load._select_internal(macro_load_data_eff, consts.zero64)
@@ -2945,6 +2954,7 @@ def _build_trace_export_core(
     macro_trace_src0_valid = macro_trace_fire & (
         macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load
     ) & (~macro_trace_fentry_parent)
+    macro_trace_src0_valid = macro_trace_fret_parent._select_internal(consts.zero1, macro_trace_src0_valid)
     macro_trace_src0_reg = c(1, width=6)
     macro_trace_src0_reg = macro_store_fire._select_internal(macro_uop_reg, macro_trace_src0_reg)
     macro_trace_src0_data = macro_sp_val
@@ -2956,11 +2966,15 @@ def _build_trace_export_core(
     macro_trace_dst_reg = macro_trace_wb_rd
     macro_trace_dst_data = macro_trace_wb_data
     macro_trace_done_fexit = macro_uop_is_load & step_done & macro_trace_is_fexit
-    macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
     macro_trace_next_pc = macro_trace_pc
     macro_trace_next_pc = macro_trace_done_fentry._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
     macro_trace_next_pc = macro_trace_done_fexit._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fret._select_internal(commit_tgt_live, macro_trace_next_pc)
+    macro_trace_marker_target = br_base_live + br_off_live
+    macro_trace_marker_target = (br_kind_live.__eq__(c(BK_CALL, width=3)) | br_kind_live.__eq__(c(BK_DIRECT, width=3)))._select_internal(
+        macro_trace_marker_target,
+        commit_tgt_live,
+    )
+    macro_trace_next_pc = macro_trace_done_fret._select_internal(macro_trace_marker_target, macro_trace_next_pc)
     macro_shadow_fire = macro_trace_fire & (
         (macro_is_fret_stk & macro_uop_is_sp_add) |
         (macro_is_fret_ra & macro_uop_is_setc_tgt)
@@ -3037,7 +3051,7 @@ def _build_trace_export_core(
             "trace_fire": macro_trace_fire,
             "pc": macro_trace_pc,
             "rob": rob_head,
-            "op": macro_trace_fentry_parent._select_internal(macro_op, macro_enc["op"]),
+            "op": macro_trace_parent._select_internal(macro_op, macro_enc["op"]),
             "value": head_value,
             "len": state.macro_len.out(),
             "insn_raw": state.macro_insn_raw.out(),

@@ -290,6 +290,11 @@ def build_commit_slot_step(m: Circuit) -> None:
     corr_for_boundary = c(0, width=1)
     fret_target_base = is_fret_stk._select_internal(macro_saved_ra, ret_ra_val)
     fret_target = commit_tgt.__eq__(c(0, width=64))._select_internal(fret_target_base, commit_tgt)
+    # A FRET ending a static CALL/DIRECT block returns to the active marker
+    # target.  CTU's internal RA restore is a fallback only; it must not
+    # replace the block target established by BSTART before parent retirement.
+    fret_marker_target = br_is_call | br_is_direct
+    fret_target = fret_marker_target._select_internal(br_target, fret_target)
     br_target_eff = br_target
     br_target_eff = is_fret._select_internal(fret_target, br_target_eff)
 

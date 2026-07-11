@@ -1073,11 +1073,13 @@ Evidence:
   `0x124ae`, advancing the FIFO comparison from six to nineteen architectural
   rows. The `HL.BSTART.CALL` there is correctly a six-byte instruction followed
   by a real 16-bit instruction at `0x124b4`; do not widen the length path based
-  on the disassembler's combined rendering. The next divergence is the
-  `FRET.STK` parent at `0x124e4`: QEMU reports `next_pc=0x15670`, while the
-  RTL template stream reports its internal step PC and later restores
-  `0x124a6`. This is a template-parent target/retirement contract defect, not
-  an instruction-length, loader, FIFO, or stale-F4 issue.
+  on the disassembler's combined rendering. `FRET.STK` now retires as one
+  architectural parent row, using the active static CALL/DIRECT marker target
+  rather than its internal RA-restore fallback; its `0x124e4` parent matches
+  QEMU's `next_pc=0x15670`. The bounded comparison advances to 20 rows. Its
+  new failure is a pre-fetched `FENTRY` at `0x124e8` entering before the host
+  sees that FRET redirect. This is the post-FRET host/IB redirect boundary,
+  not a FRET semantic, instruction-length, loader, or FIFO defect.
 - The post-recovery implementation survives a direct CoreMark boot through
   the explicit `PYC_MAX_CYCLES=3000000` endurance bound without a trap or the
   20,000-cycle no-retire detector firing. It reached the configured cycle
