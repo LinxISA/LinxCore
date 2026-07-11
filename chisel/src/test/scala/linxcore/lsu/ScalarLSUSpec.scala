@@ -21,6 +21,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(core.robEntries == 32)
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.commitQueueEntries == 4)
+    assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
   }
 
   test("Chisel ScalarLSU owns the parameterized STQ-to-SCB store path") {
@@ -55,6 +56,10 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_liqRows_3_valid"))
     assert(sv.contains("io_load_resolveEntries_7_valid"))
     assert(sv.contains("io_load_mdbConflictFlush_req_valid"))
+    assert(sv.contains("module RecoveryEligibilityControl"))
+    assert(sv.contains("module RecoveryCleanupControl"))
+    assert(sv.contains("io_recovery_sourceEligible"))
+    assert(sv.contains("io_recovery_intent_flush_req_valid"))
     assert(sv.contains("io_load_mdbSsitValidMask"))
   }
 }

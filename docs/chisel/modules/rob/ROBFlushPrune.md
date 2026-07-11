@@ -21,7 +21,8 @@
 `ROBFlushPrune` is the first integrated ROB flush-selection helper. It captures
 the testable pruning part of `SPEROB::flush`: scan the ROB in deallocation
 order, find the first row covered by a BID- or BID/RID-based flush request, and
-mark that row plus all younger valid rows for removal.
+mark that row plus all younger valid rows in the same Linx recovery scope for
+removal.
 
 The helper intentionally remains combinational and does not own state mutation.
 `ROBEntryBank` now consumes its masks to clear rows, update resident and
@@ -54,6 +55,9 @@ ROB/CMT work.
 |---|---|---|
 | `valid` | `Bool` | Slot contains a live row |
 | `status` | `ROBEntryStatus` | Row lifecycle state |
+| `peId` | `UInt` | Scalar PE owner used when `baseOnPE` is enabled |
+| `stid` | `UInt` | Required Linx thread-context scope |
+| `tid` | `UInt` | Thread owner used when `baseOnThread` is enabled |
 | `bid` | `ROBID` | Block identity used for BID-based flushes |
 | `rid` | `ROBID` | Row identity used with BID for non-BID-based flushes |
 
@@ -69,14 +73,17 @@ The scan order is physical ROB order starting at `deallocHead`, wrapping once
 through all entries. For each row:
 
 - If `flush.req.valid` is false, no row matches.
+- A row is in scope only when its STID matches `flush.req.stid`. If
+  `baseOnPE` or `baseOnThread` is set, PE or TID must also match.
 - If `flush.baseOnBid` is true, the direct-match predicate is
   `flush.bid <= row.bid` using `ROBID.lessEqual`.
 - Otherwise, the direct-match predicate is
   `(flush.bid, flush.rid) <= (row.bid, row.rid)` using
   `FlushControl.lessEqualBidRid`.
 - The first direct match starts the prune region.
-- Once the prune region starts, every later valid row in scan order is included
-  in `pruneMask`, even if its own direct-match predicate is false.
+- Once the prune region starts, every later valid in-scope row in scan order is
+  included in `pruneMask`, even if its own BID/RID direct-match predicate is
+  false. Out-of-scope rows survive and do not end the region.
 - Invalid rows do not set mask bits or affect counts, but they also do not end
   the prune region.
 
@@ -124,7 +131,8 @@ registered ROB/CMT owner after masks have been applied.
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/build_chisel.sh`
 
-Focused tests cover base-on-BID pruning, BID/RID pruning, wraparound
+Focused tests cover base-on-BID pruning, BID/RID pruning, mixed STID/PE/TID
+scope preservation, wraparound
 deallocation-order scans, invalid rows after pruning starts, resident versus
 outstanding decrement accounting, invalid flush requests, and Chisel
 elaboration of the mask/count interface.

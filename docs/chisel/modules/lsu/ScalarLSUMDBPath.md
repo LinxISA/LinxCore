@@ -36,11 +36,17 @@ only through Linx PE/STID/TID and BID/GID/RID/LSID identity.
 2. An accepted address-bearing scalar store scans active LIQ and ResolveQ rows.
    Scalar store insertion waits when the MDB record or wait-plan queue cannot
    retain the event.
+   Probe intent and accepted-store commit are separate: intent drives
+   conflict-dependent readiness, while commit authorizes all predictor,
+   wait-plan, and recovery side effects. This avoids ready/valid feedback and
+   lets non-conflicting stores pass a full recovery queue.
 3. Every unresolved active conflict bit is captured as a retained wait plan.
    One LIQ row is mutated per cycle in lowest-slot order until the entire mask
    is consumed; a multi-row conflict cannot collapse into one pulse.
 4. The oldest resolved conflict is converted to confidence-1 SSIT record
-   traffic and BMDB report intent.
+   traffic, BMDB report intent, and one typed recovery report. Record, retained
+   wait-plan, and recovery enqueue occur only for the same accepted store
+   transaction.
 5. Lookup is processed before delete and record, matching `MDB::Work`. The LU
    and SU result queues advance atomically. A lookup hit remains resident until
    its LIQ wait mutation is accepted.
@@ -80,8 +86,12 @@ diverge under backpressure.
 - Cross-BID resolved conflict emits `FlushType.NukeFlush`.
 - The request carries the conflicting load's PE, STID, TID, BID, GID, RID,
   LSID, scalar execution-engine class, and fetch-PC-valid bit.
-- The outer recovery arbiter remains responsible for accepting the request and
-  enforcing precise ROB-head nuke policy.
+- `mdbRecoveryQueueEntries` independently sizes the report queue. Its head
+  remains stable until `recoveryReady`; queue exhaustion backpressures the
+  store probe and therefore the owning STQ insertion.
+- Reports set `immediateFlush=false`. `ScalarLSU` connects the retained head to
+  `RecoveryEligibilityControl`; the head advances only when wrap-qualified
+  oldest BID/RID state permits and `RecoveryCleanupControl` can accept it.
 - Hard or typed precise recovery clears MDB command/output queues, retained
   wait plans, and registered store wakeups.
 - SSIT predictor state survives ordinary recovery. Reset and explicit
@@ -91,16 +101,18 @@ diverge under backpressure.
 
 `ScalarLsuParams` independently sizes `mdbSsitEntries`,
 `mdbCommandQueueEntries`, `mdbOutputQueueEntries`, and
-`mdbWaitPlanQueueEntries`. `mdbFailedWaitTimeoutCycles` sets the per-row
+`mdbWaitPlanQueueEntries`, and `mdbRecoveryQueueEntries`.
+`mdbFailedWaitTimeoutCycles` sets the per-row
 failed-prediction interval. Confidence/weight policy remains parameterized by
 `mdbReleaseWeight`, `mdbMaxWeight`, `mdbIncStep`, and `mdbConfWidth`. None of
 these capacities defines ROB identity width.
 
 ## Current Boundary
 
-IEX-local MDB training, outer recovery arbitration/ROB-head nuke consumption,
-cache and miss queues, and final LRET publication remain future integration
-work. Reduced CoreMark regression is a no-regression gate until a natural
+IEX-local MDB training, final multi-source top arbitration, full-BID BROB
+recovery, cache and miss queues, and final LRET publication remain future
+integration work. Ring-qualified recovery retention and real ROB pruning are
+now proven. Reduced CoreMark regression is a no-regression gate until a natural
 workload produces positive canonical MDB counters.
 
 ## Verification
@@ -114,6 +126,7 @@ workload produces positive canonical MDB counters.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightRowMutation`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_scalar_lsu_mdb_path_probe.sh`
+- `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
 
 The generated-RTL probe positively exercises same-BID `InnerFlush`, cross-BID
 `NukeFlush`, conflict-record acceptance and BMDB processing, SSIT allocation
@@ -126,3 +139,9 @@ uses a real `LoadInflightQueue` row and native mutation port to prove four-cycle
 threshold timing, retained expiry during a writer conflict, same-cycle delete
 acceptance, and wait-store clear in the next registered row image. A parallel
 one-cycle timer proves the minimum legal threshold and flush suppression.
+R637 holds an accepted conflict report while the outer owner is blocked, then
+accepts it without changing its typed identity. The recovery/ROB probe passes a
+ring-qualified nuke through oldest-BID eligibility and
+`RecoveryCleanupControl`, holds the cleanup intent, proves full-over-ring
+priority plus consume-and-replace, and prunes real resident `ROBEntryBank` rows
+only on intent acceptance.

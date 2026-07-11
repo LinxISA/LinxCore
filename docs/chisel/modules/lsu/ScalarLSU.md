@@ -20,8 +20,11 @@ execution. R633 moved the proven STQ-to-SCB store composition beneath this
 owner. R634 adds canonical LIQ-to-ResolveQ ownership with shared typed recovery.
 R635 integrates scalar MDB conflict detection, SSIT/fanout, live wait mutation,
 and typed conflict-flush publication. R636 adds per-row failed-wait age plus
-atomic LIQ release and MDB delete feedback. Cache and miss queues, final
-recovery arbitration, and final load-return publication remain outside this
+atomic LIQ release and MDB delete feedback. R637 adds a parameterized retained
+recovery-report boundary, wrap-qualified oldest BID/RID eligibility, and a
+ring-qualified handoff to the canonical cleanup owner. Cache and miss queues,
+final multi-source top arbitration, full-BID BROB
+recovery, and final load-return publication remain outside this
 hierarchy, so this is not yet a complete LSU.
 
 ## Parameter Contract
@@ -33,7 +36,7 @@ LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 - `commitQueueEntries` and `commitIssueWidth`
 - `scbEntries` and `scbResponseBufferDepth`
 - `liqEntries` and `resolveQueueEntries`
-- MDB SSIT, command, output, and retained wait-plan queue entries
+- MDB SSIT, command, output, retained wait-plan, and recovery-report queue entries
 - `mdbFailedWaitTimeoutCycles`
 - MDB confidence/weight policy
 - `loadSizeWidth`, architectural/physical register-tag widths, and PC width
@@ -65,7 +68,14 @@ It also owns `ScalarLSUMDBPath`; accepted address-bearing stores are capacity
 gated before conflict publication, and accepted scalar loads enter MDB lookup
 before launch. Stable failed predictions age per LIQ row and release only with
 accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
-and retained wait/wakeup state to be empty.
+and retained wait/wakeup/recovery state to be empty.
+
+`ScalarLSU` directly connects the retained MDB report to
+`RecoveryEligibilityControl` and `RecoveryCleanupControl`. The caller supplies
+the oldest valid BID/RID watermark and cleanup-intent readiness. Non-immediate
+MDB reports remain in the source queue until age eligibility passes. A selected
+full-BID request has fixed priority; ring-only input cannot assert BCTRL/BROB
+block cleanup.
 
 ## Verification
 
@@ -87,3 +97,13 @@ of the model's ineffective shared `oldestPending` counter enable. The full
 suite passes 247 suites and 1,466 tests; canonical top xcheck passes 3 rows
 with zero mismatches; and reduced CoreMark passes 665 rows with zero mismatches
 at `generated/r636-final-failed-wait-coremark/report/crosscheck_manifest.json`.
+
+R637 proves report retention in the canonical MDB generated-RTL lane and a
+separate `RecoveryCleanupControl` to real `ROBEntryBank` path. Ring-only input
+never asserts full-BID BCTRL/BROB cleanup authority. The generated path also
+proves non-oldest retention, full-over-ring priority, and consume-plus-replace.
+The real ROB prune also preserves a younger different-STID row. The full suite
+passes 249 suites and 1,474 tests; canonical top xcheck passes 3
+rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
+mismatches at
+`generated/r637-final-mdb-recovery-coremark/report/crosscheck_manifest.json`.

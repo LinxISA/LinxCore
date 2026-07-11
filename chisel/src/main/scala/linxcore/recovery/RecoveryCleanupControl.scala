@@ -48,10 +48,14 @@ class RecoveryCleanupControlIO(
     extends Bundle {
   val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val reqReady = Output(Bool())
+  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val ringReqReady = Output(Bool())
   val intentReady = Input(Bool())
   val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val pending = Output(Bool())
   val accepted = Output(Bool())
+  val fullAccepted = Output(Bool())
+  val ringAccepted = Output(Bool())
   val consumed = Output(Bool())
 }
 
@@ -65,15 +69,26 @@ class RecoveryCleanupControl(
   val io = IO(new RecoveryCleanupControlIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
 
   val pendingReq = RegInit(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val pendingRingReq = RegInit(0.U.asTypeOf(new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
+  val pendingIsRing = RegInit(false.B)
   val pendingValid = RegInit(false.B)
 
-  io.reqReady := !pendingValid || io.intentReady
-  io.accepted := io.req.valid && io.reqReady
+  val sourceReady = !pendingValid || io.intentReady
+  io.reqReady := sourceReady
+  io.ringReqReady := sourceReady && !io.req.valid
+  io.fullAccepted := io.req.valid && sourceReady
+  io.ringAccepted := io.ringReq.req.valid && io.ringReqReady
+  io.accepted := io.fullAccepted || io.ringAccepted
   io.consumed := pendingValid && io.intentReady
   io.pending := pendingValid
 
-  when(io.accepted) {
+  when(io.fullAccepted) {
     pendingReq := io.req
+    pendingIsRing := false.B
+    pendingValid := true.B
+  }.elsewhen(io.ringAccepted) {
+    pendingRingReq := io.ringReq
+    pendingIsRing := true.B
     pendingValid := true.B
   }.elsewhen(io.intentReady) {
     pendingValid := false.B
@@ -81,27 +96,33 @@ class RecoveryCleanupControl(
 
   val bridgeReq = Wire(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   bridgeReq := pendingReq
-  bridgeReq.valid := pendingValid
+  bridgeReq.valid := pendingValid && !pendingIsRing
 
   val bridge = Module(new FullBidRecoveryBridge(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   bridge.io.req := bridgeReq
 
-  val requestIsFlush = FlushControl.isFlushType(bridge.io.robFlush.req.typ)
-  val peScoped = bridge.io.robFlush.baseOnPE || bridge.io.robFlush.baseOnThread
+  val activeFlush = Wire(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  activeFlush := bridge.io.robFlush
+  when(pendingIsRing) {
+    activeFlush := pendingRingReq
+  }
+
+  val requestIsFlush = FlushControl.isFlushType(activeFlush.req.typ)
+  val peScoped = activeFlush.baseOnPE || activeFlush.baseOnThread
   val globalFlush = pendingValid && requestIsFlush && !peScoped
   val globalReplay = pendingValid && !requestIsFlush && !peScoped
   val peScopedReplay = pendingValid && peScoped
-  val peSingleFanout = pendingValid && (bridge.io.robFlush.simtReplay || bridge.io.robFlush.mtcReplay || bridge.io.robFlush.baseOnPE)
+  val peSingleFanout = pendingValid && (activeFlush.simtReplay || activeFlush.mtcReplay || activeFlush.baseOnPE)
   val simtRecovered =
-    peScopedReplay && (bridge.io.robFlush.simtReplay || bridge.io.robFlush.mtcReplay) &&
-      (bridge.io.robFlush.req.typ =/= FlushType.SimtInnerFlush)
+    peScopedReplay && (activeFlush.simtReplay || activeFlush.mtcReplay) &&
+      (activeFlush.req.typ =/= FlushType.SimtInnerFlush)
 
   io.intent.valid := pendingValid
-  io.intent.flush := bridge.io.robFlush
-  io.intent.blockFlushValid := globalFlush
+  io.intent.flush := activeFlush
+  io.intent.blockFlushValid := globalFlush && !pendingIsRing
   io.intent.blockFlushBid := bridge.io.blockFlushBid
   io.intent.robPruneValid := pendingValid
-  io.intent.bctrlFlushValid := globalFlush
+  io.intent.bctrlFlushValid := globalFlush && !pendingIsRing
   io.intent.bctrlReplayValid := globalReplay || peScopedReplay
   io.intent.bctrlSimtRecoveredValid := simtRecovered
   io.intent.renameFlushValid := globalFlush
@@ -111,11 +132,11 @@ class RecoveryCleanupControl(
   io.intent.frontendRestartValid := globalFlush
   io.intent.peFanoutAll := pendingValid && !peSingleFanout
   io.intent.peFanoutSingle := peSingleFanout
-  io.intent.peFanoutId := bridge.io.robFlush.req.peId
-  io.intent.vectorReplayValid := pendingValid && bridge.io.robFlush.simtReplay
-  io.intent.vectorFlushValid := pendingValid && !bridge.io.robFlush.simtReplay
-  io.intent.mtcReplayValid := pendingValid && bridge.io.robFlush.mtcReplay
-  io.intent.mtcFlushValid := pendingValid && !bridge.io.robFlush.simtReplay && !bridge.io.robFlush.mtcReplay
+  io.intent.peFanoutId := activeFlush.req.peId
+  io.intent.vectorReplayValid := pendingValid && activeFlush.simtReplay
+  io.intent.vectorFlushValid := pendingValid && !activeFlush.simtReplay
+  io.intent.mtcReplayValid := pendingValid && activeFlush.mtcReplay
+  io.intent.mtcFlushValid := pendingValid && !activeFlush.simtReplay && !activeFlush.mtcReplay
   io.intent.lsuFlushValid := pendingValid
   io.intent.stqFlushValid := pendingValid
   io.intent.tileFlushValid := pendingValid

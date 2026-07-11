@@ -53,6 +53,7 @@ int main(int argc, char **argv) {
     dut.io_storeSize = 8;
     dut.io_lookupValid = 0;
     dut.io_mutationAccepted = 0;
+    dut.io_recoveryReady = 0;
     dut.io_integratedAllocValid = 0;
     dut.io_integratedTrainValid = 0;
     dut.io_integratedSeedWaitValid = 0;
@@ -69,7 +70,22 @@ int main(int argc, char **argv) {
     tick(dut);
     dut.io_storeProbeValid = 0;
 
-    require(wait_for(dut, dut.io_bmdbReportValid, 8), "first conflict record was not processed");
+    dut.eval();
+    require(dut.io_recoveryValid && dut.io_recoveryPending,
+            "accepted conflict did not become a retained recovery report");
+    require(dut.io_recoveryInnerFlush && !dut.io_recoveryNukeFlush,
+            "retained same-BID recovery report lost InnerFlush type");
+    require(!dut.io_recoveryAccepted,
+            "recovery report advanced while the outer owner was blocked");
+    tick(dut);
+    require(dut.io_recoveryValid && dut.io_recoveryInnerFlush,
+            "recovery report was not held under outer backpressure");
+    dut.io_recoveryReady = 1;
+    dut.eval();
+    require(dut.io_recoveryAccepted,
+            "retained recovery report did not advance when the outer owner became ready");
+    tick(dut);
+
     require(dut.io_ssitValidMask != 0, "first conflict did not allocate SSIT state");
 
     require(dut.io_storeProbeReady, "store probe did not recover after first record");

@@ -200,6 +200,14 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val empty = Output(Bool())
 }
 
+class ScalarLSULoadPathRecoveryIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
+  val ready = Input(Bool())
+  val valid = Output(Bool())
+  val flush = Output(new FlushBus(coreParams.robEntries, p.peIdWidth, p.stidWidth, p.tidWidth))
+  val accepted = Output(Bool())
+  val pending = Output(Bool())
+}
+
 class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
   val probe = Input(new MDBConflictStoreProbe(
     coreParams.robEntries,
@@ -210,6 +218,7 @@ class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParam
     p.tidWidth,
     p.loadSizeWidth
   ))
+  val probeCommit = Input(Bool())
   val probeReady = Output(Bool())
   val rows = Input(Vec(
     p.stqEntries,
@@ -234,6 +243,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
 
   val io = IO(new ScalarLSULoadPathIO(coreParams, p))
   val mdbStore = IO(new ScalarLSULoadPathStoreIO(coreParams, p))
+  val recovery = IO(new ScalarLSULoadPathRecoveryIO(coreParams, p))
 
   val liq = Module(new LoadInflightQueue(
     liqEntries = p.liqEntries,
@@ -331,6 +341,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
 
   mdbPath.io.flush := flushCycle
   mdbPath.io.storeProbe := mdbStore.probe
+  mdbPath.io.storeProbeCommit := mdbStore.probeCommit
   mdbPath.io.storeRows := mdbStore.rows
   mdbStore.probeReady := mdbPath.io.storeProbeReady
   mdbPath.io.loadLookupValid := liq.io.allocAccepted && !io.alloc.isTile
@@ -338,6 +349,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   mdbPath.io.loadRows := liq.io.rows
   mdbPath.io.resolvedRows := resolveQueue.io.conflictRows
   mdbPath.io.mutationAccepted := liq.io.rowMutationApplyValid
+  mdbPath.io.recoveryReady := recovery.ready
 
   val hitRow = liq.io.rows(liq.io.e4UpdateIndex)
   resolveQueue.io.flush := io.flush
@@ -416,6 +428,10 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.mdbConflictResolveMask := mdbPath.io.conflictResolveMask
   io.mdbConflictWaitStoreMask := mdbPath.io.conflictWaitStoreMask
   io.mdbConflictFlush := mdbPath.io.conflictFlush
+  recovery.valid := mdbPath.io.recoveryValid
+  recovery.flush := mdbPath.io.recoveryFlush
+  recovery.accepted := mdbPath.io.recoveryAccepted
+  recovery.pending := mdbPath.io.recoveryPending
   io.mdbRecordAccepted := mdbPath.io.recordAccepted
   io.mdbRecordProcessed := mdbPath.io.recordProcessed
   io.mdbBmdbReportValid := mdbPath.io.bmdbReportValid

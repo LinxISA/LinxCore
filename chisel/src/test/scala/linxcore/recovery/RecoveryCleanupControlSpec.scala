@@ -171,6 +171,8 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
     assert(sv.contains("module RecoveryCleanupControl"))
     assert(sv.contains("FullBidRecoveryBridge"))
     assert(sv.contains("io_reqReady"))
+    assert(sv.contains("io_ringReqReady"))
+    assert(sv.contains("io_ringAccepted"))
     assert(sv.contains("io_intent_bctrlFlushValid"))
     assert(sv.contains("io_intent_robPruneValid"))
     assert(sv.contains("io_intent_frontendRestartValid"))

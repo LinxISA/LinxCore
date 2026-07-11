@@ -24,6 +24,7 @@ class ScalarLSUMDBPathProbeIO extends Bundle {
   val storeSize = Input(UInt(7.W))
   val lookupValid = Input(Bool())
   val mutationAccepted = Input(Bool())
+  val recoveryReady = Input(Bool())
   val integratedAllocValid = Input(Bool())
   val integratedTrainValid = Input(Bool())
   val integratedSeedWaitValid = Input(Bool())
@@ -33,6 +34,11 @@ class ScalarLSUMDBPathProbeIO extends Bundle {
   val conflictValid = Output(Bool())
   val innerFlush = Output(Bool())
   val nukeFlush = Output(Bool())
+  val recoveryValid = Output(Bool())
+  val recoveryInnerFlush = Output(Bool())
+  val recoveryNukeFlush = Output(Bool())
+  val recoveryAccepted = Output(Bool())
+  val recoveryPending = Output(Bool())
   val waitStoreMask = Output(UInt(4.W))
   val recordAccepted = Output(Bool())
   val recordProcessed = Output(Bool())
@@ -135,6 +141,7 @@ class ScalarLSUMDBPathProbe extends Module {
   storeProbe.addr := io.storeAddr
   storeProbe.size := io.storeSize
   mdb.io.storeProbe := storeProbe
+  mdb.io.storeProbeCommit := io.storeProbeValid && mdb.io.storeProbeReady
 
   val storeRows = Wire(chiselTypeOf(mdb.io.storeRows))
   storeRows := 0.U.asTypeOf(storeRows)
@@ -165,6 +172,7 @@ class ScalarLSUMDBPathProbe extends Module {
   mdb.io.loadLookup := lookup
   mdb.io.flush := io.flush
   mdb.io.mutationAccepted := io.mutationAccepted
+  mdb.io.recoveryReady := io.recoveryReady
 
   val oneCycleTimeout = Module(new LoadWaitStoreTimeout(
     liqEntries = lsuParams.liqEntries,
@@ -267,6 +275,8 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedStoreProbe.addrOnly := false.B
   integratedMdb.io.flush := io.flush
   integratedMdb.io.storeProbe := integratedStoreProbe
+  integratedMdb.io.storeProbeCommit :=
+    io.integratedTrainValid && integratedMdb.io.storeProbeReady
   integratedMdb.io.storeRows := storeRows
   integratedMdb.io.loadLookupValid := false.B
   integratedMdb.io.loadLookup := lookup
@@ -287,6 +297,7 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedMdb.io.resolvedRows := integratedResolvedRows
   integratedMdb.io.mutationAccepted :=
     !integratedSeedSelected && integratedLiq.io.rowMutationApplyValid
+  integratedMdb.io.recoveryReady := true.B
 
   io.storeProbeReady := mdb.io.storeProbeReady
   io.lookupReady := mdb.io.loadLookupReady
@@ -295,6 +306,13 @@ class ScalarLSUMDBPathProbe extends Module {
     (mdb.io.conflictFlush.req.typ === FlushType.InnerFlush)
   io.nukeFlush := mdb.io.conflictFlush.req.valid &&
     (mdb.io.conflictFlush.req.typ === FlushType.NukeFlush)
+  io.recoveryValid := mdb.io.recoveryValid
+  io.recoveryInnerFlush := mdb.io.recoveryValid &&
+    (mdb.io.recoveryFlush.req.typ === FlushType.InnerFlush)
+  io.recoveryNukeFlush := mdb.io.recoveryValid &&
+    (mdb.io.recoveryFlush.req.typ === FlushType.NukeFlush)
+  io.recoveryAccepted := mdb.io.recoveryAccepted
+  io.recoveryPending := mdb.io.recoveryPending
   io.waitStoreMask := mdb.io.conflictWaitStoreMask
   io.recordAccepted := mdb.io.recordAccepted
   io.recordProcessed := mdb.io.recordProcessed

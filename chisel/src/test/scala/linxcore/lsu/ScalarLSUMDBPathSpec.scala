@@ -23,6 +23,20 @@ object ScalarLSUMDBPathReference {
     if (!state.valid) state
     else if (!state.mutationPending || mutationAccepted) LookupState(valid = false, mutationPending = false)
     else state
+
+  final case class RecoveryState(pending: Boolean, payload: Option[Recovery])
+
+  def recoveryStep(
+      state: RecoveryState,
+      conflict: Option[Recovery],
+      outerReady: Boolean): RecoveryState = {
+    val consumed = state.pending && outerReady
+    conflict match {
+      case Some(payload) if !state.pending || consumed => RecoveryState(pending = true, Some(payload))
+      case _ if consumed => RecoveryState(pending = false, None)
+      case _ => state
+    }
+  }
 }
 
 class ScalarLSUMDBPathSpec extends AnyFunSuite {
@@ -64,6 +78,16 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(!accepted.mutationPending)
   }
 
+  test("retains typed recovery until the outer owner accepts it") {
+    val accepted = recoveryStep(RecoveryState(false, None), Some(Nuke), outerReady = false)
+    val held = recoveryStep(accepted, None, outerReady = false)
+    val consumed = recoveryStep(held, None, outerReady = true)
+
+    assert(accepted == RecoveryState(pending = true, Some(Nuke)))
+    assert(held == accepted)
+    assert(consumed == RecoveryState(pending = false, None))
+  }
+
   test("ScalarLSUMDBPath elaborates conflict, SSIT, failed-wait delete, wait-plan, and typed flush ownership") {
     val sv = ChiselStage.emitSystemVerilog(new ScalarLSUMDBPath(core))
 
@@ -75,6 +99,9 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadWaitStoreTimeout"))
     assert(sv.contains("io_mutationAccepted"))
     assert(sv.contains("io_conflictFlush_req_typ"))
+    assert(sv.contains("io_recoveryReady"))
+    assert(sv.contains("io_recoveryFlush_req_typ"))
+    assert(sv.contains("io_recoveryPending"))
     assert(sv.contains("io_waitPlanTargetMask"))
     assert(sv.contains("io_transientEmpty"))
     assert(sv.contains("io_protocolError"))
@@ -86,6 +113,8 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSUMDBPathProbe"))
     assert(sv.contains("io_innerFlush"))
     assert(sv.contains("io_nukeFlush"))
+    assert(sv.contains("io_recoveryValid"))
+    assert(sv.contains("io_recoveryAccepted"))
     assert(sv.contains("io_lookupWaitMutation"))
     assert(sv.contains("io_failedWaitReleaseAccepted"))
     assert(sv.contains("io_deleteProcessed"))

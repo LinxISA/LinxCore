@@ -21,6 +21,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.liqEntries == 4)
     assert(core.scalarLsu.resolveQueueEntries == 8)
+    assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
   }
 
   test("ScalarLSULoadPath elaborates LIQ-to-ResolveQ lifecycle ownership") {
@@ -49,6 +50,8 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("io_liqRows_0_stid"))
     assert(sv.contains("io_resolveConflictRows_0_stid"))
     assert(sv.contains("io_mdbConflictFlush_req_valid"))
+    assert(sv.contains("recovery_ready"))
+    assert(sv.contains("recovery_flush_req_valid"))
     assert(sv.contains("io_mdbLookupWaitMutation"))
     assert(sv.contains("io_mdbTransientEmpty"))
   }

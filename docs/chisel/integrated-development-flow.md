@@ -15,7 +15,27 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R636 adds live failed-wait feedback beneath canonical
+Latest packet: R637 adds retained scalar MDB recovery publication. Conflict
+training, wait-plan capture, and one typed report are accepted as a single
+store transaction; `mdbRecoveryQueueEntries` independently sizes the report
+queue. Reports set `immediateFlush=false` and remain stable until the outer
+owner accepts them. `ScalarLSU` now connects the source through
+`RecoveryEligibilityControl` and `RecoveryCleanupControl`: non-immediate
+reports wait for the caller's oldest BID/RID watermark, and full-BID input has
+fixed priority. The generated-RTL recovery probe holds a non-oldest nuke,
+holds an eligible cleanup intent under backpressure, proves consume-plus-
+replace, then prunes real resident ROB rows while keeping ring-only BCTRL/BROB
+block-flush validity low. All-source top arbitration and allocator-owned
+full-BID recovery remain the next recovery boundaries.
+
+R637 verification passes 249 suites and 1,474 tests. The canonical top
+cross-check compares 3 rows with zero mismatches. Reduced CoreMark compares
+426 rows with zero mismatches and zero CBSTOP in
+`generated/r637-final-mdb-recovery-coremark/report/crosscheck_manifest.json`;
+that workload is no-regression evidence, not natural canonical MDB recovery
+activation.
+
+R636 adds live failed-wait feedback beneath canonical
 `ScalarLSUMDBPath`. `LoadWaitStoreTimeout` tracks each stable scalar LIQ wait
 by load generation and predicted store BID/LSID/PC, expires after the
 parameterized `mdbFailedWaitTimeoutCycles` resident cycles, and retains
@@ -26,7 +46,7 @@ drives three timeout releases through SSIT decay and final row removal, then
 uses a real `LoadInflightQueue` row to prove exact threshold, writer-conflict
 retention, same-cycle delete acceptance, and registered wait-store clear. The C++
 model's useful failed-prediction feedback is preserved, while its dead shared
-`oldestPending` decrement heuristic is not copied. Outer recovery arbitration,
+`oldestPending` decrement heuristic is not copied. Final oldest-head arbitration,
 cache/miss queues, and final load return remain the next boundaries. The full
 suite passes 247 suites and 1,466 tests; canonical top xcheck passes 3 rows
 with zero mismatches; and the reduced CoreMark no-regression manifest at

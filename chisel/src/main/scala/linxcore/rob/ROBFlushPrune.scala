@@ -4,9 +4,17 @@ import chisel3._
 import chisel3.util.{log2Ceil, Mux1H, PopCount}
 import linxcore.recovery.{FlushBus, FlushControl}
 
-class ROBFlushPruneEntry(val entries: Int) extends Bundle {
+class ROBFlushPruneEntry(
+    val entries: Int,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
+    extends Bundle {
   val valid = Bool()
   val status = ROBEntryStatus()
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
+  val tid = UInt(tidWidth.W)
   val bid = new ROBID(entries)
   val rid = new ROBID(entries)
 }
@@ -19,7 +27,7 @@ class ROBFlushPruneIO(val entries: Int, val peIdWidth: Int = 8, val stidWidth: I
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
   val deallocHead = Input(UInt(ptrWidth.W))
   val commitHead = Input(UInt(ptrWidth.W))
-  val rows = Input(Vec(entries, new ROBFlushPruneEntry(entries)))
+  val rows = Input(Vec(entries, new ROBFlushPruneEntry(entries, peIdWidth, stidWidth, tidWidth)))
 
   val directMatchMask = Output(UInt(entries.W))
   val pruneMask = Output(UInt(entries.W))
@@ -53,8 +61,13 @@ class ROBFlushPrune(
     Mux(sum >= entries.U, sum - entries.U, sum)(ptrWidth - 1, 0)
   }
 
+  private def rowInScope(row: ROBFlushPruneEntry): Bool =
+    (row.stid === io.flush.req.stid) &&
+      (!io.flush.baseOnPE || (row.peId === io.flush.req.peId)) &&
+      (!io.flush.baseOnThread || (row.tid === io.flush.req.tid))
+
   private def rowMatchesFlush(row: ROBFlushPruneEntry): Bool =
-    io.flush.req.valid && row.valid &&
+    io.flush.req.valid && row.valid && rowInScope(row) &&
       Mux(
         io.flush.baseOnBid,
         ROBID.lessEqual(io.flush.req.bid, row.bid),
@@ -78,7 +91,7 @@ class ROBFlushPrune(
       }).asUInt.orR
 
     directByScan(offset) := rowMatchesFlush(row)
-    pruneByScan(offset) := row.valid && (priorDirect || directByScan(offset))
+    pruneByScan(offset) := row.valid && rowInScope(row) && (priorDirect || directByScan(offset))
     beforeCommitByScan(offset) := !seenCommit
     outstandingByScan(offset) := pruneByScan(offset) && ROBEntryStatus.osdActive(row.status)
     firstByScan(offset) := directByScan(offset) && !priorDirect

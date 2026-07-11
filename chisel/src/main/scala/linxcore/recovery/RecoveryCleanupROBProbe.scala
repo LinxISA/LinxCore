@@ -1,0 +1,165 @@
+package linxcore.recovery
+
+import chisel3._
+import linxcore.commit.CommitTraceParams
+import linxcore.common.{BoundaryKind, DestinationKind}
+import linxcore.rob.{ROBEntryBank, ROBID}
+
+class RecoveryCleanupROBProbeIO extends Bundle {
+  val allocValid = Input(Bool())
+  val allocBid = Input(UInt(3.W))
+  val allocStid = Input(UInt(8.W))
+  val allocReady = Output(Bool())
+  val fullValid = Input(Bool())
+  val fullBlockBid = Input(UInt(16.W))
+  val ringValid = Input(Bool())
+  val ringBid = Input(UInt(3.W))
+  val ringRid = Input(UInt(3.W))
+  val ringNuke = Input(Bool())
+  val oldestValid = Input(Bool())
+  val oldestBid = Input(UInt(3.W))
+  val oldestRid = Input(UInt(3.W))
+  val intentReady = Input(Bool())
+
+  val ringReady = Output(Bool())
+  val ringAccepted = Output(Bool())
+  val fullReady = Output(Bool())
+  val fullAccepted = Output(Bool())
+  val ringBlockedByAge = Output(Bool())
+  val cleanupPending = Output(Bool())
+  val cleanupIntentValid = Output(Bool())
+  val cleanupBlockFlushValid = Output(Bool())
+  val robFlushApplied = Output(Bool())
+  val robFlushPruneMask = Output(UInt(8.W))
+  val robSize = Output(UInt(4.W))
+}
+
+class RecoveryCleanupROBProbe extends Module {
+  private val entries = 8
+  private val mapQDepth = 8
+  private val traceParams = CommitTraceParams(commitWidth = 1)
+
+  val io = IO(new RecoveryCleanupROBProbeIO)
+  val cleanup = Module(new RecoveryCleanupControl(entries = entries, bidWidth = 16))
+  val eligibility = Module(new RecoveryEligibilityControl(entries = entries))
+  val rob = Module(new ROBEntryBank(
+    entries = entries,
+    traceParams = traceParams,
+    mapQDepth = mapQDepth
+  ))
+
+  private def id(value: UInt): ROBID = {
+    val out = Wire(new ROBID(entries))
+    out.valid := true.B
+    out.wrap := false.B
+    out.value := value
+    out
+  }
+
+  val fullReq = Wire(chiselTypeOf(cleanup.io.req))
+  fullReq := 0.U.asTypeOf(fullReq)
+  fullReq.valid := io.fullValid
+  fullReq.typ := FlushType.NukeFlush
+  fullReq.blockBid := io.fullBlockBid
+  fullReq.gid := id(0.U)
+  fullReq.rid := id(0.U)
+  fullReq.lsId := id(0.U)
+  fullReq.execEngine := ExecEngineType.Scalar
+  fullReq.fetchTpcValid := true.B
+  cleanup.io.req := fullReq
+  val ringReq = Wire(new FlushReq(entries))
+  ringReq := 0.U.asTypeOf(ringReq)
+  ringReq.valid := io.ringValid
+  ringReq.typ := Mux(io.ringNuke, FlushType.NukeFlush, FlushType.InnerFlush)
+  ringReq.bid := id(io.ringBid)
+  ringReq.rid := id(io.ringRid)
+  ringReq.gid := id(0.U)
+  ringReq.lsId := id(io.ringRid)
+  ringReq.execEngine := ExecEngineType.Scalar
+  ringReq.fetchTpcValid := true.B
+  ringReq.immediateFlush := false.B
+  val annotatedRingReq = FlushControl.annotate(ringReq)
+  eligibility.io.request := annotatedRingReq
+  eligibility.io.oldestValid := io.oldestValid
+  eligibility.io.oldestBid := id(io.oldestBid)
+  eligibility.io.oldestRid := id(io.oldestRid)
+  val eligibleRingReq = Wire(chiselTypeOf(annotatedRingReq))
+  eligibleRingReq := annotatedRingReq
+  eligibleRingReq.req.valid := annotatedRingReq.req.valid && eligibility.io.eligible
+  cleanup.io.ringReq := eligibleRingReq
+  cleanup.io.intentReady := io.intentReady
+
+  val appliedFlush = Wire(chiselTypeOf(cleanup.io.intent.flush))
+  appliedFlush := cleanup.io.intent.flush
+  appliedFlush.req.valid :=
+    cleanup.io.intent.valid && cleanup.io.intent.robPruneValid && io.intentReady
+  rob.io.flush := appliedFlush
+
+  val allocRow = Wire(chiselTypeOf(rob.io.allocRow))
+  allocRow := 0.U.asTypeOf(allocRow)
+  allocRow.valid := io.allocValid
+  allocRow.identity.bid := io.allocBid
+  allocRow.identity.gid := 0.U
+  allocRow.identity.rid := io.allocBid
+  allocRow.pc := io.allocBid
+  allocRow.len := 4.U
+  rob.io.allocValid := io.allocValid
+  rob.io.allocRow := allocRow
+  rob.io.allocBid := id(io.allocBid)
+  rob.io.allocGid := id(0.U)
+  rob.io.allocPeId := 0.U
+  rob.io.allocStid := io.allocStid
+  rob.io.allocTid := 0.U
+  rob.io.allocLsId := io.allocBid
+  rob.io.allocIsLoad := true.B
+  rob.io.allocIsStore := false.B
+  rob.io.allocTSeq := 0.U.asTypeOf(rob.io.allocTSeq)
+  rob.io.allocUSeq := 0.U.asTypeOf(rob.io.allocUSeq)
+  rob.io.allocTUDstValid := false.B
+  rob.io.allocTUDstKind := DestinationKind.None
+  rob.io.allocIsLast := false.B
+  rob.io.allocMarkerBoundary := false.B
+  rob.io.allocMarkerStop := false.B
+  rob.io.allocMarkerBoundaryKind := BoundaryKind.Fall
+  rob.io.allocMarkerBoundaryTarget := 0.U
+
+  rob.io.renameUpdateValid := false.B
+  rob.io.renameUpdateRid := 0.U.asTypeOf(rob.io.renameUpdateRid)
+  rob.io.renameUpdateRow := 0.U.asTypeOf(rob.io.renameUpdateRow)
+  rob.io.renameUpdateTSeq := 0.U.asTypeOf(rob.io.renameUpdateTSeq)
+  rob.io.renameUpdateUSeq := 0.U.asTypeOf(rob.io.renameUpdateUSeq)
+  rob.io.renameUpdateTUDstValid := false.B
+  rob.io.renameUpdateTUDstKind := DestinationKind.None
+  rob.io.completeValid := false.B
+  rob.io.completeRobValue := 0.U
+  rob.io.completeRowValid := false.B
+  rob.io.completeRow := 0.U.asTypeOf(rob.io.completeRow)
+  rob.io.deallocReady := false.B
+  rob.io.deallocHoldMask := 0.U
+  rob.io.statusLookupValid := false.B
+  rob.io.statusLookupRid := 0.U.asTypeOf(rob.io.statusLookupRid)
+  rob.io.commitTraceLookupValid := false.B
+  rob.io.commitTraceLookupRid := 0.U.asTypeOf(rob.io.commitTraceLookupRid)
+  rob.io.commitTraceLookupSourceTraceEnable := false.B
+
+  io.allocReady := rob.io.allocReady
+  io.ringReady := cleanup.io.ringReqReady && eligibility.io.eligible
+  io.ringAccepted := cleanup.io.ringAccepted
+  io.fullReady := cleanup.io.reqReady
+  io.fullAccepted := cleanup.io.fullAccepted
+  io.ringBlockedByAge := eligibility.io.blockedByAge
+  io.cleanupPending := cleanup.io.pending
+  io.cleanupIntentValid := cleanup.io.intent.valid
+  io.cleanupBlockFlushValid := cleanup.io.intent.blockFlushValid
+  io.robFlushApplied := rob.io.flushApplied
+  io.robFlushPruneMask := rob.io.flushPruneMask
+  io.robSize := rob.io.size
+}
+
+object EmitRecoveryCleanupROBProbe extends App {
+  circt.stage.ChiselStage.emitSystemVerilogFile(
+    new RecoveryCleanupROBProbe,
+    args = Array("--target-dir", "../generated/chisel-verilog/recovery-cleanup-rob-probe"),
+    firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
+  )
+}

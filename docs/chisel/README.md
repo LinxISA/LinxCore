@@ -79,7 +79,10 @@ bridge now generates a full hardware BID, allocates BROB metadata and ROB row
 state atomically, and forwards that BID into `ROBEntryBank.allocBid`.
 `FullBidRecoveryBridge` defines the matching recovery handoff: full block BID
 for BROB-style cleanup, ring `ROBID` for ROB row pruning.
-`RecoveryCleanupControl` registers the selected recovery request and exposes
+`RecoveryEligibilityControl` holds non-immediate ring requests until the
+supplied oldest BID/RID watermark permits execution. `RecoveryCleanupControl`
+then registers a selected full-BID or eligible ring-qualified
+recovery request and exposes
 the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
 tile, PE fanout, and ROB consumers. `GPRRenameCheckpoint` is the first scalar
 rename cleanup consumer: it owns model `GPRRename` `smap`/`cmap`, per-BID
@@ -147,12 +150,18 @@ delete/record behind a blocked lookup fanout, and exposes the scalar
 scalar LSU. Accepted loads enqueue lookup before launch; accepted
 address-bearing stores train conflict state only when record/wait-plan
 capacity is available; multi-row active wait masks are retained; LU/SU output
-is held until LIQ mutation applies; and resolved conflicts publish typed Linx
-inner/nuke flush requests. Recovery clears transient queues while preserving
+is held until LIQ mutation applies; and resolved conflicts enqueue typed Linx
+inner/nuke recovery reports. Reports remain stable until outer acceptance.
+Recovery clears transient queues while preserving
 SSIT predictor state. `LoadWaitStoreTimeout` adds deterministic per-row ageing
 for stable predicted-store waits. Expiry is retained until one cycle can both
 clear the LIQ wait and enqueue MDB delete feedback, after which `MDBSSIT`
 decays or releases the failed prediction.
+`ScalarLSU` owns the MDB-to-eligibility-to-cleanup connection.
+`RecoveryCleanupROBProbe` proves a non-oldest report remains upstream, an
+eligible report is inert while cleanup is blocked, and real `ROBEntryBank`
+rows prune only on acceptance. It also proves full-over-ring priority,
+consume-plus-replace, and no fabricated full-BID BCTRL/BROB authority.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps

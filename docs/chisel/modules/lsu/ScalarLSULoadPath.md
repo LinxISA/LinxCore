@@ -36,6 +36,9 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
 7. A stable predicted-store wait ages independently in its LIQ slot. Timeout
    release clears wait-store state only in the cycle that MDB delete enqueue
    also accepts.
+8. An accepted conflict retains one typed recovery report until the outer
+   recovery owner accepts it through the dedicated `recovery` port. Report retention participates in load-path
+   quiescence and can backpressure address-bearing store insertion.
 
 `transferProtocolError` reports a hit without reserved ResolveQ capacity or a
 new accepted transfer while an older source clear is blocked. It must remain
@@ -60,7 +63,7 @@ Replay/store wakeup, refill, forwarding, and source-return readiness remain
 available through the load path. MDB lookup/conflict wait mutation is live at
 this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
-Cache/miss queues, outer recovery arbitration, and final IEX
+Cache/miss queues, multi-source top arbitration, full-BID BROB cleanup, and final IEX
 LRET/writeback/wakeup publication remain future integration work.
 
 ## Verification
@@ -91,3 +94,10 @@ R636 extends that probe with live per-row timeout/delete feedback and passes
 mismatches. The reduced CoreMark no-regression manifest at
 `generated/r636-final-failed-wait-coremark/report/crosscheck_manifest.json`
 passes 665 rows with zero mismatches; it is not natural timeout activation.
+
+R637 adds retained MDB recovery publication and positive generated-RTL proof
+that a blocked report remains stable before registered cleanup acceptance and
+real ROB pruning, including preservation of a younger different-STID row. The
+full suite passes 249 suites and 1,474 tests; reduced
+CoreMark passes 426 rows with zero mismatches at
+`generated/r637-final-mdb-recovery-coremark/report/crosscheck_manifest.json`.

@@ -30,13 +30,14 @@ class ROBEntryBankIO(
     val mapQDepth: Int = 32,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val flush = Input(new FlushBus(entries))
+  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
   val allocValid = Input(Bool())
   val allocReady = Output(Bool())
@@ -46,6 +47,7 @@ class ROBEntryBankIO(
   val allocGid = Input(new ROBID(entries))
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocStid = Input(UInt(stidWidth.W))
+  val allocTid = Input(UInt(tidWidth.W))
   val allocLsId = Input(UInt(lsidWidth.W))
   val allocIsLoad = Input(Bool())
   val allocIsStore = Input(Bool())
@@ -160,7 +162,8 @@ class ROBEntryBank(
     val mapQDepth: Int = 32,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val tidWidth: Int = 8)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
@@ -173,7 +176,7 @@ class ROBEntryBank(
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth, lsidWidth))
+  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth, lsidWidth, tidWidth))
 
   private def zeroRow: CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
@@ -270,6 +273,7 @@ class ROBEntryBank(
   val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowPeId = RegInit(VecInit(Seq.fill(entries)(0.U(peIdWidth.W))))
   val rowStid = RegInit(VecInit(Seq.fill(entries)(0.U(stidWidth.W))))
+  val rowTid = RegInit(VecInit(Seq.fill(entries)(0.U(tidWidth.W))))
   val rowLsId = RegInit(VecInit(Seq.fill(entries)(0.U(lsidWidth.W))))
   val rowIsLoad = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val rowIsStore = RegInit(VecInit(Seq.fill(entries)(false.B)))
@@ -308,7 +312,7 @@ class ROBEntryBank(
   io.completedMask := completedVec.asUInt
   io.retiredMask := retiredVec.asUInt
 
-  val flushPrune = Module(new ROBFlushPrune(entries))
+  val flushPrune = Module(new ROBFlushPrune(entries, peIdWidth, stidWidth, tidWidth))
   flushPrune.io.flush := io.flush
   flushPrune.io.deallocHead := deallocValue
   flushPrune.io.commitHead := commitValue
@@ -316,6 +320,9 @@ class ROBEntryBank(
     val rowValid = rows(idx).valid && ROBEntryStatus.occupiesRob(status(idx))
     flushPrune.io.rows(idx).valid := rowValid
     flushPrune.io.rows(idx).status := status(idx)
+    flushPrune.io.rows(idx).peId := rowPeId(idx)
+    flushPrune.io.rows(idx).stid := rowStid(idx)
+    flushPrune.io.rows(idx).tid := rowTid(idx)
     flushPrune.io.rows(idx).bid := rowBid(idx)
     flushPrune.io.rows(idx).rid := rowRid(idx)
   }
@@ -557,6 +564,7 @@ class ROBEntryBank(
       rowRid(idx) := zeroRobId
       rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
+      rowTid(idx) := 0.U
       rowLsId(idx) := 0.U
       rowIsLoad(idx) := false.B
       rowIsStore(idx) := false.B
@@ -619,6 +627,7 @@ class ROBEntryBank(
       rowRid(idx) := zeroRobId
       rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
+      rowTid(idx) := 0.U
       rowLsId(idx) := 0.U
       rowIsLoad(idx) := false.B
       rowIsStore(idx) := false.B
@@ -648,6 +657,7 @@ class ROBEntryBank(
     rowRid(allocValue) := allocatedRid
     rowPeId(allocValue) := io.allocPeId
     rowStid(allocValue) := io.allocStid
+    rowTid(allocValue) := io.allocTid
     rowLsId(allocValue) := io.allocLsId
     rowIsLoad(allocValue) := io.allocIsLoad
     rowIsStore(allocValue) := io.allocIsStore

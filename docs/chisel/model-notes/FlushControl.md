@@ -60,13 +60,23 @@ The conversion uses the full BID low slot bits as `ROBID.value` and the low
 uniqueness bit as `ROBID.wrap`, matching the sidecar produced by
 `DispatchROBAllocator` during allocation.
 
-`RecoveryCleanupControl` adds the first registered cleanup-intent boundary.
-After a request is selected, global flushes map to BCTRL/rename flush plus
+`RecoveryCleanupControl` adds the registered cleanup-intent boundary. It
+accepts full-BID requests or pre-annotated ring-qualified requests, with
+full-BID input taking fixed source priority. After a request is selected,
+global flushes map to BCTRL/rename flush plus
 frontend restart; global replay and PE-scoped replay map to BCTRL/rename
 replay; all accepted cleanup intents carry backend PE/ROB, report-queue,
 LSU/STQ, and tile cleanup hooks. This mirrors `flush`, `replay`,
 `FlushBaseOnPE`, and `flushBackend` fanout without mutating those consumers in
 the recovery control packet.
+
+Ring-qualified input can drive typed ROB and backend cleanup but cannot name a
+full BROB block. The owner therefore suppresses BCTRL/block-flush validity for
+that source. State consumers fire only with `intent.valid && intentReady`.
+
+`ScalarLSU` places `RecoveryEligibilityControl` before ring input. This is the
+Chisel `CheckFlush` age boundary for MDB reports: non-immediate requests wait
+for wrap-qualified oldest BID/RID state; immediate requests bypass age only.
 
 `STQFlushPrune` is the first LSU consumer of that selected `FlushBus`. It uses
 the same `stid`, optional PE/thread, BID, group, and LSID matching policy as

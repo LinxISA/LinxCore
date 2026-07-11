@@ -19,7 +19,10 @@ object ROBFlushPruneReference {
       valid: Boolean = false,
       status: Status = Free,
       bid: Id = Id(),
-      rid: Id = Id())
+      rid: Id = Id(),
+      peId: Int = 0,
+      stid: Int = 0,
+      tid: Int = 0)
 
   final case class Result(
       directMask: Int,
@@ -50,7 +53,12 @@ object ROBFlushPruneReference {
       flushBid: Id,
       flushRid: Id,
       baseOnBid: Boolean,
-      flushValid: Boolean = true): Result = {
+      flushValid: Boolean = true,
+      flushPeId: Int = 0,
+      flushStid: Int = 0,
+      flushTid: Int = 0,
+      baseOnPE: Boolean = false,
+      baseOnThread: Boolean = false): Result = {
     val entries = rows.size
     var found = false
     var seenCommit = false
@@ -67,8 +75,12 @@ object ROBFlushPruneReference {
         seenCommit = true
       }
       val row = rows(idx)
+      val inScope =
+        row.stid == flushStid &&
+          (!baseOnPE || row.peId == flushPeId) &&
+          (!baseOnThread || row.tid == flushTid)
       val direct =
-        flushValid && row.valid &&
+        flushValid && row.valid && inScope &&
           (if (baseOnBid) lessEqual(flushBid, row.bid)
            else lessEqualBidRid(flushBid, flushRid, row.bid, row.rid))
 
@@ -80,7 +92,7 @@ object ROBFlushPruneReference {
       }
       found ||= direct
 
-      if (row.valid && found) {
+      if (row.valid && inScope && found) {
         pruneMask |= 1 << idx
         if (!seenCommit) {
           beforeCommitMask |= 1 << idx
@@ -212,6 +224,34 @@ class ROBFlushPruneSpec extends AnyFunSuite {
     assert(result.outstandingDecrement == 0)
   }
 
+  test("prune propagation stays within STID and optional PE/thread scope") {
+    val rows = Seq(
+      live(Completed, bid = 1, rid = 0),
+      live(Allocated, bid = 2, rid = 1).copy(peId = 1, tid = 1),
+      live(Issued, bid = 2, rid = 2).copy(stid = 1),
+      live(NeedFlush, bid = 3, rid = 3).copy(peId = 1, tid = 1),
+      Row(), Row(), Row(), Row()
+    )
+
+    val result = prune(
+      rows,
+      deallocHead = 0,
+      commitHead = 0,
+      flushBid = Id(value = 2),
+      flushRid = Id(),
+      baseOnBid = true,
+      flushPeId = 1,
+      flushStid = 0,
+      flushTid = 1,
+      baseOnPE = true,
+      baseOnThread = true
+    )
+
+    assert(result.directMask == 0x0a)
+    assert(result.pruneMask == 0x0a)
+    assert(result.residentDecrement == 2)
+  }
+
   test("Chisel ROBFlushPrune elaborates with model-derived masks and counts") {
     val sv = ChiselStage.emitSystemVerilog(new ROBFlushPrune(entries = 8))
 
@@ -219,6 +259,9 @@ class ROBFlushPruneSpec extends AnyFunSuite {
     assert(sv.contains("io_directMatchMask"))
     assert(sv.contains("io_pruneMask"))
     assert(sv.contains("io_outstandingPruneMask"))
+    assert(sv.contains("io_rows_0_stid"))
+    assert(sv.contains("io_rows_0_peId"))
+    assert(sv.contains("io_rows_0_tid"))
     assert(sv.contains("io_commitRebaseNeeded"))
   }
 }

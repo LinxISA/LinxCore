@@ -34,8 +34,12 @@ class LinxCoreTopSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSU"))
     assert(sv.contains("module STQSCBCommitPath"))
     assert(sv.contains("module ScalarLSULoadPath"))
+    assert(sv.contains("module RecoveryEligibilityControl"))
+    assert(sv.contains("module RecoveryCleanupControl"))
     assert(sv.contains("io_scalarLsu_store_flush_req_valid"))
     assert(sv.contains("io_scalarLsu_load_preciseFlush_req_valid"))
+    assert(sv.contains("io_scalarLsu_recovery_oldestBid_value"))
+    assert(sv.contains("io_scalarLsu_recovery_intent_flush_req_valid"))
     assert(sv.contains("commitContractError"))
     assert(sv.contains("io_idle"))
   }

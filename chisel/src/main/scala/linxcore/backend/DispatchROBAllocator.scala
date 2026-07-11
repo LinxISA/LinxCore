@@ -235,7 +235,8 @@ class DispatchROBAllocator(
     mapQDepth = mapQDepth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    lsidWidth = lsidWidth
+    lsidWidth = lsidWidth,
+    tidWidth = tidWidth
   ))
 
   val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
@@ -259,6 +260,7 @@ class DispatchROBAllocator(
   rob.io.allocGid := io.allocGid
   rob.io.allocPeId := io.allocPeId
   rob.io.allocStid := io.allocStid
+  rob.io.allocTid := io.allocTid
   rob.io.allocLsId := io.allocLsId
   rob.io.allocIsLoad := io.allocIsLoad
   rob.io.allocIsStore := io.allocIsStore

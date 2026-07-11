@@ -8,7 +8,7 @@
       "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
       "role": "reduced-bringup",
       "forbidden_roles": ["full-composition", "full-replacement"],
-      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU", "ScalarLSULoadPath"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU"],
       "text_contains": [
         "val commitRob = Module(new ReducedCommitROB",
         "val scalarLsu = Module(new ScalarLSU",
@@ -25,24 +25,37 @@
       "class": "CoreParams",
       "values": {
         "robEntries": 128,
-        "commitWidth": 4,
-        "scalarLsu.stqEntries": 16,
-        "scalarLsu.commitQueueEntries": 16,
-        "scalarLsu.commitIssueWidth": 2,
-        "scalarLsu.scbEntries": 16,
-        "scalarLsu.liqEntries": 16,
-        "scalarLsu.resolveQueueEntries": 8,
-        "scalarLsu.mdbSsitEntries": 16,
-        "scalarLsu.mdbCommandQueueEntries": 16,
-        "scalarLsu.mdbOutputQueueEntries": 16,
-        "scalarLsu.mdbWaitPlanQueueEntries": 8,
-        "scalarLsu.mdbFailedWaitTimeoutCycles": 300,
-        "scalarLsu.loadSizeWidth": 7,
-        "scalarLsu.physRegWidth": 7
+        "commitWidth": 4
       },
       "validation_text": [
         "robEntries must be a power of two",
         "commitWidth must be positive"
+      ]
+    },
+    {
+      "id": "scalar-lsu-defaults",
+      "path": "chisel/src/main/scala/linxcore/common/CoreParams.scala",
+      "class": "ScalarLsuParams",
+      "values": {
+        "stqEntries": 16,
+        "commitQueueEntries": 16,
+        "commitIssueWidth": 2,
+        "scbEntries": 16,
+        "liqEntries": 16,
+        "resolveQueueEntries": 8,
+        "mdbSsitEntries": 16,
+        "mdbCommandQueueEntries": 16,
+        "mdbOutputQueueEntries": 16,
+        "mdbWaitPlanQueueEntries": 8,
+        "mdbRecoveryQueueEntries": 8,
+        "mdbFailedWaitTimeoutCycles": 300,
+        "loadSizeWidth": 7,
+        "physRegWidth": 7
+      },
+      "validation_text": [
+        "stqEntries must be a power of two greater than one",
+        "mdbRecoveryQueueEntries must be a power of two greater than one",
+        "loadSizeWidth must encode a full scalar cache line"
       ]
     },
     {
@@ -150,6 +163,49 @@
         {
           "path": "chisel/src/test/scala/linxcore/top/LinxCoreTopSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-ring-recovery-rob-prune",
+      "module_family": "rob-recovery",
+      "status": "integrated",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
+      "limitations": ["Ring-qualified MDB recovery can prune ROB state but cannot authorize BCTRL/BROB block cleanup until the full block BID is recovered by an allocator-owned lookup.", "ScalarLSU owns MDB oldest BID/RID eligibility and full-over-ring selection, but arbitration against every future frontend/IEX/PE source remains outside the current canonical top."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
+          "symbols": ["ScalarLSU", "ScalarLSURecoveryControlIO", "recoveryEligibility", "recoveryCleanup", "eligibleRingReq"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala",
+          "symbols": ["RecoveryEligibilityControl", "eligible", "blockedByNoOldest", "blockedByAge"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala",
+          "symbols": ["RecoveryCleanupControl", "ringReqReady", "ringAccepted", "pendingRingReq", "pendingIsRing"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
+          "symbols": ["RecoveryCleanupROBProbe", "RecoveryEligibilityControl", "RecoveryCleanupControl", "ROBEntryBank", "robFlushPruneMask"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala",
+          "symbols": ["ROBFlushPrune", "rowInScope", "pruneMask"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/RecoveryCleanupROBProbeSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/rob/ROBFlushPruneSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ROBFlushPruneSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh",
+          "command": "bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh"
         }
       ]
     },
@@ -287,7 +343,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, and scalar MDB wait mutation, but cache/miss queues and final load-return publication remain outside the canonical owner."],
+      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, scalar MDB wait mutation, and retained recovery publication, but cache/miss queues and final load-return publication remain outside the canonical owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
@@ -314,11 +370,11 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, and scalar MDB prediction/recovery publication, but final recovery arbitration and load-return/cache ownership remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, oldest BID/RID eligibility, and cleanup selection, but full-BID BROB recovery, all-source top arbitration, and load-return/cache ownership remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit"]
+          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit", "recoveryEligibility", "recoveryCleanup"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
@@ -353,11 +409,11 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU with live failed-wait delete feedback; IEX-local MDB, outer recovery arbitration, and natural-workload positive activation remain future promotion points."],
+      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU with live failed-wait delete feedback and retained recovery reports; IEX-local MDB, all-source top arbitration, full-BID BROB recovery, and natural-workload positive activation remain future promotion points."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala",
-          "symbols": ["ScalarLSUMDBPath", "ScalarLSUMDBWaitPlan", "MDBConflictDetect", "MDBQueueFanout", "LoadReplayMdbLookupWaitPlan", "LoadWaitStoreTimeout", "failedWaitReleaseAccepted", "deleteProcessed", "conflictFlush"]
+          "symbols": ["ScalarLSUMDBPath", "ScalarLSUMDBWaitPlan", "MDBConflictDetect", "MDBQueueFanout", "LoadReplayMdbLookupWaitPlan", "LoadWaitStoreTimeout", "failedWaitReleaseAccepted", "deleteProcessed", "recoveryQ", "recoveryFlush"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadWaitStoreTimeout.scala",

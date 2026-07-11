@@ -4,6 +4,11 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/RecoveryCleanupControlSpec.scala`
+- Integrated ROB probe:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala`,
+  `tools/chisel/recovery_cleanup_rob_probe_tb.cpp`
+- Eligibility owner:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/core/FlushControl.cpp`
   - `model/LinxCoreModel/model/bctrl/BCtrl.cpp`
@@ -24,11 +29,12 @@
 
 ## Purpose
 
-`RecoveryCleanupControl` is the first registered recovery cleanup-intent owner.
-It takes a selected full-BID flush request, registers it for one cleanup
-boundary, reuses `FullBidRecoveryBridge` to produce the ROB-side `FlushBus`,
-and exposes explicit intent bits for the future BCTRL, rename, backend,
-frontend, LSU/STQ, tile, and ROB cleanup consumers.
+`RecoveryCleanupControl` is the registered recovery cleanup-intent owner. It
+accepts either a selected full-BID request or a pre-annotated ring-identity
+`FlushBus`, registers the selected source for one cleanup boundary, and exposes
+explicit intent bits for BCTRL, rename, backend, frontend, LSU/STQ, tile, and
+ROB cleanup consumers. Full-BID input has fixed priority when both sources are
+valid.
 
 The module does not mutate rename maps, LSU/STQ entries, frontend queues, BROB
 pointers, or ROB rows. It prevents those side effects from being smuggled into
@@ -42,9 +48,12 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 |---|---|---|---|---|
 | input | `req` | `FullBidFlushReq` | `req.valid && reqReady` | Selected recovery request with full block BID and ring sub-ID sidecars. |
 | output | `reqReady` | `Bool` | ready | High when the one-entry intent register can accept a request. |
+| input | `ringReq` | `FlushBus` | `ringReq.req.valid && ringReqReady` | Selected source with wrap-qualified ROB identity but no full block BID. |
+| output | `ringReqReady` | `Bool` | ready | High when ring input may enter and no full-BID request claims the cycle. |
 | input | `intentReady` | `Bool` | ready | Consumer acknowledgement for the registered intent. |
 | output | `pending` | `Bool` | diagnostic | The intent register currently holds a valid request. |
-| output | `accepted` | `Bool` | diagnostic | Request accepted this cycle. |
+| output | `accepted` | `Bool` | diagnostic | Either request source accepted this cycle. |
+| output | `fullAccepted/ringAccepted` | `Bool` | diagnostic | Accepted source classification. |
 | output | `consumed` | `Bool` | diagnostic | Existing pending intent consumed this cycle. |
 
 ### `RecoveryCleanupIntent`
@@ -53,7 +62,7 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 |---|---|
 | `valid` | Registered cleanup intent is valid. |
 | `flush` | Annotated `FlushBus` for ROB and backend consumers. |
-| `blockFlushValid/blockFlushBid` | Full-BID block cleanup for true global flushes. |
+| `blockFlushValid/blockFlushBid` | Full-BID block cleanup for true global flushes. Ring-only input keeps valid low. |
 | `robPruneValid` | ROB/PE-ROB prune path should consume `flush`. |
 | `bctrlFlushValid` | BCTRL should take the model `flush` path. |
 | `bctrlReplayValid` | BCTRL should take the model `replay` path. |
@@ -73,13 +82,18 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 
 ## State
 
-- `pendingReq`: one registered `FullBidFlushReq`.
+- `pendingReq`: registered full-BID request storage.
+- `pendingRingReq`: registered annotated ring request storage.
+- `pendingIsRing`: source tag that prevents ring input from fabricating
+  full-BID BCTRL/BROB cleanup authority.
 - `pendingValid`: valid bit for the registered cleanup intent.
 - `FullBidRecoveryBridge`: combinational child used to preserve the full BID
   and produce the ring `FlushBus` from the registered request.
 
 The boundary accepts a new request when empty or when the current intent is
 being consumed. A simultaneous consume and accept replaces the pending request.
+Full-BID input wins a same-cycle source conflict; ring input observes
+`ringReqReady=false` and must remain valid.
 
 ## Logic Design
 
@@ -93,6 +107,17 @@ The lane classification follows `FlushControl::select` and the model fanout:
 For global flushes, the model runs `bctrl.flush`, `sRename.flush`,
 `flushBackend`, report-queue filtering, and BIFU/frontend restart through
 `BCtrl::flush`/`BlockIFU::flush`.
+
+Ring-qualified requests drive typed ROB, rename, backend, frontend, and LSU
+cleanup, but suppress `blockFlushValid` and `bctrlFlushValid`: a ROBID slot and
+wrap bit are not a full Linx block BID. A future allocator/BROB lookup must add
+that authority; truncation or zero-extension is forbidden.
+
+`RecoveryEligibilityControl` precedes ring acceptance in `ScalarLSU`. A
+non-immediate BID-based request waits until `request.bid <= oldestBid`; an
+RID-based request uses the canonical `(BID,RID)` comparison. Missing or younger
+oldest state keeps the source queued. Immediate requests bypass only this age
+gate, not cleanup backpressure or source arbitration.
 
 For global replay and PE-scoped replay, the model runs `bctrl.replay`,
 `sRename.replay`, backend cleanup, and PE/ROB cleanup. PE-scoped SIMT/MTC
@@ -115,6 +140,9 @@ as `intent.valid` on the cycle after acceptance and remains visible until
 registered boundary; do not create combinational loops from side-effect
 completion back into flush selection.
 
+Consumers apply state changes only on `intent.valid && intentReady`. Merely
+observing a blocked valid intent must not repeatedly prune or clear state.
+
 ## Flush/Recovery
 
 This module defines the cleanup-intent fanout only. The following remain future
@@ -127,6 +155,20 @@ owner work:
   rebasing,
 - frontend restart token payloads,
 - precise trap and redirect ownership.
+
+## Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControlSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryEligibilityControlSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec`
+- `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
+
+The generated-RTL probe allocates three real ROB rows across two STIDs, retains a non-oldest
+ring-qualified nuke before cleanup, then holds the eligible cleanup intent while
+its consumer is blocked. It prunes the target row only on the accepted intent
+and preserves a younger row from another STID. The same run proves full-over-ring source priority,
+consume-plus-ring-replace, and that ring input cannot assert full-BID block
+cleanup.
 
 ## Trace/Observability
 

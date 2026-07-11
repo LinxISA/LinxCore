@@ -32,6 +32,7 @@ class ScalarLSUMDBWaitPlan(
 class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
   private val liqPtrWidth = log2Ceil(p.liqEntries)
   private val weightWidth = log2Ceil(p.mdbMaxWeight + 1).max(1)
+  private val recoveryCountWidth = log2Ceil(p.mdbRecoveryQueueEntries + 1)
 
   val flush = Input(Bool())
   val storeProbe = Input(new MDBConflictStoreProbe(
@@ -43,6 +44,7 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.tidWidth,
     p.loadSizeWidth
   ))
+  val storeProbeCommit = Input(Bool())
   val storeProbeReady = Output(Bool())
   val storeRows = Input(Vec(
     p.stqEntries,
@@ -124,6 +126,17 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.stidWidth,
     p.tidWidth
   ))
+  val recoveryReady = Input(Bool())
+  val recoveryValid = Output(Bool())
+  val recoveryFlush = Output(new FlushBus(
+    coreParams.robEntries,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
+  val recoveryAccepted = Output(Bool())
+  val recoveryPending = Output(Bool())
+  val recoveryCount = Output(UInt(recoveryCountWidth.W))
   val recordAccepted = Output(Bool())
   val recordProcessed = Output(Bool())
   val bmdbReportValid = Output(Bool())
@@ -235,6 +248,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   ))
   fanout.io.flush := io.flush
   fanout.io.storeRows := io.storeRows
+  val storeProbeFire =
+    io.storeProbe.valid && io.storeProbeCommit && io.storeProbeReady
 
   val recordBus = Wire(chiselTypeOf(fanout.io.recordIn))
   recordBus := zeroBus
@@ -257,7 +272,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   recordBus.stInfo.isTile := conflict.io.record.store.isTile
   recordBus.conf := 1.U
   fanout.io.recordIn := recordBus
-  fanout.io.recordInValid := io.storeProbe.valid && conflict.io.conflictValid
+  fanout.io.recordInValid := storeProbeFire && conflict.io.conflictValid
 
   val lookupBus = Wire(chiselTypeOf(fanout.io.lookupIn))
   lookupBus := zeroBus
@@ -328,7 +343,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       p.mdbWaitPlanQueueEntries
     ))
   }
-  waitPlanQ.io.enq.valid := io.storeProbe.valid && conflict.io.waitStoreMask.orR && !io.flush
+  waitPlanQ.io.enq.valid := storeProbeFire && conflict.io.waitStoreMask.orR
   waitPlanQ.io.enq.bits.targetMask := conflict.io.waitStoreMask
   waitPlanQ.io.enq.bits.store := io.storeProbe
 
@@ -474,7 +489,17 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   flushReq.lsId := conflict.io.record.load.lsId
   flushReq.execEngine := ExecEngineType.Scalar
   flushReq.fetchTpcValid := true.B
-  flushReq.immediateFlush := true.B
+  flushReq.immediateFlush := false.B
+
+  val recoveryQ = withReset(reset.asBool || io.flush) {
+    Module(new Queue(
+      new FlushReq(coreParams.robEntries, p.peIdWidth, p.stidWidth, p.tidWidth),
+      p.mdbRecoveryQueueEntries
+    ))
+  }
+  recoveryQ.io.enq.valid := storeProbeFire && conflict.io.conflictValid
+  recoveryQ.io.enq.bits := flushReq
+  recoveryQ.io.deq.ready := io.recoveryReady && !io.flush
 
   val storeWakeupReg = RegInit(0.U.asTypeOf(chiselTypeOf(io.storeWakeup)))
   when(io.flush) {
@@ -483,7 +508,11 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     storeWakeupReg := fanout.io.suWakeup
   }
 
-  io.storeProbeReady := !io.flush && fanout.io.recordInReady && waitPlanQ.io.enq.ready
+  io.storeProbeReady :=
+    !io.flush &&
+      fanout.io.recordInReady &&
+      waitPlanQ.io.enq.ready &&
+      (!conflict.io.conflictValid || recoveryQ.io.enq.ready)
   io.loadLookupReady := !io.flush && fanout.io.lookupInReady
   io.conflictValid := io.storeProbe.valid && conflict.io.conflictValid
   io.conflictFromResolveQueue := conflict.io.conflictFromResolveQueue
@@ -491,6 +520,11 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   io.conflictResolveMask := conflict.io.resolveCandidateMask
   io.conflictWaitStoreMask := conflict.io.waitStoreMask
   io.conflictFlush := FlushControl.annotate(flushReq)
+  io.recoveryValid := recoveryQ.io.deq.valid
+  io.recoveryFlush := FlushControl.annotate(recoveryQ.io.deq.bits)
+  io.recoveryAccepted := recoveryQ.io.deq.fire
+  io.recoveryPending := recoveryQ.io.deq.valid
+  io.recoveryCount := recoveryQ.io.count
   io.recordAccepted := fanout.io.recordInAccepted
   io.recordProcessed := fanout.io.recordProcessed
   io.bmdbReportValid := fanout.io.bmdbReportValid
@@ -521,6 +555,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       !currentWaitValid &&
       !waitPlanQ.io.deq.valid &&
       !failedWait.io.releaseValid &&
+      !recoveryQ.io.deq.valid &&
       !storeWakeupReg.valid
   io.protocolError :=
     (io.storeProbe.valid && !io.storeProbeReady) ||

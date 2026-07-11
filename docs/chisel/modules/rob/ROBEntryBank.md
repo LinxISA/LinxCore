@@ -111,6 +111,7 @@ deallocation or recovery semantics into that module.
 | input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar used by relation-cmap release grouping |
 | input | `allocPeId` | `UInt(peIdWidth.W)` | with `allocValid` | Scalar PE owner sidecar stored for T/U retire-command bank routing |
 | input | `allocStid` | `UInt(stidWidth.W)` | with `allocValid` | Thread/STID sidecar stored for exact T/U cleanup source matching |
+| input | `allocTid` | `UInt(tidWidth.W)` | with `allocValid` | Thread owner sidecar stored for optional thread-scoped recovery matching |
 | input | `allocLsId` | `UInt(lsidWidth.W)` | with `allocValid` | Pre-increment decode `lsID` snapshot stored with every row for LDQ/ResolveQ retire watermarks |
 | input | `allocIsLoad`, `allocIsStore` | `Bool` | with `allocValid` | Memory-class sidecars stored beside the LSID snapshot |
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | Row-owned local T/U sequence snapshots from rename |
@@ -183,6 +184,7 @@ deallocation or recovery semantics into that module.
   `allocWrap`.
 - `rowPeId`: scalar PE owner sidecar per slot, sourced from allocation.
 - `rowStid`: STID sidecar per slot, sourced from allocation.
+- `rowTid`: thread owner sidecar per slot, sourced from allocation.
 - `rowLsId`: pre-increment scalar memory-order ID snapshot per slot.
 - `rowIsLoad` / `rowIsStore`: row memory-class sidecars used by
   `commitMemoryOrder`.
@@ -252,8 +254,9 @@ T/U sidecars, and changes `Allocated -> Renamed`. It does not rewrite native
 allocation-time row owner.
 
 Flush has priority over allocation, completion, commit, and deallocation. The
-bank feeds `ROBFlushPrune` with occupied rows, each row's status, and a
-native `ROBID` view from `rowBid` and `rowRid`. `CommitTraceRow.identity`
+bank feeds `ROBFlushPrune` with occupied rows, each row's status, PE/STID/TID
+scope, and a native `ROBID` view from `rowBid` and `rowRid`. STID always
+qualifies pruning; PE and TID qualify it when requested. `CommitTraceRow.identity`
 remains the trace and duplicate-detection sideband; it is not the source of the
 flush comparison metadata.
 

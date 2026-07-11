@@ -437,6 +437,18 @@ typed Linx inner/nuke flush requests with the conflicting load identity.
 Recovery clears transient MDB queues and plans while preserving SSIT predictor
 state.
 
+R637 adds the model `lsu_flush_rpt_q` equivalent. Conflict record, active-load
+wait plan, and recovery report enqueue share one accepted address-store
+transaction. The report queue is independently parameterized and holds typed
+load PE/STID/TID plus BID/GID/RID/LSID identity until outer acceptance. MDB
+reports are not immediate flushes: the outer oldest/head policy controls when
+the registered cleanup intent may prune ROB state. Ring-only reports do not
+authorize BCTRL/BROB cleanup without a recovered full block BID.
+Store intent reaches conflict preview before insertion readiness, while a
+separate accepted-store commit pulse authorizes record/wait/recovery side
+effects. This preserves atomicity without making ready depend on accepted
+valid, and a full recovery queue blocks only stores that actually conflict.
+
 R636 adds `LoadWaitStoreTimeout` beneath the same canonical owner. The model
 records `stallCycle` whenever a load starts waiting and later sends
 `getMDBBus(load)` to `delete_lu_mdb_q` when the predicted wait fails. Its
@@ -457,8 +469,8 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU still needs final load-return/cache ownership and outer
-  recovery arbitration.
+- The full scalar LSU still needs final load-return/cache ownership, final
+  oldest-head arbitration, and full-BID BROB recovery lookup.
   `ScalarLSULoadPath` now owns load-queue flush, LIQ-to-ResolveQ backpressure,
   and scalar MDB composition. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded

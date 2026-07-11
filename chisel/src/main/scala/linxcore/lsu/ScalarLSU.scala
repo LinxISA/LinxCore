@@ -2,11 +2,48 @@ package linxcore.lsu
 
 import chisel3._
 
+import linxcore.bctrl.BID
 import linxcore.common.{CoreParams, ScalarLsuParams}
+import linxcore.recovery.{
+  FullBidFlushReq,
+  RecoveryCleanupControl,
+  RecoveryCleanupIntent,
+  RecoveryEligibilityControl
+}
+import linxcore.rob.ROBID
+
+class ScalarLSURecoveryControlIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
+  val fullReq = Input(new FullBidFlushReq(
+    coreParams.robEntries,
+    BID.DefaultWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
+  val fullReqReady = Output(Bool())
+  val oldestValid = Input(Bool())
+  val oldestBid = Input(new ROBID(coreParams.robEntries))
+  val oldestRid = Input(new ROBID(coreParams.robEntries))
+  val intentReady = Input(Bool())
+  val intent = Output(new RecoveryCleanupIntent(
+    coreParams.robEntries,
+    BID.DefaultWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
+  val sourcePending = Output(Bool())
+  val sourceEligible = Output(Bool())
+  val sourceAccepted = Output(Bool())
+  val sourceBlockedByNoOldest = Output(Bool())
+  val sourceBlockedByAge = Output(Bool())
+  val cleanupPending = Output(Bool())
+}
 
 class ScalarLSUIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
   val store = ScalarLSU.storePathIO(coreParams, lsuParams)
   val load = new ScalarLSULoadPathIO(coreParams, lsuParams)
+  val recovery = new ScalarLSURecoveryControlIO(coreParams, lsuParams)
 }
 
 class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
@@ -15,8 +52,44 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
 
   val storeCommitPath = Module(ScalarLSU.storeCommitPath(coreParams, lsuParams))
   val loadPath = Module(new ScalarLSULoadPath(coreParams))
+  val recoveryEligibility = Module(new RecoveryEligibilityControl(
+    coreParams.robEntries,
+    lsuParams.peIdWidth,
+    lsuParams.stidWidth,
+    lsuParams.tidWidth
+  ))
+  val recoveryCleanup = Module(new RecoveryCleanupControl(
+    coreParams.robEntries,
+    BID.DefaultWidth,
+    lsuParams.peIdWidth,
+    lsuParams.stidWidth,
+    lsuParams.tidWidth
+  ))
   storeCommitPath.io <> io.store
   loadPath.io <> io.load
+
+  recoveryEligibility.io.request := loadPath.recovery.flush
+  recoveryEligibility.io.oldestValid := io.recovery.oldestValid
+  recoveryEligibility.io.oldestBid := io.recovery.oldestBid
+  recoveryEligibility.io.oldestRid := io.recovery.oldestRid
+
+  val eligibleRingReq = Wire(chiselTypeOf(loadPath.recovery.flush))
+  eligibleRingReq := loadPath.recovery.flush
+  eligibleRingReq.req.valid := loadPath.recovery.valid && recoveryEligibility.io.eligible
+  recoveryCleanup.io.req := io.recovery.fullReq
+  recoveryCleanup.io.ringReq := eligibleRingReq
+  recoveryCleanup.io.intentReady := io.recovery.intentReady
+  loadPath.recovery.ready :=
+    recoveryEligibility.io.eligible && recoveryCleanup.io.ringReqReady
+
+  io.recovery.fullReqReady := recoveryCleanup.io.reqReady
+  io.recovery.intent := recoveryCleanup.io.intent
+  io.recovery.sourcePending := loadPath.recovery.pending
+  io.recovery.sourceEligible := recoveryEligibility.io.eligible
+  io.recovery.sourceAccepted := loadPath.recovery.accepted
+  io.recovery.sourceBlockedByNoOldest := recoveryEligibility.io.blockedByNoOldest
+  io.recovery.sourceBlockedByAge := recoveryEligibility.io.blockedByAge
+  io.recovery.cleanupPending := recoveryCleanup.io.pending
 
   val storeCarriesAddress = io.store.insert.storeType =/= STQStoreType.Data
   val storeMdbPermit = !storeCarriesAddress || loadPath.mdbStore.probeReady
@@ -25,7 +98,7 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
 
   val storeProbe = Wire(chiselTypeOf(loadPath.mdbStore.probe))
   storeProbe := 0.U.asTypeOf(storeProbe)
-  storeProbe.valid := storeCommitPath.io.insertAccepted && storeCarriesAddress
+  storeProbe.valid := io.store.insertValid && storeCarriesAddress
   storeProbe.addrOnly := io.store.insert.storeType === STQStoreType.Addr
   storeProbe.isTile := !io.store.insert.scalarIex
   storeProbe.peId := io.store.insert.peId
@@ -39,6 +112,7 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   storeProbe.addr := io.store.insert.addr
   storeProbe.size := io.store.insert.size.pad(lsuParams.loadSizeWidth)
   loadPath.mdbStore.probe := storeProbe
+  loadPath.mdbStore.probeCommit := storeCommitPath.io.insertAccepted && storeCarriesAddress
 
   for (idx <- 0 until lsuParams.stqEntries) {
     val row = storeCommitPath.io.stqRows(idx)
