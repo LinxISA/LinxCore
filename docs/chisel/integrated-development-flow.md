@@ -1080,6 +1080,17 @@ Evidence:
   new failure is a pre-fetched `FENTRY` at `0x124e8` entering before the host
   sees that FRET redirect. This is the post-FRET host/IB redirect boundary,
   not a FRET semantic, instruction-length, loader, or FIFO defect.
+- A controlled recheck with both `LINX_CALLFRAME_SIZE` and
+  `PYC_CALLFRAME_SIZE` unset confirms that `0x0cd50041` encodes a 48-byte
+  frame (`uimm_hi=0`, `uimm_lo=6`), so the first failure is still the stale
+  `0x124e8` header rather than an FENTRY immediate or frame-addend mismatch.
+  The recovery fix must be atomic across two ownership domains: retire-time
+  recovery must discard *same-BID* rows younger than the committed FRET parent,
+  and F4/IB recovery must retain or replay the first packet at `0x15670` after
+  the redirect. Gating CTU admission by the architectural PC alone exposes the
+  stale header but deadlocks because the target packet is consumed during the
+  recovery window; clearing the residual ROB window alone has the same missing
+  target-packet handoff. Do not land either half independently.
 - The post-recovery implementation survives a direct CoreMark boot through
   the explicit `PYC_MAX_CYCLES=3000000` endurance bound without a trap or the
   20,000-cycle no-retire detector firing. It reached the configured cycle
