@@ -15,34 +15,36 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R653 promotes two related LinxCoreModel memory-order mechanisms
-without conflating their ownership. `DecodeLoadStoreIdAssign` now maintains
-independent LSID, load-ID, and store-ID lanes per STID; accepted typed recovery
-restores only the selected lane, while reset/restart clears all lanes.
-`BrobStoreRangeState` separately owns one aggregate block store-range cursor and
-next store ID per STID. It assigns a stable start to the exact resident cursor
-row, blocks on uncertain counts or identity holes, and advances only through
-consecutive count-certain rows in the authoritative BROB head/live-count window.
+Latest packet: R654 makes block store-count publication a retained ownership
+boundary. `BrobStoreCountPublisher` keeps scalar closure and explicit CTU/tile
+events in independent one-entry slots, admits exact identities only inside the
+selected STID's BROB head/live-count window, and applies the accepted
+killed-suffix recovery to both. Same-block explicit data is authoritative;
+different blocks serialize scalar-first while the explicit payload remains
+resident. Agreeing frozen-count repeats are idempotent and conflicting values
+remain visible as integration errors.
 
-Scalar stores accumulate against their exact full BID and scalar-done freezes
-that count. An explicit parameterized count path is reserved for authoritative
-template/tile producers. Accepted suffix recovery clears the killed rows and
-restores the first killed row's saved start ID when assignment had already
-passed it. Range assignment remains separate from the R652 strong non-flush
-prefix and never authorizes STQ commitment or SCB admission. The packet imports
-no ARM barriers, exclusives, exception levels, condition state, or other
-foreign architectural behavior.
+The model audit distinguishes behavior from dormant intent. DCTop, Decoder,
+and GenCoder actively maintain per-STID starts, instruction offsets, and
+scalar/template accumulation, while BROB `deliveryStoreID` actively consumes
+count certainty. `BlockROB::setStoreCount` and DCTop `calcLSCnt` have no active
+caller, so R654 defines a real future Chisel producer handoff rather than
+claiming those routines are a live reference path. Current reduced shells tie
+the explicit input inactive. Scalar closure remains live internally, and exact
+head retirement now also requires `headCountKnown` so delayed publication
+cannot remove a range row early.
 
-R653 final verification passes 259 suites and 1,532 tests. Both generated
-probes pass independent-STID, scoped-recovery, unknown-count, explicit-count,
-and `[14,15,0]` rollover scenarios. Chisel adapter, shared conformance,
+R654 final verification passes 260 suites and 1,536 tests. The generated probe
+passes live-window rejection, scalar accumulation, same/different-block
+collisions, agreeing/conflicting duplicates, recovery cancellation, and
+missing-row backpressure. Chisel adapter, shared conformance,
 microarchitecture contract, and strict architecture mirror gates pass. The
 live reduced-store fixture compares 3 rows with zero mismatches and zero
 CBSTOP. Reduced CoreMark compares 426 rows with zero mismatches and zero CBSTOP
 at
-`generated/r653-final-brob-store-range-coremark/report/crosscheck_manifest.json`.
-Canonical `BID_W` plus explicit wrap context, live template/tile count
-producers, early non-flush predicates, configurable multi-block retirement,
+`generated/r654-final-store-count-publisher-coremark/report/crosscheck_manifest.json`.
+A canonical Chisel CTU/tile count calculator, canonical `BID_W` plus explicit
+wrap context, early non-flush predicates, configurable multi-block retirement,
 direct BCC/IEX/PE trigger owners, and complete cleanup fanout remain open.
 
 R649 connects retained scalar MDB recovery to the live reduced

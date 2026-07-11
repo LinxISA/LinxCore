@@ -184,6 +184,23 @@ row's saved start ID when range assignment had already passed it. This range
 state is independent from `BrobNonFlushFrontier`: assigning a store range does
 not authorize STQ commitment or SCB admission.
 
+R654 separates active model evidence from dormant intent. DCTop, Decoder, and
+GenCoder actively maintain per-STID block starts, instruction offsets, and
+scalar/template store accumulation. `deliveryStoreID` actively consumes count
+certainty. By contrast, `BlockROB::setStoreCount` has no caller in the current
+model, and DCTop `calcLSCnt` is orphaned. Chisel therefore adds
+`BrobStoreCountPublisher` as the real retained transport boundary for a future
+CTU/tile producer rather than claiming those dormant routines are a live
+reference path.
+
+The publisher retains scalar and explicit sources separately, uses the BROB
+head/live-count window for admission and recovery pruning, gives an explicit
+same-block value authority, and serializes different blocks scalar-first.
+Agreeing repeats are idempotent; a conflicting explicit count is held as an
+integration error. Ordered retirement additionally requires count certainty
+at the exact head so delayed publication cannot remove a row before the range
+frontier consumes it.
+
 ## Open Questions
 
 - The architecture docs still list BROB same-cycle resolve-vs-flush and

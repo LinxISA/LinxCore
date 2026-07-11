@@ -2,7 +2,7 @@ package linxcore.backend
 
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H}
-import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker, BrobOrderState, BrobRobAllocationAdmission, BrobStoreRangeState}
+import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker, BrobOrderState, BrobRobAllocationAdmission, BrobStoreCountPublisher, BrobStoreRangeState}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
   BlockMarkerRetireSource,
@@ -104,6 +104,19 @@ class DispatchROBAllocatorIO(
   val blockScalarDoneValid = Input(Bool())
   val blockScalarDoneBid = Input(UInt(bidWidth.W))
   val blockScalarDoneStid = Input(UInt(stidWidth.W))
+  val blockExplicitStoreCountValid = Input(Bool())
+  val blockExplicitStoreCountReady = Output(Bool())
+  val blockExplicitStoreCountBid = Input(UInt(bidWidth.W))
+  val blockExplicitStoreCountStid = Input(UInt(stidWidth.W))
+  val blockExplicitStoreCountValue = Input(UInt(storeSerialWidth.W))
+  val blockExplicitStoreCountAccepted = Output(Bool())
+  val blockExplicitStoreCountCanceled = Output(Bool())
+  val blockExplicitStoreCountBlockedByLiveWindow = Output(Bool())
+  val blockStoreCountScalarPending = Output(Bool())
+  val blockStoreCountExplicitPending = Output(Bool())
+  val blockStoreCountSameBlockCollision = Output(Bool())
+  val blockStoreCountDifferentBlockCollision = Output(Bool())
+  val blockStoreCountConflict = Output(Bool())
   val blockScalarTrapValid = Input(Bool())
   val blockScalarTrapCause = Input(UInt(trapCauseWidth.W))
   val blockEngineDoneValid = Input(Bool())
@@ -303,6 +316,13 @@ class DispatchROBAllocator(
     storeIdWidth = storeSerialWidth,
     storeCountWidth = storeSerialWidth
   ))
+  val storeCountPublisher = Module(new BrobStoreCountPublisher(
+    entries = entries,
+    bidWidth = bidWidth,
+    stidWidth = stidWidth,
+    stidCount = stidCount,
+    storeCountWidth = storeSerialWidth
+  ))
   val allocStidMatch = VecInit((0 until stidCount).map(idx => io.allocStid === idx.U(stidWidth.W)))
   val blockOnlyStidMatch = VecInit((0 until stidCount).map(idx => io.blockAllocOnlyStid === idx.U(stidWidth.W)))
   val allocNextBlockBid = Mux1H(allocStidMatch, blockOrder.io.allocCursor)
@@ -454,7 +474,9 @@ class DispatchROBAllocator(
   blockOrder.io.recoveryPivotBid := io.blockFlushBid
   blockOrder.io.recoveryInclusive := io.blockFlushInclusive
   blockOrder.io.headResident := brob.io.oldestValid
-  blockOrder.io.headComplete := brob.io.oldestComplete
+  blockOrder.io.headComplete := VecInit((0 until stidCount).map { stid =>
+    brob.io.oldestComplete(stid) && storeRanges.io.headCountKnown(stid)
+  })
   blockOrder.io.retireReady := io.blockRetireReady
   storeRanges.io.allocValid := blockOrder.io.allocApplied
   storeRanges.io.allocBid := Mux(storeRangeBlockOnlyCandidate, blockOnlyNextBlockBid, allocNextBlockBid)
@@ -462,11 +484,26 @@ class DispatchROBAllocator(
   storeRanges.io.storeObservedValid := scalarAdmission.io.allocFire && io.allocIsStore
   storeRanges.io.storeObservedBid := rowBlockBid
   storeRanges.io.storeObservedStid := io.allocStid
-  storeRanges.io.countCertainValid := io.blockScalarDoneValid
-  storeRanges.io.countCertainBid := io.blockScalarDoneBid
-  storeRanges.io.countCertainStid := io.blockScalarDoneStid
-  storeRanges.io.countCertainUseValue := false.B
-  storeRanges.io.countCertainValue := 0.U
+  storeCountPublisher.io.scalarValid := io.blockScalarDoneValid
+  storeCountPublisher.io.scalarBid := io.blockScalarDoneBid
+  storeCountPublisher.io.scalarStid := io.blockScalarDoneStid
+  storeCountPublisher.io.explicitValid := io.blockExplicitStoreCountValid
+  storeCountPublisher.io.explicitBid := io.blockExplicitStoreCountBid
+  storeCountPublisher.io.explicitStid := io.blockExplicitStoreCountStid
+  storeCountPublisher.io.explicitValue := io.blockExplicitStoreCountValue
+  storeCountPublisher.io.orderHeadBid := blockOrder.io.commitCursor
+  storeCountPublisher.io.orderLiveCount := blockOrder.io.liveCount
+  storeCountPublisher.io.recoveryValid := blockOrder.io.recoveryApplied
+  storeCountPublisher.io.recoveryStid := io.blockFlushStid
+  storeCountPublisher.io.recoveryFirstKilledBid := blockOrder.io.recoveryFirstKilledBid
+  storeRanges.io.countCertainValid := storeCountPublisher.io.publishValid
+  storeRanges.io.countCertainBid := storeCountPublisher.io.publishBid
+  storeRanges.io.countCertainStid := storeCountPublisher.io.publishStid
+  storeRanges.io.countCertainUseValue := storeCountPublisher.io.publishUseValue
+  storeRanges.io.countCertainValue := storeCountPublisher.io.publishValue
+  storeCountPublisher.io.sinkAccepted := storeRanges.io.countCertainAccepted
+  storeCountPublisher.io.sinkDuplicateMatch := storeRanges.io.countCertainDuplicateMatch
+  storeCountPublisher.io.sinkConflict := storeRanges.io.countCertainConflict
   storeRanges.io.retireValid := blockOrder.io.retireFire
   storeRanges.io.retireBid := blockOrder.io.retireBid
   storeRanges.io.retireStid := blockOrder.io.retireStid
@@ -511,6 +548,16 @@ class DispatchROBAllocator(
   io.blockStoreRangeQueryCount := storeRanges.io.query.storeCount
   io.blockStoreRangeQueryStartValid := storeRanges.io.query.startValid
   io.blockStoreRangeQueryStartId := storeRanges.io.query.startStoreId
+  io.blockExplicitStoreCountReady := storeCountPublisher.io.explicitReady
+  io.blockExplicitStoreCountAccepted := storeCountPublisher.io.explicitInputAccepted
+  io.blockExplicitStoreCountCanceled :=
+    storeCountPublisher.io.explicitInputCanceled || storeCountPublisher.io.explicitPendingCanceled
+  io.blockExplicitStoreCountBlockedByLiveWindow := storeCountPublisher.io.explicitBlockedByLiveWindow
+  io.blockStoreCountScalarPending := storeCountPublisher.io.scalarPending
+  io.blockStoreCountExplicitPending := storeCountPublisher.io.explicitPending
+  io.blockStoreCountSameBlockCollision := storeCountPublisher.io.sameBlockCollision
+  io.blockStoreCountDifferentBlockCollision := storeCountPublisher.io.differentBlockCollision
+  io.blockStoreCountConflict := storeRanges.io.countCertainConflict
   assert(!blockOrder.io.allocApplied || storeRanges.io.allocAccepted,
     "BROB order allocation must allocate the matching store-range row")
   assert(!storeRanges.io.storeObservedValid || storeRanges.io.storeObservedAccepted,
@@ -519,6 +566,10 @@ class DispatchROBAllocator(
     "BROB ordered retire must remove the matching store-range row")
   assert(!storeRanges.io.recoveryMissingStart,
     "BROB store-range recovery cannot rewind an assigned suffix without its saved start ID")
+  assert(!storeCountPublisher.io.scalarOverflow,
+    "scalar block closure must enter the retained store-count publisher")
+  assert(!storeCountPublisher.io.sinkConflictHeld,
+    "authoritative block store count must not conflict with a frozen exact-BID count")
   assert(!blockOrder.io.retireFire || brob.io.retireAccepted,
     "BROB ordered retire must remove the selected resident metadata head")
 

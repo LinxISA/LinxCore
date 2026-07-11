@@ -139,6 +139,9 @@ dispatch agents consume a real block owner.
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
 | input | `block*Done*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID completion, recovery, and query surface. |
+| input | `blockExplicitStoreCountValid/Bid/Stid/Value` | mixed | valid/ready | Authoritative CTU/tile count event; accepted after the retained publisher takes ownership of a live exact identity. |
+| output | `blockExplicitStoreCountReady/Accepted/Canceled` | `Bool` | handshake/diagnostic | Producer ownership transfer or later accepted-recovery cancellation. |
+| output | `blockStoreCount*Pending/*Collision/*Conflict` | mixed | diagnostic | Retained source state, arbitration class, and inconsistent frozen-count evidence. |
 | input | `blockRetireReady` | `Bool` | ready | Downstream block rename-commit queue can accept the held ordered head. |
 | output | `blockRetireValid/Fire/Bid/Stid` | mixed | ready/valid | Irrevocable exact completed head selected fairly across STIDs. |
 | output | `blockRetireMetadataAccepted/Ignored` | `Bool` | diagnostic | Metadata removal matched, or violated, the ordered-retire identity. |
@@ -166,6 +169,10 @@ dispatch agents consume a real block owner.
 - `BrobOrderState`: per-STID full-BID allocation tail, commit head, bounded
   live count, and one irrevocable shared-retire slot, reset to zero/empty.
 - `BrobMetaTracker`: block metadata state owner.
+- `BrobStoreCountPublisher`: independent one-entry scalar and explicit count
+  sources with exact live-window admission and accepted-recovery pruning.
+- `BrobStoreRangeState`: per-STID contiguous range rows, count certainty, and
+  exact-head count-known retirement qualification.
 - `ROBEntryBank`: PE ROB row state owner.
 
 ## Logic Design
@@ -176,9 +183,10 @@ bits retain generation uniqueness.
 
 New-block admission additionally requires the selected order window not be
 full. Completion may arrive out of order, but only the exact owner-provided
-commit head can retire. Its `(STID,full BID)` is held stable under downstream
-backpressure. Metadata free, commit-head advance, live-count decrement,
-rename-commit enqueue, and public retire fire share one handshake.
+commit head can retire, and only after its store count is certain. Its
+`(STID,full BID)` is held stable under downstream backpressure. Metadata free,
+range-row free, commit-head advance, live-count decrement, rename-commit
+enqueue, and public retire fire share one handshake.
 
 Allocation has three reduced modes:
 

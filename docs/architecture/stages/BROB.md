@@ -204,6 +204,25 @@ The count-certain event either latches the scalar stores accumulated for that
 block or carries an explicit parameterized count from an authoritative
 template/tile count producer. A decode hint alone is not authoritative.
 
+Explicit count publication uses a retained valid/ready boundary. The producer
+names an exact `(STID, full BID)` and holds its payload until the publication
+owner accepts ownership. That owner admits only identities inside the
+authoritative live head/count window, retains one event across range-sink
+backpressure, and reports cancellation only when an accepted recovery kills
+that suffix.
+
+- A scalar boundary completion is not backpressurable. If it collides with an
+  explicit event for a different block, scalar count closure publishes first
+  and the explicit event remains retained.
+- If scalar and explicit sources name the same block, the explicit count is
+  authoritative and the scalar accumulated count is redundant for range
+  closure. BROB scalar completion still proceeds independently.
+- Repeating an already-certain explicit count is idempotent only when the exact
+  value agrees. A conflicting value is an integration error and cannot mutate
+  the frozen range.
+- Count publication does not imply scalar completion, engine completion,
+  exception freedom, or non-flush safety. Those remain separate BROB owners.
+
 - The exact row at `store_range_cursor_bid` receives `start_store_id` even if
   its count is not yet certain. This makes the start stable while preventing
   younger bypass.

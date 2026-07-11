@@ -67,6 +67,15 @@ block receives a stable start ID but stops younger range allocation.
 - Scalar per-row SID and BROB block range assignment remain distinct owners.
   A future block/tile store consumer may derive row SIDs from its assigned
   range, but it may not overwrite scalar decode's accepted-row sequence.
+- An authoritative CTU/tile count crosses a retained exact-identity
+  publication boundary. It is admitted only for a live block, survives sink
+  backpressure, and is canceled only by an accepted recovery that kills its
+  full BID. Same-value duplicates are idempotent; conflicting duplicates are
+  errors.
+- Scalar block closure and explicit count publication may coincide. A
+  different-block collision closes the scalar count first and retains the
+  explicit event; a same-block explicit event supplies the authoritative
+  value. Neither case changes BROB completion or non-flush policy.
 
 This is an ISA-neutral resource-allocation mechanism. It does not define an
 architectural fence, ARM barrier encoding, exclusive monitor, acquire/release

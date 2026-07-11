@@ -84,6 +84,13 @@ class DecodeRenameROBPathIO(
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
   val validMask = Input(UInt(p.decodeWidth.W))
   val flushValid = Input(Bool())
+  val blockExplicitStoreCountValid = Input(Bool())
+  val blockExplicitStoreCountReady = Output(Bool())
+  val blockExplicitStoreCountBid = Input(UInt(bidWidth.W))
+  val blockExplicitStoreCountStid = Input(UInt(stidWidth.W))
+  val blockExplicitStoreCountValue = Input(UInt(loadStoreSerialWidth.W))
+  val blockExplicitStoreCountAccepted = Output(Bool())
+  val blockExplicitStoreCountCanceled = Output(Bool())
 
   val renamedOutReady = Input(Bool())
   val storeStaExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
@@ -427,6 +434,11 @@ class DecodeRenameROBPathIO(
   val blockStoreRangeQueryCount = Output(UInt(loadStoreSerialWidth.W))
   val blockStoreRangeQueryStartValid = Output(Bool())
   val blockStoreRangeQueryStartId = Output(UInt(loadStoreSerialWidth.W))
+  val blockStoreCountScalarPending = Output(Bool())
+  val blockStoreCountExplicitPending = Output(Bool())
+  val blockStoreCountSameBlockCollision = Output(Bool())
+  val blockStoreCountDifferentBlockCollision = Output(Bool())
+  val blockStoreCountConflict = Output(Bool())
   val tuRetireSourceWindowReady = Output(Bool())
   val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
   val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
@@ -1128,6 +1140,10 @@ class DecodeRenameROBPath(
   allocator.io.blockScalarDoneValid := blockScalarDoneFire
   allocator.io.blockScalarDoneBid := blockScalarDoneBid
   allocator.io.blockScalarDoneStid := blockScalarDoneStid
+  allocator.io.blockExplicitStoreCountValid := io.blockExplicitStoreCountValid
+  allocator.io.blockExplicitStoreCountBid := io.blockExplicitStoreCountBid
+  allocator.io.blockExplicitStoreCountStid := io.blockExplicitStoreCountStid
+  allocator.io.blockExplicitStoreCountValue := io.blockExplicitStoreCountValue
   allocator.io.blockScalarTrapValid := false.B
   allocator.io.blockScalarTrapCause := 0.U
   allocator.io.blockEngineDoneValid := false.B
@@ -1471,6 +1487,14 @@ class DecodeRenameROBPath(
   io.blockStoreRangeQueryCount := allocator.io.blockStoreRangeQueryCount
   io.blockStoreRangeQueryStartValid := allocator.io.blockStoreRangeQueryStartValid
   io.blockStoreRangeQueryStartId := allocator.io.blockStoreRangeQueryStartId
+  io.blockExplicitStoreCountReady := allocator.io.blockExplicitStoreCountReady
+  io.blockExplicitStoreCountAccepted := allocator.io.blockExplicitStoreCountAccepted
+  io.blockExplicitStoreCountCanceled := allocator.io.blockExplicitStoreCountCanceled
+  io.blockStoreCountScalarPending := allocator.io.blockStoreCountScalarPending
+  io.blockStoreCountExplicitPending := allocator.io.blockStoreCountExplicitPending
+  io.blockStoreCountSameBlockCollision := allocator.io.blockStoreCountSameBlockCollision
+  io.blockStoreCountDifferentBlockCollision := allocator.io.blockStoreCountDifferentBlockCollision
+  io.blockStoreCountConflict := allocator.io.blockStoreCountConflict
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount
@@ -1577,5 +1601,15 @@ object DecodeRenameROBPath {
     path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
     path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
     path.io.recoveryIntentReady := true.B
+  }
+
+  /** Tie off the future CTU/tile authoritative count source in shells that do
+    * not yet instantiate one. Scalar count closure remains active internally.
+    */
+  def tieOffExplicitStoreCount(path: DecodeRenameROBPath): Unit = {
+    path.io.blockExplicitStoreCountValid := false.B
+    path.io.blockExplicitStoreCountBid := 0.U
+    path.io.blockExplicitStoreCountStid := 0.U
+    path.io.blockExplicitStoreCountValue := 0.U
   }
 }

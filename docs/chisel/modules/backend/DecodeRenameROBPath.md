@@ -864,6 +864,12 @@ entries into local retire commands, matching `SPERename::RepLocalRetired` and
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
+The path exposes a retained authoritative `blockExplicitStoreCount*`
+valid/ready boundary for future CTU/tile producers. Reduced top shells tie it
+inactive through `DecodeRenameROBPath.tieOffExplicitStoreCount`; scalar closure
+still enters the publisher internally. Count publication, engine completion,
+and strong non-flush authorization remain separate.
+
 ## Deferred Owners
 
 - Width-wide selection and rename for multiple decoded uops per cycle.

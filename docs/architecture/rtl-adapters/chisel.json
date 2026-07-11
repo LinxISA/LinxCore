@@ -382,7 +382,7 @@
       "module_family": "block-control",
       "status": "stub",
       "contracts": ["LC-MA-BLK-001", "LC-MA-ENG-001"],
-      "known_gap": "The named BROB owner now maintains per-STID full-BID allocation-tail, commit-head, live-count, conservative strong non-flush prefix, and contiguous block store-range state; validates accepted recovery against that window; prunes metadata by bounded modular distance across rollover; and retires one exact completed head through an irrevocable fair lane. Early branch-resolved and tile-issued non-flush predicates, authoritative live template/tile count producers, configurable multi-block retire width, replay-state mutation, and migration from BID.DefaultWidth=64 to the canonical BID_W plus explicit wrap context remain open.",
+      "known_gap": "The named BROB owner now maintains per-STID full-BID allocation-tail, commit-head, live-count, conservative strong non-flush prefix, contiguous block store-range state, and a retained authoritative count-publication boundary; validates accepted recovery against those owners; prunes metadata by bounded modular distance across rollover; and retires one exact completed/count-certain head through an irrevocable fair lane. A canonical live Chisel CTU/tile count calculator, early branch-resolved and tile-issued non-flush predicates, configurable multi-block retire width, replay-state mutation, and migration from BID.DefaultWidth=64 to the canonical BID_W plus explicit wrap context remain open.",
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
@@ -404,6 +404,10 @@
         {
           "path": "chisel/src/main/scala/linxcore/bctrl/BrobStoreRangeState.scala",
           "symbols": ["BrobStoreRangeState", "rangeCursorBid", "nextStoreId", "countCertainAccepted", "recoveryRewound"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/bctrl/BrobStoreCountPublisher.scala",
+          "symbols": ["BrobStoreCountPublisher", "scalarPendingValid", "explicitPendingValid", "sameBlockCollision", "explicitPendingCanceled"]
         }
       ],
       "verification": [
@@ -418,6 +422,10 @@
         {
           "path": "tools/chisel/run_chisel_brob_store_range_state_probe.sh",
           "command": "bash tools/chisel/run_chisel_brob_store_range_state_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_brob_store_count_publisher_probe.sh",
+          "command": "bash tools/chisel/run_chisel_brob_store_count_publisher_probe.sh"
         }
       ]
     },

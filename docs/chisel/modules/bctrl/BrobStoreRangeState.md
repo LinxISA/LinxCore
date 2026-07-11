@@ -46,7 +46,14 @@ count. `blockScalarDone` publishes that accumulated count as certain. An
 authoritative template or tile producer may instead publish an explicit
 parameterized count through `countCertainUseValue/countCertainValue`; a decode
 hint alone is not sufficient. A second count-certain event is ignored rather
-than changing an already frozen range.
+than changing an already frozen range. `BrobStoreCountPublisher` retains and
+arbitrates those sources before this input.
+
+An agreeing duplicate is terminal and idempotent. A conflicting explicit
+value reports `countCertainConflict`, leaves the frozen row unchanged, and is
+not treated as accepted. The exact BROB head cannot retire until
+`headCountKnown` is true, preventing delayed publication from leaving a hole
+behind the range cursor.
 
 ## Consecutive Assignment
 
@@ -86,6 +93,9 @@ Recovery is scoped to one STID; reset/restart remains the all-lane operation.
 - `query*`: exact full-BID row residency, count, and assigned range start.
 - `allocAccepted`, `storeObservedAccepted`, `countCertainAccepted`,
   `retireAccepted`: lifecycle coherence evidence.
+- `countCertainDuplicateMatch`, `countCertainConflict`: idempotent repeat and
+  inconsistent-authority diagnostics.
+- `headResident`, `headCountKnown`: exact head lifecycle and retirement gate.
 - `recoveryRewound`, `recoveryMissingStart`: recovery result and invariant
   failure evidence.
 

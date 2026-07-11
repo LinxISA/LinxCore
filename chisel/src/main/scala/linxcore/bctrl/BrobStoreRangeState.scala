@@ -44,6 +44,8 @@ class BrobStoreRangeStateIO(
   val countCertainUseValue = Input(Bool())
   val countCertainValue = Input(UInt(storeCountWidth.W))
   val countCertainAccepted = Output(Bool())
+  val countCertainDuplicateMatch = Output(Bool())
+  val countCertainConflict = Output(Bool())
   val countCertainIgnored = Output(Bool())
 
   val retireValid = Input(Bool())
@@ -70,6 +72,8 @@ class BrobStoreRangeStateIO(
   val advanceCount = Output(Vec(stidCount, UInt(countWidth.W)))
   val blockedValid = Output(Vec(stidCount, Bool()))
   val blockedBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val headResident = Output(Vec(stidCount, Bool()))
+  val headCountKnown = Output(Vec(stidCount, Bool()))
 }
 
 /** Per-STID contiguous block store-range assignment and recovery owner. */
@@ -133,18 +137,26 @@ class BrobStoreRangeState(
   val storeHitsNewAlloc = allocAccepted && io.allocStid === io.storeObservedStid &&
     io.allocBid === io.storeObservedBid
   val storeAccepted = io.storeObservedValid && (storeHitsAllocated || storeHitsNewAlloc)
-  val certainHitsAllocated = certainMatch.asUInt.orR && certainEntry.allocated &&
-    certainEntry.bid === io.countCertainBid && !certainEntry.countKnown
+  val certainExactAllocated = certainMatch.asUInt.orR && certainEntry.allocated &&
+    certainEntry.bid === io.countCertainBid
+  val certainHitsAllocated = certainExactAllocated && !certainEntry.countKnown
   val certainHitsNewAlloc = allocAccepted && io.allocStid === io.countCertainStid &&
     io.allocBid === io.countCertainBid
   val certainAccepted = io.countCertainValid && (certainHitsAllocated || certainHitsNewAlloc)
+  val certainDuplicate = io.countCertainValid && certainExactAllocated && certainEntry.countKnown
+  val certainDuplicateMatch = certainDuplicate &&
+    (!io.countCertainUseValue || certainEntry.storeCount === io.countCertainValue)
+  val certainConflict = certainDuplicate && io.countCertainUseValue &&
+    certainEntry.storeCount =/= io.countCertainValue
 
   io.allocReady := allocReady
   io.allocAccepted := allocAccepted
   io.storeObservedAccepted := storeAccepted
   io.storeObservedIgnored := io.storeObservedValid && !storeAccepted
   io.countCertainAccepted := certainAccepted
-  io.countCertainIgnored := io.countCertainValid && !certainAccepted
+  io.countCertainDuplicateMatch := certainDuplicateMatch
+  io.countCertainConflict := certainConflict
+  io.countCertainIgnored := io.countCertainValid && !certainAccepted && !certainDuplicateMatch
   val retireHit = retireMatch.asUInt.orR && retireEntry.allocated && retireEntry.bid === io.retireBid
   io.retireAccepted := io.retireValid && retireHit
   io.retireIgnored := io.retireValid && !retireHit
@@ -155,6 +167,10 @@ class BrobStoreRangeState(
   val laneNextStoreId = Wire(Vec(stidCount, UInt(storeIdWidth.W)))
 
   for (stid <- 0 until stidCount) {
+    val headEntry = table(stid)(BID.slot(io.orderHeadBid(stid), entries))
+    io.headResident(stid) := io.orderLiveCount(stid) =/= 0.U &&
+      headEntry.allocated && headEntry.bid === io.orderHeadBid(stid)
+    io.headCountKnown(stid) := io.headResident(stid) && headEntry.countKnown
     val scanOpen = Wire(Vec(entries + 1, Bool()))
     val runningStoreId = Wire(Vec(entries + 1, UInt(storeIdWidth.W)))
     val touch = Wire(Vec(entries, Bool()))
