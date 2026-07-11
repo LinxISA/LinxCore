@@ -25,6 +25,8 @@ bash tests/test_microarchitecture_contract.sh
   verification index; not a second prose specification)
 - `mechanism-intake.json` (historical source disposition and promotion
   evidence; not a second prose specification)
+- `rtl-adapters/*.json` (implementation evidence and declared promotion gaps;
+  not a second prose specification)
 - `interfaces.md`
 - `verification-matrix.md`
 - `module-catalog.md`
@@ -71,6 +73,22 @@ recoverable snapshots are commits
 and target mapping is `mechanism-intake.json`. Historical serial `IB/F4`,
 `F4DecodeWindow`-as-stage, 64-bit-BID, and ARM-specific architectural
 wording is not part of the live contract.
+
+## RTL evidence adapters
+
+Each RTL lane has one adapter registered by `microarchitecture-contract.json`.
+An adapter binds normative contract IDs to implementation facts: named top
+shells, parameter defaults and guards, module/state owners, promotion state,
+and declared gaps. The generic `tools/architecture/check_rtl_adapter.py`
+validator reads Python structure through the AST so a renamed or removed owner
+cannot retain promotion by stale prose alone.
+
+New ISA-neutral IFU, cache, execution, or memory mechanisms extend the existing
+lane adapter. They do not create a parallel architecture page. A capability may
+be `integrated` only when its owner and composition evidence exist; incomplete
+work stays `stub` or `absent` with a precise `known_gap`. Rejected ARM-specific
+architectural state and behavior remain prohibited even when the underlying
+queue, arbitration, replay, or cache mechanism is reusable.
 
 ## Structural specification chapters
 

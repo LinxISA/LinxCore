@@ -332,6 +332,7 @@ def validate_contract(
         "contracts",
         "migration_inputs",
         "mechanism_intake",
+        "rtl_adapters",
         "extension_categories",
     }
     missing = sorted(required_root_fields - set(manifest))
@@ -645,6 +646,26 @@ def validate_contract(
         checked_paths=checked_paths,
     )
 
+    rtl_adapters = _require_object(manifest.get("rtl_adapters"), "rtl_adapters", errors)
+    for lane, adapter_path in rtl_adapters.items():
+        if lane not in LANES:
+            errors.append(f"rtl_adapters references unknown lane: {lane!r}")
+            continue
+        if not isinstance(adapter_path, str) or not adapter_path:
+            errors.append(f"rtl_adapters.{lane} must be a non-empty path")
+            continue
+        checked_paths.add(adapter_path)
+        try:
+            adapter = _load_json(root / adapter_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"cannot load {lane} RTL adapter {adapter_path}: {exc}")
+            continue
+        if adapter.get("lane") != lane:
+            errors.append(
+                f"RTL adapter {adapter_path} declares lane {adapter.get('lane')!r}, "
+                f"expected {lane!r}"
+            )
+
     extension_categories = _require_list(
         manifest.get("extension_categories"),
         "extension_categories",
@@ -672,6 +693,7 @@ def validate_contract(
             "migration_inputs": len(migration_inputs),
             "mechanisms": mechanism_count,
             "source_files": source_file_count,
+            "rtl_adapters": len(rtl_adapters),
         },
         "checked_paths": sorted(checked_paths),
     }
@@ -772,6 +794,7 @@ def _write_fixture(root: Path) -> dict[str, Any]:
             }
         ],
         "mechanism_intake": "docs/architecture/mechanism-intake.json",
+        "rtl_adapters": {},
         "extension_categories": ["cache", "ifu"],
     }
     intake = {

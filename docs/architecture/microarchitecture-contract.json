@@ -77,6 +77,10 @@
       "class": "canonical"
     },
     {
+      "path": "docs/architecture/rtl-adapters/pycircuit.json",
+      "class": "evidence"
+    },
+    {
       "path": "docs/chisel",
       "class": "evidence"
     }
@@ -660,6 +664,9 @@
   ],
   "migration_inputs": [],
   "mechanism_intake": "docs/architecture/mechanism-intake.json",
+  "rtl_adapters": {
+    "pycircuit": "docs/architecture/rtl-adapters/pycircuit.json"
+  },
   "extension_categories": [
     "ifu",
     "cache",

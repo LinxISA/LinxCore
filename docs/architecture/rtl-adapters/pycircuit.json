@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "lane": "pycircuit",
+  "architecture_manifest": "docs/architecture/microarchitecture-contract.json",
+  "top_shells": [
+    {
+      "id": "pycircuit-export",
+      "path": "src/linxcore_top.py",
+      "role": "export",
+      "module_names": ["linxcore_top"],
+      "symbols": ["build", "build_top_export"]
+    },
+    {
+      "id": "pycircuit-export-wrapper",
+      "path": "src/top/modules/export_core.py",
+      "role": "export-wrapper",
+      "module_names": ["LinxCoreTopExport"],
+      "symbols": ["build_top_export"]
+    },
+    {
+      "id": "pycircuit-full-composition",
+      "path": "src/top/top.py",
+      "role": "full-composition",
+      "module_names": ["LinxCoreTop"],
+      "symbols": ["build_linxcore_top"]
+    }
+  ],
+  "parameter_sets": [
+    {
+      "id": "ooo-defaults",
+      "path": "src/bcc/backend/params.py",
+      "class": "OooParams",
+      "values": {
+        "pregs": 64,
+        "aregs": 32,
+        "rob_depth": 64,
+        "iq_depth": 32,
+        "fetch_w": 4,
+        "dispatch_w": 4,
+        "issue_w": 4,
+        "commit_w": 4,
+        "alu_w": 2,
+        "bru_w": 1,
+        "lsu_w": 1,
+        "sq_entries": 32
+      },
+      "validation_text": [
+        "rob_depth must be a power of two",
+        "iq_depth must be a power of two",
+        "issue_w must equal alu_w + bru_w + lsu_w"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "pycircuit-smap-cmap",
+      "module_family": "rename-issue",
+      "status": "integrated",
+      "contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/modules/rename_bank.py",
+          "module_names": ["LinxCoreRenameBank"],
+          "symbols": ["smap_regs", "cmap_regs", "ready_mask_reg"]
+        },
+        {
+          "path": "src/bcc/backend/engine.py",
+          "symbols": ["build_bcc_ooo"],
+          "text_contains": ["ren.smap[i].set(nxt)", "ren.cmap[i].set"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_cosim_smoke.sh",
+          "command": "bash tests/test_cosim_smoke.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-mapq",
+      "module_family": "rename-issue",
+      "status": "absent",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001"],
+      "known_gap": "A canonical per-ROB-row MapQ old-mapping sidecar is not yet owned by the pyCircuit rename lane; recovery currently uses CMAP/checkpoint reconstruction.",
+      "absence_checks": [
+        {
+          "path": "src/bcc/backend/state.py",
+          "symbols": ["MapQ", "mapq"]
+        },
+        {
+          "path": "src/bcc/backend/modules/rename_bank.py",
+          "symbols": ["MapQ", "mapq"]
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-held-issue-queue",
+      "module_family": "rename-issue",
+      "status": "integrated",
+      "contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/modules/iq_bank.py",
+          "module_names": ["LinxCoreIqBankHeld"],
+          "symbols": ["build_iq_bank_top", "valid", "ready_mask", "resident_valid"]
+        },
+        {
+          "path": "src/bcc/backend/issue.py",
+          "module_names": ["LinxCoreIssuePicker", "LinxCoreIssueStage", "LinxCoreIqUpdateStage"],
+          "symbols": ["pick_oldest_from_arrays", "ready_mask", "iq_valid"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_cosim_smoke.sh",
+          "command": "bash tests/test_cosim_smoke.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-rob-recovery",
+      "module_family": "rob-recovery",
+      "status": "integrated",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/rob.py",
+          "module_names": ["LinxCoreRobCtrlStage", "LinxCoreRobEntryUpdateStage"],
+          "symbols": ["build_rob_ctrl_stage", "build_rob_entry_update_stage"]
+        },
+        {
+          "path": "src/bcc/ooo/flush_ctrl.py",
+          "module_names": ["JanusBccOooFlushCtrl"],
+          "symbols": ["build_janus_bcc_ooo_flush_ctrl"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_rob_bookkeeping.sh",
+          "command": "bash tests/test_rob_bookkeeping.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-linx-block-retirement",
+      "module_family": "block-control",
+      "status": "integrated",
+      "contracts": ["LC-MA-BLK-001", "LC-MA-ENG-001"],
+      "evidence": [
+        {
+          "path": "src/bcc/bctrl/brob.py",
+          "module_names": ["JanusBccBctrlBrob"],
+          "symbols": ["build_janus_bcc_bctrl_brob", "flush_kill_mask", "pending_brob"]
+        },
+        {
+          "path": "src/bcc/bctrl/bisq.py",
+          "module_names": ["JanusBccBctrlBisq"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_block_struct_pyc_flow.sh",
+          "command": "bash tests/test_block_struct_pyc_flow.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-lsid-order-gate",
+      "module_family": "lsu",
+      "status": "integrated",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/lsu.py",
+          "module_names": ["LinxCoreLsuStage"],
+          "symbols": ["ex0_lsid", "lsid_issue_ptr", "lsu_lsid_issue_advance", "lsu_forward_hit_lane0"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_trace_schema_and_mem.sh",
+          "command": "bash tests/test_trace_schema_and_mem.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-scb",
+      "module_family": "lsu",
+      "status": "stub",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
+      "known_gap": "The focused SCB testbench exists and generates both backends, but its Verilator run currently fails the cycle-2 chi_req_valid expectation; SCB cannot be promoted to unit-proven until that gate passes.",
+      "evidence": [
+        {"path": "src/bcc/lsu/scb.py", "module_names": ["JanusBccLsuScb"]},
+        {"path": "tests/pyc/tb_lsu_scb.py", "symbols": ["tb"]}
+      ]
+    },
+    {
+      "id": "pycircuit-lsu-order-queues",
+      "module_family": "lsu",
+      "status": "stub",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001", "LC-MA-HAZ-001"],
+      "known_gap": "LIQ, LHQ, STQ, and MDB have named parameterized owners but do not yet have complete focused tests or full-shell integration evidence.",
+      "evidence": [
+        {"path": "src/bcc/lsu/liq.py", "module_names": ["JanusBccLsuLiq"]},
+        {"path": "src/bcc/lsu/lhq.py", "module_names": ["JanusBccLsuLhq"]},
+        {"path": "src/bcc/lsu/stq.py", "module_names": ["JanusBccLsuStq"]},
+        {"path": "src/bcc/lsu/mdb.py", "module_names": ["JanusBccLsuMdb"]}
+      ]
+    },
+    {
+      "id": "pycircuit-full-lsu-composition",
+      "module_family": "lsu",
+      "status": "stub",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-FWD-001"],
+      "known_gap": "The full LSU shell currently composes committed-store drain only; LIQ/LHQ/STQ/MDB forwarding, replay, and cache integration remain separate bring-up owners.",
+      "evidence": [
+        {
+          "path": "src/bcc/lsu/lsu.py",
+          "module_names": ["JanusBccLsu"],
+          "text_contains": ["will later absorb STQ/LIQ/LHQ/MDB integration"]
+        }
+      ]
+    }
+  ],
+  "forbidden_architecture": {
+    "roots": ["src"],
+    "globs": ["*.py"],
+    "terms": [
+      "aarch64",
+      "arm exclusive",
+      "pointer authentication",
+      "pstate.",
+      "sve predicate",
+      "wfe/wfi"
+    ]
+  }
+}

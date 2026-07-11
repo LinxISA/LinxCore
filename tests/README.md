@@ -14,6 +14,10 @@
 - Purpose: validates the golden contract index, mechanism intake coverage,
   dual-RTL ownership, top-shell roles, scenario coverage, and removal of live
   migration inputs.
+- `test_pycircuit_architecture_adapter.sh`
+- Purpose: validates pyCircuit top roles, parameter defaults, state-owner
+  evidence, promotion claims, declared gaps, and rejection of ARM-specific
+  architectural behavior.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
@@ -44,6 +48,7 @@ bash /Users/zhoubot/LinxCore/tests/test_rob_bookkeeping.sh
 bash /Users/zhoubot/LinxCore/tests/test_cosim_smoke.sh
 bash /Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh
 bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_contract.sh
+bash /Users/zhoubot/LinxCore/tests/test_pycircuit_architecture_adapter.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh
