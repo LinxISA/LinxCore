@@ -3,11 +3,26 @@
 This directory is the canonical source-of-truth for LinxCore architecture and
 interface documentation.
 
+## Authority contract (LC-ARCH-DOC-001)
+
+The Markdown pages own normative semantics. The machine-readable
+`microarchitecture-contract.json` indexes each contract definition, stage
+family, implementation owner, top-shell role, scenario, and migration input.
+It must not introduce behavior that is absent from the owning Markdown page.
+
+Run the standalone authority and coverage gate with:
+
+```bash
+bash tests/test_microarchitecture_contract.sh
+```
+
 ## Contract pages
 
 - `overview.md`
 - `NAMING.md` (parameter and stage-name governance; not separately published)
 - `microarchitecture.md`
+- `microarchitecture-contract.json` (machine-readable ownership and
+  verification index; not a second prose specification)
 - `interfaces.md`
 - `verification-matrix.md`
 - `module-catalog.md`

@@ -1,0 +1,684 @@
+{
+  "schema_version": 1,
+  "architecture_version": "0.56",
+  "authority": {
+    "canonical_root": "docs/architecture",
+    "prose_source_of_truth": true,
+    "machine_index_role": "ownership-and-verification-index"
+  },
+  "vocabulary": {
+    "document_classes": [
+      "canonical",
+      "evidence",
+      "migration-input",
+      "obsolete"
+    ],
+    "top_shell_roles": [
+      "export",
+      "export-wrapper",
+      "full-composition",
+      "reduced-bringup",
+      "full-replacement"
+    ],
+    "promotion_states": [
+      "absent",
+      "stub",
+      "unit-proven",
+      "integrated",
+      "cross-rtl-aligned",
+      "workload-proven"
+    ],
+    "mechanism_dispositions": [
+      "adopt",
+      "adapt",
+      "parameterize",
+      "reject"
+    ]
+  },
+  "documents": [
+    {
+      "path": "docs/architecture/README.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/overview.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/microarchitecture.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/interfaces.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/verification-matrix.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/module-catalog.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/pipeline-stage-catalog.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/NAMING.md",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/chisel",
+      "class": "evidence"
+    },
+    {
+      "path": "docs/temp/linxcore",
+      "class": "migration-input"
+    },
+    {
+      "path": "docs/temp/upgrade",
+      "class": "migration-input"
+    }
+  ],
+  "top_shells": [
+    {
+      "id": "pycircuit-export",
+      "lane": "pycircuit",
+      "path": "src/linxcore_top.py",
+      "role": "export",
+      "status": "integrated"
+    },
+    {
+      "id": "pycircuit-export-wrapper",
+      "lane": "pycircuit",
+      "path": "src/top/modules/export_core.py",
+      "role": "export-wrapper",
+      "status": "integrated"
+    },
+    {
+      "id": "pycircuit-full-composition",
+      "lane": "pycircuit",
+      "path": "src/top/top.py",
+      "role": "full-composition",
+      "status": "integrated"
+    },
+    {
+      "id": "chisel-reduced-bringup",
+      "lane": "chisel",
+      "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+      "role": "reduced-bringup",
+      "status": "integrated"
+    }
+  ],
+  "stage_families": [
+    {
+      "id": "frontend",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "F0",
+        "F1",
+        "F2",
+        "F3",
+        "F4"
+      ]
+    },
+    {
+      "id": "decode-dispatch",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "D1",
+        "D2",
+        "D3",
+        "S1",
+        "S2",
+        "S3"
+      ]
+    },
+    {
+      "id": "pick-issue",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "P0",
+        "P1",
+        "I1",
+        "I2"
+      ]
+    },
+    {
+      "id": "execute-result",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "E1",
+        "E2",
+        "E3",
+        "E4",
+        "E5",
+        "E6",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    {
+      "id": "retire-recovery",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "ROB",
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "CMT",
+        "FLS"
+      ]
+    },
+    {
+      "id": "memory",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "LIQ",
+        "LHQ",
+        "STQ",
+        "SCB",
+        "MDB",
+        "L1D"
+      ]
+    },
+    {
+      "id": "block-engine",
+      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "stages": [
+        "BISQ",
+        "BCTRL",
+        "BROB",
+        "XCHK",
+        "TMU",
+        "TMA",
+        "CUBE",
+        "VEC",
+        "TAU",
+        "TEPL"
+      ]
+    }
+  ],
+  "module_families": [
+    {
+      "id": "frontend",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/bcc/ifu/f0.py",
+            "src/bcc/ifu/f1.py",
+            "src/bcc/ifu/f2.py",
+            "src/bcc/ifu/f3.py",
+            "src/bcc/ifu/f4.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/frontend/FrontendInstructionBuffer.scala",
+            "chisel/src/main/scala/linxcore/frontend/FrontendDecodeStage.scala"
+          ]
+        }
+      }
+    },
+    {
+      "id": "rename-issue",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/bcc/backend/rename.py",
+            "src/bcc/backend/issue.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala",
+            "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala"
+          ]
+        }
+      }
+    },
+    {
+      "id": "rob-recovery",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/bcc/backend/rob.py",
+            "src/bcc/ooo/flush_ctrl.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
+            "chisel/src/main/scala/linxcore/recovery/FlushControl.scala"
+          ]
+        }
+      }
+    },
+    {
+      "id": "block-control",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/bcc/bctrl/brob.py",
+            "src/bcc/bctrl/bisq.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
+            "chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala"
+          ]
+        }
+      }
+    },
+    {
+      "id": "lsu",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/bcc/lsu/liq.py",
+            "src/bcc/lsu/lhq.py",
+            "src/bcc/lsu/stq.py",
+            "src/bcc/lsu/scb.py",
+            "src/bcc/lsu/mdb.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala",
+            "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala",
+            "chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala",
+            "chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala"
+          ]
+        }
+      }
+    },
+    {
+      "id": "trace-interface",
+      "lanes": {
+        "pycircuit": {
+          "status": "integrated",
+          "owners": [
+            "src/probes/commit_probe.py",
+            "src/probes/pipeview_probe.py"
+          ]
+        },
+        "chisel": {
+          "status": "unit-proven",
+          "owners": [
+            "chisel/src/main/scala/linxcore/commit/CommitTrace.scala",
+            "chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala"
+          ]
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-doc-authority",
+      "contracts": [
+        "LC-ARCH-DOC-001"
+      ]
+    },
+    {
+      "id": "scenario-pipeline-admission",
+      "contracts": [
+        "LC-MA-PIPE-001",
+        "LC-MA-RES-001",
+        "LC-MA-STAGE-001"
+      ]
+    },
+    {
+      "id": "scenario-rob-block-recovery",
+      "contracts": [
+        "LC-MA-ROB-001",
+        "LC-MA-HAZ-001",
+        "LC-MA-BLK-001",
+        "LC-MA-FWD-001"
+      ]
+    },
+    {
+      "id": "scenario-trap-mmu-interrupt",
+      "contracts": [
+        "LC-MA-PRV-001",
+        "LC-MA-MMU-001",
+        "LC-MA-IRQ-001"
+      ]
+    },
+    {
+      "id": "scenario-memory-ordering",
+      "contracts": [
+        "LC-MA-MEM-001",
+        "LC-MA-HAZ-001",
+        "LC-MA-FWD-001"
+      ]
+    },
+    {
+      "id": "scenario-engine-completion",
+      "contracts": [
+        "LC-MA-ENG-001",
+        "LC-MA-BLK-001"
+      ]
+    },
+    {
+      "id": "scenario-interface-trace-sync",
+      "contracts": [
+        "LC-IF-PYC-001",
+        "LC-IF-PYC-002",
+        "LC-IF-TRACE-001",
+        "LC-IF-TRACE-002",
+        "LC-IF-SYNC-001",
+        "LC-IF-MODEL-001"
+      ]
+    }
+  ],
+  "contracts": [
+    {
+      "id": "LC-ARCH-DOC-001",
+      "definition": {
+        "document": "docs/architecture/README.md",
+        "heading": "## Authority contract (LC-ARCH-DOC-001)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-doc-authority"
+      ]
+    },
+    {
+      "id": "LC-MA-PIPE-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Pipeline contract (LC-MA-PIPE-001)"
+      },
+      "module_families": [
+        "frontend",
+        "rename-issue",
+        "rob-recovery"
+      ],
+      "scenarios": [
+        "scenario-pipeline-admission"
+      ]
+    },
+    {
+      "id": "LC-MA-RES-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "### Resource admission and backpressure (LC-MA-RES-001)"
+      },
+      "module_families": [
+        "rename-issue",
+        "rob-recovery",
+        "lsu"
+      ],
+      "scenarios": [
+        "scenario-pipeline-admission"
+      ]
+    },
+    {
+      "id": "LC-MA-ROB-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## ROB and precise retirement contract (LC-MA-ROB-001)"
+      },
+      "module_families": [
+        "rob-recovery"
+      ],
+      "scenarios": [
+        "scenario-rob-block-recovery"
+      ]
+    },
+    {
+      "id": "LC-MA-HAZ-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Hazard and replay contract (LC-MA-HAZ-001)"
+      },
+      "module_families": [
+        "rename-issue",
+        "rob-recovery",
+        "lsu"
+      ],
+      "scenarios": [
+        "scenario-rob-block-recovery",
+        "scenario-memory-ordering"
+      ]
+    },
+    {
+      "id": "LC-MA-BLK-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Block and recovery contract (LC-MA-BLK-001)"
+      },
+      "module_families": [
+        "block-control",
+        "rob-recovery"
+      ],
+      "scenarios": [
+        "scenario-rob-block-recovery",
+        "scenario-engine-completion"
+      ]
+    },
+    {
+      "id": "LC-MA-PRV-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Privilege/trap contract (LC-MA-PRV-001)"
+      },
+      "module_families": [
+        "rob-recovery",
+        "block-control"
+      ],
+      "scenarios": [
+        "scenario-trap-mmu-interrupt"
+      ]
+    },
+    {
+      "id": "LC-MA-MMU-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## MMU contract (LC-MA-MMU-001)"
+      },
+      "module_families": [
+        "frontend",
+        "lsu"
+      ],
+      "scenarios": [
+        "scenario-trap-mmu-interrupt"
+      ]
+    },
+    {
+      "id": "LC-MA-IRQ-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Interrupt contract (LC-MA-IRQ-001)"
+      },
+      "module_families": [
+        "rob-recovery",
+        "block-control"
+      ],
+      "scenarios": [
+        "scenario-trap-mmu-interrupt"
+      ]
+    },
+    {
+      "id": "LC-MA-MEM-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Memory-ordering contract (LC-MA-MEM-001)"
+      },
+      "module_families": [
+        "lsu",
+        "rob-recovery"
+      ],
+      "scenarios": [
+        "scenario-memory-ordering"
+      ]
+    },
+    {
+      "id": "LC-MA-ENG-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Engine integration contract (LC-MA-ENG-001)"
+      },
+      "module_families": [
+        "block-control",
+        "rob-recovery"
+      ],
+      "scenarios": [
+        "scenario-engine-completion"
+      ]
+    },
+    {
+      "id": "LC-MA-FWD-001",
+      "definition": {
+        "document": "docs/architecture/microarchitecture.md",
+        "heading": "## Forward-progress contract (LC-MA-FWD-001)"
+      },
+      "module_families": [
+        "frontend",
+        "rename-issue",
+        "rob-recovery",
+        "lsu"
+      ],
+      "scenarios": [
+        "scenario-rob-block-recovery",
+        "scenario-memory-ordering"
+      ]
+    },
+    {
+      "id": "LC-MA-STAGE-001",
+      "definition": {
+        "document": "docs/architecture/module-catalog.md",
+        "heading": "## Structural rules (LC-MA-STAGE-001)"
+      },
+      "module_families": [
+        "frontend",
+        "rename-issue",
+        "rob-recovery",
+        "block-control",
+        "lsu",
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-pipeline-admission"
+      ]
+    },
+    {
+      "id": "LC-IF-PYC-001",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## pyCircuit-LinxCore interface contract (LC-IF-PYC-001)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    },
+    {
+      "id": "LC-IF-PYC-002",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## Required commit payload contract (LC-IF-PYC-002)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    },
+    {
+      "id": "LC-IF-TRACE-001",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## LinxTrace schema contract (LC-IF-TRACE-001)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    },
+    {
+      "id": "LC-IF-TRACE-002",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## Trace compatibility contract (LC-IF-TRACE-002)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    },
+    {
+      "id": "LC-IF-SYNC-001",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## Cross-tool synchronization contract (LC-IF-SYNC-001)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    },
+    {
+      "id": "LC-IF-MODEL-001",
+      "definition": {
+        "document": "docs/architecture/interfaces.md",
+        "heading": "## LinxCoreModel simulator contract (LC-IF-MODEL-001)"
+      },
+      "module_families": [
+        "trace-interface"
+      ],
+      "scenarios": [
+        "scenario-interface-trace-sync"
+      ]
+    }
+  ],
+  "migration_inputs": [
+    {
+      "path": "docs/temp/linxcore",
+      "class": "migration-input",
+      "status": "pending",
+      "snapshot": "tracked-before-harness"
+    },
+    {
+      "path": "docs/temp/upgrade",
+      "class": "migration-input",
+      "status": "pending",
+      "snapshot": "8f6b821f"
+    }
+  ],
+  "extension_categories": [
+    "ifu",
+    "cache",
+    "execution",
+    "memory",
+    "block-control",
+    "engine",
+    "trace"
+  ]
+}
