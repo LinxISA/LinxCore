@@ -256,12 +256,25 @@
     {
       "id": "pycircuit-scb",
       "module_family": "lsu",
-      "status": "stub",
+      "status": "unit-proven",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "known_gap": "The focused SCB testbench exists and generates both backends, but its Verilator run currently fails the cycle-2 chi_req_valid expectation; SCB cannot be promoted to unit-proven until that gate passes.",
+      "limitations": [
+        "The SCB is not yet connected to the canonical full LSU shell.",
+        "The focused owner models a CHI-like request/response abstraction rather than protocol channelization."
+      ],
       "evidence": [
-        {"path": "src/bcc/lsu/scb.py", "module_names": ["JanusBccLsuScb"]},
+        {
+          "path": "src/bcc/lsu/scb.py",
+          "module_names": ["JanusBccLsuScb"],
+          "symbols": ["can_merge", "last_is_presented", "merged_mask", "merged_data", "free_tmask"]
+        },
         {"path": "tests/pyc/tb_lsu_scb.py", "symbols": ["tb"]}
+      ],
+      "verification": [
+        {
+          "path": "tests/test_lsu_scb_pyc_flow.sh",
+          "command": "bash tests/test_lsu_scb_pyc_flow.sh"
+        }
       ]
     },
     {

@@ -248,6 +248,25 @@
       ]
     },
     {
+      "id": "chisel-youngest-byte-forwarding",
+      "module_family": "lsu",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
+      "limitations": ["The forwarding owner is focused-unit evidence and is not connected to a canonical full LSU top."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
+          "symbols": ["LoadStoreForwarding"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/LoadStoreForwardingSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwardingSpec"
+        }
+      ]
+    },
+    {
       "id": "chisel-load-inflight-replay",
       "module_family": "lsu",
       "status": "unit-proven",

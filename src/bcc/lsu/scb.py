@@ -136,6 +136,18 @@ def build_janus_bcc_lsu_scb(
     tail_idx = (head.out() + count.out()._trunc(width=idx_w))._trunc(width=idx_w)
     last_off = (count.out() - c(1, width=idx_w + 1))._trunc(width=idx_w + 1)
     last_idx = (head.out() + last_off._trunc(width=idx_w))._trunc(width=idx_w)
+    issue_idx = (head.out() + issued_off.out()._trunc(width=idx_w))._trunc(width=idx_w)
+
+    # Allocate the prospective transaction ID before enqueue arbitration.
+    t_ok = c(0, width=1)
+    t_id = c(0, width=tid_w)
+    for t in range(int(scb_outstanding)):
+        bit = free_tmask.out()[t]
+        take = bit & (~t_ok)
+        t_ok = c(1, width=1) if take else t_ok
+        t_id = c(t, width=tid_w) if take else t_id
+    has_unissued = issued_off.out().ult(count.out())
+    last_is_presented = has_unissued & last_idx.__eq__(issue_idx)
 
     # Merge condition: last entry exists, is not yet issued, same line, consecutive SID.
     last_unissued = issued_off.out().ult(count.out())  # there exists an unissued entry
@@ -162,7 +174,16 @@ def build_janus_bcc_lsu_scb(
 
     merge_consecutive = enq_sid == (merge_old_young + c(1, width=sid_w))
     merge_same_line = enq_line == merge_old_line
-    can_merge = (count.out() != c(0, width=idx_w + 1)) & last_unissued & merge_hit & merge_same_line & merge_consecutive
+    can_merge = (
+        (count.out() != c(0, width=idx_w + 1))
+        & last_unissued
+        & merge_hit
+        & merge_same_line
+        & merge_consecutive
+        # Once a row is visible on the request channel, its payload must remain
+        # stable until the ready/valid handshake completes.
+        & (~last_is_presented)
+    )
 
     # Enqueue ready if can merge OR have space for new entry.
     enq_ready = (~full) | can_merge
@@ -197,45 +218,7 @@ def build_janus_bcc_lsu_scb(
     # Count increases only on alloc.
     count_next = (count_next + c(1, width=idx_w + 1)) if do_alloc else count_next
 
-    # Write entry contents
-    for i in range(int(scb_entries)):
-        is_tail = tail_idx == c(i, width=idx_w)
-        is_last = last_idx == c(i, width=idx_w)
-
-        # Allocate writes
-        valid[i].set(c(1, width=1), when=do_alloc & is_tail)
-        done[i].set(c(0, width=1), when=do_alloc & is_tail)
-        line_q[i].set(enq_line, when=do_alloc & is_tail)
-        mask_q[i].set(enq_mask, when=do_alloc & is_tail)
-        data_q[i].set(enq_data, when=do_alloc & is_tail)
-        oldest_sid_q[i].set(enq_sid, when=do_alloc & is_tail)
-        youngest_sid_q[i].set(enq_sid, when=do_alloc & is_tail)
-        txnid_q[i].set(c(0, width=tid_w), when=do_alloc & is_tail)
-
-        # Merge writes (update mask/data/youngest)
-        merged_mask = merge_old_mask | enq_mask
-        merged_data = _merge_by_mask(m, old_data=merge_old_data, old_mask=merge_old_mask, new_data=enq_data, new_mask=enq_mask)
-        mask_q[i].set(merged_mask, when=do_merge & is_last)
-        data_q[i].set(merged_data, when=do_merge & is_last)
-        youngest_sid_q[i].set(enq_sid, when=do_merge & is_last)
-
-        # Clear head slot on dequeue.
-        valid[i].set(c(0, width=1), when=deq_fire & (head.out() == c(i, width=idx_w)))
-        done[i].set(c(0, width=1), when=deq_fire & (head.out() == c(i, width=idx_w)))
-
     # --- Issue to CHI (1 per cycle), preserving queue order.
-    has_unissued = issued_off.out().ult(count.out())
-    issue_idx = (head.out() + issued_off.out()._trunc(width=idx_w))._trunc(width=idx_w)
-
-    # Allocate lowest free txnid.
-    t_ok = c(0, width=1)
-    t_id = c(0, width=tid_w)
-    for t in range(int(scb_outstanding)):
-        bit = free_tmask.out()[t]
-        take = bit & (~t_ok)
-        t_ok = c(1, width=1) if take else t_ok
-        t_id = c(t, width=tid_w) if take else t_id
-
     # Extract issue entry payload.
     issue_line = c(0, width=paddr_w)
     issue_mask = c(0, width=64)
@@ -255,11 +238,6 @@ def build_janus_bcc_lsu_scb(
 
     issue_fire = issue_can_fire & chi_req_ready
 
-    # Record txnid into issued entry and consume txnid.
-    for i in range(int(scb_entries)):
-        is_i = issue_idx == c(i, width=idx_w)
-        txnid_q[i].set(t_id, when=issue_fire & is_i)
-
     alloc_bit = c(1, width=scb_outstanding).shl(amount=t_id._zext(width=scb_outstanding))
     free_tmask_next = (free_tmask_next & (~alloc_bit)) if issue_fire else free_tmask_next
     issued_off_next = (issued_off_next + c(1, width=idx_w + 1)) if issue_fire else issued_off_next
@@ -272,10 +250,43 @@ def build_janus_bcc_lsu_scb(
     free_bit = c(1, width=scb_outstanding).shl(amount=chi_resp_txnid._zext(width=scb_outstanding))
     free_tmask_next = (free_tmask_next | free_bit) if resp_fire else free_tmask_next
 
-    # Mark matching entry done.
+    # Consolidate every entry update into one assignment per register. pyCircuit
+    # register setters are not cumulative; splitting these priorities across
+    # multiple set() calls would silently discard earlier updates.
+    merged_mask = merge_old_mask | enq_mask
+    merged_data = _merge_by_mask(m, old_data=merge_old_data, old_mask=merge_old_mask, new_data=enq_data, new_mask=enq_mask)
     for i in range(int(scb_entries)):
-        match = valid[i].out() & (txnid_q[i].out() == chi_resp_txnid)
-        done[i].set(c(1, width=1), when=resp_fire & match)
+        slot = c(i, width=idx_w)
+        alloc_i = do_alloc & tail_idx.__eq__(slot)
+        merge_i = do_merge & last_idx.__eq__(slot)
+        issue_i = issue_fire & issue_idx.__eq__(slot)
+        deq_i = deq_fire & head.out().__eq__(slot)
+        resp_i = resp_fire & valid[i].out() & txnid_q[i].out().__eq__(chi_resp_txnid)
+
+        valid_next = c(1, width=1) if alloc_i else valid[i].out()
+        valid_next = c(0, width=1) if deq_i else valid_next
+        done_next = c(0, width=1) if alloc_i else done[i].out()
+        done_next = c(1, width=1) if resp_i else done_next
+        done_next = c(0, width=1) if deq_i else done_next
+
+        line_next = enq_line if alloc_i else line_q[i].out()
+        mask_next = enq_mask if alloc_i else mask_q[i].out()
+        mask_next = merged_mask if merge_i else mask_next
+        data_next = enq_data if alloc_i else data_q[i].out()
+        data_next = merged_data if merge_i else data_next
+        oldest_sid_next = enq_sid if alloc_i else oldest_sid_q[i].out()
+        youngest_sid_next = enq_sid if (alloc_i | merge_i) else youngest_sid_q[i].out()
+        txnid_next = c(0, width=tid_w) if alloc_i else txnid_q[i].out()
+        txnid_next = t_id if issue_i else txnid_next
+
+        valid[i].set(valid_next)
+        done[i].set(done_next)
+        line_q[i].set(line_next)
+        mask_q[i].set(mask_next)
+        data_q[i].set(data_next)
+        oldest_sid_q[i].set(oldest_sid_next)
+        youngest_sid_q[i].set(youngest_sid_next)
+        txnid_q[i].set(txnid_next)
 
     # Commit state.
     head.set(head_next)
@@ -297,4 +308,8 @@ def build_janus_bcc_lsu_scb(
 
     m.output("full", full)
     m.output("has_unissued", has_unissued)
+    m.output("merge_allowed", can_merge)
+    m.output("merge_tail_presented", last_is_presented)
+    m.output("merge_same_line", merge_same_line)
+    m.output("merge_consecutive_sid", merge_consecutive)
     m.output("last_drained_sid", last_drained_sid.out())
