@@ -5,6 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBRecoveryDeliveryPath.scala`
 - Atomic admission: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictTransactionControl.scala`
 - Exact promotion: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
+- Canonical STID boundary: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBRecoveryDeliveryPathSpec.scala`
 - Generated proof: `rtl/LinxCore/tools/chisel/run_chisel_mdb_recovery_delivery_path_probe.sh`
 - Model evidence:
@@ -46,13 +47,14 @@ recovery remains defined by block, STID, and precise ROB ordering.
    candidate. Neither may fire alone.
 4. The queue head remains stable while age eligibility, exact lookup, or
    central source acceptance is blocked.
-5. The queue dequeues only on `ScalarLSURecoverySource.sourceAccepted`.
+5. The queue dequeues only on `ScalarLSURecoveryBoundary.sourceAccepted`.
 
 ## STID And Identity Contract
 
 - The queued report STID selects exactly one `oldestValid/oldestBid/oldestRid`
   lane. BIDs from different STIDs are never compared.
-- An out-of-range STID selects no lane and cannot authorize recovery.
+- An out-of-range STID selects no lane, issues no ROB lookup, and cannot
+  authorize or consume recovery.
 - Exact promotion requires the ROB lookup response to echo
   `(BID,GID,RID,PE,STID,TID)`, carry a valid full BID, and project that full BID
   back to the same wrap-qualified ring BID.
@@ -81,7 +83,8 @@ recovery remains defined by block, STID, and precise ROB ordering.
 
 The generated probe covers record-side backpressure, atomic admission,
 retention under source backpressure, exact full-BID promotion, STID1 lane
-selection, out-of-range STID suppression, accepted dequeue, and flush cleanup.
+selection, out-of-range STID lookup/source/dequeue suppression, accepted
+dequeue, and flush cleanup.
 `tests/test_lsu_mdb_transaction_cross_rtl.sh` additionally requires the Chisel
 and pyCircuit atomic-admission lanes to declare and pass the same conflict
 backpressure, atomic publication, and unrequired-sink bypass scenarios.

@@ -171,11 +171,15 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["DecodeRenameROBPath integrates the four-lane direct non-LSU producer bank and owner-selected per-STID watchdog identity, but upstream live BCC/IEX/PE event generation and the canonical ScalarLSURecoverySource connection remain open.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Complete external cleanup-consumer fanout remains open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
+      "limitations": ["DecodeRenameROBPath integrates the four-lane direct non-LSU producer bank and the shared parameterized scalar-LSU recovery boundary, but upstream live BCC/IEX/PE event generation and replacement of the reduced MDB producer by the complete ScalarLSU hierarchy remain open.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Complete external cleanup-consumer fanout remains open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLSURecoverySourcePortIO", "recoverySource", "sourceReady", "sourcePending"]
+          "symbols": ["ScalarLSU", "ScalarLSURecoverySourcePortIO", "recoveryBoundary", "sourceReady", "sourcePending"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala",
+          "symbols": ["ScalarLSURecoveryBoundary", "stidMatches", "stidInRange", "selectedRingReq"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala",
@@ -507,7 +511,7 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit", "recoverySource"]
+          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit", "recoveryBoundary"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala",
@@ -562,7 +566,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/MDBRecoveryDeliveryPath.scala",
-          "symbols": ["MDBRecoveryDeliveryPath", "MDBConflictTransactionControl", "candidateAccepted", "recordValid", "recoveryQ", "recoveryStidInRange", "ScalarLSURecoverySource"]
+          "symbols": ["MDBRecoveryDeliveryPath", "MDBConflictTransactionControl", "candidateAccepted", "recordValid", "recoveryQ", "recoveryStidInRange", "ScalarLSURecoveryBoundary"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadWaitStoreTimeout.scala",

@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{log2Ceil, Mux1H, Queue}
+import chisel3.util.{log2Ceil, Queue}
 
 import linxcore.recovery.{ExecEngineType, FlushControl, FlushReq, FlushType, FullBidFlushReq}
 import linxcore.rob.{ROBFullBidLookupRequest, ROBFullBidLookupResult, ROBID}
@@ -99,24 +99,22 @@ class MDBRecoveryDeliveryPath(
 
   val pending = FlushControl.annotate(recoveryQ.io.deq.bits)
   pending.req.valid := recoveryQ.io.deq.valid
-  val stidMatches = VecInit((0 until stidCount).map(stid => pending.req.stid === stid.U))
-  val stidInRange = stidMatches.asUInt.orR
-  val recoverySource = Module(new ScalarLSURecoverySource(
-    entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  recoverySource.io.ringReq := pending
-  recoverySource.io.oldestValid := stidInRange && Mux1H(stidMatches, io.oldestValid)
-  recoverySource.io.oldestBid := Mux1H(stidMatches, io.oldestBid)
-  recoverySource.io.oldestRid := Mux1H(stidMatches, io.oldestRid)
-  recoverySource.io.fullBidLookup := io.fullBidLookup
-  recoverySource.io.sourceReady := io.sourceReady
-  recoveryQ.io.deq.ready := recoverySource.io.ringReqReady && io.enable && !io.flush
+  val recoveryBoundary = Module(new ScalarLSURecoveryBoundary(
+    entries, stidCount, bidWidth, peIdWidth, stidWidth, tidWidth))
+  recoveryBoundary.io.ringReq := pending
+  recoveryBoundary.io.oldestValid := io.oldestValid
+  recoveryBoundary.io.oldestBid := io.oldestBid
+  recoveryBoundary.io.oldestRid := io.oldestRid
+  recoveryBoundary.io.fullBidLookup := io.fullBidLookup
+  recoveryBoundary.io.sourceReady := io.sourceReady
+  recoveryQ.io.deq.ready := recoveryBoundary.io.ringReqReady && io.enable && !io.flush
 
   io.candidateAccepted := transaction.io.accepted
   io.recordValid := transaction.io.recordValid
   io.recoveryPending := recoveryQ.io.deq.valid
   io.recoveryCount := recoveryQ.io.count
-  io.recoveryStidInRange := stidInRange
-  io.fullBidLookupRequest := recoverySource.io.fullBidLookupRequest
-  io.source := recoverySource.io.source
-  io.sourceAccepted := recoverySource.io.sourceAccepted
+  io.recoveryStidInRange := recoveryBoundary.io.stidInRange
+  io.fullBidLookupRequest := recoveryBoundary.io.fullBidLookupRequest
+  io.source := recoveryBoundary.io.source
+  io.sourceAccepted := recoveryBoundary.io.sourceAccepted
 }

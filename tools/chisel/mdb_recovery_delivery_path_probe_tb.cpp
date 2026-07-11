@@ -127,8 +127,8 @@ int main(int argc, char **argv) {
     dut.io_conflictValid = 0;
     dut.eval();
     require(dut.io_recoveryPending && !dut.io_recoveryStidInRange &&
-                !dut.io_sourceValid && !dut.io_sourceAccepted,
-            "out-of-range STID authorized recovery or escaped retention");
+                !dut.io_lookupValid && !dut.io_sourceValid && !dut.io_sourceAccepted,
+            "out-of-range STID issued a lookup, authorized recovery, or escaped retention");
 
     dut.io_flush = 1;
     tick(dut);

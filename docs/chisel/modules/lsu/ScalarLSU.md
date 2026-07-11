@@ -9,6 +9,8 @@
 - MDB child: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
 - Recovery-source child:
   `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
+- Recovery-boundary child:
+  `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala`
 - Model reference: `model/LinxCoreModel/model/core/Core.cpp`,
   `Core::BuildScalarLSU`; `model/LinxCoreModel/model/lsu/lsu.h`,
@@ -27,6 +29,8 @@ recovery-report boundary and wrap-qualified oldest BID/RID eligibility. R638
 adds exact allocator/ROB full-BID lookup and promotion. R639 proves the central
 multi-source arbiter. R640 removes local cleanup selection from ScalarLSU and
 publishes its exactly promoted MDB report through `ScalarLSURecoverySource`.
+R658 makes `ScalarLSURecoveryBoundary` the sole report-STID watermark selector
+shared with the reduced integration lane and parameterizes scalar STID count.
 Cache and miss queues, canonical-top source/lookup wiring, and final load-return
 publication remain outside this hierarchy, so this is not yet a complete LSU.
 
@@ -36,6 +40,7 @@ publication remain outside this hierarchy, so this is not yet a complete LSU.
 LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 
 - `stqEntries`
+- `stidCount`
 - `commitQueueEntries` and `commitIssueWidth`
 - `scbEntries` and `scbResponseBufferDepth`
 - `liqEntries` and `resolveQueueEntries`
@@ -74,8 +79,11 @@ accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
 and retained wait/wakeup/recovery state to be empty.
 
 `ScalarLSU` connects the retained MDB report to
-`ScalarLSURecoverySource`. The caller supplies the source-STID oldest BID/RID
-watermark, exact ROB lookup result, and central source readiness. Non-immediate
+`ScalarLSURecoveryBoundary`, which selects one watermark from the
+`stidCount`-sized owner vectors before `ScalarLSURecoverySource` performs age
+and identity promotion. The caller supplies per-STID oldest BID/RID
+watermarks, the exact ROB lookup result, and central source readiness. An
+out-of-range report issues no lookup and remains retained. Non-immediate
 reports remain queued until age, identity echo, full-sideband validity, ring
 projection, and arbiter acceptance all pass. Lookup failure cannot fall back
 to ring-only cleanup.
@@ -139,3 +147,10 @@ The full suite passes 251 suites and 1,483 tests; canonical top xcheck passes 3
 rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
 mismatches and zero CBSTOP at
 `generated/r640-final-scalar-lsu-recovery-source-coremark/report/crosscheck_manifest.json`.
+
+R658 shares `ScalarLSURecoveryBoundary` with the retained reduced MDB delivery
+lane and proves that invalid STID blocks lookup, source publication, and report
+release. The full suite passes 261 suites and 1,544 tests; the generated MDB
+probe passes; the live fixture compares 3 rows; and the CoreMark replay compares
+426 rows with zero mismatches and zero CBSTOP at
+`generated/r658-final-scalar-lsu-recovery-boundary-coremark/report/crosscheck_manifest.json`.

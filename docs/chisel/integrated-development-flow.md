@@ -45,8 +45,9 @@ at
 `generated/r654-final-store-count-publisher-coremark/report/crosscheck_manifest.json`.
 A canonical Chisel CTU/tile count calculator, early non-flush predicates,
 configurable multi-block retirement, upstream live BCC/IEX/PE trigger
-generation, the canonical scalar-LSU connection, and complete cleanup fanout
-remain open. R656 closes canonical BID versus pointer context, and R657 appends
+generation, replacement of the reduced MDB producer by the full ScalarLSU
+hierarchy, and complete cleanup fanout remain open. R656 closes canonical BID
+versus pointer context, and R657 appends
 the retained four-lane non-LSU producer bank to the production backend path.
 
 R649 connects retained scalar MDB recovery to the live reduced
@@ -71,6 +72,14 @@ CoreMark compares 426 rows with zero mismatches and zero CBSTOP at
 `generated/r649-final-mdb-recovery-delivery-coremark/report/crosscheck_manifest.json`.
 CoreMark remains no-regression evidence because this trace does not naturally
 activate the new recovery transaction.
+
+R658 unifies the scalar-LSU recovery adapter. `ScalarLsuParams.stidCount`
+parameterizes canonical LSU ordering lanes, and `ScalarLSURecoveryBoundary`
+selects the queued report's STID-local oldest BID/RID before exact full-BID
+promotion. Production `ScalarLSU` and `MDBRecoveryDeliveryPath` instantiate the
+same boundary. An invalid STID issues no lookup, cannot publish a source, and
+cannot release the retained report. The policy remains Linx BID/GID/RID/LSID
+and block-order semantics; no ARM architectural behavior is imported.
 
 R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE

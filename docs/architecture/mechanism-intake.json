@@ -146,7 +146,7 @@
       "target_contracts": ["LC-MA-BLK-001", "LC-MA-PRV-001", "LC-MA-FWD-001"],
       "module_families": ["rob-recovery", "block-control"],
       "scenarios": ["scenario-rob-block-recovery", "scenario-trap-mmu-interrupt"],
-      "lane_owners": {"pycircuit": ["src/bcc/ooo/flush_ctrl.py", "src/bcc/ooo/recovery_producer.py", "src/bcc/ooo/recovery_class_merge.py"], "chisel": ["chisel/src/main/scala/linxcore/recovery/FlushControl.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryProvenance.scala", "chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/ooo/flush_ctrl.py", "src/bcc/ooo/recovery_producer.py", "src/bcc/ooo/recovery_class_merge.py"], "chisel": ["chisel/src/main/scala/linxcore/recovery/FlushControl.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryProvenance.scala", "chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala"]}
     },
     {
       "id": "stid-resources",
@@ -218,7 +218,7 @@
       "target_contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
       "module_families": ["lsu", "rob-recovery"],
       "scenarios": ["scenario-memory-ordering"],
-      "lane_owners": {"pycircuit": ["src/bcc/lsu/mdb.py", "src/bcc/lsu/mdb_transaction.py"], "chisel": ["chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictTransactionControl.scala", "chisel/src/main/scala/linxcore/lsu/MDBRecoveryDeliveryPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/lsu/mdb.py", "src/bcc/lsu/mdb_transaction.py"], "chisel": ["chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictTransactionControl.scala", "chisel/src/main/scala/linxcore/lsu/MDBRecoveryDeliveryPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}
     },
     {
       "id": "cache-translation",

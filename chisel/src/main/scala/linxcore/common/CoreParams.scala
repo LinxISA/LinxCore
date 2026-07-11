@@ -40,8 +40,10 @@ final case class ScalarLsuParams(
   physRegWidth: Int = 7,
   simtLaneWidth: Int = 8,
   lineBytes: Int = 64,
-  mapQDepth: Int = 32
+  mapQDepth: Int = 32,
+  stidCount: Int = 1
 ) {
+  require(stidCount > 0, "stidCount must be positive")
   require(stqEntries > 1 && (stqEntries & (stqEntries - 1)) == 0,
     "stqEntries must be a power of two greater than one")
   require(commitQueueEntries > 1 && (commitQueueEntries & (commitQueueEntries - 1)) == 0,
@@ -76,6 +78,7 @@ final case class ScalarLsuParams(
   require(pcWidth > 0, "pcWidth must be positive")
   require(dataWidth > 0 && dataWidth % 8 == 0, "dataWidth must contain whole bytes")
   require(peIdWidth > 0 && stidWidth > 0 && tidWidth > 0, "identity widths must be positive")
+  require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "stidCount must fit stidWidth")
   require(sizeWidth >= 4, "sizeWidth must encode scalar access sizes")
   require(loadSizeWidth >= 7, "loadSizeWidth must encode a full scalar cache line")
   require(archRegWidth >= 6, "archRegWidth must cover the Linx reg6 namespace")

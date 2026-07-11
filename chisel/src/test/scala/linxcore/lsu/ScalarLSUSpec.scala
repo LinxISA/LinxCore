@@ -12,6 +12,7 @@ class ScalarLSUSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       scbResponseBufferDepth = 2,
+      stidCount = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
       mapQDepth = 8
@@ -22,6 +23,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.commitQueueEntries == 4)
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
+    assert(core.scalarLsu.stidCount == 2)
   }
 
   test("Chisel ScalarLSU owns the parameterized STQ-to-SCB store path") {
@@ -31,6 +33,7 @@ class ScalarLSUSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       scbResponseBufferDepth = 2,
+      stidCount = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
       mapQDepth = 8
@@ -57,6 +60,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_resolveEntries_7_valid"))
     assert(sv.contains("io_load_mdbConflictFlush_req_valid"))
     assert(sv.contains("module ScalarLSURecoverySource"))
+    assert(sv.contains("module ScalarLSURecoveryBoundary"))
     assert(sv.contains("module RecoveryEligibilityControl"))
     assert(sv.contains("module RingFullBidRecoveryBridge"))
     assert(!sv.contains("module RecoveryCleanupControl"))
@@ -65,6 +69,8 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_recovery_sourceEligible"))
     assert(sv.contains("io_recovery_source_blockBid"))
     assert(sv.contains("io_recovery_sourceReady"))
+    assert(sv.contains("io_recovery_oldestValid_1"))
+    assert(sv.contains("io_recovery_sourceStidInRange"))
     assert(sv.contains("io_load_mdbSsitValidMask"))
   }
 
@@ -79,5 +85,20 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_source_blockBid"))
     assert(sv.contains("io_sourceReady"))
     assert(sv.contains("io_blockedByStaleLookup"))
+  }
+
+  test("ScalarLSURecoveryBoundary selects an STID-local watermark before exact promotion") {
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSURecoveryBoundary(
+      entries = 8,
+      stidCount = 2,
+      bidWidth = 16,
+      stidWidth = 2
+    ))
+
+    assert(sv.contains("module ScalarLSURecoveryBoundary"))
+    assert(sv.contains("module ScalarLSURecoverySource"))
+    assert(sv.contains("io_oldestValid_1"))
+    assert(sv.contains("io_stidInRange"))
+    assert(sv.contains("io_fullBidLookupRequest_rid_value"))
   }
 }

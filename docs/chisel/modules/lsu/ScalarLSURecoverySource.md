@@ -1,8 +1,9 @@
-# ScalarLSURecoverySource
+# Scalar LSU Recovery Boundary
 
 ## Source Mapping
 
 - Chisel: `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
+- STID selector: `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala`
 - Parent: `chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala`
 - Exact-ROB composition proof:
   `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala`
@@ -15,8 +16,10 @@
 
 ## Purpose
 
-`ScalarLSURecoverySource` is the LSU-specific boundary between the retained MDB
-recovery queue and central recovery arbitration. It performs two operations:
+`ScalarLSURecoveryBoundary` is the canonical LSU boundary between a retained
+MDB recovery queue and central recovery arbitration. It first selects the
+report STID's owner-provided retirement watermark. Its
+`ScalarLSURecoverySource` child then performs two operations:
 
 1. checks non-immediate BID/RID eligibility against the caller-supplied oldest
    scalar ROB watermark;
@@ -43,6 +46,10 @@ responsibilities.
 | output | `eligible`, `blockedByNoOldest`, `blockedByAge` | Age diagnostics. |
 | output | `lookupMatched`, lookup blocker signals | Exact identity diagnostics. |
 
+The boundary form exposes `stidCount` watermark lanes plus `stidInRange`. The
+lower-level source intentionally accepts one already-selected watermark and
+contains no cross-STID policy.
+
 ## Retention Contract
 
 The upstream MDB recovery queue remains the storage owner. A report advances
@@ -56,6 +63,8 @@ only when all conditions are true in one cycle:
 
 Any failed condition keeps `ringReqReady` low. There is no weaker ring-only
 fallback and no local full-over-MDB priority mux.
+An invalid report STID is blocked before the source child, so it cannot issue a
+ROB lookup, publish a source, or consume the retained report.
 
 ## Linx Adaptation
 
@@ -66,7 +75,7 @@ condition-code, exclusive-monitor, or memory-ordering architectural behavior.
 
 ## Integration Status
 
-R640 instantiates this module under production `ScalarLSU` and in the exact
+R640 instantiates the source module under production `ScalarLSU` and in the exact
 real-ROB generated recovery path. The latter connects its source directly to
 `RecoverySourceArbiter`, then `RecoveryCleanupControl`, and proves retained
 lookup blockers, full-generation promotion, multi-source ordering, and scoped
@@ -76,6 +85,11 @@ Canonical backend top wiring still must connect `fullBidLookupRequest/result`,
 all BCC/IEX/PE/LSU source slots, and cleanup consumers. `LinxCoreTop` remains a
 reduced shell with `ReducedCommitROB`, so it exports this source boundary rather
 than pretending to own the missing real-ROB connection.
+
+R658 inserts the parameterized boundary above the source and uses the same
+boundary in `ScalarLSU` and `MDBRecoveryDeliveryPath`. This removes duplicated
+STID-selection logic while preserving separate retained queues in the two
+integration lanes.
 
 ## Verification
 

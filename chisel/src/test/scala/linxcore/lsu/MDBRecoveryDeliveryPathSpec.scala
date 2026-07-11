@@ -58,6 +58,7 @@ class MDBRecoveryDeliveryPathSpec extends AnyFunSuite {
     ))
     assert(sv.contains("module MDBRecoveryDeliveryPath"))
     assert(sv.contains("module MDBConflictTransactionControl"))
+    assert(sv.contains("module ScalarLSURecoveryBoundary"))
     assert(sv.contains("module ScalarLSURecoverySource"))
     assert(sv.contains("io_recoveryCount"))
     assert(sv.contains("io_recoveryStidInRange"))

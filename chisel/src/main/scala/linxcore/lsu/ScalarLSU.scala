@@ -16,9 +16,9 @@ class ScalarLSURecoverySourcePortIO(val coreParams: CoreParams, val p: ScalarLsu
     p.tidWidth
   ))
   val sourceReady = Input(Bool())
-  val oldestValid = Input(Bool())
-  val oldestBid = Input(new ROBID(coreParams.robEntries))
-  val oldestRid = Input(new ROBID(coreParams.robEntries))
+  val oldestValid = Input(Vec(p.stidCount, Bool()))
+  val oldestBid = Input(Vec(p.stidCount, new ROBID(coreParams.robEntries)))
+  val oldestRid = Input(Vec(p.stidCount, new ROBID(coreParams.robEntries)))
   val fullBidLookupRequest = Output(new ROBFullBidLookupRequest(
     coreParams.robEntries,
     p.peIdWidth,
@@ -41,6 +41,7 @@ class ScalarLSURecoverySourcePortIO(val coreParams: CoreParams, val p: ScalarLsu
   val sourceBlockedByLookupMiss = Output(Bool())
   val sourceBlockedByStaleLookup = Output(Bool())
   val sourceBlockedByRingProjection = Output(Bool())
+  val sourceStidInRange = Output(Bool())
 }
 
 class ScalarLSUIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
@@ -55,8 +56,9 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
 
   val storeCommitPath = Module(ScalarLSU.storeCommitPath(coreParams, lsuParams))
   val loadPath = Module(new ScalarLSULoadPath(coreParams))
-  val recoverySource = Module(new ScalarLSURecoverySource(
+  val recoveryBoundary = Module(new ScalarLSURecoveryBoundary(
     coreParams.robEntries,
+    lsuParams.stidCount,
     BID.DefaultWidth,
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
@@ -68,25 +70,26 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   val pendingRingReq = Wire(chiselTypeOf(loadPath.recovery.flush))
   pendingRingReq := loadPath.recovery.flush
   pendingRingReq.req.valid := loadPath.recovery.valid
-  recoverySource.io.ringReq := pendingRingReq
-  recoverySource.io.oldestValid := io.recovery.oldestValid
-  recoverySource.io.oldestBid := io.recovery.oldestBid
-  recoverySource.io.oldestRid := io.recovery.oldestRid
-  recoverySource.io.fullBidLookup := io.recovery.fullBidLookup
-  recoverySource.io.sourceReady := io.recovery.sourceReady
-  loadPath.recovery.ready := recoverySource.io.ringReqReady
+  recoveryBoundary.io.ringReq := pendingRingReq
+  recoveryBoundary.io.oldestValid := io.recovery.oldestValid
+  recoveryBoundary.io.oldestBid := io.recovery.oldestBid
+  recoveryBoundary.io.oldestRid := io.recovery.oldestRid
+  recoveryBoundary.io.fullBidLookup := io.recovery.fullBidLookup
+  recoveryBoundary.io.sourceReady := io.recovery.sourceReady
+  loadPath.recovery.ready := recoveryBoundary.io.ringReqReady
 
-  io.recovery.source := recoverySource.io.source
-  io.recovery.fullBidLookupRequest := recoverySource.io.fullBidLookupRequest
+  io.recovery.source := recoveryBoundary.io.source
+  io.recovery.fullBidLookupRequest := recoveryBoundary.io.fullBidLookupRequest
   io.recovery.sourcePending := loadPath.recovery.pending
-  io.recovery.sourceEligible := recoverySource.io.eligible
-  io.recovery.sourceAccepted := recoverySource.io.sourceAccepted
-  io.recovery.sourceBlockedByNoOldest := recoverySource.io.blockedByNoOldest
-  io.recovery.sourceBlockedByAge := recoverySource.io.blockedByAge
-  io.recovery.sourceLookupMatched := recoverySource.io.lookupMatched
-  io.recovery.sourceBlockedByLookupMiss := recoverySource.io.blockedByLookupMiss
-  io.recovery.sourceBlockedByStaleLookup := recoverySource.io.blockedByStaleLookup
-  io.recovery.sourceBlockedByRingProjection := recoverySource.io.blockedByRingProjection
+  io.recovery.sourceEligible := recoveryBoundary.io.eligible
+  io.recovery.sourceAccepted := recoveryBoundary.io.sourceAccepted
+  io.recovery.sourceBlockedByNoOldest := recoveryBoundary.io.blockedByNoOldest
+  io.recovery.sourceBlockedByAge := recoveryBoundary.io.blockedByAge
+  io.recovery.sourceLookupMatched := recoveryBoundary.io.lookupMatched
+  io.recovery.sourceBlockedByLookupMiss := recoveryBoundary.io.blockedByLookupMiss
+  io.recovery.sourceBlockedByStaleLookup := recoveryBoundary.io.blockedByStaleLookup
+  io.recovery.sourceBlockedByRingProjection := recoveryBoundary.io.blockedByRingProjection
+  io.recovery.sourceStidInRange := recoveryBoundary.io.stidInRange
 
   val storeCarriesAddress = io.store.insert.storeType =/= STQStoreType.Data
   val storeMdbPermit = !storeCarriesAddress || loadPath.mdbStore.probeReady
