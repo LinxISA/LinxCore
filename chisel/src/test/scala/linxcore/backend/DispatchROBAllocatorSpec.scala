@@ -11,7 +11,7 @@ object DispatchROBAllocatorReference {
   final class Model(entries: Int, stidCount: Int = 1) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
 
-    private val blockLive = Array.fill(stidCount, entries)(false)
+    private val blockLive = Array.fill[Option[BigInt]](stidCount, entries)(None)
     private val robRows = Array.fill[Option[Row]](entries)(None)
     private val blockSlot = Array.fill(stidCount)(0)
     private val blockUniq = Array.fill(stidCount)(BigInt(0))
@@ -52,9 +52,9 @@ object DispatchROBAllocatorReference {
       val slot = (bid & (entries - 1)).toInt
       val robValue = robAlloc
       val allocWrap = robWrap
-      val ready = !blockLive(stid)(slot) && robSize != entries && !duplicate(row)
+      val ready = blockLive(stid)(slot).isEmpty && robSize != entries && !duplicate(row)
       if (ready) {
-        blockLive(stid)(slot) = true
+        blockLive(stid)(slot) = Some(bid)
         robRows(robAlloc) = Some(row)
         advanceBlock(stid)
         advanceRob()
@@ -78,9 +78,9 @@ object DispatchROBAllocatorReference {
     def allocBlockOnly(stid: Int = 0): AllocResult = {
       val bid = makeBid(stid)
       val slot = (bid & (entries - 1)).toInt
-      val ready = !blockLive(stid)(slot)
+      val ready = blockLive(stid)(slot).isEmpty
       if (ready) {
-        blockLive(stid)(slot) = true
+        blockLive(stid)(slot) = Some(bid)
         advanceBlock(stid)
       }
       AllocResult(ready, bid, robAlloc, robWrap)
@@ -100,7 +100,7 @@ object DispatchROBAllocatorReference {
 
     def blockAllocatedMask(stid: Int = 0): BigInt =
       blockLive(stid).zipWithIndex.foldLeft(BigInt(0)) { case (mask, (live, idx)) =>
-        if (live) mask | (BigInt(1) << idx) else mask
+        if (live.nonEmpty) mask | (BigInt(1) << idx) else mask
       }
 
     def robOccupiedMask: BigInt =
@@ -109,7 +109,19 @@ object DispatchROBAllocatorReference {
       }
 
     def freeBlockSlot(slot: Int, stid: Int = 0): Unit =
-      blockLive(stid)(slot) = false
+      blockLive(stid)(slot) = None
+
+    def recoverBlockCursor(pivot: BigInt, inclusive: Boolean, stid: Int = 0): BigInt = {
+      val firstKilled = if (inclusive) pivot else pivot + 1
+      for (slot <- blockLive(stid).indices) {
+        if (blockLive(stid)(slot).exists(_ >= firstKilled)) {
+          blockLive(stid)(slot) = None
+        }
+      }
+      blockSlot(stid) = (firstKilled & (entries - 1)).toInt
+      blockUniq(stid) = firstKilled >> slotBits
+      firstKilled
+    }
   }
 }
 
@@ -206,6 +218,27 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(model.blockAllocatedMask(stid = 1) == 0x1)
   }
 
+  test("reference rolls miss-predict allocation back to the first killed full BID") {
+    val model = new Model(entries = 8, stidCount = 2)
+    (0 until 4).foreach(_ => model.allocBlockOnly(stid = 0))
+    model.allocBlockOnly(stid = 1)
+
+    assert(model.recoverBlockCursor(pivot = 2, inclusive = true, stid = 0) == 2)
+    assert(model.nextBlockBid(stid = 0) == 2)
+    assert(model.blockAllocatedMask(stid = 0) == 0x3)
+    assert(model.nextBlockBid(stid = 1) == 1)
+  }
+
+  test("reference preserves a global-flush pivot and reuses its discarded successor") {
+    val model = new Model(entries = 8)
+    (0 until 4).foreach(_ => model.allocBlockOnly())
+
+    assert(model.recoverBlockCursor(pivot = 1, inclusive = false) == 2)
+    assert(model.nextBlockBid() == 2)
+    assert(model.blockAllocatedMask() == 0x3)
+    assert(model.allocBlockOnly().blockBid == 2)
+  }
+
   test("Chisel DispatchROBAllocator elaborates BROB-to-ROB allocation wiring") {
     val sv = ChiselStage.emitSystemVerilog(
       new DispatchROBAllocator(
@@ -264,6 +297,10 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_recoveryOldestRid_1_wrap"))
     assert(sv.contains("io_recoveryOldestBlockComplete_1"))
     assert(sv.contains("io_blockFlushStid"))
+    assert(sv.contains("io_blockFlushInclusive"))
+    assert(sv.contains("io_blockFlushFirstKilledBid"))
+    assert(sv.contains("io_blockFlushOldAllocBid"))
+    assert(sv.contains("io_blockAllocCursor_1"))
     assert(sv.contains("io_commitContractError"))
   }
 }

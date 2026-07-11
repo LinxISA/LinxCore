@@ -76,6 +76,7 @@ class BrobMetaTrackerIO(
   val flushValid = Input(Bool())
   val flushBid = Input(UInt(bidWidth.W))
   val flushStid = Input(UInt(stidWidth.W))
+  val flushInclusive = Input(Bool())
 
   val queryBid = Input(UInt(bidWidth.W))
   val queryStid = Input(UInt(stidWidth.W))
@@ -217,8 +218,10 @@ class BrobMetaTracker(
   when(io.flushValid) {
     for (stid <- 0 until stidCount) {
       for (idx <- 0 until entries) {
+        val younger = BID.killOnFlush(table(stid)(idx).bid, io.flushBid)
+        val pivot = table(stid)(idx).bid === io.flushBid
         when(flushStidMatch(stid) && BrobEntryMeta.isAllocated(table(stid)(idx).status) &&
-          BID.killOnFlush(table(stid)(idx).bid, io.flushBid)) {
+          (younger || (io.flushInclusive && pivot))) {
           table(stid)(idx).status := BrobStatus.Flushed
           table(stid)(idx).scalarDone := false.B
           table(stid)(idx).engineDone := false.B

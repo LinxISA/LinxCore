@@ -88,6 +88,7 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 | `valid` | Registered cleanup intent is valid. |
 | `flush` | Annotated `FlushBus` for ROB and backend consumers. |
 | `blockFlushValid/blockFlushBid` | Full-BID block cleanup for true global flushes. Ring-only input keeps valid low. |
+| `blockFlushInclusive` | True only for model miss-predict recovery, where the reported BID is the first killed block rather than a surviving pivot. |
 | `robPruneValid` | ROB/PE-ROB prune path should consume `flush`. |
 | `bctrlFlushValid` | BCTRL should take the model `flush` path. |
 | `bctrlReplayValid` | BCTRL should take the model `replay` path. |
@@ -177,7 +178,7 @@ producer or authorize sidecars while the intent is blocked.
 This module defines the cleanup-intent fanout only. The following remain future
 owner work:
 
-- BROB pointer restoration and replay-state mutation,
+- BROB commit/dispatch/rename/non-flush pointer restoration and replay-state mutation; R650 restores the allocation tail only,
 - scalar rename checkpoint restore,
 - PE ROB row mutation beyond existing `ROBEntryBank`/`ROBFlushPrune`,
 - LSU/STQ store-commit queue, SCB/MDB, data-array, forwarding, and LSID

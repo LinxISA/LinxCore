@@ -132,11 +132,13 @@ The C++ model has two important recovery paths:
   adjusts allocation/rename pointers, and keeps or restores the oldest/current
   block depending on `baseOnBid` and immediate-flush rules.
 
-The first Chisel packet implements only the reusable BID mask rule for metadata
-state: entries with full BID greater than `flushBid` are marked `Flushed`;
-entries with `bid <= flushBid` survive. Full `recoverBlock`, `setFlushed`,
-SIMT/MTC-specific replay, and same-cycle resolve/flush priority remain future
-work.
+R650 adds the first stateful pointer behavior. `BrobAllocationRecovery` owns a
+full-BID allocation tail per STID, captures the old cursor, and restores it on
+accepted cleanup. `MISS_PRED_FLUSH` uses the reported BID as the first killed
+block; retained-target nuke/inner/fast flush uses the target successor. The
+same decision controls inclusive or exclusive `BrobMetaTracker` pruning.
+Commit/dispatch/rename/non-flush/store-barrier pointers, SIMT/MTC-specific
+replay, and same-cycle resolve/flush priority remain future work.
 
 ## Non-Flush Oldest
 
@@ -148,11 +150,13 @@ Chisel metadata tracker does not implement this pointer yet.
 
 - The architecture docs still list BROB same-cycle resolve-vs-flush and
   commit-vs-flush priority as open issues.
-- The Chisel packet does not yet model per-STID pointer arrays or full
-  BCTRL/BISQ dispatch interaction.
+- Chisel now models the per-STID allocation-tail array; commit, dispatch,
+  rename, non-flush, and store-barrier pointer arrays plus full BCTRL/BISQ
+  interaction remain open.
 - Recovery still has two BID surfaces in Chisel: BROB flush consumes full
   hardware BID, while ROB row pruning consumes ring `ROBID`. The first handoff
-  is explicit in `FullBidRecoveryBridge`; full BROB pointer restoration,
-  rename rollback, and LSU/STQ cleanup remain future work.
+  is explicit in `FullBidRecoveryBridge`; R650 restores the allocation tail,
+  while remaining BROB pointers, rename rollback, and LSU/STQ cleanup remain
+  future work.
 - TileRename release and GPR MAPQ-to-CMAP commit remain tied to future
   integrated BROB/rename work.

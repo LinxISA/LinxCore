@@ -15,6 +15,7 @@ class RecoveryCleanupIntent(
   val flush = new FlushBus(entries, peIdWidth, stidWidth, tidWidth)
   val blockFlushValid = Bool()
   val blockFlushBid = UInt(bidWidth.W)
+  val blockFlushInclusive = Bool()
   val robPruneValid = Bool()
   val bctrlFlushValid = Bool()
   val bctrlReplayValid = Bool()
@@ -144,6 +145,8 @@ class RecoveryCleanupControl(
   io.intent.flush := activeFlush
   io.intent.blockFlushValid := globalFlush && !pendingIsRing
   io.intent.blockFlushBid := bridge.io.blockFlushBid
+  io.intent.blockFlushInclusive :=
+    globalFlush && !pendingIsRing && (pendingReq.typ === FlushType.MissPredFlush)
   io.intent.robPruneValid := pendingValid
   io.intent.bctrlFlushValid := globalFlush && !pendingIsRing
   io.intent.bctrlReplayValid := globalReplay || peScopedReplay

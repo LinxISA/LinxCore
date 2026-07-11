@@ -15,7 +15,33 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R649 connects retained scalar MDB recovery to the live reduced
+Latest packet: R650 restores the BROB allocation tail on accepted global
+recovery. `BrobAllocationRecovery` replaces split slot/uniqueness registers
+with one parameterized full-BID cursor per STID, captures the old allocation
+cursor, and installs the model-derived first-killed BID. Miss-predict recovery
+is inclusive; retained-target nuke/inner/fast flush restores to the pivot
+successor. `DispatchROBAllocator` blocks allocation during the accepted cleanup
+pulse and applies the same rule to `BrobMetaTracker`. The generated Chisel
+probe covers cursor recovery plus coherent ROB/BROB admission suppression.
+Commit/dispatch/rename/non-flush BROB pointers,
+`BIDRingOrder` integration, direct BCC/IEX/PE trigger owners, and complete
+cleanup fanout remain open.
+
+R650 verification passes 259 suites and 1,525 tests. Focused allocator,
+BROB, cleanup, and integration suites pass, and the generated
+`BrobAllocationRecovery` probe exercises per-STID advance, inclusive and
+preserved-pivot recovery, old-cursor capture, recovery priority, invalid-STID
+rejection, and coherent child-admission suppression. Independent review found
+and drove the fix for a hidden ROB allocation when public allocation was
+blocked, then found two stale cross-RTL documentation claims; re-review has no
+remaining code blocker. The canonical top cross-check compares 3 rows with
+zero mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r650-final-brob-allocation-recovery-coremark/report/crosscheck_manifest.json`.
+CoreMark remains no-regression evidence because this trace does not naturally
+activate accepted BROB recovery.
+
+R649 connects retained scalar MDB recovery to the live reduced
 top. `MDBConflictTransactionControl` is now shared by canonical
 `ScalarLSUMDBPath` and `MDBRecoveryDeliveryPath`, so record learning, wait-plan
 capture, and recovery enqueue cannot publish partially. The live top keeps the

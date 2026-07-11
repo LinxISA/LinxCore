@@ -68,6 +68,12 @@ R643 replaces the global block cursor with one parameterized cursor per STID,
 passes STID on every BROB lifecycle event, and returns the deallocated
 block-last STID beside its full BID. This matches LinxCoreModel lane-local BROB
 allocation and explicitly rejects cross-STID BID ordering.
+R650 extracts those cursors into `BrobAllocationRecovery` and connects accepted
+global cleanup. Miss-predict recovery treats `blockFlushBid` as the first
+killed BID; nuke/inner/fast flush preserves the pivot and restores to its
+successor. The allocator blocks new BROB allocation during the cleanup pulse,
+captures the old full-BID cursor, restores only the selected STID, and applies
+the same inclusive/exclusive rule to `BrobMetaTracker` metadata.
 The allocator can elaborate multiple lanes independently, but the current
 `DecodeRenameROBPath` composition is guarded to one STID until GPR mapQ block
 commit also keys entries by STID.
@@ -131,6 +137,10 @@ dispatch agents consume a real block owner.
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID pass-through surface for `BrobMetaTracker`. |
+| input | `blockFlushInclusive` | `Bool` | with `blockFlushValid` | Pivot is the first killed BID for model miss-predict recovery; otherwise the pivot survives. |
+| output | `blockFlushFirstKilledBid`, `blockFlushOldAllocBid` | `UInt(bidWidth.W)` | with accepted recovery | Restored cursor target and pre-recovery allocation cursor. |
+| output | `blockFlushApplied`, `blockFlushStidInRange` | `Bool` | diagnostic | Selected per-STID cursor restore was legal and applied. |
+| output | `blockAllocCursor` | `Vec(stidCount, UInt(bidWidth.W))` | diagnostic | Current next-allocation full BID independently per STID. |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `recoveryOldestValid` | `Vec(stidCount, Bool)` | qualifier | BROB and ROB both have oldest state and their allocator-stamped full block BIDs match exactly. |
 | output | `recoveryOldestBlockBid` | `Vec(stidCount, UInt(bidWidth.W))` | with valid | BROB-owned full block identity. |
@@ -145,16 +155,15 @@ dispatch agents consume a real block owner.
 
 ## State
 
-- `blockSlot(stid)`: per-STID low BID slot cursor, reset to zero.
-- `blockUniq(stid)`: per-STID high BID uniqueness cursor, reset to zero.
+- `BrobAllocationRecovery`: per-STID full-BID next-allocation cursor, reset to zero.
 - `BrobMetaTracker`: block metadata state owner.
 - `ROBEntryBank`: PE ROB row state owner.
 
 ## Logic Design
 
-The allocator computes each lane's next full BID as
-`BID.fromParts(blockUniq(stid), blockSlot(stid))`. This mirrors the hardware BID contract:
-low bits select the BROB slot, and high bits provide uniqueness and ordering.
+The allocator selects each lane's next full BID from
+`BrobAllocationRecovery.cursor(stid)`. Low bits select the BROB slot and high
+bits retain generation uniqueness.
 
 Allocation has three reduced modes:
 
@@ -240,12 +249,12 @@ R169 also forwards `deallocBlockMarkerRetireSource` unchanged from the ROB bank.
 The vector stays width-wide across the allocator boundary so a future serializer
 or lifecycle consumer can process every retired marker row in the deallocation
 window.
-BROB flush remains an explicit full-BID input
-(`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
-still uses ring `ROBID` metadata while the hardware block contract uses full
-64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion used by
-both allocation and recovery. A later cleanup owner must still connect rename,
-LSU/STQ, frontend redirect, and BROB pointer restoration side effects.
+BROB recovery remains an explicit full-BID input because the ROB row-prune bus
+uses ring `ROBID` while block control requires generation-qualified identity.
+R650 restores the per-STID allocation tail on the accepted cleanup boundary and
+prunes metadata with the same first-killed policy. Commit, dispatch, rename,
+non-flush, and store-barrier BROB pointers remain future owners; this packet
+does not claim complete `BlockROB::setFlushed` or replay-state parity.
 
 ## Trace/Observability
 
@@ -259,6 +268,7 @@ adapter's responsibility.
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
+- `bash tools/chisel/run_chisel_brob_allocation_recovery_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`

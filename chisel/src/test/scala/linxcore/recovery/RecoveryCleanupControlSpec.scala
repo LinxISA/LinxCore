@@ -20,6 +20,7 @@ object RecoveryCleanupControlReference {
       frontendRestart: Boolean,
       robPrune: Boolean,
       blockFlush: Boolean,
+      blockFlushInclusive: Boolean,
       peFanoutAll: Boolean,
       peFanoutSingle: Boolean,
       vectorReplay: Boolean,
@@ -76,6 +77,7 @@ object RecoveryCleanupControlReference {
       frontendRestart = globalFlush,
       robPrune = true,
       blockFlush = globalFlush,
+      blockFlushInclusive = globalFlush && typ == MissPredFlush,
       peFanoutAll = !singlePe,
       peFanoutSingle = singlePe,
       vectorReplay = simt,
@@ -108,6 +110,7 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
     assert(intent.reportQueueFlush)
     assert(intent.robPrune)
     assert(intent.blockFlush)
+    assert(intent.blockFlushInclusive)
     assert(intent.peFanoutAll)
     assert(!intent.peFanoutSingle)
     assert(intent.lsuFlush)
@@ -125,6 +128,7 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
     assert(intent.renameReplay)
     assert(!intent.frontendRestart)
     assert(!intent.blockFlush)
+    assert(!intent.blockFlushInclusive)
     assert(intent.backendFlush)
     assert(intent.robPrune)
     assert(intent.peFanoutAll)
@@ -174,6 +178,7 @@ class RecoveryCleanupControlSpec extends AnyFunSuite {
     assert(sv.contains("io_ringReqReady"))
     assert(sv.contains("io_ringAccepted"))
     assert(sv.contains("io_intent_bctrlFlushValid"))
+    assert(sv.contains("io_intent_blockFlushInclusive"))
     assert(sv.contains("io_intent_robPruneValid"))
     assert(sv.contains("io_intent_frontendRestartValid"))
     assert(sv.contains("pendingValid"))

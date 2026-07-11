@@ -382,7 +382,7 @@
       "module_family": "block-control",
       "status": "stub",
       "contracts": ["LC-MA-BLK-001", "LC-MA-ENG-001"],
-      "known_gap": "The named BROB owner preserves useful allocation/completion/stale-response mechanics, but it still uses BID.DefaultWidth=64 and unsigned full-BID comparison; the unit-proven BIDRingOrder primitive is not yet connected to BrobMetaTracker.",
+      "known_gap": "The named BROB owner now restores its per-STID full-BID allocation tail on accepted cleanup, but commit/dispatch/rename/non-flush/store-barrier pointers and replay-state mutation remain open. It still uses BID.DefaultWidth=64 and unsigned full-BID comparison; the unit-proven BIDRingOrder primitive is not yet connected to BrobMetaTracker.",
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
@@ -392,6 +392,16 @@
           "path": "chisel/src/main/scala/linxcore/bctrl/BID.scala",
           "symbols": ["BID", "DefaultWidth", "keepOnFlush", "killOnFlush"],
           "text_contains": ["val DefaultWidth: Int = 64", "id <= flushBid", "id > flushBid"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/bctrl/BrobAllocationRecovery.scala",
+          "symbols": ["BrobAllocationRecovery", "cursor", "recoveryFirstKilledBid", "recoveryOldAllocBid", "recoveryApplied"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tools/chisel/run_chisel_brob_allocation_recovery_probe.sh",
+          "command": "bash tools/chisel/run_chisel_brob_allocation_recovery_probe.sh"
         }
       ]
     },

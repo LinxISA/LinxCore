@@ -2,7 +2,7 @@ package linxcore.backend
 
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H}
-import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
+import linxcore.bctrl.{BID, BrobAllocationRecovery, BrobEntryMeta, BrobMetaTracker, BrobRobAllocationAdmission}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
   BlockMarkerRetireSource,
@@ -116,6 +116,12 @@ class DispatchROBAllocatorIO(
   val blockFlushValid = Input(Bool())
   val blockFlushBid = Input(UInt(bidWidth.W))
   val blockFlushStid = Input(UInt(stidWidth.W))
+  val blockFlushInclusive = Input(Bool())
+  val blockFlushFirstKilledBid = Output(UInt(bidWidth.W))
+  val blockFlushOldAllocBid = Output(UInt(bidWidth.W))
+  val blockFlushApplied = Output(Bool())
+  val blockFlushStidInRange = Output(Bool())
+  val blockAllocCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
   val blockQueryBid = Input(UInt(bidWidth.W))
   val blockQueryStid = Input(UInt(stidWidth.W))
   val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
@@ -233,8 +239,7 @@ class DispatchROBAllocator(
   require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "allocator STID count must fit stidWidth")
 
   private val ptrWidth = log2Ceil(entries)
-  private val uniqWidth = bidWidth - ptrWidth
-  require(uniqWidth > 0, "BID width must include uniqueness bits")
+  require(bidWidth > ptrWidth, "BID width must include uniqueness bits")
 
   val io = IO(new DispatchROBAllocatorIO(
     entries,
@@ -254,14 +259,15 @@ class DispatchROBAllocator(
     FullBidRecoveryBridge.fullBidToRobId(bid, true.B, entries, bidWidth)
   }
 
-  val blockSlot = RegInit(VecInit(Seq.fill(stidCount)(0.U(ptrWidth.W))))
-  val blockUniq = RegInit(VecInit(Seq.fill(stidCount)(0.U(uniqWidth.W))))
+  val blockCursor = Module(new BrobAllocationRecovery(
+    bidWidth = bidWidth,
+    stidWidth = stidWidth,
+    stidCount = stidCount
+  ))
   val allocStidMatch = VecInit((0 until stidCount).map(idx => io.allocStid === idx.U(stidWidth.W)))
   val blockOnlyStidMatch = VecInit((0 until stidCount).map(idx => io.blockAllocOnlyStid === idx.U(stidWidth.W)))
-  val allocNextBlockBid = Mux1H(allocStidMatch,
-    (0 until stidCount).map(idx => BID.fromParts(blockUniq(idx), blockSlot(idx), entries, bidWidth)))
-  val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch,
-    (0 until stidCount).map(idx => BID.fromParts(blockUniq(idx), blockSlot(idx), entries, bidWidth)))
+  val allocNextBlockBid = Mux1H(allocStidMatch, blockCursor.io.cursor)
+  val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch, blockCursor.io.cursor)
   io.allocBlockBid := allocNextBlockBid
   io.blockAllocOnlyBid := blockOnlyNextBlockBid
 
@@ -292,10 +298,17 @@ class DispatchROBAllocator(
   val blockOnlyStidInRange = blockOnlyStidMatch.asUInt.orR
   val scalarCanUseBrob = scalarStidInRange && (!scalarNeedsBrob || brob.io.allocReady)
   val scalarCanUseRob = rob.io.allocReady
-  val scalarAllocReady = scalarCanUseRob && scalarCanUseBrob
-  val blockAllocOnlyReady = !io.allocValid && blockOnlyStidInRange && brob.io.allocReady
+  val scalarAdmission = Module(new BrobRobAllocationAdmission)
+  scalarAdmission.io.allocValid := io.allocValid
+  scalarAdmission.io.usesExistingBlock := io.allocUsesExistingBlock
+  scalarAdmission.io.stidInRange := scalarStidInRange
+  scalarAdmission.io.brobReady := brob.io.allocReady
+  scalarAdmission.io.robReady := scalarCanUseRob
+  scalarAdmission.io.recoveryValid := io.blockFlushValid
+  val scalarAllocReady = scalarAdmission.io.allocReady
+  val blockAllocOnlyReady = !io.allocValid && blockOnlyStidInRange && brob.io.allocReady && !io.blockFlushValid
   val blockAllocOnlyFire = io.blockAllocOnlyValid && blockAllocOnlyReady
-  val scalarBrobAllocFire = scalarNeedsBrob && scalarAllocReady
+  val scalarBrobAllocFire = scalarAdmission.io.brobAllocValid
   val rowBlockBid = Mux(io.allocUsesExistingBlock, io.allocExistingBlockBid, allocNextBlockBid)
 
   val robAllocRow = Wire(new CommitTraceRow(traceParams))
@@ -304,7 +317,7 @@ class DispatchROBAllocator(
   robAllocRow.blockBid := rowBlockBid
 
   rob.io.flush := io.flush
-  rob.io.allocValid := io.allocValid && scalarCanUseBrob
+  rob.io.allocValid := scalarAdmission.io.robAllocValid
   rob.io.allocRow := robAllocRow
   rob.io.allocBid := bidToRobId(rowBlockBid)
   rob.io.allocGid := io.allocGid
@@ -366,11 +379,12 @@ class DispatchROBAllocator(
   brob.io.flushValid := io.blockFlushValid
   brob.io.flushBid := io.blockFlushBid
   brob.io.flushStid := io.blockFlushStid
+  brob.io.flushInclusive := io.blockFlushInclusive
   brob.io.queryBid := io.blockQueryBid
   brob.io.queryStid := io.blockQueryStid
 
   io.allocReady := scalarAllocReady
-  io.allocFire := io.allocValid && io.allocReady
+  io.allocFire := scalarAdmission.io.allocFire
   io.allocBlockedByBrob := scalarNeedsBrob && !brob.io.allocReady
   io.allocBlockedByRob := io.allocValid && scalarCanUseBrob && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
@@ -382,19 +396,18 @@ class DispatchROBAllocator(
   io.renameUpdateAccepted := rob.io.renameUpdateAccepted
   io.renameUpdateIgnored := rob.io.renameUpdateIgnored
 
-  when(scalarBrobAllocFire || blockAllocOnlyFire) {
-    for (stid <- 0 until stidCount) {
-      val selectedLane = Mux(blockAllocOnlyFire, blockOnlyStidMatch(stid), allocStidMatch(stid))
-      when(selectedLane) {
-        when(blockSlot(stid) === (entries - 1).U) {
-          blockSlot(stid) := 0.U
-          blockUniq(stid) := blockUniq(stid) + 1.U
-        }.otherwise {
-          blockSlot(stid) := blockSlot(stid) + 1.U
-        }
-      }
-    }
-  }
+  blockCursor.io.advanceValid := scalarBrobAllocFire || blockAllocOnlyFire
+  blockCursor.io.advanceStid := Mux(blockAllocOnlyFire, io.blockAllocOnlyStid, io.allocStid)
+  blockCursor.io.recoveryValid := io.blockFlushValid
+  blockCursor.io.recoveryStid := io.blockFlushStid
+  blockCursor.io.recoveryPivotBid := io.blockFlushBid
+  blockCursor.io.recoveryInclusive := io.blockFlushInclusive
+  blockCursor.io.queryStid := io.allocStid
+  io.blockFlushFirstKilledBid := blockCursor.io.recoveryFirstKilledBid
+  io.blockFlushOldAllocBid := blockCursor.io.recoveryOldAllocBid
+  io.blockFlushApplied := blockCursor.io.recoveryApplied
+  io.blockFlushStidInRange := blockCursor.io.recoveryInRange
+  io.blockAllocCursor := blockCursor.io.cursor
 
   io.blockQuery := brob.io.query
   io.blockQueryAllocated := brob.io.queryAllocated

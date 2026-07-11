@@ -86,9 +86,11 @@ final class RefBrob(entries: Int, stidCount: Int = 1) {
     table(stid)(i) = if (next.scalarDone) next.copy(status = RefBrobStatus.Completed) else next
   }
 
-  def flush(flushBid: BigInt, stid: Int = 0): Unit =
+  def flush(flushBid: BigInt, stid: Int = 0, inclusive: Boolean = false): Unit =
     for (i <- table(stid).indices) {
-      if (table(stid)(i).status != RefBrobStatus.Free && BIDReference.killOnFlush(table(stid)(i).bid, flushBid)) {
+      if (table(stid)(i).status != RefBrobStatus.Free &&
+          (BIDReference.killOnFlush(table(stid)(i).bid, flushBid) ||
+            (inclusive && table(stid)(i).bid == flushBid))) {
         table(stid)(i) = table(stid)(i).copy(status = RefBrobStatus.Flushed, scalarDone = false, engineDone = false, exception = false)
       }
     }
@@ -182,6 +184,18 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.entry(kill).status == RefBrobStatus.Allocated)
   }
 
+  test("BROB miss-predict recovery clears the first killed BID inclusively") {
+    val brob = new RefBrob(entries = 8)
+    assert(brob.alloc(0, RefBlockType.Scalar))
+    assert(brob.alloc(1, RefBlockType.Scalar))
+    assert(brob.alloc(2, RefBlockType.Scalar))
+    brob.flush(flushBid = 1, inclusive = true)
+
+    assert(brob.entry(0).status == RefBrobStatus.Allocated)
+    assert(brob.entry(1).status == RefBrobStatus.Flushed)
+    assert(brob.entry(2).status == RefBrobStatus.Flushed)
+  }
+
   test("BROB keeps identical full BID values isolated by STID") {
     val brob = new RefBrob(entries = 4, stidCount = 2)
     val bid0 = BIDReference.fromParts(uniq = 0, slot = 0, entries = 4)
@@ -216,6 +230,7 @@ class BROBSpec extends AnyFunSuite {
     assert(sv.contains("io_allocStid"))
     assert(sv.contains("io_scalarDoneStid"))
     assert(sv.contains("io_flushStid"))
+    assert(sv.contains("io_flushInclusive"))
     assert(sv.contains("io_queryStid"))
     assert(sv.contains("io_oldestValid_1"))
     assert(sv.contains("io_oldestBid_1"))

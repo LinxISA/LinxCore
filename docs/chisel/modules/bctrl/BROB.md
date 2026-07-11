@@ -67,7 +67,7 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 | Input | `retireValid` | `Bool` | valid | Free a completed BID. |
 | Input | `retireBid/retireStid` | mixed | with valid | Exact completed block identity to free. |
 | Input | `flushValid` | `Bool` | valid | Apply BID-based flush mask. |
-| Input | `flushBid/flushStid` | mixed | with valid | Kill younger BIDs only in the selected STID lane. |
+| Input | `flushBid/flushStid/flushInclusive` | mixed | with valid | Kill a selected STID suffix; inclusive recovery also kills the pivot. |
 | Input | `queryBid/queryStid` | mixed | combinational | Exact lane and BID to inspect. |
 | Output | `query` | `BrobEntryMeta` | combinational | Current slot metadata. |
 | Output | `queryAllocated` | `Bool` | combinational | Query slot is live. |
@@ -84,11 +84,9 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 `BrobMetaTracker` stores one `BrobEntryMeta` per `(STID, slot)`. Reset state is
 `BrobStatus.Free` with zeroed metadata.
 
-This packet does not yet implement C++ model pointers such as `allocPtr`,
-`dispatchPtr`, `renamePtr`, `commitPtr`, or `nonFlushBid`. The
-`DispatchROBAllocator` bridge owns an independent `(blockSlot, blockUniq)`
-allocation cursor for each configured STID so one lane cannot stall or advance
-another lane's block order.
+`BrobAllocationRecovery`, integrated under `DispatchROBAllocator`, now owns the
+C++ model's per-STID allocation-tail restore. Dispatch, rename, commit,
+`nonFlushBid`, and store-barrier pointers remain unimplemented.
 
 ## Logic Design
 
@@ -114,9 +112,10 @@ another lane's block order.
   scalar-redirect, scalar-created, and ROB block-last scalar-done events before
   they enter `BlockScalarDoneSequencer`.
 - Retire frees only a `Completed` entry.
-- Flush is applied only to `flushStid` and marks entries in that lane with full
-  BID greater than `flushBid` as `Flushed`. No BID comparison is made across
-  STIDs. `Flushed` entries remain
+- Flush is applied only to `flushStid`. Ordinary accepted global flush marks
+  entries with full BID greater than `flushBid` as `Flushed`; miss-predict
+  recovery also marks the pivot because it names the first killed block. No BID
+  comparison is made across STIDs. `Flushed` entries remain
   excluded from allocated/pending/complete masks but are accepted by
   `allocReady` so reduced block-control cleanup can reuse killed slots.
 - Recovery watermark selection scans live entries independently in every STID
@@ -134,10 +133,11 @@ cycle.
 
 ## Flush/Recovery
 
-The implemented flush rule is the strict lane-local BID mask from the LinxCore
-contract: for the selected STID, keep `bid <= flushBid` and kill
-`bid > flushBid`. This is intentionally full 64-bit BID order, not low-slot
-order, and it rejects a global cross-STID ordering interpretation.
+The implemented flush rule is lane-local. `MISS_PRED_FLUSH` follows model
+`recoverBlock` and kills `bid >= pivot`; accepted scalar nuke/inner/fast flush
+follows the retained-target case of `setFlushed` and kills `bid > pivot`.
+`BrobAllocationRecovery` restores the allocation cursor to the exact first
+killed BID in the same accepted cleanup cycle.
 
 `Flushed` is a non-live state, not a terminal allocation blocker. R127 proved
 this on the CoreMark live path: scalar-return cleanup can kill younger block
@@ -147,9 +147,9 @@ slot after wrap/flush bookkeeping.
 `FullBidRecoveryBridge` is the first recovery handoff owner between this full
 BID block surface and the ring `ROBID` consumed by `ROBEntryBank` pruning.
 
-Full LinxCoreModel `recoverBlock`, `setFlushed`, PE replay, SIMT/MTC replay,
-rename rollback, TileRename release, and GPR CMAP commit effects are not in
-this packet.
+Full commit/dispatch/rename pointer recovery, `nonFlushBid`, PE replay,
+SIMT/MTC replay, rename rollback, TileRename release, and GPR CMAP commit
+effects remain outside this packet.
 
 ## Trace/Observability
 

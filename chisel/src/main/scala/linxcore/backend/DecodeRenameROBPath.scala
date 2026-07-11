@@ -1120,6 +1120,7 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushValid := cleanup.valid && cleanup.blockFlushValid
   allocator.io.blockFlushBid := cleanup.blockFlushBid
   allocator.io.blockFlushStid := cleanup.flush.req.stid
+  allocator.io.blockFlushInclusive := cleanup.blockFlushInclusive
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   allocator.io.blockQueryStid := selectedStid
   val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !cleanup.valid)) {
