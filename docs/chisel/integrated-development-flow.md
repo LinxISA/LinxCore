@@ -15,7 +15,20 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R633 establishes the canonical Chisel `ScalarLSU`, moves the
+Latest packet: R634 adds canonical `ScalarLSULoadPath` ownership beneath
+`ScalarLSU`. `LoadInflightQueue` now carries PE/STID/TID and applies typed Linx
+precise pruning; `LoadResolveQueue` shares that recovery boundary. The owner
+requires three free ResolveQ slots before launch: two for already registered
+E3/E4 arrivals and one for the newly accepted load. It transfers accepted hit
+records with row-owned identity and clears the exact source LIQ row. The full
+suite passes 245 suites and 1,454 tests; the top xcheck passes 3 rows with zero
+mismatches; and the reduced CoreMark regression at
+`generated/r634-post-load-owner-coremark/report/crosscheck_manifest.json`
+passes 665 compared rows with zero mismatches. MDB learning/fanout, live row
+mutation, cache/miss queues, and final load-return publication are the next
+integration boundary.
+
+R633 establishes the canonical Chisel `ScalarLSU`, moves the
 proven STQ-to-SCB store path beneath it, and connects that owner to
 `LinxCoreTop`. `ScalarLsuParams` now independently sizes STQ, commit queue and
 issue, SCB, response buffering, cache-line geometry, and MapQ depth, while

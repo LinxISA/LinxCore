@@ -4,12 +4,19 @@ import chisel3._
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
 
+class ScalarLSUIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
+  val store = ScalarLSU.storePathIO(coreParams, lsuParams)
+  val load = new ScalarLSULoadPathIO(coreParams, lsuParams)
+}
+
 class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   private val lsuParams = coreParams.scalarLsu
-  val io = IO(ScalarLSU.storePathIO(coreParams, lsuParams))
+  val io = IO(new ScalarLSUIO(coreParams, lsuParams))
 
   val storeCommitPath = Module(ScalarLSU.storeCommitPath(coreParams, lsuParams))
-  storeCommitPath.io <> io
+  val loadPath = Module(new ScalarLSULoadPath(coreParams))
+  storeCommitPath.io <> io.store
+  loadPath.io <> io.load
 }
 
 object ScalarLSU {

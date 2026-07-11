@@ -20,6 +20,8 @@ class LinxCoreTopSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       scbResponseBufferDepth = 2,
+      liqEntries = 4,
+      resolveQueueEntries = 8,
       mapQDepth = 8
     )
     val sv = ChiselStage.emitSystemVerilog(
@@ -31,7 +33,9 @@ class LinxCoreTopSpec extends AnyFunSuite {
     assert(sv.contains("module CommitTraceMonitor"))
     assert(sv.contains("module ScalarLSU"))
     assert(sv.contains("module STQSCBCommitPath"))
-    assert(sv.contains("io_scalarLsu_flush_req_valid"))
+    assert(sv.contains("module ScalarLSULoadPath"))
+    assert(sv.contains("io_scalarLsu_store_flush_req_valid"))
+    assert(sv.contains("io_scalarLsu_load_preciseFlush_req_valid"))
     assert(sv.contains("commitContractError"))
     assert(sv.contains("io_idle"))
   }

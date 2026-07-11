@@ -8,12 +8,13 @@
       "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
       "role": "reduced-bringup",
       "forbidden_roles": ["full-composition", "full-replacement"],
-      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU", "ScalarLSULoadPath"],
       "text_contains": [
         "val commitRob = Module(new ReducedCommitROB",
         "val scalarLsu = Module(new ScalarLSU",
-        "scalarLsu.io.drainEmpty",
-        "scalarLsu.io.scbEntryCount === 0.U"
+        "scalarLsu.io.store.drainEmpty",
+        "scalarLsu.io.store.scbEntryCount === 0.U",
+        "scalarLsu.io.load.empty"
       ]
     }
   ],
@@ -28,7 +29,11 @@
         "scalarLsu.stqEntries": 16,
         "scalarLsu.commitQueueEntries": 16,
         "scalarLsu.commitIssueWidth": 2,
-        "scalarLsu.scbEntries": 16
+        "scalarLsu.scbEntries": 16,
+        "scalarLsu.liqEntries": 16,
+        "scalarLsu.resolveQueueEntries": 8,
+        "scalarLsu.loadSizeWidth": 7,
+        "scalarLsu.physRegWidth": 7
       },
       "validation_text": [
         "robEntries must be a power of two",
@@ -275,16 +280,24 @@
     {
       "id": "chisel-load-inflight-replay",
       "module_family": "lsu",
-      "status": "unit-proven",
+      "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["The LIQ/replay owner is exercised as a focused unit and reduced trace composition, not as the canonical full LSU."],
+      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, and typed pruning, but MDB, live row mutation, cache/miss queues, and final load-return publication remain outside the canonical owner."],
       "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
+          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadResolveQueue", "transferPending", "resolveCreditSafe"]
+        },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala",
           "symbols": ["LoadInflightQueue", "rows", "LoadReplayWakeup", "LoadRefillWakeup"]
         }
       ],
       "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec"
+        },
         {
           "path": "chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec"
@@ -296,15 +309,15 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU currently integrates the store side only; LIQ, ResolveQ, MDB, refill, and replay are not yet children of this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store and active/resolved load state, but MDB and final load-return/cache ownership are not yet children of this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath"]
+          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
-          "symbols": ["scalarLsu", "stqEmpty", "scbRespBufferEmpty"]
+          "symbols": ["scalarLsu", "store", "load", "stqEmpty", "scbRespBufferEmpty"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala",

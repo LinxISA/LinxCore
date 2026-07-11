@@ -170,10 +170,11 @@ LRET sink, while the dependent mem-wakeup sink is only required for selected
 rows that are not speculative-wakeup rows and not stack-valid rows.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
-owns a monitored `ReducedCommitROB` and the canonical store-side `ScalarLSU`.
-The LSU independently parameterizes ROB identity, STQ, commit queue/issue, SCB,
-response buffer, cache-line, and MapQ sizing. LIQ, ResolveQ, MDB, refill,
-replay, and load return remain staged integration work.
+owns a monitored `ReducedCommitROB` and canonical `ScalarLSU` store plus
+active/resolved load boundaries. The LSU independently parameterizes ROB
+identity, STQ/SCB, LIQ/ResolveQ, cache-line, register-tag, and MapQ resources.
+MDB, cache/miss queues, live replay mutation, and final load return remain
+staged integration work.
 
 Open setup issues are tracked in `docs/chisel/issues.md`. The optimized
 cross-toolchain flow starts in `docs/chisel/integrated-development-flow.md`.

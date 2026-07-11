@@ -5,6 +5,7 @@
 - Chisel: `chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala`
 - Parameters: `chisel/src/main/scala/linxcore/common/CoreParams.scala`
 - Store child: `chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
+- Load child: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala`
 - Model reference: `model/LinxCoreModel/model/core/Core.cpp`,
   `Core::BuildScalarLSU`; `model/LinxCoreModel/model/lsu/lsu.h`,
@@ -14,10 +15,11 @@
 ## Purpose
 
 `ScalarLSU` is the canonical Chisel ownership boundary for scalar memory
-execution. R633 moves the proven STQ-to-SCB store composition beneath this
-owner and connects it to `LinxCoreTop`. It does not yet claim a complete LSU:
-load inflight, ResolveQ, MDB, refill, replay, and load-return owners remain
-outside this hierarchy.
+execution. R633 moved the proven STQ-to-SCB store composition beneath this
+owner. R634 adds canonical LIQ-to-ResolveQ ownership with shared typed recovery
+and connects both `store` and `load` boundaries to `LinxCoreTop`. MDB, cache and
+miss queues, live row mutation, and final load-return publication remain
+outside this hierarchy, so this is not yet a complete LSU.
 
 ## Parameter Contract
 
@@ -27,6 +29,8 @@ LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 - `stqEntries`
 - `commitQueueEntries` and `commitIssueWidth`
 - `scbEntries` and `scbResponseBufferDepth`
+- `liqEntries` and `resolveQueueEntries`
+- `loadSizeWidth`, architectural/physical register-tag widths, and PC width
 - address, data, PE, STID, TID, size, and SIMT-lane widths
 - `lineBytes` and `mapQDepth`
 
@@ -45,11 +49,13 @@ state.
 
 ## Current Composition
 
-The child `STQSCBCommitPath` owns speculative STQ rows, ordered committed-store
+The `store` child `STQSCBCommitPath` owns speculative STQ rows, ordered committed-store
 drain, SCB coalescing/state, and buffered raw responses. An SCB-accepted final
 fragment is the only committed-row free source. `LinxCoreTop.idle` now requires
 an empty reduced ROB, STQ, commit-drain queue, SCB row bank, and SCB response
-buffer.
+buffer. The `load` child `ScalarLSULoadPath` owns active LIQ rows, resolved
+load records, shared typed pruning, transfer credit, and source-row clear.
+Top-level idle also requires the load path to be empty.
 
 ## Verification
 
@@ -58,7 +64,7 @@ buffer.
 - focused STQ, drain, insert-probe, and flush-prune suites
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
 
-R633 proves elaboration with a 32-entry ROB identity and an independent
-8-entry STQ, plus the full child hierarchy. The top cross-check compares three
-architectural rows with zero mismatches. This is store-side integration
-evidence, not full load/replay or full-core evidence.
+R634 elaborates a 32-entry ROB identity with independent 8-entry STQ, 4-entry
+LIQ, and 8-entry ResolveQ capacities. Focused tests cover typed LIQ pruning and
+the composed load hierarchy. This remains partial LSU evidence until MDB,
+cache/miss, and load-return owners are integrated.

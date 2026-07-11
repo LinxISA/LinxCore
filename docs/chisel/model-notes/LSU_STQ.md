@@ -417,9 +417,14 @@ full cacheline in the row and uses row-owned valid bytes as the next
 `LoadForwardPipeline` base, which mirrors the model's cluster-data merge plus
 later relaunch while avoiding a full L1D/LDQ buffer owner in this packet.
 
-These owners still do not implement a separate `ResolveQ`/LHQ queue, precise
-`FlushBus` pruning, L2/CHI response queue ordering, ready-table updates,
-consumer bypass routing, or memory trace emission.
+R634 places `LoadInflightQueue` and `LoadResolveQueue` beneath
+`ScalarLSULoadPath`. Active rows now retain PE/STID/TID, typed `FlushBus`
+pruning applies to both active and resolved state. Before launch, the owner
+requires three free ResolveQ slots: two for already registered E3/E4 arrivals
+and one for the newly accepted load. It then transfers an LHQ hit record and
+clears its source LIQ row. L2/CHI response queue ordering,
+ready-table updates, consumer bypass routing, live MDB mutation, and memory
+trace emission remain outside this owner.
 
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
@@ -428,8 +433,9 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU needs separate owners for load-queue flush, MDB
-  integration, and queue backpressure. `SCBResponseBuffer` now owns raw
+- The full scalar LSU still needs canonical MDB integration and final
+  load-return/cache ownership. `ScalarLSULoadPath` now owns load-queue flush
+  and LIQ-to-ResolveQ backpressure. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded
   `resp_list` row-id ordering, and `SCBResponseRetrySelect` preserves the
   response-retry priority rule before ordinary valid-row eviction.

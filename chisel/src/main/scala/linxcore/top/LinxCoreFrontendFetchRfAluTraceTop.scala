@@ -3284,6 +3284,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedLoadReplayResolvePreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
   reducedLoadReplayResolvePreciseFlush := 0.U.asTypeOf(reducedLoadReplayResolvePreciseFlush)
+  reducedLoadReplayLiqAllocPath.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
   val reducedLoadReplayResolveHardFlush =
     io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
       (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)

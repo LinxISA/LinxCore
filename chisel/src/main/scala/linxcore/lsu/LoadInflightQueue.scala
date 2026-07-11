@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util._
 
 import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
+import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
 object LoadInflightStatus extends ChiselEnum {
@@ -17,7 +18,10 @@ class LoadInflightAlloc(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
@@ -26,6 +30,9 @@ class LoadInflightAlloc(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
+  val tid = UInt(tidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -50,7 +57,10 @@ class LoadInflightRow(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
@@ -62,6 +72,9 @@ class LoadInflightRow(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
+  val tid = UInt(tidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -125,12 +138,18 @@ class LoadInflightQueueIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
 
   val flush = Input(Bool())
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val flushPruneMask = Output(UInt(liqEntries.W))
+  val flushPruneCount = Output(UInt(countWidth.W))
 
   val allocValid = Input(Bool())
   val alloc = Input(new LoadInflightAlloc(
@@ -140,7 +159,10 @@ class LoadInflightQueueIO(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -242,7 +264,10 @@ class LoadInflightQueueIO(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      peIdWidth,
+      stidWidth,
+      tidWidth
     )
   ))
   val occupiedMask = Output(UInt(liqEntries.W))
@@ -266,7 +291,10 @@ class LoadInflightQueue(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -291,7 +319,10 @@ class LoadInflightQueue(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =
@@ -307,7 +338,10 @@ class LoadInflightQueue(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      peIdWidth,
+      stidWidth,
+      tidWidth
     ))
     row := 0.U.asTypeOf(row)
     row.status := LoadInflightStatus.Idle
@@ -354,9 +388,10 @@ class LoadInflightQueue(
   val allocPtr = RegInit(0.U(liqPtrWidth.W))
   val allocWrap = RegInit(false.B)
   val residentCount = RegInit(0.U(countWidth.W))
+  val flushCycle = io.flush || io.preciseFlush.req.valid
 
   val pipeline = Module(new LoadForwardPipeline(idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
-  pipeline.io.flush := io.flush
+  pipeline.io.flush := flushCycle
   pipeline.io.e2Stores := io.e2Stores
   pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
   pipeline.io.e2ScbReturned := io.e2ScbReturned
@@ -365,23 +400,23 @@ class LoadInflightQueue(
 
   val launchRow = rows(io.launchIndex)
   val launchReady =
-    !io.flush && launchRow.valid && (launchRow.status === LoadInflightStatus.Wait) && !launchRow.waitStore
+    !flushCycle && launchRow.valid && (launchRow.status === LoadInflightStatus.Wait) && !launchRow.waitStore
   val launchAccepted = io.launchValid && launchReady
   val launchUsesRowData = launchRow.validMask.orR
   val pickRow = rows(io.pickIndex)
   val pickReady =
-    !io.flush && pickRow.valid && (pickRow.status === LoadInflightStatus.Wait) && !pickRow.waitStore
+    !flushCycle && pickRow.valid && (pickRow.status === LoadInflightStatus.Wait) && !pickRow.waitStore
   val pickAccepted = io.pickValid && pickReady
   val scbReturnRow = rows(io.scbReturnIndex)
   val scbReturnReady =
-    !io.flush && scbReturnRow.valid && (scbReturnRow.status === LoadInflightStatus.Repick) && !scbReturnRow.scbReturned
+    !flushCycle && scbReturnRow.valid && (scbReturnRow.status === LoadInflightStatus.Repick) && !scbReturnRow.scbReturned
   val scbReturnAccepted = io.scbReturnValid && scbReturnReady
   val markResolvedRow = rows(io.markResolvedIndex)
   val markResolvedRequestByteMask = requestByteMask(markResolvedRow)
   val markResolvedRequestComplete =
     markResolvedRequestByteMask.orR && ((markResolvedRow.validMask & markResolvedRequestByteMask) === markResolvedRequestByteMask)
   val markResolvedReady =
-    !io.flush &&
+    !flushCycle &&
       markResolvedRow.valid &&
       (markResolvedRow.status === LoadInflightStatus.Repick) &&
       markResolvedRow.dataComplete &&
@@ -408,12 +443,12 @@ class LoadInflightQueue(
   pipeline.io.e2Query := query
 
   val replayWakeup = Module(new LoadReplayWakeup(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
-  replayWakeup.io.wakeValid := io.replayWakeValid && !io.flush
+  replayWakeup.io.wakeValid := io.replayWakeValid && !flushCycle
   replayWakeup.io.wake := io.replayWake
   replayWakeup.io.rows := rows
 
   val refillWakeup = Module(new LoadRefillWakeup(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
-  refillWakeup.io.refillValid := io.refillValid && !io.flush
+  refillWakeup.io.refillValid := io.refillValid && !flushCycle
   refillWakeup.io.refill := io.refill
   refillWakeup.io.rows := rows
 
@@ -423,7 +458,7 @@ class LoadInflightQueue(
   val e4Index = RegInit(0.U(liqPtrWidth.W))
 
   val allocLoadId = currentLoadId
-  val allocReady = !io.flush && !rows(allocPtr).valid
+  val allocReady = !flushCycle && !rows(allocPtr).valid
   val allocAccepted = io.allocValid && allocReady
   val clearResolvedRow = rows(io.clearResolvedIndex)
   val clearResolvedCompleteRepick =
@@ -435,7 +470,7 @@ class LoadInflightQueue(
       clearResolvedRow.stqReturned &&
       !clearResolvedRow.waitStore
   val clearResolvedReady =
-    !io.flush &&
+    !flushCycle &&
       clearResolvedRow.valid &&
       ((clearResolvedRow.status === LoadInflightStatus.Resolved) || clearResolvedCompleteRepick)
   val clearResolvedAccepted = io.clearResolvedValid && clearResolvedReady
@@ -482,7 +517,7 @@ class LoadInflightQueue(
   val rowMutationReplayConflictVec = VecInit((0 until liqEntries).map(idx => rowMutationReplayConflictMask(idx)))
   val rowMutationRefillConflictVec = VecInit((0 until liqEntries).map(idx => refillWakeup.io.wakeMask(idx)))
   rowMutationPath.io.enable := true.B
-  rowMutationPath.io.flush := io.flush
+  rowMutationPath.io.flush := flushCycle
   rowMutationPath.io.requestValid := io.rowMutationValid
   rowMutationPath.io.requestTargetMask := rowMutationTargetMask
   rowMutationPath.io.requestTargetIndex := io.rowMutationTargetIndex
@@ -510,6 +545,18 @@ class LoadInflightQueue(
       (scbReturnAccepted && (io.scbReturnIndex === io.rowMutationTargetIndex)) ||
       (markResolvedAccepted && (io.markResolvedIndex === io.rowMutationTargetIndex))
   rowMutationPath.io.allocationConflict := allocAccepted && (allocPtr === io.rowMutationTargetIndex)
+
+  val flushPruneVec = VecInit(rows.map(row => LoadQueueFlushMatch(
+    io.preciseFlush,
+    row.valid,
+    row.peId,
+    row.stid,
+    row.tid,
+    row.bid,
+    row.gid,
+    row.loadLsId)))
+  val flushPruneMask = flushPruneVec.asUInt
+  val flushPruneCount = PopCount(flushPruneVec)
 
   when(io.flush) {
     for (idx <- 0 until liqEntries) {
@@ -673,6 +720,9 @@ class LoadInflightQueue(
       rows(allocPtr).gid := io.alloc.gid
       rows(allocPtr).rid := io.alloc.rid
       rows(allocPtr).loadLsId := io.alloc.loadLsId
+      rows(allocPtr).peId := io.alloc.peId
+      rows(allocPtr).stid := io.alloc.stid
+      rows(allocPtr).tid := io.alloc.tid
       rows(allocPtr).pc := io.alloc.pc
       rows(allocPtr).addr := io.alloc.addr
       rows(allocPtr).size := io.alloc.size
@@ -700,6 +750,30 @@ class LoadInflightQueue(
     }
 
     residentCount := residentCount + allocAccepted.asUInt - clearResolvedAccepted.asUInt
+
+    when(io.preciseFlush.req.valid) {
+      for (idx <- 0 until liqEntries) {
+        val pipelineResident =
+          (e3IndexValid && (e3Index === idx.U)) || (e4IndexValid && (e4Index === idx.U))
+        when(flushPruneVec(idx)) {
+          rows(idx) := zeroRow
+        }.elsewhen(pipelineResident && rows(idx).valid && (rows(idx).status === LoadInflightStatus.Repick)) {
+          rows(idx).status := LoadInflightStatus.Wait
+          rows(idx).dataComplete := false.B
+          rows(idx).sourcesReturned := false.B
+          rows(idx).scbReturned := false.B
+          rows(idx).stqReturned := false.B
+        }
+      }
+      residentCount := residentCount - flushPruneCount
+      e3IndexValid := false.B
+      e4IndexValid := false.B
+      when(flushPruneMask.orR) {
+        val firstPruned = PriorityEncoder(flushPruneMask)
+        allocPtr := firstPruned
+        allocWrap := !rows(firstPruned).loadId.wrap
+      }
+    }
   }
 
   val occupiedVec = Wire(Vec(liqEntries, Bool()))
@@ -732,6 +806,8 @@ class LoadInflightQueue(
   io.markResolvedReady := markResolvedReady
   io.markResolvedAccepted := markResolvedAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
+  io.flushPruneMask := flushPruneMask
+  io.flushPruneCount := flushPruneCount
   io.rowMutationBridgeValid := rowMutationPath.io.bridgeValid
   io.rowMutationTargetEvidenceValid := rowMutationPath.io.targetEvidenceValid
   io.rowMutationWriteConflict := rowMutationPath.io.writeConflict

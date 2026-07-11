@@ -1,5 +1,11 @@
 # LoadResolveQueue
 
+R634 makes `LoadResolveQueue` a child of canonical `ScalarLSULoadPath`. The
+parent transfers row-owned PE/STID/TID with every accepted LIQ hit record,
+reserves queue credit for registered E3/E4 arrivals, and clears the exact LIQ
+source row after acceptance. Hard reset/restart flush and typed precise flush
+are shared with the active LIQ owner.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`

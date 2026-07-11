@@ -3,8 +3,8 @@ package linxcore.top
 import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.CoreParams
-import linxcore.lsu.ScalarLSU
+import linxcore.common.{CoreParams, ScalarLsuParams}
+import linxcore.lsu.{ScalarLSU, ScalarLSUIO}
 import linxcore.rob.ReducedCommitROB
 
 class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTraceParams) extends Bundle {
@@ -19,7 +19,7 @@ class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTracePara
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
 
-  val scalarLsu = ScalarLSU.storePathIO(coreParams, coreParams.scalarLsu)
+  val scalarLsu = new ScalarLSUIO(coreParams, coreParams.scalarLsu)
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -81,10 +81,11 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
 
   io.idle :=
     commitRob.io.empty &&
-      scalarLsu.io.stqEmpty &&
-      scalarLsu.io.drainEmpty &&
-      (scalarLsu.io.scbEntryCount === 0.U) &&
-      scalarLsu.io.scbRespBufferEmpty
+      scalarLsu.io.store.stqEmpty &&
+      scalarLsu.io.store.drainEmpty &&
+      (scalarLsu.io.store.scbEntryCount === 0.U) &&
+      scalarLsu.io.store.scbRespBufferEmpty &&
+      scalarLsu.io.load.empty
 }
 
 object LinxCoreTop {
@@ -105,7 +106,11 @@ object Elaborate extends App {
 
 object EmitLinxCoreTopXcheck extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(
-    new LinxCoreTop(CoreParams(robEntries = 8, commitWidth = 2)),
+    new LinxCoreTop(CoreParams(
+      robEntries = 8,
+      commitWidth = 2,
+      scalarLsu = ScalarLsuParams(liqEntries = 8)
+    )),
     args = Array("--target-dir", "../generated/chisel-verilog/top-xcheck"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )

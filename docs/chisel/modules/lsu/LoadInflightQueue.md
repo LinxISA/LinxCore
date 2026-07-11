@@ -71,6 +71,13 @@ matches the model return loop where a complete `LDQ_REPICK` entry can call
 `returnData`, become resolved, move through `CheckMovRslvQ`, and reset the
 active LDQ entry without requiring a second wait-row relaunch.
 
+R634 adds row-owned PE/STID/TID and a typed `preciseFlush` input. The queue
+uses the same Linx scope and BID/group/LSID comparison as ResolveQ, prunes only
+matching rows, cancels E3/E4 residency, returns surviving pipeline rows to
+`Wait`, and rebases allocation to the first pruned slot with a changed load-ID
+generation. `ScalarLSULoadPath` is now the canonical parent for LIQ-to-ResolveQ
+transfer and source-row clear.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -205,11 +212,12 @@ can drive this port.
 | `lhqRecordValid` | The E4 outcome resolved as a hit and publishes an LHQ record. |
 | `lhqRecord` | Load ID, row identity including load LSID and PC, line address, byte mask, final line data, and forwarded mask. |
 
-Resolved rows remain resident until `clearResolvedValid` accepts the row. R489
-also lets `clearResolvedValid` clear a `Repick` row whose requested bytes are
-complete and whose coarse, SCB, and STQ source-return bits are all set. This
-models the same terminal row lifecycle as `returnData` followed by
-`CheckMovRslvQ`, but keeps the Chisel boundary on the existing clear port.
+An E4 hit remains `Repick` while it publishes `lhqRecord`; this prevents the
+active row from appearing terminal before the return owner accepts its side
+effects. `markResolvedValid` may explicitly mark it `Resolved`, while
+`clearResolvedValid` may directly clear a complete `Repick` row whose coarse,
+SCB, and STQ source-return bits are all set. This models `returnData` followed
+by `CheckMovRslvQ` without adding a false intermediate ownership point.
 
 ### Observability
 
@@ -243,8 +251,8 @@ The module owns:
   source-return accepted-token path,
 - a combinational LHQ hit-record output for E4 hits.
 
-It does not own a separate LHQ queue, load-store conflict recovery, precise
-flush pruning, miss queue state, SCB/STQ storage, ready-table state, consumer
+It does not own a separate LHQ queue, load-store conflict recovery, miss queue
+state, SCB/STQ storage, ready-table state, consumer
 bypass data routing, or trace emission.
 
 ## Logic Design
@@ -295,11 +303,12 @@ The C++ model provides the owner split:
 3. R487 accepts `scbReturnValid` only for valid `Repick` rows that have not
    already recorded `scbReturned`. The write conflicts with same-row native
    row mutation so the model `scbRnt` proof cannot race an STQ response apply.
-4. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
-   publishes `lhqRecord` with the row PC preserved for future recovery/MDB
-   reporting. R418 stores the delayed pipeline SCB and STQ/store source-return
-   bits in `scbReturned` and `stqReturned`, while `sourcesReturned` remains the
-   combined active readiness bit.
+4. E4 hit with `NoMiss` and `e4WakeupValid` keeps the row in `Repick` and
+   publishes `lhqRecord` with the row PC preserved for recovery/MDB reporting.
+   R418 stores the delayed pipeline SCB and STQ/store source-return bits in
+   `scbReturned` and `stqReturned`, while `sourcesReturned` remains the combined
+   active readiness bit. `markResolved` or the accepted ResolveQ transfer/clear
+   owner performs the terminal transition.
 5. E4 `StoreDataNotReady` changes the row back to `Wait`, records
    `waitStoreInfo`, and clears transient byte-valid data like model
    `LUEntryInfo::rewait`. R411 also clears split return diagnostics on this
@@ -383,7 +392,7 @@ row-observation surfaces.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
-Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
+Focused reference tests cover slot-plus-wrap allocation, E4 hit publication
 transition and LHQ record publication including PC, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
 clear, store-wakeup miss completion, direct SCB-return proof for a `Repick`

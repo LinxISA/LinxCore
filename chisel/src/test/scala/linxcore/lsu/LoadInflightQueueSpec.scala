@@ -21,6 +21,9 @@ object LoadInflightQueueReference {
       gid: Id = Id(),
       rid: Id = Id(),
       loadLsId: Id = Id(),
+      peId: Int = 0,
+      stid: Int = 0,
+      tid: Int = 0,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: Int = 8,
@@ -81,12 +84,35 @@ object LoadInflightQueueReference {
     def residentCount: Int = rows.count(_.isDefined)
     def occupiedMask: Int = mask(rows.map(_.isDefined).toSeq)
     def waitMask: Int = mask(rows.map(_.exists(_.status == Wait)).toSeq)
+    def repickMask: Int = mask(rows.map(_.exists(_.status == Repick)).toSeq)
     def resolvedMask: Int = mask(rows.map(_.exists(_.status == Resolved)).toSeq)
     def waitStoreMask: Int = mask(rows.map(_.exists(_.waitStore.nonEmpty)).toSeq)
     def missPending: Boolean = rows.exists(_.exists(r => r.status == L1DcMiss || r.status == L2Wait))
 
     def installRow(index: Int, row: Row): Unit = {
       rows(index) = Some(row)
+    }
+
+    def preciseFlush(flush: STQFlushPruneReference.Flush): Int = {
+      val prune = rows.map(_.exists(row => STQFlushPruneReference.matches(
+        flush,
+        STQFlushPruneReference.Row(
+          valid = true,
+          stid = row.alloc.stid,
+          peId = row.alloc.peId,
+          tid = row.alloc.tid,
+          bid = row.alloc.bid,
+          gid = row.alloc.gid,
+          lsId = row.alloc.loadLsId))))
+      val pruneMask = mask(prune.toSeq)
+      prune.zipWithIndex.collectFirst { case (true, index) => index }.foreach { first =>
+        allocPtr = first
+        allocWrap = !rows(first).get.loadId.wrap
+      }
+      for (idx <- rows.indices if prune(idx)) {
+        rows(idx) = None
+      }
+      pruneMask
     }
 
     def rowMutation(
@@ -209,7 +235,7 @@ object LoadInflightQueueReference {
 
           e4.missKind match {
             case NoMiss if e4.wakeupValid =>
-              val row = updated.copy(status = Resolved, waitStore = None, l1Hit = false, l1Miss = false)
+              val row = updated.copy(status = Repick, waitStore = None, l1Hit = false, l1Miss = false)
               rows(index) = Some(row)
               CycleResult(Some(index), Some(HitRecord(row, e4.loadByteMask, e4.lineData, e4.forwardMask)))
             case StoreDataNotReady =>
@@ -270,7 +296,9 @@ object LoadInflightQueueReference {
 
     def clearResolved(index: Int): Boolean =
       rows(index) match {
-        case Some(row) if row.status == Resolved =>
+        case Some(row) if row.status == Resolved ||
+            (row.status == Repick && row.dataComplete && row.sourcesReturned &&
+              row.scbReturned && row.stqReturned && row.waitStore.isEmpty) =>
           rows(index) = None
           true
         case _ =>
@@ -395,7 +423,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(liq.occupiedMask == 0x3)
   }
 
-  test("E4 hit resolves the LIQ row and publishes an LHQ hit record") {
+  test("E4 hit publishes an LHQ record while the LIQ row remains repick-owned") {
     val liq = new Model(entries = 4)
     val rowIndex = liq.allocate(alloc(0, addr = 0x1004, size = 4, youngestStore = 5)).index
     val store = Store(
@@ -411,7 +439,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     val row = liq.row(rowIndex).get
 
     assert(result.e4Index.contains(rowIndex))
-    assert(row.status == Resolved)
+    assert(row.status == Repick)
     assert(row.dataComplete)
     assert(row.sourcesReturned)
     assert(row.scbReturned)
@@ -419,7 +447,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.forwardMask == byteMask(4, 4))
     assert(result.hitRecord.exists(r => r.row.loadId.value == rowIndex && r.byteMask == byteMask(4, 4)))
     assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
-    assert(liq.resolvedMask == (1 << rowIndex))
+    assert(liq.repickMask == (1 << rowIndex))
+    assert(liq.resolvedMask == 0)
   }
 
   test("pick moves a WAIT row to REPICK without launching E4 forwarding") {
@@ -455,7 +484,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     val resolvedIndex = resolvedLiq.allocate(alloc(1, addr = 0x1000)).index
     assert(resolvedLiq.launch(resolvedIndex, LaunchInput(baseValidMask = byteMask(0, 4))))
     resolvedLiq.cycle()
-    assert(resolvedLiq.row(resolvedIndex).exists(_.status == Resolved))
+    assert(resolvedLiq.row(resolvedIndex).exists(_.status == Repick))
     assert(!resolvedLiq.pick(resolvedIndex))
   }
 
@@ -609,12 +638,12 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     val resolved = liq.row(rowIndex).get
 
     assert(result.hitRecord.exists(_.byteMask == byteMask(8, 2)))
-    assert(resolved.status == Resolved)
+    assert(resolved.status == Repick)
     assert(resolved.dataComplete)
     assert((resolved.lineData & lineData(Map(8 -> 0xff, 9 -> 0xff))) == lineData(Map(8 -> 0xaa, 9 -> 0xbb)))
   }
 
-  test("resolved rows clear before allocation pointer wraps back into their slot") {
+  test("complete repick rows clear before allocation wraps back into their slot") {
     val liq = new Model(entries = 2)
     val a0 = liq.allocate(alloc(0, addr = 0x1000)).index
     liq.allocate(alloc(1, addr = 0x1040))
@@ -628,6 +657,32 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(wrapped.index == 0)
     assert(wrapped.loadId.wrap)
     assert(wrapped.loadId.value == 0)
+  }
+
+  test("typed precise flush prunes matching load rows and rebases allocation") {
+    val liq = new Model(entries = 4)
+    liq.allocate(alloc(0).copy(bid = Id(value = 1), loadLsId = Id(value = 1), peId = 2, stid = 3, tid = 4))
+    liq.allocate(alloc(1).copy(bid = Id(value = 1), loadLsId = Id(value = 2), peId = 2, stid = 3, tid = 4))
+    liq.allocate(alloc(2).copy(bid = Id(value = 2), loadLsId = Id(value = 0), peId = 2, stid = 3, tid = 4))
+    liq.allocate(alloc(3).copy(bid = Id(value = 3), loadLsId = Id(value = 0), peId = 2, stid = 7, tid = 4))
+
+    val pruned = liq.preciseFlush(STQFlushPruneReference.Flush(
+      stid = 3,
+      peId = 2,
+      tid = 4,
+      bid = Id(value = 1),
+      lsId = Id(value = 2),
+      baseOnPE = true,
+      baseOnThread = true))
+
+    assert(pruned == 0x6)
+    assert(liq.residentCount == 2)
+    assert(liq.row(0).nonEmpty)
+    assert(liq.row(1).isEmpty)
+    assert(liq.row(2).isEmpty)
+    assert(liq.row(3).nonEmpty)
+    val replacement = liq.allocate(alloc(4, addr = 0x1100))
+    assert(replacement.accepted && replacement.index == 1 && replacement.loadId.wrap)
   }
 
   test("native row mutation writes an admitted repick row image") {
@@ -746,5 +801,9 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_rows_0_dst_physTag"))
     assert(sv.contains("io_rows_0_scbReturned"))
     assert(sv.contains("io_rows_0_stqReturned"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
+    assert(sv.contains("io_flushPruneMask"))
+    assert(sv.contains("io_alloc_stid"))
+    assert(sv.contains("io_rows_0_stid"))
   }
 }

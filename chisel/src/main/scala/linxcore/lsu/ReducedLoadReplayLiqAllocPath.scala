@@ -5,6 +5,7 @@ import chisel3.util.log2Ceil
 
 import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
+import linxcore.recovery.FlushBus
 
 class ReducedLoadReplayLiqAllocPathIO(
     val liqEntries: Int,
@@ -23,6 +24,9 @@ class ReducedLoadReplayLiqAllocPathIO(
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
   val flush = Input(Bool())
+  val preciseFlush = Input(new FlushBus(idEntries))
+  val flushPruneMask = Output(UInt(liqEntries.W))
+  val flushPruneCount = Output(UInt(countWidth.W))
   val candidateValid = Input(Bool())
   val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
 
@@ -297,6 +301,7 @@ class ReducedLoadReplayLiqAllocPath(
   adapter.io.allocReady := liq.io.allocReady
 
   liq.io.flush := io.flush
+  liq.io.preciseFlush := io.preciseFlush
   liq.io.allocValid := adapter.io.allocValid
   liq.io.alloc := adapter.io.alloc
 
@@ -469,6 +474,8 @@ class ReducedLoadReplayLiqAllocPath(
   io.full := liq.io.full
   io.missPending := liq.io.missPending
   io.clearResolvedAccepted := liq.io.clearResolvedAccepted
+  io.flushPruneMask := liq.io.flushPruneMask
+  io.flushPruneCount := liq.io.flushPruneCount
   io.rowMutationBridgeValid := rowMutationBridge.io.bridgeValid
   io.rowMutationSourceStoreIndexFits := rowMutationBridge.io.sourceStoreIndexFits
   io.rowMutationInvalidStoreIndexOutOfRange := rowMutationBridge.io.invalidStoreIndexOutOfRange

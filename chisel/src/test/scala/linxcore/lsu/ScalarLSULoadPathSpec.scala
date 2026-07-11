@@ -4,14 +4,13 @@ import circt.stage.ChiselStage
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
-class ScalarLSUSpec extends AnyFunSuite {
-  test("scalar LSU sizing separates ROB identity from store capacity") {
+class ScalarLSULoadPathSpec extends AnyFunSuite {
+  test("load and resolve capacities are independent from ROB and STQ sizing") {
     val lsu = ScalarLsuParams(
       stqEntries = 8,
       commitQueueEntries = 4,
       commitIssueWidth = 1,
       scbEntries = 4,
-      scbResponseBufferDepth = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
       mapQDepth = 8
@@ -20,35 +19,33 @@ class ScalarLSUSpec extends AnyFunSuite {
 
     assert(core.robEntries == 32)
     assert(core.scalarLsu.stqEntries == 8)
-    assert(core.scalarLsu.commitQueueEntries == 4)
+    assert(core.scalarLsu.liqEntries == 4)
+    assert(core.scalarLsu.resolveQueueEntries == 8)
   }
 
-  test("Chisel ScalarLSU owns the parameterized STQ-to-SCB store path") {
+  test("ScalarLSULoadPath elaborates LIQ-to-ResolveQ lifecycle ownership") {
     val lsu = ScalarLsuParams(
       stqEntries = 8,
       commitQueueEntries = 4,
       commitIssueWidth = 1,
       scbEntries = 4,
-      scbResponseBufferDepth = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
       mapQDepth = 8
     )
     val sv = ChiselStage.emitSystemVerilog(
-      new ScalarLSU(CoreParams(robEntries = 32, commitWidth = 2, scalarLsu = lsu))
+      new ScalarLSULoadPath(CoreParams(robEntries = 32, commitWidth = 2, scalarLsu = lsu))
     )
 
-    assert(sv.contains("module ScalarLSU"))
-    assert(sv.contains("module STQSCBCommitPath"))
-    assert(sv.contains("module STQEntryBank"))
-    assert(sv.contains("module STQCommitDrain"))
-    assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadResolveQueue"))
-    assert("""(?s)module ScalarLSU\(.*?input\s+\[4:0\]\s+io_store_flush_req_bid_value""".r.findFirstIn(sv).nonEmpty)
-    assert(sv.contains("io_store_stqRows_7_valid"))
-    assert(sv.contains("io_load_liqRows_3_valid"))
-    assert(sv.contains("io_load_resolveEntries_7_valid"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
+    assert(sv.contains("io_liqFlushPruneMask"))
+    assert(sv.contains("io_resolveFlushPruneMask"))
+    assert(sv.contains("io_transferPending"))
+    assert(sv.contains("io_transferProtocolError"))
+    assert(sv.contains("io_liqRows_0_stid"))
+    assert(sv.contains("io_resolveConflictRows_0_stid"))
   }
 }

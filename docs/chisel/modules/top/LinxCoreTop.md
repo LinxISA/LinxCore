@@ -14,9 +14,9 @@
 
 `LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
 full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
-instantiates the monitored `ReducedCommitROB` and the canonical store-side
-`ScalarLSU`. LIQ, ResolveQ, MDB, refill, replay, and load return are not yet
-integrated beneath that LSU owner.
+instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store
+and active/resolved load boundaries. MDB, cache/miss queues, live row mutation,
+and final load return are not yet integrated beneath that LSU owner.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing
@@ -32,7 +32,8 @@ xchecks while that newer wrapper grows toward live Verilator execution.
 | input | `allocRow` | `CommitTraceRow` | `allocValid && allocReady` | Commit-trace-shaped row used as the temporary reduced top input payload. |
 | input | `completeValid` | `Bool` | valid | Marks one reduced ROB slot complete. |
 | input | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | `completeValid` | Reduced ROB slot index to complete. |
-| bidirectional boundary | `scalarLsu` | `STQSCBCommitPathIO` | typed per signal | Canonical scalar LSU store-side request, flush, cache/response, state, and diagnostic boundary. |
+| bidirectional boundary | `scalarLsu.store` | `STQSCBCommitPathIO` | typed per signal | Canonical scalar LSU store request, flush, cache/response, state, and diagnostic boundary. |
+| bidirectional boundary | `scalarLsu.load` | `ScalarLSULoadPathIO` | typed per signal | Canonical LIQ/ResolveQ allocation, launch, forwarding, replay/refill, recovery, retire, and state boundary. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Head-ordered retired rows from the reduced ROB. |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | Reduced ROB commit valid mask. |
 | output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
@@ -62,8 +63,8 @@ The top computes `CommitTraceParams` from `CoreParams` so top-level commit width
 and ROB slot width stay tied to the core configuration. It wires the external
 allocation and completion ports directly into `ReducedCommitROB`, forwards the
 commit window and monitor flags, and reports `idle` when the reduced ROB is
-empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, and
-SCB response buffer empty.
+empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, SCB
+response buffer, LIQ, ResolveQ, and pending load transfer empty.
 
 This keeps the first top-level Chisel structure aligned with the
 LinxCoreModel-derived `SPEROB::commit` walk: rows retire in contiguous completed
@@ -77,9 +78,10 @@ stage.
 
 ## Flush/Recovery
 
-The scalar LSU accepts the typed Linx store flush boundary, but full checkpoint
-restore, rename cleanup, load cleanup, and precise trap ownership are not
-implemented in this shell. Future integrated top work must
+The scalar LSU accepts typed Linx store and load flush boundaries, including
+precise LIQ/ResolveQ pruning. Full checkpoint restore, rename cleanup, MDB
+recovery publication, and precise trap ownership are not implemented in this
+shell. Future integrated top work must
 replace the reduced ROB interface with real frontend/backend ownership while
 keeping commit rows monitored before cross-check use.
 
@@ -106,7 +108,7 @@ those rows from an ELF.
 
 Current tests cover parameter derivation from `CoreParams`, top-level
 elaboration with `ReducedCommitROB`, `CommitTraceMonitor`, `ScalarLSU`, and its
-STQ-to-SCB children, and top Verilator
+STQ-to-SCB and LIQ-to-ResolveQ children, and top Verilator
 lint over all emitted SystemVerilog files. The top xcheck emits a dedicated
 8-entry, two-wide `LinxCoreTop` configuration and reuses the reduced ROB
 Verilator trace harness to prove the top-level commit observation surface

@@ -228,6 +228,7 @@ class ReducedStoreWaitReplayChiselPathProbe(
   relaunchQueue.io.enqueue := waitSlot.io.relaunch
 
   val liq = Module(new ReducedLoadReplayLiqAllocPath(liqEntries, entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  liq.io.preciseFlush := 0.U.asTypeOf(liq.io.preciseFlush)
   val resolveQueue = Module(new LoadResolveQueue(queueEntries = liqEntries, liqEntries = liqEntries, idEntries = entries, addrWidth = addrWidth, pcWidth = pcWidth, lineBytes = lineBytes, sizeWidth = sizeWidth))
   val clearResolvedPending = RegInit(false.B)
   val clearResolvedIndex = RegInit(0.U(log2Ceil(liqEntries).W))

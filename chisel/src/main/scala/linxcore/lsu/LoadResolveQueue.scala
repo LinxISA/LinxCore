@@ -6,6 +6,34 @@ import chisel3.util.{log2Ceil, PopCount}
 import linxcore.recovery.{FlushBus, FlushControl}
 import linxcore.rob.ROBID
 
+object LoadQueueFlushMatch {
+  def apply(
+      signal: FlushBus,
+      valid: Bool,
+      peId: UInt,
+      stid: UInt,
+      tid: UInt,
+      bid: ROBID,
+      gid: ROBID,
+      lsId: ROBID): Bool = {
+    val sameStid = signal.req.stid === stid
+    val samePe = !signal.baseOnPE || (signal.req.peId === peId)
+    val sameThread = !signal.baseOnThread || (signal.req.tid === tid)
+    val idMatch = Mux(
+      signal.baseOnBid,
+      ROBID.lessEqual(signal.req.bid, bid),
+      Mux(
+        signal.baseOnGroup,
+        ROBID.lessEqual(signal.req.bid, bid) ||
+          STQFlushPrune.lessEqualBidGroupLs(signal.req.bid, signal.req.gid, signal.req.lsId, bid, gid, lsId),
+        FlushControl.lessEqualBidRid(signal.req.bid, signal.req.lsId, bid, lsId)
+      )
+    )
+
+    signal.req.valid && valid && sameStid && samePe && sameThread && idMatch
+  }
+}
+
 class LoadResolveQueueEntry(
     val liqEntries: Int,
     val idEntries: Int,
@@ -175,27 +203,15 @@ class LoadResolveQueue(
     ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.lessEqual(srcLsId, dstLsId))
 
   private def flushMatchesEntry(signal: FlushBus, entry: LoadResolveQueueEntry): Bool = {
-    val sameStid = signal.req.stid === entry.stid
-    val samePe = !signal.baseOnPE || (signal.req.peId === entry.peId)
-    val sameThread = !signal.baseOnThread || (signal.req.tid === entry.tid)
-    val idMatch = Mux(
-      signal.baseOnBid,
-      ROBID.lessEqual(signal.req.bid, entry.record.bid),
-      Mux(
-        signal.baseOnGroup,
-        ROBID.lessEqual(signal.req.bid, entry.record.bid) ||
-          STQFlushPrune.lessEqualBidGroupLs(
-            signal.req.bid,
-            signal.req.gid,
-            signal.req.lsId,
-            entry.record.bid,
-            entry.record.gid,
-            entry.record.loadLsId),
-        FlushControl.lessEqualBidRid(signal.req.bid, signal.req.lsId, entry.record.bid, entry.record.loadLsId)
-      )
-    )
-
-    signal.req.valid && entry.valid && sameStid && samePe && sameThread && idMatch
+    LoadQueueFlushMatch(
+      signal,
+      entry.valid,
+      entry.peId,
+      entry.stid,
+      entry.tid,
+      entry.record.bid,
+      entry.record.gid,
+      entry.record.loadLsId)
   }
 
   private def toConflict(entry: LoadResolveQueueEntry): MDBConflictLoadEntry = {
