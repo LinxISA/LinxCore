@@ -29,6 +29,10 @@ int main(int argc, char **argv) {
     dut.io_allocStid = 0;
     dut.io_fullValid = 0;
     dut.io_fullBlockBid = 0;
+    dut.io_fullStid = 0;
+    dut.io_peerFullValid = 0;
+    dut.io_peerFullBlockBid = 0;
+    dut.io_peerFullStid = 0;
     dut.io_ringValid = 0;
     dut.io_ringBid = 0;
     dut.io_ringRid = 0;
@@ -82,6 +86,13 @@ int main(int argc, char **argv) {
     tick(dut);
     dut.io_ringValid = 0;
     dut.eval();
+    require(dut.io_arbiterSelectedValid && dut.io_arbiterSelectedSource == 2 &&
+                dut.io_arbiterSelectedBlockBid == 0x12,
+            "promoted ring report did not become the retained arbiter winner");
+    require(!dut.io_cleanupPending,
+            "newly admitted arbiter source bypassed its retained report slot");
+    tick(dut);
+    dut.eval();
     require(dut.io_cleanupPending && dut.io_cleanupIntentValid,
             "accepted ring recovery was not retained as cleanup intent");
     require(!dut.io_robFlushApplied && dut.io_robSize == 3,
@@ -106,38 +117,97 @@ int main(int argc, char **argv) {
     require(!dut.io_cleanupPending,
             "consumed cleanup intent remained pending");
 
-    dut.io_ringValid = 1;
-    dut.io_ringBid = 1;
-    dut.io_ringRid = 0;
-    dut.io_oldestBid = 1;
     dut.io_fullValid = 1;
-    dut.io_fullBlockBid = 0x11;
+    dut.io_fullBlockBid = 0x12;
+    dut.io_fullStid = 0;
+    dut.io_peerFullValid = 1;
+    dut.io_peerFullBlockBid = 0x11;
+    dut.io_peerFullStid = 0;
+    dut.io_oldestBid = 1;
     dut.eval();
     require(dut.io_fullReady && dut.io_fullAccepted,
-            "full-BID source was not accepted on an empty cleanup boundary");
-    require(!dut.io_ringReady && !dut.io_ringAccepted,
-            "ring source was accepted despite simultaneous full-BID priority");
+            "first full-BID source was not admitted to its retained slot");
+    require(dut.io_peerFullReady && dut.io_peerFullAccepted,
+            "peer full-BID source was not independently admitted");
     tick(dut);
     dut.io_fullValid = 0;
-    dut.io_ringValid = 0;
+    dut.io_peerFullValid = 0;
     dut.eval();
-    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushValid,
-            "accepted full-BID request did not retain block cleanup authority");
-
-    dut.io_ringValid = 1;
-    dut.io_intentReady = 1;
-    dut.eval();
-    require(dut.io_ringReady && dut.io_ringAccepted,
-            "consume-plus-replace did not accept the waiting ring request");
-    require(dut.io_cleanupBlockFlushValid,
-            "replacement cycle did not present the resident full-BID intent");
+    require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedValid &&
+                dut.io_arbiterSelectedSource == 1 && dut.io_arbiterSelectedBlockBid == 0x11,
+            "same-STID arbitration did not select the model-oldest report");
     tick(dut);
-    dut.io_ringValid = 0;
-    dut.io_intentReady = 0;
     dut.eval();
     require(dut.io_cleanupPending && dut.io_cleanupBlockFlushValid &&
                 dut.io_cleanupBlockFlushBid == 0x11,
-            "full-BID-promoted ring replacement did not become cleanup intent");
+            "oldest full-BID request did not become retained cleanup intent");
+    require(dut.io_arbiterPendingMask == 0x1 &&
+                dut.io_arbiterSelectedBlockBid == 0x12,
+            "younger source was not retained behind the selected request");
+
+    dut.io_intentReady = 1;
+    dut.eval();
+    require(dut.io_robFlushApplied && dut.io_cleanupBlockFlushBid == 0x11,
+            "oldest selected request was not applied before replacement");
+    tick(dut);
+    dut.io_intentReady = 0;
+    dut.eval();
+    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushValid &&
+                dut.io_cleanupBlockFlushBid == 0x12,
+            "retained younger source did not replace consumed cleanup intent");
+    require(dut.io_arbiterPendingMask == 0,
+            "accepted replacement remained duplicated in the source arbiter");
+
+    dut.io_intentReady = 1;
+    tick(dut);
+    dut.io_intentReady = 0;
+    dut.io_fullValid = 1;
+    dut.io_fullBlockBid = 0x11;
+    dut.io_fullStid = 2;
+    dut.eval();
+    require(!dut.io_fullReady && !dut.io_fullAccepted,
+            "out-of-range STID report was admitted into retained recovery state");
+
+    dut.io_fullStid = 0;
+    dut.io_peerFullValid = 1;
+    dut.io_peerFullBlockBid = 0x13;
+    dut.io_peerFullStid = 1;
+    dut.eval();
+    require(dut.io_fullAccepted && dut.io_peerFullAccepted,
+            "independent STID reports were not admitted together");
+    tick(dut);
+    dut.io_fullValid = 0;
+    dut.io_peerFullValid = 0;
+    dut.eval();
+    require(dut.io_arbiterSelectedValid && dut.io_arbiterSelectedSource == 1 &&
+                dut.io_arbiterSelectedBlockBid == 0x13,
+            "round-robin STID serialization compared incomparable BIDs or starved lane one");
+
+    dut.io_peerFullValid = 1;
+    dut.io_peerFullBlockBid = 0x15;
+    dut.io_peerFullStid = 1;
+    dut.eval();
+    require(dut.io_peerFullAccepted,
+            "selected STID1 source could not consume-and-replace while STID0 remained resident");
+    tick(dut);
+    dut.io_peerFullValid = 0;
+    dut.io_intentReady = 1;
+    dut.io_fullValid = 1;
+    dut.io_fullBlockBid = 0x14;
+    dut.io_fullStid = 0;
+    dut.eval();
+    require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedSource == 0 &&
+                dut.io_arbiterSelectedBlockBid == 0x11 && dut.io_fullAccepted,
+            "round robin did not return to continuously resident STID0");
+    tick(dut);
+    dut.io_fullValid = 0;
+    dut.io_intentReady = 0;
+    dut.eval();
+    require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedSource == 1 &&
+                dut.io_arbiterSelectedBlockBid == 0x15,
+            "round robin did not return to STID1 while retaining the replaced STID0 source");
+    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushBid == 0x11,
+            "STID0 selection did not replace the consumed STID1 cleanup intent");
 
     std::cout << "recovery-cleanup-rob-probe-status=pass\n";
     return 0;

@@ -13,6 +13,10 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val allocReady = Output(Bool())
   val fullValid = Input(Bool())
   val fullBlockBid = Input(UInt(16.W))
+  val fullStid = Input(UInt(8.W))
+  val peerFullValid = Input(Bool())
+  val peerFullBlockBid = Input(UInt(16.W))
+  val peerFullStid = Input(UInt(8.W))
   val ringValid = Input(Bool())
   val ringBid = Input(UInt(3.W))
   val ringRid = Input(UInt(3.W))
@@ -26,10 +30,16 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val ringAccepted = Output(Bool())
   val fullReady = Output(Bool())
   val fullAccepted = Output(Bool())
+  val peerFullReady = Output(Bool())
+  val peerFullAccepted = Output(Bool())
   val ringBlockedByAge = Output(Bool())
   val ringLookupMatched = Output(Bool())
   val ringLookupBlocked = Output(Bool())
   val cleanupPending = Output(Bool())
+  val arbiterPendingMask = Output(UInt(3.W))
+  val arbiterSelectedValid = Output(Bool())
+  val arbiterSelectedSource = Output(UInt(2.W))
+  val arbiterSelectedBlockBid = Output(UInt(16.W))
   val cleanupIntentValid = Output(Bool())
   val cleanupBlockFlushValid = Output(Bool())
   val cleanupBlockFlushBid = Output(UInt(16.W))
@@ -45,6 +55,12 @@ class RecoveryCleanupROBProbe extends Module {
 
   val io = IO(new RecoveryCleanupROBProbeIO)
   val cleanup = Module(new RecoveryCleanupControl(entries = entries, bidWidth = 16))
+  val arbiter = Module(new RecoverySourceArbiter(
+    sourceCount = 3,
+    stidCount = 2,
+    entries = entries,
+    bidWidth = 16
+  ))
   val eligibility = Module(new RecoveryEligibilityControl(entries = entries))
   val ringFullBid = Module(new RingFullBidRecoveryBridge(entries = entries, bidWidth = 16))
   val rob = Module(new ROBEntryBank(
@@ -65,12 +81,18 @@ class RecoveryCleanupROBProbe extends Module {
   fullReq := 0.U.asTypeOf(fullReq)
   fullReq.valid := io.fullValid
   fullReq.typ := FlushType.NukeFlush
+  fullReq.stid := io.fullStid
   fullReq.blockBid := io.fullBlockBid
   fullReq.gid := id(0.U)
   fullReq.rid := id(0.U)
   fullReq.lsId := id(0.U)
   fullReq.execEngine := ExecEngineType.Scalar
   fullReq.fetchTpcValid := true.B
+  val peerFullReq = Wire(chiselTypeOf(fullReq))
+  peerFullReq := fullReq
+  peerFullReq.valid := io.peerFullValid
+  peerFullReq.stid := io.peerFullStid
+  peerFullReq.blockBid := io.peerFullBlockBid
   val ringReq = Wire(new FlushReq(entries))
   ringReq := 0.U.asTypeOf(ringReq)
   ringReq.valid := io.ringValid
@@ -93,7 +115,13 @@ class RecoveryCleanupROBProbe extends Module {
   ringFullBid.io.ringReq := eligibleRingReq
   ringFullBid.io.lookupResult := rob.io.fullBidLookup
   rob.io.fullBidLookupRequest := ringFullBid.io.lookupRequest
-  cleanup.io.req := Mux(fullReq.valid, fullReq, ringFullBid.io.fullReq)
+  arbiter.io.sources(0) := fullReq
+  arbiter.io.sources(1) := peerFullReq
+  arbiter.io.sources(2) := ringFullBid.io.fullReq
+  arbiter.io.oldestBid(0) := id(io.oldestBid)
+  arbiter.io.oldestBid(1) := id(3.U)
+  arbiter.io.outReady := cleanup.io.reqReady
+  cleanup.io.req := arbiter.io.out
   cleanup.io.ringReq := 0.U.asTypeOf(cleanup.io.ringReq)
   cleanup.io.intentReady := io.intentReady
 
@@ -153,11 +181,12 @@ class RecoveryCleanupROBProbe extends Module {
   rob.io.commitTraceLookupSourceTraceEnable := false.B
 
   io.allocReady := rob.io.allocReady
-  io.ringReady :=
-    cleanup.io.reqReady && eligibility.io.eligible && ringFullBid.io.matched && !fullReq.valid
-  io.ringAccepted := cleanup.io.fullAccepted && !fullReq.valid && ringFullBid.io.fullReq.valid
-  io.fullReady := cleanup.io.reqReady
-  io.fullAccepted := cleanup.io.fullAccepted
+  io.ringReady := arbiter.io.sourceReady(2) && eligibility.io.eligible && ringFullBid.io.matched
+  io.ringAccepted := arbiter.io.sourceAccepted(2)
+  io.fullReady := arbiter.io.sourceReady(0)
+  io.fullAccepted := arbiter.io.sourceAccepted(0)
+  io.peerFullReady := arbiter.io.sourceReady(1)
+  io.peerFullAccepted := arbiter.io.sourceAccepted(1)
   io.ringBlockedByAge := eligibility.io.blockedByAge
   io.ringLookupMatched := ringFullBid.io.matched
   io.ringLookupBlocked :=
@@ -165,6 +194,10 @@ class RecoveryCleanupROBProbe extends Module {
       ringFullBid.io.blockedByStaleResult ||
       ringFullBid.io.blockedByRingProjection
   io.cleanupPending := cleanup.io.pending
+  io.arbiterPendingMask := arbiter.io.pendingMask
+  io.arbiterSelectedValid := arbiter.io.selectedSourceValid
+  io.arbiterSelectedSource := arbiter.io.selectedSource
+  io.arbiterSelectedBlockBid := arbiter.io.out.blockBid
   io.cleanupIntentValid := cleanup.io.intent.valid
   io.cleanupBlockFlushValid := cleanup.io.intent.blockFlushValid
   io.cleanupBlockFlushBid := cleanup.io.intent.blockFlushBid

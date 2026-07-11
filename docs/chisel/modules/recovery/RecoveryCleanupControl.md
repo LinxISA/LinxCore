@@ -11,6 +11,8 @@
   `chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala`
 - Ring promotion owner:
   `chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala`
+- Retained source arbiter:
+  `chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala`
 - Full-BID lookup owner:
   `chisel/src/main/scala/linxcore/rob/ROBFullBidLookup.scala`
 - LinxCoreModel evidence:
@@ -38,7 +40,9 @@ accepts either a selected full-BID request or a pre-annotated ring-identity
 `FlushBus`, registers the selected source for one cleanup boundary, and exposes
 explicit intent bits for BCTRL, rename, backend, frontend, LSU/STQ, tile, and
 ROB cleanup consumers. Full-BID input has fixed priority when both sources are
-valid.
+valid at this local boundary. Multi-source production composition must place
+`RecoverySourceArbiter` before `req`; this fixed priority is not the
+BCC/IEX/PE/LSU age policy.
 
 `RingFullBidRecoveryBridge` is the canonical adapter for scalar MDB reports.
 It emits an exact ROB lookup key, validates the echoed result and full-BID ring
@@ -178,8 +182,11 @@ full generation sidebands. It retains a non-oldest nuke, rejects an eligible
 wrong-RID lookup without consuming the report, then recovers full BID `0x12`.
 The promoted request asserts block authority, remains held while its consumer
 is blocked, and prunes only the target STID0 row on acceptance while preserving
-the younger STID1 row. The same run proves external-full priority and
-consume-plus-promoted-ring replacement with full BID `0x11`.
+the younger STID1 row. R639 places `RecoverySourceArbiter` ahead of this
+boundary. The same run proves simultaneous retained admission, selection of
+older full BID `0x11` over `0x12` within STID0, retention and
+consume-plus-replacement of the younger source, rejection of an uninstantiated
+STID, and round-robin serialization of an incomparable STID1 request.
 
 ## Trace/Observability
 

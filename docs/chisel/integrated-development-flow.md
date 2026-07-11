@@ -15,15 +15,25 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R638 recovers the allocator-stamped full block-generation
-sideband for retained MDB reports. `ROBFullBidLookup` directly indexes the
-resident row by RID and requires exact BID/GID/RID plus PE/STID/TID identity,
-sideband validity, and a matching ring projection. `RingFullBidRecoveryBridge`
-validates the echoed key before promotion. Lookup failure retains the report;
-an independently selected full request has priority. The evolved generated-RTL
-probe proves wrong-RID retention, full BID `0x12` recovery, accepted block
-authority, scoped ROB prune, and consume-plus-promoted-ring replacement.
-Canonical-top lookup wiring and all-source arbitration remain next.
+Latest packet: R639 adds `RecoverySourceArbiter` as the parameterized retained
+boundary ahead of cleanup. It applies model `CheckOlder` ordering only within
+one STID, keeps losing producers resident, rejects reports outside the
+instantiated STID set, and round-robins incomparable STID winners. The evolved
+real-ROB generated probe preserves R638 exact lookup and scoped prune proof,
+then proves simultaneous source admission, full BID `0x11` winning over
+younger `0x12`, retained consume-and-replace, and STID1 fairness. Production
+ScalarLSU source extraction and canonical backend source/lookup wiring remain
+next; this packet proves the central harness contract without claiming that
+top-level composition.
+
+R639 verification passes 251 suites and 1,482 tests. The strengthened
+generated recovery probe passes continuous two-STID residency and alternating
+selection while retaining the losing lane. The canonical top cross-check
+compares 3 rows with zero mismatches. Reduced CoreMark compares 426 rows with
+zero mismatches and zero CBSTOP at
+`generated/r639-final-recovery-source-arbiter-coremark/report/crosscheck_manifest.json`.
+CoreMark remains no-regression evidence because the reduced workload top does
+not instantiate the new recovery harness.
 
 R638 verification passes 251 suites and 1,481 tests. Both generated recovery
 and canonical MDB probes pass. The canonical top cross-check compares 3 rows

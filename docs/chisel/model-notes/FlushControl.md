@@ -81,6 +81,16 @@ non-echoed or inconsistent results before constructing `FullBidFlushReq`.
 Lookup failure retains the report; successful promotion may authorize
 BCTRL/BROB cleanup after the normal registered intent handshake.
 
+R639 adds the retained multi-source selection boundary. The model's
+`CheckOlder` returns false for different STIDs and its implementation still
+notes single-thread support, so Chisel does not compare their BIDs. It selects
+the model-oldest report independently within each instantiated STID and uses
+round robin only to serialize STID winners. Each source has a retained slot;
+cleanup backpressure or another source winning cannot drop a report.
+This is the post-promotion source boundary, not yet the complete stateful
+`selectFlushSigal`/`selectReplaySigal`/`selectPESigal` merge. Those class lanes
+and their cross-cancellation remain canonical composition work.
+
 `ScalarLSU` places `RecoveryEligibilityControl` before ring input. This is the
 Chisel `CheckFlush` age boundary for MDB reports: non-immediate requests wait
 for wrap-qualified oldest BID/RID state; immediate requests bypass age only.
@@ -109,3 +119,6 @@ rename packets.
   ClockHands/T/U and multi-thread rename replay, frontend restart token
   payloads, PE replay fanout, and BROB pointer restoration are signaled by
   `RecoveryCleanupControl` but not implemented by the current Chisel packets.
+- `RecoverySourceArbiter` is proven ahead of the real-ROB cleanup harness, but
+  canonical BCC/IEX/PE/LSU source wiring and ScalarLSU source extraction remain
+  open top-level composition work.

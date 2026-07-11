@@ -162,8 +162,10 @@ decays or releases the failed prediction.
 eligible wrong-RID lookup cannot consume it, and exact `ROBFullBidLookup`
 recovers the allocator-stamped generation sideband. The promoted request is
 inert while cleanup is blocked; real `ROBEntryBank` rows prune only on
-acceptance. The probe also proves external-full priority, consume-plus-replace,
-accepted block authority, and different-STID preservation.
+acceptance. R639 places `RecoverySourceArbiter` ahead of cleanup and proves
+simultaneous source admission, model-oldest same-STID selection, losing-source
+retention, consume-plus-replace, invalid-STID rejection, fair cross-STID
+serialization, accepted block authority, and different-STID preservation.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps

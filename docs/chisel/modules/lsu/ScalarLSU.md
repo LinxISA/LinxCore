@@ -23,9 +23,10 @@ and typed conflict-flush publication. R636 adds per-row failed-wait age plus
 atomic LIQ release and MDB delete feedback. R637 adds a parameterized retained
 recovery-report boundary and wrap-qualified oldest BID/RID eligibility. R638
 adds exact allocator/ROB full-BID lookup and promotion before the canonical
-cleanup owner. Cache and miss queues, final multi-source top arbitration,
-canonical-top lookup wiring, and final load-return publication remain outside this
-hierarchy, so this is not yet a complete LSU.
+cleanup owner. R639 proves the central multi-source arbiter in the real-ROB
+harness, but ScalarLSU has not yet been converted to publish into that owner.
+Cache and miss queues, canonical-top source/lookup wiring, and final load-return
+publication remain outside this hierarchy, so this is not yet a complete LSU.
 
 ## Parameter Contract
 
@@ -78,6 +79,12 @@ identity echo, full-sideband validity, ring projection, source priority, and
 cleanup readiness all pass. An independently selected full-BID request has
 fixed priority. Lookup failure cannot fall back to ring-only cleanup.
 
+This fixed priority is transitional local composition, not the final recovery
+age policy. `RecoverySourceArbiter` now defines and proves the central contract:
+independent retained producers, model-oldest selection within one STID, and
+fair serialization across STIDs. A later packet must expose promoted MDB as a
+source and remove this local source conflict from ScalarLSU.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
@@ -117,3 +124,8 @@ The full suite passes 251 suites and 1,481 tests; canonical top xcheck passes 3
 rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
 mismatches and zero CBSTOP at
 `generated/r638-final-full-bid-recovery-coremark/report/crosscheck_manifest.json`.
+
+R639 extends the real-ROB generated probe with `RecoverySourceArbiter` and
+proves simultaneous admission, same-STID oldest selection, losing-source
+retention, invalid-STID rejection, and cross-STID fairness. This is harness
+evidence; production ScalarLSU-to-central-arbiter wiring remains open.
