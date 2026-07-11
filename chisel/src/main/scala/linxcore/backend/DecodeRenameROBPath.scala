@@ -31,6 +31,11 @@ import linxcore.rob.{
   ROBRowStatusLookupResult
 }
 
+class BlockRenameCommitIdentity(val bidWidth: Int = BID.DefaultWidth, val stidWidth: Int = 8) extends Bundle {
+  val fullBid = UInt(bidWidth.W)
+  val stid = UInt(stidWidth.W)
+}
+
 class DecodeRenameROBPathIO(
     val p: InterfaceParams = InterfaceParams(),
     val traceParams: CommitTraceParams = CommitTraceParams(),
@@ -83,9 +88,11 @@ class DecodeRenameROBPathIO(
   val storeCommitFreeMask = Input(UInt(p.robEntries.W))
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
+  val checkpointStid = Input(UInt(stidWidth.W))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
+  val commitStid = Input(UInt(stidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val scalarCleanupOrderValid = Input(Bool())
   val scalarCleanupOrder = Input(UInt(p.uopUidWidth.W))
@@ -517,8 +524,6 @@ class DecodeRenameROBPath(
     "scalar continuation GPR cut threshold must be greater than one")
   require(scalarStidCount > 0, "DecodeRenameROBPath must expose at least one scalar STID lane")
   require(BigInt(scalarStidCount) <= (BigInt(1) << stidWidth), "scalar STID count must fit stidWidth")
-  require(scalarStidCount == 1,
-    "DecodeRenameROBPath remains single-STID until GPR block commit identity carries STID")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
@@ -776,14 +781,21 @@ class DecodeRenameROBPath(
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
 
-  val gprReservationCount = RegInit(0.U(gprReservationCountWidth.W))
   val gprFreeBudget = Wire(UInt(log2Ceil(physRegs + 1).W))
   val gprMapQFreeBudget = Wire(UInt(log2Ceil(gprMapQDepth + 1).W))
-  val selectedGprReservationSlots =
-    Mux(selectedNeedsGprReservation, 1.U(gprReservationCountWidth.W), 0.U(gprReservationCountWidth.W))
-  val gprReservationNeed = gprReservationCount + selectedGprReservationSlots
-  val gprReservationReady =
-    (gprReservationNeed <= gprFreeBudget) && (gprReservationNeed <= gprMapQFreeBudget)
+  val gprReservations = Module(new GPRReservationTracker(
+    queueDepth = decRenQueueDepth,
+    physRegs = physRegs,
+    mapQDepth = gprMapQDepth,
+    stidWidth = stidWidth,
+    stidCount = scalarStidCount))
+  gprReservations.io.flush := decRenFlush
+  gprReservations.io.selectedValid := selectedAny
+  gprReservations.io.selectedStid := selectedStid
+  gprReservations.io.selectedNeedsGpr := selectedNeedsGprReservation
+  gprReservations.io.freePhysCount := gprFreeBudget
+  gprReservations.io.selectedMapQFreeCount := gprMapQFreeBudget
+  val gprReservationReady = gprReservations.io.ready
   val decodeContextCloseSafe = Wire(Bool())
   decodeContextCloseSafe := true.B
 
@@ -843,11 +855,13 @@ class DecodeRenameROBPath(
   val renameCommitValid = Wire(Bool())
   val renameCommitBid = Wire(new ROBID(p.robEntries))
   val renameCommitBlockBid = Wire(UInt(bidWidth.W))
+  val renameCommitStid = Wire(UInt(stidWidth.W))
   gprFreeBudget := rename.io.gprFreeCount
   gprMapQFreeBudget := rename.io.gprMapQFreeCount
   rename.io.in := queuedForRename
   rename.io.activePeId := activeTURenamePeId
   rename.io.activeStid := activeTURenameStid
+  rename.io.gprQueryStid := selectedStid
   val tuRetirePath = Module(new TULinkRetireCommandPath(
     p = p,
     sourceWidth = traceParams.commitWidth,
@@ -903,9 +917,11 @@ class DecodeRenameROBPath(
   rename.io.robAllocReady := allocator.io.renameUpdateReady
   rename.io.checkpointValid := io.checkpointValid
   rename.io.checkpointBid := io.checkpointBid
+  rename.io.checkpointStid := io.checkpointStid
   rename.io.commitValid := renameCommitValid
   rename.io.commitBid := renameCommitBid
   rename.io.commitBlockBid := renameCommitBlockBid
+  rename.io.commitStid := renameCommitStid
   rename.io.cleanup := io.cleanup
   rename.io.cleanupOrderValid := io.scalarCleanupOrderValid
   rename.io.cleanupOrder := io.scalarCleanupOrder
@@ -1020,15 +1036,17 @@ class DecodeRenameROBPath(
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   allocator.io.blockQueryStid := selectedStid
   val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !io.cleanup.valid)) {
-    Module(new Queue(UInt(bidWidth.W), blockRenameCommitQueueDepth))
+    Module(new Queue(new BlockRenameCommitIdentity(bidWidth, stidWidth), blockRenameCommitQueueDepth))
   }
   blockRenameCommitQ.io.enq.valid := blockScalarDoneSeq.io.retireValid
-  blockRenameCommitQ.io.enq.bits := blockScalarDoneSeq.io.retireBid
+  blockRenameCommitQ.io.enq.bits.fullBid := blockScalarDoneSeq.io.retireBid
+  blockRenameCommitQ.io.enq.bits.stid := blockScalarDoneSeq.io.retireStid
   assert(
     !blockScalarDoneSeq.io.retireValid || blockRenameCommitQ.io.enq.ready,
     "block rename commit queue overflow")
   val internalBlockCommitValid = blockRenameCommitQ.io.deq.valid
-  val internalBlockCommitFullBid = blockRenameCommitQ.io.deq.bits
+  val internalBlockCommitFullBid = blockRenameCommitQ.io.deq.bits.fullBid
+  val internalBlockCommitStid = blockRenameCommitQ.io.deq.bits.stid
   val internalBlockCommitBid =
     FullBidRecoveryBridge.fullBidToRobId(
       internalBlockCommitFullBid,
@@ -1038,6 +1056,7 @@ class DecodeRenameROBPath(
   renameCommitValid := io.commitValid || internalBlockCommitValid
   renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
   renameCommitBlockBid := Mux(io.commitValid, io.commitBlockBid, internalBlockCommitFullBid)
+  renameCommitStid := Mux(io.commitValid, io.commitStid, internalBlockCommitStid)
   blockRenameCommitQ.io.deq.ready := !io.commitValid && rename.io.commitAccepted
 
   rename.io.robSource := allocator.io.robTULinkSource
@@ -1115,8 +1134,8 @@ class DecodeRenameROBPath(
   io.decodeGprReservationReady := gprReservationReady
   io.decodeSelectedClosesActiveRedirect := selectedClosesActiveRedirect
   io.decodeSelectedNeedsGprReservation := selectedNeedsGprReservation
-  io.gprReservationCount := gprReservationCount
-  io.gprReservationNeed := gprReservationNeed
+  io.gprReservationCount := gprReservations.io.physReservationCount
+  io.gprReservationNeed := gprReservations.io.physReservationNeed
   io.decRenPushReady :=
     decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady && decodeContextCloseSafe &&
       !selectedClosesActiveRedirect
@@ -1223,13 +1242,11 @@ class DecodeRenameROBPath(
   io.storeStqStall := storeDispatch.io.stqStall
   val gprReservationPush = decRenQ.io.pushFire && selectedNeedsGprReservation
   val gprReservationPop = decRenQ.io.popFire && queuedNeedsGprReservation
-  when(decRenFlush) {
-    gprReservationCount := 0.U
-  }.elsewhen(gprReservationPush && !gprReservationPop) {
-    gprReservationCount := gprReservationCount + 1.U
-  }.elsewhen(!gprReservationPush && gprReservationPop) {
-    gprReservationCount := gprReservationCount - 1.U
-  }
+  gprReservations.io.pushValid := gprReservationPush
+  gprReservations.io.pushStid := selectedStid
+  gprReservations.io.popValid := gprReservationPop
+  gprReservations.io.popStid := activeTURenameStid
+  assert(!gprReservations.io.stateError, "GPR reservation tracker identity or count mismatch")
   io.accepted := rename.io.accepted
   io.robAllocAttemptValid := allocator.io.allocValid
   io.robAllocReady := allocator.io.allocReady

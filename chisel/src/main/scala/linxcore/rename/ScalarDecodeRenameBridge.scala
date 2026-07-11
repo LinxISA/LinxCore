@@ -17,18 +17,22 @@ class ScalarDecodeRenameBridgeIO(
     val mapQDepth: Int = 32,
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
+    val scalarStidCount: Int = 1,
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8)
     extends Bundle {
   val in = Input(new DecodedUop(p))
+  val activeStid = Input(UInt(stidWidth.W))
   val outReady = Input(Bool())
   val robAllocReady = Input(Bool())
 
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
+  val checkpointStid = Input(UInt(stidWidth.W))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
+  val commitStid = Input(UInt(stidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val cleanupOrderValid = Input(Bool())
   val cleanupOrder = Input(UInt(p.uopUidWidth.W))
@@ -85,12 +89,14 @@ class ScalarDecodeRenameBridge(
     val mapQDepth: Int = 32,
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
+    val scalarStidCount: Int = 1,
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8)
     extends Module {
   require(scalarArchRegs == 24, "first scalar bridge follows LinxCoreModel GPR::GPR_COUNT")
   require(physRegs == (1 << p.physRegWidth), "physical GPR count must match InterfaceParams.physRegWidth")
   require(traceParams.robValueWidth >= p.robIndexWidth, "commit trace ROB value must hold the Chisel ROB index")
+  require(scalarStidCount > 0, "scalar rename bridge must expose at least one STID")
 
   private val archIdxWidth = math.max(1, log2Ceil(scalarArchRegs))
   private val scalarArchRegLimit = scalarArchRegs.U(p.archRegWidth.W)
@@ -103,6 +109,7 @@ class ScalarDecodeRenameBridge(
     mapQDepth,
     bidWidth,
     stidWidth,
+    scalarStidCount,
     peIdWidth,
     tidWidth
   ))
@@ -146,6 +153,7 @@ class ScalarDecodeRenameBridge(
     mapQDepth = mapQDepth,
     bidWidth = bidWidth,
     stidWidth = stidWidth,
+    stidCount = scalarStidCount,
     peIdWidth = peIdWidth,
     tidWidth = tidWidth,
     orderWidth = p.uopUidWidth
@@ -165,16 +173,21 @@ class ScalarDecodeRenameBridge(
   gpr.io.renameArchTag := Mux(needsRename, archIndex(io.in.dst(0).archTag), 0.U)
   gpr.io.renameBid := io.in.bid
   gpr.io.renameBlockBid := Mux(io.in.blockBidValid, io.in.blockBid, 0.U)
+  gpr.io.renameStid := io.in.threadId.pad(stidWidth)(stidWidth - 1, 0)
   gpr.io.renameRid := io.in.rid
   gpr.io.renameGid := io.in.gid
   gpr.io.renameOrder := io.in.uid.uid
   gpr.io.checkpointValid := io.checkpointValid
   gpr.io.checkpointBid := io.checkpointBid
+  gpr.io.checkpointStid := io.checkpointStid
   gpr.io.postRenameCheckpointValid := accepted
   gpr.io.postRenameCheckpointBid := io.in.bid
+  gpr.io.postRenameCheckpointStid := io.in.threadId.pad(stidWidth)(stidWidth - 1, 0)
   gpr.io.commitValid := io.commitValid
   gpr.io.commitBid := io.commitBid
   gpr.io.commitBlockBid := io.commitBlockBid
+  gpr.io.commitStid := io.commitStid
+  gpr.io.queryStid := io.activeStid
   gpr.io.cleanup := io.cleanup
   gpr.io.cleanupOrderValid := io.cleanupOrderValid
   gpr.io.cleanupOrder := io.cleanupOrder
@@ -195,7 +208,7 @@ class ScalarDecodeRenameBridge(
   io.blockedByOutput := io.in.valid && !maintenanceBusy && !unsupported && canRename && io.robAllocReady && !io.outReady
   io.srcPhysTags := gpr.io.srcPhysTags
   io.dstPhysTag := gpr.io.renamePhysTag
-  io.dstOldPhysTag := Mux(needsRename, gpr.io.smap(archIndex(io.in.dst(0).archTag)), 0.U)
+  io.dstOldPhysTag := Mux(needsRename, gpr.io.renameOldPhysTag, 0.U)
   io.renameAccepted := gpr.io.renameAccepted
   io.checkpointAccepted := gpr.io.checkpointAccepted
   io.commitAccepted := gpr.io.commitAccepted
@@ -270,7 +283,7 @@ class ScalarDecodeRenameBridge(
   renamed.dst(0).archTag := io.in.dst(0).archTag
   renamed.dst(0).relTag := io.in.dst(0).relTag
   renamed.dst(0).physTag := Mux(needsRename, gpr.io.renamePhysTag, 0.U)
-  renamed.dst(0).oldPhysTag := Mux(needsRename, gpr.io.smap(archIndex(io.in.dst(0).archTag)), 0.U)
+  renamed.dst(0).oldPhysTag := Mux(needsRename, gpr.io.renameOldPhysTag, 0.U)
   io.out := renamed
 
   val row = Wire(new CommitTraceRow(traceParams))

@@ -40,8 +40,10 @@ Inputs:
 - `robAllocReady`: downstream ROB/BROB allocation bridge can accept this cycle.
 - `checkpointValid` / `checkpointBid`: explicit checkpoint command for the
   composed `GPRRenameCheckpoint`.
-- `commitValid` / `commitBid`: explicit block-commit command for the composed
-  scalar GPR map owner.
+- `checkpointStid`: STID lane owning the explicit checkpoint.
+- `commitValid` / `commitBid` / `commitStid`: exact block-commit command for
+  the composed scalar GPR map owner.
+- `activeStid`: selects the lane exported through scalar map observability.
 - `cleanup`: `RecoveryCleanupIntent` from `RecoveryCleanupControl`.
 
 Outputs:
@@ -84,9 +86,12 @@ split lets `DispatchROBAllocator` compute duplicate-identity readiness from a
 stable request row without feeding allocator ready back into allocator valid.
 
 Accepted source operands with `OperandClass.P` and architectural tags `0..23`
-read `GPRRenameCheckpoint.smap`. Accepted GPR destinations in the same
+read the `GPRRenameCheckpoint.smap` lane selected by `in.bits.threadId`.
+Accepted GPR destinations in the same
 architectural range allocate the first free physical tag and record a mapQ row
-with `(bid, rid, gid, archTag, physTag)`.
+with `(stid, bid, rid, gid, archTag, physTag)`. Explicit checkpoint and commit
+commands use their own STID sidecars so maintenance is not aliased to the
+current input row.
 
 The output `RenamedUop` preserves the decoded uop identity, `peId/threadId`,
 immediate, reduced memory class/split metadata, block sidebands, boundary
@@ -126,6 +131,10 @@ The C++ model establishes this order:
 3. `SPERename::Rename()` maps source operands, allocates destination operands,
    captures block checkpoints for `isLastInBlock`, and forwards to dispatch.
 4. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
+
+R644 matches the model's ownership split: physical allocation is shared, but
+the map, checkpoint, MapQ, commit, and recovery state addressed by this bridge
+is per STID. Equal BID values in different STIDs never identify the same block.
 
 The bridge is a bring-up composition of steps 2 and 3 for scalar GPR operands.
 For the reduced in-order marker-row top, every accepted row refreshes the
@@ -175,3 +184,4 @@ The current tests cover:
 - IO width checks for ROB allocation and rename observability,
 - pre-ready ROB allocation attempt visibility,
 - Chisel elaboration through the composed `GPRRenameCheckpoint`.
+- explicit active/checkpoint/commit STID transport into the scalar owner.

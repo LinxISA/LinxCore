@@ -38,9 +38,14 @@ object DecodeRenameROBPathReference {
       redirectClose: Boolean = false): Boolean =
     queueReady && robReady && gprReservationReady && !redirectClose
 
-  def gprReservationReady(pending: Int, selectedNeedsGpr: Boolean, freePhys: Int, freeMapQ: Int): Boolean = {
-    val needed = pending + (if (selectedNeedsGpr) 1 else 0)
-    needed <= freePhys && needed <= freeMapQ
+  def gprReservationReady(
+      globalPending: Int,
+      selectedLanePending: Int,
+      selectedNeedsGpr: Boolean,
+      freePhys: Int,
+      selectedLaneFreeMapQ: Int): Boolean = {
+    val selected = if (selectedNeedsGpr) 1 else 0
+    globalPending + selected <= freePhys && selectedLanePending + selected <= selectedLaneFreeMapQ
   }
 
   def closesActiveRedirectTarget(
@@ -244,10 +249,21 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
   }
 
   test("reference gates ROB/BROB reservation on queued scalar GPR rename capacity") {
-    assert(gprReservationReady(pending = 0, selectedNeedsGpr = true, freePhys = 1, freeMapQ = 1))
-    assert(gprReservationReady(pending = 1, selectedNeedsGpr = false, freePhys = 1, freeMapQ = 1))
-    assert(!gprReservationReady(pending = 1, selectedNeedsGpr = true, freePhys = 1, freeMapQ = 2))
-    assert(!gprReservationReady(pending = 1, selectedNeedsGpr = true, freePhys = 2, freeMapQ = 1))
+    assert(gprReservationReady(
+      globalPending = 0, selectedLanePending = 0, selectedNeedsGpr = true,
+      freePhys = 1, selectedLaneFreeMapQ = 1))
+    assert(gprReservationReady(
+      globalPending = 1, selectedLanePending = 1, selectedNeedsGpr = false,
+      freePhys = 1, selectedLaneFreeMapQ = 1))
+    assert(!gprReservationReady(
+      globalPending = 1, selectedLanePending = 0, selectedNeedsGpr = true,
+      freePhys = 1, selectedLaneFreeMapQ = 2))
+    assert(!gprReservationReady(
+      globalPending = 1, selectedLanePending = 1, selectedNeedsGpr = true,
+      freePhys = 2, selectedLaneFreeMapQ = 1))
+    assert(gprReservationReady(
+      globalPending = 1, selectedLanePending = 0, selectedNeedsGpr = true,
+      freePhys = 2, selectedLaneFreeMapQ = 1))
     assert(!robReservationAttemptValid(inputValid = true, queueReady = true, gprReservationReady = false))
     assert(!decodeReady(queueReady = true, robReady = true, gprReservationReady = false))
   }
@@ -1015,5 +1031,23 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_decodeValid"))
     assert(sv.contains("io_decodeBlockBid"))
     assert(sv.contains("io_decodeUsesExistingBlock"))
+  }
+
+  test("DecodeRenameROBPath elaborates two STID BROB and GPR rename ownership lanes") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val sv = ChiselStage.emitSystemVerilog(
+      new DecodeRenameROBPath(
+        p = p,
+        traceParams = trace,
+        mapQDepth = 8,
+        gprMapQDepth = 8,
+        scalarStidCount = 2)
+    )
+
+    assert(sv.contains("io_checkpointStid"))
+    assert(sv.contains("io_commitStid"))
+    assert(sv.contains("io_enq_bits_stid"))
+    assert(sv.contains("GPRReservationTracker"))
   }
 }

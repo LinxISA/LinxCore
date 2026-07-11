@@ -210,9 +210,8 @@ R174 wires the backend to the per-STID active-context contract in
 as `markerStid`; scalar rows query active state with `selected.threadId`;
 scalar-created active blocks install with that selected STID; and execute
 redirect cleanup passes `scalarRedirectStid` so only the redirecting STID lane
-is closed. The default composition still instantiates one scalar STID lane, so
-existing STID0 live gates preserve their behavior while the interface is ready
-for multi-STID block-control work.
+is closed. R644 removes the prior scalar rename restriction, so the composition
+can now instantiate multiple scalar STID lanes without equal-BID aliasing.
 R175 adds the first full marker-row ROB-admission shell. When marker rows are
 not skipped, rename can accept a `sob`/`eob` row, update its reserved ROB row,
 and internally consume the renamed marker instead of presenting it to the
@@ -291,8 +290,9 @@ Inputs:
 - `storeMarkCommit*`, `storeCommitFree*`, `storeCommitFreeMask*`: reduced STQ
   commit-mark and committed-row free hooks. The accepted/ignored outputs
   report the corresponding `STQEntryBank` decision.
-- `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
-  pass-through control for the scalar GPR rename owner and ROB flush path.
+- `checkpointValid/checkpointBid/checkpointStid`,
+  `commitValid/commitBid/commitStid`, `cleanup`: pass-through control for the
+  scalar GPR rename owner and ROB flush path with exact lane identity.
 - `blockBranchTakenValid`, `blockBranchTaken`: reduced conditional-block
   decision from the execute/top owner. These are consumed only when an active
   conditional marker block reaches its following marker boundary.
@@ -604,11 +604,19 @@ is not part of this owner.
 R643 carries STID through marker-only allocation, scalar/engine completion,
 retire, query, cleanup flush, and ROB block-last completion. The allocator and
 BROB are now parameterized by `scalarStidCount`; identical BID values in two
-lanes remain independent. `DecodeRenameROBPath` deliberately requires
-`scalarStidCount == 1` because its GPR mapQ block-commit identity is still
-BID-only; enabling multiple production lanes before that owner carries STID
-would permit equal-BID aliasing. Production STID-keyed rename commit and BCC
-resolve/recovery-fabric wiring remain later packets.
+lanes remain independent. R644 extends the same identity into scalar rename:
+the internal block-commit queue retains `(full BID, STID)`, external
+checkpoint/commit commands carry explicit STID, and `scalarStidCount > 1` is
+permitted. The GPR owner commits and recovers only the selected lane while
+protecting physical tags referenced by any lane. Canonical BCC
+resolve/recovery-fabric wiring remains a later packet.
+
+R644 also separates decode reservation accounting by resource ownership.
+`GPRReservationTracker` keeps global pending credit for the shared physical
+pool and per-STID pending credit for each MapQ. The GPR query selector follows
+the currently selected decode row, independently of the queued rename head,
+so a full lane cannot admit itself using another lane's capacity or block an
+independent lane that still has space.
 
 The composition also drives the allocator's row-owned sidecars. `allocStid`
 comes from the decoded row's thread ID in the reduced path; `allocTSeq`,

@@ -53,10 +53,14 @@ Inputs:
 - `in`: decoded uop presented for one-uop rename.
 - `activePeId`, `activeStid`: selected SGPR bank group for current reduced
   rename and external local commit traffic.
+- `gprQueryStid`: independent scalar GPR observability/MapQ-capacity selector;
+  decode admission drives the selected row's STID while actual rename uses the
+  queued row's `threadId`.
 - `outReady`: downstream renamed-uop consumer readiness.
 - `robAllocReady`: ROB allocation readiness.
-- `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`: scalar
-  GPR and T/U maintenance controls.
+- `checkpointValid/checkpointBid/checkpointStid`,
+  `commitValid/commitBid/commitStid`, `cleanup`: scalar GPR and T/U
+  maintenance controls with exact scalar lane identity.
 - `robSource`, `lsuSource`: ROB and LSU selected-row T/U cleanup source
   candidates.
 - `tuRetireValid/Kind/Seq/Dealloc`: live T/U relation-cmap
@@ -194,6 +198,9 @@ longer tied to the current rename-head bank.
 R75 completes the active selector side of that same ownership contract by
 driving active PE from the row's `peId` sidecar, matching
 `sgprRenameUnit[inst->peID][inst->stid]`.
+R644 forwards checkpoint and commit STID independently of the active rename
+selector. Scalar GPR block commit is now keyed by `(STID, full BID)`, while
+the T/U local block-commit path retains its selected-STID fanout contract.
 
 ## Deferred Owners
 

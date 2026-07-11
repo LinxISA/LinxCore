@@ -12,6 +12,9 @@
 - pyCircuit: `src/bcc/backend/rename.py`
 - Chisel: `chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala`
 - Tests: `chisel/src/test/scala/linxcore/rename/GPRRenameCheckpointSpec.scala`
+- Generated RTL probe: `tools/chisel/run_chisel_gpr_rename_stid_probe.sh`
+- Integrated reservation owner:
+  `chisel/src/main/scala/linxcore/backend/GPRReservationTracker.scala`
 
 ## Purpose
 
@@ -29,27 +32,36 @@ current Chisel lane:
 This packet is deliberately scoped to scalar general registers. The model
 `GPR::GPR_COUNT` is 24, while current Chisel and pyCircuit interfaces still use
 6-bit architectural tags so they can carry invalid and later non-GPR aliases.
-ClockHands/T/U, local registers, tile rename, multi-thread rename, and dispatch
-bundle-width allocation remain later owner packets.
+ClockHands/T/U, local registers, tile rename, and dispatch bundle-width
+allocation remain separate owner packets. R644 promotes the model's
+multi-STID scalar GPR contract: speculative and committed maps, checkpoints,
+rename pointers, and MapQ rows are lane-local, while physical-register
+allocation is shared across lanes.
 
 ## Interface
 
 | Port | Direction | Type | Purpose |
 |---|---:|---|---|
 | `srcArchTags` | input | `Vec(3, UInt)` | Source GPR architectural tags to read from `smap`. |
+| `renameStid` | input | `UInt` | STID lane that owns source lookup and destination rename. |
 | `renameValid` | input | `Bool` | Requests one destination GPR allocation. |
 | `renameArchTag` | input | `UInt` | Destination architectural GPR index. |
 | `renameBid` / `renameRid` / `renameGid` | input | `ROBID` | Model identity stored in the mapQ row. |
 | `checkpointValid` | input | `Bool` | Captures the current `smap` into `checkpointBid.value`. |
 | `checkpointBid` | input | `ROBID` | Checkpoint slot and new `renamePtr`. |
+| `checkpointStid` | input | `UInt` | STID lane that owns the explicit checkpoint. |
 | `postRenameCheckpointValid` | input | `Bool` | Captures the post-accepted-rename `smap` into `postRenameCheckpointBid.value`; if no rename fires, captures current `smap`. |
 | `postRenameCheckpointBid` | input | `ROBID` | Checkpoint slot used by the reduced post-rename checkpoint refresh path. |
+| `postRenameCheckpointStid` | input | `UInt` | STID lane for the post-rename checkpoint; it must match an accepted rename lane. |
 | `commitValid` | input | `Bool` | Retires all mapQ rows matching `commitBid`. |
 | `commitBid` | input | `ROBID` | Block identity for `GPRRename::RetireBlock`. |
+| `commitStid` | input | `UInt` | STID half of the exact block-commit identity. |
+| `queryStid` | input | `UInt` | Selects the lane exported through map, checkpoint, MapQ, and pointer observability. |
 | `cleanup` | input | `RecoveryCleanupIntent` | Registered recovery intent from `RecoveryCleanupControl`. |
 | `srcPhysTags` | output | `Vec(3, UInt)` | Source physical tags read from current `smap`. |
 | `renameReady` / `renameAccepted` | output | `Bool` | One-destination allocation handshake. |
 | `renamePhysTag` | output | `UInt` | First free physical tag selected for accepted rename. |
+| `renameOldPhysTag` | output | `UInt` | Previous destination mapping read from `renameStid`, independent of `queryStid`. |
 | `checkpointAccepted` | output | `Bool` | Checkpoint capture occurred this cycle. |
 | `commitAccepted` | output | `Bool` | Commit walk occurred this cycle. |
 | `cleanupReady` | output | `Bool` | First owner is always ready for the registered cleanup intent. |
@@ -65,16 +77,23 @@ bundle-width allocation remain later owner packets.
 | `committedMapQMask` | output | `UInt` | MapQ rows retired in the commit walk. |
 | `prunedMapQMask` | output | `UInt` | MapQ rows pruned by the recovery walk. |
 | `releasedPhysMask` | output | `UInt` | Physical tags released by commit or flush. |
-| `cleanupThreadMismatch` / `stateError` | output | `Bool` | The first owner supports only STID0. |
+| `*StidInRange` | output | `Bool` | Range result for rename, checkpoint, commit, and query selectors. |
+| `cleanupThreadMismatch` / `stateError` | output | `Bool` | Invalid cleanup STID and aggregate selector/state diagnostics. |
 
 ## Logic Design
 
-Reset mirrors `GPRRename::Build` for a single scalar thread:
+Reset mirrors `GPRRename::Build` for every configured scalar STID:
 
-- `smap[i] = i` and `cmap[i] = i` for the 24 model GPRs.
-- physical tags `0..23` are allocated; tags `24..physRegs-1` are free.
+- lane `s` maps architectural register `i` to identity tag
+  `s * archRegs + i` in both `smap` and `cmap`.
+- all `stidCount * archRegs` identity tags are permanently excluded from
+  allocation; remaining physical tags form one shared free pool.
 - checkpoints are invalid and initialized to identity maps.
-- mapQ rows are invalid.
+- every lane's MapQ rows are invalid.
+
+The parameter contract requires `stidCount > 0`, the configured STID width to
+represent every lane, and `physRegs > stidCount * archRegs`. `mapQDepth`,
+`physRegs`, `archRegs`, and `stidCount` remain independent sizing controls.
 
 The model exposes direct methods rather than a single `Work()` arbitration
 point. The Chisel owner uses a deterministic hardware priority for this first
@@ -86,6 +105,35 @@ registered state owner:
 4. one destination rename allocation.
 
 Recovery therefore owns the cycle and cannot race a new speculative rename.
+Maintenance is globally serialized even when it targets different STIDs; lane
+locality is a state-ownership guarantee, not a claim of simultaneous commit or
+flush bandwidth.
+
+## STID Ownership
+
+Source lookup, destination update, checkpoint capture, block commit, cleanup,
+and observability select exactly one configured STID. A MapQ row records its
+STID and can affect only that lane. Equal full BID values in two STIDs are
+therefore independent: commit or recovery matches `(stid, fullBid)` rather
+than BID alone. Cleanup restores and prunes only the selected lane; surviving
+rows in other lanes continue to own their physical tags.
+
+Free-list recomputation is global because the pool is shared. A physical tag
+is free only when no lane's SMAP, CMAP, or valid MapQ row references it. This
+prevents one lane's commit or flush from releasing a tag still live in another
+lane.
+
+The rename datapath and capacity-observability query are deliberately
+independent. Source tags and `renameOldPhysTag` always read `renameStid`; map,
+MapQ, and checkpoint observability read `queryStid`. A selected decode row may
+therefore query its own MapQ capacity while an older queued row renames in a
+different STID without corrupting the queued row's old destination tag.
+
+Decode reservations follow the same ownership split. `GPRReservationTracker`
+counts pending physical allocations globally and pending MapQ rows per STID.
+Admission compares the selected row against global physical credit and its own
+lane's MapQ credit. Pressure in one MapQ lane cannot block or admit another
+lane, while exhaustion of the shared physical pool blocks every lane.
 
 ## Rename And Checkpoint
 
@@ -117,7 +165,8 @@ matching BID, it releases the previously committed tag for that architectural
 register, updates `cmap(archTag)` to the row physical tag, and clears the mapQ
 row.
 
-The Chisel implementation preserves the effective result of that ordered walk:
+The Chisel implementation preserves the effective result of that ordered walk
+within the selected STID:
 the last committed row for an architectural tag becomes the new `cmap` value,
 the pre-commit committed tag is released, and earlier same-arch committed
 physical tags are also released.
@@ -185,12 +234,23 @@ The module exposes map contents, free state, mapQ occupancy, checkpoint validity
 released physical tags, and restore source. These outputs are intended for the
 future dispatch/commit/top integration packet and for cross-check trace hooks.
 
+## Architectural Boundary
+
+The shared free list, per-lane maps, ordered MapQ commit, checkpoint restore,
+and survivor replay are ISA-neutral OOO mechanisms. Their architectural keys
+are Linx `(STID, full BID, RID, GID)` identities and Linx recovery intents.
+This owner does not import ARM register banking, condition-code state,
+exception levels, barriers, or memory-ordering rules. Any future ISA-neutral
+rename optimization must preserve the Linx block identity and recovery
+contract defined here.
+
 ## Verification
 
 Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
+bash tools/chisel/run_chisel_gpr_rename_stid_probe.sh
 ```
 
 Affected gates:
@@ -218,3 +278,9 @@ The current test reference covers:
   GPR tags, the model-sized scalar GPR mapQ pressure path, and the helper
   modules used to keep the 256-entry path practical,
 - post-rename checkpoint IO for the reduced block-stop restore path.
+- two-STID identity-map partitioning and shared free capacity,
+- equal-BID lane-local commit independence,
+- lane-local flush/prune with the other lane surviving, and
+- global physical versus per-STID MapQ reservation pressure,
+- queued-lane old-destination lookup while another STID is queried, and
+- visible rejection of an out-of-range STID in generated Verilated RTL.

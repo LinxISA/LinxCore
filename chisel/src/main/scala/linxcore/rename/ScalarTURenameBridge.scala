@@ -32,14 +32,17 @@ class ScalarTURenameBridgeIO(
   val in = Input(new DecodedUop(p))
   val activePeId = Input(UInt(peIdWidth.W))
   val activeStid = Input(UInt(stidWidth.W))
+  val gprQueryStid = Input(UInt(stidWidth.W))
   val outReady = Input(Bool())
   val robAllocReady = Input(Bool())
 
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
+  val checkpointStid = Input(UInt(stidWidth.W))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
+  val commitStid = Input(UInt(stidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val cleanupOrderValid = Input(Bool())
   val cleanupOrder = Input(UInt(p.uopUidWidth.W))
@@ -268,6 +271,7 @@ class ScalarTURenameBridge(
     mapQDepth = gprMapQDepth,
     bidWidth = bidWidth,
     stidWidth = stidWidth,
+    scalarStidCount = scalarStidCount,
     peIdWidth = peIdWidth,
     tidWidth = tidWidth
   ))
@@ -289,13 +293,16 @@ class ScalarTURenameBridge(
   val tuReadyForScalar = tu.io.ready || splitStoreInput
 
   scalar.io.in := scalarInput
+  scalar.io.activeStid := io.gprQueryStid
   scalar.io.outReady := io.outReady && tuReadyForScalar && !localUnsupported
   scalar.io.robAllocReady := io.robAllocReady
   scalar.io.checkpointValid := io.checkpointValid
   scalar.io.checkpointBid := io.checkpointBid
+  scalar.io.checkpointStid := io.checkpointStid
   scalar.io.commitValid := io.commitValid
   scalar.io.commitBid := io.commitBid
   scalar.io.commitBlockBid := io.commitBlockBid
+  scalar.io.commitStid := io.commitStid
   scalar.io.cleanup := io.cleanup
   scalar.io.cleanupOrderValid := io.cleanupOrderValid
   scalar.io.cleanupOrder := io.cleanupOrder
