@@ -1049,15 +1049,27 @@ Evidence:
   cone.
 - Bounded generated-C++ evidence after those repairs is positive: direct
   CoreMark boot reaches `PYC_MAX_COMMITS=1000` in 7,400 cycles and
-  `PYC_MAX_COMMITS=10000` in 27,749 cycles, with no deadlock. The focused
+  `PYC_MAX_COMMITS=10000` in 27,749 cycles, and
+  `PYC_MAX_COMMITS=100000` in 231,233 cycles, with no deadlock. The focused
   ROB bookkeeping gate also passes with 7,629 commits. This replaces the
-  former stop at 129 commits/cycle 5,543, but it is not terminal-CoreMark or
-  QEMU semantic-compare closure. Continue from progressively larger bounded
-  commit windows before citing a full workload pass. The FIFO cross-check
-  driver prebuilds the generated DUT before launching QEMU, so its bounded
-  QEMU capture window measures QEMU execution rather than first-run C++
-  code generation; it also passes 1280 MiB of RAM by default because the
-  direct-boot CoreMark ELF maps load segments at `0x40000000`.
+  former stop at 129 commits/cycle 5,543, but it is not terminal-CoreMark
+  closure. Continue from progressively larger bounded commit windows before
+  citing a full workload pass.
+- The FIFO cross-check driver prebuilds the generated DUT before launching
+  QEMU, uses the current `emulator/qemu/build-linx/qemu-system-linx64` when
+  available, and closes QEMU's FIFO at the requested architectural-row bound
+  so QEMU cannot outrun the RTL producer and create a multi-gigabyte trace.
+  Inspect ELF program headers before raising the default 128 MiB RAM: this
+  CoreMark `ET_EXEC` maps at `0x10000`, while a high-address `ET_DYN` image
+  needs an explicit larger `--qemu-memory` value. The corrected driver emits
+  a complete 1,000-row QEMU/DUT artifact; it currently fails semantic compare
+  at sequence 8, where QEMU retires the `FENTRY` parent at `0x124aa` and the
+  DUT reports a younger `LWU` at `0x124de`. This is a macro/ROB
+  commit-serialization owner, not a QEMU-loader or FIFO failure.
+
+Packet closeout: `skill-evolve: update linx-core` — inspect direct-boot ELF
+headers before choosing QEMU RAM and prefer `build-linx` over a stale legacy
+QEMU build when both are present.
 - The short driver compares a raw-row bound, while its comparator bound is in
   architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore
   end with a `trace_length` tail mismatch even after every compared

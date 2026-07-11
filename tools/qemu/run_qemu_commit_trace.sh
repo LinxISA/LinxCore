@@ -4,7 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
-QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+QEMU_CURRENT_BIN="${LINX_ROOT}/emulator/qemu/build-linx/qemu-system-linx64"
+QEMU_LEGACY_BIN="${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64"
+if [[ -n "${QEMU_BIN:-}" ]]; then
+  QEMU_BIN="${QEMU_BIN}"
+elif [[ -x "${QEMU_CURRENT_BIN}" ]]; then
+  QEMU_BIN="${QEMU_CURRENT_BIN}"
+else
+  QEMU_BIN="${QEMU_LEGACY_BIN}"
+fi
 ELF=""
 OUT=""
 MAX_SECONDS="${MAX_SECONDS:-0}"

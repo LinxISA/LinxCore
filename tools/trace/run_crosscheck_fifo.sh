@@ -12,9 +12,17 @@ MAX_COMMITS="1000"
 TB_MAX_CYCLES="50000000"
 BOOT_PC=""
 BOOT_SP="${BOOT_SP:-0x0000000007fefff0}"
-QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+QEMU_CURRENT_BIN="${LINX_ROOT}/emulator/qemu/build-linx/qemu-system-linx64"
+QEMU_LEGACY_BIN="${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64"
+if [[ -n "${QEMU_BIN:-}" ]]; then
+  QEMU_BIN="${QEMU_BIN}"
+elif [[ -x "${QEMU_CURRENT_BIN}" ]]; then
+  QEMU_BIN="${QEMU_CURRENT_BIN}"
+else
+  QEMU_BIN="${QEMU_LEGACY_BIN}"
+fi
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-0}"
-QEMU_MEMORY="${QEMU_MEMORY:-1280M}"
+QEMU_MEMORY="${QEMU_MEMORY:-128M}"
 LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
 
 usage() {
@@ -31,7 +39,7 @@ Options:
   --boot-sp <hex>           DUT boot SP (default: 0x0000000007fefff0)
   --qemu-bin <path>         QEMU binary path
   --qemu-max-seconds <int>  Timeout passed to QEMU trace runner (0 disables)
-  --qemu-memory <size>      QEMU RAM size for direct-boot ELF images (default: 1280M)
+  --qemu-memory <size>      QEMU RAM size for direct-boot ELF images (default: 128M)
 
 Runs QEMU and LinxCore simultaneously using FIFOs, captures both traces,
 then runs tools/trace/crosscheck_qemu_linxcore.py.
@@ -165,7 +173,14 @@ trap cleanup EXIT INT TERM
 rm -f "${QEMU_FIFO}" "${DUT_FIFO}" "${QEMU_TRACE}" "${DUT_TRACE}"
 mkfifo "${QEMU_FIFO}" "${DUT_FIFO}"
 
-cat "${QEMU_FIFO}" | tee "${QEMU_TRACE}" >/dev/null &
+if [[ "${MAX_COMMITS}" -gt 0 ]]; then
+  # QEMU can outpace the generated DUT by orders of magnitude.  Closing the
+  # producer pipe at the compare bound prevents a multi-gigabyte trace while
+  # preserving the exact QEMU prefix consumed by the comparator.
+  head -n "${MAX_COMMITS}" < "${QEMU_FIFO}" > "${QEMU_TRACE}" &
+else
+  cat "${QEMU_FIFO}" | tee "${QEMU_TRACE}" >/dev/null &
+fi
 reader_q_pid=$!
 cat "${DUT_FIFO}" | tee "${DUT_TRACE}" >/dev/null &
 reader_d_pid=$!
