@@ -13,7 +13,8 @@
 - `test_microarchitecture_contract.sh`
 - Purpose: validates the golden contract index, mechanism intake coverage,
   dual-RTL ownership, top-shell roles, scenario coverage, and removal of live
-  migration inputs.
+  migration inputs; its fixtures also prove additive IFU/cache family extension
+  without changing existing contract identities.
 - `test_pycircuit_architecture_adapter.sh`
 - Purpose: validates pyCircuit top roles, parameter defaults, state-owner
   evidence, promotion claims, declared gaps, and rejection of ARM-specific

@@ -222,6 +222,7 @@
   "module_families": [
     {
       "id": "frontend",
+      "category": "ifu",
       "lanes": {
         "pycircuit": {
           "status": "integrated",
@@ -244,6 +245,7 @@
     },
     {
       "id": "rename-issue",
+      "category": "execution",
       "lanes": {
         "pycircuit": {
           "status": "integrated",
@@ -264,6 +266,7 @@
     },
     {
       "id": "rob-recovery",
+      "category": "execution",
       "lanes": {
         "pycircuit": {
           "status": "integrated",
@@ -283,6 +286,7 @@
     },
     {
       "id": "block-control",
+      "category": "block-control",
       "lanes": {
         "pycircuit": {
           "status": "integrated",
@@ -303,6 +307,7 @@
     },
     {
       "id": "lsu",
+      "category": "memory",
       "lanes": {
         "pycircuit": {
           "status": "integrated",
@@ -327,6 +332,7 @@
     },
     {
       "id": "trace-interface",
+      "category": "trace",
       "lanes": {
         "pycircuit": {
           "status": "integrated",

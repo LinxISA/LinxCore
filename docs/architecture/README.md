@@ -93,6 +93,12 @@ work stays `stub` or `absent` with a precise `known_gap`. Rejected ARM-specific
 architectural state and behavior remain prohibited even when the underlying
 queue, arbitration, replay, or cache mechanism is reusable.
 
+Every module family declares one `extension_categories` category in the golden
+manifest. The contract self-test appends synthetic IFU and cache families with
+both RTL lanes, proves strict validation without changing existing contract
+identities, and rejects an undeclared architectural category. New modules use
+that path before adding owner evidence to each lane adapter.
+
 The conformance checker distinguishes comparator fixtures from implementation
 evidence. `harness-fixture` events test normalization and mismatch detection but
 cannot promote a mechanism. Promotion to `cross-rtl-aligned` requires both

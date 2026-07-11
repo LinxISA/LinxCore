@@ -464,6 +464,21 @@ def validate_contract(
             else:
                 stage_ids.add(stage)
 
+    extension_categories = _require_list(
+        manifest.get("extension_categories"),
+        "extension_categories",
+        errors,
+        nonempty=True,
+    )
+    extension_category_ids = {
+        category for category in extension_categories if isinstance(category, str)
+    }
+    if len(extension_categories) != len(extension_category_ids):
+        errors.append("extension_categories contains duplicates or non-string values")
+    for required in ("ifu", "cache"):
+        if required not in extension_category_ids:
+            errors.append(f"extension_categories missing required category: {required}")
+
     module_families = _require_list(
         manifest.get("module_families"), "module_families", errors, nonempty=True
     )
@@ -478,6 +493,11 @@ def validate_contract(
             errors.append(f"duplicate module family id: {family_id}")
             continue
         module_family_ids.add(family_id)
+        category = item.get("category")
+        if category not in extension_category_ids:
+            errors.append(
+                f"module family {family_id} has unknown extension category: {category!r}"
+            )
         lanes = _require_object(item.get("lanes"), f"module family {family_id}.lanes", errors)
         if set(lanes) != LANES:
             errors.append(
@@ -677,18 +697,6 @@ def validate_contract(
         else:
             checked_paths.add(conformance_path)
 
-    extension_categories = _require_list(
-        manifest.get("extension_categories"),
-        "extension_categories",
-        errors,
-        nonempty=True,
-    )
-    if len(extension_categories) != len(set(extension_categories)):
-        errors.append("extension_categories contains duplicates")
-    for required in ("ifu", "cache"):
-        if required not in extension_categories:
-            errors.append(f"extension_categories missing required category: {required}")
-
     return {
         "ok": not errors,
         "schema_version": manifest.get("schema_version"),
@@ -770,6 +778,7 @@ def _write_fixture(root: Path) -> dict[str, Any]:
         "module_families": [
             {
                 "id": "test",
+                "category": "execution",
                 "lanes": {
                     "pycircuit": {
                         "status": "integrated",
@@ -811,7 +820,7 @@ def _write_fixture(root: Path) -> dict[str, Any]:
             "scenarios": "docs/architecture/scenarios.json",
             "checker": "src/owner.py",
         },
-        "extension_categories": ["cache", "ifu"],
+        "extension_categories": ["cache", "execution", "ifu"],
     }
     intake = {
         "schema_version": 1,
@@ -862,6 +871,39 @@ def run_self_tests() -> int:
 
         if not validate_contract(root, fixture, strict=True)["ok"]:
             failures.append("valid fixture did not pass")
+
+        extensible = copy.deepcopy(fixture)
+        original_contract_ids = [item["id"] for item in extensible["contracts"]]
+        for family_id, category in (
+            ("future-ifu", "ifu"),
+            ("future-cache", "cache"),
+        ):
+            extensible["module_families"].append(
+                {
+                    "id": family_id,
+                    "category": category,
+                    "lanes": {
+                        "pycircuit": {
+                            "status": "stub",
+                            "owners": ["src/owner.py"],
+                        },
+                        "chisel": {
+                            "status": "unit-proven",
+                            "owners": ["chisel/Owner.scala"],
+                        },
+                    },
+                }
+            )
+        extension_report = validate_contract(root, extensible, strict=True)
+        if not extension_report["ok"]:
+            failures.append("valid IFU/cache module-family extensions did not pass")
+        if [item["id"] for item in extensible["contracts"]] != original_contract_ids:
+            failures.append("module-family extension changed existing contract identities")
+
+        unknown_category = copy.deepcopy(extensible)
+        unknown_category["module_families"][-1]["category"] = "arm-system"
+        if validate_contract(root, unknown_category, strict=True)["ok"]:
+            failures.append("unknown module-family extension category was accepted")
 
         duplicate = copy.deepcopy(fixture)
         duplicate["contracts"].append(copy.deepcopy(duplicate["contracts"][0]))
