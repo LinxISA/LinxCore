@@ -2,7 +2,7 @@ package linxcore.backend
 
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H}
-import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker, BrobOrderState, BrobRobAllocationAdmission}
+import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker, BrobOrderState, BrobRobAllocationAdmission, BrobStoreRangeState}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
   BlockMarkerRetireSource,
@@ -36,7 +36,8 @@ class DispatchROBAllocatorIO(
     val mapQDepth: Int = 32,
     val stidWidth: Int = 8,
     val lsidWidth: Int = 32,
-    val stidCount: Int = 1)
+    val stidCount: Int = 1,
+    val storeSerialWidth: Int = 64)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
@@ -139,6 +140,16 @@ class DispatchROBAllocatorIO(
   val blockNonFlushPrefixCount = Output(Vec(stidCount, UInt(sizeWidth.W)))
   val blockNonFlushBlockedValid = Output(Vec(stidCount, Bool()))
   val blockNonFlushBlockedBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockStoreRangeCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockNextStoreId = Output(Vec(stidCount, UInt(storeSerialWidth.W)))
+  val blockStoreRangeAdvanceCount = Output(Vec(stidCount, UInt(sizeWidth.W)))
+  val blockStoreRangeBlockedValid = Output(Vec(stidCount, Bool()))
+  val blockStoreRangeBlockedBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockStoreRangeQueryHit = Output(Bool())
+  val blockStoreRangeQueryCountKnown = Output(Bool())
+  val blockStoreRangeQueryCount = Output(UInt(storeSerialWidth.W))
+  val blockStoreRangeQueryStartValid = Output(Bool())
+  val blockStoreRangeQueryStartId = Output(UInt(storeSerialWidth.W))
   val blockQueryBid = Input(UInt(bidWidth.W))
   val blockQueryStid = Input(UInt(stidWidth.W))
   val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
@@ -246,7 +257,8 @@ class DispatchROBAllocator(
     val mapQDepth: Int = 32,
     val stidWidth: Int = 8,
     val stidCount: Int = 1,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val storeSerialWidth: Int = 64)
     extends Module {
   require(entries > 1, "allocator entries must be greater than one")
   require((entries & (entries - 1)) == 0, "allocator entries must be a power of two")
@@ -269,7 +281,8 @@ class DispatchROBAllocator(
     mapQDepth,
     stidWidth,
     lsidWidth,
-    stidCount
+    stidCount,
+    storeSerialWidth
   ))
 
   private def bidToRobId(bid: UInt): ROBID = {
@@ -282,10 +295,19 @@ class DispatchROBAllocator(
     stidWidth = stidWidth,
     stidCount = stidCount
   ))
+  val storeRanges = Module(new BrobStoreRangeState(
+    entries = entries,
+    bidWidth = bidWidth,
+    stidWidth = stidWidth,
+    stidCount = stidCount,
+    storeIdWidth = storeSerialWidth,
+    storeCountWidth = storeSerialWidth
+  ))
   val allocStidMatch = VecInit((0 until stidCount).map(idx => io.allocStid === idx.U(stidWidth.W)))
   val blockOnlyStidMatch = VecInit((0 until stidCount).map(idx => io.blockAllocOnlyStid === idx.U(stidWidth.W)))
   val allocNextBlockBid = Mux1H(allocStidMatch, blockOrder.io.allocCursor)
   val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch, blockOrder.io.allocCursor)
+  val storeRangeBlockOnlyCandidate = !io.allocValid && io.blockAllocOnlyValid
   io.allocBlockBid := allocNextBlockBid
   io.blockAllocOnlyBid := blockOnlyNextBlockBid
 
@@ -315,15 +337,18 @@ class DispatchROBAllocator(
   val scalarStidInRange = allocStidMatch.asUInt.orR
   val blockOnlyStidInRange = blockOnlyStidMatch.asUInt.orR
   val scalarBlockOrderReady = scalarStidInRange && !Mux1H(allocStidMatch, blockOrder.io.full)
-  val blockOnlyOrderReady = blockOnlyStidInRange && !Mux1H(blockOnlyStidMatch, blockOrder.io.full)
+  val scalarStoreRangeReady = storeRanges.io.allocReady
+  val blockOnlyOrderReady = blockOnlyStidInRange && !Mux1H(blockOnlyStidMatch, blockOrder.io.full) &&
+    storeRanges.io.allocReady
+  val scalarOrderAndRangeReady = scalarBlockOrderReady && scalarStoreRangeReady
   val scalarCanUseBrob = scalarStidInRange &&
-    (!scalarNeedsBrob || (brob.io.allocReady && scalarBlockOrderReady))
+    (!scalarNeedsBrob || (brob.io.allocReady && scalarOrderAndRangeReady))
   val scalarCanUseRob = rob.io.allocReady
   val scalarAdmission = Module(new BrobRobAllocationAdmission)
   scalarAdmission.io.allocValid := io.allocValid
   scalarAdmission.io.usesExistingBlock := io.allocUsesExistingBlock
   scalarAdmission.io.stidInRange := scalarStidInRange
-  scalarAdmission.io.brobReady := brob.io.allocReady && scalarBlockOrderReady
+  scalarAdmission.io.brobReady := brob.io.allocReady && scalarOrderAndRangeReady
   scalarAdmission.io.robReady := scalarCanUseRob
   scalarAdmission.io.recoveryValid := io.blockFlushValid
   val scalarAllocReady = scalarAdmission.io.allocReady
@@ -410,7 +435,7 @@ class DispatchROBAllocator(
 
   io.allocReady := scalarAllocReady
   io.allocFire := scalarAdmission.io.allocFire
-  io.allocBlockedByBrob := scalarNeedsBrob && !(brob.io.allocReady && scalarBlockOrderReady)
+  io.allocBlockedByBrob := scalarNeedsBrob && !(brob.io.allocReady && scalarOrderAndRangeReady)
   io.allocBlockedByRob := io.allocValid && scalarCanUseBrob && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
   io.allocRobValue := rob.io.allocRobValue
@@ -431,6 +456,27 @@ class DispatchROBAllocator(
   blockOrder.io.headResident := brob.io.oldestValid
   blockOrder.io.headComplete := brob.io.oldestComplete
   blockOrder.io.retireReady := io.blockRetireReady
+  storeRanges.io.allocValid := blockOrder.io.allocApplied
+  storeRanges.io.allocBid := Mux(storeRangeBlockOnlyCandidate, blockOnlyNextBlockBid, allocNextBlockBid)
+  storeRanges.io.allocStid := Mux(storeRangeBlockOnlyCandidate, io.blockAllocOnlyStid, io.allocStid)
+  storeRanges.io.storeObservedValid := scalarAdmission.io.allocFire && io.allocIsStore
+  storeRanges.io.storeObservedBid := rowBlockBid
+  storeRanges.io.storeObservedStid := io.allocStid
+  storeRanges.io.countCertainValid := io.blockScalarDoneValid
+  storeRanges.io.countCertainBid := io.blockScalarDoneBid
+  storeRanges.io.countCertainStid := io.blockScalarDoneStid
+  storeRanges.io.countCertainUseValue := false.B
+  storeRanges.io.countCertainValue := 0.U
+  storeRanges.io.retireValid := blockOrder.io.retireFire
+  storeRanges.io.retireBid := blockOrder.io.retireBid
+  storeRanges.io.retireStid := blockOrder.io.retireStid
+  storeRanges.io.recoveryValid := blockOrder.io.recoveryApplied
+  storeRanges.io.recoveryStid := io.blockFlushStid
+  storeRanges.io.recoveryFirstKilledBid := blockOrder.io.recoveryFirstKilledBid
+  storeRanges.io.orderHeadBid := blockOrder.io.commitCursor
+  storeRanges.io.orderLiveCount := blockOrder.io.liveCount
+  storeRanges.io.queryBid := io.blockQueryBid
+  storeRanges.io.queryStid := io.blockQueryStid
   io.blockRetireValid := blockOrder.io.retireValid
   io.blockRetireFire := blockOrder.io.retireFire
   io.blockRetireBid := blockOrder.io.retireBid
@@ -455,6 +501,24 @@ class DispatchROBAllocator(
   io.blockNonFlushPrefixCount := brob.io.nonFlushPrefixCount
   io.blockNonFlushBlockedValid := brob.io.nonFlushBlockedValid
   io.blockNonFlushBlockedBid := brob.io.nonFlushBlockedBid
+  io.blockStoreRangeCursor := storeRanges.io.rangeCursorBid
+  io.blockNextStoreId := storeRanges.io.nextStoreId
+  io.blockStoreRangeAdvanceCount := storeRanges.io.advanceCount
+  io.blockStoreRangeBlockedValid := storeRanges.io.blockedValid
+  io.blockStoreRangeBlockedBid := storeRanges.io.blockedBid
+  io.blockStoreRangeQueryHit := storeRanges.io.queryHit
+  io.blockStoreRangeQueryCountKnown := storeRanges.io.query.countKnown
+  io.blockStoreRangeQueryCount := storeRanges.io.query.storeCount
+  io.blockStoreRangeQueryStartValid := storeRanges.io.query.startValid
+  io.blockStoreRangeQueryStartId := storeRanges.io.query.startStoreId
+  assert(!blockOrder.io.allocApplied || storeRanges.io.allocAccepted,
+    "BROB order allocation must allocate the matching store-range row")
+  assert(!storeRanges.io.storeObservedValid || storeRanges.io.storeObservedAccepted,
+    "accepted scalar store must update its exact live BROB store-range row")
+  assert(!blockOrder.io.retireFire || storeRanges.io.retireAccepted,
+    "BROB ordered retire must remove the matching store-range row")
+  assert(!storeRanges.io.recoveryMissingStart,
+    "BROB store-range recovery cannot rewind an assigned suffix without its saved start ID")
   assert(!blockOrder.io.retireFire || brob.io.retireAccepted,
     "BROB ordered retire must remove the selected resident metadata head")
 

@@ -15,33 +15,35 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R652 promotes the LinxCoreModel non-flush mechanism as an exact
-per-STID BROB prefix. `BrobNonFlushFrontier` scans from the authoritative commit
-head through the bounded live count and stops at the first hole, stale identity,
-incomplete row, or exception. It publishes head plus prefix count as the age
-proof; the youngest safe BID is observability and is never used as an unsigned
-threshold. The initial predicate is conservative: only fully completed,
-exception-free blocks are safe. Branch-resolved scalar and issued tile-memory
-early release remain producer-backed follow-on work.
+Latest packet: R653 promotes two related LinxCoreModel memory-order mechanisms
+without conflating their ownership. `DecodeLoadStoreIdAssign` now maintains
+independent LSID, load-ID, and store-ID lanes per STID; accepted typed recovery
+restores only the selected lane, while reset/restart clears all lanes.
+`BrobStoreRangeState` separately owns one aggregate block store-range cursor and
+next store ID per STID. It assigns a stable start to the exact resident cursor
+row, blocks on uncertain counts or identity holes, and advances only through
+consecutive count-certain rows in the authoritative BROB head/live-count window.
 
-`ReducedStoreCommitFreeOwner` now requires that prefix proof before requesting
-the STQ `Wait -> Commit` transition. A ROB store commit outside the prefix is
-retained with its STID, full block BID, and instruction identity, rechecked as
-the frontier advances, and cleared by accepted recovery. The generated BROB
-probe proves unsafe-head blocking, independent STIDs, exception exclusion, and
-a `[14,15,0]` prefix across rollover. The generated store-owner probe found and
-drove a fix for one ungated row-level match path, then proved retention,
-frontier release, and recovery clear.
+Scalar stores accumulate against their exact full BID and scalar-done freezes
+that count. An explicit parameterized count path is reserved for authoritative
+template/tile producers. Accepted suffix recovery clears the killed rows and
+restores the first killed row's saved start ID when assignment had already
+passed it. Range assignment remains separate from the R652 strong non-flush
+prefix and never authorizes STQ commitment or SCB admission. The packet imports
+no ARM barriers, exclusives, exception levels, condition state, or other
+foreign architectural behavior.
 
-R652 final verification passes 258 suites and 1,527 tests. Chisel adapter,
-shared conformance, and strict MkDocs-aware architecture gates pass. The live
-reduced-store fixture compares 3 rows, including a store and post-store load,
-with zero mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with
-zero mismatches and zero CBSTOP at
-`generated/r652-final-brob-non-flush-coremark/report/crosscheck_manifest.json`.
-Canonical `BID_W` plus explicit wrap context, early non-flush predicates,
-store-barrier allocation, configurable multi-block retirement, direct
-BCC/IEX/PE trigger owners, and complete cleanup fanout remain open.
+R653 final verification passes 259 suites and 1,532 tests. Both generated
+probes pass independent-STID, scoped-recovery, unknown-count, explicit-count,
+and `[14,15,0]` rollover scenarios. Chisel adapter, shared conformance,
+microarchitecture contract, and strict architecture mirror gates pass. The
+live reduced-store fixture compares 3 rows with zero mismatches and zero
+CBSTOP. Reduced CoreMark compares 426 rows with zero mismatches and zero CBSTOP
+at
+`generated/r653-final-brob-store-range-coremark/report/crosscheck_manifest.json`.
+Canonical `BID_W` plus explicit wrap context, live template/tile count
+producers, early non-flush predicates, configurable multi-block retirement,
+direct BCC/IEX/PE trigger owners, and complete cleanup fanout remain open.
 
 R649 connects retained scalar MDB recovery to the live reduced
 top. `MDBConflictTransactionControl` is now shared by canonical

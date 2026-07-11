@@ -193,6 +193,33 @@ full block BID lies inside the selected STID's strong prefix. Only then may the
 STQ row transition from speculative `Wait` state toward SCB. This retained
 event is flushed with the same accepted recovery as the STQ/BROB state.
 
+### 5.6 Store-range frontier
+
+BROB owns one block store-range cursor and next store ID per STID. Allocation
+metadata records every accepted store row for its exact full BID. When the
+block's count producer declares that count certain, BROB may advance the range
+frontier through that block and any consecutive known successors.
+
+The count-certain event either latches the scalar stores accumulated for that
+block or carries an explicit parameterized count from an authoritative
+template/tile count producer. A decode hint alone is not authoritative.
+
+- The exact row at `store_range_cursor_bid` receives `start_store_id` even if
+  its count is not yet certain. This makes the start stable while preventing
+  younger bypass.
+- A block advances the cursor only when its full BID is resident and its count
+  is certain. `next_store_id += store_count` uses the parameterized store-ID
+  width.
+- Allocation, count publication, range assignment, retirement, and recovery
+  all match exact `(STID, full BID)` identities. Same-slot stale events are
+  ignored.
+- Accepted suffix recovery clears killed range rows. If the first killed row
+  already had a start ID, the owner restores both cursor and next ID from that
+  row; otherwise an older unresolved cursor remains authoritative.
+- Range assignment is not SCB commitment and does not make a block
+  non-flushable. The strong non-flush prefix remains the separate authorization
+  for speculative-to-committed store state.
+
 ## 6) Invariants (for unit tests)
 
 - Head retires in order only.

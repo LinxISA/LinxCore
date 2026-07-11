@@ -42,6 +42,36 @@ Split `STA` and `STD` work shares one store instruction identity, SID, and
 LSID. LID/SID locate resident queue rows; LSID orders architectural memory
 operations. They are not interchangeable.
 
+All scalar memory-identity allocators are partitioned by STID. A selected row
+reads and advances only its STID's LSID, load-ID, and store-ID lane. Scoped
+recovery restores or clears only the selected lane; reset/restart may clear all
+lanes. No implementation may serialize independent STIDs through one global
+counter merely because the reduced top currently executes one scalar lane.
+
+## Block store ranges
+
+BROB owns a related but separate block store-range frontier. Each live block
+records an exact scalar/template store count once that count becomes certain.
+Starting at the per-STID range cursor, BROB assigns the current `next_store_id`
+as that block's `start_store_id`; if the count is certain, it advances the ID by
+the count and continues through consecutive resident blocks. An uncertain
+block receives a stable start ID but stops younger range allocation.
+
+- Block range identity is `(STID, full BID, start_store_id, store_count)`.
+- The cursor and next ID are independent per STID and parameterized in width.
+- A hole, stale BID, flushed/mispredicted/exception block, or uncertain count
+  prevents a younger block from bypassing the frontier.
+- Recovery rewinds to the first killed block only when that killed suffix had
+  already received ranges, restoring `next_store_id` from that block's saved
+  start ID. The retained prefix is not renumbered.
+- Scalar per-row SID and BROB block range assignment remain distinct owners.
+  A future block/tile store consumer may derive row SIDs from its assigned
+  range, but it may not overwrite scalar decode's accepted-row sequence.
+
+This is an ISA-neutral resource-allocation mechanism. It does not define an
+architectural fence, ARM barrier encoding, exclusive monitor, acquire/release
+opcode, or exception-level behavior.
+
 ## Strict baseline issue
 
 1. Decode stamps the current all-row snapshot in slot order.
@@ -76,6 +106,7 @@ accepted/completed condition.
 ## Required invariants
 
 - Same-cycle rows preserve decode-slot program order.
+- Independent STIDs preserve independent LSID/load-ID/store-ID state.
 - A non-memory row never advances the LSID allocator.
 - No squashed memory row can later issue, complete, forward, or wake a load.
 - Queue-local LID/SID wrap cannot change LSID order.
@@ -87,3 +118,5 @@ accepted/completed condition.
   comparison invents an age relation across STIDs.
 - Any speculative load policy must recover to the same architectural result as
   the strict baseline and must not duplicate Device/MMIO side effects.
+- Assigned BROB store ranges are disjoint and consecutive within one STID;
+  no range comparison or allocation crosses STIDs.

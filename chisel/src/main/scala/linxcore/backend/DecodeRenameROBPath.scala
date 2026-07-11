@@ -219,6 +219,10 @@ class DecodeRenameROBPathIO(
   val nextLsId = Output(UInt(p.lsidWidth.W))
   val nextLoadId = Output(UInt(loadStoreSerialWidth.W))
   val nextStoreId = Output(UInt(loadStoreSerialWidth.W))
+  val nextLsIdByStid = Output(Vec(scalarStidCount, UInt(p.lsidWidth.W)))
+  val nextLoadIdByStid = Output(Vec(scalarStidCount, UInt(loadStoreSerialWidth.W)))
+  val nextStoreIdByStid = Output(Vec(scalarStidCount, UInt(loadStoreSerialWidth.W)))
+  val memoryIdStidInRange = Output(Bool())
   val storeSplitIntent = Output(Bool())
 
   val renamedOutValid = Output(Bool())
@@ -413,6 +417,16 @@ class DecodeRenameROBPathIO(
   val blockNonFlushPrefixCount = Output(Vec(scalarStidCount, UInt(sizeWidth.W)))
   val blockNonFlushBlockedValid = Output(Vec(scalarStidCount, Bool()))
   val blockNonFlushBlockedBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val blockStoreRangeCursor = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val blockNextStoreId = Output(Vec(scalarStidCount, UInt(loadStoreSerialWidth.W)))
+  val blockStoreRangeAdvanceCount = Output(Vec(scalarStidCount, UInt(sizeWidth.W)))
+  val blockStoreRangeBlockedValid = Output(Vec(scalarStidCount, Bool()))
+  val blockStoreRangeBlockedBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val blockStoreRangeQueryHit = Output(Bool())
+  val blockStoreRangeQueryCountKnown = Output(Bool())
+  val blockStoreRangeQueryCount = Output(UInt(loadStoreSerialWidth.W))
+  val blockStoreRangeQueryStartValid = Output(Bool())
+  val blockStoreRangeQueryStartId = Output(UInt(loadStoreSerialWidth.W))
   val tuRetireSourceWindowReady = Output(Bool())
   val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
   val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
@@ -689,7 +703,8 @@ class DecodeRenameROBPath(
     mapQDepth = mapQDepth,
     stidWidth = stidWidth,
     stidCount = scalarStidCount,
-    lsidWidth = p.lsidWidth
+    lsidWidth = p.lsidWidth,
+    storeSerialWidth = loadStoreSerialWidth
   ))
   val recovery = Module(new RecoveryBackendControl(
     nonLsuSourceCount = recoveryNonLsuSourceCount,
@@ -806,7 +821,10 @@ class DecodeRenameROBPath(
     } else {
       None
     }
-  val memIds = Module(new DecodeLoadStoreIdAssign(p, serialWidth = loadStoreSerialWidth))
+  val memIds = Module(new DecodeLoadStoreIdAssign(
+    p,
+    serialWidth = loadStoreSerialWidth,
+    stidCount = scalarStidCount))
   memIds.io.in := selected
   memIds.io.isLoad := selectedIsLoad
   memIds.io.isStore := selectedIsStore
@@ -817,7 +835,10 @@ class DecodeRenameROBPath(
   memIds.io.storeSplitRequest := selectedIsStore
   memIds.io.stackSetRequest := false.B
   memIds.io.flushValid := decRenFlush
+  memIds.io.flushAll := io.flushValid && !cleanup.valid
+  memIds.io.flushStid := cleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
   memIds.io.restoreValid := false.B
+  memIds.io.restoreStid := cleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
   memIds.io.restoreLsId := 0.U
   memIds.io.restoreLoadId := 0.U
   memIds.io.restoreStoreId := 0.U
@@ -1254,6 +1275,10 @@ class DecodeRenameROBPath(
   io.nextLsId := memIds.io.nextLsId
   io.nextLoadId := memIds.io.nextLoadId
   io.nextStoreId := memIds.io.nextStoreId
+  io.nextLsIdByStid := memIds.io.nextLsIdByStid
+  io.nextLoadIdByStid := memIds.io.nextLoadIdByStid
+  io.nextStoreIdByStid := memIds.io.nextStoreIdByStid
+  io.memoryIdStidInRange := memIds.io.selectedStidInRange
   io.storeSplitIntent := memIds.io.storeSplitIntent
 
   io.renamedOutValid := rename.io.outValid && !renamedOutIsMarker
@@ -1436,6 +1461,16 @@ class DecodeRenameROBPath(
   io.blockNonFlushPrefixCount := allocator.io.blockNonFlushPrefixCount
   io.blockNonFlushBlockedValid := allocator.io.blockNonFlushBlockedValid
   io.blockNonFlushBlockedBid := allocator.io.blockNonFlushBlockedBid
+  io.blockStoreRangeCursor := allocator.io.blockStoreRangeCursor
+  io.blockNextStoreId := allocator.io.blockNextStoreId
+  io.blockStoreRangeAdvanceCount := allocator.io.blockStoreRangeAdvanceCount
+  io.blockStoreRangeBlockedValid := allocator.io.blockStoreRangeBlockedValid
+  io.blockStoreRangeBlockedBid := allocator.io.blockStoreRangeBlockedBid
+  io.blockStoreRangeQueryHit := allocator.io.blockStoreRangeQueryHit
+  io.blockStoreRangeQueryCountKnown := allocator.io.blockStoreRangeQueryCountKnown
+  io.blockStoreRangeQueryCount := allocator.io.blockStoreRangeQueryCount
+  io.blockStoreRangeQueryStartValid := allocator.io.blockStoreRangeQueryStartValid
+  io.blockStoreRangeQueryStartId := allocator.io.blockStoreRangeQueryStartId
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

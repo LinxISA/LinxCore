@@ -200,7 +200,7 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
 
   test("IO exposes model-derived LSID, load_id, sid, and split observability") {
     val p = InterfaceParams(lsidWidth = 32)
-    val io = new DecodeLoadStoreIdAssignIO(p, serialWidth = 64)
+    val io = new DecodeLoadStoreIdAssignIO(p, serialWidth = 64, stidCount = 2)
 
     assert(io.assignedLsId.getWidth == 32)
     assert(io.assignedLoadId.getWidth == 64)
@@ -211,6 +211,13 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
     assert(io.storeSplitIntent.getWidth == 1)
     assert(io.isStorePcr.getWidth == 1)
     assert(io.cacheMaintainNoSplit.getWidth == 1)
+    assert(io.nextLsIdByStid.length == 2)
+    assert(io.nextLoadIdByStid.length == 2)
+    assert(io.nextStoreIdByStid.length == 2)
+    assert(io.flushAll.getWidth == 1)
+    assert(io.flushStid.getWidth == p.threadIdWidth)
+    assert(io.restoreStid.getWidth == p.threadIdWidth)
+    assert(io.selectedStidInRange.getWidth == 1)
   }
 
   test("DecodeLoadStoreIdAssign elaborates as a separate backend owner") {
@@ -223,5 +230,17 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
     assert(sv.contains("io_assignedLoadId"))
     assert(sv.contains("io_assignedStoreId"))
     assert(sv.contains("io_storeSplitIntent"))
+  }
+
+  test("DecodeLoadStoreIdAssign elaborates independent STID counter lanes") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new DecodeLoadStoreIdAssign(InterfaceParams(threadIdWidth = 2), serialWidth = 64, stidCount = 2)
+    )
+
+    assert(sv.contains("io_nextLsIdByStid_1"))
+    assert(sv.contains("io_nextLoadIdByStid_1"))
+    assert(sv.contains("io_nextStoreIdByStid_1"))
+    assert(sv.contains("io_selectedStidInRange"))
+    assert(sv.contains("io_flushAll"))
   }
 }

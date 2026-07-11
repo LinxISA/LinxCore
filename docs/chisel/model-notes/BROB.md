@@ -166,16 +166,31 @@ exception-free metadata is safe. `ReducedStoreCommitFreeOwner` retains a ROB
 store commit with its full block BID until it lies inside the selected STID's
 prefix, then authorizes the STQ `Wait -> Commit` transition. Recovery clears
 that retained event with the store/BROB state. Branch-resolved scalar early
-release, issued TLOAD/TSTORE release, and `sbarPtr/sbarID/storeCount` allocation
-remain future producer-backed extensions.
+release and issued TLOAD/TSTORE release remain future producer-backed
+extensions.
+
+## Store-Range Delivery
+
+`BlockROB::deliveryStoreID` walks from each STID's `sbarPtr`, assigns the
+current `sbarID` to the exact resident row, and advances only through rows with
+a certain `storeCount`. R653 promotes that mechanism as
+`BrobStoreRangeState`, using the owner head/live-count window for bounded
+modular age. Scalar decode stores increment the exact block count; scalar-done
+freezes it. The explicit-count input preserves the model's template/tile path
+without treating a decode hint as authority.
+
+Accepted recovery clears the killed suffix and restores the first killed
+row's saved start ID when range assignment had already passed it. This range
+state is independent from `BrobNonFlushFrontier`: assigning a store range does
+not authorize STQ commitment or SCB admission.
 
 ## Open Questions
 
 - The architecture docs still list BROB same-cycle resolve-vs-flush and
   commit-vs-flush priority as open issues.
-- Chisel now models per-STID allocation-tail, commit-head, live-count, and
-  conservative strong non-flush prefix arrays. Early-safe predicates,
-  store-barrier frontiers, and full BCTRL/BISQ interaction remain open. The
+- Chisel now models per-STID allocation-tail, commit-head, live-count,
+  conservative strong non-flush prefix, and contiguous store-range arrays.
+  Early-safe predicates and full BCTRL/BISQ interaction remain open. The
   model's BROB-local dispatch/rename fields are
   declarations without active pointer-update behavior and are not promoted as
   target owners.

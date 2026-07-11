@@ -18,7 +18,8 @@ memory-order identity. It consumes one selected `DecodedUop`, the frontend
 load/store sidebands, and the downstream accept event. It stamps every valid
 row with the current 32-bit `lsID` snapshot before any counter increment,
 matching `Decoder::DecodeInst()`. When a load, store, or DCZVA-like memory row
-is actually accepted, it advances the reduced STID0 counters in model order.
+is actually accepted, it advances only the selected STID's counters in model
+order.
 
 The module also exposes 64-bit `load_id` and `sid` observability matching
 `DCTop` counters, plus store-split intent matching the `SPERename` split
@@ -41,9 +42,10 @@ Inputs:
   `SPERename::InsertToStoreIEX`.
 - `accept`: exact downstream acceptance point. Counters advance only when this
   signal and a memory-valid row are both true.
-- `flushValid`, `restoreValid`, `restoreLsId`, `restoreLoadId`,
-  `restoreStoreId`: reduced cleanup hook. The integrated block/header owner can
-  later restore model-derived counters instead of resetting to zero.
+- `flushValid`, `flushAll`, `flushStid`: cleanup scope. Reset/restart clears all
+  lanes; accepted typed recovery clears or restores only `flushStid`.
+- `restoreValid`, `restoreStid`, `restoreLsId`, `restoreLoadId`,
+  `restoreStoreId`: exact-lane restore image.
 
 Outputs:
 
@@ -55,13 +57,15 @@ Outputs:
   classification and advance observability.
 - `assignedLsId`, `assignedLoadId`, `assignedStoreId`: IDs associated with the
   current selected row.
-- `nextLsId`, `nextLoadId`, `nextStoreId`: current counter state that will be
-  assigned to the next accepted matching row.
+- `nextLsId`, `nextLoadId`, `nextStoreId`: selected-lane counter state that
+  will be assigned to the next accepted matching row.
+- `next*ByStid`: complete parameterized per-STID counter vectors.
+- `selectedStidInRange`: selected row names an implemented counter lane.
 - `storeSplitIntent`: store should later be split into address and data halves.
 
 ## Logic Design
 
-The module owns three counters for the reduced STID0 path:
+The module owns three counter arrays with `stidCount` lanes:
 
 - `nextLsId`: 32-bit backend `lsID`, matching the current common bundle
   contract.
@@ -84,10 +88,10 @@ generated opcode metadata. The later store-split owner applies the same guard
 again, then constructs STA/STD or ST_ALL payloads and applies `HandleSta`
 PCR-source rules.
 
-Flush has priority over accept. A flush with `restoreValid` loads the provided
-counter image; a flush without restore resets all counters to zero. Full
-block-header replay and per-STID counter recovery are deferred to the
-block/decode owner that has `BlockCommand` context.
+Flush has priority over accept. `flushAll` clears every lane. Otherwise only
+the exact in-range `flushStid` lane changes; a matching restore loads the
+provided image and a non-restoring scoped flush clears that lane. Other STIDs
+retain their counters.
 
 ## Model Alignment
 
@@ -103,9 +107,10 @@ The C++ model has two related memory-order paths:
 
 This Chisel owner preserves the all-row pre-increment assignment rule and the
 memory-row accept boundary. It deliberately keeps block command start IDs,
-tile block split
-counts, PCR store source rewriting, and downstream store execution/STQ
-mutation in later owners.
+tile block split counts, PCR store source rewriting, and downstream store
+execution/STQ mutation in later owners. `BrobStoreRangeState` now owns
+aggregate per-block store ranges; it does not replace these decode-time scalar
+IDs.
 R75 does not change memory-counter policy; it records that model row owner
 sidecars (`inst->peID/stid`) pass through this memory-ID owner unmodified
 before queue residency.
@@ -114,8 +119,7 @@ before queue residency.
 
 - Width-wide slot-order allocation for multiple decoded memory uops in one
   cycle.
-- Per-STID counters and block-header counter restore from `BlockCommand`
-  context.
+- Block-header counter restore from promoted `BlockCommand` context.
 - Carrying `load_id`/`sid` through common uop bundles into LIQ/STQ owners.
 - DCZVA opcode classification from generated decode metadata.
 - Store execution, STQ insert readiness, and STQ composition behind
@@ -128,6 +132,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
+bash tools/chisel/run_chisel_decode_load_store_id_assign_probe.sh
 ```
 
 Affected gates:
