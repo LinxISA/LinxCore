@@ -21,6 +21,7 @@ class MDBStoreProbeReplayIO(
   val replaySelected = Output(Bool())
   val retainedValid = Output(Bool())
   val retainedReplayed = Output(Bool())
+  val retainedNeedsRetry = Output(Bool())
   val replayAccepted = Output(Bool())
 }
 
@@ -49,8 +50,10 @@ class MDBStoreProbeReplay(
   val retained = RegInit(0.U.asTypeOf(new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)))
   val retainedValid = RegInit(false.B)
   val retainedReplayed = RegInit(false.B)
+  val retainedNeedsRetry = RegInit(false.B)
 
-  val replayEligible = retainedValid && !retainedReplayed && io.replayEnable
+  val replayEligible =
+    retainedValid && !retainedReplayed && (retainedNeedsRetry || io.replayEnable)
   val selectLive = io.live.valid
   val selectReplay = !selectLive && replayEligible
 
@@ -60,17 +63,21 @@ class MDBStoreProbeReplay(
   io.replaySelected := selectReplay
   io.retainedValid := retainedValid
   io.retainedReplayed := retainedReplayed
+  io.retainedNeedsRetry := retainedNeedsRetry
   io.replayAccepted := selectReplay && io.replayConsume
 
   when(io.flush) {
     retained := 0.U.asTypeOf(retained)
     retainedValid := false.B
     retainedReplayed := false.B
+    retainedNeedsRetry := false.B
   }.elsewhen(io.live.valid) {
     retained := io.live
     retainedValid := true.B
-    retainedReplayed := false.B
+    retainedReplayed := io.replayConsume && io.replayEnable
+    retainedNeedsRetry := !io.replayConsume
   }.elsewhen(io.replayAccepted) {
-    retainedReplayed := true.B
+    retainedNeedsRetry := false.B
+    retainedReplayed := !retainedNeedsRetry || io.replayEnable
   }
 }

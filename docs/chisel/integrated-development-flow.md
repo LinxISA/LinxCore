@@ -24,8 +24,19 @@ STID, performs exact resident full-BID lookup, and releases the head only when
 the central recovery fabric accepts `ScalarLSURecoverySource`. The reduced
 store-probe timing bridge now marks a replay consumed only after this atomic
 boundary accepts it. BCC/IEX/PE trigger-owner connections, full-BID BROB
-pointer recovery, complete cleanup fanout, and pyCircuit backend consumption
-remain open.
+pointer recovery, and complete cleanup fanout remain open. pyCircuit now
+matches the ISA-neutral atomic admission rule in a shared scenario gate; its
+retained report queue, owner-backed watermark selection, and exact full-BID
+backend consumption remain explicit promotion gaps.
+
+R649 verification passes 258 suites and 1,516 tests. The shared MDB
+transaction gate passes three named Chisel/pyCircuit scenarios, and the
+existing recovery-class gate passes 12 named scenarios. The canonical top
+cross-check compares 3 rows with zero mismatches and zero CBSTOP. Reduced
+CoreMark compares 426 rows with zero mismatches and zero CBSTOP at
+`generated/r649-final-mdb-recovery-delivery-coremark/report/crosscheck_manifest.json`.
+CoreMark remains no-regression evidence because this trace does not naturally
+activate the new recovery transaction.
 
 R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE

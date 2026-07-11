@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
   - `model/LinxCoreModel/model/lsu/mdb/MDB.cpp`
 - Contract IDs: `LC-MA-MEM-001`, `LC-MA-HAZ-001`, `LC-MA-REC-001`
+- pyCircuit atomic-admission peer: `rtl/LinxCore/src/bcc/lsu/mdb_transaction.py`
 
 ## Purpose
 
@@ -81,3 +82,6 @@ recovery remains defined by block, STID, and precise ROB ordering.
 The generated probe covers record-side backpressure, atomic admission,
 retention under source backpressure, exact full-BID promotion, STID1 lane
 selection, out-of-range STID suppression, accepted dequeue, and flush cleanup.
+`tests/test_lsu_mdb_transaction_cross_rtl.sh` additionally requires the Chisel
+and pyCircuit atomic-admission lanes to declare and pass the same conflict
+backpressure, atomic publication, and unrequired-sink bypass scenarios.

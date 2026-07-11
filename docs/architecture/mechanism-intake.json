@@ -218,7 +218,7 @@
       "target_contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
       "module_families": ["lsu", "rob-recovery"],
       "scenarios": ["scenario-memory-ordering"],
-      "lane_owners": {"pycircuit": ["src/bcc/lsu/mdb.py"], "chisel": ["chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/lsu/mdb.py", "src/bcc/lsu/mdb_transaction.py"], "chisel": ["chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictTransactionControl.scala", "chisel/src/main/scala/linxcore/lsu/MDBRecoveryDeliveryPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala", "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}
     },
     {
       "id": "cache-translation",

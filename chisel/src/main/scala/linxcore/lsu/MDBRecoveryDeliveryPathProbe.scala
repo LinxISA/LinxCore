@@ -20,6 +20,10 @@ class MDBRecoveryDeliveryPathProbeIO extends Bundle {
   val lookupMatch = Input(Bool())
   val lookupBlockBid = Input(UInt(16.W))
   val sourceReady = Input(Bool())
+  val replayLiveValid = Input(Bool())
+  val replayEnable = Input(Bool())
+  val replayConsume = Input(Bool())
+  val replayPc = Input(UInt(64.W))
 
   val candidateAccepted = Output(Bool())
   val recordValid = Output(Bool())
@@ -34,6 +38,10 @@ class MDBRecoveryDeliveryPathProbeIO extends Bundle {
   val sourceStid = Output(UInt(2.W))
   val sourceBlockBid = Output(UInt(16.W))
   val sourceAccepted = Output(Bool())
+  val replayLiveSelected = Output(Bool())
+  val replaySelected = Output(Bool())
+  val replayRetainedReplayed = Output(Bool())
+  val replayRetainedNeedsRetry = Output(Bool())
 }
 
 class MDBRecoveryDeliveryPathProbe extends Module {
@@ -103,6 +111,20 @@ class MDBRecoveryDeliveryPathProbe extends Module {
   io.sourceStid := delivery.io.source.stid
   io.sourceBlockBid := delivery.io.source.blockBid
   io.sourceAccepted := delivery.io.sourceAccepted
+
+  val replay = Module(new MDBStoreProbeReplay(entries = entries))
+  val replayLive = Wire(chiselTypeOf(replay.io.live))
+  replayLive := 0.U.asTypeOf(replayLive)
+  replayLive.valid := io.replayLiveValid
+  replayLive.pc := io.replayPc
+  replay.io.flush := io.flush
+  replay.io.live := replayLive
+  replay.io.replayEnable := io.replayEnable
+  replay.io.replayConsume := io.replayConsume
+  io.replayLiveSelected := replay.io.liveSelected
+  io.replaySelected := replay.io.replaySelected
+  io.replayRetainedReplayed := replay.io.retainedReplayed
+  io.replayRetainedNeedsRetry := replay.io.retainedNeedsRetry
 }
 
 object EmitMDBRecoveryDeliveryPathProbe extends App {

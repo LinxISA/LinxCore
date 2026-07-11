@@ -315,12 +315,23 @@
       "module_family": "lsu",
       "status": "stub",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001", "LC-MA-HAZ-001"],
-      "known_gap": "LIQ, LHQ, STQ, and MDB have named parameterized owners but do not yet have complete focused tests or full-shell integration evidence.",
+      "known_gap": "LIQ, LHQ, STQ, and MDB data/predictor owners do not yet have complete focused tests or full-shell integration evidence. The ISA-neutral MDB atomic admission rule is unit-proven in both backends, but pyCircuit does not yet own the retained report queue, owner-backed STID watermark selection, or exact full-BID backend consumption.",
       "evidence": [
         {"path": "src/bcc/lsu/liq.py", "module_names": ["JanusBccLsuLiq"]},
         {"path": "src/bcc/lsu/lhq.py", "module_names": ["JanusBccLsuLhq"]},
         {"path": "src/bcc/lsu/stq.py", "module_names": ["JanusBccLsuStq"]},
-        {"path": "src/bcc/lsu/mdb.py", "module_names": ["JanusBccLsuMdb"]}
+        {"path": "src/bcc/lsu/mdb.py", "module_names": ["JanusBccLsuMdb"]},
+        {
+          "path": "src/bcc/lsu/mdb_transaction.py",
+          "module_names": ["LinxBccLsuMdbTransactionControl"],
+          "symbols": ["required_sinks_ready", "candidate_ready", "accepted", "record_valid", "wait_plan_valid", "recovery_valid"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_lsu_mdb_transaction_cross_rtl.sh",
+          "command": "bash tests/test_lsu_mdb_transaction_cross_rtl.sh"
+        }
       ]
     },
     {

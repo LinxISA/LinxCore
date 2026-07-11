@@ -28,6 +28,9 @@ static void drive_report(VMDBRecoveryDeliveryPathProbe &dut, int stid, int bid, 
 }
 
 int main(int argc, char **argv) {
+    // CROSS_RTL_SCENARIO: atomic-conflict-admission
+    // CROSS_RTL_SCENARIO: conflict-sink-backpressure
+    // CROSS_RTL_SCENARIO: unrequired-sink-bypass
     Verilated::commandArgs(argc, argv);
     VMDBRecoveryDeliveryPathProbe dut;
 
@@ -48,9 +51,19 @@ int main(int argc, char **argv) {
     dut.io_lookupMatch = 1;
     dut.io_lookupBlockBid = 0x11;
     dut.io_sourceReady = 0;
+    dut.io_replayLiveValid = 0;
+    dut.io_replayEnable = 0;
+    dut.io_replayConsume = 0;
+    dut.io_replayPc = 0;
     tick(dut);
     tick(dut);
     dut.reset = 0;
+
+    dut.io_candidateValid = 1;
+    dut.io_conflictValid = 0;
+    dut.eval();
+    require(dut.io_candidateAccepted && !dut.io_recordValid && dut.io_recoveryCount == 0,
+            "an unrequired record/recovery sink blocked a conflict-free candidate");
 
     drive_report(dut, 0, 1, 3);
     dut.eval();
@@ -123,6 +136,46 @@ int main(int argc, char **argv) {
     dut.eval();
     require(!dut.io_recoveryPending && dut.io_recoveryCount == 0,
             "flush did not clear retained MDB recovery state");
+
+    dut.io_flush = 0;
+    dut.io_replayLiveValid = 1;
+    dut.io_replayEnable = 1;
+    dut.io_replayConsume = 1;
+    dut.io_replayPc = 0x4000;
+    dut.eval();
+    require(dut.io_replayLiveSelected,
+            "live replay probe was not selected");
+    tick(dut);
+    dut.io_replayLiveValid = 0;
+    dut.eval();
+    require(dut.io_replayRetainedReplayed && !dut.io_replaySelected,
+            "accepted live probe replayed again while ResolveQ remained visible");
+
+    dut.io_flush = 1;
+    tick(dut);
+    dut.io_flush = 0;
+    dut.io_replayLiveValid = 1;
+    dut.io_replayEnable = 0;
+    dut.io_replayConsume = 0;
+    dut.io_replayPc = 0x5000;
+    tick(dut);
+    dut.io_replayLiveValid = 0;
+    dut.io_replayConsume = 1;
+    dut.eval();
+    require(dut.io_replaySelected && dut.io_replayRetainedNeedsRetry,
+            "unaccepted live probe did not request a mandatory retry");
+    tick(dut);
+    dut.eval();
+    require(!dut.io_replayRetainedNeedsRetry && !dut.io_replayRetainedReplayed,
+            "mandatory retry consumed the later ResolveQ replay chance");
+    dut.io_replayEnable = 1;
+    dut.eval();
+    require(dut.io_replaySelected,
+            "delayed ResolveQ replay was not preserved after mandatory retry");
+    tick(dut);
+    dut.eval();
+    require(dut.io_replayRetainedReplayed && !dut.io_replaySelected,
+            "accepted delayed replay was not consumed exactly once");
 
     std::cout << "mdb-recovery-delivery-path-probe: PASS\n";
     return 0;

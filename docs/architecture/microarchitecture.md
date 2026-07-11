@@ -1016,6 +1016,11 @@ implementation choices and must not change architectural identity widths:
   reduce readiness. R649 applies this rule to the live reduced top through
   `MDBRecoveryDeliveryPath`, replacing independent record publication and a
   disconnected recovery report.
+- pyCircuit implements the same parameter-neutral admission equation and is
+  checked against the Chisel generated scenario set. This parity covers atomic
+  sink valids and conditional readiness only; retained report storage,
+  owner-backed STID watermark selection, and exact full-BID promotion remain
+  Chisel-ahead and are declared as pyCircuit gaps rather than inferred parity.
 - MDB recovery reports set `immediateFlush=false`. The oldest-signal/precise
   ROB-head owner in `ScalarLSU` retains the report until wrap-qualified BID/RID
   age is eligible. The report carries the conflicting load PC as its exact

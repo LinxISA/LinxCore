@@ -47,28 +47,38 @@ ResolveQ publication.
 | `replaySelected` | Output | Diagnostic pulse when `out` is the retained replay probe. |
 | `retainedValid` | Output | Diagnostic state bit showing that a live probe has been captured. |
 | `retainedReplayed` | Output | Diagnostic state bit showing that the retained probe has already been replayed. |
+| `retainedNeedsRetry` | Output | Diagnostic state bit showing that the live probe was not accepted and must retry independently of ResolveQ visibility. |
 | `replayAccepted` | Output | Pulses only when a selected replay is accepted by the downstream atomic transaction boundary. |
 
 ## State
 
-The module stores one `MDBConflictStoreProbe` plus two state bits:
+The module stores one `MDBConflictStoreProbe` plus three state bits:
 
 - `retainedValid`: a live probe has been captured and may be replayed.
 - `retainedReplayed`: the retained probe already had its one replay chance.
+- `retainedNeedsRetry`: the original live presentation did not cross the
+  atomic MDB transaction boundary and therefore must retry before delayed
+  replay policy is considered.
 
-Any new live probe replaces the retained probe and clears `retainedReplayed`.
-`flush` clears all state.
+Any new live probe replaces the retained probe. An accepted live probe sets
+`retainedReplayed` immediately when ResolveQ is already visible; otherwise it
+preserves the delayed replay chance. `flush` clears all state.
 
 ## Logic Design
 
 1. If `live.valid` is high, drive `out` from `live`, capture it into the
-   retained register, and clear the replayed bit.
-2. If there is no live probe and `replayEnable` is high while a retained probe
-   has not yet replayed, drive `out` from the retained probe.
+   retained register. Mark it replayed immediately only when that live
+   presentation is accepted while `replayEnable` is high.
+2. If there is no live probe, retry an unaccepted live presentation regardless
+   of `replayEnable`. Otherwise, when `replayEnable` is high and the retained
+   probe has not yet replayed, drive `out` from the retained probe.
 3. When a replayed probe is accepted by the atomic MDB record/recovery
    transaction boundary, set `retainedReplayed` so the same probe is not
    emitted again. Selection alone does not consume retained state.
 4. If neither live nor replay is selected, drive an invalid zero probe.
+
+An accepted mandatory retry does not consume the later ResolveQ replay chance
+unless ResolveQ was already visible in that accepted retry cycle.
 
 Live priority keeps the reduced top aligned with the model store-arrival path:
 a fresh store probe is always the newest event. Replay only covers the timing
@@ -77,6 +87,7 @@ gap where the store probe was earlier than ResolveQ publication.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBStoreProbeReplay`
+- `bash tools/chisel/run_chisel_mdb_recovery_delivery_path_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
