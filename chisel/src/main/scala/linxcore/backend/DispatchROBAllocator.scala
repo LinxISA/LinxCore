@@ -139,6 +139,9 @@ class DispatchROBAllocatorIO(
   val blockFlushOldAllocBid = Output(UInt(bidWidth.W))
   val blockFlushApplied = Output(Bool())
   val blockFlushStidInRange = Output(Bool())
+  val blockFlushCanonicalMatch = Output(Bool())
+  val blockFlushResolvedPivotBid = Output(UInt(bidWidth.W))
+  val blockFlushLegacyPointerMismatch = Output(Bool())
   val blockFlushWindowValid = Output(Bool())
   val blockFlushRetainedCount = Output(UInt(sizeWidth.W))
   val blockAllocCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
@@ -444,7 +447,7 @@ class DispatchROBAllocator(
   brob.io.retireBid := blockOrder.io.retireBid
   brob.io.retireStid := blockOrder.io.retireStid
   brob.io.flushValid := blockOrder.io.recoveryApplied
-  brob.io.flushBid := io.blockFlushBid
+  brob.io.flushBid := blockOrder.io.recoveryResolvedPivotBid
   brob.io.flushStid := io.blockFlushStid
   brob.io.flushInclusive := io.blockFlushInclusive
   brob.io.queryBid := io.blockQueryBid
@@ -524,6 +527,9 @@ class DispatchROBAllocator(
   io.blockFlushOldAllocBid := blockOrder.io.recoveryOldAllocBid
   io.blockFlushApplied := blockOrder.io.recoveryApplied
   io.blockFlushStidInRange := blockOrder.io.recoveryInRange
+  io.blockFlushCanonicalMatch := blockOrder.io.recoveryCanonicalMatch
+  io.blockFlushResolvedPivotBid := blockOrder.io.recoveryResolvedPivotBid
+  io.blockFlushLegacyPointerMismatch := blockOrder.io.recoveryLegacyPointerMismatch
   io.blockFlushWindowValid := blockOrder.io.recoveryWindowValid
   io.blockFlushRetainedCount := blockOrder.io.recoveryRetainedCount
   io.blockAllocCursor := blockOrder.io.allocCursor

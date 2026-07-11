@@ -76,6 +76,14 @@ the pivot and restores to its successor. Recovery applies only when the
 first-killed identity lies in the selected live window. The allocator blocks
 new BROB allocation and retire publication during cleanup, then applies the
 same validated suffix to order state and `BrobMetaTracker` metadata.
+R655 makes canonical BID resolution authoritative: `BrobOrderState` resolves
+the low BID slot against the selected STID's live head/count window and passes
+the resulting internal pointer to `BrobMetaTracker`. Legacy upper transport
+bits are diagnostic only and cannot select a different suffix.
+`DecodeRenameROBPath` also rebuilds one canonical cleanup view from that
+resolved pointer for rename and queue consumers. If the selected STID has no
+unique live match, those downstream state mutations are suppressed together
+with BROB recovery; a consumed malformed request cannot split recovery owners.
 The allocator can elaborate multiple lanes independently, but the current
 `DecodeRenameROBPath` composition is guarded to one STID until GPR mapQ block
 commit also keys entries by STID.
@@ -148,6 +156,8 @@ dispatch agents consume a real block owner.
 | input | `blockFlushInclusive` | `Bool` | with `blockFlushValid` | Pivot is the first killed BID for model miss-predict recovery; otherwise the pivot survives. |
 | output | `blockFlushFirstKilledBid`, `blockFlushOldAllocBid` | `UInt(bidWidth.W)` | with accepted recovery | Restored cursor target and pre-recovery allocation cursor. |
 | output | `blockFlushApplied`, `blockFlushStidInRange`, `blockFlushWindowValid` | `Bool` | diagnostic | Selected per-STID suffix was in scope, within the live window, and applied. |
+| output | `blockFlushCanonicalMatch`, `blockFlushResolvedPivotBid` | mixed | diagnostic | Unique canonical slot match and the resolved internal recovery pointer. |
+| output | `blockFlushLegacyPointerMismatch` | `Bool` | diagnostic | Wider transported BID disagreed with the resolved pointer; recovery still follows the canonical slot. |
 | output | `blockFlushRetainedCount` | `UInt` | diagnostic | Live prefix length retained by recovery. |
 | output | `blockAllocCursor` | `Vec(stidCount, UInt(bidWidth.W))` | diagnostic | Current next-allocation full BID independently per STID. |
 | output | `blockCommitCursor`, `blockLiveCount` | `Vec` | diagnostic | Current oldest full BID and bounded occupancy independently per STID. |

@@ -55,12 +55,13 @@ object BrobOrderStateReference {
       result
     }
 
-    def recover(stid: Int, pivot: BigInt, inclusive: Boolean): Boolean = {
-      val firstKilled = if (inclusive) pivot else add(pivot, 1)
+    def recover(stid: Int, transportedPivot: BigInt, inclusive: Boolean): Boolean = {
+      val canonicalSlot = slot(transportedPivot)
+      val matches = (0 until count(stid)).map(offset => add(head(stid), offset)).filter(slot(_) == canonicalSlot)
+      if (matches.size != 1) return false
+      val resolvedPivot = matches.head
+      val firstKilled = if (inclusive) resolvedPivot else add(resolvedPivot, 1)
       val retained = distance(head(stid), firstKilled)
-      val valid = count(stid) > 0 &&
-        (if (inclusive) retained < count(stid) else retained <= count(stid))
-      if (!valid) return false
       tail(stid) = firstKilled
       count(stid) = retained.toInt
       for (idx <- 0 until entries) {
@@ -120,22 +121,38 @@ class BrobOrderStateSpec extends AnyFunSuite {
   test("inclusive miss-predict recovery truncates from the first killed BID") {
     val state = new State(entries = 8, bidWidth = 8, stidCount = 1)
     (0 until 4).foreach(bid => assert(state.allocate(0, bid)))
-    assert(state.recover(0, pivot = 2, inclusive = true))
+    assert(state.recover(0, transportedPivot = 2, inclusive = true))
     assert(state.allocCursor(0) == 2 && state.commitCursor(0) == 0 && state.liveCount(0) == 2)
   }
 
   test("retained-pivot recovery truncates from the pivot successor") {
     val state = new State(entries = 8, bidWidth = 8, stidCount = 1)
     (0 until 4).foreach(bid => assert(state.allocate(0, bid)))
-    assert(state.recover(0, pivot = 1, inclusive = false))
+    assert(state.recover(0, transportedPivot = 1, inclusive = false))
     assert(state.allocCursor(0) == 2 && state.liveCount(0) == 2)
   }
 
   test("recovery outside the live window is rejected without mutation") {
     val state = new State(entries = 8, bidWidth = 8, stidCount = 1)
     (0 until 3).foreach(bid => assert(state.allocate(0, bid)))
-    assert(!state.recover(0, pivot = 7, inclusive = true))
+    assert(!state.recover(0, transportedPivot = 7, inclusive = true))
     assert(state.allocCursor(0) == 3 && state.commitCursor(0) == 0 && state.liveCount(0) == 3)
+  }
+
+  test("legacy upper BID bits do not override canonical live-window resolution") {
+    val state = new State(entries = 8, bidWidth = 8, stidCount = 1)
+    (0 until 4).foreach(bid => assert(state.allocate(0, bid)))
+    assert(state.recover(0, transportedPivot = 0x82, inclusive = true))
+    assert(state.allocCursor(0) == 2 && state.commitCursor(0) == 0 && state.liveCount(0) == 2)
+  }
+
+  test("canonical recovery resolves only inside the selected STID window") {
+    val state = new State(entries = 8, bidWidth = 8, stidCount = 2)
+    (0 until 3).foreach(bid => assert(state.allocate(0, bid)))
+    (0 until 2).foreach(bid => assert(state.allocate(1, bid)))
+    assert(state.recover(1, transportedPivot = 0x80, inclusive = true))
+    assert(state.allocCursor(0) == 3 && state.liveCount(0) == 3)
+    assert(state.allocCursor(1) == 0 && state.liveCount(1) == 0)
   }
 
   test("simultaneous allocation and retirement preserve count while moving both cursors") {
@@ -166,6 +183,8 @@ class BrobOrderStateSpec extends AnyFunSuite {
     assert(sv.contains("io_commitCursor_1"))
     assert(sv.contains("io_liveCount_1"))
     assert(sv.contains("io_recoveryWindowValid"))
+    assert(sv.contains("io_recoveryResolvedPivotBid"))
+    assert(sv.contains("io_recoveryLegacyPointerMismatch"))
     assert(sv.contains("io_retireFire"))
   }
 }

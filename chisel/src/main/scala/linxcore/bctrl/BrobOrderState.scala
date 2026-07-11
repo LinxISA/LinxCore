@@ -53,6 +53,9 @@ class BrobOrderStateIO(
   val allocIdentityMatch = Output(Bool())
   val allocApplied = Output(Bool())
   val recoveryInRange = Output(Bool())
+  val recoveryCanonicalMatch = Output(Bool())
+  val recoveryResolvedPivotBid = Output(UInt(bidWidth.W))
+  val recoveryLegacyPointerMismatch = Output(Bool())
   val recoveryWindowValid = Output(Bool())
   val recoveryFirstKilledBid = Output(UInt(bidWidth.W))
   val recoveryOldAllocBid = Output(UInt(bidWidth.W))
@@ -80,9 +83,9 @@ class BrobRetireIdentity(val bidWidth: Int, val stidWidth: Int) extends Bundle {
 
 /** Per-STID BROB allocation/commit window and ordered-retirement owner.
   *
-  * Full BIDs are monotonically allocated modulo `bidWidth`; at most `entries`
-  * consecutive identities may be live, so modular subtraction is unambiguous
-  * inside the resident window. Accepted recovery truncates only that suffix.
+  * Internal pointers are monotonically allocated modulo `bidWidth`. Recovery
+  * resolves the external canonical BID slot against the selected STID's bounded
+  * live window before truncating the resident suffix.
   */
 class BrobOrderState(
     val entries: Int = 16,
@@ -112,23 +115,25 @@ class BrobOrderState(
   val recoveryInRange = recoveryMatch.asUInt.orR
   val selectedAllocCursor = Mux(allocInRange, Mux1H(allocMatch, allocCursor), 0.U)
   val selectedAllocCount = Mux(allocInRange, Mux1H(allocMatch, liveCount), 0.U)
-  val selectedRecoveryHead = Mux(recoveryInRange, Mux1H(recoveryMatch, commitCursor), 0.U)
   val selectedRecoveryTail = Mux(recoveryInRange, Mux1H(recoveryMatch, allocCursor), 0.U)
-  val selectedRecoveryCount = Mux(recoveryInRange, Mux1H(recoveryMatch, liveCount), 0.U)
 
+  val recoveryResolver = Module(new BrobLiveBidResolver(entries, bidWidth, stidWidth, stidCount))
+  recoveryResolver.io.candidateValid := io.recoveryValid
+  recoveryResolver.io.candidateStid := io.recoveryStid
+  recoveryResolver.io.candidateBid := BID.slot(io.recoveryPivotBid, entries)
+  recoveryResolver.io.headPointer := commitCursor
+  recoveryResolver.io.liveCount := liveCount
+
+  val recoveryResolvedPivotBid = recoveryResolver.io.resolvedPointer
   val recoveryFirstKilledBid = Mux(
     io.recoveryInclusive,
-    io.recoveryPivotBid,
-    io.recoveryPivotBid + 1.U
+    recoveryResolvedPivotBid,
+    recoveryResolvedPivotBid + 1.U
   )
-  val recoveryDistance = recoveryFirstKilledBid - selectedRecoveryHead
-  val recoveryDistanceFits = Mux(
-    io.recoveryInclusive,
-    recoveryDistance < selectedRecoveryCount.pad(bidWidth),
-    recoveryDistance <= selectedRecoveryCount.pad(bidWidth)
-  )
-  val recoveryWindowValid = selectedRecoveryCount =/= 0.U && recoveryDistanceFits
-  val recoveryApplied = io.recoveryValid && recoveryInRange && recoveryWindowValid
+  val recoveryRetainedCount = Wire(UInt(countWidth.W))
+  recoveryRetainedCount := recoveryResolver.io.distance + Mux(io.recoveryInclusive, 0.U, 1.U)
+  val recoveryWindowValid = recoveryResolver.io.matchValid && !recoveryResolver.io.ambiguous
+  val recoveryApplied = io.recoveryValid && recoveryWindowValid
 
   val allocIdentityMatch = io.allocBid === selectedAllocCursor
   val allocApplied = io.allocValid && !io.recoveryValid && allocInRange &&
@@ -157,10 +162,14 @@ class BrobOrderState(
   io.allocIdentityMatch := allocIdentityMatch
   io.allocApplied := allocApplied
   io.recoveryInRange := recoveryInRange
+  io.recoveryCanonicalMatch := recoveryResolver.io.matchValid
+  io.recoveryResolvedPivotBid := recoveryResolvedPivotBid
+  io.recoveryLegacyPointerMismatch := io.recoveryValid && recoveryResolver.io.matchValid &&
+    io.recoveryPivotBid =/= recoveryResolvedPivotBid
   io.recoveryWindowValid := recoveryWindowValid
   io.recoveryFirstKilledBid := recoveryFirstKilledBid
   io.recoveryOldAllocBid := selectedRecoveryTail
-  io.recoveryRetainedCount := recoveryDistance(countWidth - 1, 0)
+  io.recoveryRetainedCount := recoveryRetainedCount
   io.recoveryApplied := recoveryApplied
   io.allocCursor := allocCursor
   io.commitCursor := commitCursor
@@ -175,7 +184,7 @@ class BrobOrderState(
     val laneRetire = retireSlot.io.deq.fire && retireSlot.io.deq.bits.stid === lane.U
     when(recoveryApplied && recoveryMatch(lane)) {
       allocCursor(lane) := recoveryFirstKilledBid
-      liveCount(lane) := recoveryDistance(countWidth - 1, 0)
+      liveCount(lane) := recoveryRetainedCount
     }.otherwise {
       when(laneAlloc) {
         allocCursor(lane) := allocCursor(lane) + 1.U

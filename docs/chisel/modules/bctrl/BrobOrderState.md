@@ -26,13 +26,13 @@ the head. This matches `BlockROB::allocBlock`, `BlockROB::BlockCOMPLETED`,
 | Parameter | Meaning |
 |---|---|
 | `entries` | Power-of-two resident block capacity per STID. |
-| `bidWidth` | Current full-BID implementation width; must include slot and uniqueness bits. |
+| `bidWidth` | Internal pointer width; must include explicit wrap history above the canonical BID slot. |
 | `stidWidth` | Width of an STID selector. |
 | `stidCount` | Number of independently owned BROB order windows. |
 
 `liveCount` has width `ceil(log2(entries + 1))`. The resident window never
-contains more than `entries` identities, so modular full-BID subtraction is
-unambiguous even when the implementation cursor wraps.
+contains more than `entries` identities. Canonical external BID is only the
+low `log2(entries)` slot; internal cursors retain the wrap history.
 
 ## Allocation
 
@@ -73,17 +73,20 @@ duplicating head selection outside this owner.
 
 ## Recovery
 
+`BrobLiveBidResolver` first resolves the request's canonical BID slot against
+the selected STID's exact `[commitCursor, liveCount)` window. Exactly one match
+is required. A zero-match request is rejected; more than one match violates the
+bounded-window invariant and asserts. The resolved internal pointer, not any
+migration-era upper transport bits, is the recovery pivot.
+
 The accepted cleanup decision is translated to `recoveryFirstKilledBid`:
 
 - miss-predict: `firstKilled = pivot`;
 - retained-target nuke/inner/fast flush: `firstKilled = pivot + 1`.
 
-The owner calculates `retained = firstKilled - commitCursor` in the selected
-lane. Recovery applies only when the pivot describes the current live window:
-
-- inclusive recovery requires `retained < liveCount`;
-- retained-pivot recovery requires `retained <= liveCount`;
-- an empty lane or out-of-range STID is rejected.
+The resolver supplies the pivot distance. Inclusive recovery retains that
+distance; retained-pivot recovery retains `distance + 1`. Empty lanes,
+out-of-range STIDs, and canonical slots outside the live window are rejected.
 
 On application, `allocCursor := firstKilled` and `liveCount := retained`.
 `commitCursor` does not move. `BrobMetaTracker` receives the flush only from
@@ -93,6 +96,11 @@ raw unsigned BID magnitude is never the metadata age test. Order-window
 truncation and table pruning therefore cannot diverge. An applied recovery also
 cancels a held retire identity; a surviving completed head is selected again
 from post-recovery state.
+
+The integrated backend reconstructs its cleanup view with
+`recoveryResolvedPivotBid` before feeding rename and queue owners. A missing
+canonical match suppresses that complete downstream view rather than allowing
+BROB rejection and rename mutation to diverge.
 
 ## Simultaneous Events
 
@@ -111,6 +119,10 @@ Priority and arithmetic are explicit:
   metadata residency.
 - `recoveryWindowValid`, `recoveryRetainedCount`, and
   `recoveryOldAllocBid` expose the recovery calculation.
+- `recoveryCanonicalMatch` and `recoveryResolvedPivotBid` expose canonical
+  resolution; `recoveryLegacyPointerMismatch` reports disagreement between
+  the wider transported value and the resolved internal pointer without
+  changing recovery authority.
 - `retireMetadataAccepted` at `DispatchROBAllocator` proves that a public
   retire fire removed the exact metadata head.
 
@@ -126,7 +138,8 @@ The generated probe covers independent STID windows, out-of-order completion,
 irrevocable backpressure, fair cross-STID retirement, exact metadata removal,
 simultaneous allocation/retirement, inclusive and retained-pivot recovery,
 invalid-pivot rejection, full-BID allocation identity rejection, and metadata
-suffix pruning across full-BID rollover.
+suffix pruning across internal-pointer rollover, canonical slot resolution,
+and diagnostic-only legacy upper-bit mismatch.
 
 ## Scope
 

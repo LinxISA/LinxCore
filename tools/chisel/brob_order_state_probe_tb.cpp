@@ -278,6 +278,24 @@ int main(int argc, char **argv) {
     require(dut.io_allocCursor_0 == 1 && dut.io_liveCount_0 == 3,
             "metadata suffix spanning rollover was not reusable");
 
+    // The external BID is only the canonical slot. Legacy upper pointer bits
+    // may disagree, but cannot override resolution within the live window.
+    dut.io_recoveryValid = 1;
+    dut.io_recoveryStid = 0;
+    dut.io_recoveryPivotBid = 8;
+    dut.io_recoveryInclusive = 1;
+    dut.eval();
+    require(dut.io_recoveryCanonicalMatch && dut.io_recoveryApplied &&
+                dut.io_recoveryResolvedPivotBid == 0 &&
+                dut.io_recoveryLegacyPointerMismatch &&
+                dut.io_recoveryRetainedCount == 2,
+            "canonical slot did not override mismatched legacy pointer bits");
+    tick(dut);
+    idle(dut);
+    require(dut.io_allocCursor_0 == 0 && dut.io_commitCursor_0 == 14 &&
+                dut.io_liveCount_0 == 2 && !dut.io_headMismatch_0,
+            "canonical rollover recovery diverged order and metadata state");
+
     // Completion carrying a precise trap remains outside the strong prefix.
     dut.reset = 1;
     idle(dut);

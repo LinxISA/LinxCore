@@ -85,6 +85,14 @@ An interface using `first_killed_bid` is legal only when it also carries the
 live ring context needed to distinguish the interval; the bare index is not an
 age predicate.
 
+During migration from a wider implementation transport, BROB must resolve the
+request's canonical `BID_W` slot against the selected STID's bounded live
+window. Because at most `BROB_ENTRIES` consecutive rows are live, that slot
+matches at most one internal `{wrap,bid}` pointer. Recovery authority comes
+from this resolved pointer. Any wider transport value may be checked for
+agreement and reported as a migration mismatch, but its upper bits cannot
+select the retained or killed interval.
+
 ## 5) Interfaces (valid/ready)
 
 Signal naming MUST follow `producer_consumer_signal`.

@@ -141,6 +141,9 @@ class DecodeRenameROBPathIO(
   val recoveryOldestBid = Output(Vec(scalarStidCount, new ROBID(p.robEntries)))
   val recoveryOldestRid = Output(Vec(scalarStidCount, new ROBID(p.robEntries)))
   val recoveryOldestBlockComplete = Output(Vec(scalarStidCount, Bool()))
+  val blockFlushCanonicalMatch = Output(Bool())
+  val blockFlushResolvedPivotBid = Output(UInt(bidWidth.W))
+  val blockFlushLegacyPointerMismatch = Output(Bool())
   val recoveryIntentReady = Input(Bool())
   val recoveryIntent = Output(new RecoveryCleanupIntent(
     p.robEntries,
@@ -740,12 +743,24 @@ class DecodeRenameROBPath(
   io.recoveryOldestBid := allocator.io.recoveryOldestBid
   io.recoveryOldestRid := allocator.io.recoveryOldestRid
   io.recoveryOldestBlockComplete := allocator.io.recoveryOldestBlockComplete
+  io.blockFlushCanonicalMatch := allocator.io.blockFlushCanonicalMatch
+  io.blockFlushResolvedPivotBid := allocator.io.blockFlushResolvedPivotBid
+  io.blockFlushLegacyPointerMismatch := allocator.io.blockFlushLegacyPointerMismatch
   recovery.io.intentReady := io.recoveryIntentReady
 
   val cleanup = Wire(chiselTypeOf(recovery.io.intent))
   cleanup := recovery.io.intent
   cleanup.valid := recovery.io.intentConsumed
   cleanup.flush.req.valid := recovery.io.intentConsumed && recovery.io.intent.flush.req.valid
+
+  val canonicalCleanup = Wire(chiselTypeOf(cleanup))
+  canonicalCleanup := cleanup
+  val cleanupCanonicalMatch = !cleanup.blockFlushValid || allocator.io.blockFlushCanonicalMatch
+  canonicalCleanup.valid := cleanup.valid && cleanupCanonicalMatch
+  canonicalCleanup.flush.req.valid := cleanup.flush.req.valid && cleanupCanonicalMatch
+  when(cleanup.blockFlushValid && allocator.io.blockFlushCanonicalMatch) {
+    canonicalCleanup.blockFlushBid := allocator.io.blockFlushResolvedPivotBid
+  }
 
   io.recoveryNonLsuSourceReady := recovery.io.nonLsuSourceReady
   io.recoveryNonLsuSourceAccepted := recovery.io.nonLsuSourceAccepted
@@ -759,7 +774,8 @@ class DecodeRenameROBPath(
   io.recoveryConsumedPayloadSourceMask := recovery.io.consumedPayloadSourceMask
   io.recoveryPending := recovery.io.pending
 
-  val blockLifecycleFlush = cleanup.valid && (cleanup.backendFlushValid || cleanup.blockFlushValid)
+  val blockLifecycleFlush = canonicalCleanup.valid &&
+    (canonicalCleanup.backendFlushValid || canonicalCleanup.blockFlushValid)
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
     bidWidth = bidWidth,
@@ -774,7 +790,7 @@ class DecodeRenameROBPath(
   val markerLifecycleConflict = robBlockLastScalarDoneFire
   markerLifecycle.io.flushValid := false.B
   markerLifecycle.io.flushStidValid := blockLifecycleFlush
-  markerLifecycle.io.flushStid := cleanup.flush.req.stid
+  markerLifecycle.io.flushStid := canonicalCleanup.flush.req.stid
   markerLifecycle.io.markerBoundary := markerBoundary
   markerLifecycle.io.markerStop := markerStop
   markerLifecycle.io.markerPc := marker.pc
@@ -802,7 +818,7 @@ class DecodeRenameROBPath(
 
   val scalarContinuationGprCut = Wire(Bool())
   scalarContinuationGprCut := false.B
-  val decRenFlush = io.flushValid || (cleanup.valid && cleanup.backendFlushValid)
+  val decRenFlush = io.flushValid || (canonicalCleanup.valid && canonicalCleanup.backendFlushValid)
   val markerDecodeContextOpt =
     if (useMarkerDecodeContext) {
       val ctx = Module(new BlockMarkerDecodeContext(
@@ -813,7 +829,7 @@ class DecodeRenameROBPath(
       ))
       ctx.io.flushValid := io.flushValid
       ctx.io.flushStidValid := blockLifecycleFlush
-      ctx.io.flushStid := cleanup.flush.req.stid
+      ctx.io.flushStid := canonicalCleanup.flush.req.stid
       ctx.io.decodeValid := selectedAny
       ctx.io.decodeFire := allocator.io.allocFire
       ctx.io.decodeBoundary := selected.sob
@@ -847,10 +863,10 @@ class DecodeRenameROBPath(
   memIds.io.storeSplitRequest := selectedIsStore
   memIds.io.stackSetRequest := false.B
   memIds.io.flushValid := decRenFlush
-  memIds.io.flushAll := io.flushValid && !cleanup.valid
-  memIds.io.flushStid := cleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
+  memIds.io.flushAll := io.flushValid && !canonicalCleanup.valid
+  memIds.io.flushStid := canonicalCleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
   memIds.io.restoreValid := false.B
-  memIds.io.restoreStid := cleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
+  memIds.io.restoreStid := canonicalCleanup.flush.req.stid.pad(p.threadIdWidth)(p.threadIdWidth - 1, 0)
   memIds.io.restoreLsId := 0.U
   memIds.io.restoreLoadId := 0.U
   memIds.io.restoreStoreId := 0.U
@@ -1012,8 +1028,8 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth,
     mapQDepth = mapQDepth
   ))
-  storeDispatch.io.flush := cleanup.flush
-  storeDispatch.io.queueFlushValid := decRenFlush && !cleanup.flush.req.valid
+  storeDispatch.io.flush := canonicalCleanup.flush
+  storeDispatch.io.queueFlushValid := decRenFlush && !canonicalCleanup.flush.req.valid
   storeDispatch.io.staExec := io.storeStaExec
   storeDispatch.io.stdExec := io.storeStdExec
   storeDispatch.io.markCommitValid := io.storeMarkCommitValid
@@ -1046,7 +1062,7 @@ class DecodeRenameROBPath(
   rename.io.commitBid := renameCommitBid
   rename.io.commitBlockBid := renameCommitBlockBid
   rename.io.commitStid := renameCommitStid
-  rename.io.cleanup := cleanup
+  rename.io.cleanup := canonicalCleanup
   rename.io.cleanupOrderValid := io.scalarCleanupOrderValid
   rename.io.cleanupOrder := io.scalarCleanupOrder
 
@@ -1157,7 +1173,7 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushInclusive := cleanup.blockFlushInclusive
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   allocator.io.blockQueryStid := selectedStid
-  val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !cleanup.valid)) {
+  val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !canonicalCleanup.valid)) {
     Module(new Queue(new BlockRenameCommitIdentity(bidWidth, stidWidth), blockRenameCommitQueueDepth))
   }
   allocator.io.blockRetireReady := blockRenameCommitQ.io.enq.ready
@@ -1185,7 +1201,7 @@ class DecodeRenameROBPath(
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
   tuRetirePath.io.sources := allocator.io.deallocTURetireSource
   tuRetirePath.io.clear := false.B
-  tuRetirePath.io.flush := cleanup.flush
+  tuRetirePath.io.flush := canonicalCleanup.flush
   tuRetirePath.io.cleanBlockValid := false.B
   tuRetirePath.io.cleanBlockBid := zeroRobId
   tuRetirePath.io.cleanGroupValid := false.B
@@ -1208,7 +1224,7 @@ class DecodeRenameROBPath(
 
   markerRetireSerializer.io.sources := allocator.io.deallocBlockMarkerRetireSource
   markerRetireSerializer.io.clear := false.B
-  markerRetireSerializer.io.flush := cleanup.flush
+  markerRetireSerializer.io.flush := canonicalCleanup.flush
   markerRetireSerializer.io.outReady := markerLifecycle.io.retiredMarkerReady
   markerLifecycle.io.retiredMarker := markerRetireSerializer.io.out
 

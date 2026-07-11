@@ -31,6 +31,9 @@ class BrobOrderStateProbeIO extends Bundle {
   val retireStid = Output(UInt(2.W))
   val retireMetadataAccepted = Output(Bool())
   val recoveryWindowValid = Output(Bool())
+  val recoveryCanonicalMatch = Output(Bool())
+  val recoveryResolvedPivotBid = Output(UInt(4.W))
+  val recoveryLegacyPointerMismatch = Output(Bool())
   val recoveryApplied = Output(Bool())
   val recoveryFirstKilledBid = Output(UInt(4.W))
   val recoveryRetainedCount = Output(UInt(4.W))
@@ -79,7 +82,7 @@ class BrobOrderStateProbe extends Module {
   meta.io.retireBid := order.io.retireBid
   meta.io.retireStid := order.io.retireStid
   meta.io.flushValid := order.io.recoveryApplied
-  meta.io.flushBid := io.recoveryPivotBid
+  meta.io.flushBid := order.io.recoveryResolvedPivotBid
   meta.io.flushStid := io.recoveryStid
   meta.io.flushInclusive := io.recoveryInclusive
   meta.io.queryBid := 0.U
@@ -102,6 +105,9 @@ class BrobOrderStateProbe extends Module {
   io.retireStid := order.io.retireStid
   io.retireMetadataAccepted := meta.io.retireAccepted
   io.recoveryWindowValid := order.io.recoveryWindowValid
+  io.recoveryCanonicalMatch := order.io.recoveryCanonicalMatch
+  io.recoveryResolvedPivotBid := order.io.recoveryResolvedPivotBid
+  io.recoveryLegacyPointerMismatch := order.io.recoveryLegacyPointerMismatch
   io.recoveryApplied := order.io.recoveryApplied
   io.recoveryFirstKilledBid := order.io.recoveryFirstKilledBid
   io.recoveryRetainedCount := order.io.recoveryRetainedCount
