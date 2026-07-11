@@ -36,6 +36,7 @@
         "scalarLsu.mdbCommandQueueEntries": 16,
         "scalarLsu.mdbOutputQueueEntries": 16,
         "scalarLsu.mdbWaitPlanQueueEntries": 8,
+        "scalarLsu.mdbFailedWaitTimeoutCycles": 300,
         "scalarLsu.loadSizeWidth": 7,
         "scalarLsu.physRegWidth": 7
       },
@@ -352,11 +353,15 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU; failed-wait timeout delete generation, IEX-local MDB, outer recovery arbitration, and natural-workload positive activation remain future promotion points."],
+      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU with live failed-wait delete feedback; IEX-local MDB, outer recovery arbitration, and natural-workload positive activation remain future promotion points."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala",
-          "symbols": ["ScalarLSUMDBPath", "ScalarLSUMDBWaitPlan", "MDBConflictDetect", "MDBQueueFanout", "LoadReplayMdbLookupWaitPlan", "conflictFlush"]
+          "symbols": ["ScalarLSUMDBPath", "ScalarLSUMDBWaitPlan", "MDBConflictDetect", "MDBQueueFanout", "LoadReplayMdbLookupWaitPlan", "LoadWaitStoreTimeout", "failedWaitReleaseAccepted", "deleteProcessed", "conflictFlush"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadWaitStoreTimeout.scala",
+          "symbols": ["LoadWaitStoreTimeout", "activeMask", "expiredMask", "releaseAccepted"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala",
@@ -379,6 +384,10 @@
         {
           "path": "chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/LoadWaitStoreTimeoutSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only LoadWaitStoreTimeoutSpec"
         },
         {
           "path": "tools/chisel/run_chisel_scalar_lsu_mdb_path_probe.sh",

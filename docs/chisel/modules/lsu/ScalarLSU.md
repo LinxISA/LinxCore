@@ -19,9 +19,10 @@
 execution. R633 moved the proven STQ-to-SCB store composition beneath this
 owner. R634 adds canonical LIQ-to-ResolveQ ownership with shared typed recovery.
 R635 integrates scalar MDB conflict detection, SSIT/fanout, live wait mutation,
-and typed conflict-flush publication. Cache and miss queues, final recovery
-arbitration, and final load-return publication remain outside this hierarchy,
-so this is not yet a complete LSU.
+and typed conflict-flush publication. R636 adds per-row failed-wait age plus
+atomic LIQ release and MDB delete feedback. Cache and miss queues, final
+recovery arbitration, and final load-return publication remain outside this
+hierarchy, so this is not yet a complete LSU.
 
 ## Parameter Contract
 
@@ -33,6 +34,7 @@ LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 - `scbEntries` and `scbResponseBufferDepth`
 - `liqEntries` and `resolveQueueEntries`
 - MDB SSIT, command, output, and retained wait-plan queue entries
+- `mdbFailedWaitTimeoutCycles`
 - MDB confidence/weight policy
 - `loadSizeWidth`, architectural/physical register-tag widths, and PC width
 - address, data, PE, STID, TID, size, and SIMT-lane widths
@@ -61,8 +63,9 @@ buffer. The `load` child `ScalarLSULoadPath` owns active LIQ rows, resolved
 load records, shared typed pruning, transfer credit, and source-row clear.
 It also owns `ScalarLSUMDBPath`; accepted address-bearing stores are capacity
 gated before conflict publication, and accepted scalar loads enter MDB lookup
-before launch. Top-level idle also requires MDB transient queues and retained
-wait/wakeup state to be empty.
+before launch. Stable failed predictions age per LIQ row and release only with
+accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
+and retained wait/wakeup state to be empty.
 
 ## Verification
 
@@ -76,3 +79,11 @@ ResolveQ, SSIT, MDB command/output queues, and wait-plan queue. Focused tests
 cover typed conflict recovery, retained multi-row waits, lookup hold-until-
 mutation, and pre-launch `Wait` row mutation. This remains partial LSU evidence
 until cache/miss, final recovery, and load-return owners are integrated.
+
+R636 adds `LoadWaitStoreTimeoutSpec` and extends the canonical generated-RTL
+probe through three timeout-driven delete commands: two SSIT weight decays and
+one final release. The implementation uses deterministic row-keyed age instead
+of the model's ineffective shared `oldestPending` counter enable. The full
+suite passes 247 suites and 1,466 tests; canonical top xcheck passes 3 rows
+with zero mismatches; and reduced CoreMark passes 665 rows with zero mismatches
+at `generated/r636-final-failed-wait-coremark/report/crosscheck_manifest.json`.

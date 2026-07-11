@@ -15,9 +15,9 @@
 `LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
 full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
 instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store,
-active/resolved load, and scalar MDB boundaries. Cache/miss queues, failed-wait
-MDB delete timing, final recovery arbitration, and final load return are not
-yet integrated beneath that LSU owner.
+active/resolved load, and scalar MDB boundaries. Live failed-wait delete timing
+is integrated beneath the LSU owner. Cache/miss queues, final recovery
+arbitration, and final load return are not yet integrated.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing

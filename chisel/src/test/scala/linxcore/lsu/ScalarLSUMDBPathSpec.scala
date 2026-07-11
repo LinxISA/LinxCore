@@ -39,6 +39,7 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     mdbCommandQueueEntries = 4,
     mdbOutputQueueEntries = 4,
     mdbWaitPlanQueueEntries = 4,
+    mdbFailedWaitTimeoutCycles = 4,
     mapQDepth = 8
   )
   private val core = CoreParams(robEntries = 32, commitWidth = 2, scalarLsu = lsu)
@@ -63,7 +64,7 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(!accepted.mutationPending)
   }
 
-  test("ScalarLSUMDBPath elaborates conflict, SSIT, fanout, wait-plan, and typed flush ownership") {
+  test("ScalarLSUMDBPath elaborates conflict, SSIT, failed-wait delete, wait-plan, and typed flush ownership") {
     val sv = ChiselStage.emitSystemVerilog(new ScalarLSUMDBPath(core))
 
     assert(sv.contains("module ScalarLSUMDBPath"))
@@ -71,6 +72,7 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(sv.contains("module MDBQueueFanout"))
     assert(sv.contains("module MDBSSIT"))
     assert(sv.contains("module LoadReplayMdbLookupWaitPlan"))
+    assert(sv.contains("module LoadWaitStoreTimeout"))
     assert(sv.contains("io_mutationAccepted"))
     assert(sv.contains("io_conflictFlush_req_typ"))
     assert(sv.contains("io_waitPlanTargetMask"))
@@ -85,5 +87,11 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_innerFlush"))
     assert(sv.contains("io_nukeFlush"))
     assert(sv.contains("io_lookupWaitMutation"))
+    assert(sv.contains("io_failedWaitReleaseAccepted"))
+    assert(sv.contains("io_deleteProcessed"))
+    assert(sv.contains("io_integratedWaitStoreMask"))
+    assert(sv.contains("io_integratedFailedWaitReleaseAccepted"))
+    assert(sv.contains("io_integratedProtocolError"))
+    assert(sv.contains("io_oneCycleTimeoutValid"))
   }
 }

@@ -437,6 +437,19 @@ typed Linx inner/nuke flush requests with the conflicting load identity.
 Recovery clears transient MDB queues and plans while preserving SSIT predictor
 state.
 
+R636 adds `LoadWaitStoreTimeout` beneath the same canonical owner. The model
+records `stallCycle` whenever a load starts waiting and later sends
+`getMDBBus(load)` to `delete_lu_mdb_q` when the predicted wait fails. Its
+shared `loadPendingCyc` fallback is intended to count down from 300, but the
+current `checkLoadPending` body never sets `oldestPending`; copying that code
+would create a timer that never expires. Chisel instead tracks one saturating
+age per live LIQ slot. The key contains the load generation and predicted
+store `(BID, LSID, PC)`, so slot reuse and prediction replacement cannot
+inherit stale age. A timed-out row remains pending under delete-queue or LIQ
+mutation backpressure. The MDB owner clears `waitStore` and enqueues the delete
+command atomically, then `MDBSSIT` applies the model decay/release rule in its
+normal lookup/delete/record phase order.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
 row mutation, BCTRL/IEX MDB table mutation, CHI completion, and BSB
@@ -444,8 +457,8 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU still needs final load-return/cache ownership,
-  failed-wait delete timing, and outer recovery arbitration.
+- The full scalar LSU still needs final load-return/cache ownership and outer
+  recovery arbitration.
   `ScalarLSULoadPath` now owns load-queue flush, LIQ-to-ResolveQ backpressure,
   and scalar MDB composition. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded

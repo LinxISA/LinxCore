@@ -15,15 +15,34 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R635 integrates canonical `ScalarLSUMDBPath` beneath
+Latest packet: R636 adds live failed-wait feedback beneath canonical
+`ScalarLSUMDBPath`. `LoadWaitStoreTimeout` tracks each stable scalar LIQ wait
+by load generation and predicted store BID/LSID/PC, expires after the
+parameterized `mdbFailedWaitTimeoutCycles` resident cycles, and retains
+simultaneous expiries in deterministic slot order. Internal age saturates at
+`mdbFailedWaitTimeoutCycles - 1`. Release occurs only when the native LIQ
+mutation and MDB delete enqueue accept atomically. The generated-RTL probe now
+drives three timeout releases through SSIT decay and final row removal, then
+uses a real `LoadInflightQueue` row to prove exact threshold, writer-conflict
+retention, same-cycle delete acceptance, and registered wait-store clear. The C++
+model's useful failed-prediction feedback is preserved, while its dead shared
+`oldestPending` decrement heuristic is not copied. Outer recovery arbitration,
+cache/miss queues, and final load return remain the next boundaries. The full
+suite passes 247 suites and 1,466 tests; canonical top xcheck passes 3 rows
+with zero mismatches; and the reduced CoreMark no-regression manifest at
+`generated/r636-final-failed-wait-coremark/report/crosscheck_manifest.json`
+passes 665 rows with zero mismatches.
+
+R635 integrates canonical `ScalarLSUMDBPath` beneath
 `ScalarLSULoadPath`. Accepted scalar loads enqueue MDB lookup before launch;
 accepted address-bearing stores are gated by record and retained wait-plan
 capacity; active and ResolveQ conflicts train SSIT/BMDB intent and emit typed
 Linx inner/nuke recovery. Multi-row active wait masks drain through native LIQ
 mutation, and LU/SU fanout holds lookup hits until a matching `Wait` or
 `Repick` row accepts mutation. Recovery clears transient commands/plans while
-preserving SSIT predictor state. Failed-wait delete timing, outer recovery
-arbitration, cache/miss queues, and final load return are the next boundaries.
+preserving SSIT predictor state. Outer recovery arbitration, cache/miss queues,
+and final load return are the next boundaries after R636 closes failed-wait
+delete timing.
 The generated-RTL canonical MDB probe passes its positive conflict/record/
 lookup/mutation sequence. The full suite passes 246 suites and 1,462 tests;
 the canonical top xcheck passes 3 rows with zero mismatches; and the reduced

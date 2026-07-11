@@ -33,6 +33,9 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
 6. Accepted scalar allocation enqueues MDB lookup. Accepted address-bearing
    store traffic scans active and resolved rows, trains SSIT on a violation,
    and drains retained wait masks through the native LIQ mutation port.
+7. A stable predicted-store wait ages independently in its LIQ slot. Timeout
+   release clears wait-store state only in the cycle that MDB delete enqueue
+   also accepts.
 
 `transferProtocolError` reports a hit without reserved ResolveQ capacity or a
 new accepted transfer while an older source clear is blocked. It must remain
@@ -57,9 +60,8 @@ Replay/store wakeup, refill, forwarding, and source-return readiness remain
 available through the load path. MDB lookup/conflict wait mutation is live at
 this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
-Cache/miss queues, failed-wait timeout delete generation, outer recovery
-arbitration, and final IEX LRET/writeback/wakeup publication remain future
-integration work.
+Cache/miss queues, outer recovery arbitration, and final IEX
+LRET/writeback/wakeup publication remain future integration work.
 
 ## Verification
 
@@ -67,6 +69,7 @@ integration work.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadWaitStoreTimeoutSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - Full Chisel suite: 245 suites, 1,454 tests, zero failures.
@@ -82,3 +85,9 @@ CoreMark no-regression manifest at
 665 compared rows and zero mismatches. CoreMark does not naturally activate
 the canonical MDB owner in this bounded window; the positive MDB sequence is
 owned by `run_chisel_scalar_lsu_mdb_path_probe.sh`.
+
+R636 extends that probe with live per-row timeout/delete feedback and passes
+247 suites with 1,466 tests. Canonical top xcheck remains 3 rows with zero
+mismatches. The reduced CoreMark no-regression manifest at
+`generated/r636-final-failed-wait-coremark/report/crosscheck_manifest.json`
+passes 665 rows with zero mismatches; it is not natural timeout activation.

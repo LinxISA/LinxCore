@@ -109,12 +109,14 @@ classification visible even when downstream row mutation is disabled. Missing
 store-index and store-LSID outputs remain useful diagnostics, but they no longer
 hide a model-valid wait-store publication.
 
-## Deferred Owners
+## Related Owner
 
 - Live positive MDB lookup hit after a learned same-PC load occurs after record
   publication and the model first-after-nuke suppression window.
 - Live source-return evidence owner for default/top MDB wait mutation.
-- Live failed-wait timer that publishes MDB delete commands from LIQ state.
+- `LoadWaitStoreTimeout` owns live failed-wait age and publishes release intent
+  from LIQ state. `ScalarLSUMDBPath` atomically joins that intent with native
+  row mutation and `MDBQueueFanout.deleteIn` acceptance.
 
 ## Verification
 

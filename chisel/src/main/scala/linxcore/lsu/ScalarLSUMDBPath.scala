@@ -135,6 +135,17 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val lookupProcessed = Output(Bool())
   val lookupHit = Output(Bool())
   val lookupWaitMutation = Output(Bool())
+  val failedWaitActiveMask = Output(UInt(p.liqEntries.W))
+  val failedWaitExpiredMask = Output(UInt(p.liqEntries.W))
+  val failedWaitReleaseValid = Output(Bool())
+  val failedWaitReleaseIndex = Output(UInt(liqPtrWidth.W))
+  val failedWaitReleaseAge = Output(UInt(log2Ceil(p.mdbFailedWaitTimeoutCycles + 1).max(1).W))
+  val failedWaitReleaseAccepted = Output(Bool())
+  val deleteAccepted = Output(Bool())
+  val deleteProcessed = Output(Bool())
+  val deleteMatched = Output(Bool())
+  val deleteDroppedBelowStall = Output(Bool())
+  val deleteReleased = Output(Bool())
   val storeWakeup = Output(new MDBStoreWakeup(
     coreParams.robEntries,
     p.stqEntries,
@@ -262,8 +273,45 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   lookupBus.conf := 1.U
   fanout.io.lookupIn := lookupBus
   fanout.io.lookupInValid := io.loadLookupValid
-  fanout.io.deleteIn := zeroBus
-  fanout.io.deleteInValid := false.B
+
+  val failedWait = Module(new LoadWaitStoreTimeout(
+    liqEntries = p.liqEntries,
+    idEntries = coreParams.robEntries,
+    storeEntries = p.stqEntries,
+    addrWidth = p.addrWidth,
+    pcWidth = p.pcWidth,
+    lineBytes = p.lineBytes,
+    sizeWidth = p.loadSizeWidth,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.tidWidth,
+    timeoutCycles = p.mdbFailedWaitTimeoutCycles
+  ))
+  failedWait.io.flush := io.flush
+  failedWait.io.rows := io.loadRows
+
+  val failedWaitRow = io.loadRows(failedWait.io.releaseIndex)
+  val deleteBus = Wire(chiselTypeOf(fanout.io.deleteIn))
+  deleteBus := zeroBus
+  deleteBus.valid := failedWait.io.releaseValid
+  deleteBus.ldInfo.valid := failedWait.io.releaseValid
+  deleteBus.ldInfo.pc := failedWaitRow.pc
+  deleteBus.ldInfo.bid := failedWaitRow.bid
+  deleteBus.ldInfo.lsId := failedWaitRow.loadLsId
+  deleteBus.ldInfo.stid := failedWaitRow.stid
+  deleteBus.ldInfo.addr := failedWaitRow.addr
+  deleteBus.ldInfo.size := failedWaitRow.size
+  deleteBus.ldInfo.waitStorePc := failedWaitRow.waitStoreInfo.pc
+  deleteBus.ldInfo.isTile := failedWaitRow.isTile
+  deleteBus.stInfo.valid := failedWait.io.releaseValid
+  deleteBus.stInfo.pc := failedWaitRow.waitStoreInfo.pc
+  deleteBus.stInfo.bid := failedWaitRow.waitStoreInfo.storeId
+  deleteBus.stInfo.lsId := failedWaitRow.waitStoreInfo.storeLsId
+  deleteBus.stInfo.stid := failedWaitRow.stid
+  deleteBus.conf := 1.U
+  fanout.io.deleteIn := deleteBus
 
   val waitPlanQ = withReset(reset.asBool || io.flush) {
     Module(new Queue(
@@ -340,7 +388,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     confWidth = p.mdbConfWidth,
     weightWidth = weightWidth
   ))
-  lookupWaitPlan.io.enable := !currentWaitValid
+  lookupWaitPlan.io.enable := !currentWaitValid && !failedWait.io.releaseValid
   lookupWaitPlan.io.flush := io.flush
   lookupWaitPlan.io.luOutValid := fanout.io.luOutValid
   lookupWaitPlan.io.luOut := fanout.io.luOut
@@ -358,19 +406,34 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   conflictWaitInfo.storeLsId := Mux(currentStoreMatch, currentWaitStore.lsId, ROBID.disabled(coreParams.robEntries))
   conflictWaitInfo.pc := currentWaitStore.pc
 
-  val selectConflictWait = currentWaitActionable
-  val selectLookupWait = !currentWaitValid && lookupWaitPlan.io.requestValid
-  io.mutationValid := selectConflictWait || selectLookupWait
-  io.mutationTargetIndex := Mux(selectConflictWait, currentWaitIndex, lookupWaitPlan.io.requestTargetIndex)
+  val selectFailedWait = failedWait.io.releaseValid && fanout.io.deleteInReady
+  val selectConflictWait = !failedWait.io.releaseValid && currentWaitActionable
+  val selectLookupWait =
+    !failedWait.io.releaseValid && !currentWaitValid && lookupWaitPlan.io.requestValid
+  io.mutationValid := selectFailedWait || selectConflictWait || selectLookupWait
+  io.mutationTargetIndex := Mux(
+    selectFailedWait,
+    failedWait.io.releaseIndex,
+    Mux(selectConflictWait, currentWaitIndex, lookupWaitPlan.io.requestTargetIndex)
+  )
   io.mutationSetWaitStatus := io.mutationValid
   io.mutationClearReturnState := io.mutationValid
   io.mutationLineWrite := io.mutationValid
   io.mutationWaitStoreWrite := io.mutationValid
-  io.mutationNextWaitStore := io.mutationValid
-  io.mutationNextWaitStoreInfo := Mux(selectConflictWait, conflictWaitInfo, lookupWaitPlan.io.nextWaitStoreInfo)
+  io.mutationNextWaitStore := io.mutationValid && !selectFailedWait
+  io.mutationNextWaitStoreInfo := Mux(
+    selectFailedWait,
+    zeroWait,
+    Mux(selectConflictWait, conflictWaitInfo, lookupWaitPlan.io.nextWaitStoreInfo)
+  )
+
+  val failedWaitReleaseAccepted = selectFailedWait && io.mutationAccepted
+  fanout.io.deleteInValid := failedWaitReleaseAccepted
+  failedWait.io.releaseAccepted := failedWaitReleaseAccepted && fanout.io.deleteInAccepted
 
   val lookupCanDequeue =
-    !currentWaitValid &&
+    !failedWait.io.releaseValid &&
+      !currentWaitValid &&
       (!lookupWaitPlan.io.requestValid || io.mutationAccepted)
   fanout.io.luDequeueReady := lookupCanDequeue
   fanout.io.suCheckReady := lookupCanDequeue
@@ -439,6 +502,17 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   io.lookupProcessed := fanout.io.lookupProcessed
   io.lookupHit := fanout.io.luOutValid && fanout.io.luOut.hit
   io.lookupWaitMutation := selectLookupWait && io.mutationAccepted
+  io.failedWaitActiveMask := failedWait.io.activeMask
+  io.failedWaitExpiredMask := failedWait.io.expiredMask
+  io.failedWaitReleaseValid := failedWait.io.releaseValid
+  io.failedWaitReleaseIndex := failedWait.io.releaseIndex
+  io.failedWaitReleaseAge := failedWait.io.releaseAge
+  io.failedWaitReleaseAccepted := failedWait.io.releaseAccepted
+  io.deleteAccepted := fanout.io.deleteInAccepted
+  io.deleteProcessed := fanout.io.deleteProcessed
+  io.deleteMatched := fanout.io.deleteMatched
+  io.deleteDroppedBelowStall := fanout.io.deleteDroppedBelowStall
+  io.deleteReleased := fanout.io.deleteReleased
   io.storeWakeup := storeWakeupReg
   io.waitPlanPending := currentWaitValid || waitPlanQ.io.deq.valid
   io.waitPlanTargetMask := Mux(currentWaitValid, currentWaitMask, 0.U)
@@ -446,10 +520,12 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     fanout.io.transientEmpty &&
       !currentWaitValid &&
       !waitPlanQ.io.deq.valid &&
+      !failedWait.io.releaseValid &&
       !storeWakeupReg.valid
   io.protocolError :=
     (io.storeProbe.valid && !io.storeProbeReady) ||
       (io.loadLookupValid && !io.loadLookupReady) ||
+      (failedWaitReleaseAccepted && !fanout.io.deleteInAccepted) ||
       fanout.io.recordOverflow ||
       fanout.io.recordOrderIllegal
   io.ssitTable := fanout.io.ssitTable

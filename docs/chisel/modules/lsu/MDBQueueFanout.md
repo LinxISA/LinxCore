@@ -49,10 +49,10 @@ store-wakeup scan view. R292 adds the load-side lookup producer boundary from
 the replay-LIQ launch-accepted row; because the reduced top still ties
 `launchEnable` low, this path is structurally wired but dormant in the current
 fixture. R293 surfaces the delete queue/decay and phase-stall diagnostics at
-the top boundary while keeping `deleteInValid` tied low. Delete producers remain
-tied off until failed-wait delete owners exist, so the top observes SSIT
-record/BMDB/lookup/delete command state without changing load wakeup or
-recovery behavior. R458 proves the record path in the executable replay
+the reduced-top boundary while keeping `deleteInValid` tied low. R636 connects
+the canonical `ScalarLSUMDBPath` instance to live per-row failed-wait release;
+the older reduced fixture remains diagnostic-only. R458 proves the record path
+in the executable replay
 fixture: `ReducedStoreWaitReplayChiselPathProbe` converts the selected
 `MDBConflictDetect.record` into `MDBQueueBus`, drives `recordIn`, and observes
 record queue acceptance, record processing, BMDB report intent, and one SSIT
@@ -65,6 +65,9 @@ row, and emits the store-side wakeup. R460 enables the fixture delete path:
 after the lookup/wakeup proof, the harness drives repeated failed-wait delete
 commands through `deleteIn`, observes below-stall decay, and releases the
 learned SSIT row only after the zero-weight delete.
+R636 promotes the same decay/release sequence from fixture injection to the
+canonical LIQ lifecycle: `LoadWaitStoreTimeout` drives `deleteIn` only when the
+matching wait-clear mutation accepts in the same cycle.
 R498 changes the live top lookup producer from replay-LIQ launch acceptance to
 the source-return store-snapshot query issue boundary. That makes the live
 `replay-ldi-sdi-ldi` fixture enqueue and process one MDB lookup while the row
@@ -190,14 +193,15 @@ diagnostics at `LinxCoreFrontendFetchRfAluTraceTop` for generated-RTL
 visibility, and R292 exposes lookup enqueue, fanout, and LU/SU hit identity
 diagnostics from the dormant replay-LIQ launch boundary. R293 adds generated
 top visibility for delete ready/accept/process, delete matched/released/decayed,
-and lookup-fanout phase stall outputs before a real failed-wait delete producer
-exists. R458 adds fixture-level generated-RTL evidence for the record queue and
+and lookup-fanout phase stall outputs before the later canonical failed-wait
+delete producer exists. R458 adds fixture-level generated-RTL evidence for the record queue and
 SSIT/BMDB-report path, but it does not make those diagnostics architectural
 replacement evidence. R459 adds fixture-level evidence for lookup fanout and
 SU wakeup after SSIT reinforcement, but the lookup timing and resolved-load
 source are still harness-owned. R460 adds fixture-level evidence for delete
-decay/release after that lookup proof; the failed-wait producer and timer
-remain harness-owned.
+decay/release after that lookup proof; in that historical reduced fixture the
+failed-wait producer and timer remain harness-owned. R636 provides the live
+producer beneath `ScalarLSUMDBPath`.
 R498 adds live generated-RTL/QEMU evidence for the lookup queue itself:
 `mdb_fanout_lookup_valid=1`, `mdb_fanout_lookup_accepted=1`, and
 `mdb_fanout_lookup_processed=1` in
