@@ -18,6 +18,9 @@
 - Purpose: validates pyCircuit top roles, parameter defaults, state-owner
   evidence, promotion claims, declared gaps, and rejection of ARM-specific
   architectural behavior.
+- `test_chisel_architecture_adapter.sh`
+- Purpose: validates Chisel reduced-top role safety, parameter defaults,
+  focused module evidence, promotion limitations, and Linx-specific BID gaps.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
@@ -49,6 +52,7 @@ bash /Users/zhoubot/LinxCore/tests/test_cosim_smoke.sh
 bash /Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh
 bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_contract.sh
 bash /Users/zhoubot/LinxCore/tests/test_pycircuit_architecture_adapter.sh
+bash /Users/zhoubot/LinxCore/tests/test_chisel_architecture_adapter.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh

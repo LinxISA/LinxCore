@@ -8,6 +8,7 @@ import ast
 import copy
 import fnmatch
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,27 @@ def _object(value: Any, field: str, errors: list[str]) -> dict[str, Any]:
 
 def _source_facts(path: Path) -> tuple[set[str], set[str], dict[str, dict[str, Any]], str]:
     text = path.read_text(encoding="utf-8")
+    if path.suffix == ".scala":
+        without_comments = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+        without_comments = re.sub(r"//.*", "", without_comments)
+        symbols = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", without_comments))
+        constants: dict[str, Any] = {}
+        for name, raw_value in re.findall(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:Int|BigInt)\s*=\s*"
+            r"(-?(?:0x[0-9A-Fa-f]+|[0-9]+))",
+            without_comments,
+        ):
+            constants.setdefault(name, int(raw_value, 0))
+        classes = {
+            class_name: constants
+            for class_name in re.findall(
+                r"\b(?:case\s+class|class)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                without_comments,
+            )
+        }
+        return symbols, set(), classes, text
+    if path.suffix != ".py":
+        raise ValueError(f"unsupported evidence source type: {path.suffix}")
     tree = ast.parse(text, filename=str(path))
     symbols: set[str] = set()
     modules: set[str] = set()
@@ -188,6 +210,13 @@ def validate_adapter(
             for key in ("path", "role"):
                 if item.get(key) != declared.get(key):
                     errors.append(f"top shell {shell_id}.{key} disagrees with architecture manifest")
+        forbidden_roles = _list(
+            item.get("forbidden_roles", []),
+            f"top_shells[{index}].forbidden_roles",
+            errors,
+        )
+        if item.get("role") in forbidden_roles:
+            errors.append(f"top shell {shell_id} claims forbidden role: {item.get('role')}")
         _check_evidence(root, item, f"top_shells[{index}]", errors, checked_paths)
     missing_shells = sorted(set(manifest_shells) - shell_ids)
     if missing_shells:

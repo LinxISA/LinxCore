@@ -18,5 +18,6 @@ cmp "${REPORT_A}" "${REPORT_B}"
 
 python3 "${CHECKER}" --root "${ROOT_DIR}" --strict --require-no-legacy
 bash "${ROOT_DIR}/tests/test_pycircuit_architecture_adapter.sh"
+bash "${ROOT_DIR}/tests/test_chisel_architecture_adapter.sh"
 
 echo "ok: LinxCore microarchitecture contract gate passed"

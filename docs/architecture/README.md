@@ -80,8 +80,9 @@ Each RTL lane has one adapter registered by `microarchitecture-contract.json`.
 An adapter binds normative contract IDs to implementation facts: named top
 shells, parameter defaults and guards, module/state owners, promotion state,
 and declared gaps. The generic `tools/architecture/check_rtl_adapter.py`
-validator reads Python structure through the AST so a renamed or removed owner
-cannot retain promotion by stale prose alone.
+validator reads Python structure through the AST and Scala declarations through
+dependency-free lexical structure checks, so a renamed or removed owner cannot
+retain promotion by stale prose alone.
 
 New ISA-neutral IFU, cache, execution, or memory mechanisms extend the existing
 lane adapter. They do not create a parallel architecture page. A capability may

@@ -81,6 +81,10 @@
       "class": "evidence"
     },
     {
+      "path": "docs/architecture/rtl-adapters/chisel.json",
+      "class": "evidence"
+    },
+    {
       "path": "docs/chisel",
       "class": "evidence"
     }
@@ -665,7 +669,8 @@
   "migration_inputs": [],
   "mechanism_intake": "docs/architecture/mechanism-intake.json",
   "rtl_adapters": {
-    "pycircuit": "docs/architecture/rtl-adapters/pycircuit.json"
+    "pycircuit": "docs/architecture/rtl-adapters/pycircuit.json",
+    "chisel": "docs/architecture/rtl-adapters/chisel.json"
   },
   "extension_categories": [
     "ifu",

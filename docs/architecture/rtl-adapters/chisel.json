@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "lane": "chisel",
+  "architecture_manifest": "docs/architecture/microarchitecture-contract.json",
+  "top_shells": [
+    {
+      "id": "chisel-reduced-bringup",
+      "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+      "role": "reduced-bringup",
+      "forbidden_roles": ["full-composition", "full-replacement"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB"],
+      "text_contains": [
+        "val commitRob = Module(new ReducedCommitROB",
+        "io.idle := commitRob.io.empty"
+      ]
+    }
+  ],
+  "parameter_sets": [
+    {
+      "id": "reduced-top-defaults",
+      "path": "chisel/src/main/scala/linxcore/common/CoreParams.scala",
+      "class": "CoreParams",
+      "values": {
+        "robEntries": 128,
+        "commitWidth": 4
+      },
+      "validation_text": [
+        "robEntries must be a power of two",
+        "commitWidth must be positive"
+      ]
+    },
+    {
+      "id": "interface-defaults",
+      "path": "chisel/src/main/scala/linxcore/common/InterfaceBundles.scala",
+      "class": "InterfaceParams",
+      "values": {
+        "fetchWidth": 4,
+        "decodeWidth": 4,
+        "issueWidth": 4,
+        "commitWidth": 4,
+        "robEntries": 64,
+        "iqEntries": 32,
+        "lsidWidth": 32
+      },
+      "validation_text": [
+        "fetchWidth and decodeWidth share the F4 bundle contract",
+        "robEntries must be a power of two",
+        "iqEntries must be a power of two",
+        "load/store ID must preserve the 32-bit backend contract"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "chisel-reduced-rob-top",
+      "module_family": "rob-recovery",
+      "status": "integrated",
+      "contracts": ["LC-MA-ROB-001", "LC-IF-TRACE-001"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+          "symbols": ["LinxCoreTop", "ReducedCommitROB", "commitMonitorValidMask"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/top/LinxCoreTopSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-full-composition",
+      "module_family": "frontend",
+      "status": "absent",
+      "contracts": ["LC-MA-PIPE-001", "LC-MA-STAGE-001"],
+      "known_gap": "The Chisel LinxCoreTop is intentionally a reduced commit-ROB shell and must not be used as full-core replacement evidence.",
+      "absence_checks": [
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+          "symbols": ["LinxCoreFullTop", "LinxCoreReplacementTop"]
+        }
+      ]
+    },
+    {
+      "id": "chisel-scalar-mapq",
+      "module_family": "rename-issue",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001"],
+      "limitations": [
+        "The owner is not connected to the reduced top.",
+        "Full-BID comparisons must migrate to the canonical per-STID ring-qualified BID contract before integration."
+      ],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala",
+          "symbols": ["GPRRenameCheckpoint", "GPRRenameMapQueueEntry", "smap", "cmap", "mapQ"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/rename/GPRRenameCheckpointSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpointSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-scalar-issue-queue",
+      "module_family": "rename-issue",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "limitations": ["The reduced issue owner is not connected to the reduced top or a shared cross-RTL scenario."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala",
+          "symbols": ["ReducedScalarIssueQueue", "ReducedScalarIssuePick", "valid", "issued", "srcReady"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/execute/ReducedScalarIssueQueueSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueueSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-reduced-rob",
+      "module_family": "rob-recovery",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-FWD-001"],
+      "limitations": ["The reduced ROB does not by itself prove full recovery, sidecar, or block-boundary integration."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
+          "symbols": ["ReducedCommitROB", "table", "valid", "complete", "headValue", "tailValue"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/rob/ReducedCommitROBSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROBSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-brob-mechanism",
+      "module_family": "block-control",
+      "status": "stub",
+      "contracts": ["LC-MA-BLK-001", "LC-MA-ENG-001"],
+      "known_gap": "The named BROB owner preserves useful allocation/completion/stale-response mechanics, but BID.DefaultWidth is 64 and flush uses unsigned full-BID comparison instead of the canonical per-STID ring-qualified 8-bit default.",
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
+          "symbols": ["BrobMetaTracker", "table", "scalarHit", "engineHit", "retireHit"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/bctrl/BID.scala",
+          "symbols": ["BID", "DefaultWidth", "keepOnFlush", "killOnFlush"],
+          "text_contains": ["val DefaultWidth: Int = 64", "id <= flushBid", "id > flushBid"]
+        }
+      ]
+    },
+    {
+      "id": "chisel-load-inflight-replay",
+      "module_family": "lsu",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "limitations": ["The LIQ/replay owner is exercised as a focused unit and reduced trace composition, not as the canonical full LSU."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala",
+          "symbols": ["LoadInflightQueue", "rows", "LoadReplayWakeup", "LoadRefillWakeup"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-store-stq-scb",
+      "module_family": "lsu",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
+      "limitations": ["STQ and SCB focused owners are not connected to a canonical full LSU top."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala",
+          "symbols": ["STQEntryBank", "rows"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala",
+          "symbols": ["SCBRowBank", "entries", "SCBEgressSelect", "SCBResponseRetryQueue"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only STQEntryBankSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only SCBRowBankSpec"
+        }
+      ]
+    },
+    {
+      "id": "chisel-memory-disambiguation",
+      "module_family": "lsu",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
+      "limitations": ["MDB focused owners are not connected to a canonical full LSU top."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala",
+          "symbols": ["MDBSSIT"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala",
+          "symbols": ["MDBConflictDetect"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/MDBSSITSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only MDBSSITSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetectSpec"
+        }
+      ]
+    }
+  ],
+  "forbidden_architecture": {
+    "roots": ["chisel/src/main/scala", "chisel/src/test/scala"],
+    "globs": ["*.scala"],
+    "terms": [
+      "aarch64",
+      "arm exclusive",
+      "pointer authentication",
+      "pstate.",
+      "sve predicate",
+      "wfe/wfi"
+    ]
+  }
+}
