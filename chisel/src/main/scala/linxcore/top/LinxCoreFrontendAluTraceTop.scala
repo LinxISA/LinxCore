@@ -111,6 +111,7 @@ class LinxCoreFrontendAluTraceTop(
   path.io.storeCommitFreeIndex := 0.U
   path.io.storeCommitFreeMaskValid := false.B
   path.io.storeCommitFreeMask := 0.U
+  path.io.deallocHoldMask := 0.U
   path.io.checkpointValid := false.B
   path.io.checkpointBid := ROBID.disabled(p.robEntries)
   path.io.commitValid := false.B
