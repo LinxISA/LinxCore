@@ -37,8 +37,13 @@ static void wait_for_intent(VRecoveryProducerProbe &dut,
     require(false, message);
 }
 
-static void consume_intent(VRecoveryProducerProbe &dut) {
+static void consume_intent(VRecoveryProducerProbe &dut, int source_mask) {
     dut.io_intentReady = 1;
+    dut.eval();
+    require(dut.io_sourceResolvedMask == source_mask,
+            "consumed intent did not resolve the expected stable source lane");
+    require(dut.io_consumedPayloadSourceMask == source_mask,
+            "consumed intent did not preserve the expected payload owner lane");
     tick(dut);
     dut.io_intentReady = 0;
 }
@@ -76,8 +81,9 @@ int main(int argc, char **argv) {
     dut.io_peFetchTpc = 0;
     dut.io_stall = 0;
     dut.io_stallProgress = 0;
-    dut.io_stallIdentityValid = 0;
-    dut.io_stallBlockBid = 0;
+    dut.io_stallOldestValid = 0;
+    dut.io_stallOldestComplete = 0;
+    dut.io_stallCommitPointer = 0;
     dut.io_stallStid = 0;
     dut.io_intentReady = 0;
     tick(dut);
@@ -100,6 +106,9 @@ int main(int argc, char **argv) {
     tick(dut);
     dut.io_bccValid = 0;
     dut.io_slowValid = 0;
+    dut.eval();
+    require((dut.io_producerPendingMask & 0x3) == 0x3,
+            "BCC and IEX slow reports did not occupy stable bank lanes 0 and 1");
 
     wait_for_intent(dut, 0, 0x101, 0,
                     "BCC miss-predict did not reach cleanup with exact block BID");
@@ -109,7 +118,7 @@ int main(int argc, char **argv) {
             "BCC miss-predict did not preserve the model IEX engine class");
     require(dut.io_pending,
             "independent IEX report was lost behind blocked BCC cleanup");
-    consume_intent(dut);
+    consume_intent(dut, 0x1);
 
     wait_for_intent(dut, 2, 0x202, 1,
                     "IEX slow-insert did not reach cleanup after BCC consumption");
@@ -117,7 +126,7 @@ int main(int argc, char **argv) {
             "IEX slow-insert did not preserve immediate Linx nuke semantics");
     require(dut.io_intentFetchTpcValid && dut.io_intentFetchTpc == 0x22334455,
             "IEX slow-insert did not preserve the exact Linx restart target");
-    consume_intent(dut);
+    consume_intent(dut, 0x2);
     drain(dut, "BCC/IEX producer sequence did not drain");
 
     dut.io_peValid = 1;
@@ -136,33 +145,34 @@ int main(int argc, char **argv) {
             "PE mismatch did not retain PE-scoped inner-flush semantics");
     require(dut.io_intentFetchTpcValid && dut.io_intentFetchTpc == 0x12345678,
             "PE mismatch did not preserve the exact Linx restart target");
-    consume_intent(dut);
+    consume_intent(dut, 0x8);
     drain(dut, "PE recovery sequence did not drain");
 
     dut.io_stall = 1;
-    dut.io_stallBlockBid = 0x404;
+    dut.io_stallCommitPointer = 0xffff;
     dut.io_stallStid = 0;
     tick(dut);
     tick(dut);
     dut.eval();
-    require(dut.io_stallBlockedByMissingIdentity,
-            "IEX watchdog did not reject a threshold event without full identity");
+    require(!dut.io_stallTriggerCaptured && !dut.io_stallBlockedByMissingIdentity &&
+                dut.io_stallCount == 0,
+            "IEX watchdog counted while the selected STID had no oldest block");
+    dut.io_stallOldestValid = 1;
     tick(dut);
-    dut.eval();
-    require(dut.io_stallBlockedByMissingIdentity && !dut.io_stallTriggerCaptured,
-            "missing identity was not retained as a blocked watchdog condition");
-    dut.io_stallIdentityValid = 1;
+    tick(dut);
     dut.eval();
     require(dut.io_stallTriggerCaptured,
             "IEX watchdog did not capture the exact identity once supplied");
+    require(dut.io_stallResolvedIdentityValid && dut.io_stallResolvedBlockBid == 0,
+            "IEX watchdog identity did not wrap full commit pointer 0xffff to zero");
     tick(dut);
     dut.io_stall = 0;
-    dut.io_stallIdentityValid = 0;
-    wait_for_intent(dut, 4, 0x404, 0,
+    dut.io_stallOldestValid = 0;
+    wait_for_intent(dut, 4, 0, 0,
                     "IEX watchdog did not publish a full-BID fast replay");
     require(dut.io_intentBaseOnBid && !dut.io_intentImmediate,
             "IEX watchdog emitted the wrong recovery class");
-    consume_intent(dut);
+    consume_intent(dut, 0x4);
     drain(dut, "IEX watchdog recovery sequence did not drain");
 
     std::cout << "recovery-producer-probe-status=pass\n";

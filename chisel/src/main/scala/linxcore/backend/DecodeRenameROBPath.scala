@@ -16,8 +16,12 @@ import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, 
 import linxcore.recovery.{
   FullBidFlushReq,
   FullBidRecoveryBridge,
+  BccMispredictRecoveryEvent,
+  IexRecoveryEvent,
+  IexIqStallRecoveryIdentity,
   RecoveryBackendControl,
   RecoveryCleanupIntent,
+  RecoveryNonLsuProducerBank,
   RecoveryProvenance
 }
 import linxcore.rename.{
@@ -61,8 +65,11 @@ class DecodeRenameROBPathIO(
     val markerRetireSourceQueueDepth: Int = 8,
     val scalarStidCount: Int = 1,
     val recoveryPeCount: Int = 1,
-    val recoveryNonLsuSourceCount: Int = 4)
+    val recoveryNonLsuSourceCount: Int = 1,
+    val directRecoveryStallThreshold: Int = 64)
     extends Bundle {
+  private val directRecoverySourceCount = RecoveryNonLsuProducerBank.SourceCount
+  private val recoverySourceCount = recoveryNonLsuSourceCount + directRecoverySourceCount + 1
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
@@ -114,6 +121,29 @@ class DecodeRenameROBPathIO(
   ))
   val recoveryNonLsuSourceReady = Output(Vec(recoveryNonLsuSourceCount, Bool()))
   val recoveryNonLsuSourceAccepted = Output(Vec(recoveryNonLsuSourceCount, Bool()))
+  val directBccRecoveryMiss = Input(new BccMispredictRecoveryEvent(
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val directBccRecoveryReady = Output(Bool())
+  val directBccRecoveryAccepted = Output(Bool())
+  val directIexSlowRecovery = Input(new IexRecoveryEvent(
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val directIexSlowRecoveryReady = Output(Bool())
+  val directIexSlowRecoveryAccepted = Output(Bool())
+  val directIexIqStalled = Input(Bool())
+  val directIexIqProgress = Input(Bool())
+  val directIexIqStid = Input(UInt(stidWidth.W))
+  val directIexIqPeId = Input(UInt(peIdWidth.W))
+  val directIexIqTid = Input(UInt(tidWidth.W))
+  val directIexIqTriggerCaptured = Output(Bool())
+  val directIexIqBlockedByMissingIdentity = Output(Bool())
+  val directIexIqStallCount = Output(UInt(math.max(1, log2Ceil(directRecoveryStallThreshold + 1)).W))
+  val directIexIqIdentityValid = Output(Bool())
+  val directIexIqRecoveryBlockBid = Output(UInt(bidWidth.W))
+  val directPeMismatchRecovery = Input(new IexRecoveryEvent(
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val directPeMismatchRecoveryReady = Output(Bool())
+  val directPeMismatchRecoveryAccepted = Output(Bool())
+  val directRecoveryPendingMask = Output(UInt(directRecoverySourceCount.W))
   val lsuRecoverySource = Input(new FullBidFlushReq(
     p.robEntries,
     bidWidth,
@@ -153,9 +183,9 @@ class DecodeRenameROBPathIO(
     tidWidth
   ))
   val recoveryIntentConsumed = Output(Bool())
-  val recoveryIntentProvenance = Output(new RecoveryProvenance(recoveryNonLsuSourceCount + 1))
-  val recoverySourceResolvedMask = Output(UInt((recoveryNonLsuSourceCount + 1).W))
-  val recoveryConsumedPayloadSourceMask = Output(UInt((recoveryNonLsuSourceCount + 1).W))
+  val recoveryIntentProvenance = Output(new RecoveryProvenance(recoverySourceCount))
+  val recoverySourceResolvedMask = Output(UInt(recoverySourceCount.W))
+  val recoveryConsumedPayloadSourceMask = Output(UInt(recoverySourceCount.W))
   val recoveryPending = Output(Bool())
   val scalarCleanupOrderValid = Input(Bool())
   val scalarCleanupOrder = Input(UInt(p.uopUidWidth.W))
@@ -567,7 +597,9 @@ class DecodeRenameROBPath(
     val tuRetireRelationCmapDepth: Int = 8,
     val markerRetireSourceQueueDepth: Int = 8,
     val recoveryPeCount: Int = 1,
-    val recoveryNonLsuSourceCount: Int = 4,
+    val recoveryNonLsuSourceCount: Int = 1,
+    val directRecoveryQueueEntries: Int = 2,
+    val directRecoveryStallThreshold: Int = 64,
     val tuRetireReleaseThreshold: Int = 4,
     val blockRenameCommitQueueDepth: Int = 16,
     val scalarContinuationGprCutThreshold: Int = 32,
@@ -652,7 +684,8 @@ class DecodeRenameROBPath(
     markerRetireSourceQueueDepth = markerRetireSourceQueueDepth,
     scalarStidCount = scalarStidCount,
     recoveryPeCount = recoveryPeCount,
-    recoveryNonLsuSourceCount = recoveryNonLsuSourceCount
+    recoveryNonLsuSourceCount = recoveryNonLsuSourceCount,
+    directRecoveryStallThreshold = directRecoveryStallThreshold
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -721,8 +754,10 @@ class DecodeRenameROBPath(
     lsidWidth = p.lsidWidth,
     storeSerialWidth = loadStoreSerialWidth
   ))
+  val directRecoverySourceCount = RecoveryNonLsuProducerBank.SourceCount
+  val totalNonLsuRecoverySourceCount = recoveryNonLsuSourceCount + directRecoverySourceCount
   val recovery = Module(new RecoveryBackendControl(
-    nonLsuSourceCount = recoveryNonLsuSourceCount,
+    nonLsuSourceCount = totalNonLsuRecoverySourceCount,
     stidCount = scalarStidCount,
     peCount = recoveryPeCount,
     entries = p.robEntries,
@@ -731,7 +766,45 @@ class DecodeRenameROBPath(
     stidWidth = stidWidth,
     tidWidth = tidWidth
   ))
-  recovery.io.nonLsuSources := io.recoveryNonLsuSources
+  val directRecovery = Module(new RecoveryNonLsuProducerBank(
+    queueEntries = directRecoveryQueueEntries,
+    stallThreshold = directRecoveryStallThreshold,
+    entries = p.robEntries,
+    bidWidth = bidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
+  ))
+  directRecovery.io.bccMiss := io.directBccRecoveryMiss
+  directRecovery.io.iexSlow := io.directIexSlowRecovery
+  directRecovery.io.iexIqStalled := io.directIexIqStalled
+  directRecovery.io.iexIqProgress := io.directIexIqProgress
+  directRecovery.io.iexIqStid := io.directIexIqStid
+  directRecovery.io.iexIqPeId := io.directIexIqPeId
+  directRecovery.io.iexIqTid := io.directIexIqTid
+  directRecovery.io.peMismatch := io.directPeMismatchRecovery
+
+  val directIexIqIdentity = Module(new IexIqStallRecoveryIdentity(
+    stidCount = scalarStidCount,
+    bidWidth = bidWidth,
+    stidWidth = stidWidth
+  ))
+  directIexIqIdentity.io.stid := io.directIexIqStid
+  directIexIqIdentity.io.oldestValid := allocator.io.recoveryOldestValid
+  directIexIqIdentity.io.oldestBlockComplete := allocator.io.recoveryOldestBlockComplete
+  directIexIqIdentity.io.blockCommitPointer := allocator.io.blockCommitCursor
+  directRecovery.io.iexIqOldestBlockComplete := directIexIqIdentity.io.selectedOldestBlockComplete
+  directRecovery.io.iexIqIdentityValid := directIexIqIdentity.io.identityValid
+  directRecovery.io.iexIqRecoveryBlockBid := directIexIqIdentity.io.recoveryBlockBid
+
+  for (source <- 0 until recoveryNonLsuSourceCount) {
+    recovery.io.nonLsuSources(source) := io.recoveryNonLsuSources(source)
+  }
+  for (source <- 0 until directRecoverySourceCount) {
+    val backendSource = recoveryNonLsuSourceCount + source
+    recovery.io.nonLsuSources(backendSource) := directRecovery.io.sources(source)
+    directRecovery.io.sourceReady(source) := recovery.io.nonLsuSourceReady(backendSource)
+  }
   recovery.io.lsuSource := io.lsuRecoverySource
   recovery.io.lsuFullBidLookupRequest := io.lsuFullBidLookupRequest
   recovery.io.robFullBidLookup := allocator.io.fullBidLookup
@@ -763,8 +836,22 @@ class DecodeRenameROBPath(
     canonicalCleanup.blockFlushPointer := allocator.io.blockFlushResolvedPivotBid
   }
 
-  io.recoveryNonLsuSourceReady := recovery.io.nonLsuSourceReady
-  io.recoveryNonLsuSourceAccepted := recovery.io.nonLsuSourceAccepted
+  for (source <- 0 until recoveryNonLsuSourceCount) {
+    io.recoveryNonLsuSourceReady(source) := recovery.io.nonLsuSourceReady(source)
+    io.recoveryNonLsuSourceAccepted(source) := recovery.io.nonLsuSourceAccepted(source)
+  }
+  io.directBccRecoveryReady := directRecovery.io.bccReady
+  io.directBccRecoveryAccepted := directRecovery.io.bccAccepted
+  io.directIexSlowRecoveryReady := directRecovery.io.iexSlowReady
+  io.directIexSlowRecoveryAccepted := directRecovery.io.iexSlowAccepted
+  io.directIexIqTriggerCaptured := directRecovery.io.iexIqTriggerCaptured
+  io.directIexIqBlockedByMissingIdentity := directRecovery.io.iexIqBlockedByMissingIdentity
+  io.directIexIqStallCount := directRecovery.io.iexIqStallCount
+  io.directIexIqIdentityValid := directIexIqIdentity.io.identityValid
+  io.directIexIqRecoveryBlockBid := directIexIqIdentity.io.recoveryBlockBid
+  io.directPeMismatchRecoveryReady := directRecovery.io.peMismatchReady
+  io.directPeMismatchRecoveryAccepted := directRecovery.io.peMismatchAccepted
+  io.directRecoveryPendingMask := directRecovery.io.pendingMask
   io.lsuRecoverySourceReady := recovery.io.lsuSourceReady
   io.lsuRecoverySourceAccepted := recovery.io.lsuSourceAccepted
   io.lsuFullBidLookup := recovery.io.lsuFullBidLookup
@@ -1617,9 +1704,22 @@ object DecodeRenameROBPath {
     */
   def tieOffRecovery(path: DecodeRenameROBPath): Unit = {
     path.io.recoveryNonLsuSources := 0.U.asTypeOf(path.io.recoveryNonLsuSources)
+    tieOffDirectRecovery(path)
     path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
     path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
     path.io.recoveryIntentReady := true.B
+  }
+
+  /** Tie off raw BCC/IEX/PE triggers only in shells without those owners. */
+  def tieOffDirectRecovery(path: DecodeRenameROBPath): Unit = {
+    path.io.directBccRecoveryMiss := 0.U.asTypeOf(path.io.directBccRecoveryMiss)
+    path.io.directIexSlowRecovery := 0.U.asTypeOf(path.io.directIexSlowRecovery)
+    path.io.directIexIqStalled := false.B
+    path.io.directIexIqProgress := false.B
+    path.io.directIexIqStid := 0.U
+    path.io.directIexIqPeId := 0.U
+    path.io.directIexIqTid := 0.U
+    path.io.directPeMismatchRecovery := 0.U.asTypeOf(path.io.directPeMismatchRecovery)
   }
 
   /** Tie off the future CTU/tile authoritative count source in shells that do

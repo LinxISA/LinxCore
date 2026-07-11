@@ -3,6 +3,10 @@
 ## Source Mapping
 
 - Chisel: `chisel/src/main/scala/linxcore/recovery/RecoveryProducers.scala`
+- Production bank:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryNonLsuProducerBank.scala`
+- Backend integration:
+  `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
 - Integrated probe:
   `chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala`
 - Tests:
@@ -27,6 +31,14 @@ fill a missing full BID from debug state.
 the central source arbiter. Acceptance into this queue transfers ownership;
 the request remains bit-stable until `RecoveryFabric` accepts it.
 
+`RecoveryNonLsuProducerBank` is the production composition owner for the four
+non-LSU families. It gives each family an independent retained lane and appends
+those lanes to the backend fabric after any externally supplied lanes, so an
+existing source index is not silently renumbered. `DecodeRenameROBPath`
+instantiates this bank unconditionally. Its default external prefix contains
+only the real scalar-redirect lane; reduced shells tie off raw events, not the
+retained owner.
+
 ## Producer Contracts
 
 | Producer | Model mechanism | Linx request | Required owner evidence |
@@ -42,6 +54,13 @@ holds a visible blocked condition; it does not publish a projected request.
 Once identity is valid, the watchdog captures one request before the owner
 inputs may change.
 
+`IexIqStallRecoveryIdentity` derives the watchdog's exact replay pointer from
+the selected STID's authoritative BROB commit cursor. It publishes
+successor(commit-pointer) only while that STID has a valid oldest block, and it
+qualifies completed or absent oldest state before the watchdog counts. The
+addition is over the full implementation pointer width, including rollover;
+the module never increments a canonical BID slot in isolation.
+
 `FullBidFlushReq` and `FlushReq` carry both `fetchTpcValid` and the 64-bit
 `fetchTpc`. This is functional recovery state: a non-block-based PE inner flush
 restarts from the mismatched row PC. The target is retained through class merge
@@ -56,11 +75,12 @@ class semantics.
 
 ## Integration Status
 
-R642 implements and composes all four non-LSU producer adapter families in a
-generated-RTL proof. Canonical BCC resolution, IEX dispatch/IQ, and PE compare
-owners do not yet expose every authoritative full-BID event port, so production
-top connections remain open. The adapters are not evidence of live workload
-activation until those owner connections exist.
+R657 adds `RecoveryNonLsuProducerBank`, uses it in the generated proof and the
+canonical `DecodeRenameROBPath`, and derives IQ-watchdog identity from resident
+BROB order state. Raw BCC miss, IEX slow-insert, IEX IQ-stall, and PE mismatch
+event ports are now production backend inputs. Upstream live BCC, IEX dispatch,
+and PE compare owners still need to drive those ports; tied-off reduced shells
+are not evidence of workload activation.
 
 R643 adds the first pyCircuit retained producer boundary. It parameterizes BID,
 restart-TPC, STID, and owner widths; backpressures incomplete identity; retains
@@ -77,4 +97,7 @@ RTL.
 
 The generated probe covers simultaneous BCC/IEX retention, exact full-BID
 delivery, immediate slow-insert nuke behavior, PE-scoped inner recovery, and IQ
-stall identity blocking followed by accepted fast replay.
+stall suppression without an oldest block followed by full-pointer
+`0xffff -> 0` rollover and accepted fast replay. The same probe checks stable
+bank lane indices and consumed source/payload provenance. Focused elaboration
+also proves the per-STID watchdog identity owner.

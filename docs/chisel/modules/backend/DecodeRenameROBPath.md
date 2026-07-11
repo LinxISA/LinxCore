@@ -115,6 +115,13 @@ is routed through the resident allocator/ROB. ROB and BROB mutation, rename
 cleanup, and backend queue cleanup occur only when the registered intent is
 accepted. The full fetch/RF/ALU composition supplies the first retained scalar
 redirect source, while reduced trace shells call `tieOffRecovery` explicitly.
+R657 appends `RecoveryNonLsuProducerBank` after those stable external lanes.
+The bank owns independent retained BCC miss, IEX slow-insert, IEX IQ-watchdog,
+and PE mismatch sources. `IexIqStallRecoveryIdentity` selects the requested
+STID's valid BROB commit cursor and supplies its full-pointer successor; absent,
+completed, or out-of-range oldest state prevents watchdog counting. Reduced
+shells call `tieOffDirectRecovery`, while production owners may drive the raw
+event ports without constructing generic recovery requests.
 The full composition may redirect fetch immediately, but backend/ROB/BROB,
 rename, issue, store, LIQ, and ResolveQ mutation is qualified by the registered
 intent-consumption pulse.

@@ -4,6 +4,8 @@
 
 - Chisel: `chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala`
 - Fabric child: `chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala`
+- Direct non-LSU producer bank:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryNonLsuProducerBank.scala`
 - Resident identity owner: `chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
 - Canonical backend composition: `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
 - First connected producer: `chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
@@ -34,8 +36,11 @@ or condition-code state.
 
 ## Ownership Contract
 
-1. Non-LSU sources retain their own events and enter the fabric at stable
-   indices. The scalar-LSU source is appended as the final source.
+1. External non-LSU sources retain their own events and keep stable indices.
+   `DecodeRenameROBPath` appends the four direct BCC/IEX/PE bank lanes, and the
+   scalar-LSU source remains the final source. The default backend exposes one
+   external lane for the retained scalar redirect; additional external lanes
+   remain parameterized rather than preallocated as empty placeholders.
 2. The LSU full-BID lookup request is forwarded unchanged to the resident ROB;
    the echoed result is forwarded unchanged back to the LSU source owner.
 3. `RecoveryFabric` alone owns source arbitration, class merge, and registered
@@ -53,9 +58,12 @@ R646 extracts this ownership from the former real-ROB proof wiring and uses it
 in both `RecoveryCleanupROBProbe` and `DecodeRenameROBPath`. The backend path
 routes scalar-LSU lookup ports through `DispatchROBAllocator` to resident
 `ROBEntryBank` rows and exports the shared cleanup handshake. The full
-fetch/RF/ALU composition connects one retained scalar redirect source. Direct
-BCC/IEX/PE trigger-owner wiring, the canonical scalar-LSU source connection,
-and full BROB pointer recovery remain open. R648 removes the external
+fetch/RF/ALU composition connects one retained scalar redirect source. R657
+instantiates the four-lane direct non-LSU producer bank in this backend path,
+appends it without renumbering external lanes, and derives watchdog replay
+identity from the selected STID's BROB commit cursor. Upstream live BCC, IEX,
+and PE trigger generation plus the canonical scalar-LSU source connection
+remain open. R648 removes the external
 oldest-state placeholders: the decode/rename path now supplies coherent
 per-STID BROB/ROB watermarks selected by their resident owners and qualified by
 an exact allocator-stamped full block BID match. `oldestValid` is carried

@@ -97,9 +97,9 @@ and real `ROBEntryBank` pruning.
 
 R642 adds retained BCC miss-predict, IEX slow-insert, IEX IQ-stall, and PE
 mismatch producer adapters and composes them through this wrapper in generated
-RTL. This is not yet canonical production top wiring: the BCC/IEX/PE trigger
-owners must expose authoritative full-BID event ports, and the backend top must
-instantiate the complete producer set with `ScalarLSURecoverySource`.
+RTL. R657 groups those adapters under `RecoveryNonLsuProducerBank` and appends
+the bank to the production `DecodeRenameROBPath` fabric. Upstream live trigger
+generation and the complete scalar-LSU source connection remain open.
 
 R646 adds `RecoveryBackendControl` as the reusable owner around this fabric.
 It centralizes LSU full-BID lookup routing, source indexing, shared cleanup
@@ -107,7 +107,9 @@ acceptance, and handshake-qualified ROB flush publication.
 `DecodeRenameROBPath` instantiates it around `DispatchROBAllocator` and the
 resident `ROBEntryBank`. The full fetch/RF/ALU composition connects a retained
 scalar redirect source; reduced trace shells tie recovery off explicitly.
-Canonical scalar-LSU and BCC/IEX/PE source connections remain open.
+The canonical scalar-LSU source connection and upstream live BCC/IEX/PE event
+generation remain open; non-LSU retention and backend fabric connection are
+now production-owned.
 
 ## Verification
 

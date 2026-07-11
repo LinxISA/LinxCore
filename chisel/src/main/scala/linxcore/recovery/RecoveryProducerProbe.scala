@@ -20,8 +20,9 @@ class RecoveryProducerProbeIO extends Bundle {
   val peFetchTpc = Input(UInt(64.W))
   val stall = Input(Bool())
   val stallProgress = Input(Bool())
-  val stallIdentityValid = Input(Bool())
-  val stallBlockBid = Input(UInt(16.W))
+  val stallOldestValid = Input(Bool())
+  val stallOldestComplete = Input(Bool())
+  val stallCommitPointer = Input(UInt(16.W))
   val stallStid = Input(UInt(1.W))
   val intentReady = Input(Bool())
 
@@ -34,7 +35,12 @@ class RecoveryProducerProbeIO extends Bundle {
   val stallTriggerCaptured = Output(Bool())
   val stallBlockedByMissingIdentity = Output(Bool())
   val stallCount = Output(UInt(2.W))
+  val stallResolvedIdentityValid = Output(Bool())
+  val stallResolvedBlockBid = Output(UInt(16.W))
+  val producerPendingMask = Output(UInt(4.W))
   val sourcePendingMask = Output(UInt(4.W))
+  val sourceResolvedMask = Output(UInt(4.W))
+  val consumedPayloadSourceMask = Output(UInt(4.W))
   val classGlobalFlushPendingMask = Output(UInt(2.W))
   val classGlobalReplayPendingMask = Output(UInt(2.W))
   val classPePendingMask = Output(UInt(4.W))
@@ -63,33 +69,9 @@ class RecoveryProducerProbe extends Module {
   private val tidWidth = 1
 
   val io = IO(new RecoveryProducerProbeIO)
-  val bcc = Module(new BccRecoverySource(
+  val producers = Module(new RecoveryNonLsuProducerBank(
     queueEntries = 2,
-    entries = entries,
-    bidWidth = 16,
-    peIdWidth = peIdWidth,
-    stidWidth = stidWidth,
-    tidWidth = tidWidth
-  ))
-  val slow = Module(new IexSlowInsertRecoverySource(
-    queueEntries = 2,
-    entries = entries,
-    bidWidth = 16,
-    peIdWidth = peIdWidth,
-    stidWidth = stidWidth,
-    tidWidth = tidWidth
-  ))
-  val stall = Module(new IexIqStallRecoverySource(
     stallThreshold = 3,
-    queueEntries = 2,
-    entries = entries,
-    bidWidth = 16,
-    peIdWidth = peIdWidth,
-    stidWidth = stidWidth,
-    tidWidth = tidWidth
-  ))
-  val pe = Module(new PeMismatchRecoverySource(
-    queueEntries = 2,
     entries = entries,
     bidWidth = 16,
     peIdWidth = peIdWidth,
@@ -106,6 +88,11 @@ class RecoveryProducerProbe extends Module {
     stidWidth = stidWidth,
     tidWidth = tidWidth
   ))
+  val stallIdentity = Module(new IexIqStallRecoveryIdentity(
+    stidCount = stidCount,
+    bidWidth = 16,
+    stidWidth = stidWidth
+  ))
 
   private def id(value: UInt): ROBID = {
     val out = Wire(new ROBID(entries))
@@ -115,70 +102,76 @@ class RecoveryProducerProbe extends Module {
     out
   }
 
-  bcc.io.miss.valid := io.bccValid
-  bcc.io.miss.recoveryBlockBid := io.bccBlockBid
-  bcc.io.miss.stid := io.bccStid
-  bcc.io.miss.peId := 0.U
-  bcc.io.miss.tid := 0.U
-  bcc.io.miss.execEngine := io.bccExecEngine
+  producers.io.bccMiss.valid := io.bccValid
+  producers.io.bccMiss.recoveryBlockBid := io.bccBlockBid
+  producers.io.bccMiss.stid := io.bccStid
+  producers.io.bccMiss.peId := 0.U
+  producers.io.bccMiss.tid := 0.U
+  producers.io.bccMiss.execEngine := io.bccExecEngine
 
-  slow.io.event.valid := io.slowValid
-  slow.io.event.recoveryBlockBid := io.slowBlockBid
-  slow.io.event.gid := id(0.U)
-  slow.io.event.rid := id(1.U)
-  slow.io.event.lsId := id(1.U)
-  slow.io.event.stid := io.slowStid
-  slow.io.event.peId := 0.U
-  slow.io.event.tid := 0.U
-  slow.io.event.execEngine := ExecEngineType.Scalar
-  slow.io.event.fetchTpcValid := true.B
-  slow.io.event.fetchTpc := io.slowFetchTpc
+  producers.io.iexSlow.valid := io.slowValid
+  producers.io.iexSlow.recoveryBlockBid := io.slowBlockBid
+  producers.io.iexSlow.gid := id(0.U)
+  producers.io.iexSlow.rid := id(1.U)
+  producers.io.iexSlow.lsId := id(1.U)
+  producers.io.iexSlow.stid := io.slowStid
+  producers.io.iexSlow.peId := 0.U
+  producers.io.iexSlow.tid := 0.U
+  producers.io.iexSlow.execEngine := ExecEngineType.Scalar
+  producers.io.iexSlow.fetchTpcValid := true.B
+  producers.io.iexSlow.fetchTpc := io.slowFetchTpc
 
-  pe.io.mismatch.valid := io.peValid
-  pe.io.mismatch.recoveryBlockBid := io.peBlockBid
-  pe.io.mismatch.gid := id(0.U)
-  pe.io.mismatch.rid := id(2.U)
-  pe.io.mismatch.lsId := id(2.U)
-  pe.io.mismatch.stid := io.peStid
-  pe.io.mismatch.peId := io.peId
-  pe.io.mismatch.tid := 0.U
-  pe.io.mismatch.execEngine := ExecEngineType.Simt
-  pe.io.mismatch.fetchTpcValid := true.B
-  pe.io.mismatch.fetchTpc := io.peFetchTpc
+  producers.io.peMismatch.valid := io.peValid
+  producers.io.peMismatch.recoveryBlockBid := io.peBlockBid
+  producers.io.peMismatch.gid := id(0.U)
+  producers.io.peMismatch.rid := id(2.U)
+  producers.io.peMismatch.lsId := id(2.U)
+  producers.io.peMismatch.stid := io.peStid
+  producers.io.peMismatch.peId := io.peId
+  producers.io.peMismatch.tid := 0.U
+  producers.io.peMismatch.execEngine := ExecEngineType.Simt
+  producers.io.peMismatch.fetchTpcValid := true.B
+  producers.io.peMismatch.fetchTpc := io.peFetchTpc
 
-  stall.io.stalled := io.stall
-  stall.io.progress := io.stallProgress
-  stall.io.oldestBlockComplete := false.B
-  stall.io.identityValid := io.stallIdentityValid
-  stall.io.recoveryBlockBid := io.stallBlockBid
-  stall.io.stid := io.stallStid
-  stall.io.peId := 0.U
-  stall.io.tid := 0.U
+  producers.io.iexIqStalled := io.stall
+  producers.io.iexIqProgress := io.stallProgress
+  stallIdentity.io.stid := io.stallStid
+  stallIdentity.io.oldestValid := VecInit((0 until stidCount).map(stid =>
+    io.stallOldestValid && (io.stallStid === stid.U)))
+  stallIdentity.io.oldestBlockComplete := VecInit((0 until stidCount).map(stid =>
+    io.stallOldestComplete && (io.stallStid === stid.U)))
+  stallIdentity.io.blockCommitPointer := VecInit((0 until stidCount).map(stid =>
+    Mux(io.stallStid === stid.U, io.stallCommitPointer, 0.U)))
+  producers.io.iexIqOldestBlockComplete := stallIdentity.io.selectedOldestBlockComplete
+  producers.io.iexIqIdentityValid := stallIdentity.io.identityValid
+  producers.io.iexIqRecoveryBlockBid := stallIdentity.io.recoveryBlockBid
+  producers.io.iexIqStid := io.stallStid
+  producers.io.iexIqPeId := 0.U
+  producers.io.iexIqTid := 0.U
 
-  recovery.io.sources(0) := bcc.io.source
-  recovery.io.sources(1) := slow.io.source
-  recovery.io.sources(2) := stall.io.source
-  recovery.io.sources(3) := pe.io.source
-  bcc.io.sourceReady := recovery.io.sourceReady(0)
-  slow.io.sourceReady := recovery.io.sourceReady(1)
-  stall.io.sourceReady := recovery.io.sourceReady(2)
-  pe.io.sourceReady := recovery.io.sourceReady(3)
+  recovery.io.sources := producers.io.sources
+  producers.io.sourceReady := recovery.io.sourceReady
   recovery.io.oldestValid := VecInit(true.B, true.B)
   recovery.io.oldestBid(0) := id(0.U)
   recovery.io.oldestBid(1) := id(0.U)
   recovery.io.oldestBlockComplete := VecInit(false.B, false.B)
   recovery.io.intentReady := io.intentReady
 
-  io.bccReady := bcc.io.missReady
-  io.bccAccepted := bcc.io.missAccepted
-  io.slowReady := slow.io.eventReady
-  io.slowAccepted := slow.io.eventAccepted
-  io.peReady := pe.io.mismatchReady
-  io.peAccepted := pe.io.mismatchAccepted
-  io.stallTriggerCaptured := stall.io.triggerCaptured
-  io.stallBlockedByMissingIdentity := stall.io.blockedByMissingIdentity
-  io.stallCount := stall.io.stallCount
+  io.bccReady := producers.io.bccReady
+  io.bccAccepted := producers.io.bccAccepted
+  io.slowReady := producers.io.iexSlowReady
+  io.slowAccepted := producers.io.iexSlowAccepted
+  io.peReady := producers.io.peMismatchReady
+  io.peAccepted := producers.io.peMismatchAccepted
+  io.stallTriggerCaptured := producers.io.iexIqTriggerCaptured
+  io.stallBlockedByMissingIdentity := producers.io.iexIqBlockedByMissingIdentity
+  io.stallCount := producers.io.iexIqStallCount
+  io.stallResolvedIdentityValid := stallIdentity.io.identityValid
+  io.stallResolvedBlockBid := stallIdentity.io.recoveryBlockBid
+  io.producerPendingMask := producers.io.pendingMask
   io.sourcePendingMask := recovery.io.sourcePendingMask
+  io.sourceResolvedMask := recovery.io.sourceResolvedMask
+  io.consumedPayloadSourceMask := recovery.io.consumedPayloadSourceMask
   io.classGlobalFlushPendingMask := recovery.io.classGlobalFlushPendingMask
   io.classGlobalReplayPendingMask := recovery.io.classGlobalReplayPendingMask
   io.classPePendingMask := recovery.io.classPePendingMask
@@ -194,8 +187,7 @@ class RecoveryProducerProbe extends Module {
   io.intentBaseOnBid := recovery.io.intent.flush.baseOnBid
   io.intentFetchTpcValid := recovery.io.intent.flush.req.fetchTpcValid
   io.intentFetchTpc := recovery.io.intent.flush.req.fetchTpc
-  io.pending := recovery.io.pending || bcc.io.pendingCount.orR || slow.io.pendingCount.orR ||
-    stall.io.pendingCount.orR || pe.io.pendingCount.orR
+  io.pending := recovery.io.pending || producers.io.pendingMask.orR
 }
 
 object EmitRecoveryProducerProbe extends App {

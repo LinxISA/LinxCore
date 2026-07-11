@@ -43,9 +43,11 @@ live reduced-store fixture compares 3 rows with zero mismatches and zero
 CBSTOP. Reduced CoreMark compares 426 rows with zero mismatches and zero CBSTOP
 at
 `generated/r654-final-store-count-publisher-coremark/report/crosscheck_manifest.json`.
-A canonical Chisel CTU/tile count calculator, canonical `BID_W` plus explicit
-wrap context, early non-flush predicates, configurable multi-block retirement,
-direct BCC/IEX/PE trigger owners, and complete cleanup fanout remain open.
+A canonical Chisel CTU/tile count calculator, early non-flush predicates,
+configurable multi-block retirement, upstream live BCC/IEX/PE trigger
+generation, the canonical scalar-LSU connection, and complete cleanup fanout
+remain open. R656 closes canonical BID versus pointer context, and R657 appends
+the retained four-lane non-LSU producer bank to the production backend path.
 
 R649 connects retained scalar MDB recovery to the live reduced
 top. `MDBConflictTransactionControl` is now shared by canonical

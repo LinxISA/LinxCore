@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and supplies owner-selected per-STID oldest BID/RID/completion watermarks, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Full-BID BROB pointer recovery and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
+      "limitations": ["DecodeRenameROBPath integrates the four-lane direct non-LSU producer bank and owner-selected per-STID watchdog identity, but upstream live BCC/IEX/PE event generation and the canonical ScalarLSURecoverySource connection remain open.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Complete external cleanup-consumer fanout remains open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -215,11 +215,15 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala",
-          "symbols": ["DecodeRenameROBPath", "RecoveryBackendControl", "recoveryIntentConsumed", "recoverySourceResolvedMask", "recoveryConsumedPayloadSourceMask", "tieOffRecovery"]
+          "symbols": ["DecodeRenameROBPath", "RecoveryBackendControl", "RecoveryNonLsuProducerBank", "IexIqStallRecoveryIdentity", "recoveryIntentConsumed", "recoverySourceResolvedMask", "recoveryConsumedPayloadSourceMask", "tieOffRecovery", "tieOffDirectRecovery"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducers.scala",
           "symbols": ["RecoveryProducerQueue", "BccRecoverySource", "IexSlowInsertRecoverySource", "IexIqStallRecoverySource", "PeMismatchRecoverySource"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryNonLsuProducerBank.scala",
+          "symbols": ["RecoveryNonLsuProducerBank", "IexIqStallRecoveryIdentity", "sources", "pendingMask", "recoveryBlockBid"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala",

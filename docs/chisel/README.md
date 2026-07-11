@@ -177,8 +177,9 @@ arbiter through the canonical `RecoveryFabric` wrapper. Standalone generated
 RTL proves held-output stability, nuke/PE cancellation, fast-replay cancellation,
 completed-block replay drop, exact inner/PE merge transformation, invalid-scope
 blocking, independent PE lanes, and cross-STID serialization. The real-ROB
-probe now proves the complete fabric path through scoped prune. Canonical
-BCC/IEX/PE producer modules and backend-top instantiation remain open.
+probe now proves the complete fabric path through scoped prune. R657 groups the
+four non-LSU producer families into a production bank and appends them to
+`DecodeRenameROBPath`; upstream live BCC/IEX/PE event generation remains open.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
