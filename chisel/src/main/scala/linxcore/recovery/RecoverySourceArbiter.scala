@@ -90,7 +90,8 @@ class RecoverySourceArbiter(
     var winner = 0.U(sourceIndexWidth.W)
     for (source <- 0 until sourceCount) {
       val belongs = pending(source) && (requests(source).stid === lane.U)
-      val winnerOlder = FlushControl.checkOlder(annotated(winner), annotated(source), io.oldestBid(lane))
+      val winnerRequest = if (sourceCount == 1) annotated(0) else annotated(winner)
+      val winnerOlder = FlushControl.checkOlder(winnerRequest, annotated(source), io.oldestBid(lane))
       val replace = belongs && (!found || !winnerOlder)
       winner = Mux(replace, source.U, winner)
       found = found || belongs
@@ -99,21 +100,27 @@ class RecoverySourceArbiter(
     laneSource(lane) := winner
   }
 
-  var selectedValid = false.B
-  var selectedLane = 0.U(stidIndexWidth.W)
-  for (offset <- 0 until stidCount) {
-    val sum = nextStid.pad(laneSumWidth) + offset.U(laneSumWidth.W)
-    val wrapped = Mux(sum >= stidCount.U, sum - stidCount.U, sum)
-    val lane = wrapped(stidIndexWidth - 1, 0)
-    val take = !selectedValid && laneValid(lane)
-    selectedLane = Mux(take, lane, selectedLane)
-    selectedValid = selectedValid || laneValid(lane)
+  val (selectedValid, selectedLane) = if (stidCount == 1) {
+    (laneValid(0), 0.U(stidIndexWidth.W))
+  } else {
+    var found = false.B
+    var winner = 0.U(stidIndexWidth.W)
+    for (offset <- 0 until stidCount) {
+      val sum = nextStid.pad(laneSumWidth) + offset.U(laneSumWidth.W)
+      val wrapped = Mux(sum >= stidCount.U, sum - stidCount.U, sum)
+      val lane = wrapped(stidIndexWidth - 1, 0)
+      val take = !found && laneValid(lane)
+      winner = Mux(take, lane, winner)
+      found = found || laneValid(lane)
+    }
+    (found, winner)
   }
 
-  val selectedSource = laneSource(selectedLane)
+  val selectedSource = if (stidCount == 1) laneSource(0) else laneSource(selectedLane)
+  val selectedRequest = if (sourceCount == 1) requests(0) else requests(selectedSource)
   io.out := 0.U.asTypeOf(io.out)
   when(selectedValid) {
-    io.out := requests(selectedSource)
+    io.out := selectedRequest
     io.out.valid := true.B
   }
   io.selectedSourceValid := selectedValid

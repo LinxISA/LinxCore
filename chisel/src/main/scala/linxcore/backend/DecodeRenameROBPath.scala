@@ -14,7 +14,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchSTQPath}
-import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
+import linxcore.recovery.{FullBidFlushReq, FullBidRecoveryBridge, RecoveryBackendControl, RecoveryCleanupIntent}
 import linxcore.rename.{
   ScalarTURenameBridge,
   StoreSplitIssuePayload,
@@ -53,7 +53,10 @@ class DecodeRenameROBPathIO(
     val gprMapQDepth: Int = 32,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
-    val markerRetireSourceQueueDepth: Int = 8)
+    val markerRetireSourceQueueDepth: Int = 8,
+    val scalarStidCount: Int = 1,
+    val recoveryPeCount: Int = 1,
+    val recoveryNonLsuSourceCount: Int = 4)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -93,7 +96,46 @@ class DecodeRenameROBPathIO(
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
   val commitStid = Input(UInt(stidWidth.W))
-  val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val recoveryNonLsuSources = Input(Vec(
+    recoveryNonLsuSourceCount,
+    new FullBidFlushReq(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth)
+  ))
+  val recoveryNonLsuSourceReady = Output(Vec(recoveryNonLsuSourceCount, Bool()))
+  val recoveryNonLsuSourceAccepted = Output(Vec(recoveryNonLsuSourceCount, Bool()))
+  val lsuRecoverySource = Input(new FullBidFlushReq(
+    p.robEntries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val lsuRecoverySourceReady = Output(Bool())
+  val lsuRecoverySourceAccepted = Output(Bool())
+  val lsuFullBidLookupRequest = Input(new ROBFullBidLookupRequest(
+    p.robEntries,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val lsuFullBidLookup = Output(new ROBFullBidLookupResult(
+    p.robEntries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val recoveryOldestBid = Input(Vec(scalarStidCount, new ROBID(p.robEntries)))
+  val recoveryOldestBlockComplete = Input(Vec(scalarStidCount, Bool()))
+  val recoveryIntentReady = Input(Bool())
+  val recoveryIntent = Output(new RecoveryCleanupIntent(
+    p.robEntries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val recoveryIntentConsumed = Output(Bool())
+  val recoveryPending = Output(Bool())
   val scalarCleanupOrderValid = Input(Bool())
   val scalarCleanupOrder = Input(UInt(p.uopUidWidth.W))
 
@@ -449,19 +491,6 @@ class DecodeRenameROBPathIO(
   val robCommitTraceLookupRid = Input(new ROBID(p.robEntries))
   val robCommitTraceLookupSourceTraceEnable = Input(Bool())
   val robCommitTraceLookup = Output(new ROBRowCommitTraceLookupResult(p.robEntries, traceParams))
-  val robFullBidLookupRequest = Input(new ROBFullBidLookupRequest(
-    p.robEntries,
-    peIdWidth,
-    stidWidth,
-    tidWidth
-  ))
-  val robFullBidLookup = Output(new ROBFullBidLookupResult(
-    p.robEntries,
-    bidWidth,
-    peIdWidth,
-    stidWidth,
-    tidWidth
-  ))
   val occupiedMask = Output(UInt(p.robEntries.W))
   val completedMask = Output(UInt(p.robEntries.W))
   val retiredMask = Output(UInt(p.robEntries.W))
@@ -491,6 +520,8 @@ class DecodeRenameROBPath(
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
     val markerRetireSourceQueueDepth: Int = 8,
+    val recoveryPeCount: Int = 1,
+    val recoveryNonLsuSourceCount: Int = 4,
     val tuRetireReleaseThreshold: Int = 4,
     val blockRenameCommitQueueDepth: Int = 16,
     val scalarContinuationGprCutThreshold: Int = 32,
@@ -572,7 +603,10 @@ class DecodeRenameROBPath(
     gprMapQDepth = gprMapQDepth,
     tuRetireSourceQueueDepth = tuRetireSourceQueueDepth,
     tuRetireRelationCmapDepth = tuRetireRelationCmapDepth,
-    markerRetireSourceQueueDepth = markerRetireSourceQueueDepth
+    markerRetireSourceQueueDepth = markerRetireSourceQueueDepth,
+    scalarStidCount = scalarStidCount,
+    recoveryPeCount = recoveryPeCount,
+    recoveryNonLsuSourceCount = recoveryNonLsuSourceCount
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -640,7 +674,39 @@ class DecodeRenameROBPath(
     stidCount = scalarStidCount,
     lsidWidth = p.lsidWidth
   ))
-  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
+  val recovery = Module(new RecoveryBackendControl(
+    nonLsuSourceCount = recoveryNonLsuSourceCount,
+    stidCount = scalarStidCount,
+    peCount = recoveryPeCount,
+    entries = p.robEntries,
+    bidWidth = bidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
+  ))
+  recovery.io.nonLsuSources := io.recoveryNonLsuSources
+  recovery.io.lsuSource := io.lsuRecoverySource
+  recovery.io.lsuFullBidLookupRequest := io.lsuFullBidLookupRequest
+  recovery.io.robFullBidLookup := allocator.io.fullBidLookup
+  recovery.io.oldestBid := io.recoveryOldestBid
+  recovery.io.oldestBlockComplete := io.recoveryOldestBlockComplete
+  recovery.io.intentReady := io.recoveryIntentReady
+
+  val cleanup = Wire(chiselTypeOf(recovery.io.intent))
+  cleanup := recovery.io.intent
+  cleanup.valid := recovery.io.intentConsumed
+  cleanup.flush.req.valid := recovery.io.intentConsumed && recovery.io.intent.flush.req.valid
+
+  io.recoveryNonLsuSourceReady := recovery.io.nonLsuSourceReady
+  io.recoveryNonLsuSourceAccepted := recovery.io.nonLsuSourceAccepted
+  io.lsuRecoverySourceReady := recovery.io.lsuSourceReady
+  io.lsuRecoverySourceAccepted := recovery.io.lsuSourceAccepted
+  io.lsuFullBidLookup := recovery.io.lsuFullBidLookup
+  io.recoveryIntent := recovery.io.intent
+  io.recoveryIntentConsumed := recovery.io.intentConsumed
+  io.recoveryPending := recovery.io.pending
+
+  val blockLifecycleFlush = cleanup.valid && (cleanup.backendFlushValid || cleanup.blockFlushValid)
   val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth, stidWidth))
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
@@ -656,7 +722,7 @@ class DecodeRenameROBPath(
   val markerLifecycleConflict = robBlockLastScalarDoneFire
   markerLifecycle.io.flushValid := false.B
   markerLifecycle.io.flushStidValid := blockLifecycleFlush
-  markerLifecycle.io.flushStid := io.cleanup.flush.req.stid
+  markerLifecycle.io.flushStid := cleanup.flush.req.stid
   markerLifecycle.io.markerBoundary := markerBoundary
   markerLifecycle.io.markerStop := markerStop
   markerLifecycle.io.markerPc := marker.pc
@@ -684,7 +750,7 @@ class DecodeRenameROBPath(
 
   val scalarContinuationGprCut = Wire(Bool())
   scalarContinuationGprCut := false.B
-  val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
+  val decRenFlush = io.flushValid || (cleanup.valid && cleanup.backendFlushValid)
   val markerDecodeContextOpt =
     if (useMarkerDecodeContext) {
       val ctx = Module(new BlockMarkerDecodeContext(
@@ -695,7 +761,7 @@ class DecodeRenameROBPath(
       ))
       ctx.io.flushValid := io.flushValid
       ctx.io.flushStidValid := blockLifecycleFlush
-      ctx.io.flushStid := io.cleanup.flush.req.stid
+      ctx.io.flushStid := cleanup.flush.req.stid
       ctx.io.decodeValid := selectedAny
       ctx.io.decodeFire := allocator.io.allocFire
       ctx.io.decodeBoundary := selected.sob
@@ -888,8 +954,8 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth,
     mapQDepth = mapQDepth
   ))
-  storeDispatch.io.flush := io.cleanup.flush
-  storeDispatch.io.queueFlushValid := decRenFlush && !io.cleanup.flush.req.valid
+  storeDispatch.io.flush := cleanup.flush
+  storeDispatch.io.queueFlushValid := decRenFlush && !cleanup.flush.req.valid
   storeDispatch.io.staExec := io.storeStaExec
   storeDispatch.io.stdExec := io.storeStdExec
   storeDispatch.io.markCommitValid := io.storeMarkCommitValid
@@ -922,7 +988,7 @@ class DecodeRenameROBPath(
   rename.io.commitBid := renameCommitBid
   rename.io.commitBlockBid := renameCommitBlockBid
   rename.io.commitStid := renameCommitStid
-  rename.io.cleanup := io.cleanup
+  rename.io.cleanup := cleanup
   rename.io.cleanupOrderValid := io.scalarCleanupOrderValid
   rename.io.cleanupOrder := io.scalarCleanupOrder
 
@@ -948,7 +1014,7 @@ class DecodeRenameROBPath(
   storeDispatch.io.stdIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.std)
   storeDispatch.io.unsplitIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.unsplit)
 
-  allocator.io.flush := io.cleanup.flush
+  allocator.io.flush := recovery.io.robFlush
   allocator.io.allocValid :=
     selectedAny && decRenQ.io.pushReady && gprReservationReady && decodeContextCloseSafe &&
       !selectedClosesActiveRedirect
@@ -1006,14 +1072,14 @@ class DecodeRenameROBPath(
   allocator.io.commitTraceLookupValid := io.robCommitTraceLookupValid
   allocator.io.commitTraceLookupRid := io.robCommitTraceLookupRid
   allocator.io.commitTraceLookupSourceTraceEnable := io.robCommitTraceLookupSourceTraceEnable
-  allocator.io.fullBidLookupRequest := io.robFullBidLookupRequest
+  allocator.io.fullBidLookupRequest := recovery.io.robFullBidLookupRequest
   val decodeContextScalarDoneFire =
     (allocator.io.allocFire && decodeContextMarkerCloseIntent && decodeContextCloseSafe) ||
       selectedClosesActiveRedirect
   val blockScalarDoneFire = decodeContextScalarDoneFire || markerLifecycle.io.scalarDoneValid
   val blockScalarDoneBid = Mux(decodeContextScalarDoneFire, decodeContextClosingBlockBid, markerLifecycle.io.scalarDoneBid)
   val blockScalarDoneStid = Mux(decodeContextScalarDoneFire, selectedStid, markerLifecycle.io.scalarDoneStid)
-  blockScalarDoneSeq.io.flushValid := io.flushValid && !io.cleanup.valid
+  blockScalarDoneSeq.io.flushValid := io.flushValid && !cleanup.valid
   blockScalarDoneSeq.io.inValid := blockScalarDoneFire
   blockScalarDoneSeq.io.inBid := blockScalarDoneBid
   blockScalarDoneSeq.io.inStid := blockScalarDoneStid
@@ -1030,12 +1096,12 @@ class DecodeRenameROBPath(
   allocator.io.blockRetireValid := blockScalarDoneSeq.io.retireValid
   allocator.io.blockRetireBid := blockScalarDoneSeq.io.retireBid
   allocator.io.blockRetireStid := blockScalarDoneSeq.io.retireStid
-  allocator.io.blockFlushValid := io.cleanup.blockFlushValid
-  allocator.io.blockFlushBid := io.cleanup.blockFlushBid
-  allocator.io.blockFlushStid := io.cleanup.flush.req.stid
+  allocator.io.blockFlushValid := cleanup.valid && cleanup.blockFlushValid
+  allocator.io.blockFlushBid := cleanup.blockFlushBid
+  allocator.io.blockFlushStid := cleanup.flush.req.stid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   allocator.io.blockQueryStid := selectedStid
-  val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !io.cleanup.valid)) {
+  val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !cleanup.valid)) {
     Module(new Queue(new BlockRenameCommitIdentity(bidWidth, stidWidth), blockRenameCommitQueueDepth))
   }
   blockRenameCommitQ.io.enq.valid := blockScalarDoneSeq.io.retireValid
@@ -1063,7 +1129,7 @@ class DecodeRenameROBPath(
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
   tuRetirePath.io.sources := allocator.io.deallocTURetireSource
   tuRetirePath.io.clear := false.B
-  tuRetirePath.io.flush := io.cleanup.flush
+  tuRetirePath.io.flush := cleanup.flush
   tuRetirePath.io.cleanBlockValid := false.B
   tuRetirePath.io.cleanBlockBid := zeroRobId
   tuRetirePath.io.cleanGroupValid := false.B
@@ -1086,7 +1152,7 @@ class DecodeRenameROBPath(
 
   markerRetireSerializer.io.sources := allocator.io.deallocBlockMarkerRetireSource
   markerRetireSerializer.io.clear := false.B
-  markerRetireSerializer.io.flush := io.cleanup.flush
+  markerRetireSerializer.io.flush := cleanup.flush
   markerRetireSerializer.io.outReady := markerLifecycle.io.retiredMarkerReady
   markerLifecycle.io.retiredMarker := markerRetireSerializer.io.out
 
@@ -1434,11 +1500,24 @@ class DecodeRenameROBPath(
   io.commitHeadRobValue := allocator.io.commitHeadRobValue
   io.robStatusLookup := allocator.io.statusLookup
   io.robCommitTraceLookup := allocator.io.commitTraceLookup
-  io.robFullBidLookup := allocator.io.fullBidLookup
   io.occupiedMask := allocator.io.occupiedMask
   io.completedMask := allocator.io.completedMask
   io.retiredMask := allocator.io.retiredMask
   io.blockAllocatedMask := allocator.io.blockAllocatedMask
   io.blockCompleteMask := allocator.io.blockCompleteMask
   io.blockPendingMask := allocator.io.blockPendingMask
+}
+
+object DecodeRenameROBPath {
+  /** Tie off recovery only in reduced trace shells that expose no producer.
+    * Canonical backend compositions must connect authoritative sources instead.
+    */
+  def tieOffRecovery(path: DecodeRenameROBPath): Unit = {
+    path.io.recoveryNonLsuSources := 0.U.asTypeOf(path.io.recoveryNonLsuSources)
+    path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
+    path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
+    path.io.recoveryOldestBid := 0.U.asTypeOf(path.io.recoveryOldestBid)
+    path.io.recoveryOldestBlockComplete := VecInit(Seq.fill(path.scalarStidCount)(false.B))
+    path.io.recoveryIntentReady := true.B
+  }
 }

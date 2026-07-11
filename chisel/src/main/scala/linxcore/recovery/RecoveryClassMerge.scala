@@ -166,7 +166,7 @@ class RecoveryClassMerge(
     laneValid(lane) := globalFlush(lane).valid || globalReplay(lane).valid || firstPeValid
     laneClass(lane) := RecoveryActionClass.PeScoped
     lanePe(lane) := firstPe
-    laneReq(lane) := peScoped(lane)(firstPe)
+    laneReq(lane) := (if (peCount == 1) peScoped(lane)(0) else peScoped(lane)(firstPe))
     when(globalReplay(lane).valid && (!globalFlush(lane).valid || replayCancelsFlush(lane))) {
       laneClass(lane) := RecoveryActionClass.GlobalReplay
       lanePe(lane) := 0.U
@@ -182,19 +182,24 @@ class RecoveryClassMerge(
     }
   }
 
-  var selectedValid = false.B
-  var selectedLane = 0.U(stidIndexWidth.W)
-  for (offset <- 0 until stidCount) {
-    val sum = nextStid.pad(laneSumWidth) + offset.U(laneSumWidth.W)
-    val wrapped = Mux(sum >= stidCount.U, sum - stidCount.U, sum)
-    val lane = wrapped(stidIndexWidth - 1, 0)
-    val take = !selectedValid && laneValid(lane)
-    selectedLane = Mux(take, lane, selectedLane)
-    selectedValid = selectedValid || laneValid(lane)
+  val (selectedValid, selectedLane) = if (stidCount == 1) {
+    (laneValid(0), 0.U(stidIndexWidth.W))
+  } else {
+    var found = false.B
+    var winner = 0.U(stidIndexWidth.W)
+    for (offset <- 0 until stidCount) {
+      val sum = nextStid.pad(laneSumWidth) + offset.U(laneSumWidth.W)
+      val wrapped = Mux(sum >= stidCount.U, sum - stidCount.U, sum)
+      val lane = wrapped(stidIndexWidth - 1, 0)
+      val take = !found && laneValid(lane)
+      winner = Mux(take, lane, winner)
+      found = found || laneValid(lane)
+    }
+    (found, winner)
   }
-  val selectedClass = laneClass(selectedLane)
-  val selectedPe = lanePe(selectedLane)
-  val selectedReq = laneReq(selectedLane)
+  val selectedClass = if (stidCount == 1) laneClass(0) else laneClass(selectedLane)
+  val selectedPe = if (stidCount == 1) lanePe(0) else lanePe(selectedLane)
+  val selectedReq = if (stidCount == 1) laneReq(0) else laneReq(selectedLane)
 
   val outPending = RegInit(false.B)
   val outReq = RegInit(0.U.asTypeOf(requestType))
@@ -240,7 +245,11 @@ class RecoveryClassMerge(
             }
           }
           is(RecoveryActionClass.PeScoped) {
-            nextPeScoped(lane)(selectedPe).valid := false.B
+            for (pe <- 0 until peCount) {
+              when(selectedPe === pe.U) {
+                nextPeScoped(lane)(pe).valid := false.B
+              }
+            }
           }
         }
       }
@@ -276,9 +285,11 @@ class RecoveryClassMerge(
       val inputPeScoped = inBus.baseOnPE || inBus.baseOnThread
       val inputGlobalFlush = !inputPeScoped && FlushControl.isFlushType(io.in.typ)
       val inputGlobalReplay = !inputPeScoped && !FlushControl.isFlushType(io.in.typ)
-      val targetPeEffective = peEffective(inPeIndex)
+      val targetPeEffective = if (peCount == 1) peEffective(0) else peEffective(inPeIndex)
+      val targetPeBus = if (peCount == 1) peBus(lane)(0) else peBus(lane)(inPeIndex)
+      val targetPeReq = if (peCount == 1) peScoped(lane)(0) else peScoped(lane)(inPeIndex)
       val targetPeOlder = targetPeEffective &&
-        FlushControl.checkOlder(peBus(lane)(inPeIndex), inBus, io.oldestBid(lane))
+        FlushControl.checkOlder(targetPeBus, inBus, io.oldestBid(lane))
       val flushOlder = flushEffective &&
         FlushControl.checkOlder(flushBus(lane), inBus, io.oldestBid(lane))
       val inputOlderThanFlush = flushEffective &&
@@ -293,15 +304,23 @@ class RecoveryClassMerge(
           val (mergedValid, mergedReq) = mergeSignal(
             io.in,
             inBus,
-            peScoped(lane)(inPeIndex),
-            peBus(lane)(inPeIndex)
+            targetPeReq,
+            targetPeBus
           )
           when(mergedValid) {
             val mergedBus = annotateFull(mergedReq)
             io.inMerged := true.B
-            nextPeScoped(lane)(inPeIndex).valid := false.B
+            for (pe <- 0 until peCount) {
+              when(io.in.peId === pe.U) {
+                nextPeScoped(lane)(pe).valid := false.B
+              }
+            }
             when(mergedBus.baseOnPE || mergedBus.baseOnThread) {
-              nextPeScoped(lane)(mergedReq.peId(peIndexWidth - 1, 0)) := mergedReq
+              for (pe <- 0 until peCount) {
+                when(mergedReq.peId === pe.U) {
+                  nextPeScoped(lane)(pe) := mergedReq
+                }
+              }
             }.otherwise {
               nextFlush(lane) := mergedReq
               for (pe <- 0 until peCount) {
@@ -357,7 +376,11 @@ class RecoveryClassMerge(
             io.inMerged := true.B
             nextFlush(lane).valid := false.B
             when(mergedBus.baseOnPE || mergedBus.baseOnThread) {
-              nextPeScoped(lane)(flushMergedReq.peId(peIndexWidth - 1, 0)) := flushMergedReq
+              for (pe <- 0 until peCount) {
+                when(flushMergedReq.peId === pe.U) {
+                  nextPeScoped(lane)(pe) := flushMergedReq
+                }
+              }
             }.otherwise {
               nextFlush(lane) := flushMergedReq
             }
@@ -369,7 +392,11 @@ class RecoveryClassMerge(
         }.elsewhen(targetPeOlder) {
           io.inDroppedByOlder := true.B
         }.otherwise {
-          nextPeScoped(lane)(inPeIndex) := io.in
+          for (pe <- 0 until peCount) {
+            when(io.in.peId === pe.U) {
+              nextPeScoped(lane)(pe) := io.in
+            }
+          }
         }
       }
     }

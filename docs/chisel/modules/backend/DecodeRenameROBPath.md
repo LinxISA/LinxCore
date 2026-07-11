@@ -108,6 +108,16 @@ or deallocation behavior.
 R638 adds the parallel exact full-BID lookup passthrough. The path forwards a
 native BID/GID/RID plus PE/STID/TID key to the real allocator/ROB owner and
 returns the allocator-stamped full generation sideband with ordered blockers.
+R646 replaces that raw external lookup and direct cleanup injection with a
+parameterized `RecoveryBackendControl`. Non-LSU sources and the scalar-LSU
+source enter one retained arbitration/class/cleanup path; LSU exact-BID lookup
+is routed through the resident allocator/ROB. ROB and BROB mutation, rename
+cleanup, and backend queue cleanup occur only when the registered intent is
+accepted. The full fetch/RF/ALU composition supplies the first retained scalar
+redirect source, while reduced trace shells call `tieOffRecovery` explicitly.
+The full composition may redirect fetch immediately, but backend/ROB/BROB,
+rename, issue, store, LIQ, and ResolveQ mutation is qualified by the registered
+intent-consumption pulse.
 R547 adds the `deallocHoldMask` forwarding path through
 `DispatchROBAllocator` to `ROBEntryBank`. The path does not own the hold
 policy; the reduced replay-LIQ top drives it from outstanding returned-load

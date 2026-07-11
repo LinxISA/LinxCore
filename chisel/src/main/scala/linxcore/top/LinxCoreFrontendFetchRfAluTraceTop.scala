@@ -32,7 +32,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
 import linxcore.lsu.MDBStoreProbeReplay
-import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
+import linxcore.recovery.{FlushBus, ScalarRedirectRecoverySource}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
 
 class MdbLookupWaitPlanBridgeDiagnostics extends Bundle {
@@ -2563,41 +2563,41 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val bodyCutRestartPcReg = RegInit(0.U(p.pcWidth.W))
   val reducedLoadReplayResolveClearPending = RegInit(false.B)
   val reducedLoadReplayResolveClearIndex = RegInit(0.U(log2Ceil(p.robEntries).W))
-  val scalarRedirectPending = RegInit(false.B)
-  val scalarRedirectBidReg = RegInit(ROBID.disabled(p.robEntries))
-  val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
-  val scalarRedirectLsIdReg = RegInit(ROBID.disabled(p.robEntries))
-  val scalarRedirectResolveLsIdValidReg = RegInit(false.B)
-  val scalarRedirectStidReg = RegInit(0.U(p.threadIdWidth.W))
-  val scalarRedirectBlockBidReg = RegInit(0.U(p.blockBidWidth.W))
-  val scalarRedirectOrderValidReg = RegInit(false.B)
-  val scalarRedirectOrderReg = RegInit(0.U(p.uopUidWidth.W))
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerOnlyRedirectFire = path.io.blockMarkerStopRedirectValid && !execute.io.redirectValid
-  val markerRedirectNeedsBackendCleanup = execute.io.redirectValid || ((!skipBlockMarkers).B && markerOnlyRedirectFire)
+  val markerRedirectNeedsBackendCleanup = execute.io.redirectValid
   val markerRedirectFire = markerOnlyRedirectFire || execute.io.redirectValid
   val admittedMarkerDrainBarrier = RegInit(false.B)
   val selectedSlotOH = UIntToOH(path.io.selectedSlot, p.decodeWidth)
   val selectedMarkerMask = path.io.blockBoundaryMask | path.io.blockStopMask
   val admittedMarkerDrainFire =
     (!skipBlockMarkers).B && denseSlots.io.outFire && path.io.selectedValid && (selectedMarkerMask & selectedSlotOH).orR
-  val markerRedirectRetireSource = path.io.robMarkerRetireSource
-  val markerRedirectSourceBid =
-    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.bid, ROBID.disabled(p.robEntries))
-  val markerRedirectSourceRid =
-    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.rid, ROBID.disabled(p.robEntries))
-  val markerRedirectSourceStid =
-    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.stid, 0.U(p.threadIdWidth.W))
-  val markerRedirectSourceBlockBid =
-    Mux(
-      markerRedirectRetireSource.valid && markerRedirectRetireSource.blockBidValid,
-      markerRedirectRetireSource.blockBid,
-      0.U(p.blockBidWidth.W))
-  val markerRedirectCleanupBid =
-    Mux(path.io.blockMarkerStopRedirectValid, ROBID.inc(markerRedirectSourceBid), markerRedirectSourceBid)
+  val scalarRedirectRecovery = Module(new ScalarRedirectRecoverySource(
+    entries = p.robEntries,
+    bidWidth = p.blockBidWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    orderWidth = p.uopUidWidth
+  ))
+  scalarRedirectRecovery.io.event.valid := markerRedirectFire && markerRedirectNeedsBackendCleanup
+  scalarRedirectRecovery.io.event.blockBidValid := execute.io.completeRow.blockBidValid
+  scalarRedirectRecovery.io.event.blockBid := execute.io.completeRow.blockBid
+  scalarRedirectRecovery.io.event.bid := execute.io.releaseBid
+  scalarRedirectRecovery.io.event.rid := execute.io.releaseRid
+  scalarRedirectRecovery.io.event.lsId := lsidToReducedStoreId(execute.io.completeLsId)
+  scalarRedirectRecovery.io.event.resolveLsIdValid := execute.io.redirectValid
+  scalarRedirectRecovery.io.event.stid := execute.io.releaseStid
+  scalarRedirectRecovery.io.event.peId := io.peId
+  scalarRedirectRecovery.io.event.tid := io.threadId
+  scalarRedirectRecovery.io.event.orderValid := execute.io.redirectValid
+  scalarRedirectRecovery.io.event.order := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
+  scalarRedirectRecovery.io.sourceReady := path.io.recoveryNonLsuSourceReady(0)
+  scalarRedirectRecovery.io.intentConsumed := path.io.recoveryIntentConsumed
+  scalarRedirectRecovery.io.cancel := io.frontendFlushValid || io.restartValid || io.startValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
-  val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
+  val backendPipeFlush = io.frontendFlushValid || path.io.recoveryIntentConsumed
   val externalBfuGeometryValid = io.reducedBfuBodyValid
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
   val localBfuCutFeedbackPending = Module(new ReducedBfuResolvedBodyEndPending(p))
@@ -2737,59 +2737,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
     markerRedirectPcReg := 0.U
-    scalarRedirectPending := false.B
-    scalarRedirectBidReg := ROBID.disabled(p.robEntries)
-    scalarRedirectRidReg := ROBID.disabled(p.robEntries)
-    scalarRedirectLsIdReg := ROBID.disabled(p.robEntries)
-    scalarRedirectResolveLsIdValidReg := false.B
-    scalarRedirectStidReg := 0.U
-    scalarRedirectBlockBidReg := 0.U
-    scalarRedirectOrderValidReg := false.B
-    scalarRedirectOrderReg := 0.U
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
-    scalarRedirectPending := markerRedirectNeedsBackendCleanup
-    scalarRedirectBidReg :=
-      Mux(
-        markerRedirectNeedsBackendCleanup,
-        Mux(execute.io.redirectValid, execute.io.releaseBid, markerRedirectCleanupBid),
-        ROBID.disabled(p.robEntries))
-    scalarRedirectRidReg :=
-      Mux(
-        markerRedirectNeedsBackendCleanup,
-        Mux(execute.io.redirectValid, execute.io.releaseRid, markerRedirectSourceRid),
-        ROBID.disabled(p.robEntries))
-    scalarRedirectLsIdReg :=
-      Mux(
-        markerRedirectNeedsBackendCleanup && execute.io.redirectValid,
-        lsidToReducedStoreId(execute.io.completeLsId),
-        ROBID.disabled(p.robEntries))
-    scalarRedirectResolveLsIdValidReg := markerRedirectNeedsBackendCleanup && execute.io.redirectValid
-    scalarRedirectStidReg :=
-      Mux(markerRedirectNeedsBackendCleanup, Mux(execute.io.redirectValid, execute.io.releaseStid, markerRedirectSourceStid), 0.U)
-    scalarRedirectBlockBidReg :=
-      Mux(
-        markerRedirectNeedsBackendCleanup,
-        Mux(
-          execute.io.redirectValid,
-          Mux(execute.io.completeRow.blockBidValid, execute.io.completeRow.blockBid, 0.U),
-          markerRedirectSourceBlockBid),
-        0.U)
-    scalarRedirectOrderValidReg := markerRedirectNeedsBackendCleanup && execute.io.redirectValid
-    scalarRedirectOrderReg := Mux(markerRedirectNeedsBackendCleanup && execute.io.redirectValid, execute.io.redirectOrder, 0.U)
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
-    scalarRedirectPending := false.B
-    scalarRedirectBidReg := ROBID.disabled(p.robEntries)
-    scalarRedirectRidReg := ROBID.disabled(p.robEntries)
-    scalarRedirectLsIdReg := ROBID.disabled(p.robEntries)
-    scalarRedirectResolveLsIdValidReg := false.B
-    scalarRedirectStidReg := 0.U
-    scalarRedirectBlockBidReg := 0.U
-    scalarRedirectOrderValidReg := false.B
-    scalarRedirectOrderReg := 0.U
   }
+  assert(
+    !scalarRedirectRecovery.io.event.valid || scalarRedirectRecovery.io.cancel ||
+      scalarRedirectRecovery.io.eventReady,
+    "scalar redirect recovery cannot overwrite an unconsumed event"
+  )
+  assert(
+    !scalarRedirectRecovery.io.blockedByMissingIdentity,
+    "scalar redirect recovery requires exact full block BID identity"
+  )
   when(io.frontendFlushValid || io.restartValid || io.startValid || markerRedirectFire) {
     admittedMarkerDrainBarrier := false.B
   }.elsewhen(admittedMarkerDrainFire) {
@@ -3128,7 +3090,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     )).asUInt
   val reducedReplayLiqStoreSnapshotHardFlush =
     io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
-      (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)
+      (path.io.recoveryIntentConsumed && !scalarRedirectRecovery.io.cleanupResolveLsIdValid)
   val reducedReplayLiqStoreSnapshotPreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
   reducedReplayLiqStoreSnapshotPreciseFlush := 0.U.asTypeOf(reducedReplayLiqStoreSnapshotPreciseFlush)
@@ -3287,7 +3249,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
   val reducedLoadReplayResolveHardFlush =
     io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
-      (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)
+      (path.io.recoveryIntentConsumed && !scalarRedirectRecovery.io.cleanupResolveLsIdValid)
   reducedLoadReplayResolveQueue.io.flush := reducedLoadReplayResolveHardFlush
   reducedLoadReplayResolveQueue.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
   val reducedReplayResolvedRowHitRecord = Module(new LoadReplayResolvedRowHitRecord(
@@ -3636,46 +3598,31 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.commitBid := ROBID.disabled(p.robEntries)
   path.io.commitBlockBid := 0.U
   path.io.commitStid := 0.U
-  val pathCleanup = Wire(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
-  pathCleanup := 0.U.asTypeOf(pathCleanup)
-  pathCleanup.valid := scalarRedirectPending
-  pathCleanup.flush.req.valid := scalarRedirectPending
-  pathCleanup.flush.req.typ := FlushType.InnerFlush
-  pathCleanup.flush.req.peId := io.peId
-  pathCleanup.flush.req.tid := io.threadId
-  pathCleanup.flush.req.stid := scalarRedirectStidReg
-  pathCleanup.flush.req.bid := scalarRedirectBidReg
-  pathCleanup.flush.req.gid := ROBID.disabled(p.robEntries)
-  pathCleanup.flush.req.rid := ROBID.inc(scalarRedirectRidReg)
-  pathCleanup.flush.req.lsId := ROBID.disabled(p.robEntries)
-  pathCleanup.flush.req.execEngine := ExecEngineType.Scalar
-  pathCleanup.flush.req.fetchTpcValid := false.B
-  pathCleanup.flush.req.immediateFlush := true.B
-  pathCleanup.flush.baseOnBid := false.B
-  pathCleanup.flush.baseOnGroup := false.B
-  pathCleanup.flush.baseOnPE := false.B
-  pathCleanup.flush.baseOnThread := false.B
-  pathCleanup.flush.simtReplay := false.B
-  pathCleanup.flush.mtcReplay := false.B
-  pathCleanup.robPruneValid := scalarRedirectPending
-  pathCleanup.renameFlushValid := scalarRedirectPending
-  pathCleanup.backendFlushValid := scalarRedirectPending
-  pathCleanup.blockFlushValid := scalarRedirectPending
-  pathCleanup.blockFlushBid := scalarRedirectBlockBidReg
-  pathCleanup.reportQueueFlushValid := scalarRedirectPending
+  path.io.recoveryNonLsuSources := 0.U.asTypeOf(path.io.recoveryNonLsuSources)
+  path.io.recoveryNonLsuSources(0) := scalarRedirectRecovery.io.source
+  path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
+  path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
+  path.io.recoveryOldestBid := 0.U.asTypeOf(path.io.recoveryOldestBid)
+  path.io.recoveryOldestBlockComplete := 0.U.asTypeOf(path.io.recoveryOldestBlockComplete)
+  path.io.recoveryIntentReady := true.B
+
+  val acceptedRecoveryFlush = Wire(chiselTypeOf(path.io.recoveryIntent.flush))
+  acceptedRecoveryFlush := path.io.recoveryIntent.flush
+  acceptedRecoveryFlush.req.valid := path.io.recoveryIntentConsumed
   // Replay STQ request/response queues are MemReq-shaped; prune by load LSID, not ROB RID.
-  reducedReplayLiqStoreSnapshotPreciseFlush := pathCleanup.flush
+  reducedReplayLiqStoreSnapshotPreciseFlush := acceptedRecoveryFlush
   reducedReplayLiqStoreSnapshotPreciseFlush.req.valid :=
-    reducedLoadReplayLiqAllocEnabled && scalarRedirectPending && scalarRedirectResolveLsIdValidReg
-  reducedReplayLiqStoreSnapshotPreciseFlush.req.lsId := scalarRedirectLsIdReg
-  reducedLoadReplayResolvePreciseFlush := pathCleanup.flush
+    reducedLoadReplayLiqAllocEnabled && path.io.recoveryIntentConsumed &&
+      scalarRedirectRecovery.io.cleanupResolveLsIdValid
+  reducedReplayLiqStoreSnapshotPreciseFlush.req.lsId := scalarRedirectRecovery.io.cleanupLsId
+  reducedLoadReplayResolvePreciseFlush := acceptedRecoveryFlush
   reducedLoadReplayResolvePreciseFlush.req.valid :=
-    reducedLoadReplayLiqAllocEnabled && scalarRedirectPending && scalarRedirectResolveLsIdValidReg
+    reducedLoadReplayLiqAllocEnabled && path.io.recoveryIntentConsumed &&
+      scalarRedirectRecovery.io.cleanupResolveLsIdValid
   // ResolveQ is MemReq-shaped; scalar precise pruning compares BID plus LSID, not ROB RID.
-  reducedLoadReplayResolvePreciseFlush.req.lsId := scalarRedirectLsIdReg
-  path.io.cleanup := pathCleanup
-  path.io.scalarCleanupOrderValid := scalarRedirectOrderValidReg
-  path.io.scalarCleanupOrder := scalarRedirectOrderReg
+  reducedLoadReplayResolvePreciseFlush.req.lsId := scalarRedirectRecovery.io.cleanupLsId
+  path.io.scalarCleanupOrderValid := scalarRedirectRecovery.io.cleanupOrderValid
+  path.io.scalarCleanupOrder := scalarRedirectRecovery.io.cleanupOrder
   LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring.connect(
     io,
     path,
@@ -4064,7 +4011,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqReturnLretSink.io.drain.rid,
       reducedReplayLiqReturnPipeW2Modules.slot.io.entryRid)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
-  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
   val reducedReplayLiqLretDrainInstructionProviderValidReg = RegInit(false.B)
   val reducedReplayLiqLretDrainInstructionProviderRidReg =
     RegInit(ROBID.disabled(p.robEntries))

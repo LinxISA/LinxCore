@@ -61,8 +61,8 @@ class RecoveryCleanupROBProbe extends Module {
   private val traceParams = CommitTraceParams(commitWidth = 1)
 
   val io = IO(new RecoveryCleanupROBProbeIO)
-  val recovery = Module(new RecoveryFabric(
-    sourceCount = 3,
+  val backend = Module(new RecoveryBackendControl(
+    nonLsuSourceCount = 2,
     stidCount = 2,
     peCount = 2,
     entries = entries,
@@ -83,7 +83,7 @@ class RecoveryCleanupROBProbe extends Module {
     out
   }
 
-  val fullReq = Wire(chiselTypeOf(recovery.io.sources(0)))
+  val fullReq = Wire(chiselTypeOf(backend.io.nonLsuSources(0)))
   fullReq := 0.U.asTypeOf(fullReq)
   fullReq.valid := io.fullValid
   fullReq.typ := FlushType.NukeFlush
@@ -117,22 +117,19 @@ class RecoveryCleanupROBProbe extends Module {
   lsuSource.io.oldestValid := io.oldestValid
   lsuSource.io.oldestBid := id(io.oldestBid)
   lsuSource.io.oldestRid := id(io.oldestRid)
-  lsuSource.io.fullBidLookup := rob.io.fullBidLookup
-  lsuSource.io.sourceReady := recovery.io.sourceReady(2)
-  rob.io.fullBidLookupRequest := lsuSource.io.fullBidLookupRequest
-  recovery.io.sources(0) := fullReq
-  recovery.io.sources(1) := peerFullReq
-  recovery.io.sources(2) := lsuSource.io.source
-  recovery.io.oldestBid(0) := id(io.oldestBid)
-  recovery.io.oldestBid(1) := id(3.U)
-  recovery.io.oldestBlockComplete := VecInit(false.B, false.B)
-  recovery.io.intentReady := io.intentReady
-
-  val appliedFlush = Wire(chiselTypeOf(recovery.io.intent.flush))
-  appliedFlush := recovery.io.intent.flush
-  appliedFlush.req.valid :=
-    recovery.io.intent.valid && recovery.io.intent.robPruneValid && io.intentReady
-  rob.io.flush := appliedFlush
+  lsuSource.io.fullBidLookup := backend.io.lsuFullBidLookup
+  lsuSource.io.sourceReady := backend.io.lsuSourceReady
+  backend.io.lsuFullBidLookupRequest := lsuSource.io.fullBidLookupRequest
+  backend.io.robFullBidLookup := rob.io.fullBidLookup
+  rob.io.fullBidLookupRequest := backend.io.robFullBidLookupRequest
+  backend.io.nonLsuSources(0) := fullReq
+  backend.io.nonLsuSources(1) := peerFullReq
+  backend.io.lsuSource := lsuSource.io.source
+  backend.io.oldestBid(0) := id(io.oldestBid)
+  backend.io.oldestBid(1) := id(3.U)
+  backend.io.oldestBlockComplete := VecInit(false.B, false.B)
+  backend.io.intentReady := io.intentReady
+  rob.io.flush := backend.io.robFlush
 
   val allocRow = Wire(chiselTypeOf(rob.io.allocRow))
   allocRow := 0.U.asTypeOf(allocRow)
@@ -186,28 +183,28 @@ class RecoveryCleanupROBProbe extends Module {
   io.allocReady := rob.io.allocReady
   io.ringReady := lsuSource.io.ringReqReady
   io.ringAccepted := lsuSource.io.sourceAccepted
-  io.fullReady := recovery.io.sourceReady(0)
-  io.fullAccepted := recovery.io.sourceAccepted(0)
-  io.peerFullReady := recovery.io.sourceReady(1)
-  io.peerFullAccepted := recovery.io.sourceAccepted(1)
+  io.fullReady := backend.io.nonLsuSourceReady(0)
+  io.fullAccepted := backend.io.nonLsuSourceAccepted(0)
+  io.peerFullReady := backend.io.nonLsuSourceReady(1)
+  io.peerFullAccepted := backend.io.nonLsuSourceAccepted(1)
   io.ringBlockedByAge := lsuSource.io.blockedByAge
   io.ringLookupMatched := lsuSource.io.lookupMatched
   io.ringLookupBlocked :=
     lsuSource.io.blockedByLookupMiss ||
       lsuSource.io.blockedByStaleLookup ||
       lsuSource.io.blockedByRingProjection
-  io.cleanupPending := recovery.io.intent.valid
-  io.recoveryPending := recovery.io.pending
-  io.arbiterPendingMask := recovery.io.sourcePendingMask
-  io.classGlobalFlushPendingMask := recovery.io.classGlobalFlushPendingMask
-  io.classGlobalReplayPendingMask := recovery.io.classGlobalReplayPendingMask
-  io.classPePendingMask := recovery.io.classPePendingMask
-  io.arbiterSelectedValid := recovery.io.sourceSelectedValid
-  io.arbiterSelectedSource := recovery.io.sourceSelected
-  io.arbiterSelectedBlockBid := recovery.io.sourceSelectedBlockBid
-  io.cleanupIntentValid := recovery.io.intent.valid
-  io.cleanupBlockFlushValid := recovery.io.intent.blockFlushValid
-  io.cleanupBlockFlushBid := recovery.io.intent.blockFlushBid
+  io.cleanupPending := backend.io.intent.valid
+  io.recoveryPending := backend.io.pending
+  io.arbiterPendingMask := backend.io.sourcePendingMask
+  io.classGlobalFlushPendingMask := backend.io.classGlobalFlushPendingMask
+  io.classGlobalReplayPendingMask := backend.io.classGlobalReplayPendingMask
+  io.classPePendingMask := backend.io.classPePendingMask
+  io.arbiterSelectedValid := backend.io.sourceSelectedValid
+  io.arbiterSelectedSource := backend.io.sourceSelected
+  io.arbiterSelectedBlockBid := backend.io.sourceSelectedBlockBid
+  io.cleanupIntentValid := backend.io.intent.valid
+  io.cleanupBlockFlushValid := backend.io.intent.blockFlushValid
+  io.cleanupBlockFlushBid := backend.io.intent.blockFlushBid
   io.robFlushApplied := rob.io.flushApplied
   io.robFlushPruneMask := rob.io.flushPruneMask
   io.robSize := rob.io.size

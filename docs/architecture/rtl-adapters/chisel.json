@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "R642 implements retained BCC/IEX/PE producer adapters and composes them through RecoveryFabric in a generated probe, but canonical trigger owners do not yet expose every authoritative full-BID event port and the production top does not connect the complete BCC/IEX/PE/LSU source set."],
+      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and the full fetch/RF/ALU composition connects one execute-redirect source, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "A multi-source composition must carry accepted-intent provenance before generic cleanup consumption may release scalar-only order/LSID sidecars.", "Full-BID BROB pointer recovery, multi-STID oldest-block watermarks, and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -202,6 +202,18 @@
           "symbols": ["RecoveryFabric", "sourceArbiter", "classMerge", "cleanup", "classSelected", "intent"]
         },
         {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala",
+          "symbols": ["RecoveryBackendControl", "robFullBidLookupRequest", "intentConsumed", "robFlush"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySource.scala",
+          "symbols": ["ScalarRedirectRecoverySource", "eventAccepted", "sourceAccepted", "blockedByMissingIdentity", "cleanupLsId"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala",
+          "symbols": ["DecodeRenameROBPath", "RecoveryBackendControl", "recoveryIntentConsumed", "tieOffRecovery"]
+        },
+        {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducers.scala",
           "symbols": ["RecoveryProducerQueue", "BccRecoverySource", "IexSlowInsertRecoverySource", "IexIqStallRecoverySource", "PeMismatchRecoverySource"]
         },
@@ -223,7 +235,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
-          "symbols": ["RecoveryCleanupROBProbe", "RecoveryFabric", "ScalarLSURecoverySource", "ROBEntryBank", "robFlushPruneMask"]
+          "symbols": ["RecoveryCleanupROBProbe", "RecoveryBackendControl", "ScalarLSURecoverySource", "ROBEntryBank", "robFlushPruneMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala",
@@ -234,6 +246,18 @@
         {
           "path": "chisel/src/test/scala/linxcore/recovery/RecoveryClassMergeSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryClassMergeSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/RecoveryBackendControlSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryBackendControlSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/ScalarRedirectRecoverySourceSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarRedirectRecoverySourceSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh"
         },
         {
           "path": "tools/chisel/run_chisel_recovery_class_merge_probe.sh",

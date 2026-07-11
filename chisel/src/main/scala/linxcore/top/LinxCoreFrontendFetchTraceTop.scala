@@ -8,7 +8,6 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{CoreParams, InterfaceParams}
 import linxcore.frontend.{F4DecodeWindow, FrontendFetchPacketSource}
 import linxcore.lsu.StoreDispatchExecResult
-import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class LinxCoreFrontendFetchTraceTopIO(
@@ -150,7 +149,7 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.commitBid := ROBID.disabled(p.robEntries)
   path.io.commitBlockBid := 0.U
   path.io.commitStid := 0.U
-  path.io.cleanup := 0.U.asTypeOf(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  DecodeRenameROBPath.tieOffRecovery(path)
   path.io.scalarCleanupOrderValid := false.B
   path.io.scalarCleanupOrder := 0.U
   path.io.completeValid := io.completeValid
@@ -167,7 +166,6 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.robCommitTraceLookupValid := false.B
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
-  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
 
   io.fetchReqValid := source.io.reqValid
   io.fetchReqPc := source.io.reqPc
