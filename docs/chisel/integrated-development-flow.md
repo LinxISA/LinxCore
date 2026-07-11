@@ -1071,12 +1071,13 @@ Evidence:
   `0x124aa` as sequence 8, rather than the former bogus `LWU` at `0x124de`.
   The memh host cursor now consumes that same CTU-start flush and resumes at
   `0x124ae`, advancing the FIFO comparison from six to nineteen architectural
-  rows. The next root cause is the ISA instruction-length contract: CoreMark
-  uses an eight-byte `HL.BSTART.CALL` at `0x124ae`, but the current decode/ROB
-  length path is three bits wide and labels the HL form as six bytes. Its final
-  two bytes are then injected as a bogus 16-bit instruction at `0x124b4`, so
-  the call target is never taken. Repair this by widening the architectural
-  length contract end-to-end; do not mask it as a branch or FRET trace issue.
+  rows. The `HL.BSTART.CALL` there is correctly a six-byte instruction followed
+  by a real 16-bit instruction at `0x124b4`; do not widen the length path based
+  on the disassembler's combined rendering. The next divergence is the
+  `FRET.STK` parent at `0x124e4`: QEMU reports `next_pc=0x15670`, while the
+  RTL template stream reports its internal step PC and later restores
+  `0x124a6`. This is a template-parent target/retirement contract defect, not
+  an instruction-length, loader, FIFO, or stale-F4 issue.
 - The post-recovery implementation survives a direct CoreMark boot through
   the explicit `PYC_MAX_CYCLES=3000000` endurance bound without a trap or the
   20,000-cycle no-retire detector firing. It reached the configured cycle
