@@ -288,13 +288,16 @@
       "status": "unit-proven",
       "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001"],
       "limitations": [
-        "The owner is not connected to the reduced top.",
-        "Full-BID comparisons must migrate to the canonical per-STID ring-qualified BID contract before integration."
+        "The owner is connected to the canonical backend decode/rename composition but not to the reduced commit-only top shell."
       ],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala",
           "symbols": ["GPRRenameCheckpoint", "GPRRenameMapQueueEntry", "smap", "cmap", "mapQ"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala",
+          "symbols": ["GPRRenameCheckpoint", "commitStid", "queryStid"]
         }
       ],
       "verification": [

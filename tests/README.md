@@ -54,6 +54,10 @@
 - Purpose: enforce pyc4 frontend API hygiene and block new uses of legacy internal frontend tokens (`m.const`, `._select_internal`, `.__eq__`, `._trunc/_zext/_sext`) via baseline burn-down.
 - `test_ooo_recovery_producer_pyc_flow.sh`
 - Purpose: pyCircuit OOO retained recovery producer packet flow; verifies full 64-bit BID/restart TPC, STID/owner identity gating, backpressure stability, and rejection of ARM-specific semantics.
+- `test_ooo_recovery_class_merge_pyc_flow.sh`
+- Purpose: generated pyCircuit C++/Verilator proof of parameterized per-STID global recovery classes, per-PE lanes, model cancellation/merge rules, and irrevocable output behavior.
+- `test_ooo_recovery_class_merge_cross_rtl.sh`
+- Purpose: requires Chisel and pyCircuit generated RTL to declare and pass the same named two-STID/two-PE recovery-class scenario set.
 
 Run all:
 
@@ -80,4 +84,6 @@ bash /Users/zhoubot/LinxCore/tests/test_primitives_pyc_flow.sh
 bash /Users/zhoubot/LinxCore/tests/test_frontend_pyc_flow.sh
 bash /Users/zhoubot/LinxCore/tests/test_pyc4_frontend_strict.sh
 bash /Users/zhoubot/LinxCore/tests/test_ooo_recovery_producer_pyc_flow.sh
+bash /Users/zhoubot/LinxCore/tests/test_ooo_recovery_class_merge_pyc_flow.sh
+bash /Users/zhoubot/LinxCore/tests/test_ooo_recovery_class_merge_cross_rtl.sh
 ```

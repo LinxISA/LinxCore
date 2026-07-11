@@ -80,6 +80,14 @@ void stage_blocked_output(VRecoveryClassMergeProbe &dut, int block_bid) {
 }  // namespace
 
 int main(int argc, char **argv) {
+    // CROSS_RTL_SCENARIO: blocked-output-stability
+    // CROSS_RTL_SCENARIO: same-bid-nuke-cancels-pe
+    // CROSS_RTL_SCENARIO: older-report-rejection
+    // CROSS_RTL_SCENARIO: replay-cancels-flush
+    // CROSS_RTL_SCENARIO: completed-oldest-replay-drop
+    // CROSS_RTL_SCENARIO: invalid-scope-rejection
+    // CROSS_RTL_SCENARIO: inner-merge-transformation
+    // CROSS_RTL_SCENARIO: independent-pe-lanes
     Verilated::commandArgs(argc, argv);
     VRecoveryClassMergeProbe dut;
 

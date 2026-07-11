@@ -188,27 +188,59 @@
       ]
     },
     {
-      "id": "pycircuit-rob-recovery",
+      "id": "pycircuit-rob-bookkeeping",
       "module_family": "rob-recovery",
       "status": "integrated",
-      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["JanusBccOooFlushCtrl retains one ROB redirect PC/checkpoint event but does not implement the R642 full-BID BCC/IEX/PE producer queues, multi-source RecoveryFabric, per-STID global flush/replay class state, per-PE lanes, or registered RecoveryCleanupIntent fanout. Chisel is ahead at this boundary and cross-RTL recovery-fabric convergence remains open; redirect-only behavior is not accepted as equivalent recovery RTL."],
+      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001"],
       "evidence": [
         {
           "path": "src/bcc/backend/rob.py",
           "module_names": ["LinxCoreRobCtrlStage", "LinxCoreRobEntryUpdateStage"],
           "symbols": ["build_rob_ctrl_stage", "build_rob_entry_update_stage"]
-        },
-        {
-          "path": "src/bcc/ooo/flush_ctrl.py",
-          "module_names": ["JanusBccOooFlushCtrl"],
-          "symbols": ["build_janus_bcc_ooo_flush_ctrl"]
         }
       ],
       "verification": [
         {
           "path": "tests/test_rob_bookkeeping.sh",
           "command": "bash tests/test_rob_bookkeeping.sh"
+        }
+      ]
+    },
+    {
+      "id": "pycircuit-recovery-class",
+      "module_family": "rob-recovery",
+      "status": "unit-proven",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "limitations": ["R645 converges the recovery-class owner, but pyCircuit still lacks the Chisel-equivalent multi-source RecoverySourceArbiter, exact BCC/IEX/PE/LSU producer composition, registered RecoveryCleanupIntent fanout, and resident ROB/BROB cleanup integration. JanusBccOooFlushCtrl remains a redirect shell and is not accepted as equivalent recovery-fabric evidence."],
+      "evidence": [
+        {
+          "path": "src/bcc/ooo/flush_ctrl.py",
+          "module_names": ["JanusBccOooFlushCtrl"],
+          "symbols": ["build_janus_bcc_ooo_flush_ctrl"]
+        },
+        {
+          "path": "src/bcc/ooo/recovery_producer.py",
+          "module_names": ["LinxBccOooRecoveryProducer"],
+          "symbols": ["build_linx_bcc_ooo_recovery_producer"]
+        },
+        {
+          "path": "src/bcc/ooo/recovery_class_merge.py",
+          "module_names": ["LinxBccOooRecoveryClassMerge"],
+          "symbols": ["build_linx_bcc_ooo_recovery_class_merge", "flush_mask", "replay_mask", "pe_mask", "dropped_by_older", "dropped_by_complete", "merged"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "tests/test_ooo_recovery_producer_pyc_flow.sh",
+          "command": "bash tests/test_ooo_recovery_producer_pyc_flow.sh"
+        },
+        {
+          "path": "tests/test_ooo_recovery_class_merge_pyc_flow.sh",
+          "command": "bash tests/test_ooo_recovery_class_merge_pyc_flow.sh"
+        },
+        {
+          "path": "tests/test_ooo_recovery_class_merge_cross_rtl.sh",
+          "command": "bash tests/test_ooo_recovery_class_merge_cross_rtl.sh"
         }
       ]
     },
