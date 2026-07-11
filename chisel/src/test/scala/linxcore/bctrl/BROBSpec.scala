@@ -44,8 +44,9 @@ final case class RefBrobEntry(
     engineDone: Boolean = false,
     exception: Boolean = false)
 
-final class RefBrob(entries: Int, stidCount: Int = 1) {
+final class RefBrob(entries: Int, stidCount: Int = 1, bidWidth: Int = 64) {
   private val table = Array.fill(stidCount, entries)(RefBrobEntry())
+  private val bidMask = (BigInt(1) << bidWidth) - 1
 
   private def idx(bid: BigInt): Int =
     BIDReference.slot(bid, entries).toInt
@@ -86,14 +87,22 @@ final class RefBrob(entries: Int, stidCount: Int = 1) {
     table(stid)(i) = if (next.scalarDone) next.copy(status = RefBrobStatus.Completed) else next
   }
 
-  def flush(flushBid: BigInt, stid: Int = 0, inclusive: Boolean = false): Unit =
+  def flush(
+      flushBid: BigInt,
+      stid: Int = 0,
+      inclusive: Boolean = false,
+      orderHead: BigInt,
+      liveCount: Int): Unit = {
+    val firstKilled = (if (inclusive) flushBid else flushBid + 1) & bidMask
+    val firstKilledDistance = (firstKilled - orderHead) & bidMask
     for (i <- table(stid).indices) {
+      val candidateDistance = (table(stid)(i).bid - orderHead) & bidMask
       if (table(stid)(i).status != RefBrobStatus.Free &&
-          (BIDReference.killOnFlush(table(stid)(i).bid, flushBid) ||
-            (inclusive && table(stid)(i).bid == flushBid))) {
+          candidateDistance < liveCount && candidateDistance >= firstKilledDistance) {
         table(stid)(i) = table(stid)(i).copy(status = RefBrobStatus.Flushed, scalarDone = false, engineDone = false, exception = false)
       }
     }
+  }
 
   def retire(bid: BigInt, stid: Int = 0): Unit = {
     val i = idx(bid)
@@ -103,11 +112,11 @@ final class RefBrob(entries: Int, stidCount: Int = 1) {
     }
   }
 
-  def oldest(stid: Int = 0): Option[RefBrobEntry] =
-    table(stid)
-      .filter(entry => entry.status != RefBrobStatus.Free && entry.status != RefBrobStatus.Flushed)
-      .sortBy(_.bid)
-      .headOption
+  def orderHead(bid: BigInt, stid: Int = 0): Option[RefBrobEntry] = {
+    val candidate = table(stid)(idx(bid))
+    Option.when(candidate.bid == bid && candidate.status != RefBrobStatus.Free &&
+      candidate.status != RefBrobStatus.Flushed)(candidate)
+  }
 }
 
 class BROBSpec extends AnyFunSuite {
@@ -169,15 +178,18 @@ class BROBSpec extends AnyFunSuite {
   test("BROB reference flush preserves flush BID and clears younger BIDs") {
     val brob = new RefBrob(entries = 16)
     val keep = BIDReference.fromParts(uniq = 1, slot = 14, entries = 16)
+    val keepNext = BIDReference.fromParts(uniq = 1, slot = 15, entries = 16)
     val flush = BIDReference.fromParts(uniq = 2, slot = 0, entries = 16)
     val kill = BIDReference.fromParts(uniq = 2, slot = 1, entries = 16)
 
     assert(brob.alloc(keep, RefBlockType.Scalar))
+    assert(brob.alloc(keepNext, RefBlockType.Scalar))
     assert(brob.alloc(flush, RefBlockType.Scalar))
     assert(brob.alloc(kill, RefBlockType.Engine))
-    brob.flush(flush)
+    brob.flush(flush, orderHead = keep, liveCount = 4)
 
     assert(brob.entry(keep).status == RefBrobStatus.Allocated)
+    assert(brob.entry(keepNext).status == RefBrobStatus.Allocated)
     assert(brob.entry(flush).status == RefBrobStatus.Allocated)
     assert(brob.entry(kill).status == RefBrobStatus.Flushed)
     assert(brob.alloc(kill, RefBlockType.Scalar))
@@ -189,11 +201,24 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.alloc(0, RefBlockType.Scalar))
     assert(brob.alloc(1, RefBlockType.Scalar))
     assert(brob.alloc(2, RefBlockType.Scalar))
-    brob.flush(flushBid = 1, inclusive = true)
+    brob.flush(flushBid = 1, inclusive = true, orderHead = 0, liveCount = 3)
 
     assert(brob.entry(0).status == RefBrobStatus.Allocated)
     assert(brob.entry(1).status == RefBrobStatus.Flushed)
     assert(brob.entry(2).status == RefBrobStatus.Flushed)
+  }
+
+  test("BROB metadata recovery prunes a suffix across full-BID rollover") {
+    val brob = new RefBrob(entries = 8, bidWidth = 4)
+    assert(brob.alloc(14, RefBlockType.Scalar))
+    assert(brob.alloc(15, RefBlockType.Scalar))
+    assert(brob.alloc(0, RefBlockType.Scalar))
+
+    brob.flush(flushBid = 15, inclusive = true, orderHead = 14, liveCount = 3)
+
+    assert(brob.entry(14).status == RefBrobStatus.Allocated)
+    assert(brob.entry(15).status == RefBrobStatus.Flushed)
+    assert(brob.entry(0).status == RefBrobStatus.Flushed)
   }
 
   test("BROB keeps identical full BID values isolated by STID") {
@@ -206,7 +231,7 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.alloc(bid1, RefBlockType.Scalar, stid = 0))
     assert(brob.alloc(bid1, RefBlockType.Scalar, stid = 1))
     brob.scalarDone(bid0, stid = 0)
-    brob.flush(bid0, stid = 0)
+    brob.flush(bid0, stid = 0, orderHead = bid0, liveCount = 2)
 
     assert(brob.entry(bid0, stid = 0).status == RefBrobStatus.Completed)
     assert(brob.entry(bid1, stid = 0).status == RefBrobStatus.Flushed)
@@ -214,15 +239,17 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.entry(bid1, stid = 1).status == RefBrobStatus.Allocated)
   }
 
-  test("BROB reference selects oldest live full BID and completion independently per STID") {
+  test("BROB reference resolves the exact owner-provided head instead of unsigned minimum BID") {
     val brob = new RefBrob(entries = 4, stidCount = 2)
     assert(brob.alloc(6, RefBlockType.Scalar, stid = 0))
     assert(brob.alloc(4, RefBlockType.Scalar, stid = 0))
     assert(brob.alloc(5, RefBlockType.Engine, stid = 1))
     brob.scalarDone(4, stid = 0)
 
-    assert(brob.oldest(stid = 0).exists(entry => entry.bid == 4 && entry.status == RefBrobStatus.Completed))
-    assert(brob.oldest(stid = 1).exists(entry => entry.bid == 5 && entry.status == RefBrobStatus.Allocated))
+    assert(brob.orderHead(6, stid = 0).exists(entry => entry.status == RefBrobStatus.Allocated))
+    assert(brob.orderHead(4, stid = 0).exists(entry => entry.status == RefBrobStatus.Completed))
+    assert(brob.orderHead(5, stid = 1).exists(entry => entry.status == RefBrobStatus.Allocated))
+    assert(brob.orderHead(1, stid = 1).isEmpty)
   }
 
   test("Chisel BROB elaborates explicit per-STID lifecycle ports") {
@@ -232,6 +259,7 @@ class BROBSpec extends AnyFunSuite {
     assert(sv.contains("io_flushStid"))
     assert(sv.contains("io_flushInclusive"))
     assert(sv.contains("io_queryStid"))
+    assert(sv.contains("io_orderHeadBid_1"))
     assert(sv.contains("io_oldestValid_1"))
     assert(sv.contains("io_oldestBid_1"))
     assert(sv.contains("io_oldestComplete_1"))

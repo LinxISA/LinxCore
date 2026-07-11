@@ -2,7 +2,7 @@ package linxcore.backend
 
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H}
-import linxcore.bctrl.{BID, BrobAllocationRecovery, BrobEntryMeta, BrobMetaTracker, BrobRobAllocationAdmission}
+import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker, BrobOrderState, BrobRobAllocationAdmission}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
   BlockMarkerRetireSource,
@@ -110,9 +110,13 @@ class DispatchROBAllocatorIO(
   val blockEngineDoneStid = Input(UInt(stidWidth.W))
   val blockEngineTrapValid = Input(Bool())
   val blockEngineTrapCause = Input(UInt(trapCauseWidth.W))
-  val blockRetireValid = Input(Bool())
-  val blockRetireBid = Input(UInt(bidWidth.W))
-  val blockRetireStid = Input(UInt(stidWidth.W))
+  val blockRetireReady = Input(Bool())
+  val blockRetireValid = Output(Bool())
+  val blockRetireFire = Output(Bool())
+  val blockRetireBid = Output(UInt(bidWidth.W))
+  val blockRetireStid = Output(UInt(stidWidth.W))
+  val blockRetireMetadataAccepted = Output(Bool())
+  val blockRetireMetadataIgnored = Output(Bool())
   val blockFlushValid = Input(Bool())
   val blockFlushBid = Input(UInt(bidWidth.W))
   val blockFlushStid = Input(UInt(stidWidth.W))
@@ -121,7 +125,14 @@ class DispatchROBAllocatorIO(
   val blockFlushOldAllocBid = Output(UInt(bidWidth.W))
   val blockFlushApplied = Output(Bool())
   val blockFlushStidInRange = Output(Bool())
+  val blockFlushWindowValid = Output(Bool())
+  val blockFlushRetainedCount = Output(UInt(sizeWidth.W))
   val blockAllocCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockCommitCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockLiveCount = Output(Vec(stidCount, UInt(sizeWidth.W)))
+  val blockOrderEmpty = Output(Vec(stidCount, Bool()))
+  val blockOrderFull = Output(Vec(stidCount, Bool()))
+  val blockOrderHeadMismatch = Output(Vec(stidCount, Bool()))
   val blockQueryBid = Input(UInt(bidWidth.W))
   val blockQueryStid = Input(UInt(stidWidth.W))
   val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
@@ -259,15 +270,16 @@ class DispatchROBAllocator(
     FullBidRecoveryBridge.fullBidToRobId(bid, true.B, entries, bidWidth)
   }
 
-  val blockCursor = Module(new BrobAllocationRecovery(
+  val blockOrder = Module(new BrobOrderState(
+    entries = entries,
     bidWidth = bidWidth,
     stidWidth = stidWidth,
     stidCount = stidCount
   ))
   val allocStidMatch = VecInit((0 until stidCount).map(idx => io.allocStid === idx.U(stidWidth.W)))
   val blockOnlyStidMatch = VecInit((0 until stidCount).map(idx => io.blockAllocOnlyStid === idx.U(stidWidth.W)))
-  val allocNextBlockBid = Mux1H(allocStidMatch, blockCursor.io.cursor)
-  val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch, blockCursor.io.cursor)
+  val allocNextBlockBid = Mux1H(allocStidMatch, blockOrder.io.allocCursor)
+  val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch, blockOrder.io.allocCursor)
   io.allocBlockBid := allocNextBlockBid
   io.blockAllocOnlyBid := blockOnlyNextBlockBid
 
@@ -296,17 +308,21 @@ class DispatchROBAllocator(
   val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
   val scalarStidInRange = allocStidMatch.asUInt.orR
   val blockOnlyStidInRange = blockOnlyStidMatch.asUInt.orR
-  val scalarCanUseBrob = scalarStidInRange && (!scalarNeedsBrob || brob.io.allocReady)
+  val scalarBlockOrderReady = scalarStidInRange && !Mux1H(allocStidMatch, blockOrder.io.full)
+  val blockOnlyOrderReady = blockOnlyStidInRange && !Mux1H(blockOnlyStidMatch, blockOrder.io.full)
+  val scalarCanUseBrob = scalarStidInRange &&
+    (!scalarNeedsBrob || (brob.io.allocReady && scalarBlockOrderReady))
   val scalarCanUseRob = rob.io.allocReady
   val scalarAdmission = Module(new BrobRobAllocationAdmission)
   scalarAdmission.io.allocValid := io.allocValid
   scalarAdmission.io.usesExistingBlock := io.allocUsesExistingBlock
   scalarAdmission.io.stidInRange := scalarStidInRange
-  scalarAdmission.io.brobReady := brob.io.allocReady
+  scalarAdmission.io.brobReady := brob.io.allocReady && scalarBlockOrderReady
   scalarAdmission.io.robReady := scalarCanUseRob
   scalarAdmission.io.recoveryValid := io.blockFlushValid
   val scalarAllocReady = scalarAdmission.io.allocReady
-  val blockAllocOnlyReady = !io.allocValid && blockOnlyStidInRange && brob.io.allocReady && !io.blockFlushValid
+  val blockAllocOnlyReady =
+    !io.allocValid && blockOnlyStidInRange && brob.io.allocReady && blockOnlyOrderReady && !io.blockFlushValid
   val blockAllocOnlyFire = io.blockAllocOnlyValid && blockAllocOnlyReady
   val scalarBrobAllocFire = scalarAdmission.io.brobAllocValid
   val rowBlockBid = Mux(io.allocUsesExistingBlock, io.allocExistingBlockBid, allocNextBlockBid)
@@ -373,19 +389,22 @@ class DispatchROBAllocator(
   brob.io.engineDoneStid := io.blockEngineDoneStid
   brob.io.engineTrapValid := io.blockEngineTrapValid
   brob.io.engineTrapCause := io.blockEngineTrapCause
-  brob.io.retireValid := io.blockRetireValid
-  brob.io.retireBid := io.blockRetireBid
-  brob.io.retireStid := io.blockRetireStid
-  brob.io.flushValid := io.blockFlushValid
+  brob.io.retireValid := blockOrder.io.retireFire
+  brob.io.retireBid := blockOrder.io.retireBid
+  brob.io.retireStid := blockOrder.io.retireStid
+  brob.io.flushValid := blockOrder.io.recoveryApplied
   brob.io.flushBid := io.blockFlushBid
   brob.io.flushStid := io.blockFlushStid
   brob.io.flushInclusive := io.blockFlushInclusive
   brob.io.queryBid := io.blockQueryBid
   brob.io.queryStid := io.blockQueryStid
+  brob.io.orderHeadValid := blockOrder.io.headValid
+  brob.io.orderHeadBid := blockOrder.io.commitCursor
+  brob.io.orderLiveCount := blockOrder.io.liveCount
 
   io.allocReady := scalarAllocReady
   io.allocFire := scalarAdmission.io.allocFire
-  io.allocBlockedByBrob := scalarNeedsBrob && !brob.io.allocReady
+  io.allocBlockedByBrob := scalarNeedsBrob && !(brob.io.allocReady && scalarBlockOrderReady)
   io.allocBlockedByRob := io.allocValid && scalarCanUseBrob && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
   io.allocRobValue := rob.io.allocRobValue
@@ -396,18 +415,36 @@ class DispatchROBAllocator(
   io.renameUpdateAccepted := rob.io.renameUpdateAccepted
   io.renameUpdateIgnored := rob.io.renameUpdateIgnored
 
-  blockCursor.io.advanceValid := scalarBrobAllocFire || blockAllocOnlyFire
-  blockCursor.io.advanceStid := Mux(blockAllocOnlyFire, io.blockAllocOnlyStid, io.allocStid)
-  blockCursor.io.recoveryValid := io.blockFlushValid
-  blockCursor.io.recoveryStid := io.blockFlushStid
-  blockCursor.io.recoveryPivotBid := io.blockFlushBid
-  blockCursor.io.recoveryInclusive := io.blockFlushInclusive
-  blockCursor.io.queryStid := io.allocStid
-  io.blockFlushFirstKilledBid := blockCursor.io.recoveryFirstKilledBid
-  io.blockFlushOldAllocBid := blockCursor.io.recoveryOldAllocBid
-  io.blockFlushApplied := blockCursor.io.recoveryApplied
-  io.blockFlushStidInRange := blockCursor.io.recoveryInRange
-  io.blockAllocCursor := blockCursor.io.cursor
+  blockOrder.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
+  blockOrder.io.allocBid := Mux(blockAllocOnlyFire, blockOnlyNextBlockBid, allocNextBlockBid)
+  blockOrder.io.allocStid := Mux(blockAllocOnlyFire, io.blockAllocOnlyStid, io.allocStid)
+  blockOrder.io.recoveryValid := io.blockFlushValid
+  blockOrder.io.recoveryStid := io.blockFlushStid
+  blockOrder.io.recoveryPivotBid := io.blockFlushBid
+  blockOrder.io.recoveryInclusive := io.blockFlushInclusive
+  blockOrder.io.headResident := brob.io.oldestValid
+  blockOrder.io.headComplete := brob.io.oldestComplete
+  blockOrder.io.retireReady := io.blockRetireReady
+  io.blockRetireValid := blockOrder.io.retireValid
+  io.blockRetireFire := blockOrder.io.retireFire
+  io.blockRetireBid := blockOrder.io.retireBid
+  io.blockRetireStid := blockOrder.io.retireStid
+  io.blockRetireMetadataAccepted := brob.io.retireAccepted
+  io.blockRetireMetadataIgnored := brob.io.retireIgnored
+  io.blockFlushFirstKilledBid := blockOrder.io.recoveryFirstKilledBid
+  io.blockFlushOldAllocBid := blockOrder.io.recoveryOldAllocBid
+  io.blockFlushApplied := blockOrder.io.recoveryApplied
+  io.blockFlushStidInRange := blockOrder.io.recoveryInRange
+  io.blockFlushWindowValid := blockOrder.io.recoveryWindowValid
+  io.blockFlushRetainedCount := blockOrder.io.recoveryRetainedCount
+  io.blockAllocCursor := blockOrder.io.allocCursor
+  io.blockCommitCursor := blockOrder.io.commitCursor
+  io.blockLiveCount := blockOrder.io.liveCount
+  io.blockOrderEmpty := blockOrder.io.empty
+  io.blockOrderFull := blockOrder.io.full
+  io.blockOrderHeadMismatch := blockOrder.io.headMismatch
+  assert(!blockOrder.io.retireFire || brob.io.retireAccepted,
+    "BROB ordered retire must remove the selected resident metadata head")
 
   io.blockQuery := brob.io.query
   io.blockQueryAllocated := brob.io.queryAllocated

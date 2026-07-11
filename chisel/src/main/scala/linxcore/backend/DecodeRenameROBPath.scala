@@ -7,8 +7,7 @@ import linxcore.bctrl.{
   BID,
   BlockMarkerDecodeContext,
   BlockMarkerLifecycle,
-  BlockMarkerRetireSourceSerializer,
-  BlockScalarDoneSequencer
+  BlockMarkerRetireSourceSerializer
 }
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
@@ -728,7 +727,6 @@ class DecodeRenameROBPath(
   io.recoveryPending := recovery.io.pending
 
   val blockLifecycleFlush = cleanup.valid && (cleanup.backendFlushValid || cleanup.blockFlushValid)
-  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth, stidWidth))
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
     bidWidth = bidWidth,
@@ -757,7 +755,7 @@ class DecodeRenameROBPath(
   markerLifecycle.io.branchTaken := io.blockBranchTaken
   markerLifecycle.io.scalarWorkPending := !allocator.io.empty
   markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
-  markerLifecycle.io.retirePending := blockScalarDoneSeq.io.retirePending
+  markerLifecycle.io.retirePending := allocator.io.blockRetireValid
   markerLifecycle.io.scalarRedirectValid := localScalarRedirectValid
   markerLifecycle.io.scalarRedirectStid := localScalarRedirectStid
   markerLifecycle.io.scalarBlockStartFire :=
@@ -1100,13 +1098,9 @@ class DecodeRenameROBPath(
   val blockScalarDoneFire = decodeContextScalarDoneFire || markerLifecycle.io.scalarDoneValid
   val blockScalarDoneBid = Mux(decodeContextScalarDoneFire, decodeContextClosingBlockBid, markerLifecycle.io.scalarDoneBid)
   val blockScalarDoneStid = Mux(decodeContextScalarDoneFire, selectedStid, markerLifecycle.io.scalarDoneStid)
-  blockScalarDoneSeq.io.flushValid := io.flushValid && !cleanup.valid
-  blockScalarDoneSeq.io.inValid := blockScalarDoneFire
-  blockScalarDoneSeq.io.inBid := blockScalarDoneBid
-  blockScalarDoneSeq.io.inStid := blockScalarDoneStid
-  allocator.io.blockScalarDoneValid := blockScalarDoneSeq.io.scalarDoneValid
-  allocator.io.blockScalarDoneBid := blockScalarDoneSeq.io.scalarDoneBid
-  allocator.io.blockScalarDoneStid := blockScalarDoneSeq.io.scalarDoneStid
+  allocator.io.blockScalarDoneValid := blockScalarDoneFire
+  allocator.io.blockScalarDoneBid := blockScalarDoneBid
+  allocator.io.blockScalarDoneStid := blockScalarDoneStid
   allocator.io.blockScalarTrapValid := false.B
   allocator.io.blockScalarTrapCause := 0.U
   allocator.io.blockEngineDoneValid := false.B
@@ -1114,9 +1108,6 @@ class DecodeRenameROBPath(
   allocator.io.blockEngineDoneStid := 0.U
   allocator.io.blockEngineTrapValid := false.B
   allocator.io.blockEngineTrapCause := 0.U
-  allocator.io.blockRetireValid := blockScalarDoneSeq.io.retireValid
-  allocator.io.blockRetireBid := blockScalarDoneSeq.io.retireBid
-  allocator.io.blockRetireStid := blockScalarDoneSeq.io.retireStid
   allocator.io.blockFlushValid := cleanup.valid && cleanup.blockFlushValid
   allocator.io.blockFlushBid := cleanup.blockFlushBid
   allocator.io.blockFlushStid := cleanup.flush.req.stid
@@ -1126,12 +1117,12 @@ class DecodeRenameROBPath(
   val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !cleanup.valid)) {
     Module(new Queue(new BlockRenameCommitIdentity(bidWidth, stidWidth), blockRenameCommitQueueDepth))
   }
-  blockRenameCommitQ.io.enq.valid := blockScalarDoneSeq.io.retireValid
-  blockRenameCommitQ.io.enq.bits.fullBid := blockScalarDoneSeq.io.retireBid
-  blockRenameCommitQ.io.enq.bits.stid := blockScalarDoneSeq.io.retireStid
-  assert(
-    !blockScalarDoneSeq.io.retireValid || blockRenameCommitQ.io.enq.ready,
-    "block rename commit queue overflow")
+  allocator.io.blockRetireReady := blockRenameCommitQ.io.enq.ready
+  blockRenameCommitQ.io.enq.valid := allocator.io.blockRetireValid
+  blockRenameCommitQ.io.enq.bits.fullBid := allocator.io.blockRetireBid
+  blockRenameCommitQ.io.enq.bits.stid := allocator.io.blockRetireStid
+  assert(!allocator.io.blockRetireFire || allocator.io.blockRetireMetadataAccepted,
+    "BROB ordered retire must remove the selected resident metadata head")
   val internalBlockCommitValid = blockRenameCommitQ.io.deq.valid
   val internalBlockCommitFullBid = blockRenameCommitQ.io.deq.bits.fullBid
   val internalBlockCommitStid = blockRenameCommitQ.io.deq.bits.stid
@@ -1431,8 +1422,8 @@ class DecodeRenameROBPath(
   io.robDeallocBlockLastBlockBid := allocator.io.deallocBlockLastBlockBid
   io.blockScalarDoneFire := blockScalarDoneFire
   io.blockScalarDoneBid := blockScalarDoneBid
-  io.blockRetireFire := blockScalarDoneSeq.io.retireValid
-  io.blockRetireBid := blockScalarDoneSeq.io.retireBid
+  io.blockRetireFire := allocator.io.blockRetireFire
+  io.blockRetireBid := allocator.io.blockRetireBid
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

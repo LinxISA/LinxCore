@@ -1,7 +1,7 @@
 package linxcore.bctrl
 
 import chisel3._
-import chisel3.util.Mux1H
+import chisel3.util.{log2Ceil, Mux1H}
 
 object BrobStatus extends ChiselEnum {
   val Free, Allocated, Dispatched, Renaming, Renamed, Issued, ParRunning, Running,
@@ -72,6 +72,8 @@ class BrobMetaTrackerIO(
   val retireValid = Input(Bool())
   val retireBid = Input(UInt(bidWidth.W))
   val retireStid = Input(UInt(stidWidth.W))
+  val retireAccepted = Output(Bool())
+  val retireIgnored = Output(Bool())
 
   val flushValid = Input(Bool())
   val flushBid = Input(UInt(bidWidth.W))
@@ -87,6 +89,9 @@ class BrobMetaTrackerIO(
   val allocatedMask = Output(UInt(entries.W))
   val completeMask = Output(UInt(entries.W))
   val pendingMask = Output(UInt(entries.W))
+  val orderHeadValid = Input(Vec(stidCount, Bool()))
+  val orderHeadBid = Input(Vec(stidCount, UInt(bidWidth.W)))
+  val orderLiveCount = Input(Vec(stidCount, UInt(log2Ceil(entries + 1).W)))
   val oldestValid = Output(Vec(stidCount, Bool()))
   val oldestBid = Output(Vec(stidCount, UInt(bidWidth.W)))
   val oldestComplete = Output(Vec(stidCount, Bool()))
@@ -155,6 +160,8 @@ class BrobMetaTracker(
     BrobEntryMeta.isAllocated(engineEntry.status) && engineEntry.bid === io.engineDoneBid
   val retireHit = retireStidMatch.asUInt.orR &&
     retireEntry.status === BrobStatus.Completed && retireEntry.bid === io.retireBid
+  io.retireAccepted := io.retireValid && retireHit
+  io.retireIgnored := io.retireValid && !retireHit
 
   io.allocReady := allocStidMatch.asUInt.orR &&
     ((allocEntry.status === BrobStatus.Free) || (allocEntry.status === BrobStatus.Flushed))
@@ -218,10 +225,13 @@ class BrobMetaTracker(
   when(io.flushValid) {
     for (stid <- 0 until stidCount) {
       for (idx <- 0 until entries) {
-        val younger = BID.killOnFlush(table(stid)(idx).bid, io.flushBid)
-        val pivot = table(stid)(idx).bid === io.flushBid
+        val firstKilledBid = Mux(io.flushInclusive, io.flushBid, io.flushBid + 1.U)
+        val firstKilledDistance = firstKilledBid - io.orderHeadBid(stid)
+        val candidateDistance = table(stid)(idx).bid - io.orderHeadBid(stid)
+        val candidateInWindow = candidateDistance < io.orderLiveCount(stid).pad(bidWidth)
+        val inKilledSuffix = candidateInWindow && candidateDistance >= firstKilledDistance
         when(flushStidMatch(stid) && BrobEntryMeta.isAllocated(table(stid)(idx).status) &&
-          (younger || (io.flushInclusive && pivot))) {
+          inKilledSuffix) {
           table(stid)(idx).status := BrobStatus.Flushed
           table(stid)(idx).scalarDone := false.B
           table(stid)(idx).engineDone := false.B
@@ -251,20 +261,12 @@ class BrobMetaTracker(
   io.pendingMask := pendingBits.asUInt
 
   for (stid <- 0 until stidCount) {
-    var found: Bool = false.B
-    var selectedBid: UInt = 0.U(bidWidth.W)
-    var selectedComplete: Bool = false.B
-
-    for (idx <- 0 until entries) {
-      val candidate = BrobEntryMeta.isAllocated(table(stid)(idx).status)
-      val select = candidate && (!found || table(stid)(idx).bid < selectedBid)
-      selectedBid = Mux(select, table(stid)(idx).bid, selectedBid)
-      selectedComplete = Mux(select, BrobEntryMeta.isComplete(table(stid)(idx)), selectedComplete)
-      found = found || candidate
-    }
-
-    io.oldestValid(stid) := found
-    io.oldestBid(stid) := selectedBid
-    io.oldestComplete(stid) := selectedComplete
+    val headSlot = BID.slot(io.orderHeadBid(stid), entries)
+    val headEntry = table(stid)(headSlot)
+    val headHit = io.orderHeadValid(stid) &&
+      BrobEntryMeta.isAllocated(headEntry.status) && headEntry.bid === io.orderHeadBid(stid)
+    io.oldestValid(stid) := headHit
+    io.oldestBid(stid) := Mux(headHit, headEntry.bid, 0.U)
+    io.oldestComplete(stid) := headHit && BrobEntryMeta.isComplete(headEntry)
   }
 }

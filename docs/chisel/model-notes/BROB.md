@@ -132,13 +132,24 @@ The C++ model has two important recovery paths:
   adjusts allocation/rename pointers, and keeps or restores the oldest/current
   block depending on `baseOnBid` and immediate-flush rules.
 
-R650 adds the first stateful pointer behavior. `BrobAllocationRecovery` owns a
-full-BID allocation tail per STID, captures the old cursor, and restores it on
-accepted cleanup. `MISS_PRED_FLUSH` uses the reported BID as the first killed
-block; retained-target nuke/inner/fast flush uses the target successor. The
-same decision controls inclusive or exclusive `BrobMetaTracker` pruning.
-Commit/dispatch/rename/non-flush/store-barrier pointers, SIMT/MTC-specific
-replay, and same-cycle resolve/flush priority remain future work.
+R651 promotes the allocation-only state into `BrobOrderState`. Each STID owns
+an independent allocation tail, commit head, and bounded live count. Recovery
+validates the first-killed identity against that live window, truncates tail
+and count, and never moves the commit head. `MISS_PRED_FLUSH` uses the reported
+BID as the first killed block; retained-target nuke/inner/fast flush uses the
+target successor. The same applied decision controls `BrobMetaTracker`
+pruning. Metadata resolves the exact owner-provided head instead of selecting
+an unsigned minimum full BID.
+
+Completed heads arbitrate fairly across STIDs and cross a one-entry
+flow-through irrevocable slot before retirement. Completion is persistent
+metadata, so consecutive completion events are not the retirement authority
+and can wait behind downstream backpressure. Metadata free, commit-head
+advance, live-count decrement, rename commit enqueue, and public retire fire
+share one handshake. The current Chisel block interface retires one block per
+cycle; LinxCoreModel's configurable `bctrl_bandwidth`, non-flush/store-barrier
+frontiers, SIMT/MTC-specific replay, and same-cycle resolve/flush priority
+remain future work.
 
 ## Non-Flush Oldest
 
@@ -150,13 +161,15 @@ Chisel metadata tracker does not implement this pointer yet.
 
 - The architecture docs still list BROB same-cycle resolve-vs-flush and
   commit-vs-flush priority as open issues.
-- Chisel now models the per-STID allocation-tail array; commit, dispatch,
-  rename, non-flush, and store-barrier pointer arrays plus full BCTRL/BISQ
-  interaction remain open.
+- Chisel now models per-STID allocation-tail, commit-head, and live-count
+  arrays. Non-flush and store-barrier frontiers plus full BCTRL/BISQ
+  interaction remain open. The model's BROB-local dispatch/rename fields are
+  declarations without active pointer-update behavior and are not promoted as
+  target owners.
 - Recovery still has two BID surfaces in Chisel: BROB flush consumes full
   hardware BID, while ROB row pruning consumes ring `ROBID`. The first handoff
-  is explicit in `FullBidRecoveryBridge`; R650 restores the allocation tail,
-  while remaining BROB pointers, rename rollback, and LSU/STQ cleanup remain
-  future work.
+  is explicit in `FullBidRecoveryBridge`; R651 restores the live order window,
+  while the non-flush/store-barrier frontiers, rename rollback, and complete
+  LSU/STQ cleanup remain future work.
 - TileRename release and GPR MAPQ-to-CMAP commit remain tied to future
   integrated BROB/rename work.

@@ -5,7 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
 - Chisel lifecycle: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala`
-- Chisel sequencing: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
+- Chisel order owner: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BrobOrderState.scala`
 - Chisel integration: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - Chisel recovery bridge: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/bctrl/brob.py`
@@ -66,6 +66,7 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 | Input | `engineTrapCause` | `UInt` | with valid | Exception cause. |
 | Input | `retireValid` | `Bool` | valid | Free a completed BID. |
 | Input | `retireBid/retireStid` | mixed | with valid | Exact completed block identity to free. |
+| Output | `retireAccepted/retireIgnored` | `Bool` | diagnostic | Exact completed metadata row was removed, or the request missed. |
 | Input | `flushValid` | `Bool` | valid | Apply BID-based flush mask. |
 | Input | `flushBid/flushStid/flushInclusive` | mixed | with valid | Kill a selected STID suffix; inclusive recovery also kills the pivot. |
 | Input | `queryBid/queryStid` | mixed | combinational | Exact lane and BID to inspect. |
@@ -75,8 +76,9 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 | Output | `allocatedMask` | `UInt(entries.W)` | combinational | Live slots. |
 | Output | `completeMask` | `UInt(entries.W)` | combinational | Complete slots. |
 | Output | `pendingMask` | `UInt(entries.W)` | combinational | Live but incomplete slots. |
+| Input | `orderHeadValid/orderHeadBid[stidCount]` | mixed | combinational | Authoritative per-STID commit head from `BrobOrderState`. |
 | Output | `oldestValid[stidCount]` | `Vec[Bool]` | combinational | Selected STID lane has a live block. |
-| Output | `oldestBid[stidCount]` | `Vec[UInt(bidWidth.W)]` | with `oldestValid` | Lowest live full BID independently selected in each STID. |
+| Output | `oldestBid[stidCount]` | `Vec[UInt(bidWidth.W)]` | with `oldestValid` | Exact resident full BID matching the owner-provided commit head. |
 | Output | `oldestComplete[stidCount]` | `Vec[Bool]` | with `oldestValid` | Completion predicate of that exact selected block. |
 
 ## State
@@ -84,9 +86,11 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 `BrobMetaTracker` stores one `BrobEntryMeta` per `(STID, slot)`. Reset state is
 `BrobStatus.Free` with zeroed metadata.
 
-`BrobAllocationRecovery`, integrated under `DispatchROBAllocator`, now owns the
-C++ model's per-STID allocation-tail restore. Dispatch, rename, commit,
-`nonFlushBid`, and store-barrier pointers remain unimplemented.
+`BrobOrderState`, integrated under `DispatchROBAllocator`, owns the C++ model's
+per-STID allocation tail, commit head, live count, and accepted suffix
+recovery. `nonFlushBid`, store-barrier state, and replay-state mutation remain
+unimplemented. BROB-local dispatch/rename pointer declarations in the model
+have no active update behavior and are not implementation authority.
 
 ## Logic Design
 
@@ -104,23 +108,24 @@ C++ model's per-STID allocation-tail restore. Dispatch, rename, commit,
   Scalar-only blocks become `Completed`.
 - Engine completion sets `engineDone` and captures the first engine exception.
   Engine blocks become `Completed` only after scalar completion is also set.
-- `BlockScalarDoneSequencer` is the reduced integration owner for scalar-only
-  completion followed by retire/free. It forwards scalar done in the source
-  cycle and emits the matching retire one cycle later, so this metadata tracker
-  observes `Completed` before the free request arrives.
 - `BlockMarkerLifecycle` is the reduced source owner for marker-consume,
-  scalar-redirect, scalar-created, and ROB block-last scalar-done events before
-  they enter `BlockScalarDoneSequencer`.
-- Retire frees only a `Completed` entry.
+  scalar-redirect, scalar-created, and ROB block-last scalar-done events.
+- Completion persists in metadata. `BrobOrderState` selects only an exact,
+  resident, completed commit head and holds its full `(STID,BID)` identity in
+  an irrevocable slot until the rename-commit queue accepts it.
+- Retire frees only a `Completed` entry whose exact full BID and STID match.
 - Flush is applied only to `flushStid`. Ordinary accepted global flush marks
-  entries with full BID greater than `flushBid` as `Flushed`; miss-predict
-  recovery also marks the pivot because it names the first killed block. No BID
-  comparison is made across STIDs. `Flushed` entries remain
+  entries in the owner-qualified suffix after `flushBid` as `Flushed`;
+  miss-predict recovery also marks the pivot because it names the first killed
+  block. Candidate and first-killed positions are modular distances from the
+  selected lane's `orderHeadBid` and are bounded by `orderLiveCount`; raw
+  unsigned BID magnitude is not an age comparison. No BID comparison is made
+  across STIDs. `Flushed` entries remain
   excluded from allocated/pending/complete masks but are accepted by
   `allocReady` so reduced block-control cleanup can reuse killed slots.
-- Recovery watermark selection scans live entries independently in every STID
-  lane and returns the lowest full BID plus completion state of that exact
-  entry. It never compares BID age across STIDs. The downstream allocator must
+- Recovery watermark selection resolves the exact commit head supplied by
+  `BrobOrderState` independently in every STID lane. It never compares BID age
+  across STIDs or selects an unsigned minimum. The downstream allocator must
   match this full BID against the full block BID stored with its selected ROB
   row before publishing a coherent BID/RID pair.
 
@@ -136,8 +141,10 @@ cycle.
 The implemented flush rule is lane-local. `MISS_PRED_FLUSH` follows model
 `recoverBlock` and kills `bid >= pivot`; accepted scalar nuke/inner/fast flush
 follows the retained-target case of `setFlushed` and kills `bid > pivot`.
-`BrobAllocationRecovery` restores the allocation cursor to the exact first
-killed BID in the same accepted cleanup cycle.
+`BrobOrderState` validates that the first-killed BID lies in the current live
+window, restores the allocation cursor and live count, and leaves the commit
+head unchanged in the same accepted cleanup cycle. Metadata sees only an
+applied order-window recovery, preventing pointer/table divergence.
 
 `Flushed` is a non-live state, not a terminal allocation blocker. R127 proved
 this on the CoreMark live path: scalar-return cleanup can kill younger block
@@ -147,7 +154,7 @@ slot after wrap/flush bookkeeping.
 `FullBidRecoveryBridge` is the first recovery handoff owner between this full
 BID block surface and the ring `ROBID` consumed by `ROBEntryBank` pruning.
 
-Full commit/dispatch/rename pointer recovery, `nonFlushBid`, PE replay,
+`nonFlushBid`, store-barrier allocation, multi-block retire width, PE replay,
 SIMT/MTC replay, rename rollback, TileRename release, and GPR CMAP commit
 effects remain outside this packet.
 
@@ -162,8 +169,9 @@ neutral QEMU/LinxCore commit adapter.
 - `chisel/src/test/scala/linxcore/bctrl/BROBSpec.scala`
 - `chisel/src/test/scala/linxcore/bctrl/BlockMarkerLifecycleSpec.scala`
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle`
-- `chisel/src/test/scala/linxcore/bctrl/BlockScalarDoneSequencerSpec.scala`
-- `bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer`
+- `chisel/src/test/scala/linxcore/bctrl/BrobOrderStateSpec.scala`
+- `bash tools/chisel/run_chisel_tests.sh --only BrobOrderState`
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`

@@ -300,7 +300,14 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_blockFlushInclusive"))
     assert(sv.contains("io_blockFlushFirstKilledBid"))
     assert(sv.contains("io_blockFlushOldAllocBid"))
+    assert(sv.contains("io_blockFlushWindowValid"))
+    assert(sv.contains("io_blockFlushRetainedCount"))
     assert(sv.contains("io_blockAllocCursor_1"))
+    assert(sv.contains("io_blockCommitCursor_1"))
+    assert(sv.contains("io_blockLiveCount_1"))
+    assert(sv.contains("io_blockRetireReady"))
+    assert(sv.contains("io_blockRetireFire"))
+    assert(sv.contains("io_blockOrderHeadMismatch_1"))
     assert(sv.contains("io_commitContractError"))
   }
 }

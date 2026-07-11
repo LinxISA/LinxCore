@@ -25,7 +25,7 @@
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala`
   - `chisel/src/main/scala/linxcore/bctrl/BlockMarkerRetireSourceSerializer.scala`
-  - `chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
+  - `chisel/src/main/scala/linxcore/bctrl/BrobOrderState.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 
 ## Purpose
@@ -191,12 +191,12 @@ current active slot first pre-retires the active BID, and BROB `Flushed` slots
 are treated as reusable by the allocator. Together these rules prevent stale
 direct-call/return block state from poisoning later conditional marker
 allocation.
-R167 extracts the block scalar-done to block-retire sequencing into
-`BlockScalarDoneSequencer`. `DecodeRenameROBPath` still owns reduced source
-selection from marker lifecycle, scalar redirects, and ROB block-last
-deallocation, but the one-cycle delayed retire pulse and retire-pending query now
-live in a reusable BCTRL module. This preserves R103/R104 timing while giving
-marker-row retirement a single event boundary to feed.
+R651 replaces completion-driven delayed retirement with persistent BROB
+completion metadata and `BrobOrderState`. `DecodeRenameROBPath` still owns
+reduced scalar-done source selection from marker lifecycle, scalar redirects,
+and ROB block-last deallocation. Ordered retirement now comes only from the
+exact completed per-STID commit head and is held until the block rename-commit
+queue is ready.
 R168 extracts the active marker/scalar-created block lifecycle into
 `BlockMarkerLifecycle`. `DecodeRenameROBPath` still detects marker-only packets
 and wires allocator/decode/execute inputs, but active full-BID state, conditional
@@ -282,10 +282,10 @@ lifecycle coverage are still required before the default live top can leave
 R192 closes the first marker-row BROB drain failure in that filtered path.
 Redirecting retired marker boundaries can complete the previous active block
 and still own a row-allocated marker-only BROB entry. `BlockMarkerLifecycle`
-now emits that marker-owned BID as a later scalar-done source, and this backend
-keeps `BlockScalarDoneSequencer` alive across redirect cleanup so the delayed
-retire/free pulse for the just-completed block is not cancelled by the same
-cleanup event. Non-cleanup global flushes still clear the sequencer.
+now emits that marker-owned BID as a later scalar-done source. Completion
+persists in BROB metadata across redirect cleanup when that block survives;
+`BrobOrderState` republishes the exact completed head after recovery instead of
+depending on a transient delayed-retire pulse.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -429,9 +429,9 @@ Outputs:
   `robMarkerRetireSourceLifecycle*`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
-  `ROBEntryBank`, and reduced BROB lifecycle observability. R167 routes
-  `blockRetire*` through `BlockScalarDoneSequencer`, so retire remains a
-  registered next-cycle pulse after the same-cycle `blockScalarDone*` event.
+  `ROBEntryBank`, and reduced BROB lifecycle observability. R651 routes
+  `blockRetire*` from the persistent, exact-head `BrobOrderState` retire slot;
+  `blockScalarDone*` records completion but does not authorize retirement.
   R168 routes active marker context and marker/scalar/block-last scalar-done
   source selection through `BlockMarkerLifecycle`.
 - `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
@@ -733,9 +733,10 @@ cannot double-close the same block.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
-`blockScalarDoneFire` pulses with `robDeallocBlockLastBlockBid`. A one-entry
-registered pending bit then drives `blockRetireFire` for the same full BID on
-the following cycle. This preserves the model split where `SPEROB::dealloc`
+`blockScalarDoneFire` pulses with `robDeallocBlockLastBlockBid`. BROB metadata
+persists that completion until the per-STID commit head reaches it; an
+irrevocable ordered-retire slot then drives `blockRetireFire`. This preserves
+the model split where `SPEROB::dealloc`
 calls `CommitLast`/`CommitBlock`, `PEBase::SetBlockComplete` marks the block
 complete, and `BlockROB::commitBlock` later retires completed block entries.
 At R103 the reduced marker-skip path still did not allocate or retire
@@ -915,7 +916,8 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerDecodeContextSpec
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer
-bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer
+bash tools/chisel/run_chisel_tests.sh --only BrobOrderState
+bash tools/chisel/run_chisel_brob_order_state_probe.sh
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
@@ -980,10 +982,9 @@ R76 covers enqueue-time ROB/BROB reservation and post-rename sidecar update
 observability through `DecodeRenameROBPath`, `DispatchROBAllocator`, and
 `ROBEntryBank`.
 R103 covers full block-BID propagation from ROB deallocation, reduced
-`blockScalarDone*` and one-cycle-later `blockRetire*` diagnostics, and
-stale same-slot BROB event rejection.
-R167 covers the extracted `BlockScalarDoneSequencer` boundary that preserves the
-same same-cycle scalar-done and next-cycle retire/free timing for those events.
+`blockScalarDone*` and ordered `blockRetire*` diagnostics, and stale same-slot
+BROB event rejection. R651 covers persistent completion, exact-head ordering,
+irrevocable retire backpressure, and fair cross-STID selection.
 R168 covers the extracted `BlockMarkerLifecycle` owner for active full-BID
 context, marker readiness, direct/conditional boundary handling, same-slot
 pre-retire, scalar redirect cleanup, scalar-created active blocks, and

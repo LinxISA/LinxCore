@@ -15,31 +15,38 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R650 restores the BROB allocation tail on accepted global
-recovery. `BrobAllocationRecovery` replaces split slot/uniqueness registers
-with one parameterized full-BID cursor per STID, captures the old allocation
-cursor, and installs the model-derived first-killed BID. Miss-predict recovery
-is inclusive; retained-target nuke/inner/fast flush restores to the pivot
-successor. `DispatchROBAllocator` blocks allocation during the accepted cleanup
-pulse and applies the same rule to `BrobMetaTracker`. The generated Chisel
-probe covers cursor recovery plus coherent ROB/BROB admission suppression.
-Commit/dispatch/rename/non-flush BROB pointers,
-`BIDRingOrder` integration, direct BCC/IEX/PE trigger owners, and complete
-cleanup fanout remain open.
+Latest packet: R651 promotes the BROB allocation-tail packet into
+`BrobOrderState`, the parameterized per-STID live order owner. Allocation tail,
+commit head, and bounded live count remain independent registers. Allocation
+advances only the tail; exact completed-head retirement advances only the head;
+accepted recovery validates and truncates tail/count without moving the head.
+`BrobMetaTracker` now resolves the exact owner-provided head instead of scanning
+for an unsigned minimum full BID. Eligible STID heads arbitrate fairly and
+cross a flow-through irrevocable slot, so metadata free, commit-head advance,
+rename-commit enqueue, and public retire fire share one downstream-ready event.
 
-R650 verification passes 259 suites and 1,525 tests. Focused allocator,
-BROB, cleanup, and integration suites pass, and the generated
-`BrobAllocationRecovery` probe exercises per-STID advance, inclusive and
-preserved-pivot recovery, old-cursor capture, recovery priority, invalid-STID
-rejection, and coherent child-admission suppression. Independent review found
-and drove the fix for a hidden ROB allocation when public allocation was
-blocked, then found two stale cross-RTL documentation claims; re-review has no
-remaining code blocker. The canonical top cross-check compares 3 rows with
-zero mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with zero
+R651 removes the obsolete completion-driven delayed-retire module and the
+superseded allocation-only owner at file level; git preserves their history.
+The generated Chisel probe covers independent windows, out-of-order
+completion, held retirement, cross-STID fairness, simultaneous allocation and
+retirement, exact metadata removal, inclusive and preserved-pivot recovery,
+invalid identity/pivot rejection, and metadata suffix reuse across full-BID
+rollover. The exact full Chisel suite passes 258
+suites and 1,526 tests. The current block-retire interface remains one lane;
+canonical BID width plus explicit wrap context, configurable multi-block
+retirement, non-flush/store-barrier frontiers, direct BCC/IEX/PE trigger owners,
+and complete cleanup fanout remain open.
+
+R651 final verification passes 258 suites and 1,526 tests. Independent review
+first found that metadata still used unsigned full-BID comparison across
+rollover; the owner now supplies head/count modular context, the generated
+probe proves `[14,15,0]` suffix recovery and slot reuse, and re-review has no
+remaining finding. The canonical top cross-check compares 3 rows with zero
+mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with zero
 mismatches and zero CBSTOP at
-`generated/r650-final-brob-allocation-recovery-coremark/report/crosscheck_manifest.json`.
+`generated/r651-final-brob-order-state-coremark/report/crosscheck_manifest.json`.
 CoreMark remains no-regression evidence because this trace does not naturally
-activate accepted BROB recovery.
+activate accepted BROB recovery or multi-STID retirement.
 
 R649 connects retained scalar MDB recovery to the live reduced
 top. `MDBConflictTransactionControl` is now shared by canonical

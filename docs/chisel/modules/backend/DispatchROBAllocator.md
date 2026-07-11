@@ -68,12 +68,14 @@ R643 replaces the global block cursor with one parameterized cursor per STID,
 passes STID on every BROB lifecycle event, and returns the deallocated
 block-last STID beside its full BID. This matches LinxCoreModel lane-local BROB
 allocation and explicitly rejects cross-STID BID ordering.
-R650 extracts those cursors into `BrobAllocationRecovery` and connects accepted
-global cleanup. Miss-predict recovery treats `blockFlushBid` as the first
-killed BID; nuke/inner/fast flush preserves the pivot and restores to its
-successor. The allocator blocks new BROB allocation during the cleanup pulse,
-captures the old full-BID cursor, restores only the selected STID, and applies
-the same inclusive/exclusive rule to `BrobMetaTracker` metadata.
+R650 extracted those cursors into a named allocation owner. R651 promotes that
+owner to `BrobOrderState`: independent allocation tail, commit head, and live
+count per STID plus one fair irrevocable retire lane. Miss-predict recovery
+treats `blockFlushBid` as the first killed BID; nuke/inner/fast flush preserves
+the pivot and restores to its successor. Recovery applies only when the
+first-killed identity lies in the selected live window. The allocator blocks
+new BROB allocation and retire publication during cleanup, then applies the
+same validated suffix to order state and `BrobMetaTracker` metadata.
 The allocator can elaborate multiple lanes independently, but the current
 `DecodeRenameROBPath` composition is guarded to one STID until GPR mapQ block
 commit also keys entries by STID.
@@ -136,11 +138,17 @@ dispatch agents consume a real block owner.
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
-| input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID pass-through surface for `BrobMetaTracker`. |
+| input | `block*Done*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID completion, recovery, and query surface. |
+| input | `blockRetireReady` | `Bool` | ready | Downstream block rename-commit queue can accept the held ordered head. |
+| output | `blockRetireValid/Fire/Bid/Stid` | mixed | ready/valid | Irrevocable exact completed head selected fairly across STIDs. |
+| output | `blockRetireMetadataAccepted/Ignored` | `Bool` | diagnostic | Metadata removal matched, or violated, the ordered-retire identity. |
 | input | `blockFlushInclusive` | `Bool` | with `blockFlushValid` | Pivot is the first killed BID for model miss-predict recovery; otherwise the pivot survives. |
 | output | `blockFlushFirstKilledBid`, `blockFlushOldAllocBid` | `UInt(bidWidth.W)` | with accepted recovery | Restored cursor target and pre-recovery allocation cursor. |
-| output | `blockFlushApplied`, `blockFlushStidInRange` | `Bool` | diagnostic | Selected per-STID cursor restore was legal and applied. |
+| output | `blockFlushApplied`, `blockFlushStidInRange`, `blockFlushWindowValid` | `Bool` | diagnostic | Selected per-STID suffix was in scope, within the live window, and applied. |
+| output | `blockFlushRetainedCount` | `UInt` | diagnostic | Live prefix length retained by recovery. |
 | output | `blockAllocCursor` | `Vec(stidCount, UInt(bidWidth.W))` | diagnostic | Current next-allocation full BID independently per STID. |
+| output | `blockCommitCursor`, `blockLiveCount` | `Vec` | diagnostic | Current oldest full BID and bounded occupancy independently per STID. |
+| output | `blockOrderEmpty/Full/HeadMismatch` | `Vec[Bool]` | diagnostic | Capacity state and exact order-to-metadata consistency. |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `recoveryOldestValid` | `Vec(stidCount, Bool)` | qualifier | BROB and ROB both have oldest state and their allocator-stamped full block BIDs match exactly. |
 | output | `recoveryOldestBlockBid` | `Vec(stidCount, UInt(bidWidth.W))` | with valid | BROB-owned full block identity. |
@@ -155,15 +163,22 @@ dispatch agents consume a real block owner.
 
 ## State
 
-- `BrobAllocationRecovery`: per-STID full-BID next-allocation cursor, reset to zero.
+- `BrobOrderState`: per-STID full-BID allocation tail, commit head, bounded
+  live count, and one irrevocable shared-retire slot, reset to zero/empty.
 - `BrobMetaTracker`: block metadata state owner.
 - `ROBEntryBank`: PE ROB row state owner.
 
 ## Logic Design
 
 The allocator selects each lane's next full BID from
-`BrobAllocationRecovery.cursor(stid)`. Low bits select the BROB slot and high
+`BrobOrderState.allocCursor(stid)`. Low bits select the BROB slot and high
 bits retain generation uniqueness.
+
+New-block admission additionally requires the selected order window not be
+full. Completion may arrive out of order, but only the exact owner-provided
+commit head can retire. Its `(STID,full BID)` is held stable under downstream
+backpressure. Metadata free, commit-head advance, live-count decrement,
+rename-commit enqueue, and public retire fire share one handshake.
 
 Allocation has three reduced modes:
 
@@ -193,8 +208,9 @@ into the queued row; the slot value alone is insufficient after the reduced
 8-entry ROB wraps. BROB identity is `(STID, full BID)`; equal full BID values
 in different STIDs are valid and are not globally ordered.
 
-R648 joins two independent state owners without weakening identity. BROB
-selects the oldest live full BID and completion state in each STID. ROB scans
+R648 joins two independent state owners without weakening identity. R651 makes
+BROB resolve the exact owner-provided commit-head full BID and completion state
+in each STID instead of scanning for an unsigned minimum. ROB scans
 circular commit order for that STID's oldest non-retired RID and republishes
 the full block BID stored with the same row. The joined watermark is valid only
 when those full BIDs are equal. A marker-only older BROB entry therefore cannot
@@ -268,7 +284,8 @@ adapter's responsibility.
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
-- `bash tools/chisel/run_chisel_brob_allocation_recovery_probe.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only BrobOrderState`
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`

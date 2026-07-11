@@ -7,7 +7,7 @@
 - Integration:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockMarkerRetireSourceSerializer.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BrobOrderState.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/bctrl/spe/DCTop.cpp`
@@ -92,7 +92,7 @@ marker-only block when the scalar-done port is free.
 | Output | `retiredMarkerFire` | `Bool` | Retired marker source consumed by lifecycle policy. |
 | Output | `retiredMarkerBoundaryFire` | `Bool` | Retired fallthrough boundary installed row-owned active state. |
 | Output | `retiredMarkerStopFire` | `Bool` | Retired stop marker completed the active context. |
-| Output | `scalarDoneValid/scalarDoneBid/scalarDoneStid` | mixed | Selected exact scalar-done identity for `BlockScalarDoneSequencer`. |
+| Output | `scalarDoneValid/scalarDoneBid/scalarDoneStid` | mixed | Selected exact scalar-done identity for persistent BROB completion metadata. |
 | Output | `stopRedirectValid/stopRedirectPc` | `Bool`/`UInt` | Consumed stop/direct marker redirects frontend to the active target. |
 
 ## Logic Design
@@ -109,7 +109,7 @@ marker-only block when the scalar-done port is free.
   scalar row BID reuse/diagnostics query `activeQueryStid`.
 - If marker allocation would wrap onto the active BID slot while allocation is
   not ready, `markerPreRetireFire` emits scalar done for the active BID and
-  keeps active state live until the retire gap clears.
+  keeps active state live until the ordered retire owner publishes the completed head.
 - Scalar redirects complete and clear active context before the redirected
   target's first scalar row can seed a fresh scalar-created active block. Only
   the redirecting STID lane is cleared.
@@ -144,8 +144,8 @@ when the selected instruction is last-in-block or a parallel `BSTOP` closes the
 block. `SPEROB::dealloc()` calls `CommitLast()` when a retired ROB row is
 block-last and not flushed. The reduced Chisel path still uses marker consume
 timing for `BSTART`/`BSTOP`, but the active-context owner now mirrors the model
-handoff shape: select the active full BID, produce scalar completion, then let
-`BlockScalarDoneSequencer` issue the delayed retire/free pulse.
+handoff shape: select the active full BID, persist scalar completion in BROB
+metadata, then let `BrobOrderState` retire only the exact completed STID head.
 
 `BCtrlUnit::RunFetchStage5` allocates a block BID for marker rows before the
 row reaches dispatch. Later, `SPEROB::dealloc()` and the block commit helpers
@@ -158,7 +158,7 @@ still needs an explicit decode/retire split for active block context, because
 model decode uses the `BSTART` BID for subsequent scalar rows before the
 corresponding marker row has retired.
 R176 adds `BlockMarkerDecodeContext` as that decode-time owner. This lifecycle
-module still owns retire-time scalar-done, delayed block retire, retired marker
+module still owns retire-time scalar-done, ordered block-retire eligibility, retired marker
 source consumption, and marker redirect policy. Do not reintroduce following-row
 BID assignment into this module while the decode context exists.
 R177 wires the decode context into `DecodeRenameROBPath` behind
