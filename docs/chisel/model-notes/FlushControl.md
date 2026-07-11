@@ -62,7 +62,9 @@ uniqueness bit as `ROBID.wrap`, matching the sidecar produced by
 
 `RecoveryCleanupControl` adds the registered cleanup-intent boundary. It
 accepts full-BID requests or pre-annotated ring-qualified requests, with
-full-BID input taking fixed source priority. After a request is selected,
+full-BID input taking fixed local compatibility priority. Central composition
+preselects full-BID requests through `RecoverySourceArbiter` and leaves the raw
+ring input unused. After a request is selected,
 global flushes map to BCTRL/rename flush plus
 frontend restart; global replay and PE-scoped replay map to BCTRL/rename
 replay; all accepted cleanup intents carry backend PE/ROB, report-queue,
@@ -95,6 +97,11 @@ and their cross-cancellation remain canonical composition work.
 Chisel `CheckFlush` age boundary for MDB reports: non-immediate requests wait
 for wrap-qualified oldest BID/RID state; immediate requests bypass age only.
 
+R640 extracts that gate and exact lookup into `ScalarLSURecoverySource`. The
+LSU now publishes one full-BID source and accepts per-source readiness from
+`RecoverySourceArbiter`; it no longer instantiates `RecoveryCleanupControl` or
+selects an external full request over MDB.
+
 `STQFlushPrune` is the first LSU consumer of that selected `FlushBus`. It uses
 the same `stid`, optional PE/thread, BID, group, and LSID matching policy as
 `FlushBus::match(MemReqBus)` and only frees rows whose model STQ FSM is
@@ -119,6 +126,6 @@ rename packets.
   ClockHands/T/U and multi-thread rename replay, frontend restart token
   payloads, PE replay fanout, and BROB pointer restoration are signaled by
   `RecoveryCleanupControl` but not implemented by the current Chisel packets.
-- `RecoverySourceArbiter` is proven ahead of the real-ROB cleanup harness, but
-  canonical BCC/IEX/PE/LSU source wiring and ScalarLSU source extraction remain
+- `ScalarLSURecoverySource` is proven ahead of the real-ROB cleanup harness.
+  Canonical BCC/IEX/PE source wiring and the complete stateful class merge remain
   open top-level composition work.

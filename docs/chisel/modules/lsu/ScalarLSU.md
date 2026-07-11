@@ -7,6 +7,8 @@
 - Store child: `chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
 - Load child: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala`
 - MDB child: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
+- Recovery-source child:
+  `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala`
 - Model reference: `model/LinxCoreModel/model/core/Core.cpp`,
   `Core::BuildScalarLSU`; `model/LinxCoreModel/model/lsu/lsu.h`,
@@ -22,9 +24,9 @@ R635 integrates scalar MDB conflict detection, SSIT/fanout, live wait mutation,
 and typed conflict-flush publication. R636 adds per-row failed-wait age plus
 atomic LIQ release and MDB delete feedback. R637 adds a parameterized retained
 recovery-report boundary and wrap-qualified oldest BID/RID eligibility. R638
-adds exact allocator/ROB full-BID lookup and promotion before the canonical
-cleanup owner. R639 proves the central multi-source arbiter in the real-ROB
-harness, but ScalarLSU has not yet been converted to publish into that owner.
+adds exact allocator/ROB full-BID lookup and promotion. R639 proves the central
+multi-source arbiter. R640 removes local cleanup selection from ScalarLSU and
+publishes its exactly promoted MDB report through `ScalarLSURecoverySource`.
 Cache and miss queues, canonical-top source/lookup wiring, and final load-return
 publication remain outside this hierarchy, so this is not yet a complete LSU.
 
@@ -71,19 +73,18 @@ before launch. Stable failed predictions age per LIQ row and release only with
 accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
 and retained wait/wakeup/recovery state to be empty.
 
-`ScalarLSU` connects the retained MDB report to `RecoveryEligibilityControl`,
-`RingFullBidRecoveryBridge`, and `RecoveryCleanupControl`. The caller supplies
-the source-STID oldest BID/RID watermark, the exact ROB lookup result, and
-cleanup-intent readiness. Non-immediate reports remain queued until age,
-identity echo, full-sideband validity, ring projection, source priority, and
-cleanup readiness all pass. An independently selected full-BID request has
-fixed priority. Lookup failure cannot fall back to ring-only cleanup.
+`ScalarLSU` connects the retained MDB report to
+`ScalarLSURecoverySource`. The caller supplies the source-STID oldest BID/RID
+watermark, exact ROB lookup result, and central source readiness. Non-immediate
+reports remain queued until age, identity echo, full-sideband validity, ring
+projection, and arbiter acceptance all pass. Lookup failure cannot fall back
+to ring-only cleanup.
 
-This fixed priority is transitional local composition, not the final recovery
-age policy. `RecoverySourceArbiter` now defines and proves the central contract:
-independent retained producers, model-oldest selection within one STID, and
-fair serialization across STIDs. A later packet must expose promoted MDB as a
-source and remove this local source conflict from ScalarLSU.
+The LSU exports `FullBidFlushReq source` and does not instantiate
+`RecoveryCleanupControl`. It therefore cannot impose full-over-MDB or any other
+competing-source priority. `RecoverySourceArbiter` owns retained producer
+selection; `RecoveryCleanupControl` owns the selected registered intent and
+side-effect fanout.
 
 ## Verification
 
@@ -129,3 +130,12 @@ R639 extends the real-ROB generated probe with `RecoverySourceArbiter` and
 proves simultaneous admission, same-STID oldest selection, losing-source
 retention, invalid-STID rejection, and cross-STID fairness. This is harness
 evidence; production ScalarLSU-to-central-arbiter wiring remains open.
+
+R640 extracts `ScalarLSURecoverySource`, removes LSU-local cleanup arbitration,
+and uses that same production source owner in the real-ROB generated path ahead
+of `RecoverySourceArbiter`. Focused elaboration rejects any
+`RecoveryCleanupControl` child beneath ScalarLSU.
+The full suite passes 251 suites and 1,483 tests; canonical top xcheck passes 3
+rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r640-final-scalar-lsu-recovery-source-coremark/report/crosscheck_manifest.json`.

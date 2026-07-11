@@ -56,13 +56,28 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_liqRows_3_valid"))
     assert(sv.contains("io_load_resolveEntries_7_valid"))
     assert(sv.contains("io_load_mdbConflictFlush_req_valid"))
+    assert(sv.contains("module ScalarLSURecoverySource"))
     assert(sv.contains("module RecoveryEligibilityControl"))
-    assert(sv.contains("module RecoveryCleanupControl"))
     assert(sv.contains("module RingFullBidRecoveryBridge"))
+    assert(!sv.contains("module RecoveryCleanupControl"))
     assert(sv.contains("io_recovery_fullBidLookupRequest_rid_value"))
     assert(sv.contains("io_recovery_sourceBlockedByLookupMiss"))
     assert(sv.contains("io_recovery_sourceEligible"))
-    assert(sv.contains("io_recovery_intent_flush_req_valid"))
+    assert(sv.contains("io_recovery_source_blockBid"))
+    assert(sv.contains("io_recovery_sourceReady"))
     assert(sv.contains("io_load_mdbSsitValidMask"))
+  }
+
+  test("ScalarLSURecoverySource elaborates exact promotion without local cleanup arbitration") {
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSURecoverySource(entries = 8, bidWidth = 16))
+
+    assert(sv.contains("module ScalarLSURecoverySource"))
+    assert(sv.contains("module RecoveryEligibilityControl"))
+    assert(sv.contains("module RingFullBidRecoveryBridge"))
+    assert(!sv.contains("module RecoveryCleanupControl"))
+    assert(sv.contains("io_fullBidLookupRequest_rid_value"))
+    assert(sv.contains("io_source_blockBid"))
+    assert(sv.contains("io_sourceReady"))
+    assert(sv.contains("io_blockedByStaleLookup"))
   }
 }

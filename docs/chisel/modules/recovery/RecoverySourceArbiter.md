@@ -77,16 +77,16 @@ and LSID identities. It defines no ARM architectural behavior.
 
 R639 places this owner in `RecoveryCleanupROBProbe` ahead of the real exact
 full-BID lookup/ROB cleanup path. Ring-originated MDB reports are promoted by
-`RingFullBidRecoveryBridge` before entering the arbiter. The generated proof
+production `ScalarLSURecoverySource` before entering the arbiter. The generated proof
 covers exact lookup, retained admission, same-STID oldest selection, losing
 source retention, consume-and-replace, invalid-STID rejection, cross-STID
 round-robin selection, and scoped real ROB pruning.
 
-Production `ScalarLSU` still contains the transitional two-input local cleanup
-composition. Moving its promoted MDB output to a source port and instantiating
-this arbiter with the real BCC/IEX/PE source set in the canonical backend top is
-the next ownership packet. The harness proves the central contract but does
-not claim complete top-level recovery composition.
+R640 removes the transitional two-input local cleanup composition from
+production `ScalarLSU` and exports its promoted MDB source. Instantiating this
+arbiter with the real BCC/IEX/PE source set in the canonical backend top remains
+the next ownership packet. The harness proves the central contract but does not
+claim complete top-level recovery composition.
 
 The model also retains separate global-flush, global-replay, and PE-scoped
 signal lanes and performs cancellation/merge between them. This packet does

@@ -79,10 +79,11 @@ bridge now generates a full hardware BID, allocates BROB metadata and ROB row
 state atomically, and forwards that BID into `ROBEntryBank.allocBid`.
 `FullBidRecoveryBridge` defines the matching recovery handoff: full block BID
 for BROB-style cleanup, ring `ROBID` for ROB row pruning.
-`RecoveryEligibilityControl` holds non-immediate ring requests until the
-supplied oldest BID/RID watermark permits execution. `RecoveryCleanupControl`
-then registers a selected full-BID or eligible ring-qualified
-recovery request and exposes
+`ScalarLSURecoverySource` holds non-immediate MDB reports until the supplied
+oldest BID/RID watermark permits execution and exact resident-ROB lookup
+recovers the allocator-stamped full generation. `RecoverySourceArbiter` retains
+and selects promoted sources. `RecoveryCleanupControl` then registers the
+selected request and exposes
 the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
 tile, PE fanout, and ROB consumers. `GPRRenameCheckpoint` is the first scalar
 rename cleanup consumer: it owns model `GPRRename` `smap`/`cmap`, per-BID
@@ -157,7 +158,9 @@ SSIT predictor state. `LoadWaitStoreTimeout` adds deterministic per-row ageing
 for stable predicted-store waits. Expiry is retained until one cycle can both
 clear the LIQ wait and enqueue MDB delete feedback, after which `MDBSSIT`
 decays or releases the failed prediction.
-`ScalarLSU` owns the MDB-to-eligibility-to-cleanup connection.
+`ScalarLSURecoverySource` owns MDB age eligibility and exact full-BID
+promotion. `ScalarLSU` exports that source to central arbitration and contains
+no cleanup selector.
 `RecoveryCleanupROBProbe` proves a non-oldest report remains upstream, an
 eligible wrong-RID lookup cannot consume it, and exact `ROBFullBidLookup`
 recovers the allocator-stamped generation sideband. The promoted request is
@@ -166,6 +169,8 @@ acceptance. R639 places `RecoverySourceArbiter` ahead of cleanup and proves
 simultaneous source admission, model-oldest same-STID selection, losing-source
 retention, consume-plus-replace, invalid-STID rejection, fair cross-STID
 serialization, accepted block authority, and different-STID preservation.
+R640 uses the same production LSU source owner in that path, so exact lookup
+and arbiter acceptance are the only events that dequeue the retained MDB head.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps

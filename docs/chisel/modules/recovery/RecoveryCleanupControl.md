@@ -11,6 +11,8 @@
   `chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala`
 - Ring promotion owner:
   `chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala`
+- Scalar LSU source owner:
+  `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
 - Retained source arbiter:
   `chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala`
 - Full-BID lookup owner:
@@ -44,11 +46,12 @@ valid at this local boundary. Multi-source production composition must place
 `RecoverySourceArbiter` before `req`; this fixed priority is not the
 BCC/IEX/PE/LSU age policy.
 
-`RingFullBidRecoveryBridge` is the canonical adapter for scalar MDB reports.
-It emits an exact ROB lookup key, validates the echoed result and full-BID ring
-projection, and only then presents the request on the full-BID input. The raw
-ring input remains available for sources whose contract intentionally lacks
-block authority; ScalarLSU no longer uses it as a fallback after lookup failure.
+`ScalarLSURecoverySource` is the canonical adapter for scalar MDB reports. It
+combines oldest eligibility with `RingFullBidRecoveryBridge`, emits an exact ROB
+lookup key, validates the echoed result and full-BID ring projection, and only
+then presents the request to `RecoverySourceArbiter`. The raw ring input remains
+available for compatibility sources whose contract intentionally lacks block
+authority; ScalarLSU does not use it.
 
 The module does not mutate rename maps, LSU/STQ entries, frontend queues, BROB
 pointers, or ROB rows. It prevents those side effects from being smuggled into
@@ -187,6 +190,10 @@ boundary. The same run proves simultaneous retained admission, selection of
 older full BID `0x11` over `0x12` within STID0, retention and
 consume-plus-replacement of the younger source, rejection of an uninstantiated
 STID, and round-robin serialization of an incomparable STID1 request.
+R640 replaces the probe's separate eligibility/promotion instances with
+`ScalarLSURecoverySource`, the same production owner instantiated by
+`ScalarLSU`. Focused elaboration proves no cleanup controller remains beneath
+the LSU.
 
 ## Trace/Observability
 

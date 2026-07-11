@@ -15,12 +15,13 @@
 `LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
 full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
 instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store,
-active/resolved load, and scalar MDB boundaries. Live failed-wait delete timing
-and retained MDB recovery eligibility/cleanup selection are integrated beneath
-the LSU owner. The scalar LSU now exposes an exact full-BID lookup request and
-result boundary, but this reduced shell cannot satisfy it from
-`ReducedCommitROB`. Cache/miss queues, canonical backend lookup wiring,
-all-source recovery arbitration, and final load return are not yet integrated.
+active/resolved load, and scalar MDB boundaries. Live failed-wait delete timing,
+oldest eligibility, and exact recovery-source promotion are integrated beneath
+the LSU owner. The scalar LSU exposes an exact full-BID lookup request/result
+and a promoted full-BID source, but this reduced shell cannot satisfy the lookup
+from `ReducedCommitROB` or consume the source centrally. Cache/miss queues,
+canonical backend source/lookup wiring, cleanup, and final load return are not
+yet integrated.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing
@@ -38,7 +39,7 @@ xchecks while that newer wrapper grows toward live Verilator execution.
 | input | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | `completeValid` | Reduced ROB slot index to complete. |
 | bidirectional boundary | `scalarLsu.store` | `STQSCBCommitPathIO` | typed per signal | Canonical scalar LSU store request, flush, cache/response, state, and diagnostic boundary. |
 | bidirectional boundary | `scalarLsu.load` | `ScalarLSULoadPathIO` | typed per signal | Canonical LIQ/ResolveQ allocation, launch, forwarding, replay/refill, recovery, retire, and state boundary. |
-| bidirectional boundary | `scalarLsu.recovery` | `ScalarLSURecoveryControlIO` | typed valid/ready | Full-BID source, oldest BID/RID watermark, exact ROB full-BID lookup request/result, cleanup readiness, and selected intent boundary. |
+| bidirectional boundary | `scalarLsu.recovery` | `ScalarLSURecoverySourcePortIO` | typed valid/ready | Promoted full-BID source and readiness, oldest BID/RID watermark, and exact ROB lookup request/result. Cleanup is not owned by this reduced shell. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Head-ordered retired rows from the reduced ROB. |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | Reduced ROB commit valid mask. |
 | output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
@@ -70,8 +71,8 @@ allocation and completion ports directly into `ReducedCommitROB`, forwards the
 commit window and monitor flags, and reports `idle` when the reduced ROB is
 empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, SCB
 response buffer, LIQ, ResolveQ, pending load transfer, MDB command/fanout
-queues, retained wait plans, registered MDB store wakeup, and recovery cleanup
-intent empty.
+queues, retained wait plans, registered MDB store wakeup, and retained recovery
+source empty.
 
 This keeps the first top-level Chisel structure aligned with the
 LinxCoreModel-derived `SPEROB::commit` walk: rows retire in contiguous completed
@@ -87,10 +88,11 @@ stage.
 
 The scalar LSU accepts typed Linx store and load flush boundaries, including
 precise LIQ/ResolveQ pruning. It retains MDB recovery, checks the external
-oldest BID/RID watermark, and publishes registered cleanup intent. The reduced
-ROB cannot supply canonical BID/RID, answer the exact full-BID lookup, or
-consume that intent, so full checkpoint restore, rename cleanup, all-source arbitration, and
-precise trap ownership are not implemented in this shell. Future integrated top work must
+oldest BID/RID watermark, and publishes an exactly promoted full-BID source.
+The reduced ROB cannot supply canonical BID/RID, answer the exact full-BID
+lookup, or consume that source, so full checkpoint restore, rename cleanup,
+all-source arbitration, and precise trap ownership are not implemented in this
+shell. Future integrated top work must
 replace the reduced ROB interface with real frontend/backend ownership while
 keeping commit rows monitored before cross-check use.
 

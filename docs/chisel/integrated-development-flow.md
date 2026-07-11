@@ -15,16 +15,22 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R639 adds `RecoverySourceArbiter` as the parameterized retained
-boundary ahead of cleanup. It applies model `CheckOlder` ordering only within
-one STID, keeps losing producers resident, rejects reports outside the
-instantiated STID set, and round-robins incomparable STID winners. The evolved
-real-ROB generated probe preserves R638 exact lookup and scoped prune proof,
-then proves simultaneous source admission, full BID `0x11` winning over
-younger `0x12`, retained consume-and-replace, and STID1 fairness. Production
-ScalarLSU source extraction and canonical backend source/lookup wiring remain
-next; this packet proves the central harness contract without claiming that
-top-level composition.
+Latest packet: R640 extracts `ScalarLSURecoverySource` as the production MDB
+age/identity promotion owner. `ScalarLSU` now exports one full-BID source and
+contains no cleanup controller or competing-source priority. The exact real-ROB
+generated path instantiates that same owner ahead of `RecoverySourceArbiter`
+and `RecoveryCleanupControl`, preserving R638/R639 lookup, retention, fairness,
+and scoped-prune proof. Canonical backend source/lookup wiring for the complete
+BCC/IEX/PE/LSU set remains next; this packet does not claim full top-level
+composition or the model's separate flush/replay/PE class merge.
+
+R640 verification passes 251 suites and 1,483 tests. Both generated recovery
+and canonical MDB probes pass. The canonical top cross-check compares 3 rows
+with zero mismatches. Reduced CoreMark compares 426 rows with zero mismatches
+and zero CBSTOP at
+`generated/r640-final-scalar-lsu-recovery-source-coremark/report/crosscheck_manifest.json`.
+CoreMark remains no-regression evidence because the reduced workload top does
+not instantiate the real-ROB recovery composition.
 
 R639 verification passes 251 suites and 1,482 tests. The strengthened
 generated recovery probe passes continuous two-STID residency and alternating

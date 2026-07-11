@@ -86,7 +86,7 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
       (scalarLsu.io.store.scbEntryCount === 0.U) &&
       scalarLsu.io.store.scbRespBufferEmpty &&
       scalarLsu.io.load.empty &&
-      !scalarLsu.io.recovery.cleanupPending
+      !scalarLsu.io.recovery.sourcePending
 }
 
 object LinxCoreTop {

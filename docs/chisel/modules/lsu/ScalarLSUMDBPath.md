@@ -90,8 +90,9 @@ diverge under backpressure.
   remains stable until `recoveryReady`; queue exhaustion backpressures the
   store probe and therefore the owning STQ insertion.
 - Reports set `immediateFlush=false`. `ScalarLSU` connects the retained head to
-  `RecoveryEligibilityControl`; the head advances only when wrap-qualified
-  oldest BID/RID state permits and `RecoveryCleanupControl` can accept it.
+  `ScalarLSURecoverySource`; the head advances only when wrap-qualified oldest
+  BID/RID state permits, exact full-BID promotion succeeds, and the central
+  source arbiter accepts it.
 - Hard or typed precise recovery clears MDB command/output queues, retained
   wait plans, and registered store wakeups.
 - SSIT predictor state survives ordinary recovery. Reset and explicit
@@ -141,7 +142,7 @@ acceptance, and wait-store clear in the next registered row image. A parallel
 one-cycle timer proves the minimum legal threshold and flush suppression.
 R637 holds an accepted conflict report while the outer owner is blocked, then
 accepts it without changing its typed identity. The recovery/ROB probe passes a
-ring-qualified nuke through oldest-BID eligibility and
-`RecoveryCleanupControl`, holds the cleanup intent, proves full-over-ring
-priority plus consume-and-replace, and prunes real resident `ROBEntryBank` rows
-only on intent acceptance.
+ring-qualified nuke through `ScalarLSURecoverySource`, exact resident-ROB
+lookup, `RecoverySourceArbiter`, and `RecoveryCleanupControl`. It holds losing
+sources and cleanup intent, proves consume-and-replace, and prunes real resident
+`ROBEntryBank` rows only on intent acceptance.

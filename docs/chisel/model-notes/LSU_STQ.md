@@ -464,6 +464,11 @@ serializes independent STID winners. Production ScalarLSU still needs to
 publish its promoted MDB report to this owner instead of retaining the
 transitional local full-over-MDB priority boundary.
 
+R640 removes that transitional boundary. `ScalarLSURecoverySource` now owns
+only oldest BID/RID eligibility and exact full-generation promotion. Its
+`FullBidFlushReq` enters `RecoverySourceArbiter`; central cleanup readiness is
+the only event that dequeues the retained MDB report.
+
 R636 adds `LoadWaitStoreTimeout` beneath the same canonical owner. The model
 records `stallCycle` whenever a load starts waiting and later sends
 `getMDBBus(load)` to `delete_lu_mdb_q` when the predicted wait fails. Its
@@ -485,8 +490,8 @@ window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU still needs final load-return/cache ownership,
-  canonical-top connection of the full-BID lookup ports, and extraction of its
-  promoted MDB report into the proven central all-source arbiter.
+  canonical-top connection of the full-BID lookup ports and promoted source,
+  plus the remaining BCC/IEX/PE source set and class merge.
   `ScalarLSULoadPath` now owns load-queue flush, LIQ-to-ResolveQ backpressure,
   and scalar MDB composition. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded

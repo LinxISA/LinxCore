@@ -3,6 +3,7 @@ package linxcore.recovery
 import chisel3._
 import linxcore.commit.CommitTraceParams
 import linxcore.common.{BoundaryKind, DestinationKind}
+import linxcore.lsu.ScalarLSURecoverySource
 import linxcore.rob.{ROBEntryBank, ROBID}
 
 class RecoveryCleanupROBProbeIO extends Bundle {
@@ -61,8 +62,7 @@ class RecoveryCleanupROBProbe extends Module {
     entries = entries,
     bidWidth = 16
   ))
-  val eligibility = Module(new RecoveryEligibilityControl(entries = entries))
-  val ringFullBid = Module(new RingFullBidRecoveryBridge(entries = entries, bidWidth = 16))
+  val lsuSource = Module(new ScalarLSURecoverySource(entries = entries, bidWidth = 16))
   val rob = Module(new ROBEntryBank(
     entries = entries,
     traceParams = traceParams,
@@ -105,19 +105,16 @@ class RecoveryCleanupROBProbe extends Module {
   ringReq.fetchTpcValid := true.B
   ringReq.immediateFlush := false.B
   val annotatedRingReq = FlushControl.annotate(ringReq)
-  eligibility.io.request := annotatedRingReq
-  eligibility.io.oldestValid := io.oldestValid
-  eligibility.io.oldestBid := id(io.oldestBid)
-  eligibility.io.oldestRid := id(io.oldestRid)
-  val eligibleRingReq = Wire(chiselTypeOf(annotatedRingReq))
-  eligibleRingReq := annotatedRingReq
-  eligibleRingReq.req.valid := annotatedRingReq.req.valid && eligibility.io.eligible
-  ringFullBid.io.ringReq := eligibleRingReq
-  ringFullBid.io.lookupResult := rob.io.fullBidLookup
-  rob.io.fullBidLookupRequest := ringFullBid.io.lookupRequest
+  lsuSource.io.ringReq := annotatedRingReq
+  lsuSource.io.oldestValid := io.oldestValid
+  lsuSource.io.oldestBid := id(io.oldestBid)
+  lsuSource.io.oldestRid := id(io.oldestRid)
+  lsuSource.io.fullBidLookup := rob.io.fullBidLookup
+  lsuSource.io.sourceReady := arbiter.io.sourceReady(2)
+  rob.io.fullBidLookupRequest := lsuSource.io.fullBidLookupRequest
   arbiter.io.sources(0) := fullReq
   arbiter.io.sources(1) := peerFullReq
-  arbiter.io.sources(2) := ringFullBid.io.fullReq
+  arbiter.io.sources(2) := lsuSource.io.source
   arbiter.io.oldestBid(0) := id(io.oldestBid)
   arbiter.io.oldestBid(1) := id(3.U)
   arbiter.io.outReady := cleanup.io.reqReady
@@ -181,18 +178,18 @@ class RecoveryCleanupROBProbe extends Module {
   rob.io.commitTraceLookupSourceTraceEnable := false.B
 
   io.allocReady := rob.io.allocReady
-  io.ringReady := arbiter.io.sourceReady(2) && eligibility.io.eligible && ringFullBid.io.matched
-  io.ringAccepted := arbiter.io.sourceAccepted(2)
+  io.ringReady := lsuSource.io.ringReqReady
+  io.ringAccepted := lsuSource.io.sourceAccepted
   io.fullReady := arbiter.io.sourceReady(0)
   io.fullAccepted := arbiter.io.sourceAccepted(0)
   io.peerFullReady := arbiter.io.sourceReady(1)
   io.peerFullAccepted := arbiter.io.sourceAccepted(1)
-  io.ringBlockedByAge := eligibility.io.blockedByAge
-  io.ringLookupMatched := ringFullBid.io.matched
+  io.ringBlockedByAge := lsuSource.io.blockedByAge
+  io.ringLookupMatched := lsuSource.io.lookupMatched
   io.ringLookupBlocked :=
-    ringFullBid.io.blockedByLookupMiss ||
-      ringFullBid.io.blockedByStaleResult ||
-      ringFullBid.io.blockedByRingProjection
+    lsuSource.io.blockedByLookupMiss ||
+      lsuSource.io.blockedByStaleLookup ||
+      lsuSource.io.blockedByRingProjection
   io.cleanupPending := cleanup.io.pending
   io.arbiterPendingMask := arbiter.io.pendingMask
   io.arbiterSelectedValid := arbiter.io.selectedSourceValid

@@ -53,6 +53,7 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
     assert(sv.contains("module RecoveryCleanupROBProbe"))
     assert(sv.contains("RecoveryCleanupControl"))
     assert(sv.contains("RecoverySourceArbiter"))
+    assert(sv.contains("ScalarLSURecoverySource"))
     assert(sv.contains("RecoveryEligibilityControl"))
     assert(sv.contains("RingFullBidRecoveryBridge"))
     assert(sv.contains("ROBFullBidLookup"))
