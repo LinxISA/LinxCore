@@ -149,14 +149,6 @@ def build_janus_bcc_lsu_scb(
     has_unissued = issued_off.out().ult(count.out())
     last_is_presented = has_unissued & last_idx.__eq__(issue_idx)
 
-    # Merge condition: last entry exists, is not yet issued, same line, consecutive SID.
-    last_unissued = issued_off.out().ult(count.out())  # there exists an unissued entry
-    can_merge = (
-        (count.out() != c(0, width=idx_w + 1))
-        & last_unissued
-        & (line_q[0].out() == line_q[0].out())  # placeholder to keep type
-    )
-
     # Compute can_merge by scanning for last_idx match.
     merge_hit = c(0, width=1)
     merge_old_mask = c(0, width=64)
@@ -176,7 +168,7 @@ def build_janus_bcc_lsu_scb(
     merge_same_line = enq_line == merge_old_line
     can_merge = (
         (count.out() != c(0, width=idx_w + 1))
-        & last_unissued
+        & has_unissued
         & merge_hit
         & merge_same_line
         & merge_consecutive
