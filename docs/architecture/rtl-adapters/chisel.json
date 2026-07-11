@@ -50,6 +50,70 @@
       ]
     }
   ],
+  "event_sources": [
+    {
+      "owner": "RENAME",
+      "events": ["allocate", "backpressure", "rename-update", "checkpoint", "restore"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala",
+          "symbols": ["GPRRenameCheckpoint", "renameAccepted", "checkpointAccepted", "restoreFromCheckpoint", "smap", "cmap", "mapQ"]
+        }
+      ]
+    },
+    {
+      "owner": "IQ",
+      "events": ["iq-enqueue", "wakeup", "pick", "issue", "cancel"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala",
+          "symbols": ["ReducedScalarIssueQueue", "enqueueFire", "pickFire", "issueFire", "cancelFire", "srcReady"]
+        }
+      ]
+    },
+    {
+      "owner": "ROB",
+      "events": ["complete", "retire", "flush", "restart", "trap", "commit"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
+          "symbols": ["ReducedCommitROB", "completeValid", "commitFireVec", "commitCount", "headValue"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/FlushControl.scala",
+          "symbols": ["FlushControl"]
+        }
+      ]
+    },
+    {
+      "owner": "BROB",
+      "events": ["allocate", "complete", "retire", "flush", "block-restore"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
+          "symbols": ["BrobMetaTracker", "allocValid", "scalarDoneValid", "engineDoneValid", "retireValid", "flushValid"]
+        }
+      ]
+    },
+    {
+      "owner": "LSU",
+      "events": ["lsid-allocate", "forward", "replay", "nuke", "store-drain"],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala",
+          "symbols": ["LoadInflightQueue", "allocLoadId", "replayWakeup", "refillWakeup"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
+          "symbols": ["LoadStoreForwarding"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala",
+          "symbols": ["STQCommitDrain"]
+        }
+      ]
+    }
+  ],
   "capabilities": [
     {
       "id": "chisel-reduced-rob-top",

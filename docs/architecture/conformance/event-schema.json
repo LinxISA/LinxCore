@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "event_version": "1.0.0",
+  "required_fields": ["scenario", "cycle", "event", "owner", "identity", "payload"],
+  "lane_fields": ["lane", "implementation_owner", "evidence_kind"],
+  "identity_fields": ["stid", "bid", "rid", "lsid"],
+  "event_kinds": [
+    "allocate",
+    "backpressure",
+    "rename-update",
+    "checkpoint",
+    "restore",
+    "iq-enqueue",
+    "wakeup",
+    "pick",
+    "issue",
+    "cancel",
+    "complete",
+    "retire",
+    "flush",
+    "restart",
+    "lsid-allocate",
+    "forward",
+    "replay",
+    "nuke",
+    "store-drain",
+    "trap",
+    "block-restore",
+    "commit"
+  ],
+  "architectural_events": {
+    "commit": ["pc", "insn", "length", "trap", "bi"]
+  },
+  "evidence_kinds": ["harness-fixture", "owner-trace", "architectural-trace"]
+}

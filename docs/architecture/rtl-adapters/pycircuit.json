@@ -51,6 +51,66 @@
       ]
     }
   ],
+  "event_sources": [
+    {
+      "owner": "RENAME",
+      "events": ["allocate", "backpressure", "rename-update", "checkpoint", "restore"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/engine.py",
+          "symbols": ["build_bcc_ooo", "dispatch_fire", "restore_from_ckpt", "smap_live"]
+        }
+      ]
+    },
+    {
+      "owner": "IQ",
+      "events": ["iq-enqueue", "wakeup", "pick", "issue", "cancel"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/issue.py",
+          "module_names": ["LinxCoreIssuePicker", "LinxCoreIssueStage", "LinxCoreIqUpdateStage"],
+          "symbols": ["ready_mask", "issue_valids", "issue_fires", "issue_clear"]
+        }
+      ]
+    },
+    {
+      "owner": "ROB",
+      "events": ["complete", "retire", "flush", "restart", "trap", "commit"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/rob.py",
+          "module_names": ["LinxCoreRobCtrlStage", "LinxCoreRobEntryUpdateStage"],
+          "symbols": ["commit_count", "do_flush", "keep_on_flush", "done_next"]
+        }
+      ]
+    },
+    {
+      "owner": "BROB",
+      "events": ["allocate", "complete", "retire", "flush", "block-restore"],
+      "evidence": [
+        {
+          "path": "src/bcc/bctrl/brob.py",
+          "module_names": ["JanusBccBctrlBrob"],
+          "symbols": ["allocated_brob", "ready_brob", "retired_brob", "flush_kill_mask"]
+        }
+      ]
+    },
+    {
+      "owner": "LSU",
+      "events": ["lsid-allocate", "forward", "replay", "nuke", "store-drain"],
+      "evidence": [
+        {
+          "path": "src/bcc/backend/lsu.py",
+          "module_names": ["LinxCoreLsuStage"],
+          "symbols": ["lsu_lsid_issue_advance", "lsu_forward_hit_lane0", "lsu_block_lane0"]
+        },
+        {
+          "path": "src/bcc/lsu/lsu_store_drain.py",
+          "module_names": ["JanusBccLsuStoreDrain"]
+        }
+      ]
+    }
+  ],
   "capabilities": [
     {
       "id": "pycircuit-smap-cmap",

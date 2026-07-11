@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "event_schema": "docs/architecture/conformance/event-schema.json",
+  "scenarios": [
+    {
+      "id": "scalar-rename-recovery",
+      "contracts": ["LC-MA-PIPE-001", "LC-MA-ROB-001", "LC-MA-HAZ-001"],
+      "mechanisms": ["scalar-rename", "rob-brob"],
+      "parameters": {"arch_regs": 24, "phys_regs": 64, "mapq_entries": 32},
+      "initial_state": {"smap_equals_cmap": true},
+      "inputs": ["rename P3", "checkpoint block", "rename P3", "flush younger row", "commit survivor"],
+      "expected_events": ["allocate", "rename-update", "checkpoint", "flush", "restore", "commit"],
+      "architectural_outcome": "The committed P3 mapping survives and the younger physical mapping is reclaimable."
+    },
+    {
+      "id": "local-tu-block-cleanup",
+      "contracts": ["LC-MA-BLK-001", "LC-MA-ROB-001"],
+      "mechanisms": ["local-tu-rename", "rob-brob"],
+      "parameters": {"local_t_depth": 4, "local_u_depth": 4},
+      "initial_state": {"local_maps_empty": true},
+      "inputs": ["BSTART", "push T", "push U", "BSTOP commit"],
+      "expected_events": ["allocate", "rename-update", "retire", "block-restore", "commit"],
+      "architectural_outcome": "Local T/U mappings are released only at the matching block boundary."
+    },
+    {
+      "id": "rob-brob-engine-completion",
+      "contracts": ["LC-MA-ROB-001", "LC-MA-BLK-001", "LC-MA-ENG-001"],
+      "mechanisms": ["rob-brob", "engine-memory"],
+      "parameters": {"rob_entries": 64, "brob_entries": 256, "stid_count": 2},
+      "initial_state": {"rob_empty": true, "brob_empty": true},
+      "inputs": ["allocate engine block", "scalar marker completes", "engine completes", "retire"],
+      "expected_events": ["allocate", "complete", "retire", "commit"],
+      "architectural_outcome": "The block retires only after scalar and engine completion for the same (STID,BID)."
+    },
+    {
+      "id": "no-same-cycle-wake-pick",
+      "contracts": ["LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "mechanisms": ["issue-execute", "spec-ready"],
+      "parameters": {"issue_width": 4, "iq_entries": 32},
+      "initial_state": {"source_ready": false},
+      "inputs": ["wakeup source", "pick request in same cycle", "pick request next cycle"],
+      "expected_events": ["wakeup", "cancel", "pick", "issue"],
+      "architectural_outcome": "A wakeup becomes pick-visible no earlier than the next legal selection point."
+    },
+    {
+      "id": "speculative-load-cancel-replay",
+      "contracts": ["LC-MA-HAZ-001", "LC-MA-MEM-001", "LC-MA-FWD-001"],
+      "mechanisms": ["spec-ready", "load-replay", "mdb"],
+      "parameters": {"liq_entries": 16, "replay_depth": 8},
+      "initial_state": {"load_waiting": true},
+      "inputs": ["speculative wakeup", "older-store conflict", "cancel wakeup", "replay"],
+      "expected_events": ["wakeup", "cancel", "replay", "issue", "complete"],
+      "architectural_outcome": "The dependent instruction cannot commit from a canceled speculative load result."
+    },
+    {
+      "id": "lsid-queue-ordering",
+      "contracts": ["LC-MA-RES-001", "LC-MA-MEM-001"],
+      "mechanisms": ["lsu-ordering", "store-path", "load-replay"],
+      "parameters": {"lsid_width": 32, "stq_entries": 32, "liq_entries": 16},
+      "initial_state": {"next_lsid": 10},
+      "inputs": ["allocate load", "allocate store", "load completes", "store drains"],
+      "expected_events": ["lsid-allocate", "allocate", "complete", "store-drain", "commit"],
+      "architectural_outcome": "LIQ/LHQ/STQ/SCB preserve the assigned memory-order identity through completion."
+    },
+    {
+      "id": "youngest-byte-forwarding",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
+      "mechanisms": ["forwarding", "store-path"],
+      "parameters": {"line_bytes": 64, "data_bytes": 8},
+      "initial_state": {"older_stores": 2},
+      "inputs": ["two overlapping older stores", "younger load"],
+      "expected_events": ["allocate", "forward", "complete", "commit"],
+      "architectural_outcome": "Each load byte selects the youngest older matching store byte."
+    },
+    {
+      "id": "mdb-conflict-fanout",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "mechanisms": ["mdb", "load-replay"],
+      "parameters": {"mdb_entries": 32, "stid_count": 2},
+      "initial_state": {"conflict_table_empty": true},
+      "inputs": ["record store-load conflict", "lookup matching load", "fanout replay"],
+      "expected_events": ["allocate", "replay", "flush", "restart"],
+      "architectural_outcome": "Same-BID conflicts use inner recovery; cross-BID conflicts request head-taken recovery."
+    },
+    {
+      "id": "precise-trap-bi-restore",
+      "contracts": ["LC-MA-PRV-001", "LC-MA-IRQ-001", "LC-MA-BLK-001"],
+      "mechanisms": ["recovery-trap", "rob-brob"],
+      "parameters": {"bi": 1, "stid_count": 2},
+      "initial_state": {"inside_block": true},
+      "inputs": ["fault at ROB head", "enter service", "return with BI=1"],
+      "expected_events": ["trap", "flush", "block-restore", "restart"],
+      "architectural_outcome": "The precise head fault restores the saved Linx block state before restart."
+    },
+    {
+      "id": "legal-block-start-redirect",
+      "contracts": ["LC-MA-BLK-001", "LC-MA-PIPE-001", "LC-MA-FWD-001"],
+      "mechanisms": ["frontend-pc", "recovery-trap"],
+      "parameters": {"pc_width": 64, "fetch_width": 4},
+      "initial_state": {"redirect_pending": true},
+      "inputs": ["redirect to legal BSTART", "redirect to non-BSTART"],
+      "expected_events": ["restart", "trap"],
+      "architectural_outcome": "Only a legal block start becomes the post-recovery fetch PC."
+    }
+  ]
+}

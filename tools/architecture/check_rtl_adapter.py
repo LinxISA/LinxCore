@@ -252,6 +252,41 @@ def validate_adapter(
             if not isinstance(fragment, str) or fragment not in text:
                 errors.append(f"{rel} lacks parameter validation: {fragment!r}")
 
+    event_kinds: set[str] = set()
+    conformance = manifest.get("conformance", {})
+    if isinstance(conformance, dict) and isinstance(conformance.get("event_schema"), str):
+        try:
+            event_schema = _load_json(root / conformance["event_schema"])
+            event_kinds = set(event_schema.get("event_kinds", []))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"cannot load normalized event schema: {exc}")
+    source_keys: set[tuple[str, str]] = set()
+    mapped_events: set[str] = set()
+    for index, raw in enumerate(_list(adapter.get("event_sources"), "event_sources", errors, nonempty=True)):
+        item = _object(raw, f"event_sources[{index}]", errors)
+        owner = item.get("owner")
+        if not isinstance(owner, str) or not owner:
+            errors.append(f"event_sources[{index}].owner must be non-empty")
+            continue
+        events = _list(item.get("events"), f"event_sources[{index}].events", errors, nonempty=True)
+        for event in events:
+            if event not in event_kinds:
+                errors.append(f"event source {owner} references unknown event: {event!r}")
+            elif (owner, event) in source_keys:
+                errors.append(f"duplicate event source mapping: {owner}/{event}")
+            else:
+                source_keys.add((owner, event))
+                mapped_events.add(event)
+        evidence = _list(item.get("evidence"), f"event_sources[{index}].evidence", errors, nonempty=True)
+        for evidence_index, evidence_item in enumerate(evidence):
+            _check_evidence(
+                root,
+                evidence_item,
+                f"event_sources[{index}].evidence[{evidence_index}]",
+                errors,
+                checked_paths,
+            )
+
     family_ids = {
         item.get("id")
         for item in manifest.get("module_families", [])
@@ -375,6 +410,8 @@ def validate_adapter(
             "known_gaps": gap_count,
             "parameters": parameter_count,
             "top_shells": len(shell_ids),
+            "event_sources": len(source_keys),
+            "mapped_event_kinds": len(mapped_events),
         },
         "promotion_states": status_counts,
         "errors": sorted(errors),

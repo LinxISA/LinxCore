@@ -333,6 +333,7 @@ def validate_contract(
         "migration_inputs",
         "mechanism_intake",
         "rtl_adapters",
+        "conformance",
         "extension_categories",
     }
     missing = sorted(required_root_fields - set(manifest))
@@ -666,6 +667,16 @@ def validate_contract(
                 f"expected {lane!r}"
             )
 
+    conformance = _require_object(manifest.get("conformance"), "conformance", errors)
+    for field in ("event_schema", "scenarios", "checker"):
+        conformance_path = conformance.get(field)
+        if not isinstance(conformance_path, str) or not conformance_path:
+            errors.append(f"conformance.{field} must be a non-empty path")
+        elif not _path_exists(root, conformance_path):
+            errors.append(f"conformance.{field} does not exist: {conformance_path}")
+        else:
+            checked_paths.add(conformance_path)
+
     extension_categories = _require_list(
         manifest.get("extension_categories"),
         "extension_categories",
@@ -795,6 +806,11 @@ def _write_fixture(root: Path) -> dict[str, Any]:
         ],
         "mechanism_intake": "docs/architecture/mechanism-intake.json",
         "rtl_adapters": {},
+        "conformance": {
+            "event_schema": "docs/architecture/event-schema.json",
+            "scenarios": "docs/architecture/scenarios.json",
+            "checker": "src/owner.py",
+        },
         "extension_categories": ["cache", "ifu"],
     }
     intake = {
@@ -833,6 +849,8 @@ def _write_fixture(root: Path) -> dict[str, Any]:
     (root / "docs/architecture/mechanism-intake.json").write_text(
         json.dumps(intake), encoding="utf-8"
     )
+    (root / "docs/architecture/event-schema.json").write_text("{}", encoding="utf-8")
+    (root / "docs/architecture/scenarios.json").write_text("{}", encoding="utf-8")
     return fixture
 
 

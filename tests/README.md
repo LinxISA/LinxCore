@@ -21,6 +21,10 @@
 - `test_chisel_architecture_adapter.sh`
 - Purpose: validates Chisel reduced-top role safety, parameter defaults,
   focused module evidence, promotion limitations, and Linx-specific BID gaps.
+- `test_microarchitecture_conformance.sh`
+- Purpose: validates shared scenario coverage, normalized owner events,
+  architectural commit fields, and pyCircuit/Chisel differential mismatch
+  detection without treating harness fixtures as RTL promotion evidence.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
@@ -53,6 +57,7 @@ bash /Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh
 bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_contract.sh
 bash /Users/zhoubot/LinxCore/tests/test_pycircuit_architecture_adapter.sh
 bash /Users/zhoubot/LinxCore/tests/test_chisel_architecture_adapter.sh
+bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_conformance.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh

@@ -27,6 +27,8 @@ bash tests/test_microarchitecture_contract.sh
   evidence; not a second prose specification)
 - `rtl-adapters/*.json` (implementation evidence and declared promotion gaps;
   not a second prose specification)
+- `conformance/event-schema.json` and `conformance/scenarios.json` (normalized
+  owner-boundary comparison schema and shared invariant vectors)
 - `interfaces.md`
 - `verification-matrix.md`
 - `module-catalog.md`
@@ -90,6 +92,13 @@ be `integrated` only when its owner and composition evidence exist; incomplete
 work stays `stub` or `absent` with a precise `known_gap`. Rejected ARM-specific
 architectural state and behavior remain prohibited even when the underlying
 queue, arbitration, replay, or cache mechanism is reusable.
+
+The conformance checker distinguishes comparator fixtures from implementation
+evidence. `harness-fixture` events test normalization and mismatch detection but
+cannot promote a mechanism. Promotion to `cross-rtl-aligned` requires both
+lanes to emit `owner-trace` events from adapter-mapped owner boundaries and to
+match the scenario outcome; architectural promotion additionally requires the
+existing commit trace contract and reference comparison.
 
 ## Structural specification chapters
 

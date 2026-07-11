@@ -85,6 +85,14 @@
       "class": "evidence"
     },
     {
+      "path": "docs/architecture/conformance/event-schema.json",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/conformance/scenarios.json",
+      "class": "canonical"
+    },
+    {
       "path": "docs/chisel",
       "class": "evidence"
     }
@@ -671,6 +679,11 @@
   "rtl_adapters": {
     "pycircuit": "docs/architecture/rtl-adapters/pycircuit.json",
     "chisel": "docs/architecture/rtl-adapters/chisel.json"
+  },
+  "conformance": {
+    "event_schema": "docs/architecture/conformance/event-schema.json",
+    "scenarios": "docs/architecture/conformance/scenarios.json",
+    "checker": "tools/architecture/check_conformance.py"
   },
   "extension_categories": [
     "ifu",
