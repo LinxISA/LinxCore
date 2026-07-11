@@ -21,6 +21,7 @@ static void require(bool condition, const char *message) {
 static void idle(VBrobOrderStateProbe &dut) {
     dut.io_allocValid = 0;
     dut.io_scalarDoneValid = 0;
+    dut.io_scalarTrapValid = 0;
     dut.io_recoveryValid = 0;
 }
 
@@ -35,13 +36,16 @@ static void allocate(VBrobOrderStateProbe &dut, unsigned stid, unsigned bid) {
     dut.io_allocValid = 0;
 }
 
-static void complete(VBrobOrderStateProbe &dut, unsigned stid, unsigned bid) {
+static void complete(VBrobOrderStateProbe &dut, unsigned stid, unsigned bid,
+                     bool trap = false) {
     idle(dut);
     dut.io_scalarDoneValid = 1;
     dut.io_scalarDoneStid = stid;
     dut.io_scalarDoneBid = bid;
+    dut.io_scalarTrapValid = trap;
     tick(dut);
     dut.io_scalarDoneValid = 0;
+    dut.io_scalarTrapValid = 0;
 }
 
 int main(int argc, char **argv) {
@@ -55,6 +59,7 @@ int main(int argc, char **argv) {
     dut.io_scalarDoneValid = 0;
     dut.io_scalarDoneBid = 0;
     dut.io_scalarDoneStid = 0;
+    dut.io_scalarTrapValid = 0;
     dut.io_retireReady = 0;
     dut.io_recoveryValid = 0;
     dut.io_recoveryStid = 0;
@@ -74,11 +79,16 @@ int main(int argc, char **argv) {
     require(dut.io_commitCursor_0 == 0 && dut.io_commitCursor_1 == 0 &&
                 dut.io_liveCount_0 == 2 && dut.io_liveCount_1 == 1,
             "commit heads or live counts do not describe the resident windows");
+    require(!dut.io_nonFlushValid_0 && dut.io_nonFlushPrefixCount_0 == 0 &&
+                dut.io_nonFlushBlockedValid_0 && dut.io_nonFlushBlockedBid_0 == 0,
+            "unsafe head incorrectly opened the non-flush prefix");
 
     // A younger completion cannot bypass an incomplete head.
     complete(dut, 0, 1);
     dut.eval();
     require(!dut.io_retireValid, "younger completed block bypassed the commit head");
+    require(!dut.io_nonFlushValid_0 && dut.io_nonFlushBlockedBid_0 == 0,
+            "younger completion bypassed the non-flush head");
 
     // Head completion remains visible while downstream is blocked.
     complete(dut, 0, 0);
@@ -86,6 +96,11 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_retireValid && dut.io_retireBid == 0 && dut.io_retireStid == 0,
             "completed head was not published for retirement");
+    require(dut.io_nonFlushValid_0 && dut.io_nonFlushHeadBid_0 == 0 &&
+                dut.io_nonFlushFrontierBid_0 == 1 &&
+                dut.io_nonFlushPrefixCount_0 == 2 &&
+                !dut.io_nonFlushBlockedValid_0,
+            "consecutive completed rows did not form the exact non-flush prefix");
     tick(dut);
     require(dut.io_commitCursor_0 == 0 && dut.io_liveCount_0 == 2,
             "retirement backpressure mutated the commit window");
@@ -97,6 +112,8 @@ int main(int argc, char **argv) {
     require(dut.io_retireValid && dut.io_retireStid == 0 &&
                 dut.io_retireMetadataAccepted,
             "oldest held retirement did not retain priority or exact metadata identity");
+    require(dut.io_nonFlushValid_1 && dut.io_nonFlushPrefixCount_1 == 1,
+            "independent STID did not publish its own non-flush prefix");
     tick(dut);
     require(dut.io_commitCursor_0 == 1 && dut.io_liveCount_0 == 1,
             "first ordered retirement did not advance its head");
@@ -232,6 +249,14 @@ int main(int argc, char **argv) {
     require(dut.io_allocCursor_0 == 1 && dut.io_commitCursor_0 == 14 &&
                 dut.io_liveCount_0 == 3,
             "rollover fixture did not span the full-BID boundary");
+    complete(dut, 0, 14);
+    complete(dut, 0, 15);
+    complete(dut, 0, 0);
+    dut.eval();
+    require(dut.io_nonFlushValid_0 && dut.io_nonFlushHeadBid_0 == 14 &&
+                dut.io_nonFlushFrontierBid_0 == 0 &&
+                dut.io_nonFlushPrefixCount_0 == 3,
+            "non-flush prefix did not cross full-BID rollover");
 
     dut.io_recoveryValid = 1;
     dut.io_recoveryStid = 0;
@@ -252,6 +277,18 @@ int main(int argc, char **argv) {
     allocate(dut, 0, 0);
     require(dut.io_allocCursor_0 == 1 && dut.io_liveCount_0 == 3,
             "metadata suffix spanning rollover was not reusable");
+
+    // Completion carrying a precise trap remains outside the strong prefix.
+    dut.reset = 1;
+    idle(dut);
+    tick(dut);
+    dut.reset = 0;
+    allocate(dut, 0, 0);
+    complete(dut, 0, 0, true);
+    dut.eval();
+    require(dut.io_oldestComplete_0 && !dut.io_nonFlushValid_0 &&
+                dut.io_nonFlushBlockedValid_0 && dut.io_nonFlushBlockedBid_0 == 0,
+            "exception-bearing completion entered the strong non-flush prefix");
 
     std::cout << "brob-order-state-probe: PASS\n";
     return 0;

@@ -154,22 +154,35 @@ remain future work.
 ## Non-Flush Oldest
 
 `BROBState::CheckNonFlushBid` starts from `commitPtr` and advances through live
-entries while `CheckNonFlushOldestBid` says they cannot be flushed. The current
-Chisel metadata tracker does not implement this pointer yet.
+entries while `CheckNonFlushOldestBid` says they cannot be flushed. R652 keeps
+that ISA-neutral consecutive-prefix mechanism but makes the boundary explicit:
+`BrobNonFlushFrontier` publishes `valid`, exact head, bounded prefix count,
+youngest safe BID, and first blocked BID independently per STID. It rejects the
+model routine's ambiguous first-unsafe return convention; an unsafe head
+produces no valid frontier.
+
+The promoted Chisel predicate is intentionally conservative: only completed,
+exception-free metadata is safe. `ReducedStoreCommitFreeOwner` retains a ROB
+store commit with its full block BID until it lies inside the selected STID's
+prefix, then authorizes the STQ `Wait -> Commit` transition. Recovery clears
+that retained event with the store/BROB state. Branch-resolved scalar early
+release, issued TLOAD/TSTORE release, and `sbarPtr/sbarID/storeCount` allocation
+remain future producer-backed extensions.
 
 ## Open Questions
 
 - The architecture docs still list BROB same-cycle resolve-vs-flush and
   commit-vs-flush priority as open issues.
-- Chisel now models per-STID allocation-tail, commit-head, and live-count
-  arrays. Non-flush and store-barrier frontiers plus full BCTRL/BISQ
-  interaction remain open. The model's BROB-local dispatch/rename fields are
+- Chisel now models per-STID allocation-tail, commit-head, live-count, and
+  conservative strong non-flush prefix arrays. Early-safe predicates,
+  store-barrier frontiers, and full BCTRL/BISQ interaction remain open. The
+  model's BROB-local dispatch/rename fields are
   declarations without active pointer-update behavior and are not promoted as
   target owners.
 - Recovery still has two BID surfaces in Chisel: BROB flush consumes full
   hardware BID, while ROB row pruning consumes ring `ROBID`. The first handoff
   is explicit in `FullBidRecoveryBridge`; R651 restores the live order window,
-  while the non-flush/store-barrier frontiers, rename rollback, and complete
-  LSU/STQ cleanup remain future work.
+  while early non-flush predicates, store-barrier allocation, rename rollback,
+  and complete LSU/STQ cleanup remain future work.
 - TileRename release and GPR MAPQ-to-CMAP commit remain tied to future
   integrated BROB/rename work.

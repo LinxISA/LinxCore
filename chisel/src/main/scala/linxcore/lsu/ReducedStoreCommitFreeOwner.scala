@@ -25,6 +25,9 @@ class ReducedStoreCommitFreeOwnerIO(
   val directFreeEnable = Input(Bool())
   val flushValid = Input(Bool())
   val activeStid = Input(UInt(stidWidth.W))
+  val nonFlushValid = Input(Bool())
+  val nonFlushHeadBid = Input(UInt(traceParams.blockBidWidth.W))
+  val nonFlushPrefixCount = Input(UInt(countWidth.W))
 
   val commit = Input(new CommitTracePort(traceParams))
   val commitValidMask = Input(UInt(traceParams.commitWidth.W))
@@ -45,6 +48,7 @@ class ReducedStoreCommitFreeOwnerIO(
   val commitStoreSeen = Output(Bool())
   val commitStoreMatched = Output(Bool())
   val commitStoreUnmatched = Output(Bool())
+  val commitStoreBlockedByNonFlush = Output(Bool())
   val matchMask = Output(UInt(entries.W))
   val pendingMarkMask = Output(UInt(entries.W))
   val pendingFreeMask = Output(UInt(entries.W))
@@ -118,15 +122,33 @@ class ReducedStoreCommitFreeOwner(
       row.dataReady &&
       row.stid === resize(io.activeStid, stidWidth)
 
+  private def blockInNonFlushPrefix(row: CommitTraceRow): Bool = {
+    val distance = row.blockBid - io.nonFlushHeadBid
+    io.nonFlushValid && row.blockBidValid &&
+      distance < io.nonFlushPrefixCount.pad(traceParams.blockBidWidth)
+  }
+
   val pendingMark = RegInit(0.U(entries.W))
   val pendingFree = RegInit(0.U(entries.W))
   val pendingCommitValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val pendingCommitBid = Reg(Vec(entries, UInt(ptrWidth.W)))
   val pendingCommitGid = Reg(Vec(entries, UInt(ptrWidth.W)))
   val pendingCommitRid = Reg(Vec(entries, UInt(ptrWidth.W)))
+  val pendingCommitStid = Reg(Vec(entries, UInt(stidWidth.W)))
+  val pendingCommitBlockBidValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val pendingCommitBlockBid = Reg(Vec(entries, UInt(traceParams.blockBidWidth.W)))
+
+  private def pendingBlockInNonFlushPrefix(idx: Int): Bool = {
+    val distance = pendingCommitBlockBid(idx) - io.nonFlushHeadBid
+    io.nonFlushValid && pendingCommitBlockBidValid(idx) &&
+      pendingCommitStid(idx) === io.activeStid &&
+      distance < io.nonFlushPrefixCount.pad(traceParams.blockBidWidth)
+  }
 
   private def samePendingIdentity(idx: Int, row: STQEntryBankRow): Bool =
     pendingCommitValid(idx) &&
+      pendingCommitStid(idx) === row.stid &&
+      pendingBlockInNonFlushPrefix(idx) &&
       stqRowIdentityValid(row) &&
       pendingCommitBid(idx) === row.bid.value &&
       pendingCommitGid(idx) === row.gid.value &&
@@ -134,6 +156,9 @@ class ReducedStoreCommitFreeOwner(
 
   private def samePendingCommit(idx: Int, commitRow: CommitTraceRow): Bool =
     pendingCommitValid(idx) &&
+      pendingCommitStid(idx) === io.activeStid &&
+      pendingCommitBlockBidValid(idx) && commitRow.blockBidValid &&
+      pendingCommitBlockBid(idx) === commitRow.blockBid &&
       pendingCommitBid(idx) === resize(commitRow.identity.bid, ptrWidth) &&
       pendingCommitGid(idx) === resize(commitRow.identity.gid, ptrWidth) &&
       pendingCommitRid(idx) === resize(commitRow.identity.rid, ptrWidth)
@@ -143,6 +168,7 @@ class ReducedStoreCommitFreeOwner(
   for (slot <- 0 until traceParams.commitWidth) {
     slotMatchVec(slot) :=
       commitStoreVec(slot) &&
+        blockInNonFlushPrefix(io.commit.rows(slot)) &&
         VecInit((0 until entries).map(idx => markable(io.stqRows(idx)) && sameCommitIdentity(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR
   }
 
@@ -150,7 +176,11 @@ class ReducedStoreCommitFreeOwner(
   for (idx <- 0 until entries) {
     matchVec(idx) :=
       markable(io.stqRows(idx)) &&
-        (VecInit((0 until traceParams.commitWidth).map(slot => commitStoreVec(slot) && sameCommitIdentity(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR ||
+        (VecInit((0 until traceParams.commitWidth).map { slot =>
+          commitStoreVec(slot) &&
+            blockInNonFlushPrefix(io.commit.rows(slot)) &&
+            sameCommitIdentity(io.commit.rows(slot), io.stqRows(idx))
+        }).asUInt.orR ||
           VecInit((0 until entries).map(pendingIdx => samePendingIdentity(pendingIdx, io.stqRows(idx)))).asUInt.orR)
   }
   val matchMask = matchVec.asUInt
@@ -207,12 +237,18 @@ class ReducedStoreCommitFreeOwner(
     val nextPendingBid = Wire(Vec(entries, UInt(ptrWidth.W)))
     val nextPendingGid = Wire(Vec(entries, UInt(ptrWidth.W)))
     val nextPendingRid = Wire(Vec(entries, UInt(ptrWidth.W)))
+    val nextPendingStid = Wire(Vec(entries, UInt(stidWidth.W)))
+    val nextPendingBlockBidValid = Wire(Vec(entries, Bool()))
+    val nextPendingBlockBid = Wire(Vec(entries, UInt(traceParams.blockBidWidth.W)))
     for (idx <- 0 until entries) {
       basePendingValid(idx) := pendingCommitValid(idx) && !pendingMatchedVec(idx)
       nextPendingValid(idx) := basePendingValid(idx)
       nextPendingBid(idx) := pendingCommitBid(idx)
       nextPendingGid(idx) := pendingCommitGid(idx)
       nextPendingRid(idx) := pendingCommitRid(idx)
+      nextPendingStid(idx) := pendingCommitStid(idx)
+      nextPendingBlockBidValid(idx) := pendingCommitBlockBidValid(idx)
+      nextPendingBlockBid(idx) := pendingCommitBlockBid(idx)
     }
     val pendingIdentityFreeMask = VecInit((0 until entries).map(idx => !basePendingValid(idx))).asUInt
     val pendingIdentityFreeOH = PriorityEncoderOH(pendingIdentityFreeMask)
@@ -223,6 +259,9 @@ class ReducedStoreCommitFreeOwner(
         nextPendingBid(idx) := resize(bufferRow.identity.bid, ptrWidth)
         nextPendingGid(idx) := resize(bufferRow.identity.gid, ptrWidth)
         nextPendingRid(idx) := resize(bufferRow.identity.rid, ptrWidth)
+        nextPendingStid(idx) := io.activeStid
+        nextPendingBlockBidValid(idx) := bufferRow.blockBidValid
+        nextPendingBlockBid(idx) := bufferRow.blockBid
       }
     }
     for (idx <- 0 until entries) {
@@ -230,6 +269,9 @@ class ReducedStoreCommitFreeOwner(
       pendingCommitBid(idx) := nextPendingBid(idx)
       pendingCommitGid(idx) := nextPendingGid(idx)
       pendingCommitRid(idx) := nextPendingRid(idx)
+      pendingCommitStid(idx) := nextPendingStid(idx)
+      pendingCommitBlockBidValid(idx) := nextPendingBlockBidValid(idx)
+      pendingCommitBlockBid(idx) := nextPendingBlockBid(idx)
     }
   }
 
@@ -237,6 +279,9 @@ class ReducedStoreCommitFreeOwner(
   io.commitStoreSeen := commitStoreVec.asUInt.orR
   io.commitStoreMatched := slotMatchVec.asUInt.orR
   io.commitStoreUnmatched := unmatchedSlotVec.asUInt.orR
+  io.commitStoreBlockedByNonFlush := VecInit((0 until traceParams.commitWidth).map { slot =>
+    commitStoreVec(slot) && !blockInNonFlushPrefix(io.commit.rows(slot))
+  }).asUInt.orR
   io.matchMask := matchMask
   io.pendingMarkMask := pendingMark
   io.pendingFreeMask := pendingFree

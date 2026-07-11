@@ -6,6 +6,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
 - Chisel lifecycle: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala`
 - Chisel order owner: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BrobOrderState.scala`
+- Chisel non-flush owner: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BrobNonFlushFrontier.scala`
 - Chisel integration: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - Chisel recovery bridge: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/bctrl/brob.py`
@@ -80,6 +81,9 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 | Output | `oldestValid[stidCount]` | `Vec[Bool]` | combinational | Selected STID lane has a live block. |
 | Output | `oldestBid[stidCount]` | `Vec[UInt(bidWidth.W)]` | with `oldestValid` | Exact resident full BID matching the owner-provided commit head. |
 | Output | `oldestComplete[stidCount]` | `Vec[Bool]` | with `oldestValid` | Completion predicate of that exact selected block. |
+| Output | `nonFlushValid/nonFlushHeadBid` | per-STID vectors | combinational | Exact head of a nonempty strong-safe prefix. |
+| Output | `nonFlushFrontierBid/nonFlushPrefixCount` | per-STID vectors | with `nonFlushValid` | Youngest safe BID and bounded prefix length. Consumers use head plus count for age. |
+| Output | `nonFlushBlockedValid/nonFlushBlockedBid` | per-STID vectors | combinational | First live identity that stopped the prefix. |
 
 ## State
 
@@ -88,8 +92,9 @@ R643 promotes the metadata substrate to a parameterized per-STID owner:
 
 `BrobOrderState`, integrated under `DispatchROBAllocator`, owns the C++ model's
 per-STID allocation tail, commit head, live count, and accepted suffix
-recovery. `nonFlushBid`, store-barrier state, and replay-state mutation remain
-unimplemented. BROB-local dispatch/rename pointer declarations in the model
+recovery. `BrobNonFlushFrontier` derives the exact strong-safe prefix from that
+state and resident metadata. Store-barrier state and replay-state mutation
+remain unimplemented. BROB-local dispatch/rename pointer declarations in the model
 have no active update behavior and are not implementation authority.
 
 ## Logic Design
@@ -128,6 +133,11 @@ have no active update behavior and are not implementation authority.
   across STIDs or selects an unsigned minimum. The downstream allocator must
   match this full BID against the full block BID stored with its selected ROB
   row before publishing a coherent BID/RID pair.
+- `BrobNonFlushFrontier` scans at most `entries` consecutive identities from
+  each owner-provided head. A stale slot, hole, incomplete row, or exception
+  closes the prefix and younger rows cannot bypass it. R652 conservatively
+  defines safe as full block completion without exception. The output is
+  `(headBid, prefixCount)`; `frontierBid` alone is not an age predicate.
 
 ## Timing
 
@@ -154,7 +164,8 @@ slot after wrap/flush bookkeeping.
 `FullBidRecoveryBridge` is the first recovery handoff owner between this full
 BID block surface and the ring `ROBID` consumed by `ROBEntryBank` pruning.
 
-`nonFlushBid`, store-barrier allocation, multi-block retire width, PE replay,
+Early non-flush release for resolved scalar branch-only blocks and issued tile
+memory blocks, store-barrier allocation, multi-block retire width, PE replay,
 SIMT/MTC replay, rename rollback, TileRename release, and GPR CMAP commit
 effects remain outside this packet.
 
@@ -172,6 +183,7 @@ neutral QEMU/LinxCore commit adapter.
 - `chisel/src/test/scala/linxcore/bctrl/BrobOrderStateSpec.scala`
 - `bash tools/chisel/run_chisel_tests.sh --only BrobOrderState`
 - `bash tools/chisel/run_chisel_brob_order_state_probe.sh`
+- `bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`

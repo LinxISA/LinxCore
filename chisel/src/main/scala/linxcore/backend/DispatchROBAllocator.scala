@@ -133,6 +133,12 @@ class DispatchROBAllocatorIO(
   val blockOrderEmpty = Output(Vec(stidCount, Bool()))
   val blockOrderFull = Output(Vec(stidCount, Bool()))
   val blockOrderHeadMismatch = Output(Vec(stidCount, Bool()))
+  val blockNonFlushValid = Output(Vec(stidCount, Bool()))
+  val blockNonFlushHeadBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockNonFlushFrontierBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val blockNonFlushPrefixCount = Output(Vec(stidCount, UInt(sizeWidth.W)))
+  val blockNonFlushBlockedValid = Output(Vec(stidCount, Bool()))
+  val blockNonFlushBlockedBid = Output(Vec(stidCount, UInt(bidWidth.W)))
   val blockQueryBid = Input(UInt(bidWidth.W))
   val blockQueryStid = Input(UInt(stidWidth.W))
   val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
@@ -443,6 +449,12 @@ class DispatchROBAllocator(
   io.blockOrderEmpty := blockOrder.io.empty
   io.blockOrderFull := blockOrder.io.full
   io.blockOrderHeadMismatch := blockOrder.io.headMismatch
+  io.blockNonFlushValid := brob.io.nonFlushValid
+  io.blockNonFlushHeadBid := brob.io.nonFlushHeadBid
+  io.blockNonFlushFrontierBid := brob.io.nonFlushFrontierBid
+  io.blockNonFlushPrefixCount := brob.io.nonFlushPrefixCount
+  io.blockNonFlushBlockedValid := brob.io.nonFlushBlockedValid
+  io.blockNonFlushBlockedBid := brob.io.nonFlushBlockedBid
   assert(!blockOrder.io.retireFire || brob.io.retireAccepted,
     "BROB ordered retire must remove the selected resident metadata head")
 

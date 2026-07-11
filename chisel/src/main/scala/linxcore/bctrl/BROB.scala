@@ -95,6 +95,12 @@ class BrobMetaTrackerIO(
   val oldestValid = Output(Vec(stidCount, Bool()))
   val oldestBid = Output(Vec(stidCount, UInt(bidWidth.W)))
   val oldestComplete = Output(Vec(stidCount, Bool()))
+  val nonFlushValid = Output(Vec(stidCount, Bool()))
+  val nonFlushHeadBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val nonFlushFrontierBid = Output(Vec(stidCount, UInt(bidWidth.W)))
+  val nonFlushPrefixCount = Output(Vec(stidCount, UInt(log2Ceil(entries + 1).W)))
+  val nonFlushBlockedValid = Output(Vec(stidCount, Bool()))
+  val nonFlushBlockedBid = Output(Vec(stidCount, UInt(bidWidth.W)))
 }
 
 class BrobMetaTracker(
@@ -269,4 +275,22 @@ class BrobMetaTracker(
     io.oldestBid(stid) := Mux(headHit, headEntry.bid, 0.U)
     io.oldestComplete(stid) := headHit && BrobEntryMeta.isComplete(headEntry)
   }
+
+  val nonFlush = Module(new BrobNonFlushFrontier(entries, bidWidth, stidCount))
+  nonFlush.io.orderHeadBid := io.orderHeadBid
+  nonFlush.io.orderLiveCount := io.orderLiveCount
+  for (stid <- 0 until stidCount) {
+    for (idx <- 0 until entries) {
+      val entry = table(stid)(idx)
+      nonFlush.io.rowAllocated(stid)(idx) := BrobEntryMeta.isAllocated(entry.status)
+      nonFlush.io.rowBid(stid)(idx) := entry.bid
+      nonFlush.io.rowSafe(stid)(idx) := BrobEntryMeta.isComplete(entry) && !entry.exception
+    }
+  }
+  io.nonFlushValid := nonFlush.io.valid
+  io.nonFlushHeadBid := nonFlush.io.headBid
+  io.nonFlushFrontierBid := nonFlush.io.frontierBid
+  io.nonFlushPrefixCount := nonFlush.io.prefixCount
+  io.nonFlushBlockedValid := nonFlush.io.blockedValid
+  io.nonFlushBlockedBid := nonFlush.io.blockedBid
 }

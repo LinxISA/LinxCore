@@ -166,6 +166,33 @@ Retire rule:
 4) Otherwise commit that block's side effects and advance only that STID's
    head.
 
+### 5.5 Strong non-flush frontier
+
+BROB publishes one strong non-flush prefix per STID. The prefix begins at that
+STID's exact live commit head and contains only consecutive resident blocks
+that can no longer be cancelled by branch recovery, trap, exception, or
+interrupt. The interface carries `valid`, `head_bid`, `prefix_count`, and the
+youngest safe `frontier_bid`; consumers must use the head and count as the age
+proof and must not treat `frontier_bid` as an unsigned threshold.
+
+- An empty ring or an unsafe head produces `valid=0` and `prefix_count=0`.
+- A hole, stale slot identity, or unsafe row terminates the prefix. A younger
+  safe row may not bypass it.
+- An exception-bearing row is never strong-non-flush, even if its execution
+  completion bits are set.
+- The conservative implementation may require full block completion. A later
+  implementation may mark a scalar non-memory block safe after every branch is
+  resolved, or a tile load/store block safe after authoritative issue, but only
+  through explicit BROB metadata producers.
+- The frontier does not encode an ISA branch condition, exception level,
+  exclusive-monitor state, or barrier opcode. Those architectural mechanisms
+  are not imported from the reference design.
+
+The store-commit owner retains a committed ROB store event until the matching
+full block BID lies inside the selected STID's strong prefix. Only then may the
+STQ row transition from speculative `Wait` state toward SCB. This retained
+event is flushed with the same accepted recovery as the STQ/BROB state.
+
 ## 6) Invariants (for unit tests)
 
 - Head retires in order only.
@@ -178,3 +205,5 @@ Retire rule:
 - Every age comparison is within one STID and uses that BROB ring's context or
   generated kill mask; no consumer infers age from BID magnitude or compares
   blocks across STIDs as if they shared one ring.
+- The strong non-flush prefix is contiguous from the exact commit head; no
+  unsafe or nonresident row is included, including across BID rollover.

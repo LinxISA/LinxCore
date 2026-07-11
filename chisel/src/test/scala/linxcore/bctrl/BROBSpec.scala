@@ -263,5 +263,10 @@ class BROBSpec extends AnyFunSuite {
     assert(sv.contains("io_oldestValid_1"))
     assert(sv.contains("io_oldestBid_1"))
     assert(sv.contains("io_oldestComplete_1"))
+    assert(sv.contains("BrobNonFlushFrontier"))
+    assert(sv.contains("io_nonFlushValid_1"))
+    assert(sv.contains("io_nonFlushHeadBid_1"))
+    assert(sv.contains("io_nonFlushFrontierBid_1"))
+    assert(sv.contains("io_nonFlushPrefixCount_1"))
   }
 }

@@ -1,7 +1,7 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Cat, Fill, PriorityEncoder, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 
 import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
@@ -2834,6 +2834,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   storeCommitOwner.io.directFreeEnable := false.B
   storeCommitOwner.io.flushValid := reducedStoreFlush
   storeCommitOwner.io.activeStid := io.threadId
+  val storeCommitStidMatch = VecInit((0 until scalarStidCount).map { stid =>
+    io.threadId === stid.U(p.threadIdWidth.W)
+  })
+  val storeCommitStidInRange = storeCommitStidMatch.asUInt.orR
+  storeCommitOwner.io.nonFlushValid := storeCommitStidInRange &&
+    Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid)
+  storeCommitOwner.io.nonFlushHeadBid := Mux(
+    storeCommitStidInRange,
+    Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
+    0.U)
+  storeCommitOwner.io.nonFlushPrefixCount := Mux(
+    storeCommitStidInRange,
+    Mux1H(storeCommitStidMatch, path.io.blockNonFlushPrefixCount),
+    0.U)
   storeCommitOwner.io.commit := path.io.commit
   storeCommitOwner.io.commitValidMask := path.io.commitValidMask
   storeCommitOwner.io.stqRows := path.io.storeStqRows

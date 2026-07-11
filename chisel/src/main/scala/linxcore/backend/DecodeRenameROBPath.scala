@@ -407,6 +407,12 @@ class DecodeRenameROBPathIO(
   val blockScalarDoneBid = Output(UInt(bidWidth.W))
   val blockRetireFire = Output(Bool())
   val blockRetireBid = Output(UInt(bidWidth.W))
+  val blockNonFlushValid = Output(Vec(scalarStidCount, Bool()))
+  val blockNonFlushHeadBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val blockNonFlushFrontierBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
+  val blockNonFlushPrefixCount = Output(Vec(scalarStidCount, UInt(sizeWidth.W)))
+  val blockNonFlushBlockedValid = Output(Vec(scalarStidCount, Bool()))
+  val blockNonFlushBlockedBid = Output(Vec(scalarStidCount, UInt(bidWidth.W)))
   val tuRetireSourceWindowReady = Output(Bool())
   val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
   val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
@@ -1424,6 +1430,12 @@ class DecodeRenameROBPath(
   io.blockScalarDoneBid := blockScalarDoneBid
   io.blockRetireFire := allocator.io.blockRetireFire
   io.blockRetireBid := allocator.io.blockRetireBid
+  io.blockNonFlushValid := allocator.io.blockNonFlushValid
+  io.blockNonFlushHeadBid := allocator.io.blockNonFlushHeadBid
+  io.blockNonFlushFrontierBid := allocator.io.blockNonFlushFrontierBid
+  io.blockNonFlushPrefixCount := allocator.io.blockNonFlushPrefixCount
+  io.blockNonFlushBlockedValid := allocator.io.blockNonFlushBlockedValid
+  io.blockNonFlushBlockedBid := allocator.io.blockNonFlushBlockedBid
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

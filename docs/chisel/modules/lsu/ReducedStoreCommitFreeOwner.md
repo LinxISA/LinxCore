@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreCommitFreeOwnerSpec.scala`
+- Generated probe: `rtl/LinxCore/tools/chisel/run_chisel_store_non_flush_gate_probe.sh`
 - Integrated users:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
@@ -23,8 +24,9 @@
 ROB commit rows to the optional queue-backed STQ path. It observes committed
 store rows from `DecodeRenameROBPath`, matches them to resident STQ rows by the
 model `CommitTrace.identity` tuple plus STID, and marks the matched STQ row
-committed. It also buffers committed-store identities when ROB commit becomes
-visible before the matching reduced STQ row is resident and markable.
+committed only after the row's full block BID lies inside BROB's strong
+non-flush prefix. It buffers the full block BID, STID, and committed-store
+identity when either the prefix or matching STQ row is not ready.
 It can also run in a legacy direct-free mode that issues a later single-index
 committed-row free, but `LinxCoreFrontendFetchRfAluTraceTop` disables that mode
 after R241 and frees rows from the SCB accepted-`last` mask instead.
@@ -48,6 +50,9 @@ Inputs:
 - `flushValid`: clears pending mark/free state. The reduced top asserts this
   on backend flush, start, restart, and while the optional STQ path is disabled.
 - `activeStid`: STID used to match committed rows against resident STQ rows.
+- `nonFlushValid`, `nonFlushHeadBid`, `nonFlushPrefixCount`: selected STID's
+  exact strong-safe BROB prefix. Head plus count, not BID magnitude, proves
+  membership.
 - `commit`, `commitValidMask`: monitored ROB commit window from
   `DecodeRenameROBPath`.
 - `stqRows`: current STQ row image forwarded from `StoreDispatchSTQPath`.
@@ -66,6 +71,8 @@ Outputs:
   `directFreeEnable=1`; tied inactive by the reduced top after R241.
 - `commitStoreSeen`, `commitStoreMatched`, `commitStoreUnmatched`: current
   commit-window diagnostics.
+- `commitStoreBlockedByNonFlush`: a current committed store is outside the
+  selected strong prefix or lacks a valid full block BID.
 - `matchMask`: STQ rows matched by current committed store rows.
 - `pendingCommitIdentityMask`: buffered committed-store identities that are
   waiting for a future resident STQ row with the same model identity.
@@ -88,14 +95,17 @@ when:
 3. the commit row has a model `CommitTrace.identity` value,
 4. the STQ row is valid, `Wait`, `ST_ALL`, address-ready, and data-ready,
 5. the STQ row model `bid/gid/rid` equals the commit identity,
-6. the STQ row STID equals `activeStid`.
+6. the STQ row STID equals `activeStid`,
+7. the commit row carries a valid full block BID whose modular distance from
+   `nonFlushHeadBid` is less than `nonFlushPrefixCount`.
 
 Matched rows set bits in `pendingMarkMask`. If a committed store identity does
 not match a currently markable STQ row, the owner records that identity in a
-small pending-commit buffer. Later cycles compare resident STQ rows against
-both the current commit window and buffered identities, then clear the buffered
-identity once a matching row becomes markable. This covers the reduced top case
-where ROB commit observation can race ahead of store queue residency.
+small pending-commit buffer together with STID and full block BID. Later cycles
+compare resident STQ rows against both the current commit window and buffered
+identities, recheck the current strong prefix, then clear the buffered identity
+once a matching row becomes markable. This covers both STQ-residency races and
+frontier advance after ROB commit observation.
 
 The owner presents the lowest pending mark bit as a single `markCommitValid`
 command. When `STQEntryBank` accepts that command, the bit leaves
@@ -126,6 +136,13 @@ assumption. R241 disables that mode in the reduced top and wires the accepted
 mark into `STQCommitDrain`, with `SCBRowBank.commitFreeMask` as the only STQ
 free source. Program-order memory effects, external memory mutation, and
 load/store interaction are still outside this owner.
+
+R652 connects the model's non-flush mechanism to this transition without
+importing ARM architectural behavior. The generated owner probe proves an
+unsafe committed store remains retained, a later prefix advance releases it,
+and accepted recovery clears the retained and pending state. The generated
+BROB probe separately proves per-STID blocking, exception exclusion, and a
+strong prefix spanning full-BID rollover.
 
 R253 corrects the reduced owner matching contract: commit rows must match STQ
 rows through model `bid/gid/rid`, not the physical ROB sideband, and unmatched
@@ -163,6 +180,7 @@ Focused gate:
 
 ```bash
 sbt "testOnly linxcore.lsu.ReducedStoreCommitFreeOwnerSpec"
+bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh
 ```
 
 Integrated gate used for R241:

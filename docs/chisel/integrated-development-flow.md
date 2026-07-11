@@ -15,38 +15,33 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R651 promotes the BROB allocation-tail packet into
-`BrobOrderState`, the parameterized per-STID live order owner. Allocation tail,
-commit head, and bounded live count remain independent registers. Allocation
-advances only the tail; exact completed-head retirement advances only the head;
-accepted recovery validates and truncates tail/count without moving the head.
-`BrobMetaTracker` now resolves the exact owner-provided head instead of scanning
-for an unsigned minimum full BID. Eligible STID heads arbitrate fairly and
-cross a flow-through irrevocable slot, so metadata free, commit-head advance,
-rename-commit enqueue, and public retire fire share one downstream-ready event.
+Latest packet: R652 promotes the LinxCoreModel non-flush mechanism as an exact
+per-STID BROB prefix. `BrobNonFlushFrontier` scans from the authoritative commit
+head through the bounded live count and stops at the first hole, stale identity,
+incomplete row, or exception. It publishes head plus prefix count as the age
+proof; the youngest safe BID is observability and is never used as an unsigned
+threshold. The initial predicate is conservative: only fully completed,
+exception-free blocks are safe. Branch-resolved scalar and issued tile-memory
+early release remain producer-backed follow-on work.
 
-R651 removes the obsolete completion-driven delayed-retire module and the
-superseded allocation-only owner at file level; git preserves their history.
-The generated Chisel probe covers independent windows, out-of-order
-completion, held retirement, cross-STID fairness, simultaneous allocation and
-retirement, exact metadata removal, inclusive and preserved-pivot recovery,
-invalid identity/pivot rejection, and metadata suffix reuse across full-BID
-rollover. The exact full Chisel suite passes 258
-suites and 1,526 tests. The current block-retire interface remains one lane;
-canonical BID width plus explicit wrap context, configurable multi-block
-retirement, non-flush/store-barrier frontiers, direct BCC/IEX/PE trigger owners,
-and complete cleanup fanout remain open.
+`ReducedStoreCommitFreeOwner` now requires that prefix proof before requesting
+the STQ `Wait -> Commit` transition. A ROB store commit outside the prefix is
+retained with its STID, full block BID, and instruction identity, rechecked as
+the frontier advances, and cleared by accepted recovery. The generated BROB
+probe proves unsafe-head blocking, independent STIDs, exception exclusion, and
+a `[14,15,0]` prefix across rollover. The generated store-owner probe found and
+drove a fix for one ungated row-level match path, then proved retention,
+frontier release, and recovery clear.
 
-R651 final verification passes 258 suites and 1,526 tests. Independent review
-first found that metadata still used unsigned full-BID comparison across
-rollover; the owner now supplies head/count modular context, the generated
-probe proves `[14,15,0]` suffix recovery and slot reuse, and re-review has no
-remaining finding. The canonical top cross-check compares 3 rows with zero
-mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with zero
-mismatches and zero CBSTOP at
-`generated/r651-final-brob-order-state-coremark/report/crosscheck_manifest.json`.
-CoreMark remains no-regression evidence because this trace does not naturally
-activate accepted BROB recovery or multi-STID retirement.
+R652 final verification passes 258 suites and 1,527 tests. Chisel adapter,
+shared conformance, and strict MkDocs-aware architecture gates pass. The live
+reduced-store fixture compares 3 rows, including a store and post-store load,
+with zero mismatches and zero CBSTOP. Reduced CoreMark compares 426 rows with
+zero mismatches and zero CBSTOP at
+`generated/r652-final-brob-non-flush-coremark/report/crosscheck_manifest.json`.
+Canonical `BID_W` plus explicit wrap context, early non-flush predicates,
+store-barrier allocation, configurable multi-block retirement, direct
+BCC/IEX/PE trigger owners, and complete cleanup fanout remain open.
 
 R649 connects retained scalar MDB recovery to the live reduced
 top. `MDBConflictTransactionControl` is now shared by canonical

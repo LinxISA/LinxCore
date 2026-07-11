@@ -10,6 +10,7 @@ class BrobOrderStateProbeIO extends Bundle {
   val scalarDoneValid = Input(Bool())
   val scalarDoneBid = Input(UInt(4.W))
   val scalarDoneStid = Input(UInt(2.W))
+  val scalarTrapValid = Input(Bool())
   val retireReady = Input(Bool())
   val recoveryValid = Input(Bool())
   val recoveryStid = Input(UInt(2.W))
@@ -33,6 +34,12 @@ class BrobOrderStateProbeIO extends Bundle {
   val recoveryApplied = Output(Bool())
   val recoveryFirstKilledBid = Output(UInt(4.W))
   val recoveryRetainedCount = Output(UInt(4.W))
+  val nonFlushValid = Output(Vec(2, Bool()))
+  val nonFlushHeadBid = Output(Vec(2, UInt(4.W)))
+  val nonFlushFrontierBid = Output(Vec(2, UInt(4.W)))
+  val nonFlushPrefixCount = Output(Vec(2, UInt(4.W)))
+  val nonFlushBlockedValid = Output(Vec(2, Bool()))
+  val nonFlushBlockedBid = Output(Vec(2, UInt(4.W)))
 }
 
 class BrobOrderStateProbe extends Module {
@@ -61,7 +68,7 @@ class BrobOrderStateProbe extends Module {
   meta.io.scalarDoneValid := io.scalarDoneValid
   meta.io.scalarDoneBid := io.scalarDoneBid
   meta.io.scalarDoneStid := io.scalarDoneStid
-  meta.io.scalarTrapValid := false.B
+  meta.io.scalarTrapValid := io.scalarTrapValid
   meta.io.scalarTrapCause := 0.U
   meta.io.engineDoneValid := false.B
   meta.io.engineDoneBid := 0.U
@@ -98,6 +105,12 @@ class BrobOrderStateProbe extends Module {
   io.recoveryApplied := order.io.recoveryApplied
   io.recoveryFirstKilledBid := order.io.recoveryFirstKilledBid
   io.recoveryRetainedCount := order.io.recoveryRetainedCount
+  io.nonFlushValid := meta.io.nonFlushValid
+  io.nonFlushHeadBid := meta.io.nonFlushHeadBid
+  io.nonFlushFrontierBid := meta.io.nonFlushFrontierBid
+  io.nonFlushPrefixCount := meta.io.nonFlushPrefixCount
+  io.nonFlushBlockedValid := meta.io.nonFlushBlockedValid
+  io.nonFlushBlockedBid := meta.io.nonFlushBlockedBid
 }
 
 object EmitBrobOrderStateProbe extends App {

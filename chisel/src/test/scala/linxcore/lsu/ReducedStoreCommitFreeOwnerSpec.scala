@@ -25,11 +25,14 @@ object ReducedStoreCommitFreeOwnerReference {
       gid: Id = Id(),
       rid: Id = Id(),
       rob: Id = Id(valid = false),
-      store: Boolean = true)
+      store: Boolean = true,
+      blockBid: Int = 0,
+      blockBidValid: Boolean = true)
   final case class StepResult(
       seen: Boolean,
       matched: Boolean,
       unmatched: Boolean,
+      blockedByNonFlush: Boolean,
       matchMask: Int,
       markValid: Boolean,
       markIndex: Option[Int],
@@ -64,7 +67,9 @@ object ReducedStoreCommitFreeOwnerReference {
         freeAccepted: Boolean = false,
         enable: Boolean = true,
         flush: Boolean = false,
-        directFreeEnable: Boolean = true): StepResult = {
+        directFreeEnable: Boolean = true,
+        nonFlushHead: Int = 0,
+        nonFlushPrefixCount: Int = Int.MaxValue): StepResult = {
       val markValid = enable && !flush && pendingMark != 0
       val markIndex = first(pendingMark)
       val markOh = markIndex.map(1 << _).getOrElse(0)
@@ -73,9 +78,12 @@ object ReducedStoreCommitFreeOwnerReference {
       val freeOh = freeIndex.map(1 << _).getOrElse(0)
 
       val storeCommits = commits.filter(_.store)
-      val markSources = pendingCommitIdentities ++ storeCommits
+      def blockSafe(commit: CommitRow): Boolean =
+        commit.blockBidValid && commit.blockBid - nonFlushHead >= 0 &&
+          commit.blockBid - nonFlushHead < nonFlushPrefixCount
+      val markSources = (pendingCommitIdentities ++ storeCommits).filter(blockSafe)
       val slotMatched = storeCommits.map { commit =>
-        rows.exists(row => markable(row, activeStid) && sameCommitIdentity(row, commit))
+        blockSafe(commit) && rows.exists(row => markable(row, activeStid) && sameCommitIdentity(row, commit))
       }
       val alreadyPending = storeCommits.map { commit =>
         pendingCommitIdentities.exists(pending =>
@@ -87,7 +95,7 @@ object ReducedStoreCommitFreeOwnerReference {
         if (markable(row, activeStid) && markSources.exists(commit => sameCommitIdentity(row, commit))) mask | (1 << row.index) else mask
       }
       val pendingMatched = pendingCommitIdentities.filter { commit =>
-        rows.exists(row => markable(row, activeStid) && sameCommitIdentity(row, commit))
+        blockSafe(commit) && rows.exists(row => markable(row, activeStid) && sameCommitIdentity(row, commit))
       }
       val newlyPending = storeCommits.zip(slotMatched).zip(alreadyPending).collect {
         case ((commit, matched), isPending) if !matched && !isPending => commit
@@ -113,6 +121,7 @@ object ReducedStoreCommitFreeOwnerReference {
         seen = storeCommits.nonEmpty,
         matched = slotMatched.contains(true),
         unmatched = slotMatched.contains(false),
+        blockedByNonFlush = storeCommits.exists(commit => !blockSafe(commit)),
         matchMask = matchMask,
         markValid = markValid,
         markIndex = markIndex.filter(_ => markValid),
@@ -199,6 +208,32 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     assert(mark.markIndex.contains(6))
   }
 
+  test("reference retains a committed store until its full block BID enters the strong prefix") {
+    val model = new Model(entries = 8)
+    val row = Row(index = 5, bid = Id(value = 2), gid = Id(value = 1), rid = Id(value = 6))
+    val store = CommitRow(
+      bid = Id(value = 2),
+      gid = Id(value = 1),
+      rid = Id(value = 6),
+      blockBid = 9)
+
+    val blocked = model.step(
+      rows = Seq(row),
+      commits = Seq(store),
+      nonFlushHead = 8,
+      nonFlushPrefixCount = 1)
+    assert(blocked.blockedByNonFlush)
+    assert(!blocked.matched)
+    assert(blocked.pendingMark == 0)
+
+    val released = model.step(
+      rows = Seq(row),
+      nonFlushHead = 8,
+      nonFlushPrefixCount = 2)
+    assert(released.matchMask == (1 << 5))
+    assert(released.pendingMark == (1 << 5))
+  }
+
   test("reference can disable direct free tracking after mark acceptance") {
     val model = new Model(entries = 8)
     val rows = Seq(Row(index = 2, rid = Id(value = 2), stid = 0))
@@ -237,6 +272,9 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     assert(sv.contains("io_markCommitValid"))
     assert(sv.contains("io_commitFreeValid"))
     assert(sv.contains("io_commitStoreMatched"))
+    assert(sv.contains("io_nonFlushHeadBid"))
+    assert(sv.contains("io_nonFlushPrefixCount"))
+    assert(sv.contains("io_commitStoreBlockedByNonFlush"))
     assert(sv.contains("io_pendingMarkMask"))
     assert(sv.contains("io_pendingFreeMask"))
     assert(sv.contains("io_idle"))
