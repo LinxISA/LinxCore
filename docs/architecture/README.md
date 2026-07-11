@@ -23,6 +23,8 @@ bash tests/test_microarchitecture_contract.sh
 - `microarchitecture.md`
 - `microarchitecture-contract.json` (machine-readable ownership and
   verification index; not a second prose specification)
+- `mechanism-intake.json` (historical source disposition and promotion
+  evidence; not a second prose specification)
 - `interfaces.md`
 - `verification-matrix.md`
 - `module-catalog.md`
@@ -62,10 +64,13 @@ These subdirectories are subsystem notes and may use local or historical
 pipeline names. They do not override the canonical BID or stage taxonomy in
 `microarchitecture.md`, `NAMING.md`, and `pipeline-stage-catalog.md`.
 
-The ARM material and Linx migration drafts under `docs/temp/` are
-non-normative reference inputs. In particular, serial `IB/F4`,
-`F4DecodeWindow`-as-stage, and 64-bit-BID wording there must not be copied into
-the canonical contract.
+The migration inputs were removed after classification and promotion. Their
+recoverable snapshots are commits
+`f72c0ee6fb21d08b2ac38d1f9918021bf6c28af3` and
+`8f6b821f75aa5170766d6ab4d37a9443b9a4f0ec`; the machine-readable disposition
+and target mapping is `mechanism-intake.json`. Historical serial `IB/F4`,
+`F4DecodeWindow`-as-stage, 64-bit-BID, and ARM-specific architectural
+wording is not part of the live contract.
 
 ## Structural specification chapters
 

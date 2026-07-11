@@ -69,16 +69,16 @@
       "class": "canonical"
     },
     {
+      "path": "docs/architecture/microarchitecture-contract.json",
+      "class": "canonical"
+    },
+    {
+      "path": "docs/architecture/mechanism-intake.json",
+      "class": "canonical"
+    },
+    {
       "path": "docs/chisel",
       "class": "evidence"
-    },
-    {
-      "path": "docs/temp/linxcore",
-      "class": "migration-input"
-    },
-    {
-      "path": "docs/temp/upgrade",
-      "class": "migration-input"
     }
   ],
   "top_shells": [
@@ -658,20 +658,8 @@
       ]
     }
   ],
-  "migration_inputs": [
-    {
-      "path": "docs/temp/linxcore",
-      "class": "migration-input",
-      "status": "pending",
-      "snapshot": "tracked-before-harness"
-    },
-    {
-      "path": "docs/temp/upgrade",
-      "class": "migration-input",
-      "status": "pending",
-      "snapshot": "8f6b821f"
-    }
-  ],
+  "migration_inputs": [],
+  "mechanism_intake": "docs/architecture/mechanism-intake.json",
   "extension_categories": [
     "ifu",
     "cache",

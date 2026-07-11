@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -64,6 +65,249 @@ def _require_object(value: Any, field: str, errors: list[str]) -> dict[str, Any]
     return value
 
 
+def _validate_mechanism_intake(
+    root: Path,
+    intake_path: str,
+    *,
+    contract_ids: set[str],
+    module_family_ids: set[str],
+    scenario_ids: set[str],
+    require_no_legacy: bool,
+    errors: list[str],
+    checked_paths: set[str],
+) -> tuple[int, int]:
+    if not isinstance(intake_path, str) or not intake_path:
+        errors.append("mechanism_intake must be a non-empty path")
+        return 0, 0
+    checked_paths.add(intake_path)
+    path = root / intake_path
+    try:
+        intake = _load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"cannot load mechanism intake {intake_path}: {exc}")
+        return 0, 0
+    if intake.get("schema_version") != 1:
+        errors.append("mechanism intake schema_version must be 1")
+
+    snapshots = _require_list(
+        intake.get("source_snapshots"),
+        "mechanism_intake.source_snapshots",
+        errors,
+        nonempty=True,
+    )
+    snapshot_ids: set[str] = set()
+    snapshot_commits: dict[str, str] = {}
+    verify_git = (root / ".git").exists()
+    for index, raw in enumerate(snapshots):
+        item = _require_object(
+            raw, f"mechanism_intake.source_snapshots[{index}]", errors
+        )
+        snapshot_id = item.get("id")
+        commit = item.get("commit")
+        if not isinstance(snapshot_id, str) or not snapshot_id:
+            errors.append(f"source_snapshots[{index}].id must be non-empty")
+        elif snapshot_id in snapshot_ids:
+            errors.append(f"duplicate source snapshot id: {snapshot_id}")
+        else:
+            snapshot_ids.add(snapshot_id)
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            errors.append(f"source snapshot {snapshot_id!r} needs a full Git commit")
+        elif isinstance(snapshot_id, str):
+            snapshot_commits[snapshot_id] = commit
+            if verify_git:
+                result = subprocess.run(
+                    ["git", "-C", str(root), "cat-file", "-e", f"{commit}^{{commit}}"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    errors.append(
+                        f"source snapshot {snapshot_id!r} commit is not recoverable: "
+                        f"{commit}"
+                    )
+
+    mechanisms = _require_list(
+        intake.get("mechanisms"),
+        "mechanism_intake.mechanisms",
+        errors,
+        nonempty=True,
+    )
+    mechanism_ids: set[str] = set()
+    mechanism_items: list[dict[str, Any]] = []
+    for index, raw in enumerate(mechanisms):
+        item = _require_object(raw, f"mechanism_intake.mechanisms[{index}]", errors)
+        mechanism_id = item.get("id")
+        if not isinstance(mechanism_id, str) or not mechanism_id:
+            errors.append(f"mechanisms[{index}].id must be non-empty")
+            continue
+        if mechanism_id in mechanism_ids:
+            errors.append(f"duplicate mechanism id: {mechanism_id}")
+            continue
+        mechanism_ids.add(mechanism_id)
+        mechanism_items.append(item)
+
+    source_files = _require_list(
+        intake.get("source_files"),
+        "mechanism_intake.source_files",
+        errors,
+        nonempty=True,
+    )
+    source_ids: set[str] = set()
+    referenced_mechanisms: set[str] = set()
+    for index, raw in enumerate(source_files):
+        item = _require_object(
+            raw, f"mechanism_intake.source_files[{index}]", errors
+        )
+        source_id = item.get("id")
+        source_path = item.get("path")
+        if not isinstance(source_id, str) or not source_id:
+            errors.append(f"source_files[{index}].id must be non-empty")
+        elif source_id in source_ids:
+            errors.append(f"duplicate source file id: {source_id}")
+        else:
+            source_ids.add(source_id)
+        if item.get("snapshot") not in snapshot_ids:
+            errors.append(
+                f"source file {source_id!r} references unknown snapshot: "
+                f"{item.get('snapshot')!r}"
+            )
+        elif (
+            verify_git
+            and isinstance(source_path, str)
+            and isinstance(item.get("snapshot"), str)
+        ):
+            commit = snapshot_commits.get(item["snapshot"])
+            if commit:
+                result = subprocess.run(
+                    ["git", "-C", str(root), "cat-file", "-e", f"{commit}:{source_path}"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    errors.append(
+                        f"source file {source_id!r} is not recoverable from "
+                        f"{item['snapshot']} at {source_path}"
+                    )
+        if item.get("status") != "classified":
+            errors.append(f"source file {source_id!r} must be classified")
+        removed = item.get("removed")
+        if not isinstance(removed, bool):
+            errors.append(f"source file {source_id!r}.removed must be boolean")
+        exists = isinstance(source_path, str) and _path_exists(root, source_path)
+        if isinstance(source_path, str):
+            checked_paths.add(source_path)
+        else:
+            errors.append(f"source file {source_id!r}.path must be non-empty")
+        if removed is True and exists:
+            errors.append(f"classified source marked removed still exists: {source_path}")
+        if removed is False and not exists:
+            errors.append(f"classified live source does not exist: {source_path}")
+        if require_no_legacy and exists:
+            errors.append(f"legacy source file remains: {source_path}")
+        source_mechanisms = _require_list(
+            item.get("mechanisms"),
+            f"source file {source_id}.mechanisms",
+            errors,
+            nonempty=True,
+        )
+        for mechanism_id in source_mechanisms:
+            if mechanism_id not in mechanism_ids:
+                errors.append(
+                    f"source file {source_id} references unknown mechanism: "
+                    f"{mechanism_id}"
+                )
+            elif isinstance(mechanism_id, str):
+                referenced_mechanisms.add(mechanism_id)
+
+    for item in mechanism_items:
+        mechanism_id = item["id"]
+        disposition = item.get("disposition")
+        status = item.get("status")
+        if disposition not in {"adopt", "adapt", "parameterize", "reject"}:
+            errors.append(
+                f"mechanism {mechanism_id} has invalid disposition: {disposition!r}"
+            )
+        expected_status = "rejected" if disposition == "reject" else "promoted"
+        if status != expected_status:
+            errors.append(
+                f"mechanism {mechanism_id} status must be {expected_status}"
+            )
+        for field in ("title", "rationale", "linx_binding"):
+            if not isinstance(item.get(field), str) or not item.get(field):
+                errors.append(f"mechanism {mechanism_id}.{field} must be non-empty")
+        targets = _require_list(
+            item.get("target_contracts"),
+            f"mechanism {mechanism_id}.target_contracts",
+            errors,
+            nonempty=True,
+        )
+        for contract_id in targets:
+            if contract_id not in contract_ids:
+                errors.append(
+                    f"mechanism {mechanism_id} references unknown contract: "
+                    f"{contract_id}"
+                )
+        families = _require_list(
+            item.get("module_families"),
+            f"mechanism {mechanism_id}.module_families",
+            errors,
+            nonempty=disposition != "reject",
+        )
+        scenarios = _require_list(
+            item.get("scenarios"),
+            f"mechanism {mechanism_id}.scenarios",
+            errors,
+            nonempty=disposition != "reject",
+        )
+        for family_id in families:
+            if family_id not in module_family_ids:
+                errors.append(
+                    f"mechanism {mechanism_id} references unknown module family: "
+                    f"{family_id}"
+                )
+        for scenario_id in scenarios:
+            if scenario_id not in scenario_ids:
+                errors.append(
+                    f"mechanism {mechanism_id} references unknown scenario: "
+                    f"{scenario_id}"
+                )
+        lane_owners = _require_object(
+            item.get("lane_owners"),
+            f"mechanism {mechanism_id}.lane_owners",
+            errors,
+        )
+        if set(lane_owners) != LANES:
+            errors.append(
+                f"mechanism {mechanism_id} must define lane owners "
+                f"{sorted(LANES)}"
+            )
+        for lane in sorted(LANES):
+            owners = _require_list(
+                lane_owners.get(lane),
+                f"mechanism {mechanism_id}.lane_owners.{lane}",
+                errors,
+                nonempty=disposition != "reject",
+            )
+            if disposition == "reject" and owners:
+                errors.append(
+                    f"rejected mechanism {mechanism_id} must not have RTL owners"
+                )
+            for owner in owners:
+                if not isinstance(owner, str) or not _path_exists(root, owner):
+                    errors.append(
+                        f"mechanism {mechanism_id}.{lane} owner does not exist: "
+                        f"{owner!r}"
+                    )
+                elif isinstance(owner, str):
+                    checked_paths.add(owner)
+
+    for mechanism_id in sorted(mechanism_ids - referenced_mechanisms):
+        errors.append(f"mechanism has no source-file evidence: {mechanism_id}")
+    return len(mechanism_ids), len(source_ids)
+
+
 def validate_contract(
     root: Path,
     manifest: dict[str, Any],
@@ -87,6 +331,7 @@ def validate_contract(
         "scenarios",
         "contracts",
         "migration_inputs",
+        "mechanism_intake",
         "extension_categories",
     }
     missing = sorted(required_root_fields - set(manifest))
@@ -389,6 +634,17 @@ def validate_contract(
         if require_no_legacy and exists:
             errors.append(f"legacy migration input remains: {path}")
 
+    mechanism_count, source_file_count = _validate_mechanism_intake(
+        root,
+        manifest.get("mechanism_intake"),
+        contract_ids=contract_ids,
+        module_family_ids=module_family_ids,
+        scenario_ids=scenario_ids,
+        require_no_legacy=require_no_legacy,
+        errors=errors,
+        checked_paths=checked_paths,
+    )
+
     extension_categories = _require_list(
         manifest.get("extension_categories"),
         "extension_categories",
@@ -414,6 +670,8 @@ def validate_contract(
             "stages": len(stage_ids),
             "top_shells": len(top_shell_ids),
             "migration_inputs": len(migration_inputs),
+            "mechanisms": mechanism_count,
+            "source_files": source_file_count,
         },
         "checked_paths": sorted(checked_paths),
     }
@@ -430,7 +688,7 @@ def _write_fixture(root: Path) -> dict[str, Any]:
     (root / "src/owner.py").write_text("# owner\n", encoding="utf-8")
     (root / "chisel/Owner.scala").write_text("// owner\n", encoding="utf-8")
     (root / "docs/temp/input.md").write_text("# input\n", encoding="utf-8")
-    return {
+    fixture = {
         "schema_version": 1,
         "architecture_version": "test",
         "authority": {
@@ -513,8 +771,46 @@ def _write_fixture(root: Path) -> dict[str, Any]:
                 "snapshot": "fixture",
             }
         ],
+        "mechanism_intake": "docs/architecture/mechanism-intake.json",
         "extension_categories": ["cache", "ifu"],
     }
+    intake = {
+        "schema_version": 1,
+        "source_snapshots": [
+            {"id": "fixture", "commit": "0" * 40}
+        ],
+        "source_files": [
+            {
+                "id": "fixture-source",
+                "path": "docs/temp/input.md",
+                "snapshot": "fixture",
+                "status": "classified",
+                "removed": False,
+                "mechanisms": ["fixture-mechanism"],
+            }
+        ],
+        "mechanisms": [
+            {
+                "id": "fixture-mechanism",
+                "title": "Fixture mechanism",
+                "disposition": "adapt",
+                "status": "promoted",
+                "rationale": "Exercise mechanism validation.",
+                "linx_binding": "Bind to the test contract.",
+                "target_contracts": ["LC-TEST-001"],
+                "module_families": ["test"],
+                "scenarios": ["scenario-test"],
+                "lane_owners": {
+                    "pycircuit": ["src/owner.py"],
+                    "chisel": ["chisel/Owner.scala"],
+                },
+            }
+        ],
+    }
+    (root / "docs/architecture/mechanism-intake.json").write_text(
+        json.dumps(intake), encoding="utf-8"
+    )
+    return fixture
 
 
 def run_self_tests() -> int:
@@ -553,6 +849,21 @@ def run_self_tests() -> int:
         if validate_contract(root, bad_role)["ok"]:
             failures.append("invalid top-shell role was accepted")
 
+        intake_path = root / "docs/architecture/mechanism-intake.json"
+        original_intake = _load_json(intake_path)
+        unknown_mechanism = copy.deepcopy(original_intake)
+        unknown_mechanism["source_files"][0]["mechanisms"] = ["missing"]
+        intake_path.write_text(json.dumps(unknown_mechanism), encoding="utf-8")
+        if validate_contract(root, fixture)["ok"]:
+            failures.append("unknown source mechanism was accepted")
+
+        removed_but_live = copy.deepcopy(original_intake)
+        removed_but_live["source_files"][0]["removed"] = True
+        intake_path.write_text(json.dumps(removed_but_live), encoding="utf-8")
+        if validate_contract(root, fixture)["ok"]:
+            failures.append("live source marked removed was accepted")
+
+        intake_path.write_text(json.dumps(original_intake), encoding="utf-8")
         if validate_contract(root, fixture, require_no_legacy=True)["ok"]:
             failures.append("require-no-legacy accepted a live migration input")
 
