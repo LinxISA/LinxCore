@@ -15,7 +15,19 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R641 adds the parameterized recovery class/fabric packet.
+Latest packet: R649 connects retained scalar MDB recovery to the live reduced
+top. `MDBConflictTransactionControl` is now shared by canonical
+`ScalarLSUMDBPath` and `MDBRecoveryDeliveryPath`, so record learning, wait-plan
+capture, and recovery enqueue cannot publish partially. The live top keeps the
+typed report in a parameterized queue, selects R648 oldest BID/RID by report
+STID, performs exact resident full-BID lookup, and releases the head only when
+the central recovery fabric accepts `ScalarLSURecoverySource`. The reduced
+store-probe timing bridge now marks a replay consumed only after this atomic
+boundary accepts it. BCC/IEX/PE trigger-owner connections, full-BID BROB
+pointer recovery, complete cleanup fanout, and pyCircuit backend consumption
+remain open.
+
+R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE
 classes per STID, models `CheckOlder` cancellation and `mergeSignal`
 transformation, drops global replay when the oldest block is complete, stages

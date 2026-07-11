@@ -248,8 +248,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   ))
   fanout.io.flush := io.flush
   fanout.io.storeRows := io.storeRows
-  val storeProbeFire =
-    io.storeProbe.valid && io.storeProbeCommit && io.storeProbeReady
+  val transaction = Module(new MDBConflictTransactionControl)
 
   val recordBus = Wire(chiselTypeOf(fanout.io.recordIn))
   recordBus := zeroBus
@@ -272,7 +271,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   recordBus.stInfo.isTile := conflict.io.record.store.isTile
   recordBus.conf := 1.U
   fanout.io.recordIn := recordBus
-  fanout.io.recordInValid := storeProbeFire && conflict.io.conflictValid
+  fanout.io.recordInValid := transaction.io.recordValid
 
   val lookupBus = Wire(chiselTypeOf(fanout.io.lookupIn))
   lookupBus := zeroBus
@@ -343,7 +342,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       p.mdbWaitPlanQueueEntries
     ))
   }
-  waitPlanQ.io.enq.valid := storeProbeFire && conflict.io.waitStoreMask.orR
+  waitPlanQ.io.enq.valid := transaction.io.waitPlanValid
   waitPlanQ.io.enq.bits.targetMask := conflict.io.waitStoreMask
   waitPlanQ.io.enq.bits.store := io.storeProbe
 
@@ -498,7 +497,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       p.mdbRecoveryQueueEntries
     ))
   }
-  recoveryQ.io.enq.valid := storeProbeFire && conflict.io.conflictValid
+  recoveryQ.io.enq.valid := transaction.io.recoveryValid
   recoveryQ.io.enq.bits := flushReq
   recoveryQ.io.deq.ready := io.recoveryReady && !io.flush
 
@@ -509,11 +508,15 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     storeWakeupReg := fanout.io.suWakeup
   }
 
-  io.storeProbeReady :=
-    !io.flush &&
-      fanout.io.recordInReady &&
-      waitPlanQ.io.enq.ready &&
-      (!conflict.io.conflictValid || recoveryQ.io.enq.ready)
+  transaction.io.enable := !io.flush
+  transaction.io.candidateValid := io.storeProbe.valid && io.storeProbeCommit
+  transaction.io.recordRequired := conflict.io.conflictValid
+  transaction.io.waitPlanRequired := conflict.io.waitStoreMask.orR
+  transaction.io.recoveryRequired := conflict.io.conflictValid
+  transaction.io.recordReady := fanout.io.recordInReady
+  transaction.io.waitPlanReady := waitPlanQ.io.enq.ready
+  transaction.io.recoveryReady := recoveryQ.io.enq.ready
+  io.storeProbeReady := transaction.io.candidateReady
   io.loadLookupReady := !io.flush && fanout.io.lookupInReady
   io.conflictValid := io.storeProbe.valid && conflict.io.conflictValid
   io.conflictFromResolveQueue := conflict.io.conflictFromResolveQueue

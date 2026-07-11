@@ -47,6 +47,7 @@ ResolveQ publication.
 | `replaySelected` | Output | Diagnostic pulse when `out` is the retained replay probe. |
 | `retainedValid` | Output | Diagnostic state bit showing that a live probe has been captured. |
 | `retainedReplayed` | Output | Diagnostic state bit showing that the retained probe has already been replayed. |
+| `replayAccepted` | Output | Pulses only when a selected replay is accepted by the downstream atomic transaction boundary. |
 
 ## State
 
@@ -64,8 +65,9 @@ Any new live probe replaces the retained probe and clears `retainedReplayed`.
    retained register, and clear the replayed bit.
 2. If there is no live probe and `replayEnable` is high while a retained probe
    has not yet replayed, drive `out` from the retained probe.
-3. When a replayed probe is consumed, set `retainedReplayed` so the same probe
-   is not emitted again.
+3. When a replayed probe is accepted by the atomic MDB record/recovery
+   transaction boundary, set `retainedReplayed` so the same probe is not
+   emitted again. Selection alone does not consume retained state.
 4. If neither live nor replay is selected, drive an invalid zero probe.
 
 Live priority keeps the reduced top aligned with the model store-arrival path:

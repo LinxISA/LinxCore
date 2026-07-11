@@ -21,6 +21,7 @@ class MDBStoreProbeReplayIO(
   val replaySelected = Output(Bool())
   val retainedValid = Output(Bool())
   val retainedReplayed = Output(Bool())
+  val replayAccepted = Output(Bool())
 }
 
 class MDBStoreProbeReplay(
@@ -59,6 +60,7 @@ class MDBStoreProbeReplay(
   io.replaySelected := selectReplay
   io.retainedValid := retainedValid
   io.retainedReplayed := retainedReplayed
+  io.replayAccepted := selectReplay && io.replayConsume
 
   when(io.flush) {
     retained := 0.U.asTypeOf(retained)
@@ -68,7 +70,7 @@ class MDBStoreProbeReplay(
     retained := io.live
     retainedValid := true.B
     retainedReplayed := false.B
-  }.elsewhen(selectReplay && io.replayConsume) {
+  }.elsewhen(io.replayAccepted) {
     retainedReplayed := true.B
   }
 }

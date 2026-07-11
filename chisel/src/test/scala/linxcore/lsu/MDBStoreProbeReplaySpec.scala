@@ -75,6 +75,17 @@ class MDBStoreProbeReplaySpec extends AnyFunSuite {
     assert(!result.state.replayed)
   }
 
+  test("a replay remains pending until its downstream transaction is accepted") {
+    val old = State(retained = Some(Probe(valid = true, pc = 0x2000)), replayed = false)
+    val blocked = step(old, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = false)
+    assert(blocked.replaySelected)
+    assert(!blocked.state.replayed)
+
+    val accepted = step(blocked.state, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true)
+    assert(accepted.replaySelected)
+    assert(accepted.state.replayed)
+  }
+
   test("flush clears retained replay state") {
     val old = State(retained = Some(Probe(valid = true, pc = 0x2000)), replayed = false)
     val result = step(old, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true, flush = true)
@@ -91,5 +102,6 @@ class MDBStoreProbeReplaySpec extends AnyFunSuite {
     assert(sv.contains("io_liveSelected"))
     assert(sv.contains("io_replaySelected"))
     assert(sv.contains("io_retainedValid"))
+    assert(sv.contains("io_replayAccepted"))
   }
 }

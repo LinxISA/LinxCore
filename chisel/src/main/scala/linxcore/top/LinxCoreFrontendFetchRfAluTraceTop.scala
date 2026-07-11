@@ -31,7 +31,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
-import linxcore.lsu.MDBStoreProbeReplay
+import linxcore.lsu.{MDBRecoveryDeliveryPath, MDBStoreProbeReplay}
 import linxcore.recovery.{FlushBus, ScalarRedirectRecoverySource}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
 
@@ -2163,6 +2163,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val storeExecBufferEntries: Int = 4,
     val mapQDepth: Int = 32,
     val gprMapQDepth: Int = 32,
+    val scalarStidCount: Int = 1,
     val archRegs: Int = 24,
     val physRegs: Int = 64,
     val skipBlockMarkers: Boolean = true,
@@ -2182,6 +2183,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
+  require(scalarStidCount > 0, "reduced top must expose at least one scalar STID")
+  require(
+    BigInt(scalarStidCount) <= (BigInt(1) << coreParams.scalarLsu.stidWidth),
+    "scalar STID count must fit scalar LSU STID width")
   require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
   require(
     reducedReplayLiqW2CompletionDelayCycles >= 0,
@@ -2221,6 +2226,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     physRegs = physRegs,
     mapQDepth = mapQDepth,
     gprMapQDepth = gprMapQDepth,
+    scalarStidCount = scalarStidCount,
     useMarkerDecodeContext = useMarkerDecodeContext,
     skipBlockMarkers = skipBlockMarkers,
     reducedStoreDispatchBypass = !useReducedStoreDispatchStq
@@ -3399,7 +3405,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbStoreProbeReplay.io.flush := reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled
   reducedMdbStoreProbeReplay.io.live := reducedMdbStoreProbe
   reducedMdbStoreProbeReplay.io.replayEnable := reducedLoadReplayResolveQueue.io.count =/= 0.U
-  reducedMdbStoreProbeReplay.io.replayConsume := true.B
+  val reducedMdbStoreProbeConsume = WireDefault(false.B)
+  reducedMdbStoreProbeReplay.io.replayConsume := reducedMdbStoreProbeConsume
   val reducedMdbConflictStoreProbe = reducedMdbStoreProbeReplay.io.out
 
   val reducedMdbActiveLoads = Wire(Vec(
@@ -3526,8 +3533,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbQueueFanout.io.deleteIn := reducedMdbZeroBus
   reducedMdbQueueFanout.io.deleteInValid := false.B
   reducedMdbQueueFanout.io.recordIn := reducedMdbRecordBus
+  val reducedMdbRecoveryDelivery =
+    LinxCoreFrontendFetchRfAluTraceTopR649MdbRecoveryDeliveryWiring.connect(
+      coreParams,
+      p,
+      traceParams,
+      scalarStidCount,
+      reducedLoadReplayLiqAllocEnabled,
+      reducedStoreFlush,
+      reducedMdbConflictStoreProbe,
+      reducedMdbConflictDetect,
+      reducedMdbQueueFanout,
+      reducedMdbStoreProbeConsume,
+      path
+    )
   val reducedMdbFanoutRecordValid =
-    reducedLoadReplayLiqAllocEnabled && reducedMdbConflictDetect.io.conflictValid
+    reducedMdbRecoveryDelivery.io.recordValid
   reducedMdbQueueFanout.io.recordInValid := reducedMdbFanoutRecordValid
   reducedMdbQueueFanout.io.luDequeueReady := true.B
   reducedMdbQueueFanout.io.suCheckReady := true.B
@@ -3601,8 +3622,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.commitStid := 0.U
   path.io.recoveryNonLsuSources := 0.U.asTypeOf(path.io.recoveryNonLsuSources)
   path.io.recoveryNonLsuSources(0) := scalarRedirectRecovery.io.source
-  path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
-  path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
   path.io.recoveryIntentReady := true.B
 
   val acceptedRecoveryFlush = Wire(chiselTypeOf(path.io.recoveryIntent.flush))
@@ -7176,6 +7195,50 @@ private object LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeWiri
     bridge.io.nextStqReturned := plan.io.nextStqReturned
     bridge.io.nextStoreSourceReturned := plan.io.nextStoreSourceReturned
     bridge
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR649MdbRecoveryDeliveryWiring {
+  def connect(
+      coreParams: CoreParams,
+      p: InterfaceParams,
+      traceParams: CommitTraceParams,
+      scalarStidCount: Int,
+      enable: Bool,
+      flush: Bool,
+      candidate: MDBConflictStoreProbe,
+      conflict: MDBConflictDetect,
+      fanout: MDBQueueFanout,
+      candidateConsume: Bool,
+      path: DecodeRenameROBPath): MDBRecoveryDeliveryPath = {
+    val delivery = Module(new MDBRecoveryDeliveryPath(
+      entries = p.robEntries,
+      recoveryQueueEntries = coreParams.scalarLsu.mdbRecoveryQueueEntries,
+      stidCount = scalarStidCount,
+      bidWidth = traceParams.blockBidWidth,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth
+    ))
+    delivery.io.enable := enable
+    delivery.io.flush := flush
+    delivery.io.candidateValid := candidate.valid
+    delivery.io.conflictValid := conflict.io.conflictValid
+    delivery.io.nukeFlush := conflict.io.nukeFlush
+    delivery.io.record := conflict.io.record
+    delivery.io.recordReady := fanout.io.recordInReady
+    delivery.io.oldestValid := path.io.recoveryOldestValid
+    delivery.io.oldestBid := path.io.recoveryOldestBid
+    delivery.io.oldestRid := path.io.recoveryOldestRid
+    delivery.io.fullBidLookup := path.io.lsuFullBidLookup
+    delivery.io.sourceReady := path.io.lsuRecoverySourceReady
+
+    candidateConsume := delivery.io.candidateAccepted
+    path.io.lsuRecoverySource := delivery.io.source
+    path.io.lsuFullBidLookupRequest := delivery.io.fullBidLookupRequest
+    delivery
   }
 }
 
