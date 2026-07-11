@@ -126,6 +126,7 @@ class LinxCoreFrontendTraceTop(
   path.io.robCommitTraceLookupValid := false.B
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount

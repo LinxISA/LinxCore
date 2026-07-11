@@ -94,6 +94,9 @@ return can still observe the committed load row at the model-equivalent
 `IEX::setMemData` boundary. The hold only gates deallocation; it does not
 change allocation, completion, commit ordering, flush pruning, or row-status
 lookup semantics.
+R638 adds the direct RID-indexed `ROBFullBidLookup`. It returns the resident
+row's allocator-stamped `blockBid` only after exact BID/GID/RID and
+PE/STID/TID identity plus ring-projection validation.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -171,6 +174,8 @@ deallocation or recovery semantics into that module.
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Row-present/status/need-flush result plus invalid/free/stale RID blockers. |
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only current-row commit trace lookup request and source-trace exposure gate. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Row payload, instruction provider, optional source-trace provider, and lookup blockers. |
+| input | `fullBidLookupRequest` | `ROBFullBidLookupRequest` | valid | Exact ring and Linx scope identity for full generation-sideband recovery. |
+| output | `fullBidLookup` | `ROBFullBidLookupResult` | diagnostic/source | Echoed request, matched full BID, and ordered identity/sideband blockers. |
 | output | `occupiedMask` | `UInt(entries.W)` | diagnostic | Non-free slot mask |
 | output | `completedMask` | `UInt(entries.W)` | diagnostic | Completed slot mask |
 | output | `retiredMask` | `UInt(entries.W)` | diagnostic | Retired slot mask |

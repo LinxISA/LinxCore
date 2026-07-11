@@ -8,9 +8,10 @@ import linxcore.recovery.{
   FullBidFlushReq,
   RecoveryCleanupControl,
   RecoveryCleanupIntent,
-  RecoveryEligibilityControl
+  RecoveryEligibilityControl,
+  RingFullBidRecoveryBridge
 }
-import linxcore.rob.ROBID
+import linxcore.rob.{ROBFullBidLookupRequest, ROBFullBidLookupResult, ROBID}
 
 class ScalarLSURecoveryControlIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
   val fullReq = Input(new FullBidFlushReq(
@@ -24,6 +25,19 @@ class ScalarLSURecoveryControlIO(val coreParams: CoreParams, val p: ScalarLsuPar
   val oldestValid = Input(Bool())
   val oldestBid = Input(new ROBID(coreParams.robEntries))
   val oldestRid = Input(new ROBID(coreParams.robEntries))
+  val fullBidLookupRequest = Output(new ROBFullBidLookupRequest(
+    coreParams.robEntries,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
+  val fullBidLookup = Input(new ROBFullBidLookupResult(
+    coreParams.robEntries,
+    BID.DefaultWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
   val intentReady = Input(Bool())
   val intent = Output(new RecoveryCleanupIntent(
     coreParams.robEntries,
@@ -37,6 +51,10 @@ class ScalarLSURecoveryControlIO(val coreParams: CoreParams, val p: ScalarLsuPar
   val sourceAccepted = Output(Bool())
   val sourceBlockedByNoOldest = Output(Bool())
   val sourceBlockedByAge = Output(Bool())
+  val sourceLookupMatched = Output(Bool())
+  val sourceBlockedByLookupMiss = Output(Bool())
+  val sourceBlockedByStaleLookup = Output(Bool())
+  val sourceBlockedByRingProjection = Output(Bool())
   val cleanupPending = Output(Bool())
 }
 
@@ -65,6 +83,13 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
     lsuParams.stidWidth,
     lsuParams.tidWidth
   ))
+  val ringFullBidBridge = Module(new RingFullBidRecoveryBridge(
+    coreParams.robEntries,
+    BID.DefaultWidth,
+    lsuParams.peIdWidth,
+    lsuParams.stidWidth,
+    lsuParams.tidWidth
+  ))
   storeCommitPath.io <> io.store
   loadPath.io <> io.load
 
@@ -73,14 +98,29 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   recoveryEligibility.io.oldestBid := io.recovery.oldestBid
   recoveryEligibility.io.oldestRid := io.recovery.oldestRid
 
-  val eligibleRingReq = Wire(chiselTypeOf(loadPath.recovery.flush))
-  eligibleRingReq := loadPath.recovery.flush
-  eligibleRingReq.req.valid := loadPath.recovery.valid && recoveryEligibility.io.eligible
-  recoveryCleanup.io.req := io.recovery.fullReq
-  recoveryCleanup.io.ringReq := eligibleRingReq
+  val pendingRingReq = Wire(chiselTypeOf(loadPath.recovery.flush))
+  pendingRingReq := loadPath.recovery.flush
+  pendingRingReq.req.valid := loadPath.recovery.valid
+  ringFullBidBridge.io.ringReq := pendingRingReq
+  ringFullBidBridge.io.lookupResult := io.recovery.fullBidLookup
+  io.recovery.fullBidLookupRequest := ringFullBidBridge.io.lookupRequest
+
+  val recoveredFullReq = Wire(chiselTypeOf(ringFullBidBridge.io.fullReq))
+  recoveredFullReq := ringFullBidBridge.io.fullReq
+  recoveredFullReq.valid :=
+    ringFullBidBridge.io.fullReq.valid && recoveryEligibility.io.eligible
+  recoveryCleanup.io.req := Mux(
+    io.recovery.fullReq.valid,
+    io.recovery.fullReq,
+    recoveredFullReq
+  )
+  recoveryCleanup.io.ringReq := 0.U.asTypeOf(recoveryCleanup.io.ringReq)
   recoveryCleanup.io.intentReady := io.recovery.intentReady
   loadPath.recovery.ready :=
-    recoveryEligibility.io.eligible && recoveryCleanup.io.ringReqReady
+    recoveryEligibility.io.eligible &&
+      ringFullBidBridge.io.matched &&
+      !io.recovery.fullReq.valid &&
+      recoveryCleanup.io.reqReady
 
   io.recovery.fullReqReady := recoveryCleanup.io.reqReady
   io.recovery.intent := recoveryCleanup.io.intent
@@ -89,6 +129,10 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   io.recovery.sourceAccepted := loadPath.recovery.accepted
   io.recovery.sourceBlockedByNoOldest := recoveryEligibility.io.blockedByNoOldest
   io.recovery.sourceBlockedByAge := recoveryEligibility.io.blockedByAge
+  io.recovery.sourceLookupMatched := ringFullBidBridge.io.matched
+  io.recovery.sourceBlockedByLookupMiss := ringFullBidBridge.io.blockedByLookupMiss
+  io.recovery.sourceBlockedByStaleLookup := ringFullBidBridge.io.blockedByStaleResult
+  io.recovery.sourceBlockedByRingProjection := ringFullBidBridge.io.blockedByRingProjection
   io.recovery.cleanupPending := recoveryCleanup.io.pending
 
   val storeCarriesAddress = io.store.insert.storeType =/= STQStoreType.Data

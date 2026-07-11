@@ -74,6 +74,13 @@ Ring-qualified input can drive typed ROB and backend cleanup but cannot name a
 full BROB block. The owner therefore suppresses BCTRL/block-flush validity for
 that source. State consumers fire only with `intent.valid && intentReady`.
 
+R638 adds the exact promotion path used by scalar MDB. `ROBFullBidLookup`
+indexes the resident row by RID and checks native BID/GID plus PE/STID/TID,
+valid full sideband, and ring projection. `RingFullBidRecoveryBridge` rejects
+non-echoed or inconsistent results before constructing `FullBidFlushReq`.
+Lookup failure retains the report; successful promotion may authorize
+BCTRL/BROB cleanup after the normal registered intent handshake.
+
 `ScalarLSU` places `RecoveryEligibilityControl` before ring input. This is the
 Chisel `CheckFlush` age boundary for MDB reports: non-immediate requests wait
 for wrap-qualified oldest BID/RID state; immediate requests bypass age only.

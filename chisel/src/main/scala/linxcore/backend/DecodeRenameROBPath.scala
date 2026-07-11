@@ -21,7 +21,15 @@ import linxcore.rename.{
   StoreSplitPayload,
   TULinkRetireCommandPath
 }
-import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowCommitTraceLookupResult, ROBRowStatusLookupResult}
+import linxcore.rob.{
+  ROBEntryStatus,
+  ROBFullBidLookupRequest,
+  ROBFullBidLookupResult,
+  ROBID,
+  ROBMemoryOrderCommit,
+  ROBRowCommitTraceLookupResult,
+  ROBRowStatusLookupResult
+}
 
 class DecodeRenameROBPathIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -434,6 +442,19 @@ class DecodeRenameROBPathIO(
   val robCommitTraceLookupRid = Input(new ROBID(p.robEntries))
   val robCommitTraceLookupSourceTraceEnable = Input(Bool())
   val robCommitTraceLookup = Output(new ROBRowCommitTraceLookupResult(p.robEntries, traceParams))
+  val robFullBidLookupRequest = Input(new ROBFullBidLookupRequest(
+    p.robEntries,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val robFullBidLookup = Output(new ROBFullBidLookupResult(
+    p.robEntries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
   val occupiedMask = Output(UInt(p.robEntries.W))
   val completedMask = Output(UInt(p.robEntries.W))
   val retiredMask = Output(UInt(p.robEntries.W))
@@ -959,6 +980,7 @@ class DecodeRenameROBPath(
   allocator.io.commitTraceLookupValid := io.robCommitTraceLookupValid
   allocator.io.commitTraceLookupRid := io.robCommitTraceLookupRid
   allocator.io.commitTraceLookupSourceTraceEnable := io.robCommitTraceLookupSourceTraceEnable
+  allocator.io.fullBidLookupRequest := io.robFullBidLookupRequest
   val decodeContextScalarDoneFire =
     (allocator.io.allocFire && decodeContextMarkerCloseIntent && decodeContextCloseSafe) ||
       selectedClosesActiveRedirect
@@ -1378,6 +1400,7 @@ class DecodeRenameROBPath(
   io.commitHeadRobValue := allocator.io.commitHeadRobValue
   io.robStatusLookup := allocator.io.statusLookup
   io.robCommitTraceLookup := allocator.io.commitTraceLookup
+  io.robFullBidLookup := allocator.io.fullBidLookup
   io.occupiedMask := allocator.io.occupiedMask
   io.completedMask := allocator.io.completedMask
   io.retiredMask := allocator.io.retiredMask

@@ -13,7 +13,16 @@ import linxcore.common.{
   TULinkRetireSource
 }
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
-import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowCommitTraceLookupResult, ROBRowStatusLookupResult}
+import linxcore.rob.{
+  ROBEntryBank,
+  ROBEntryStatus,
+  ROBFullBidLookupRequest,
+  ROBFullBidLookupResult,
+  ROBID,
+  ROBMemoryOrderCommit,
+  ROBRowCommitTraceLookupResult,
+  ROBRowStatusLookupResult
+}
 
 class DispatchROBAllocatorIO(
     val entries: Int,
@@ -170,6 +179,19 @@ class DispatchROBAllocatorIO(
   val commitTraceLookupRid = Input(new ROBID(entries))
   val commitTraceLookupSourceTraceEnable = Input(Bool())
   val commitTraceLookup = Output(new ROBRowCommitTraceLookupResult(entries, traceParams))
+  val fullBidLookupRequest = Input(new ROBFullBidLookupRequest(
+    entries,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val fullBidLookup = Output(new ROBFullBidLookupResult(
+    entries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
 
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
@@ -291,6 +313,7 @@ class DispatchROBAllocator(
   rob.io.commitTraceLookupValid := io.commitTraceLookupValid
   rob.io.commitTraceLookupRid := io.commitTraceLookupRid
   rob.io.commitTraceLookupSourceTraceEnable := io.commitTraceLookupSourceTraceEnable
+  rob.io.fullBidLookupRequest := io.fullBidLookupRequest
 
   brob.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
   brob.io.allocBid := nextBlockBid
@@ -386,6 +409,19 @@ class DispatchROBAllocator(
   io.deallocHeadRobValue := rob.io.deallocHeadRobValue
   io.statusLookup := rob.io.statusLookup
   io.commitTraceLookup := rob.io.commitTraceLookup
+  io.fullBidLookup := 0.U.asTypeOf(io.fullBidLookup)
+  io.fullBidLookup.request := rob.io.fullBidLookup.request
+  io.fullBidLookup.matched := rob.io.fullBidLookup.matched
+  io.fullBidLookup.blockBidValid := rob.io.fullBidLookup.blockBidValid
+  io.fullBidLookup.blockBid := rob.io.fullBidLookup.blockBid.pad(bidWidth)
+  io.fullBidLookup.blockedByInvalidIdentity := rob.io.fullBidLookup.blockedByInvalidIdentity
+  io.fullBidLookup.blockedByFree := rob.io.fullBidLookup.blockedByFree
+  io.fullBidLookup.blockedByStaleRid := rob.io.fullBidLookup.blockedByStaleRid
+  io.fullBidLookup.blockedByBid := rob.io.fullBidLookup.blockedByBid
+  io.fullBidLookup.blockedByGid := rob.io.fullBidLookup.blockedByGid
+  io.fullBidLookup.blockedByScope := rob.io.fullBidLookup.blockedByScope
+  io.fullBidLookup.blockedByMissingBlockBid := rob.io.fullBidLookup.blockedByMissingBlockBid
+  io.fullBidLookup.blockedByRingProjection := rob.io.fullBidLookup.blockedByRingProjection
   io.occupiedMask := rob.io.occupiedMask
   io.completedMask := rob.io.completedMask
   io.retiredMask := rob.io.retiredMask

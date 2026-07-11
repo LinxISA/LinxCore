@@ -105,6 +105,9 @@ R373 adds the parallel read-only commit-trace row lookup. The path forwards
 `DispatchROBAllocator` to `ROBEntryBank` and returns provider-shaped row
 metadata without changing decode, rename, ROB allocation, completion, commit,
 or deallocation behavior.
+R638 adds the parallel exact full-BID lookup passthrough. The path forwards a
+native BID/GID/RID plus PE/STID/TID key to the real allocator/ROB owner and
+returns the allocator-stamped full generation sideband with ordered blockers.
 R547 adds the `deallocHoldMask` forwarding path through
 `DispatchROBAllocator` to `ROBEntryBank`. The path does not own the hold
 policy; the reduced replay-LIQ top drives it from outstanding returned-load
@@ -280,6 +283,8 @@ Inputs:
   `FrontendDecodeStage`.
 - `robStatusLookupValid`, `robStatusLookupRid`: read-only native RID status
   query forwarded to the ROB row owner.
+- `robFullBidLookupRequest`: exact native row and Linx scope identity forwarded
+  to the allocator/ROB full-generation lookup owner.
 - `renamedOutReady`: downstream renamed-uop consumer readiness.
 - `storeStaExec`, `storeStdExec`: explicit STA address and STD data execution
   results for the current store-dispatch queue heads.
@@ -343,6 +348,8 @@ Outputs:
   stalls.
 - `robStatusLookup`: current-row status lookup result with row-present,
   need-flush, and invalid/free/stale RID blockers.
+- `robFullBidLookup`: echoed request, exact full BID, and
+  invalid/free/stale/identity/scope/sideband/projection blockers.
 - `selectedIsLoad`, `selectedIsStore`, `selectedMemoryValid`,
   `lsidAssignFire`, `selectedLsId`, `selectedLoadId`, `selectedStoreId`,
   `nextLsId`, `nextLoadId`, `nextStoreId`, `storeSplitIntent`: reduced

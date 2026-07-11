@@ -8,6 +8,7 @@ import linxcore.rob.{ROBEntryBank, ROBID}
 class RecoveryCleanupROBProbeIO extends Bundle {
   val allocValid = Input(Bool())
   val allocBid = Input(UInt(3.W))
+  val allocBlockBid = Input(UInt(16.W))
   val allocStid = Input(UInt(8.W))
   val allocReady = Output(Bool())
   val fullValid = Input(Bool())
@@ -26,9 +27,12 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val fullReady = Output(Bool())
   val fullAccepted = Output(Bool())
   val ringBlockedByAge = Output(Bool())
+  val ringLookupMatched = Output(Bool())
+  val ringLookupBlocked = Output(Bool())
   val cleanupPending = Output(Bool())
   val cleanupIntentValid = Output(Bool())
   val cleanupBlockFlushValid = Output(Bool())
+  val cleanupBlockFlushBid = Output(UInt(16.W))
   val robFlushApplied = Output(Bool())
   val robFlushPruneMask = Output(UInt(8.W))
   val robSize = Output(UInt(4.W))
@@ -42,6 +46,7 @@ class RecoveryCleanupROBProbe extends Module {
   val io = IO(new RecoveryCleanupROBProbeIO)
   val cleanup = Module(new RecoveryCleanupControl(entries = entries, bidWidth = 16))
   val eligibility = Module(new RecoveryEligibilityControl(entries = entries))
+  val ringFullBid = Module(new RingFullBidRecoveryBridge(entries = entries, bidWidth = 16))
   val rob = Module(new ROBEntryBank(
     entries = entries,
     traceParams = traceParams,
@@ -66,7 +71,6 @@ class RecoveryCleanupROBProbe extends Module {
   fullReq.lsId := id(0.U)
   fullReq.execEngine := ExecEngineType.Scalar
   fullReq.fetchTpcValid := true.B
-  cleanup.io.req := fullReq
   val ringReq = Wire(new FlushReq(entries))
   ringReq := 0.U.asTypeOf(ringReq)
   ringReq.valid := io.ringValid
@@ -86,7 +90,11 @@ class RecoveryCleanupROBProbe extends Module {
   val eligibleRingReq = Wire(chiselTypeOf(annotatedRingReq))
   eligibleRingReq := annotatedRingReq
   eligibleRingReq.req.valid := annotatedRingReq.req.valid && eligibility.io.eligible
-  cleanup.io.ringReq := eligibleRingReq
+  ringFullBid.io.ringReq := eligibleRingReq
+  ringFullBid.io.lookupResult := rob.io.fullBidLookup
+  rob.io.fullBidLookupRequest := ringFullBid.io.lookupRequest
+  cleanup.io.req := Mux(fullReq.valid, fullReq, ringFullBid.io.fullReq)
+  cleanup.io.ringReq := 0.U.asTypeOf(cleanup.io.ringReq)
   cleanup.io.intentReady := io.intentReady
 
   val appliedFlush = Wire(chiselTypeOf(cleanup.io.intent.flush))
@@ -101,6 +109,8 @@ class RecoveryCleanupROBProbe extends Module {
   allocRow.identity.bid := io.allocBid
   allocRow.identity.gid := 0.U
   allocRow.identity.rid := io.allocBid
+  allocRow.blockBidValid := io.allocValid
+  allocRow.blockBid := io.allocBlockBid
   allocRow.pc := io.allocBid
   allocRow.len := 4.U
   rob.io.allocValid := io.allocValid
@@ -143,14 +153,21 @@ class RecoveryCleanupROBProbe extends Module {
   rob.io.commitTraceLookupSourceTraceEnable := false.B
 
   io.allocReady := rob.io.allocReady
-  io.ringReady := cleanup.io.ringReqReady && eligibility.io.eligible
-  io.ringAccepted := cleanup.io.ringAccepted
+  io.ringReady :=
+    cleanup.io.reqReady && eligibility.io.eligible && ringFullBid.io.matched && !fullReq.valid
+  io.ringAccepted := cleanup.io.fullAccepted && !fullReq.valid && ringFullBid.io.fullReq.valid
   io.fullReady := cleanup.io.reqReady
   io.fullAccepted := cleanup.io.fullAccepted
   io.ringBlockedByAge := eligibility.io.blockedByAge
+  io.ringLookupMatched := ringFullBid.io.matched
+  io.ringLookupBlocked :=
+    ringFullBid.io.blockedByLookupMiss ||
+      ringFullBid.io.blockedByStaleResult ||
+      ringFullBid.io.blockedByRingProjection
   io.cleanupPending := cleanup.io.pending
   io.cleanupIntentValid := cleanup.io.intent.valid
   io.cleanupBlockFlushValid := cleanup.io.intent.blockFlushValid
+  io.cleanupBlockFlushBid := cleanup.io.intent.blockFlushBid
   io.robFlushApplied := rob.io.flushApplied
   io.robFlushPruneMask := rob.io.flushPruneMask
   io.robSize := rob.io.size

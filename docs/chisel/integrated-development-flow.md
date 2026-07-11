@@ -15,18 +15,23 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R637 adds retained scalar MDB recovery publication. Conflict
-training, wait-plan capture, and one typed report are accepted as a single
-store transaction; `mdbRecoveryQueueEntries` independently sizes the report
-queue. Reports set `immediateFlush=false` and remain stable until the outer
-owner accepts them. `ScalarLSU` now connects the source through
-`RecoveryEligibilityControl` and `RecoveryCleanupControl`: non-immediate
-reports wait for the caller's oldest BID/RID watermark, and full-BID input has
-fixed priority. The generated-RTL recovery probe holds a non-oldest nuke,
-holds an eligible cleanup intent under backpressure, proves consume-plus-
-replace, then prunes real resident ROB rows while keeping ring-only BCTRL/BROB
-block-flush validity low. All-source top arbitration and allocator-owned
-full-BID recovery remain the next recovery boundaries.
+Latest packet: R638 recovers the allocator-stamped full block-generation
+sideband for retained MDB reports. `ROBFullBidLookup` directly indexes the
+resident row by RID and requires exact BID/GID/RID plus PE/STID/TID identity,
+sideband validity, and a matching ring projection. `RingFullBidRecoveryBridge`
+validates the echoed key before promotion. Lookup failure retains the report;
+an independently selected full request has priority. The evolved generated-RTL
+probe proves wrong-RID retention, full BID `0x12` recovery, accepted block
+authority, scoped ROB prune, and consume-plus-promoted-ring replacement.
+Canonical-top lookup wiring and all-source arbitration remain next.
+
+R638 verification passes 251 suites and 1,481 tests. Both generated recovery
+and canonical MDB probes pass. The canonical top cross-check compares 3 rows
+with zero mismatches; reduced CoreMark compares 426 rows with zero mismatches
+and zero CBSTOP at
+`generated/r638-final-full-bid-recovery-coremark/report/crosscheck_manifest.json`.
+CoreMark remains broad no-regression evidence because its reduced top does not
+instantiate the canonical ScalarLSU-to-real-ROB lookup connection.
 
 R637 verification passes 249 suites and 1,474 tests. The canonical top
 cross-check compares 3 rows with zero mismatches. Reduced CoreMark compares

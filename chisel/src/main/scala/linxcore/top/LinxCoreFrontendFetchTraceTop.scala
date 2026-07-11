@@ -165,6 +165,7 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.robCommitTraceLookupValid := false.B
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
 
   io.fetchReqValid := source.io.reqValid
   io.fetchReqPc := source.io.reqPc

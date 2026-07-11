@@ -171,11 +171,11 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["Ring-qualified MDB recovery can prune ROB state but cannot authorize BCTRL/BROB block cleanup until the full block BID is recovered by an allocator-owned lookup.", "ScalarLSU owns MDB oldest BID/RID eligibility and full-over-ring selection, but arbitration against every future frontend/IEX/PE source remains outside the current canonical top."],
+      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "ScalarLSU owns MDB oldest BID/RID eligibility and external-full priority, but arbitration against every future frontend/IEX/PE source remains outside the current canonical top."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLSURecoveryControlIO", "recoveryEligibility", "recoveryCleanup", "eligibleRingReq"]
+          "symbols": ["ScalarLSU", "ScalarLSURecoveryControlIO", "recoveryEligibility", "ringFullBidBridge", "recoveryCleanup", "recoveredFullReq"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala",
@@ -184,6 +184,18 @@
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala",
           "symbols": ["RecoveryCleanupControl", "ringReqReady", "ringAccepted", "pendingRingReq", "pendingIsRing"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala",
+          "symbols": ["RingFullBidRecoveryBridge", "lookupRequest", "echoMatched", "projectionMatched", "fullReq"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/rob/ROBFullBidLookup.scala",
+          "symbols": ["ROBFullBidLookup", "identityValid", "scopeMatched", "ringProjectionMatched", "blockedByStaleRid"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala",
+          "symbols": ["DispatchROBAllocator", "fullBidLookupRequest", "fullBidLookup"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
@@ -202,6 +214,14 @@
         {
           "path": "chisel/src/test/scala/linxcore/rob/ROBFlushPruneSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only ROBFlushPruneSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/rob/ROBFullBidLookupSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ROBFullBidLookupSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/RingFullBidRecoveryBridgeSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only RingFullBidRecoveryBridgeSpec"
         },
         {
           "path": "tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh",
@@ -370,7 +390,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, oldest BID/RID eligibility, and cleanup selection, but full-BID BROB recovery, all-source top arbitration, and load-return/cache ownership remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, oldest BID/RID eligibility, exact full-BID promotion, and cleanup selection, but canonical-top lookup wiring, all-source arbitration, and load-return/cache ownership remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -409,7 +429,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU with live failed-wait delete feedback and retained recovery reports; IEX-local MDB, all-source top arbitration, full-BID BROB recovery, and natural-workload positive activation remain future promotion points."],
+      "limitations": ["ScalarLSUMDBPath is integrated under ScalarLSU with live failed-wait delete feedback, retained recovery reports, and exact full-BID promotion; IEX-local MDB, canonical-top lookup wiring, all-source arbitration, and natural-workload positive activation remain future promotion points."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala",

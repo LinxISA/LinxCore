@@ -26,14 +26,18 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
     assert(consumed.size == 1)
   }
 
-  test("generated recovery probe elaborates ring retention and real ROB prune ownership") {
+  test("generated recovery probe elaborates full-BID lookup and real ROB prune ownership") {
     val sv = ChiselStage.emitSystemVerilog(new RecoveryCleanupROBProbe)
 
     assert(sv.contains("module RecoveryCleanupROBProbe"))
     assert(sv.contains("RecoveryCleanupControl"))
     assert(sv.contains("RecoveryEligibilityControl"))
+    assert(sv.contains("RingFullBidRecoveryBridge"))
+    assert(sv.contains("ROBFullBidLookup"))
     assert(sv.contains("ROBEntryBank"))
     assert(sv.contains("io_robFlushPruneMask"))
     assert(sv.contains("io_cleanupBlockFlushValid"))
+    assert(sv.contains("io_cleanupBlockFlushBid"))
+    assert(sv.contains("io_ringLookupMatched"))
   }
 }

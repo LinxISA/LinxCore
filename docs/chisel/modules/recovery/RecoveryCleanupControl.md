@@ -9,6 +9,10 @@
   `tools/chisel/recovery_cleanup_rob_probe_tb.cpp`
 - Eligibility owner:
   `chisel/src/main/scala/linxcore/recovery/RecoveryEligibilityControl.scala`
+- Ring promotion owner:
+  `chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala`
+- Full-BID lookup owner:
+  `chisel/src/main/scala/linxcore/rob/ROBFullBidLookup.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/core/FlushControl.cpp`
   - `model/LinxCoreModel/model/bctrl/BCtrl.cpp`
@@ -35,6 +39,12 @@ accepts either a selected full-BID request or a pre-annotated ring-identity
 explicit intent bits for BCTRL, rename, backend, frontend, LSU/STQ, tile, and
 ROB cleanup consumers. Full-BID input has fixed priority when both sources are
 valid.
+
+`RingFullBidRecoveryBridge` is the canonical adapter for scalar MDB reports.
+It emits an exact ROB lookup key, validates the echoed result and full-BID ring
+projection, and only then presents the request on the full-BID input. The raw
+ring input remains available for sources whose contract intentionally lacks
+block authority; ScalarLSU no longer uses it as a fallback after lookup failure.
 
 The module does not mutate rename maps, LSU/STQ entries, frontend queues, BROB
 pointers, or ROB rows. It prevents those side effects from being smuggled into
@@ -163,12 +173,13 @@ owner work:
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
 
-The generated-RTL probe allocates three real ROB rows across two STIDs, retains a non-oldest
-ring-qualified nuke before cleanup, then holds the eligible cleanup intent while
-its consumer is blocked. It prunes the target row only on the accepted intent
-and preserves a younger row from another STID. The same run proves full-over-ring source priority,
-consume-plus-ring-replace, and that ring input cannot assert full-BID block
-cleanup.
+The generated-RTL probe allocates three real ROB rows across two STIDs with
+full generation sidebands. It retains a non-oldest nuke, rejects an eligible
+wrong-RID lookup without consuming the report, then recovers full BID `0x12`.
+The promoted request asserts block authority, remains held while its consumer
+is blocked, and prunes only the target STID0 row on acceptance while preserving
+the younger STID1 row. The same run proves external-full priority and
+consume-plus-promoted-ring replacement with full BID `0x11`.
 
 ## Trace/Observability
 

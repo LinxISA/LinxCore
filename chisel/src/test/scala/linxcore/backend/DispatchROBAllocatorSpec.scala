@@ -240,6 +240,9 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocBlockLastBid_value"))
     assert(sv.contains("io_deallocBlockLastBlockBid"))
     assert(sv.contains("io_robTULinkSourceMatched"))
+    assert(sv.contains("io_fullBidLookupRequest_rid_value"))
+    assert(sv.contains("io_fullBidLookup_blockBid"))
+    assert(sv.contains("io_fullBidLookup_blockedByScope"))
     assert(sv.contains("io_blockAllocatedMask"))
     assert(sv.contains("io_commitContractError"))
   }

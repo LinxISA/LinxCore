@@ -159,9 +159,11 @@ clear the LIQ wait and enqueue MDB delete feedback, after which `MDBSSIT`
 decays or releases the failed prediction.
 `ScalarLSU` owns the MDB-to-eligibility-to-cleanup connection.
 `RecoveryCleanupROBProbe` proves a non-oldest report remains upstream, an
-eligible report is inert while cleanup is blocked, and real `ROBEntryBank`
-rows prune only on acceptance. It also proves full-over-ring priority,
-consume-plus-replace, and no fabricated full-BID BCTRL/BROB authority.
+eligible wrong-RID lookup cannot consume it, and exact `ROBFullBidLookup`
+recovers the allocator-stamped generation sideband. The promoted request is
+inert while cleanup is blocked; real `ROBEntryBank` rows prune only on
+acceptance. The probe also proves external-full priority, consume-plus-replace,
+accepted block authority, and different-STID preservation.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
@@ -224,9 +226,12 @@ bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ROBFullBidLookup
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only RingFullBidRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh
 bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
 bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank

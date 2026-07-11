@@ -175,6 +175,7 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.robCommitTraceLookupValid := false.B
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
 
   issue.io.inValid := path.io.renamedOutValid
   issue.io.in := path.io.renamedOut

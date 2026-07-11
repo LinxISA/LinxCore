@@ -85,6 +85,8 @@ dispatch agents consume a real block owner.
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | ROB row payload; block BID sideband is overwritten by the generated BID |
 | input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar forwarded to `ROBEntryBank` for relation-cmap grouping |
 | input | `allocTid` | `UInt` | with `allocValid` | BROB thread/STID metadata |
+| input | `fullBidLookupRequest` | `ROBFullBidLookupRequest` | valid | Exact resident-row recovery key forwarded to the real ROB. |
+| output | `fullBidLookup` | `ROBFullBidLookupResult` | diagnostic/source | Allocator-owned full generation sideband and identity blockers, widened to `bidWidth`. |
 | input | `allocStid` | `UInt` | with `allocValid` | ROB T/U cleanup source STID sidecar |
 | input | `allocLsId` | `UInt(lsidWidth.W)` | with `allocValid` | Decode-time pre-increment `lsID` snapshot forwarded to `ROBEntryBank` |
 | input | `allocIsLoad`, `allocIsStore` | `Bool` | with `allocValid` | Load/store classification forwarded to the ROB memory-order sidecar |

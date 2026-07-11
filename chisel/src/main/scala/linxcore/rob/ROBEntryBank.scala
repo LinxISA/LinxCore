@@ -150,6 +150,19 @@ class ROBEntryBankIO(
   val commitTraceLookupRid = Input(new ROBID(entries))
   val commitTraceLookupSourceTraceEnable = Input(Bool())
   val commitTraceLookup = Output(new ROBRowCommitTraceLookupResult(entries, traceParams))
+  val fullBidLookupRequest = Input(new ROBFullBidLookupRequest(
+    entries,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  val fullBidLookup = Output(new ROBFullBidLookupResult(
+    entries,
+    traceParams.blockBidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
 
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
@@ -555,6 +568,27 @@ class ROBEntryBank(
   commitTraceLookup.io.rows := rows
   commitTraceLookup.io.sourceTraceEnable := io.commitTraceLookupSourceTraceEnable
   io.commitTraceLookup := commitTraceLookup.io.result
+
+  val fullBidLookup = Module(new ROBFullBidLookup(
+    entries,
+    traceParams.blockBidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
+  fullBidLookup.io.request := io.fullBidLookupRequest
+  fullBidLookup.io.occupiedMask := occupiedVec.asUInt
+  fullBidLookup.io.rowBid := rowBid
+  fullBidLookup.io.rowGid := rowGid
+  fullBidLookup.io.rowRid := rowRid
+  fullBidLookup.io.rowPeId := rowPeId
+  fullBidLookup.io.rowStid := rowStid
+  fullBidLookup.io.rowTid := rowTid
+  for (idx <- 0 until entries) {
+    fullBidLookup.io.rowBlockBidValid(idx) := rows(idx).blockBidValid
+    fullBidLookup.io.rowBlockBid(idx) := rows(idx).blockBid
+  }
+  io.fullBidLookup := fullBidLookup.io.result
 
   for (idx <- 0 until entries) {
     when(flushPrune.io.pruneMask(idx)) {

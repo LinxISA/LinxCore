@@ -4062,6 +4062,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqReturnLretSink.io.drain.rid,
       reducedReplayLiqReturnPipeW2Modules.slot.io.entryRid)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  path.io.robFullBidLookupRequest := 0.U.asTypeOf(path.io.robFullBidLookupRequest)
   val reducedReplayLiqLretDrainInstructionProviderValidReg = RegInit(false.B)
   val reducedReplayLiqLretDrainInstructionProviderRidReg =
     RegInit(ROBID.disabled(p.robEntries))

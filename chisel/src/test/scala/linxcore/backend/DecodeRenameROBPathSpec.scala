@@ -951,6 +951,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_scalarRedirectStid"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_robTULinkSourceMatched"))
+    assert(sv.contains("io_robFullBidLookupRequest_rid_value"))
+    assert(sv.contains("io_robFullBidLookup_blockBid"))
     assert(sv.contains("io_robDeallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_robDeallocTURetireSource_0_peId"))
     assert(sv.contains("io_robDeallocTURetireSource_0_isLast"))

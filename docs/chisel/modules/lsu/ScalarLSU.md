@@ -21,10 +21,10 @@ owner. R634 adds canonical LIQ-to-ResolveQ ownership with shared typed recovery.
 R635 integrates scalar MDB conflict detection, SSIT/fanout, live wait mutation,
 and typed conflict-flush publication. R636 adds per-row failed-wait age plus
 atomic LIQ release and MDB delete feedback. R637 adds a parameterized retained
-recovery-report boundary, wrap-qualified oldest BID/RID eligibility, and a
-ring-qualified handoff to the canonical cleanup owner. Cache and miss queues,
-final multi-source top arbitration, full-BID BROB
-recovery, and final load-return publication remain outside this
+recovery-report boundary and wrap-qualified oldest BID/RID eligibility. R638
+adds exact allocator/ROB full-BID lookup and promotion before the canonical
+cleanup owner. Cache and miss queues, final multi-source top arbitration,
+canonical-top lookup wiring, and final load-return publication remain outside this
 hierarchy, so this is not yet a complete LSU.
 
 ## Parameter Contract
@@ -70,12 +70,13 @@ before launch. Stable failed predictions age per LIQ row and release only with
 accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
 and retained wait/wakeup/recovery state to be empty.
 
-`ScalarLSU` directly connects the retained MDB report to
-`RecoveryEligibilityControl` and `RecoveryCleanupControl`. The caller supplies
-the oldest valid BID/RID watermark and cleanup-intent readiness. Non-immediate
-MDB reports remain in the source queue until age eligibility passes. A selected
-full-BID request has fixed priority; ring-only input cannot assert BCTRL/BROB
-block cleanup.
+`ScalarLSU` connects the retained MDB report to `RecoveryEligibilityControl`,
+`RingFullBidRecoveryBridge`, and `RecoveryCleanupControl`. The caller supplies
+the source-STID oldest BID/RID watermark, the exact ROB lookup result, and
+cleanup-intent readiness. Non-immediate reports remain queued until age,
+identity echo, full-sideband validity, ring projection, source priority, and
+cleanup readiness all pass. An independently selected full-BID request has
+fixed priority. Lookup failure cannot fall back to ring-only cleanup.
 
 ## Verification
 
@@ -107,3 +108,12 @@ passes 249 suites and 1,474 tests; canonical top xcheck passes 3
 rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
 mismatches at
 `generated/r637-final-mdb-recovery-coremark/report/crosscheck_manifest.json`.
+
+R638 adds focused `ROBFullBidLookupSpec` and
+`RingFullBidRecoveryBridgeSpec`. The evolved generated recovery probe rejects a
+wrong RID, recovers allocator-stamped full BIDs, enables block cleanup only
+after exact promotion, and retains the different-STID row during ROB prune.
+The full suite passes 251 suites and 1,481 tests; canonical top xcheck passes 3
+rows with zero mismatches; and reduced CoreMark passes 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r638-final-full-bid-recovery-coremark/report/crosscheck_manifest.json`.

@@ -449,6 +449,14 @@ separate accepted-store commit pulse authorizes record/wait/recovery side
 effects. This preserves atomicity without making ready depend on accepted
 valid, and a full recovery queue blocks only stores that actually conflict.
 
+R638 closes the retained report's full-generation lookup boundary. The real
+ROB row already stores the allocator-stamped full `blockBid`; a direct
+RID-indexed lookup requires exact BID/GID/RID and PE/STID/TID and verifies that
+the full sideband projects back to the same ring BID. ScalarLSU promotes only
+an echoed exact result. Wrong RID, free/stale row, scope mismatch, missing
+sideband, or projection mismatch leaves the report queued and authorizes no
+cleanup.
+
 R636 adds `LoadWaitStoreTimeout` beneath the same canonical owner. The model
 records `stallCycle` whenever a load starts waiting and later sends
 `getMDBBus(load)` to `delete_lu_mdb_q` when the predicted wait fails. Its
@@ -469,8 +477,9 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU still needs final load-return/cache ownership, final
-  oldest-head arbitration, and full-BID BROB recovery lookup.
+- The full scalar LSU still needs final load-return/cache ownership,
+  canonical-top connection of the full-BID lookup ports, and all-source
+  oldest-head arbitration.
   `ScalarLSULoadPath` now owns load-queue flush, LIQ-to-ResolveQ backpressure,
   and scalar MDB composition. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded
