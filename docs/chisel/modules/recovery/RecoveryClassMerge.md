@@ -31,6 +31,7 @@ block BID, ring ROBID sidecars, PE, TID, GID, RID, and LSID.
 |---|---|
 | `stidCount` | Number of instantiated scalar STID recovery lanes. |
 | `peCount` | Number of PE-scoped lanes under each STID. |
+| `sourceCount` | Width of implementation-only recovery provenance. |
 | `entries` | Ring ROB capacity used by `ROBID`. |
 | `bidWidth` | Full implementation block-generation width. |
 | `peIdWidth`, `stidWidth`, `tidWidth` | Linx execution-scope identity widths. |
@@ -43,6 +44,7 @@ request naming an uninstantiated STID or PE is not admitted into class state.
 | Direction | Signal | Description |
 |---|---|---|
 | input | `in` | Selected full-BID recovery request from `RecoverySourceArbiter`. |
+| input | `inProvenance` | Cause mask and exact-payload source transferred with `in`. |
 | output | `inReady/inAccepted` | Admission handshake for the selected report. |
 | output | `inBlockedByStid/inBlockedByPe` | Invalid instantiated-lane diagnostics. |
 | output | `inDroppedByOlder` | Incoming report lost to an older/equal resident class entry. |
@@ -51,6 +53,8 @@ request naming an uninstantiated STID or PE is not admitted into class state.
 | input | `oldestBid[stidCount]` | Wrap-qualified oldest block identity per STID. |
 | input | `oldestBlockComplete[stidCount]` | Per-STID completed-oldest replay drop input. |
 | output | `out` | Irrevocably staged selected class request. |
+| output | `outProvenance` | Provenance staged irrevocably with `out`. |
+| output | `resolvedMask` | Causes permanently dropped or canceled this cycle. |
 | input | `outReady` | Downstream cleanup can consume the staged request. |
 | output | `outAccepted` | Staged request consumed this cycle. |
 | output | `selectedClass/selectedStid/selectedPe` | Current staged selection diagnostics. |
@@ -66,6 +70,7 @@ request naming an uninstantiated STID or PE is not admitted into class state.
 - `peScoped[stidCount][peCount]`: one retained PE-scoped request per STID/PE.
 - `nextStid`: cross-STID round-robin pointer.
 - `outPending/outReq/outClass/outStid/outPe`: one irrevocable downstream slot.
+- Parallel provenance state for every class lane and the output slot.
 
 The output slot isolates downstream backpressure from class-state mutation.
 While `out.valid` is blocked, later input reports may still cancel, merge, or
@@ -93,6 +98,12 @@ when a resident and incoming request must become a single inner flush, the
 merged request keeps the older exact identity and is reclassified into the
 appropriate global or PE lane. This is a transformation, not a second cleanup
 event.
+
+R647 tracks that transformation without modifying model selection. Merged
+requests union cause masks and keep the payload owner of the destination request
+whose exact fields are copied. Dropped incoming reports and canceled resident
+entries publish their cause masks on `resolvedMask`; provenance moved into a
+merged or staged request is not resolved early.
 
 Different STIDs are never age-compared. Each STID produces a local class
 winner, and a round-robin pointer serializes populated STIDs after dispatch.

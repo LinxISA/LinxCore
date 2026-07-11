@@ -14,14 +14,14 @@ object ScalarRedirectRecoverySourceReference {
       eventValid: Boolean = false,
       eventIdentityValid: Boolean = false,
       sourceReady: Boolean = false,
-      intentConsumed: Boolean = false,
+      sourceResolved: Boolean = false,
       cancel: Boolean = false): State = {
-    val eventReady = !state.pending || intentConsumed
+    val eventReady = !state.pending || sourceResolved
     val eventAccepted = eventValid && eventReady && !cancel
     val sourceAccepted = sourceValid(state, cancel) && sourceReady
     if (cancel) State()
     else if (eventAccepted) State(pending = true, published = false, identityValid = eventIdentityValid)
-    else if (intentConsumed) State()
+    else if (sourceResolved) State()
     else if (sourceAccepted) state.copy(published = true)
     else state
   }
@@ -30,7 +30,7 @@ object ScalarRedirectRecoverySourceReference {
 class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
   import ScalarRedirectRecoverySourceReference._
 
-  test("redirect publishes once and retains sidecars until cleanup consumption") {
+  test("redirect publishes once and retains residency until matched source resolution") {
     val captured = step(State(), eventValid = true, eventIdentityValid = true)
     assert(captured.pending)
     assert(!captured.published)
@@ -39,7 +39,7 @@ class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
     assert(published.pending)
     assert(published.published)
     assert(step(published, sourceReady = true) == published)
-    assert(step(published, intentConsumed = true) == State())
+    assert(step(published, sourceResolved = true) == State())
   }
 
   test("missing or inconsistent full BID blocks publication without losing residency") {
@@ -56,8 +56,17 @@ class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
       prior,
       eventValid = true,
       eventIdentityValid = true,
-      intentConsumed = true)
+      sourceResolved = true)
     assert(next == State(pending = true, published = false, identityValid = true))
+  }
+
+  test("private sidecars require matched payload ownership, not generic consumption") {
+    val pending = State(pending = true, published = true, identityValid = true)
+    def sidecarValid(payloadIntentConsumed: Boolean): Boolean =
+      pending.pending && payloadIntentConsumed
+
+    assert(!sidecarValid(payloadIntentConsumed = false))
+    assert(sidecarValid(payloadIntentConsumed = true))
   }
 
   test("cancel dominates a simultaneous redirect event") {
@@ -83,6 +92,8 @@ class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
     assert(sv.contains("io_event_bid_wrap"))
     assert(sv.contains("io_source_blockBid"))
     assert(sv.contains("io_blockedByMissingIdentity"))
+    assert(sv.contains("io_sourceResolved"))
+    assert(sv.contains("io_payloadIntentConsumed"))
     assert(sv.contains("io_cleanupOrder"))
     assert(sv.contains("io_cleanupLsId_value"))
   }

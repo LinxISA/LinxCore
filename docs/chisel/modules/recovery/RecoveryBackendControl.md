@@ -56,9 +56,11 @@ routes scalar-LSU lookup ports through `DispatchROBAllocator` to resident
 fetch/RF/ALU composition connects one retained scalar redirect source. Direct
 BCC/IEX/PE trigger-owner wiring, the canonical scalar-LSU source connection,
 full BROB pointer recovery, and multi-STID oldest-block watermarks remain open.
-Before another live source is connected in that composition, the backend must
-carry source provenance through class merge and registered cleanup, or provide
-an equivalent matched-consumption token for scalar-only order/LSID sidecars.
+R647 carries parameterized source provenance through arbitration, class merge,
+and registered cleanup. The backend exposes resolved-cause and consumed-payload
+masks so source-private order/LSID sidecars are applied only for the request
+payload that survives selection. This closes the provenance prerequisite for a
+second live source; connecting those producers remains separate work.
 Marker-only frontend redirects are not connected as backend sources until the
 owner can provide the authoritative full BID for the incremented cleanup BID.
 

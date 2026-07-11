@@ -139,6 +139,9 @@ int main(int argc, char **argv) {
             "accepted cleanup intent did not reach ROB prune logic");
     require(dut.io_robFlushPruneMask == 0x2,
             "BID-based nuke recovery crossed the request STID scope");
+    require(dut.io_sourceResolvedMask == 0x4 &&
+                dut.io_consumedPayloadSourceMask == 0x4,
+            "LSU cleanup did not resolve and consume its matched source provenance");
     tick(dut);
     dut.io_intentReady = 0;
     dut.eval();
@@ -175,6 +178,9 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_robFlushApplied && dut.io_cleanupBlockFlushBid == 0x11,
             "oldest selected request was not applied before replacement");
+    require(dut.io_sourceResolvedMask == 0x2 &&
+                dut.io_consumedPayloadSourceMask == 0x2,
+            "oldest full-BID cleanup did not report its matched payload owner");
     tick(dut);
     dut.io_intentReady = 0;
     wait_for_cleanup(dut, 0x12,

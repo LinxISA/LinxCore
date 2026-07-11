@@ -44,9 +44,11 @@ class RecoveryCleanupControlIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val sourceCount: Int = 1)
     extends Bundle {
   val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val reqProvenance = Input(new RecoveryProvenance(sourceCount))
   val reqReady = Output(Bool())
   val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
   val ringReqReady = Output(Bool())
@@ -57,6 +59,9 @@ class RecoveryCleanupControlIO(
   val fullAccepted = Output(Bool())
   val ringAccepted = Output(Bool())
   val consumed = Output(Bool())
+  val intentProvenance = Output(new RecoveryProvenance(sourceCount))
+  val consumedProvenanceMask = Output(UInt(sourceCount.W))
+  val consumedPayloadSourceMask = Output(UInt(sourceCount.W))
 }
 
 class RecoveryCleanupControl(
@@ -64,14 +69,23 @@ class RecoveryCleanupControl(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val sourceCount: Int = 1)
     extends Module {
-  val io = IO(new RecoveryCleanupControlIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val io = IO(new RecoveryCleanupControlIO(
+    entries,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    sourceCount
+  ))
 
   val pendingReq = RegInit(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
   val pendingRingReq = RegInit(0.U.asTypeOf(new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
   val pendingIsRing = RegInit(false.B)
   val pendingValid = RegInit(false.B)
+  val pendingProvenance = RegInit(0.U.asTypeOf(new RecoveryProvenance(sourceCount)))
 
   val sourceReady = !pendingValid || io.intentReady
   io.reqReady := sourceReady
@@ -81,14 +95,23 @@ class RecoveryCleanupControl(
   io.accepted := io.fullAccepted || io.ringAccepted
   io.consumed := pendingValid && io.intentReady
   io.pending := pendingValid
+  io.intentProvenance := pendingProvenance
+  io.consumedProvenanceMask := Mux(io.consumed, pendingProvenance.causeMask, 0.U)
+  io.consumedPayloadSourceMask := Mux(
+    io.consumed && pendingProvenance.payloadSourceValid,
+    RecoveryProvenance.oneHot(pendingProvenance.payloadSource, sourceCount),
+    0.U
+  )
 
   when(io.fullAccepted) {
     pendingReq := io.req
+    pendingProvenance := io.reqProvenance
     pendingIsRing := false.B
     pendingValid := true.B
   }.elsewhen(io.ringAccepted) {
     pendingRingReq := io.ringReq
     pendingIsRing := true.B
+    pendingProvenance := 0.U.asTypeOf(pendingProvenance)
     pendingValid := true.B
   }.elsewhen(io.intentReady) {
     pendingValid := false.B

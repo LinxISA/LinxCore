@@ -2594,7 +2594,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   scalarRedirectRecovery.io.event.orderValid := execute.io.redirectValid
   scalarRedirectRecovery.io.event.order := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
   scalarRedirectRecovery.io.sourceReady := path.io.recoveryNonLsuSourceReady(0)
-  scalarRedirectRecovery.io.intentConsumed := path.io.recoveryIntentConsumed
+  scalarRedirectRecovery.io.sourceResolved := path.io.recoverySourceResolvedMask(0)
+  scalarRedirectRecovery.io.payloadIntentConsumed := path.io.recoveryConsumedPayloadSourceMask(0)
   scalarRedirectRecovery.io.cancel := io.frontendFlushValid || io.restartValid || io.startValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || path.io.recoveryIntentConsumed

@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and the full fetch/RF/ALU composition connects one execute-redirect source, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "A multi-source composition must carry accepted-intent provenance before generic cleanup consumption may release scalar-only order/LSID sidecars.", "Full-BID BROB pointer recovery, multi-STID oldest-block watermarks, and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
+      "limitations": ["DecodeRenameROBPath integrates the recovery backend around the resident DispatchROBAllocator/ROBEntryBank and the full fetch/RF/ALU composition connects one execute-redirect source, but the canonical ScalarLSURecoverySource and direct BCC/IEX/PE trigger owners are not yet connected.", "Marker-only backend recovery remains blocked until an authoritative full BID exists for its incremented cleanup ring BID.", "Full-BID BROB pointer recovery, multi-STID oldest-block watermarks, and complete external cleanup-consumer fanout remain open; LinxCoreTop still owns ReducedCommitROB and is not the canonical recovery boundary."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -194,8 +194,12 @@
           "symbols": ["RecoverySourceArbiter", "sourceReady", "sourceAccepted", "pendingMask", "lanePendingMask", "selectedSource"]
         },
         {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProvenance.scala",
+          "symbols": ["RecoveryProvenance", "causeMask", "payloadSourceValid", "payloadSource", "merged"]
+        },
+        {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala",
-          "symbols": ["RecoveryClassMerge", "globalFlushPendingMask", "globalReplayPendingMask", "pePendingMask", "inDroppedByOlder", "inDroppedByComplete", "inMerged"]
+          "symbols": ["RecoveryClassMerge", "globalFlushPendingMask", "globalReplayPendingMask", "pePendingMask", "inDroppedByOlder", "inDroppedByComplete", "inMerged", "outProvenance", "resolvedMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala",
@@ -203,7 +207,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryBackendControl.scala",
-          "symbols": ["RecoveryBackendControl", "robFullBidLookupRequest", "intentConsumed", "robFlush"]
+          "symbols": ["RecoveryBackendControl", "robFullBidLookupRequest", "intentConsumed", "sourceResolvedMask", "consumedPayloadSourceMask", "robFlush"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySource.scala",
@@ -211,7 +215,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala",
-          "symbols": ["DecodeRenameROBPath", "RecoveryBackendControl", "recoveryIntentConsumed", "tieOffRecovery"]
+          "symbols": ["DecodeRenameROBPath", "RecoveryBackendControl", "recoveryIntentConsumed", "recoverySourceResolvedMask", "recoveryConsumedPayloadSourceMask", "tieOffRecovery"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducers.scala",
@@ -235,7 +239,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
-          "symbols": ["RecoveryCleanupROBProbe", "RecoveryBackendControl", "ScalarLSURecoverySource", "ROBEntryBank", "robFlushPruneMask"]
+          "symbols": ["RecoveryCleanupROBProbe", "RecoveryBackendControl", "ScalarLSURecoverySource", "ROBEntryBank", "sourceResolvedMask", "consumedPayloadSourceMask", "robFlushPruneMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala",

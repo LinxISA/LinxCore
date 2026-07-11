@@ -48,7 +48,8 @@ class ScalarRedirectRecoverySourceIO(
   val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
-  val intentConsumed = Input(Bool())
+  val sourceResolved = Input(Bool())
+  val payloadIntentConsumed = Input(Bool())
   val cancel = Input(Bool())
   val pending = Output(Bool())
   val published = Output(Bool())
@@ -94,7 +95,7 @@ class ScalarRedirectRecoverySource(
   val pending = RegInit(false.B)
   val published = RegInit(false.B)
 
-  io.eventReady := !pending || io.intentConsumed
+  io.eventReady := !pending || io.sourceResolved
   io.eventAccepted := io.event.valid && io.eventReady && !io.cancel
 
   val source = WireDefault(0.U.asTypeOf(new FullBidFlushReq(
@@ -136,7 +137,7 @@ class ScalarRedirectRecoverySource(
     retained := io.event
     pending := true.B
     published := false.B
-  }.elsewhen(io.intentConsumed) {
+  }.elsewhen(io.sourceResolved) {
     retained := 0.U.asTypeOf(retained)
     pending := false.B
     published := false.B
@@ -147,8 +148,8 @@ class ScalarRedirectRecoverySource(
   io.pending := pending
   io.published := published
   io.blockedByMissingIdentity := pending && !identityValid
-  io.cleanupOrderValid := pending && retained.orderValid
+  io.cleanupOrderValid := pending && retained.orderValid && io.payloadIntentConsumed
   io.cleanupOrder := retained.order
-  io.cleanupResolveLsIdValid := pending && retained.resolveLsIdValid
+  io.cleanupResolveLsIdValid := pending && retained.resolveLsIdValid && io.payloadIntentConsumed
   io.cleanupLsId := retained.lsId
 }

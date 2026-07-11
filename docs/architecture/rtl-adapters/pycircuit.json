@@ -211,7 +211,7 @@
       "module_family": "rob-recovery",
       "status": "unit-proven",
       "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R645 converges the recovery-class owner, but pyCircuit still lacks the Chisel-equivalent multi-source RecoverySourceArbiter, exact BCC/IEX/PE/LSU producer composition, registered RecoveryCleanupIntent fanout, and resident ROB/BROB cleanup integration. JanusBccOooFlushCtrl remains a redirect shell and is not accepted as equivalent recovery-fabric evidence."],
+      "limitations": ["R647 converges class-level cause and payload provenance, but pyCircuit still lacks the Chisel-equivalent multi-source RecoverySourceArbiter, exact BCC/IEX/PE/LSU producer composition, registered RecoveryCleanupIntent fanout, matched source-sidecar consumption, and resident ROB/BROB cleanup integration. JanusBccOooFlushCtrl remains a redirect shell and is not accepted as equivalent recovery-fabric evidence."],
       "evidence": [
         {
           "path": "src/bcc/ooo/flush_ctrl.py",
@@ -226,7 +226,7 @@
         {
           "path": "src/bcc/ooo/recovery_class_merge.py",
           "module_names": ["LinxBccOooRecoveryClassMerge"],
-          "symbols": ["build_linx_bcc_ooo_recovery_class_merge", "flush_mask", "replay_mask", "pe_mask", "dropped_by_older", "dropped_by_complete", "merged"]
+          "symbols": ["build_linx_bcc_ooo_recovery_class_merge", "source_count", "flush_mask", "replay_mask", "pe_mask", "dropped_by_older", "dropped_by_complete", "merged", "out_cause_mask_q", "out_payload_source_q", "resolved_mask"]
         }
       ],
       "verification": [

@@ -40,7 +40,8 @@ void drive_request(VRecoveryClassMergeProbe &dut,
                    int stid,
                    int pe,
                    int rid,
-                   bool fetch_tpc_valid = true) {
+                   bool fetch_tpc_valid = true,
+                   int source = 0) {
     dut.io_inValid = 1;
     dut.io_inType = type;
     dut.io_inBlockBid = block_bid;
@@ -49,6 +50,7 @@ void drive_request(VRecoveryClassMergeProbe &dut,
     dut.io_inRid = rid;
     dut.io_inExecEngine = kScalar;
     dut.io_inFetchTpcValid = fetch_tpc_valid;
+    dut.io_inSource = source;
     dut.eval();
 }
 
@@ -58,8 +60,9 @@ void accept_request(VRecoveryClassMergeProbe &dut,
                     int stid,
                     int pe,
                     int rid,
-                    bool fetch_tpc_valid = true) {
-    drive_request(dut, type, block_bid, stid, pe, rid, fetch_tpc_valid);
+                    bool fetch_tpc_valid = true,
+                    int source = 0) {
+    drive_request(dut, type, block_bid, stid, pe, rid, fetch_tpc_valid, source);
     require(dut.io_inReady && dut.io_inAccepted, "valid scoped report was not accepted");
     tick(dut);
     clear_input(dut);
@@ -67,7 +70,7 @@ void accept_request(VRecoveryClassMergeProbe &dut,
 
 void stage_blocked_output(VRecoveryClassMergeProbe &dut, int block_bid) {
     dut.io_outReady = 0;
-    accept_request(dut, kNukeFlush, block_bid, 1, 0, 0);
+    accept_request(dut, kNukeFlush, block_bid, 1, 0, 0, true, 3);
     dut.eval();
     require(!dut.io_outValid && (dut.io_globalFlushPendingMask & 0x2),
             "STID1 placeholder did not enter the global-flush lane");
@@ -88,6 +91,10 @@ int main(int argc, char **argv) {
     // CROSS_RTL_SCENARIO: invalid-scope-rejection
     // CROSS_RTL_SCENARIO: inner-merge-transformation
     // CROSS_RTL_SCENARIO: independent-pe-lanes
+    // CROSS_RTL_SCENARIO: dropped-input-resolution
+    // CROSS_RTL_SCENARIO: cancellation-resolution
+    // CROSS_RTL_SCENARIO: merged-cause-payload-owner
+    // CROSS_RTL_SCENARIO: output-provenance-stability
     Verilated::commandArgs(argc, argv);
     VRecoveryClassMergeProbe dut;
 
@@ -100,6 +107,7 @@ int main(int argc, char **argv) {
     dut.io_inRid = 0;
     dut.io_inExecEngine = kScalar;
     dut.io_inFetchTpcValid = 1;
+    dut.io_inSource = 0;
     dut.io_oldestBid0 = 0;
     dut.io_oldestBid1 = 0;
     dut.io_oldestBlockComplete = 0;
@@ -114,19 +122,28 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_outBlockBid == 0x21 && dut.io_outStid == 1,
             "blocked output changed while a PE report entered another STID");
+    require(dut.io_outCauseMask == 0x8 && dut.io_outPayloadSourceValid &&
+                dut.io_outPayloadSource == 3,
+            "blocked output provenance changed while queued state mutated");
     require(dut.io_pePendingMask == 0x1,
             "PE replay did not enter its parameterized PE lane");
 
-    accept_request(dut, kNukeFlush, 0x12, 0, 0, 2);
+    drive_request(dut, kNukeFlush, 0x12, 0, 0, 2, true, 1);
+    require(dut.io_inAccepted && dut.io_resolvedMask == 0x1,
+            "same-BID nuke did not resolve the canceled PE source");
+    tick(dut);
+    clear_input(dut);
     dut.eval();
     require(dut.io_globalFlushPendingMask == 0x1 && dut.io_pePendingMask == 0,
             "same-BID nuke did not cancel the queued PE replay");
     require(dut.io_outBlockBid == 0x21,
             "queued class cancellation modified the irrevocable output");
 
-    drive_request(dut, kInnerFlush, 0x12, 0, 0, 2);
+    drive_request(dut, kInnerFlush, 0x12, 0, 0, 2, true, 2);
     require(dut.io_inAccepted && dut.io_inDroppedByOlder,
             "same-BID inner flush was not rejected behind an older nuke");
+    require(dut.io_resolvedMask == 0x4,
+            "dropped input did not resolve its source cause");
     tick(dut);
     clear_input(dut);
 
@@ -139,6 +156,8 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_outAccepted && dut.io_outBlockBid == 0x21,
             "STID1 placeholder was not accepted before the independent STID0 action");
+    require(dut.io_resolvedMask == 0x2,
+            "replay dispatch did not resolve the canceled flush source");
     tick(dut);
     dut.io_outReady = 0;
     dut.eval();
@@ -153,9 +172,11 @@ int main(int argc, char **argv) {
     tick(dut);
     dut.io_outReady = 0;
     dut.io_oldestBlockComplete = 1;
-    drive_request(dut, kFastReplay, 0x13, 0, 0, 1);
+    drive_request(dut, kFastReplay, 0x13, 0, 0, 1, true, 2);
     require(dut.io_inAccepted && dut.io_inDroppedByComplete,
             "completed oldest block did not reject a global replay");
+    require(dut.io_resolvedMask == 0x4,
+            "completed-block drop did not resolve the incoming source");
     tick(dut);
     clear_input(dut);
     dut.io_oldestBlockComplete = 0;
@@ -171,8 +192,8 @@ int main(int argc, char **argv) {
     clear_input(dut);
 
     stage_blocked_output(dut, 0x31);
-    accept_request(dut, kInnerFlush, 0x14, 0, 0, 3);
-    drive_request(dut, kPeReplay, 0x14, 0, 0, 2, true);
+    accept_request(dut, kInnerFlush, 0x14, 0, 0, 3, true, 1);
+    drive_request(dut, kPeReplay, 0x14, 0, 0, 2, true, 2);
     require(dut.io_inAccepted && dut.io_inMerged,
             "older same-PE replay did not trigger the model inner-flush merge");
     tick(dut);
@@ -189,6 +210,9 @@ int main(int argc, char **argv) {
                 dut.io_outType == kInnerFlush && dut.io_outBlockBid == 0x14 &&
                 dut.io_outRid == 2,
             "merged recovery did not preserve the older exact request identity");
+    require(dut.io_outCauseMask == 0x6 && dut.io_outPayloadSourceValid &&
+                dut.io_outPayloadSource == 2,
+            "merged recovery did not union causes or retain destination payload ownership");
 
     accept_request(dut, kPeReplay, 0x15, 0, 0, 1, true);
     accept_request(dut, kPeReplay, 0x16, 0, 1, 1, true);

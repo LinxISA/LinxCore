@@ -50,6 +50,8 @@ class RecoveryCleanupROBProbeIO extends Bundle {
   val cleanupIntentValid = Output(Bool())
   val cleanupBlockFlushValid = Output(Bool())
   val cleanupBlockFlushBid = Output(UInt(16.W))
+  val sourceResolvedMask = Output(UInt(3.W))
+  val consumedPayloadSourceMask = Output(UInt(3.W))
   val robFlushApplied = Output(Bool())
   val robFlushPruneMask = Output(UInt(8.W))
   val robSize = Output(UInt(4.W))
@@ -205,6 +207,8 @@ class RecoveryCleanupROBProbe extends Module {
   io.cleanupIntentValid := backend.io.intent.valid
   io.cleanupBlockFlushValid := backend.io.intent.blockFlushValid
   io.cleanupBlockFlushBid := backend.io.intent.blockFlushBid
+  io.sourceResolvedMask := backend.io.sourceResolvedMask
+  io.consumedPayloadSourceMask := backend.io.consumedPayloadSourceMask
   io.robFlushApplied := rob.io.flushApplied
   io.robFlushPruneMask := rob.io.flushPruneMask
   io.robSize := rob.io.size

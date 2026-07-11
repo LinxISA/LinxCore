@@ -58,7 +58,8 @@ int main(int argc, char **argv) {
     dut.io_orderValid = 0;
     dut.io_order = 0;
     dut.io_sourceReady = 0;
-    dut.io_intentConsumed = 0;
+    dut.io_sourceResolved = 0;
+    dut.io_payloadIntentConsumed = 0;
     dut.io_cancel = 0;
     tick(dut);
     tick(dut);
@@ -77,9 +78,8 @@ int main(int argc, char **argv) {
     require(dut.io_sourceBlockBid == 0x12 && dut.io_sourceRid_valid &&
                 dut.io_sourceRid_value == 5,
             "published redirect did not preserve block identity or restart RID");
-    require(dut.io_cleanupOrderValid && dut.io_cleanupOrder == 0x155 &&
-                dut.io_cleanupResolveLsIdValid && dut.io_cleanupLsId_value == 5,
-            "cleanup sidecars were not retained with the redirect");
+    require(!dut.io_cleanupOrderValid && !dut.io_cleanupResolveLsIdValid,
+            "private sidecars were exposed before matched payload consumption");
 
     dut.io_sourceReady = 1;
     dut.eval();
@@ -88,23 +88,29 @@ int main(int argc, char **argv) {
     tick(dut);
     dut.eval();
     require(dut.io_pending && dut.io_published && !dut.io_sourceValid &&
-                dut.io_cleanupOrderValid,
-            "publish-once state did not retain sidecars until cleanup");
+                !dut.io_cleanupOrderValid,
+            "publish-once state exposed sidecars without payload ownership");
 
-    // Consuming the old intent and capturing the next event is atomic.
+    // Matched payload consumption exposes old sidecars while source resolution
+    // atomically admits the next event.
     // 0x1b projects to wrap=1, slot=3.
-    dut.io_intentConsumed = 1;
+    dut.io_sourceResolved = 1;
+    dut.io_payloadIntentConsumed = 1;
     drive_event(dut, 0x1b, true, 3, true, true, 6, 7, 0x2aa);
     dut.eval();
     require(dut.io_eventReady && dut.io_eventAccepted,
-            "consume-and-replace did not accept the next redirect");
+            "resolve-and-replace did not accept the next redirect");
+    require(dut.io_cleanupOrderValid && dut.io_cleanupOrder == 0x155 &&
+                dut.io_cleanupResolveLsIdValid && dut.io_cleanupLsId_value == 5,
+            "matched payload consumption did not authorize retained sidecars");
     tick(dut);
     dut.io_eventValid = 0;
-    dut.io_intentConsumed = 0;
+    dut.io_sourceResolved = 0;
+    dut.io_payloadIntentConsumed = 0;
     dut.eval();
     require(dut.io_pending && !dut.io_published && dut.io_sourceValid &&
                 dut.io_sourceBlockBid == 0x1b && dut.io_cleanupOrder == 0x2aa,
-            "consume-and-replace did not retain the replacement identity");
+            "resolve-and-replace did not retain the replacement identity");
 
     // Cancellation must suppress publication in the cancellation cycle.
     dut.io_cancel = 1;

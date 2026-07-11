@@ -47,6 +47,7 @@ to another lane.
 | output | `out` | Selected retained full-BID report. |
 | input | `outReady` | Cleanup boundary can accept the selected report. |
 | output | `outAccepted` | Selected report transferred this cycle. |
+| output | `outProvenance` | One-hot source cause and payload owner transferred with `out`. |
 | output | `pendingMask/lanePendingMask` | Source and STID residency diagnostics. |
 | output | `selectedSourceValid/selectedSource/selectedStid` | Current selection diagnostics. |
 
@@ -65,6 +66,10 @@ and numeric BIDs from unrelated STIDs are never compared.
 Each source slot supports consume-and-replace: when its selected report
 transfers, a new report from the same source may be accepted on that edge.
 Losing sources remain resident.
+
+R647 tags every selected request with implementation-only provenance. The
+arbiter never combines reports, so both `causeMask` and `payloadSource` name
+the selected source. These fields do not participate in oldest selection.
 
 ## Linx Adaptation
 

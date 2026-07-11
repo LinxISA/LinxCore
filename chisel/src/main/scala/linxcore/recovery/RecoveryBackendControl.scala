@@ -63,6 +63,9 @@ class RecoveryBackendControlIO(
   val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
   val intentAccepted = Output(Bool())
   val intentConsumed = Output(Bool())
+  val intentProvenance = Output(new RecoveryProvenance(sourceCount))
+  val sourceResolvedMask = Output(UInt(sourceCount.W))
+  val consumedPayloadSourceMask = Output(UInt(sourceCount.W))
   val pending = Output(Bool())
 
   val sourcePendingMask = Output(UInt(sourceCount.W))
@@ -140,6 +143,9 @@ class RecoveryBackendControl(
     recovery.io.intentConsumed && recovery.io.intent.robPruneValid
   io.intentAccepted := recovery.io.intentAccepted
   io.intentConsumed := recovery.io.intentConsumed
+  io.intentProvenance := recovery.io.intentProvenance
+  io.sourceResolvedMask := recovery.io.sourceResolvedMask
+  io.consumedPayloadSourceMask := recovery.io.consumedPayloadSourceMask
   io.pending := recovery.io.pending
 
   io.sourcePendingMask := recovery.io.sourcePendingMask

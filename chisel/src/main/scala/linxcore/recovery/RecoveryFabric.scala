@@ -32,6 +32,9 @@ class RecoveryFabricIO(
   val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val intentAccepted = Output(Bool())
   val intentConsumed = Output(Bool())
+  val intentProvenance = Output(new RecoveryProvenance(sourceCount))
+  val sourceResolvedMask = Output(UInt(sourceCount.W))
+  val consumedPayloadSourceMask = Output(UInt(sourceCount.W))
   val pending = Output(Bool())
 
   val sourcePendingMask = Output(UInt(sourceCount.W))
@@ -89,20 +92,22 @@ class RecoveryFabric(
     tidWidth
   ))
   val classMerge = Module(new RecoveryClassMerge(
-    stidCount,
-    peCount,
-    entries,
-    bidWidth,
-    peIdWidth,
-    stidWidth,
-    tidWidth
+    stidCount = stidCount,
+    peCount = peCount,
+    entries = entries,
+    bidWidth = bidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    sourceCount = sourceCount
   ))
   val cleanup = Module(new RecoveryCleanupControl(
-    entries,
-    bidWidth,
-    peIdWidth,
-    stidWidth,
-    tidWidth
+    entries = entries,
+    bidWidth = bidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    sourceCount = sourceCount
   ))
 
   val filteredSources = Wire(chiselTypeOf(io.sources))
@@ -116,11 +121,13 @@ class RecoveryFabric(
   sourceArbiter.io.outReady := classMerge.io.inReady
 
   classMerge.io.in := sourceArbiter.io.out
+  classMerge.io.inProvenance := sourceArbiter.io.outProvenance
   classMerge.io.oldestBid := io.oldestBid
   classMerge.io.oldestBlockComplete := io.oldestBlockComplete
   classMerge.io.outReady := cleanup.io.reqReady
 
   cleanup.io.req := classMerge.io.out
+  cleanup.io.reqProvenance := classMerge.io.outProvenance
   cleanup.io.ringReq := 0.U.asTypeOf(cleanup.io.ringReq)
   cleanup.io.intentReady := io.intentReady
 
@@ -135,6 +142,9 @@ class RecoveryFabric(
   io.intent := cleanup.io.intent
   io.intentAccepted := cleanup.io.accepted
   io.intentConsumed := cleanup.io.consumed
+  io.intentProvenance := cleanup.io.intentProvenance
+  io.sourceResolvedMask := classMerge.io.resolvedMask | cleanup.io.consumedProvenanceMask
+  io.consumedPayloadSourceMask := cleanup.io.consumedPayloadSourceMask
   io.pending := sourceArbiter.io.pendingMask.orR || classMerge.io.pending || cleanup.io.pending
 
   io.sourcePendingMask := sourceArbiter.io.pendingMask

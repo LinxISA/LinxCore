@@ -42,10 +42,10 @@ frontend-local because their incremented cleanup ring BID does not yet have an
 authoritative matching full BID; the source never substitutes the retiring
 marker's prior full BID. Other BCC/IEX/PE and scalar-LSU sources remain
 separate promotion points.
-The current composition therefore maps every consumed recovery intent to this
-source. A multi-source composition must add intent provenance or an equivalent
-matched-consumption token before using `intentConsumed` to release scalar-only
-order/LSID sidecars.
+R647 replaces generic intent consumption with two matched inputs. `sourceResolved`
+releases residency after cleanup, cancellation, or drop; `payloadIntentConsumed`
+authorizes order/LSID sidecars only when the accepted intent retained this
+source's exact request payload. Consume-and-replace remains atomic.
 
 ## Verification
 

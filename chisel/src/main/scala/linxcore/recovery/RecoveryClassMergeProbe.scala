@@ -13,6 +13,7 @@ class RecoveryClassMergeProbeIO extends Bundle {
   val inRid = Input(UInt(3.W))
   val inExecEngine = Input(ExecEngineType())
   val inFetchTpcValid = Input(Bool())
+  val inSource = Input(UInt(2.W))
   val oldestBid0 = Input(UInt(3.W))
   val oldestBid1 = Input(UInt(3.W))
   val oldestBlockComplete = Input(UInt(2.W))
@@ -33,6 +34,10 @@ class RecoveryClassMergeProbeIO extends Bundle {
   val outPe = Output(UInt(8.W))
   val outRid = Output(UInt(3.W))
   val outClass = Output(RecoveryActionClass())
+  val outCauseMask = Output(UInt(4.W))
+  val outPayloadSourceValid = Output(Bool())
+  val outPayloadSource = Output(UInt(2.W))
+  val resolvedMask = Output(UInt(4.W))
   val globalFlushPendingMask = Output(UInt(2.W))
   val globalReplayPendingMask = Output(UInt(2.W))
   val pePendingMask = Output(UInt(4.W))
@@ -46,7 +51,8 @@ class RecoveryClassMergeProbe extends Module {
     stidCount = 2,
     peCount = 2,
     entries = entries,
-    bidWidth = 16
+    bidWidth = 16,
+    sourceCount = 4
   ))
 
   private def id(value: UInt): ROBID = {
@@ -70,6 +76,7 @@ class RecoveryClassMergeProbe extends Module {
   request.execEngine := io.inExecEngine
   request.fetchTpcValid := io.inFetchTpcValid
   merge.io.in := request
+  merge.io.inProvenance := RecoveryProvenance.single(io.inSource, io.inValid, 4)
   merge.io.oldestBid(0) := id(io.oldestBid0)
   merge.io.oldestBid(1) := id(io.oldestBid1)
   merge.io.oldestBlockComplete := io.oldestBlockComplete.asBools
@@ -90,6 +97,10 @@ class RecoveryClassMergeProbe extends Module {
   io.outPe := merge.io.out.peId
   io.outRid := merge.io.out.rid.value
   io.outClass := merge.io.selectedClass
+  io.outCauseMask := merge.io.outProvenance.causeMask
+  io.outPayloadSourceValid := merge.io.outProvenance.payloadSourceValid
+  io.outPayloadSource := merge.io.outProvenance.payloadSource
+  io.resolvedMask := merge.io.resolvedMask
   io.globalFlushPendingMask := merge.io.globalFlushPendingMask
   io.globalReplayPendingMask := merge.io.globalReplayPendingMask
   io.pePendingMask := merge.io.pePendingMask

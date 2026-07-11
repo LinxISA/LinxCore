@@ -15,7 +15,8 @@ class ScalarRedirectRecoverySourceProbeIO extends Bundle {
   val orderValid = Input(Bool())
   val order = Input(UInt(12.W))
   val sourceReady = Input(Bool())
-  val intentConsumed = Input(Bool())
+  val sourceResolved = Input(Bool())
+  val payloadIntentConsumed = Input(Bool())
   val cancel = Input(Bool())
 
   val eventReady = Output(Bool())
@@ -58,7 +59,8 @@ class ScalarRedirectRecoverySourceProbe extends Module {
   source.io.event.orderValid := io.orderValid
   source.io.event.order := io.order
   source.io.sourceReady := io.sourceReady
-  source.io.intentConsumed := io.intentConsumed
+  source.io.sourceResolved := io.sourceResolved
+  source.io.payloadIntentConsumed := io.payloadIntentConsumed
   source.io.cancel := io.cancel
 
   io.eventReady := source.io.eventReady

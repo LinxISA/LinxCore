@@ -25,6 +25,7 @@ class RecoverySourceArbiterIO(
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
 
   val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val outProvenance = Output(new RecoveryProvenance(sourceCount))
   val outReady = Input(Bool())
   val outAccepted = Output(Bool())
   val selectedSourceValid = Output(Bool())
@@ -123,6 +124,7 @@ class RecoverySourceArbiter(
     io.out := selectedRequest
     io.out.valid := true.B
   }
+  io.outProvenance := RecoveryProvenance.single(selectedSource, selectedValid, sourceCount)
   io.selectedSourceValid := selectedValid
   io.selectedSource := selectedSource
   io.selectedStid := selectedLane

@@ -20,6 +20,8 @@ class RecoveryClassMergeSpec extends AnyFunSuite {
     assert(sv.contains("io_inDroppedByComplete"))
     assert(sv.contains("io_inMerged"))
     assert(sv.contains("io_selectedClass"))
+    assert(sv.contains("io_outProvenance_causeMask"))
+    assert(sv.contains("io_resolvedMask"))
   }
 
   test("recovery class probe exposes the generated RTL proof surface") {
@@ -29,6 +31,9 @@ class RecoveryClassMergeSpec extends AnyFunSuite {
     assert(sv.contains("module RecoveryClassMerge"))
     assert(sv.contains("io_outBlockBid"))
     assert(sv.contains("io_outClass"))
+    assert(sv.contains("io_outCauseMask"))
+    assert(sv.contains("io_outPayloadSource"))
+    assert(sv.contains("io_resolvedMask"))
     assert(sv.contains("io_globalFlushPendingMask"))
     assert(sv.contains("io_globalReplayPendingMask"))
     assert(sv.contains("io_pePendingMask"))
@@ -52,5 +57,7 @@ class RecoveryClassMergeSpec extends AnyFunSuite {
     assert(sv.contains("io_classGlobalFlushPendingMask"))
     assert(sv.contains("io_classBlockedByPe"))
     assert(sv.contains("io_intent_blockFlushBid"))
+    assert(sv.contains("io_sourceResolvedMask"))
+    assert(sv.contains("io_consumedPayloadSourceMask"))
   }
 }

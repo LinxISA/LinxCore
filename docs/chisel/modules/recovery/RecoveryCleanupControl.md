@@ -68,6 +68,7 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `req` | `FullBidFlushReq` | `req.valid && reqReady` | Selected recovery request with full block BID and ring sub-ID sidecars. |
+| input | `reqProvenance` | `RecoveryProvenance` | with `req` | Implementation-only causes and exact payload owner. |
 | output | `reqReady` | `Bool` | ready | High when the one-entry intent register can accept a request. |
 | input | `ringReq` | `FlushBus` | `ringReq.req.valid && ringReqReady` | Selected source with wrap-qualified ROB identity but no full block BID. |
 | output | `ringReqReady` | `Bool` | ready | High when ring input may enter and no full-BID request claims the cycle. |
@@ -76,6 +77,9 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 | output | `accepted` | `Bool` | diagnostic | Either request source accepted this cycle. |
 | output | `fullAccepted/ringAccepted` | `Bool` | diagnostic | Accepted source classification. |
 | output | `consumed` | `Bool` | diagnostic | Existing pending intent consumed this cycle. |
+| output | `intentProvenance` | `RecoveryProvenance` | registered | Provenance held with the visible intent. |
+| output | `consumedProvenanceMask` | `UInt` | pulse | All causes discharged by accepted cleanup. |
+| output | `consumedPayloadSourceMask` | `UInt` | pulse | Exact payload owner authorized for private sidecars. |
 
 ### `RecoveryCleanupIntent`
 
@@ -108,6 +112,8 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 - `pendingIsRing`: source tag that prevents ring input from fabricating
   full-BID BCTRL/BROB cleanup authority.
 - `pendingValid`: valid bit for the registered cleanup intent.
+- `pendingProvenance`: metadata registered atomically with a full-BID request;
+  ring-only input stores empty provenance.
 - `FullBidRecoveryBridge`: combinational child used to preserve the full BID
   and produce the ring `FlushBus` from the registered request.
 
@@ -163,6 +169,8 @@ completion back into flush selection.
 
 Consumers apply state changes only on `intent.valid && intentReady`. Merely
 observing a blocked valid intent must not repeatedly prune or clear state.
+Provenance follows the same registered handshake and cannot acknowledge a
+producer or authorize sidecars while the intent is blocked.
 
 ## Flush/Recovery
 

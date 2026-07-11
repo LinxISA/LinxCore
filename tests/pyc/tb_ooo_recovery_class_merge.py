@@ -24,10 +24,14 @@ def tb(t: Tb) -> None:
     # CROSS_RTL_SCENARIO: invalid-scope-rejection
     # CROSS_RTL_SCENARIO: inner-merge-transformation
     # CROSS_RTL_SCENARIO: independent-pe-lanes
+    # CROSS_RTL_SCENARIO: dropped-input-resolution
+    # CROSS_RTL_SCENARIO: cancellation-resolution
+    # CROSS_RTL_SCENARIO: merged-cause-payload-owner
+    # CROSS_RTL_SCENARIO: output-provenance-stability
     t.clock("clk")
     t.reset("rst", cycles_asserted=2, cycles_deasserted=1)
-    t.timeout(96)
-    for cyc in range(48):
+    t.timeout(128)
+    for cyc in range(64):
         t.drive("in_valid", 0, at=cyc)
         t.drive("in_type", NUKE_FLUSH, at=cyc)
         t.drive("in_block_bid", 0, at=cyc)
@@ -44,6 +48,7 @@ def tb(t: Tb) -> None:
         t.drive("in_fetch_tpc_valid", 1, at=cyc)
         t.drive("in_fetch_tpc", 0, at=cyc)
         t.drive("in_immediate_flush", 0, at=cyc)
+        t.drive("in_source", 0, at=cyc)
         t.drive("oldest_block_complete", 0, at=cyc)
         t.drive("oldest_bid0", 0, at=cyc)
         t.drive("oldest_bid1", 0, at=cyc)
@@ -62,6 +67,7 @@ def tb(t: Tb) -> None:
         lsid: int = 0,
         immediate: int = 0,
         tpc: int = 0,
+        source: int = 0,
     ) -> None:
         t.drive("in_valid", 1, at=cyc)
         t.drive("in_type", typ, at=cyc)
@@ -74,9 +80,10 @@ def tb(t: Tb) -> None:
         t.drive("in_lsid", lsid, at=cyc)
         t.drive("in_immediate_flush", immediate, at=cyc)
         t.drive("in_fetch_tpc", tpc, at=cyc)
+        t.drive("in_source", source, at=cyc)
 
     # Stage a STID1 global flush into the irrevocable output slot.
-    request(0, NUKE_FLUSH, 0x21, 1, 0, 0, tid=7, gid=3, lsid=5, immediate=1, tpc=0x2100)
+    request(0, NUKE_FLUSH, 0x21, 1, 0, 0, tid=7, gid=3, lsid=5, immediate=1, tpc=0x2100, source=1)
     t.expect("in_accepted", 1, at=0, phase="pre")
     t.expect("global_flush_pending_mask", 0x2, at=0)
     t.expect("out_valid", 0, at=0)
@@ -88,32 +95,46 @@ def tb(t: Tb) -> None:
     t.expect("out_lsid", 5, at=1)
     t.expect("out_immediate_flush", 1, at=1)
     t.expect("out_fetch_tpc", 0x2100, at=1)
+    t.expect("out_cause_mask", 0x2, at=1)
+    t.expect("out_payload_source_valid", 1, at=1)
+    t.expect("out_payload_source", 1, at=1)
 
     # A different STID can mutate queued class state without changing output.
-    request(2, PE_REPLAY, 0x12, 0, 0, 2, tpc=0x1202)
+    request(2, PE_REPLAY, 0x12, 0, 0, 2, tpc=0x1202, source=0)
     t.expect("in_accepted", 1, at=2, phase="pre")
     t.expect("pe_pending_mask", 0x1, at=2)
     t.expect("out_block_bid", 0x21, at=2)
+    t.expect("out_cause_mask", 0x2, at=2)
+    t.expect("out_payload_source", 1, at=2)
 
     # Same-BID nuke cancels the queued PE replay.
-    request(3, NUKE_FLUSH, 0x12, 0, 0, 2, tpc=0x1200)
+    request(3, NUKE_FLUSH, 0x12, 0, 0, 2, tpc=0x1200, source=1)
     t.expect("in_accepted", 1, at=3, phase="pre")
+    t.expect("resolved_mask", 0x1, at=3, phase="pre")
     t.expect("global_flush_pending_mask", 0x1, at=3)
     t.expect("pe_pending_mask", 0, at=3)
+    t.expect("out_cause_mask", 0x2, at=3)
+    t.expect("out_payload_source", 1, at=3)
 
     # An equal inner flush loses behind the resident nuke.
-    request(4, INNER_FLUSH, 0x12, 0, 0, 2, tpc=0x12F0)
+    request(4, INNER_FLUSH, 0x12, 0, 0, 2, tpc=0x12F0, source=2)
     t.expect("in_accepted", 1, at=4, phase="pre")
     t.expect("in_dropped_by_older", 1, at=4, phase="pre")
+    t.expect("resolved_mask", 0x4, at=4, phase="pre")
+    t.expect("out_cause_mask", 0x2, at=4)
+    t.expect("out_payload_source", 1, at=4)
 
     # Fast replay remains independent until class dispatch, where it cancels
     # the queued nuke and follows the older blocked STID1 output.
-    request(5, FAST_REPLAY, 0x12, 0, 0, 2, tpc=0x12A0)
+    request(5, FAST_REPLAY, 0x12, 0, 0, 2, tpc=0x12A0, source=2)
     t.expect("in_accepted", 1, at=5, phase="pre")
     t.expect("global_flush_pending_mask", 0x1, at=5)
     t.expect("global_replay_pending_mask", 0x1, at=5)
+    t.expect("out_cause_mask", 0x2, at=5)
+    t.expect("out_payload_source", 1, at=5)
     t.drive("out_ready", 1, at=6)
     t.expect("out_accepted", 1, at=6, phase="pre")
+    t.expect("resolved_mask", 0x2, at=6, phase="pre")
 
     t.expect("out_valid", 1, at=6)
     t.expect("out_class", GLOBAL_REPLAY, at=6)
@@ -121,6 +142,9 @@ def tb(t: Tb) -> None:
     t.expect("out_block_bid", 0x12, at=6)
     t.expect("out_stid", 0, at=6)
     t.expect("out_fetch_tpc", 0x12A0, at=6)
+    t.expect("out_cause_mask", 0x4, at=6)
+    t.expect("out_payload_source_valid", 1, at=6)
+    t.expect("out_payload_source", 2, at=6)
     t.expect("global_flush_pending_mask", 0, at=6)
     t.expect("global_replay_pending_mask", 0, at=6)
     t.drive("out_ready", 1, at=7)
@@ -128,9 +152,10 @@ def tb(t: Tb) -> None:
     # Completed-oldest global replay is accepted at the input boundary but
     # deliberately leaves no class state.
     t.drive("oldest_block_complete", 0x1, at=8)
-    request(8, FAST_REPLAY, 0x13, 0, 0, 1, tpc=0x1300)
+    request(8, FAST_REPLAY, 0x13, 0, 0, 1, tpc=0x1300, source=3)
     t.expect("in_accepted", 1, at=8, phase="pre")
     t.expect("in_dropped_by_complete", 1, at=8, phase="pre")
+    t.expect("resolved_mask", 0x8, at=8, phase="pre")
     t.expect("pending", 0, at=8)
 
     # Invalid instantiated scope is backpressured visibly.
@@ -144,13 +169,13 @@ def tb(t: Tb) -> None:
     # Stage another blocked STID1 output, then prove model mergeSignal:
     # an older same-PE replay transforms a resident inner flush into one
     # global inner action carrying the older replay identity.
-    request(11, NUKE_FLUSH, 0x31, 1, 0, 0, tpc=0x3100)
+    request(11, NUKE_FLUSH, 0x31, 1, 0, 0, tpc=0x3100, source=1)
     t.expect("global_flush_pending_mask", 0x2, at=11)
     t.expect("out_valid", 1, at=12)
     t.expect("out_block_bid", 0x31, at=12)
-    request(13, INNER_FLUSH, 0x14, 0, 0, 3, tpc=0x1430)
+    request(13, INNER_FLUSH, 0x14, 0, 0, 3, tpc=0x1430, source=2)
     t.expect("in_accepted", 1, at=13, phase="pre")
-    request(14, PE_REPLAY, 0x14, 0, 0, 2, tid=4, gid=2, lsid=6, immediate=1, tpc=0x1420)
+    request(14, PE_REPLAY, 0x14, 0, 0, 2, tid=4, gid=2, lsid=6, immediate=1, tpc=0x1420, source=3)
     t.expect("in_accepted", 1, at=14, phase="pre")
     t.expect("in_merged", 1, at=14, phase="pre")
     t.expect("global_flush_pending_mask", 0x1, at=14)
@@ -167,6 +192,9 @@ def tb(t: Tb) -> None:
     t.expect("out_lsid", 6, at=15)
     t.expect("out_immediate_flush", 1, at=15)
     t.expect("out_fetch_tpc", 0x1420, at=15)
+    t.expect("out_cause_mask", 0xC, at=15)
+    t.expect("out_payload_source_valid", 1, at=15)
+    t.expect("out_payload_source", 3, at=15)
 
     # Independent PE lanes remain resident and serialize without loss.
     request(16, PE_REPLAY, 0x15, 0, 0, 1, tpc=0x1500)
@@ -188,4 +216,27 @@ def tb(t: Tb) -> None:
     t.drive("out_ready", 1, at=20)
     t.expect("pending", 0, at=20)
 
-    t.finish(at=23)
+    # Replacing retained class state resolves the displaced source without
+    # changing the already-staged irrevocable output provenance.
+    request(21, NUKE_FLUSH, 0x41, 1, 0, 0, tpc=0x4100, source=1)
+    t.expect("out_valid", 1, at=22)
+    t.expect("out_block_bid", 0x41, at=22)
+    t.expect("out_cause_mask", 0x2, at=22)
+    t.expect("out_payload_source", 1, at=22)
+    request(23, PE_REPLAY, 0x36, 0, 0, 4, tpc=0x3600, source=0)
+    request(24, PE_REPLAY, 0x35, 0, 0, 1, tpc=0x3500, source=2)
+    t.expect("in_accepted", 1, at=24, phase="pre")
+    t.expect("resolved_mask", 0x1, at=24, phase="pre")
+    t.expect("out_cause_mask", 0x2, at=24)
+    t.expect("out_payload_source", 1, at=24)
+    t.drive("out_ready", 1, at=25)
+    t.expect("out_accepted", 1, at=25, phase="pre")
+    t.expect("out_valid", 1, at=25)
+    t.expect("out_class", PE_SCOPED, at=25)
+    t.expect("out_block_bid", 0x35, at=25)
+    t.expect("out_cause_mask", 0x4, at=25)
+    t.expect("out_payload_source", 2, at=25)
+    t.drive("out_ready", 1, at=26)
+    t.expect("pending", 0, at=26)
+
+    t.finish(at=29)

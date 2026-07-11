@@ -14,7 +14,13 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchSTQPath}
-import linxcore.recovery.{FullBidFlushReq, FullBidRecoveryBridge, RecoveryBackendControl, RecoveryCleanupIntent}
+import linxcore.recovery.{
+  FullBidFlushReq,
+  FullBidRecoveryBridge,
+  RecoveryBackendControl,
+  RecoveryCleanupIntent,
+  RecoveryProvenance
+}
 import linxcore.rename.{
   ScalarTURenameBridge,
   StoreSplitIssuePayload,
@@ -135,6 +141,9 @@ class DecodeRenameROBPathIO(
     tidWidth
   ))
   val recoveryIntentConsumed = Output(Bool())
+  val recoveryIntentProvenance = Output(new RecoveryProvenance(recoveryNonLsuSourceCount + 1))
+  val recoverySourceResolvedMask = Output(UInt((recoveryNonLsuSourceCount + 1).W))
+  val recoveryConsumedPayloadSourceMask = Output(UInt((recoveryNonLsuSourceCount + 1).W))
   val recoveryPending = Output(Bool())
   val scalarCleanupOrderValid = Input(Bool())
   val scalarCleanupOrder = Input(UInt(p.uopUidWidth.W))
@@ -704,6 +713,9 @@ class DecodeRenameROBPath(
   io.lsuFullBidLookup := recovery.io.lsuFullBidLookup
   io.recoveryIntent := recovery.io.intent
   io.recoveryIntentConsumed := recovery.io.intentConsumed
+  io.recoveryIntentProvenance := recovery.io.intentProvenance
+  io.recoverySourceResolvedMask := recovery.io.sourceResolvedMask
+  io.recoveryConsumedPayloadSourceMask := recovery.io.consumedPayloadSourceMask
   io.recoveryPending := recovery.io.pending
 
   val blockLifecycleFlush = cleanup.valid && (cleanup.backendFlushValid || cleanup.blockFlushValid)

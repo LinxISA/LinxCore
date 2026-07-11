@@ -17,12 +17,14 @@ class RecoveryClassMergeIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val sourceCount: Int = 1)
     extends Bundle {
   private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
   private val peIndexWidth = math.max(1, log2Ceil(peCount))
 
   val in = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val inProvenance = Input(new RecoveryProvenance(sourceCount))
   val inReady = Output(Bool())
   val inAccepted = Output(Bool())
   val inBlockedByStid = Output(Bool())
@@ -35,6 +37,7 @@ class RecoveryClassMergeIO(
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
 
   val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val outProvenance = Output(new RecoveryProvenance(sourceCount))
   val outReady = Input(Bool())
   val outAccepted = Output(Bool())
   val selectedClass = Output(RecoveryActionClass())
@@ -45,6 +48,7 @@ class RecoveryClassMergeIO(
   val globalReplayPendingMask = Output(UInt(stidCount.W))
   val pePendingMask = Output(UInt((stidCount * peCount).W))
   val pending = Output(Bool())
+  val resolvedMask = Output(UInt(sourceCount.W))
 }
 
 /** Stateful model-equivalent recovery class owner.
@@ -62,7 +66,8 @@ class RecoveryClassMerge(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val sourceCount: Int = 1)
     extends Module {
   require(stidCount > 0, "recovery class merge must expose at least one STID")
   require(peCount > 0, "recovery class merge must expose at least one PE")
@@ -81,7 +86,8 @@ class RecoveryClassMerge(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    sourceCount
   ))
 
   private def annotateFull(req: FullBidFlushReq): FlushBus = {
@@ -134,6 +140,12 @@ class RecoveryClassMerge(
   val peScoped = RegInit(VecInit(Seq.fill(stidCount)(
     VecInit(Seq.fill(peCount)(0.U.asTypeOf(requestType)))
   )))
+  private def provenanceType = new RecoveryProvenance(sourceCount)
+  val globalFlushProvenance = RegInit(VecInit(Seq.fill(stidCount)(0.U.asTypeOf(provenanceType))))
+  val globalReplayProvenance = RegInit(VecInit(Seq.fill(stidCount)(0.U.asTypeOf(provenanceType))))
+  val peScopedProvenance = RegInit(VecInit(Seq.fill(stidCount)(
+    VecInit(Seq.fill(peCount)(0.U.asTypeOf(provenanceType)))
+  )))
   val nextStid = RegInit(0.U(stidIndexWidth.W))
 
   val flushBus = Wire(Vec(stidCount, new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
@@ -152,6 +164,7 @@ class RecoveryClassMerge(
   val laneClass = Wire(Vec(stidCount, RecoveryActionClass()))
   val lanePe = Wire(Vec(stidCount, UInt(peIndexWidth.W)))
   val laneReq = Wire(Vec(stidCount, requestType))
+  val laneProvenance = Wire(Vec(stidCount, provenanceType))
   val replayCancelsFlush = Wire(Vec(stidCount, Bool()))
   for (lane <- 0 until stidCount) {
     var firstPeValid = false.B
@@ -167,18 +180,23 @@ class RecoveryClassMerge(
     laneClass(lane) := RecoveryActionClass.PeScoped
     lanePe(lane) := firstPe
     laneReq(lane) := (if (peCount == 1) peScoped(lane)(0) else peScoped(lane)(firstPe))
+    laneProvenance(lane) :=
+      (if (peCount == 1) peScopedProvenance(lane)(0) else peScopedProvenance(lane)(firstPe))
     when(globalReplay(lane).valid && (!globalFlush(lane).valid || replayCancelsFlush(lane))) {
       laneClass(lane) := RecoveryActionClass.GlobalReplay
       lanePe(lane) := 0.U
       laneReq(lane) := globalReplay(lane)
+      laneProvenance(lane) := globalReplayProvenance(lane)
     }.elsewhen(globalFlush(lane).valid) {
       laneClass(lane) := RecoveryActionClass.GlobalFlush
       lanePe(lane) := 0.U
       laneReq(lane) := globalFlush(lane)
+      laneProvenance(lane) := globalFlushProvenance(lane)
     }.elsewhen(globalReplay(lane).valid) {
       laneClass(lane) := RecoveryActionClass.GlobalReplay
       lanePe(lane) := 0.U
       laneReq(lane) := globalReplay(lane)
+      laneProvenance(lane) := globalReplayProvenance(lane)
     }
   }
 
@@ -200,18 +218,22 @@ class RecoveryClassMerge(
   val selectedClass = if (stidCount == 1) laneClass(0) else laneClass(selectedLane)
   val selectedPe = if (stidCount == 1) lanePe(0) else lanePe(selectedLane)
   val selectedReq = if (stidCount == 1) laneReq(0) else laneReq(selectedLane)
+  val selectedProvenance =
+    if (stidCount == 1) laneProvenance(0) else laneProvenance(selectedLane)
 
   val outPending = RegInit(false.B)
   val outReq = RegInit(0.U.asTypeOf(requestType))
   val outClass = RegInit(RecoveryActionClass.GlobalFlush)
   val outStid = RegInit(0.U(stidIndexWidth.W))
   val outPe = RegInit(0.U(peIndexWidth.W))
+  val outProvenance = RegInit(0.U.asTypeOf(provenanceType))
   val outSlotReady = !outPending || io.outReady
   val dispatch = outSlotReady && selectedValid
 
   io.out := outReq
   io.out.valid := outPending
   io.outAccepted := outPending && io.outReady
+  io.outProvenance := outProvenance
   io.selectedClass := outClass
   io.selectedStid := outStid
   io.selectedPe := outPe
@@ -224,12 +246,25 @@ class RecoveryClassMerge(
       outClass := selectedClass
       outStid := selectedLane
       outPe := selectedPe
+      outProvenance := selectedProvenance
     }
   }
 
   val nextFlush = WireInit(globalFlush)
   val nextReplay = WireInit(globalReplay)
   val nextPeScoped = WireInit(peScoped)
+  val nextFlushProvenance = WireInit(globalFlushProvenance)
+  val nextReplayProvenance = WireInit(globalReplayProvenance)
+  val nextPeScopedProvenance = WireInit(peScopedProvenance)
+  val resolved = WireInit(VecInit(Seq.fill(sourceCount)(false.B)))
+
+  def resolve(mask: UInt, condition: Bool): Unit = {
+    for (source <- 0 until sourceCount) {
+      when(condition && mask(source)) {
+        resolved(source) := true.B
+      }
+    }
+  }
 
   when(dispatch) {
     for (lane <- 0 until stidCount) {
@@ -237,17 +272,23 @@ class RecoveryClassMerge(
         switch(selectedClass) {
           is(RecoveryActionClass.GlobalFlush) {
             nextFlush(lane).valid := false.B
+            nextFlushProvenance(lane) := 0.U.asTypeOf(nextFlushProvenance(lane))
           }
           is(RecoveryActionClass.GlobalReplay) {
             nextReplay(lane).valid := false.B
+            nextReplayProvenance(lane) := 0.U.asTypeOf(nextReplayProvenance(lane))
             when(replayCancelsFlush(lane)) {
+              resolve(globalFlushProvenance(lane).causeMask, true.B)
               nextFlush(lane).valid := false.B
+              nextFlushProvenance(lane) := 0.U.asTypeOf(nextFlushProvenance(lane))
             }
           }
           is(RecoveryActionClass.PeScoped) {
             for (pe <- 0 until peCount) {
               when(selectedPe === pe.U) {
                 nextPeScoped(lane)(pe).valid := false.B
+                nextPeScopedProvenance(lane)(pe) :=
+                  0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
               }
             }
           }
@@ -288,6 +329,8 @@ class RecoveryClassMerge(
       val targetPeEffective = if (peCount == 1) peEffective(0) else peEffective(inPeIndex)
       val targetPeBus = if (peCount == 1) peBus(lane)(0) else peBus(lane)(inPeIndex)
       val targetPeReq = if (peCount == 1) peScoped(lane)(0) else peScoped(lane)(inPeIndex)
+      val targetPeProvenance =
+        if (peCount == 1) peScopedProvenance(lane)(0) else peScopedProvenance(lane)(inPeIndex)
       val targetPeOlder = targetPeEffective &&
         FlushControl.checkOlder(targetPeBus, inBus, io.oldestBid(lane))
       val flushOlder = flushEffective &&
@@ -300,6 +343,7 @@ class RecoveryClassMerge(
       when(inputGlobalFlush) {
         when(flushOlder) {
           io.inDroppedByOlder := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.elsewhen((io.in.typ =/= FlushType.MissPredFlush) && targetPeOlder) {
           val (mergedValid, mergedReq) = mergeSignal(
             io.in,
@@ -310,56 +354,85 @@ class RecoveryClassMerge(
           when(mergedValid) {
             val mergedBus = annotateFull(mergedReq)
             io.inMerged := true.B
+            val mergedProvenance = RecoveryProvenance.merged(io.inProvenance, targetPeProvenance)
             for (pe <- 0 until peCount) {
               when(io.in.peId === pe.U) {
                 nextPeScoped(lane)(pe).valid := false.B
+                nextPeScopedProvenance(lane)(pe) :=
+                  0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
               }
             }
             when(mergedBus.baseOnPE || mergedBus.baseOnThread) {
               for (pe <- 0 until peCount) {
                 when(mergedReq.peId === pe.U) {
                   nextPeScoped(lane)(pe) := mergedReq
+                  nextPeScopedProvenance(lane)(pe) := mergedProvenance
                 }
               }
             }.otherwise {
               nextFlush(lane) := mergedReq
+              nextFlushProvenance(lane) := mergedProvenance
               for (pe <- 0 until peCount) {
                 when(peEffective(pe) && FlushControl.checkOlder(mergedBus, peBus(lane)(pe), io.oldestBid(lane))) {
+                  resolve(
+                    peScopedProvenance(lane)(pe).causeMask,
+                    io.in.peId =/= pe.U
+                  )
                   nextPeScoped(lane)(pe).valid := false.B
+                  nextPeScopedProvenance(lane)(pe) :=
+                    0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
                 }
               }
               when(replayEffective && FlushControl.checkOlder(mergedBus, replayBus(lane), io.oldestBid(lane))) {
+                resolve(globalReplayProvenance(lane).causeMask, true.B)
                 nextReplay(lane).valid := false.B
+                nextReplayProvenance(lane) := 0.U.asTypeOf(nextReplayProvenance(lane))
               }
             }
           }.otherwise {
             io.inDroppedByOlder := true.B
+            resolve(io.inProvenance.causeMask, true.B)
           }
         }.otherwise {
+          resolve(globalFlushProvenance(lane).causeMask, flushEffective)
           nextFlush(lane) := io.in
+          nextFlushProvenance(lane) := io.inProvenance
           for (pe <- 0 until peCount) {
             when(peEffective(pe) && FlushControl.checkOlder(inBus, peBus(lane)(pe), io.oldestBid(lane))) {
+              resolve(peScopedProvenance(lane)(pe).causeMask, true.B)
               nextPeScoped(lane)(pe).valid := false.B
+              nextPeScopedProvenance(lane)(pe) :=
+                0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
             }
           }
           when(replayEffective && FlushControl.checkOlder(inBus, replayBus(lane), io.oldestBid(lane))) {
+            resolve(globalReplayProvenance(lane).causeMask, true.B)
             nextReplay(lane).valid := false.B
+            nextReplayProvenance(lane) := 0.U.asTypeOf(nextReplayProvenance(lane))
           }
         }
       }.elsewhen(inputGlobalReplay) {
         when(io.oldestBlockComplete(lane)) {
           io.inDroppedByComplete := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.elsewhen(
           flushEffective && (globalFlush(lane).typ === FlushType.MissPredFlush) && flushOlder
         ) {
           io.inDroppedByOlder := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.elsewhen(replayOlder) {
           io.inDroppedByOlder := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.otherwise {
+          resolve(globalReplayProvenance(lane).causeMask, replayEffective)
           nextReplay(lane) := io.in
+          nextReplayProvenance(lane) := io.inProvenance
           for (pe <- 0 until peCount) {
             when(peEffective(pe) && FlushControl.checkOlder(inBus, peBus(lane)(pe), io.oldestBid(lane))) {
+              resolve(peScopedProvenance(lane)(pe).causeMask, true.B)
               nextPeScoped(lane)(pe).valid := false.B
+              nextPeScopedProvenance(lane)(pe) :=
+                0.U.asTypeOf(nextPeScopedProvenance(lane)(pe))
             }
           }
         }
@@ -374,27 +447,37 @@ class RecoveryClassMerge(
           when(flushMergeValid) {
             val mergedBus = annotateFull(flushMergedReq)
             io.inMerged := true.B
+            val mergedProvenance = RecoveryProvenance.merged(globalFlushProvenance(lane), io.inProvenance)
             nextFlush(lane).valid := false.B
+            nextFlushProvenance(lane) := 0.U.asTypeOf(nextFlushProvenance(lane))
             when(mergedBus.baseOnPE || mergedBus.baseOnThread) {
               for (pe <- 0 until peCount) {
                 when(flushMergedReq.peId === pe.U) {
+                  resolve(peScopedProvenance(lane)(pe).causeMask, peEffective(pe))
                   nextPeScoped(lane)(pe) := flushMergedReq
+                  nextPeScopedProvenance(lane)(pe) := mergedProvenance
                 }
               }
             }.otherwise {
               nextFlush(lane) := flushMergedReq
+              nextFlushProvenance(lane) := mergedProvenance
             }
           }.otherwise {
             io.inDroppedByOlder := true.B
+            resolve(io.inProvenance.causeMask, true.B)
           }
         }.elsewhen(replayOlder) {
           io.inDroppedByOlder := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.elsewhen(targetPeOlder) {
           io.inDroppedByOlder := true.B
+          resolve(io.inProvenance.causeMask, true.B)
         }.otherwise {
           for (pe <- 0 until peCount) {
             when(io.in.peId === pe.U) {
+              resolve(peScopedProvenance(lane)(pe).causeMask, peEffective(pe))
               nextPeScoped(lane)(pe) := io.in
+              nextPeScopedProvenance(lane)(pe) := io.inProvenance
             }
           }
         }
@@ -405,6 +488,10 @@ class RecoveryClassMerge(
   globalFlush := nextFlush
   globalReplay := nextReplay
   peScoped := nextPeScoped
+  globalFlushProvenance := nextFlushProvenance
+  globalReplayProvenance := nextReplayProvenance
+  peScopedProvenance := nextPeScopedProvenance
+  io.resolvedMask := resolved.asUInt
 
   io.globalFlushPendingMask := VecInit(globalFlush.map(_.valid)).asUInt
   io.globalReplayPendingMask := VecInit(globalReplay.map(_.valid)).asUInt
