@@ -9,8 +9,10 @@ class STQCommitDrainRequest(
     val entries: Int,
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
-    val sizeWidth: Int = 4)
+    val sizeWidth: Int = 4,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   val valid = Bool()
   val stqIndex = UInt(log2Ceil(entries).W)
   val split = Bool()
@@ -19,8 +21,8 @@ class STQCommitDrainRequest(
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
-  val bid = new ROBID(entries)
-  val lsId = new ROBID(entries)
+  val bid = new ROBID(identityEntries)
+  val lsId = new ROBID(identityEntries)
 }
 
 class STQCommitDrainIO(
@@ -34,16 +36,18 @@ class STQCommitDrainIO(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
   private val queueCountWidth = log2Ceil(queueEntries + 1)
   private val freeCountWidth = log2Ceil(issueWidth + 1)
 
   val enqueueValid = Input(Bool())
   val enqueueIndex = Input(UInt(ptrWidth.W))
-  val enqueueBid = Input(new ROBID(entries))
-  val enqueueLsId = Input(new ROBID(entries))
+  val enqueueBid = Input(new ROBID(identityEntries))
+  val enqueueLsId = Input(new ROBID(identityEntries))
   val flushValid = Input(Bool())
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
@@ -53,22 +57,22 @@ class STQCommitDrainIO(
   val issueEnable = Input(Bool())
   val primaryReadyMask = Input(UInt(entries.W))
   val secondaryReadyMask = Input(UInt(entries.W))
-  val rows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
 
   val commitEligibleMask = Output(UInt(entries.W))
   val splitMask = Output(UInt(entries.W))
   val readyMask = Output(UInt(entries.W))
 
-  val issue = Output(Vec(issueWidth, new STQCommitIssue(entries, entries)))
+  val issue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries)))
   val issueValidMask = Output(UInt(issueWidth.W))
   val issueCount = Output(UInt(freeCountWidth.W))
-  val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth)))
+  val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries)))
 
   val commitFreeMaskValid = Output(Bool())
   val commitFreeMask = Output(UInt(entries.W))
   val commitFreeCount = Output(UInt(freeCountWidth.W))
 
-  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(entries, entries)))
+  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(identityEntries, entries)))
   val queuedValidMask = Output(UInt(queueEntries.W))
   val queueCount = Output(UInt(queueCountWidth.W))
   val empty = Output(Bool())
@@ -77,12 +81,15 @@ class STQCommitDrainIO(
 }
 
 object STQCommitDrain {
-  def crossesScalarCacheline(addr: UInt, size: UInt): Bool = {
-    val offset = Wire(UInt(7.W))
-    val sizeWide = Wire(UInt(7.W))
-    offset := addr(5, 0)
+  def crossesScalarCacheline(addr: UInt, size: UInt, lineBytes: Int = 64): Bool = {
+    require(lineBytes > 1 && (lineBytes & (lineBytes - 1)) == 0, "lineBytes must be a power of two greater than one")
+    val offsetBits = log2Ceil(lineBytes)
+    val compareWidth = math.max(offsetBits + 1, size.getWidth)
+    val offset = Wire(UInt(compareWidth.W))
+    val sizeWide = Wire(UInt(compareWidth.W))
+    offset := addr(offsetBits - 1, 0)
     sizeWide := size
-    (offset +& sizeWide) > 64.U
+    (offset +& sizeWide) > lineBytes.U
   }
 }
 
@@ -97,28 +104,34 @@ class STQCommitDrain(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val robEntries: Int = 0,
+    val lineBytes: Int = 64)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
   require(queueEntries > 1, "STQ commit queue entries must be greater than one")
   require(issueWidth > 0, "STQ commit drain issue width must be nonzero")
   require(issueWidth <= queueEntries, "STQ commit drain issue width cannot exceed queue depth")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
   require((queueEntries & (queueEntries - 1)) == 0, "STQ commit queue entries must be a power of two")
+  require(identityEntries > 1 && (identityEntries & (identityEntries - 1)) == 0, "ROB entries must be a power of two")
   require(addrWidth >= 7, "STQ commit drain needs at least 7 address bits for scalar cacheline split detection")
   require(sizeWidth >= 4, "STQ commit drain scalar store sizes require at least 4 size bits")
+  require(lineBytes > 1 && (lineBytes & (lineBytes - 1)) == 0, "lineBytes must be a power of two greater than one")
+  require(addrWidth >= log2Ceil(lineBytes), "address width must cover the cache-line offset")
 
   private val freeCountWidth = log2Ceil(issueWidth + 1)
 
-  val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries))
 
   private def zeroReq: STQCommitDrainRequest = {
-    val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth))
+    val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries))
     req := 0.U.asTypeOf(req)
     req
   }
 
-  val queue = Module(new STQCommitQueue(robEntries = entries, stqEntries = entries, queueEntries = queueEntries, issueWidth = issueWidth))
+  val queue = Module(new STQCommitQueue(robEntries = identityEntries, stqEntries = entries, queueEntries = queueEntries, issueWidth = issueWidth))
   queue.io.enqueueValid := io.enqueueValid
   queue.io.enqueueIndex := io.enqueueIndex
   queue.io.enqueueBid := io.enqueueBid
@@ -131,7 +144,7 @@ class STQCommitDrain(
   val readyVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
     val row = io.rows(idx)
-    splitVec(idx) := STQCommitDrain.crossesScalarCacheline(row.addr, row.size)
+    splitVec(idx) := STQCommitDrain.crossesScalarCacheline(row.addr, row.size, lineBytes)
     commitEligibleVec(idx) :=
       row.valid &&
         (row.status === STQEntryStatus.Commit) &&
@@ -181,7 +194,7 @@ class STQCommitDrain(
     val sizeWide = Wire(UInt(7.W))
     offset := row.addr(5, 0)
     sizeWide := row.size
-    val crosses = STQCommitDrain.crossesScalarCacheline(row.addr, row.size)
+    val crosses = STQCommitDrain.crossesScalarCacheline(row.addr, row.size, lineBytes)
     val firstSizeWide = Mux(crosses, 64.U(7.W) - offset, sizeWide)
     val secondSizeWide = sizeWide - firstSizeWide
     val secondAddr = (Cat(row.addr(addrWidth - 1, 6), 0.U(6.W)) + 64.U)(addrWidth - 1, 0)

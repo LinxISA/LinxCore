@@ -30,12 +30,14 @@ class STQFlushPruneIO(
     val entries: Int,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   private val countWidth = log2Ceil(entries + 1)
 
-  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
-  val rows = Input(Vec(entries, new STQFlushPruneEntry(entries, peIdWidth, stidWidth, tidWidth)))
+  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
+  val rows = Input(Vec(entries, new STQFlushPruneEntry(identityEntries, peIdWidth, stidWidth, tidWidth)))
 
   val matchMask = Output(UInt(entries.W))
   val freeMask = Output(UInt(entries.W))
@@ -79,12 +81,14 @@ class STQFlushPrune(
     val entries: Int = 16,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
 
-  val io = IO(new STQFlushPruneIO(entries, peIdWidth, stidWidth, tidWidth))
+  val io = IO(new STQFlushPruneIO(entries, peIdWidth, stidWidth, tidWidth, identityEntries))
 
   val matches = VecInit(io.rows.map(row => STQFlushPrune.matchesFlush(io.flush, row)))
   val free = VecInit(io.rows.zip(matches).map { case (row, matched) =>

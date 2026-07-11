@@ -15,7 +15,21 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R632 continues the seeded raw-window scanner over two larger
+Latest packet: R633 establishes the canonical Chisel `ScalarLSU`, moves the
+proven STQ-to-SCB store path beneath it, and connects that owner to
+`LinxCoreTop`. `ScalarLsuParams` now independently sizes STQ, commit queue and
+issue, SCB, response buffering, cache-line geometry, and MapQ depth, while
+`CoreParams.robEntries` controls BID/GID/RID/LSID and flush identity width.
+Focused suites pass for the new owner and all changed STQ helpers, and the top
+Verilator gate compares three rows with zero mismatches. The R633 context pack
+also passes the real CoreMark prefix (665 compared rows, zero mismatches) and
+the constructed replay loop (9 compared rows, zero mismatches, positive LIQ,
+MDB, wait-store, and replay-dequeue counters). This is store-side ownership and
+baseline preservation, not a complete scalar LSU. The next integration packet
+should move the proven LIQ/ResolveQ/MDB/replay cluster beneath `ScalarLSU` with
+one shared typed flush and LSID lifecycle.
+
+R632 continues the seeded raw-window scanner over two larger
 post-R631 R625 windows with
 `generated/r632-replay-liq-qemu-seeded-window-scan-next2-large/report/seeded_window_scan.json`.
 Window 4 (`skip=1525`, `rows=109`) is not a legal single-launch replay shape:

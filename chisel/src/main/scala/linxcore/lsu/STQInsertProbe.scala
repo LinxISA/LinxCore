@@ -14,13 +14,15 @@ class STQInsertProbeIO(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
 
   val requestValid = Input(Bool())
-  val request = Input(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
-  val rows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val request = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
   val flushApplied = Input(Bool())
 
   val ready = Output(Bool())
@@ -45,12 +47,14 @@ class STQInsertProbe(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ insert probe entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ insert probe entries must be a power of two")
 
-  val io = IO(new STQInsertProbeIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val io = IO(new STQInsertProbeIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries))
 
   private def sameStoreId(row: STQEntryBankRow, req: STQStoreRequest): Bool =
     ROBID.equal(row.bid, req.bid) && ROBID.equal(row.lsId, req.lsId) &&

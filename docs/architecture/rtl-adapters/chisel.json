@@ -8,10 +8,12 @@
       "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
       "role": "reduced-bringup",
       "forbidden_roles": ["full-composition", "full-replacement"],
-      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU"],
       "text_contains": [
         "val commitRob = Module(new ReducedCommitROB",
-        "io.idle := commitRob.io.empty"
+        "val scalarLsu = Module(new ScalarLSU",
+        "scalarLsu.io.drainEmpty",
+        "scalarLsu.io.scbEntryCount === 0.U"
       ]
     }
   ],
@@ -22,7 +24,11 @@
       "class": "CoreParams",
       "values": {
         "robEntries": 128,
-        "commitWidth": 4
+        "commitWidth": 4,
+        "scalarLsu.stqEntries": 16,
+        "scalarLsu.commitQueueEntries": 16,
+        "scalarLsu.commitIssueWidth": 2,
+        "scalarLsu.scbEntries": 16
       },
       "validation_text": [
         "robEntries must be a power of two",
@@ -288,10 +294,18 @@
     {
       "id": "chisel-store-stq-scb",
       "module_family": "lsu",
-      "status": "unit-proven",
+      "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["STQ and SCB focused owners are not connected to a canonical full LSU top."],
+      "limitations": ["The canonical ScalarLSU currently integrates the store side only; LIQ, ResolveQ, MDB, refill, and replay are not yet children of this owner."],
       "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
+          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+          "symbols": ["scalarLsu", "stqEmpty", "scbRespBufferEmpty"]
+        },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala",
           "symbols": ["STQEntryBank", "rows"]
@@ -302,6 +316,10 @@
         }
       ],
       "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec"
+        },
         {
           "path": "chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only STQEntryBankSpec"

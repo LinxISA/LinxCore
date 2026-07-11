@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.CoreParams
+import linxcore.lsu.ScalarLSU
 import linxcore.rob.ReducedCommitROB
 
 class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTraceParams) extends Bundle {
@@ -17,6 +18,8 @@ class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTracePara
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+
+  val scalarLsu = ScalarLSU.storePathIO(coreParams, coreParams.scalarLsu)
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -46,6 +49,9 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
     entries = coreParams.robEntries,
     traceParams = traceParams
   ))
+  val scalarLsu = Module(new ScalarLSU(coreParams))
+
+  scalarLsu.io <> io.scalarLsu
 
   commitRob.io.allocValid := io.allocValid
   commitRob.io.allocRow := io.allocRow
@@ -73,7 +79,12 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
   io.headComplete := commitRob.io.headComplete
   io.headRobValue := commitRob.io.headRobValue
 
-  io.idle := commitRob.io.empty
+  io.idle :=
+    commitRob.io.empty &&
+      scalarLsu.io.stqEmpty &&
+      scalarLsu.io.drainEmpty &&
+      (scalarLsu.io.scbEntryCount === 0.U) &&
+      scalarLsu.io.scbRespBufferEmpty
 }
 
 object LinxCoreTop {

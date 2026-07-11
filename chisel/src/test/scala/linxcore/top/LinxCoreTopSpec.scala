@@ -1,7 +1,7 @@
 package linxcore.top
 
 import circt.stage.ChiselStage
-import linxcore.common.CoreParams
+import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 class LinxCoreTopSpec extends AnyFunSuite {
@@ -13,14 +13,25 @@ class LinxCoreTopSpec extends AnyFunSuite {
     assert(trace.robValueWidth == 3)
   }
 
-  test("Chisel LinxCoreTop elaborates with the monitored reduced commit shell") {
+  test("Chisel LinxCoreTop elaborates with commit and scalar LSU owners") {
+    val lsu = ScalarLsuParams(
+      stqEntries = 8,
+      commitQueueEntries = 4,
+      commitIssueWidth = 1,
+      scbEntries = 4,
+      scbResponseBufferDepth = 2,
+      mapQDepth = 8
+    )
     val sv = ChiselStage.emitSystemVerilog(
-      new LinxCoreTop(CoreParams(robEntries = 8, commitWidth = 2))
+      new LinxCoreTop(CoreParams(robEntries = 8, commitWidth = 2, scalarLsu = lsu))
     )
 
     assert(sv.contains("module LinxCoreTop"))
     assert(sv.contains("module ReducedCommitROB"))
     assert(sv.contains("module CommitTraceMonitor"))
+    assert(sv.contains("module ScalarLSU"))
+    assert(sv.contains("module STQSCBCommitPath"))
+    assert(sv.contains("io_scalarLsu_flush_req_valid"))
     assert(sv.contains("commitContractError"))
     assert(sv.contains("io_idle"))
   }

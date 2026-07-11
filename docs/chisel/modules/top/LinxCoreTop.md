@@ -4,7 +4,8 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreTop.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreTopSpec.scala`
-- Current child owner: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
+- Current child owners: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`,
+  `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala`
 - LinxCoreModel evidence: `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`,
   `model/LinxCoreModel/model/interface/CommitInfo.h`
 - Contract IDs: `LC-IF-CHISEL-TOP-001`, `LC-IF-CHISEL-XCHK-003`
@@ -12,10 +13,10 @@
 ## Purpose
 
 `LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
-full LinxCore frontend, decode, issue, execute, LSU, recovery, and commit
-system. It instantiates the monitored `ReducedCommitROB` so the standard top
-emit/lint path carries real ROB/commit structure instead of a constant idle
-stub.
+full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
+instantiates the monitored `ReducedCommitROB` and the canonical store-side
+`ScalarLSU`. LIQ, ResolveQ, MDB, refill, replay, and load return are not yet
+integrated beneath that LSU owner.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing
@@ -31,6 +32,7 @@ xchecks while that newer wrapper grows toward live Verilator execution.
 | input | `allocRow` | `CommitTraceRow` | `allocValid && allocReady` | Commit-trace-shaped row used as the temporary reduced top input payload. |
 | input | `completeValid` | `Bool` | valid | Marks one reduced ROB slot complete. |
 | input | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | `completeValid` | Reduced ROB slot index to complete. |
+| bidirectional boundary | `scalarLsu` | `STQSCBCommitPathIO` | typed per signal | Canonical scalar LSU store-side request, flush, cache/response, state, and diagnostic boundary. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Head-ordered retired rows from the reduced ROB. |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | Reduced ROB commit valid mask. |
 | output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
@@ -47,11 +49,11 @@ xchecks while that newer wrapper grows toward live Verilator execution.
 | output | `headValid` | `Bool` | combinational | Reduced ROB head slot contains a live row. |
 | output | `headComplete` | `Bool` | combinational | Reduced ROB head slot is live and complete. |
 | output | `headRobValue` | `UInt(log2Ceil(robEntries).W)` | combinational | Current reduced ROB head slot. |
-| output | `idle` | `Bool` | combinational | Alias for reduced ROB `empty`. |
+| output | `idle` | `Bool` | combinational | True when the reduced ROB and speculative/response LSU state are quiescent. |
 
 ## State
 
-All state is currently owned by the child `ReducedCommitROB`. `LinxCoreTop`
+State is owned by `ReducedCommitROB` and `ScalarLSU` children. `LinxCoreTop`
 owns no registers of its own.
 
 ## Logic Design
@@ -60,7 +62,8 @@ The top computes `CommitTraceParams` from `CoreParams` so top-level commit width
 and ROB slot width stay tied to the core configuration. It wires the external
 allocation and completion ports directly into `ReducedCommitROB`, forwards the
 commit window and monitor flags, and reports `idle` when the reduced ROB is
-empty.
+empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, and
+SCB response buffer empty.
 
 This keeps the first top-level Chisel structure aligned with the
 LinxCoreModel-derived `SPEROB::commit` walk: rows retire in contiguous completed
@@ -74,8 +77,9 @@ stage.
 
 ## Flush/Recovery
 
-Full flush, checkpoint restore, rename cleanup, LSU cleanup, and precise trap
-ownership are not implemented in this shell. Future integrated top work must
+The scalar LSU accepts the typed Linx store flush boundary, but full checkpoint
+restore, rename cleanup, load cleanup, and precise trap ownership are not
+implemented in this shell. Future integrated top work must
 replace the reduced ROB interface with real frontend/backend ownership while
 keeping commit rows monitored before cross-check use.
 
@@ -101,7 +105,8 @@ those rows from an ELF.
 - `bash tools/chisel/build_chisel.sh`
 
 Current tests cover parameter derivation from `CoreParams`, top-level
-elaboration with `ReducedCommitROB` and `CommitTraceMonitor`, and top Verilator
+elaboration with `ReducedCommitROB`, `CommitTraceMonitor`, `ScalarLSU`, and its
+STQ-to-SCB children, and top Verilator
 lint over all emitted SystemVerilog files. The top xcheck emits a dedicated
 8-entry, two-wide `LinxCoreTop` configuration and reuses the reduced ROB
 Verilator trace harness to prove the top-level commit observation surface
