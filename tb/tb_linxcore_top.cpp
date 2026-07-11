@@ -2520,7 +2520,18 @@ int main(int argc, char **argv) {
                 << "\n";
     }
     const bool ctuStartFirePost = readProbeBool(ctuDbgProbes.startFire);
-    if (ifuStubFromQemu && ctuStartFirePost && ifuStubRows != nullptr) {
+    if (ctuStartFirePost && !ifuStubFromQemu) {
+      // The top-level CTU-start flush removes predecoded instructions after a
+      // macro header and restarts the IB at the architectural fall-through.
+      // The memh stub owns an independent source cursor, so it must consume
+      // the same redirect; otherwise its pre-macro pending packet is injected
+      // immediately after FENTRY/FEXIT/FRET completion.
+      const std::uint8_t macroLen =
+          normalizeLen(static_cast<std::uint8_t>(dut.rob_head_len.value() & 0x7u));
+      ifuStubMemPc = dut.rob_head_pc.value() + static_cast<std::uint64_t>(macroLen);
+      ifuStubPending.reset();
+      ifuStubFire = false;
+    } else if (ifuStubFromQemu && ctuStartFirePost && ifuStubRows != nullptr) {
       // Macro start flushes younger frontend state. For the trace-fed IFU,
       // resume from the first QEMU row after the current macro's dynamic rows
       // so the post-template path stays aligned with commit order.

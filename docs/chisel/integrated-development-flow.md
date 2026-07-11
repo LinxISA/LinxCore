@@ -1069,10 +1069,14 @@ Evidence:
   redirected macro header. `dispatch_frontend.flush_i` carries that recovery
   kill; the directed 20-commit trace now retires the `FENTRY` parent at
   `0x124aa` as sequence 8, rather than the former bogus `LWU` at `0x124de`.
-  The next FIFO divergence is independently later: after that FENTRY, QEMU
-  continues at `0x124ae`, while the RTL resumes at `0x124ca`. This is a
-  macro-stream/fall-through contract gap, not a loader, FIFO, or stale-F4
-  recovery failure.
+  The memh host cursor now consumes that same CTU-start flush and resumes at
+  `0x124ae`, advancing the FIFO comparison from six to nineteen architectural
+  rows. The next root cause is the ISA instruction-length contract: CoreMark
+  uses an eight-byte `HL.BSTART.CALL` at `0x124ae`, but the current decode/ROB
+  length path is three bits wide and labels the HL form as six bytes. Its final
+  two bytes are then injected as a bogus 16-bit instruction at `0x124b4`, so
+  the call target is never taken. Repair this by widening the architectural
+  length contract end-to-end; do not mask it as a branch or FRET trace issue.
 - The post-recovery implementation survives a direct CoreMark boot through
   the explicit `PYC_MAX_CYCLES=3000000` endurance bound without a trap or the
   20,000-cycle no-retire detector firing. It reached the configured cycle
