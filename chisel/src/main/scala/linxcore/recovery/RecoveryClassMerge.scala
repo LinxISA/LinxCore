@@ -98,6 +98,7 @@ class RecoveryClassMerge(
     ringReq.lsId := req.lsId
     ringReq.execEngine := req.execEngine
     ringReq.fetchTpcValid := req.fetchTpcValid
+    ringReq.fetchTpc := req.fetchTpc
     ringReq.immediateFlush := req.immediateFlush
     FlushControl.annotate(ringReq)
   }

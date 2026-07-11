@@ -89,6 +89,7 @@ class RingFullBidRecoveryBridge(
   io.fullReq.lsId := io.ringReq.req.lsId
   io.fullReq.execEngine := io.ringReq.req.execEngine
   io.fullReq.fetchTpcValid := io.ringReq.req.fetchTpcValid
+  io.fullReq.fetchTpc := io.ringReq.req.fetchTpc
   io.fullReq.immediateFlush := io.ringReq.req.immediateFlush
 
   io.matched := matched

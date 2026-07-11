@@ -489,6 +489,7 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   flushReq.lsId := conflict.io.record.load.lsId
   flushReq.execEngine := ExecEngineType.Scalar
   flushReq.fetchTpcValid := true.B
+  flushReq.fetchTpc := conflict.io.record.load.pc
   flushReq.immediateFlush := false.B
 
   val recoveryQ = withReset(reset.asBool || io.flush) {

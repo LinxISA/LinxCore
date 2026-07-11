@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "ScalarLSURecoverySource feeds RecoveryFabric in the real-ROB harness and local cleanup priority is removed, but the canonical top does not yet connect the full BCC/IEX/PE/LSU source set."],
+      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "R642 implements retained BCC/IEX/PE producer adapters and composes them through RecoveryFabric in a generated probe, but canonical trigger owners do not yet expose every authoritative full-BID event port and the production top does not connect the complete BCC/IEX/PE/LSU source set."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -200,6 +200,14 @@
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala",
           "symbols": ["RecoveryFabric", "sourceArbiter", "classMerge", "cleanup", "classSelected", "intent"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducers.scala",
+          "symbols": ["RecoveryProducerQueue", "BccRecoverySource", "IexSlowInsertRecoverySource", "IexIqStallRecoverySource", "PeMismatchRecoverySource"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala",
+          "symbols": ["RecoveryProducerProbe", "stallBlockedByMissingIdentity", "intentBlockBid"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala",
@@ -250,6 +258,14 @@
         {
           "path": "tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh",
           "command": "bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/RecoveryProducerSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryProducerSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_recovery_producer_probe.sh",
+          "command": "bash tools/chisel/run_chisel_recovery_producer_probe.sh"
         }
       ]
     },

@@ -42,6 +42,7 @@ state, frontend restart state, or PE replay queues.
 | `lsId` | `ROBID` | Ring load/store sub-identity sidecar. |
 | `execEngine` | `ExecEngineType` | Scalar, SIMT, MEM, or IEX_NUM-or-higher source. |
 | `fetchTpcValid` | `Bool` | PE replay target-valid bit. |
+| `fetchTpc` | `UInt(64.W)` | Exact Linx64 restart target retained with the request. |
 | `immediateFlush` | `Bool` | Preserved for future cleanup owners. |
 
 ### `FullBidRecoveryBridgeIO`

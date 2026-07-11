@@ -48,6 +48,7 @@ backend, ROB, LSU/STQ, tile, PE fanout, and frontend restart intent bits.
 | `lsId` | `ROBID` | Load/store sub-identity used by non-BID flush checks. |
 | `execEngine` | `ExecEngineType` | Scalar, SIMT, MEM, or IEX_NUM-or-higher. |
 | `fetchTpcValid` | `Bool` | PE replay without this bit becomes BID-based. |
+| `fetchTpc` | `UInt(64.W)` | Exact non-block-based recovery restart target. |
 | `immediateFlush` | `Bool` | Preserved for future `CheckFlush`; unused by `FlushOlderSelector`. |
 
 ### `FlushBus`

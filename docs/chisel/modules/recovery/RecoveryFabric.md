@@ -11,6 +11,8 @@
   `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
 - Integrated proof:
   `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala`
+- Producer proof:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala`
 - Tests: `chisel/src/test/scala/linxcore/recovery/RecoveryClassMergeSpec.scala`
 - Generated-RTL testbench:
   `tools/chisel/recovery_cleanup_rob_probe_tb.cpp`
@@ -93,14 +95,17 @@ R641 introduces this wrapper and updates the real-ROB recovery probe to use it.
 The probe integrates retained source arbitration, class merge, cleanup intent,
 and real `ROBEntryBank` pruning.
 
-This wrapper is the canonical recovery fabric shape, but it is not yet
-canonical production top wiring. BCC, IEX, and PE producer modules remain open,
-and the backend top still needs to instantiate the complete producer set.
+R642 adds retained BCC miss-predict, IEX slow-insert, IEX IQ-stall, and PE
+mismatch producer adapters and composes them through this wrapper in generated
+RTL. This is not yet canonical production top wiring: the BCC/IEX/PE trigger
+owners must expose authoritative full-BID event ports, and the backend top must
+instantiate the complete producer set with `ScalarLSURecoverySource`.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryClassMergeSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
+- `bash tools/chisel/run_chisel_recovery_producer_probe.sh`
 
 Focused elaboration proves the wrapper instantiates the source arbiter, class
 merge, and cleanup controller. The integrated generated probe proves the fabric

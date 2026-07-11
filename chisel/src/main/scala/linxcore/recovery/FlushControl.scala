@@ -26,6 +26,7 @@ class FlushReq(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8,
   val lsId = new ROBID(entries)
   val execEngine = ExecEngineType()
   val fetchTpcValid = Bool()
+  val fetchTpc = UInt(64.W)
   val immediateFlush = Bool()
 }
 
@@ -58,6 +59,7 @@ class FullBidFlushReq(
   val lsId = new ROBID(entries)
   val execEngine = ExecEngineType()
   val fetchTpcValid = Bool()
+  val fetchTpc = UInt(64.W)
   val immediateFlush = Bool()
 }
 
@@ -112,6 +114,7 @@ class FullBidRecoveryBridge(
   robReq.lsId := io.req.lsId
   robReq.execEngine := io.req.execEngine
   robReq.fetchTpcValid := io.req.fetchTpcValid
+  robReq.fetchTpc := io.req.fetchTpc
   robReq.immediateFlush := io.req.immediateFlush
 
   val annotated = FlushControl.annotate(robReq)
