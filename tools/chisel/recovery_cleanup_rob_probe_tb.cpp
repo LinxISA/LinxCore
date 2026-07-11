@@ -18,6 +18,36 @@ static void require(bool condition, const char *message) {
     }
 }
 
+static void wait_for_cleanup(VRecoveryCleanupROBProbe &dut,
+                             int block_bid,
+                             const char *message,
+                             int max_cycles = 12) {
+    for (int cycle = 0; cycle < max_cycles; ++cycle) {
+        dut.eval();
+        if (dut.io_cleanupPending && dut.io_cleanupIntentValid &&
+            dut.io_cleanupBlockFlushValid && dut.io_cleanupBlockFlushBid == block_bid) {
+            return;
+        }
+        tick(dut);
+    }
+    require(false, message);
+}
+
+static void drain_recovery(VRecoveryCleanupROBProbe &dut,
+                           const char *message,
+                           int max_cycles = 24) {
+    dut.io_intentReady = 1;
+    for (int cycle = 0; cycle < max_cycles; ++cycle) {
+        dut.eval();
+        if (!dut.io_recoveryPending) {
+            dut.io_intentReady = 0;
+            return;
+        }
+        tick(dut);
+    }
+    require(false, message);
+}
+
 int main(int argc, char **argv) {
     Verilated::commandArgs(argc, argv);
     VRecoveryCleanupROBProbe dut;
@@ -30,9 +60,11 @@ int main(int argc, char **argv) {
     dut.io_fullValid = 0;
     dut.io_fullBlockBid = 0;
     dut.io_fullStid = 0;
+    dut.io_fullPe = 0;
     dut.io_peerFullValid = 0;
     dut.io_peerFullBlockBid = 0;
     dut.io_peerFullStid = 0;
+    dut.io_peerFullPe = 0;
     dut.io_ringValid = 0;
     dut.io_ringBid = 0;
     dut.io_ringRid = 0;
@@ -91,10 +123,8 @@ int main(int argc, char **argv) {
             "promoted ring report did not become the retained arbiter winner");
     require(!dut.io_cleanupPending,
             "newly admitted arbiter source bypassed its retained report slot");
-    tick(dut);
-    dut.eval();
-    require(dut.io_cleanupPending && dut.io_cleanupIntentValid,
-            "accepted ring recovery was not retained as cleanup intent");
+    wait_for_cleanup(dut, 0x12,
+                     "accepted ring recovery was not retained as cleanup intent");
     require(!dut.io_robFlushApplied && dut.io_robSize == 3,
             "blocked cleanup intent modified ROB state");
     require(dut.io_cleanupBlockFlushValid && dut.io_cleanupBlockFlushBid == 0x12,
@@ -136,13 +166,9 @@ int main(int argc, char **argv) {
     require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedValid &&
                 dut.io_arbiterSelectedSource == 1 && dut.io_arbiterSelectedBlockBid == 0x11,
             "same-STID arbitration did not select the model-oldest report");
-    tick(dut);
-    dut.eval();
-    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushValid &&
-                dut.io_cleanupBlockFlushBid == 0x11,
-            "oldest full-BID request did not become retained cleanup intent");
-    require(dut.io_arbiterPendingMask == 0x1 &&
-                dut.io_arbiterSelectedBlockBid == 0x12,
+    wait_for_cleanup(dut, 0x11,
+                     "oldest full-BID request did not become retained cleanup intent");
+    require(dut.io_recoveryPending,
             "younger source was not retained behind the selected request");
 
     dut.io_intentReady = 1;
@@ -151,16 +177,12 @@ int main(int argc, char **argv) {
             "oldest selected request was not applied before replacement");
     tick(dut);
     dut.io_intentReady = 0;
-    dut.eval();
-    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushValid &&
-                dut.io_cleanupBlockFlushBid == 0x12,
-            "retained younger source did not replace consumed cleanup intent");
+    wait_for_cleanup(dut, 0x12,
+                     "retained younger source did not replace consumed cleanup intent");
     require(dut.io_arbiterPendingMask == 0,
             "accepted replacement remained duplicated in the source arbiter");
 
-    dut.io_intentReady = 1;
-    tick(dut);
-    dut.io_intentReady = 0;
+    drain_recovery(dut, "same-STID recovery sequence did not drain");
     dut.io_fullValid = 1;
     dut.io_fullBlockBid = 0x11;
     dut.io_fullStid = 2;
@@ -169,6 +191,16 @@ int main(int argc, char **argv) {
             "out-of-range STID report was admitted into retained recovery state");
 
     dut.io_fullStid = 0;
+    dut.io_fullPe = 2;
+    dut.eval();
+    require(!dut.io_fullReady && !dut.io_fullAccepted,
+            "out-of-range PE report was admitted into retained recovery state");
+    tick(dut);
+    dut.eval();
+    require(dut.io_arbiterPendingMask == 0 && !dut.io_recoveryPending,
+            "out-of-range PE report wedged a retained recovery source slot");
+
+    dut.io_fullPe = 0;
     dut.io_peerFullValid = 1;
     dut.io_peerFullBlockBid = 0x13;
     dut.io_peerFullStid = 1;
@@ -183,31 +215,40 @@ int main(int argc, char **argv) {
                 dut.io_arbiterSelectedBlockBid == 0x13,
             "round-robin STID serialization compared incomparable BIDs or starved lane one");
 
+    wait_for_cleanup(dut, 0x13,
+                     "round-robin STID1 winner did not reach cleanup");
+    dut.io_intentReady = 1;
+    tick(dut);
+    dut.io_intentReady = 0;
+    wait_for_cleanup(dut, 0x11,
+                     "independent STID0 report was not retained behind STID1");
+
+    dut.io_fullValid = 1;
+    dut.io_fullBlockBid = 0x14;
+    dut.io_fullStid = 0;
     dut.io_peerFullValid = 1;
     dut.io_peerFullBlockBid = 0x15;
     dut.io_peerFullStid = 1;
     dut.eval();
-    require(dut.io_peerFullAccepted,
-            "selected STID1 source could not consume-and-replace while STID0 remained resident");
-    tick(dut);
-    dut.io_peerFullValid = 0;
-    dut.io_intentReady = 1;
-    dut.io_fullValid = 1;
-    dut.io_fullBlockBid = 0x14;
-    dut.io_fullStid = 0;
-    dut.eval();
-    require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedSource == 0 &&
-                dut.io_arbiterSelectedBlockBid == 0x11 && dut.io_fullAccepted,
-            "round robin did not return to continuously resident STID0");
+    require(dut.io_fullAccepted && dut.io_peerFullAccepted,
+            "independent replacement STID reports were not retained together");
     tick(dut);
     dut.io_fullValid = 0;
+    dut.io_peerFullValid = 0;
+    require(dut.io_recoveryPending,
+            "replacement reports disappeared while an older cleanup intent was blocked");
+
+    dut.io_intentReady = 1;
+    tick(dut);
     dut.io_intentReady = 0;
-    dut.eval();
-    require(dut.io_arbiterPendingMask == 0x3 && dut.io_arbiterSelectedSource == 1 &&
-                dut.io_arbiterSelectedBlockBid == 0x15,
-            "round robin did not return to STID1 while retaining the replaced STID0 source");
-    require(dut.io_cleanupPending && dut.io_cleanupBlockFlushBid == 0x11,
-            "STID0 selection did not replace the consumed STID1 cleanup intent");
+    wait_for_cleanup(dut, 0x15,
+                     "round robin did not return to retained STID1 replacement");
+    dut.io_intentReady = 1;
+    tick(dut);
+    dut.io_intentReady = 0;
+    wait_for_cleanup(dut, 0x14,
+                     "round robin did not retain the STID0 replacement");
+    drain_recovery(dut, "cross-STID replacement sequence did not drain");
 
     std::cout << "recovery-cleanup-rob-probe-status=pass\n";
     return 0;

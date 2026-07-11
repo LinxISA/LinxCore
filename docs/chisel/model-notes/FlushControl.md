@@ -102,6 +102,17 @@ LSU now publishes one full-BID source and accepts per-source readiness from
 `RecoverySourceArbiter`; it no longer instantiates `RecoveryCleanupControl` or
 selects an external full request over MDB.
 
+R641 adds `RecoveryClassMerge` and `RecoveryFabric`. The class merge preserves
+one global-flush lane, one global-replay lane, and one PE-scoped lane per
+instantiated `(STID, PE)`. Accepted reports use `CheckOlder` against only their
+own STID's oldest BID, perform model cancellation and `mergeSignal`
+transformation, reject global replay when the oldest block is complete, and
+stage the selected request in an irrevocable downstream slot. `RecoveryFabric`
+places this owner between `RecoverySourceArbiter` and
+`RecoveryCleanupControl`; the raw ring cleanup input stays inactive in that
+composition. Cross-STID serialization remains round-robin and never compares
+unrelated BIDs.
+
 `STQFlushPrune` is the first LSU consumer of that selected `FlushBus`. It uses
 the same `stid`, optional PE/thread, BID, group, and LSID matching policy as
 `FlushBus::match(MemReqBus)` and only frees rows whose model STQ FSM is
@@ -126,6 +137,5 @@ rename packets.
   ClockHands/T/U and multi-thread rename replay, frontend restart token
   payloads, PE replay fanout, and BROB pointer restoration are signaled by
   `RecoveryCleanupControl` but not implemented by the current Chisel packets.
-- `ScalarLSURecoverySource` is proven ahead of the real-ROB cleanup harness.
-  Canonical BCC/IEX/PE source wiring and the complete stateful class merge remain
-  open top-level composition work.
+- `RecoveryFabric` is proven ahead of the real-ROB cleanup harness. Canonical
+  BCC/IEX/PE source modules and production backend-top wiring remain open.

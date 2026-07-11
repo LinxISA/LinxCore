@@ -15,6 +15,10 @@
   `chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala`
 - Retained source arbiter:
   `chisel/src/main/scala/linxcore/recovery/RecoverySourceArbiter.scala`
+- Class merge owner:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala`
+- Fabric owner:
+  `chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala`
 - Full-BID lookup owner:
   `chisel/src/main/scala/linxcore/rob/ROBFullBidLookup.scala`
 - LinxCoreModel evidence:
@@ -43,8 +47,8 @@ accepts either a selected full-BID request or a pre-annotated ring-identity
 explicit intent bits for BCTRL, rename, backend, frontend, LSU/STQ, tile, and
 ROB cleanup consumers. Full-BID input has fixed priority when both sources are
 valid at this local boundary. Multi-source production composition must place
-`RecoverySourceArbiter` before `req`; this fixed priority is not the
-BCC/IEX/PE/LSU age policy.
+`RecoveryFabric` before `req`; this fixed priority is not the BCC/IEX/PE/LSU
+age or class policy.
 
 `ScalarLSURecoverySource` is the canonical adapter for scalar MDB reports. It
 combines oldest eligibility with `RingFullBidRecoveryBridge`, emits an exact ROB
@@ -194,6 +198,12 @@ R640 replaces the probe's separate eligibility/promotion instances with
 `ScalarLSURecoverySource`, the same production owner instantiated by
 `ScalarLSU`. Focused elaboration proves no cleanup controller remains beneath
 the LSU.
+
+R641 places `RecoveryClassMerge` between `RecoverySourceArbiter` and this
+controller through `RecoveryFabric`. The real-ROB probe therefore reaches this
+controller only after retained source selection and class-lane
+cancellation/merge. BCC/IEX/PE producer modules and canonical production top
+wiring remain open.
 
 ## Trace/Observability
 

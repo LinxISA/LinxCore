@@ -81,9 +81,10 @@ state atomically, and forwards that BID into `ROBEntryBank.allocBid`.
 for BROB-style cleanup, ring `ROBID` for ROB row pruning.
 `ScalarLSURecoverySource` holds non-immediate MDB reports until the supplied
 oldest BID/RID watermark permits execution and exact resident-ROB lookup
-recovers the allocator-stamped full generation. `RecoverySourceArbiter` retains
-and selects promoted sources. `RecoveryCleanupControl` then registers the
-selected request and exposes
+recovers the allocator-stamped full generation. `RecoveryFabric` composes
+retained `RecoverySourceArbiter` selection, per-STID global-flush/global-replay
+and per-PE `RecoveryClassMerge` state, and registered
+`RecoveryCleanupControl` fanout. The cleanup owner then exposes
 the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
 tile, PE fanout, and ROB consumers. `GPRRenameCheckpoint` is the first scalar
 rename cleanup consumer: it owns model `GPRRename` `smap`/`cmap`, per-BID
@@ -171,6 +172,13 @@ retention, consume-plus-replace, invalid-STID rejection, fair cross-STID
 serialization, accepted block authority, and different-STID preservation.
 R640 uses the same production LSU source owner in that path, so exact lookup
 and arbiter acceptance are the only events that dequeue the retained MDB head.
+R641 places `RecoveryClassMerge` and `RecoveryCleanupControl` behind that
+arbiter through the canonical `RecoveryFabric` wrapper. Standalone generated
+RTL proves held-output stability, nuke/PE cancellation, fast-replay cancellation,
+completed-block replay drop, exact inner/PE merge transformation, invalid-scope
+blocking, independent PE lanes, and cross-STID serialization. The real-ROB
+probe now proves the complete fabric path through scoped prune. Canonical
+BCC/IEX/PE producer modules and backend-top instantiation remain open.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
@@ -237,7 +245,9 @@ bash tools/chisel/run_chisel_tests.sh --only ROBFullBidLookup
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only RingFullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only RecoveryClassMerge
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_recovery_class_merge_probe.sh
 bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh
 bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
 bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune

@@ -33,3 +33,5 @@ bash tests/test_trace_schema_and_mem.sh
 - `/Users/zhoubot/linx-isa/docs/project/navigation.md`
 - `/Users/zhoubot/linx-isa/docs/bringup/`
 - `/Users/zhoubot/linx-isa/docs/bringup/contracts/trace_schema.md`
+- `docs/chisel/integrated-development-flow.md`
+- `docs/chisel/modules/recovery/RecoveryFabric.md`

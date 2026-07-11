@@ -88,11 +88,12 @@ arbiter with the real BCC/IEX/PE source set in the canonical backend top remains
 the next ownership packet. The harness proves the central contract but does not
 claim complete top-level recovery composition.
 
-The model also retains separate global-flush, global-replay, and PE-scoped
-signal lanes and performs cancellation/merge between them. This packet does
-not collapse those class owners into this arbiter. Canonical composition must
-either preserve those lanes or define and prove an equivalent serialized merge
-before calling the full `FlushControl` path converged.
+R641 keeps this module as the source boundary and adds
+`RecoveryClassMerge` after it. The complete fabric path is now
+`RecoverySourceArbiter -> RecoveryClassMerge -> RecoveryCleanupControl`.
+Class-lane cancellation and merge are intentionally owned by the downstream
+class merge, not by this arbiter. Canonical BCC/IEX/PE producer modules and
+production backend-top wiring remain open.
 
 ## Verification
 

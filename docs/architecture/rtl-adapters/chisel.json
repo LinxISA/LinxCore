@@ -171,7 +171,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "ScalarLSURecoverySource feeds RecoverySourceArbiter in the real-ROB harness and local cleanup priority is removed, but the canonical top does not yet connect the full BCC/IEX/PE/LSU source set or class merge."],
+      "limitations": ["ScalarLSU and the real backend expose complementary full-BID lookup ports, but no canonical top yet connects them because LinxCoreTop still owns ReducedCommitROB.", "ScalarLSURecoverySource feeds RecoveryFabric in the real-ROB harness and local cleanup priority is removed, but the canonical top does not yet connect the full BCC/IEX/PE/LSU source set."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -194,6 +194,14 @@
           "symbols": ["RecoverySourceArbiter", "sourceReady", "sourceAccepted", "pendingMask", "lanePendingMask", "selectedSource"]
         },
         {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryClassMerge.scala",
+          "symbols": ["RecoveryClassMerge", "globalFlushPendingMask", "globalReplayPendingMask", "pePendingMask", "inDroppedByOlder", "inDroppedByComplete", "inMerged"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala",
+          "symbols": ["RecoveryFabric", "sourceArbiter", "classMerge", "cleanup", "classSelected", "intent"]
+        },
+        {
           "path": "chisel/src/main/scala/linxcore/recovery/RingFullBidRecoveryBridge.scala",
           "symbols": ["RingFullBidRecoveryBridge", "lookupRequest", "echoMatched", "projectionMatched", "fullReq"]
         },
@@ -207,7 +215,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala",
-          "symbols": ["RecoveryCleanupROBProbe", "ScalarLSURecoverySource", "RecoverySourceArbiter", "RecoveryCleanupControl", "ROBEntryBank", "robFlushPruneMask"]
+          "symbols": ["RecoveryCleanupROBProbe", "RecoveryFabric", "ScalarLSURecoverySource", "ROBEntryBank", "robFlushPruneMask"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala",
@@ -215,6 +223,14 @@
         }
       ],
       "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/recovery/RecoveryClassMergeSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryClassMergeSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_recovery_class_merge_probe.sh",
+          "command": "bash tools/chisel/run_chisel_recovery_class_merge_probe.sh"
+        },
         {
           "path": "chisel/src/test/scala/linxcore/recovery/RecoveryCleanupROBProbeSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec"

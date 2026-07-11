@@ -192,6 +192,7 @@
       "module_family": "rob-recovery",
       "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "limitations": ["JanusBccOooFlushCtrl retains one ROB redirect PC/checkpoint event but does not yet implement the R641 full-BID multi-source RecoveryFabric, per-STID global flush/replay class state, per-PE lanes, or registered RecoveryCleanupIntent fanout. Chisel is ahead at this boundary and cross-RTL recovery-fabric convergence remains open."],
       "evidence": [
         {
           "path": "src/bcc/backend/rob.py",

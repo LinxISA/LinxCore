@@ -15,14 +15,34 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R640 extracts `ScalarLSURecoverySource` as the production MDB
+Latest packet: R641 adds the parameterized recovery class/fabric packet.
+`RecoveryClassMerge` now retains global flush, global replay, and per-PE
+classes per STID, models `CheckOlder` cancellation and `mergeSignal`
+transformation, drops global replay when the oldest block is complete, stages
+downstream output in an irrevocable slot, and round-robins independent STID
+winners without comparing cross-STID BIDs. `RecoveryFabric` composes
+`RecoverySourceArbiter -> RecoveryClassMerge -> RecoveryCleanupControl`.
+Standalone generated class-merge proof and the real-ROB probe cover the new
+path. Canonical BCC/IEX/PE producer modules and production backend-top wiring
+remain open; this packet does not claim complete top-level recovery
+composition.
+
+R641 verification passes 252 suites and 1,486 tests. Both generated recovery
+probes and the canonical MDB probe pass. The canonical top cross-check compares
+3 rows with zero mismatches. Reduced CoreMark compares 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r641-final-recovery-fabric-coremark/report/crosscheck_manifest.json`.
+CoreMark remains no-regression evidence because the reduced workload top does
+not instantiate the real-ROB recovery fabric.
+
+R640 extracts `ScalarLSURecoverySource` as the production MDB
 age/identity promotion owner. `ScalarLSU` now exports one full-BID source and
 contains no cleanup controller or competing-source priority. The exact real-ROB
 generated path instantiates that same owner ahead of `RecoverySourceArbiter`
 and `RecoveryCleanupControl`, preserving R638/R639 lookup, retention, fairness,
-and scoped-prune proof. Canonical backend source/lookup wiring for the complete
-BCC/IEX/PE/LSU set remains next; this packet does not claim full top-level
-composition or the model's separate flush/replay/PE class merge.
+and scoped-prune proof. At R640, canonical backend source/lookup wiring and the
+stateful class merge remained open; R641 closes the class/fabric owner while
+the complete BCC/IEX/PE producer set and top wiring remain open.
 
 R640 verification passes 251 suites and 1,483 tests. Both generated recovery
 and canonical MDB probes pass. The canonical top cross-check compares 3 rows

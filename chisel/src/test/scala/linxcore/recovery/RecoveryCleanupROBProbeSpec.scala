@@ -52,7 +52,9 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
 
     assert(sv.contains("module RecoveryCleanupROBProbe"))
     assert(sv.contains("RecoveryCleanupControl"))
+    assert(sv.contains("RecoveryFabric"))
     assert(sv.contains("RecoverySourceArbiter"))
+    assert(sv.contains("RecoveryClassMerge"))
     assert(sv.contains("ScalarLSURecoverySource"))
     assert(sv.contains("RecoveryEligibilityControl"))
     assert(sv.contains("RingFullBidRecoveryBridge"))
@@ -63,5 +65,7 @@ class RecoveryCleanupROBProbeSpec extends AnyFunSuite {
     assert(sv.contains("io_cleanupBlockFlushBid"))
     assert(sv.contains("io_ringLookupMatched"))
     assert(sv.contains("io_arbiterPendingMask"))
+    assert(sv.contains("io_recoveryPending"))
+    assert(sv.contains("io_classGlobalFlushPendingMask"))
   }
 }
