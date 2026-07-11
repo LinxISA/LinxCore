@@ -429,13 +429,18 @@ def _self_test(root: Path, adapter: dict[str, Any]) -> None:
     bad_status["capabilities"][0]["status"] = "claimed"
     cases.append(("invalid status", bad_status))
     missing_gap = copy.deepcopy(adapter)
-    absent = next(item for item in missing_gap["capabilities"] if item["status"] == "absent")
-    absent.pop("known_gap", None)
+    incomplete = next(
+        item for item in missing_gap["capabilities"] if item["status"] in {"absent", "stub"}
+    )
+    incomplete.pop("known_gap", None)
     cases.append(("missing known gap", missing_gap))
     overstated = copy.deepcopy(adapter)
-    absent = next(item for item in overstated["capabilities"] if item["status"] == "absent")
-    absent["status"] = "integrated"
-    absent.pop("evidence", None)
+    incomplete = next(
+        item for item in overstated["capabilities"] if item["status"] in {"absent", "stub"}
+    )
+    incomplete["status"] = "integrated"
+    incomplete["evidence"] = []
+    incomplete.pop("verification", None)
     cases.append(("overstated capability", overstated))
     bad_parameter = copy.deepcopy(adapter)
     first_value = next(iter(bad_parameter["parameter_sets"][0]["values"]))

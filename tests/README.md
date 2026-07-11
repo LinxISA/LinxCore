@@ -25,6 +25,9 @@
 - Purpose: validates shared scenario coverage, normalized owner events,
   architectural commit fields, and pyCircuit/Chisel differential mismatch
   detection without treating harness fixtures as RTL promotion evidence.
+- `test_ooo_promotion.sh`
+- Purpose: runs the pyCircuit scalar MapQ C++/Verilator flow and Chisel
+  per-STID BID ring-order suite used for focused OOO promotion.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
@@ -58,6 +61,7 @@ bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_contract.sh
 bash /Users/zhoubot/LinxCore/tests/test_pycircuit_architecture_adapter.sh
 bash /Users/zhoubot/LinxCore/tests/test_chisel_architecture_adapter.sh
 bash /Users/zhoubot/LinxCore/tests/test_microarchitecture_conformance.sh
+bash /Users/zhoubot/LinxCore/tests/test_ooo_promotion.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
 bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh

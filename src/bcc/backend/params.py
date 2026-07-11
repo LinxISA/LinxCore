@@ -20,6 +20,7 @@ class OooParams:
     # Reorder buffer and issue queue depths.
     rob_depth: int = 64
     iq_depth: int = 32
+    mapq_depth: int = 32
 
     # Pipeline widths. Architecture docs require a 4-wide frontend and
     # superscalar retire/issue closure; keep defaults aligned to that contract.
@@ -42,6 +43,7 @@ class OooParams:
         pregs: int | None = None,
         rob_depth: int | None = None,
         iq_depth: int | None = None,
+        mapq_depth: int | None = None,
         fetch_w: int | None = None,
         dispatch_w: int | None = None,
         issue_w: int | None = None,
@@ -57,6 +59,8 @@ class OooParams:
             self.rob_depth = int(rob_depth)
         if iq_depth is not None:
             self.iq_depth = int(iq_depth)
+        if mapq_depth is not None:
+            self.mapq_depth = int(mapq_depth)
         if fetch_w is not None:
             self.fetch_w = int(fetch_w)
         if dispatch_w is not None:
@@ -82,6 +86,8 @@ class OooParams:
             raise ValueError("rob_depth must be > 0")
         if self.iq_depth <= 0:
             raise ValueError("iq_depth must be > 0")
+        if self.mapq_depth <= 0:
+            raise ValueError("mapq_depth must be > 0")
         if self.fetch_w <= 0:
             raise ValueError("fetch_w must be > 0")
         if self.dispatch_w <= 0:
@@ -103,6 +109,8 @@ class OooParams:
             raise ValueError("rob_depth must be a power of two (wrap-friendly)")
         if self.iq_depth & (self.iq_depth - 1):
             raise ValueError("iq_depth must be a power of two (wrap-friendly)")
+        if self.mapq_depth & (self.mapq_depth - 1):
+            raise ValueError("mapq_depth must be a power of two")
         if self.sq_entries & (self.sq_entries - 1):
             raise ValueError("sq_entries must be a power of two (wrap-friendly)")
 

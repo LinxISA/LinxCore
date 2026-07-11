@@ -249,6 +249,7 @@
           "status": "integrated",
           "owners": [
             "src/bcc/backend/rename.py",
+            "src/bcc/backend/modules/mapq.py",
             "src/bcc/backend/issue.py"
           ]
         },
@@ -294,6 +295,7 @@
           "status": "unit-proven",
           "owners": [
             "chisel/src/main/scala/linxcore/bctrl/BROB.scala",
+            "chisel/src/main/scala/linxcore/bctrl/BIDRingOrder.scala",
             "chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala"
           ]
         }

@@ -103,6 +103,10 @@ Examples:
 - `N_STID` (configured hardware-thread contexts, at least 1). Default: 1;
   multi-STID is a supported target configuration.
 - `ROB_ENTRIES` (power of 2, at least 2, per instruction-ROB partition)
+- `IQ_ENTRIES` (power of 2, at least 2, per resident issue-queue bank)
+- `MAPQ_ENTRIES` (power of 2, at least 2, per scalar-P rename owner). The
+  default bring-up value is 32; configurations must reserve enough rows for
+  the maximum in-flight scalar-P destinations admitted by their ROB policy.
 - `BROB_ENTRIES` (power of 2, at least 2, per STID). Default: 256
 - `BROB_ALLOC_PER_CYCLE` default: 1
 - `BROB_COMPLETE_PER_CYCLE` default: 1

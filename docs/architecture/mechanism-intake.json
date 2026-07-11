@@ -86,7 +86,7 @@
       "target_contracts": ["LC-MA-RES-001", "LC-MA-ROB-001", "LC-MA-HAZ-001"],
       "module_families": ["rename-issue", "rob-recovery"],
       "scenarios": ["scenario-pipeline-admission", "scenario-rob-block-recovery"],
-      "lane_owners": {"pycircuit": ["src/bcc/backend/rename.py"], "chisel": ["chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/backend/rename.py", "src/bcc/backend/modules/mapq.py"], "chisel": ["chisel/src/main/scala/linxcore/rename/GPRRenameCheckpoint.scala"]}
     },
     {
       "id": "local-tu-rename",
@@ -110,7 +110,7 @@
       "target_contracts": ["LC-MA-ROB-001", "LC-MA-BLK-001", "LC-MA-ENG-001"],
       "module_families": ["rob-recovery", "block-control"],
       "scenarios": ["scenario-rob-block-recovery", "scenario-engine-completion"],
-      "lane_owners": {"pycircuit": ["src/bcc/backend/rob.py", "src/bcc/bctrl/brob.py"], "chisel": ["chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala", "chisel/src/main/scala/linxcore/bctrl/BROB.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/backend/rob.py", "src/bcc/bctrl/brob.py"], "chisel": ["chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala", "chisel/src/main/scala/linxcore/bctrl/BROB.scala", "chisel/src/main/scala/linxcore/bctrl/BIDRingOrder.scala"]}
     },
     {
       "id": "issue-execute",
