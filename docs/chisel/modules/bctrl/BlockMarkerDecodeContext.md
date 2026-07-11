@@ -44,7 +44,9 @@ flip the live top away from `skipBlockMarkers=true`.
 | Input | `decodeTarget` | `UInt(pcWidth.W)` | Boundary target stored for following fallback/retire policy. |
 | Input | `decodeBoundaryKind` | `BoundaryKind` | Boundary class stored with the active context. |
 | Input | `scalarRedirectValid/scalarRedirectStid` | mixed | Execute-owned redirect cleanup for one STID lane. |
-| Input | `robBlockLastValid/robBlockLastBid` | mixed | ROB deallocation cleanup for any active lane matching the full BID. |
+| Input | `robBlockLastValid/robBlockLastBid/robBlockLastStid` | mixed | ROB deallocation cleanup for the exact active `(STID, full BID)` lane. |
+| Input | `flushValid` | `Bool` | Global maintenance flush for all context lanes. |
+| Input | `flushStidValid/flushStid` | mixed | Recovery cleanup for one context lane. |
 | Input | `queryStid` | `UInt(stidWidth.W)` | STID lane selected for active-state diagnostics. |
 | Output | `decodeStidInRange` | `Bool` | Accepted row's STID maps to an instantiated context lane. |
 | Output | `decodeActiveValid/decodeActiveBid` | mixed | Pre-update active context for the accepted row's STID. |

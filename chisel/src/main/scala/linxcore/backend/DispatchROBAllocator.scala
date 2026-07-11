@@ -1,7 +1,7 @@
 package linxcore.backend
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{log2Ceil, Mux1H}
 import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
@@ -73,6 +73,7 @@ class DispatchROBAllocatorIO(
   val allocRobValue = Output(UInt(ptrWidth.W))
   val allocRobWrap = Output(Bool())
   val blockAllocOnlyValid = Input(Bool())
+  val blockAllocOnlyStid = Input(UInt(stidWidth.W))
   val blockAllocOnlyReady = Output(Bool())
   val blockAllocOnlyFire = Output(Bool())
   val blockAllocOnlyBid = Output(UInt(bidWidth.W))
@@ -99,18 +100,23 @@ class DispatchROBAllocatorIO(
 
   val blockScalarDoneValid = Input(Bool())
   val blockScalarDoneBid = Input(UInt(bidWidth.W))
+  val blockScalarDoneStid = Input(UInt(stidWidth.W))
   val blockScalarTrapValid = Input(Bool())
   val blockScalarTrapCause = Input(UInt(trapCauseWidth.W))
   val blockEngineDoneValid = Input(Bool())
   val blockEngineDoneBid = Input(UInt(bidWidth.W))
+  val blockEngineDoneStid = Input(UInt(stidWidth.W))
   val blockEngineTrapValid = Input(Bool())
   val blockEngineTrapCause = Input(UInt(trapCauseWidth.W))
   val blockRetireValid = Input(Bool())
   val blockRetireBid = Input(UInt(bidWidth.W))
+  val blockRetireStid = Input(UInt(stidWidth.W))
   val blockFlushValid = Input(Bool())
   val blockFlushBid = Input(UInt(bidWidth.W))
+  val blockFlushStid = Input(UInt(stidWidth.W))
   val blockQueryBid = Input(UInt(bidWidth.W))
-  val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, tidWidth, blockTypeWidth, trapCauseWidth))
+  val blockQueryStid = Input(UInt(stidWidth.W))
+  val blockQuery = Output(new BrobEntryMeta(entries, bidWidth, peIdWidth, stidWidth, tidWidth, blockTypeWidth, trapCauseWidth))
   val blockQueryAllocated = Output(Bool())
   val blockQueryComplete = Output(Bool())
   val blockAllocatedMask = Output(UInt(entries.W))
@@ -147,6 +153,7 @@ class DispatchROBAllocatorIO(
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
   val deallocBlockLastBlockBid = Output(UInt(bidWidth.W))
+  val deallocBlockLastStid = Output(UInt(stidWidth.W))
 
   val flushApplied = Output(Bool())
   val flushPruneMask = Output(UInt(entries.W))
@@ -208,12 +215,15 @@ class DispatchROBAllocator(
     val trapCauseWidth: Int = 32,
     val mapQDepth: Int = 32,
     val stidWidth: Int = 8,
+    val stidCount: Int = 1,
     val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "allocator entries must be greater than one")
   require((entries & (entries - 1)) == 0, "allocator entries must be a power of two")
   require(traceParams.robValueWidth >= log2Ceil(entries), "ROB trace value must hold entry index")
   require(traceParams.blockBidWidth <= bidWidth, "generated BID must fit the commit trace block BID sideband")
+  require(stidCount > 0, "allocator must track at least one STID")
+  require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "allocator STID count must fit stidWidth")
 
   private val ptrWidth = log2Ceil(entries)
   private val uniqWidth = bidWidth - ptrWidth
@@ -236,16 +246,23 @@ class DispatchROBAllocator(
     FullBidRecoveryBridge.fullBidToRobId(bid, true.B, entries, bidWidth)
   }
 
-  val blockSlot = RegInit(0.U(ptrWidth.W))
-  val blockUniq = RegInit(0.U(uniqWidth.W))
-  val nextBlockBid = BID.fromParts(blockUniq, blockSlot, entries, bidWidth)
-  io.allocBlockBid := nextBlockBid
-  io.blockAllocOnlyBid := nextBlockBid
+  val blockSlot = RegInit(VecInit(Seq.fill(stidCount)(0.U(ptrWidth.W))))
+  val blockUniq = RegInit(VecInit(Seq.fill(stidCount)(0.U(uniqWidth.W))))
+  val allocStidMatch = VecInit((0 until stidCount).map(idx => io.allocStid === idx.U(stidWidth.W)))
+  val blockOnlyStidMatch = VecInit((0 until stidCount).map(idx => io.blockAllocOnlyStid === idx.U(stidWidth.W)))
+  val allocNextBlockBid = Mux1H(allocStidMatch,
+    (0 until stidCount).map(idx => BID.fromParts(blockUniq(idx), blockSlot(idx), entries, bidWidth)))
+  val blockOnlyNextBlockBid = Mux1H(blockOnlyStidMatch,
+    (0 until stidCount).map(idx => BID.fromParts(blockUniq(idx), blockSlot(idx), entries, bidWidth)))
+  io.allocBlockBid := allocNextBlockBid
+  io.blockAllocOnlyBid := blockOnlyNextBlockBid
 
   val brob = Module(new BrobMetaTracker(
     entries = entries,
     bidWidth = bidWidth,
     peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    stidCount = stidCount,
     tidWidth = tidWidth,
     blockTypeWidth = blockTypeWidth,
     trapCauseWidth = trapCauseWidth
@@ -262,13 +279,15 @@ class DispatchROBAllocator(
   ))
 
   val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
-  val scalarCanUseBrob = !scalarNeedsBrob || brob.io.allocReady
+  val scalarStidInRange = allocStidMatch.asUInt.orR
+  val blockOnlyStidInRange = blockOnlyStidMatch.asUInt.orR
+  val scalarCanUseBrob = scalarStidInRange && (!scalarNeedsBrob || brob.io.allocReady)
   val scalarCanUseRob = rob.io.allocReady
   val scalarAllocReady = scalarCanUseRob && scalarCanUseBrob
-  val blockAllocOnlyReady = !io.allocValid && brob.io.allocReady
+  val blockAllocOnlyReady = !io.allocValid && blockOnlyStidInRange && brob.io.allocReady
   val blockAllocOnlyFire = io.blockAllocOnlyValid && blockAllocOnlyReady
   val scalarBrobAllocFire = scalarNeedsBrob && scalarAllocReady
-  val rowBlockBid = Mux(io.allocUsesExistingBlock, io.allocExistingBlockBid, nextBlockBid)
+  val rowBlockBid = Mux(io.allocUsesExistingBlock, io.allocExistingBlockBid, allocNextBlockBid)
 
   val robAllocRow = Wire(new CommitTraceRow(traceParams))
   robAllocRow := io.allocRow
@@ -316,24 +335,30 @@ class DispatchROBAllocator(
   rob.io.fullBidLookupRequest := io.fullBidLookupRequest
 
   brob.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
-  brob.io.allocBid := nextBlockBid
+  brob.io.allocBid := Mux(io.allocValid, allocNextBlockBid, blockOnlyNextBlockBid)
+  brob.io.allocStid := Mux(io.allocValid, io.allocStid, io.blockAllocOnlyStid)
   brob.io.allocTid := io.allocTid
   brob.io.allocPeId := io.allocPeId
   brob.io.allocBlockType := io.allocBlockType
   brob.io.allocNeedsEngine := io.allocNeedsEngine
   brob.io.scalarDoneValid := io.blockScalarDoneValid
   brob.io.scalarDoneBid := io.blockScalarDoneBid
+  brob.io.scalarDoneStid := io.blockScalarDoneStid
   brob.io.scalarTrapValid := io.blockScalarTrapValid
   brob.io.scalarTrapCause := io.blockScalarTrapCause
   brob.io.engineDoneValid := io.blockEngineDoneValid
   brob.io.engineDoneBid := io.blockEngineDoneBid
+  brob.io.engineDoneStid := io.blockEngineDoneStid
   brob.io.engineTrapValid := io.blockEngineTrapValid
   brob.io.engineTrapCause := io.blockEngineTrapCause
   brob.io.retireValid := io.blockRetireValid
   brob.io.retireBid := io.blockRetireBid
+  brob.io.retireStid := io.blockRetireStid
   brob.io.flushValid := io.blockFlushValid
   brob.io.flushBid := io.blockFlushBid
+  brob.io.flushStid := io.blockFlushStid
   brob.io.queryBid := io.blockQueryBid
+  brob.io.queryStid := io.blockQueryStid
 
   io.allocReady := scalarAllocReady
   io.allocFire := io.allocValid && io.allocReady
@@ -349,11 +374,16 @@ class DispatchROBAllocator(
   io.renameUpdateIgnored := rob.io.renameUpdateIgnored
 
   when(scalarBrobAllocFire || blockAllocOnlyFire) {
-    when(blockSlot === (entries - 1).U) {
-      blockSlot := 0.U
-      blockUniq := blockUniq + 1.U
-    }.otherwise {
-      blockSlot := blockSlot + 1.U
+    for (stid <- 0 until stidCount) {
+      val selectedLane = Mux(blockAllocOnlyFire, blockOnlyStidMatch(stid), allocStidMatch(stid))
+      when(selectedLane) {
+        when(blockSlot(stid) === (entries - 1).U) {
+          blockSlot(stid) := 0.U
+          blockUniq(stid) := blockUniq(stid) + 1.U
+        }.otherwise {
+          blockSlot(stid) := blockSlot(stid) + 1.U
+        }
+      }
     }
   }
 
@@ -385,6 +415,7 @@ class DispatchROBAllocator(
   io.deallocBlockLastBid := rob.io.deallocBlockLastBid
   io.deallocBlockLastGid := rob.io.deallocBlockLastGid
   io.deallocBlockLastBlockBid := rob.io.deallocBlockLastBlockBid.pad(bidWidth)(bidWidth - 1, 0)
+  io.deallocBlockLastStid := rob.io.deallocBlockLastStid
   io.flushApplied := rob.io.flushApplied
   io.flushPruneMask := rob.io.flushPruneMask
   io.flushResidentDecrement := rob.io.flushResidentDecrement

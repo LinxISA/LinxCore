@@ -41,6 +41,7 @@ object BlockMarkerLifecycleReference {
       scalarBlockStartBid: BigInt = 0,
       robBlockLastValid: Boolean = false,
       robBlockLastBid: BigInt = 0,
+      robBlockLastStid: Int = 0,
       activeQueryStid: Int = 0,
       flushValid: Boolean = false)
 
@@ -158,7 +159,7 @@ object BlockMarkerLifecycleReference {
       val robBlockLastClearsActive =
         activeValid.indices.exists(idx =>
           in.robBlockLastValid && activeValid(idx) && activeClearsOnRobBlockLast(idx) &&
-            in.robBlockLastBid == activeBid(idx))
+            in.robBlockLastStid == idx && in.robBlockLastBid == activeBid(idx))
 
       val decodeMarkerActive = in.markerBoundary || in.markerStop
       val retiredBoundary = in.retiredMarkerValid && in.retiredMarkerBoundary
@@ -175,7 +176,8 @@ object BlockMarkerLifecycleReference {
           (!retiredNeedsBranchDecision || (in.branchTakenValid && !in.branchTaken))
       val retiredMarkerOwnsBlockLast =
         in.retiredMarkerValid && in.retiredMarkerIsLast && in.retiredMarkerBlockBidValid &&
-          in.robBlockLastValid && in.retiredMarkerBlockBid == in.robBlockLastBid
+          in.robBlockLastValid && in.retiredMarkerStid == in.robBlockLastStid &&
+          in.retiredMarkerBlockBid == in.robBlockLastBid
       val retiredLifecycleIdle =
         !markerOwnedDonePending && !decodeMarkerActive && !in.flushValid && !scalarRedirectScalarDoneFire &&
           (!in.robBlockLastValid || retiredMarkerOwnsBlockLast)
@@ -259,7 +261,8 @@ object BlockMarkerLifecycleReference {
         }
         if (in.robBlockLastValid) {
           activeValid.indices.foreach { idx =>
-            if (activeValid(idx) && activeClearsOnRobBlockLast(idx) && in.robBlockLastBid == activeBid(idx)) {
+            if (in.robBlockLastStid == idx && activeValid(idx) && activeClearsOnRobBlockLast(idx) &&
+                in.robBlockLastBid == activeBid(idx)) {
               clear(idx)
             }
           }
@@ -353,6 +356,37 @@ class BlockMarkerLifecycleSpec extends AnyFunSuite {
 
     val clear = state.step(Input())
     assert(clear.activeBid.isEmpty)
+  }
+
+  test("reference does not let equal BID from another STID own ROB block-last") {
+    val state = new State(entries = 8, stidCount = 2)
+
+    state.step(Input(
+      retiredMarkerValid = true,
+      retiredMarkerBoundary = true,
+      retiredMarkerStid = 1,
+      retiredMarkerTarget = 0x4000550eL,
+      retiredMarkerKind = Kind.Direct,
+      retiredMarkerBlockBidValid = true,
+      retiredMarkerBlockBid = 0x44,
+      activeQueryStid = 1))
+
+    val wrongLane = state.step(Input(
+      retiredMarkerValid = true,
+      retiredMarkerStop = true,
+      retiredMarkerIsLast = true,
+      retiredMarkerStid = 1,
+      retiredMarkerBlockBidValid = true,
+      retiredMarkerBlockBid = 0x44,
+      markerLifecycleConflict = true,
+      robBlockLastValid = true,
+      robBlockLastBid = 0x44,
+      robBlockLastStid = 0,
+      activeQueryStid = 1))
+
+    assert(!wrongLane.retiredMarkerReady)
+    assert(!wrongLane.retiredMarkerFire)
+    assert(wrongLane.activeBid.contains(0x44))
   }
 
   test("reference keeps retired marker boundary target across marker-row block-last cleanup") {

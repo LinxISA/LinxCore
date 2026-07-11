@@ -35,15 +35,18 @@ pending-retire register.
 | Input | `inBid` | `UInt(bidWidth.W)` | Full BID associated with `inValid`. |
 | Output | `scalarDoneValid` | `Bool` | Same-cycle pass-through scalar-done pulse. |
 | Output | `scalarDoneBid` | `UInt(bidWidth.W)` | Same-cycle pass-through scalar-done BID. |
+| Input/Output | `inStid` / `scalarDoneStid` | `UInt(stidWidth.W)` | Same-cycle STID paired with the full BID. |
+| Output | `retireStid` | `UInt(stidWidth.W)` | Retained STID paired with `retireBid`. |
 | Output | `retireValid` | `Bool` | Registered retire pulse for the previous scalar-done BID. |
 | Output | `retireBid` | `UInt(bidWidth.W)` | Full BID associated with `retireValid`. |
 | Output | `retirePending` | `Bool` | Registered pending state, used by marker pre-retire allocation conflict logic. |
 
 ## Logic Design
 
-- `scalarDoneValid` and `scalarDoneBid` are direct pass-through outputs. They
+- `scalarDoneValid`, `scalarDoneBid`, and `scalarDoneStid` are direct pass-through outputs. They
   feed `DispatchROBAllocator.blockScalarDone*`, which forwards them into
-  `BrobMetaTracker.scalarDone*`.
+  `BrobMetaTracker.scalarDone*`. The pending retire register retains both BID
+  and STID, so equal BID values in different lanes cannot alias.
 - `retireValid` and `retireBid` are driven from a one-entry register that
   captures `inBid` when `inValid` is asserted.
 - If `inValid` arrives while an old retire is pending, the old retire remains

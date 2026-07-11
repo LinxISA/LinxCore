@@ -517,6 +517,8 @@ class DecodeRenameROBPath(
     "scalar continuation GPR cut threshold must be greater than one")
   require(scalarStidCount > 0, "DecodeRenameROBPath must expose at least one scalar STID lane")
   require(BigInt(scalarStidCount) <= (BigInt(1) << stidWidth), "scalar STID count must fit stidWidth")
+  require(scalarStidCount == 1,
+    "DecodeRenameROBPath remains single-STID until GPR block commit identity carries STID")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
@@ -630,10 +632,11 @@ class DecodeRenameROBPath(
     trapCauseWidth = trapCauseWidth,
     mapQDepth = mapQDepth,
     stidWidth = stidWidth,
+    stidCount = scalarStidCount,
     lsidWidth = p.lsidWidth
   ))
   val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
-  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth))
+  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth, stidWidth))
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
     bidWidth = bidWidth,
@@ -646,7 +649,9 @@ class DecodeRenameROBPath(
   ))
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
-  markerLifecycle.io.flushValid := blockLifecycleFlush
+  markerLifecycle.io.flushValid := false.B
+  markerLifecycle.io.flushStidValid := blockLifecycleFlush
+  markerLifecycle.io.flushStid := io.cleanup.flush.req.stid
   markerLifecycle.io.markerBoundary := markerBoundary
   markerLifecycle.io.markerStop := markerStop
   markerLifecycle.io.markerPc := marker.pc
@@ -669,6 +674,7 @@ class DecodeRenameROBPath(
   markerLifecycle.io.scalarBlockStartBid := allocator.io.allocBlockBid
   markerLifecycle.io.robBlockLastValid := robBlockLastScalarDoneFire
   markerLifecycle.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
+  markerLifecycle.io.robBlockLastStid := allocator.io.deallocBlockLastStid
   markerLifecycle.io.activeQueryStid := selectedStid
 
   val scalarContinuationGprCut = Wire(Bool())
@@ -682,7 +688,9 @@ class DecodeRenameROBPath(
         stidWidth = stidWidth,
         stidCount = scalarStidCount
       ))
-      ctx.io.flushValid := decRenFlush || blockLifecycleFlush
+      ctx.io.flushValid := io.flushValid
+      ctx.io.flushStidValid := blockLifecycleFlush
+      ctx.io.flushStid := io.cleanup.flush.req.stid
       ctx.io.decodeValid := selectedAny
       ctx.io.decodeFire := allocator.io.allocFire
       ctx.io.decodeBoundary := selected.sob
@@ -696,6 +704,7 @@ class DecodeRenameROBPath(
       ctx.io.scalarRedirectStid := localScalarRedirectStid
       ctx.io.robBlockLastValid := robBlockLastScalarDoneFire
       ctx.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
+      ctx.io.robBlockLastStid := allocator.io.deallocBlockLastStid
       ctx.io.queryStid := selectedStid
       Some(ctx)
     } else {
@@ -957,6 +966,7 @@ class DecodeRenameROBPath(
   allocator.io.allocBlockType := Mux(markerBoundary, markerAllocBlockType, selectedAllocBlockType)
   allocator.io.allocNeedsEngine := false.B
   allocator.io.blockAllocOnlyValid := markerLifecycle.io.blockAllocOnlyValid
+  allocator.io.blockAllocOnlyStid := markerLifecycle.io.blockAllocOnlyStid
   allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
   allocator.io.renameUpdateRid := queuedForRename.rid
   allocator.io.renameUpdateRow := rename.io.robAllocRow
@@ -986,22 +996,29 @@ class DecodeRenameROBPath(
       selectedClosesActiveRedirect
   val blockScalarDoneFire = decodeContextScalarDoneFire || markerLifecycle.io.scalarDoneValid
   val blockScalarDoneBid = Mux(decodeContextScalarDoneFire, decodeContextClosingBlockBid, markerLifecycle.io.scalarDoneBid)
+  val blockScalarDoneStid = Mux(decodeContextScalarDoneFire, selectedStid, markerLifecycle.io.scalarDoneStid)
   blockScalarDoneSeq.io.flushValid := io.flushValid && !io.cleanup.valid
   blockScalarDoneSeq.io.inValid := blockScalarDoneFire
   blockScalarDoneSeq.io.inBid := blockScalarDoneBid
+  blockScalarDoneSeq.io.inStid := blockScalarDoneStid
   allocator.io.blockScalarDoneValid := blockScalarDoneSeq.io.scalarDoneValid
   allocator.io.blockScalarDoneBid := blockScalarDoneSeq.io.scalarDoneBid
+  allocator.io.blockScalarDoneStid := blockScalarDoneSeq.io.scalarDoneStid
   allocator.io.blockScalarTrapValid := false.B
   allocator.io.blockScalarTrapCause := 0.U
   allocator.io.blockEngineDoneValid := false.B
   allocator.io.blockEngineDoneBid := 0.U
+  allocator.io.blockEngineDoneStid := 0.U
   allocator.io.blockEngineTrapValid := false.B
   allocator.io.blockEngineTrapCause := 0.U
   allocator.io.blockRetireValid := blockScalarDoneSeq.io.retireValid
   allocator.io.blockRetireBid := blockScalarDoneSeq.io.retireBid
+  allocator.io.blockRetireStid := blockScalarDoneSeq.io.retireStid
   allocator.io.blockFlushValid := io.cleanup.blockFlushValid
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
+  allocator.io.blockFlushStid := io.cleanup.flush.req.stid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
+  allocator.io.blockQueryStid := selectedStid
   val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !io.cleanup.valid)) {
     Module(new Queue(UInt(bidWidth.W), blockRenameCommitQueueDepth))
   }

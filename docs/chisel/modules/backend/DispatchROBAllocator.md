@@ -64,6 +64,13 @@ R547 forwards `deallocHoldMask` to `ROBEntryBank` so top-level replay-return
 owners can keep retired load rows resident while a delayed LRET return still
 needs the current ROB row image for `IEX::setMemData`. The allocator does not
 generate the hold policy; it only preserves the ROB-bank boundary.
+R643 replaces the global block cursor with one parameterized cursor per STID,
+passes STID on every BROB lifecycle event, and returns the deallocated
+block-last STID beside its full BID. This matches LinxCoreModel lane-local BROB
+allocation and explicitly rejects cross-STID BID ordering.
+The allocator can elaborate multiple lanes independently, but the current
+`DecodeRenameROBPath` composition is guarded to one STID until GPR mapQ block
+commit also keys entries by STID.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -103,6 +110,7 @@ dispatch agents consume a real block owner.
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot assigned by `ROBEntryBank` on an accepted allocation |
 | output | `allocRobWrap` | `Bool` | diagnostic | ROB allocation epoch bit paired with `allocRobValue` for native RID stamping |
 | input | `blockAllocOnlyValid` | `Bool` | `blockAllocOnlyReady` | Requests a BROB-only allocation for a marker-owned block start |
+| input | `blockAllocOnlyStid` | `UInt` | with `blockAllocOnlyValid` | Selects the marker block's independent STID allocation cursor. |
 | output | `blockAllocOnlyReady` | `Bool` | ready | High when no scalar allocation is using the allocator and BROB can accept |
 | output | `blockAllocOnlyFire` | `Bool` | diagnostic | `blockAllocOnlyValid && blockAllocOnlyReady` |
 | output | `blockAllocOnlyBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID assigned to the accepted BROB-only allocation |
@@ -122,7 +130,7 @@ dispatch agents consume a real block owner.
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
 | output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
-| input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
+| input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQuery*` | mixed | valid/query | Exact full BID plus STID pass-through surface for `BrobMetaTracker`. |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `commitMemoryOrder` | `Vec(commitWidth, ROBMemoryOrderCommit)` | diagnostic/source | ROB commit-window native ID plus LSID sidecars forwarded from `ROBEntryBank` |
@@ -133,15 +141,15 @@ dispatch agents consume a real block owner.
 
 ## State
 
-- `blockSlot`: low BID slot cursor, reset to zero.
-- `blockUniq`: high BID uniqueness cursor, reset to zero.
+- `blockSlot(stid)`: per-STID low BID slot cursor, reset to zero.
+- `blockUniq(stid)`: per-STID high BID uniqueness cursor, reset to zero.
 - `BrobMetaTracker`: block metadata state owner.
 - `ROBEntryBank`: PE ROB row state owner.
 
 ## Logic Design
 
-The allocator computes the next full BID as
-`BID.fromParts(blockUniq, blockSlot)`. This mirrors the hardware BID contract:
+The allocator computes each lane's next full BID as
+`BID.fromParts(blockUniq(stid), blockSlot(stid))`. This mirrors the hardware BID contract:
 low bits select the BROB slot, and high bits provide uniqueness and ordering.
 
 Allocation has three reduced modes:
@@ -169,7 +177,8 @@ the low uniqueness bit as `wrap` through
 `ROBEntryBank` from its allocation pointer. R111 exposes both `allocRobValue`
 and `allocRobWrap` so `DecodeRenameROBPath` can stamp the exact native RID
 into the queued row; the slot value alone is insufficient after the reduced
-8-entry ROB wraps.
+8-entry ROB wraps. BROB identity is `(STID, full BID)`; equal full BID values
+in different STIDs are valid and are not globally ordered.
 
 The T/U cleanup and retire-source sidecars are forwarded unmodified to
 `ROBEntryBank` at allocation time, but the reduced R76 path intentionally

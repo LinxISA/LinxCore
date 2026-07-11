@@ -8,13 +8,13 @@ object DispatchROBAllocatorReference {
   final case class Row(bid: Int, gid: Int, rid: Int)
   final case class AllocResult(accepted: Boolean, blockBid: BigInt, robValue: Int, robWrap: Boolean = false)
 
-  final class Model(entries: Int) {
+  final class Model(entries: Int, stidCount: Int = 1) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
 
-    private val blockLive = Array.fill(entries)(false)
+    private val blockLive = Array.fill(stidCount, entries)(false)
     private val robRows = Array.fill[Option[Row]](entries)(None)
-    private var blockSlot = 0
-    private var blockUniq = BigInt(0)
+    private val blockSlot = Array.fill(stidCount)(0)
+    private val blockUniq = Array.fill(stidCount)(BigInt(0))
     private var robAlloc = 0
     private var robWrap = false
     private var robSize = 0
@@ -22,18 +22,18 @@ object DispatchROBAllocatorReference {
     private def slotBits: Int =
       Integer.numberOfTrailingZeros(entries)
 
-    private def makeBid: BigInt =
-      (blockUniq << slotBits) | blockSlot
+    private def makeBid(stid: Int): BigInt =
+      (blockUniq(stid) << slotBits) | blockSlot(stid)
 
     private def duplicate(row: Row): Boolean =
       robRows.flatten.contains(row)
 
-    private def advanceBlock(): Unit =
-      if (blockSlot == entries - 1) {
-        blockSlot = 0
-        blockUniq += 1
+    private def advanceBlock(stid: Int): Unit =
+      if (blockSlot(stid) == entries - 1) {
+        blockSlot(stid) = 0
+        blockUniq(stid) += 1
       } else {
-        blockSlot += 1
+        blockSlot(stid) += 1
       }
 
     private def advanceRob(): Unit =
@@ -44,19 +44,19 @@ object DispatchROBAllocatorReference {
         robAlloc += 1
       }
 
-    def nextBlockBid: BigInt =
-      makeBid
+    def nextBlockBid(stid: Int = 0): BigInt =
+      makeBid(stid)
 
-    def alloc(row: Row): AllocResult = {
-      val bid = makeBid
+    def alloc(row: Row, stid: Int = 0): AllocResult = {
+      val bid = makeBid(stid)
       val slot = (bid & (entries - 1)).toInt
       val robValue = robAlloc
       val allocWrap = robWrap
-      val ready = !blockLive(slot) && robSize != entries && !duplicate(row)
+      val ready = !blockLive(stid)(slot) && robSize != entries && !duplicate(row)
       if (ready) {
-        blockLive(slot) = true
+        blockLive(stid)(slot) = true
         robRows(robAlloc) = Some(row)
-        advanceBlock()
+        advanceBlock(stid)
         advanceRob()
         robSize += 1
       }
@@ -75,13 +75,13 @@ object DispatchROBAllocatorReference {
       AllocResult(ready, blockBid, robValue, allocWrap)
     }
 
-    def allocBlockOnly(): AllocResult = {
-      val bid = makeBid
+    def allocBlockOnly(stid: Int = 0): AllocResult = {
+      val bid = makeBid(stid)
       val slot = (bid & (entries - 1)).toInt
-      val ready = !blockLive(slot)
+      val ready = !blockLive(stid)(slot)
       if (ready) {
-        blockLive(slot) = true
-        advanceBlock()
+        blockLive(stid)(slot) = true
+        advanceBlock(stid)
       }
       AllocResult(ready, bid, robAlloc, robWrap)
     }
@@ -98,8 +98,8 @@ object DispatchROBAllocatorReference {
     def rowAt(robValue: Int): Option[Row] =
       robRows(robValue)
 
-    def blockAllocatedMask: BigInt =
-      blockLive.zipWithIndex.foldLeft(BigInt(0)) { case (mask, (live, idx)) =>
+    def blockAllocatedMask(stid: Int = 0): BigInt =
+      blockLive(stid).zipWithIndex.foldLeft(BigInt(0)) { case (mask, (live, idx)) =>
         if (live) mask | (BigInt(1) << idx) else mask
       }
 
@@ -108,8 +108,8 @@ object DispatchROBAllocatorReference {
         if (row.nonEmpty) mask | (BigInt(1) << idx) else mask
       }
 
-    def freeBlockSlot(slot: Int): Unit =
-      blockLive(slot) = false
+    def freeBlockSlot(slot: Int, stid: Int = 0): Unit =
+      blockLive(stid)(slot) = false
   }
 }
 
@@ -123,14 +123,14 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
 
     assert(first == AllocResult(accepted = true, blockBid = 0, robValue = 0))
     assert(second == AllocResult(accepted = true, blockBid = 1, robValue = 1))
-    assert(model.blockAllocatedMask == 0x3)
+    assert(model.blockAllocatedMask() == 0x3)
     assert(model.robOccupiedMask == 0x3)
   }
 
   test("reference BID cursor wraps through uniqueness bits") {
     val model = new Model(entries = 4)
     assert((0 until 4).map(i => model.alloc(Row(1, 0, i)).blockBid) == Seq(0, 1, 2, 3))
-    assert(model.nextBlockBid == 4)
+    assert(model.nextBlockBid() == 4)
   }
 
   test("reference exposes ROB RID wrap when the allocation cursor returns to slot zero") {
@@ -150,7 +150,7 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(!blocked.accepted)
     assert(blocked.blockBid == 2)
     assert(blocked.robValue == 0)
-    assert(model.nextBlockBid == 2)
+    assert(model.nextBlockBid() == 2)
   }
 
   test("reference holds both allocators on duplicate ROB identity") {
@@ -162,8 +162,8 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(!duplicate.accepted)
     assert(duplicate.blockBid == 1)
     assert(duplicate.robValue == 1)
-    assert(model.nextBlockBid == 1)
-    assert(model.blockAllocatedMask == 0x1)
+    assert(model.nextBlockBid() == 1)
+    assert(model.blockAllocatedMask() == 0x1)
     assert(model.robOccupiedMask == 0x1)
   }
 
@@ -182,23 +182,36 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
 
     val marker = model.allocBlockOnly()
     assert(marker == AllocResult(accepted = true, blockBid = 0, robValue = 0))
-    assert(model.blockAllocatedMask == 0x1)
+    assert(model.blockAllocatedMask() == 0x1)
     assert(model.robOccupiedMask == 0x0)
-    assert(model.nextBlockBid == 1)
+    assert(model.nextBlockBid() == 1)
 
     val scalar = model.allocExistingBlock(Row(bid = 99, gid = 0, rid = 0), marker.blockBid)
     assert(scalar == AllocResult(accepted = true, blockBid = 0, robValue = 0))
-    assert(model.blockAllocatedMask == 0x1)
+    assert(model.blockAllocatedMask() == 0x1)
     assert(model.robOccupiedMask == 0x1)
-    assert(model.nextBlockBid == 1)
+    assert(model.nextBlockBid() == 1)
     assert(model.rowAt(0).contains(Row(bid = 0, gid = 0, rid = 0)))
+  }
+
+  test("reference advances block allocation cursors independently per STID") {
+    val model = new Model(entries = 4, stidCount = 2)
+
+    assert(model.allocBlockOnly(stid = 0).blockBid == 0)
+    assert(model.allocBlockOnly(stid = 0).blockBid == 1)
+    assert(model.allocBlockOnly(stid = 1).blockBid == 0)
+    assert(model.nextBlockBid(stid = 0) == 2)
+    assert(model.nextBlockBid(stid = 1) == 1)
+    assert(model.blockAllocatedMask(stid = 0) == 0x3)
+    assert(model.blockAllocatedMask(stid = 1) == 0x1)
   }
 
   test("Chisel DispatchROBAllocator elaborates BROB-to-ROB allocation wiring") {
     val sv = ChiselStage.emitSystemVerilog(
       new DispatchROBAllocator(
         entries = 8,
-        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3)
+        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+        stidCount = 2
       )
     )
 
@@ -210,6 +223,7 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_allocBlockBid"))
     assert(sv.contains("io_allocRobWrap"))
     assert(sv.contains("io_blockAllocOnlyValid"))
+    assert(sv.contains("io_blockAllocOnlyStid"))
     assert(sv.contains("io_blockAllocOnlyFire"))
     assert(sv.contains("io_blockAllocOnlyBid"))
     assert(sv.contains("io_allocGid"))
@@ -244,6 +258,7 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_fullBidLookup_blockBid"))
     assert(sv.contains("io_fullBidLookup_blockedByScope"))
     assert(sv.contains("io_blockAllocatedMask"))
+    assert(sv.contains("io_blockFlushStid"))
     assert(sv.contains("io_commitContractError"))
   }
 }

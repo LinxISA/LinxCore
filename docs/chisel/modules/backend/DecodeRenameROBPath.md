@@ -597,9 +597,18 @@ The composition drives BROB scalar completion from two reduced sources:
 marker-owned active block lifecycle and the ROB block-last sideband. If both
 would fire in the same cycle, marker consumption stalls for one cycle so the
 single BROB scalar-done input does not drop an event. A scalar-done pulse is
-followed by a one-cycle-later BROB retire pulse for the same full BID.
+followed by a one-cycle-later BROB retire pulse for the same `(STID, full BID)`.
 Block-engine completion remains inactive because full block-control execution
 is not part of this owner.
+
+R643 carries STID through marker-only allocation, scalar/engine completion,
+retire, query, cleanup flush, and ROB block-last completion. The allocator and
+BROB are now parameterized by `scalarStidCount`; identical BID values in two
+lanes remain independent. `DecodeRenameROBPath` deliberately requires
+`scalarStidCount == 1` because its GPR mapQ block-commit identity is still
+BID-only; enabling multiple production lanes before that owner carries STID
+would permit equal-BID aliasing. Production STID-keyed rename commit and BCC
+resolve/recovery-fabric wiring remain later packets.
 
 The composition also drives the allocator's row-owned sidecars. `allocStid`
 comes from the decoded row's thread ID in the reduced path; `allocTSeq`,

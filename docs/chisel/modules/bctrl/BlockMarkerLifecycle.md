@@ -77,12 +77,14 @@ marker-only block when the scalar-done port is free.
 | Input | `scalarRedirectValid` | `Bool` | Reduced scalar execute redirect that closes the active block context. |
 | Input | `scalarRedirectStid` | `UInt(stidWidth.W)` | STID lane to close for an execute-owned scalar redirect. |
 | Input | `scalarBlockStartFire/scalarBlockStartStid/scalarBlockStartBid` | mixed | Scalar row allocated a new block while no marker block was active for that STID. |
-| Input | `robBlockLastValid/robBlockLastBid` | `Bool`/`UInt` | ROB deallocation reached a block-last row. |
+| Input | `robBlockLastValid/robBlockLastBid/robBlockLastStid` | mixed | ROB deallocation reached an exact `(STID, full BID)` block-last row. |
+| Input | `flushValid` | `Bool` | Global maintenance flush that clears every active lane. |
+| Input | `flushStidValid/flushStid` | mixed | Recovery flush that clears only the selected STID lane. |
 | Input | `activeQueryStid` | `UInt(stidWidth.W)` | STID lane selected for `active*` diagnostic outputs and scalar-row BID reuse. |
 | Input | `retiredMarker` | `BlockMarkerRetireSource` | One serialized retired marker row from `BlockMarkerRetireSourceSerializer`, including row-owned BID, PC, length, boundary kind, and target. |
 | Output | `activeValid/activeBid/activeTarget` | mixed | Current active block context for `activeQueryStid`. |
 | Output | `activeCond/activeUnconditionalRedirect` | `Bool` | Internal active marker decision class for `activeQueryStid`, exposed for diagnostics/future owners. |
-| Output | `blockAllocOnlyValid` | `Bool` | Request a BROB-only marker allocation. |
+| Output | `blockAllocOnlyValid/blockAllocOnlyStid` | mixed | Request a BROB-only marker allocation on the marker's STID lane. |
 | Output | `markerReady` | `Bool` | Marker-only packet readiness used for `decodeReady`. |
 | Output | `markerAllocFire` | `Bool` | Marker boundary allocation fires and becomes the new active BID. |
 | Output | `markerPreRetireFire` | `Bool` | Active BID is completed before a same-slot marker allocation can proceed. |
@@ -90,7 +92,7 @@ marker-only block when the scalar-done port is free.
 | Output | `retiredMarkerFire` | `Bool` | Retired marker source consumed by lifecycle policy. |
 | Output | `retiredMarkerBoundaryFire` | `Bool` | Retired fallthrough boundary installed row-owned active state. |
 | Output | `retiredMarkerStopFire` | `Bool` | Retired stop marker completed the active context. |
-| Output | `scalarDoneValid/scalarDoneBid` | `Bool`/`UInt` | Selected scalar-done source for `BlockScalarDoneSequencer`. |
+| Output | `scalarDoneValid/scalarDoneBid/scalarDoneStid` | mixed | Selected exact scalar-done identity for `BlockScalarDoneSequencer`. |
 | Output | `stopRedirectValid/stopRedirectPc` | `Bool`/`UInt` | Consumed stop/direct marker redirects frontend to the active target. |
 
 ## Logic Design

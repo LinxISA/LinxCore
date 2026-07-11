@@ -1,5 +1,6 @@
 package linxcore.bctrl
 
+import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 object BIDReference {
@@ -43,60 +44,60 @@ final case class RefBrobEntry(
     engineDone: Boolean = false,
     exception: Boolean = false)
 
-final class RefBrob(entries: Int) {
-  private val table = Array.fill(entries)(RefBrobEntry())
+final class RefBrob(entries: Int, stidCount: Int = 1) {
+  private val table = Array.fill(stidCount, entries)(RefBrobEntry())
 
   private def idx(bid: BigInt): Int =
     BIDReference.slot(bid, entries).toInt
 
-  def entry(bid: BigInt): RefBrobEntry =
-    table(idx(bid))
+  def entry(bid: BigInt, stid: Int = 0): RefBrobEntry =
+    table(stid)(idx(bid))
 
-  def alloc(bid: BigInt, blockType: RefBlockType.Value): Boolean = {
+  def alloc(bid: BigInt, blockType: RefBlockType.Value, stid: Int = 0): Boolean = {
     val i = idx(bid)
-    if (table(i).status != RefBrobStatus.Free && table(i).status != RefBrobStatus.Flushed) {
+    if (table(stid)(i).status != RefBrobStatus.Free && table(stid)(i).status != RefBrobStatus.Flushed) {
       return false
     }
-    table(i) = RefBrobEntry(bid = bid, status = RefBrobStatus.Allocated, blockType = blockType)
+    table(stid)(i) = RefBrobEntry(bid = bid, status = RefBrobStatus.Allocated, blockType = blockType)
     true
   }
 
-  def scalarDone(bid: BigInt, exception: Boolean = false): Unit = {
+  def scalarDone(bid: BigInt, exception: Boolean = false, stid: Int = 0): Unit = {
     val i = idx(bid)
-    val cur = table(i)
+    val cur = table(stid)(i)
     if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed || cur.bid != bid) {
       return
     }
     val next = cur.copy(scalarDone = true, exception = cur.exception || exception)
-    table(i) = if (next.blockType == RefBlockType.Scalar || next.engineDone) {
+    table(stid)(i) = if (next.blockType == RefBlockType.Scalar || next.engineDone) {
       next.copy(status = RefBrobStatus.Completed)
     } else {
       next
     }
   }
 
-  def engineDone(bid: BigInt, exception: Boolean = false): Unit = {
+  def engineDone(bid: BigInt, exception: Boolean = false, stid: Int = 0): Unit = {
     val i = idx(bid)
-    val cur = table(i)
+    val cur = table(stid)(i)
     if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed || cur.bid != bid) {
       return
     }
     val next = cur.copy(engineDone = true, exception = cur.exception || exception)
-    table(i) = if (next.scalarDone) next.copy(status = RefBrobStatus.Completed) else next
+    table(stid)(i) = if (next.scalarDone) next.copy(status = RefBrobStatus.Completed) else next
   }
 
-  def flush(flushBid: BigInt): Unit =
-    for (i <- table.indices) {
-      if (table(i).status != RefBrobStatus.Free && BIDReference.killOnFlush(table(i).bid, flushBid)) {
-        table(i) = table(i).copy(status = RefBrobStatus.Flushed, scalarDone = false, engineDone = false, exception = false)
+  def flush(flushBid: BigInt, stid: Int = 0): Unit =
+    for (i <- table(stid).indices) {
+      if (table(stid)(i).status != RefBrobStatus.Free && BIDReference.killOnFlush(table(stid)(i).bid, flushBid)) {
+        table(stid)(i) = table(stid)(i).copy(status = RefBrobStatus.Flushed, scalarDone = false, engineDone = false, exception = false)
       }
     }
 
-  def retire(bid: BigInt): Unit = {
+  def retire(bid: BigInt, stid: Int = 0): Unit = {
     val i = idx(bid)
-    val cur = table(i)
+    val cur = table(stid)(i)
     if (cur.status == RefBrobStatus.Completed && cur.bid == bid) {
-      table(i) = RefBrobEntry()
+      table(stid)(i) = RefBrobEntry()
     }
   }
 }
@@ -173,5 +174,31 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.entry(kill).status == RefBrobStatus.Flushed)
     assert(brob.alloc(kill, RefBlockType.Scalar))
     assert(brob.entry(kill).status == RefBrobStatus.Allocated)
+  }
+
+  test("BROB keeps identical full BID values isolated by STID") {
+    val brob = new RefBrob(entries = 4, stidCount = 2)
+    val bid0 = BIDReference.fromParts(uniq = 0, slot = 0, entries = 4)
+    val bid1 = BIDReference.fromParts(uniq = 0, slot = 1, entries = 4)
+
+    assert(brob.alloc(bid0, RefBlockType.Scalar, stid = 0))
+    assert(brob.alloc(bid0, RefBlockType.Engine, stid = 1))
+    assert(brob.alloc(bid1, RefBlockType.Scalar, stid = 0))
+    assert(brob.alloc(bid1, RefBlockType.Scalar, stid = 1))
+    brob.scalarDone(bid0, stid = 0)
+    brob.flush(bid0, stid = 0)
+
+    assert(brob.entry(bid0, stid = 0).status == RefBrobStatus.Completed)
+    assert(brob.entry(bid1, stid = 0).status == RefBrobStatus.Flushed)
+    assert(brob.entry(bid0, stid = 1).status == RefBrobStatus.Allocated)
+    assert(brob.entry(bid1, stid = 1).status == RefBrobStatus.Allocated)
+  }
+
+  test("Chisel BROB elaborates explicit per-STID lifecycle ports") {
+    val sv = ChiselStage.emitSystemVerilog(new BrobMetaTracker(entries = 4, stidCount = 2))
+    assert(sv.contains("io_allocStid"))
+    assert(sv.contains("io_scalarDoneStid"))
+    assert(sv.contains("io_flushStid"))
+    assert(sv.contains("io_queryStid"))
   }
 }

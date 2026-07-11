@@ -52,6 +52,8 @@
 - Purpose: pyCircuit leaf+cluster flow for S2 frontend (`ifetch`, `bpu`, `ibuffer`, `ftq`, `frontend`).
 - `test_pyc4_frontend_strict.sh`
 - Purpose: enforce pyc4 frontend API hygiene and block new uses of legacy internal frontend tokens (`m.const`, `._select_internal`, `.__eq__`, `._trunc/_zext/_sext`) via baseline burn-down.
+- `test_ooo_recovery_producer_pyc_flow.sh`
+- Purpose: pyCircuit OOO retained recovery producer packet flow; verifies full 64-bit BID/restart TPC, STID/owner identity gating, backpressure stability, and rejection of ARM-specific semantics.
 
 Run all:
 
@@ -77,4 +79,5 @@ bash /Users/zhoubot/LinxCore/tests/test_cbstop_inflation_guard.sh
 bash /Users/zhoubot/LinxCore/tests/test_primitives_pyc_flow.sh
 bash /Users/zhoubot/LinxCore/tests/test_frontend_pyc_flow.sh
 bash /Users/zhoubot/LinxCore/tests/test_pyc4_frontend_strict.sh
+bash /Users/zhoubot/LinxCore/tests/test_ooo_recovery_producer_pyc_flow.sh
 ```

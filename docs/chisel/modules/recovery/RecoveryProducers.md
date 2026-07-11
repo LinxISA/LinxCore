@@ -9,6 +9,10 @@
   `chisel/src/test/scala/linxcore/recovery/RecoveryProducerSpec.scala`
 - Generated-RTL testbench:
   `tools/chisel/recovery_producer_probe_tb.cpp`
+- pyCircuit retained producer:
+  `src/bcc/ooo/recovery_producer.py`
+- pyCircuit generated-RTL flow:
+  `tests/test_ooo_recovery_producer_pyc_flow.sh`
 - Contract ID: `LC-CHISEL-RECOVERY-PRODUCERS-001`
 
 ## Purpose
@@ -58,14 +62,18 @@ owners do not yet expose every authoritative full-BID event port, so production
 top connections remain open. The adapters are not evidence of live workload
 activation until those owner connections exist.
 
-pyCircuit remains redirect-only at this boundary. Its full-BID producer queues,
-class merge, and cleanup fanout are a separate convergence packet; the legacy
-redirect latch is not treated as equivalent recovery RTL.
+R643 adds the first pyCircuit retained producer boundary. It parameterizes BID,
+restart-TPC, STID, and owner widths; backpressures incomplete identity; retains
+the exact packet bit-stably; and supports consume-and-replace. It is not yet
+wired into the pyCircuit backend, and pyCircuit class merge and cleanup fanout
+remain open. The legacy redirect latch is not treated as equivalent recovery
+RTL.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryProducerSpec`
 - `bash tools/chisel/run_chisel_recovery_producer_probe.sh`
+- `bash tests/test_ooo_recovery_producer_pyc_flow.sh`
 
 The generated probe covers simultaneous BCC/IEX retention, exact full-BID
 delivery, immediate slow-insert nuke behavior, PE-scoped inner recovery, and IQ

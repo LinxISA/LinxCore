@@ -10,6 +10,8 @@ class BlockMarkerDecodeContextIO(
     val stidWidth: Int = 8)
     extends Bundle {
   val flushValid = Input(Bool())
+  val flushStidValid = Input(Bool())
+  val flushStid = Input(UInt(stidWidth.W))
 
   val decodeValid = Input(Bool())
   val decodeFire = Input(Bool())
@@ -25,6 +27,7 @@ class BlockMarkerDecodeContextIO(
   val scalarRedirectStid = Input(UInt(stidWidth.W))
   val robBlockLastValid = Input(Bool())
   val robBlockLastBid = Input(UInt(bidWidth.W))
+  val robBlockLastStid = Input(UInt(stidWidth.W))
   val queryStid = Input(UInt(stidWidth.W))
 
   val decodeStidInRange = Output(Bool())
@@ -103,6 +106,7 @@ class BlockMarkerDecodeContext(
   val queryStidInRange = stidInRange(queryStidMatch)
   val scalarRedirectStidMatch = matchesStid(io.scalarRedirectStid)
   val scalarRedirectStidInRange = stidInRange(scalarRedirectStidMatch)
+  val flushStidMatch = matchesStid(io.flushStid)
 
   val decodeActiveValid = decodeStidInRange && selectBool(activeValid, decodeStidMatch)
   val decodeActiveBid = selectUInt(activeBid, decodeStidMatch)
@@ -127,7 +131,8 @@ class BlockMarkerDecodeContext(
   val decodeScalarLastFire = decodeScalarFire && decodeStidInRange && io.decodeLast
   val robBlockLastClearsActive =
     VecInit((0 until stidCount).map(idx =>
-      io.robBlockLastValid && activeValid(idx) && io.robBlockLastBid === activeBid(idx)))
+      io.robBlockLastValid && io.robBlockLastStid === idx.U(stidWidth.W) &&
+        activeValid(idx) && io.robBlockLastBid === activeBid(idx)))
 
   io.decodeStidInRange := decodeStidInRange
   io.decodeActiveValid := decodeActiveValid
@@ -147,6 +152,12 @@ class BlockMarkerDecodeContext(
   when(io.flushValid) {
     for (idx <- 0 until stidCount) {
       clearLane(idx)
+    }
+  }.elsewhen(io.flushStidValid) {
+    for (idx <- 0 until stidCount) {
+      when(flushStidMatch(idx)) {
+        clearLane(idx)
+      }
     }
   }.elsewhen(io.scalarRedirectValid && scalarRedirectStidInRange) {
     for (idx <- 0 until stidCount) {

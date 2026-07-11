@@ -23,13 +23,13 @@ BROB is the block-level reorder structure. It allocates BID ownership at block
 start, tracks scalar and engine completion, gates block commit in BID order,
 and supplies the block identity used by recovery, BISQ, TileRename, and trace.
 
-The first Chisel packet implements the metadata substrate only:
+R643 promotes the metadata substrate to a parameterized per-STID owner:
 
 - `BID` helpers for 64-bit BID encoding, command tags, and flush masking.
 - `BrobStatus`, preserving the LinxCoreModel status order.
 - `BrobEntryMeta`, a typed entry payload.
 - `BrobMetaTracker`, a reduced metadata tracker for allocate, scalar/engine
-  completion, retire/free, query, and BID-based flush.
+  completion, retire/free, query, and STID-scoped BID flush.
 
 ## Interface
 
@@ -50,24 +50,25 @@ The first Chisel packet implements the metadata substrate only:
 |---|---|---|---|---|
 | Input | `allocValid` | `Bool` | valid | Allocate metadata for `allocBid`. |
 | Input | `allocBid` | `UInt(64.W)` | with `allocValid` | Full BID. Low bits select slot. |
-| Input | `allocTid` | `UInt` | with `allocValid` | Thread/STID owner placeholder. |
+| Input | `allocStid` | `UInt` | with `allocValid` | Selects the independent BROB lane; out-of-range STIDs are rejected. |
+| Input | `allocTid` | `UInt` | with `allocValid` | Architectural thread metadata retained in the selected entry. |
 | Input | `allocPeId` | `UInt` | with `allocValid` | PE owner. |
 | Input | `allocBlockType` | `UInt` | with `allocValid` | Encoded block type placeholder. |
 | Input | `allocNeedsEngine` | `Bool` | with `allocValid` | True for blocks requiring engine completion. |
 | Output | `allocReady` | `Bool` | ready | Selected slot is reusable: `Free` or `Flushed`. |
 | Input | `scalarDoneValid` | `Bool` | valid | Scalar side completion. |
-| Input | `scalarDoneBid` | `UInt(64.W)` | with valid | BID to update. |
+| Input | `scalarDoneBid/scalarDoneStid` | mixed | with valid | Exact `(STID, full BID)` to update. |
 | Input | `scalarTrapValid` | `Bool` | with valid | Scalar completion carries exception. |
 | Input | `scalarTrapCause` | `UInt` | with valid | Exception cause. |
 | Input | `engineDoneValid` | `Bool` | valid | Engine side completion. |
-| Input | `engineDoneBid` | `UInt(64.W)` | with valid | BID to update. |
+| Input | `engineDoneBid/engineDoneStid` | mixed | with valid | Exact `(STID, full BID)` to update. |
 | Input | `engineTrapValid` | `Bool` | with valid | Engine completion carries exception. |
 | Input | `engineTrapCause` | `UInt` | with valid | Exception cause. |
 | Input | `retireValid` | `Bool` | valid | Free a completed BID. |
-| Input | `retireBid` | `UInt(64.W)` | with valid | BID to free if completed. |
+| Input | `retireBid/retireStid` | mixed | with valid | Exact completed block identity to free. |
 | Input | `flushValid` | `Bool` | valid | Apply BID-based flush mask. |
-| Input | `flushBid` | `UInt(64.W)` | with valid | Current block BID; younger BIDs are killed. |
-| Input | `queryBid` | `UInt(64.W)` | combinational | BID to inspect. |
+| Input | `flushBid/flushStid` | mixed | with valid | Kill younger BIDs only in the selected STID lane. |
+| Input | `queryBid/queryStid` | mixed | combinational | Exact lane and BID to inspect. |
 | Output | `query` | `BrobEntryMeta` | combinational | Current slot metadata. |
 | Output | `queryAllocated` | `Bool` | combinational | Query slot is live. |
 | Output | `queryComplete` | `Bool` | combinational | Completion predicate for query slot. |
@@ -77,19 +78,20 @@ The first Chisel packet implements the metadata substrate only:
 
 ## State
 
-`BrobMetaTracker` stores one `BrobEntryMeta` per slot. Reset state is
+`BrobMetaTracker` stores one `BrobEntryMeta` per `(STID, slot)`. Reset state is
 `BrobStatus.Free` with zeroed metadata.
 
 This packet does not yet implement C++ model pointers such as `allocPtr`,
-`dispatchPtr`, `renamePtr`, `commitPtr`, or `nonFlushBid`; those become real
-state when integrated BROB allocation and commit are promoted. The
-`DispatchROBAllocator` bridge adds the first allocation cursor outside the
-metadata tracker so a generated full BID can allocate BROB and ROB state
-atomically.
+`dispatchPtr`, `renamePtr`, `commitPtr`, or `nonFlushBid`. The
+`DispatchROBAllocator` bridge owns an independent `(blockSlot, blockUniq)`
+allocation cursor for each configured STID so one lane cannot stall or advance
+another lane's block order.
 
 ## Logic Design
 
-- Allocation writes BID, owner metadata, `needsEngine`, and status
+- Identity is the pair `(STID, full BID)`. Equal BID values in different STID
+  lanes are legal and must never alias for completion, retire, query, or flush.
+- Allocation writes BID, STID, owner metadata, `needsEngine`, and status
   `Allocated` when the selected slot is reusable. Reusable means `Free` or
   `Flushed`; a flushed slot is not live, so it must not strand later full-BID
   allocation when the allocator wraps to that physical entry.
@@ -109,8 +111,9 @@ atomically.
   scalar-redirect, scalar-created, and ROB block-last scalar-done events before
   they enter `BlockScalarDoneSequencer`.
 - Retire frees only a `Completed` entry.
-- Flush is applied after the packet's local updates and marks entries with
-  full BID greater than `flushBid` as `Flushed`. `Flushed` entries remain
+- Flush is applied only to `flushStid` and marks entries in that lane with full
+  BID greater than `flushBid` as `Flushed`. No BID comparison is made across
+  STIDs. `Flushed` entries remain
   excluded from allocated/pending/complete masks but are accepted by
   `allocReady` so reduced block-control cleanup can reuse killed slots.
 
@@ -123,9 +126,10 @@ cycle.
 
 ## Flush/Recovery
 
-The implemented flush rule is the strict BID mask from the LinxCore contract:
-keep `bid <= flushBid`, kill `bid > flushBid`. This is intentionally full
-64-bit BID order, not low-slot order.
+The implemented flush rule is the strict lane-local BID mask from the LinxCore
+contract: for the selected STID, keep `bid <= flushBid` and kill
+`bid > flushBid`. This is intentionally full 64-bit BID order, not low-slot
+order, and it rejects a global cross-STID ordering interpretation.
 
 `Flushed` is a non-live state, not a terminal allocation blocker. R127 proved
 this on the CoreMark live path: scalar-return cleanup can kill younger block

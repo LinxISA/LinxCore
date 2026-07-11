@@ -14,6 +14,8 @@ class BlockMarkerLifecycleIO(
     val stidWidth: Int = 8)
     extends Bundle {
   val flushValid = Input(Bool())
+  val flushStidValid = Input(Bool())
+  val flushStid = Input(UInt(stidWidth.W))
 
   val retiredMarker = Input(new BlockMarkerRetireSource(
     entries = entries,
@@ -46,6 +48,7 @@ class BlockMarkerLifecycleIO(
   val scalarBlockStartBid = Input(UInt(bidWidth.W))
   val robBlockLastValid = Input(Bool())
   val robBlockLastBid = Input(UInt(bidWidth.W))
+  val robBlockLastStid = Input(UInt(stidWidth.W))
   val activeQueryStid = Input(UInt(stidWidth.W))
 
   val activeValid = Output(Bool())
@@ -55,6 +58,7 @@ class BlockMarkerLifecycleIO(
   val activeUnconditionalRedirect = Output(Bool())
 
   val blockAllocOnlyValid = Output(Bool())
+  val blockAllocOnlyStid = Output(UInt(stidWidth.W))
   val retiredMarkerReady = Output(Bool())
   val retiredMarkerFire = Output(Bool())
   val retiredMarkerBoundaryFire = Output(Bool())
@@ -66,6 +70,7 @@ class BlockMarkerLifecycleIO(
   val markerStopFire = Output(Bool())
   val scalarDoneValid = Output(Bool())
   val scalarDoneBid = Output(UInt(bidWidth.W))
+  val scalarDoneStid = Output(UInt(stidWidth.W))
   val stopRedirectValid = Output(Bool())
   val stopRedirectPc = Output(UInt(pcWidth.W))
 }
@@ -95,6 +100,7 @@ class BlockMarkerLifecycle(
   val activeClearsOnRobBlockLast = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val markerOwnedDonePending = RegInit(false.B)
   val markerOwnedDoneBid = RegInit(0.U(bidWidth.W))
+  val markerOwnedDoneStid = RegInit(0.U(stidWidth.W))
 
   private def matchesStid(stid: UInt): Vec[Bool] =
     VecInit((0 until stidCount).map(idx => stid === idx.U(stidWidth.W)))
@@ -146,6 +152,10 @@ class BlockMarkerLifecycle(
   val scalarRedirectStidInRange = stidInRange(scalarRedirectStidMatch)
   val scalarBlockStartStidMatch = matchesStid(io.scalarBlockStartStid)
   val scalarBlockStartStidInRange = stidInRange(scalarBlockStartStidMatch)
+  val flushStidMatch = matchesStid(io.flushStid)
+  val scopedFlushMatchesPending = io.flushStidValid && io.flushStid === markerOwnedDoneStid
+  val markerFlush = io.flushValid || (io.flushStidValid && io.flushStid === io.markerStid)
+  val retiredFlush = io.flushValid || (io.flushStidValid && io.flushStid === io.retiredMarker.stid)
 
   val markerActiveValid = markerStidInRange && selectBool(activeValid, markerStidMatch)
   val markerActiveBid = selectUInt(activeBid, markerStidMatch)
@@ -185,13 +195,15 @@ class BlockMarkerLifecycle(
     io.markerBoundary && !markerUnconditionalRedirect &&
       (!markerNeedsBranchDecision || (io.branchTakenValid && !io.branchTaken))
 
-  io.blockAllocOnlyValid := markerStidInRange && markerFallthroughBoundary && !io.markerLifecycleConflict
+  io.blockAllocOnlyValid := markerStidInRange && markerFallthroughBoundary &&
+    !io.markerLifecycleConflict && !markerFlush
+  io.blockAllocOnlyStid := io.markerStid
 
   val markerPreRetireFire =
     markerStidInRange && markerFallthroughBoundary && !io.markerLifecycleConflict && !io.markerAllocReady &&
       markerAllocBlockedByActiveSlot && !io.retirePending
   val markerReady =
-    markerStidInRange && !markerOwnedDonePending && !io.markerLifecycleConflict &&
+    markerStidInRange && !markerOwnedDonePending && !io.markerLifecycleConflict && !markerFlush &&
       (io.markerStop || markerRedirectBoundary || (markerFallthroughBoundary && io.markerAllocReady))
   val markerBoundaryFire = markerFallthroughBoundary && markerReady && io.markerAllocReady
   val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
@@ -203,7 +215,7 @@ class BlockMarkerLifecycle(
   val robBlockLastClearsActive =
     VecInit((0 until stidCount).map(idx =>
       io.robBlockLastValid && activeValid(idx) && activeClearsOnRobBlockLast(idx) &&
-        io.robBlockLastBid === activeBid(idx)))
+        io.robBlockLastStid === idx.U(stidWidth.W) && io.robBlockLastBid === activeBid(idx)))
 
   val decodeMarkerActive = io.markerBoundary || io.markerStop
   val retiredBoundary = io.retiredMarker.valid && io.retiredMarker.isBoundary
@@ -221,9 +233,10 @@ class BlockMarkerLifecycle(
       (!retiredNeedsBranchDecision || (io.branchTakenValid && !io.branchTaken))
   val retiredMarkerOwnsBlockLast =
     io.retiredMarker.valid && io.retiredMarker.isLast && io.retiredMarker.blockBidValid &&
-      io.robBlockLastValid && io.retiredMarker.blockBid === io.robBlockLastBid
+      io.robBlockLastValid && io.retiredMarker.stid === io.robBlockLastStid &&
+      io.retiredMarker.blockBid === io.robBlockLastBid
   val retiredLifecycleIdle =
-    !markerOwnedDonePending && !decodeMarkerActive && !io.flushValid && !scalarRedirectScalarDoneFire &&
+    !markerOwnedDonePending && !decodeMarkerActive && !retiredFlush && !scalarRedirectScalarDoneFire &&
       (!io.robBlockLastValid || retiredMarkerOwnsBlockLast)
   val retiredMarkerConflict = io.markerLifecycleConflict && !retiredMarkerOwnsBlockLast
   val retiredReady =
@@ -275,23 +288,37 @@ class BlockMarkerLifecycle(
       Mux(retiredScalarDoneFire, retiredActiveBid,
         Mux(scalarRedirectScalarDoneFire, scalarRedirectActiveBid,
           Mux(io.robBlockLastValid, io.robBlockLastBid, markerOwnedDoneBid))))
+  io.scalarDoneStid :=
+    Mux(markerScalarDoneFire, io.markerStid,
+      Mux(retiredScalarDoneFire, io.retiredMarker.stid,
+        Mux(scalarRedirectScalarDoneFire, io.scalarRedirectStid,
+          Mux(io.robBlockLastValid, io.robBlockLastStid, markerOwnedDoneStid))))
   io.stopRedirectValid := markerRedirectValid || retiredRedirectValid
   io.stopRedirectPc := Mux(retiredRedirectValid, retiredActiveTarget, markerActiveTarget)
 
-  when(io.flushValid) {
+  when(io.flushValid || scopedFlushMatchesPending) {
     markerOwnedDonePending := false.B
     markerOwnedDoneBid := 0.U
+    markerOwnedDoneStid := 0.U
   }.elsewhen(markerOwnedDoneFire) {
     markerOwnedDonePending := false.B
     markerOwnedDoneBid := 0.U
+    markerOwnedDoneStid := 0.U
   }.elsewhen(retiredRedirectOwnsMarkerOnlyBlock) {
     markerOwnedDonePending := true.B
     markerOwnedDoneBid := io.retiredMarker.blockBid
+    markerOwnedDoneStid := io.retiredMarker.stid
   }
 
   when(io.flushValid) {
     for (idx <- 0 until stidCount) {
       clearLane(idx)
+    }
+  }.elsewhen(io.flushStidValid) {
+    for (idx <- 0 until stidCount) {
+      when(flushStidMatch(idx)) {
+        clearLane(idx)
+      }
     }
   }.elsewhen(scalarRedirectScalarDoneFire) {
     for (idx <- 0 until stidCount) {
