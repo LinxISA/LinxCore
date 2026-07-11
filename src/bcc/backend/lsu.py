@@ -135,7 +135,10 @@ def build_lsu_stage(
 
     lsu_mem_fire_raw = issue_fire_lane0_raw & (ex0_is_load | ex0_is_store)
     lsu_load_fire_raw = issue_fire_lane0_raw & ex0_is_load
-    lsu_lsid_block_lane0 = lsu_mem_fire_raw & (ex0_lsid != lsid_issue_ptr)
+    # ROB age plus the older-store query are the ordering authority.  Recovery
+    # may reintroduce an older live row after a younger speculative LSID was
+    # issued, so a global numeric cursor must not veto that row.
+    lsu_lsid_block_lane0 = u(1, 0)
 
     lsu_older_store_pending_lane0 = rob_older_store_pending_lane0
 
@@ -169,3 +172,4 @@ def build_lsu_stage(
     m.output("lsu_block_lane0", lsu_block_lane0)
     m.output("issue_fire_lane0_eff", issue_fire_lane0_eff)
     m.output("lsu_lsid_issue_advance", lsu_lsid_issue_advance)
+    m.output("lsid_issue_next", ex0_lsid + u(32, 1))

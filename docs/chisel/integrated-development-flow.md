@@ -1030,14 +1030,34 @@ Evidence:
   both allocation ownership and their existing readiness. This removes the
   observed duplicate tag-16 allocation and advances the direct boot from 68
   to 94 retired rows.
-- The next first divergence is LSU sequence recovery, not register rename.
-  Global LSID cursor recovery is invalid in both directions: resetting the
-  cursor to the allocation tail strands retained rows (for example LSID 12
-  behind tail 19), while never resetting it can leave a restarted stream with
-  a later candidate LSID ahead of the required cursor. The next repair must
-  checkpoint the LSID allocation/issue boundary at the BSTART checkpoint and
-  restore that boundary on the corresponding BID redirect. Do not commit a
-  partial global-reset workaround as an LSU ordering fix.
+- LSID state is now a BID-scoped recovery resource. `BSTART` captures the
+  pre-increment memory-ID base in the rename-owned checkpoint table; a flush
+  restores allocation, issue, and completion cursors from the matching full
+  BID. The issue cursor advances to `issued_lsid + 1`, rather than by a blind
+  increment, so recovery cannot carry a hole from squashed memory work.
+  Numeric global-LSID equality is not an ordering authority after recovery:
+  a retained older row can legitimately reappear below that cursor. The LSU
+  therefore relies on ROB age and the existing older-store query to prevent a
+  load from passing an incomplete older store.
+- Flush recovery has a second rename invariant in addition to preserving the
+  survivor free/ready masks: each SMAP entry whose physical tag belongs to the
+  retained ROB prefix must survive the flush. Replacing all of SMAP with CMAP
+  loses an uncommitted retained producer, then lets its old CMAP tag be
+  reallocated as a self-dependency. `rename_bank` now overlays CMAP only for
+  SMAP tags absent from `flush_survivor_pdst_mask`; this applies uniformly to
+  scalar and local T/U map entries without an oversized ROB reconstruction
+  cone.
+- Bounded generated-C++ evidence after those repairs is positive: direct
+  CoreMark boot reaches `PYC_MAX_COMMITS=1000` in 7,400 cycles and
+  `PYC_MAX_COMMITS=10000` in 27,749 cycles, with no deadlock. The focused
+  ROB bookkeeping gate also passes with 7,629 commits. This replaces the
+  former stop at 129 commits/cycle 5,543, but it is not terminal-CoreMark or
+  QEMU semantic-compare closure. Continue from progressively larger bounded
+  commit windows before citing a full workload pass. The FIFO cross-check
+  driver prebuilds the generated DUT before launching QEMU, so its bounded
+  QEMU capture window measures QEMU execution rather than first-run C++
+  code generation; it also passes 1280 MiB of RAM by default because the
+  direct-boot CoreMark ELF maps load segments at `0x40000000`.
 - The short driver compares a raw-row bound, while its comparator bound is in
   architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore
   end with a `trace_length` tail mismatch even after every compared

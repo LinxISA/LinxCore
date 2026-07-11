@@ -783,6 +783,9 @@ def _build_trace_export_core(
     ren_dispatch_fire = m.new_wire(width=1)
     ren_disp_alloc_mask = m.new_wire(width=p.pregs)
     ren_flush_survivor_pdst_mask = m.new_wire(width=p.pregs)
+    ren_lsid_checkpoint_capture_fire = m.new_wire(width=1)
+    ren_lsid_checkpoint_capture_bid = m.new_wire(width=64)
+    ren_lsid_checkpoint_capture_base = m.new_wire(width=32)
     ren_macro_uop_reg = m.new_wire(width=6)
     ren_wb_set_mask = m.new_wire(width=p.pregs)
 
@@ -796,7 +799,6 @@ def _build_trace_export_core(
     ren_disp_dst_is_gprs = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
     ren_disp_regdsts = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
     ren_disp_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
-    ren_disp_checkpoint_ids = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
 
     ren_commit_fires = [m.new_wire(width=1) for _ in range(p.commit_w)]
     ren_commit_is_bstops = [m.new_wire(width=1) for _ in range(p.commit_w)]
@@ -811,6 +813,10 @@ def _build_trace_export_core(
         "flush_survivor_pdst_mask": ren_flush_survivor_pdst_mask,
         "dispatch_fire": ren_dispatch_fire,
         "disp_alloc_mask": ren_disp_alloc_mask,
+        "lsid_checkpoint_capture_fire": ren_lsid_checkpoint_capture_fire,
+        "lsid_checkpoint_capture_bid": ren_lsid_checkpoint_capture_bid,
+        "lsid_checkpoint_capture_base": ren_lsid_checkpoint_capture_base,
+        "lsid_checkpoint_restore_bid": state.flush_bid.out(),
         "macro_uop_reg": ren_macro_uop_reg,
         "wb_set_mask": ren_wb_set_mask,
     }
@@ -825,7 +831,6 @@ def _build_trace_export_core(
         rename_bank_args[f"disp_dst_is_gpr{slot}"] = ren_disp_dst_is_gprs[slot]
         rename_bank_args[f"disp_regdst{slot}"] = ren_disp_regdsts[slot]
         rename_bank_args[f"disp_pdst{slot}"] = ren_disp_pdsts[slot]
-        rename_bank_args[f"disp_checkpoint_id{slot}"] = ren_disp_checkpoint_ids[slot]
     for slot in range(p.commit_w):
         rename_bank_args[f"commit_fire{slot}"] = ren_commit_fires[slot]
         rename_bank_args[f"commit_is_bstop{slot}"] = ren_commit_is_bstops[slot]
@@ -994,6 +999,8 @@ def _build_trace_export_core(
         **rob_bank_args,
     )
     m.assign(ren_flush_survivor_pdst_mask, rob_bank["flush_survivor_pdst_mask_o"])
+    ren_lsid_checkpoint_restore_valid = rename_bank["lsid_checkpoint_restore_valid_o"]
+    ren_lsid_checkpoint_restore_base = rename_bank["lsid_checkpoint_restore_base_o"]
     rob_head = rob_bank["head_o"]
     rob_tail = rob_bank["tail_o"]
     rob_count = rob_bank["count_o"]
@@ -1800,13 +1807,22 @@ def _build_trace_export_core(
     lsu_lsid_block_lane0 = lsu_stage["lsu_lsid_block_lane0"]
     lsu_block_lane0 = lsu_stage["lsu_block_lane0"]
     lsu_lsid_issue_advance = lsu_stage["lsu_lsid_issue_advance"]
+    lsid_issue_next = lsu_stage["lsid_issue_next"]
     issue_fires_eff[0] = lsu_stage["issue_fire_lane0_eff"]
     issue_fire = issue_fires_eff[0]
-    lsid_issue_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_ptr_live + c(1, width=32), lsid_issue_ptr_live)
-    lsid_complete_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_complete_ptr_live + c(1, width=32), lsid_complete_ptr_live)
-    # Recovery retains the older ROB prefix, including its in-order memory
-    # stream. Keep both cursors on that stream: rebasing them to the current
-    # allocation tail skips retained LSIDs while the frontend drains.
+    lsid_issue_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_next, lsid_issue_ptr_live)
+    lsid_complete_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_next, lsid_complete_ptr_live)
+    # Redirect recovery restarts the flushed BID's allocation epoch.  This
+    # removes LSID holes from squashed younger work while preserving the
+    # retained prefix before the BID opened.
+    lsid_issue_ptr_live = (do_flush & ren_lsid_checkpoint_restore_valid)._select_internal(
+        ren_lsid_checkpoint_restore_base,
+        lsid_issue_ptr_live,
+    )
+    lsid_complete_ptr_live = (do_flush & ren_lsid_checkpoint_restore_valid)._select_internal(
+        ren_lsid_checkpoint_restore_base,
+        lsid_complete_ptr_live,
+    )
 
     issue_is_loads = []
     issue_is_stores = []
@@ -2244,6 +2260,7 @@ def _build_trace_export_core(
     disp_is_store = []
     disp_is_boundary = []
     disp_is_bstart = []
+    disp_bstart_fires = []
     disp_is_bstop = []
     disp_boundary_kind = []
     disp_boundary_target = []
@@ -2306,6 +2323,7 @@ def _build_trace_export_core(
         disp_is_store.append(decode_fields["is_store"])
         disp_is_boundary.append(decode_fields["is_boundary"])
         disp_is_bstart.append(decode_fields["is_bstart"])
+        disp_bstart_fires.append(slot_take_new_bid)
         disp_is_bstop.append(decode_fields["is_bstop"])
         disp_boundary_kind.append(decode_fields["boundary_kind"])
         disp_boundary_target.append(decode_fields["boundary_target"])
@@ -2418,6 +2436,18 @@ def _build_trace_export_core(
     brob_alloc_fire = dispatch_frontend["brob_alloc_fire"]
     disp_alloc_mask = dispatch_frontend["disp_alloc_mask"]
     lsid_alloc_next = dispatch_frontend["lsid_alloc_next"]
+    m.assign(ren_lsid_checkpoint_capture_bid, brob_alloc_bid_i)
+    lsid_checkpoint_capture_fire = consts.zero1
+    lsid_checkpoint_capture_base = state.lsid_alloc_ctr.out()
+    for slot in range(p.dispatch_w):
+        bstart_fire = disp_bstart_fires[slot]
+        lsid_checkpoint_capture_fire = lsid_checkpoint_capture_fire | bstart_fire
+        lsid_checkpoint_capture_base = bstart_fire._select_internal(
+            disp_load_store_ids[slot],
+            lsid_checkpoint_capture_base,
+        )
+    m.assign(ren_lsid_checkpoint_capture_fire, lsid_checkpoint_capture_fire)
+    m.assign(ren_lsid_checkpoint_capture_base, lsid_checkpoint_capture_base)
 
     # Wire rename bank inputs (hierarchical SMAP/CMAP + ready/free).
     m.assign(ren_dispatch_fire, dispatch_fire)
@@ -2444,7 +2474,6 @@ def _build_trace_export_core(
         m.assign(ren_disp_dst_is_gprs[slot], disp_dst_is_gpr[slot])
         m.assign(ren_disp_regdsts[slot], disp_regdsts[slot])
         m.assign(ren_disp_pdsts[slot], disp_pdsts[slot])
-        m.assign(ren_disp_checkpoint_ids[slot], disp_checkpoint_ids[slot])
 
     for slot in range(p.commit_w):
         m.assign(ren_commit_fires[slot], commit_fires[slot])
@@ -2679,7 +2708,11 @@ def _build_trace_export_core(
     assign_block_bid_n = brob_alloc_fire._select_internal(brob_alloc_bid_i, assign_block_bid_n)
     state.assign_block_uid.set(assign_block_uid_n)
     state.assign_block_bid.set(assign_block_bid_n)
-    state.lsid_alloc_ctr.set(lsid_alloc_next)
+    lsid_alloc_ctr_next = (do_flush & ren_lsid_checkpoint_restore_valid)._select_internal(
+        ren_lsid_checkpoint_restore_base,
+        lsid_alloc_next,
+    )
+    state.lsid_alloc_ctr.set(lsid_alloc_ctr_next)
     state.lsid_issue_ptr.set(lsid_issue_ptr_live)
     state.lsid_complete_ptr.set(lsid_complete_ptr_live)
     state.block_head.set(do_flush._select_internal(consts.one1, block_head_live))

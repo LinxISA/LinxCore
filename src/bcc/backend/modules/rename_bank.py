@@ -21,6 +21,10 @@ def build_rename_bank_top(
     flush_survivor_pdst_mask = m.input("flush_survivor_pdst_mask", width=pregs)
     dispatch_fire = m.input("dispatch_fire", width=1)
     disp_alloc_mask = m.input("disp_alloc_mask", width=pregs)
+    lsid_checkpoint_capture_fire = m.input("lsid_checkpoint_capture_fire", width=1)
+    lsid_checkpoint_capture_bid = m.input("lsid_checkpoint_capture_bid", width=64)
+    lsid_checkpoint_capture_base = m.input("lsid_checkpoint_capture_base", width=32)
+    lsid_checkpoint_restore_bid = m.input("lsid_checkpoint_restore_bid", width=64)
     macro_uop_reg = m.input("macro_uop_reg", width=6)
     wb_set_mask = m.input("wb_set_mask", width=pregs)
 
@@ -48,7 +52,6 @@ def build_rename_bank_top(
         disp_dst_is_gpr.append(m.input(f"disp_dst_is_gpr{slot}", width=1))
         disp_regdst.append(m.input(f"disp_regdst{slot}", width=6))
         disp_pdst.append(m.input(f"disp_pdst{slot}", width=ptag_w))
-        m.input(f"disp_checkpoint_id{slot}", width=6)
 
     commit_fire = []
     commit_is_bstop = []
@@ -82,6 +85,33 @@ def build_rename_bank_top(
 
     free_mask_reg = m.out("free_mask_q", clk=clk, rst=rst, width=pregs, init=c(init_free_mask, width=pregs), en=c(1, width=1))
     ready_mask_reg = m.out("ready_mask_q", clk=clk, rst=rst, width=pregs, init=c(init_ready_mask, width=pregs), en=c(1, width=1))
+
+    # A BID opens a recoverable allocation epoch.  The 64-entry ROB bounds
+    # the simultaneously-live BID set, so a low-six-bit direct index plus the
+    # full-BID validity check is sufficient and keeps recovery out of the hot
+    # backend wrapper.
+    checkpoint_valid = [m.out(f"lsid_checkpoint_valid{i}", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1)) for i in range(64)]
+    checkpoint_bid = [m.out(f"lsid_checkpoint_bid{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)) for i in range(64)]
+    checkpoint_base = [m.out(f"lsid_checkpoint_base{i}", clk=clk, rst=rst, width=32, init=c(0, width=32), en=c(1, width=1)) for i in range(64)]
+    checkpoint_capture_idx = lsid_checkpoint_capture_bid._trunc(width=6)
+    checkpoint_capture_found = c(0, width=1)
+    for i in range(64):
+        existing = checkpoint_valid[i].out() & checkpoint_bid[i].out().__eq__(lsid_checkpoint_capture_bid)
+        free = ~checkpoint_valid[i].out()
+        take = (~checkpoint_capture_found) & (existing | free)
+        checkpoint_capture_idx = take._select_internal(c(i, width=6), checkpoint_capture_idx)
+        checkpoint_capture_found = checkpoint_capture_found | (existing | free)
+    for i in range(64):
+        capture_hit = lsid_checkpoint_capture_fire & checkpoint_capture_idx.__eq__(c(i, width=6))
+        checkpoint_valid[i].set(capture_hit._select_internal(c(1, width=1), checkpoint_valid[i].out()))
+        checkpoint_bid[i].set(capture_hit._select_internal(lsid_checkpoint_capture_bid, checkpoint_bid[i].out()))
+        checkpoint_base[i].set(capture_hit._select_internal(lsid_checkpoint_capture_base, checkpoint_base[i].out()))
+    checkpoint_restore_valid = c(0, width=1)
+    checkpoint_restore_base = c(0, width=32)
+    for i in range(64):
+        restore_hit = checkpoint_valid[i].out() & checkpoint_bid[i].out().__eq__(lsid_checkpoint_restore_bid)
+        checkpoint_restore_valid = checkpoint_restore_valid | restore_hit
+        checkpoint_restore_base = restore_hit._select_internal(checkpoint_base[i].out(), checkpoint_restore_base)
 
     smap_live = [r.out() for r in smap_regs]
     cmap_live = [r.out() for r in cmap_regs]
@@ -220,7 +250,11 @@ def build_rename_bank_top(
 
     for i in range(aregs):
         cmap_regs[i].set(cmap_live[i])
-        smap_regs[i].set(do_flush._select_internal(cmap_live[i], smap_live[i]))
+        smap_tag = smap_live[i]
+        smap_oh = onehot_from_tag(m, tag=smap_tag, width=pregs, tag_width=ptag_w)
+        smap_survives_flush = (~smap_tag.__eq__(tag0)) & (~(flush_survivor_pdst_mask & smap_oh).__eq__(c(0, width=pregs)))
+        flush_smap = smap_survives_flush._select_internal(smap_tag, cmap_live[i])
+        smap_regs[i].set(do_flush._select_internal(flush_smap, smap_live[i]))
 
     macro_reg_tag = mux_by_uindex(m, idx=macro_uop_reg, items=[r.out() for r in smap_regs], default=tag0)
 
@@ -235,6 +269,8 @@ def build_rename_bank_top(
     m.output("smap_st0_o", smap_regs[24].out())
     m.output("smap_su0_o", smap_regs[28].out())
     m.output("macro_reg_tag_o", macro_reg_tag)
+    m.output("lsid_checkpoint_restore_valid_o", checkpoint_restore_valid)
+    m.output("lsid_checkpoint_restore_base_o", checkpoint_restore_base)
     for slot in range(dispatch_w):
         m.output(f"disp_srcl_tag{slot}_o", srcl_tags[slot])
         m.output(f"disp_srcr_tag{slot}_o", srcr_tags[slot])

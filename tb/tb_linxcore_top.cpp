@@ -2847,6 +2847,14 @@ int main(int argc, char **argv) {
           auto *rename = backend->rename_bank.get();
           auto *rob = backend->rob_bank.get();
           auto *lsu = backend->lsu_stage.get();
+          if (rename->lsid_checkpoint_capture_fire.value()) {
+            rawTrace << "{"
+                     << "\"type\":\"lsid_checkpoint_capture\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"bid\":" << rename->lsid_checkpoint_capture_bid.value() << ","
+                     << "\"base\":" << rename->lsid_checkpoint_capture_base.value()
+                     << "}\n";
+          }
           if (lsu->issue_fire_lane0_raw.value() && !lsu->issue_fire_lane0_eff.value()) {
             rawTrace << "{"
                      << "\"type\":\"lsu_issue_block\","
@@ -2867,7 +2875,9 @@ int main(int argc, char **argv) {
                      << "\"cycle\":" << cycleNow << ","
                      << "\"free_mask\":" << rename->free_mask_q.value() << ","
                      << "\"flush_bid\":" << rob->flush_bid.value() << ","
-                     << "\"survivor_pdst_mask\":" << rob->flush_survivor_pdst_mask_o.value()
+                     << "\"survivor_pdst_mask\":" << rob->flush_survivor_pdst_mask_o.value() << ","
+                     << "\"lsid_checkpoint_valid\":" << rename->lsid_checkpoint_restore_valid_o.value() << ","
+                     << "\"lsid_checkpoint_base\":" << rename->lsid_checkpoint_restore_base_o.value()
                      << "}\n";
           }
           auto writeRenameCommit = [&](int slot,

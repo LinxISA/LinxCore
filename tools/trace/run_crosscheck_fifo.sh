@@ -14,6 +14,7 @@ BOOT_PC=""
 BOOT_SP="${BOOT_SP:-0x0000000007fefff0}"
 QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-0}"
+QEMU_MEMORY="${QEMU_MEMORY:-1280M}"
 LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
 
 usage() {
@@ -30,6 +31,7 @@ Options:
   --boot-sp <hex>           DUT boot SP (default: 0x0000000007fefff0)
   --qemu-bin <path>         QEMU binary path
   --qemu-max-seconds <int>  Timeout passed to QEMU trace runner (0 disables)
+  --qemu-memory <size>      QEMU RAM size for direct-boot ELF images (default: 1280M)
 
 Runs QEMU and LinxCore simultaneously using FIFOs, captures both traces,
 then runs tools/trace/crosscheck_qemu_linxcore.py.
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --boot-sp) BOOT_SP="$2"; shift 2 ;;
     --qemu-bin) QEMU_BIN="$2"; shift 2 ;;
     --qemu-max-seconds) QEMU_MAX_SECONDS="$2"; shift 2 ;;
+    --qemu-memory) QEMU_MEMORY="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "error: unknown arg: $1" >&2
@@ -93,6 +96,14 @@ if [[ ! -f "${MEMH}" ]]; then
   echo "error: memh not found: ${MEMH}" >&2
   exit 2
 fi
+
+# The QEMU timeout is evidence capture time, not generated-C++ build time.
+# Build the DUT before starting either FIFO producer so a first-codegen build
+# cannot consume the bounded QEMU window and leave the compare driver waiting
+# on an already-terminated producer.
+PYC_SKIP_RUN=1 \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -g0}" \
+  bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null
 
 created_tmp=0
 if [[ -z "${OUT_DIR}" ]]; then
@@ -165,7 +176,7 @@ bash "${ROOT_DIR}/tools/qemu/run_qemu_commit_trace.sh" \
   --elf "${ELF}" \
   --out "${QEMU_FIFO}" \
   -- \
-  -nographic -monitor none -machine virt -kernel "${ELF}" >/dev/null &
+  -nographic -monitor none -machine virt -m "${QEMU_MEMORY}" -kernel "${ELF}" >/dev/null &
 qemu_pid=$!
 qemu_child_pid=""
 
