@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{Cat, log2Ceil}
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.recovery.FlushBus
@@ -162,7 +162,56 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
 
   val transferPending = Output(Bool())
   val transferProtocolError = Output(Bool())
+  val mdbConflictValid = Output(Bool())
+  val mdbConflictFromResolveQueue = Output(Bool())
+  val mdbConflictActiveMask = Output(UInt(lsuParams.liqEntries.W))
+  val mdbConflictResolveMask = Output(UInt(lsuParams.resolveQueueEntries.W))
+  val mdbConflictWaitStoreMask = Output(UInt(lsuParams.liqEntries.W))
+  val mdbConflictFlush = Output(new FlushBus(
+    coreParams.robEntries,
+    lsuParams.peIdWidth,
+    lsuParams.stidWidth,
+    lsuParams.tidWidth
+  ))
+  val mdbRecordAccepted = Output(Bool())
+  val mdbRecordProcessed = Output(Bool())
+  val mdbBmdbReportValid = Output(Bool())
+  val mdbLookupAccepted = Output(Bool())
+  val mdbLookupProcessed = Output(Bool())
+  val mdbLookupHit = Output(Bool())
+  val mdbLookupWaitMutation = Output(Bool())
+  val mdbWaitPlanPending = Output(Bool())
+  val mdbWaitPlanTargetMask = Output(UInt(lsuParams.liqEntries.W))
+  val mdbSsitValidMask = Output(UInt(lsuParams.mdbSsitEntries.W))
+  val mdbStoreWakeupValid = Output(Bool())
+  val mdbReplayWakeCollision = Output(Bool())
+  val mdbTransientEmpty = Output(Bool())
+  val mdbProtocolError = Output(Bool())
   val empty = Output(Bool())
+}
+
+class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
+  val probe = Input(new MDBConflictStoreProbe(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth,
+    p.loadSizeWidth
+  ))
+  val probeReady = Output(Bool())
+  val rows = Input(Vec(
+    p.stqEntries,
+    new MDBStoreWakeupEntry(
+      coreParams.robEntries,
+      p.stqEntries,
+      p.addrWidth,
+      p.pcWidth,
+      p.stidWidth,
+      p.loadSizeWidth
+    )
+  ))
 }
 
 class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Module {
@@ -174,6 +223,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   require(p.lineBytes == 64, "canonical scalar load path currently requires 64-byte cache lines")
 
   val io = IO(new ScalarLSULoadPathIO(coreParams, p))
+  val mdbStore = IO(new ScalarLSULoadPathStoreIO(coreParams, p))
 
   val liq = Module(new LoadInflightQueue(
     liqEntries = p.liqEntries,
@@ -201,6 +251,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     lineBytes = p.lineBytes,
     sizeWidth = p.loadSizeWidth
   ))
+  val mdbPath = Module(new ScalarLSUMDBPath(coreParams))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
   val transferPending = RegInit(false.B)
@@ -212,7 +263,9 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
 
   liq.io.flush := io.flush
   liq.io.preciseFlush := io.preciseFlush
-  liq.io.allocValid := io.allocValid
+  val allocNeedsMdbLookup = io.allocValid && !io.alloc.isTile
+  val allocMdbReady = !allocNeedsMdbLookup || mdbPath.io.loadLookupReady
+  liq.io.allocValid := io.allocValid && allocMdbReady
   liq.io.alloc := io.alloc
   liq.io.launchValid := io.launchValid && resolveCreditSafe
   liq.io.launchIndex := io.launchIndex
@@ -229,28 +282,52 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   liq.io.e2ScbReturned := io.e2ScbReturned
   liq.io.e2StqReturned := io.e2StqReturned
   liq.io.e2ReturnReady := io.e2ReturnReady
-  liq.io.replayWakeValid := io.replayWakeValid
-  liq.io.replayWake := io.replayWake
+  val mdbReplayWake = Wire(chiselTypeOf(io.replayWake))
+  mdbReplayWake := 0.U.asTypeOf(mdbReplayWake)
+  mdbReplayWake.source := LoadReplayWakeSource.StoreUnit
+  mdbReplayWake.storeId := mdbPath.io.storeWakeup.bid
+  mdbReplayWake.storeLsId := mdbPath.io.storeWakeup.lsId
+  mdbReplayWake.pc := mdbPath.io.storeWakeup.pc
+  mdbReplayWake.lineAddr := Cat(
+    mdbPath.io.storeWakeup.addr(p.addrWidth - 1, log2Ceil(p.lineBytes)),
+    0.U(log2Ceil(p.lineBytes).W)
+  )
+  mdbReplayWake.validMask := 0.U
+  mdbReplayWake.data := 0.U
+  liq.io.replayWakeValid := mdbPath.io.storeWakeup.valid || io.replayWakeValid
+  liq.io.replayWake := Mux(mdbPath.io.storeWakeup.valid, mdbReplayWake, io.replayWake)
   liq.io.refillValid := io.refillValid
   liq.io.refill := io.refill
   liq.io.clearResolvedValid := transferPending
   liq.io.clearResolvedIndex := transferIndex
 
-  liq.io.rowMutationValid := false.B
-  liq.io.rowMutationTargetIndex := 0.U
-  liq.io.rowMutationSetWaitStatus := false.B
+  liq.io.rowMutationValid := mdbPath.io.mutationValid
+  liq.io.rowMutationTargetIndex := mdbPath.io.mutationTargetIndex
+  liq.io.rowMutationSetWaitStatus := mdbPath.io.mutationSetWaitStatus
   liq.io.rowMutationKeepRepickStatus := false.B
-  liq.io.rowMutationClearReturnState := false.B
-  liq.io.rowMutationLineWrite := false.B
-  liq.io.rowMutationWaitStoreWrite := false.B
-  liq.io.rowMutationNextWaitStore := false.B
-  liq.io.rowMutationNextWaitStoreInfo := 0.U.asTypeOf(liq.io.rowMutationNextWaitStoreInfo)
+  liq.io.rowMutationClearReturnState := mdbPath.io.mutationClearReturnState
+  liq.io.rowMutationLineWrite := mdbPath.io.mutationLineWrite
+  liq.io.rowMutationWaitStoreWrite := mdbPath.io.mutationWaitStoreWrite
+  liq.io.rowMutationNextWaitStore := mdbPath.io.mutationNextWaitStore
+  liq.io.rowMutationNextWaitStoreInfo := mdbPath.io.mutationNextWaitStoreInfo
   liq.io.rowMutationNextLineData := 0.U
   liq.io.rowMutationNextValidMask := 0.U
   liq.io.rowMutationNextDataComplete := false.B
   liq.io.rowMutationNextScbReturned := false.B
   liq.io.rowMutationNextStqReturned := false.B
   liq.io.rowMutationNextStoreSourceReturned := false.B
+  liq.io.rowMutationAllowWaitTarget := true.B
+  liq.io.rowMutationRequireScbReturned := false.B
+
+  mdbPath.io.flush := flushCycle
+  mdbPath.io.storeProbe := mdbStore.probe
+  mdbPath.io.storeRows := mdbStore.rows
+  mdbStore.probeReady := mdbPath.io.storeProbeReady
+  mdbPath.io.loadLookupValid := liq.io.allocAccepted && !io.alloc.isTile
+  mdbPath.io.loadLookup := io.alloc
+  mdbPath.io.loadRows := liq.io.rows
+  mdbPath.io.resolvedRows := resolveQueue.io.conflictRows
+  mdbPath.io.mutationAccepted := liq.io.rowMutationApplyValid
 
   val hitRow = liq.io.rows(liq.io.e4UpdateIndex)
   resolveQueue.io.flush := io.flush
@@ -280,7 +357,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     }
   }
 
-  io.allocReady := liq.io.allocReady
+  io.allocReady := liq.io.allocReady && allocMdbReady
   io.allocAccepted := liq.io.allocAccepted
   io.allocIndex := liq.io.allocIndex
   io.allocLoadId := liq.io.allocLoadId
@@ -323,5 +400,25 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.resolveFull := resolveQueue.io.full
   io.transferPending := transferPending
   io.transferProtocolError := transferProtocolError
-  io.empty := liq.io.empty && resolveQueue.io.empty && !transferPending
+  io.mdbConflictValid := mdbPath.io.conflictValid
+  io.mdbConflictFromResolveQueue := mdbPath.io.conflictFromResolveQueue
+  io.mdbConflictActiveMask := mdbPath.io.conflictActiveMask
+  io.mdbConflictResolveMask := mdbPath.io.conflictResolveMask
+  io.mdbConflictWaitStoreMask := mdbPath.io.conflictWaitStoreMask
+  io.mdbConflictFlush := mdbPath.io.conflictFlush
+  io.mdbRecordAccepted := mdbPath.io.recordAccepted
+  io.mdbRecordProcessed := mdbPath.io.recordProcessed
+  io.mdbBmdbReportValid := mdbPath.io.bmdbReportValid
+  io.mdbLookupAccepted := mdbPath.io.lookupAccepted
+  io.mdbLookupProcessed := mdbPath.io.lookupProcessed
+  io.mdbLookupHit := mdbPath.io.lookupHit
+  io.mdbLookupWaitMutation := mdbPath.io.lookupWaitMutation
+  io.mdbWaitPlanPending := mdbPath.io.waitPlanPending
+  io.mdbWaitPlanTargetMask := mdbPath.io.waitPlanTargetMask
+  io.mdbSsitValidMask := mdbPath.io.ssitValidMask
+  io.mdbStoreWakeupValid := mdbPath.io.storeWakeup.valid
+  io.mdbReplayWakeCollision := mdbPath.io.storeWakeup.valid && io.replayWakeValid
+  io.mdbTransientEmpty := mdbPath.io.transientEmpty
+  io.mdbProtocolError := mdbPath.io.protocolError || io.mdbReplayWakeCollision
+  io.empty := liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty
 }

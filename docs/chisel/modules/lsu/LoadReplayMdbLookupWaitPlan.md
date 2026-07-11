@@ -33,8 +33,8 @@ same-BID matching when available, but the LinxCoreModel `LDQInfo::updateMDBInfo`
 path does not require it before marking the load as waiting on the predicted
 store. This module therefore separates two events:
 
-1. `waitIntentValid`: a scalar MDB LU hit found exactly one resident repick LIQ
-   row that matches the MDB load identity.
+1. `waitIntentValid`: a scalar MDB LU hit found exactly one resident `Wait` or
+   `Repick` LIQ row that matches the MDB load identity.
 2. `requestValid`: the same wait intent is ready to publish as a row mutation.
    Missing native store index/LSID are retained as diagnostics and represented
    conservatively in `nextWaitStoreInfo`.
@@ -47,6 +47,12 @@ native LIQ row write. R498 connects the live top through
 `LoadReplayRowMutationSourceMux`, but the first live lookup fixture still
 misses before `waitIntentValid` or `requestValid` can assert.
 
+R635 promotes the planner beneath `ScalarLSUMDBPath` and aligns lookup timing
+with `LDQInfo::handleStateQuery`: a lookup may return while its allocated LIQ
+row is still `Wait`, before first launch. Canonical LU/SU fanout holds the
+result until native LIQ mutation accepts, so same-cycle row writers cannot
+drop a predictor hit.
+
 ## Interface
 
 | Signal | Description |
@@ -56,7 +62,7 @@ misses before `waitIntentValid` or `requestValid` can assert.
 | `rows` | Current LIQ row image used for exact resident-row matching. |
 | `storeIndexValid` / `storeIndex` | Native STQ row index from a store-side match when available. Missing index no longer blocks MDB wait publication. |
 | `storeLsIdValid` / `storeLsId` | Native store LSID from a store-side match when available. Missing LSID no longer blocks MDB wait publication. |
-| `candidateMask` / `candidateCount` | Repick scalar LIQ rows matching MDB load `(BID, LSID)`. |
+| `candidateMask` / `candidateCount` | `Wait` or `Repick` scalar LIQ rows matching MDB load `(BID, LSID)`. |
 | `targetValid` / `targetIndex` | Exactly one candidate row was found. |
 | `waitIntentValid` | MDB LU hit can name the waiting load row, independent of native store identity readiness. |
 | `requestValid` / `requestTarget*` | Native LIQ row-mutation request shape is safe to consume. |
@@ -79,7 +85,7 @@ lookupHit =
 candidate[i] =
   lookupHit &&
   row[i].valid &&
-  row[i].status == Repick &&
+  row[i].status in {Wait, Repick} &&
   !row[i].isTile &&
   row[i].bid == luOut.ldInfo.bid &&
   row[i].loadLsId == luOut.ldInfo.lsId

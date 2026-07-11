@@ -227,6 +227,8 @@ class LoadInflightQueueIO(
   val rowMutationNextScbReturned = Input(Bool())
   val rowMutationNextStqReturned = Input(Bool())
   val rowMutationNextStoreSourceReturned = Input(Bool())
+  val rowMutationAllowWaitTarget = Input(Bool())
+  val rowMutationRequireScbReturned = Input(Bool())
   val rowMutationBridgeValid = Output(Bool())
   val rowMutationTargetEvidenceValid = Output(Bool())
   val rowMutationWriteConflict = Output(Bool())
@@ -535,6 +537,8 @@ class LoadInflightQueue(
   rowMutationPath.io.nextScbReturned := io.rowMutationNextScbReturned
   rowMutationPath.io.nextStqReturned := io.rowMutationNextStqReturned
   rowMutationPath.io.nextStoreSourceReturned := io.rowMutationNextStoreSourceReturned
+  rowMutationPath.io.allowWaitTarget := io.rowMutationAllowWaitTarget
+  rowMutationPath.io.requireScbReturned := io.rowMutationRequireScbReturned
   rowMutationPath.io.e4UpdateConflict := e4UpdateValid && (e4Index === io.rowMutationTargetIndex)
   rowMutationPath.io.clearResolvedConflict := clearResolvedAccepted && (io.clearResolvedIndex === io.rowMutationTargetIndex)
   rowMutationPath.io.replayWakeConflict := io.replayWakeValid && rowMutationReplayConflictVec(io.rowMutationTargetIndex)

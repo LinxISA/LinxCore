@@ -38,10 +38,15 @@ object LoadInflightRowMutationWriteControlReference {
       targetRowValid: Boolean,
       targetRowRepick: Boolean,
       targetScbReturned: Boolean,
+      targetRowWait: Boolean = false,
+      allowWaitTarget: Boolean = false,
+      requireScbReturned: Boolean = true,
       conflicts: Conflicts = Conflicts()): Result = {
     val active = enable && !flush
     val requestActive = active && requestValid
-    val targetEvidenceValid = targetRowValid && targetRowRepick && targetScbReturned
+    val targetStatusValid = targetRowRepick || (allowWaitTarget && targetRowWait)
+    val targetReturnEvidenceValid = !requireScbReturned || targetScbReturned
+    val targetEvidenceValid = targetRowValid && targetStatusValid && targetReturnEvidenceValid
     val writeConflict =
       conflicts.e4Update ||
         conflicts.clearResolved ||
@@ -60,8 +65,8 @@ object LoadInflightRowMutationWriteControlReference {
       blockedByFlush = enable && flush && requestValid,
       blockedByNoRequest = active && !requestValid,
       blockedByInvalidRow = requestActive && !targetRowValid,
-      blockedByNotRepick = requestActive && targetRowValid && !targetRowRepick,
-      blockedByScbNotReturned = requestActive && targetRowValid && targetRowRepick && !targetScbReturned,
+      blockedByNotRepick = requestActive && targetRowValid && !targetStatusValid,
+      blockedByScbNotReturned = requestActive && targetRowValid && targetStatusValid && !targetReturnEvidenceValid,
       blockedByE4UpdateConflict = requestActive && conflicts.e4Update,
       blockedByClearResolvedConflict = requestActive && conflicts.clearResolved,
       blockedByReplayWakeConflict = requestActive && conflicts.replayWake,
@@ -178,6 +183,24 @@ class LoadInflightRowMutationWriteControlSpec extends AnyFunSuite {
     assert(launch.blockedByLaunchConflict)
     assert(allocation.blockedByAllocationConflict)
     assert(Seq(e4, clear, replay, refill, launch, allocation).forall(result => result.writeConflict && !result.writeEnable))
+  }
+
+  test("admits an MDB wait mutation on a resident Wait row without return evidence") {
+    val result = LoadInflightRowMutationWriteControlReference(
+      enable = true,
+      flush = false,
+      requestValid = true,
+      targetRowValid = true,
+      targetRowRepick = false,
+      targetScbReturned = false,
+      targetRowWait = true,
+      allowWaitTarget = true,
+      requireScbReturned = false)
+
+    assert(result.targetEvidenceValid)
+    assert(result.writeEnable)
+    assert(!result.blockedByNotRepick)
+    assert(!result.blockedByScbNotReturned)
   }
 
   test("reports disabled flush and no-request blockers without enabling writes") {

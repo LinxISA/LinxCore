@@ -46,9 +46,15 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadResolveQueue"))
+    assert(sv.contains("module ScalarLSUMDBPath"))
+    assert(sv.contains("module MDBConflictDetect"))
+    assert(sv.contains("module MDBQueueFanout"))
+    assert(sv.contains("module MDBSSIT"))
     assert("""(?s)module ScalarLSU\(.*?input\s+\[4:0\]\s+io_store_flush_req_bid_value""".r.findFirstIn(sv).nonEmpty)
     assert(sv.contains("io_store_stqRows_7_valid"))
     assert(sv.contains("io_load_liqRows_3_valid"))
     assert(sv.contains("io_load_resolveEntries_7_valid"))
+    assert(sv.contains("io_load_mdbConflictFlush_req_valid"))
+    assert(sv.contains("io_load_mdbSsitValidMask"))
   }
 }

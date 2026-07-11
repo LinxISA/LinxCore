@@ -15,7 +15,23 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R634 adds canonical `ScalarLSULoadPath` ownership beneath
+Latest packet: R635 integrates canonical `ScalarLSUMDBPath` beneath
+`ScalarLSULoadPath`. Accepted scalar loads enqueue MDB lookup before launch;
+accepted address-bearing stores are gated by record and retained wait-plan
+capacity; active and ResolveQ conflicts train SSIT/BMDB intent and emit typed
+Linx inner/nuke recovery. Multi-row active wait masks drain through native LIQ
+mutation, and LU/SU fanout holds lookup hits until a matching `Wait` or
+`Repick` row accepts mutation. Recovery clears transient commands/plans while
+preserving SSIT predictor state. Failed-wait delete timing, outer recovery
+arbitration, cache/miss queues, and final load return are the next boundaries.
+The generated-RTL canonical MDB probe passes its positive conflict/record/
+lookup/mutation sequence. The full suite passes 246 suites and 1,462 tests;
+the canonical top xcheck passes 3 rows with zero mismatches; and the reduced
+CoreMark no-regression manifest at
+`generated/r635-final-mdb-owner-coremark/report/crosscheck_manifest.json`
+passes 665 compared rows with zero mismatches.
+
+R634 adds canonical `ScalarLSULoadPath` ownership beneath
 `ScalarLSU`. `LoadInflightQueue` now carries PE/STID/TID and applies typed Linx
 precise pruning; `LoadResolveQueue` shares that recovery boundary. The owner
 requires three free ResolveQ slots before launch: two for already registered

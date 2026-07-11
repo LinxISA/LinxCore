@@ -15,6 +15,7 @@ class LoadReplayMdbLookupWaitPlanIO(
     val sizeWidth: Int,
     val archRegWidth: Int,
     val physRegWidth: Int,
+    val stidWidth: Int,
     val confWidth: Int,
     val weightWidth: Int)
     extends Bundle {
@@ -27,7 +28,7 @@ class LoadReplayMdbLookupWaitPlanIO(
     idEntries,
     addrWidth,
     pcWidth,
-    stidWidth = 8,
+    stidWidth = stidWidth,
     sizeWidth = sizeWidth,
     confWidth = confWidth,
     weightWidth = weightWidth
@@ -101,6 +102,7 @@ class LoadReplayMdbLookupWaitPlan(
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
     val physRegWidth: Int = 6,
+    val stidWidth: Int = 8,
     val confWidth: Int = 2,
     val weightWidth: Int = 2)
     extends Module {
@@ -122,6 +124,7 @@ class LoadReplayMdbLookupWaitPlan(
     sizeWidth,
     archRegWidth,
     physRegWidth,
+    stidWidth,
     confWidth,
     weightWidth
   ))
@@ -142,7 +145,7 @@ class LoadReplayMdbLookupWaitPlan(
     candidateVec(idx) :=
       lookupHit &&
         row.valid &&
-        row.status === LoadInflightStatus.Repick &&
+        ((row.status === LoadInflightStatus.Wait) || (row.status === LoadInflightStatus.Repick)) &&
         !row.isTile &&
         row.bid.valid &&
         row.loadLsId.valid &&

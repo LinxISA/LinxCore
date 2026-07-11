@@ -18,6 +18,14 @@ final case class ScalarLsuParams(
   scbResponseBufferDepth: Int = 4,
   liqEntries: Int = 16,
   resolveQueueEntries: Int = 8,
+  mdbSsitEntries: Int = 16,
+  mdbCommandQueueEntries: Int = 16,
+  mdbOutputQueueEntries: Int = 16,
+  mdbWaitPlanQueueEntries: Int = 8,
+  mdbReleaseWeight: Int = 25,
+  mdbMaxWeight: Int = 3,
+  mdbIncStep: Int = 1,
+  mdbConfWidth: Int = 2,
   addrWidth: Int = 64,
   pcWidth: Int = 64,
   dataWidth: Int = 64,
@@ -45,6 +53,19 @@ final case class ScalarLsuParams(
     "liqEntries must be a power of two greater than one")
   require(resolveQueueEntries > 1 && (resolveQueueEntries & (resolveQueueEntries - 1)) == 0,
     "resolveQueueEntries must be a power of two greater than one")
+  require(mdbSsitEntries > 1 && (mdbSsitEntries & (mdbSsitEntries - 1)) == 0,
+    "mdbSsitEntries must be a power of two greater than one")
+  require(mdbCommandQueueEntries > 1 && (mdbCommandQueueEntries & (mdbCommandQueueEntries - 1)) == 0,
+    "mdbCommandQueueEntries must be a power of two greater than one")
+  require(mdbOutputQueueEntries > 1 && (mdbOutputQueueEntries & (mdbOutputQueueEntries - 1)) == 0,
+    "mdbOutputQueueEntries must be a power of two greater than one")
+  require(mdbWaitPlanQueueEntries > 1 && (mdbWaitPlanQueueEntries & (mdbWaitPlanQueueEntries - 1)) == 0,
+    "mdbWaitPlanQueueEntries must be a power of two greater than one")
+  require(mdbReleaseWeight >= 0 && mdbReleaseWeight <= 100,
+    "mdbReleaseWeight must be a percentage")
+  require(mdbMaxWeight > 0, "mdbMaxWeight must be positive")
+  require(mdbIncStep > 0, "mdbIncStep must be positive")
+  require(mdbConfWidth > 0, "mdbConfWidth must be positive")
   require(addrWidth >= 7, "addrWidth must cover scalar cache-line split detection")
   require(pcWidth > 0, "pcWidth must be positive")
   require(dataWidth > 0 && dataWidth % 8 == 0, "dataWidth must contain whole bytes")

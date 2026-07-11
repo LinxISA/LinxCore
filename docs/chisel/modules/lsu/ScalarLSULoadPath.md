@@ -5,6 +5,7 @@
 - Chisel: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala`
 - Active rows: `chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - Resolved rows: `chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
+- MDB: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
   `LDQInfo::flush` and `LDQInfo::CheckMovRslvQ`
@@ -29,6 +30,9 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    transfer in the same cycle that the prior clear is accepted.
 5. Commit `(BID,LSID)` watermarks retire resolved records. Hard and precise
    flush are shared by LIQ and ResolveQ.
+6. Accepted scalar allocation enqueues MDB lookup. Accepted address-bearing
+   store traffic scans active and resolved rows, trains SSIT on a violation,
+   and drains retained wait masks through the native LIQ mutation port.
 
 `transferProtocolError` reports a hit without reserved ResolveQ capacity or a
 new accepted transfer while an older source clear is blocked. It must remain
@@ -50,16 +54,19 @@ exception levels, exclusive monitors, barriers, or acquire/release opcodes.
 ## Current Boundary
 
 Replay/store wakeup, refill, forwarding, and source-return readiness remain
-available through the load path. Native row mutation is intentionally tied
-inactive at this canonical boundary until MDB and ordered STQ/SCB response
-owners move beneath `ScalarLSU`. Cache/miss queues and final IEX LRET,
-writeback, and wakeup publication are also future integration work.
+available through the load path. MDB lookup/conflict wait mutation is live at
+this canonical boundary. Same-cycle writer arbitration holds lookup output
+until mutation applies, and MDB transient state contributes to `empty`.
+Cache/miss queues, failed-wait timeout delete generation, outer recovery
+arbitration, and final IEX LRET/writeback/wakeup publication remain future
+integration work.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - Full Chisel suite: 245 suites, 1,454 tests, zero failures.
@@ -67,3 +74,11 @@ writeback, and wakeup publication are also future integration work.
 - Reduced CoreMark regression:
   `generated/r634-post-load-owner-coremark/report/crosscheck_manifest.json`,
   665 compared rows, zero mismatches.
+
+R635 adds the canonical generated-RTL MDB probe, a full-suite pass of 246
+suites and 1,462 tests, a 3-row zero-mismatch top xcheck, and the reduced
+CoreMark no-regression manifest at
+`generated/r635-final-mdb-owner-coremark/report/crosscheck_manifest.json` with
+665 compared rows and zero mismatches. CoreMark does not naturally activate
+the canonical MDB owner in this bounded window; the positive MDB sequence is
+owned by `run_chisel_scalar_lsu_mdb_path_probe.sh`.

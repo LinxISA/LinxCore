@@ -426,6 +426,17 @@ clears its source LIQ row. L2/CHI response queue ordering,
 ready-table updates, consumer bypass routing, live MDB mutation, and memory
 trace emission remain outside this owner.
 
+R635 places `MDBConflictDetect`, `MDBQueueFanout`, `MDBSSIT`, and
+`LoadReplayMdbLookupWaitPlan` beneath canonical `ScalarLSUMDBPath`. Accepted
+scalar load allocation now enqueues model-timed MDB lookup; accepted
+address-bearing stores publish conflict scans only when record and wait-plan
+capacity is available. Multi-row unresolved wait masks are retained and
+drained one LIQ mutation per cycle. Lookup fanout is held until the matching
+`Wait`/`Repick` row accepts mutation. Same-BID and cross-BID violations publish
+typed Linx inner/nuke flush requests with the conflicting load identity.
+Recovery clears transient MDB queues and plans while preserving SSIT predictor
+state.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
 row mutation, BCTRL/IEX MDB table mutation, CHI completion, and BSB
@@ -433,9 +444,10 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU still needs canonical MDB integration and final
-  load-return/cache ownership. `ScalarLSULoadPath` now owns load-queue flush
-  and LIQ-to-ResolveQ backpressure. `SCBResponseBuffer` owns raw
+- The full scalar LSU still needs final load-return/cache ownership,
+  failed-wait delete timing, and outer recovery arbitration.
+  `ScalarLSULoadPath` now owns load-queue flush, LIQ-to-ResolveQ backpressure,
+  and scalar MDB composition. `SCBResponseBuffer` owns raw
   response FIFO ordering before decode, `SCBResponseRetryQueue` owns decoded
   `resp_list` row-id ordering, and `SCBResponseRetrySelect` preserves the
   response-retry priority rule before ordinary valid-row eviction.

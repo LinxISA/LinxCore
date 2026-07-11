@@ -1,0 +1,89 @@
+package linxcore.lsu
+
+import circt.stage.ChiselStage
+import linxcore.common.{CoreParams, ScalarLsuParams}
+import org.scalatest.funsuite.AnyFunSuite
+
+object ScalarLSUMDBPathReference {
+  sealed trait Recovery
+  case object Inner extends Recovery
+  case object Nuke extends Recovery
+
+  def recovery(loadBid: Int, storeBid: Int): Recovery =
+    if (loadBid == storeBid) Inner else Nuke
+
+  def drainTargetOrder(mask: BigInt, entries: Int): Seq[Int] = {
+    require(mask >= 0 && mask < (BigInt(1) << entries))
+    (0 until entries).filter(index => ((mask >> index) & 1) == 1)
+  }
+
+  final case class LookupState(valid: Boolean, mutationPending: Boolean)
+
+  def lookupStep(state: LookupState, mutationAccepted: Boolean): LookupState =
+    if (!state.valid) state
+    else if (!state.mutationPending || mutationAccepted) LookupState(valid = false, mutationPending = false)
+    else state
+}
+
+class ScalarLSUMDBPathSpec extends AnyFunSuite {
+  import ScalarLSUMDBPathReference._
+
+  private val lsu = ScalarLsuParams(
+    stqEntries = 8,
+    commitQueueEntries = 4,
+    commitIssueWidth = 1,
+    scbEntries = 4,
+    liqEntries = 4,
+    resolveQueueEntries = 8,
+    mdbSsitEntries = 8,
+    mdbCommandQueueEntries = 4,
+    mdbOutputQueueEntries = 4,
+    mdbWaitPlanQueueEntries = 4,
+    mapQDepth = 8
+  )
+  private val core = CoreParams(robEntries = 32, commitWidth = 2, scalarLsu = lsu)
+
+  test("classifies Linx inner and nuke recovery from block identity") {
+    assert(recovery(loadBid = 5, storeBid = 5) == Inner)
+    assert(recovery(loadBid = 5, storeBid = 3) == Nuke)
+  }
+
+  test("retains a multi-row store wait plan and drains every target deterministically") {
+    assert(drainTargetOrder(mask = BigInt("1011", 2), entries = 4) == Seq(0, 1, 3))
+    assert(drainTargetOrder(mask = 0, entries = 4).isEmpty)
+  }
+
+  test("holds an MDB lookup result until its LIQ mutation is accepted") {
+    val blocked = lookupStep(LookupState(valid = true, mutationPending = true), mutationAccepted = false)
+    val accepted = lookupStep(blocked, mutationAccepted = true)
+
+    assert(blocked.valid)
+    assert(blocked.mutationPending)
+    assert(!accepted.valid)
+    assert(!accepted.mutationPending)
+  }
+
+  test("ScalarLSUMDBPath elaborates conflict, SSIT, fanout, wait-plan, and typed flush ownership") {
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSUMDBPath(core))
+
+    assert(sv.contains("module ScalarLSUMDBPath"))
+    assert(sv.contains("module MDBConflictDetect"))
+    assert(sv.contains("module MDBQueueFanout"))
+    assert(sv.contains("module MDBSSIT"))
+    assert(sv.contains("module LoadReplayMdbLookupWaitPlan"))
+    assert(sv.contains("io_mutationAccepted"))
+    assert(sv.contains("io_conflictFlush_req_typ"))
+    assert(sv.contains("io_waitPlanTargetMask"))
+    assert(sv.contains("io_transientEmpty"))
+    assert(sv.contains("io_protocolError"))
+  }
+
+  test("generated-RTL probe elaborates the bounded canonical MDB runtime surface") {
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSUMDBPathProbe)
+
+    assert(sv.contains("module ScalarLSUMDBPathProbe"))
+    assert(sv.contains("io_innerFlush"))
+    assert(sv.contains("io_nukeFlush"))
+    assert(sv.contains("io_lookupWaitMutation"))
+  }
+}

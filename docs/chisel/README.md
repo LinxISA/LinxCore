@@ -143,6 +143,13 @@ confidence decrement, delete decay, and finite-table overflow reporting.
 queues, atomically fans lookup results to LU and SU output queues, freezes
 delete/record behind a blocked lookup fanout, and exposes the scalar
 `StoreUnit::mdbCheck` wakeup decision for matching ready STQ rows.
+`ScalarLSUMDBPath` composes those neutral mechanisms beneath the canonical
+scalar LSU. Accepted loads enqueue lookup before launch; accepted
+address-bearing stores train conflict state only when record/wait-plan
+capacity is available; multi-row active wait masks are retained; LU/SU output
+is held until LIQ mutation applies; and resolved conflicts publish typed Linx
+inner/nuke flush requests. Recovery clears transient queues while preserving
+SSIT predictor state.
 `LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
@@ -173,8 +180,9 @@ The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 owns a monitored `ReducedCommitROB` and canonical `ScalarLSU` store plus
 active/resolved load boundaries. The LSU independently parameterizes ROB
 identity, STQ/SCB, LIQ/ResolveQ, cache-line, register-tag, and MapQ resources.
-MDB, cache/miss queues, live replay mutation, and final load return remain
-staged integration work.
+MDB SSIT/command/output/wait-plan resources are also independently sized.
+Cache/miss queues, failed-wait delete timing, final recovery arbitration, and
+final load return remain staged integration work.
 
 Open setup issues are tracked in `docs/chisel/issues.md`. The optimized
 cross-toolchain flow starts in `docs/chisel/integrated-development-flow.md`.
@@ -225,6 +233,8 @@ bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetryQueue
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPath
+bash tools/chisel/run_chisel_scalar_lsu_mdb_path_probe.sh
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue

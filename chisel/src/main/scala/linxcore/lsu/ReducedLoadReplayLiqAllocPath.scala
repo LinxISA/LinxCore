@@ -361,6 +361,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.rowMutationNextScbReturned := rowMutationBridge.io.nextScbReturnedOut
   liq.io.rowMutationNextStqReturned := rowMutationBridge.io.nextStqReturnedOut
   liq.io.rowMutationNextStoreSourceReturned := rowMutationBridge.io.nextStoreSourceReturnedOut
+  liq.io.rowMutationAllowWaitTarget := false.B
+  liq.io.rowMutationRequireScbReturned := true.B
 
   launchSelect.io.enable := !io.flush
   launchSelect.io.rows := liq.io.rows

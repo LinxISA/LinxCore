@@ -91,6 +91,8 @@ class MDBQueueFanoutIO(
     val confWidth: Int = 2,
     val weightWidth: Int = 2)
     extends Bundle {
+  val flush = Input(Bool())
+
   val lookupIn = Input(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
   val lookupInValid = Input(Bool())
   val lookupInReady = Output(Bool())
@@ -143,6 +145,13 @@ class MDBQueueFanoutIO(
   val deleteDroppedBelowStall = Output(Bool())
   val recordOverflow = Output(Bool())
   val recordOrderIllegal = Output(Bool())
+
+  val lookupQueueEmpty = Output(Bool())
+  val deleteQueueEmpty = Output(Bool())
+  val recordQueueEmpty = Output(Bool())
+  val luOutQueueEmpty = Output(Bool())
+  val suOutQueueEmpty = Output(Bool())
+  val transientEmpty = Output(Bool())
 
   val ssitValidMask = Output(UInt(ssitEntries.W))
   val ssitTable = Output(Vec(ssitEntries, new MDBSSITEntry(entries, pcWidth, weightWidth, confWidth)))
@@ -199,23 +208,24 @@ class MDBQueueFanout(
     wakeup
   }
 
-  val lookupQ = Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries))
-  val deleteQ = Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries))
-  val recordQ = Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries))
-  val luOutQ = Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries))
-  val suOutQ = Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries))
+  val queueReset = reset.asBool || io.flush
+  val lookupQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
+  val deleteQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
+  val recordQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
+  val luOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries)) }
+  val suOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries)) }
 
-  lookupQ.io.enq.valid := io.lookupInValid
+  lookupQ.io.enq.valid := io.lookupInValid && !io.flush
   lookupQ.io.enq.bits := io.lookupIn
   io.lookupInReady := lookupQ.io.enq.ready
   io.lookupInAccepted := lookupQ.io.enq.fire
 
-  deleteQ.io.enq.valid := io.deleteInValid
+  deleteQ.io.enq.valid := io.deleteInValid && !io.flush
   deleteQ.io.enq.bits := io.deleteIn
   io.deleteInReady := deleteQ.io.enq.ready
   io.deleteInAccepted := deleteQ.io.enq.fire
 
-  recordQ.io.enq.valid := io.recordInValid
+  recordQ.io.enq.valid := io.recordInValid && !io.flush
   recordQ.io.enq.bits := io.recordIn
   io.recordInReady := recordQ.io.enq.ready
   io.recordInAccepted := recordQ.io.enq.fire
@@ -230,10 +240,11 @@ class MDBQueueFanout(
     confWidth = confWidth
   ))
 
-  val lookupCanFanout = lookupQ.io.deq.valid && luOutQ.io.enq.ready && suOutQ.io.enq.ready
-  val phaseStalled = lookupQ.io.deq.valid && !lookupCanFanout
-  val deleteCanFire = !phaseStalled && deleteQ.io.deq.valid
-  val recordCanFire = !phaseStalled && recordQ.io.deq.valid
+  val lookupCanFanout =
+    !io.flush && lookupQ.io.deq.valid && luOutQ.io.enq.ready && suOutQ.io.enq.ready
+  val phaseStalled = !io.flush && lookupQ.io.deq.valid && !lookupCanFanout
+  val deleteCanFire = !io.flush && !phaseStalled && deleteQ.io.deq.valid
+  val recordCanFire = !io.flush && !phaseStalled && recordQ.io.deq.valid
 
   lookupQ.io.deq.ready := lookupCanFanout
   deleteQ.io.deq.ready := deleteCanFire
@@ -270,14 +281,14 @@ class MDBQueueFanout(
   suOutQ.io.enq.valid := lookupCanFanout
   suOutQ.io.enq.bits := lookupResult
 
-  luOutQ.io.deq.ready := io.luDequeueReady
-  io.luOutValid := luOutQ.io.deq.valid
-  io.luOut := Mux(luOutQ.io.deq.valid, luOutQ.io.deq.bits, zeroBus)
+  luOutQ.io.deq.ready := io.luDequeueReady && !io.flush
+  io.luOutValid := luOutQ.io.deq.valid && !io.flush
+  io.luOut := Mux(io.luOutValid, luOutQ.io.deq.bits, zeroBus)
   io.luOutDequeued := luOutQ.io.deq.fire
 
-  suOutQ.io.deq.ready := io.suCheckReady
-  io.suOutValid := suOutQ.io.deq.valid
-  io.suOut := Mux(suOutQ.io.deq.valid, suOutQ.io.deq.bits, zeroBus)
+  suOutQ.io.deq.ready := io.suCheckReady && !io.flush
+  io.suOutValid := suOutQ.io.deq.valid && !io.flush
+  io.suOut := Mux(io.suOutValid, suOutQ.io.deq.bits, zeroBus)
   io.suOutDequeued := suOutQ.io.deq.fire
 
   val suBus = suOutQ.io.deq.bits
@@ -345,6 +356,18 @@ class MDBQueueFanout(
   io.deleteDroppedBelowStall := deleteCanFire && ssit.io.deleteDroppedBelowStall
   io.recordOverflow := recordCanFire && ssit.io.recordOverflow
   io.recordOrderIllegal := recordCanFire && ssit.io.recordOrderIllegal
+
+  io.lookupQueueEmpty := io.flush || (lookupQ.io.count === 0.U)
+  io.deleteQueueEmpty := io.flush || (deleteQ.io.count === 0.U)
+  io.recordQueueEmpty := io.flush || (recordQ.io.count === 0.U)
+  io.luOutQueueEmpty := io.flush || (luOutQ.io.count === 0.U)
+  io.suOutQueueEmpty := io.flush || (suOutQ.io.count === 0.U)
+  io.transientEmpty :=
+    io.lookupQueueEmpty &&
+      io.deleteQueueEmpty &&
+      io.recordQueueEmpty &&
+      io.luOutQueueEmpty &&
+      io.suOutQueueEmpty
 
   io.ssitValidMask := ssit.io.validMask
   for (idx <- 0 until ssitEntries) {

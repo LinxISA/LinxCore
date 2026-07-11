@@ -32,6 +32,12 @@ owners built in R412-R414:
   conflicts.
 - `LoadInflightRowMutationApply` previews the next LIQ row image.
 
+R635 adds explicit policy inputs for canonical MDB waits. MDB mutation may
+target a resident `Wait` or `Repick` row and may waive prior SCB-return
+evidence because lookup is issued at allocation before first launch. Legacy
+source-return mutation keeps the stricter Repick plus SCB evidence policy.
+Both policies retain every same-cycle writer exclusion.
+
 R415 introduced this as a standalone combinational boundary. R416 also
 instantiates it inside `LoadInflightQueue` with `sourceStoreEntries` equal to
 the queue's native `storeEntries` shape so the queue can own the registered
@@ -52,6 +58,7 @@ live-connected, and generated-top replay behavior remains unchanged.
 | `nextWaitStore` / `nextWaitStoreInfo` | Source-shaped wait-store payload before native LIQ narrowing. |
 | `nextLineData` / `nextValidMask` / `nextDataComplete` | Future row line image and completion state. |
 | `nextScbReturned` / `nextStqReturned` / `nextStoreSourceReturned` | Split and coarse source-return state for non-rewait data merge/no-data return. |
+| `allowWaitTarget` / `requireScbReturned` | Explicit admission policy. Canonical MDB uses `true/false`; legacy source-return mutation uses `false/true`. |
 | `*Conflict` | Same-row conflict evidence for current registered LIQ writers: E4 update, clear-resolved, replay wakeup, refill, launch, and allocation. |
 | `bridgeValid` | Payload survived the bridge shape and store-index checks. |
 | `requestTargetMaskOut` / `requestTargetIndexOut` | Gated target identity from the bridge. |
@@ -68,10 +75,10 @@ The path is purely combinational:
 
 ```text
 bridgeValid = bridge(enable, flush, request).valid
-writeEnable = bridgeValid &&
-              row.valid &&
-              row.status == Repick &&
-              row.scbReturned &&
+status_ok   = row.status == Repick ||
+              (allowWaitTarget && row.status == Wait)
+evidence_ok = !requireScbReturned || row.scbReturned
+writeEnable = bridgeValid && row.valid && status_ok && evidence_ok &&
               no_same_cycle_row_writer_conflict
 applyValid  = apply(enable, flush, writeEnable, row, bridge.native_request).valid
 nextRow     = apply.nextRow

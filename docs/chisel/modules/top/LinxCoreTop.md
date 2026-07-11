@@ -14,9 +14,10 @@
 
 `LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
 full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
-instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store
-and active/resolved load boundaries. MDB, cache/miss queues, live row mutation,
-and final load return are not yet integrated beneath that LSU owner.
+instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store,
+active/resolved load, and scalar MDB boundaries. Cache/miss queues, failed-wait
+MDB delete timing, final recovery arbitration, and final load return are not
+yet integrated beneath that LSU owner.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing
@@ -64,7 +65,8 @@ and ROB slot width stay tied to the core configuration. It wires the external
 allocation and completion ports directly into `ReducedCommitROB`, forwards the
 commit window and monitor flags, and reports `idle` when the reduced ROB is
 empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, SCB
-response buffer, LIQ, ResolveQ, and pending load transfer empty.
+response buffer, LIQ, ResolveQ, pending load transfer, MDB command/fanout
+queues, retained wait plans, and registered MDB store wakeup empty.
 
 This keeps the first top-level Chisel structure aligned with the
 LinxCoreModel-derived `SPEROB::commit` walk: rows retire in contiguous completed

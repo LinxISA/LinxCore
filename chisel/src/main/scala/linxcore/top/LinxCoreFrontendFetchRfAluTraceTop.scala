@@ -3557,6 +3557,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     wakeRow.isTile := !stqRow.scalarIex
     reducedMdbFanoutStoreRows(idx) := wakeRow
   }
+  reducedMdbQueueFanout.io.flush := reducedStoreFlush
   reducedMdbQueueFanout.io.lookupIn := reducedMdbLookupBus
   reducedMdbQueueFanout.io.lookupInValid := reducedMdbFanoutLookupValid
   reducedMdbQueueFanout.io.deleteIn := reducedMdbZeroBus

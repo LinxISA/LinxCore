@@ -8,7 +8,10 @@ class LoadInflightRowMutationWriteControlIO extends Bundle {
   val requestValid = Input(Bool())
   val targetRowValid = Input(Bool())
   val targetRowRepick = Input(Bool())
+  val targetRowWait = Input(Bool())
   val targetScbReturned = Input(Bool())
+  val allowWaitTarget = Input(Bool())
+  val requireScbReturned = Input(Bool())
   val e4UpdateConflict = Input(Bool())
   val clearResolvedConflict = Input(Bool())
   val replayWakeConflict = Input(Bool())
@@ -40,7 +43,9 @@ class LoadInflightRowMutationWriteControl extends Module {
 
   val active = io.enable && !io.flush
   val requestActive = active && io.requestValid
-  val targetEvidenceValid = io.targetRowValid && io.targetRowRepick && io.targetScbReturned
+  val targetStatusValid = io.targetRowRepick || (io.allowWaitTarget && io.targetRowWait)
+  val targetReturnEvidenceValid = !io.requireScbReturned || io.targetScbReturned
+  val targetEvidenceValid = io.targetRowValid && targetStatusValid && targetReturnEvidenceValid
   val writeConflict =
     io.e4UpdateConflict ||
       io.clearResolvedConflict ||
@@ -59,8 +64,8 @@ class LoadInflightRowMutationWriteControl extends Module {
   io.blockedByFlush := io.enable && io.flush && io.requestValid
   io.blockedByNoRequest := active && !io.requestValid
   io.blockedByInvalidRow := requestActive && !io.targetRowValid
-  io.blockedByNotRepick := requestActive && io.targetRowValid && !io.targetRowRepick
-  io.blockedByScbNotReturned := requestActive && io.targetRowValid && io.targetRowRepick && !io.targetScbReturned
+  io.blockedByNotRepick := requestActive && io.targetRowValid && !targetStatusValid
+  io.blockedByScbNotReturned := requestActive && io.targetRowValid && targetStatusValid && !targetReturnEvidenceValid
   io.blockedByE4UpdateConflict := requestActive && io.e4UpdateConflict
   io.blockedByClearResolvedConflict := requestActive && io.clearResolvedConflict
   io.blockedByReplayWakeConflict := requestActive && io.replayWakeConflict

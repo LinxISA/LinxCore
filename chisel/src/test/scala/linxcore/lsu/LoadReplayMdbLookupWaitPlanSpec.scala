@@ -21,6 +21,7 @@ object LoadReplayMdbLookupWaitPlanReference {
   final case class Row(
       valid: Boolean = true,
       repick: Boolean = true,
+      waitState: Boolean = false,
       tile: Boolean = false,
       bid: Id = Id(valid = true),
       loadLsId: Id = Id(valid = true))
@@ -75,7 +76,7 @@ object LoadReplayMdbLookupWaitPlanReference {
       val candidate =
         lookupHit &&
           row.valid &&
-          row.repick &&
+          (row.repick || row.waitState) &&
           !row.tile &&
           row.bid.valid &&
           row.loadLsId.valid &&
@@ -177,6 +178,19 @@ class LoadReplayMdbLookupWaitPlanSpec extends AnyFunSuite {
     assert(missingLsId.waitIntentValid)
     assert(missingLsId.requestValid)
     assert(missingLsId.blockedByMissingStoreLsId)
+  }
+
+  test("targets a newly allocated Wait row before first launch") {
+    val lookup = Lookup(loadBid = id(5), loadLsId = id(3), storeBid = id(2), storePc = 0x2400)
+    val result = LoadReplayMdbLookupWaitPlanReference(
+      enable = true,
+      flush = false,
+      lookup = Some(lookup),
+      rows = Seq(Row(repick = false, waitState = true, bid = id(5), loadLsId = id(3))))
+
+    assert(result.targetValid)
+    assert(result.requestValid)
+    assert(result.setWaitStatus)
   }
 
   test("suppresses ambiguous row matches and tile lookups") {

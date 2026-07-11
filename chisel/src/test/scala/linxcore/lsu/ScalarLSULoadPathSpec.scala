@@ -40,6 +40,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadResolveQueue"))
+    assert(sv.contains("module ScalarLSUMDBPath"))
     assert(sv.contains("io_preciseFlush_req_valid"))
     assert(sv.contains("io_liqFlushPruneMask"))
     assert(sv.contains("io_resolveFlushPruneMask"))
@@ -47,5 +48,8 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("io_transferProtocolError"))
     assert(sv.contains("io_liqRows_0_stid"))
     assert(sv.contains("io_resolveConflictRows_0_stid"))
+    assert(sv.contains("io_mdbConflictFlush_req_valid"))
+    assert(sv.contains("io_mdbLookupWaitMutation"))
+    assert(sv.contains("io_mdbTransientEmpty"))
   }
 }

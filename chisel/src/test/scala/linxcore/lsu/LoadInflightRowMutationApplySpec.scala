@@ -40,7 +40,8 @@ object LoadInflightRowMutationApplyReference {
       requestValid: Boolean,
       rowValid: Boolean,
       row: Row,
-      request: Request): Result = {
+      request: Request,
+      allowWaitTarget: Boolean = false): Result = {
     val active = enable && !flush
     val requestActive = active && requestValid
     val rowRepick = rowValid && row.status == Repick
@@ -49,7 +50,9 @@ object LoadInflightRowMutationApplyReference {
     val invalidReturn =
       request.nextStoreSourceReturned && !(request.nextScbReturned && request.nextStqReturned)
     val validShape = !invalidConflictingStatus && !invalidWaitStore && !invalidReturn
-    val applyValid = requestActive && rowRepick && validShape
+    val rowWait = rowValid && row.status == Wait
+    val rowEligible = rowRepick || (allowWaitTarget && rowWait)
+    val applyValid = requestActive && rowEligible && validShape
 
     val next =
       if (!applyValid) {
@@ -98,7 +101,7 @@ object LoadInflightRowMutationApplyReference {
       blockedByFlush = enable && flush && requestValid,
       blockedByNoRequest = active && !requestValid,
       blockedByInvalidRow = requestActive && !rowValid,
-      blockedByNotRepick = requestActive && rowValid && row.status != Repick,
+      blockedByNotRepick = requestActive && rowValid && !rowEligible,
       invalidConflictingStatusWrite = requestActive && invalidConflictingStatus,
       invalidWaitStoreWithoutWaitStatus = requestActive && invalidWaitStore,
       invalidReturnWithoutSplitSources = requestActive && invalidReturn)
@@ -178,6 +181,28 @@ class LoadInflightRowMutationApplySpec extends AnyFunSuite {
     assert(result.nextRow.sourcesReturned)
     assert(result.nextRow.scbReturned)
     assert(result.nextRow.stqReturned)
+  }
+
+  test("applies an MDB wait mutation before a Wait row has launched") {
+    val wait = Store(index = 1, storeId = Id(value = 2), pc = 0x3000)
+    val result = LoadInflightRowMutationApplyReference(
+      enable = true,
+      flush = false,
+      requestValid = true,
+      rowValid = true,
+      row = baseRow.copy(status = Wait, scbReturned = false),
+      request = Request(
+        setWaitStatus = true,
+        clearReturnState = true,
+        lineWrite = true,
+        waitStoreWrite = true,
+        nextWaitStore = Some(wait)),
+      allowWaitTarget = true)
+
+    assert(result.applyValid)
+    assert(result.nextRow.status == Wait)
+    assert(result.nextRow.waitStore.contains(wait))
+    assert(!result.nextRow.scbReturned)
   }
 
   test("blocks missing or non-repick rows without mutating the image") {

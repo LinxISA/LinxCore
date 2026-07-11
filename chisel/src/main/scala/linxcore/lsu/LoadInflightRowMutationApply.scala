@@ -40,6 +40,7 @@ class LoadInflightRowMutationApplyIO(
   val nextScbReturned = Input(Bool())
   val nextStqReturned = Input(Bool())
   val nextStoreSourceReturned = Input(Bool())
+  val allowWaitTarget = Input(Bool())
 
   val active = Output(Bool())
   val applyValid = Output(Bool())
@@ -98,11 +99,13 @@ class LoadInflightRowMutationApply(
   val active = io.enable && !io.flush
   val requestActive = active && io.requestValid
   val rowRepick = io.row.valid && (io.row.status === LoadInflightStatus.Repick)
+  val rowWait = io.row.valid && (io.row.status === LoadInflightStatus.Wait)
+  val rowEligible = rowRepick || (io.allowWaitTarget && rowWait)
   val validShape =
     !(io.setWaitStatus && io.keepRepickStatus) &&
       !(io.nextWaitStore && !io.setWaitStatus) &&
       !(io.nextStoreSourceReturned && !(io.nextScbReturned && io.nextStqReturned))
-  val applyValid = requestActive && rowRepick && validShape
+  val applyValid = requestActive && rowEligible && validShape
 
   val next = WireDefault(io.row)
   when(applyValid) {
@@ -143,7 +146,7 @@ class LoadInflightRowMutationApply(
   io.blockedByFlush := io.enable && io.flush && io.requestValid
   io.blockedByNoRequest := active && !io.requestValid
   io.blockedByInvalidRow := requestActive && !io.row.valid
-  io.blockedByNotRepick := requestActive && io.row.valid && (io.row.status =/= LoadInflightStatus.Repick)
+  io.blockedByNotRepick := requestActive && io.row.valid && !rowEligible
   io.invalidConflictingStatusWrite := requestActive && io.setWaitStatus && io.keepRepickStatus
   io.invalidWaitStoreWithoutWaitStatus := requestActive && io.nextWaitStore && !io.setWaitStatus
   io.invalidReturnWithoutSplitSources :=

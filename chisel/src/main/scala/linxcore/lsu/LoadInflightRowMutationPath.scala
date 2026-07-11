@@ -47,6 +47,8 @@ class LoadInflightRowMutationPathIO(
   val nextScbReturned = Input(Bool())
   val nextStqReturned = Input(Bool())
   val nextStoreSourceReturned = Input(Bool())
+  val allowWaitTarget = Input(Bool())
+  val requireScbReturned = Input(Bool())
   val e4UpdateConflict = Input(Bool())
   val clearResolvedConflict = Input(Bool())
   val replayWakeConflict = Input(Bool())
@@ -173,7 +175,10 @@ class LoadInflightRowMutationPath(
   control.io.requestValid := bridge.io.bridgeValid
   control.io.targetRowValid := io.row.valid
   control.io.targetRowRepick := io.row.status === LoadInflightStatus.Repick
+  control.io.targetRowWait := io.row.status === LoadInflightStatus.Wait
   control.io.targetScbReturned := io.row.scbReturned
+  control.io.allowWaitTarget := io.allowWaitTarget
+  control.io.requireScbReturned := io.requireScbReturned
   control.io.e4UpdateConflict := io.e4UpdateConflict
   control.io.clearResolvedConflict := io.clearResolvedConflict
   control.io.replayWakeConflict := io.replayWakeConflict
@@ -209,6 +214,7 @@ class LoadInflightRowMutationPath(
   apply.io.nextScbReturned := bridge.io.nextScbReturnedOut
   apply.io.nextStqReturned := bridge.io.nextStqReturnedOut
   apply.io.nextStoreSourceReturned := bridge.io.nextStoreSourceReturnedOut
+  apply.io.allowWaitTarget := io.allowWaitTarget
 
   io.active := bridge.io.active
   io.bridgeValid := bridge.io.bridgeValid

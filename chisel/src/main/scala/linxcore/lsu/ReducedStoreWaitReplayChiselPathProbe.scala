@@ -294,6 +294,7 @@ class ReducedStoreWaitReplayChiselPathProbe(
     pcWidth = pcWidth,
     sizeWidth = sizeWidth
   ))
+  mdbFanout.io.flush := io.flush
   val mdbZeroBus = Wire(new MDBQueueBus(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
   mdbZeroBus := 0.U.asTypeOf(mdbZeroBus)
   mdbZeroBus.ldInfo.bid := ROBID.disabled(entries)

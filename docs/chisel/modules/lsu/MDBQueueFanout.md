@@ -29,6 +29,11 @@ queue and fanout boundary. It models the queue topology around `MDB::Work`:
 - `lookup_mdb_lu_q` output for `LDQInfo.updateMDBInfo`,
 - `lookup_mdb_su_q` output consumed by the store-side `mdbCheck` path.
 
+R635 integrates this owner beneath `ScalarLSUMDBPath`. `flush` clears only the
+transient lookup/delete/record and LU/SU output queues; SSIT predictor state is
+not reset by ordinary recovery. `transientEmpty` is part of canonical LSU
+quiescence.
+
 The module also exposes the store-side decision from the model
 `StoreUnit::mdbCheck` / `STQ::mdbCheck` path in two steps: a predicted store
 first names the first non-tile STQ row with matching `(bid, pc)`, then publishes
@@ -68,9 +73,9 @@ validly fans out to LU/SU but misses because the learned SSIT record is
 published later in the same short fixture and no later same-PC dynamic load
 re-enters the lookup path.
 
-It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
-`BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
-publication.
+It does not own STQ row storage, byte forwarding, the architectural BCTRL
+`BMDB` table, IEX-local MDB, or ROB nuke retirement. Canonical LIQ row mutation
+and typed conflict publication are composed by `ScalarLSUMDBPath`.
 
 ## Interface
 
@@ -81,6 +86,7 @@ publication.
 | `lookupInValid/lookupIn/lookupInReady` | Load-side MDB lookup enqueue equivalent to `lookup_lu_mdb_q`. |
 | `deleteInValid/deleteIn/deleteInReady` | Failed wait-store delete enqueue equivalent to `delete_lu_mdb_q`; `ldInfo.waitStorePc` is the model `wait_tpc`. |
 | `recordInValid/recordIn/recordInReady` | Conflict learning enqueue equivalent to `record_lu_mdb_q`. |
+| `flush` | Clears all transient command and fanout queues without erasing SSIT prediction state. |
 
 `MDBQueueBus` carries the model `MDBBus` shape at the Chisel boundary:
 `ldInfo`, `stInfo`, `conf`, `hit`, and `valid`. `MDBMemInfo.pc` corresponds to
@@ -98,6 +104,7 @@ model `MemReqBus::tpc`.
 | `lookupConfBlocked` | SSIT hit was suppressed because the learned confidence reached zero. |
 | `lookupWeightBlocked` | SSIT hit was suppressed because the learned weight is still below the wait threshold. |
 | `phaseStalledByFanout` | A pending lookup could not be atomically enqueued to both output queues; delete and record phases are frozen. |
+| `transientEmpty` | All command and LU/SU output queues are empty; used by canonical LSU quiescence. |
 
 ### Store-Side Wakeup
 
