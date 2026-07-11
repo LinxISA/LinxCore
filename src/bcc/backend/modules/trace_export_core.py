@@ -2218,6 +2218,7 @@ def _build_trace_export_core(
         rst=rst,
         can_run=can_run,
         commit_redirect=commit_redirect | macro_start,
+        flush_i=do_flush,
         f4_valid=f4_valid,
         f4_pc=f4_pc,
         f4_window=f4_window,

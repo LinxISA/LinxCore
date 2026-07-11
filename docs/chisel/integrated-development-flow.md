@@ -1062,10 +1062,22 @@ Evidence:
   Inspect ELF program headers before raising the default 128 MiB RAM: this
   CoreMark `ET_EXEC` maps at `0x10000`, while a high-address `ET_DYN` image
   needs an explicit larger `--qemu-memory` value. The corrected driver emits
-  a complete 1,000-row QEMU/DUT artifact; it currently fails semantic compare
-  at sequence 8, where QEMU retires the `FENTRY` parent at `0x124aa` and the
-  DUT reports a younger `LWU` at `0x124de`. This is a macro/ROB
-  commit-serialization owner, not a QEMU-loader or FIFO failure.
+  a complete 1,000-row QEMU/DUT artifact. A redirect must kill the D1/D2/D3/
+  S1/S2 packet pipeline *and* block F4 admission for the following backend
+  recovery cycle. Otherwise an F4 packet sampled before the redirect survives
+  `flush_pending` and can allocate a younger instruction ahead of the
+  redirected macro header. `dispatch_frontend.flush_i` carries that recovery
+  kill; the directed 20-commit trace now retires the `FENTRY` parent at
+  `0x124aa` as sequence 8, rather than the former bogus `LWU` at `0x124de`.
+  The next FIFO divergence is independently later: after that FENTRY, QEMU
+  continues at `0x124ae`, while the RTL resumes at `0x124ca`. This is a
+  macro-stream/fall-through contract gap, not a loader, FIFO, or stale-F4
+  recovery failure.
+- The post-recovery implementation survives a direct CoreMark boot through
+  the explicit `PYC_MAX_CYCLES=3000000` endurance bound without a trap or the
+  20,000-cycle no-retire detector firing. It reached the configured cycle
+  limit before either `PYC_MAX_COMMITS=1000000` or program exit, so this is
+  stability evidence only—not terminal-CoreMark closure.
 
 Packet closeout: `skill-evolve: update linx-core` — inspect direct-boot ELF
 headers before choosing QEMU RAM and prefer `build-linx` over a stale legacy

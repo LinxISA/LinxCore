@@ -101,6 +101,11 @@ def build_dispatch_frontend(
 
     can_run = m.input("can_run", width=1)
     commit_redirect = m.input("commit_redirect", width=1)
+    # ``commit_redirect`` removes packets from the redirect cycle.  ``flush_i``
+    # remains asserted while the backend applies the corresponding recovery
+    # state, so F4 data sampled before the frontend observes the redirect
+    # cannot be admitted on the recovery cycle.
+    flush_i = m.input("flush_i", width=1)
     f4_valid = m.input("f4_valid", width=1)
     f4_pc = m.input("f4_pc", width=64)
     f4_window = m.input("f4_window", width=64)
@@ -214,38 +219,39 @@ def build_dispatch_frontend(
     d2_ready = (~packet_vals["d2"]["valid"]) | d3_ready
     d1_ready = (~packet_vals["d1"]["valid"]) | d2_ready
 
-    accept_input = (~commit_redirect) & d1_ready & f4_valid
+    frontend_kill = commit_redirect | flush_i
+    accept_input = can_run & (~frontend_kill) & d1_ready & f4_valid
     move_d1 = packet_vals["d1"]["valid"] & d2_ready
     move_d2 = packet_vals["d2"]["valid"] & d3_ready
     move_d3 = packet_vals["d3"]["valid"] & s1_ready
     move_s1 = packet_vals["s1"]["valid"] & s2_ready
 
     packet_regs["d1"]["valid"].set(
-        commit_redirect._select_internal(
+        frontend_kill._select_internal(
             c(0, width=1),
             accept_input | (packet_vals["d1"]["valid"] & (~d2_ready)),
         )
     )
     packet_regs["d2"]["valid"].set(
-        commit_redirect._select_internal(
+        frontend_kill._select_internal(
             c(0, width=1),
             move_d1 | (packet_vals["d2"]["valid"] & (~d3_ready)),
         )
     )
     packet_regs["d3"]["valid"].set(
-        commit_redirect._select_internal(
+        frontend_kill._select_internal(
             c(0, width=1),
             move_d2 | (packet_vals["d3"]["valid"] & (~s1_ready)),
         )
     )
     packet_regs["s1"]["valid"].set(
-        commit_redirect._select_internal(
+        frontend_kill._select_internal(
             c(0, width=1),
             move_d3 | (packet_vals["s1"]["valid"] & (~s2_ready)),
         )
     )
     packet_regs["s2"]["valid"].set(
-        commit_redirect._select_internal(
+        frontend_kill._select_internal(
             c(0, width=1),
             move_s1 | (packet_vals["s2"]["valid"] & (~dispatch_ready_s2)),
         )
@@ -344,7 +350,7 @@ def build_dispatch_frontend(
     m.output("disp_alloc_mask", disp_alloc_mask_eff)
     m.output("brob_alloc_fire", brob_alloc_fire)
     m.output("dispatch_fire", dispatch_fire_eff)
-    m.output("frontend_ready", (~commit_redirect) & d1_ready)
+    m.output("frontend_ready", can_run & (~frontend_kill) & d1_ready)
 
     dispatch_specs = dispatch_slot_field_specs(iq_w=iq_w, ptag_w=ptag_w, pregs=pregs)
     decode_slot_packs = []
