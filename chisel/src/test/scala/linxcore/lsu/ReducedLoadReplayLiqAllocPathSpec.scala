@@ -24,9 +24,12 @@ object ReducedLoadReplayLiqAllocPathReference {
     private var allocPtr = 0
     private var allocWrap = false
 
-    def step(flush: Boolean = false, candidateIn: Option[Relaunch] = None): Step = {
+    def step(
+        flush: Boolean = false,
+        candidateIn: Option[Relaunch] = None,
+        externalReady: Boolean = true): Step = {
       val usable = !flush && candidateIn.isDefined
-      val allocReady = !flush && !rows.exists(_.loadIdValue == allocPtr)
+      val allocReady = !flush && externalReady && !rows.exists(_.loadIdValue == allocPtr)
       val accepted = usable && allocReady
       val beforeFlushRows = rows
 
@@ -94,6 +97,24 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(full.residentCount == 2)
   }
 
+  test("external MDB credit backpressures the candidate without consuming it") {
+    val model = new Model(entries = 2)
+    val candidate = model.defaultCandidate(0x4000, 1, 1)
+
+    val blocked = model.step(candidateIn = Some(candidate), externalReady = false)
+    val accepted = model.step(candidateIn = Some(candidate), externalReady = true)
+
+    assert(blocked.allocValid)
+    assert(!blocked.allocReady)
+    assert(!blocked.consumeReady)
+    assert(!blocked.allocAccepted)
+    assert(blocked.blockedByAlloc)
+    assert(blocked.residentCount == 0)
+    assert(accepted.allocAccepted)
+    assert(accepted.residentCount == 1)
+    assert(accepted.rows.head.candidate == candidate)
+  }
+
   test("flush clears resident LIQ rows and suppresses candidate consumption") {
     val model = new Model(entries = 2)
 
@@ -126,7 +147,10 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("io_rowMutationControlBlockedByAllocationConflict"))
     assert(sv.contains("io_candidateConsumeReady"))
     assert(sv.contains("io_candidateBlockedByAlloc"))
+    assert(sv.contains("io_allocExternalReady"))
     assert(sv.contains("io_allocAccepted"))
+    assert(sv.contains("io_allocPayload_pc"))
+    assert(sv.contains("io_allocPayload_loadLsId_value"))
     assert(sv.contains("io_launchEnable"))
     assert(sv.contains("io_e2Stores_0_valid"))
     assert(sv.contains("io_e2StqReturned"))

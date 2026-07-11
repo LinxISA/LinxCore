@@ -31,6 +31,9 @@ static bool wait_for(VScalarLSUMDBPathProbe &dut, uint8_t &signal, int cycles) {
 }
 
 int main(int argc, char **argv) {
+    // CROSS_RTL_SCENARIO: atomic-conflict-admission
+    // CROSS_RTL_SCENARIO: conflict-sink-backpressure
+    // CROSS_RTL_SCENARIO: unrequired-sink-bypass
     Verilated::commandArgs(argc, argv);
     VScalarLSUMDBPathProbe dut;
 
@@ -57,6 +60,30 @@ int main(int argc, char **argv) {
     dut.io_integratedAllocValid = 0;
     dut.io_integratedTrainValid = 0;
     dut.io_integratedSeedWaitValid = 0;
+    tick(dut);
+    tick(dut);
+    dut.reset = 0;
+
+    dut.io_loadValid = 0;
+    dut.io_storeProbeValid = 1;
+    dut.eval();
+    require(dut.io_storeProbeReady && !dut.io_conflictValid && !dut.io_recordAccepted,
+            "unrequired conflict sinks blocked a non-conflicting store probe");
+    tick(dut);
+
+    dut.io_loadValid = 1;
+    for (int i = 0; i < 8; ++i) {
+        dut.eval();
+        require(dut.io_storeProbeReady && dut.io_conflictValid && dut.io_recordAccepted,
+                "conflict transaction did not admit all required sinks atomically");
+        tick(dut);
+    }
+    dut.eval();
+    require(!dut.io_storeProbeReady && !dut.io_recordAccepted,
+            "full recovery sink did not backpressure the complete conflict transaction");
+
+    dut.io_storeProbeValid = 0;
+    dut.reset = 1;
     tick(dut);
     tick(dut);
     dut.reset = 0;

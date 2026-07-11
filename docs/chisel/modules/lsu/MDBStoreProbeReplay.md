@@ -87,7 +87,7 @@ gap where the store probe was earlier than ResolveQ publication.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBStoreProbeReplay`
-- `bash tools/chisel/run_chisel_mdb_recovery_delivery_path_probe.sh`
+- `bash tools/chisel/run_chisel_scalar_lsu_mdb_path_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`

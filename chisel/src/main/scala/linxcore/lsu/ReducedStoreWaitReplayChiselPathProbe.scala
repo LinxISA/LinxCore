@@ -236,6 +236,9 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.flush := io.flush
   liq.io.candidateValid := relaunchQueue.io.outValid
   liq.io.candidate := relaunchQueue.io.out
+  liq.io.allocExternalReady := true.B
+  liq.io.rowMutationAllowWaitTarget := false.B
+  liq.io.rowMutationRequireScbReturned := true.B
   liq.io.launchEnable := io.liqLaunchEnable
   liq.io.pickValid := false.B
   liq.io.pickIndex := 0.U

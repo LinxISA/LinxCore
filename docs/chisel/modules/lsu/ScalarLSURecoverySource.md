@@ -86,10 +86,10 @@ all BCC/IEX/PE/LSU source slots, and cleanup consumers. `LinxCoreTop` remains a
 reduced shell with `ReducedCommitROB`, so it exports this source boundary rather
 than pretending to own the missing real-ROB connection.
 
-R658 inserts the parameterized boundary above the source and uses the same
-boundary in `ScalarLSU` and `MDBRecoveryDeliveryPath`. This removes duplicated
-STID-selection logic while preserving separate retained queues in the two
-integration lanes.
+R658 inserts the parameterized boundary above the source. R659 uses the same
+boundary in `ScalarLSU` and the reduced canonical-`ScalarLSUMDBPath`
+composition, then deletes the former delivery-only MDB owner. Report-STID
+selection and invalid-scope rejection therefore have one implementation.
 
 ## Verification
 

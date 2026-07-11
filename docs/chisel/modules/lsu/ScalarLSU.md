@@ -31,6 +31,8 @@ multi-source arbiter. R640 removes local cleanup selection from ScalarLSU and
 publishes its exactly promoted MDB report through `ScalarLSURecoverySource`.
 R658 makes `ScalarLSURecoveryBoundary` the sole report-STID watermark selector
 shared with the reduced integration lane and parameterizes scalar STID count.
+R659 replaces the reduced lane's duplicate MDB pieces with the complete
+`ScalarLSUMDBPath` and deletes the delivery-only owner.
 Cache and miss queues, canonical-top source/lookup wiring, and final load-return
 publication remain outside this hierarchy, so this is not yet a complete LSU.
 
@@ -154,3 +156,6 @@ release. The full suite passes 261 suites and 1,544 tests; the generated MDB
 probe passes; the live fixture compares 3 rows; and the CoreMark replay compares
 426 rows with zero mismatches and zero CBSTOP at
 `generated/r658-final-scalar-lsu-recovery-boundary-coremark/report/crosscheck_manifest.json`.
+R659 additionally requires the live reduced top to elaborate exactly one
+`ScalarLSUMDBPath`, `MDBConflictDetect`, and `MDBQueueFanout`, contain the
+shared recovery boundary, and contain no delivery-only recovery hierarchy.

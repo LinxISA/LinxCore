@@ -103,6 +103,7 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
 
   val mutationAccepted = Input(Bool())
   val mutationValid = Output(Bool())
+  val mutationTargetMask = Output(UInt(p.liqEntries.W))
   val mutationTargetIndex = Output(UInt(liqPtrWidth.W))
   val mutationSetWaitStatus = Output(Bool())
   val mutationClearReturnState = Output(Bool())
@@ -120,6 +121,21 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val conflictActiveMask = Output(UInt(p.liqEntries.W))
   val conflictResolveMask = Output(UInt(p.resolveQueueEntries.W))
   val conflictWaitStoreMask = Output(UInt(p.liqEntries.W))
+  val conflictWaitStoreCount = Output(UInt(log2Ceil(p.liqEntries + 1).W))
+  val conflictActiveIndex = Output(UInt(liqPtrWidth.W))
+  val conflictResolveIndex = Output(UInt(log2Ceil(p.resolveQueueEntries).W))
+  val conflictOrdinal = Output(UInt(log2Ceil(p.liqEntries + p.resolveQueueEntries + 1).W))
+  val conflictInnerFlush = Output(Bool())
+  val conflictNukeFlush = Output(Bool())
+  val conflictRecord = Output(new MDBConflictRecord(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth,
+    p.loadSizeWidth
+  ))
   val conflictFlush = Output(new FlushBus(
     coreParams.robEntries,
     p.peIdWidth,
@@ -137,6 +153,7 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val recoveryAccepted = Output(Bool())
   val recoveryPending = Output(Bool())
   val recoveryCount = Output(UInt(recoveryCountWidth.W))
+  val recordValid = Output(Bool())
   val recordAccepted = Output(Bool())
   val recordProcessed = Output(Bool())
   val bmdbReportValid = Output(Bool())
@@ -148,6 +165,45 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val lookupProcessed = Output(Bool())
   val lookupHit = Output(Bool())
   val lookupWaitMutation = Output(Bool())
+  val lookupFirstAfterNuke = Output(Bool())
+  val lookupConfBlocked = Output(Bool())
+  val lookupWeightBlocked = Output(Bool())
+  val lookupOutputValid = Output(Bool())
+  val lookupOutput = Output(new MDBQueueBus(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.stidWidth,
+    p.loadSizeWidth,
+    p.mdbConfWidth,
+    weightWidth
+  ))
+  val storeOutputValid = Output(Bool())
+  val storeOutput = Output(new MDBQueueBus(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.stidWidth,
+    p.loadSizeWidth,
+    p.mdbConfWidth,
+    weightWidth
+  ))
+  val recordReady = Output(Bool())
+  val recordOverflow = Output(Bool())
+  val recordOrderIllegal = Output(Bool())
+  val deleteReady = Output(Bool())
+  val deleteValid = Output(Bool())
+  val phaseStalledByFanout = Output(Bool())
+  val storeMatched = Output(Bool())
+  val storePending = Output(Bool())
+  val lookupPlanLookupHit = Output(Bool())
+  val lookupPlanCandidateMask = Output(UInt(p.liqEntries.W))
+  val lookupPlanTargetIndex = Output(UInt(liqPtrWidth.W))
+  val lookupPlanWaitIntentValid = Output(Bool())
+  val lookupPlanRequestValid = Output(Bool())
+  val lookupPlanBlockedByNoTarget = Output(Bool())
+  val lookupPlanBlockedByMissingStoreIndex = Output(Bool())
+  val lookupPlanBlockedByMissingStoreLsId = Output(Bool())
   val failedWaitActiveMask = Output(UInt(p.liqEntries.W))
   val failedWaitExpiredMask = Output(UInt(p.liqEntries.W))
   val failedWaitReleaseValid = Output(Bool())
@@ -425,6 +481,13 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   val selectLookupWait =
     !failedWait.io.releaseValid && !currentWaitValid && lookupWaitPlan.io.requestValid
   io.mutationValid := selectFailedWait || selectConflictWait || selectLookupWait
+  io.mutationTargetMask := Mux(
+    selectFailedWait,
+    UIntToOH(failedWait.io.releaseIndex, p.liqEntries),
+    Mux(
+      selectConflictWait,
+      UIntToOH(currentWaitIndex, p.liqEntries),
+      lookupWaitPlan.io.requestTargetMask))
   io.mutationTargetIndex := Mux(
     selectFailedWait,
     failedWait.io.releaseIndex,
@@ -523,12 +586,20 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   io.conflictActiveMask := conflict.io.activeCandidateMask
   io.conflictResolveMask := conflict.io.resolveCandidateMask
   io.conflictWaitStoreMask := conflict.io.waitStoreMask
+  io.conflictWaitStoreCount := conflict.io.waitStoreCount
+  io.conflictActiveIndex := conflict.io.conflictActiveIndex
+  io.conflictResolveIndex := conflict.io.conflictResolveIndex
+  io.conflictOrdinal := conflict.io.conflictOrdinal
+  io.conflictInnerFlush := conflict.io.innerFlush
+  io.conflictNukeFlush := conflict.io.nukeFlush
+  io.conflictRecord := conflict.io.record
   io.conflictFlush := FlushControl.annotate(flushReq)
   io.recoveryValid := recoveryQ.io.deq.valid
   io.recoveryFlush := FlushControl.annotate(recoveryQ.io.deq.bits)
   io.recoveryAccepted := recoveryQ.io.deq.fire
   io.recoveryPending := recoveryQ.io.deq.valid
   io.recoveryCount := recoveryQ.io.count
+  io.recordValid := transaction.io.recordValid
   io.recordAccepted := fanout.io.recordInAccepted
   io.recordProcessed := fanout.io.recordProcessed
   io.bmdbReportValid := fanout.io.bmdbReportValid
@@ -540,6 +611,29 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   io.lookupProcessed := fanout.io.lookupProcessed
   io.lookupHit := fanout.io.luOutValid && fanout.io.luOut.hit
   io.lookupWaitMutation := selectLookupWait && io.mutationAccepted
+  io.lookupFirstAfterNuke := fanout.io.lookupFirstAfterNuke
+  io.lookupConfBlocked := fanout.io.lookupConfBlocked
+  io.lookupWeightBlocked := fanout.io.lookupWeightBlocked
+  io.lookupOutputValid := fanout.io.luOutValid
+  io.lookupOutput := fanout.io.luOut
+  io.storeOutputValid := fanout.io.suOutValid
+  io.storeOutput := fanout.io.suOut
+  io.recordReady := fanout.io.recordInReady
+  io.recordOverflow := fanout.io.recordOverflow
+  io.recordOrderIllegal := fanout.io.recordOrderIllegal
+  io.deleteReady := fanout.io.deleteInReady
+  io.deleteValid := fanout.io.deleteInValid
+  io.phaseStalledByFanout := fanout.io.phaseStalledByFanout
+  io.storeMatched := fanout.io.suMatchedStore
+  io.storePending := fanout.io.suStorePending
+  io.lookupPlanLookupHit := lookupWaitPlan.io.lookupHit
+  io.lookupPlanCandidateMask := lookupWaitPlan.io.candidateMask
+  io.lookupPlanTargetIndex := lookupWaitPlan.io.targetIndex
+  io.lookupPlanWaitIntentValid := lookupWaitPlan.io.waitIntentValid
+  io.lookupPlanRequestValid := lookupWaitPlan.io.requestValid
+  io.lookupPlanBlockedByNoTarget := lookupWaitPlan.io.blockedByNoTarget
+  io.lookupPlanBlockedByMissingStoreIndex := lookupWaitPlan.io.blockedByMissingStoreIndex
+  io.lookupPlanBlockedByMissingStoreLsId := lookupWaitPlan.io.blockedByMissingStoreLsId
   io.failedWaitActiveMask := failedWait.io.activeMask
   io.failedWaitExpiredMask := failedWait.io.expiredMask
   io.failedWaitReleaseValid := failedWait.io.releaseValid

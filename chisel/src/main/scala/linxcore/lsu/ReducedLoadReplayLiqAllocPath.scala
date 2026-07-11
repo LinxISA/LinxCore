@@ -29,6 +29,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val flushPruneCount = Output(UInt(countWidth.W))
   val candidateValid = Input(Bool())
   val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val allocExternalReady = Input(Bool())
 
   val launchEnable = Input(Bool())
   val pickValid = Input(Bool())
@@ -76,6 +77,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val rowMutationNextScbReturned = Input(Bool())
   val rowMutationNextStqReturned = Input(Bool())
   val rowMutationNextStoreSourceReturned = Input(Bool())
+  val rowMutationAllowWaitTarget = Input(Bool())
+  val rowMutationRequireScbReturned = Input(Bool())
 
   val refillValid = Input(Bool())
   val refill = Input(new LoadRefillWakeupRequest(addrWidth, lineBytes))
@@ -113,6 +116,15 @@ class ReducedLoadReplayLiqAllocPathIO(
   val allocAccepted = Output(Bool())
   val allocIndex = Output(UInt(liqPtrWidth.W))
   val allocLoadId = Output(new ROBID(liqEntries))
+  val allocPayload = Output(new LoadInflightAlloc(
+    liqEntries,
+    idEntries,
+    addrWidth,
+    pcWidth,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
 
   val rows = Output(Vec(
     liqEntries,
@@ -298,11 +310,11 @@ class ReducedLoadReplayLiqAllocPath(
   adapter.io.flush := io.flush
   adapter.io.candidateValid := io.candidateValid
   adapter.io.candidate := io.candidate
-  adapter.io.allocReady := liq.io.allocReady
+  adapter.io.allocReady := liq.io.allocReady && io.allocExternalReady
 
   liq.io.flush := io.flush
   liq.io.preciseFlush := io.preciseFlush
-  liq.io.allocValid := adapter.io.allocValid
+  liq.io.allocValid := adapter.io.allocValid && io.allocExternalReady
   liq.io.alloc := adapter.io.alloc
 
   liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
@@ -361,8 +373,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.rowMutationNextScbReturned := rowMutationBridge.io.nextScbReturnedOut
   liq.io.rowMutationNextStqReturned := rowMutationBridge.io.nextStqReturnedOut
   liq.io.rowMutationNextStoreSourceReturned := rowMutationBridge.io.nextStoreSourceReturnedOut
-  liq.io.rowMutationAllowWaitTarget := false.B
-  liq.io.rowMutationRequireScbReturned := true.B
+  liq.io.rowMutationAllowWaitTarget := io.rowMutationAllowWaitTarget
+  liq.io.rowMutationRequireScbReturned := io.rowMutationRequireScbReturned
 
   launchSelect.io.enable := !io.flush
   launchSelect.io.rows := liq.io.rows
@@ -379,10 +391,11 @@ class ReducedLoadReplayLiqAllocPath(
   io.candidateUsable := adapter.io.candidateUsable
   io.candidateBlockedByAlloc := adapter.io.blockedByAlloc
   io.allocValid := adapter.io.allocValid
-  io.allocReady := liq.io.allocReady
+  io.allocReady := liq.io.allocReady && io.allocExternalReady
   io.allocAccepted := liq.io.allocAccepted
   io.allocIndex := liq.io.allocIndex
   io.allocLoadId := liq.io.allocLoadId
+  io.allocPayload := adapter.io.alloc
   io.rows := liq.io.rows
   io.occupiedMask := liq.io.occupiedMask
   io.waitMask := liq.io.waitMask

@@ -50,19 +50,14 @@ hierarchy, and complete cleanup fanout remain open. R656 closes canonical BID
 versus pointer context, and R657 appends
 the retained four-lane non-LSU producer bank to the production backend path.
 
-R649 connects retained scalar MDB recovery to the live reduced
-top. `MDBConflictTransactionControl` is now shared by canonical
-`ScalarLSUMDBPath` and `MDBRecoveryDeliveryPath`, so record learning, wait-plan
-capture, and recovery enqueue cannot publish partially. The live top keeps the
-typed report in a parameterized queue, selects R648 oldest BID/RID by report
-STID, performs exact resident full-BID lookup, and releases the head only when
-the central recovery fabric accepts `ScalarLSURecoverySource`. The reduced
-store-probe timing bridge now marks a replay consumed only after this atomic
-boundary accepts it. BCC/IEX/PE trigger-owner connections, full-BID BROB
-pointer recovery, and complete cleanup fanout remain open. pyCircuit now
-matches the ISA-neutral atomic admission rule in a shared scenario gate; its
-retained report queue, owner-backed watermark selection, and exact full-BID
-backend consumption remain explicit promotion gaps.
+R649 first connected retained scalar MDB recovery to the live reduced top.
+R659 replaces that delivery-only composition with canonical
+`ScalarLSUMDBPath`, so record learning, multi-row wait capture, failed-wait
+decay/delete, and recovery enqueue cannot publish partially. The report STID
+selects R648 oldest BID/RID, exact resident full-BID lookup promotes the
+request, and central recovery acceptance releases it. BCC/IEX/PE trigger-owner
+connections, full-BID BROB pointer recovery, and complete cleanup fanout remain
+open.
 
 R649 verification passes 258 suites and 1,516 tests. The shared MDB
 transaction gate passes three named Chisel/pyCircuit scenarios, and the
@@ -76,10 +71,19 @@ activate the new recovery transaction.
 R658 unifies the scalar-LSU recovery adapter. `ScalarLsuParams.stidCount`
 parameterizes canonical LSU ordering lanes, and `ScalarLSURecoveryBoundary`
 selects the queued report's STID-local oldest BID/RID before exact full-BID
-promotion. Production `ScalarLSU` and `MDBRecoveryDeliveryPath` instantiate the
-same boundary. An invalid STID issues no lookup, cannot publish a source, and
-cannot release the retained report. The policy remains Linx BID/GID/RID/LSID
+promotion. Production `ScalarLSU` and the reduced canonical-MDB composition
+instantiate the same boundary. An invalid STID issues no lookup, cannot publish
+a source, and cannot release the retained report. The policy remains Linx BID/GID/RID/LSID
 and block-order semantics; no ARM architectural behavior is imported.
+
+R659 also makes LIQ admission and MDB lookup one event. Canonical lookup credit
+participates in allocation readiness, and the exact accepted allocation
+payload supplies PC, Linx identities, address, size, and scope. Source-return
+and MDB mutations share one native LIQ arbiter; MDB-only requests may target a
+pre-launch `Wait` row without SCB-return proof, while source-return requests
+retain their stricter `Repick` and SCB ordering. Registered MDB store wakeups
+now enter the LIQ replay-wakeup path with priority over the existing resident
+store wakeup; a displaced resident wakeup remains held for a later cycle.
 
 R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE

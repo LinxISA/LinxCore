@@ -32,7 +32,9 @@ only through Linx PE/STID/TID and BID/GID/RID/LSID identity.
 ## Command Ordering
 
 1. An accepted scalar load allocation enqueues a PC-keyed lookup before first
-   launch. Tile loads do not enter this predictor.
+   launch. MDB lookup credit participates in allocation readiness; the LIQ row
+   and lookup accept together from the same allocation payload. Tile loads do
+   not enter this predictor.
 2. An accepted address-bearing scalar store scans active LIQ and ResolveQ rows.
    Scalar store insertion waits when the MDB record or wait-plan queue cannot
    retain the event.
@@ -108,13 +110,30 @@ failed-prediction interval. Confidence/weight policy remains parameterized by
 `mdbReleaseWeight`, `mdbMaxWeight`, `mdbIncStep`, and `mdbConfWidth`. None of
 these capacities defines ROB identity width.
 
+## Reduced Live Composition
+
+R659 replaces the reduced top's separately reconstructed conflict detector,
+fanout, lookup wait planner, failed-wait tie-offs, and delivery-only recovery
+owner with this module. `ReducedLoadReplayLiqAllocPath.allocExternalReady`
+joins LIQ capacity with canonical lookup credit, and `allocPayload` forwards
+the exact accepted identity and address payload. An assertion requires LIQ
+allocation acceptance to equal canonical lookup acceptance.
+
+Source-return and canonical MDB mutations enter `LoadReplayRowMutationSourceMux`.
+MDB-only requests may target a pre-launch `Wait` row without SCB-return proof;
+source-return requests retain the `Repick` and SCB-return requirements.
+Same-target requests coalesce into one native LIQ write, while different-target
+requests preserve source-return priority and hold the MDB command. Registered
+MDB store wakeup has priority at the LIQ replay-wakeup port; a simultaneous
+resident-store wakeup is retained for a later cycle.
+
 ## Current Boundary
 
-IEX-local MDB training, final multi-source top arbitration, full-BID BROB
-recovery, cache and miss queues, and final LRET publication remain future
-integration work. Ring-qualified recovery retention and real ROB pruning are
-now proven. Reduced CoreMark regression is a no-regression gate until a natural
-workload produces positive canonical MDB counters.
+IEX-local MDB training, full-BID BROB recovery, cache and miss queues, and final
+LRET publication remain future integration work. Ring-qualified recovery
+retention, native wait mutation, store-wakeup delivery, and real ROB pruning
+are proven. Reduced CoreMark regression remains a no-regression gate until a
+natural workload produces positive canonical MDB counters.
 
 ## Verification
 

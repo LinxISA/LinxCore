@@ -469,14 +469,14 @@ only oldest BID/RID eligibility and exact full-generation promotion. Its
 `FullBidFlushReq` enters `RecoverySourceArbiter`; central cleanup readiness is
 the only event that dequeues the retained MDB report.
 
-R649 applies the same ownership to the live reduced top.
-`MDBConflictTransactionControl` prevents the fanout record and recovery report
-from accepting independently. `MDBRecoveryDeliveryPath` retains the typed
-report, selects R648 owner-backed oldest BID/RID by the report STID, performs
-the exact resident full-BID lookup, and dequeues only when the central recovery
-source is accepted. A selected replay probe is marked consumed only on that
-atomic admission event. This preserves the model's single conflict-publication
-transaction without importing any ARM architectural behavior.
+R659 applies the complete canonical ownership to the live reduced top.
+`ScalarLSUMDBPath` prevents the fanout record, multi-row wait plan, and recovery
+report from accepting independently, retains the typed report, and feeds the
+shared recovery boundary with R648 owner-backed state. MDB lookup credit gates
+LIQ allocation, so the exact accepted allocation payload enters prediction
+without a reconstructed later request. A selected store probe is marked
+consumed only on canonical transaction admission. This preserves the model's
+single conflict-publication transaction without importing ARM behavior.
 
 R636 adds `LoadWaitStoreTimeout` beneath the same canonical owner. The model
 records `stallCycle` whenever a load starts waiting and later sends
