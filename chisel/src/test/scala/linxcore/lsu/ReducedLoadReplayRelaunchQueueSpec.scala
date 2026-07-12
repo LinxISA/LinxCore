@@ -155,7 +155,12 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
   }
 
   test("Chisel ReducedLoadReplayRelaunchQueue elaborates with queue diagnostics") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedLoadReplayRelaunchQueue(idEntries = 8, depth = 2))
+    val io = new ReducedLoadReplayRelaunchQueueIO(idEntries = 8, depth = 2, lsidWidth = 40)
+    val sv = ChiselStage.emitSystemVerilog(new ReducedLoadReplayRelaunchQueue(
+      idEntries = 8, depth = 2, lsidWidth = 40))
+
+    assert(io.enqueue.loadLsIdFull.getWidth == 40)
+    assert(io.out.loadLsIdFull.getWidth == 40)
 
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
     assert(sv.contains("io_enqueueAccepted"))
@@ -166,6 +171,8 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_out_gid_value"))
     assert(sv.contains("io_out_rid_value"))
     assert(sv.contains("io_out_loadLsId_value"))
+    assert(sv.contains("io_out_loadLsIdFullValid"))
+    assert(sv.contains("io_out_loadLsIdFull"))
     assert(sv.contains("io_out_youngestStoreId_value"))
     assert(sv.contains("io_out_youngestStoreLsId_value"))
     assert(sv.contains("io_count"))

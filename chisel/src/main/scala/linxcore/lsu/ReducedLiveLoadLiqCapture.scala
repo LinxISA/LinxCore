@@ -12,7 +12,8 @@ class ReducedLiveLoadLiqCaptureIO(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
@@ -32,6 +33,8 @@ class ReducedLiveLoadLiqCaptureIO(
   val loadGid = Input(new ROBID(idEntries))
   val loadRid = Input(new ROBID(idEntries))
   val loadLsId = Input(new ROBID(idEntries))
+  val loadLsIdFullValid = Input(Bool())
+  val loadLsIdFull = Input(UInt(lsidWidth.W))
   val youngestStoreId = Input(new ROBID(idEntries))
   val youngestStoreLsId = Input(new ROBID(idEntries))
   val allocReady = Input(Bool())
@@ -43,7 +46,8 @@ class ReducedLiveLoadLiqCaptureIO(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth))
+    physRegWidth,
+    lsidWidth))
   val captureAccepted = Output(Bool())
   val blockedByAlloc = Output(Bool())
 }
@@ -54,7 +58,8 @@ class ReducedLiveLoadLiqCapture(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
@@ -66,7 +71,8 @@ class ReducedLiveLoadLiqCapture(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth))
+    physRegWidth,
+    lsidWidth))
 
   private def disabledId: ROBID = ROBID.disabled(idEntries)
 
@@ -76,7 +82,8 @@ class ReducedLiveLoadLiqCapture(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth))
+    physRegWidth,
+    lsidWidth))
   candidate := 0.U.asTypeOf(candidate)
   candidate.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
   candidate.bid := disabledId
@@ -101,6 +108,8 @@ class ReducedLiveLoadLiqCapture(
     candidate.gid := io.loadGid
     candidate.rid := io.loadRid
     candidate.loadLsId := io.loadLsId
+    candidate.loadLsIdFullValid := io.loadLsIdFullValid
+    candidate.loadLsIdFull := io.loadLsIdFull
     candidate.youngestStoreId := io.youngestStoreId
     candidate.youngestStoreLsId := io.youngestStoreLsId
   }

@@ -129,6 +129,7 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
 
   test("Chisel ReducedLoadReplayLiqAllocAdapter elaborates LIQ alloc handshake") {
     val io = new ReducedLoadReplayLiqAllocAdapterIO(liqEntries = 4, idEntries = 8, lsidWidth = 40)
+    assert(io.candidate.loadLsIdFull.getWidth == 40)
     assert(io.alloc.loadLsIdFull.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(new ReducedLoadReplayLiqAllocAdapter(
@@ -137,6 +138,10 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedLoadReplayLiqAllocAdapter"))
     assert(sv.contains("io_allocValid"))
     assert(sv.contains("io_alloc_loadLsId_value"))
+    assert(sv.contains("io_candidate_loadLsIdFullValid"))
+    assert(sv.contains("io_candidate_loadLsIdFull"))
+    assert(sv.contains("io_alloc_loadLsIdFullValid"))
+    assert(sv.contains("io_alloc_loadLsIdFull"))
     assert(sv.contains("io_alloc_returnSignExtend"))
     assert(sv.contains("io_alloc_dst_physTag"))
     assert(sv.contains("io_alloc_youngestStoreId_value"))

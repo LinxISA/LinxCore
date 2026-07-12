@@ -8,10 +8,12 @@ class ReducedLoadReplayCompletionDrainIO(
     val idEntries: Int,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val candidateValid = Input(Bool())
-  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
+  val candidate = Input(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, lsidWidth = lsidWidth))
 
   val completeValid = Input(Bool())
   val completeMemLoad = Input(Bool())
@@ -39,13 +41,14 @@ class ReducedLoadReplayCompletionDrain(
     val idEntries: Int = 16,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
 
-  val io = IO(new ReducedLoadReplayCompletionDrainIO(idEntries, addrWidth, pcWidth, sizeWidth))
+  val io = IO(new ReducedLoadReplayCompletionDrainIO(idEntries, addrWidth, pcWidth, sizeWidth, lsidWidth))
 
   val completionEligible = io.completeValid && io.completeMemLoad
   val pcMismatch = io.candidate.pc =/= io.completePc

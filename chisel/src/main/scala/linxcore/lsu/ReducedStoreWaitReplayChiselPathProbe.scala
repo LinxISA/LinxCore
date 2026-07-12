@@ -224,6 +224,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   waitSlot.io.captureGid := ROBID.zero(entries)
   waitSlot.io.captureRid := ROBID.zero(entries)
   waitSlot.io.captureLsId := io.loadLsId
+  waitSlot.io.captureLsIdFullValid := io.loadLsIdFullValid
+  waitSlot.io.captureLsIdFull := io.loadLsIdFull
   waitSlot.io.captureYoungestStoreId := forward.io.waitStore.storeId
   waitSlot.io.captureYoungestStoreLsId := forward.io.waitStore.storeLsId
   waitSlot.io.captureWaitStore := forward.io.waitStore

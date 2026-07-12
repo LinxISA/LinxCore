@@ -16,7 +16,8 @@ class ReducedLoadReplayLiqAllocAdapterIO(
     extends Bundle {
   val flush = Input(Bool())
   val candidateValid = Input(Bool())
-  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val candidate = Input(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   val allocReady = Input(Bool())
 
   val allocValid = Output(Bool())
@@ -82,6 +83,8 @@ class ReducedLoadReplayLiqAllocAdapter(
     alloc.gid := io.candidate.gid
     alloc.rid := io.candidate.rid
     alloc.loadLsId := io.candidate.loadLsId
+    alloc.loadLsIdFullValid := io.candidate.loadLsIdFullValid
+    alloc.loadLsIdFull := io.candidate.loadLsIdFull
     alloc.pc := io.candidate.pc
     alloc.addr := io.candidate.addr
     alloc.size := io.candidate.size

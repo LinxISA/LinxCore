@@ -15,7 +15,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     val peIdWidth: Int,
     val stidWidth: Int,
     val tidWidth: Int,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
@@ -32,7 +33,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
   val rowLineData = Input(UInt((lineBytes * 8).W))
   val rowValidMask = Input(UInt(lineBytes.W))
@@ -44,7 +46,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
   val stqReturned = Output(Bool())
   val targetMask = Output(UInt(liqEntries.W))
   val waitStoreApply = Output(Bool())
-  val waitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+  val waitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
   val waitStoreRid = Output(new ROBID(idEntries))
   val dataMergeApply = Output(Bool())
   val dataNoMerge = Output(Bool())
@@ -73,7 +75,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
@@ -89,6 +92,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     liqEntries,
@@ -100,11 +104,12 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
 
   val active = io.enable && !io.flush
   val rawResponse =
@@ -126,6 +131,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
     waitInfo.storeIndex := io.response.waitStoreIndex
     waitInfo.storeId := io.response.waitStoreBid
     waitInfo.storeLsId := io.response.waitStoreLsId
+    waitInfo.storeLsIdFullValid := io.response.waitStoreLsIdFullValid
+    waitInfo.storeLsIdFull := io.response.waitStoreLsIdFull
     waitInfo.pc := io.response.waitStorePc
   }
 

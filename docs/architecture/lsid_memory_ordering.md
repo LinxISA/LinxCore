@@ -160,16 +160,25 @@ Missing full-LSID authority and exactly half-range separation are conservative
 non-matches. BID-only cleanup remains legal without LSID because block recovery
 already defines the killed suffix.
 
-The reduced replay snapshot request/token/response graph still prunes its
-projected compatibility rows through an explicitly named projection-only
-helper. Reduced forwarding nearest-store selection also retains projected LSID
-at the R672-A boundary. Once selected, the resident wait key and replay wakeup
-retain and exactly match full LSID authority. The remaining compatibility paths are not full-LSID authority and
-must not be reused by canonical ResolveQ, MDB, load-return, or STQ recovery;
-zero-filled placeholder values never enter an authoritative matcher.
+R672-B promotes the reduced replay snapshot request/token/response graph to
+full-LSID authority. The request queue, accepted-query token, response queue,
+and wait-store response metadata retain explicit validity plus the
+parameterized value. Ordinary live-load capture and wait-store relaunch both
+carry that authority through `ReducedLoadReplayCandidate`, the relaunch FIFO,
+and the LIQ allocation adapter before snapshot selection. Their selective recovery uses the same authoritative
+`STQFlushPrune.matchesFlush` contract as canonical load state. Same-BID
+cleanup is a conservative non-match when either side lacks full authority;
+the former projection-only matcher has been removed. Cluster/entry IDs and the
+ROBID-shaped LSID remain physical routing and compatibility sidecars, not
+memory-order authority.
 
-The dual field is still temporary. After R672-A, the projection remains
-necessary for the reduced load forwarding/replay snapshot graph and legacy
+Reduced forwarding nearest-store selection remains the next R672-B boundary.
+Once selected, the resident wait key and replay wakeup already retain and
+exactly match full LSID authority. That remaining projected selection path
+must not be reused by canonical ResolveQ, MDB, load-return, or recovery.
+
+The dual field is still temporary. After snapshot-graph promotion, the
+projection remains necessary for reduced load forwarding selection and legacy
 diagnostics. Later LSID packets must promote those consumers before removing
 `FlushReq.lsId`, `STQEntryBankRow.lsId`, and related reduced-path projections.
 
@@ -183,5 +192,5 @@ remains ROB/BROB-ring-owned. An MDB lookup may identify a wait candidate before
 the predicted store's local row index is known, but it must not mutate LIQ or
 publish wait/delete state until the store's full LSID is valid. Missing
 authority is not reconstructed from the projection. The compatibility
-projection remains only in the reduced replay snapshot/forwarding harness and
-legacy diagnostics pending R672-B.
+projection remains only in reduced forwarding selection and legacy
+diagnostics pending the next R672-B slice.

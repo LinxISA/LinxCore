@@ -63,6 +63,10 @@ queues. A matching precise flush clears the resident token and suppresses
 same-cycle capture so recovery cannot prune the queued LU/SU record while
 leaving a stale accepted-query owner behind.
 
+R672-B stores `loadLsIdFullValid/loadLsIdFull` in the token and uses that
+authority for selective recovery. Missing same-BID authority retains the token;
+the projected LSID no longer authorizes pruning.
+
 ## Interface
 
 ### Inputs

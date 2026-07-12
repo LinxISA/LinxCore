@@ -15,7 +15,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
     val sizeWidth: Int = 7,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val clusterId = UInt(clusterIdWidth.W)
@@ -25,6 +26,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -45,7 +48,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     val sizeWidth: Int = 7,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -59,6 +63,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedLoadLsIdFullValid = Input(Bool())
+  val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
   val selectedTid = Input(UInt(tidWidth.W))
@@ -81,7 +87,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -101,7 +108,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     val sizeWidth: Int = 7,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -115,6 +123,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     liqEntries,
@@ -127,7 +136,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -145,7 +155,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   )))
 
   when(requestValid) {
@@ -157,6 +168,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     request.gid := io.selectedGid
     request.rid := io.selectedRid
     request.loadLsId := io.selectedLoadLsId
+    request.loadLsIdFullValid := io.selectedLoadLsIdFullValid
+    request.loadLsIdFull := io.selectedLoadLsIdFull
     request.peId := io.selectedPeId
     request.stid := io.selectedStid
     request.tid := io.selectedTid

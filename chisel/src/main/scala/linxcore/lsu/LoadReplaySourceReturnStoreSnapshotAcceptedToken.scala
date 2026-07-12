@@ -12,11 +12,12 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
     peIdWidth: Int,
     stidWidth: Int,
     tidWidth: Int,
-    lineBytes: Int)
+    lineBytes: Int,
+    lsidWidth: Int)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val queryIssued = Input(Bool())
   val selectedValid = Input(Bool())
   val selectedRepick = Input(Bool())
@@ -25,6 +26,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
   val selectedBid = Input(new ROBID(idEntries))
   val selectedGid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedLoadLsIdFullValid = Input(Bool())
+  val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
   val selectedTid = Input(UInt(tidWidth.W))
@@ -42,6 +45,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
   val tokenBid = Output(new ROBID(idEntries))
   val tokenGid = Output(new ROBID(idEntries))
   val tokenLoadLsId = Output(new ROBID(idEntries))
+  val tokenLoadLsIdFullValid = Output(Bool())
+  val tokenLoadLsIdFull = Output(UInt(lsidWidth.W))
   val tokenPeId = Output(UInt(peIdWidth.W))
   val tokenStid = Output(UInt(stidWidth.W))
   val tokenTid = Output(UInt(tidWidth.W))
@@ -69,7 +74,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     peIdWidth: Int = 8,
     stidWidth: Int = 8,
     tidWidth: Int = 8,
-    lineBytes: Int = 64)
+    lineBytes: Int = 64,
+    lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
@@ -79,6 +85,7 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
   require(lineBytes == 64, "accepted token currently carries 64-byte scalar line context")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
     idEntries = idEntries,
@@ -87,7 +94,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    lsidWidth = lsidWidth
   ))
 
   val tokenValidReg = RegInit(false.B)
@@ -97,6 +105,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
   val tokenBidReg = RegInit(0.U.asTypeOf(new ROBID(idEntries)))
   val tokenGidReg = RegInit(0.U.asTypeOf(new ROBID(idEntries)))
   val tokenLoadLsIdReg = RegInit(0.U.asTypeOf(new ROBID(idEntries)))
+  val tokenLoadLsIdFullValidReg = RegInit(false.B)
+  val tokenLoadLsIdFullReg = RegInit(0.U(lsidWidth.W))
   val tokenPeIdReg = RegInit(0.U(peIdWidth.W))
   val tokenStidReg = RegInit(0.U(stidWidth.W))
   val tokenTidReg = RegInit(0.U(tidWidth.W))
@@ -105,7 +115,7 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
   val tokenRequestByteMaskReg = RegInit(0.U(lineBytes.W))
 
   private def toPruneEntry: STQFlushPruneEntry = {
-    val entry = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth))
+    val entry = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
     entry.valid := tokenValidReg
     entry.status := STQEntryStatus.Wait
     entry.peId := tokenPeIdReg
@@ -114,15 +124,15 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     entry.bid := tokenBidReg
     entry.gid := tokenGidReg
     entry.lsId := tokenLoadLsIdReg
-    entry.lsIdFullValid := false.B
-    entry.lsIdFull := 0.U
+    entry.lsIdFullValid := tokenLoadLsIdFullValidReg
+    entry.lsIdFull := tokenLoadLsIdFullReg
     entry
   }
 
   val baseActive = io.enable && !io.flush
   val precisePruneActive = baseActive && io.preciseFlush.req.valid
   val precisePruned = precisePruneActive &&
-    STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry)
+    STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry)
   val active = baseActive && !precisePruneActive
   val tokenCanAccept = active && !tokenValidReg
   val captureCandidate = active && io.queryIssued
@@ -141,6 +151,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     tokenBidReg := 0.U.asTypeOf(new ROBID(idEntries))
     tokenGidReg := 0.U.asTypeOf(new ROBID(idEntries))
     tokenLoadLsIdReg := 0.U.asTypeOf(new ROBID(idEntries))
+    tokenLoadLsIdFullValidReg := false.B
+    tokenLoadLsIdFullReg := 0.U
     tokenPeIdReg := 0.U
     tokenStidReg := 0.U
     tokenTidReg := 0.U
@@ -156,6 +168,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
       tokenBidReg := 0.U.asTypeOf(new ROBID(idEntries))
       tokenGidReg := 0.U.asTypeOf(new ROBID(idEntries))
       tokenLoadLsIdReg := 0.U.asTypeOf(new ROBID(idEntries))
+      tokenLoadLsIdFullValidReg := false.B
+      tokenLoadLsIdFullReg := 0.U
       tokenPeIdReg := 0.U
       tokenStidReg := 0.U
       tokenTidReg := 0.U
@@ -171,6 +185,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
         tokenBidReg := 0.U.asTypeOf(new ROBID(idEntries))
         tokenGidReg := 0.U.asTypeOf(new ROBID(idEntries))
         tokenLoadLsIdReg := 0.U.asTypeOf(new ROBID(idEntries))
+        tokenLoadLsIdFullValidReg := false.B
+        tokenLoadLsIdFullReg := 0.U
         tokenPeIdReg := 0.U
         tokenStidReg := 0.U
         tokenTidReg := 0.U
@@ -185,6 +201,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
         tokenBidReg := io.selectedBid
         tokenGidReg := io.selectedGid
         tokenLoadLsIdReg := io.selectedLoadLsId
+        tokenLoadLsIdFullValidReg := io.selectedLoadLsIdFullValid
+        tokenLoadLsIdFullReg := io.selectedLoadLsIdFull
         tokenPeIdReg := io.selectedPeId
         tokenStidReg := io.selectedStid
         tokenTidReg := io.selectedTid
@@ -204,6 +222,8 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
   io.tokenBid := Mux(tokenValidReg, tokenBidReg, io.selectedBid)
   io.tokenGid := Mux(tokenValidReg, tokenGidReg, io.selectedGid)
   io.tokenLoadLsId := Mux(tokenValidReg, tokenLoadLsIdReg, io.selectedLoadLsId)
+  io.tokenLoadLsIdFullValid := Mux(tokenValidReg, tokenLoadLsIdFullValidReg, io.selectedLoadLsIdFullValid)
+  io.tokenLoadLsIdFull := Mux(tokenValidReg, tokenLoadLsIdFullReg, io.selectedLoadLsIdFull)
   io.tokenPeId := Mux(tokenValidReg, tokenPeIdReg, io.selectedPeId)
   io.tokenStid := Mux(tokenValidReg, tokenStidReg, io.selectedStid)
   io.tokenTid := Mux(tokenValidReg, tokenTidReg, io.selectedTid)

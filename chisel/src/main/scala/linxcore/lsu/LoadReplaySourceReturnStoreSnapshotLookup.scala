@@ -19,7 +19,8 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val stqEntries: Int = 0)
+    val stqEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   val enable = Input(Bool())
@@ -36,7 +37,8 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     requestSizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val rows = Input(Vec(physicalStqEntries, new STQEntryBankRow(
     idEntries,
@@ -48,7 +50,8 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     stqSizeWidth,
     simtLaneWidth,
     mapQDepth,
-    pcWidth
+    pcWidth,
+    lsidWidth
   )))
   val cacheData = Input(UInt((lineBytes * 8).W))
 
@@ -65,7 +68,7 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
   val forwardMask = Output(UInt(lineBytes.W))
   val waitMask = Output(UInt(lineBytes.W))
   val uncoveredLoadMask = Output(UInt(lineBytes.W))
-  val waitStore = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
+  val waitStore = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth, lsidWidth))
   val waitStoreValid = Output(Bool())
   val rawDataValid = Output(Bool())
   val responseDataValid = Output(Bool())
@@ -91,7 +94,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val stqEntries: Int = 0)
+    val stqEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
@@ -107,6 +111,7 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   require(requestSizeWidth >= 7, "requestSizeWidth must cover 64-byte scalar lines")
   require(stqSizeWidth >= 4, "stqSizeWidth must cover scalar store sizes")
   require(lineBytes == 64, "lookup currently models 64-byte scalar cachelines")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val offsetWidth = log2Ceil(lineBytes)
 
@@ -126,7 +131,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     mapQDepth,
     pcWidth,
     lineBytes,
-    physicalStqEntries
+    physicalStqEntries,
+    lsidWidth
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -155,7 +161,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     simtLaneWidth = simtLaneWidth,
     mapQDepth = mapQDepth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    lsidWidth = lsidWidth
   ))
   val forward = Module(new LoadStoreForwarding(
     robEntries = idEntries,
@@ -163,7 +170,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    sizeWidth = requestSizeWidth
+    sizeWidth = requestSizeWidth,
+    lsidWidth = lsidWidth
   ))
 
   storeSnapshot.io.enable := queryValid

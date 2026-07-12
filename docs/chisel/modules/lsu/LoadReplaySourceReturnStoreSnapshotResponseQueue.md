@@ -85,6 +85,11 @@ resident response records against the carried load request identity/context,
 suppresses same-cycle enqueue/dequeue, removes matched responses, and compacts
 survivors in FIFO order.
 
+R672-B retains full load and wait-store LSIDs in each response row. Selective
+pruning uses the original load's full authority and conservatively retains a
+same-BID row when authority is missing; wait-store full identity is transported
+unchanged to response apply.
+
 ## Interface
 
 ### Inputs

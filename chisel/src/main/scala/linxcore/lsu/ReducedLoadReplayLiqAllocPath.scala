@@ -29,7 +29,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val flushPruneMask = Output(UInt(liqEntries.W))
   val flushPruneCount = Output(UInt(countWidth.W))
   val candidateValid = Input(Bool())
-  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val candidate = Input(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   val allocExternalReady = Input(Bool())
 
   val launchEnable = Input(Bool())

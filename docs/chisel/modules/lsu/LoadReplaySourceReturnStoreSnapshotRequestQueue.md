@@ -50,6 +50,10 @@ resident requests with the same `FlushBus::match(MemReqBus)` predicate used by
 the model, suppresses same-cycle enqueue/dequeue, removes matching resident
 requests, and compacts survivors in FIFO order.
 
+R672-B retains full-LSID validity/value in every FIFO row and replaces the
+projection-only prune path with `STQFlushPrune.matchesFlush`. Same-BID recovery
+without full authority does not remove a request.
+
 ## Interface
 
 ### Inputs

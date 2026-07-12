@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-12
+Date: 2026-07-13
 
 ## Purpose
 
@@ -14,6 +14,19 @@ LinxCoreModel proves model convergence, and the superproject gates prove that
 the change still works across repos.
 
 ## Current Handoff
+
+Latest packet: R672-B first promotes the reduced replay source-return snapshot
+graph. Selected loads carry full-LSID validity/value through request payload,
+ordinary live capture or wait-store relaunch, the candidate/relaunch FIFO and
+LIQ allocation adapter, request FIFO, accepted-query token, request sink, raw
+response source, response FIFO, response apply, and row-mutation wait metadata. All widths derive from
+`CoreParams.lsidWidth`; a 40-bit composed elaboration covers the full graph.
+Request/token/response selective pruning now uses authoritative
+`STQFlushPrune.matchesFlush`, so same-BID missing authority retains state. The
+projection-only matcher has been removed. Cluster/entry IDs still route a
+physical response and do not define Linx memory order. Forwarding nearest-store
+selection remains the next R672-B slice. No ARM architectural behavior was
+imported.
 
 Latest packet: R672-A promotes full LSID through the canonical scalar load
 owner. `LoadInflightAlloc`, LIQ rows, LHQ hit records, ResolveQ rows, MDB
@@ -43,10 +56,9 @@ Its sideband report observes 136 valid MDB store probes and no MDB load lookup,
 so focused 40-bit and missing-authority tests are the mechanism proof; CoreMark
 is no-regression evidence for this packet.
 
-The reduced replay source-return snapshot request/token/response graph still
-uses the named projection-only cleanup helper, and reduced forwarding nearest-
-store selection still uses projected LSID. Those are the R672-B conversion boundary;
-they may not be cited as canonical scalar-load closure. No ARM tile-conflict
+Reduced forwarding nearest-store selection still uses projected LSID and is
+the remaining R672-B conversion boundary; it may not be cited as full-LSID
+forwarding closure. No ARM tile-conflict
 bypass, exclusive monitor, barrier, acquire/release, or exception-level
 behavior was imported.
 
@@ -61,8 +73,8 @@ authority. A 40-bit LSID / 8-entry ROB / 16-row STQ composed elaboration proves
 independent sizing. At the R671 boundary, unpromoted load/MDB sources left
 full-LSID authority clear and never authorized STQ pruning through the
 projection. R672-A supersedes that limitation for the canonical load owner;
-only the reduced replay snapshot/forwarding graph retains the explicitly named
-projection-only cleanup helper. This work
+the reduced replay snapshot graph is now superseded by the R672-B full-LSID
+promotion above. This work
 adds no ARM exception class, barrier, exclusive monitor, acquire/release, or
 exception-level behavior.
 

@@ -32,6 +32,10 @@ wait-store key while `ReducedStoreResidentForward` reports a wait hit, keeps
 that key registered after the live forwarder stops reporting a wait, and feeds
 the resulting store-unit wakeup through the existing `LoadReplayWakeup` owner.
 
+R672-B retains the load's full LSID in the wait slot and copies it into the
+relaunch candidate. This is separate from the selected store's full LSID in
+`LoadStoreForwardWait`; both authorities survive independently.
+
 This is still diagnostic integration. The slot proves the replay request shape
 can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
 one-cycle relaunch candidate carrying the remembered load identity. R274

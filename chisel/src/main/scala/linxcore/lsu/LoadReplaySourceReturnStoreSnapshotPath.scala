@@ -24,7 +24,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     mapQDepth: Int,
     requestQueueDepth: Int,
     responseQueueDepth: Int,
-    stqEntries: Int = 0) extends Bundle {
+    stqEntries: Int = 0,
+    lsidWidth: Int = 32) extends Bundle {
   private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val requestQueueCountWidth = log2Ceil(requestQueueDepth + 1)
@@ -32,7 +33,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val requestEnable = Input(Bool())
   val rowMutationLiveEnable = Input(Bool())
   val rawResponseLiveEnable = Input(Bool())
@@ -56,6 +57,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedLoadLsIdFullValid = Input(Bool())
+  val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
   val selectedTid = Input(UInt(tidWidth.W))
@@ -73,6 +76,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseRequestGid = Input(new ROBID(idEntries))
   val responseRequestRid = Input(new ROBID(idEntries))
   val responseRequestLoadLsId = Input(new ROBID(idEntries))
+  val responseRequestLoadLsIdFullValid = Input(Bool())
+  val responseRequestLoadLsIdFull = Input(UInt(lsidWidth.W))
   val responseRequestPeId = Input(UInt(peIdWidth.W))
   val responseRequestStid = Input(UInt(stidWidth.W))
   val responseRequestTid = Input(UInt(tidWidth.W))
@@ -84,6 +89,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseWaitStoreBid = Input(new ROBID(idEntries))
   val responseWaitStoreRid = Input(new ROBID(idEntries))
   val responseWaitStoreLsId = Input(new ROBID(idEntries))
+  val responseWaitStoreLsIdFullValid = Input(Bool())
+  val responseWaitStoreLsIdFull = Input(UInt(lsidWidth.W))
   val responseWaitStorePc = Input(UInt(pcWidth.W))
   val responseDataMask = Input(UInt(lineBytes.W))
   val responseData = Input(UInt((lineBytes * 8).W))
@@ -98,7 +105,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     stqSizeWidth,
     simtLaneWidth,
     mapQDepth,
-    pcWidth
+    pcWidth,
+    lsidWidth
   )))
 
   val storeSnapshotReady = Output(Bool())
@@ -192,7 +200,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseApplyStqReturned = Output(Bool())
   val responseApplyTargetMask = Output(UInt(liqEntries.W))
   val responseApplyWaitStore = Output(Bool())
-  val responseApplyWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
+  val responseApplyWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth, lsidWidth))
   val responseApplyWaitStoreRid = Output(new ROBID(idEntries))
   val responseApplyDataMerge = Output(Bool())
   val responseApplyDataNoMerge = Output(Bool())
@@ -218,7 +226,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rowStatePlanLineWrite = Output(Bool())
   val rowStatePlanWaitStoreWrite = Output(Bool())
   val rowStatePlanNextWaitStore = Output(Bool())
-  val rowStatePlanNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
+  val rowStatePlanNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth, lsidWidth))
   val rowStatePlanNextWaitStoreRid = Output(new ROBID(idEntries))
   val rowStatePlanNextLineData = Output(UInt((lineBytes * 8).W))
   val rowStatePlanNextValidMask = Output(UInt(lineBytes.W))
@@ -247,7 +255,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rowMutationLineWrite = Output(Bool())
   val rowMutationWaitStoreWrite = Output(Bool())
   val rowMutationNextWaitStore = Output(Bool())
-  val rowMutationNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
+  val rowMutationNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth, lsidWidth))
   val rowMutationNextWaitStoreRid = Output(new ROBID(idEntries))
   val rowMutationNextLineData = Output(UInt((lineBytes * 8).W))
   val rowMutationNextValidMask = Output(UInt(lineBytes.W))
@@ -308,7 +316,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val requestPayloadBlockedByNoIssue = Output(Bool())
   val requestPayloadBlockedByNoSelected = Output(Bool())
@@ -329,7 +338,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val requestQueueHeadConsumed = Output(Bool())
   val requestQueuePending = Output(Bool())
@@ -433,7 +443,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     mapQDepth: Int = 32,
     requestQueueDepth: Int = 2,
     responseQueueDepth: Int = 2,
-    stqEntries: Int = 0) extends Module {
+    stqEntries: Int = 0,
+    lsidWidth: Int = 32) extends Module {
   private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -450,6 +461,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   require(stqSizeWidth >= 4, "stqSizeWidth must cover scalar STQ row sizes")
   require(requestQueueDepth > 0, "requestQueueDepth must be nonzero")
   require(responseQueueDepth > 0, "responseQueueDepth must be nonzero")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotPathIO(
     liqEntries = liqEntries,
@@ -469,7 +481,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     mapQDepth = mapQDepth,
     requestQueueDepth = requestQueueDepth,
     responseQueueDepth = responseQueueDepth,
-    stqEntries = physicalStqEntries
+    stqEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
@@ -485,7 +498,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     sizeWidth = sizeWidth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    lsidWidth = lsidWidth
   ))
   val requestQueue = Module(new LoadReplaySourceReturnStoreSnapshotRequestQueue(
     liqEntries = liqEntries,
@@ -499,7 +513,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     depth = requestQueueDepth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    lsidWidth = lsidWidth
   ))
   val requestSink = Module(new LoadReplaySourceReturnStoreSnapshotRequestSink(
     liqEntries = liqEntries,
@@ -513,7 +528,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val lookup = Module(new LoadReplaySourceReturnStoreSnapshotLookup(
     liqEntries = liqEntries,
@@ -531,7 +547,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     mapQDepth = mapQDepth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    stqEntries = physicalStqEntries
+    stqEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
@@ -545,7 +562,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    lsidWidth = lsidWidth
   ))
   val responseQueue = Module(new LoadReplaySourceReturnStoreSnapshotResponseQueue(
     idEntries = idEntries,
@@ -557,7 +575,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val rawResponseSource = Module(new LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     idEntries = idEntries,
@@ -568,7 +587,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val liveArmPolicy = Module(new LoadReplaySourceReturnStoreSnapshotLiveArmPolicy)
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
@@ -592,20 +612,23 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val rowStatePlan = Module(new LoadReplaySourceReturnStoreSnapshotRowStatePlan(
     idEntries = idEntries,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val rowMutationRequest = Module(new LoadReplaySourceReturnStoreSnapshotRowMutationRequest(
     liqEntries = liqEntries,
     idEntries = idEntries,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    storeEntries = physicalStqEntries
+    storeEntries = physicalStqEntries,
+    lsidWidth = lsidWidth
   ))
   val rowMutationLivePermit = Module(new LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit(
     liqEntries = liqEntries
@@ -653,6 +676,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestPayload.io.selectedGid := io.selectedGid
   requestPayload.io.selectedRid := io.selectedRid
   requestPayload.io.selectedLoadLsId := io.selectedLoadLsId
+  requestPayload.io.selectedLoadLsIdFullValid := io.selectedLoadLsIdFullValid
+  requestPayload.io.selectedLoadLsIdFull := io.selectedLoadLsIdFull
   requestPayload.io.selectedPeId := io.selectedPeId
   requestPayload.io.selectedStid := io.selectedStid
   requestPayload.io.selectedTid := io.selectedTid
@@ -706,6 +731,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.selectedBid := io.selectedBid
   acceptedToken.io.selectedGid := io.selectedGid
   acceptedToken.io.selectedLoadLsId := io.selectedLoadLsId
+  acceptedToken.io.selectedLoadLsIdFullValid := io.selectedLoadLsIdFullValid
+  acceptedToken.io.selectedLoadLsIdFull := io.selectedLoadLsIdFull
   acceptedToken.io.selectedPeId := io.selectedPeId
   acceptedToken.io.selectedStid := io.selectedStid
   acceptedToken.io.selectedTid := io.selectedTid
@@ -724,6 +751,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rawResponseSource.io.requestGid := io.responseRequestGid
   rawResponseSource.io.requestRid := io.responseRequestRid
   rawResponseSource.io.requestLoadLsId := io.responseRequestLoadLsId
+  rawResponseSource.io.requestLoadLsIdFullValid := io.responseRequestLoadLsIdFullValid
+  rawResponseSource.io.requestLoadLsIdFull := io.responseRequestLoadLsIdFull
   rawResponseSource.io.requestPeId := io.responseRequestPeId
   rawResponseSource.io.requestStid := io.responseRequestStid
   rawResponseSource.io.requestTid := io.responseRequestTid
@@ -735,6 +764,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rawResponseSource.io.waitStoreBid := io.responseWaitStoreBid
   rawResponseSource.io.waitStoreRid := io.responseWaitStoreRid
   rawResponseSource.io.waitStoreLsId := io.responseWaitStoreLsId
+  rawResponseSource.io.waitStoreLsIdFullValid := io.responseWaitStoreLsIdFullValid
+  rawResponseSource.io.waitStoreLsIdFull := io.responseWaitStoreLsIdFull
   rawResponseSource.io.waitStorePc := io.responseWaitStorePc
   rawResponseSource.io.dataMask := io.responseDataMask
   rawResponseSource.io.data := io.responseData

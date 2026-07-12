@@ -1,12 +1,13 @@
 # ReducedLoadReplayLiqAllocPath
 
-## R672-A LSID Width Contract
+## R672-B LSID Authority Contract
 
 `lsidWidth` is independent of LIQ, STQ, and ROB capacity. The composition
 threads it through allocation payloads, resident LIQ rows, precise flush,
 launch/return selectors, resolved LHQ publication, and native row-mutation
-wait metadata. The reduced forwarding and snapshot identities remain projected
-compatibility fields pending R672-B; they do not authorize canonical ordering.
+wait metadata. Candidate full-LSID authority reaches LIQ residency before
+snapshot selection. Reduced forwarding age selection remains projected and
+does not authorize canonical ordering.
 
 ## Source Mapping
 

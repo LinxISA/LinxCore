@@ -10,7 +10,8 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequestIO(
     val idEntries: Int,
     val pcWidth: Int,
     val lineBytes: Int,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   private val liqPtrWidth = log2Ceil(liqEntries)
@@ -27,7 +28,7 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequestIO(
   val lineWrite = Input(Bool())
   val waitStoreWrite = Input(Bool())
   val nextWaitStore = Input(Bool())
-  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
   val nextWaitStoreRid = Input(new ROBID(idEntries))
   val nextLineData = Input(UInt((lineBytes * 8).W))
   val nextValidMask = Input(UInt(lineBytes.W))
@@ -53,7 +54,7 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequestIO(
   val lineWriteOut = Output(Bool())
   val waitStoreWriteOut = Output(Bool())
   val nextWaitStoreOut = Output(Bool())
-  val nextWaitStoreInfoOut = Output(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+  val nextWaitStoreInfoOut = Output(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
   val nextWaitStoreRidOut = Output(new ROBID(idEntries))
   val nextLineDataOut = Output(UInt((lineBytes * 8).W))
   val nextValidMaskOut = Output(UInt(lineBytes.W))
@@ -78,7 +79,8 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequest(
     val idEntries: Int = 16,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
@@ -89,6 +91,7 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequest(
     "store entries must be a power of two greater than one")
   require(pcWidth > 0, "pcWidth must be positive")
   require(lineBytes == 64, "row mutation request currently carries 64-byte scalar line data")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val targetCountWidth = log2Ceil(liqEntries + 1)
@@ -98,11 +101,12 @@ class LoadReplaySourceReturnStoreSnapshotRowMutationRequest(
     idEntries,
     pcWidth,
     lineBytes,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
 
   val active = io.enable && !io.flush
   val mutationIntent =

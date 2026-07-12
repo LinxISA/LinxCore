@@ -17,13 +17,14 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     val depth: Int,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val enqueueValid = Input(Bool())
   val enqueueRequest = Input(new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
     liqEntries,
@@ -36,7 +37,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val dequeueReady = Input(Bool())
 
@@ -55,7 +57,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val headConsumed = Output(Bool())
   val pending = Output(Bool())
@@ -82,7 +85,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     val depth: Int = 2,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -97,6 +101,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val countWidth = log2Ceil(depth + 1)
 
@@ -112,7 +117,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     depth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   private def zeroRequest: LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle = {
@@ -127,14 +133,15 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
       sizeWidth,
       peIdWidth,
       stidWidth,
-      tidWidth
+      tidWidth,
+      lsidWidth
     ))
     request := 0.U.asTypeOf(request)
     request
   }
 
   private def toPruneEntry(request: LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle): STQFlushPruneEntry = {
-    val entry = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth))
+    val entry = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
     entry.valid := request.valid
     entry.status := STQEntryStatus.Wait
     entry.peId := request.peId
@@ -143,8 +150,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     entry.bid := request.bid
     entry.gid := request.gid
     entry.lsId := request.loadLsId
-    entry.lsIdFullValid := false.B
-    entry.lsIdFull := 0.U
+    entry.lsIdFullValid := request.loadLsIdFullValid
+    entry.lsIdFull := request.loadLsIdFull
     entry
   }
 
@@ -180,13 +187,14 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   )))
 
   for (slot <- 0 until depth) {
     val resident = slot.U < count
     precisePruneVec(slot) := resident && precisePruneActive &&
-      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(entries(slot)))
+      STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
     removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
     keptVec(slot) := resident && !removeVec(slot)
     if (slot == 0) {
@@ -218,7 +226,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   )))
   for (dst <- 0 until depth) {
     nextEntries(dst) := compacted(dst)

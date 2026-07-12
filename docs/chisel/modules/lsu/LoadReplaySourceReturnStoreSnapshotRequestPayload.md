@@ -57,6 +57,10 @@ optional PE/thread filters before BID/LSID age comparisons. The reduced top
 currently sources these fields from its single active `peId/threadId` inputs;
 LIQ row residency remains unchanged in this packet.
 
+R672-B adds `loadLsIdFullValid/loadLsIdFull`, parameterized by `lsidWidth`.
+The ROBID-shaped `loadLsId` remains a compatibility sidecar; recovery and
+same-BID ordering must use the full field when valid.
+
 ## Interface
 
 ### Inputs
@@ -71,7 +75,8 @@ LIQ row residency remains unchanged in this packet.
 | `selectedClusterId` / `selectedEntryId` | Accepted local LDQ row identity for future `MemReqBus.cID/eID`. |
 | `selectedLoadId` | Reduced LIQ slot identity. |
 | `selectedBid` / `selectedGid` / `selectedRid` | ROB identity carried with the request. |
-| `selectedLoadLsId` | Model load/store ordering ID used by STQ older-store filtering. |
+| `selectedLoadLsId` | Compatibility projection used by the still-unconverted forwarding selector. |
+| `selectedLoadLsIdFullValid` / `selectedLoadLsIdFull` | Canonical load memory-order authority retained by request/token/response owners. |
 | `selectedPeId` / `selectedStid` / `selectedTid` | Model `MemReqBus` PE, scalar-thread, and thread context carried for later precise request/response pruning. |
 | `selectedPc` | Load PC for diagnostics and wait-store identity. |
 | `selectedAddr` / `selectedSize` | Load address window consumed by STQ overlap checks. |

@@ -2396,7 +2396,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       peIdWidth = p.peIdWidth,
       stidWidth = p.threadIdWidth,
       tidWidth = p.threadIdWidth,
-      mapQDepth = mapQDepth
+      mapQDepth = mapQDepth,
+      lsidWidth = p.lsidWidth
     ))
   val reducedReplayLiqSourceReturnScbLiveControl = Module(new LoadReplaySourceReturnScbLiveControl)
   val reducedReplayLiqSourceReturnReadiness = Module(new LoadReplaySourceReturnReadiness)
@@ -2553,7 +2554,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     idEntries = p.robEntries,
     depth = reducedLoadReplayRelaunchQueueDepth,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedLoadReplayLiqAllocPath = Module(new ReducedLoadReplayLiqAllocPath(
     liqEntries = p.robEntries,
@@ -2571,7 +2573,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     // the scalar execute lookup's narrower encoded size is zero-extended here.
     sizeWidth = 7,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedLoadReplayResolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.robEntries,
@@ -2603,7 +2606,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedMdbPath = Module(new ScalarLSUMDBPath(reducedMdbCoreParams))
   val reducedLoadReplayCompletionDrain = Module(new ReducedLoadReplayCompletionDrain(
-    idEntries = p.robEntries
+    idEntries = p.robEntries,
+    lsidWidth = p.lsidWidth
   ))
 
   val localQueueDepth = 4
@@ -3135,6 +3139,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     execute = execute,
     loadDst = executeLoadLookupDst,
     loadLsId = reducedLoadLookupLsId,
+    loadLsIdFull = execute.io.loadLookupLsId,
     enable = reducedLiveLoadLiqEnabled,
     flush = reducedStoreFlush)
 
@@ -3154,6 +3159,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.captureGid := execute.io.loadLookupGid
   reducedLoadWaitReplaySlot.io.captureRid := execute.io.loadLookupRid
   reducedLoadWaitReplaySlot.io.captureLsId := reducedLoadLookupLsId
+  reducedLoadWaitReplaySlot.io.captureLsIdFullValid := execute.io.loadLookupValid
+  reducedLoadWaitReplaySlot.io.captureLsIdFull := execute.io.loadLookupLsId
   reducedLoadWaitReplaySlot.io.captureYoungestStoreId := execute.io.loadLookupBid
   reducedLoadWaitReplaySlot.io.captureYoungestStoreLsId := reducedLoadLookupLsId
   reducedLoadWaitReplaySlot.io.captureWaitStore := reducedStoreResidentForward.io.waitStore
@@ -3299,6 +3306,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedGid = reducedLoadReplayLiqAllocPath.io.launchSelectedGid,
       selectedRid = reducedLoadReplayLiqAllocPath.io.launchSelectedRid,
       selectedLoadLsId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadLsId,
+      selectedLoadLsIdFullValid = reducedReplayLiqSelectedRowForStoreSnapshot.loadLsIdFullValid,
+      selectedLoadLsIdFull = reducedReplayLiqSelectedRowForStoreSnapshot.loadLsIdFull,
       selectedPeId = io.peId,
       selectedStid = io.threadId,
       selectedTid = io.threadId,
@@ -6767,6 +6776,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       selectedGid: ROBID,
       selectedRid: ROBID,
       selectedLoadLsId: ROBID,
+      selectedLoadLsIdFullValid: Bool,
+      selectedLoadLsIdFull: UInt,
       selectedPeId: UInt,
       selectedStid: UInt,
       selectedTid: UInt,
@@ -6803,6 +6814,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.selectedGid := selectedGid
     path.io.selectedRid := selectedRid
     path.io.selectedLoadLsId := selectedLoadLsId
+    path.io.selectedLoadLsIdFullValid := selectedLoadLsIdFullValid
+    path.io.selectedLoadLsIdFull := selectedLoadLsIdFull
     path.io.selectedPeId := selectedPeId
     path.io.selectedStid := selectedStid
     path.io.selectedTid := selectedTid
@@ -6820,6 +6833,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.responseRequestGid := 0.U.asTypeOf(path.io.responseRequestGid)
     path.io.responseRequestRid := 0.U.asTypeOf(path.io.responseRequestRid)
     path.io.responseRequestLoadLsId := 0.U.asTypeOf(path.io.responseRequestLoadLsId)
+    path.io.responseRequestLoadLsIdFullValid := false.B
+    path.io.responseRequestLoadLsIdFull := 0.U
     path.io.responseRequestPeId := 0.U
     path.io.responseRequestStid := 0.U
     path.io.responseRequestTid := 0.U
@@ -6831,6 +6846,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.responseWaitStoreBid := 0.U.asTypeOf(path.io.responseWaitStoreBid)
     path.io.responseWaitStoreRid := 0.U.asTypeOf(path.io.responseWaitStoreRid)
     path.io.responseWaitStoreLsId := 0.U.asTypeOf(path.io.responseWaitStoreLsId)
+    path.io.responseWaitStoreLsIdFullValid := false.B
+    path.io.responseWaitStoreLsIdFull := 0.U
     path.io.responseWaitStorePc := 0.U
     path.io.responseDataMask := 0.U
     path.io.responseData := 0.U
@@ -9835,6 +9852,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopLiveLoadLiqCaptureWiring {
       execute: ReducedScalarAluExecute,
       loadDst: LoadReplayDestination,
       loadLsId: ROBID,
+      loadLsIdFull: UInt,
       enable: Bool,
       flush: Bool): Unit = {
     capture.io.captureEnable := enable
@@ -9852,6 +9870,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopLiveLoadLiqCaptureWiring {
     capture.io.loadGid := execute.io.loadLookupGid
     capture.io.loadRid := execute.io.loadLookupRid
     capture.io.loadLsId := loadLsId
+    capture.io.loadLsIdFullValid := execute.io.loadLookupValid
+    capture.io.loadLsIdFull := loadLsIdFull
     capture.io.youngestStoreId := execute.io.loadLookupBid
     capture.io.youngestStoreLsId := loadLsId
   }

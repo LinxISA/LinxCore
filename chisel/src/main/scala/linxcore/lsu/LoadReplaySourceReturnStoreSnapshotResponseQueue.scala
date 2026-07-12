@@ -15,7 +15,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
     peIdWidth: Int,
     stidWidth: Int,
     tidWidth: Int,
-    storeEntries: Int = 0)
+    storeEntries: Int = 0,
+    lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val clusterId = UInt(clusterIdWidth.W)
@@ -24,6 +25,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
   val requestGid = new ROBID(idEntries)
   val requestRid = new ROBID(idEntries)
   val requestLoadLsId = new ROBID(idEntries)
+  val requestLoadLsIdFullValid = Bool()
+  val requestLoadLsIdFull = UInt(lsidWidth.W)
   val requestPeId = UInt(peIdWidth.W)
   val requestStid = UInt(stidWidth.W)
   val requestTid = UInt(tidWidth.W)
@@ -35,6 +38,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
   val waitStoreBid = new ROBID(idEntries)
   val waitStoreRid = new ROBID(idEntries)
   val waitStoreLsId = new ROBID(idEntries)
+  val waitStoreLsIdFullValid = Bool()
+  val waitStoreLsIdFull = UInt(lsidWidth.W)
   val waitStorePc = UInt(pcWidth.W)
   val dataMask = UInt(lineBytes.W)
   val data = UInt((lineBytes * 8).W)
@@ -50,14 +55,15 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     peIdWidth: Int,
     stidWidth: Int,
     tidWidth: Int,
-    storeEntries: Int = 0)
+    storeEntries: Int = 0,
+    lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   private val countWidth = log2Ceil(depth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val enqueueValid = Input(Bool())
   val enqueue = Input(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
     idEntries,
@@ -68,7 +74,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
   val dequeueReady = Input(Bool())
 
@@ -85,7 +92,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
   val headClusterId = Output(UInt(clusterIdWidth.W))
   val headEntryId = Output(UInt(entryIdWidth.W))
@@ -93,6 +101,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
   val headRequestGid = Output(new ROBID(idEntries))
   val headRequestRid = Output(new ROBID(idEntries))
   val headRequestLoadLsId = Output(new ROBID(idEntries))
+  val headRequestLoadLsIdFullValid = Output(Bool())
+  val headRequestLoadLsIdFull = Output(UInt(lsidWidth.W))
   val headRequestPeId = Output(UInt(peIdWidth.W))
   val headRequestStid = Output(UInt(stidWidth.W))
   val headRequestTid = Output(UInt(tidWidth.W))
@@ -104,6 +114,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
   val headWaitStoreBid = Output(new ROBID(idEntries))
   val headWaitStoreRid = Output(new ROBID(idEntries))
   val headWaitStoreLsId = Output(new ROBID(idEntries))
+  val headWaitStoreLsIdFullValid = Output(Bool())
+  val headWaitStoreLsIdFull = Output(UInt(lsidWidth.W))
   val headWaitStorePc = Output(UInt(pcWidth.W))
   val headDataMask = Output(UInt(lineBytes.W))
   val headData = Output(UInt((lineBytes * 8).W))
@@ -130,7 +142,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(idEntries > 1, "idEntries must be greater than one")
@@ -145,6 +158,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val countWidth = log2Ceil(depth + 1)
 
@@ -158,7 +172,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStoreEntries
+    storeEntries = physicalStoreEntries,
+    lsidWidth = lsidWidth
   ))
 
   private def zeroEntry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry = {
@@ -171,7 +186,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       peIdWidth = peIdWidth,
       stidWidth = stidWidth,
       tidWidth = tidWidth,
-      storeEntries = physicalStoreEntries
+      storeEntries = physicalStoreEntries,
+      lsidWidth = lsidWidth
     ))
     entry := 0.U.asTypeOf(entry)
     entry
@@ -187,7 +203,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       peIdWidth = peIdWidth,
       stidWidth = stidWidth,
       tidWidth = tidWidth,
-      storeEntries = physicalStoreEntries
+      storeEntries = physicalStoreEntries,
+      lsidWidth = lsidWidth
     ))
     entry.clusterId := io.enqueue.clusterId
     entry.entryId := io.enqueue.entryId
@@ -195,6 +212,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     entry.requestGid := io.enqueue.requestGid
     entry.requestRid := io.enqueue.requestRid
     entry.requestLoadLsId := io.enqueue.requestLoadLsId
+    entry.requestLoadLsIdFullValid := io.enqueue.requestLoadLsIdFullValid
+    entry.requestLoadLsIdFull := io.enqueue.requestLoadLsIdFull
     entry.requestPeId := io.enqueue.requestPeId
     entry.requestStid := io.enqueue.requestStid
     entry.requestTid := io.enqueue.requestTid
@@ -206,6 +225,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     entry.waitStoreBid := io.enqueue.waitStoreBid
     entry.waitStoreRid := io.enqueue.waitStoreRid
     entry.waitStoreLsId := io.enqueue.waitStoreLsId
+    entry.waitStoreLsIdFullValid := io.enqueue.waitStoreLsIdFullValid
+    entry.waitStoreLsIdFull := io.enqueue.waitStoreLsIdFull
     entry.waitStorePc := io.enqueue.waitStorePc
     entry.dataMask := io.enqueue.dataMask
     entry.data := io.enqueue.data
@@ -213,7 +234,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   }
 
   private def toPruneEntry(entry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry): STQFlushPruneEntry = {
-    val row = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth))
+    val row = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
     row.valid := true.B
     row.status := STQEntryStatus.Wait
     row.peId := entry.requestPeId
@@ -222,8 +243,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     row.bid := entry.requestBid
     row.gid := entry.requestGid
     row.lsId := entry.requestLoadLsId
-    row.lsIdFullValid := false.B
-    row.lsIdFull := 0.U
+    row.lsIdFullValid := entry.requestLoadLsIdFullValid
+    row.lsIdFull := entry.requestLoadLsIdFull
     row
   }
 
@@ -250,7 +271,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   )))
   when(headValid) {
     headPayload.valid := true.B
@@ -260,6 +282,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     headPayload.requestGid := headEntry.requestGid
     headPayload.requestRid := headEntry.requestRid
     headPayload.requestLoadLsId := headEntry.requestLoadLsId
+    headPayload.requestLoadLsIdFullValid := headEntry.requestLoadLsIdFullValid
+    headPayload.requestLoadLsIdFull := headEntry.requestLoadLsIdFull
     headPayload.requestPeId := headEntry.requestPeId
     headPayload.requestStid := headEntry.requestStid
     headPayload.requestTid := headEntry.requestTid
@@ -271,6 +295,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     headPayload.waitStoreBid := headEntry.waitStoreBid
     headPayload.waitStoreRid := headEntry.waitStoreRid
     headPayload.waitStoreLsId := headEntry.waitStoreLsId
+    headPayload.waitStoreLsIdFullValid := headEntry.waitStoreLsIdFullValid
+    headPayload.waitStoreLsIdFull := headEntry.waitStoreLsIdFull
     headPayload.waitStorePc := headEntry.waitStorePc
     headPayload.dataMask := headEntry.dataMask
     headPayload.data := headEntry.data
@@ -291,13 +317,14 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStoreEntries
+    storeEntries = physicalStoreEntries,
+    lsidWidth = lsidWidth
   )))
 
   for (slot <- 0 until depth) {
     val resident = slot.U < count
     precisePruneVec(slot) := resident && precisePruneActive &&
-      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(entries(slot)))
+      STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
     removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
     keptVec(slot) := resident && !removeVec(slot)
     if (slot == 0) {
@@ -327,7 +354,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStoreEntries
+    storeEntries = physicalStoreEntries,
+    lsidWidth = lsidWidth
   )))
   for (dst <- 0 until depth) {
     nextEntries(dst) := compacted(dst)
@@ -357,6 +385,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   io.headRequestGid := headPayload.requestGid
   io.headRequestRid := headPayload.requestRid
   io.headRequestLoadLsId := headPayload.requestLoadLsId
+  io.headRequestLoadLsIdFullValid := headPayload.requestLoadLsIdFullValid
+  io.headRequestLoadLsIdFull := headPayload.requestLoadLsIdFull
   io.headRequestPeId := headPayload.requestPeId
   io.headRequestStid := headPayload.requestStid
   io.headRequestTid := headPayload.requestTid
@@ -368,6 +398,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   io.headWaitStoreBid := headPayload.waitStoreBid
   io.headWaitStoreRid := headPayload.waitStoreRid
   io.headWaitStoreLsId := headPayload.waitStoreLsId
+  io.headWaitStoreLsIdFullValid := headPayload.waitStoreLsIdFullValid
+  io.headWaitStoreLsIdFull := headPayload.waitStoreLsIdFull
   io.headWaitStorePc := headPayload.waitStorePc
   io.headDataMask := headPayload.dataMask
   io.headData := headPayload.data

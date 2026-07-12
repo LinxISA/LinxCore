@@ -42,8 +42,13 @@ class ReducedLiveLoadLiqCaptureSpec extends AnyFunSuite {
   }
 
   test("ReducedLiveLoadLiqCapture elaborates the E1 metadata and allocation handshake") {
+    val io = new ReducedLiveLoadLiqCaptureIO(idEntries = 8, lsidWidth = 40)
     val sv = ChiselStage.emitSystemVerilog(
-      new ReducedLiveLoadLiqCapture(idEntries = 8, archRegWidth = 5, physRegWidth = 6))
+      new ReducedLiveLoadLiqCapture(
+        idEntries = 8, archRegWidth = 5, physRegWidth = 6, lsidWidth = 40))
+
+    assert(io.loadLsIdFull.getWidth == 40)
+    assert(io.candidate.loadLsIdFull.getWidth == 40)
 
     assert(sv.contains("module ReducedLiveLoadLiqCapture"))
     assert(sv.contains("io_captureEnable"))
@@ -52,6 +57,10 @@ class ReducedLiveLoadLiqCaptureSpec extends AnyFunSuite {
     assert(sv.contains("io_loadSource0_data"))
     assert(sv.contains("io_loadBid_value"))
     assert(sv.contains("io_loadLsId_value"))
+    assert(sv.contains("io_loadLsIdFullValid"))
+    assert(sv.contains("io_loadLsIdFull"))
+    assert(sv.contains("io_candidate_loadLsIdFullValid"))
+    assert(sv.contains("io_candidate_loadLsIdFull"))
     assert(sv.contains("io_youngestStoreLsId_value"))
     assert(sv.contains("io_candidateValid"))
     assert(sv.contains("io_candidate_dst_physTag"))

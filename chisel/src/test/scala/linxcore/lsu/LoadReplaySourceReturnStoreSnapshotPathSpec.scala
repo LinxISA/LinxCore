@@ -1813,7 +1813,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       mapQDepth = 32,
       requestQueueDepth = 2,
       responseQueueDepth = 2,
-      stqEntries = 16)
+      stqEntries = 16,
+      lsidWidth = 40)
     val responseQueueIo = new LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
       idEntries = 8,
       clusterIdWidth = 2,
@@ -1824,7 +1825,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       peIdWidth = 8,
       stidWidth = 8,
       tidWidth = 8,
-      storeEntries = 16)
+      storeEntries = 16,
+      lsidWidth = 40)
     val liqIo = new ReducedLoadReplayLiqAllocPathIO(
       liqEntries = 4,
       idEntries = 8,
@@ -1838,16 +1840,32 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(responseQueueIo.headWaitStoreIndex.getWidth == 4)
     assert(liqIo.rowMutationNextWaitStoreInfo.storeIndex.getWidth == 4)
     assert(pathIo.responseApplyWaitStoreInfo.storeId.value.getWidth == 3)
+    assert(pathIo.selectedLoadLsIdFull.getWidth == 40)
+    assert(pathIo.requestPayload.loadLsIdFull.getWidth == 40)
+    assert(pathIo.requestQueueHead.loadLsIdFull.getWidth == 40)
+    assert(pathIo.responseRequestLoadLsIdFull.getWidth == 40)
+    assert(pathIo.responseWaitStoreLsIdFull.getWidth == 40)
+    assert(pathIo.responseApplyWaitStoreInfo.storeLsIdFull.getWidth == 40)
+    assert(pathIo.rowStatePlanNextWaitStoreInfo.storeLsIdFull.getWidth == 40)
+    assert(pathIo.rowMutationNextWaitStoreInfo.storeLsIdFull.getWidth == 40)
+    assert(responseQueueIo.enqueue.requestLoadLsIdFull.getWidth == 40)
+    assert(responseQueueIo.enqueue.waitStoreLsIdFull.getWidth == 40)
+    assert(responseQueueIo.headRequestLoadLsIdFull.getWidth == 40)
+    assert(responseQueueIo.headWaitStoreLsIdFull.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(new LoadReplaySourceReturnStoreSnapshotPath(
       liqEntries = 4,
       idEntries = 8,
       clusterIdWidth = 2,
       entryIdWidth = 2,
-      stqEntries = 16))
+      stqEntries = 16,
+      lsidWidth = 40))
 
     assert(sv.contains("io_stqRows_15_status"))
     assert(sv.contains("io_responseWaitStoreIndex"))
     assert(sv.contains("io_responseWaitStoreBid_value"))
+    assert(sv.contains("io_selectedLoadLsIdFull"))
+    assert(sv.contains("io_requestPayload_loadLsIdFull"))
+    assert(sv.contains("io_responseApplyWaitStoreInfo_storeLsIdFull"))
   }
 }

@@ -1015,12 +1015,9 @@ implementation choices and must not change architectural identity widths:
 - Recovery arbitration continues to use typed Linx BID/RID priority; LSID does
   not replace block age, select across STIDs, or add an architectural ordering
   mode. The new full field is a payload authority for memory-row consumers.
-  Reduced forwarding/replay snapshot payloads retain their documented
-  projection until later packets. Recovery sources from unconverted owners
-  leave `lsIdFullValid` clear and may not consume the scalar-redirect recovery
-  claim. Their temporary local cleanup uses a separately named projection-only
-  matcher; it never supplies a placeholder full LSID to authoritative STQ
-  pruning.
+  Recovery sources from unconverted owners leave `lsIdFullValid` clear and may
+  not consume the scalar-redirect recovery claim. They never supply a
+  placeholder full LSID to authoritative STQ pruning.
 - R672-A promotes the canonical scalar load graph to full-LSID authority.
   `LoadInflightAlloc`, LIQ/LHQ/ResolveQ rows, MDB conflict and command queues,
   SSIT dependency offsets, wait-store metadata, retained MDB recovery, and
@@ -1029,8 +1026,15 @@ implementation choices and must not change architectural identity widths:
   use modular `LSIDOrder`; same-BID group cleanup also requires full authority,
   while cross-BID age remains ROB/BROB-ring-owned. MDB wait mutation is blocked
   until the predicted store has a valid full LSID. BID/GID/RID widths do not
-  change. The reduced replay snapshot and forwarding harness remains an
-  explicit R672-B boundary.
+  change. Reduced forwarding selection remains an explicit R672-B boundary.
+- R672-B promotes the reduced replay snapshot request/token/response graph.
+  Live-load capture, wait-store relaunch candidates, LIQ allocation, request
+  FIFO rows, the accepted-query token, response FIFO rows, and
+  wait-store response state retain `CoreParams.lsidWidth` plus validity. Their
+  same-BID selective cleanup uses `STQFlushPrune.matchesFlush` and refuses
+  missing authority. The projection-only cleanup helper is deleted. Physical
+  cluster/entry routing and ROBID-shaped compatibility fields remain distinct
+  from canonical memory-order authority.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.

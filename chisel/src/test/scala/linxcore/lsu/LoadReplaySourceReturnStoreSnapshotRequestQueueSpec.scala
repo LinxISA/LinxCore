@@ -60,7 +60,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestQueueReference {
               tid = payload.tid,
               bid = STQFlushPruneReference.Id(value = payload.bid),
               gid = STQFlushPruneReference.Id(value = payload.gid),
-              lsId = STQFlushPruneReference.Id(value = payload.loadLsId)
+              lsId = STQFlushPruneReference.Id(value = payload.loadLsId),
+              fullLsIdValid = payload.loadLsIdFullValid,
+              fullLsId = Some(payload.loadLsIdFull)
             )
           )
         }
@@ -114,6 +116,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
       gid = 1,
       rid = 8 + idx,
       loadLsId = 16 + idx,
+      loadLsIdFullValid = true,
+      loadLsIdFull = 16 + idx,
       peId = 2,
       stid = 3,
       tid = 4,
@@ -241,24 +245,28 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
     val oldSameThread = request(0).copy(
       bid = 1,
       loadLsId = 1,
+      loadLsIdFull = 1,
       stid = 2,
       peId = 1,
       tid = 3)
     val matchSameBid = request(1).copy(
       bid = 1,
       loadLsId = 2,
+      loadLsIdFull = 2,
       stid = 2,
       peId = 1,
       tid = 3)
     val matchNewerBid = request(2).copy(
       bid = 2,
       loadLsId = 0,
+      loadLsIdFull = 0,
       stid = 2,
       peId = 1,
       tid = 3)
     val otherStid = request(3).copy(
       bid = 3,
       loadLsId = 0,
+      loadLsIdFull = 0,
       stid = 1,
       peId = 1,
       tid = 3)
@@ -288,6 +296,45 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
     assert(result.precisePruneMask == 0x6)
     assert(result.precisePruneCount == 2)
     assert(result.next == Vector(oldSameThread, otherStid))
+  }
+
+  test("same-BID precise prune requires full LSID authority and preserves high-bit aliases") {
+    val width = 40
+    val lowAlias = request(0).copy(
+      bid = 1,
+      loadLsId = 1,
+      loadLsIdFullValid = true,
+      loadLsIdFull = BigInt("0000000001", 16),
+      stid = 2)
+    val highAlias = request(1).copy(
+      bid = 1,
+      loadLsId = 1,
+      loadLsIdFullValid = true,
+      loadLsIdFull = BigInt("8000000001", 16),
+      stid = 2)
+    val missing = request(2).copy(
+      bid = 1,
+      loadLsId = 1,
+      loadLsIdFullValid = false,
+      loadLsIdFull = 0,
+      stid = 2)
+    val flush = STQFlushPruneReference.Flush(
+      stid = 2,
+      bid = STQFlushPruneReference.Id(value = 1),
+      lsId = STQFlushPruneReference.Id(value = 1),
+      fullLsIdValid = true,
+      fullLsId = Some(BigInt("0000000001", 16)),
+      lsidWidth = width)
+
+    val result = step(
+      state = Vector(lowAlias, highAlias, missing),
+      depth = 4,
+      enable = true,
+      flush = false,
+      preciseFlush = Some(flush))
+
+    assert(result.precisePruneMask == 0x1)
+    assert(result.next == Vector(highAlias, missing))
   }
 
   test("Chisel LoadReplaySourceReturnStoreSnapshotRequestQueue elaborates FIFO payload state") {

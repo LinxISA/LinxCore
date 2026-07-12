@@ -14,7 +14,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     peIdWidth: Int,
     stidWidth: Int,
     tidWidth: Int,
-    storeEntries: Int = 0)
+    storeEntries: Int = 0,
+    lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
@@ -27,6 +28,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
   val requestGid = Input(new ROBID(idEntries))
   val requestRid = Input(new ROBID(idEntries))
   val requestLoadLsId = Input(new ROBID(idEntries))
+  val requestLoadLsIdFullValid = Input(Bool())
+  val requestLoadLsIdFull = Input(UInt(lsidWidth.W))
   val requestPeId = Input(UInt(peIdWidth.W))
   val requestStid = Input(UInt(stidWidth.W))
   val requestTid = Input(UInt(tidWidth.W))
@@ -38,6 +41,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
   val waitStoreBid = Input(new ROBID(idEntries))
   val waitStoreRid = Input(new ROBID(idEntries))
   val waitStoreLsId = Input(new ROBID(idEntries))
+  val waitStoreLsIdFullValid = Input(Bool())
+  val waitStoreLsIdFull = Input(UInt(lsidWidth.W))
   val waitStorePc = Input(UInt(pcWidth.W))
   val dataMask = Input(UInt(lineBytes.W))
   val data = Input(UInt((lineBytes * 8).W))
@@ -54,7 +59,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -74,7 +80,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(idEntries > 1, "idEntries must be greater than one")
@@ -88,6 +95,7 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     idEntries = idEntries,
@@ -98,7 +106,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    storeEntries = physicalStoreEntries
+    storeEntries = physicalStoreEntries,
+    lsidWidth = lsidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -114,7 +123,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   )))
   when(responseValid) {
     response.valid := true.B
@@ -124,6 +134,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     response.requestGid := io.requestGid
     response.requestRid := io.requestRid
     response.requestLoadLsId := io.requestLoadLsId
+    response.requestLoadLsIdFullValid := io.requestLoadLsIdFullValid
+    response.requestLoadLsIdFull := io.requestLoadLsIdFull
     response.requestPeId := io.requestPeId
     response.requestStid := io.requestStid
     response.requestTid := io.requestTid
@@ -135,6 +147,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     response.waitStoreBid := io.waitStoreBid
     response.waitStoreRid := io.waitStoreRid
     response.waitStoreLsId := io.waitStoreLsId
+    response.waitStoreLsIdFullValid := io.waitStoreLsIdFullValid
+    response.waitStoreLsIdFull := io.waitStoreLsIdFull
     response.waitStorePc := io.waitStorePc
     response.dataMask := io.dataMask
     response.data := io.data

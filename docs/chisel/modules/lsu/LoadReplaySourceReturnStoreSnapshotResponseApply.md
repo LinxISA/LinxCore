@@ -82,6 +82,9 @@ When `waitStoreApply` is true, the output `LoadStoreForwardWait` is populated
 from the response payload and `waitStoreRid` preserves the model RID sideband
 that the existing `LoadStoreForwardWait` type does not carry.
 
+R672-B also copies `waitStoreLsIdFullValid/waitStoreLsIdFull` without narrowing;
+row-state planning and mutation preserve the parameterized authority.
+
 When `dataMergeApply` is true, each `response.dataMask` byte lane replaces the
 current `rowLineData` lane and the valid mask is ORed with the response mask.
 The merge path intentionally ignores `rawDataValid`; model-visible merge is

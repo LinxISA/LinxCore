@@ -1,11 +1,11 @@
 # ReducedLoadReplayLiqAllocAdapter
 
-## R672-A LSID Width Contract
+## R672-B LSID Authority Contract
 
 The adapter's `LoadInflightAlloc` output uses the configured `lsidWidth` rather
-than a ROB-derived or fixed width. Reduced replay candidates still lack
-canonical full-LSID authority and therefore leave its validity clear; later
-canonical owners must not reconstruct the value from the projection.
+than a ROB-derived or fixed width. Accepted live and relaunched candidates carry
+canonical full-LSID authority, and the adapter copies validity/value into
+`LoadInflightAlloc` without reconstructing it from the projection.
 
 ## Source Mapping
 

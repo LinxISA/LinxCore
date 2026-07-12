@@ -12,20 +12,23 @@ class ReducedLoadReplayRelaunchQueueIO(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
   val flush = Input(Bool())
   val enqueueValid = Input(Bool())
-  val enqueue = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val enqueue = Input(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   val outReady = Input(Bool())
 
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
   val enqueueDropped = Output(Bool())
   val outValid = Output(Bool())
-  val out = Output(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val out = Output(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   val outFire = Output(Bool())
   val pending = Output(Bool())
   val full = Output(Bool())
@@ -40,7 +43,8 @@ class ReducedLoadReplayRelaunchQueue(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
@@ -57,11 +61,13 @@ class ReducedLoadReplayRelaunchQueue(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   private def zeroCandidate: ReducedLoadReplayCandidate = {
-    val candidate = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+    val candidate = Wire(new ReducedLoadReplayCandidate(
+      idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
     candidate := 0.U.asTypeOf(candidate)
     candidate.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     candidate.bid := ROBID.disabled(idEntries)
@@ -88,7 +94,8 @@ class ReducedLoadReplayRelaunchQueue(
   val enqueueAccepted = inputValid && enqueueReady
   val enqueueDropped = inputValid && !io.flush && !enqueueReady
 
-  val enqueuePayload = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val enqueuePayload = Wire(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   enqueuePayload := io.enqueue
   enqueuePayload.valid := true.B
 

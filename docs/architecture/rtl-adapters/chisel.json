@@ -582,7 +582,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R672-A ScalarLSULoadPath carries parameterized full LSID through allocation, LIQ/LHQ/ResolveQ, MDB recovery, and return queue/W1/W2 ownership. Cache/miss and cross-line queues remain staged; the reduced replay snapshot/forwarding harness still retains its documented projection until R672-B."],
+      "limitations": ["R672-B carries parameterized full LSID through the reduced replay snapshot request/token/response graph and removes projection-only recovery. Forwarding nearest-store selection, cache/miss, and cross-line queues remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
@@ -613,7 +613,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-RES-001"],
-      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath and retain R672 full-LSID authority through precise cleanup and completion. T/U local-link completion, cache/miss, cross-line return sources, and reduced replay snapshot promotion remain staged."],
+      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath and retain R672 full-LSID authority through precise cleanup and completion. R672-B promotes reduced replay snapshot recovery; T/U local-link completion, cache/miss, and cross-line return sources remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala",
@@ -672,7 +672,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. Forwarding nearest-store selection and the reduced snapshot request/token/response graph still use a documented projected-order compatibility boundary pending R672-B, although selected wait identity and replay matching retain exact full LSID; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R672-B also promotes the reduced snapshot request/token/response graph and its selective recovery. Forwarding nearest-store selection remains projected pending the next R672-B slice, although selected wait identity and replay matching retain exact full LSID; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -727,7 +727,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["R672-A ScalarLSUMDBPath retains full LSID through conflict ordering, fanout queues, SSIT distance, wait/delete metadata, store wakeup, and exact full-BID recovery. IEX-local MDB, reduced replay snapshot promotion, and natural-workload positive recovery activation remain future promotion points."],
+      "limitations": ["R672-A ScalarLSUMDBPath retains full LSID through conflict ordering, fanout queues, SSIT distance, wait/delete metadata, store wakeup, and exact full-BID recovery. R672-B promotes reduced replay snapshot recovery; IEX-local MDB and natural-workload positive recovery activation remain future promotion points."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala",

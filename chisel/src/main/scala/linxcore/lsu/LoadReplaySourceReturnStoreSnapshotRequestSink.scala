@@ -17,7 +17,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
@@ -34,12 +35,13 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val rawSinkReady = Input(Bool())
   val responseReady = Input(Bool())
   val lookupWaitStore = Input(Bool())
-  val lookupWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
+  val lookupWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth, lsidWidth))
   val lookupWaitStoreRid = Input(new ROBID(idEntries))
   val lookupRawDataValid = Input(Bool())
   val lookupDataValid = Input(Bool())
@@ -60,7 +62,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
   val responseValid = Output(Bool())
   val responseClusterId = Output(UInt(clusterIdWidth.W))
@@ -69,6 +72,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val responseRequestGid = Output(new ROBID(idEntries))
   val responseRequestRid = Output(new ROBID(idEntries))
   val responseRequestLoadLsId = Output(new ROBID(idEntries))
+  val responseRequestLoadLsIdFullValid = Output(Bool())
+  val responseRequestLoadLsIdFull = Output(UInt(lsidWidth.W))
   val responseRequestPeId = Output(UInt(peIdWidth.W))
   val responseRequestStid = Output(UInt(stidWidth.W))
   val responseRequestTid = Output(UInt(tidWidth.W))
@@ -80,6 +85,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val responseWaitStoreBid = Output(new ROBID(idEntries))
   val responseWaitStoreRid = Output(new ROBID(idEntries))
   val responseWaitStoreLsId = Output(new ROBID(idEntries))
+  val responseWaitStoreLsIdFullValid = Output(Bool())
+  val responseWaitStoreLsIdFull = Output(UInt(lsidWidth.W))
   val responseWaitStorePc = Output(UInt(pcWidth.W))
   val responseDataMask = Output(UInt(lineBytes.W))
   val responseData = Output(UInt((lineBytes * 8).W))
@@ -103,7 +110,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val storeEntries: Int = 0)
+    val storeEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
@@ -120,6 +128,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   require(peIdWidth > 0, "peIdWidth must be positive")
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     liqEntries,
@@ -133,7 +142,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -151,7 +161,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     peIdWidth,
     stidWidth,
     tidWidth,
-    physicalStoreEntries
+    physicalStoreEntries,
+    lsidWidth
   )))
 
   when(requestAccepted) {
@@ -162,6 +173,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     response.requestGid := io.request.gid
     response.requestRid := io.request.rid
     response.requestLoadLsId := io.request.loadLsId
+    response.requestLoadLsIdFullValid := io.request.loadLsIdFullValid
+    response.requestLoadLsIdFull := io.request.loadLsIdFull
     response.requestPeId := io.request.peId
     response.requestStid := io.request.stid
     response.requestTid := io.request.tid
@@ -173,6 +186,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     response.waitStoreBid := io.lookupWaitStoreInfo.storeId
     response.waitStoreRid := io.lookupWaitStoreRid
     response.waitStoreLsId := io.lookupWaitStoreInfo.storeLsId
+    response.waitStoreLsIdFullValid := io.lookupWaitStoreInfo.storeLsIdFullValid
+    response.waitStoreLsIdFull := io.lookupWaitStoreInfo.storeLsIdFull
     response.waitStorePc := io.lookupWaitStoreInfo.pc
     response.dataMask := Mux(io.lookupRawDataValid, io.lookupDataMask, 0.U)
     response.data := Mux(io.lookupRawDataValid, io.lookupData, 0.U)
@@ -190,6 +205,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   io.responseRequestGid := response.requestGid
   io.responseRequestRid := response.requestRid
   io.responseRequestLoadLsId := response.requestLoadLsId
+  io.responseRequestLoadLsIdFullValid := response.requestLoadLsIdFullValid
+  io.responseRequestLoadLsIdFull := response.requestLoadLsIdFull
   io.responseRequestPeId := response.requestPeId
   io.responseRequestStid := response.requestStid
   io.responseRequestTid := response.requestTid
@@ -201,6 +218,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   io.responseWaitStoreBid := response.waitStoreBid
   io.responseWaitStoreRid := response.waitStoreRid
   io.responseWaitStoreLsId := response.waitStoreLsId
+  io.responseWaitStoreLsIdFullValid := response.waitStoreLsIdFullValid
+  io.responseWaitStoreLsIdFull := response.waitStoreLsIdFull
   io.responseWaitStorePc := response.waitStorePc
   io.responseDataMask := response.dataMask
   io.responseData := response.data

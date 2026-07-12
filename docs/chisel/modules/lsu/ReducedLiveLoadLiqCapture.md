@@ -12,6 +12,10 @@ The reduced implementation uses the existing `LoadInflightQueue`,
 `LoadForwardPipeline`, and LRET/W1/W2 owners for later stages; this module owns
 only the E1-to-LIQ contract.
 
+R672-B carries `loadLsIdFullValid/loadLsIdFull` from the accepted execute load
+into `ReducedLoadReplayCandidate`; the projected LSID remains a compatibility
+field for unconverted forwarding selection.
+
 ## Contract
 
 Live capture owns only first-pass LIQ admission. A captured row enters LIQ in

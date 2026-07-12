@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
 import linxcore.common.LSIDOrder
-import linxcore.recovery.{FlushBus, FlushControl}
+import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
 object STQEntryStatus extends ChiselEnum {
@@ -106,30 +106,6 @@ object STQFlushPrune {
     signal.req.valid && row.valid && sameStid && samePe && sameThread && idMatch
   }
 
-  /** Transitional projection-only matching for load-side rows that do not yet retain full LSID.
-    *
-    * Keep this separate from [[matchesFlush]] so a placeholder full-LSID value can never
-    * participate in authoritative STQ recovery ordering.
-    */
-  def matchesFlushProjected(signal: FlushBus, row: STQFlushPruneEntry): Bool = {
-    val sameStid = signal.req.stid === row.stid
-    val samePe = !signal.baseOnPE || (signal.req.peId === row.peId)
-    val sameThread = !signal.baseOnThread || (signal.req.tid === row.tid)
-    val idMatch = Mux(
-      signal.baseOnBid,
-      ROBID.lessEqual(signal.req.bid, row.bid),
-      Mux(
-        signal.baseOnGroup,
-        ROBID.lessEqual(signal.req.bid, row.bid) ||
-          lessEqualBidGroupLs(
-            signal.req.bid, signal.req.gid, signal.req.lsId,
-            row.bid, row.gid, row.lsId),
-        FlushControl.lessEqualBidRid(signal.req.bid, signal.req.lsId, row.bid, row.lsId)
-      )
-    )
-
-    signal.req.valid && row.valid && sameStid && samePe && sameThread && idMatch
-  }
 }
 
 class STQFlushPrune(

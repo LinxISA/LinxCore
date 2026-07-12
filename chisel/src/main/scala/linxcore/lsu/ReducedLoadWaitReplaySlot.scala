@@ -10,7 +10,8 @@ class ReducedLoadReplayCandidate(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
@@ -28,6 +29,8 @@ class ReducedLoadReplayCandidate(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
 }
@@ -59,6 +62,8 @@ class ReducedLoadWaitReplaySlotIO(
   val captureGid = Input(new ROBID(idEntries))
   val captureRid = Input(new ROBID(idEntries))
   val captureLsId = Input(new ROBID(idEntries))
+  val captureLsIdFullValid = Input(Bool())
+  val captureLsIdFull = Input(UInt(lsidWidth.W))
   val captureYoungestStoreId = Input(new ROBID(idEntries))
   val captureYoungestStoreLsId = Input(new ROBID(idEntries))
   val captureWaitStore = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
@@ -71,7 +76,8 @@ class ReducedLoadWaitReplaySlotIO(
   val waitStoreClear = Output(Bool())
   val waitStoreClearMask = Output(UInt(slotEntries.W))
   val storedWaitStore = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
-  val relaunch = Output(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val relaunch = Output(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   val slotPc = Output(UInt(pcWidth.W))
   val slotAddr = Output(UInt(addrWidth.W))
 }
@@ -146,7 +152,8 @@ class ReducedLoadWaitReplaySlot(
   }
 
   private def zeroCandidate: ReducedLoadReplayCandidate = {
-    val candidate = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+    val candidate = Wire(new ReducedLoadReplayCandidate(
+      idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
     candidate := 0.U.asTypeOf(candidate)
     candidate.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     candidate.bid := ROBID.disabled(idEntries)
@@ -180,6 +187,8 @@ class ReducedLoadWaitReplaySlot(
     row.gid := io.captureGid
     row.rid := io.captureRid
     row.loadLsId := io.captureLsId
+    row.loadLsIdFullValid := io.captureLsIdFullValid
+    row.loadLsIdFull := io.captureLsIdFull
     row.pc := io.capturePc
     row.addr := io.captureAddr
     row.size := io.captureSize
@@ -247,7 +256,8 @@ class ReducedLoadWaitReplaySlot(
     storedWait := slotReg.waitStoreInfo
   }
 
-  val relaunch = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val relaunch = Wire(new ReducedLoadReplayCandidate(
+    idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth, lsidWidth))
   relaunch := zeroCandidate
   when(relaunchValid) {
     relaunch.valid := true.B
@@ -263,6 +273,8 @@ class ReducedLoadWaitReplaySlot(
     relaunch.gid := slotReg.gid
     relaunch.rid := slotReg.rid
     relaunch.loadLsId := loadLsIdReg
+    relaunch.loadLsIdFullValid := slotReg.loadLsIdFullValid
+    relaunch.loadLsIdFull := slotReg.loadLsIdFull
     relaunch.youngestStoreId := slotReg.youngestStoreId
     relaunch.youngestStoreLsId := slotReg.youngestStoreLsId
   }

@@ -70,13 +70,18 @@ PE/thread filters and BID/LSID ordering, so the response payload must carry the
 same context as the returned `MemReqBus` before precise queued-response pruning
 can be implemented.
 
+R672-B adds full-LSID validity/value for both the original load request and the
+selected wait store. The former authorizes response-FIFO recovery; the latter
+survives response apply into canonical LIQ wait/replay metadata.
+
 ## Interface
 
 | Field | Description |
 |---|---|
 | `valid` | Payload record is meaningful. |
 | `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
-| `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request identity carried by the returned `MemReqBus`; future precise response pruning must use these fields rather than wait-store identity. |
+| `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request routing and compatibility identity. |
+| `requestLoadLsIdFullValid` / `requestLoadLsIdFull` | Canonical load ordering authority used by precise response pruning. |
 | `requestPeId` / `requestStid` / `requestTid` | Original load request PE, scalar-thread, and thread context carried for later `FlushBus::match(MemReqBus)` pruning. |
 | `waitStore` | Store lookup found an older not-ready store for at least one requested byte. |
 | `dataValid` | Store data may be merged by `handleSTQReceive`; this is suppressed when `waitStore` is true. |
@@ -84,7 +89,8 @@ can be implemented.
 | `dataSuppressedByWait` | Diagnostic for raw data that is ignored because `waitStore` takes priority. |
 | `waitStoreIndex` | Local STQ row index for the selected not-ready store. |
 | `waitStoreBid` / `waitStoreRid` | Model wait-store BID/RID identity. |
-| `waitStoreLsId` | Store LSID, retained for existing wait-store wakeup matching. |
+| `waitStoreLsId` | Compatibility projection of the selected store LSID. |
+| `waitStoreLsIdFullValid` / `waitStoreLsIdFull` | Canonical selected-store authority retained for wait/replay matching. |
 | `waitStorePc` | Model wait-store `tpc`/store PC. |
 | `dataMask` | Valid store-data bytes in `data`. |
 | `data` | 64-byte line-positioned store data. |

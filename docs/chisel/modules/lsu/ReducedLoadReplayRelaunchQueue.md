@@ -33,6 +33,9 @@ candidate. The wait slot emits only a one-cycle pulse when
 that pulse into a finite FIFO so a later LIQ or issue owner can observe a
 stable pending replay request.
 
+R672-B parameterizes candidate LSID width and preserves load full-LSID
+validity/value across FIFO residency and bypass.
+
 This module does not launch a load, allocate or mutate `LoadInflightQueue`
 rows, update a ready table, or wake dependent consumers. It owns only
 candidate admission, FIFO ordering, flush clearing, dequeue handshake, and
