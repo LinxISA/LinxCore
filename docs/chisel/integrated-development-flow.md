@@ -15,6 +15,33 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R673 integrates the first canonical cacheable scalar load miss
+owner. `LoadMissQueue` has independent physical depth, coalesces exact LIQ
+dependents by aligned line, emits one FIFO lower-memory request per unique
+line, and matches responses by miss slot plus generation and line address.
+Accepted launches reserve worst-case miss capacity until E4, so a data miss
+cannot be dropped between pipeline and queue. Typed Linx recovery prunes full
+PE/STID/TID/BID/GID/RID/full-LSID dependents; unissued empty entries cancel,
+while issued empty entries remain orphans until their response drains. The
+generated-RTL probe covers request hold, cross-STID pruning, exact refill,
+stale response rejection, cancellation, and orphan drain. L1D arrays,
+replacement/coherence, lower-memory transport, cross-line assembly, and the
+normal-memory attribute classifier remain separate owners. No ARM-specific
+architectural behavior was imported.
+
+R673 final evidence passes 267 Chisel suites and 1,617 tests, the generated
+`LoadMissQueue` and composed scalar load-return probes, the shared
+microarchitecture contract and both RTL adapters, the LSU promotion gate, and
+independent review. Review first found malformed exact responses freeing live
+misses and flush-overlap E4 misses tripping the transfer assertion; valid-read
+retirement and non-flush transfer qualification close both defects, and the
+generated probe now proves non-read and invalid-ID preservation. The bounded
+CoreMark no-regression run compares 1,467 architectural rows with zero
+mismatches and zero CBSTOP rows at
+`generated/r673-load-miss-queue-coremark/report/crosscheck_manifest.json`.
+CoreMark does not instantiate this canonical miss queue, so only the dedicated
+generated-RTL probe is mechanism evidence.
+
 Latest packet: R672-B first promotes the reduced replay source-return snapshot
 graph. Selected loads carry full-LSID validity/value through request payload,
 ordinary live capture or wait-store relaunch, the candidate/relaunch FIFO and

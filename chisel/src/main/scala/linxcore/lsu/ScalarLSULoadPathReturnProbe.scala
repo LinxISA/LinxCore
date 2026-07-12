@@ -128,6 +128,9 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.io.replayWake := 0.U.asTypeOf(path.io.replayWake)
   path.io.refillValid := false.B
   path.io.refill := 0.U.asTypeOf(path.io.refill)
+  path.io.missRequestReady := true.B
+  path.io.missResponseValid := false.B
+  path.io.missResponse := 0.U.asTypeOf(path.io.missResponse)
   path.io.resolveRetireValid := false.B
   path.io.resolveRetireBid := ROBID.disabled(8)
   path.io.resolveRetireLsId := ROBID.disabled(8)

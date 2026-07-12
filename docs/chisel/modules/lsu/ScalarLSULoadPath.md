@@ -6,6 +6,7 @@
 - Active rows: `chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - Resolved rows: `chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
 - MDB: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
+- Load miss queue: `chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala`
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
@@ -27,8 +28,10 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    destination, source traces, and the youngest eligible store snapshot.
 2. Launch is accepted only when the LIQ row is eligible, ResolveQ has three
    free slots, and the row's exact `(STID, return pipe)` lane has unreserved
-   capacity. Launch acceptance increments that lane's reservation count.
-3. E4 releases the launch reservation on hit, miss, or replay. A hit extracts
+   capacity, and physical miss entries exceed outstanding miss reservations.
+   Launch acceptance increments both return-lane and miss reservations.
+3. E4 releases both launch reservations on hit, miss, or replay. A data miss
+   atomically enters `LoadMissQueue`; a hit extracts
    final scalar data and enters ResolveQ plus the selected LRET queue atomically;
    neither sink may observe only half of the transaction.
 4. Atomic acceptance arms an exact LIQ-slot clear. The owner permits a new
@@ -48,6 +51,11 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
 9. An accepted conflict retains one typed recovery report until the outer
    recovery owner accepts it through the dedicated `recovery` port. Report retention participates in load-path
    quiescence and can backpressure address-bearing store insertion.
+10. The first miss to a line allocates one slot-plus-generation lower-memory
+    transaction. Same-line misses coalesce as exact LIQ dependents. Typed
+    recovery prunes dependents; issued orphans retain transaction identity
+    until response. An exact read response broadcasts a line refill and frees
+    the miss entry.
 
 `transferProtocolError` reports missing ResolveQ/LRET capacity, a partial sink
 acceptance, or a new accepted transfer while an older source clear is blocked.
@@ -87,18 +95,21 @@ Replay/store wakeup, refill, forwarding, and source-return readiness remain
 available through the load path. MDB lookup/conflict wait mutation is live at
 this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
-Canonical scalar LRET data extraction, lane reservation, retained publication,
+Canonical scalar miss coalescing, exact refill identity, LRET data extraction,
+lane reservation, retained publication,
 ROB validation, and parameterized W1/W2 atomic side-effect ownership are live
 beneath `ScalarLSU`. The reduced top connects the shared W2 candidate to exact
 ROB completion and the canonical physical GPR/P-ready sink. The exposed
 readiness inputs remain outer allow gates and cannot bypass those resident
 owners. T/U local-link completion is an explicit unsupported contract error
-until its bank/qtag sink is connected. Cache/miss queues, cross-line assembly,
+until its bank/qtag sink is connected. L1D arrays/replacement/coherence,
+lower-memory transport, memory-attribute classification, cross-line assembly,
 and natural recovery activation remain future integration work.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadMissQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipelineSpec`
@@ -107,6 +118,7 @@ and natural recovery activation remain future integration work.
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - `bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
+- `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - Full Chisel suite: 245 suites, 1,454 tests, zero failures.
 - Canonical top xcheck: 3 compared rows, zero mismatches.
 - Reduced CoreMark regression:

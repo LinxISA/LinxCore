@@ -484,9 +484,10 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
   data extraction, atomic ResolveQ+LRET acceptance, fair drain, typed precise
   pruning, and the parameterized `ScalarLSULoadReturnPipeline` W1/W2 owner.
   The reduced timing top retains its detailed single-pipe sink proof until its
-  live ROB/RF/wakeup arbiters consume the canonical outputs. Cache/miss and
-  cross-line queues remain outside `ScalarLSU`; this must not yet be reported
-  as a complete integrated LSU.
+  live ROB/RF/wakeup arbiters consume the canonical outputs. R673 adds the
+  cacheable scalar load miss queue beneath this owner; actual L1D arrays,
+  lower-memory transport, memory-attribute classification, and cross-line
+  assembly remain outside `ScalarLSU`, so this is not yet a complete LSU.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnQueue.scala`
 
@@ -515,6 +516,21 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 - Generates MDB lookup on accepted scalar allocation, applies accepted MDB wait
   plans and atomic failed-wait releases through the LIQ-native mutation port,
   and includes MDB transient state in quiescence.
+- Reserves worst-case miss capacity at launch, transfers every E4 data miss to
+  `LoadMissQueue`, and routes exact miss responses back through LIQ refill.
+  Miss queue state and reservations participate in quiescence.
+
+### `chisel/.../lsu/LoadMissQueue.scala`
+
+- Owns parameterized cacheable scalar unique-line miss residency beneath
+  `ScalarLSULoadPath`.
+- Coalesces same-line LIQ dependents, emits one irrevocable FIFO lower-memory
+  request, and matches responses by miss slot plus generation and line address.
+- Stores complete PE/STID/TID/BID/GID/RID/full-LSID dependent identity so typed
+  Linx recovery prunes exact loads. Issued empty entries remain orphaned until
+  their response drains; unissued empty entries cancel without traffic.
+- Does not implement cache arrays, replacement/coherence, Device/MMIO,
+  cache-maintenance, tile memory, or ARM architectural behavior.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnPipeline.scala`
 

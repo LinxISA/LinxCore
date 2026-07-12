@@ -1152,6 +1152,33 @@ implementation choices and must not change architectural identity widths:
   through to an older value for that byte.
 - Cache, SCB, refill, and store-forward data may merge only with explicit byte
   validity and matching live-row identity.
+- Cacheable scalar L1 misses enter a parameterized load miss queue before any
+  lower-memory request is emitted. Queue depth is independent of LIQ, ROB,
+  STQ, and return-queue capacity. Every accepted E2 launch reserves worst-case
+  miss capacity until its E4 result is known, so an E4 miss cannot become an
+  untracked one-cycle event.
+- One miss entry owns one aligned cache line and one slot-plus-generation
+  transaction identity. The first miss allocates the entry and an irrevocable
+  FIFO request token; later same-line misses coalesce as dependent LIQ
+  identities and do not emit duplicate lower-memory reads. Backpressure holds
+  request valid, transaction identity, line address, and metadata stable.
+- Each dependent retains LIQ slot plus generation, PE, STID, TID, BID, GID,
+  RID, projected load LSID, and full-LSID validity/value. Precise recovery
+  prunes dependents with the canonical Linx load flush predicate. It does not
+  cancel an already issued cacheable read: an entry with no surviving
+  dependents becomes an issued orphan and remains reserved until its exact
+  response arrives. An unissued empty entry is discarded without traffic.
+- Lower-memory responses match both miss slot generation and line address.
+  A stale or malformed response is consumed without LIQ wakeup and is reported
+  as a protocol diagnostic; it cannot free or otherwise mutate a live miss
+  entry. A matching valid read response frees the entry and broadcasts one
+  full-line refill to the LIQ,
+  where only live cacheable scalar rows on that line may relaunch.
+- Hard reset/restart removes dependents and unissued work, but issued
+  transactions retain orphan identity until their response is drained. This
+  prevents a pre-restart response from aliasing a post-restart miss. Device,
+  MMIO, tile, cache-maintenance, and other side-effecting memory classes must
+  use their dedicated non-coalescing owners and are not admitted to this queue.
 - Load speculation follows the `LD_E1` wakeup / `LD_E4` data contract above.
   `miss_pending` remains asserted until the affected load has been relaunched
   after refill and returns through a non-miss path.

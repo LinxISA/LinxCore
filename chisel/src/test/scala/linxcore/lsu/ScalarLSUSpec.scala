@@ -14,6 +14,7 @@ class ScalarLSUSpec extends AnyFunSuite {
       scbResponseBufferDepth = 2,
       stidCount = 2,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -25,6 +26,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.commitQueueEntries == 4)
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
+    assert(core.scalarLsu.loadMissQueueEntries == 2)
     assert(core.scalarLsu.stidCount == 2)
   }
 
@@ -37,6 +39,7 @@ class ScalarLSUSpec extends AnyFunSuite {
       scbResponseBufferDepth = 2,
       stidCount = 2,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -53,6 +56,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
+    assert(sv.contains("module LoadMissQueue"))
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module ScalarLSUMDBPath"))
     assert(sv.contains("module ScalarLSULoadReturnQueueBank"))
@@ -85,6 +89,8 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_loadReturn_w2ValidMask"))
     assert(sv.contains("io_load_loadReturn_laneCounts_5"))
     assert(sv.contains("io_load_loadReturn_publicationAccepted"))
+    assert(sv.contains("io_load_missRequest_missId_wrap"))
+    assert(sv.contains("io_load_missQueueProtocolError"))
   }
 
   test("ScalarLSURecoverySource elaborates exact promotion without local cleanup arbitration") {

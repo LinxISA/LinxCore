@@ -12,6 +12,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -23,6 +24,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(core.robEntries == 32)
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.liqEntries == 4)
+    assert(core.scalarLsu.loadMissQueueEntries == 2)
     assert(core.scalarLsu.resolveQueueEntries == 8)
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
   }
@@ -34,6 +36,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       mapQDepth = 8
@@ -51,6 +54,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(io.resolveConflictRows.head.lsIdFull.getWidth == 40)
     assert(io.loadReturn.drain.loadLsIdFull.getWidth == 40)
     assert(io.loadReturn.completion.payload.loadLsIdFull.getWidth == 40)
+    assert(io.missRequest.missId.value.getWidth == 1)
   }
 
   test("ScalarLSULoadPath elaborates LIQ-to-ResolveQ lifecycle ownership") {
@@ -60,6 +64,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -72,6 +77,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
+    assert(sv.contains("module LoadMissQueue"))
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module ScalarLSUMDBPath"))
     assert(sv.contains("module ScalarLSULoadReturnQueueBank"))
@@ -85,6 +91,11 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("io_transferPending"))
     assert(sv.contains("io_transferProtocolError"))
     assert(sv.contains("io_launchBlockedByReturnCredit"))
+    assert(sv.contains("io_launchBlockedByMissCredit"))
+    assert(sv.contains("io_missRequest_missId_wrap"))
+    assert(sv.contains("io_missResponse_missId_wrap"))
+    assert(sv.contains("io_missQueueReservations"))
+    assert(sv.contains("io_missQueueProtocolError"))
     assert(sv.contains("io_loadReturn_robLookupValid"))
     assert(sv.contains("io_loadReturn_robRowValid"))
     assert(sv.contains("io_loadReturn_resolveReady"))
@@ -120,6 +131,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       commitIssueWidth = 1,
       scbEntries = 4,
       liqEntries = 4,
+      loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 2,
@@ -135,6 +147,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("io_loadReturn_completion_payload_loadLsIdFull"))
     assert(sv.contains("module MDBConflictDetect"))
     assert(sv.contains("module LoadResolveQueue"))
+    assert(sv.contains("module LoadMissQueue"))
   }
 
   test("load-return launch credit is reserved independently per STID and pipe") {

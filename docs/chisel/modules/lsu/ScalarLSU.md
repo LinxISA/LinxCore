@@ -79,6 +79,10 @@ gated before conflict publication, and accepted scalar loads enter MDB lookup
 before launch. Stable failed predictions age per LIQ row and release only with
 accepted SSIT delete enqueue. Top-level idle also requires MDB transient queues
 and retained wait/wakeup/recovery state to be empty.
+R673 adds `LoadMissQueue` beneath the load child. Accepted launches reserve
+worst-case miss capacity, E4 data misses become retained line transactions,
+and exact generated responses feed LIQ refill. Miss entries, issued orphans,
+and reservations participate in top-level idle.
 
 `ScalarLSU` connects the retained MDB report to
 `ScalarLSURecoveryBoundary`, which selects one watermark from the
@@ -99,6 +103,8 @@ side-effect fanout.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadMissQueueSpec`
+- `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - focused STQ, drain, insert-probe, and flush-prune suites
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
