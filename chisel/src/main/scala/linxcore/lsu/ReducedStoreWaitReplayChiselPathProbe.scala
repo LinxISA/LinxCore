@@ -205,6 +205,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   forward.io.loadSize := io.loadSize
   forward.io.loadBid := io.loadBid
   forward.io.loadLsId := io.loadLsId
+  forward.io.loadLsIdFullValid := io.loadLsIdFullValid
+  forward.io.loadLsIdFull := io.loadLsIdFull
   forward.io.baseLoadData := io.baseLoadData
   forward.io.rows := stq.io.rows
 
@@ -228,6 +230,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   waitSlot.io.captureLsIdFull := io.loadLsIdFull
   waitSlot.io.captureYoungestStoreId := forward.io.waitStore.storeId
   waitSlot.io.captureYoungestStoreLsId := forward.io.waitStore.storeLsId
+  waitSlot.io.captureYoungestStoreLsIdFullValid := forward.io.waitStore.storeLsIdFullValid
+  waitSlot.io.captureYoungestStoreLsIdFull := forward.io.waitStore.storeLsIdFull
   waitSlot.io.captureWaitStore := forward.io.waitStore
 
   val wake = Module(new ResidentStoreReplayWakeup(

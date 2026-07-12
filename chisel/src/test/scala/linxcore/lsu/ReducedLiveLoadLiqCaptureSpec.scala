@@ -49,6 +49,8 @@ class ReducedLiveLoadLiqCaptureSpec extends AnyFunSuite {
 
     assert(io.loadLsIdFull.getWidth == 40)
     assert(io.candidate.loadLsIdFull.getWidth == 40)
+    assert(io.youngestStoreLsIdFull.getWidth == 40)
+    assert(io.candidate.youngestStoreLsIdFull.getWidth == 40)
 
     assert(sv.contains("module ReducedLiveLoadLiqCapture"))
     assert(sv.contains("io_captureEnable"))
@@ -61,6 +63,8 @@ class ReducedLiveLoadLiqCaptureSpec extends AnyFunSuite {
     assert(sv.contains("io_loadLsIdFull"))
     assert(sv.contains("io_candidate_loadLsIdFullValid"))
     assert(sv.contains("io_candidate_loadLsIdFull"))
+    assert(sv.contains("io_youngestStoreLsIdFull"))
+    assert(sv.contains("io_candidate_youngestStoreLsIdFull"))
     assert(sv.contains("io_youngestStoreLsId_value"))
     assert(sv.contains("io_candidateValid"))
     assert(sv.contains("io_candidate_dst_physTag"))

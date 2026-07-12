@@ -4,8 +4,9 @@
 
 The adapter's `LoadInflightAlloc` output uses the configured `lsidWidth` rather
 than a ROB-derived or fixed width. Accepted live and relaunched candidates carry
-canonical full-LSID authority, and the adapter copies validity/value into
-`LoadInflightAlloc` without reconstructing it from the projection.
+canonical load and youngest-store full-LSID authority, and the adapter copies
+both validity/value pairs into `LoadInflightAlloc` without reconstructing them
+from projections.
 
 ## Source Mapping
 
@@ -37,7 +38,8 @@ the queue head until the downstream allocation boundary is ready.
 The adapter preserves four identity domains:
 
 - load identity: `BID/GID/RID/loadLsId`, plus PC, address, and size;
-- store-order snapshot: `(youngestStoreId, youngestStoreLsId)`, captured when
+- store-order snapshot: `(youngestStoreId, youngestStoreLsIdFull)`, plus a
+  reduced compatibility projection, captured when
   the load originally observed the blocking store relation.
 - replay-return signedness: the opcode-derived `returnSignExtend` bit that
   later feeds scalar return-data extraction.
@@ -109,6 +111,8 @@ Mapping is direct:
   `alloc.sourceTraceValid/source0/source1`
 - `candidate.youngestStoreId/youngestStoreLsId` ->
   `alloc.youngestStoreId/youngestStoreLsId`
+- `candidate.youngestStoreLsIdFullValid/youngestStoreLsIdFull` ->
+  `alloc.youngestStoreLsIdFullValid/youngestStoreLsIdFull`
 - reduced scalar flags are false: `isTile=false`, `specWakeup=false`,
   `stackValid=false`
 

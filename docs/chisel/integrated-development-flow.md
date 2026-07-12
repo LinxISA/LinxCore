@@ -24,9 +24,21 @@ response source, response FIFO, response apply, and row-mutation wait metadata. 
 Request/token/response selective pruning now uses authoritative
 `STQFlushPrune.matchesFlush`, so same-BID missing authority retains state. The
 projection-only matcher has been removed. Cluster/entry IDs still route a
-physical response and do not define Linx memory order. Forwarding nearest-store
-selection remains the next R672-B slice. No ARM architectural behavior was
-imported.
+physical response and do not define Linx memory order. The second R672-B slice
+also promotes reduced forwarding eligibility and nearest-store selection:
+cross-BID order remains BID/BROB-owned, while same-BID eligibility, per-byte
+selection, and wait-store selection require parameterized full LSID and use
+`LSIDOrder`. Missing or half-range-ambiguous authority fails closed with
+diagnostic masks. No ARM architectural behavior was imported.
+
+R672-B final evidence passes 266 Chisel suites and 1,609 tests, the focused
+108-test forwarding/top set, the pyCircuit/Chisel LSU promotion gate, both RTL
+adapter validations, the microarchitecture contract, and all 10 conformance
+scenarios. The regenerated CoreMark cross-check compares 1,467 architectural
+rows with zero mismatches and zero QEMU/DUT CBSTOP rows at
+`generated/r672b-full-lsid-forwarding-coremark/report/crosscheck_manifest.json`.
+Focused 40-bit high-alias and missing/ambiguous-authority tests remain the
+mechanism proof; CoreMark is workload no-regression evidence.
 
 Latest packet: R672-A promotes full LSID through the canonical scalar load
 owner. `LoadInflightAlloc`, LIQ rows, LHQ hit records, ResolveQ rows, MDB
@@ -36,7 +48,7 @@ recovery, and scalar load-return queue/W1/W2 payloads carry explicit
 retirement, MDB conflict selection, and SSIT dependency-distance learning use
 full modular LSID order; same-BID group cleanup cannot bypass full authority,
 and MDB wait mutation is blocked until the predicted store has a valid full
-LSID. Forwarding selection remains projected pending R672-B, but its selected
+LSID. R672-B supersedes the earlier projected forwarding boundary; its selected
 not-ready store carries full identity through E3/E4 and the reduced resident
 wait-slot/wakeup bridge into canonical LIQ wait, timeout-delete, and recovery
 state. Replay matching requires exact full LSID whenever the stored wait key
@@ -56,9 +68,9 @@ Its sideband report observes 136 valid MDB store probes and no MDB load lookup,
 so focused 40-bit and missing-authority tests are the mechanism proof; CoreMark
 is no-regression evidence for this packet.
 
-Reduced forwarding nearest-store selection still uses projected LSID and is
-the remaining R672-B conversion boundary; it may not be cited as full-LSID
-forwarding closure. No ARM tile-conflict
+Reduced forwarding now has full-LSID same-BID closure. The ROBID-shaped LSID is
+retained only as a compatibility/routing sideband and may not be cited as an
+ordering authority. No ARM tile-conflict
 bypass, exclusive monitor, barrier, acquire/release, or exception-level
 behavior was imported.
 

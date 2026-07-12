@@ -19,7 +19,7 @@ class LoadForwardPipelineIO(
   val flush = Input(Bool())
 
   val e2Valid = Input(Bool())
-  val e2Query = Input(new LoadStoreForwardQuery(robEntries, addrWidth, lineBytes, sizeWidth))
+  val e2Query = Input(new LoadStoreForwardQuery(robEntries, addrWidth, lineBytes, sizeWidth, lsidWidth))
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(
     robEntries, storeEntries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))

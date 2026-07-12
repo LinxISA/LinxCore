@@ -1026,15 +1026,20 @@ implementation choices and must not change architectural identity widths:
   use modular `LSIDOrder`; same-BID group cleanup also requires full authority,
   while cross-BID age remains ROB/BROB-ring-owned. MDB wait mutation is blocked
   until the predicted store has a valid full LSID. BID/GID/RID widths do not
-  change. Reduced forwarding selection remains an explicit R672-B boundary.
-- R672-B promotes the reduced replay snapshot request/token/response graph.
+  change. R672-B supersedes the former reduced forwarding boundary.
+- R672-B promotes the reduced replay snapshot request/token/response graph and
+  reduced forwarding order.
   Live-load capture, wait-store relaunch candidates, LIQ allocation, request
   FIFO rows, the accepted-query token, response FIFO rows, and
   wait-store response state retain `CoreParams.lsidWidth` plus validity. Their
   same-BID selective cleanup uses `STQFlushPrune.matchesFlush` and refuses
   missing authority. The projection-only cleanup helper is deleted. Physical
   cluster/entry routing and ROBID-shaped compatibility fields remain distinct
-  from canonical memory-order authority.
+  from canonical memory-order authority. Forwarding retains BID/BROB order
+  across blocks; within one BID, eligibility, nearest-store choice per byte,
+  and the final wait-store choice require full authority and use modular
+  `LSIDOrder`. Missing or exactly half-range-ambiguous comparisons fail closed
+  and are observable instead of falling back to the projection.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.

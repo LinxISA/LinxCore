@@ -13,6 +13,9 @@ object LoadStoreForwardingReference {
       size: Int = 8,
       youngestStoreId: Id = Id(),
       youngestStoreLsId: Id = Id(),
+      youngestStoreLsIdFullValid: Boolean = true,
+      youngestStoreLsIdFull: BigInt = 0,
+      lsidWidth: Int = 32,
       isTile: Boolean = false)
 
   final case class Store(
@@ -35,6 +38,8 @@ object LoadStoreForwardingReference {
       loadByteMask: BigInt,
       eligibleStoreMask: Int,
       tileSuppressedMask: Int,
+      fullLsIdMissingMask: Int,
+      fullLsIdAmbiguousMask: Int,
       coveredMask: BigInt,
       forwardMask: BigInt,
       waitMask: BigInt,
@@ -52,11 +57,28 @@ object LoadStoreForwardingReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
-  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
-    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+  private def lessFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    val distance = (rhs - lhs) & mask
+    lhs != rhs && distance < (BigInt(1) << (width - 1))
+  }
 
-  private def greaterBidLs(lhsBid: Id, lhsLsId: Id, rhsBid: Id, rhsLsId: Id): Boolean =
-    lessEqualBidLs(rhsBid, rhsLsId, lhsBid, lhsLsId) && !(lhsBid == rhsBid && lhsLsId == rhsLsId)
+  private def ambiguousFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    ((rhs - lhs) & mask) == (BigInt(1) << (width - 1))
+  }
+
+  private def storeBeforeOrSame(store: Store, query: Query): Boolean =
+    less(store.storeId, query.youngestStoreId) ||
+      (store.storeId == query.youngestStoreId && store.storeLsIdFullValid &&
+        query.youngestStoreLsIdFullValid &&
+        (store.storeLsIdFull == query.youngestStoreLsIdFull ||
+          lessFull(store.storeLsIdFull, query.youngestStoreLsIdFull, query.lsidWidth)))
+
+  private def greaterStore(lhs: Store, rhs: Store, width: Int): Boolean =
+    less(rhs.storeId, lhs.storeId) ||
+      (lhs.storeId == rhs.storeId && lhs.storeLsIdFullValid && rhs.storeLsIdFullValid &&
+        lessFull(rhs.storeLsIdFull, lhs.storeLsIdFull, width))
 
   private def bit(mask: BigInt, lane: Int): Boolean =
     ((mask >> lane) & BigInt(1)) == BigInt(1)
@@ -96,10 +118,15 @@ object LoadStoreForwardingReference {
         store.addrReady &&
         store.lineAddr == query.lineAddr &&
         (store.byteMask & loadMask) != 0 &&
-        lessEqualBidLs(store.storeId, store.storeLsId, query.youngestStoreId, query.youngestStoreLsId)
+        storeBeforeOrSame(store, query)
 
     def eligible(store: Store): Boolean =
       baseEligible(store) && !store.isTile && !query.isTile
+
+    def authorityCandidate(store: Store): Boolean =
+      query.valid && store.valid && store.working && store.addrReady &&
+        store.lineAddr == query.lineAddr && (store.byteMask & loadMask) != 0 &&
+        !store.isTile && !query.isTile
 
     def tileSuppressed(store: Store): Boolean =
       baseEligible(store) && (store.isTile || query.isTile)
@@ -108,7 +135,7 @@ object LoadStoreForwardingReference {
       stores.foldLeft(Option.empty[Store]) {
         case (best, store) if eligible(store) && bit(store.byteMask, lane) =>
           best match {
-            case Some(current) if !greaterBidLs(store.storeId, store.storeLsId, current.storeId, current.storeLsId) => best
+            case Some(current) if !greaterStore(store, current, query.lsidWidth) => best
             case _ => Some(store)
           }
         case (best, _) => best
@@ -146,7 +173,7 @@ object LoadStoreForwardingReference {
     val waitStore = invalidStores.foldLeft(Option.empty[Store]) {
       case (best, store) =>
         best match {
-          case Some(current) if !greaterBidLs(store.storeId, store.storeLsId, current.storeId, current.storeLsId) => best
+          case Some(current) if !greaterStore(store, current, query.lsidWidth) => best
           case _ => Some(store)
         }
     }
@@ -155,6 +182,13 @@ object LoadStoreForwardingReference {
       loadByteMask = loadMask,
       eligibleStoreMask = storeMask(stores, eligible),
       tileSuppressedMask = storeMask(stores, tileSuppressed),
+      fullLsIdMissingMask = storeMask(stores, store =>
+        authorityCandidate(store) && store.storeId == query.youngestStoreId &&
+          (!store.storeLsIdFullValid || !query.youngestStoreLsIdFullValid)),
+      fullLsIdAmbiguousMask = storeMask(stores, store =>
+        authorityCandidate(store) && store.storeId == query.youngestStoreId &&
+          store.storeLsIdFullValid && query.youngestStoreLsIdFullValid &&
+          ambiguousFull(store.storeLsIdFull, query.youngestStoreLsIdFull, query.lsidWidth)),
       coveredMask = coveredMask,
       forwardMask = forwardMask,
       waitMask = waitMask,
@@ -269,11 +303,17 @@ class LoadStoreForwardingSpec extends AnyFunSuite {
   }
 
   test("same-BID stores use LSID to choose the nearest older byte source") {
-    val query = Query(byteOffset = 0, size = 2, youngestStoreId = id(2), youngestStoreLsId = id(3))
+    val query = Query(
+      byteOffset = 0,
+      size = 2,
+      youngestStoreId = id(2),
+      youngestStoreLsId = id(3),
+      youngestStoreLsIdFull = BigInt("0100000003", 16),
+      lsidWidth = 40)
     val stores = Seq(
-      Store(index = 0, storeId = id(2), storeLsId = id(1), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x11, 1 -> 0x12))),
-      Store(index = 1, storeId = id(2), storeLsId = id(3), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x31, 1 -> 0x32))),
-      Store(index = 2, storeId = id(2), storeLsId = id(4), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x41, 1 -> 0x42)))
+      Store(index = 0, storeId = id(2), storeLsId = id(1), storeLsIdFull = BigInt("0100000001", 16), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x11, 1 -> 0x12))),
+      Store(index = 1, storeId = id(2), storeLsId = id(3), storeLsIdFull = BigInt("0100000003", 16), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x31, 1 -> 0x32))),
+      Store(index = 2, storeId = id(2), storeLsId = id(4), storeLsIdFull = BigInt("0100000004", 16), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x41, 1 -> 0x42)))
     )
 
     val result = forward(query, stores)
@@ -285,9 +325,35 @@ class LoadStoreForwardingSpec extends AnyFunSuite {
     assert(result.selectedStoreIndexByByte(1) == 1)
   }
 
+  test("same-BID forwarding uses full LSID high bits and rejects missing or ambiguous authority") {
+    val query = Query(
+      byteOffset = 0,
+      size = 1,
+      youngestStoreId = id(2),
+      youngestStoreLsId = id(1),
+      youngestStoreLsIdFull = BigInt("0100000005", 16),
+      lsidWidth = 40)
+    val stores = Seq(
+      Store(index = 0, storeId = id(2), storeLsId = id(1), storeLsIdFull = BigInt("0000000001", 16), byteMask = 1, data = 0x11),
+      Store(index = 1, storeId = id(2), storeLsId = id(1), storeLsIdFull = BigInt("0100000004", 16), byteMask = 1, data = 0x44),
+      Store(index = 2, storeId = id(2), storeLsId = id(1), storeLsIdFullValid = false, byteMask = 1, data = 0x77),
+      Store(index = 3, storeId = id(2), storeLsId = id(1), storeLsIdFull = BigInt("8100000005", 16), byteMask = 1, data = 0x88),
+      Store(index = 4, storeId = id(2), storeLsIdFullValid = false, lineAddr = 0x2000, byteMask = 1),
+      Store(index = 5, storeId = id(2), storeLsIdFull = BigInt("8100000005", 16), isTile = true, byteMask = 1))
+
+    val result = forward(query, stores)
+
+    assert(result.eligibleStoreMask == 0x3)
+    assert(result.fullLsIdMissingMask == 0x4)
+    assert(result.fullLsIdAmbiguousMask == 0x8)
+    assert(result.forwardData == 0x44)
+    assert(result.selectedStoreIndexByByte.head == 1)
+  }
+
   test("Chisel LoadStoreForwarding elaborates with byte masks, merge output, and wait diagnostics") {
     val io = new LoadStoreForwardingIO(robEntries = 8, storeEntries = 4, lsidWidth = 40)
     assert(io.stores.head.storeLsIdFull.getWidth == 40)
+    assert(io.query.youngestStoreLsIdFull.getWidth == 40)
     assert(io.waitStore.storeLsIdFull.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(new LoadStoreForwarding(
@@ -299,6 +365,8 @@ class LoadStoreForwardingSpec extends AnyFunSuite {
     assert(sv.contains("io_mergedData"))
     assert(sv.contains("io_waitStore_valid"))
     assert(sv.contains("io_waitStore_storeLsIdFull"))
+    assert(sv.contains("io_fullLsIdMissingMask"))
+    assert(sv.contains("io_fullLsIdAmbiguousMask"))
     assert(sv.contains("io_selectedStoreIndexByByte"))
   }
 }

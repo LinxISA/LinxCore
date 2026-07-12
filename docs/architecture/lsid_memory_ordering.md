@@ -160,7 +160,8 @@ Missing full-LSID authority and exactly half-range separation are conservative
 non-matches. BID-only cleanup remains legal without LSID because block recovery
 already defines the killed suffix.
 
-R672-B promotes the reduced replay snapshot request/token/response graph to
+R672-B promotes the reduced replay snapshot request/token/response graph and
+reduced forwarding selection to
 full-LSID authority. The request queue, accepted-query token, response queue,
 and wait-store response metadata retain explicit validity plus the
 parameterized value. Ordinary live-load capture and wait-store relaunch both
@@ -172,14 +173,16 @@ the former projection-only matcher has been removed. Cluster/entry IDs and the
 ROBID-shaped LSID remain physical routing and compatibility sidecars, not
 memory-order authority.
 
-Reduced forwarding nearest-store selection remains the next R672-B boundary.
-Once selected, the resident wait key and replay wakeup already retain and
-exactly match full LSID authority. That remaining projected selection path
-must not be reused by canonical ResolveQ, MDB, load-return, or recovery.
+For forwarding, BID/BROB order selects across blocks. Within one BID, candidate
+eligibility, nearest-store selection per byte, and the final wait-store choice
+require valid full LSIDs and use `LSIDOrder`. Missing authority and exactly
+half-range serial ambiguity fail closed and are reported by dedicated masks;
+neither condition falls back to the ROBID-shaped projection. The selected wait
+key and replay wakeup retain and exactly match the same full identity.
 
 The dual field is still temporary. After snapshot-graph promotion, the
-projection remains necessary for reduced load forwarding selection and legacy
-diagnostics. Later LSID packets must promote those consumers before removing
+projection remains necessary for physical compatibility and legacy
+diagnostics. Later LSID packets must remove those consumers before removing
 `FlushReq.lsId`, `STQEntryBankRow.lsId`, and related reduced-path projections.
 
 R672-A closes the canonical scalar-load control graph. Allocation, LIQ
@@ -191,6 +194,5 @@ conflict selection require full authority and use `LSIDOrder`; cross-BID age
 remains ROB/BROB-ring-owned. An MDB lookup may identify a wait candidate before
 the predicted store's local row index is known, but it must not mutate LIQ or
 publish wait/delete state until the store's full LSID is valid. Missing
-authority is not reconstructed from the projection. The compatibility
-projection remains only in reduced forwarding selection and legacy
-diagnostics pending the next R672-B slice.
+authority is not reconstructed from the projection. R672-B subsequently closes
+the reduced forwarding selection boundary described above.

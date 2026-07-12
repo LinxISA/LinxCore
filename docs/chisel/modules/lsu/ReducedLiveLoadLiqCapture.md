@@ -12,9 +12,10 @@ The reduced implementation uses the existing `LoadInflightQueue`,
 `LoadForwardPipeline`, and LRET/W1/W2 owners for later stages; this module owns
 only the E1-to-LIQ contract.
 
-R672-B carries `loadLsIdFullValid/loadLsIdFull` from the accepted execute load
-into `ReducedLoadReplayCandidate`; the projected LSID remains a compatibility
-field for unconverted forwarding selection.
+R672-B carries `loadLsIdFullValid/loadLsIdFull` and the authoritative
+youngest-store full snapshot from the accepted execute load into
+`ReducedLoadReplayCandidate`; projected LSIDs remain compatibility fields and
+do not decide forwarding order.
 
 ## Contract
 

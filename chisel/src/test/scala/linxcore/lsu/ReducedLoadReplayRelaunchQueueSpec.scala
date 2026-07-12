@@ -161,6 +161,8 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
 
     assert(io.enqueue.loadLsIdFull.getWidth == 40)
     assert(io.out.loadLsIdFull.getWidth == 40)
+    assert(io.enqueue.youngestStoreLsIdFull.getWidth == 40)
+    assert(io.out.youngestStoreLsIdFull.getWidth == 40)
 
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
     assert(sv.contains("io_enqueueAccepted"))
@@ -173,6 +175,7 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_out_loadLsId_value"))
     assert(sv.contains("io_out_loadLsIdFullValid"))
     assert(sv.contains("io_out_loadLsIdFull"))
+    assert(sv.contains("io_out_youngestStoreLsIdFull"))
     assert(sv.contains("io_out_youngestStoreId_value"))
     assert(sv.contains("io_out_youngestStoreLsId_value"))
     assert(sv.contains("io_count"))

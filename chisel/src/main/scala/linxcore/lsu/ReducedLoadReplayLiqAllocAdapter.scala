@@ -94,6 +94,8 @@ class ReducedLoadReplayLiqAllocAdapter(
     alloc.source1 := io.candidate.source1
     alloc.youngestStoreId := io.candidate.youngestStoreId
     alloc.youngestStoreLsId := io.candidate.youngestStoreLsId
+    alloc.youngestStoreLsIdFullValid := io.candidate.youngestStoreLsIdFullValid
+    alloc.youngestStoreLsIdFull := io.candidate.youngestStoreLsIdFull
     alloc.isTile := false.B
     alloc.specWakeup := false.B
     alloc.stackValid := false.B

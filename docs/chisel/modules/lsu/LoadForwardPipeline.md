@@ -1,8 +1,9 @@
 # LoadForwardPipeline
 
-## R672-A Full-LSID Wait Metadata
+## R672-B Full-LSID Forwarding
 
-The registered E3/E4 wait payload retains
+The E2 query uses the parameterized youngest-store full snapshot for same-BID
+eligibility and nearest-store selection. The registered E3/E4 wait payload retains
 `storeLsIdFullValid/storeLsIdFull` at the configured width. A
 `StoreDataNotReady` result therefore reaches LIQ with the same canonical store
 identity selected at E2; the pipeline never reconstructs it from the projected
@@ -50,7 +51,7 @@ folding the store-source condition into `e2ScbReturned`.
 |---|---|
 | `flush` | Clears resident E3/E4 work. Future recovery owners drive this from registered flush state. |
 | `e2Valid` | A load forwarding query enters E2. |
-| `e2Query` | `LoadStoreForwardQuery` passed to the byte selector. |
+| `e2Query` | `LoadStoreForwardQuery` passed to the byte selector, including authoritative youngest-store full-LSID snapshot. |
 | `e2Stores` | Abstract STQ candidate rows passed to the byte selector. |
 | `e2BaseData` | Baseline 64-byte line data from LDQ/L1/SCB response paths. |
 | `e2BaseValidMask` | Position-valid bytes already present in the baseline data. |

@@ -386,8 +386,9 @@ projection.
 The E2/E3/E4 forwarding path preserves the selected not-ready store's full
 LSID through `LoadStoreForwardStore` and `LoadStoreForwardWait`. Therefore
 `StoreDataNotReady` cannot create a canonical LIQ wait row that lacks the
-authority later consumed by timeout delete or recovery. Forwarding age and
-nearest-store selection still use the reduced projection pending R672-B.
+authority later consumed by timeout delete or recovery. The LIQ launch also
+drives its resident youngest-store full snapshot into forwarding; same-BID age
+and nearest-store selection use that value and fail closed without authority.
 
 ## Verification
 

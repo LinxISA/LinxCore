@@ -40,7 +40,8 @@ wait-store wakeup state.
 ## Sizing Contract
 
 `stqEntries` sizes resident rows, snapshot masks, forwarding candidates, and
-wait-store indices. `idEntries` sizes request and store identity. The composed
+wait-store indices. `idEntries` sizes BID and physical compatibility identity;
+`lsidWidth` independently sizes authoritative request/store order. The composed
 lookup passes both values explicitly and its unequal-size test proves that a
 16-row STQ does not widen the 8-entry ROB identity domain.
 
@@ -95,7 +96,8 @@ The Chisel owner reuses the existing reduced store-forwarding primitives:
 2. Convert `STQEntryBankRow` values into abstract forwarding stores with
    `ResidentStoreForwardStoreSnapshot`.
 3. Build a `LoadStoreForwardQuery` from the request address, size, BID, and
-   load LSID.
+   full youngest-store LSID snapshot. The reduced LSID is not an ordering
+   fallback.
 4. Run `LoadStoreForwarding` over the current resident store vector.
 5. Publish wait-store evidence directly from the selected not-ready store.
 6. Publish `rawDataValid` from any ready forwarded byte.

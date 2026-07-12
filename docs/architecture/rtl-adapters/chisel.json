@@ -563,7 +563,7 @@
       "module_family": "lsu",
       "status": "unit-proven",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["The forwarding owner is focused-unit evidence and is not connected to a canonical full LSU top."],
+      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. The forwarding owner is connected through reduced and LIQ paths but cache/miss and cross-line integration remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
@@ -582,7 +582,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R672-B carries parameterized full LSID through the reduced replay snapshot request/token/response graph and removes projection-only recovery. Forwarding nearest-store selection, cache/miss, and cross-line queues remain staged."],
+      "limitations": ["R672-B carries parameterized full LSID through the reduced replay snapshot request/token/response graph, removes projection-only recovery, and closes same-BID forwarding order. Cache/miss and cross-line queues remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
@@ -672,7 +672,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R672-B also promotes the reduced snapshot request/token/response graph and its selective recovery. Forwarding nearest-store selection remains projected pending the next R672-B slice, although selected wait identity and replay matching retain exact full LSID; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R672-B promotes the reduced snapshot graph, selective recovery, and same-BID forwarding order; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",

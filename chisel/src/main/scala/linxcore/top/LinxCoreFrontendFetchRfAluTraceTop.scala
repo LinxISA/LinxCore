@@ -3163,6 +3163,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.captureLsIdFull := execute.io.loadLookupLsId
   reducedLoadWaitReplaySlot.io.captureYoungestStoreId := execute.io.loadLookupBid
   reducedLoadWaitReplaySlot.io.captureYoungestStoreLsId := reducedLoadLookupLsId
+  reducedLoadWaitReplaySlot.io.captureYoungestStoreLsIdFullValid := execute.io.loadLookupValid
+  reducedLoadWaitReplaySlot.io.captureYoungestStoreLsIdFull := execute.io.loadLookupLsId
   reducedLoadWaitReplaySlot.io.captureWaitStore := reducedStoreResidentForward.io.waitStore
   reducedLoadWaitReplaySlot.io.replayWakeValid := reducedStoreResidentReplayWakeup.io.wakeValid
   reducedLoadWaitReplaySlot.io.replayWake := reducedStoreResidentReplayWakeup.io.wake
@@ -9874,6 +9876,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopLiveLoadLiqCaptureWiring {
     capture.io.loadLsIdFull := loadLsIdFull
     capture.io.youngestStoreId := execute.io.loadLookupBid
     capture.io.youngestStoreLsId := loadLsId
+    capture.io.youngestStoreLsIdFullValid := execute.io.loadLookupValid
+    capture.io.youngestStoreLsIdFull := loadLsIdFull
   }
 }
 
@@ -10758,6 +10762,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring {
     val lookupSize = Mux(lookupIsReplay, liq.io.launchSelectedSize, execute.io.loadLookupSize)
     val lookupBid = Mux(lookupIsReplay, liq.io.launchSelectedBid, execute.io.loadLookupBid)
     val lookupLsId = Mux(lookupIsReplay, liq.io.launchSelectedLoadLsId, executeLoadLsId)
+    val replayRow = liq.io.rows(liq.io.launchIndex)
+    val lookupLsIdFullValid = Mux(
+      lookupIsReplay,
+      replayRow.youngestStoreLsIdFullValid,
+      execute.io.loadLookupValid)
+    val lookupLsIdFull = Mux(
+      lookupIsReplay,
+      replayRow.youngestStoreLsIdFull,
+      execute.io.loadLookupLsId)
 
     overlay.io.flush := flush
     overlay.io.storeReqs := storeReqs
@@ -10772,6 +10785,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring {
     residentForward.io.loadSize := lookupSize
     residentForward.io.loadBid := lookupBid
     residentForward.io.loadLsId := lookupLsId
+    residentForward.io.loadLsIdFullValid := lookupLsIdFullValid
+    residentForward.io.loadLsIdFull := lookupLsIdFull
     residentForward.io.baseLoadData := overlay.io.loadData
     residentForward.io.rows := path.io.storeStqRows
   }

@@ -57,7 +57,9 @@ suite includes 16-STQ/8-ROB and 40-bit full-LSID contracts.
 | `loadAddr` | Byte address of the 64-bit reduced load window. |
 | `loadSize` | Load size in bytes. The R265 integration uses 1-byte `LBUI` and 8-byte scalar load forms. |
 | `loadBid` | Load BID used as the youngest visible store snapshot. |
-| `loadLsId` | Load LSID, converted to the same reduced `ROBID` shape used by STQ rows. |
+| `loadLsId` | Reduced load-LSID projection retained for compatibility diagnostics. |
+| `loadLsIdFullValid` | The load snapshot carries authoritative full-LSID order. |
+| `loadLsIdFull` | Parameterized full load snapshot LSID used for same-BID forwarding order. |
 | `baseLoadData` | 64-bit load data after the committed-store memory overlay. |
 | `rows` | Resident STQ row image from `StoreDispatchSTQPath`. |
 
@@ -69,7 +71,9 @@ suite includes 16-STQ/8-ROB and 40-bit full-LSID contracts.
 | `loadForwardMask` | One bit per returned byte forwarded from ready resident STQ rows. |
 | `waitMask` | One bit per returned byte whose nearest older resident store is not data-ready. |
 | `eligibleStoreMask` | STQ rows accepted by the resident-forward candidate filter. |
-| `waitStore` | Selected not-ready resident store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, projected LSID, full-LSID authority/value, and PC. Selection order remains projected pending R672-B, but the selected identity is not narrowed. |
+| `waitStore` | Selected not-ready resident store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, projected LSID, full-LSID authority/value, and PC. Same-BID selection uses the full identity. |
+| `fullLsIdMissingMask` | Relevant same-BID rows excluded because full-LSID authority is absent. |
+| `fullLsIdAmbiguousMask` | Relevant same-BID rows excluded by exactly half-range serial ambiguity. |
 | `readyForward` | At least one byte was forwarded and no wait byte blocked the load. |
 | `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. R266 top integration uses this to hold execute. |
 | `loadCrossesLine` | Load crosses a 64-byte line and is left on the base overlay path in this ready-only packet. |
@@ -90,8 +94,8 @@ Not-ready stores set wait bits. The nearest older store wins per byte.
 The Chisel adapter preserves that selector rule through `LoadStoreForwarding`
 with reduced-top limits:
 
-1. Convert the execute load's raw LSID into the same reduced `ROBID` shape used
-   by `StoreDispatchToSTQ`.
+1. Retain the execute load's full LSID beside its reduced compatibility
+   projection. Same-BID ordering uses only the full value.
 2. Suppress cross-line load queries and cross-line resident store candidates.
    The committed-store overlay still handles cross-line committed fragments.
 3. Build a synthetic 64-byte `cacheData` line by placing the eight
@@ -144,7 +148,8 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Reference tests cover ready resident forwarding over committed overlay data,
-same-BID LSID source selection, not-ready wait pass-through, cross-line
+same-BID full-LSID source selection beyond the projection width, missing
+authority refusal, not-ready wait pass-through, cross-line
 suppression, selected wait-store identity including PC, and Chisel elaboration
 with diagnostics. A 40-bit structural test locks resident-row to selected-wait
 full-LSID width preservation.

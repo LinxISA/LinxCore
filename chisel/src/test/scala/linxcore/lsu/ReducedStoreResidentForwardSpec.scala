@@ -14,6 +14,8 @@ object ReducedStoreResidentForwardReference {
       scalar: Boolean = true,
       bid: Id = Id(),
       lsId: Id = Id(),
+      lsIdFullValid: Boolean = true,
+      lsIdFull: Option[BigInt] = None,
       pc: BigInt = 0,
       addr: BigInt = 0x1000,
       data: BigInt = 0,
@@ -38,11 +40,23 @@ object ReducedStoreResidentForwardReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
-  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
-    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+  private def lessFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    val distance = (rhs - lhs) & mask
+    lhs != rhs && distance < (BigInt(1) << (width - 1))
+  }
 
-  private def greaterBidLs(lhsBid: Id, lhsLsId: Id, rhsBid: Id, rhsLsId: Id): Boolean =
-    lessEqualBidLs(rhsBid, rhsLsId, lhsBid, lhsLsId) && !(lhsBid == rhsBid && lhsLsId == rhsLsId)
+  private def rowFull(row: Row): BigInt = row.lsIdFull.getOrElse(BigInt(row.lsId.value))
+
+  private def beforeOrSame(row: Row, loadBid: Id, loadFullValid: Boolean, loadFull: BigInt, width: Int): Boolean =
+    less(row.bid, loadBid) ||
+      (row.bid == loadBid && row.lsIdFullValid && loadFullValid &&
+        (rowFull(row) == loadFull || lessFull(rowFull(row), loadFull, width)))
+
+  private def greaterRow(lhs: Row, rhs: Row, width: Int): Boolean =
+    less(rhs.bid, lhs.bid) ||
+      (lhs.bid == rhs.bid && lhs.lsIdFullValid && rhs.lsIdFullValid &&
+        lessFull(rowFull(rhs), rowFull(lhs), width))
 
   private def crosses(addr: BigInt, size: Int): Boolean =
     ((addr & 0x3f) + size) > LineBytes
@@ -63,7 +77,11 @@ object ReducedStoreResidentForwardReference {
       loadBid: Id,
       loadLsId: Id,
       baseData: BigInt,
-      rows: Seq[Row]): Result = {
+      rows: Seq[Row],
+      loadLsIdFullValid: Boolean = true,
+      loadLsIdFull: Option[BigInt] = None,
+      lsidWidth: Int = 32): Result = {
+    val loadFull = loadLsIdFull.getOrElse(BigInt(loadLsId.value))
     val queryValid = enable && loadValid && loadSize != 0 && !crosses(loadAddr, loadSize)
     var out = baseData & Mask64
     var fmask = BigInt(0)
@@ -82,7 +100,7 @@ object ReducedStoreResidentForwardReference {
             !crosses(row.addr, row.size) &&
             lineAddr(row.addr) == lineAddr(loadAddr) &&
             overlap(row.addr, row.size, loadAddr, loadSize) &&
-            lessEqualBidLs(row.bid, row.lsId, loadBid, loadLsId)
+            beforeOrSame(row, loadBid, loadLsIdFullValid, loadFull, lsidWidth)
         if (eligible) {
           emask |= BigInt(1) << idx
         }
@@ -96,7 +114,7 @@ object ReducedStoreResidentForwardReference {
           }
           if (candidates.nonEmpty) {
             val nearest = candidates.reduce { (best, candidate) =>
-              if (greaterBidLs(candidate._1.bid, candidate._1.lsId, best._1.bid, best._1.lsId)) candidate else best
+              if (greaterRow(candidate._1, best._1, lsidWidth)) candidate else best
             }
             val (nearestRow, nearestIndex) = nearest
             val storeByte = byte(nearestRow.data, (addr - nearestRow.addr).toInt)
@@ -106,7 +124,8 @@ object ReducedStoreResidentForwardReference {
             } else {
               wmask |= BigInt(1) << loadByte
               val current = waitStore
-              if (current.isEmpty || greaterBidLs(nearestRow.bid, nearestRow.lsId, current.get.bid, current.get.lsId)) {
+              val currentRow = current.flatMap(wait => rows.lift(wait.index))
+              if (currentRow.isEmpty || greaterRow(nearestRow, currentRow.get, lsidWidth)) {
                 waitStore = Some(WaitStore(nearestIndex, nearestRow.bid, nearestRow.lsId, nearestRow.pc))
               }
             }
@@ -166,6 +185,26 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
 
     assert((result.data & BigInt("ffff", 16)) == BigInt("5555", 16))
     assert(result.forwardMask == BigInt("03", 16))
+    assert(result.eligibleMask == BigInt("03", 16))
+  }
+
+  test("same-BID resident forwarding selects by full LSID and refuses missing authority") {
+    val result = ReducedStoreResidentForwardReference(
+      enable = true,
+      loadValid = true,
+      loadAddr = 0x2100,
+      loadSize = 2,
+      loadBid = id(4),
+      loadLsId = id(5),
+      loadLsIdFull = Some(BigInt("0100000005", 16)),
+      lsidWidth = 40,
+      baseData = 0,
+      rows = Seq(
+        Row(bid = id(4), lsId = id(3), lsIdFull = Some(BigInt("0000000003", 16)), addr = 0x2100, data = BigInt("1111", 16), size = 2),
+        Row(bid = id(4), lsId = id(3), lsIdFull = Some(BigInt("0100000004", 16)), addr = 0x2100, data = BigInt("4444", 16), size = 2),
+        Row(bid = id(4), lsId = id(3), lsIdFullValid = false, addr = 0x2100, data = BigInt("7777", 16), size = 2)))
+
+    assert((result.data & BigInt("ffff", 16)) == BigInt("4444", 16))
     assert(result.eligibleMask == BigInt("03", 16))
   }
 
@@ -230,6 +269,7 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
     val io = new ReducedStoreResidentForwardIO(entries = 16, robEntries = 8, lsidWidth = 40)
 
     assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.loadLsIdFull.getWidth == 40)
     assert(io.waitStore.storeLsIdFull.getWidth == 40)
   }
 }

@@ -6,8 +6,8 @@
 threads it through allocation payloads, resident LIQ rows, precise flush,
 launch/return selectors, resolved LHQ publication, and native row-mutation
 wait metadata. Candidate full-LSID authority reaches LIQ residency before
-snapshot selection. Reduced forwarding age selection remains projected and
-does not authorize canonical ordering.
+snapshot selection. The R672-B forwarding owner consumes that resident full
+snapshot for same-BID order; the projection does not authorize ordering.
 
 ## Source Mapping
 

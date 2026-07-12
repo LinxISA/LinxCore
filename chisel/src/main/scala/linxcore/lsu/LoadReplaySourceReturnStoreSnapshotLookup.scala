@@ -183,6 +183,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   forward.io.query.size := io.request.size
   forward.io.query.youngestStoreId := io.request.bid
   forward.io.query.youngestStoreLsId := io.request.loadLsId
+  forward.io.query.youngestStoreLsIdFullValid := io.request.loadLsIdFullValid
+  forward.io.query.youngestStoreLsIdFull := io.request.loadLsIdFull
   forward.io.query.isTile := false.B
   forward.io.cacheData := io.cacheData
   for (idx <- 0 until physicalStqEntries) {

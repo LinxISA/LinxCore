@@ -282,6 +282,8 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(io.captureWaitStore.storeLsIdFull.getWidth == 40)
     assert(io.captureLsIdFull.getWidth == 40)
     assert(io.relaunch.loadLsIdFull.getWidth == 40)
+    assert(io.captureYoungestStoreLsIdFull.getWidth == 40)
+    assert(io.relaunch.youngestStoreLsIdFull.getWidth == 40)
     assert(io.storedWaitStore.storeLsIdFull.getWidth == 40)
     assert(io.replayWake.storeLsIdFull.getWidth == 40)
     assert(sv.contains("io_storedWaitStore_storeLsIdFull"))
@@ -290,5 +292,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_captureLsIdFull"))
     assert(sv.contains("io_relaunch_loadLsIdFullValid"))
     assert(sv.contains("io_relaunch_loadLsIdFull"))
+    assert(sv.contains("io_captureYoungestStoreLsIdFull"))
+    assert(sv.contains("io_relaunch_youngestStoreLsIdFull"))
   }
 }

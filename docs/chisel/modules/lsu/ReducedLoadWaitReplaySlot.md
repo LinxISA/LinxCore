@@ -32,9 +32,10 @@ wait-store key while `ReducedStoreResidentForward` reports a wait hit, keeps
 that key registered after the live forwarder stops reporting a wait, and feeds
 the resulting store-unit wakeup through the existing `LoadReplayWakeup` owner.
 
-R672-B retains the load's full LSID in the wait slot and copies it into the
-relaunch candidate. This is separate from the selected store's full LSID in
-`LoadStoreForwardWait`; both authorities survive independently.
+R672-B retains both the load's full LSID and its youngest-store full-LSID
+snapshot in the wait slot and copies them into the relaunch candidate. These
+are separate from the selected wait store's full LSID in
+`LoadStoreForwardWait`; all three identities survive independently.
 
 This is still diagnostic integration. The slot proves the replay request shape
 can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
@@ -43,7 +44,7 @@ extends that candidate to preserve the model `MemReqBus` ROB sidecars
 `BID/GID/RID` plus reduced `LSID`, matching the identity carried through the
 model LDQ insert/wait path. R275 also records the
 `LoadInflightQueue` forwarding snapshot `(youngestStoreId,
-youngestStoreLsId)` as explicit candidate sidecars, rather than leaving it
+youngestStoreLsId, youngestStoreLsIdFull)` as explicit candidate sidecars, rather than leaving it
 implicit in the reduced top's current BID/LSID aliases. R307 carries the
 derived replay-return signedness bit beside address and size, using the model
 opcode class that later feeds `SignExtend`. R311 carries the renamed load
@@ -82,6 +83,7 @@ timing.
 | `captureLsId` | Load allocation snapshot LSID in `ROBID` form. |
 | `captureYoungestStoreId` | Forwarding snapshot BID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureBid`. |
 | `captureYoungestStoreLsId` | Forwarding snapshot LSID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureLsId`. |
+| `captureYoungestStoreLsIdFullValid`, `captureYoungestStoreLsIdFull` | Authoritative parameterized snapshot used for same-BID forwarding order. |
 | `captureWaitStore` | Selected not-ready store key from `ReducedStoreResidentForward`: STQ index, BID, projected LSID, full-LSID authority/value, and PC. |
 | `replayWakeValid` | Store-unit replay wakeup valid from `ResidentStoreReplayWakeup`. |
 | `replayWake` | Typed `LoadReplayWakeupRequest` consumed by `LoadReplayWakeup`, including the selected store's full-LSID authority/value. |
@@ -109,6 +111,7 @@ timing.
 | `relaunch.loadLsId` | Reduced LSID captured with the remembered load. |
 | `relaunch.youngestStoreId` | Forwarding snapshot BID captured with the remembered load. |
 | `relaunch.youngestStoreLsId` | Forwarding snapshot LSID captured with the remembered load. |
+| `relaunch.youngestStoreLsIdFullValid`, `relaunch.youngestStoreLsIdFull` | Authoritative full forwarding snapshot captured with the remembered load. |
 | `slotPc` | PC of the remembered load row. |
 | `slotAddr` | Address of the remembered load row. |
 
@@ -146,7 +149,8 @@ R269 maps that sequence onto the reduced top:
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
    address, size, derived return signedness, renamed destination, RF-derived
    source operand traces, BID, GID, RID, reduced LSID, and forwarding snapshot
-   `(youngestStoreId, youngestStoreLsId)`. This is the future LIQ/issue
+   `(youngestStoreId, youngestStoreLsIdFull)`, with the reduced LSID retained
+   as a compatibility sidecar. This is the future LIQ/issue
    handoff boundary; it does not itself relaunch the load.
 6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
    pulse as a stable pending diagnostic until a later LIQ/issue consumer

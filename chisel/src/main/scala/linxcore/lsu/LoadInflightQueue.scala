@@ -472,7 +472,7 @@ class LoadInflightQueue(
   pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
   pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
 
-  val query = Wire(new LoadStoreForwardQuery(idEntries, addrWidth, lineBytes, sizeWidth))
+  val query = Wire(new LoadStoreForwardQuery(idEntries, addrWidth, lineBytes, sizeWidth, lsidWidth))
   query := 0.U.asTypeOf(query)
   query.valid := launchAccepted
   query.lineAddr := lineAddr(launchRow.addr)
@@ -480,6 +480,8 @@ class LoadInflightQueue(
   query.size := launchRow.size
   query.youngestStoreId := launchRow.youngestStoreId
   query.youngestStoreLsId := launchRow.youngestStoreLsId
+  query.youngestStoreLsIdFullValid := launchRow.youngestStoreLsIdFullValid
+  query.youngestStoreLsIdFull := launchRow.youngestStoreLsIdFull
   query.isTile := launchRow.isTile
 
   pipeline.io.e2Valid := launchAccepted

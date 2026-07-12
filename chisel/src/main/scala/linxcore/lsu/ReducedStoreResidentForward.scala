@@ -27,6 +27,8 @@ class ReducedStoreResidentForwardIO(
   val loadSize = Input(UInt(sizeWidth.W))
   val loadBid = Input(new ROBID(identityEntries))
   val loadLsId = Input(new ROBID(identityEntries))
+  val loadLsIdFullValid = Input(Bool())
+  val loadLsIdFull = Input(UInt(lsidWidth.W))
   val baseLoadData = Input(UInt(dataWidth.W))
   val rows = Input(Vec(entries, new STQEntryBankRow(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
@@ -36,6 +38,8 @@ class ReducedStoreResidentForwardIO(
   val loadForwardMask = Output(UInt((dataWidth / 8).W))
   val waitMask = Output(UInt((dataWidth / 8).W))
   val eligibleStoreMask = Output(UInt(entries.W))
+  val fullLsIdMissingMask = Output(UInt(entries.W))
+  val fullLsIdAmbiguousMask = Output(UInt(entries.W))
   val waitStore = Output(new LoadStoreForwardWait(identityEntries, entries, pcWidth, lsidWidth))
   val readyForward = Output(Bool())
   val waitBlocked = Output(Bool())
@@ -143,6 +147,8 @@ class ReducedStoreResidentForward(
   forward.io.query.size := io.loadSize
   forward.io.query.youngestStoreId := io.loadBid
   forward.io.query.youngestStoreLsId := io.loadLsId
+  forward.io.query.youngestStoreLsIdFullValid := io.loadLsIdFullValid
+  forward.io.query.youngestStoreLsIdFull := io.loadLsIdFull
   forward.io.query.isTile := false.B
   forward.io.cacheData := baseLineData(io.loadAddr, io.baseLoadData)
 
@@ -171,6 +177,8 @@ class ReducedStoreResidentForward(
   io.loadForwardMask := Mux(queryValid && !waitBlocked, windowForwardMask, 0.U)
   io.waitMask := Mux(queryValid, windowWaitMask, 0.U)
   io.eligibleStoreMask := forward.io.eligibleStoreMask
+  io.fullLsIdMissingMask := forward.io.fullLsIdMissingMask
+  io.fullLsIdAmbiguousMask := forward.io.fullLsIdAmbiguousMask
   io.waitStore := forward.io.waitStore
   io.readyForward := readyForward
   io.waitBlocked := waitBlocked

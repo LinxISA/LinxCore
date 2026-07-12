@@ -33,6 +33,8 @@ class ReducedLoadReplayCandidate(
   val loadLsIdFull = UInt(lsidWidth.W)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
+  val youngestStoreLsIdFullValid = Bool()
+  val youngestStoreLsIdFull = UInt(lsidWidth.W)
 }
 
 class ReducedLoadWaitReplaySlotIO(
@@ -66,6 +68,8 @@ class ReducedLoadWaitReplaySlotIO(
   val captureLsIdFull = Input(UInt(lsidWidth.W))
   val captureYoungestStoreId = Input(new ROBID(idEntries))
   val captureYoungestStoreLsId = Input(new ROBID(idEntries))
+  val captureYoungestStoreLsIdFullValid = Input(Bool())
+  val captureYoungestStoreLsIdFull = Input(UInt(lsidWidth.W))
   val captureWaitStore = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
 
   val replayWakeValid = Input(Bool())
@@ -195,6 +199,8 @@ class ReducedLoadWaitReplaySlot(
     row.returnSignExtend := io.captureReturnSignExtend
     row.youngestStoreId := io.captureYoungestStoreId
     row.youngestStoreLsId := io.captureYoungestStoreLsId
+    row.youngestStoreLsIdFullValid := io.captureYoungestStoreLsIdFullValid
+    row.youngestStoreLsIdFull := io.captureYoungestStoreLsIdFull
     row.sourceTraceValid := io.captureSourceTraceValid
     row.source0 := io.captureSource0
     row.source1 := io.captureSource1
@@ -277,6 +283,8 @@ class ReducedLoadWaitReplaySlot(
     relaunch.loadLsIdFull := slotReg.loadLsIdFull
     relaunch.youngestStoreId := slotReg.youngestStoreId
     relaunch.youngestStoreLsId := slotReg.youngestStoreLsId
+    relaunch.youngestStoreLsIdFullValid := slotReg.youngestStoreLsIdFullValid
+    relaunch.youngestStoreLsIdFull := slotReg.youngestStoreLsIdFull
   }
 
   io.active := activeReg

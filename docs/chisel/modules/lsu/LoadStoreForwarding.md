@@ -1,12 +1,14 @@
 # LoadStoreForwarding
 
-## R672-A Full-LSID Wait Metadata
+## R672-B Full-LSID Ordering
 
 Resident store inputs and the selected not-ready `waitStore` output carry a
-parameterized full store LSID beside the reduced projection. The selected
-store's validity/value is preserved into LIQ wait state for timeout delete and
-recovery. Store eligibility and nearest-store selection remain projected
-compatibility logic and are the explicit R672-B ordering boundary.
+parameterized full store LSID beside the reduced projection. Same-BID
+eligibility, nearest-store selection per byte, and final wait-store selection
+use that full identity through `LSIDOrder`. Missing or half-range-ambiguous
+authority fails closed and is observable; the projected field is not an age
+fallback. The selected identity is preserved into LIQ wait state for timeout
+delete, exact wakeup, and recovery.
 
 ## Source Mapping
 
@@ -50,7 +52,9 @@ MDB learning, BCTRL/IEX state, ROB recovery publication, or memory-event trace.
 | `query.byteOffset` | Load byte offset inside the 64-byte line. |
 | `query.size` | Load size in bytes. The module clips to the current 64-byte line. |
 | `query.youngestStoreId` | Snapshot BID of the youngest store visible to this load at allocation. Candidate stores must be older than or equal to this `(BID, LSID)` pair. |
-| `query.youngestStoreLsId` | Snapshot LSID of the youngest store visible to this load at allocation. |
+| `query.youngestStoreLsId` | Reduced compatibility projection of the snapshot LSID; not an ordering authority. |
+| `query.youngestStoreLsIdFullValid` | The snapshot carries authoritative full-LSID order. Required for same-BID comparison. |
+| `query.youngestStoreLsIdFull` | Parameterized full snapshot LSID used for same-BID ordering. |
 | `query.isTile` | Suppresses scalar forwarding for tile load queries and reports tile suppression diagnostics. |
 
 ### Store Candidates
@@ -64,7 +68,9 @@ MDB learning, BCTRL/IEX state, ROB recovery publication, or memory-event trace.
 | `stores[*].isTile` | Suppresses scalar forwarding for tile stores. |
 | `stores[*].storeIndex` | STQ row index diagnostic and future row-wakeup handle. |
 | `stores[*].storeId` | Store BID used with `storeLsId` for snapshot filtering and nearest-older selection. |
-| `stores[*].storeLsId` | Store LSID used with `storeId` for same-BID ordering. |
+| `stores[*].storeLsId` | Reduced compatibility projection; not an ordering authority. |
+| `stores[*].storeLsIdFullValid` | The row carries authoritative full-LSID order. |
+| `stores[*].storeLsIdFull` | Parameterized full store LSID used for same-BID ordering. |
 | `stores[*].pc` | Store PC diagnostic used by wait-store reporting. |
 | `stores[*].lineAddr` | Store 64-byte line tag. |
 | `stores[*].byteMask` | Store byte-valid mask clipped to the line. |
@@ -77,6 +83,8 @@ MDB learning, BCTRL/IEX state, ROB recovery publication, or memory-event trace.
 | `loadByteMask` | Clipped load byte mask inside the queried line. |
 | `eligibleStoreMask` | Store rows that are valid, working, address-ready, scalar, same-line, overlapping, and older than the load snapshot. |
 | `tileSuppressedMask` | Otherwise eligible overlapping rows suppressed because the query or store is tile-class. |
+| `fullLsIdMissingMask` | Same-BID scalar candidates excluded because either side lacks full-LSID authority. |
+| `fullLsIdAmbiguousMask` | Same-BID scalar candidates excluded because serial separation is exactly half range. |
 | `coveredMask` | Load bytes covered by any selected scalar store candidate. |
 | `forwardMask` | Covered load bytes whose nearest selected store has ready data. |
 | `waitMask` | Covered load bytes whose nearest selected store is not data-ready. |
@@ -111,10 +119,11 @@ covers, so the effective rule is per-byte nearest older store selection.
 The Chisel owner expresses that rule directly:
 
 1. Build the clipped `loadByteMask` from `byteOffset` and `size`.
-2. Mark eligible scalar stores by same-line overlap and
-   `STQCommitQueue.lessEqualBidLs(storeId, storeLsId, youngestStoreId, youngestStoreLsId)`.
+2. Mark eligible scalar stores by same-line overlap. Use BID/BROB order across
+   blocks and full `LSIDOrder.lessEqual` within one BID.
 3. For each of 64 bytes, choose the eligible store with the greatest
-   wrap-aware `(storeId, storeLsId)` pair.
+   `(BID, full LSID)` order. Missing or ambiguous same-BID authority is not
+   eligible and is reported; it never falls back to the projection.
 4. Mark the byte as forwarded when the selected store is data-ready.
 5. Mark the byte as waiting when the selected store is not data-ready.
 6. Merge forwarded bytes over `cacheData`; uncovered bytes keep the cache
@@ -167,4 +176,5 @@ rows.
 Focused reference tests cover ready store byte forwarding, younger-than-snapshot
 suppression, per-byte newest older selection, not-ready replay masks, tile and
 different-line suppression, wrap-aware store age ordering, same-BID LSID
-ordering, and Chisel elaboration with mask, merge, and wait diagnostics.
+ordering above the ROBID projection width, missing/ambiguous authority, and
+Chisel elaboration with mask, merge, and wait diagnostics.

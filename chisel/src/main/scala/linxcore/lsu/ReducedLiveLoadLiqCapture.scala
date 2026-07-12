@@ -37,6 +37,8 @@ class ReducedLiveLoadLiqCaptureIO(
   val loadLsIdFull = Input(UInt(lsidWidth.W))
   val youngestStoreId = Input(new ROBID(idEntries))
   val youngestStoreLsId = Input(new ROBID(idEntries))
+  val youngestStoreLsIdFullValid = Input(Bool())
+  val youngestStoreLsIdFull = Input(UInt(lsidWidth.W))
   val allocReady = Input(Bool())
 
   val candidateValid = Output(Bool())
@@ -112,6 +114,8 @@ class ReducedLiveLoadLiqCapture(
     candidate.loadLsIdFull := io.loadLsIdFull
     candidate.youngestStoreId := io.youngestStoreId
     candidate.youngestStoreLsId := io.youngestStoreLsId
+    candidate.youngestStoreLsIdFullValid := io.youngestStoreLsIdFullValid
+    candidate.youngestStoreLsIdFull := io.youngestStoreLsIdFull
   }
 
   io.candidateValid := candidateValid
