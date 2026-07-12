@@ -122,7 +122,7 @@
       "target_contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001", "LC-MA-STAGE-001"],
       "module_families": ["rename-issue"],
       "scenarios": ["scenario-pipeline-admission", "scenario-rob-block-recovery"],
-      "lane_owners": {"pycircuit": ["src/bcc/backend/issue.py", "src/bcc/backend/prf.py", "src/bcc/iex/iex.py"], "chisel": ["chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala", "chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/backend/issue.py", "src/bcc/backend/prf.py", "src/bcc/iex/iex.py"], "chisel": ["chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala", "chisel/src/main/scala/linxcore/execute/ScalarIssueCandidateArbiter.scala", "chisel/src/main/scala/linxcore/execute/ScalarIssueExternalControlFence.scala", "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala", "chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala"]}
     },
     {
       "id": "spec-ready",
@@ -134,7 +134,7 @@
       "target_contracts": ["LC-MA-HAZ-001", "LC-MA-FWD-001"],
       "module_families": ["rename-issue", "lsu"],
       "scenarios": ["scenario-rob-block-recovery", "scenario-memory-ordering"],
-      "lane_owners": {"pycircuit": ["src/bcc/backend/issue.py", "src/bcc/backend/wakeup.py"], "chisel": ["chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala"]}
+      "lane_owners": {"pycircuit": ["src/bcc/backend/issue.py", "src/bcc/backend/wakeup.py"], "chisel": ["chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala", "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala"]}
     },
     {
       "id": "recovery-trap",

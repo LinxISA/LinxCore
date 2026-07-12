@@ -5,7 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
 - Child picker: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/execute/ReducedScalarIssueQueueSpec.scala`
-- Parent top: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala`
+- Parent fabric: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala`
 - Generated proof: `rtl/LinxCore/tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/iex/iex_iq.cpp`
@@ -17,18 +17,11 @@
 
 ## Purpose
 
-`ReducedScalarIssueQueue` is the first Chisel issue boundary for the reduced
-scalar ALU lane. It decouples `DecodeRenameROBPath` from
-`ReducedScalarAluExecute`, stores renamed scalar rows, queries physical RF
-source data for the selected ready row, and issues only when every valid source
-lane for the selected row is ready and execute can accept a row.
-
-This is a reduced FIFO issue queue for the RF-backed ALU trace top. It is not
-the full model issue scheduler: it does not track P1/I1/I2 in-flight rows,
-arbitrate RF read ports, apply cancellation, bypass, or replay cancelled rows.
-It now preserves the model split between issue select and issue-queue release:
-issue marks the selected row as in flight, and a later ALU release removes the
-issued row.
+`ReducedScalarIssueQueue` is the resident row bank beneath
+`ScalarIssueFabric`. It stores renamed scalar rows, owns registered source
+readiness and `inflight`, forms bank-local candidates, and preserves exact rows
+across I1 denial until a later retry. The parent fabric owns cross-bank read and
+issue arbitration; `ScalarGPRFile` owns P data and non-speculative readiness.
 
 R85 moves source readiness into registered per-entry state. The queue still
 selects only the FIFO head, but RF ready-table changes update resident entries
@@ -76,8 +69,10 @@ commit cannot wake the queue. T/U readiness remains separate and scoped.
 | output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | combinational | Physical source tags for the selected ready row. |
 | output | `readOperandClass` | `Vec(3, OperandClass)` | combinational | Source operand class for each selected read lane so the top can choose scalar RF versus local T/U data. |
 | output | `readRelTag` | `Vec(3, UInt(archRegWidth.W))` | combinational | Frontend relative T/U source tag for local queue lookup. |
-| input | `readReady` | `Vec(3, Bool)` | combinational | Physical RF readiness for the requested source tags, retained as RF-read observability while issue eligibility comes from registered source-ready state. |
 | input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | Physical RF data for the selected ready row. |
+| input | `readGrant` | `Bool` | I1 grant | Parent fabric admitted this bank's complete read group. A low grant on an active attempt cancels only `inflight`. |
+| output | `readAttemptValid`, `readFire` | `Bool` | attempt/fire | I1 can advance into I2, and the complete granted read actually advanced. |
+| output | `readUop` | `RenamedUop` | with `readAttemptValid` | Full identity used by cross-bank per-STID arbitration. |
 | output | `issueValid` | `Bool` | valid | At least one resident non-issued row has all valid sources ready. |
 | input | `issueReady` | `Bool` | ready | Downstream execute can accept the selected row. |
 | output | `issueUop` | `RenamedUop` | with `issueValid` | Oldest ready non-issued row for execute. |
@@ -118,6 +113,8 @@ commit cannot wake the queue. T/U readiness remains separate and scoped.
 - `srcReady[depth][3]`: registered source-ready state initialized at enqueue
   from `readyMask` and updated once per cycle while the row is resident.
 - `count`: queue occupancy.
+- `ReducedScalarIssuePick.rrBase`: bank-local fairness pointer across the
+  oldest selectable candidate from every represented STID.
 
 The depth must be a power of two and greater than one.
 
@@ -134,12 +131,11 @@ scalar physical RF entry in this reduced queue/RF composition.
 
 The queue builds a selectable mask over resident rows. A row is selectable when
 it is valid, not already in flight, and every valid source lane's registered
-`srcReady` bit is set. Invalid source lanes are initialized ready. The
-selectable mask and resident payload image feed `ReducedScalarIssuePick`, which
-chooses the oldest selectable row by queue slot, locks that row at P1
-`pickFire`, drives RF read request tags from I1, cancels the lock if I1 RF
-readiness is not confirmed, and presents a read-confirmed row to execute from
-I2.
+`srcReady` bit is set. `ReducedScalarIssuePick` keeps only the oldest selectable
+slot for each STID, then round-robins across those per-STID candidates. It does
+not compare RID age between different STIDs. P1 locks the chosen row; an
+explicit parent `readGrant` advances the complete read group into I2. Denial
+clears the lock and leaves the row in place for retry.
 
 `readyMask` snapshots the canonical scalar RF ready table. On enqueue, each
 scalar P source lane captures `!src.valid || readyMask(src.physTag)`. T and U
@@ -201,23 +197,22 @@ RF-backed scalar ALU lane:
    fixtures;
 3. dependent rows can enqueue before their producer commits;
 4. a ready younger row can issue when older resident rows are not selectable;
-5. issue preserves the row's ROB identity and renamed sidecars into execute.
+5. issue preserves the row's ROB identity and renamed sidecars into execute;
 6. committed P writeback updates global readiness and matching IQ next state
    from one event;
 7. T/U local sources use local queue readiness and relative tags rather than
    scalar RF physical tags.
 
-The deliberate reduction is pipeline depth and cancellation behavior. The full
-model tracks pipe stages and can cancel or replay issued entries. This reduced
-owner selects the oldest ready resident row by FIFO slot and now checks
-selected-row RF read readiness before issue, but still lacks the full model's
-alternate global-register preference, read-port arbitration, cancel checks,
-replay, and bypass.
+The remaining reduction is execution-class coverage and speculative replay.
+The parent fabric now performs live banked I1/I2 arbitration and this bank owns
+real cancellation/retry. The scalar slice still lacks the full physical
+BRU/AGU/STD/CMD queue layout, two-write-port dispatch, speculative load bypass
+repair, and T/U point-to-point qtag wakeup.
 
 R85 removes the earlier same-cycle RF-readiness-to-issue shortcut. The
 committed P-wakeup input now matches `IssueQueue::WakeupIQTag`: it updates the
 IQ next state and ready table from one accepted producer event, making wakeup
-at cycle N visible to pick at N+1. Full banked read-port arbitration, replay,
+at cycle N visible to pick at N+1. Speculative replay,
 bypass, and T/U qtag routing remain later work.
 
 R86 implements the first age-selection slice: `IssueState::Select` scans
@@ -241,14 +236,19 @@ row only on the existing ALU release identity.
 The queue is combinational on selectable-mask generation, release match, and
 committed P-tag matching, and registered on enqueue, source-ready update, P1
 lock, I1 cancel, release, and flush. RF ready-table and committed wakeup updates
-do not directly affect the current cycle's selection. Selected-row RF `readReady` is
-now consumed in I1: a failed read readiness pulse clears only the in-flight
-lock and leaves the row resident.
+do not directly affect the current cycle's selection. `readGrant` is consumed
+only when I2 can accept; denial clears the in-flight lock, while I2 backpressure
+holds I1 without manufacturing a cancellation.
 
-Future full issue work must bank wakeup/select, issued/in-flight tracking, and
-release into model-aligned physical queues. In particular, wakeup must not let
-a newly woken row win selection in the same
-cycle unless the full model evidence proves that timing.
+The parent fabric now banks wakeup/select, issued/in-flight tracking, and
+release. Wakeup still cannot let a newly woken row win selection in the same
+cycle.
+
+The bank also publishes read-only resident control and store frontier views to
+the parent. It does not surrender row ownership: BRU plus Linx `FRET.STK`
+classification lets the fabric block younger same-STID control crossing, and
+store publication lets the fabric preserve oldest-store issue across banks.
+Both remain resident through exact release.
 
 ## Flush/Recovery
 

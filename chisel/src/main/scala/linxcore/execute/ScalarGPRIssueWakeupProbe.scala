@@ -88,9 +88,9 @@ class ScalarGPRIssueWakeupProbe extends Module {
   for (lane <- 0 until 3) {
     gpr.io.readValid(lane) := issue.io.readValid(lane)
     gpr.io.readTag(lane) := issue.io.readTags(lane)
-    issue.io.readReady(lane) := gpr.io.readReady(lane)
     issue.io.readData(lane) := gpr.io.readData(lane)
   }
+  issue.io.readGrant := true.B
 
   io.enqueueReady := issue.io.inReady
   io.writeReady := gpr.io.write(0).ready

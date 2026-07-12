@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v56"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v58"
 
 PRESETS = {
     "replay-physical-suppress-selector-origin": {

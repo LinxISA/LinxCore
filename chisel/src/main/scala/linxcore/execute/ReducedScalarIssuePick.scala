@@ -1,7 +1,7 @@
 package linxcore.execute
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{PriorityEncoder, log2Ceil}
 
 import linxcore.common.{InterfaceParams, OperandClass, RenamedUop}
 
@@ -23,8 +23,11 @@ class ReducedScalarIssuePickIO(
   val readTags = Output(Vec(3, UInt(p.physRegWidth.W)))
   val readOperandClass = Output(Vec(3, OperandClass()))
   val readRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
-  val readReady = Input(Vec(3, Bool()))
   val readData = Input(Vec(3, UInt(p.immWidth.W)))
+  val readGrant = Input(Bool())
+  val readAttemptValid = Output(Bool())
+  val readFire = Output(Bool())
+  val readUop = Output(new RenamedUop(p))
 
   val issueValid = Output(Bool())
   val issueReady = Input(Bool())
@@ -57,14 +60,25 @@ class ReducedScalarIssuePick(
 
   val io = IO(new ReducedScalarIssuePickIO(p, depth))
 
-  val selectedValid = io.selectableMask.orR
-  val selectedIndex = Wire(UInt(log2Ceil(depth).W))
-  selectedIndex := 0.U
-  for (idx <- (0 until depth).reverse) {
-    when(io.selectableMask(idx)) {
-      selectedIndex := idx.U
-    }
+  private val indexWidth = log2Ceil(depth)
+  val rrBase = RegInit(0.U(indexWidth.W))
+  val perStidOldest = Wire(Vec(depth, Bool()))
+  for (idx <- 0 until depth) {
+    val earlierSameStid =
+      if (idx == 0) false.B
+      else VecInit((0 until idx).map { earlier =>
+        io.selectableMask(earlier) &&
+          (io.entries(earlier).threadId === io.entries(idx).threadId)
+      }).asUInt.orR
+    perStidOldest(idx) := io.selectableMask(idx) && !earlierSameStid
   }
+  val scanValid = Wire(Vec(depth, Bool()))
+  for (offset <- 0 until depth) {
+    val idx = (rrBase + offset.U)(indexWidth - 1, 0)
+    scanValid(offset) := perStidOldest(idx)
+  }
+  val selectedValid = scanValid.asUInt.orR
+  val selectedIndex = (rrBase + PriorityEncoder(scanValid.asUInt))(indexWidth - 1, 0)
 
   val selectedUop = Mux(selectedValid, io.entries(selectedIndex), 0.U.asTypeOf(new RenamedUop(p)))
 
@@ -76,23 +90,24 @@ class ReducedScalarIssuePick(
   val i2SrcData = RegInit(VecInit(Seq.fill(3)(0.U(p.immWidth.W))))
   val active = !io.flushValid
 
+  val issueValid = active && i2Valid
+  val issueFire = issueValid && io.issueReady
+  val i2CanAccept = !i2Valid || issueFire
+  val readAttemptValid = active && i1Valid && i2CanAccept
+
   for (idx <- 0 until 3) {
-    io.readValid(idx) := active && i1Valid && i1Uop.src(idx).valid
+    io.readValid(idx) := readAttemptValid && i1Uop.src(idx).valid
     io.readTags(idx) := i1Uop.src(idx).physTag
     io.readOperandClass(idx) := i1Uop.src(idx).operandClass
     io.readRelTag(idx) := i1Uop.src(idx).relTag
     io.issueSrcData(idx) := i2SrcData(idx)
   }
 
-  val p1ReadReady = VecInit((0 until 3).map(idx => !selectedUop.src(idx).valid || io.readReady(idx))).asUInt.andR
   // The reduced RF read data is combinational; once the queue selected a ready
   // uop, later ready-bit drops must not cancel the already-picked read.
-  val i1ReadReady = true.B
-  val issueValid = active && i2Valid
-  val issueFire = issueValid && io.issueReady
-  val i2CanAccept = !i2Valid || issueFire
-  val i1Advance = i1Valid && i1ReadReady && i2CanAccept
-  val i1Cancel = i1Valid && !i1ReadReady
+  val i1ReadReady = io.readGrant
+  val i1Advance = readAttemptValid && i1ReadReady
+  val i1Cancel = readAttemptValid && !i1ReadReady
   val i1WillClear = i1Advance || i1Cancel
   val i1CanAccept = !i1Valid || i1WillClear
   val pickFire = active && selectedValid && i1CanAccept
@@ -104,14 +119,17 @@ class ReducedScalarIssuePick(
   io.pickFire := pickFire
   io.cancelFire := active && i1Cancel
   io.cancelIndex := i1Index
+  io.readAttemptValid := readAttemptValid
+  io.readFire := i1Advance
+  io.readUop := i1Uop
   io.i1Valid := i1Valid
   io.i2Valid := i2Valid
   io.stageBusy := stageBusy
   io.selectedValid := selectedValid
   io.selectedIndex := selectedIndex
-  io.selectedReadReady := Mux(i1Valid, i1ReadReady, p1ReadReady)
+  io.selectedReadReady := Mux(i1Valid, !readAttemptValid || i1ReadReady, selectedValid)
   io.blockedBySource := !stageBusy && io.headValid && (io.notIssuedCount =/= 0.U) && !selectedValid
-  io.blockedByRead := i1Valid && !i1ReadReady
+  io.blockedByRead := i1Cancel
   io.blockedByOutput := issueValid && !io.issueReady
   io.blockedByIssued := io.headIssued && !selectedValid
 
@@ -119,6 +137,9 @@ class ReducedScalarIssuePick(
     i1Valid := false.B
     i2Valid := false.B
   }.otherwise {
+    when(pickFire) {
+      rrBase := selectedIndex + 1.U
+    }
     when(i1Advance) {
       i2Valid := true.B
       i2Uop := i1Uop

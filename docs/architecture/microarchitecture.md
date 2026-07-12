@@ -457,6 +457,16 @@ Detailed local-register lifetime and recovery rules are documented in
 - If more same-cycle enqueue attempts target one IQ than it can accept, the
   older instructions in the current decode-width group win by decode-slot
   order.
+- Scalar issue capacity and physical banking are independent parameters. The
+  live scalar ALU slice uses `scalarIssueBanks` equal banks and divides its
+  configured total entry count evenly across them; every bank has at least two
+  resident rows. This two-bank slice represents `alu_iq0` plus the scalar
+  spill path into `shared_iq1`. It does not replace the complete BRU/AGU/STD/
+  CMD physical layout above.
+- A one-uop live dispatch selects the non-full scalar bank with the least
+  occupancy; equal occupancy uses the lower physical bank index. Future
+  multi-uop S1/S2 dispatch must preserve decode-slot age before applying the
+  same capacity rule.
 
 #### Ready-table initialization
 
@@ -466,7 +476,7 @@ Detailed local-register lifetime and recovery rules are documented in
   the 24 architectural identity tags ready and all additional physical tags
   not-ready. Rename allocation clears the new destination tag; committed
   writeback stores data and sets that same tag ready atomically.
-- `gprPhysRegs` and `gprWritePorts` are scalar-backend parameters independent
+- `gprPhysRegs`, `gprReadPorts`, and `gprWritePorts` are scalar-backend parameters independent
   from ROB, LIQ, STQ, LRET, and cache capacities. The physical-tag width must
   address exactly the configured GPR capacity at every connected boundary.
 - A ready-table bit may be set only when the corresponding produced value is
@@ -494,6 +504,11 @@ Detailed local-register lifetime and recovery rules are documented in
 - Pick policy is oldest-ready-first within each STID. A shared IQ forms one or
   more per-STID candidates and uses a fair/RR cross-STID grant; per-STID ROB
   ages are never compared globally.
+- Each scalar bank first removes all but its oldest selectable row for every
+  represented STID, then round-robins across those per-STID candidates. A
+  second shared arbiter applies the same rule across bank candidates. RID
+  comparison is legal only when candidate STIDs match; different STIDs are
+  ordered only by the implementation fairness pointer.
 - Pick does not immediately remove an entry from the IQ.
 - When an entry is picked, the entry remains valid and transitions to an
   `inflight` state.
@@ -568,12 +583,31 @@ Detailed local-register lifetime and recovery rules are documented in
 ### Register-file arbitration
 
 - Read ports may contend; the default `int_rf_rports` is 3.
+- Chisel names this physical parameter `gprReadPorts`; it must provide at least
+  three ports so one scalar uop's three source lanes receive an atomic grant.
+  Additional ports are legal and remain available for wider future issue.
 - `I1` performs global read-port arbitration.
 - Arbitration is oldest-first by ROB age within each STID, followed by a
   fair/RR grant across STIDs for shared ports. It never compares unrelated
   per-STID ROB ages.
 - Failure to win arbitration cancels the in-flight attempt without deallocating
   the IQ entry.
+- A younger row may not enter I1 while an older unresolved control row in the
+  same STID remains resident. BRU classification is generic backend policy;
+  Linx `FRET.STK` is additionally classified because its W2 result redirects
+  block flow. Its exact `(STID, BID, RID)` frontier is retained until accepted
+  central recovery, not merely until IQ release.
+- Stores issue oldest-first within each STID even across physical IQ banks so
+  FIFO STA/STD and STQ owners observe program-order store completion. This does
+  not serialize independent STIDs or prevent eligible non-store work from
+  bypassing an older store.
+- Read admission is whole-uop atomic. Partial source grants are forbidden: one
+  bank wins all source reads needed by its I1 attempt, while every losing bank
+  clears only `inflight` and retries from its unchanged resident row.
+- The current C++ model services every scalar read request and therefore has no
+  scalar-port denial. Finite Chisel arbitration is an ISA-neutral physical
+  upgrade; its cancellation and retry path must remain architecturally
+  invisible and compare against the model at commit.
 - A producer may request a write port before its complete side-effect bundle
   is authorized, but data and readiness mutate only on the request's explicit
   commit/fire event. Port reservation is not writeback.

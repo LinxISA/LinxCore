@@ -6,7 +6,7 @@ import chisel3.util.log2Ceil
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ScalarGPRFile}
+import linxcore.execute.{ReducedScalarAluExecute, ScalarGPRFile, ScalarIssueFabric}
 import linxcore.frontend.F4DecodeWindow
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -16,12 +16,14 @@ class LinxCoreFrontendRfAluTraceTopIO(
     val traceParams: CommitTraceParams,
     val decRenQueueDepth: Int = 4,
     val issueQueueDepth: Int = 4,
-    val physRegs: Int = 64)
+    val physRegs: Int = 64,
+    val issueBankCount: Int = 2)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
+  private val issueBankCountWidth = log2Ceil(issueQueueDepth / issueBankCount + 1)
 
   val in = Input(new FrontendDecodePacket(p))
   val rfInitValid = Input(Bool())
@@ -81,6 +83,22 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val issueQueueBlockedByRead = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
   val issueQueueBlockedByIssued = Output(Bool())
+  val issueQueueBankOccupancy = Output(Vec(issueBankCount, UInt(issueBankCountWidth.W)))
+  val issueQueueBankPickMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankReadAttemptMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankReadGrantMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankIssueValidMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankIssueGrantMask = Output(UInt(issueBankCount.W))
+  val issueQueueSimultaneousPick = Output(Bool())
+  val issueQueueReadContention = Output(Bool())
+  val issueQueueReadArbitrationLoss = Output(Bool())
+  val issueQueueIssueContention = Output(Bool())
+  val issueQueueControlFenceActive = Output(Bool())
+  val issueQueueControlFenceBlocked = Output(Bool())
+  val issueQueueBankControlBlockedMask = Output(UInt(issueBankCount.W))
+  val issueQueueStoreOrderBlocked = Output(Bool())
+  val issueQueueBankStoreOrderBlockedMask = Output(UInt(issueBankCount.W))
+  val issueQueueProtocolError = Output(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -121,7 +139,14 @@ class LinxCoreFrontendRfAluTraceTop(
   require(physRegs == (1 << p.physRegWidth),
     "physical GPR capacity must match the complete physical-tag namespace")
   private val traceParams = LinxCoreFrontendRfAluTraceTop.traceParamsFor(p)
-  val io = IO(new LinxCoreFrontendRfAluTraceTopIO(p, traceParams, decRenQueueDepth, issueQueueDepth, physRegs))
+  val io = IO(new LinxCoreFrontendRfAluTraceTopIO(
+    p,
+    traceParams,
+    decRenQueueDepth,
+    issueQueueDepth,
+    physRegs,
+    coreParams.scalarBackend.scalarIssueBanks
+  ))
 
   val f4 = Module(new F4DecodeWindow(p))
   f4.io.in := io.in
@@ -139,10 +164,14 @@ class LinxCoreFrontendRfAluTraceTop(
     archRegs = archRegs,
     physRegs = physRegs,
     dataWidth = p.immWidth,
-    readPorts = 3,
+    readPorts = coreParams.scalarBackend.gprReadPorts,
     writePorts = 1
   ))
-  val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
+  val issue = Module(new ScalarIssueFabric(
+    p,
+    depth = issueQueueDepth,
+    bankCount = coreParams.scalarBackend.scalarIssueBanks
+  ))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   val scalarSpValue = RegInit(0.U(p.immWidth.W))
 
@@ -198,6 +227,10 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.secondaryReleaseBid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseRid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseStid := 0.U
+  issue.io.externalControlFenceValid := false.B
+  issue.io.externalControlFenceBid := ROBID.disabled(p.robEntries)
+  issue.io.externalControlFenceRid := ROBID.disabled(p.robEntries)
+  issue.io.externalControlFenceStid := 0.U
   issue.io.readyMask := rf.io.readyMask
   issue.io.pWakeupValid := rf.io.write(0).fire
   issue.io.pWakeupTag := rf.io.write(0).tag
@@ -214,8 +247,11 @@ class LinxCoreFrontendRfAluTraceTop(
   for (idx <- 0 until 3) {
     rf.io.readValid(idx) := issue.io.readValid(idx)
     rf.io.readTag(idx) := issue.io.readTags(idx)
-    issue.io.readReady(idx) := rf.io.readReady(idx)
     issue.io.readData(idx) := rf.io.readData(idx)
+  }
+  for (idx <- 3 until coreParams.scalarBackend.gprReadPorts) {
+    rf.io.readValid(idx) := false.B
+    rf.io.readTag(idx) := 0.U
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
@@ -264,13 +300,13 @@ class LinxCoreFrontendRfAluTraceTop(
   io.completeAccepted := path.io.completeAccepted
   io.completeIgnored := path.io.completeIgnored
 
-  io.rfReadReadyMask := rf.io.readReady.asUInt
-  io.rfAllReadReady := rf.io.readReady.reduce(_ && _)
+  io.rfReadReadyMask := VecInit(rf.io.readReady.take(3)).asUInt
+  io.rfAllReadReady := rf.io.readReady.take(3).reduce(_ && _)
   io.rfReadyMask := rf.io.readyMask
   io.rfWriteValid := rf.io.write(0).fire
   io.rfWriteTag := execute.io.completeDstPhysTag
   io.rfWriteData := execute.io.completeDstData
-  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError
+  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError || issue.io.protocolError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
   io.issueQueuePickFire := issue.io.pickFire
   io.issueQueueIssueFire := issue.io.issueFire
@@ -293,6 +329,22 @@ class LinxCoreFrontendRfAluTraceTop(
   io.issueQueueBlockedByRead := issue.io.blockedByRead
   io.issueQueueBlockedByOutput := issue.io.blockedByOutput
   io.issueQueueBlockedByIssued := issue.io.blockedByIssued
+  io.issueQueueBankOccupancy := issue.io.bankOccupancy
+  io.issueQueueBankPickMask := issue.io.bankPickMask
+  io.issueQueueBankReadAttemptMask := issue.io.bankReadAttemptMask
+  io.issueQueueBankReadGrantMask := issue.io.bankReadGrantMask
+  io.issueQueueBankIssueValidMask := issue.io.bankIssueValidMask
+  io.issueQueueBankIssueGrantMask := issue.io.bankIssueGrantMask
+  io.issueQueueSimultaneousPick := issue.io.simultaneousPick
+  io.issueQueueReadContention := issue.io.readContention
+  io.issueQueueReadArbitrationLoss := issue.io.readArbitrationLoss
+  io.issueQueueIssueContention := issue.io.issueContention
+  io.issueQueueControlFenceActive := issue.io.controlFenceActive
+  io.issueQueueControlFenceBlocked := issue.io.controlFenceBlocked
+  io.issueQueueBankControlBlockedMask := issue.io.bankControlBlockedMask
+  io.issueQueueStoreOrderBlocked := issue.io.storeOrderBlocked
+  io.issueQueueBankStoreOrderBlockedMask := issue.io.bankStoreOrderBlockedMask
+  io.issueQueueProtocolError := issue.io.protocolError
 
   io.commit := path.io.commit
   io.commitValidMask := path.io.commitValidMask

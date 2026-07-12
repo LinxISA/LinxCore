@@ -559,15 +559,51 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ### `chisel/.../execute/ReducedScalarIssueQueue.scala`
 
-- Retains renamed issue rows and per-source readiness. Global P readiness is
-  initialized from `ScalarGPRFile.readyMask`; local T/U readiness remains on
-  separate scoped inputs.
+- Is the resident row bank used beneath `ScalarIssueFabric`. It retains renamed
+  uops, per-source readiness, and the `inflight` lock until exact release.
+- Forms one oldest-ready candidate per represented STID, then round-robins
+  across those candidates without comparing unrelated per-STID RIDs.
 - Consumes a committed P writeback event from `ScalarGPRFile.write.fire` and
   matches it against every valid, non-issued P source by physical tag. The IQ
   next state and global ready table therefore observe one accepted producer
   event together, matching model `IssueQueue::WakeupIQTag` ordering.
 - A request-only or uncommitted write cannot wake an IQ row. A committed P
   wakeup is pick-visible on the next cycle, never in the current selection.
+- Publishes resident BRU/Linx redirect and store rows to the fabric without
+  surrendering exact row/release ownership.
+
+### `chisel/.../execute/ScalarIssueCandidateArbiter.scala`
+
+- Accepts one candidate per physical bank, suppresses every candidate except
+  the oldest RID within each matching STID, and round-robins across surviving
+  banks. It never compares RIDs from different STIDs.
+- Advances fairness only when the selected read or issue transaction advances.
+  Invalid candidate RIDs are protocol errors rather than implicit bank zero.
+
+### `chisel/.../execute/ScalarIssueFabric.scala`
+
+- Partitions total scalar issue capacity evenly across a parameterized
+  power-of-two bank count and routes each one-uop enqueue to the least-occupied
+  non-full bank with stable lower-bank tie priority.
+- Broadcasts committed P wakeup and exact primary/secondary release identities
+  to every resident bank while retaining one aggregate compatibility surface
+  for the live RF/ALU tops.
+- Arbitrates simultaneous bank I1 attempts atomically onto one three-source RF
+  read group. A loser clears only its bank-local `inflight` attempt and retries;
+  a bank held behind a full I2 does not issue a false cancellation.
+- Arbitrates resident I2 outputs separately, preserving oldest-within-STID and
+  fair cross-STID selection. Bank occupancy, simultaneous pick, read loss,
+  cancellation, and I2 contention are top-visible proof counters.
+- Blocks younger same-STID work behind resident BRU/Linx `FRET.STK` control
+  frontiers and blocks only younger stores behind the oldest resident store.
+  Cross-STID RID comparison remains forbidden.
+
+### `chisel/.../execute/ScalarIssueExternalControlFence.scala`
+
+- Retains the exact `(STID, BID, RID)` of a redirecting scalar control row after
+  its resident IQ row releases and until central recovery accepts cleanup.
+- Extends the issue control frontier across the Linx marker-restart gap without
+  globally clearing unrelated or older IQ/store ownership.
 
 ### `chisel/.../top/ScalarLoadGPRCompletionSink.scala`
 

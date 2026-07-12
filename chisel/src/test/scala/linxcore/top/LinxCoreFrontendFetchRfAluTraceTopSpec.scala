@@ -681,6 +681,26 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockPendingMask.getWidth == 8)
   }
 
+  test("R667 scalar issue-bank diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.issueQueueBankOccupancy.length == 2)
+    assert(io.issueQueueBankOccupancy.head.getWidth == 2)
+    assert(io.issueQueueBankPickMask.getWidth == 2)
+    assert(io.issueQueueBankReadAttemptMask.getWidth == 2)
+    assert(io.issueQueueBankReadGrantMask.getWidth == 2)
+    assert(io.issueQueueBankIssueValidMask.getWidth == 2)
+    assert(io.issueQueueBankIssueGrantMask.getWidth == 2)
+    assert(io.issueQueueSimultaneousPick.getWidth == 1)
+    assert(io.issueQueueReadContention.getWidth == 1)
+    assert(io.issueQueueReadArbitrationLoss.getWidth == 1)
+    assert(io.issueQueueIssueContention.getWidth == 1)
+    assert(io.issueQueueProtocolError.getWidth == 1)
+  }
+
   test("R465 replay-LIQ MDB wait-plan diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1546,6 +1566,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module DecodeRenameROBPath"))
     assert(!sv.contains("module BlockMarkerDecodeContext"))
     assert(sv.contains("module ScalarGPRFile"))
+    assert(sv.contains("module ScalarIssueFabric"))
+    assert(sv.contains("module ScalarIssueCandidateArbiter"))
     assert(!sv.contains("module ReducedScalarRegisterFile"))
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ReducedScalarIssuePick"))

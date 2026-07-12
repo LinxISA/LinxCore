@@ -3,7 +3,8 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
-import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedOperand, RenamedUop}
+import linxcore.common.{DestinationKind, DispatchTarget, InterfaceParams, OperandClass, RenamedOperand, RenamedUop}
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.{ROBID}
 
 class ReducedScalarIssueQueueIO(
@@ -36,8 +37,11 @@ class ReducedScalarIssueQueueIO(
   val readTags = Output(Vec(3, UInt(p.physRegWidth.W)))
   val readOperandClass = Output(Vec(3, OperandClass()))
   val readRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
-  val readReady = Input(Vec(3, Bool()))
   val readData = Input(Vec(3, UInt(p.immWidth.W)))
+  val readGrant = Input(Bool())
+  val readAttemptValid = Output(Bool())
+  val readFire = Output(Bool())
+  val readUop = Output(new RenamedUop(p))
 
   val issueValid = Output(Bool())
   val issueReady = Input(Bool())
@@ -79,6 +83,10 @@ class ReducedScalarIssueQueueIO(
   val blockedByRead = Output(Bool())
   val blockedByOutput = Output(Bool())
   val blockedByIssued = Output(Bool())
+  val residentControlValid = Output(Vec(depth, Bool()))
+  val residentControlUop = Output(Vec(depth, new RenamedUop(p)))
+  val residentStoreValid = Output(Vec(depth, Bool()))
+  val residentStoreUop = Output(Vec(depth, new RenamedUop(p)))
 }
 
 class ReducedScalarIssueQueue(
@@ -189,8 +197,8 @@ class ReducedScalarIssueQueue(
   pick.io.headIssued := headIssued
   pick.io.notIssuedCount := notIssuedCount
   pick.io.flushValid := io.flushValid
-  pick.io.readReady := io.readReady
   pick.io.readData := io.readData
+  pick.io.readGrant := io.readGrant
   pick.io.issueReady := io.issueReady
   val pickFire = pick.io.pickFire
   val issueFire = pick.io.issueFire
@@ -206,6 +214,9 @@ class ReducedScalarIssueQueue(
     io.readRelTag(idx) := pick.io.readRelTag(idx)
     io.issueSrcData(idx) := pick.io.issueSrcData(idx)
   }
+  io.readAttemptValid := pick.io.readAttemptValid
+  io.readFire := pick.io.readFire
+  io.readUop := pick.io.readUop
 
   io.enqueueFire := enqueueFire
   io.pickFire := pickFire
@@ -243,6 +254,15 @@ class ReducedScalarIssueQueue(
   io.blockedByRead := pick.io.blockedByRead
   io.blockedByOutput := pick.io.blockedByOutput
   io.blockedByIssued := pick.io.blockedByIssued
+  for (idx <- 0 until depth) {
+    val redirectsBlockFlow =
+      entries(idx).opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+    io.residentControlValid(idx) := valid(idx) &&
+      ((entries(idx).dispatchTarget === DispatchTarget.Bru) || redirectsBlockFlow)
+    io.residentControlUop(idx) := entries(idx)
+    io.residentStoreValid(idx) := valid(idx) && entries(idx).isStore
+    io.residentStoreUop(idx) := entries(idx)
+  }
 
   val preIssued = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {

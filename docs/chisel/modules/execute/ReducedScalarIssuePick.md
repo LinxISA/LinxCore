@@ -20,10 +20,9 @@ storage, registered source readiness, release, and compaction. This module owns
 the selected-row P1 pick lock, I1 RF read request, I1 read-cancel, I2 execute
 handoff, and issue-block diagnostics.
 
-This is a reduced P1/I1/I2 timing slice, not the full model issue pipe. It
-does not yet arbitrate shared RF read ports across multiple pickers, select
-bypass data, suppress load-miss consumers, or replay after downstream memory
-events. It does keep cancellable issue state out of queue compaction logic.
+This is one bank's P1/I1/I2 timing slice. `ScalarIssueFabric` arbitrates shared
+RF reads and I2 output across pickers. Bypass selection, load-miss suppression,
+and speculative replay remain outside this child.
 
 ## Interface
 
@@ -38,8 +37,10 @@ events. It does keep cancellable issue state out of queue compaction logic.
 | output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | with `readValid` | I1 row's physical source tags. |
 | output | `readOperandClass` | `Vec(3, OperandClass)` | with `readValid` | I1 row's source operand classes for scalar RF versus local T/U read selection in the parent top. |
 | output | `readRelTag` | `Vec(3, UInt(archRegWidth.W))` | with `readValid` | I1 row's frontend relative tags used for local T/U queue lookup. |
-| input | `readReady` | `Vec(3, Bool)` | combinational | RF read readiness for the I1 source tags. |
 | input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | RF read data captured when I1 advances to I2. |
+| input | `readGrant` | `Bool` | I1 grant | Parent fabric admitted this bank's complete read group. |
+| output | `readAttemptValid`, `readFire` | `Bool` | attempt/fire | I1 can accept into I2, and the granted group advanced. |
+| output | `readUop` | `RenamedUop` | with `readAttemptValid` | Identity supplied to shared same-STID-age/cross-STID-RR arbitration. |
 | output | `issueValid` | `Bool` | valid | I2 row is present and can be offered to execute. |
 | input | `issueReady` | `Bool` | ready | Downstream execute can accept the I2 row. |
 | output | `issueFire` | `Bool` | pulse | I2 row is accepted by execute. Queue residency is still released later by ALU release. |
@@ -61,33 +62,31 @@ events. It does keep cancellable issue state out of queue compaction logic.
 The module owns the reduced issue pipe registers:
 
 - `i1Valid`, `i1Index`, `i1Uop`: selected P1 row after the queue lock is set.
-- `i2Valid`, `i2Uop`, `i2SrcData`: RF-read-confirmed row waiting for execute
+- `i2Valid`, `i2Uop`, `i2SrcData`: granted RF-read row waiting for execute
   acceptance.
+- `rrBase`: rotating bank-local start slot used after reducing selectable rows
+  to one oldest candidate per STID.
 
 Queue residency and source-ready state remain in `ReducedScalarIssueQueue`;
 execute pipeline state remains in `ReducedScalarAluExecute`.
 
 ## Logic Design
 
-The picker scans `selectableMask` from high to low while later lower-index
-matches overwrite the candidate, producing the lowest queue slot with a set
-bit. That is the reduced queue-age order. `selectedValid` reports the current
-P1 candidate, and `selectedIndex` points at the candidate row.
+The picker first suppresses every selectable row that has an earlier selectable
+peer with the same STID. It then scans the surviving per-STID oldest candidates
+from `rrBase`. Pick advances the pointer past the chosen slot. This preserves
+oldest-ready order within an STID without comparing unrelated STID ages.
 
 P1 fires when a candidate exists and I1 can accept a new row. `pickFire`
 locks the parent queue slot as in-flight, then the selected payload is captured
 into I1 on the clock edge. I1 drives the read tags, operand classes, and
 relative tags for the captured row. The parent top may use those sidebands to
 route scalar P reads to the RF and local T/U reads to a local-value owner. If
-all requested lanes are ready and I2 can accept the row, I1 captures
-`readData` into I2. If any requested lane is not ready, I1 emits
-`cancelFire/cancelIndex` and clears; the parent queue keeps the row resident
-and clears its in-flight lock.
-R127 makes the live RF/local-overlay composition present selected-ready at I1:
-once the queue has selected a resident row that was ready at P1, I1 advances
-even if a later diagnostic readiness input drops. Selection already consumed
-the registered source-ready predicate, and selected-row data is combinationally
-available in the reduced top.
+I1 presents `readAttemptValid` only when I2 can accept. A parent `readGrant`
+captures all `readData` lanes into I2 atomically. Denial emits
+`cancelFire/cancelIndex`; the parent bank clears `inflight` but preserves the
+resident row and source readiness. I2 backpressure suppresses a new attempt
+instead of creating a false denial.
 
 I2 owns the valid/ready boundary into `ReducedScalarAluExecute`. `issueValid`
 is I2 occupancy, and `issueFire` means execute accepted the I2 row. Issue fire
@@ -105,17 +104,17 @@ issued rows from the queue according to the configured release point.
 R88 mirrors the reduced P1/I1/I2 slice of that split:
 
 1. queue storage exports a selectable mask;
-2. this module chooses the oldest selectable row in P1 and asks the parent
+2. this module chooses one oldest selectable row per STID, round-robins among
+   those candidates in P1, and asks the parent
    queue to lock it in-flight;
 3. I1 drives RF read tags for the captured row;
-4. failed I1 RF readiness cancels the in-flight lock without deallocating the
-   queue row in the generic reduced picker, while the live RF/local-overlay top
-   keeps already selected rows moving by presenting selected-ready;
+4. failed I1 arbitration cancels the in-flight lock without deallocating the
+   queue row;
 5. I2 presents the captured row/data to execute;
 6. execute acceptance and later ALU release stay separate.
 
-Full read-port arbitration, load-miss suppression, bypass selection, multiple
-picker fairness, and replay remain future issue-owner packets.
+Load-miss suppression, bypass selection, wider issue, and speculative replay
+remain future issue-owner packets.
 
 ## Timing
 

@@ -10,6 +10,8 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DecodeWindow.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ScalarIssueCandidateArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
@@ -27,15 +29,15 @@
 
 `LinxCoreFrontendRfAluTraceTop` is the R83 RF-backed successor to
 `LinxCoreFrontendAluTraceTop`. It drives raw frontend packets through F4,
-decode/rename, ROB allocation/update, a reduced scalar physical RF, a reduced
-scalar issue queue, and the reduced scalar ALU execute pipe, then commits
+decode/rename, ROB allocation/update, the canonical scalar physical RF, a
+parameterized scalar issue-bank fabric, and the reduced scalar ALU execute pipe, then commits
 through the monitored ROB path.
 
 The top removes the R81 `operandData` per-uop fixture. Testbench preloads only
 architectural identity registers, and later source values must come from
 Chisel RF writeback state keyed by renamed physical tags. Unlike R82, rename
 output no longer feeds execute directly: rows enqueue into
-`ReducedScalarIssueQueue` and issue only when the selected row's RF source tags
+`ScalarIssueFabric` and issue only when a bank-selected row's RF source tags
 are ready. Issued rows remain resident in the queue until
 `ReducedScalarAluExecute` reaches W2 and returns the row's release identity.
 
@@ -54,6 +56,13 @@ confirmed.
 R88 exposes the reduced P1/I1/I2 timing split: P1 pick locks a queue row, I1
 drives RF read tags and may cancel the lock if RF readiness is not confirmed,
 and I2 presents the captured row/data to execute.
+
+R667 replaces the single live queue with `ScalarIssueFabric`. Total capacity
+is split across `ScalarBackendParams.scalarIssueBanks`; enqueue chooses the
+least-occupied bank, each bank forms oldest-per-STID candidates, and shared I1
+and I2 arbiters use same-STID RID age plus cross-STID round-robin fairness.
+I1 denial clears only the losing bank's `inflight` attempt and leaves its row
+resident for retry.
 
 R111 adds local T/U source ports to `ReducedScalarIssueQueue` for the live
 fetch CoreMark path. This older packet-fixture top remains scalar-P only and
@@ -89,6 +98,8 @@ ties those local readiness masks empty; T/U local source execution is owned by
 | output | `issueQueueSelectedValid`, `issueQueueSelectedIndex`, `issueQueueSelectedReadReady` | mixed | diagnostic | Oldest ready non-issued P1 candidate and current I1/P1 RF read readiness. |
 | output | `issueQueueI1Valid`, `issueQueueI2Valid`, `issueQueueStageBusy` | `Bool` | diagnostic | Reduced issue-owner stage occupancy. |
 | output | `issueQueueBlockedBySource`, `issueQueueBlockedByRead`, `issueQueueBlockedByOutput`, `issueQueueBlockedByIssued` | `Bool` | diagnostic | Queue blocked by source readiness, selected-row RF read readiness, execute backpressure, or issued-head residency with no selectable younger row. |
+| output | `issueQueueBankOccupancy`, `issueQueueBank*Mask` | mixed | diagnostic | Per-bank residency, pick, I1 attempt/grant, and I2 valid/grant state. |
+| output | `issueQueueSimultaneousPick`, `issueQueueReadContention`, `issueQueueReadArbitrationLoss`, `issueQueueIssueContention` | `Bool` | diagnostic | Live bank overlap, I1 denial, and I2 contention evidence. |
 | output | `robAllocFire`, `robRenameUpdateFire` | `Bool` | pulse | BROB/ROB reservation and post-rename row update pulses. |
 | output | `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB completion result from ALU-produced completion. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows including RF-sourced source values and ALU writeback data. |
@@ -102,8 +113,9 @@ The wrapper owns no state directly. State lives in child owners:
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, BROB/ROB,
   commit, and deallocation.
 - `ScalarGPRFile`: canonical physical scalar GPR data and P-ready bits.
-- `ReducedScalarIssueQueue`: reduced FIFO residency, source-ready state, issue
-  release, and compaction owner.
+- `ScalarIssueFabric`: least-occupied dispatch plus shared I1/I2 arbitration.
+- `ReducedScalarIssueQueue`: one resident bank's source-ready, inflight,
+  release, and compaction state.
 - `ReducedScalarIssuePick`: P1 selected-row lock, I1 RF-read/cancel, I2
   execute handoff, and issue-block owner.
 - `ReducedScalarAluExecute`: reduced E/W1/W2 scalar ALU pipe.
@@ -111,13 +123,13 @@ The wrapper owns no state directly. State lives in child owners:
 ## Logic Design
 
 `DecodeRenameROBPath` emits a single accepted `RenamedUop` into
-`ReducedScalarIssueQueue`. The issue queue owns the resident source-readiness
+`ScalarIssueFabric`. The selected child bank owns the resident source-readiness
 boundary:
 `path.io.renamedOutReady` is driven by queue capacity, while the selected
-oldest-ready issue row is chosen by `ReducedScalarIssuePick`. The picker locks
-that row in P1, drives `ScalarGPRFile.readValid/readTag` from I1,
-captures `readData` into I2, cancels the queue lock if I1 RF readiness is not
-confirmed, and emits execute valid from I2.
+oldest-per-STID issue row is chosen by `ReducedScalarIssuePick`. The parent
+fabric arbitrates simultaneous bank I1 attempts atomically, routes the granted
+bank to `ScalarGPRFile`, and clears a denied bank's lock for retry. A separate
+arbiter selects among resident bank I2 outputs.
 The RF `readyMask` feeds the queue's registered resident source-ready bits.
 Invalid source lanes are treated as ready inside the picker.
 The local T/U ready-mask inputs are tied to zero in this top, so any T/U source

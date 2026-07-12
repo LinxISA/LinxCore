@@ -6,7 +6,7 @@ import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarWritebackArbiter, ScalarGPRFile}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
@@ -65,12 +65,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val scalarStidCount: Int = 1,
     val mapQDepth: Int = 32,
     val gprMapQDepth: Int = 32,
-    val physRegs: Int = 64)
+    val physRegs: Int = 64,
+    val issueBankCount: Int = 2)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
+  private val issueBankCountWidth = log2Ceil(issueQueueDepth / issueBankCount + 1)
   private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
@@ -2084,6 +2086,22 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueBlockedByRead = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
   val issueQueueBlockedByIssued = Output(Bool())
+  val issueQueueBankOccupancy = Output(Vec(issueBankCount, UInt(issueBankCountWidth.W)))
+  val issueQueueBankPickMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankReadAttemptMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankReadGrantMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankIssueValidMask = Output(UInt(issueBankCount.W))
+  val issueQueueBankIssueGrantMask = Output(UInt(issueBankCount.W))
+  val issueQueueSimultaneousPick = Output(Bool())
+  val issueQueueReadContention = Output(Bool())
+  val issueQueueReadArbitrationLoss = Output(Bool())
+  val issueQueueIssueContention = Output(Bool())
+  val issueQueueControlFenceActive = Output(Bool())
+  val issueQueueControlFenceBlocked = Output(Bool())
+  val issueQueueBankControlBlockedMask = Output(UInt(issueBankCount.W))
+  val issueQueueStoreOrderBlocked = Output(Bool())
+  val issueQueueBankStoreOrderBlockedMask = Output(UInt(issueBankCount.W))
+  val issueQueueProtocolError = Output(Bool())
   val localTReadyMask = Output(UInt(4.W))
   val localUReadyMask = Output(UInt(4.W))
   val localTPendingCount = Output(UInt(issueCountWidth.W))
@@ -2226,7 +2244,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarStidCount = scalarStidCount,
     mapQDepth = mapQDepth,
     gprMapQDepth = gprMapQDepth,
-    physRegs = physRegs
+    physRegs = physRegs,
+    issueBankCount = coreParams.scalarBackend.scalarIssueBanks
   ))
 
   val source = Module(new FrontendFetchPacketSource(p))
@@ -2253,14 +2272,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     archRegs = archRegs,
     physRegs = physRegs,
     dataWidth = p.immWidth,
-    readPorts = 6,
+    readPorts = coreParams.scalarBackend.gprReadPorts + 3,
     writePorts = 1
   ))
   val rfWritebackArbiter = Module(new ReducedScalarWritebackArbiter(
     dataWidth = p.immWidth,
     physRegWidth = p.physRegWidth
   ))
-  val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
+  val issue = Module(new ScalarIssueFabric(
+    p,
+    depth = issueQueueDepth,
+    bankCount = coreParams.scalarBackend.scalarIssueBanks
+  ))
+  val markerIssueControlFence = Module(new ScalarIssueExternalControlFence(p))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   val storeExecBridge = Module(new ReducedStoreExecResultBridge(
     p = p,
@@ -3609,7 +3633,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := backendPipeFlush
-  LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(issue, execute)
+  LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(
+    issue,
+    execute,
+    markerIssueControlFence,
+    io.frontendFlushValid || io.restartValid || io.startValid || backendPipeFlush)
   issue.io.readyMask := rf.io.readyMask
   issue.io.pWakeupValid := rf.io.write(0).fire
   issue.io.pWakeupTag := rf.io.write(0).tag
@@ -3629,7 +3657,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         (issue.io.readOperandClass(idx) === OperandClass.P) &&
         (issue.io.readRelTag(idx) === 1.U)
     val rel = issue.io.readRelTag(idx)(1, 0)
-    val localReadReady = Mux(readIsT, localTReady(rel), Mux(readIsU, localUReady(rel), false.B))
     val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
     val scalarReadData = Mux(readIsScalarSp, scalarSpValue, rf.io.readData(idx))
     val staSrc = path.io.storeStaQueue.uop.src(idx)
@@ -3653,14 +3680,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
     rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
     rf.io.readTag(idx) := issue.io.readTags(idx)
-    rf.io.readValid(idx + 3) := staReadIsRf
-    rf.io.readTag(idx + 3) := staSrc.physTag
-    issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
+    rf.io.readValid(idx + coreParams.scalarBackend.gprReadPorts) := staReadIsRf
+    rf.io.readTag(idx + coreParams.scalarBackend.gprReadPorts) := staSrc.physTag
     issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
     storeStaAddressExecBridge.io.srcReadReady(idx) :=
-      Mux(staReadIsLocal, staLocalReadReady, Mux(staReadIsScalarSp, true.B, rf.io.readReady(idx + 3)))
+      Mux(staReadIsLocal, staLocalReadReady,
+        Mux(staReadIsScalarSp, true.B, rf.io.readReady(idx + coreParams.scalarBackend.gprReadPorts)))
     storeStaAddressExecBridge.io.srcReadData(idx) :=
-      Mux(staReadIsLocal, staLocalReadData, Mux(staReadIsScalarSp, scalarSpValue, rf.io.readData(idx + 3)))
+      Mux(staReadIsLocal, staLocalReadData,
+        Mux(staReadIsScalarSp, scalarSpValue, rf.io.readData(idx + coreParams.scalarBackend.gprReadPorts)))
+  }
+  for (idx <- 3 until coreParams.scalarBackend.gprReadPorts) {
+    rf.io.readValid(idx) := false.B
+    rf.io.readTag(idx) := 0.U
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
@@ -6239,35 +6271,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeCompletePc := execute.io.completeRow.pc
   io.executeCompleteInsn := execute.io.completeRow.insn
   io.executeCompleteWbReg := execute.io.completeRow.wb.reg
-  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError
-  io.issueQueueEnqueueFire := issue.io.enqueueFire
-  io.issueQueuePickFire := issue.io.pickFire
-  io.issueQueueIssueFire := issue.io.issueFire
-  io.issueQueueCancelFire := issue.io.cancelFire
-  io.issueQueueReleaseFire := issue.io.releaseFire
-  io.issueQueueCount := issue.io.count
-  io.issueQueueIssuedCount := issue.io.issuedCount
-  io.issueQueueNotIssuedCount := issue.io.notIssuedCount
-  io.issueQueueHeadValid := issue.io.headValid
-  io.issueQueueHeadIssued := issue.io.headIssued
-  io.issueQueueHeadPc := issue.io.headPc
-  io.issueQueueHeadOpcode := issue.io.headOpcode
-  io.issueQueueHeadSrcValidMask := issue.io.headSrcValidMask
-  io.issueQueueHeadSrcClass := issue.io.headSrcOperandClass
-  io.issueQueueHeadSrcPhysTag := issue.io.headSrcPhysTag
-  io.issueQueueHeadSrcRelTag := issue.io.headSrcRelTag
-  io.issueQueueSourceReadyMask := issue.io.sourceReadyMask
-  io.issueQueueAllSourcesReady := issue.io.allSourcesReady
-  io.issueQueueSelectedValid := issue.io.selectedValid
-  io.issueQueueSelectedIndex := issue.io.selectedIndex
-  io.issueQueueSelectedReadReady := issue.io.selectedReadReady
-  io.issueQueueI1Valid := issue.io.i1Valid
-  io.issueQueueI2Valid := issue.io.i2Valid
-  io.issueQueueStageBusy := issue.io.stageBusy
-  io.issueQueueBlockedBySource := issue.io.blockedBySource
-  io.issueQueueBlockedByRead := issue.io.blockedByRead
-  io.issueQueueBlockedByOutput := issue.io.blockedByOutput
-  io.issueQueueBlockedByIssued := issue.io.blockedByIssued
+  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError || issue.io.protocolError
+  LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring.connect(io, issue)
   io.localTReadyMask := localTReady.asUInt
   io.localUReadyMask := localUReady.asUInt
   io.localTPendingCount := localTPendingCount
@@ -10609,7 +10614,11 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring {
 }
 
 private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
-  def connect(issue: ReducedScalarIssueQueue, execute: ReducedScalarAluExecute): Unit = {
+  def connect(
+      issue: ScalarIssueFabric,
+      execute: ReducedScalarAluExecute,
+      controlFence: ScalarIssueExternalControlFence,
+      clearControlFence: Bool): Unit = {
     issue.io.releaseValid := execute.io.releaseValid
     issue.io.releaseBid := execute.io.releaseBid
     issue.io.releaseRid := execute.io.releaseRid
@@ -10618,6 +10627,64 @@ private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
     issue.io.secondaryReleaseBid := execute.io.liqReleaseBid
     issue.io.secondaryReleaseRid := execute.io.liqReleaseRid
     issue.io.secondaryReleaseStid := execute.io.liqReleaseStid
+    controlFence.io.captureValid := execute.io.redirectValid
+    controlFence.io.captureBid := execute.io.releaseBid
+    controlFence.io.captureRid := execute.io.releaseRid
+    controlFence.io.captureStid := execute.io.releaseStid
+    controlFence.io.clear := clearControlFence
+    issue.io.externalControlFenceValid := controlFence.io.valid
+    issue.io.externalControlFenceBid := controlFence.io.bid
+    issue.io.externalControlFenceRid := controlFence.io.rid
+    issue.io.externalControlFenceStid := controlFence.io.stid
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring {
+  def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, issue: ScalarIssueFabric): Unit = {
+    io.issueQueueEnqueueFire := issue.io.enqueueFire
+    io.issueQueuePickFire := issue.io.pickFire
+    io.issueQueueIssueFire := issue.io.issueFire
+    io.issueQueueCancelFire := issue.io.cancelFire
+    io.issueQueueReleaseFire := issue.io.releaseFire
+    io.issueQueueCount := issue.io.count
+    io.issueQueueIssuedCount := issue.io.issuedCount
+    io.issueQueueNotIssuedCount := issue.io.notIssuedCount
+    io.issueQueueHeadValid := issue.io.headValid
+    io.issueQueueHeadIssued := issue.io.headIssued
+    io.issueQueueHeadPc := issue.io.headPc
+    io.issueQueueHeadOpcode := issue.io.headOpcode
+    io.issueQueueHeadSrcValidMask := issue.io.headSrcValidMask
+    io.issueQueueHeadSrcClass := issue.io.headSrcOperandClass
+    io.issueQueueHeadSrcPhysTag := issue.io.headSrcPhysTag
+    io.issueQueueHeadSrcRelTag := issue.io.headSrcRelTag
+    io.issueQueueSourceReadyMask := issue.io.sourceReadyMask
+    io.issueQueueAllSourcesReady := issue.io.allSourcesReady
+    io.issueQueueSelectedValid := issue.io.selectedValid
+    io.issueQueueSelectedIndex := issue.io.selectedIndex
+    io.issueQueueSelectedReadReady := issue.io.selectedReadReady
+    io.issueQueueI1Valid := issue.io.i1Valid
+    io.issueQueueI2Valid := issue.io.i2Valid
+    io.issueQueueStageBusy := issue.io.stageBusy
+    io.issueQueueBlockedBySource := issue.io.blockedBySource
+    io.issueQueueBlockedByRead := issue.io.blockedByRead
+    io.issueQueueBlockedByOutput := issue.io.blockedByOutput
+    io.issueQueueBlockedByIssued := issue.io.blockedByIssued
+    io.issueQueueBankOccupancy := issue.io.bankOccupancy
+    io.issueQueueBankPickMask := issue.io.bankPickMask
+    io.issueQueueBankReadAttemptMask := issue.io.bankReadAttemptMask
+    io.issueQueueBankReadGrantMask := issue.io.bankReadGrantMask
+    io.issueQueueBankIssueValidMask := issue.io.bankIssueValidMask
+    io.issueQueueBankIssueGrantMask := issue.io.bankIssueGrantMask
+    io.issueQueueSimultaneousPick := issue.io.simultaneousPick
+    io.issueQueueReadContention := issue.io.readContention
+    io.issueQueueReadArbitrationLoss := issue.io.readArbitrationLoss
+    io.issueQueueIssueContention := issue.io.issueContention
+    io.issueQueueControlFenceActive := issue.io.controlFenceActive
+    io.issueQueueControlFenceBlocked := issue.io.controlFenceBlocked
+    io.issueQueueBankControlBlockedMask := issue.io.bankControlBlockedMask
+    io.issueQueueStoreOrderBlocked := issue.io.storeOrderBlocked
+    io.issueQueueBankStoreOrderBlockedMask := issue.io.bankStoreOrderBlockedMask
+    io.issueQueueProtocolError := issue.io.protocolError
   }
 }
 

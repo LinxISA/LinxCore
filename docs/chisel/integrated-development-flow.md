@@ -15,6 +15,23 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R667 replaces the single live scalar issue queue with a
+parameterized banked fabric. Enqueue selects the least-occupied bank; bank-local
+and shared arbitration preserve oldest RID only within one STID and use
+round-robin fairness across STIDs. I1 grants one whole three-source RF read,
+losers cancel only their inflight attempt, and independent I2 rows retain
+output state under backpressure. Linx BRU/FRET.STK control and oldest-store
+frontiers prevent younger same-STID issue; redirect identity remains retained
+until accepted recovery cleanup.
+
+Focused Scala and generated Verilator probes pass, including simultaneous bank
+picks, cancellation/retry, cross-STID fairness, retained control release, and
+oldest-store retry. The full RF/issue/LSU CoreMark path passes the original
+wrong-path FENTRY boundary and reaches 969 matching rows. It then exposes the
+next LSU packet: with STQ full, blocked STA insertion prevents ready STD updates
+from draining resident rows. Do not claim full reduced-store CoreMark closure
+until STA/STD arbitration is repaired.
+
 Latest packet: R666 removes the obsolete reduced scalar RF wrapper and makes
 both live RF/issue tops instantiate `ScalarGPRFile` directly. Committed
 `write.fire` now updates physical P data/readiness and broadcasts the same tag

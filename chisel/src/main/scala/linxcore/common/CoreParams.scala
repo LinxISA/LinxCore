@@ -14,7 +14,9 @@ final case class CoreParams(
 final case class ScalarBackendParams(
   gprArchRegs: Int = 24,
   gprPhysRegs: Int = 128,
-  gprWritePorts: Int = 2
+  gprWritePorts: Int = 2,
+  scalarIssueBanks: Int = 2,
+  gprReadPorts: Int = 3
 ) {
   require(gprArchRegs == 24,
     "LinxCoreModel scalar GPR namespace has 24 architectural registers")
@@ -23,6 +25,10 @@ final case class ScalarBackendParams(
   require((gprPhysRegs & (gprPhysRegs - 1)) == 0,
     "scalar physical GPR capacity must be a power of two")
   require(gprWritePorts > 0, "scalar GPR write-port count must be positive")
+  require(scalarIssueBanks > 1 && (scalarIssueBanks & (scalarIssueBanks - 1)) == 0,
+    "scalar issue-bank count must be a power of two greater than one")
+  require(gprReadPorts >= 3,
+    "scalar GPR read-port count must cover one atomic three-source issue grant")
 }
 
 final case class ScalarLsuParams(

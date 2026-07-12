@@ -65,12 +65,16 @@
       "values": {
         "gprArchRegs": 24,
         "gprPhysRegs": 128,
-        "gprWritePorts": 2
+        "gprWritePorts": 2,
+        "scalarIssueBanks": 2,
+        "gprReadPorts": 3
       },
       "validation_text": [
         "LinxCoreModel scalar GPR namespace has 24 architectural registers",
         "scalar physical GPR capacity must be a power of two",
-        "scalar GPR write-port count must be positive"
+        "scalar GPR write-port count must be positive",
+        "scalar issue-bank count must be a power of two greater than one",
+        "scalar GPR read-port count must cover one atomic three-source issue grant"
       ]
     },
     {
@@ -109,6 +113,10 @@
       "owner": "IQ",
       "events": ["iq-enqueue", "wakeup", "pick", "issue", "cancel"],
       "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala",
+          "symbols": ["ScalarIssueFabric", "bankOccupancy", "bankReadAttemptMask", "readArbitrationLoss", "issueContention", "controlFenceBlocked", "storeOrderBlocked"]
+        },
         {
           "path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala",
           "symbols": ["ReducedScalarIssueQueue", "enqueueFire", "pickFire", "issueFire", "cancelFire", "srcReady"]
@@ -344,7 +352,7 @@
     {
       "id": "chisel-scalar-mapq",
       "module_family": "rename-issue",
-      "status": "unit-proven",
+      "status": "integrated",
       "contracts": ["LC-MA-ROB-001", "LC-MA-HAZ-001"],
       "limitations": [
         "The owner is connected to the canonical backend decode/rename composition but not to the reduced commit-only top shell."
@@ -371,8 +379,20 @@
       "module_family": "rename-issue",
       "status": "unit-proven",
       "contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["The reduced issue owner is connected to both live RF/ALU tops and has generated P-wakeup timing proof, but full banked IQ/read-port arbitration and T/U qtag wakeup remain open."],
+      "limitations": ["The live scalar ALU slice has parameterized resident banks, atomic global I1/I2 arbitration, retained Linx redirect frontiers, and per-STID oldest-store issue. The complete eight-class BRU/AGU/STD/CMD layout, two-write-port S1/S2 dispatch, multi-issue execution width, speculative bypass/repair, and T/U qtag wakeup remain open. Full-path CoreMark next exposes STQ-full STA/STD head-of-line blocking after 969 matching rows."],
       "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala",
+          "symbols": ["ScalarIssueFabric", "routeBank", "readArbiter", "issueArbiter", "readArbitrationLoss", "issueContention", "controlFenceActive", "storeOrderBlocked"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ScalarIssueExternalControlFence.scala",
+          "symbols": ["ScalarIssueExternalControlFence", "captureValid", "clear"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ScalarIssueCandidateArbiter.scala",
+          "symbols": ["ScalarIssueCandidateArbiter", "perStidOldest", "rrBase", "grant"]
+        },
         {
           "path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala",
           "symbols": ["ReducedScalarIssueQueue", "ReducedScalarIssuePick", "valid", "issued", "srcReady", "pWakeupValid", "pWakeupMatches", "pWakeupMatchCount"]
@@ -390,6 +410,10 @@
         {
           "path": "tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh",
           "command": "bash tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_issue_fabric_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_issue_fabric_probe.sh"
         }
       ]
     },

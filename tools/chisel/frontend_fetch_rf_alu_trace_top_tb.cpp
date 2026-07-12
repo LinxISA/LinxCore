@@ -200,6 +200,14 @@ GprCommitHistory g_gpr_commit_history;
 
 struct ReplayLiqSidebandStats {
   std::uint64_t cycles_sampled = 0;
+  std::uint64_t issue_simultaneous_pick = 0;
+  std::uint64_t issue_read_contention = 0;
+  std::uint64_t issue_read_arbitration_loss = 0;
+  std::uint64_t issue_cancel = 0;
+  std::uint64_t issue_i2_contention = 0;
+  std::uint64_t issue_control_fence_active = 0;
+  std::uint64_t issue_control_fence_blocked = 0;
+  std::uint64_t issue_store_order_blocked = 0;
   std::uint64_t load_lookup_valid = 0;
   std::uint64_t load_lookup_execute_granted = 0;
   std::uint64_t load_lookup_execute_with_eligible_store = 0;
@@ -1039,6 +1047,30 @@ void observe_cycle(bool event, std::uint64_t cycle, std::uint64_t &first, std::u
 
 void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   ++g_replay_liq_sideband_stats.cycles_sampled;
+  if (dut.io_issueQueueSimultaneousPick) {
+    ++g_replay_liq_sideband_stats.issue_simultaneous_pick;
+  }
+  if (dut.io_issueQueueReadContention) {
+    ++g_replay_liq_sideband_stats.issue_read_contention;
+  }
+  if (dut.io_issueQueueReadArbitrationLoss) {
+    ++g_replay_liq_sideband_stats.issue_read_arbitration_loss;
+  }
+  if (dut.io_issueQueueCancelFire) {
+    ++g_replay_liq_sideband_stats.issue_cancel;
+  }
+  if (dut.io_issueQueueIssueContention) {
+    ++g_replay_liq_sideband_stats.issue_i2_contention;
+  }
+  if (dut.io_issueQueueControlFenceActive) {
+    ++g_replay_liq_sideband_stats.issue_control_fence_active;
+  }
+  if (dut.io_issueQueueControlFenceBlocked) {
+    ++g_replay_liq_sideband_stats.issue_control_fence_blocked;
+  }
+  if (dut.io_issueQueueStoreOrderBlocked) {
+    ++g_replay_liq_sideband_stats.issue_store_order_blocked;
+  }
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
     defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
   const std::uint64_t cycle = g_replay_liq_sideband_stats.cycles_sampled;
@@ -3388,13 +3420,31 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v56\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v58\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP) || \
     defined(LINXCORE_REDUCED_STORE_LIVE_LOAD_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
       << "  \"reduced_store_replay_liq_top\": false,\n"
 #endif
+      << "  \"issue_fabric\": {\n"
+      << "    \"simultaneous_pick\": "
+      << g_replay_liq_sideband_stats.issue_simultaneous_pick << ",\n"
+      << "    \"read_contention\": "
+      << g_replay_liq_sideband_stats.issue_read_contention << ",\n"
+      << "    \"read_arbitration_loss\": "
+      << g_replay_liq_sideband_stats.issue_read_arbitration_loss << ",\n"
+      << "    \"cancel\": "
+      << g_replay_liq_sideband_stats.issue_cancel << ",\n"
+      << "    \"i2_contention\": "
+      << g_replay_liq_sideband_stats.issue_i2_contention << ",\n"
+      << "    \"control_fence_active\": "
+      << g_replay_liq_sideband_stats.issue_control_fence_active << ",\n"
+      << "    \"control_fence_blocked\": "
+      << g_replay_liq_sideband_stats.issue_control_fence_blocked << ",\n"
+      << "    \"store_order_blocked\": "
+      << g_replay_liq_sideband_stats.issue_store_order_blocked << "\n"
+      << "  },\n"
       << "  \"replay_liq\": {\n"
       << "    \"cycles_sampled\": " << g_replay_liq_sideband_stats.cycles_sampled << ",\n"
       << "    \"load_lookup_valid\": "
@@ -7866,6 +7916,12 @@ void commit_expected_row(
             << " issueBlockedByRead=" << static_cast<unsigned>(dut.io_issueQueueBlockedByRead)
             << " issueBlockedByOutput=" << static_cast<unsigned>(dut.io_issueQueueBlockedByOutput)
             << " issueBlockedByIssued=" << static_cast<unsigned>(dut.io_issueQueueBlockedByIssued)
+            << " issueControlFenceActive="
+            << static_cast<unsigned>(dut.io_issueQueueControlFenceActive)
+            << " issueControlFenceBlocked="
+            << static_cast<unsigned>(dut.io_issueQueueControlFenceBlocked)
+            << " issueStoreOrderBlocked="
+            << static_cast<unsigned>(dut.io_issueQueueStoreOrderBlocked)
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
             << " outstanding=" << static_cast<unsigned>(dut.io_outstandingCount)
             << " robDeallocBlockLastValid=" << static_cast<unsigned>(dut.io_robDeallocBlockLastValid)

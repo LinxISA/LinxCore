@@ -24,6 +24,8 @@ depths. Important independent capacities include:
 | --- | --- |
 | `robEntries`, `commitWidth` | ROB and architectural commit. |
 | `decRenQueueDepth`, `issueQueueDepth` | Scalar frontend/backend buffering. |
+| `ScalarBackendParams.scalarIssueBanks` | Equal resident scalar issue banks in the live ALU slice. |
+| `ScalarBackendParams.gprReadPorts` | Physical scalar RF read ports; at least one atomic three-source group. |
 | `storeDispatchQueueDepth`, `storeExecBufferEntries` | Split STA/STD execution. |
 | `ScalarLsuParams.stqEntries` | Speculative store rows. |
 | `ScalarLsuParams.liqEntries` | Active scalar load rows. |
@@ -45,7 +47,9 @@ FrontendFetchPacketSource
   -> DecodeRenameROBPath
        -> GPR/T/U rename, ROB/BROB, recovery fabric
        -> split STA/STD dispatch
-  -> ReducedScalarIssueQueue
+  -> ScalarIssueFabric
+       -> ReducedScalarIssueQueue banks
+       -> shared I1/I2 candidate arbiters
   -> ScalarGPRFile
   -> ReducedScalarAluExecute
        -> scalar completion / redirect
@@ -80,6 +84,10 @@ Linx memory ordering, block recovery, or architectural state.
 - Issue observes registered ready state. A committed `ScalarGPRFile.write.fire`
   updates P readiness and matching resident IQ next state together; wakeup in
   a cycle becomes eligible for selection on the next cycle. T/U stays scoped.
+- Scalar rows route to the least-occupied resident bank. Each bank and each
+  shared boundary choose the oldest candidate only within a matching STID and
+  use round-robin service across STIDs. I1 denial cancels only the attempt;
+  residency and source readiness remain for retry.
 - ROB completion from execute and W2 load return shares an explicit arbiter;
   execute priority cannot cause the W2 row to clear before its completion is
   accepted.
@@ -226,3 +234,5 @@ Focused R661 coverage includes `ScalarLSULoadReturnQueueSpec`,
   sustained recovery and contention paths.
 - Replace residual historical diagnostic names in RTL interfaces as their
   corresponding owners become canonical; git history remains the archive.
+- Add the remaining BRU/AGU/STD/CMD physical queue classes, two-write-port
+  S1/S2 dispatch, and wider issue/execution grants around this scalar ALU slice.
