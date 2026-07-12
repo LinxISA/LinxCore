@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Cat, log2Ceil}
+import chisel3.util.{Cat, Mux1H, RRArbiter, UIntToOH, log2Ceil}
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.recovery.FlushBus
@@ -55,13 +55,15 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
   val robLookupLoadLsId = Output(new ROBID(coreParams.robEntries))
   val robRowValid = Input(Bool())
   val robRowNeedFlush = Input(Bool())
-  val resolveReady = Input(Vec(p.loadReturnPipeCount, Bool()))
-  val writebackReady = Input(Vec(p.loadReturnPipeCount, Bool()))
-  val wakeupReady = Input(Vec(p.loadReturnPipeCount, Bool()))
-  val resolveFire = Output(Vec(p.loadReturnPipeCount, Bool()))
-  val writebackFire = Output(Vec(p.loadReturnPipeCount, Bool()))
-  val wakeupFire = Output(Vec(p.loadReturnPipeCount, Bool()))
-  val completion = Output(Vec(p.loadReturnPipeCount, scopedEntry))
+  val resolveReady = Input(Bool())
+  val writebackReady = Input(Bool())
+  val wakeupReady = Input(Bool())
+  val completionCandidateValid = Output(Bool())
+  val completionSelectedPipe = Output(UInt(pipeWidth.W))
+  val resolveFire = Output(Bool())
+  val writebackFire = Output(Bool())
+  val wakeupFire = Output(Bool())
+  val completion = Output(scopedEntry)
   val w1ValidMask = Output(UInt(p.loadReturnPipeCount.W))
   val w2ValidMask = Output(UInt(p.loadReturnPipeCount.W))
   val w1PrecisePruneMask = Output(UInt(p.loadReturnPipeCount.W))
@@ -556,9 +558,18 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   returnPipeline.io.in.payload := returnQueue.io.drain
   returnPipeline.io.robRowValid := io.loadReturn.robRowValid
   returnPipeline.io.robRowNeedFlush := io.loadReturn.robRowNeedFlush
-  returnPipeline.io.resolveReady := io.loadReturn.resolveReady
-  returnPipeline.io.writebackReady := io.loadReturn.writebackReady
-  returnPipeline.io.wakeupReady := io.loadReturn.wakeupReady
+  val completionArb = Module(new RRArbiter(UInt(math.max(1, log2Ceil(p.loadReturnPipeCount)).W),
+    p.loadReturnPipeCount))
+  for (pipe <- 0 until p.loadReturnPipeCount) {
+    completionArb.io.in(pipe).valid := returnPipeline.io.w2ValidMask(pipe)
+    completionArb.io.in(pipe).bits := pipe.U
+    val selected = completionArb.io.out.valid && completionArb.io.out.bits === pipe.U
+    returnPipeline.io.resolveReady(pipe) := selected && io.loadReturn.resolveReady
+    returnPipeline.io.writebackReady(pipe) := selected && io.loadReturn.writebackReady
+    returnPipeline.io.wakeupReady(pipe) := selected && io.loadReturn.wakeupReady
+  }
+  val selectedResolveFire = returnPipeline.io.resolveFire.asUInt.orR
+  completionArb.io.out.ready := selectedResolveFire
   returnQueue.io.drainReady := returnPipeline.io.inReady
   resolveQueue.io.pushValid := publicationValid && publicationPayloadValid && returnQueue.io.enqueueReady
   resolveQueue.io.pushPeId := hitRow.peId
@@ -674,10 +685,15 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.loadReturn.robLookupGid := returnPipeline.io.robLookupGid
   io.loadReturn.robLookupRid := returnPipeline.io.robLookupRid
   io.loadReturn.robLookupLoadLsId := returnPipeline.io.robLookupLoadLsId
-  io.loadReturn.resolveFire := returnPipeline.io.resolveFire
-  io.loadReturn.writebackFire := returnPipeline.io.writebackFire
-  io.loadReturn.wakeupFire := returnPipeline.io.wakeupFire
-  io.loadReturn.completion := returnPipeline.io.completion
+  io.loadReturn.completionCandidateValid := completionArb.io.out.valid
+  io.loadReturn.completionSelectedPipe := completionArb.io.out.bits
+  io.loadReturn.resolveFire := selectedResolveFire
+  io.loadReturn.writebackFire := returnPipeline.io.writebackFire.asUInt.orR
+  io.loadReturn.wakeupFire := returnPipeline.io.wakeupFire.asUInt.orR
+  io.loadReturn.completion := Mux1H(
+    UIntToOH(completionArb.io.out.bits, p.loadReturnPipeCount),
+    returnPipeline.io.completion
+  )
   io.loadReturn.w1ValidMask := returnPipeline.io.w1ValidMask
   io.loadReturn.w2ValidMask := returnPipeline.io.w2ValidMask
   io.loadReturn.w1PrecisePruneMask := returnPipeline.io.w1PrecisePruneMask

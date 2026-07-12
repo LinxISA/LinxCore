@@ -12,9 +12,25 @@ class ReducedCommitROBIO(val entries: Int, val traceParams: CommitTraceParams) e
   val allocReady = Output(Bool())
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
+  val allocRid = Output(new ROBID(entries))
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+  val exactCompleteValid = Input(Bool())
+  val exactCompleteRid = Input(new ROBID(entries))
+  val exactCompleteReady = Output(Bool())
+  val exactCompleteAccepted = Output(Bool())
+  val exactCompleteBlockedByInvalidRid = Output(Bool())
+  val exactCompleteBlockedByFree = Output(Bool())
+  val exactCompleteBlockedByStaleRid = Output(Bool())
+
+  val lookupValid = Input(Bool())
+  val lookupRid = Input(new ROBID(entries))
+  val lookupRowValid = Output(Bool())
+  val lookupRowNeedFlush = Output(Bool())
+  val lookupBlockedByInvalidRid = Output(Bool())
+  val lookupBlockedByFree = Output(Bool())
+  val lookupBlockedByStaleRid = Output(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -91,6 +107,9 @@ class ReducedCommitROB(
   io.allocDuplicateIdentity := io.allocValid && duplicateVec.asUInt.orR
   io.allocReady := (size =/= entries.U) && !io.allocDuplicateIdentity
   val allocFire = io.allocValid && io.allocReady
+  io.allocRid.valid := io.allocReady
+  io.allocRid.wrap := tailWrap
+  io.allocRid.value := tailValue
 
   val commitFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
@@ -129,8 +148,49 @@ class ReducedCommitROB(
   io.headComplete := valid(headValue) && complete(headValue)
   io.headRobValue := headValue
 
+  val lookupIndex = io.lookupRid.value(ptrWidth - 1, 0)
+  val lookupOccupied = valid(lookupIndex)
+  val lookupRidMatch = Mux(
+    lookupOccupied,
+    table(lookupIndex).rob.valid &&
+      (table(lookupIndex).rob.wrap === io.lookupRid.wrap) &&
+      (table(lookupIndex).rob.value === io.lookupRid.value),
+    false.B
+  )
+  io.lookupRowValid := io.lookupValid && io.lookupRid.valid && lookupRidMatch
+  io.lookupRowNeedFlush := false.B
+  io.lookupBlockedByInvalidRid := io.lookupValid && !io.lookupRid.valid
+  io.lookupBlockedByFree := io.lookupValid && io.lookupRid.valid && !lookupOccupied
+  io.lookupBlockedByStaleRid :=
+    io.lookupValid && io.lookupRid.valid && lookupOccupied && !lookupRidMatch
+
+  val exactCompleteIndex = io.exactCompleteRid.value(ptrWidth - 1, 0)
+  val exactCompleteOccupied = valid(exactCompleteIndex)
+  val exactCompleteMatch = Mux(
+    exactCompleteOccupied,
+    table(exactCompleteIndex).rob.valid &&
+      (table(exactCompleteIndex).rob.wrap === io.exactCompleteRid.wrap) &&
+      (table(exactCompleteIndex).rob.value === io.exactCompleteRid.value),
+    false.B
+  )
+  val exactCompleteReady = io.exactCompleteRid.valid && exactCompleteMatch
+  val exactCompleteAccepted = io.exactCompleteValid && exactCompleteReady
+  io.exactCompleteReady := exactCompleteReady
+  io.exactCompleteAccepted := exactCompleteAccepted
+  io.exactCompleteBlockedByInvalidRid := io.exactCompleteValid && !io.exactCompleteRid.valid
+  io.exactCompleteBlockedByFree :=
+    io.exactCompleteValid && io.exactCompleteRid.valid && !exactCompleteOccupied
+  io.exactCompleteBlockedByStaleRid :=
+    io.exactCompleteValid && io.exactCompleteRid.valid && exactCompleteOccupied && !exactCompleteMatch
+
+  assert(!(io.completeValid && io.exactCompleteValid),
+    "reduced ROB legacy and exact completion ports are mutually exclusive")
+
   when(io.completeValid && valid(io.completeRobValue)) {
     complete(io.completeRobValue) := true.B
+  }
+  when(exactCompleteAccepted) {
+    complete(exactCompleteIndex) := true.B
   }
 
   for (slot <- 0 until traceParams.commitWidth) {

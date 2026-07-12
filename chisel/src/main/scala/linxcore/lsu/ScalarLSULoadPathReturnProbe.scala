@@ -133,11 +133,9 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.io.resolveRetireLsId := ROBID.disabled(8)
   path.io.loadReturn.robRowValid := io.drainReady
   path.io.loadReturn.robRowNeedFlush := false.B
-  for (pipe <- 0 until lsuParams.loadReturnPipeCount) {
-    path.io.loadReturn.resolveReady(pipe) := io.sideEffectReady
-    path.io.loadReturn.writebackReady(pipe) := io.sideEffectReady
-    path.io.loadReturn.wakeupReady(pipe) := io.sideEffectReady
-  }
+  path.io.loadReturn.resolveReady := io.sideEffectReady
+  path.io.loadReturn.writebackReady := io.sideEffectReady
+  path.io.loadReturn.wakeupReady := io.sideEffectReady
 
   path.mdbStore.probe := 0.U.asTypeOf(path.mdbStore.probe)
   path.mdbStore.probeCommit := false.B

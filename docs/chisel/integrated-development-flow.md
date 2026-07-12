@@ -15,6 +15,30 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R664 connects canonical scalar W2 resolve to the real
+`ReducedCommitROB` completion port in `LinxCoreTop`. The ROB supplies exact
+slot-plus-wrap validation before LRET dequeue and repeats that validation at
+the completion side-effect point, so delayed W2 cannot complete a reused slot.
+Shared W2 completion is fair across return pipes; the top then gives existing
+external execute completion fixed priority on its single physical ROB sink,
+holding scalar W2 for legal different-slot contention or stale/free RID retry.
+Same-slot external/scalar candidates are rejected as duplicate source
+ownership. The generated probe covers wrap, reuse, stale identity, and legal
+contention. Physical RF and issue-wakeup sinks remain the next live integration
+boundary.
+
+R664 verification passes 262 suites and 1,553 tests. The canonical W1/W2
+probe and the composed ROB probe pass; the latter cycles through wrap and slot
+reuse, rejects a stale RID, accepts the current generation, and proves legal
+different-row completion contention. Architecture contract, adapter,
+conformance, repository-layout, MDB transaction, recovery-class, and recovery
+producer gates pass. Independent review found and drove the same-slot
+duplicate-owner rejection; final re-review is clean. The live top compares 3
+rows and CoreMark compares 426 rows with zero mismatches and zero CBSTOP at
+`generated/r664-final-exact-load-rob-completion-coremark/report/crosscheck_manifest.json`.
+Physical RF and issue-wakeup integration, cache/miss queues, cross-line
+assembly, and natural recovery activation remain open.
+
 Latest packet: R663 moves the scoped LRET drain into canonical parameterized
 W1/W2 ownership beneath `ScalarLSULoadPath`. Every stage retains full scoped
 return identity. Exact ROB validation holds a missing row and drops a present

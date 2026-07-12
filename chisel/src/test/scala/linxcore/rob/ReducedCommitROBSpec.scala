@@ -147,5 +147,13 @@ class ReducedCommitROBSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedCommitROB"))
     assert(sv.contains("commit"))
     assert(sv.contains("commitContractError"))
+    assert(sv.contains("io_lookupValid"))
+    assert(sv.contains("io_lookupRid_wrap"))
+    assert(sv.contains("io_lookupRowValid"))
+    assert(sv.contains("io_lookupRowNeedFlush"))
+    assert(sv.contains("io_lookupBlockedByStaleRid"))
+    assert(sv.contains("io_exactCompleteRid_wrap"))
+    assert(sv.contains("io_exactCompleteReady"))
+    assert(sv.contains("io_exactCompleteBlockedByStaleRid"))
   }
 }

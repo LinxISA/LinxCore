@@ -8,7 +8,7 @@
       "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
       "role": "reduced-bringup",
       "forbidden_roles": ["full-composition", "full-replacement"],
-      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU", "ScalarLoadCompletionROBBridge"],
       "text_contains": [
         "val commitRob = Module(new ReducedCommitROB",
         "val scalarLsu = Module(new ScalarLSU",
@@ -106,7 +106,7 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
-          "symbols": ["ReducedCommitROB", "completeValid", "commitFireVec", "commitCount", "headValue"]
+          "symbols": ["ReducedCommitROB", "completeValid", "exactCompleteRid", "exactCompleteReady", "commitFireVec", "commitCount", "headValue"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/recovery/FlushControl.scala",
@@ -156,13 +156,17 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
-          "symbols": ["LinxCoreTop", "ReducedCommitROB", "commitMonitorValidMask"]
+          "symbols": ["LinxCoreTop", "ReducedCommitROB", "ScalarLoadCompletionROBBridge", "robExactCompleteRid", "scalarLoadCompleteSelected", "commitMonitorValidMask"]
         }
       ],
       "verification": [
         {
           "path": "chisel/src/test/scala/linxcore/top/LinxCoreTopSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
         }
       ]
     },
@@ -375,13 +379,17 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
-          "symbols": ["ReducedCommitROB", "table", "valid", "complete", "headValue", "tailValue"]
+          "symbols": ["ReducedCommitROB", "table", "valid", "complete", "lookupRid", "exactCompleteRid", "exactCompleteReady", "headValue", "tailValue"]
         }
       ],
       "verification": [
         {
           "path": "chisel/src/test/scala/linxcore/rob/ReducedCommitROBSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROBSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
         }
       ]
     },
@@ -480,11 +488,11 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, scalar MDB wait mutation, retained recovery, atomic final LRET publication, and canonical parameterized W1/W2 ownership. Cache/miss and cross-line queues remain staged, and physical live sink arbitration remains in the reduced timing composition."],
+      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, scalar MDB wait mutation, retained recovery, atomic final LRET publication, canonical parameterized W1/W2 ownership, and fair shared W2 arbitration. Cache/miss and cross-line queues remain staged; the reduced top connects exact ROB completion while physical RF and wakeup sinks remain external."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
-          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "returnReservations", "publicationAccepted", "transferPending"]
+          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "completionArb", "returnReservations", "publicationAccepted", "transferPending"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala",
@@ -511,7 +519,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-RES-001"],
-      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath. The live reduced sink integration currently exposes one shared scalar return pipe; cache/miss and cross-line return sources remain staged."],
+      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath. The reduced top connects fair shared W2 arbitration to exact ROB completion, but physical RF and wakeup sinks remain external; cache/miss and cross-line return sources remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala",
@@ -524,6 +532,14 @@
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala",
           "symbols": ["ScalarLSULoadReturnPipeline", "robLookupValid", "completionFire", "protocolError"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/ScalarLoadCompletionROBBridge.scala",
+          "symbols": ["ScalarLoadCompletionROBBridge", "robExactCompleteReady", "robExactCompleteRid", "scalarLoadSelected", "collision", "sameRowCollision"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
+          "symbols": ["lookupRid", "lookupRowValid", "exactCompleteRid", "exactCompleteReady", "exactCompleteAccepted"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala",
@@ -546,6 +562,10 @@
         {
           "path": "tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh",
           "command": "bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
         }
       ]
     },

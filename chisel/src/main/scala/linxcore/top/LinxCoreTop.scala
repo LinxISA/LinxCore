@@ -18,6 +18,8 @@ class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTracePara
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+  val scalarLoadCompleteSelected = Output(Bool())
+  val completeCollision = Output(Bool())
 
   val scalarLsu = new ScalarLSUIO(coreParams, coreParams.scalarLsu)
 
@@ -50,6 +52,7 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
     traceParams = traceParams
   ))
   val scalarLsu = Module(new ScalarLSU(coreParams))
+  val scalarLoadCompletion = Module(new ScalarLoadCompletionROBBridge(coreParams.robEntries))
 
   scalarLsu.io <> io.scalarLsu
 
@@ -58,8 +61,31 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
   io.allocReady := commitRob.io.allocReady
   io.allocDuplicateIdentity := commitRob.io.allocDuplicateIdentity
 
-  commitRob.io.completeValid := io.completeValid
-  commitRob.io.completeRobValue := io.completeRobValue
+  scalarLoadCompletion.io.externalCompleteValid := io.completeValid
+  scalarLoadCompletion.io.externalCompleteRobValue := io.completeRobValue
+  scalarLoadCompletion.io.loadLookupValid := scalarLsu.io.load.loadReturn.robLookupValid
+  scalarLoadCompletion.io.loadLookupRid := scalarLsu.io.load.loadReturn.robLookupRid
+  scalarLoadCompletion.io.robLookupRowValid := commitRob.io.lookupRowValid
+  scalarLoadCompletion.io.robLookupRowNeedFlush := commitRob.io.lookupRowNeedFlush
+  scalarLoadCompletion.io.loadCompletionCandidateValid :=
+    scalarLsu.io.load.loadReturn.completionCandidateValid
+  scalarLoadCompletion.io.loadCompletionRid :=
+    scalarLsu.io.load.loadReturn.completion.payload.rid
+  scalarLoadCompletion.io.loadResolveEnable := io.scalarLsu.load.loadReturn.resolveReady
+  scalarLoadCompletion.io.robExactCompleteReady := commitRob.io.exactCompleteReady
+  scalarLoadCompletion.io.loadResolveFire := scalarLsu.io.load.loadReturn.resolveFire
+
+  commitRob.io.lookupValid := scalarLoadCompletion.io.robLookupValid
+  commitRob.io.lookupRid := scalarLoadCompletion.io.robLookupRid
+  scalarLsu.io.load.loadReturn.robRowValid := scalarLoadCompletion.io.loadRobRowValid
+  scalarLsu.io.load.loadReturn.robRowNeedFlush := scalarLoadCompletion.io.loadRobRowNeedFlush
+  scalarLsu.io.load.loadReturn.resolveReady := scalarLoadCompletion.io.loadResolveReady
+  commitRob.io.completeValid := scalarLoadCompletion.io.robCompleteValid
+  commitRob.io.completeRobValue := scalarLoadCompletion.io.robCompleteRobValue
+  commitRob.io.exactCompleteValid := scalarLoadCompletion.io.robExactCompleteValid
+  commitRob.io.exactCompleteRid := scalarLoadCompletion.io.robExactCompleteRid
+  io.scalarLoadCompleteSelected := scalarLoadCompletion.io.scalarLoadSelected
+  io.completeCollision := scalarLoadCompletion.io.collision
 
   io.commit := commitRob.io.commit
   io.commitValidMask := commitRob.io.commitValidMask

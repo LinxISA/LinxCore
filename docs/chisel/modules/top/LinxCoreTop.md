@@ -17,11 +17,11 @@ full LinxCore frontend, decode, issue, execute, recovery, and commit system. It
 instantiates the monitored `ReducedCommitROB` and canonical `ScalarLSU` store,
 active/resolved load, and scalar MDB boundaries. Live failed-wait delete timing,
 oldest eligibility, and exact recovery-source promotion are integrated beneath
-the LSU owner. The scalar LSU exposes an exact full-BID lookup request/result
-and a promoted full-BID source, but this reduced shell cannot satisfy the lookup
-from `ReducedCommitROB` or consume the source centrally. Cache/miss queues,
-canonical backend source/lookup wiring, cleanup, and final load return are not
-yet integrated.
+the LSU owner. The reduced ROB supplies exact slot-plus-wrap validation for
+canonical scalar LRET dequeue and consumes canonical W2 resolve through one
+external-priority completion bridge. Full-BID recovery-source lookup and
+central cleanup remain separate from this reduced RID lookup. Cache/miss
+queues, physical RF/wakeup integration, and full recovery remain staged.
 
 `LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
 window to commit-row flow. Keep this reduced replay top stable for existing
@@ -37,6 +37,8 @@ xchecks while that newer wrapper grows toward live Verilator execution.
 | input | `allocRow` | `CommitTraceRow` | `allocValid && allocReady` | Commit-trace-shaped row used as the temporary reduced top input payload. |
 | input | `completeValid` | `Bool` | valid | Marks one reduced ROB slot complete. |
 | input | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | `completeValid` | Reduced ROB slot index to complete. |
+| output | `scalarLoadCompleteSelected` | `Bool` | combinational | Canonical scalar W2 won the shared reduced-ROB completion port. |
+| output | `completeCollision` | `Bool` | combinational | External completion held a simultaneous scalar W2 candidate. |
 | bidirectional boundary | `scalarLsu.store` | `STQSCBCommitPathIO` | typed per signal | Canonical scalar LSU store request, flush, cache/response, state, and diagnostic boundary. |
 | bidirectional boundary | `scalarLsu.load` | `ScalarLSULoadPathIO` | typed per signal | Canonical LIQ/ResolveQ allocation, launch, forwarding, replay/refill, recovery, retire, and state boundary. |
 | bidirectional boundary | `scalarLsu.recovery` | `ScalarLSURecoverySourcePortIO` | typed valid/ready | Promoted full-BID source and readiness, oldest BID/RID watermark, and exact ROB lookup request/result. Cleanup is not owned by this reduced shell. |
@@ -66,8 +68,18 @@ owns no registers of its own.
 ## Logic Design
 
 The top computes `CommitTraceParams` from `CoreParams` so top-level commit width
-and ROB slot width stay tied to the core configuration. It wires the external
-allocation and completion ports directly into `ReducedCommitROB`, forwards the
+and ROB slot width stay tied to the core configuration. It wires external
+allocation into `ReducedCommitROB`. `ScalarLoadCompletionROBBridge` routes the
+canonical LRET RID lookup to the reduced ROB and arbitrates external execute
+completion against canonical scalar W2 resolve. External completion has fixed
+priority; W2 remains resident and retries because resolve-ready is withheld.
+When scalar W2 wins, the full RID reaches the ROB exact-completion port and is
+revalidated against the resident slot generation before the completion bit can
+change. The legacy external completion input remains a trusted slot-only
+reduced-harness interface and is not the canonical scalar-load contract. A
+same-slot external/scalar candidate is rejected as duplicate source ownership;
+only different-slot contention may hold and retry.
+The top forwards the
 commit window and monitor flags, and reports `idle` when the reduced ROB is
 empty and the scalar LSU reports its STQ, commit-drain queue, SCB row bank, SCB
 response buffer, LIQ, ResolveQ, pending load transfer, MDB command/fanout
@@ -81,8 +93,9 @@ head order, and invalid fixed-width slots are zeroed before adapter filtering.
 ## Timing
 
 Timing is inherited from `ReducedCommitROB`: completion is registered and is not
-visible to commit selection until the next cycle. The top adds no pipeline
-stage.
+visible to commit selection until the next cycle. The completion bridge is
+combinational and adds no retained state. Exact-completion readiness is part of
+the W2 atomic rendezvous, so stale/free RID rejection holds the W2 slot.
 
 ## Flush/Recovery
 
@@ -114,6 +127,7 @@ those rows from an ELF.
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh`
 - `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `bash tools/chisel/build_chisel.sh`
 

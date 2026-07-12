@@ -25,8 +25,23 @@ QEMU cross-check path.
 | output | `allocReady` | `Bool` | ready | True when the ROB is not full and the identity is not duplicated. |
 | output | `allocDuplicateIdentity` | `Bool` | combinational | True when `allocRow.identity.(bid,gid,rid)` matches a live entry. |
 | input | `allocRow` | `CommitTraceRow` | `allocValid && allocReady` | Payload stored for later commit trace emission. |
-| input | `completeValid` | `Bool` | valid | Marks a live ROB slot complete. |
-| input | `completeRobValue` | `UInt(log2Ceil(entries).W)` | `completeValid` | ROB slot to mark complete. |
+| output | `allocRid` | `ROBID` | `allocReady` | Full slot-plus-wrap identity of the tail allocation candidate. |
+| input | `completeValid` | `Bool` | valid | Legacy trusted-harness completion request. |
+| input | `completeRobValue` | `UInt(log2Ceil(entries).W)` | `completeValid` | Legacy slot-only completion index; not used by canonical scalar W2. |
+| input | `exactCompleteValid` | `Bool` | valid | Canonical completion request carrying an exact resident identity. |
+| input | `exactCompleteRid` | `ROBID` | `exactCompleteValid` | Slot-plus-wrap RID revalidated at the completion side-effect point. |
+| output | `exactCompleteReady` | `Bool` | combinational | The RID identifies the currently resident generation and may complete. |
+| output | `exactCompleteAccepted` | `Bool` | combinational | Exact completion valid and ready in this cycle. |
+| output | `exactCompleteBlockedByInvalidRid` | `Bool` | combinational | Exact completion did not carry a valid RID. |
+| output | `exactCompleteBlockedByFree` | `Bool` | combinational | Exact completion indexed a free slot. |
+| output | `exactCompleteBlockedByStaleRid` | `Bool` | combinational | Exact completion indexed a different resident generation. |
+| input | `lookupValid` | `Bool` | valid | Requests an exact live-row check for `lookupRid`. |
+| input | `lookupRid` | `ROBID` | `lookupValid` | Slot-plus-wrap RID to validate before scalar LRET dequeue. |
+| output | `lookupRowValid` | `Bool` | combinational | The indexed slot is live and its stored allocator RID exactly matches. |
+| output | `lookupRowNeedFlush` | `Bool` | combinational | Always false in this reduced ROB, which has no resident `NeedFlush` state. |
+| output | `lookupBlockedByInvalidRid` | `Bool` | combinational | Lookup request did not carry a valid RID. |
+| output | `lookupBlockedByFree` | `Bool` | combinational | Indexed slot is not resident. |
+| output | `lookupBlockedByStaleRid` | `Bool` | combinational | Indexed slot is occupied by a different RID generation. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Retired rows in head order. Invalid rows are zeroed. |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | One bit per retiring row. |
 | output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
@@ -75,11 +90,24 @@ The exported commit port is also checked by an embedded `CommitTraceMonitor`.
 The monitor does not affect retirement; it exposes structural contract flags for
 the same window visible on `commit.rows`.
 
+The read-only lookup indexes by RID slot and compares the stored allocator
+`rob.wrap/value` sidecar before reporting a live row. Slot magnitude alone is
+not sufficient after wrap. The reduced ROB has no `NeedFlush` status, so that
+output remains false; the full ROB must supply its real status.
+
+The exact completion port repeats the same slot-plus-wrap comparison in the
+cycle that mutates the completion bit. This second check is required even when
+LRET admission previously passed lookup: a delayed W2 must not complete a
+reused slot. Canonical scalar W2 uses only this exact port. The slot-only port
+is retained for the existing trusted reduced harness and is mutually exclusive
+with exact completion.
+
 ## Timing
 
-Completion is registered and is not visible to commit selection until the next
-cycle. Commit selection observes current state, then retiring entries clear and
-the head pointer advances by `commitCount`.
+Accepted completion is registered and is not visible to commit selection until
+the next cycle. A stale, free, or invalid exact RID is not accepted. Commit
+selection observes current state, then retiring entries clear and the head
+pointer advances by `commitCount`.
 
 ## Flush/Recovery
 
@@ -116,6 +144,7 @@ infrastructure; it does not replace the future live ROB/CMT execution path.
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 
 Current tests cover contiguous retirement, incomplete-head blocking, duplicate
