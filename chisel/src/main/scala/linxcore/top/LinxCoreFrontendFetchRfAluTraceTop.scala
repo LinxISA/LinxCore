@@ -279,7 +279,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreCommitStoreSeen = Output(Bool())
   val reducedStoreCommitStoreMatched = Output(Bool())
   val reducedStoreCommitStoreUnmatched = Output(Bool())
+  val reducedStoreCommitReleasedByEarlySafe = Output(Bool())
   val reducedStoreCommitMatchMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitEarlySafeMatchMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitPendingIdentityMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitPendingEarlySafeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitResidentEarlySafeMask = Output(UInt(p.robEntries.W))
   val reducedStoreCommitPendingMarkMask = Output(UInt(p.robEntries.W))
   val reducedStoreCommitPendingFreeMask = Output(UInt(p.robEntries.W))
   val reducedStoreCommitPendingMarkCount = Output(UInt(storeStqCountWidth.W))
@@ -2309,7 +2314,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    lsidWidth = p.lsidWidth
   ))
   private val reducedStoreCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
   private val reducedStoreScbRequestCount = reducedStoreCommitIssueWidth * 2
@@ -2900,8 +2906,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     storeCommitStidInRange,
     Mux1H(storeCommitStidMatch, path.io.blockNonFlushPrefixCount),
     0.U)
+  storeCommitOwner.io.oldestBlockValid := storeCommitStidInRange &&
+    (Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid) ||
+      Mux1H(storeCommitStidMatch, path.io.blockNonFlushBlockedValid))
+  storeCommitOwner.io.oldestBlockBid := Mux(
+    storeCommitStidInRange,
+    Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
+    0.U)
+  storeCommitOwner.io.oldestRobValid := path.io.commitHeadValid
+  storeCommitOwner.io.oldestRobBid := path.io.commitHeadBid
+  storeCommitOwner.io.oldestRobLsId := path.io.commitHeadLsId
+  storeCommitOwner.io.oldestRobStid := path.io.commitHeadStid
   storeCommitOwner.io.commit := path.io.commit
   storeCommitOwner.io.commitValidMask := path.io.commitValidMask
+  storeCommitOwner.io.commitMemoryOrder := path.io.commitMemoryOrder
   storeCommitOwner.io.stqRows := path.io.storeStqRows
   storeCommitOwner.io.markCommitAccepted := path.io.storeMarkCommitAccepted
   storeCommitOwner.io.markCommitIgnored := path.io.storeMarkCommitIgnored
@@ -4830,7 +4848,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreCommitStoreSeen := storeCommitOwner.io.commitStoreSeen
   io.reducedStoreCommitStoreMatched := storeCommitOwner.io.commitStoreMatched
   io.reducedStoreCommitStoreUnmatched := storeCommitOwner.io.commitStoreUnmatched
+  io.reducedStoreCommitReleasedByEarlySafe := storeCommitOwner.io.commitStoreReleasedByEarlySafe
   io.reducedStoreCommitMatchMask := storeCommitOwner.io.matchMask
+  io.reducedStoreCommitEarlySafeMatchMask := storeCommitOwner.io.earlySafeMatchMask
+  io.reducedStoreCommitPendingIdentityMask := storeCommitOwner.io.pendingCommitIdentityMask
+  io.reducedStoreCommitPendingEarlySafeMask := storeCommitOwner.io.pendingCommitEarlySafeMask
+  io.reducedStoreCommitResidentEarlySafeMask := storeCommitOwner.io.residentEarlySafeMask
   io.reducedStoreCommitPendingMarkMask := storeCommitOwner.io.pendingMarkMask
   io.reducedStoreCommitPendingFreeMask := storeCommitOwner.io.pendingFreeMask
   io.reducedStoreCommitPendingMarkCount := storeCommitOwner.io.pendingMarkCount

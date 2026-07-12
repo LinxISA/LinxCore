@@ -1013,8 +1013,19 @@ implementation choices and must not change architectural identity widths:
 - A committed ROB store event may arrive before its block enters the strong
   non-flush prefix. The store owner retains the event with its full block BID
   and rechecks membership against the selected STID's `(head_bid,
-  prefix_count)` window. It may request the STQ `Wait -> Commit` transition
-  only after that proof succeeds; BID magnitude alone is never sufficient.
+  prefix_count)` window.
+- Scalar STQ liveness has a second, model-derived proof. A ready scalar row in
+  the exact commit-head `(STID, BID)` block may request `Wait -> Commit` when
+  its wrap-qualified LSID is strictly older than the ROB head's LSID snapshot.
+  The ROB head is the oldest instruction that can still redirect or fault, so
+  an older scalar store is no longer recoverable even while the block remains
+  incomplete. This proof scans resident rows directly and must not depend on a
+  previously observed store-commit identity or on STA/STD merge timing.
+- The strong-prefix and oldest-ROB/LSID predicates are alternative
+  authorizations. Both require exact owner identity and typed recovery state;
+  BID magnitude and plain unsigned LSID comparison are forbidden. The
+  oldest-ROB predicate applies only to scalar IEX rows. Tile/template stores
+  require their own issued/non-flush proof and cannot reuse the scalar rule.
 - SCB owns committed, non-flushable, physical-cacheline coalescing. It must not
   merge new bytes into a row that has issued ownership traffic and is awaiting
   its response.
@@ -1033,7 +1044,8 @@ implementation choices and must not change architectural identity widths:
   consecutive count-certain blocks without unsigned BID comparisons.
 - Recovery reuses the first killed block's saved start ID when an already
   assigned suffix is removed. Store ranges do not authorize SCB admission;
-  R652 strong non-flush proof remains mandatory.
+  either the strong block prefix or the exact scalar oldest-ROB/LSID predicate
+  must authorize STQ promotion.
 - Explicit template/tile store counts use a retained, exact `(STID, full BID)`
   publication boundary. The event is admitted only inside the live BROB
   window, survives range-sink backpressure, and is canceled by the same

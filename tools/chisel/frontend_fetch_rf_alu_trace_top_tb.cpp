@@ -7847,8 +7847,14 @@ void commit_expected_row(
             << " storeStqInsertAllocated=" << static_cast<unsigned>(dut.io_storeStqInsertAllocated)
             << " storeStqInsertMerged=" << static_cast<unsigned>(dut.io_storeStqInsertMerged)
             << " storeStqInsertConflict=" << static_cast<unsigned>(dut.io_storeStqInsertConflict)
+            << " reducedStoreExecStaMatch="
+            << static_cast<unsigned>(dut.io_reducedStoreExecStaMatch)
+            << " reducedStoreExecStdMatch="
+            << static_cast<unsigned>(dut.io_reducedStoreExecStdMatch)
             << " storeStqWait=0x" << std::hex << hex_port(dut.io_storeStqWaitMask)
             << " storeStqCommit=0x" << hex_port(dut.io_storeStqCommitMask)
+            << " storeStqAddrReady=0x" << hex_port(dut.io_storeStqAddrReadyMask)
+            << " storeStqDataReady=0x" << hex_port(dut.io_storeStqDataReadyMask)
             << std::dec
             << " storeStqResident=" << static_cast<unsigned>(dut.io_storeStqResidentCount)
             << " storeStqOutstandingWait=" << static_cast<unsigned>(dut.io_storeStqOutstandingWaitCount)
@@ -7862,6 +7868,12 @@ void commit_expected_row(
             << " reducedStoreCommitUnmatched=" << static_cast<unsigned>(dut.io_reducedStoreCommitStoreUnmatched)
             << " reducedStoreCommitMatchMask=0x" << std::hex
             << static_cast<unsigned>(dut.io_reducedStoreCommitMatchMask)
+            << " reducedStoreCommitEarlySafeMatchMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitEarlySafeMatchMask)
+            << " reducedStoreCommitPendingIdentityMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingIdentityMask)
+            << " reducedStoreCommitPendingEarlySafeMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingEarlySafeMask)
             << " reducedStoreCommitPendingMarkMask=0x"
             << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkMask)
             << " reducedStoreCommitPendingFreeMask=0x"

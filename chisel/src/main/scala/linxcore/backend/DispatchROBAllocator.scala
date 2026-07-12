@@ -235,6 +235,9 @@ class DispatchROBAllocatorIO(
   val commitHeadValid = Output(Bool())
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
+  val commitHeadBid = Output(new ROBID(entries))
+  val commitHeadLsId = Output(UInt(lsidWidth.W))
+  val commitHeadStid = Output(UInt(stidWidth.W))
   val deallocHeadValid = Output(Bool())
   val deallocHeadStatus = Output(ROBEntryStatus())
   val deallocHeadRobValue = Output(UInt(ptrWidth.W))
@@ -646,6 +649,9 @@ class DispatchROBAllocator(
   io.commitHeadValid := rob.io.commitHeadValid
   io.commitHeadStatus := rob.io.commitHeadStatus
   io.commitHeadRobValue := rob.io.commitHeadRobValue
+  io.commitHeadBid := rob.io.commitHeadBid
+  io.commitHeadLsId := rob.io.commitHeadLsId
+  io.commitHeadStid := rob.io.commitHeadStid
   io.deallocHeadValid := rob.io.deallocHeadValid
   io.deallocHeadStatus := rob.io.deallocHeadStatus
   io.deallocHeadRobValue := rob.io.deallocHeadRobValue

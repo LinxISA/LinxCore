@@ -25,8 +25,11 @@ ROB commit rows to the optional queue-backed STQ path. It observes committed
 store rows from `DecodeRenameROBPath`, matches them to resident STQ rows by the
 model `CommitTrace.identity` tuple plus STID, and marks the matched STQ row
 committed only after the row's full block BID lies inside BROB's strong
-non-flush prefix. It buffers the full block BID, STID, and committed-store
-identity when either the prefix or matching STQ row is not ready.
+non-flush prefix or the row is an older scalar store in the exact oldest ROB
+block. It buffers the full block BID, STID, LSID, and committed-store identity
+when either authorization or the matching STQ row is not ready. Independently,
+it scans ready resident scalar rows against the ROB commit-head BID/LSID so
+split-store merge timing cannot lose an already established safe frontier.
 It can also run in a legacy direct-free mode that issues a later single-index
 committed-row free, but `LinxCoreFrontendFetchRfAluTraceTop` disables that mode
 after R241 and frees rows from the SCB accepted-`last` mask instead.
@@ -53,6 +56,10 @@ Inputs:
 - `nonFlushValid`, `nonFlushHeadBid`, `nonFlushPrefixCount`: selected STID's
   exact strong-safe BROB prefix. Head plus count, not BID magnitude, proves
   membership.
+- `oldestRobValid`, `oldestRobBid`, `oldestRobLsId`, `oldestRobStid`: exact
+  commit-head snapshot used by the scalar resident early-safe predicate.
+- `commitMemoryOrder`: ROB commit-window LSID snapshots used to latch
+  early-safe authority for retained store identities.
 - `commit`, `commitValidMask`: monitored ROB commit window from
   `DecodeRenameROBPath`.
 - `stqRows`: current STQ row image forwarded from `StoreDispatchSTQPath`.
@@ -74,8 +81,12 @@ Outputs:
 - `commitStoreBlockedByNonFlush`: a current committed store is outside the
   selected strong prefix or lacks a valid full block BID.
 - `matchMask`: STQ rows matched by current committed store rows.
+- `earlySafeMatchMask`, `residentEarlySafeMask`: rows authorized by a retained
+  commit LSID frontier or by the current exact ROB-head BID/LSID snapshot.
 - `pendingCommitIdentityMask`: buffered committed-store identities that are
   waiting for a future resident STQ row with the same model identity.
+- `pendingCommitEarlySafeMask`: retained identities whose later same-block
+  commit LSID proof has been latched across delayed STA/STD merge.
 - `pendingMarkMask`, `pendingFreeMask`,
   `pendingMarkCount`, `pendingFreeCount`: registered owner state.
 - `markBlocked`, `freeBlocked`: command was issued but the STQ bank did not
@@ -96,8 +107,15 @@ when:
 4. the STQ row is valid, `Wait`, `ST_ALL`, address-ready, and data-ready,
 5. the STQ row model `bid/gid/rid` equals the commit identity,
 6. the STQ row STID equals `activeStid`,
-7. the commit row carries a valid full block BID whose modular distance from
-   `nonFlushHeadBid` is less than `nonFlushPrefixCount`.
+7. either the commit row lies in the strong non-flush prefix or its scalar LSID
+   is strictly older than a later committed LSID in the exact oldest block.
+
+The model `GetOldestLSID` fallback does not wait for a committed-store identity.
+For every ready resident scalar row, the owner also requires exact STID and
+wrap-qualified BID equality with the ROB head and strict wrap-qualified
+`row.lsId < head.lsId`. Tile rows are excluded. Recovery clears retained
+identity/frontier state, while the live ROB head is recomputed from surviving
+state.
 
 Matched rows set bits in `pendingMarkMask`. If a committed store identity does
 not match a currently markable STQ row, the owner records that identity in a
@@ -143,6 +161,15 @@ unsafe committed store remains retained, a later prefix advance releases it,
 and accepted recovery clears the retained and pending state. The generated
 BROB probe separately proves per-STID blocking, exception exclusion, and a
 strong prefix spanning full-BID rollover.
+
+R668 completes scalar STQ liveness from model `STQ::isStqCmtable`. It retains
+later commit-LSID evidence across split-row availability and, critically,
+publishes the ROB commit-head `(STID, BID, LSID)` so ready resident scalar rows
+older than that frontier can promote directly. The generated probe covers
+late row appearance, tile rejection, recovery clear, and direct resident
+authorization. A 2,048-row CoreMark capture produces 1,914 reduced rows and
+compares 1,467 normalized architectural commits with zero mismatches and zero
+CBSTOP after the former 969-row full-STQ stop.
 
 R253 corrects the reduced owner matching contract: commit rows must match STQ
 rows through model `bid/gid/rid`, not the physical ROB sideband, and unmatched

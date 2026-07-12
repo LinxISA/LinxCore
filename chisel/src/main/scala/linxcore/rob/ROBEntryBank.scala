@@ -141,6 +141,9 @@ class ROBEntryBankIO(
   val commitHeadValid = Output(Bool())
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
+  val commitHeadBid = Output(new ROBID(entries))
+  val commitHeadLsId = Output(UInt(lsidWidth.W))
+  val commitHeadStid = Output(UInt(stidWidth.W))
   val deallocHeadValid = Output(Bool())
   val deallocHeadStatus = Output(ROBEntryStatus())
   val deallocHeadRobValue = Output(UInt(ptrWidth.W))
@@ -583,6 +586,9 @@ class ROBEntryBank(
   io.commitHeadValid := rows(commitValue).valid && ROBEntryStatus.occupiesRob(status(commitValue))
   io.commitHeadStatus := status(commitValue)
   io.commitHeadRobValue := commitValue
+  io.commitHeadBid := rowBid(commitValue)
+  io.commitHeadLsId := rowLsId(commitValue)
+  io.commitHeadStid := rowStid(commitValue)
   io.deallocHeadValid := rows(deallocValue).valid && ROBEntryStatus.occupiesRob(status(deallocValue))
   io.deallocHeadStatus := status(deallocValue)
   io.deallocHeadRobValue := deallocValue
