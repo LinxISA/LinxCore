@@ -41,6 +41,7 @@ final case class ScalarLsuParams(
   scbResponseBufferDepth: Int = 4,
   liqEntries: Int = 16,
   loadMissQueueEntries: Int = 8,
+  loadRefillQueueEntries: Int = 4,
   resolveQueueEntries: Int = 8,
   mdbSsitEntries: Int = 16,
   mdbCommandQueueEntries: Int = 16,
@@ -83,6 +84,8 @@ final case class ScalarLsuParams(
     "liqEntries must be a power of two greater than one")
   require(loadMissQueueEntries > 1 && (loadMissQueueEntries & (loadMissQueueEntries - 1)) == 0,
     "loadMissQueueEntries must be a power of two greater than one")
+  require(loadRefillQueueEntries > 1 && (loadRefillQueueEntries & (loadRefillQueueEntries - 1)) == 0,
+    "loadRefillQueueEntries must be a power of two greater than one")
   require(resolveQueueEntries > 1 && (resolveQueueEntries & (resolveQueueEntries - 1)) == 0,
     "resolveQueueEntries must be a power of two greater than one")
   require(mdbSsitEntries > 1 && (mdbSsitEntries & (mdbSsitEntries - 1)) == 0,

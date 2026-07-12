@@ -15,6 +15,7 @@ class ScalarLSUSpec extends AnyFunSuite {
       stidCount = 2,
       liqEntries = 4,
       loadMissQueueEntries = 2,
+      loadRefillQueueEntries = 4,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -27,6 +28,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(core.scalarLsu.commitQueueEntries == 4)
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
     assert(core.scalarLsu.loadMissQueueEntries == 2)
+    assert(core.scalarLsu.loadRefillQueueEntries == 4)
     assert(core.scalarLsu.stidCount == 2)
   }
 
@@ -57,6 +59,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadMissQueue"))
+    assert(sv.contains("module LoadRefillTransport"))
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module ScalarLSUMDBPath"))
     assert(sv.contains("module ScalarLSULoadReturnQueueBank"))
@@ -91,6 +94,8 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_loadReturn_publicationAccepted"))
     assert(sv.contains("io_load_missRequest_missId_wrap"))
     assert(sv.contains("io_load_missQueueProtocolError"))
+    assert(sv.contains("io_load_refillReady"))
+    assert(sv.contains("io_load_refillTransportDualIngress"))
   }
 
   test("ScalarLSURecoverySource elaborates exact promotion without local cleanup arbitration") {

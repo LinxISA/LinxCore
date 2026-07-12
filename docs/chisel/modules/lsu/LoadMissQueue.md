@@ -88,7 +88,8 @@ only when miss slot, generation, and line address all agree with one issued
 entry. A matching read response:
 
 1. emits one `LoadRefillWakeupRequest` with full line data and L2-miss metadata;
-2. frees the physical entry;
+2. waits until `LoadRefillTransport` accepts that retained packet, then frees
+   the physical entry;
 3. toggles its generation before reuse.
 
 A stale, duplicate, wrong-line, non-read, or otherwise malformed response emits
@@ -96,6 +97,11 @@ no LIQ refill and raises diagnostics. It may not mutate a current entry by line
 address alone. An invalid miss ID or non-read type does not free the entry even
 when slot, generation, and line otherwise agree; only a valid read response
 retires the retained transaction.
+
+Malformed responses remain consumable when refill transport is full because
+they emit no packet. An exact valid read response is backpressured instead;
+response acceptance, refill enqueue, entry free, and generation advance are
+one atomic event.
 
 ## Flush and Recovery
 

@@ -563,7 +563,7 @@
       "module_family": "lsu",
       "status": "unit-proven",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue; L1D arrays, memory attributes, lower-memory transport, and cross-line integration remain staged."],
+      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue and R674 retains dual-source refill traffic; L1D arrays, memory attributes, lower-memory request fabric, and cross-line integration remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
@@ -582,11 +582,11 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. L1D arrays, lower-memory transport, memory-attribute classification, and cross-line queues remain staged."],
+      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. R674 adds retained dual-ingress refill serialization and exact-response backpressure. L1D arrays, lower-memory request fabric, memory-attribute classification, and cross-line queues remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
-          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadMissQueue", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "completionArb", "returnReservations", "missReservations", "publicationAccepted", "transferPending"]
+          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadMissQueue", "LoadRefillTransport", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "completionArb", "returnReservations", "missReservations", "refillTransport", "publicationAccepted", "transferPending"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala",
@@ -599,6 +599,10 @@
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala",
           "symbols": ["LoadMissQueue", "entries", "issueQ", "generations", "responseReadMatch", "precisePruneVec"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala",
+          "symbols": ["LoadRefillTransport", "rows", "head", "tail", "count", "postDequeueCapacity", "dualIngressAccepted"]
         }
       ],
       "verification": [
@@ -613,6 +617,10 @@
         {
           "path": "tools/chisel/run_chisel_load_miss_queue_probe.sh",
           "command": "bash tools/chisel/run_chisel_load_miss_queue_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_load_refill_transport_probe.sh",
+          "command": "bash tools/chisel/run_chisel_load_refill_transport_probe.sh"
         }
       ]
     },

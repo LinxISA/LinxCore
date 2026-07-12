@@ -51,6 +51,7 @@ void clear_inputs(VLoadMissQueueProbe &dut) {
   dut.io_responseMissGeneration = 0;
   dut.io_responseLineAddr = 0;
   dut.io_responseIsRead = 1;
+  dut.io_refillReady = 1;
   for (int i = 0; i < 16; ++i) dut.io_responseData[i] = 0;
 }
 
@@ -123,6 +124,15 @@ int main(int argc, char **argv) {
   dut.io_responseLineAddr = 0x1000;
   dut.io_responseIsRead = 1;
   dut.io_responseData[0] = 0x44332211u;
+  dut.io_refillReady = 0;
+  eval(dut);
+  expect(!dut.io_responseReady && dut.io_responseBlockedByRefill &&
+             !dut.io_refillValid,
+         "exact read response must wait for retained refill capacity");
+  tick(dut);
+  expect((dut.io_issuedMask & (1u << first_slot)) != 0,
+         "refill backpressure must preserve the issued miss");
+  dut.io_refillReady = 1;
   eval(dut);
   expect(dut.io_responseReady && dut.io_responseMatched,
          "exact response must match issued entry");

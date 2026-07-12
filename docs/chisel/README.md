@@ -276,6 +276,8 @@ bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransport
+bash tools/chisel/run_chisel_load_refill_transport_probe.sh
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

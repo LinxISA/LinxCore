@@ -36,12 +36,14 @@ class LoadMissQueueProbeIO extends Bundle {
   val responseLineAddr = Input(UInt(64.W))
   val responseIsRead = Input(Bool())
   val responseData = Input(UInt(512.W))
+  val refillReady = Input(Bool())
   val responseReady = Output(Bool())
   val responseMatched = Output(Bool())
   val responseStale = Output(Bool())
   val refillValid = Output(Bool())
   val refillLineAddr = Output(UInt(64.W))
   val refillData = Output(UInt(512.W))
+  val responseBlockedByRefill = Output(Bool())
 
   val validMask = Output(UInt(4.W))
   val issuedMask = Output(UInt(4.W))
@@ -112,6 +114,7 @@ class LoadMissQueueProbe extends Module {
   queue.io.response.isRead := io.responseIsRead
   queue.io.response.data := io.responseData
   queue.io.response.l2Miss := false.B
+  queue.io.refillReady := io.refillReady
 
   io.missReady := queue.io.missReady
   io.missAccepted := queue.io.missAccepted
@@ -128,6 +131,7 @@ class LoadMissQueueProbe extends Module {
   io.refillValid := queue.io.refillValid
   io.refillLineAddr := queue.io.refill.lineAddr
   io.refillData := queue.io.refill.data
+  io.responseBlockedByRefill := queue.io.responseBlockedByRefill
   io.validMask := queue.io.validMask
   io.issuedMask := queue.io.issuedMask
   io.orphanMask := queue.io.orphanMask

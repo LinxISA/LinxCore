@@ -132,7 +132,9 @@ class LoadMissQueueIO(
   val responseDuplicateMatch = Output(Bool())
 
   val refillValid = Output(Bool())
+  val refillReady = Input(Bool())
   val refill = Output(new LoadRefillWakeupRequest(addrWidth, lineBytes))
+  val responseBlockedByRefill = Output(Bool())
 
   val entries = Output(Vec(missEntries, new LoadMissQueueEntry(
     missEntries,
@@ -259,6 +261,7 @@ class LoadMissQueue(
   val responseMatchCount = PopCount(responseMatchVec)
   val responseUniqueMatch = responseMatchCount === 1.U
   val responseMatchIndex = PriorityEncoder(responseMatchMask)
+  val responseNeedsRefill = io.responseValid && responseUniqueMatch && io.response.isRead
   val responseAccepted = io.responseValid && io.responseReady
   val responseReadMatch = responseAccepted && responseUniqueMatch && io.response.isRead
   val responseFree = responseReadMatch
@@ -344,7 +347,7 @@ class LoadMissQueue(
   val requestDropped = issueHeadDrop && !flushCycle
   issueQ.io.deq.ready := requestAccepted || requestDropped
 
-  io.responseReady := !flushCycle
+  io.responseReady := !flushCycle && (!responseNeedsRefill || io.refillReady)
   io.refillValid := responseReadMatch
   io.refill := 0.U.asTypeOf(io.refill)
   io.refill.isRead := responseReadMatch
@@ -447,6 +450,7 @@ class LoadMissQueue(
   io.responseStale := responseStale
   io.responseWrongType := responseWrongType
   io.responseDuplicateMatch := responseDuplicateMatch
+  io.responseBlockedByRefill := responseNeedsRefill && !flushCycle && !io.refillReady
   io.validMask := validVec.asUInt
   io.issuedMask := issuedVec.asUInt
   io.orphanMask := orphanVec.asUInt

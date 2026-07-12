@@ -32,9 +32,10 @@ publishes its exactly promoted MDB report through `ScalarLSURecoverySource`.
 R658 makes `ScalarLSURecoveryBoundary` the sole report-STID watermark selector
 shared with the reduced integration lane and parameterizes scalar STID count.
 R659 replaces the reduced lane's duplicate MDB pieces with the complete
-`ScalarLSUMDBPath` and deletes the delivery-only owner.
-Cache and miss queues, canonical-top source/lookup wiring, and final load-return
-publication remain outside this hierarchy, so this is not yet a complete LSU.
+`ScalarLSUMDBPath` and deletes the delivery-only owner. R673 adds retained
+cacheable load misses and R674 adds bounded refill transport. Cache arrays,
+memory classification, cross-line assembly, and final reduced-top replacement
+remain open, so this is not yet a complete LSU.
 
 ## Parameter Contract
 
@@ -45,7 +46,8 @@ LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 - `stidCount`
 - `commitQueueEntries` and `commitIssueWidth`
 - `scbEntries` and `scbResponseBufferDepth`
-- `liqEntries` and `resolveQueueEntries`
+- `liqEntries`, `loadMissQueueEntries`, `loadRefillQueueEntries`, and
+  `resolveQueueEntries`
 - MDB SSIT, command, output, retained wait-plan, and recovery-report queue entries
 - `mdbFailedWaitTimeoutCycles`
 - MDB confidence/weight policy
@@ -83,6 +85,10 @@ R673 adds `LoadMissQueue` beneath the load child. Accepted launches reserve
 worst-case miss capacity, E4 data misses become retained line transactions,
 and exact generated responses feed LIQ refill. Miss entries, issued orphans,
 and reservations participate in top-level idle.
+R674 adds `LoadRefillTransport` beneath the same child. Exact miss responses
+and external refills use independent ready/valid ingress, may both enqueue in
+one cycle, and drain to LIQ in deterministic FIFO order. Buffered refill state
+also participates in top-level idle.
 
 `ScalarLSU` connects the retained MDB report to
 `ScalarLSURecoveryBoundary`, which selects one watermark from the
@@ -104,7 +110,12 @@ side-effect fanout.
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadMissQueueSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
+- `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- R674 final: 268 suites and 1,622 tests; expanded LSU promotion gate; both
+  generated miss/refill probes; 1,467-row CoreMark no-regression with zero
+  mismatches and zero CBSTOP.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - focused STQ, drain, insert-probe, and flush-prune suites
 - `bash tools/chisel/run_chisel_top_xcheck.sh`

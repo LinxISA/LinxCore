@@ -7,6 +7,7 @@
 - Resolved rows: `chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
 - MDB: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
 - Load miss queue: `chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala`
+- Refill transport: `chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala`
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
@@ -56,6 +57,10 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
     recovery prunes dependents; issued orphans retain transaction identity
     until response. An exact read response broadcasts a line refill and frees
     the miss entry.
+11. Exact miss refills and the external refill port enqueue into one bounded
+    dual-ingress FIFO. Miss refill is older within a simultaneous cycle, both
+    packets are retained, and LIQ consumes one ordered packet per cycle. Exact
+    read response retirement is backpressured until transport enqueue fires.
 
 `transferProtocolError` reports missing ResolveQ/LRET capacity, a partial sink
 acceptance, or a new accepted transfer while an older source clear is blocked.
@@ -102,14 +107,15 @@ beneath `ScalarLSU`. The reduced top connects the shared W2 candidate to exact
 ROB completion and the canonical physical GPR/P-ready sink. The exposed
 readiness inputs remain outer allow gates and cannot bypass those resident
 owners. T/U local-link completion is an explicit unsupported contract error
-until its bank/qtag sink is connected. L1D arrays/replacement/coherence,
-lower-memory transport, memory-attribute classification, cross-line assembly,
-and natural recovery activation remain future integration work.
+until its bank/qtag sink is connected. Bounded refill transport is live; L1D
+arrays/replacement/coherence, memory-attribute classification, cross-line
+assembly, and natural recovery activation remain future integration work.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadMissQueueSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipelineSpec`
@@ -119,6 +125,10 @@ and natural recovery activation remain future integration work.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
 - `bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
+- `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- R674 final: 268 suites and 1,622 tests; expanded LSU promotion gate; both
+  generated miss/refill probes; 1,467-row CoreMark no-regression with zero
+  mismatches and zero CBSTOP.
 - Full Chisel suite: 245 suites, 1,454 tests, zero failures.
 - Canonical top xcheck: 3 compared rows, zero mismatches.
 - Reduced CoreMark regression:

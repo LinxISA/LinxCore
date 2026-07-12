@@ -92,6 +92,7 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   private val liqPtrWidth = log2Ceil(lsuParams.liqEntries)
   private val liqCountWidth = log2Ceil(lsuParams.liqEntries + 1)
   private val missQueueCountWidth = log2Ceil(lsuParams.loadMissQueueEntries + 1)
+  private val refillTransportCountWidth = log2Ceil(lsuParams.loadRefillQueueEntries + 1)
   private val resolveCountWidth = log2Ceil(lsuParams.resolveQueueEntries + 1)
 
   val flush = Input(Bool())
@@ -169,6 +170,7 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     coreParams.lsidWidth
   ))
   val refillValid = Input(Bool())
+  val refillReady = Output(Bool())
   val refill = Input(new LoadRefillWakeupRequest(lsuParams.addrWidth, lsuParams.lineBytes))
 
   val missRequestValid = Output(Bool())
@@ -188,7 +190,15 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val missQueueReservations = Output(UInt(log2Ceil(lsuParams.liqEntries + 1).W))
   val missQueueCandidateAccepted = Output(Bool())
   val missQueueCandidateDropped = Output(Bool())
-  val missQueueRefillCollision = Output(Bool())
+  val missQueueResponseBlockedByRefill = Output(Bool())
+  val refillTransportValidMask = Output(UInt(lsuParams.loadRefillQueueEntries.W))
+  val refillTransportCount = Output(UInt(refillTransportCountWidth.W))
+  val refillTransportMissAccepted = Output(Bool())
+  val refillTransportExternalAccepted = Output(Bool())
+  val refillTransportDualIngress = Output(Bool())
+  val refillTransportOutFromMissQueue = Output(Bool())
+  val refillTransportPending = Output(Bool())
+  val refillTransportProtocolError = Output(Bool())
   val missQueuePending = Output(Bool())
   val missQueueProtocolError = Output(Bool())
 
@@ -398,6 +408,11 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     returnPipeCount = p.loadReturnPipeCount,
     lsidWidth = coreParams.lsidWidth
   ))
+  val refillTransport = Module(new LoadRefillTransport(
+    entries = p.loadRefillQueueEntries,
+    addrWidth = p.addrWidth,
+    lineBytes = p.lineBytes
+  ))
   val resolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.resolveQueueEntries,
     liqEntries = p.liqEntries,
@@ -532,10 +547,17 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   missQueue.io.requestReady := io.missRequestReady
   missQueue.io.responseValid := io.missResponseValid
   missQueue.io.response := io.missResponse
+  missQueue.io.refillReady := refillTransport.io.missReady
 
-  val missQueueRefillCollision = missQueue.io.refillValid && io.refillValid
-  liq.io.refillValid := missQueue.io.refillValid || io.refillValid
-  liq.io.refill := Mux(missQueue.io.refillValid, missQueue.io.refill, io.refill)
+  refillTransport.io.hardFlush := io.flush
+  refillTransport.io.hold := io.preciseFlush.req.valid
+  refillTransport.io.missValid := missQueue.io.refillValid
+  refillTransport.io.miss := missQueue.io.refill
+  refillTransport.io.externalValid := io.refillValid
+  refillTransport.io.external := io.refill
+  refillTransport.io.outReady := !flushCycle
+  liq.io.refillValid := refillTransport.io.outValid
+  liq.io.refill := refillTransport.io.out
   liq.io.clearResolvedValid := transferPending
   liq.io.clearResolvedIndex := transferIndex
 
@@ -761,6 +783,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.replayWakeMergeMask := liq.io.replayWakeMergeMask
   io.replayWakeCompletedMask := liq.io.replayWakeCompletedMask
   io.refillAccepted := liq.io.refillAccepted
+  io.refillReady := refillTransport.io.externalReady
   io.refillWakeMask := liq.io.refillWakeMask
   io.missRequestValid := missQueue.io.requestValid
   io.missRequest := missQueue.io.request
@@ -774,13 +797,20 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.missQueueReservations := missReservations
   io.missQueueCandidateAccepted := missQueue.io.missAccepted
   io.missQueueCandidateDropped := e4MissTransferCandidate && !missQueue.io.missAccepted
-  io.missQueueRefillCollision := missQueueRefillCollision
+  io.missQueueResponseBlockedByRefill := missQueue.io.responseBlockedByRefill
+  io.refillTransportValidMask := refillTransport.io.validMask
+  io.refillTransportCount := refillTransport.io.count
+  io.refillTransportMissAccepted := refillTransport.io.missAccepted
+  io.refillTransportExternalAccepted := refillTransport.io.externalAccepted
+  io.refillTransportDualIngress := refillTransport.io.dualIngressAccepted
+  io.refillTransportOutFromMissQueue := refillTransport.io.outFromMissQueue
+  io.refillTransportPending := refillTransport.io.pending
+  io.refillTransportProtocolError := refillTransport.io.protocolError
   io.missQueuePending := missQueue.io.pending
   io.missQueueProtocolError :=
     missQueue.io.protocolError ||
       missReservationUnderflow ||
-      io.missQueueCandidateDropped ||
-      missQueueRefillCollision
+      io.missQueueCandidateDropped
   io.resolveEntries := resolveQueue.io.entries
   io.resolveConflictRows := resolveQueue.io.conflictRows
   io.resolveValidMask := resolveQueue.io.validMask
@@ -877,5 +907,5 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.empty :=
     liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
       returnQueue.io.empty && returnPipeline.io.empty && (reservedCount === 0.U) &&
-      missQueue.io.empty && (missReservations === 0.U)
+      missQueue.io.empty && (missReservations === 0.U) && refillTransport.io.empty
 }

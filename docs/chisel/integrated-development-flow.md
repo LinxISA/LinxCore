@@ -15,6 +15,25 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R674 replaces combinational refill collision handling with the
+parameterized `LoadRefillTransport`. Exact miss responses and external cache
+refills now have independent ready/valid ingress, may both enqueue in one
+cycle with deterministic miss-then-external order, and drain one retained line
+packet per cycle to LIQ. Post-dequeue capacity permits full-side replacement;
+exact read responses cannot free `LoadMissQueue` state until transport enqueue
+accepts. Hard flush clears buffered refills, while typed precise recovery holds
+the physical line data for surviving Linx rows. Cache arrays, memory-class
+ownership, lower-memory request fabric, and cross-line assembly remain open.
+
+R674 final evidence passes 268 Chisel suites and 1,622 tests, both generated
+miss/refill queue probes, the composed scalar load-return probe, the expanded
+LSU promotion gate, the shared microarchitecture contract and both RTL
+adapters, and independent review. The bounded CoreMark no-regression run
+compares 1,467 architectural rows with zero mismatches and zero CBSTOP at
+`generated/r674-refill-transport-coremark/report/crosscheck_manifest.json`.
+The reduced CoreMark top does not instantiate this canonical transport, so the
+dedicated generated probes remain the mechanism evidence.
+
 Latest packet: R673 integrates the first canonical cacheable scalar load miss
 owner. `LoadMissQueue` has independent physical depth, coalesces exact LIQ
 dependents by aligned line, emits one FIFO lower-memory request per unique

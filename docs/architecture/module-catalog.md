@@ -485,9 +485,10 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
   pruning, and the parameterized `ScalarLSULoadReturnPipeline` W1/W2 owner.
   The reduced timing top retains its detailed single-pipe sink proof until its
   live ROB/RF/wakeup arbiters consume the canonical outputs. R673 adds the
-  cacheable scalar load miss queue beneath this owner; actual L1D arrays,
-  lower-memory transport, memory-attribute classification, and cross-line
-  assembly remain outside `ScalarLSU`, so this is not yet a complete LSU.
+  cacheable scalar load miss queue and R674 adds bounded dual-ingress refill
+  transport beneath this owner; actual L1D arrays, memory-attribute
+  classification, and cross-line assembly remain outside `ScalarLSU`, so this
+  is not yet a complete LSU.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnQueue.scala`
 
@@ -531,6 +532,18 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
   their response drains; unissued empty entries cancel without traffic.
 - Does not implement cache arrays, replacement/coherence, Device/MMIO,
   cache-maintenance, tile memory, or ARM architectural behavior.
+
+### `chisel/.../lsu/LoadRefillTransport.scala`
+
+- Owns parameterized retained serialization between exact miss responses,
+  external cache refills, and LIQ line wakeup.
+- Accepts both sources in one cycle with deterministic miss-then-external FIFO
+  order and uses post-dequeue capacity for independent ready signals.
+- Backpressures exact read-response retirement until refill retention is
+  guaranteed. Typed recovery holds buffered physical data; hard flush clears
+  it. Simultaneous legal ingress is diagnostic, not an error.
+- Does not own cache arrays, coherence/replacement, memory classes, Device/MMIO,
+  cross-line assembly, or ARM architectural behavior.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnPipeline.scala`
 

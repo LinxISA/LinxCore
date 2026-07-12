@@ -1056,7 +1056,8 @@ implementation choices and must not change architectural identity widths:
   owns the parameterized scoped W1/W2 return pipeline and its atomic
   resolve/writeback/wakeup rendezvous. The reduced timing path retains its
   detailed single-pipe proof surface until the live sinks consume the canonical
-  outputs. Miss-queue, cache, and cross-line ownership remain staged.
+  outputs. The miss queue and bounded refill transport are now canonical;
+  cache arrays, memory classification, and cross-line ownership remain staged.
 
 - A scalar store splits into address (`STA`) and data (`STD`) work with one
   shared instruction, BID, RID, SID, and LSID identity.
@@ -1174,6 +1175,18 @@ implementation choices and must not change architectural identity widths:
   entry. A matching valid read response frees the entry and broadcasts one
   full-line refill to the LIQ,
   where only live cacheable scalar rows on that line may relaunch.
+- Exact miss refills and external cache/refill packets enter one parameterized
+  dual-ingress transport before LIQ wakeup. Its depth is independent of LIQ,
+  miss queue, ROB, STQ, return queues, and LSID width. Both sources may be
+  accepted in one cycle; miss-queue data occupies the older same-cycle FIFO
+  position and external data occupies the next. A simultaneous legal ingress
+  is not a collision or protocol error.
+- The refill transport emits at most one stable line packet per cycle and
+  backpressures both producers from post-dequeue capacity. An exact valid-read
+  miss response cannot free its miss entry until its refill packet is accepted
+  into this retained transport. Hard flush clears buffered packets; typed
+  precise recovery holds ingress/egress for the recovery cycle but preserves
+  physical line data for surviving LIQ rows.
 - Hard reset/restart removes dependents and unissued work, but issued
   transactions retain orphan identity until their response is drained. This
   prevents a pre-restart response from aliasing a post-restart miss. Device,

@@ -13,6 +13,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       scbEntries = 4,
       liqEntries = 4,
       loadMissQueueEntries = 2,
+      loadRefillQueueEntries = 4,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
       loadReturnPipeCount = 3,
@@ -25,6 +26,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(core.scalarLsu.stqEntries == 8)
     assert(core.scalarLsu.liqEntries == 4)
     assert(core.scalarLsu.loadMissQueueEntries == 2)
+    assert(core.scalarLsu.loadRefillQueueEntries == 4)
     assert(core.scalarLsu.resolveQueueEntries == 8)
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
   }
@@ -78,6 +80,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadMissQueue"))
+    assert(sv.contains("module LoadRefillTransport"))
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module ScalarLSUMDBPath"))
     assert(sv.contains("module ScalarLSULoadReturnQueueBank"))
@@ -96,6 +99,10 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("io_missResponse_missId_wrap"))
     assert(sv.contains("io_missQueueReservations"))
     assert(sv.contains("io_missQueueProtocolError"))
+    assert(sv.contains("io_missQueueResponseBlockedByRefill"))
+    assert(sv.contains("io_refillReady"))
+    assert(sv.contains("io_refillTransportDualIngress"))
+    assert(sv.contains("io_refillTransportProtocolError"))
     assert(sv.contains("io_loadReturn_robLookupValid"))
     assert(sv.contains("io_loadReturn_robRowValid"))
     assert(sv.contains("io_loadReturn_resolveReady"))

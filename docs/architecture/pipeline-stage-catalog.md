@@ -404,8 +404,9 @@ canonical meanings above.
 - Owner module: `src/bcc/lsu/l1d.py` (`JanusBccLsuL1D`)
 - Design role: data-cache-side interface boundary. Canonical Chisel
   `LoadMissQueue` now owns retained cacheable scalar miss coalescing and exact
-  refill transaction identity before this boundary; cache arrays and the
-  lower-memory fabric remain separate owners.
+  refill transaction identity, while `LoadRefillTransport` owns retained
+  refill serialization before this boundary. Cache arrays and the lower-memory
+  fabric remain separate owners.
 
 ## Block-control stages
 

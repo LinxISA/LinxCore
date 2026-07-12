@@ -297,6 +297,8 @@ class LoadMissQueueSpec extends AnyFunSuite {
     assert(sv.contains("module LoadMissQueue"))
     assert(sv.contains("io_request_missId_wrap"))
     assert(sv.contains("io_response_missId_wrap"))
+    assert(sv.contains("io_refillReady"))
+    assert(sv.contains("io_responseBlockedByRefill"))
     assert(sv.contains("io_missCoalesced"))
     assert(sv.contains("io_orphanMask"))
     assert(sv.contains("io_precisePruneCount"))
