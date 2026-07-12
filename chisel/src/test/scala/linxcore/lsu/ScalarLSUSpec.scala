@@ -77,7 +77,11 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_recovery_oldestValid_1"))
     assert(sv.contains("io_recovery_sourceStidInRange"))
     assert(sv.contains("io_load_mdbSsitValidMask"))
-    assert(sv.contains("io_load_loadReturn_drainReady"))
+    assert(sv.contains("io_load_loadReturn_robLookupValid"))
+    assert(sv.contains("io_load_loadReturn_resolveReady_2"))
+    assert(sv.contains("io_load_loadReturn_resolveFire_2"))
+    assert(sv.contains("io_load_loadReturn_w1ValidMask"))
+    assert(sv.contains("io_load_loadReturn_w2ValidMask"))
     assert(sv.contains("io_load_loadReturn_laneCounts_5"))
     assert(sv.contains("io_load_loadReturn_publicationAccepted"))
   }

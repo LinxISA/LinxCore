@@ -13,8 +13,21 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
   private val laneWidth = math.max(1, log2Ceil(laneCount))
   private val laneCountWidth = log2Ceil(p.loadReturnQueueEntries + 1)
   private val totalCountWidth = log2Ceil(laneCount * p.loadReturnQueueEntries + 1)
+  private val pipeCountWidth = log2Ceil(p.loadReturnPipeCount + 1)
+  private def scopedEntry = new ScalarLSULoadReturnEntry(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.dataWidth,
+    p.loadSizeWidth,
+    p.loadReturnPipeCount,
+    p.archRegWidth,
+    p.physRegWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  )
 
-  val drainReady = Input(Bool())
   val drainValid = Output(Bool())
   val drain = Output(new LoadReplayReturnLretEntry(
     coreParams.robEntries,
@@ -32,6 +45,31 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
   val drainPipeIndex = Output(UInt(pipeWidth.W))
   val drainLane = Output(UInt(laneWidth.W))
   val drainFire = Output(Bool())
+  val robLookupValid = Output(Bool())
+  val robLookupPeId = Output(UInt(p.peIdWidth.W))
+  val robLookupStid = Output(UInt(p.stidWidth.W))
+  val robLookupTid = Output(UInt(p.tidWidth.W))
+  val robLookupBid = Output(new ROBID(coreParams.robEntries))
+  val robLookupGid = Output(new ROBID(coreParams.robEntries))
+  val robLookupRid = Output(new ROBID(coreParams.robEntries))
+  val robLookupLoadLsId = Output(new ROBID(coreParams.robEntries))
+  val robRowValid = Input(Bool())
+  val robRowNeedFlush = Input(Bool())
+  val resolveReady = Input(Vec(p.loadReturnPipeCount, Bool()))
+  val writebackReady = Input(Vec(p.loadReturnPipeCount, Bool()))
+  val wakeupReady = Input(Vec(p.loadReturnPipeCount, Bool()))
+  val resolveFire = Output(Vec(p.loadReturnPipeCount, Bool()))
+  val writebackFire = Output(Vec(p.loadReturnPipeCount, Bool()))
+  val wakeupFire = Output(Vec(p.loadReturnPipeCount, Bool()))
+  val completion = Output(Vec(p.loadReturnPipeCount, scopedEntry))
+  val w1ValidMask = Output(UInt(p.loadReturnPipeCount.W))
+  val w2ValidMask = Output(UInt(p.loadReturnPipeCount.W))
+  val w1PrecisePruneMask = Output(UInt(p.loadReturnPipeCount.W))
+  val w2PrecisePruneMask = Output(UInt(p.loadReturnPipeCount.W))
+  val completionMask = Output(UInt(p.loadReturnPipeCount.W))
+  val w1Count = Output(UInt(pipeCountWidth.W))
+  val w2Count = Output(UInt(pipeCountWidth.W))
+  val pipelineEmpty = Output(Bool())
   val pending = Output(Bool())
   val full = Output(Bool())
   val empty = Output(Bool())
@@ -343,6 +381,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     p.stidWidth,
     p.tidWidth
   ))
+  val returnPipeline = Module(new ScalarLSULoadReturnPipeline(coreParams.robEntries, p))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
   private val returnLaneCount = p.stidCount * p.loadReturnPipeCount
@@ -507,7 +546,20 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   returnQueue.io.enqueueTid := returnPayload.io.payloadTid
   returnQueue.io.enqueuePipeIndex := returnPayload.io.payloadPipeIndex
   returnQueue.io.enqueue := returnEntry
-  returnQueue.io.drainReady := io.loadReturn.drainReady
+  returnPipeline.io.enable := true.B
+  returnPipeline.io.flush := io.flush
+  returnPipeline.io.preciseFlush := io.preciseFlush
+  returnPipeline.io.inValid := returnQueue.io.drainValid
+  returnPipeline.io.in.peId := returnQueue.io.drainPeId
+  returnPipeline.io.in.stid := returnQueue.io.drainStid
+  returnPipeline.io.in.tid := returnQueue.io.drainTid
+  returnPipeline.io.in.payload := returnQueue.io.drain
+  returnPipeline.io.robRowValid := io.loadReturn.robRowValid
+  returnPipeline.io.robRowNeedFlush := io.loadReturn.robRowNeedFlush
+  returnPipeline.io.resolveReady := io.loadReturn.resolveReady
+  returnPipeline.io.writebackReady := io.loadReturn.writebackReady
+  returnPipeline.io.wakeupReady := io.loadReturn.wakeupReady
+  returnQueue.io.drainReady := returnPipeline.io.inReady
   resolveQueue.io.pushValid := publicationValid && publicationPayloadValid && returnQueue.io.enqueueReady
   resolveQueue.io.pushPeId := hitRow.peId
   resolveQueue.io.pushStid := hitRow.stid
@@ -614,16 +666,37 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.loadReturn.drainPipeIndex := returnQueue.io.drainPipeIndex
   io.loadReturn.drainLane := returnQueue.io.drainLane
   io.loadReturn.drainFire := returnQueue.io.drainFire
-  io.loadReturn.pending := returnQueue.io.pending
+  io.loadReturn.robLookupValid := returnPipeline.io.robLookupValid
+  io.loadReturn.robLookupPeId := returnPipeline.io.robLookupPeId
+  io.loadReturn.robLookupStid := returnPipeline.io.robLookupStid
+  io.loadReturn.robLookupTid := returnPipeline.io.robLookupTid
+  io.loadReturn.robLookupBid := returnPipeline.io.robLookupBid
+  io.loadReturn.robLookupGid := returnPipeline.io.robLookupGid
+  io.loadReturn.robLookupRid := returnPipeline.io.robLookupRid
+  io.loadReturn.robLookupLoadLsId := returnPipeline.io.robLookupLoadLsId
+  io.loadReturn.resolveFire := returnPipeline.io.resolveFire
+  io.loadReturn.writebackFire := returnPipeline.io.writebackFire
+  io.loadReturn.wakeupFire := returnPipeline.io.wakeupFire
+  io.loadReturn.completion := returnPipeline.io.completion
+  io.loadReturn.w1ValidMask := returnPipeline.io.w1ValidMask
+  io.loadReturn.w2ValidMask := returnPipeline.io.w2ValidMask
+  io.loadReturn.w1PrecisePruneMask := returnPipeline.io.w1PrecisePruneMask
+  io.loadReturn.w2PrecisePruneMask := returnPipeline.io.w2PrecisePruneMask
+  io.loadReturn.completionMask := returnPipeline.io.completionMask
+  io.loadReturn.w1Count := returnPipeline.io.w1Count
+  io.loadReturn.w2Count := returnPipeline.io.w2Count
+  io.loadReturn.pipelineEmpty := returnPipeline.io.empty
+  io.loadReturn.pending := returnQueue.io.pending || !returnPipeline.io.empty
   io.loadReturn.full := returnQueue.io.full
-  io.loadReturn.empty := returnQueue.io.empty
+  io.loadReturn.empty := returnQueue.io.empty && returnPipeline.io.empty
   io.loadReturn.laneCounts := returnQueue.io.laneCountState
   io.loadReturn.totalCount := returnQueue.io.totalCount
   io.loadReturn.reservedCount := reservedCount
   io.loadReturn.precisePruneCount := returnQueue.io.precisePruneCount
   io.loadReturn.publicationValid := publicationValid
   io.loadReturn.publicationAccepted := publicationAccepted
-  io.loadReturn.protocolError := transferProtocolError || reservationUnderflow
+  io.loadReturn.protocolError :=
+    transferProtocolError || reservationUnderflow || returnPipeline.io.protocolError
   io.mdbConflictValid := mdbPath.io.conflictValid
   io.mdbConflictFromResolveQueue := mdbPath.io.conflictFromResolveQueue
   io.mdbConflictActiveMask := mdbPath.io.conflictActiveMask
@@ -660,5 +733,5 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.mdbProtocolError := mdbPath.io.protocolError || io.mdbReplayWakeCollision
   io.empty :=
     liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
-      returnQueue.io.empty && (reservedCount === 0.U)
+      returnQueue.io.empty && returnPipeline.io.empty && (reservedCount === 0.U)
 }

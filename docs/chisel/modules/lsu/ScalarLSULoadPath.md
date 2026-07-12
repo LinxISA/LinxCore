@@ -7,6 +7,7 @@
 - Resolved rows: `chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
 - MDB: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
+- Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
 - Generated proof: `tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
@@ -32,15 +33,19 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    neither sink may observe only half of the transaction.
 4. Atomic acceptance arms an exact LIQ-slot clear. The owner permits a new
    transfer in the same cycle that the prior clear is accepted.
-5. Commit `(BID,LSID)` watermarks retire resolved records. Hard and precise
+5. The retained queue drains only after exact ROB-row validation. A normal
+   return enters one fairly selected W1 lane, advances to its paired W2 lane,
+   and completes resolve plus required GPR writeback/wakeup atomically. A
+   missing ROB row holds; a present `NeedFlush` row is consumed and dropped.
+6. Commit `(BID,LSID)` watermarks retire resolved records. Hard and precise
    flush are shared by LIQ and ResolveQ.
-6. Accepted scalar allocation enqueues MDB lookup. Accepted address-bearing
+7. Accepted scalar allocation enqueues MDB lookup. Accepted address-bearing
    store traffic scans active and resolved rows, trains SSIT on a violation,
    and drains retained wait masks through the native LIQ mutation port.
-7. A stable predicted-store wait ages independently in its LIQ slot. Timeout
+8. A stable predicted-store wait ages independently in its LIQ slot. Timeout
    release clears wait-store state only in the cycle that MDB delete enqueue
    also accepts.
-8. An accepted conflict retains one typed recovery report until the outer
+9. An accepted conflict retains one typed recovery report until the outer
    recovery owner accepts it through the dedicated `recovery` port. Report retention participates in load-path
    quiescence and can backpressure address-bearing store insertion.
 
@@ -54,6 +59,12 @@ depth. Queue drain can provide same-cycle launch credit for that exact lane;
 other lanes remain independent. Hard or typed precise flush cancels LIQ
 pipeline work and clears its launch reservations while the queue bank applies
 the corresponding hard clear or typed entry compaction.
+
+W1 and W2 are vectors sized by `loadReturnPipeCount`. A W2 slot remains stable
+until resolve and every required writeback/wakeup sink can fire together.
+Same-cycle W2 completion, W1 advance, and new W1 insertion are supported.
+Typed precise recovery freezes survivor movement and prunes only matching
+stage entries; W1/W2 residency participates in load-path quiescence.
 
 `liqEntries` must not exceed the ROB identity domain used by replay
 diagnostics. Reduced tops with a smaller ROB therefore select a matching LIQ
@@ -77,15 +88,18 @@ available through the load path. MDB lookup/conflict wait mutation is live at
 this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
 Canonical scalar LRET data extraction, lane reservation, retained publication,
-and IEX drain ports are now live beneath `ScalarLSU`. Cache/miss queues,
-cross-line assembly, multi-source top arbitration, full-BID BROB cleanup, and
-complete canonical W1/W2 writeback/wakeup sinks remain future integration work.
+ROB validation, and parameterized W1/W2 atomic side-effect ownership are live
+beneath `ScalarLSU`. The reduced top still drives the actual single-pipe
+ROB/RF/wakeup sinks through its diagnostic composition. Cache/miss queues,
+cross-line assembly, live canonical sink arbitration, and natural recovery
+activation remain future integration work.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipelineSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadWaitStoreTimeoutSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`

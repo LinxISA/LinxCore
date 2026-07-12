@@ -26,6 +26,7 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val launchAccepted = Output(Bool())
   val launchBlockedByReturnCredit = Output(Bool())
   val drainReady = Input(Bool())
+  val sideEffectReady = Input(Bool())
   val drainValid = Output(Bool())
   val drainFire = Output(Bool())
   val drainStid = Output(UInt(1.W))
@@ -41,6 +42,12 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val publicationValid = Output(Bool())
   val publicationAccepted = Output(Bool())
   val transferPending = Output(Bool())
+  val w1ValidMask = Output(UInt(2.W))
+  val w2ValidMask = Output(UInt(2.W))
+  val completionMask = Output(UInt(2.W))
+  val pipelineEmpty = Output(Bool())
+  val returnPending = Output(Bool())
+  val returnEmpty = Output(Bool())
   val protocolError = Output(Bool())
 }
 
@@ -124,7 +131,13 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.io.resolveRetireValid := false.B
   path.io.resolveRetireBid := ROBID.disabled(8)
   path.io.resolveRetireLsId := ROBID.disabled(8)
-  path.io.loadReturn.drainReady := io.drainReady
+  path.io.loadReturn.robRowValid := io.drainReady
+  path.io.loadReturn.robRowNeedFlush := false.B
+  for (pipe <- 0 until lsuParams.loadReturnPipeCount) {
+    path.io.loadReturn.resolveReady(pipe) := io.sideEffectReady
+    path.io.loadReturn.writebackReady(pipe) := io.sideEffectReady
+    path.io.loadReturn.wakeupReady(pipe) := io.sideEffectReady
+  }
 
   path.mdbStore.probe := 0.U.asTypeOf(path.mdbStore.probe)
   path.mdbStore.probeCommit := false.B
@@ -151,6 +164,12 @@ class ScalarLSULoadPathReturnProbe extends Module {
   io.publicationValid := path.io.loadReturn.publicationValid
   io.publicationAccepted := path.io.loadReturn.publicationAccepted
   io.transferPending := path.io.transferPending
+  io.w1ValidMask := path.io.loadReturn.w1ValidMask
+  io.w2ValidMask := path.io.loadReturn.w2ValidMask
+  io.completionMask := path.io.loadReturn.completionMask
+  io.pipelineEmpty := path.io.loadReturn.pipelineEmpty
+  io.returnPending := path.io.loadReturn.pending
+  io.returnEmpty := path.io.loadReturn.empty
   io.protocolError := path.io.loadReturn.protocolError || path.io.transferProtocolError
 }
 

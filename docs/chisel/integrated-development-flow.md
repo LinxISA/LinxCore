@@ -15,6 +15,28 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R663 moves the scoped LRET drain into canonical parameterized
+W1/W2 ownership beneath `ScalarLSULoadPath`. Every stage retains full scoped
+return identity. Exact ROB validation holds a missing row and drops a present
+`NeedFlush` row. W2 remains resident until resolve and every required GPR
+writeback/wakeup sink can complete atomically; typed recovery freezes survivor
+movement and prunes matching W1/W2 entries only. The reduced top remains the
+physical single-pipe sink integration until its live arbiters consume these
+canonical outputs.
+
+R663 verification passes 261 suites and 1,548 tests. The generated canonical
+probe covers fair queue-to-W1 admission, W1 retention, W2 backpressure
+stability, exported quiescence while W2 is resident, and atomic release when
+all required sinks become ready, in addition to the R662 queue/reservation and
+flush cases. Architecture adapter/contract/conformance, repository layout, MDB
+transaction, and recovery-class cross-RTL gates pass. Independent review found
+and drove the exported `pending/empty` aggregation fix; re-review is clean. The
+live top compares 3 rows and CoreMark compares 426 rows with zero mismatches and
+zero CBSTOP at
+`generated/r663-final-canonical-w12-coremark/report/crosscheck_manifest.json`.
+Physical live sink arbitration, cache/miss queues, cross-line assembly, and
+natural recovery activation remain open.
+
 Latest packet: R662 promotes the scoped LRET bank into canonical
 `ScalarLSULoadPath`. Each accepted launch reserves its exact `(STID, return
 pipe)` lane, and the selected pipe is retained in the LIQ row. E4 releases the

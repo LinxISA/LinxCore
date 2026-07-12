@@ -30,6 +30,7 @@ static void idle(VScalarLSULoadPathReturnProbe &dut) {
     dut.io_allocValid = 0;
     dut.io_launchValid = 0;
     dut.io_drainReady = 0;
+    dut.io_sideEffectReady = 1;
 }
 
 static unsigned allocate(VScalarLSULoadPathReturnProbe &dut, unsigned stid,
@@ -118,6 +119,7 @@ int main(int argc, char **argv) {
     dut.io_launchValid = 0;
     dut.io_launchIndex = 0;
     dut.io_drainReady = 0;
+    dut.io_sideEffectReady = 1;
     tick(dut);
     tick(dut);
     dut.reset = 0;
@@ -196,6 +198,38 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_totalCount == 0 && dut.io_reservedCount == 0,
             "precise flush did not clear in-flight reservation state");
+
+    const unsigned w2BackpressureRow = allocate(dut, 1, 1, 7, 6);
+    launch(dut, w2BackpressureRow);
+    advance_to_publication(dut);
+    tick(dut);
+    idle(dut);
+    dut.io_drainReady = 1;
+    dut.io_sideEffectReady = 0;
+    dut.eval();
+    require(dut.io_drainFire && dut.io_drainBid == 7,
+            "canonical pipeline did not accept the retained LRET head");
+    tick(dut);
+    require(dut.io_w1ValidMask != 0,
+            "canonical pipeline did not retain the drained return in W1");
+    idle(dut);
+    dut.io_sideEffectReady = 0;
+    tick(dut);
+    require(dut.io_w2ValidMask != 0 && dut.io_completionMask == 0 &&
+                dut.io_returnPending && !dut.io_returnEmpty,
+            "W2 did not retain the return in exported quiescence under backpressure");
+    tick(dut);
+    require(dut.io_w2ValidMask != 0 && dut.io_completionMask == 0,
+            "W2 return was not stable across sustained backpressure");
+    dut.io_sideEffectReady = 1;
+    dut.eval();
+    require(dut.io_completionMask != 0,
+            "W2 did not publish after every required side effect became ready");
+    tick(dut);
+    idle(dut);
+    dut.eval();
+    require(dut.io_pipelineEmpty && !dut.io_returnPending && dut.io_returnEmpty,
+            "canonical W1/W2 pipeline did not clear after atomic completion");
 
     std::cout << "scalar-lsu-load-path-return-probe: PASS\n";
     return 0;
