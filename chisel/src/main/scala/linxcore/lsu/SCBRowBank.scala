@@ -11,8 +11,10 @@ class SCBRowBankIO(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   private val scbCountWidth = log2Ceil(scbEntries + 1)
   private val freeCountWidth = log2Ceil(requestCount + 1)
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
@@ -20,7 +22,8 @@ class SCBRowBankIO(
   private val responseBufferCountWidth = log2Ceil(responseBufferDepth + 1)
   private val responseRetryCountWidth = log2Ceil(scbEntries + 1)
 
-  val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
+  val reqs = Input(Vec(requestCount,
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries)))
   val evictEnable = Input(Bool())
   val dcacheReady = Input(Bool())
   val dcacheWriteHit = Input(Bool())
@@ -111,9 +114,13 @@ class SCBRowBank(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   require(stqEntries > 1, "STQ entries must be greater than one")
+  require(identityEntries > 1 && (identityEntries & (identityEntries - 1)) == 0,
+    "ROB entries must be a power of two greater than one")
   require(scbEntries > 0, "SCB row bank entries must be nonzero")
   require(requestCount > 0, "SCB row bank request count must be nonzero")
   require(responseBufferDepth > 0, "SCB response buffer depth must be nonzero")
@@ -134,7 +141,8 @@ class SCBRowBank(
     addrWidth,
     dataWidth,
     sizeWidth,
-    lineBytes))
+    lineBytes,
+    identityEntries))
 
   private def zeroEntry: SCBLineEntry = {
     val entry = Wire(new SCBLineEntry(addrWidth, lineBytes))

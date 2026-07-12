@@ -15,6 +15,27 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R669 separates physical scalar-store capacities from ROB
+identity sizing through the live Chisel path. `ScalarLsuParams.stqEntries`
+sizes STQ rows, masks, forwarding snapshots, replay wait-store indices, and MDB
+store vectors; `commitQueueEntries`, `commitIssueWidth`, and `scbEntries` size
+their own owners. `CoreParams.robEntries` continues to size BID/GID/RID
+identity. Unequal `16-row STQ / 8-entry ROB` elaboration and width contracts now
+cover dispatch, decode/rename, commit/free, drain, SCB, memory overlay,
+resident forwarding, replay wakeup, the complete source-return response and
+row-mutation chain, and the reduced top. The final Chisel regression passes
+265 suites and 1,580 tests. The full reduced-store CoreMark replay compares
+1,467 rows with zero mismatches in
+`generated/r669-independent-store-sizing-full-coremark/report/crosscheck_manifest.json`;
+sideband evidence records 136 valid MDB conflict-store observations and one
+eligible-store load lookup.
+
+This packet does not make queue depth architectural and imports no ARM
+exclusive-monitor, barrier, exception-level, condition-code, or acquire/release
+behavior. The next ordered LSU packet is full-width LSID transport: the golden
+contract keeps the 32-bit LSID domain independent, while some current STQ-side
+bundles still carry a transitional ROBID-shaped projection.
+
 Latest packet: R667 replaces the single live scalar issue queue with a
 parameterized banked fabric. Enqueue selects the least-occupied bank; bank-local
 and shared arbitration preserve oldest RID only within one STID and use

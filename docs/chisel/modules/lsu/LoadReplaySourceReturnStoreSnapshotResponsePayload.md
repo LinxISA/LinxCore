@@ -136,3 +136,8 @@ Reference tests cover payload production from request identity plus
 wait-store/data lookup sidebands, FIFO preservation of request and wait-store
 identity plus data mask/data, empty-queue bypass, full-queue pop/push,
 disabled/flush behavior, and Chisel elaboration.
+
+R669 makes the wait-store row selector a physical-queue field. `storeEntries`
+sizes `waitStoreIndex`; `idEntries` continues to size the load and store
+BID/GID/RID/LSID projections. The default preserves the prior equal-capacity
+interface.

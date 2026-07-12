@@ -166,3 +166,7 @@ Reference tests cover request acceptance only with both sink and response
 readiness, independent raw-sink and response backpressure, request-identity
 carry, wait-store/data-valid payload diagnostics, disabled/flush blockers, and
 Chisel elaboration.
+
+R669 separates the physical store-row domain from the ROB identity domain.
+`storeEntries` sizes `lookupWaitStoreInfo.storeIndex` and the emitted response
+row index; BID, RID, and LSID projections remain sized by `idEntries`.

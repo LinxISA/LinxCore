@@ -7,14 +7,16 @@ import linxcore.rob.ROBID
 class LoadReplaySourceReturnStoreSnapshotRowStatePlanIO(
     val idEntries: Int,
     val pcWidth: Int,
-    val lineBytes: Int)
+    val lineBytes: Int,
+    val storeEntries: Int = 0)
     extends Bundle {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
   val flush = Input(Bool())
   val applyValid = Input(Bool())
   val applyStqReturned = Input(Bool())
   val waitStoreApply = Input(Bool())
-  val waitStoreInfo = Input(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val waitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
   val waitStoreRid = Input(new ROBID(idEntries))
   val dataMergeApply = Input(Bool())
   val dataNoMerge = Input(Bool())
@@ -40,7 +42,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanIO(
   val lineWrite = Output(Bool())
   val waitStoreWrite = Output(Bool())
   val nextWaitStore = Output(Bool())
-  val nextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val nextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
   val nextWaitStoreRid = Output(new ROBID(idEntries))
   val nextLineData = Output(UInt((lineBytes * 8).W))
   val nextValidMask = Output(UInt(lineBytes.W))
@@ -61,17 +63,22 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanIO(
 class LoadReplaySourceReturnStoreSnapshotRowStatePlan(
     val idEntries: Int = 16,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val storeEntries: Int = 0)
     extends Module {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
+  require(physicalStoreEntries > 1 && (physicalStoreEntries & (physicalStoreEntries - 1)) == 0,
+    "store entries must be a power of two greater than one")
   require(pcWidth > 0, "pcWidth must be positive")
   require(lineBytes == 64, "row-state plan currently carries 64-byte scalar line data")
 
-  val io = IO(new LoadReplaySourceReturnStoreSnapshotRowStatePlanIO(idEntries, pcWidth, lineBytes))
+  val io = IO(new LoadReplaySourceReturnStoreSnapshotRowStatePlanIO(
+    idEntries, pcWidth, lineBytes, physicalStoreEntries))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
 
   val active = io.enable && !io.flush
   val rawIntent =

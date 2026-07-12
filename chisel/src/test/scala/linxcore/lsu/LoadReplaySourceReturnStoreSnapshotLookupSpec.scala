@@ -225,4 +225,19 @@ class LoadReplaySourceReturnStoreSnapshotLookupSpec extends AnyFunSuite {
     assert(sv.contains("io_responseDataValid"))
     assert(sv.contains("io_dataSuppressedByWait"))
   }
+
+  test("snapshot lookup separates STQ capacity from request identity sizing") {
+    val io = new LoadReplaySourceReturnStoreSnapshotLookupIO(
+      liqEntries = 4,
+      idEntries = 8,
+      clusterIdWidth = 2,
+      entryIdWidth = 2,
+      stqEntries = 16)
+
+    assert(io.rows.length == 16)
+    assert(io.eligibleStoreMask.getWidth == 16)
+    assert(io.waitStore.storeIndex.getWidth == 4)
+    assert(io.request.bid.value.getWidth == 3)
+    assert(io.waitStore.storeId.value.getWidth == 3)
+  }
 }

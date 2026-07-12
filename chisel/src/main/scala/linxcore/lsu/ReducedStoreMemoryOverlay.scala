@@ -17,12 +17,15 @@ class ReducedStoreMemoryOverlayIO(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   private val lineCountWidth = log2Ceil(lineEntries + 1)
 
   val flush = Input(Bool())
-  val storeReqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
+  val storeReqs = Input(Vec(requestCount,
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries)))
   val storeAcceptedMask = Input(UInt(requestCount.W))
 
   val loadValid = Input(Bool())
@@ -44,9 +47,13 @@ class ReducedStoreMemoryOverlay(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   require(stqEntries > 1, "STQ entries must be greater than one")
+  require(identityEntries > 1 && (identityEntries & (identityEntries - 1)) == 0,
+    "ROB entries must be a power of two greater than one")
   require(requestCount > 0, "store overlay request count must be nonzero")
   require(lineEntries > 0, "store overlay line entries must be nonzero")
   require(addrWidth >= 7, "store overlay needs 64-byte line addresses")
@@ -58,7 +65,15 @@ class ReducedStoreMemoryOverlay(
   private val offsetWidth = log2Ceil(lineBytes)
   private val lineCountWidth = log2Ceil(lineEntries + 1)
 
-  val io = IO(new ReducedStoreMemoryOverlayIO(stqEntries, requestCount, lineEntries, addrWidth, dataWidth, sizeWidth, lineBytes))
+  val io = IO(new ReducedStoreMemoryOverlayIO(
+    stqEntries,
+    requestCount,
+    lineEntries,
+    addrWidth,
+    dataWidth,
+    sizeWidth,
+    lineBytes,
+    identityEntries))
 
   private def zeroLine: ReducedStoreMemoryOverlayLine = {
     val line = Wire(new ReducedStoreMemoryOverlayLine(addrWidth, lineBytes))

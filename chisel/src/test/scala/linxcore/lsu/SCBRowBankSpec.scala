@@ -363,4 +363,23 @@ class SCBRowBankSpec extends AnyFunSuite {
     assert(sv.contains("io_respDecodeError"))
     assert(sv.contains("io_stateError"))
   }
+
+  test("physical STQ indices remain wider than ROB identity in a 16 by 8 configuration") {
+    val io = new SCBRowBankIO(
+      stqEntries = 16,
+      scbEntries = 4,
+      requestCount = 2,
+      responseBufferDepth = 4,
+      robEntries = 8)
+
+    assert(io.commitFreeMask.getWidth == 16)
+    assert(io.reqs.head.stqIndex.getWidth == 4)
+    assert(io.reqs.head.bid.value.getWidth == 3)
+    assert(io.reqs.head.lsId.value.getWidth == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(
+      new SCBRowBank(stqEntries = 16, scbEntries = 4, requestCount = 2, robEntries = 8))
+    assert(sv.contains("module SCBRowBank"))
+    assert(sv.contains("io_reqs_0_bid_value"))
+  }
 }

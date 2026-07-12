@@ -204,7 +204,7 @@ class STQCommitDrain(
     val firstData = row.data & (allDataBits >> secondShiftBits)
     val secondData = row.data >> firstShiftBits
 
-    val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth))
+    val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries))
     firstReq := zeroReq
     firstReq.valid := issue.valid
     firstReq.stqIndex := issue.stqIndex
@@ -217,7 +217,7 @@ class STQCommitDrain(
     firstReq.bid := issue.bid
     firstReq.lsId := issue.lsId
 
-    val secondReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth))
+    val secondReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries))
     secondReq := zeroReq
     secondReq.valid := issue.valid && crosses
     secondReq.stqIndex := issue.stqIndex

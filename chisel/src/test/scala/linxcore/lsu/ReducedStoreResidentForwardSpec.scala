@@ -215,4 +215,14 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
     assert(sv.contains("io_waitStore_storeId_value"))
     assert(sv.contains("io_loadCrossesLine"))
   }
+
+  test("resident forwarding separates physical STQ rows from ROB identity width") {
+    val io = new ReducedStoreResidentForwardIO(entries = 16, robEntries = 8)
+
+    assert(io.rows.length == 16)
+    assert(io.eligibleStoreMask.getWidth == 16)
+    assert(io.waitStore.storeIndex.getWidth == 4)
+    assert(io.loadBid.value.getWidth == 3)
+    assert(io.waitStore.storeId.value.getWidth == 3)
+  }
 }

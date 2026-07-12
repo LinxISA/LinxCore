@@ -227,3 +227,8 @@ full-queue simultaneous pop/push, full-queue drop diagnostics, flush clearing,
 precise `FlushBus` pruning and compaction, disabled-response diagnostics,
 preservation of request identity, wait-store identity, data mask/data sidebands,
 and Chisel elaboration.
+
+R669 carries `storeEntries` through every resident FIFO entry and head payload,
+so a wait on a physical STQ row above the ROB count cannot alias while queued.
+Flush matching remains based on ROB-sized architectural identity, not the
+physical row number.

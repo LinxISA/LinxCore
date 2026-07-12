@@ -1793,4 +1793,61 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_acceptedTokenBlockedByOutstanding"))
     assert(sv.contains("io_acceptedTokenEntryId"))
   }
+
+  test("composed snapshot path elaborates with independent STQ and ROB capacities") {
+    val pathIo = new LoadReplaySourceReturnStoreSnapshotPathIO(
+      liqEntries = 4,
+      idEntries = 8,
+      clusterIdWidth = 2,
+      entryIdWidth = 2,
+      addrWidth = 64,
+      dataWidth = 64,
+      peIdWidth = 8,
+      stidWidth = 8,
+      tidWidth = 8,
+      pcWidth = 64,
+      lineBytes = 64,
+      sizeWidth = 7,
+      stqSizeWidth = 4,
+      simtLaneWidth = 8,
+      mapQDepth = 32,
+      requestQueueDepth = 2,
+      responseQueueDepth = 2,
+      stqEntries = 16)
+    val responseQueueIo = new LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
+      idEntries = 8,
+      clusterIdWidth = 2,
+      entryIdWidth = 2,
+      depth = 2,
+      pcWidth = 64,
+      lineBytes = 64,
+      peIdWidth = 8,
+      stidWidth = 8,
+      tidWidth = 8,
+      storeEntries = 16)
+    val liqIo = new ReducedLoadReplayLiqAllocPathIO(
+      liqEntries = 4,
+      idEntries = 8,
+      storeEntries = 16)
+
+    assert(pathIo.responseWaitStoreIndex.getWidth == 4)
+    assert(pathIo.responseApplyWaitStoreInfo.storeIndex.getWidth == 4)
+    assert(pathIo.rowStatePlanNextWaitStoreInfo.storeIndex.getWidth == 4)
+    assert(pathIo.rowMutationNextWaitStoreInfo.storeIndex.getWidth == 4)
+    assert(responseQueueIo.enqueue.waitStoreIndex.getWidth == 4)
+    assert(responseQueueIo.headWaitStoreIndex.getWidth == 4)
+    assert(liqIo.rowMutationNextWaitStoreInfo.storeIndex.getWidth == 4)
+    assert(pathIo.responseApplyWaitStoreInfo.storeId.value.getWidth == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(new LoadReplaySourceReturnStoreSnapshotPath(
+      liqEntries = 4,
+      idEntries = 8,
+      clusterIdWidth = 2,
+      entryIdWidth = 2,
+      stqEntries = 16))
+
+    assert(sv.contains("io_stqRows_15_status"))
+    assert(sv.contains("io_responseWaitStoreIndex"))
+    assert(sv.contains("io_responseWaitStoreBid_value"))
+  }
 }

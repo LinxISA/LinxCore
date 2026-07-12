@@ -414,3 +414,7 @@ changing replay-wakeup ownership.
 R489 keeps the same `clearResolved*` pass-through while relying on
 `LoadInflightQueue` to classify complete source-returned `Repick` rows as
 clearable terminal rows.
+
+R669 sizes `rowMutationNextWaitStoreInfo.storeIndex` with `storeEntries`
+instead of `idEntries`. This keeps a physical STQ row above the ROB count
+intact until the existing mutation bridge validates and writes the LIQ row.

@@ -14,8 +14,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
     lineBytes: Int,
     peIdWidth: Int,
     stidWidth: Int,
-    tidWidth: Int)
+    tidWidth: Int,
+    storeEntries: Int = 0)
     extends Bundle {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val clusterId = UInt(clusterIdWidth.W)
   val entryId = UInt(entryIdWidth.W)
   val requestBid = new ROBID(idEntries)
@@ -29,7 +31,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
   val dataValid = Bool()
   val rawDataValid = Bool()
   val dataSuppressedByWait = Bool()
-  val waitStoreIndex = UInt(log2Ceil(idEntries).W)
+  val waitStoreIndex = UInt(log2Ceil(physicalStoreEntries).W)
   val waitStoreBid = new ROBID(idEntries)
   val waitStoreRid = new ROBID(idEntries)
   val waitStoreLsId = new ROBID(idEntries)
@@ -47,8 +49,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     lineBytes: Int,
     peIdWidth: Int,
     stidWidth: Int,
-    tidWidth: Int)
+    tidWidth: Int,
+    storeEntries: Int = 0)
     extends Bundle {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   private val countWidth = log2Ceil(depth + 1)
 
   val enable = Input(Bool())
@@ -63,7 +67,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   ))
   val dequeueReady = Input(Bool())
 
@@ -79,7 +84,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   ))
   val headClusterId = Output(UInt(clusterIdWidth.W))
   val headEntryId = Output(UInt(entryIdWidth.W))
@@ -94,7 +100,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
   val headDataValid = Output(Bool())
   val headRawDataValid = Output(Bool())
   val headDataSuppressedByWait = Output(Bool())
-  val headWaitStoreIndex = Output(UInt(log2Ceil(idEntries).W))
+  val headWaitStoreIndex = Output(UInt(log2Ceil(physicalStoreEntries).W))
   val headWaitStoreBid = Output(new ROBID(idEntries))
   val headWaitStoreRid = Output(new ROBID(idEntries))
   val headWaitStoreLsId = Output(new ROBID(idEntries))
@@ -123,10 +129,14 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     val lineBytes: Int = 64,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val storeEntries: Int = 0)
     extends Module {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
+  require(physicalStoreEntries > 1 && (physicalStoreEntries & (physicalStoreEntries - 1)) == 0,
+    "store entries must be a power of two greater than one")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(depth > 0, "response queue depth must be nonzero")
@@ -147,7 +157,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStoreEntries
   ))
 
   private def zeroEntry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry = {
@@ -159,7 +170,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       lineBytes = lineBytes,
       peIdWidth = peIdWidth,
       stidWidth = stidWidth,
-      tidWidth = tidWidth
+      tidWidth = tidWidth,
+      storeEntries = physicalStoreEntries
     ))
     entry := 0.U.asTypeOf(entry)
     entry
@@ -174,7 +186,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       lineBytes = lineBytes,
       peIdWidth = peIdWidth,
       stidWidth = stidWidth,
-      tidWidth = tidWidth
+      tidWidth = tidWidth,
+      storeEntries = physicalStoreEntries
     ))
     entry.clusterId := io.enqueue.clusterId
     entry.entryId := io.enqueue.entryId
@@ -234,7 +247,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   )))
   when(headValid) {
     headPayload.valid := true.B
@@ -274,7 +288,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStoreEntries
   )))
 
   for (slot <- 0 until depth) {
@@ -308,7 +323,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStoreEntries
   )))
   for (dst <- 0 until depth) {
     nextEntries(dst) := compacted(dst)

@@ -18,8 +18,10 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val stqEntries: Int = 0)
     extends Bundle {
+  private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   val enable = Input(Bool())
   val flush = Input(Bool())
   val requestValid = Input(Bool())
@@ -36,7 +38,7 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     stidWidth,
     tidWidth
   ))
-  val rows = Input(Vec(idEntries, new STQEntryBankRow(
+  val rows = Input(Vec(physicalStqEntries, new STQEntryBankRow(
     idEntries,
     addrWidth,
     dataWidth,
@@ -55,15 +57,15 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
   val queryValid = Output(Bool())
   val loadCrossesLine = Output(Bool())
   val requestMaskMismatch = Output(Bool())
-  val storeSnapshotValidMask = Output(UInt(idEntries.W))
-  val storeSnapshotWaitMask = Output(UInt(idEntries.W))
-  val storeSnapshotCrossLineMask = Output(UInt(idEntries.W))
+  val storeSnapshotValidMask = Output(UInt(physicalStqEntries.W))
+  val storeSnapshotWaitMask = Output(UInt(physicalStqEntries.W))
+  val storeSnapshotCrossLineMask = Output(UInt(physicalStqEntries.W))
   val loadByteMask = Output(UInt(lineBytes.W))
-  val eligibleStoreMask = Output(UInt(idEntries.W))
+  val eligibleStoreMask = Output(UInt(physicalStqEntries.W))
   val forwardMask = Output(UInt(lineBytes.W))
   val waitMask = Output(UInt(lineBytes.W))
   val uncoveredLoadMask = Output(UInt(lineBytes.W))
-  val waitStore = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val waitStore = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
   val waitStoreValid = Output(Bool())
   val rawDataValid = Output(Bool())
   val responseDataValid = Output(Bool())
@@ -88,12 +90,16 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val stqEntries: Int = 0)
     extends Module {
+  private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
+  require(physicalStqEntries > 1 && (physicalStqEntries & (physicalStqEntries - 1)) == 0,
+    "STQ entries must be a power of two greater than one")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(addrWidth >= 7, "lookup needs 64-byte line addresses")
@@ -119,7 +125,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
     simtLaneWidth,
     mapQDepth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    physicalStqEntries
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -137,7 +144,8 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   val queryValid = requestActive && (io.request.size =/= 0.U) && !loadCrossesLine
 
   val storeSnapshot = Module(new ResidentStoreForwardStoreSnapshot(
-    entries = idEntries,
+    entries = physicalStqEntries,
+    robEntries = idEntries,
     addrWidth = addrWidth,
     dataWidth = dataWidth,
     peIdWidth = peIdWidth,
@@ -151,7 +159,7 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   ))
   val forward = Module(new LoadStoreForwarding(
     robEntries = idEntries,
-    storeEntries = idEntries,
+    storeEntries = physicalStqEntries,
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
@@ -169,7 +177,7 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   forward.io.query.youngestStoreLsId := io.request.loadLsId
   forward.io.query.isTile := false.B
   forward.io.cacheData := io.cacheData
-  for (idx <- 0 until idEntries) {
+  for (idx <- 0 until physicalStqEntries) {
     forward.io.stores(idx) := storeSnapshot.io.stores(idx)
   }
 

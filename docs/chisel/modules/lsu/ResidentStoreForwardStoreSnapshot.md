@@ -32,6 +32,13 @@ sidecars. The module is still a reduced scalar bridge: it accepts only
 same-line resident `Wait` rows and reports cross-line rows through diagnostics
 instead of trying to split them.
 
+## Sizing Contract
+
+`entries` sizes physical input rows, forwarding-store outputs, masks, and
+`storeIndex`. `robEntries` sizes row and forwarding BID/LSID identity. This
+keeps snapshot storage capacity independent of the ordering identity carried
+through the forwarding pipeline.
+
 ## Interface
 
 ### Inputs

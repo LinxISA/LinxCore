@@ -56,6 +56,7 @@ class DecodeRenameROBPathIO(
     val trapCauseWidth: Int = 32,
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
+    val storeStqEntries: Int = 0,
     val loadStoreSerialWidth: Int = 64,
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
@@ -72,12 +73,14 @@ class DecodeRenameROBPathIO(
   private val recoverySourceCount = recoveryNonLsuSourceCount + directRecoverySourceCount + 1
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
+  private val physicalStoreStqEntries = if (storeStqEntries > 0) storeStqEntries else p.robEntries
+  private val stqPtrWidth = log2Ceil(physicalStoreStqEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val gprReservationCountWidth = decRenCountWidth
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
-  private val stqCountWidth = log2Ceil(p.robEntries + 1)
+  private val stqCountWidth = log2Ceil(physicalStoreStqEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(Seq(32, 32, mapQDepth).max + 1)
@@ -104,11 +107,11 @@ class DecodeRenameROBPathIO(
   val storeStdExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
   val storeAddressInsertPermit = Input(Bool())
   val storeMarkCommitValid = Input(Bool())
-  val storeMarkCommitIndex = Input(UInt(ptrWidth.W))
+  val storeMarkCommitIndex = Input(UInt(stqPtrWidth.W))
   val storeCommitFreeValid = Input(Bool())
-  val storeCommitFreeIndex = Input(UInt(ptrWidth.W))
+  val storeCommitFreeIndex = Input(UInt(stqPtrWidth.W))
   val storeCommitFreeMaskValid = Input(Bool())
-  val storeCommitFreeMask = Input(UInt(p.robEntries.W))
+  val storeCommitFreeMask = Input(UInt(physicalStoreStqEntries.W))
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
   val checkpointStid = Input(UInt(stidWidth.W))
@@ -310,28 +313,28 @@ class DecodeRenameROBPathIO(
   val storeStqInsertAllocated = Output(Bool())
   val storeStqInsertMerged = Output(Bool())
   val storeStqInsertConflict = Output(Bool())
-  val storeStqInsertIndex = Output(UInt(ptrWidth.W))
+  val storeStqInsertIndex = Output(UInt(stqPtrWidth.W))
   val storeMarkCommitAccepted = Output(Bool())
   val storeMarkCommitIgnored = Output(Bool())
   val storeCommitFreeAccepted = Output(Bool())
   val storeCommitFreeIgnored = Output(Bool())
-  val storeCommitFreeAcceptedMask = Output(UInt(p.robEntries.W))
-  val storeCommitFreeIgnoredMask = Output(UInt(p.robEntries.W))
+  val storeCommitFreeAcceptedMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeCommitFreeIgnoredMask = Output(UInt(physicalStoreStqEntries.W))
   val storeCommitFreeCount = Output(UInt(stqCountWidth.W))
   val storeStqFlushApplied = Output(Bool())
-  val storeStqFlushMatchMask = Output(UInt(p.robEntries.W))
-  val storeStqFlushFreeMask = Output(UInt(p.robEntries.W))
-  val storeStqFlushStatusBlockedMask = Output(UInt(p.robEntries.W))
+  val storeStqFlushMatchMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqFlushFreeMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqFlushStatusBlockedMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqFlushFreeCount = Output(UInt(stqCountWidth.W))
   val storeLsuTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val storeLsuTULinkSourceMatched = Output(Bool())
   val storeLsuTULinkSourceMultipleMatch = Output(Bool())
-  val storeStqRows = Output(Vec(p.robEntries, new STQEntryBankRow(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth)))
-  val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
-  val storeStqWaitMask = Output(UInt(p.robEntries.W))
-  val storeStqCommitMask = Output(UInt(p.robEntries.W))
-  val storeStqAddrReadyMask = Output(UInt(p.robEntries.W))
-  val storeStqDataReadyMask = Output(UInt(p.robEntries.W))
+  val storeStqRows = Output(Vec(physicalStoreStqEntries, new STQEntryBankRow(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth)))
+  val storeStqOccupiedMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqWaitMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqCommitMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqAddrReadyMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqDataReadyMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqResidentCount = Output(UInt(stqCountWidth.W))
   val storeStqOutstandingWaitCount = Output(UInt(stqCountWidth.W))
   val storeStqEmpty = Output(Bool())
@@ -598,6 +601,7 @@ class DecodeRenameROBPath(
     val gprMapQDepth: Int = 32,
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
+    val storeStqEntries: Int = 0,
     val loadStoreSerialWidth: Int = 64,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
@@ -620,6 +624,10 @@ class DecodeRenameROBPath(
   require(traceParams.insnWidth == p.insnWidth, "trace instruction width must match InterfaceParams")
   require(traceParams.lenWidth == p.lenWidth, "trace instruction length width must match InterfaceParams")
   require((p.robEntries & (p.robEntries - 1)) == 0, "ROB entries must be a power of two")
+  private val physicalStoreStqEntries = if (storeStqEntries > 0) storeStqEntries else p.robEntries
+  require(physicalStoreStqEntries > 1 &&
+    (physicalStoreStqEntries & (physicalStoreStqEntries - 1)) == 0,
+    "physical scalar STQ entries must be a power of two greater than one")
   require(decRenQueueDepth > 0 && (decRenQueueDepth & (decRenQueueDepth - 1)) == 0,
     "decode-to-rename queue depth must be a power of two")
   require(tuRetireSourceQueueDepth >= traceParams.commitWidth,
@@ -681,6 +689,7 @@ class DecodeRenameROBPath(
     trapCauseWidth = trapCauseWidth,
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
+    storeStqEntries = physicalStoreStqEntries,
     loadStoreSerialWidth = loadStoreSerialWidth,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
@@ -1116,7 +1125,7 @@ class DecodeRenameROBPath(
   val storeDispatch = Module(new StoreDispatchSTQPath(
     p = p,
     queueDepth = storeDispatchQueueDepth,
-    entries = p.robEntries,
+    entries = physicalStoreStqEntries,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,

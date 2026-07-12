@@ -37,6 +37,13 @@ through diagnostics. R266 wires that diagnostic to an execute-stage hold in
 LIQ/LDQ state or consume store-unit wakeups. A later replay owner must consume
 the wait-store identity before this can replace the full model load pipeline.
 
+## Sizing Contract
+
+`entries` sizes the resident STQ vector, eligible mask, and wait-store index;
+`robEntries` sizes load/store BID and current transitional LSID identity
+fields. Forwarding selection never derives identity width from the number of
+resident rows. The focused suite includes a 16-STQ/8-ROB contract.
+
 ## Interface
 
 ### Load Query

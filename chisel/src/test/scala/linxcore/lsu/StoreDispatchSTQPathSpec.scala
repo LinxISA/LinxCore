@@ -173,6 +173,27 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(io.staExec.addr.getWidth == 64)
   }
 
+  test("StoreDispatchSTQPath keeps physical row sizing independent of ROB identity sizing") {
+    val p = InterfaceParams(robEntries = 8)
+    val io = new StoreDispatchSTQPathIO(p, queueDepth = 4, entries = 16)
+
+    assert(io.markCommitIndex.getWidth == 4)
+    assert(io.commitFreeMask.getWidth == 16)
+    assert(io.commitFreeCount.getWidth == 5)
+    assert(io.stqRows.length == 16)
+    assert(io.stqOccupiedMask.getWidth == 16)
+    assert(io.staRequest.bid.value.getWidth == 3)
+    assert(io.stdRequest.lsId.value.getWidth == 3)
+    assert(io.stqRows.head.bid.value.getWidth == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(
+      new StoreDispatchSTQPath(p, queueDepth = 4, entries = 16)
+    )
+    assert(sv.contains("io_stqRows_15_status"))
+    assert(sv.contains("io_markCommitIndex"))
+    assert(sv.contains("io_commitFreeMask"))
+  }
+
   test("StoreDispatchSTQPath elaborates with queues, probes, bridge, and STQ bank") {
     val sv = ChiselStage.emitSystemVerilog(new StoreDispatchSTQPath(InterfaceParams(robEntries = 8), queueDepth = 4, entries = 8))
 

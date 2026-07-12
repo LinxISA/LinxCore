@@ -16,8 +16,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     val sizeWidth: Int = 7,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val storeEntries: Int = 0)
     extends Bundle {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
   val flush = Input(Bool())
   val requestValid = Input(Bool())
@@ -37,7 +39,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val rawSinkReady = Input(Bool())
   val responseReady = Input(Bool())
   val lookupWaitStore = Input(Bool())
-  val lookupWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val lookupWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, physicalStoreEntries, pcWidth))
   val lookupWaitStoreRid = Input(new ROBID(idEntries))
   val lookupRawDataValid = Input(Bool())
   val lookupDataValid = Input(Bool())
@@ -57,7 +59,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   ))
   val responseValid = Output(Bool())
   val responseClusterId = Output(UInt(clusterIdWidth.W))
@@ -73,7 +76,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val responseDataValid = Output(Bool())
   val responseRawDataValid = Output(Bool())
   val responseDataSuppressedByWait = Output(Bool())
-  val responseWaitStoreIndex = Output(UInt(log2Ceil(idEntries).W))
+  val responseWaitStoreIndex = Output(UInt(log2Ceil(physicalStoreEntries).W))
   val responseWaitStoreBid = Output(new ROBID(idEntries))
   val responseWaitStoreRid = Output(new ROBID(idEntries))
   val responseWaitStoreLsId = Output(new ROBID(idEntries))
@@ -99,12 +102,16 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     val sizeWidth: Int = 7,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val storeEntries: Int = 0)
     extends Module {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
+  require(physicalStoreEntries > 1 && (physicalStoreEntries & (physicalStoreEntries - 1)) == 0,
+    "store entries must be a power of two greater than one")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(addrWidth >= 7, "request sink needs 64-byte line addresses")
@@ -125,7 +132,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     sizeWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   ))
 
   val active = io.enable && !io.flush
@@ -142,7 +150,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   )))
 
   when(requestAccepted) {

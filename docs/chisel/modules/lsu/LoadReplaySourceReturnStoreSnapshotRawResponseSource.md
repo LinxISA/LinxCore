@@ -168,3 +168,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 Reference tests cover live request-identity and payload preservation,
 live-disabled candidate blocking, disabled/flush suppression, malformed-payload
 diagnostics, composite enqueue priority, and Chisel elaboration.
+
+R669 sizes the raw `waitStoreIndex` and response payload from `storeEntries`.
+All request and blocking-store identity fields remain in the ROB-sized
+`idEntries` domain.

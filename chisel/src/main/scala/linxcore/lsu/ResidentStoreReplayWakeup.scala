@@ -16,14 +16,16 @@ class ResidentStoreReplayWakeupIO(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   val enable = Input(Bool())
-  val waitStore = Input(new LoadStoreForwardWait(entries, entries, pcWidth))
-  val rows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, pcWidth)))
+  val waitStore = Input(new LoadStoreForwardWait(identityEntries, entries, pcWidth))
+  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, pcWidth)))
 
   val wakeValid = Output(Bool())
-  val wake = Output(new LoadReplayWakeupRequest(entries, addrWidth, pcWidth, lineBytes))
+  val wake = Output(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes))
   val selectedRowValid = Output(Bool())
   val identityMatch = Output(Bool())
   val selectedRowReady = Output(Bool())
@@ -42,8 +44,10 @@ class ResidentStoreReplayWakeup(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "resident replay wakeup needs at least two STQ entries")
   require((entries & (entries - 1)) == 0, "resident replay wakeup entries must be a power of two")
   require(addrWidth >= 7, "resident replay wakeup needs 64-byte line addresses")
@@ -64,7 +68,8 @@ class ResidentStoreReplayWakeup(
     simtLaneWidth,
     mapQDepth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    identityEntries
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -125,7 +130,7 @@ class ResidentStoreReplayWakeup(
   val byteMask = storeByteMask(row.addr, row.size)
   val wakeValid = rowReady && byteMask.orR
 
-  val wake = Wire(new LoadReplayWakeupRequest(entries, addrWidth, pcWidth, lineBytes))
+  val wake = Wire(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes))
   wake := 0.U.asTypeOf(wake)
   wake.source := LoadReplayWakeSource.StoreUnit
   wake.storeId := io.waitStore.storeId

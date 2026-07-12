@@ -33,6 +33,13 @@ load row, relaunch a load, or wake consumers. It gives the reduced top a typed
 request boundary that the R269 reduced wait slot and later LIQ integration can
 consume.
 
+## Sizing Contract
+
+`entries` sizes the resident row vector and wait-store index. `robEntries`
+sizes the selected store identity and replay wakeup identity. A capacity change
+therefore changes row addressing without silently widening or narrowing the
+ROB identity contract.
+
 ## Interface
 
 ### Inputs

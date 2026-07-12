@@ -5,7 +5,7 @@ import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 
 import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
-import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
+import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass, ScalarLsuParams}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
@@ -59,6 +59,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val denseSlotQueueDepth: Int = 8,
     val storeDispatchQueueDepth: Int = 4,
     val storeExecBufferEntries: Int = 4,
+    val scalarLsuParams: Option[ScalarLsuParams] = None,
     val storeMemoryLineEntries: Int = 64,
     val loadReturnQueueEntries: Int = 2,
     val loadReturnPipeCount: Int = 1,
@@ -77,9 +78,17 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val storeExecBufferCountWidth = log2Ceil(storeExecBufferEntries + 1)
-  private val storeStqCountWidth = log2Ceil(p.robEntries + 1)
-  private val storeCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
-  private val storeScbRequestCount = storeCommitIssueWidth * 2
+  private val physicalStoreStqEntries = scalarLsuParams.map(_.stqEntries).getOrElse(p.robEntries)
+  private val physicalStoreCommitQueueEntries =
+    scalarLsuParams.map(_.commitQueueEntries).getOrElse(physicalStoreStqEntries)
+  private val physicalStoreCommitIssueWidth =
+    scalarLsuParams.map(_.commitIssueWidth).getOrElse(if (physicalStoreStqEntries >= 4) 2 else 1)
+  private val physicalStoreScbEntries = scalarLsuParams.map(_.scbEntries).getOrElse(physicalStoreStqEntries)
+  private val storeStqPtrWidth = log2Ceil(physicalStoreStqEntries)
+  private val storeStqCountWidth = log2Ceil(physicalStoreStqEntries + 1)
+  private val storeCommitQueueCountWidth = log2Ceil(physicalStoreCommitQueueEntries + 1)
+  private val storeScbEntryCountWidth = log2Ceil(physicalStoreScbEntries + 1)
+  private val storeScbRequestCount = physicalStoreCommitIssueWidth * 2
   private val storeMemoryCommitBypassRequestCount = traceParams.commitWidth * 2
   private val storeMemoryRequestCount = storeScbRequestCount + storeMemoryCommitBypassRequestCount
   private val storeScbRequestCountWidth = log2Ceil(storeScbRequestCount + 1)
@@ -280,55 +289,55 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreCommitStoreMatched = Output(Bool())
   val reducedStoreCommitStoreUnmatched = Output(Bool())
   val reducedStoreCommitReleasedByEarlySafe = Output(Bool())
-  val reducedStoreCommitMatchMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitEarlySafeMatchMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitPendingIdentityMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitPendingEarlySafeMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitResidentEarlySafeMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitPendingMarkMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitPendingFreeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitMatchMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitEarlySafeMatchMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitPendingIdentityMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitPendingEarlySafeMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitResidentEarlySafeMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitPendingMarkMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitPendingFreeMask = Output(UInt(physicalStoreStqEntries.W))
   val reducedStoreCommitPendingMarkCount = Output(UInt(storeStqCountWidth.W))
   val reducedStoreCommitPendingFreeCount = Output(UInt(storeStqCountWidth.W))
   val reducedStoreCommitMarkValid = Output(Bool())
-  val reducedStoreCommitMarkIndex = Output(UInt(ptrWidth.W))
+  val reducedStoreCommitMarkIndex = Output(UInt(storeStqPtrWidth.W))
   val reducedStoreCommitMarkAccepted = Output(Bool())
   val reducedStoreCommitMarkIgnored = Output(Bool())
   val reducedStoreCommitMarkBlocked = Output(Bool())
   val reducedStoreCommitFreeValid = Output(Bool())
-  val reducedStoreCommitFreeIndex = Output(UInt(ptrWidth.W))
+  val reducedStoreCommitFreeIndex = Output(UInt(storeStqPtrWidth.W))
   val reducedStoreCommitFreeAccepted = Output(Bool())
   val reducedStoreCommitFreeIgnored = Output(Bool())
-  val reducedStoreCommitFreeAcceptedMask = Output(UInt(p.robEntries.W))
-  val reducedStoreCommitFreeIgnoredMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitFreeAcceptedMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreCommitFreeIgnoredMask = Output(UInt(physicalStoreStqEntries.W))
   val reducedStoreCommitFreeCount = Output(UInt(storeStqCountWidth.W))
   val reducedStoreCommitFreeBlocked = Output(Bool())
   val reducedStoreDrainEnqueueAccepted = Output(Bool())
   val reducedStoreDrainEnqueueDuplicate = Output(Bool())
-  val reducedStoreDrainIssueValidMask = Output(UInt(storeCommitIssueWidth.W))
-  val reducedStoreDrainIssueCount = Output(UInt(log2Ceil(storeCommitIssueWidth + 1).W))
-  val reducedStoreDrainEarlyFreeMask = Output(UInt(p.robEntries.W))
-  val reducedStoreDrainQueueCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreDrainIssueValidMask = Output(UInt(physicalStoreCommitIssueWidth.W))
+  val reducedStoreDrainIssueCount = Output(UInt(log2Ceil(physicalStoreCommitIssueWidth + 1).W))
+  val reducedStoreDrainEarlyFreeMask = Output(UInt(physicalStoreStqEntries.W))
+  val reducedStoreDrainQueueCount = Output(UInt(storeCommitQueueCountWidth.W))
   val reducedStoreDrainEmpty = Output(Bool())
   val reducedStoreDrainOrderError = Output(Bool())
   val reducedStoreScbReadyForDrain = Output(Bool())
   val reducedStoreScbAcceptedMask = Output(UInt(storeScbRequestCount.W))
   val reducedStoreScbStalledMask = Output(UInt(storeScbRequestCount.W))
   val reducedStoreScbCommitFreeMaskValid = Output(Bool())
-  val reducedStoreScbCommitFreeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreScbCommitFreeMask = Output(UInt(physicalStoreStqEntries.W))
   val reducedStoreScbCommitFreeCount = Output(UInt(storeScbRequestCountWidth.W))
-  val reducedStoreScbValidMask = Output(UInt(p.robEntries.W))
-  val reducedStoreScbEntryCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreScbValidMask = Output(UInt(physicalStoreScbEntries.W))
+  val reducedStoreScbEntryCount = Output(UInt(storeScbEntryCountWidth.W))
   val reducedStoreMemoryValidMask = Output(UInt(storeMemoryLineEntries.W))
   val reducedStoreMemoryLineCount = Output(UInt(storeMemoryLineCountWidth.W))
   val reducedStoreMemoryLoadForwardMask = Output(UInt(8.W))
   val reducedStoreMemoryStoreDroppedMask = Output(UInt(storeMemoryRequestCount.W))
   val reducedStoreResidentForwardMask = Output(UInt(8.W))
   val reducedStoreResidentWaitMask = Output(UInt(8.W))
-  val reducedStoreResidentEligibleMask = Output(UInt(p.robEntries.W))
+  val reducedStoreResidentEligibleMask = Output(UInt(physicalStoreStqEntries.W))
   val reducedStoreResidentReadyForward = Output(Bool())
   val reducedStoreResidentWaitBlocked = Output(Bool())
   val reducedStoreResidentWaitStoreValid = Output(Bool())
-  val reducedStoreResidentWaitStoreIndex = Output(UInt(ptrWidth.W))
+  val reducedStoreResidentWaitStoreIndex = Output(UInt(storeStqPtrWidth.W))
   val reducedStoreResidentWaitStoreBidValid = Output(Bool())
   val reducedStoreResidentWaitStoreBidWrap = Output(Bool())
   val reducedStoreResidentWaitStoreBidValue = Output(UInt(ptrWidth.W))
@@ -1994,7 +2003,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutSuMatchedStore = Output(Bool())
   val reducedMdbFanoutSuStorePending = Output(Bool())
   val reducedMdbFanoutSuWakeupValid = Output(Bool())
-  val reducedMdbFanoutSuWakeupIndex = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutSuWakeupIndex = Output(UInt(storeStqPtrWidth.W))
   val reducedMdbLookupWaitPlanLookupHit = Output(Bool())
   val reducedMdbLookupWaitPlanCandidateMask = Output(UInt(p.robEntries.W))
   val reducedMdbLookupWaitPlanTargetIndex = Output(UInt(ptrWidth.W))
@@ -2030,12 +2039,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val storeStqInsertAllocated = Output(Bool())
   val storeStqInsertMerged = Output(Bool())
   val storeStqInsertConflict = Output(Bool())
-  val storeStqInsertIndex = Output(UInt(ptrWidth.W))
-  val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
-  val storeStqWaitMask = Output(UInt(p.robEntries.W))
-  val storeStqCommitMask = Output(UInt(p.robEntries.W))
-  val storeStqAddrReadyMask = Output(UInt(p.robEntries.W))
-  val storeStqDataReadyMask = Output(UInt(p.robEntries.W))
+  val storeStqInsertIndex = Output(UInt(storeStqPtrWidth.W))
+  val storeStqOccupiedMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqWaitMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqCommitMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqAddrReadyMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqDataReadyMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqResidentCount = Output(UInt(storeStqCountWidth.W))
   val storeStqOutstandingWaitCount = Output(UInt(storeStqCountWidth.W))
   val storeStqEmpty = Output(Bool())
@@ -2243,6 +2252,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     denseSlotQueueDepth = denseSlotQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     storeExecBufferEntries = storeExecBufferEntries,
+    scalarLsuParams = Some(coreParams.scalarLsu),
     storeMemoryLineEntries = reducedStoreMemoryLineEntries,
     loadReturnQueueEntries = coreParams.scalarLsu.loadReturnQueueEntries,
     loadReturnPipeCount = coreParams.scalarLsu.loadReturnPipeCount,
@@ -2261,6 +2271,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     traceParams = traceParams,
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
+    storeStqEntries = coreParams.scalarLsu.stqEntries,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
     gprMapQDepth = gprMapQDepth,
@@ -2309,7 +2320,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     tidWidth = p.threadIdWidth
   ))
   val storeCommitOwner = Module(new ReducedStoreCommitFreeOwner(
-    entries = p.robEntries,
+    entries = coreParams.scalarLsu.stqEntries,
+    robEntries = p.robEntries,
     traceParams = traceParams,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
@@ -2317,39 +2329,44 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     mapQDepth = mapQDepth,
     lsidWidth = p.lsidWidth
   ))
-  private val reducedStoreCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
+  private val reducedStoreCommitIssueWidth = coreParams.scalarLsu.commitIssueWidth
   private val reducedStoreScbRequestCount = reducedStoreCommitIssueWidth * 2
   private val reducedStoreCommitBypassRequestCount = traceParams.commitWidth * 2
   private val reducedStoreMemoryRequestCount = reducedStoreScbRequestCount + reducedStoreCommitBypassRequestCount
   val reducedStoreCommitDrain = Module(new STQCommitDrain(
-    entries = p.robEntries,
-    queueEntries = p.robEntries,
+    entries = coreParams.scalarLsu.stqEntries,
+    queueEntries = coreParams.scalarLsu.commitQueueEntries,
     issueWidth = reducedStoreCommitIssueWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    robEntries = p.robEntries
   ))
   val reducedStoreScb = Module(new SCBRowBank(
-    stqEntries = p.robEntries,
-    scbEntries = p.robEntries,
+    stqEntries = coreParams.scalarLsu.stqEntries,
+    scbEntries = coreParams.scalarLsu.scbEntries,
     requestCount = reducedStoreScbRequestCount,
-    responseBufferDepth = 4
+    responseBufferDepth = coreParams.scalarLsu.scbResponseBufferDepth,
+    robEntries = p.robEntries
   ))
   val reducedStoreMemoryOverlay = Module(new ReducedStoreMemoryOverlay(
-    stqEntries = p.robEntries,
+    stqEntries = coreParams.scalarLsu.stqEntries,
     requestCount = reducedStoreMemoryRequestCount,
-    lineEntries = reducedStoreMemoryLineEntries
+    lineEntries = reducedStoreMemoryLineEntries,
+    robEntries = p.robEntries
   ))
   val reducedStoreResidentForward = Module(new ReducedStoreResidentForward(
-    entries = p.robEntries,
+    entries = coreParams.scalarLsu.stqEntries,
+    robEntries = p.robEntries,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth
   ))
   val reducedReplayLiqStoreSnapshot = Module(new ResidentStoreForwardStoreSnapshot(
-    entries = p.robEntries,
+    entries = coreParams.scalarLsu.stqEntries,
+    robEntries = p.robEntries,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
@@ -2367,6 +2384,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     Module(new LoadReplaySourceReturnStoreSnapshotPath(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
+      stqEntries = coreParams.scalarLsu.stqEntries,
       peIdWidth = p.peIdWidth,
       stidWidth = p.threadIdWidth,
       tidWidth = p.threadIdWidth,
@@ -2486,6 +2504,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     LinxCoreFrontendFetchRfAluTraceTopW2Modules.create(
       p = p,
       traceParams = traceParams,
+      storeEntries = coreParams.scalarLsu.stqEntries,
       postLretEnqueueHoldCycles = reducedReplayLiqW2PostLretEnqueueHoldCycles
     )
   val reducedReplayLiqReturnWritebackCandidate = Module(new LoadReplayReturnWritebackCandidate(
@@ -2505,7 +2524,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayLiqReturnPublishRequest = Module(new LoadReplayReturnPublishRequest)
   val reducedReplayLiqLaunchReadiness = Module(new LoadReplayLaunchReadiness)
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
-    entries = p.robEntries,
+    entries = coreParams.scalarLsu.stqEntries,
+    robEntries = p.robEntries,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
@@ -2513,7 +2533,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedLoadWaitReplaySlot = Module(new ReducedLoadWaitReplaySlot(
     idEntries = p.robEntries,
-    storeEntries = p.robEntries,
+    storeEntries = coreParams.scalarLsu.stqEntries,
     archRegWidth = p.archRegWidth,
     physRegWidth = p.physRegWidth
   ))
@@ -2526,7 +2546,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedLoadReplayLiqAllocPath = Module(new ReducedLoadReplayLiqAllocPath(
     liqEntries = p.robEntries,
     idEntries = p.robEntries,
-    storeEntries = p.robEntries,
+    storeEntries = coreParams.scalarLsu.stqEntries,
     archRegWidth = p.archRegWidth,
     physRegWidth = p.physRegWidth
   ))
@@ -2551,7 +2571,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     tidWidth = p.threadIdWidth
   ))
   val reducedMdbCoreParams = coreParams.copy(scalarLsu = coreParams.scalarLsu.copy(
-    stqEntries = p.robEntries,
+    stqEntries = coreParams.scalarLsu.stqEntries,
     liqEntries = p.robEntries,
     resolveQueueEntries = p.robEntries,
     mdbSsitEntries = p.robEntries,
@@ -2935,8 +2955,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsId
   reducedStoreCommitDrain.io.flushValid := reducedStoreFlush
   reducedStoreCommitDrain.io.issueEnable := reducedStoreScbReadyForDrain
-  reducedStoreCommitDrain.io.primaryReadyMask := Fill(p.robEntries, reducedStoreScbReadyForDrain)
-  reducedStoreCommitDrain.io.secondaryReadyMask := Fill(p.robEntries, reducedStoreScbReadyForDrain)
+  reducedStoreCommitDrain.io.primaryReadyMask :=
+    Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
+  reducedStoreCommitDrain.io.secondaryReadyMask :=
+    Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
   reducedStoreCommitDrain.io.rows := path.io.storeStqRows
 
   reducedStoreScb.io.reqs := reducedStoreCommitDrain.io.memReqs
@@ -2951,7 +2973,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreScb.io.rawRespUpgrade := false.B
 
   private def zeroReducedStoreMemoryReq: STQCommitDrainRequest = {
-    val req = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    val req = Wire(new STQCommitDrainRequest(
+      coreParams.scalarLsu.stqEntries,
+      p.immWidth,
+      p.immWidth,
+      4,
+      p.robEntries))
     req := 0.U.asTypeOf(req)
     req
   }
@@ -2966,7 +2993,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     out
   }
 
-  val reducedStoreMemoryReqs = Wire(Vec(reducedStoreMemoryRequestCount, new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4)))
+  val reducedStoreMemoryReqs = Wire(Vec(
+    reducedStoreMemoryRequestCount,
+    new STQCommitDrainRequest(
+      coreParams.scalarLsu.stqEntries,
+      p.immWidth,
+      p.immWidth,
+      4,
+      p.robEntries)))
   val reducedStoreMemoryAcceptedVec = Wire(Vec(reducedStoreMemoryRequestCount, Bool()))
   for (idx <- 0 until reducedStoreMemoryRequestCount) {
     reducedStoreMemoryReqs(idx) := zeroReducedStoreMemoryReq
@@ -2995,7 +3029,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val commitStoreFirstData = commitStoreRow.mem.wdata & (commitStoreAllDataBits >> (commitStoreSecondSize << 3))
     val commitStoreSecondData = commitStoreRow.mem.wdata >> (commitStoreFirstSize << 3)
 
-    val firstReq = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    val firstReq = Wire(new STQCommitDrainRequest(
+      coreParams.scalarLsu.stqEntries,
+      p.immWidth,
+      p.immWidth,
+      4,
+      p.robEntries))
     firstReq := zeroReducedStoreMemoryReq
     firstReq.valid := commitStoreValid
     firstReq.split := commitStoreCrosses
@@ -3005,7 +3044,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     firstReq.data := commitStoreFirstData
     firstReq.size := commitStoreFirstSize(3, 0)
 
-    val secondReq = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    val secondReq = Wire(new STQCommitDrainRequest(
+      coreParams.scalarLsu.stqEntries,
+      p.immWidth,
+      p.immWidth,
+      4,
+      p.robEntries))
     secondReq := zeroReducedStoreMemoryReq
     secondReq.valid := commitStoreValid && commitStoreCrosses
     secondReq.split := commitStoreCrosses
@@ -3356,7 +3400,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayResolvedRowHitRecord = Module(new LoadReplayResolvedRowHitRecord(
     liqEntries = p.robEntries,
     idEntries = p.robEntries,
-    storeEntries = p.robEntries,
+    storeEntries = coreParams.scalarLsu.stqEntries,
     addrWidth = p.immWidth,
     pcWidth = p.pcWidth,
     lineBytes = 64,
@@ -3462,16 +3506,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         reducedLoadReplayResolveLifecycleRetireRow.loadLsId,
         reducedLoadReplayResolveRetireLsId))
   val reducedMdbFanoutStoreRows = Wire(Vec(
-    p.robEntries,
+    coreParams.scalarLsu.stqEntries,
     new MDBStoreWakeupEntry(
       p.robEntries,
-      p.robEntries,
+      coreParams.scalarLsu.stqEntries,
       addrWidth = p.immWidth,
       pcWidth = p.pcWidth,
       stidWidth = p.threadIdWidth
     )
   ))
-  for (idx <- 0 until p.robEntries) {
+  for (idx <- 0 until coreParams.scalarLsu.stqEntries) {
     val stqRow = path.io.storeStqRows(idx)
     val wakeRow = Wire(chiselTypeOf(reducedMdbFanoutStoreRows(idx)))
     wakeRow := 0.U.asTypeOf(wakeRow)
@@ -3539,7 +3583,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       io = io,
       source = reducedReplayLiqSourceReturnStoreSnapshotPath,
       mdb = reducedMdbPath,
-      liqPath = reducedLoadReplayLiqAllocPath
+      liqPath = reducedLoadReplayLiqAllocPath,
+      storeEntries = coreParams.scalarLsu.stqEntries
     )
   reducedMdbPath.io.mutationAccepted := reducedMdbMutationAccepted
 
@@ -7140,11 +7185,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopR659CanonicalMdbMutationWiring 
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       source: LoadReplaySourceReturnStoreSnapshotPath,
       mdb: ScalarLSUMDBPath,
-      liqPath: ReducedLoadReplayLiqAllocPath): (Bool, LoadInflightRowMutationRequestBridge) = {
+      liqPath: ReducedLoadReplayLiqAllocPath,
+      storeEntries: Int): (Bool, LoadInflightRowMutationRequestBridge) = {
     val mux = Module(new LoadReplayRowMutationSourceMux(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
-      sourceStoreEntries = p.robEntries,
+      sourceStoreEntries = storeEntries,
       pcWidth = p.pcWidth,
       lineBytes = 64
     ))
@@ -7210,8 +7256,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR659CanonicalMdbMutationWiring 
     val bridge = Module(new LoadInflightRowMutationRequestBridge(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
-      sourceStoreEntries = p.robEntries,
-      storeEntries = p.robEntries,
+      sourceStoreEntries = storeEntries,
+      storeEntries = storeEntries,
       pcWidth = p.pcWidth
     ))
     bridge.io.enable := true.B
@@ -10286,6 +10332,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
   def create(
       p: InterfaceParams,
       traceParams: CommitTraceParams,
+      storeEntries: Int,
       postLretEnqueueHoldCycles: Int): LinxCoreFrontendFetchRfAluTraceTopW2Modules =
     LinxCoreFrontendFetchRfAluTraceTopW2Modules(
       slot = Module(new LoadReplayReturnPipeW2Slot(
@@ -10357,7 +10404,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
       retireRecordCommitRowCandidate =
         LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordCommitRowCandidateModule.create(p, traceParams),
       commitRowTraceSource = Module(new LoadReplayReturnPipeW2CommitRowTraceSource(traceParams = traceParams)),
-      replayRowLifecycleReady = LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule.create(p),
+      replayRowLifecycleReady =
+        LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule.create(p, storeEntries),
       replayRowLifecycleRequestControl = Module(new LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl),
       replayRowLifecycleCommitPermit = Module(new LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit),
       replayRowClearRequest = Module(new LoadReplayReturnPipeW2ReplayRowClearRequest(
@@ -10447,11 +10495,11 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
 }
 
 private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule {
-  def create(p: InterfaceParams): LoadReplayReturnPipeW2ReplayRowLifecycleReady =
+  def create(p: InterfaceParams, storeEntries: Int): LoadReplayReturnPipeW2ReplayRowLifecycleReady =
     Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
-      storeEntries = p.robEntries,
+      storeEntries = storeEntries,
       addrWidth = p.immWidth,
       pcWidth = p.pcWidth,
       lineBytes = 64,

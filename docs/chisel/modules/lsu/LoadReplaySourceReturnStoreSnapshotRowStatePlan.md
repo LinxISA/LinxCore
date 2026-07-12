@@ -118,3 +118,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 Reference tests cover wait-store rewait clearing, data merge, complete no-data
 STQ return, incomplete no-data rewait clearing, disabled/flush/no-apply
 blockers, malformed response classes, and Chisel elaboration.
+
+R669 gives the plan an independent `storeEntries` parameter. Wait-store row
+selectors retain physical STQ width through the planned next-row image, while
+the associated ordering identities stay ROB-sized.

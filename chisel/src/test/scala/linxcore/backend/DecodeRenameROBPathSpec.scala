@@ -898,6 +898,40 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.tuRenameUSeq.value.getWidth == 3)
   }
 
+  test("IO keeps scalar STQ capacity independent of ROB identity sizing") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val io = new DecodeRenameROBPathIO(p, trace, storeStqEntries = 16)
+
+    assert(io.storeMarkCommitIndex.getWidth == 4)
+    assert(io.storeCommitFreeIndex.getWidth == 4)
+    assert(io.storeCommitFreeMask.getWidth == 16)
+    assert(io.storeStqInsertIndex.getWidth == 4)
+    assert(io.storeStqRows.length == 16)
+    assert(io.storeStqRows.head.bid.value.getWidth == 3)
+    assert(io.storeStqInsert.bid.value.getWidth == 3)
+    assert(io.storeStqOccupiedMask.getWidth == 16)
+    assert(io.storeStqResidentCount.getWidth == 5)
+  }
+
+  test("DecodeRenameROBPath elaborates unequal scalar STQ and ROB capacities") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val sv = ChiselStage.emitSystemVerilog(
+      new DecodeRenameROBPath(
+        p = p,
+        traceParams = trace,
+        mapQDepth = 8,
+        storeStqEntries = 16
+      )
+    )
+
+    assert(sv.contains("io_storeStqRows_15_status"))
+    assert(sv.contains("io_storeMarkCommitIndex"))
+    assert(sv.contains("io_storeCommitFreeMask"))
+    assert(sv.contains("io_storeStqRows_15_bid_value"))
+  }
+
   test("DecodeRenameROBPath elaborates frontend decode through rename and DispatchROBAllocator") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)

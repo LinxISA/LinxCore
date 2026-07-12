@@ -1,7 +1,7 @@
 package linxcore.top
 
 import circt.stage.ChiselStage
-import linxcore.common.CoreParams
+import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
@@ -344,6 +344,14 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqReturnReadinessBlockedByNoCandidate.getWidth == 1)
     assert(io.reducedLoadReplayLiqReturnReadinessBlockedBySources.getWidth == 1)
     assert(io.reducedLoadReplayLiqReturnReadinessBlockedByReturnPipe.getWidth == 1)
+  }
+
+  test("interface exposes load-return, store, and retirement diagnostics") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
     assert(io.reducedLoadReplayLiqReturnDataCandidateValid.getWidth == 1)
     assert(io.reducedLoadReplayLiqReturnDataRequestByteMask.getWidth == 64)
     assert(io.reducedLoadReplayLiqReturnDataBytesComplete.getWidth == 1)
@@ -679,6 +687,34 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockAllocatedMask.getWidth == 8)
     assert(io.blockCompleteMask.getWidth == 8)
     assert(io.blockPendingMask.getWidth == 8)
+  }
+
+  test("interface sizes scalar store structures independently from ROB identities") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val scalarLsu = ScalarLsuParams(
+      stqEntries = 16,
+      commitQueueEntries = 32,
+      commitIssueWidth = 4,
+      scbEntries = 64)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(
+      p,
+      trace,
+      issueQueueDepth = 4,
+      scalarLsuParams = Some(scalarLsu),
+      physRegs = 64)
+
+    assert(io.storeStqInsertIndex.getWidth == 4)
+    assert(io.storeStqOccupiedMask.getWidth == 16)
+    assert(io.reducedStoreCommitMarkIndex.getWidth == 4)
+    assert(io.reducedStoreCommitFreeIndex.getWidth == 4)
+    assert(io.reducedStoreResidentWaitStoreIndex.getWidth == 4)
+    assert(io.reducedMdbFanoutSuWakeupIndex.getWidth == 4)
+    assert(io.reducedStoreDrainIssueValidMask.getWidth == 4)
+    assert(io.reducedStoreDrainQueueCount.getWidth == 6)
+    assert(io.reducedStoreScbValidMask.getWidth == 64)
+    assert(io.reducedStoreScbEntryCount.getWidth == 7)
   }
 
   test("R667 scalar issue-bank diagnostics have stable widths") {

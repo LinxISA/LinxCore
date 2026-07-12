@@ -17,8 +17,10 @@ class ReducedStoreCommitFreeOwnerIO(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val robEntries: Int = 0)
     extends Bundle {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
   private val countWidth = log2Ceil(entries + 1)
 
@@ -32,14 +34,14 @@ class ReducedStoreCommitFreeOwnerIO(
   val oldestBlockValid = Input(Bool())
   val oldestBlockBid = Input(UInt(traceParams.blockBidWidth.W))
   val oldestRobValid = Input(Bool())
-  val oldestRobBid = Input(new ROBID(entries))
+  val oldestRobBid = Input(new ROBID(identityEntries))
   val oldestRobLsId = Input(UInt(lsidWidth.W))
   val oldestRobStid = Input(UInt(stidWidth.W))
 
   val commit = Input(new CommitTracePort(traceParams))
   val commitValidMask = Input(UInt(traceParams.commitWidth.W))
-  val commitMemoryOrder = Input(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(entries, lsidWidth)))
-  val stqRows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val commitMemoryOrder = Input(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(identityEntries, lsidWidth)))
+  val stqRows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
 
   val markCommitValid = Output(Bool())
   val markCommitIndex = Output(UInt(ptrWidth.W))
@@ -83,13 +85,19 @@ class ReducedStoreCommitFreeOwner(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val robEntries: Int = 0)
     extends Module {
+  private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "reduced store commit/free owner needs at least two STQ entries")
   require((entries & (entries - 1)) == 0, "reduced store commit/free owner entries must be a power of two")
-  require(traceParams.robValueWidth >= log2Ceil(entries), "commit ROB value width must cover STQ/ROB indices")
+  require(identityEntries > 1, "reduced store commit/free owner needs at least two ROB entries")
+  require((identityEntries & (identityEntries - 1)) == 0,
+    "reduced store commit/free owner ROB entries must be a power of two")
+  require(traceParams.robValueWidth >= log2Ceil(identityEntries), "commit ROB value width must cover ROB identities")
 
   private val ptrWidth = log2Ceil(entries)
+  private val identityWidth = log2Ceil(identityEntries)
 
   val io = IO(new ReducedStoreCommitFreeOwnerIO(
     entries,
@@ -102,18 +110,19 @@ class ReducedStoreCommitFreeOwner(
     sizeWidth,
     simtLaneWidth,
     mapQDepth,
-    lsidWidth
+    lsidWidth,
+    identityEntries
   ))
 
   private def resize(value: UInt, width: Int): UInt =
     if (width <= value.getWidth) value(width - 1, 0) else value.pad(width)
 
   private def lsidToId(lsid: UInt): ROBID = {
-    val out = Wire(new ROBID(entries))
-    val wrapBit = if (lsidWidth > ptrWidth) lsid(ptrWidth) else false.B
+    val out = Wire(new ROBID(identityEntries))
+    val wrapBit = if (lsidWidth > identityWidth) lsid(identityWidth) else false.B
     out.valid := true.B
     out.wrap := wrapBit
-    out.value := resize(lsid, ptrWidth)
+    out.value := resize(lsid, identityWidth)
     out
   }
 
@@ -133,9 +142,9 @@ class ReducedStoreCommitFreeOwner(
 
   private def sameCommitIdentity(commitRow: CommitTraceRow, stqRow: STQEntryBankRow): Bool =
     stqRowIdentityValid(stqRow) &&
-      resize(commitRow.identity.bid, ptrWidth) === stqRow.bid.value &&
-      resize(commitRow.identity.gid, ptrWidth) === stqRow.gid.value &&
-      resize(commitRow.identity.rid, ptrWidth) === stqRow.rid.value
+      resize(commitRow.identity.bid, identityWidth) === stqRow.bid.value &&
+      resize(commitRow.identity.gid, identityWidth) === stqRow.gid.value &&
+      resize(commitRow.identity.rid, identityWidth) === stqRow.rid.value
 
   private def markable(row: STQEntryBankRow): Bool =
     row.valid &&
@@ -166,13 +175,13 @@ class ReducedStoreCommitFreeOwner(
   val pendingMark = RegInit(0.U(entries.W))
   val pendingFree = RegInit(0.U(entries.W))
   val pendingCommitValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
-  val pendingCommitBid = Reg(Vec(entries, UInt(ptrWidth.W)))
-  val pendingCommitGid = Reg(Vec(entries, UInt(ptrWidth.W)))
-  val pendingCommitRid = Reg(Vec(entries, UInt(ptrWidth.W)))
+  val pendingCommitBid = Reg(Vec(entries, UInt(identityWidth.W)))
+  val pendingCommitGid = Reg(Vec(entries, UInt(identityWidth.W)))
+  val pendingCommitRid = Reg(Vec(entries, UInt(identityWidth.W)))
   val pendingCommitStid = Reg(Vec(entries, UInt(stidWidth.W)))
   val pendingCommitBlockBidValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val pendingCommitBlockBid = Reg(Vec(entries, UInt(traceParams.blockBidWidth.W)))
-  val pendingCommitLsId = Reg(Vec(entries, new ROBID(entries)))
+  val pendingCommitLsId = Reg(Vec(entries, new ROBID(identityEntries)))
   val pendingCommitEarlySafe = RegInit(VecInit(Seq.fill(entries)(false.B)))
 
   private def pendingBlockInNonFlushPrefix(idx: Int): Bool = {
@@ -206,12 +215,12 @@ class ReducedStoreCommitFreeOwner(
       pendingCommitStid(idx) === io.activeStid &&
       pendingCommitBlockBidValid(idx) && commitRow.blockBidValid &&
       pendingCommitBlockBid(idx) === commitRow.blockBid &&
-      pendingCommitBid(idx) === resize(commitRow.identity.bid, ptrWidth) &&
-      pendingCommitGid(idx) === resize(commitRow.identity.gid, ptrWidth) &&
-      pendingCommitRid(idx) === resize(commitRow.identity.rid, ptrWidth)
+      pendingCommitBid(idx) === resize(commitRow.identity.bid, identityWidth) &&
+      pendingCommitGid(idx) === resize(commitRow.identity.gid, identityWidth) &&
+      pendingCommitRid(idx) === resize(commitRow.identity.rid, identityWidth)
 
   val commitStoreVec = VecInit((0 until traceParams.commitWidth).map(commitStore))
-  val currentStoreLsId = Wire(Vec(traceParams.commitWidth, new ROBID(entries)))
+  val currentStoreLsId = Wire(Vec(traceParams.commitWidth, new ROBID(identityEntries)))
   val currentStoreEarlySafe = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     currentStoreLsId(slot) := lsidToId(io.commitMemoryOrder(slot).lsId)
@@ -322,13 +331,13 @@ class ReducedStoreCommitFreeOwner(
 
     val basePendingValid = Wire(Vec(entries, Bool()))
     val nextPendingValid = Wire(Vec(entries, Bool()))
-    val nextPendingBid = Wire(Vec(entries, UInt(ptrWidth.W)))
-    val nextPendingGid = Wire(Vec(entries, UInt(ptrWidth.W)))
-    val nextPendingRid = Wire(Vec(entries, UInt(ptrWidth.W)))
+    val nextPendingBid = Wire(Vec(entries, UInt(identityWidth.W)))
+    val nextPendingGid = Wire(Vec(entries, UInt(identityWidth.W)))
+    val nextPendingRid = Wire(Vec(entries, UInt(identityWidth.W)))
     val nextPendingStid = Wire(Vec(entries, UInt(stidWidth.W)))
     val nextPendingBlockBidValid = Wire(Vec(entries, Bool()))
     val nextPendingBlockBid = Wire(Vec(entries, UInt(traceParams.blockBidWidth.W)))
-    val nextPendingLsId = Wire(Vec(entries, new ROBID(entries)))
+    val nextPendingLsId = Wire(Vec(entries, new ROBID(identityEntries)))
     val nextPendingEarlySafe = Wire(Vec(entries, Bool()))
     for (idx <- 0 until entries) {
       basePendingValid(idx) := pendingCommitValid(idx) && !pendingMatchedVec(idx)
@@ -349,9 +358,9 @@ class ReducedStoreCommitFreeOwner(
     for (idx <- 0 until entries) {
       when(bufferStoreValid && pendingIdentityFreeOH(idx)) {
         nextPendingValid(idx) := true.B
-        nextPendingBid(idx) := resize(bufferRow.identity.bid, ptrWidth)
-        nextPendingGid(idx) := resize(bufferRow.identity.gid, ptrWidth)
-        nextPendingRid(idx) := resize(bufferRow.identity.rid, ptrWidth)
+        nextPendingBid(idx) := resize(bufferRow.identity.bid, identityWidth)
+        nextPendingGid(idx) := resize(bufferRow.identity.gid, identityWidth)
+        nextPendingRid(idx) := resize(bufferRow.identity.rid, identityWidth)
         nextPendingStid(idx) := io.activeStid
         nextPendingBlockBidValid(idx) := bufferRow.blockBidValid
         nextPendingBlockBid(idx) := bufferRow.blockBid

@@ -132,4 +132,14 @@ class ResidentStoreForwardStoreSnapshotSpec extends AnyFunSuite {
     assert(sv.contains("io_validMask"))
     assert(sv.contains("io_crossLineMask"))
   }
+
+  test("resident store snapshot separates physical rows from ROB identities") {
+    val io = new ResidentStoreForwardStoreSnapshotIO(entries = 16, robEntries = 8)
+
+    assert(io.rows.length == 16)
+    assert(io.stores.length == 16)
+    assert(io.validMask.getWidth == 16)
+    assert(io.stores.head.storeIndex.getWidth == 4)
+    assert(io.stores.head.storeId.value.getWidth == 3)
+  }
 }

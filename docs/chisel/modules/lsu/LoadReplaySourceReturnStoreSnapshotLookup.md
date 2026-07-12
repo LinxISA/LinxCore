@@ -37,6 +37,13 @@ data evidence to the existing request-sink/response-queue path, but it does
 not update LIQ/LDQ row state, merge data into the replay row, or publish
 wait-store wakeup state.
 
+## Sizing Contract
+
+`stqEntries` sizes resident rows, snapshot masks, forwarding candidates, and
+wait-store indices. `idEntries` sizes request and store identity. The composed
+lookup passes both values explicitly and its unequal-size test proves that a
+16-row STQ does not widen the 8-entry ROB identity domain.
+
 ## Interface
 
 ### Inputs

@@ -41,6 +41,14 @@ cache update, MDB conflict detection, or full load-store forwarding. R258 adds
 a separate reduced store-memory overlay for committed-byte visibility; this
 owner still only marks and frees STQ rows.
 
+## Sizing Contract
+
+`entries` sizes physical pending slots, STQ row vectors, masks, and mark/free
+indices. `robEntries` sizes BID/GID/RID identity, commit-memory-order bundles,
+and retained identity registers. The compatibility default makes them equal;
+the integrated top passes both explicitly and the focused suite proves
+16 physical STQ rows with an 8-entry ROB domain.
+
 ## Interface
 
 Inputs:

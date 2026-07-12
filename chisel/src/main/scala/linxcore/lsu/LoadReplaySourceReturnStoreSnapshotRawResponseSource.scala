@@ -13,8 +13,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     lineBytes: Int,
     peIdWidth: Int,
     stidWidth: Int,
-    tidWidth: Int)
+    tidWidth: Int,
+    storeEntries: Int = 0)
     extends Bundle {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   val enable = Input(Bool())
   val flush = Input(Bool())
   val liveEnable = Input(Bool())
@@ -32,7 +34,7 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
   val dataValid = Input(Bool())
   val rawDataValid = Input(Bool())
   val dataSuppressedByWait = Input(Bool())
-  val waitStoreIndex = Input(UInt(log2Ceil(idEntries).W))
+  val waitStoreIndex = Input(UInt(log2Ceil(physicalStoreEntries).W))
   val waitStoreBid = Input(new ROBID(idEntries))
   val waitStoreRid = Input(new ROBID(idEntries))
   val waitStoreLsId = Input(new ROBID(idEntries))
@@ -51,7 +53,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -70,10 +73,14 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     val lineBytes: Int = 64,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val storeEntries: Int = 0)
     extends Module {
+  private val physicalStoreEntries = if (storeEntries > 0) storeEntries else idEntries
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
+  require(physicalStoreEntries > 1 && (physicalStoreEntries & (physicalStoreEntries - 1)) == 0,
+    "store entries must be a power of two greater than one")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(pcWidth > 0, "pcWidth must be positive")
@@ -90,7 +97,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStoreEntries
   ))
 
   val active = io.enable && !io.flush
@@ -105,7 +113,8 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     lineBytes,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    physicalStoreEntries
   )))
   when(responseValid) {
     response.valid := true.B

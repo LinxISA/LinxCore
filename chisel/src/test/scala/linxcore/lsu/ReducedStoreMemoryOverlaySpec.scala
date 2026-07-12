@@ -161,4 +161,21 @@ class ReducedStoreMemoryOverlaySpec extends AnyFunSuite {
     assert(sv.contains("io_storeDroppedMask"))
     assert(sv.contains("io_lines_0_byteMask"))
   }
+
+  test("physical STQ indices remain independent of ROB identity width") {
+    val io = new ReducedStoreMemoryOverlayIO(
+      stqEntries = 16,
+      requestCount = 4,
+      lineEntries = 4,
+      robEntries = 8)
+
+    assert(io.storeReqs.head.stqIndex.getWidth == 4)
+    assert(io.storeReqs.head.bid.value.getWidth == 3)
+    assert(io.storeReqs.head.lsId.value.getWidth == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(
+      new ReducedStoreMemoryOverlay(stqEntries = 16, requestCount = 4, lineEntries = 4, robEntries = 8))
+    assert(sv.contains("module ReducedStoreMemoryOverlay"))
+    assert(sv.contains("io_storeReqs_0_bid_value"))
+  }
 }

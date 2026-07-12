@@ -359,6 +359,14 @@ the top. Those raw inputs live at the path boundary instead of inside the
 module so the identity and response child owners remain a real composite
 boundary and can later be promoted without another direct top child instance.
 
+## Sizing Contract
+
+`liqEntries`, `idEntries`, and `stqEntries` are separate domains. LIQ target
+masks and indices use `liqEntries`; BID/GID/RID and recovery identity use
+`idEntries`; resident STQ rows and wait-store indices use `stqEntries`.
+Request/response queues have their own depths. The reduced top passes the
+configured STQ capacity instead of assuming it equals the ROB or LIQ.
+
 ## Interface
 
 ### Inputs

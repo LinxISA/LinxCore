@@ -48,6 +48,13 @@ prediction, or store-to-load forwarding.
 `STQSCBCommitPath` consumes this module's `commitFreeMask` as the first full
 `STQEntryBank` free path.
 
+## Sizing Contract
+
+`stqEntries` sizes completion indices and STQ free masks, `scbEntries` sizes
+the registered coalescing bank, and `robEntries` sizes request identity.
+Response buffering remains independently sized. The live top sources all four
+capacities from `ScalarLsuParams` or `CoreParams` according to ownership.
+
 ## Interface
 
 ### Inputs

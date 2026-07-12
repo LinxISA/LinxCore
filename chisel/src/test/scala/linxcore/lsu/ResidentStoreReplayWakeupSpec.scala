@@ -156,4 +156,13 @@ class ResidentStoreReplayWakeupSpec extends AnyFunSuite {
     assert(sv.contains("io_wake_validMask"))
     assert(sv.contains("io_identityMatch"))
   }
+
+  test("resident replay wakeup separates the physical store index from ROB identity") {
+    val io = new ResidentStoreReplayWakeupIO(entries = 16, robEntries = 8)
+
+    assert(io.rows.length == 16)
+    assert(io.waitStore.storeIndex.getWidth == 4)
+    assert(io.waitStore.storeId.value.getWidth == 3)
+    assert(io.wake.storeId.value.getWidth == 3)
+  }
 }

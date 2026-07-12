@@ -23,7 +23,9 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     simtLaneWidth: Int,
     mapQDepth: Int,
     requestQueueDepth: Int,
-    responseQueueDepth: Int) extends Bundle {
+    responseQueueDepth: Int,
+    stqEntries: Int = 0) extends Bundle {
+  private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val requestQueueCountWidth = log2Ceil(requestQueueDepth + 1)
   private val responseQueueCountWidth = log2Ceil(responseQueueDepth + 1)
@@ -78,7 +80,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val dataValidIn = Input(Bool())
   val rawDataValidIn = Input(Bool())
   val dataSuppressedByWaitIn = Input(Bool())
-  val responseWaitStoreIndex = Input(UInt(log2Ceil(idEntries).W))
+  val responseWaitStoreIndex = Input(UInt(log2Ceil(physicalStqEntries).W))
   val responseWaitStoreBid = Input(new ROBID(idEntries))
   val responseWaitStoreRid = Input(new ROBID(idEntries))
   val responseWaitStoreLsId = Input(new ROBID(idEntries))
@@ -86,7 +88,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseDataMask = Input(UInt(lineBytes.W))
   val responseData = Input(UInt((lineBytes * 8).W))
   val legacySnapshotReady = Input(Bool())
-  val stqRows = Input(Vec(idEntries, new STQEntryBankRow(
+  val stqRows = Input(Vec(physicalStqEntries, new STQEntryBankRow(
     idEntries,
     addrWidth,
     dataWidth,
@@ -190,7 +192,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseApplyStqReturned = Output(Bool())
   val responseApplyTargetMask = Output(UInt(liqEntries.W))
   val responseApplyWaitStore = Output(Bool())
-  val responseApplyWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val responseApplyWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
   val responseApplyWaitStoreRid = Output(new ROBID(idEntries))
   val responseApplyDataMerge = Output(Bool())
   val responseApplyDataNoMerge = Output(Bool())
@@ -216,7 +218,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rowStatePlanLineWrite = Output(Bool())
   val rowStatePlanWaitStoreWrite = Output(Bool())
   val rowStatePlanNextWaitStore = Output(Bool())
-  val rowStatePlanNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val rowStatePlanNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
   val rowStatePlanNextWaitStoreRid = Output(new ROBID(idEntries))
   val rowStatePlanNextLineData = Output(UInt((lineBytes * 8).W))
   val rowStatePlanNextValidMask = Output(UInt(lineBytes.W))
@@ -245,7 +247,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rowMutationLineWrite = Output(Bool())
   val rowMutationWaitStoreWrite = Output(Bool())
   val rowMutationNextWaitStore = Output(Bool())
-  val rowMutationNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val rowMutationNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, physicalStqEntries, pcWidth))
   val rowMutationNextWaitStoreRid = Output(new ROBID(idEntries))
   val rowMutationNextLineData = Output(UInt((lineBytes * 8).W))
   val rowMutationNextValidMask = Output(UInt(lineBytes.W))
@@ -430,11 +432,15 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     simtLaneWidth: Int = 8,
     mapQDepth: Int = 32,
     requestQueueDepth: Int = 2,
-    responseQueueDepth: Int = 2) extends Module {
+    responseQueueDepth: Int = 2,
+    stqEntries: Int = 0) extends Module {
+  private val physicalStqEntries = if (stqEntries > 0) stqEntries else idEntries
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
+  require(physicalStqEntries > 1 && (physicalStqEntries & (physicalStqEntries - 1)) == 0,
+    "STQ entries must be a power of two greater than one")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth >= log2Ceil(liqEntries), "entryIdWidth must cover the reduced LIQ slot index")
   require(addrWidth >= 7, "LoadReplaySourceReturnStoreSnapshotPath needs 64-byte line addresses")
@@ -462,7 +468,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     simtLaneWidth = simtLaneWidth,
     mapQDepth = mapQDepth,
     requestQueueDepth = requestQueueDepth,
-    responseQueueDepth = responseQueueDepth
+    responseQueueDepth = responseQueueDepth,
+    stqEntries = physicalStqEntries
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
@@ -505,7 +512,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     sizeWidth = sizeWidth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStqEntries
   ))
   val lookup = Module(new LoadReplaySourceReturnStoreSnapshotLookup(
     liqEntries = liqEntries,
@@ -522,7 +530,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     simtLaneWidth = simtLaneWidth,
     mapQDepth = mapQDepth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    stqEntries = physicalStqEntries
   ))
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
@@ -547,7 +556,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStqEntries
   ))
   val rawResponseSource = Module(new LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     idEntries = idEntries,
@@ -557,7 +567,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStqEntries
   ))
   val liveArmPolicy = Module(new LoadReplaySourceReturnStoreSnapshotLiveArmPolicy)
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
@@ -580,18 +591,21 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     lineBytes = lineBytes,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    storeEntries = physicalStqEntries
   ))
   val rowStatePlan = Module(new LoadReplaySourceReturnStoreSnapshotRowStatePlan(
     idEntries = idEntries,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    storeEntries = physicalStqEntries
   ))
   val rowMutationRequest = Module(new LoadReplaySourceReturnStoreSnapshotRowMutationRequest(
     liqEntries = liqEntries,
     idEntries = idEntries,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    storeEntries = physicalStqEntries
   ))
   val rowMutationLivePermit = Module(new LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit(
     liqEntries = liqEntries

@@ -35,6 +35,14 @@ It does not own SCB storage, MDB conflict updates, TTrans/tile side effects,
 BSB window slide, CHI completion, load forwarding, data-array banking, or
 global LSU arbitration. Those remain future LSU owner packets.
 
+## Sizing Contract
+
+`entries` sizes STQ indices and row/free masks, `queueEntries` sizes only the
+commit FIFO, `issueWidth` sizes issue lanes, and `robEntries` sizes BID/GID/RID
+identity carried by queued issues and split memory requests. Split-segment
+request construction must preserve `robEntries`; it may not fall back to the
+physical STQ width.
+
 ## Interface
 
 ### Inputs

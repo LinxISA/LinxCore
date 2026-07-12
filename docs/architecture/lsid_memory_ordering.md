@@ -42,6 +42,15 @@ Split `STA` and `STD` work shares one store instruction identity, SID, and
 LSID. LID/SID locate resident queue rows; LSID orders architectural memory
 operations. They are not interchangeable.
 
+LSID width is an independent parameter. The baseline Chisel configuration uses
+the 32-bit `InterfaceParams.lsidWidth` domain; it is not derived from ROB,
+STQ, LIQ, SID, or LID capacity. BID/GID/RID may use a ROB slot-plus-wrap
+encoding and LID/SID may use queue-local slot-plus-wrap encodings, but an LSID
+must retain the full ordering value across ROB, STQ, forwarding, replay,
+ResolveQ, commit-frontier, and recovery boundaries. A reduced-width projection
+may be used only as a local lookup hint when the full LSID travels beside it;
+it must never decide age or equality by itself.
+
 All scalar memory-identity allocators are partitioned by STID. A selected row
 reads and advances only its STID's LSID, load-ID, and store-ID lane. Scoped
 recovery restores or clears only the selected lane; reset/restart may clear all
@@ -119,6 +128,8 @@ accepted/completed condition.
 - A non-memory row never advances the LSID allocator.
 - No squashed memory row can later issue, complete, forward, or wake a load.
 - Queue-local LID/SID wrap cannot change LSID order.
+- Changing ROB, STQ, LIQ, commit-queue, or SCB capacity cannot change LSID
+  width or comparison semantics.
 - LSID wrap uses an internal wrap/generation sidecar, or reuse waits for that
   STID's memory queues and recovery records to quiesce before a reset. Plain
   unsigned LSID comparison across wrap is forbidden.

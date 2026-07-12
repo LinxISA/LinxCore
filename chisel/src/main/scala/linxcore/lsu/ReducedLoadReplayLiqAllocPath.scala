@@ -70,7 +70,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val rowMutationLineWrite = Input(Bool())
   val rowMutationWaitStoreWrite = Input(Bool())
   val rowMutationNextWaitStore = Input(Bool())
-  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
   val rowMutationNextLineData = Input(UInt((lineBytes * 8).W))
   val rowMutationNextValidMask = Input(UInt(lineBytes.W))
   val rowMutationNextDataComplete = Input(Bool())

@@ -279,4 +279,28 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     assert(sv.contains("io_pendingFreeMask"))
     assert(sv.contains("io_idle"))
   }
+
+  test("ReducedStoreCommitFreeOwner separates 16 physical STQ rows from 8 ROB identities") {
+    val dut = new ReducedStoreCommitFreeOwnerIO(
+      entries = 16,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      robEntries = 8)
+
+    assert(dut.stqRows.length == 16)
+    assert(dut.matchMask.getWidth == 16)
+    assert(dut.markCommitIndex.getWidth == 4)
+    assert(dut.oldestRobBid.value.getWidth == 3)
+    assert(dut.commitMemoryOrder.head.rid.value.getWidth == 3)
+    assert(dut.stqRows.head.bid.value.getWidth == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(
+      new ReducedStoreCommitFreeOwner(
+        entries = 16,
+        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+        mapQDepth = 8,
+        robEntries = 8)
+    )
+    assert(sv.contains("module ReducedStoreCommitFreeOwner"))
+  }
 }

@@ -36,6 +36,13 @@ store dispatch into STQ row mutation. It wires:
 The module does not compute STA addresses or STD data. Execution results
 remain explicit inputs until the real AGU and store-data owners exist.
 
+## Sizing Contract
+
+`entries` is the physical STQ row count. Store request and row BID/GID/RID
+identity comes from `p.robEntries`; mark/free indices, row vectors, masks, and
+occupancy counts come from `entries`. The two values may differ and the focused
+suite elaborates 16 STQ rows with 8 ROB entries.
+
 ## Interface
 
 Inputs:

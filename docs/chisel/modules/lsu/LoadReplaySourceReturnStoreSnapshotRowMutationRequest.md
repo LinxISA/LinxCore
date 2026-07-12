@@ -100,3 +100,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 Reference tests cover live one-hot wait-store requests, live-disabled
 candidates, no-target and multi-target blockers, disabled/flush/no-plan
 blockers, invalid payload combinations, and Chisel elaboration.
+
+R669 preserves the `storeEntries`-sized wait-store row selector across the
+live mutation gate. The LIQ target index remains LIQ-sized and store ordering
+identity remains ROB-sized; these three index domains are not interchangeable.

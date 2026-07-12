@@ -106,3 +106,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 Reference tests cover wait-store priority over raw data, data-byte merge,
 no-data STQ-returned intent, disabled/flush/not-repick blockers, malformed
 payload diagnostics, and Chisel elaboration.
+
+R669 parameterizes the physical store capacity independently. The apply owner
+copies the full `storeEntries`-sized row index into `LoadStoreForwardWait`
+without changing ROB-sized BID, RID, or LSID identity fields.

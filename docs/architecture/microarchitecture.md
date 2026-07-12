@@ -975,13 +975,24 @@ it only with equivalent TSO, precise recovery, and forward-progress evidence.
 The canonical scalar LSU is one parameterized owner. Its queue capacities are
 implementation choices and must not change architectural identity widths:
 
-- ROB identity capacity defines the internal BID/GID/RID/LSID slot-plus-wrap
-  width carried by store requests, flush requests, STQ rows, commit-queue rows,
-  and SCB drain requests.
+- ROB identity capacity defines the internal BID/GID/RID slot-plus-wrap width
+  carried by store requests, flush requests, STQ rows, commit-queue rows, and
+  SCB drain requests. LSID is not a ROB slot identifier: its canonical width is
+  `lsidWidth` and it remains independent of ROB and queue capacities.
 - STQ, store-commit, SCB, LIQ, ResolveQ, MDB SSIT, MDB command/output, MDB
   wait-plan, load-return queue, return-pipe, cache-line, and MapQ resources are
   independent sizing parameters.
   No implementation may infer ROB identity width from any queue capacity.
+- Physical STQ row indices and masks use `stqEntries`; store-commit FIFO
+  pointers use `commitQueueEntries`; issue lanes use `commitIssueWidth`; SCB
+  row indices use `scbEntries`. A request crossing these owners carries its
+  physical STQ index separately from its ROB-sized BID/GID/RID and full-width
+  LSID ordering identity.
+- The Chisel reduced live path must source these sizes from `ScalarLsuParams`.
+  Compatibility defaults may make capacities equal, but unequal-size
+  elaboration is a required contract test. A local compressed `ROBID` view of
+  LSID is transitional implementation state and must not define ordering,
+  recovery, forwarding, or the golden interface.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.
