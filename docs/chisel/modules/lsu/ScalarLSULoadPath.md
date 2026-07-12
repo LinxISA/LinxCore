@@ -6,9 +6,12 @@
 - Active rows: `chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - Resolved rows: `chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
 - MDB: `chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala`
+- Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
+- Generated proof: `tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
-  `LDQInfo::flush` and `LDQInfo::CheckMovRslvQ`
+  `LDQInfo::returnData`, `LDQInfo::flush`, and `LDQInfo::CheckMovRslvQ`;
+  `model/LinxCoreModel/model/iex/iex.cpp`, `IEX::receiveFromLSU`
 - Contract IDs: `LC-MA-MEM-001`, `LC-MA-HAZ-001`, `LC-MA-FWD-001`
 
 ## Purpose
@@ -21,12 +24,13 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
 
 1. Allocation captures PE, STID, TID, BID, GID, RID, load LSID, address,
    destination, source traces, and the youngest eligible store snapshot.
-2. Launch is accepted only when the LIQ row is eligible and ResolveQ has three
-   free slots: two for already registered E3/E4 arrivals and one for the newly
-   accepted load.
-3. An E4 hit publishes one `LoadHitRecord`; the owner transfers it to ResolveQ
-   with the source row's thread identity.
-4. ResolveQ acceptance arms an exact LIQ-slot clear. The owner permits a new
+2. Launch is accepted only when the LIQ row is eligible, ResolveQ has three
+   free slots, and the row's exact `(STID, return pipe)` lane has unreserved
+   capacity. Launch acceptance increments that lane's reservation count.
+3. E4 releases the launch reservation on hit, miss, or replay. A hit extracts
+   final scalar data and enters ResolveQ plus the selected LRET queue atomically;
+   neither sink may observe only half of the transaction.
+4. Atomic acceptance arms an exact LIQ-slot clear. The owner permits a new
    transfer in the same cycle that the prior clear is accepted.
 5. Commit `(BID,LSID)` watermarks retire resolved records. Hard and precise
    flush are shared by LIQ and ResolveQ.
@@ -40,9 +44,16 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    recovery owner accepts it through the dedicated `recovery` port. Report retention participates in load-path
    quiescence and can backpressure address-bearing store insertion.
 
-`transferProtocolError` reports a hit without reserved ResolveQ capacity or a
-new accepted transfer while an older source clear is blocked. It must remain
-false in promoted top-level evidence.
+`transferProtocolError` reports missing ResolveQ/LRET capacity, a partial sink
+acceptance, or a new accepted transfer while an older source clear is blocked.
+The load-return port also reports reservation underflow. Both must remain false
+in promoted evidence.
+
+Resident LRET entries plus reservations may not exceed one lane's configured
+depth. Queue drain can provide same-cycle launch credit for that exact lane;
+other lanes remain independent. Hard or typed precise flush cancels LIQ
+pipeline work and clears its launch reservations while the queue bank applies
+the corresponding hard clear or typed entry compaction.
 
 `liqEntries` must not exceed the ROB identity domain used by replay
 diagnostics. Reduced tops with a smaller ROB therefore select a matching LIQ
@@ -51,9 +62,11 @@ size explicitly; the production defaults remain independently configurable.
 ## Recovery
 
 Typed precise flush applies PE/STID/TID scope and BID/group/LSID ordering to
-both active and resolved rows. LIQ cancels E3/E4 sidebands on a precise flush,
-returns surviving pipeline rows to `Wait`, removes matching rows, and rebases
-the allocation cursor to the first removed slot with a changed generation.
+active, resolved, and resident load-return state. LIQ cancels E3/E4 sidebands
+and all associated reservations on a precise flush, returns surviving pipeline
+rows to `Wait`, removes matching rows, and rebases the allocation cursor to the
+first removed slot with a changed generation. LRET compacts only matching
+resident entries.
 This follows the model's `FlushBus::match` behavior without importing ARM
 exception levels, exclusive monitors, barriers, or acquire/release opcodes.
 
@@ -63,8 +76,10 @@ Replay/store wakeup, refill, forwarding, and source-return readiness remain
 available through the load path. MDB lookup/conflict wait mutation is live at
 this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
-Cache/miss queues, multi-source top arbitration, full-BID BROB cleanup, and final IEX
-LRET/writeback/wakeup publication remain future integration work.
+Canonical scalar LRET data extraction, lane reservation, retained publication,
+and IEX drain ports are now live beneath `ScalarLSU`. Cache/miss queues,
+cross-line assembly, multi-source top arbitration, full-BID BROB cleanup, and
+complete canonical W1/W2 writeback/wakeup sinks remain future integration work.
 
 ## Verification
 
@@ -75,6 +90,7 @@ LRET/writeback/wakeup publication remain future integration work.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadWaitStoreTimeoutSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTopSpec`
+- `bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Full Chisel suite: 245 suites, 1,454 tests, zero failures.
 - Canonical top xcheck: 3 compared rows, zero mismatches.
 - Reduced CoreMark regression:

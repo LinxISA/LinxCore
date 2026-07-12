@@ -15,6 +15,8 @@ class ScalarLSUSpec extends AnyFunSuite {
       stidCount = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
+      loadReturnQueueEntries = 2,
+      loadReturnPipeCount = 3,
       mapQDepth = 8
     )
     val core = CoreParams(robEntries = 32, commitWidth = 2, scalarLsu = lsu)
@@ -36,6 +38,8 @@ class ScalarLSUSpec extends AnyFunSuite {
       stidCount = 2,
       liqEntries = 4,
       resolveQueueEntries = 8,
+      loadReturnQueueEntries = 2,
+      loadReturnPipeCount = 3,
       mapQDepth = 8
     )
     val sv = ChiselStage.emitSystemVerilog(
@@ -51,6 +55,7 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module ScalarLSUMDBPath"))
+    assert(sv.contains("module ScalarLSULoadReturnQueueBank"))
     assert(sv.contains("module MDBConflictDetect"))
     assert(sv.contains("module MDBQueueFanout"))
     assert(sv.contains("module MDBSSIT"))
@@ -72,6 +77,9 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_recovery_oldestValid_1"))
     assert(sv.contains("io_recovery_sourceStidInRange"))
     assert(sv.contains("io_load_mdbSsitValidMask"))
+    assert(sv.contains("io_load_loadReturn_drainReady"))
+    assert(sv.contains("io_load_loadReturn_laneCounts_5"))
+    assert(sv.contains("io_load_loadReturn_publicationAccepted"))
   }
 
   test("ScalarLSURecoverySource elaborates exact promotion without local cleanup arbitration") {

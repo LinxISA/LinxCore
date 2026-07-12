@@ -15,7 +15,28 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R661 replaces the global unscoped two-entry LRET sink with
+Latest packet: R662 promotes the scoped LRET bank into canonical
+`ScalarLSULoadPath`. Each accepted launch reserves its exact `(STID, return
+pipe)` lane, and the selected pipe is retained in the LIQ row. E4 releases the
+reservation on every terminal result; a hit extracts scalar data and enters
+ResolveQ plus LRET atomically before the exact LIQ row clears. Resident plus
+reserved occupancy cannot exceed lane depth, while an independent pipe keeps
+its own credit. The canonical load path now exposes the retained drain toward
+IEX and includes queue plus reservation state in quiescence.
+
+R662 verification passes 260 suites and 1,544 tests. The canonical generated
+probe covers same-lane credit exhaustion, independent-pipe progress, atomic
+ResolveQ/LRET acceptance, same-cycle drain credit, enqueue plus drain, and
+hard/precise flush coincident with E4. The standalone queue probe,
+architecture adapter/contract/conformance, repository layout, MDB transaction,
+and recovery-class cross-RTL gates pass. Independent re-review reports no
+findings. The live top compares 3 rows and CoreMark compares 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r662-final-canonical-load-return-coremark/report/crosscheck_manifest.json`.
+Cache/miss queues, cross-line return assembly, complete canonical W1/W2 sinks,
+and natural recovery activation remain open.
+
+R661 replaced the global unscoped two-entry LRET sink with
 `ScalarLSULoadReturnQueueBank`. The bank is parameterized by STID count,
 return-pipe count, and per-lane depth; carries PE/STID/TID plus
 BID/GID/RID/load-LSID provenance; preserves FIFO order per lane; and uses
@@ -30,11 +51,10 @@ combinational cycle. The live reduced top asserts that every published return
 is accepted by exactly one queue. The old sink source, test, and standalone
 page are removed; git is the archive.
 
-The current integration uses one shared W1/W2 return pipe, while the queue bank
-and golden contract support multiple per-STID pipe lanes. Moving the bank and
-E4/W1/W2 boundary beneath the complete `ScalarLSU`, widening live return pipes,
-cache/miss ownership, natural BCC/IEX/PE trigger generation, and complete
-cleanup fanout remain open.
+The reduced integration uses one shared W1/W2 return pipe, while canonical
+`ScalarLSU` and the queue bank support multiple per-STID pipe lanes. Complete
+canonical W1/W2 sinks, cache/miss and cross-line ownership, natural BCC/IEX/PE
+trigger generation, and complete cleanup fanout remain open.
 
 R661 verification passes 260 suites and 1,543 tests. The generated queue probe
 covers selected-pipe backpressure, same-cycle full-lane dequeue/enqueue,

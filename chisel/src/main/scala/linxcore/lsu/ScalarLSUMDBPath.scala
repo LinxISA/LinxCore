@@ -68,7 +68,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    p.loadReturnPipeCount
   ))
   val loadLookupReady = Output(Bool())
   val loadRows = Input(Vec(
@@ -85,7 +86,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
       p.physRegWidth,
       p.peIdWidth,
       p.stidWidth,
-      p.tidWidth
+      p.tidWidth,
+      p.loadReturnPipeCount
     )
   ))
   val resolvedRows = Input(Vec(

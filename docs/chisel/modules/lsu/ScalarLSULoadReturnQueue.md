@@ -6,7 +6,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ScalarLSULoadReturnQueueSpec.scala`
 - Architecture contract: `LC-MA-MEM-001`
-- Integration: live reduced scalar load-return path
+- Integration: canonical `ScalarLSULoadPath` plus live reduced timing path
 
 ## Purpose
 
@@ -24,6 +24,11 @@ The bank preserves the model ownership split:
 The queue bank does not implement cache refill policy, W2 side effects, or
 architectural recovery. It retains payloads and applies the accepted typed
 recovery decision supplied by the backend.
+
+Canonical `ScalarLSULoadPath` reserves exact lane capacity at launch, carries
+the selected pipe in the LIQ row, and replaces that reservation with a resident
+entry only when ResolveQ accepts the same E4 hit. The reduced timing top uses
+the same queue bank behind its detailed replay-return publication controls.
 
 ## Parameters
 
@@ -101,9 +106,11 @@ uses the typed Linx `FlushBus` predicate:
 - matching entries are removed and survivors compact in FIFO order.
 
 Precise pruning blocks concurrent enqueue and dequeue for one cycle. It does
-not clear older entries or entries belonging to another STID. The live reduced
-top feeds accepted backend recovery to this port and reserves hard clear for
-frontend reset, start, or restart.
+not clear older entries or entries belonging to another STID. Canonical
+`ScalarLSULoadPath` shares its hard and typed precise flush with LIQ, ResolveQ,
+reservations, and LRET. The live reduced top feeds accepted backend recovery to
+the same typed port and reserves hard clear for frontend reset, start, or
+restart.
 
 ## Model Alignment
 
@@ -130,6 +137,11 @@ exclusive monitors, barrier encodings, and acquire/release opcode policy.
 - STID pre-admission credit when the final selected pipe is full;
 - invalid STID and pipe rejection;
 - elaboration of the parameterized queue bank and recovery diagnostics.
+
+`run_chisel_scalar_lsu_load_path_return_probe.sh` proves canonical launch
+reservation, same-lane blocking, independent-pipe progress, scalar extraction,
+atomic ResolveQ+LRET acceptance, exact drain identity, released-credit relaunch,
+and hard-flush cleanup on generated RTL.
 
 The full live-top suite, generated RTL xcheck, and CoreMark replay remain the
 integration gates because they exercise the queue together with IEX residency,

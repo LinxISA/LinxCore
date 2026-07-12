@@ -7,6 +7,43 @@ import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
+class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
+  private val pipeWidth = math.max(1, log2Ceil(p.loadReturnPipeCount))
+  private val laneCount = p.stidCount * p.loadReturnPipeCount
+  private val laneWidth = math.max(1, log2Ceil(laneCount))
+  private val laneCountWidth = log2Ceil(p.loadReturnQueueEntries + 1)
+  private val totalCountWidth = log2Ceil(laneCount * p.loadReturnQueueEntries + 1)
+
+  val drainReady = Input(Bool())
+  val drainValid = Output(Bool())
+  val drain = Output(new LoadReplayReturnLretEntry(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.dataWidth,
+    p.loadSizeWidth,
+    p.loadReturnPipeCount,
+    p.archRegWidth,
+    p.physRegWidth
+  ))
+  val drainPeId = Output(UInt(p.peIdWidth.W))
+  val drainStid = Output(UInt(p.stidWidth.W))
+  val drainTid = Output(UInt(p.tidWidth.W))
+  val drainPipeIndex = Output(UInt(pipeWidth.W))
+  val drainLane = Output(UInt(laneWidth.W))
+  val drainFire = Output(Bool())
+  val pending = Output(Bool())
+  val full = Output(Bool())
+  val empty = Output(Bool())
+  val laneCounts = Output(Vec(laneCount, UInt(laneCountWidth.W)))
+  val totalCount = Output(UInt(totalCountWidth.W))
+  val reservedCount = Output(UInt(totalCountWidth.W))
+  val precisePruneCount = Output(UInt(totalCountWidth.W))
+  val publicationValid = Output(Bool())
+  val publicationAccepted = Output(Bool())
+  val protocolError = Output(Bool())
+}
+
 class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
   private val liqPtrWidth = log2Ceil(lsuParams.liqEntries)
   private val liqCountWidth = log2Ceil(lsuParams.liqEntries + 1)
@@ -31,7 +68,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     lsuParams.physRegWidth,
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
-    lsuParams.tidWidth
+    lsuParams.tidWidth,
+    lsuParams.loadReturnPipeCount
   ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -43,6 +81,7 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val launchReady = Output(Bool())
   val launchAccepted = Output(Bool())
   val launchBlockedByResolveCredit = Output(Bool())
+  val launchBlockedByReturnCredit = Output(Bool())
 
   val pickValid = Input(Bool())
   val pickIndex = Input(UInt(liqPtrWidth.W))
@@ -54,10 +93,7 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val scbReturnReady = Output(Bool())
   val scbReturnAccepted = Output(Bool())
 
-  val markResolvedValid = Input(Bool())
-  val markResolvedIndex = Input(UInt(liqPtrWidth.W))
-  val markResolvedReady = Output(Bool())
-  val markResolvedAccepted = Output(Bool())
+  val loadReturn = new ScalarLSULoadReturnPortIO(coreParams, lsuParams)
 
   val e2Stores = Input(Vec(
     lsuParams.stqEntries,
@@ -74,7 +110,6 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val e2LoadDataReturned = Input(Bool())
   val e2ScbReturned = Input(Bool())
   val e2StqReturned = Input(Bool())
-  val e2ReturnReady = Input(Bool())
 
   val replayWakeValid = Input(Bool())
   val replayWake = Input(new LoadReplayWakeupRequest(
@@ -104,7 +139,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       lsuParams.physRegWidth,
       lsuParams.peIdWidth,
       lsuParams.stidWidth,
-      lsuParams.tidWidth
+      lsuParams.tidWidth,
+      lsuParams.loadReturnPipeCount
     )
   ))
   val liqOccupiedMask = Output(UInt(lsuParams.liqEntries.W))
@@ -257,7 +293,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     physRegWidth = p.physRegWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
-    tidWidth = p.tidWidth
+    tidWidth = p.tidWidth,
+    returnPipeCount = p.loadReturnPipeCount
   ))
   val resolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.resolveQueueEntries,
@@ -272,8 +309,46 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     sizeWidth = p.loadSizeWidth
   ))
   val mdbPath = Module(new ScalarLSUMDBPath(coreParams))
+  val returnDataExtract = Module(new LoadReplayReturnDataExtract(
+    p.addrWidth,
+    p.dataWidth,
+    p.loadSizeWidth,
+    p.lineBytes
+  ))
+  val returnPayload = Module(new LoadReplayReturnLretPayload(
+    coreParams.robEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.dataWidth,
+    p.loadSizeWidth,
+    p.loadReturnPipeCount,
+    p.archRegWidth,
+    p.physRegWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
+  val returnQueue = Module(new ScalarLSULoadReturnQueueBank(
+    coreParams.robEntries,
+    p.stidCount,
+    p.loadReturnPipeCount,
+    p.loadReturnQueueEntries,
+    p.addrWidth,
+    p.pcWidth,
+    p.dataWidth,
+    p.loadSizeWidth,
+    p.archRegWidth,
+    p.physRegWidth,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth
+  ))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
+  private val returnLaneCount = p.stidCount * p.loadReturnPipeCount
+  private val returnLaneWidth = math.max(1, log2Ceil(returnLaneCount))
+  private val reservationWidth = log2Ceil(p.loadReturnQueueEntries + 1)
+  val returnReservations = RegInit(VecInit(Seq.fill(returnLaneCount)(0.U(reservationWidth.W))))
   val transferPending = RegInit(false.B)
   val transferIndex = RegInit(0.U(log2Ceil(p.liqEntries).W))
 
@@ -287,21 +362,38 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   val allocMdbReady = !allocNeedsMdbLookup || mdbPath.io.loadLookupReady
   liq.io.allocValid := io.allocValid && allocMdbReady
   liq.io.alloc := io.alloc
-  liq.io.launchValid := io.launchValid && resolveCreditSafe
+  val launchRow = liq.io.rows(io.launchIndex)
+  val launchStidInRange = launchRow.stid < p.stidCount.U
+  val launchPipeInRange = launchRow.returnPipeIndex < p.loadReturnPipeCount.U
+  val launchTargetValid = launchStidInRange && launchPipeInRange
+  val launchLane = Wire(UInt(returnLaneWidth.W))
+  launchLane := launchRow.stid * p.loadReturnPipeCount.U + launchRow.returnPipeIndex
+  val launchResidentCount =
+    if (returnLaneCount == 1) returnQueue.io.laneCountState(0)
+    else Mux(launchTargetValid, returnQueue.io.laneCountState(launchLane), 0.U)
+  val launchReservedCount =
+    if (returnLaneCount == 1) returnReservations(0)
+    else Mux(launchTargetValid, returnReservations(launchLane), 0.U)
+  val launchDrainCredit =
+    returnQueue.io.drainFire && launchTargetValid && (returnQueue.io.drainLane === launchLane)
+  val launchReturnCreditSafe =
+    launchTargetValid &&
+      ((launchResidentCount +& launchReservedCount) < p.loadReturnQueueEntries.U || launchDrainCredit)
+  liq.io.launchValid := io.launchValid && resolveCreditSafe && launchReturnCreditSafe
   liq.io.launchIndex := io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
   liq.io.scbReturnValid := io.scbReturnValid
   liq.io.scbReturnIndex := io.scbReturnIndex
-  liq.io.markResolvedValid := io.markResolvedValid
-  liq.io.markResolvedIndex := io.markResolvedIndex
+  liq.io.markResolvedValid := false.B
+  liq.io.markResolvedIndex := 0.U
   liq.io.e2Stores := io.e2Stores
   liq.io.e2BaseData := io.e2BaseData
   liq.io.e2BaseValidMask := io.e2BaseValidMask
   liq.io.e2LoadDataReturned := io.e2LoadDataReturned
   liq.io.e2ScbReturned := io.e2ScbReturned
   liq.io.e2StqReturned := io.e2StqReturned
-  liq.io.e2ReturnReady := io.e2ReturnReady
+  liq.io.e2ReturnReady := true.B
   val mdbReplayWake = Wire(chiselTypeOf(io.replayWake))
   mdbReplayWake := 0.U.asTypeOf(mdbReplayWake)
   mdbReplayWake.source := LoadReplayWakeSource.StoreUnit
@@ -352,9 +444,71 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   mdbPath.io.recoveryReady := recovery.ready
 
   val hitRow = liq.io.rows(liq.io.e4UpdateIndex)
+  returnDataExtract.io.enable := true.B
+  returnDataExtract.io.returnValid := liq.io.lhqRecordValid
+  returnDataExtract.io.lineData := liq.io.lhqRecord.data
+  returnDataExtract.io.lineValidMask := liq.io.lhqRecord.byteMask
+  returnDataExtract.io.addr := hitRow.addr
+  returnDataExtract.io.size := hitRow.size
+  returnDataExtract.io.signExtend := hitRow.returnSignExtend
+
+  returnPayload.io.enable := true.B
+  returnPayload.io.launchValid := liq.io.lhqRecordValid
+  returnPayload.io.dataValid := returnDataExtract.io.dataValid
+  returnPayload.io.selectedBid := hitRow.bid
+  returnPayload.io.selectedGid := hitRow.gid
+  returnPayload.io.selectedRid := hitRow.rid
+  returnPayload.io.selectedLoadLsId := hitRow.loadLsId
+  returnPayload.io.selectedPeId := hitRow.peId
+  returnPayload.io.selectedStid := hitRow.stid
+  returnPayload.io.selectedTid := hitRow.tid
+  returnPayload.io.selectedPc := hitRow.pc
+  returnPayload.io.selectedAddr := hitRow.addr
+  returnPayload.io.selectedSize := hitRow.size
+  returnPayload.io.selectedDst := hitRow.dst
+  returnPayload.io.selectedSourceTraceValid := hitRow.sourceTraceValid
+  returnPayload.io.selectedSource0 := hitRow.source0
+  returnPayload.io.selectedSource1 := hitRow.source1
+  returnPayload.io.returnData := returnDataExtract.io.data
+  returnPayload.io.returnPipeIndex := hitRow.returnPipeIndex
+  returnPayload.io.specWakeup := hitRow.specWakeup
+  returnPayload.io.stackValid := hitRow.stackValid
+
+  val returnEntry = Wire(chiselTypeOf(returnQueue.io.enqueue))
+  returnEntry := 0.U.asTypeOf(returnEntry)
+  returnEntry.valid := returnPayload.io.payloadValid
+  returnEntry.bid := returnPayload.io.payloadBid
+  returnEntry.gid := returnPayload.io.payloadGid
+  returnEntry.rid := returnPayload.io.payloadRid
+  returnEntry.loadLsId := returnPayload.io.payloadLoadLsId
+  returnEntry.pc := returnPayload.io.payloadPc
+  returnEntry.addr := returnPayload.io.payloadAddr
+  returnEntry.size := returnPayload.io.payloadSize
+  returnEntry.dst := returnPayload.io.payloadDst
+  returnEntry.sourceTraceValid := returnPayload.io.payloadSourceTraceValid
+  returnEntry.source0 := returnPayload.io.payloadSource0
+  returnEntry.source1 := returnPayload.io.payloadSource1
+  returnEntry.data := returnPayload.io.payloadData
+  returnEntry.pipeIndex := returnPayload.io.payloadPipeIndex
+  returnEntry.specWakeup := returnPayload.io.payloadSpecWakeup
+  returnEntry.stackValid := returnPayload.io.payloadStackValid
+
   resolveQueue.io.flush := io.flush
   resolveQueue.io.preciseFlush := io.preciseFlush
-  resolveQueue.io.pushValid := liq.io.lhqRecordValid
+  val publicationValid = liq.io.lhqRecordValid && !flushCycle
+  val publicationPayloadValid = returnPayload.io.payloadValid
+  val publicationReady = returnQueue.io.enqueueReady && resolveQueue.io.pushReady
+  returnQueue.io.enable := true.B
+  returnQueue.io.flush := io.flush
+  returnQueue.io.preciseFlush := io.preciseFlush
+  returnQueue.io.enqueueValid := publicationValid && publicationPayloadValid && resolveQueue.io.pushReady
+  returnQueue.io.enqueuePeId := returnPayload.io.payloadPeId
+  returnQueue.io.enqueueStid := returnPayload.io.payloadStid
+  returnQueue.io.enqueueTid := returnPayload.io.payloadTid
+  returnQueue.io.enqueuePipeIndex := returnPayload.io.payloadPipeIndex
+  returnQueue.io.enqueue := returnEntry
+  returnQueue.io.drainReady := io.loadReturn.drainReady
+  resolveQueue.io.pushValid := publicationValid && publicationPayloadValid && returnQueue.io.enqueueReady
   resolveQueue.io.pushPeId := hitRow.peId
   resolveQueue.io.pushStid := hitRow.stid
   resolveQueue.io.pushTid := hitRow.tid
@@ -363,9 +517,39 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   resolveQueue.io.retireBid := io.resolveRetireBid
   resolveQueue.io.retireLsId := io.resolveRetireLsId
 
+  val publicationAccepted = returnQueue.io.enqueueAccepted && resolveQueue.io.pushAccepted
+  val publicationAcceptanceMismatch =
+    returnQueue.io.enqueueAccepted =/= resolveQueue.io.pushAccepted
+  val publicationBlocked = publicationValid && (!publicationPayloadValid || !publicationReady)
   val transferProtocolError =
-    liq.io.lhqRecordValid && !resolveQueue.io.pushReady ||
+    publicationBlocked || publicationAcceptanceMismatch ||
       (resolveQueue.io.pushAccepted && transferPending && !liq.io.clearResolvedAccepted)
+
+  val releaseStidInRange = hitRow.stid < p.stidCount.U
+  val releasePipeInRange = hitRow.returnPipeIndex < p.loadReturnPipeCount.U
+  val releaseTargetValid = releaseStidInRange && releasePipeInRange
+  val releaseLane = Wire(UInt(returnLaneWidth.W))
+  releaseLane := hitRow.stid * p.loadReturnPipeCount.U + hitRow.returnPipeIndex
+  val releaseReservation = liq.io.e4UpdateValid && releaseTargetValid && !flushCycle
+  val selectedReleaseReservation =
+    if (returnLaneCount == 1) returnReservations(0)
+    else returnReservations(releaseLane)
+  val reservationUnderflow = releaseReservation && (selectedReleaseReservation === 0.U)
+
+  for (lane <- 0 until returnLaneCount) {
+    val reserve = liq.io.launchAccepted && launchTargetValid && (launchLane === lane.U)
+    val release = releaseReservation && (releaseLane === lane.U)
+    when(flushCycle) {
+      returnReservations(lane) := 0.U
+    }.elsewhen(reserve && !release) {
+      returnReservations(lane) := returnReservations(lane) + 1.U
+    }.elsewhen(release && !reserve) {
+      returnReservations(lane) := returnReservations(lane) - 1.U
+    }
+  }
+  assert(!reservationUnderflow, "scalar load-return E4 completion must release a launch reservation")
+  assert(!publicationValid || publicationAccepted,
+    "scalar E4 hit must enter ResolveQ and its selected LRET lane atomically")
 
   when(flushCycle) {
     transferPending := false.B
@@ -373,7 +557,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     when(liq.io.clearResolvedAccepted) {
       transferPending := false.B
     }
-    when(resolveQueue.io.pushAccepted) {
+    when(publicationAccepted) {
       transferPending := true.B
       transferIndex := liq.io.e4UpdateIndex
     }
@@ -383,15 +567,14 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.allocAccepted := liq.io.allocAccepted
   io.allocIndex := liq.io.allocIndex
   io.allocLoadId := liq.io.allocLoadId
-  io.launchReady := liq.io.launchReady && resolveCreditSafe
+  io.launchReady := liq.io.launchReady && resolveCreditSafe && launchReturnCreditSafe
   io.launchAccepted := liq.io.launchAccepted
   io.launchBlockedByResolveCredit := io.launchValid && !resolveCreditSafe
+  io.launchBlockedByReturnCredit := io.launchValid && !launchReturnCreditSafe
   io.pickReady := liq.io.pickReady
   io.pickAccepted := liq.io.pickAccepted
   io.scbReturnReady := liq.io.scbReturnReady
   io.scbReturnAccepted := liq.io.scbReturnAccepted
-  io.markResolvedReady := liq.io.markResolvedReady
-  io.markResolvedAccepted := liq.io.markResolvedAccepted
   io.liqRows := liq.io.rows
   io.liqOccupiedMask := liq.io.occupiedMask
   io.liqWaitMask := liq.io.waitMask
@@ -422,6 +605,25 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.resolveFull := resolveQueue.io.full
   io.transferPending := transferPending
   io.transferProtocolError := transferProtocolError
+  val reservedCount = returnReservations.map(_.asUInt).reduce(_ +& _)
+  io.loadReturn.drainValid := returnQueue.io.drainValid
+  io.loadReturn.drain := returnQueue.io.drain
+  io.loadReturn.drainPeId := returnQueue.io.drainPeId
+  io.loadReturn.drainStid := returnQueue.io.drainStid
+  io.loadReturn.drainTid := returnQueue.io.drainTid
+  io.loadReturn.drainPipeIndex := returnQueue.io.drainPipeIndex
+  io.loadReturn.drainLane := returnQueue.io.drainLane
+  io.loadReturn.drainFire := returnQueue.io.drainFire
+  io.loadReturn.pending := returnQueue.io.pending
+  io.loadReturn.full := returnQueue.io.full
+  io.loadReturn.empty := returnQueue.io.empty
+  io.loadReturn.laneCounts := returnQueue.io.laneCountState
+  io.loadReturn.totalCount := returnQueue.io.totalCount
+  io.loadReturn.reservedCount := reservedCount
+  io.loadReturn.precisePruneCount := returnQueue.io.precisePruneCount
+  io.loadReturn.publicationValid := publicationValid
+  io.loadReturn.publicationAccepted := publicationAccepted
+  io.loadReturn.protocolError := transferProtocolError || reservationUnderflow
   io.mdbConflictValid := mdbPath.io.conflictValid
   io.mdbConflictFromResolveQueue := mdbPath.io.conflictFromResolveQueue
   io.mdbConflictActiveMask := mdbPath.io.conflictActiveMask
@@ -456,5 +658,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.mdbReplayWakeCollision := mdbPath.io.storeWakeup.valid && io.replayWakeValid
   io.mdbTransientEmpty := mdbPath.io.transientEmpty
   io.mdbProtocolError := mdbPath.io.protocolError || io.mdbReplayWakeCollision
-  io.empty := liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty
+  io.empty :=
+    liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
+      returnQueue.io.empty && (reservedCount === 0.U)
 }

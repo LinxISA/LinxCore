@@ -11,7 +11,11 @@ class LoadInflightRowMutationApplyIO(
     val lineBytes: Int,
     val sizeWidth: Int,
     val archRegWidth: Int,
-    val physRegWidth: Int)
+    val physRegWidth: Int,
+    val peIdWidth: Int,
+    val stidWidth: Int,
+    val tidWidth: Int,
+    val returnPipeCount: Int)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -25,7 +29,11 @@ class LoadInflightRowMutationApplyIO(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
   val setWaitStatus = Input(Bool())
   val keepRepickStatus = Input(Bool())
@@ -53,7 +61,11 @@ class LoadInflightRowMutationApplyIO(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -74,7 +86,11 @@ class LoadInflightRowMutationApply(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -93,7 +109,11 @@ class LoadInflightRowMutationApply(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
 
   val active = io.enable && !io.flush

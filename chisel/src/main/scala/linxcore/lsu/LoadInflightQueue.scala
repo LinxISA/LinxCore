@@ -21,8 +21,10 @@ class LoadInflightAlloc(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Bundle {
+  private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
@@ -46,6 +48,7 @@ class LoadInflightAlloc(
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
+  val returnPipeIndex = UInt(returnPipeIndexWidth.W)
 }
 
 class LoadInflightRow(
@@ -60,8 +63,10 @@ class LoadInflightRow(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Bundle {
+  private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
@@ -88,6 +93,7 @@ class LoadInflightRow(
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
+  val returnPipeIndex = UInt(returnPipeIndexWidth.W)
 
   val lineData = UInt((lineBytes * 8).W)
   val validMask = UInt(lineBytes.W)
@@ -141,7 +147,8 @@ class LoadInflightQueueIO(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
@@ -162,7 +169,8 @@ class LoadInflightQueueIO(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    returnPipeCount
   ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -269,7 +277,8 @@ class LoadInflightQueueIO(
       physRegWidth,
       peIdWidth,
       stidWidth,
-      tidWidth
+      tidWidth,
+      returnPipeCount
     )
   ))
   val occupiedMask = Output(UInt(liqEntries.W))
@@ -296,7 +305,8 @@ class LoadInflightQueue(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -307,6 +317,7 @@ class LoadInflightQueue(
   require(lineBytes == 64, "LoadInflightQueue currently models 64-byte scalar cachelines")
   require(addrWidth >= 7, "LoadInflightQueue needs 64-byte line addresses")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
+  require(returnPipeCount > 0, "returnPipeCount must be positive")
 
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
@@ -324,7 +335,8 @@ class LoadInflightQueue(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    returnPipeCount
   ))
 
   private def zeroWait: LoadStoreForwardWait =
@@ -343,7 +355,8 @@ class LoadInflightQueue(
       physRegWidth,
       peIdWidth,
       stidWidth,
-      tidWidth
+      tidWidth,
+      returnPipeCount
     ))
     row := 0.U.asTypeOf(row)
     row.status := LoadInflightStatus.Idle
@@ -512,7 +525,11 @@ class LoadInflightQueue(
     lineBytes = lineBytes,
     sizeWidth = sizeWidth,
     archRegWidth = archRegWidth,
-    physRegWidth = physRegWidth
+    physRegWidth = physRegWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    returnPipeCount = returnPipeCount
   ))
   val rowMutationReplayConflictMask = replayWakeup.io.waitStoreClearMask | replayWakeup.io.mergeMask
   val rowMutationTargetMask = UIntToOH(io.rowMutationTargetIndex, liqEntries)
@@ -740,6 +757,7 @@ class LoadInflightQueue(
       rows(allocPtr).isTile := io.alloc.isTile
       rows(allocPtr).specWakeup := io.alloc.specWakeup
       rows(allocPtr).stackValid := io.alloc.stackValid
+      rows(allocPtr).returnPipeIndex := io.alloc.returnPipeIndex
 
       when(allocPtr === (liqEntries - 1).U) {
         allocPtr := 0.U

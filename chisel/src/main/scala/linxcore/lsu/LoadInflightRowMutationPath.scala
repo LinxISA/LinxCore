@@ -13,7 +13,11 @@ class LoadInflightRowMutationPathIO(
     val lineBytes: Int,
     val sizeWidth: Int,
     val archRegWidth: Int,
-    val physRegWidth: Int)
+    val physRegWidth: Int,
+    val peIdWidth: Int,
+    val stidWidth: Int,
+    val tidWidth: Int,
+    val returnPipeCount: Int)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val nativeStoreIndexWidth = log2Ceil(storeEntries)
@@ -32,7 +36,11 @@ class LoadInflightRowMutationPathIO(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
   val setWaitStatus = Input(Bool())
   val keepRepickStatus = Input(Bool())
@@ -78,7 +86,11 @@ class LoadInflightRowMutationPathIO(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
 
   val blockedByBridge = Output(Bool())
@@ -117,7 +129,11 @@ class LoadInflightRowMutationPath(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8,
+    val returnPipeCount: Int = 1)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -139,7 +155,11 @@ class LoadInflightRowMutationPath(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    returnPipeCount
   ))
 
   val bridge = Module(new LoadInflightRowMutationRequestBridge(
@@ -195,7 +215,11 @@ class LoadInflightRowMutationPath(
     lineBytes = lineBytes,
     sizeWidth = sizeWidth,
     archRegWidth = archRegWidth,
-    physRegWidth = physRegWidth
+    physRegWidth = physRegWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    returnPipeCount = returnPipeCount
   ))
   apply.io.enable := io.enable
   apply.io.flush := io.flush
