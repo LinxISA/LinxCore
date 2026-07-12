@@ -285,6 +285,7 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
       entries = 16,
       traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
       mapQDepth = 8,
+      lsidWidth = 40,
       robEntries = 8)
 
     assert(dut.stqRows.length == 16)
@@ -293,12 +294,15 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     assert(dut.oldestRobBid.value.getWidth == 3)
     assert(dut.commitMemoryOrder.head.rid.value.getWidth == 3)
     assert(dut.stqRows.head.bid.value.getWidth == 3)
+    assert(dut.stqRows.head.lsIdFull.getWidth == 40)
+    assert(dut.commitMemoryOrder.head.lsId.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(
       new ReducedStoreCommitFreeOwner(
         entries = 16,
         traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
         mapQDepth = 8,
+        lsidWidth = 40,
         robEntries = 8)
     )
     assert(sv.contains("module ReducedStoreCommitFreeOwner"))

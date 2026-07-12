@@ -180,15 +180,18 @@ class STQCommitDrainSpec extends AnyFunSuite {
   }
 
   test("physical STQ depth is independent of ROB identity width") {
-    val io = new STQCommitDrainIO(entries = 16, queueEntries = 16, issueWidth = 2, robEntries = 8)
+    val io = new STQCommitDrainIO(
+      entries = 16, queueEntries = 16, issueWidth = 2, robEntries = 8, lsidWidth = 40)
 
     assert(io.rows.length == 16)
     assert(io.memReqs.head.stqIndex.getWidth == 4)
     assert(io.memReqs.head.bid.value.getWidth == 3)
-    assert(io.memReqs.head.lsId.value.getWidth == 3)
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.memReqs.head.lsId.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(
-      new STQCommitDrain(entries = 16, queueEntries = 16, issueWidth = 2, robEntries = 8))
+      new STQCommitDrain(
+        entries = 16, queueEntries = 16, issueWidth = 2, robEntries = 8, lsidWidth = 40))
     assert(sv.contains("module STQCommitDrain"))
     assert(sv.contains("io_memReqs_0_bid_value"))
   }

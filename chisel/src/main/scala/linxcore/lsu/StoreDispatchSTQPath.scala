@@ -72,8 +72,8 @@ class StoreDispatchSTQPathIO(
   val staInsertIndex = Output(UInt(ptrWidth.W))
   val stdInsertIndex = Output(UInt(ptrWidth.W))
 
-  val staRequest = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
-  val stdRequest = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val staRequest = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
+  val stdRequest = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
   val staCandidate = Output(Bool())
   val stdCandidate = Output(Bool())
   val selectedSta = Output(Bool())
@@ -85,9 +85,9 @@ class StoreDispatchSTQPathIO(
   val stdBypassStaBlocked = Output(Bool())
 
   val insertValid = Output(Bool())
-  val insert = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insert = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
   val insertIntentValid = Output(Bool())
-  val insertIntent = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insertIntent = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
   val insertMerged = Output(Bool())
@@ -110,7 +110,7 @@ class StoreDispatchSTQPathIO(
   val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
   val lsuTULinkSourceMatched = Output(Bool())
   val lsuTULinkSourceMultipleMatch = Output(Bool())
-  val stqRows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val stqRows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth)))
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
@@ -145,9 +145,15 @@ class StoreDispatchSTQPath(
 
   val queues = Module(new StoreDispatchQueues(p, queueDepth, mapQDepth))
   val bridge = Module(new StoreDispatchToSTQ(p, p.robEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
-  val staProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, p.robEntries))
-  val stdProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, p.robEntries))
-  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, p.robEntries))
+  val staProbe = Module(new STQInsertProbe(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, p.robEntries, p.lsidWidth))
+  val stdProbe = Module(new STQInsertProbe(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, p.robEntries, p.lsidWidth))
+  val stq = Module(new STQEntryBank(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, p.robEntries, p.lsidWidth))
 
   queues.io.flushValid := io.flush.req.valid || io.queueFlushValid
   queues.io.staIn := io.staIn

@@ -21,7 +21,8 @@ class STQStoreRequest(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val pcWidth: Int = 64)
+    val pcWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val storeType = STQStoreType()
   val peId = UInt(peIdWidth.W)
@@ -31,6 +32,7 @@ class STQStoreRequest(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFull = UInt(lsidWidth.W)
   val tSeq = new ROBID(mapQDepth)
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
@@ -54,7 +56,8 @@ class STQEntryBankRow(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val pcWidth: Int = 64)
+    val pcWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val status = STQEntryStatus()
@@ -66,6 +69,7 @@ class STQEntryBankRow(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFull = UInt(lsidWidth.W)
   val tSeq = new ROBID(mapQDepth)
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
@@ -91,7 +95,8 @@ class STQEntryBankIO(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -101,7 +106,7 @@ class STQEntryBankIO(
   val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -133,7 +138,7 @@ class STQEntryBankIO(
   val lsuTULinkSourceMatched = Output(Bool())
   val lsuTULinkSourceMultipleMatch = Output(Bool())
 
-  val rows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val rows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
   val occupiedMask = Output(UInt(entries.W))
   val waitMask = Output(UInt(entries.W))
   val commitMask = Output(UInt(entries.W))
@@ -157,22 +162,24 @@ class STQEntryBank(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
   require(identityEntries > 1, "ROB entries must be greater than one")
   require((identityEntries & (identityEntries - 1)) == 0, "ROB entries must be a power of two")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val countWidth = log2Ceil(entries + 1)
 
   private val sourceParams = InterfaceParams(robEntries = identityEntries)
 
-  val io = IO(new STQEntryBankIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries))
+  val io = IO(new STQEntryBankIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
 
   private def zeroRow: STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
     row := 0.U.asTypeOf(row)
     row.status := STQEntryStatus.Idle
     row
@@ -185,7 +192,7 @@ class STQEntryBank(
   }
 
   private def requestToRow(req: STQStoreRequest): STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
     row := 0.U.asTypeOf(row)
     row.valid := true.B
     row.status := STQEntryStatus.Wait
@@ -197,6 +204,7 @@ class STQEntryBank(
     row.gid := req.gid
     row.rid := req.rid
     row.lsId := req.lsId
+    row.lsIdFull := req.lsIdFull
     row.tSeq := req.tSeq
     row.uSeq := req.uSeq
     row.tuDstValid := req.tuDstValid
@@ -214,7 +222,7 @@ class STQEntryBank(
   }
 
   private def mergeRow(row: STQEntryBankRow, req: STQStoreRequest): STQEntryBankRow = {
-    val out = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+    val out = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
     out := row
     out.storeType := STQStoreType.All
     out.stackValid := row.stackValid || req.stackValid
@@ -290,7 +298,7 @@ class STQEntryBank(
         (rows(idx).stid === io.flush.req.stid)
   }
 
-  val lsuSourceSelected = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val lsuSourceSelected = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
   lsuSourceSelected := zeroRow
   for (idx <- 0 until entries) {
     when(lsuSourceMatchVec(idx)) {
@@ -313,7 +321,9 @@ class STQEntryBank(
   io.lsuTULinkSourceMatched := lsuSource.valid
   io.lsuTULinkSourceMultipleMatch := PopCount(lsuSourceMatchVec) > 1.U
 
-  val insertProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries))
+  val insertProbe = Module(new STQInsertProbe(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
   insertProbe.io.requestValid := io.insertValid
   insertProbe.io.request := io.insert
   insertProbe.io.rows := rows

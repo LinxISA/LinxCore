@@ -205,3 +205,8 @@ preservation on flush, exact non-base T/U source selection, base-on-BID source
 suppression, sidecar preservation through partial-store merge, cleared-row
 source suppression, PC sidecar preservation through merge, and Chisel
 elaboration with the `STQFlushPrune` child.
+
+R670 stores `lsIdFull` in every resident row and uses exact full-width equality
+when complementary STA/STD halves merge. The legacy `lsId` projection remains
+only for typed flush pruning and forwarding/replay consumers that have not yet
+been promoted. Tests exercise a 40-bit LSID beside 3-bit ROB identity.

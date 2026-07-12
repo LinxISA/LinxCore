@@ -40,7 +40,7 @@ Inputs:
 
 `request` and `rows` include T/U cleanup source sidecars, but this probe does
 not interpret them. It only decides insert readiness from store type, row
-state, `(bid, lsId)`, scalar/SIMT lane scope, and free-row availability.
+state, `(stid, bid, lsId)`, scalar/SIMT lane scope, and free-row availability.
 
 Outputs:
 
@@ -54,8 +54,9 @@ Outputs:
 
 ## Logic Design
 
-The probe scans `Wait` rows for a matching `(bid, lsId)` pair. Scalar requests
-ignore SIMT lane; non-scalar requests require the same lane. A split request
+The probe scans `Wait` rows for a matching `(stid, bid, lsId)` tuple. It never
+merges split halves across independent STID domains. Scalar requests ignore
+SIMT lane; non-scalar requests require the same lane. A split request
 can merge only with the complementary existing half:
 
 | Incoming request | Existing row |
@@ -96,6 +97,10 @@ bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
 ```
 
-Focused tests cover full-STQ complementary merge acceptance, incompatible
-split-half conflict, flush-applied suppression, IO widths, and standalone
-CIRCT elaboration.
+Focused tests cover full-STQ complementary merge acceptance, cross-STID
+non-merge, incompatible split-half conflict, flush-applied suppression, IO
+widths, and standalone CIRCT elaboration.
+
+R670 changes split-half identity matching from projected LSID equality to the
+exact `(STID, BID, lsIdFull)` identity. BID remains ROB-sized; physical row
+selection remains STQ-sized.

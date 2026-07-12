@@ -3,34 +3,36 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H, PopCount, PriorityEncoder}
 
+import linxcore.common.LSIDOrder
 import linxcore.rob.ROBID
 
-class STQCommitQueueEntry(val robEntries: Int, val stqEntries: Int) extends Bundle {
+class STQCommitQueueEntry(val robEntries: Int, val stqEntries: Int, val lsidWidth: Int = 32) extends Bundle {
   val valid = Bool()
   val stqIndex = UInt(log2Ceil(stqEntries).W)
   val bid = new ROBID(robEntries)
-  val lsId = new ROBID(robEntries)
+  val lsId = UInt(lsidWidth.W)
 }
 
-class STQCommitIssue(val robEntries: Int, val stqEntries: Int) extends Bundle {
+class STQCommitIssue(val robEntries: Int, val stqEntries: Int, val lsidWidth: Int = 32) extends Bundle {
   val valid = Bool()
   val stqIndex = UInt(log2Ceil(stqEntries).W)
   val bid = new ROBID(robEntries)
-  val lsId = new ROBID(robEntries)
+  val lsId = UInt(lsidWidth.W)
 }
 
 class STQCommitQueueIO(
     val robEntries: Int,
     val stqEntries: Int,
     val queueEntries: Int,
-    val issueWidth: Int)
+    val issueWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(queueEntries + 1)
 
   val enqueueValid = Input(Bool())
   val enqueueIndex = Input(UInt(log2Ceil(stqEntries).W))
   val enqueueBid = Input(new ROBID(robEntries))
-  val enqueueLsId = Input(new ROBID(robEntries))
+  val enqueueLsId = Input(UInt(lsidWidth.W))
   val flushValid = Input(Bool())
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
@@ -39,11 +41,11 @@ class STQCommitQueueIO(
 
   val issueEnable = Input(Bool())
   val readyMask = Input(UInt(stqEntries.W))
-  val issue = Output(Vec(issueWidth, new STQCommitIssue(robEntries, stqEntries)))
+  val issue = Output(Vec(issueWidth, new STQCommitIssue(robEntries, stqEntries, lsidWidth)))
   val issueValidMask = Output(UInt(issueWidth.W))
   val issueCount = Output(UInt(log2Ceil(issueWidth + 1).W))
 
-  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries)))
+  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries, lsidWidth)))
   val queuedValidMask = Output(UInt(queueEntries.W))
   val queueCount = Output(UInt(countWidth.W))
   val empty = Output(Bool())
@@ -54,13 +56,17 @@ class STQCommitQueueIO(
 object STQCommitQueue {
   def lessEqualBidLs(srcBid: ROBID, srcLsId: ROBID, dstBid: ROBID, dstLsId: ROBID): Bool =
     ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.lessEqual(srcLsId, dstLsId))
+
+  def lessEqualBidLs(srcBid: ROBID, srcLsId: UInt, dstBid: ROBID, dstLsId: UInt): Bool =
+    ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && LSIDOrder.lessEqual(srcLsId, dstLsId))
 }
 
 class STQCommitQueue(
     val robEntries: Int = 16,
     val stqEntries: Int = 16,
     val queueEntries: Int = 16,
-    val issueWidth: Int = 2)
+    val issueWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Module {
   require(robEntries > 1, "ROB entries must be greater than one")
   require(stqEntries > 1, "STQ entries must be greater than one")
@@ -70,25 +76,26 @@ class STQCommitQueue(
   require((robEntries & (robEntries - 1)) == 0, "ROB entries must be a power of two")
   require((stqEntries & (stqEntries - 1)) == 0, "STQ entries must be a power of two")
   require((queueEntries & (queueEntries - 1)) == 0, "STQ commit queue entries must be a power of two")
+  require(lsidWidth >= 2, "LSID width must support modular serial ordering")
 
   private val countWidth = log2Ceil(queueEntries + 1)
 
-  val io = IO(new STQCommitQueueIO(robEntries, stqEntries, queueEntries, issueWidth))
+  val io = IO(new STQCommitQueueIO(robEntries, stqEntries, queueEntries, issueWidth, lsidWidth))
 
   private def zeroEntry: STQCommitQueueEntry = {
-    val entry = Wire(new STQCommitQueueEntry(robEntries, stqEntries))
+    val entry = Wire(new STQCommitQueueEntry(robEntries, stqEntries, lsidWidth))
     entry := 0.U.asTypeOf(entry)
     entry
   }
 
   private def zeroIssue: STQCommitIssue = {
-    val issue = Wire(new STQCommitIssue(robEntries, stqEntries))
+    val issue = Wire(new STQCommitIssue(robEntries, stqEntries, lsidWidth))
     issue := 0.U.asTypeOf(issue)
     issue
   }
 
   private def enqueueEntry: STQCommitQueueEntry = {
-    val entry = Wire(new STQCommitQueueEntry(robEntries, stqEntries))
+    val entry = Wire(new STQCommitQueueEntry(robEntries, stqEntries, lsidWidth))
     entry.valid := true.B
     entry.stqIndex := io.enqueueIndex
     entry.bid := io.enqueueBid
@@ -129,7 +136,7 @@ class STQCommitQueue(
 
   val keptVec = Wire(Vec(queueEntries, Bool()))
   val keptRank = Wire(Vec(queueEntries, UInt(countWidth.W)))
-  val compacted = Wire(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries)))
+  val compacted = Wire(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries, lsidWidth)))
   for (slot <- 0 until queueEntries) {
     keptVec(slot) := queue(slot).valid && !issueSelected(slot)
     if (slot == 0) {
@@ -168,7 +175,7 @@ class STQCommitQueue(
 
   io.enqueueInsertPosition := firstInsertPosition
 
-  val nextQueue = Wire(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries)))
+  val nextQueue = Wire(Vec(queueEntries, new STQCommitQueueEntry(robEntries, stqEntries, lsidWidth)))
   for (dst <- 0 until queueEntries) {
     nextQueue(dst) := compacted(dst)
     when(io.enqueueAccepted) {

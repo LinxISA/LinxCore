@@ -123,3 +123,7 @@ module does not emit architectural commit trace rows directly.
 Focused reference tests cover sorted enqueue, `ROBID` wrap ordering, skipped
 downstream stalls, same-cycle issue plus enqueue, duplicate/full rejection,
 issue gating, flush clearing, and Chisel elaboration.
+
+R670 stores and issues full-width LSID values. Same-BID ordering uses
+`LSIDOrder.lessEqual`; cross-BID ordering still uses the ROBID ring helper.
+The queue never derives LSID width from ROB, STQ, or queue depth.

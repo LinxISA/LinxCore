@@ -167,14 +167,16 @@ class ReducedStoreMemoryOverlaySpec extends AnyFunSuite {
       stqEntries = 16,
       requestCount = 4,
       lineEntries = 4,
-      robEntries = 8)
+      robEntries = 8,
+      lsidWidth = 40)
 
     assert(io.storeReqs.head.stqIndex.getWidth == 4)
     assert(io.storeReqs.head.bid.value.getWidth == 3)
-    assert(io.storeReqs.head.lsId.value.getWidth == 3)
+    assert(io.storeReqs.head.lsId.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(
-      new ReducedStoreMemoryOverlay(stqEntries = 16, requestCount = 4, lineEntries = 4, robEntries = 8))
+      new ReducedStoreMemoryOverlay(
+        stqEntries = 16, requestCount = 4, lineEntries = 4, robEntries = 8, lsidWidth = 40))
     assert(sv.contains("module ReducedStoreMemoryOverlay"))
     assert(sv.contains("io_storeReqs_0_bid_value"))
   }

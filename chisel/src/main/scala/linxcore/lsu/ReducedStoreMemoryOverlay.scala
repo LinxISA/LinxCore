@@ -18,14 +18,15 @@ class ReducedStoreMemoryOverlayIO(
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   private val lineCountWidth = log2Ceil(lineEntries + 1)
 
   val flush = Input(Bool())
   val storeReqs = Input(Vec(requestCount,
-    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries)))
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val storeAcceptedMask = Input(UInt(requestCount.W))
 
   val loadValid = Input(Bool())
@@ -48,7 +49,8 @@ class ReducedStoreMemoryOverlay(
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   require(stqEntries > 1, "STQ entries must be greater than one")
@@ -73,7 +75,8 @@ class ReducedStoreMemoryOverlay(
     dataWidth,
     sizeWidth,
     lineBytes,
-    identityEntries))
+    identityEntries,
+    lsidWidth))
 
   private def zeroLine: ReducedStoreMemoryOverlayLine = {
     val line = Wire(new ReducedStoreMemoryOverlayLine(addrWidth, lineBytes))

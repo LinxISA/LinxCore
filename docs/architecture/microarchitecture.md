@@ -993,6 +993,15 @@ implementation choices and must not change architectural identity widths:
   elaboration is a required contract test. A local compressed `ROBID` view of
   LSID is transitional implementation state and must not define ordering,
   recovery, forwarding, or the golden interface.
+- R670 closes the first complete full-width transport: decode/ROB
+  `lsidWidth` flows through store dispatch, split-half merge identity, STQ row
+  residency, scalar early-safe commit authorization, the sorted store-commit
+  FIFO, split drain requests, SCB admission, and the committed-memory overlay.
+  Same-block store age uses modulo serial arithmetic with explicit half-range
+  ambiguity; BID remains ROB-sized and cross-block age remains BROB-owned.
+  The compressed STQ LSID projection is retained only for still-unconverted
+  typed recovery and load forwarding/replay/MDB boundaries. Those consumers
+  remain an implementation gap and may not be cited as full LSID closure.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.

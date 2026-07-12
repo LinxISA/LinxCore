@@ -473,4 +473,12 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_lsuTULinkSource_tSeq_value"))
     assert(sv.contains("io_lsuTULinkSourceMatched"))
   }
+
+  test("STQ rows retain a parameterized full LSID beside the recovery projection") {
+    val io = new STQEntryBankIO(entries = 16, robEntries = 8, lsidWidth = 40)
+
+    assert(io.insert.lsId.value.getWidth == 3)
+    assert(io.insert.lsIdFull.getWidth == 40)
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+  }
 }

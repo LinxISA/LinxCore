@@ -140,3 +140,19 @@ accepted/completed condition.
   the strict baseline and must not duplicate Device/MMIO side effects.
 - Assigned BROB store ranges are disjoint and consecutive within one STID;
   no range comparison or allocation crosses STIDs.
+
+## Chisel implementation status
+
+R670 promotes the scalar store-retirement path to the full parameterized
+domain. `CoreParams.lsidWidth` feeds `InterfaceParams`; store dispatch carries
+both the canonical value and a legacy ROBID projection; STQ split merge uses
+the canonical value; commit authorization, commit-FIFO sorting, split drain,
+SCB admission, and committed-memory overlay retain the canonical value.
+`LSIDOrder` provides modulo serial comparison and rejects half-range ambiguity.
+
+The dual field is temporary. The projection remains necessary only because
+typed STQ recovery and the load forwarding/replay/MDB graph still use
+ROBID-shaped LSID fields. R670 does not declare those paths converted. The next
+LSID packets must move full load/store LSID through typed `FlushBus`, resident
+forwarding, wait-store state, LIQ/ResolveQ, MDB conflict/SSIT/fanout, and return
+identity before removing the projection.

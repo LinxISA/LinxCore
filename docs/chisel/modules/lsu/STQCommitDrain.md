@@ -153,3 +153,7 @@ Focused reference tests cover single-line issue/free, split stores requiring
 both segment targets, younger-row progress around an older split-stalled row,
 issue gating, flush clearing, and Chisel elaboration of the memory/free
 boundary.
+
+R670 carries full `lsidWidth` through enqueue, sorted issue, and both fragments
+of a split memory request. Physical STQ indices and ROB-sized BID remain
+separate fields. A 40-bit LSID/16-STQ/8-ROB contract covers this boundary.

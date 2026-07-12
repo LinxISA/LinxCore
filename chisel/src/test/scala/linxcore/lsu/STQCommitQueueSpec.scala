@@ -169,4 +169,19 @@ class STQCommitQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_queueCount"))
     assert(sv.contains("io_orderError"))
   }
+
+  test("commit queue keeps LSID width independent of ROB and STQ capacity") {
+    val io = new STQCommitQueueIO(
+      robEntries = 8,
+      stqEntries = 16,
+      queueEntries = 32,
+      issueWidth = 4,
+      lsidWidth = 40)
+
+    assert(io.enqueueBid.value.getWidth == 3)
+    assert(io.enqueueIndex.getWidth == 4)
+    assert(io.enqueueLsId.getWidth == 40)
+    assert(io.queued.head.lsId.getWidth == 40)
+    assert(io.issue.head.lsId.getWidth == 40)
+  }
 }

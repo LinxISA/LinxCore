@@ -31,11 +31,12 @@ class SCBCommitIngressIO(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(scbEntries + 1)
 
-  val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
+  val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, 0, lsidWidth)))
 
   val acceptedMask = Output(UInt(requestCount.W))
   val blockedMask = Output(UInt(requestCount.W))
@@ -61,7 +62,8 @@ class SCBCommitIngress(
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Module {
   require(stqEntries > 1, "STQ entries must be greater than one")
   require(scbEntries > 0, "SCB entries must be nonzero")
@@ -73,7 +75,8 @@ class SCBCommitIngress(
 
   private val countWidth = log2Ceil(scbEntries + 1)
 
-  val io = IO(new SCBCommitIngressIO(stqEntries, scbEntries, requestCount, addrWidth, dataWidth, sizeWidth, lineBytes))
+  val io = IO(new SCBCommitIngressIO(
+    stqEntries, scbEntries, requestCount, addrWidth, dataWidth, sizeWidth, lineBytes, lsidWidth))
 
   private def zeroEntry: SCBLineEntry = {
     val entry = Wire(new SCBLineEntry(addrWidth, lineBytes))

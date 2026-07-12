@@ -21,7 +21,8 @@ class STQSCBCommitPathIO(
     val simtLaneWidth: Int = 8,
     val lineBytes: Int = 64,
     val mapQDepth: Int = 32,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -39,7 +40,7 @@ class STQSCBCommitPathIO(
   val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -76,7 +77,7 @@ class STQSCBCommitPathIO(
   val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
   val lsuTULinkSourceMatched = Output(Bool())
   val lsuTULinkSourceMultipleMatch = Output(Bool())
-  val stqRows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val stqRows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
@@ -93,14 +94,14 @@ class STQSCBCommitPathIO(
   val drainCommitEligibleMask = Output(UInt(entries.W))
   val drainSplitMask = Output(UInt(entries.W))
   val drainReadyMask = Output(UInt(entries.W))
-  val drainIssue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries)))
+  val drainIssue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
   val drainIssueValidMask = Output(UInt(issueWidth.W))
   val drainIssueCount = Output(UInt(issueCountWidth.W))
-  val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries)))
+  val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val drainEarlyFreeMaskValid = Output(Bool())
   val drainEarlyFreeMask = Output(UInt(entries.W))
   val drainEarlyFreeCount = Output(UInt(issueCountWidth.W))
-  val drainQueued = Output(Vec(queueEntries, new STQCommitQueueEntry(identityEntries, entries)))
+  val drainQueued = Output(Vec(queueEntries, new STQCommitQueueEntry(identityEntries, entries, lsidWidth)))
   val drainQueuedValidMask = Output(UInt(queueEntries.W))
   val drainQueueCount = Output(UInt(queueCountWidth.W))
   val drainEmpty = Output(Bool())
@@ -165,7 +166,8 @@ class STQSCBCommitPath(
     val simtLaneWidth: Int = 8,
     val lineBytes: Int = 64,
     val mapQDepth: Int = 32,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -196,20 +198,27 @@ class STQSCBCommitPath(
     simtLaneWidth,
     lineBytes,
     mapQDepth,
-    identityEntries
+    identityEntries,
+    lsidWidth
   ))
 
-  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries))
-  val drain = Module(new STQCommitDrain(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lineBytes))
+  val stq = Module(new STQEntryBank(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
+  val drain = Module(new STQCommitDrain(
+    entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth,
+    tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lineBytes, lsidWidth))
   val scb = Module(new SCBRowBank(
-    entries,
-    scbEntries,
-    requestCount,
-    scbResponseBufferDepth,
-    addrWidth,
-    dataWidth,
-    sizeWidth,
-    lineBytes))
+    stqEntries = entries,
+    scbEntries = scbEntries,
+    requestCount = requestCount,
+    responseBufferDepth = scbResponseBufferDepth,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    sizeWidth = sizeWidth,
+    lineBytes = lineBytes,
+    robEntries = identityEntries,
+    lsidWidth = lsidWidth))
 
   stq.io.flush := io.flush
   stq.io.insertValid := io.insertValid
@@ -224,7 +233,7 @@ class STQSCBCommitPath(
   drain.io.enqueueValid := stq.io.markCommitAccepted
   drain.io.enqueueIndex := io.markCommitIndex
   drain.io.enqueueBid := stq.io.rows(io.markCommitIndex).bid
-  drain.io.enqueueLsId := stq.io.rows(io.markCommitIndex).lsId
+  drain.io.enqueueLsId := stq.io.rows(io.markCommitIndex).lsIdFull
   drain.io.flushValid := stq.io.flushApplied
   drain.io.rows := stq.io.rows
 

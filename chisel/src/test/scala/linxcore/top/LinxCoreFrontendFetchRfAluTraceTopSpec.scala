@@ -178,6 +178,10 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedStoreMemoryLineCount.getWidth == 7)
     assert(io.reducedStoreMemoryLoadForwardMask.getWidth == 8)
     assert(io.reducedStoreMemoryStoreDroppedMask.getWidth == 8)
+    assert(io.reducedStoreCommitBypassValidMask.getWidth == 2)
+    assert(io.reducedStoreCommitBypassBid.length == 2)
+    assert(io.reducedStoreCommitBypassLsId.length == 2)
+    assert(io.reducedStoreCommitBypassLsId.head.getWidth == 32)
     assert(io.reducedStoreResidentForwardMask.getWidth == 8)
     assert(io.reducedStoreResidentWaitMask.getWidth == 8)
     assert(io.reducedStoreResidentEligibleMask.getWidth == 8)
@@ -690,7 +694,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
   }
 
   test("interface sizes scalar store structures independently from ROB identities") {
-    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val core = CoreParams(robEntries = 8, commitWidth = 2, lsidWidth = 40)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
     val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
     val scalarLsu = ScalarLsuParams(
@@ -715,6 +719,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedStoreDrainQueueCount.getWidth == 6)
     assert(io.reducedStoreScbValidMask.getWidth == 64)
     assert(io.reducedStoreScbEntryCount.getWidth == 7)
+    assert(io.reducedStoreCommitBypassBid.head.value.getWidth == 3)
+    assert(io.reducedStoreCommitBypassLsId.head.getWidth == 40)
   }
 
   test("R667 scalar issue-bank diagnostics have stable widths") {

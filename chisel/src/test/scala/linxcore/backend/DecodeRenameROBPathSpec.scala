@@ -753,6 +753,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.storeStqInsert.stid.getWidth == 8)
     assert(io.storeStqInsert.bid.value.getWidth == 3)
     assert(io.storeStqInsert.lsId.value.getWidth == 3)
+    assert(io.storeStqInsert.lsIdFull.getWidth == 32)
     assert(io.storeStqInsert.scalarIex.getWidth == 1)
     assert(io.storeStqInsertAccepted.getWidth == 1)
     assert(io.storeStqInsertIndex.getWidth == 3)

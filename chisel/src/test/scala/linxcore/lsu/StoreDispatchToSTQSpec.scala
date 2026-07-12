@@ -132,6 +132,7 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(io.insertValid.getWidth == 1)
     assert(io.insert.bid.value.getWidth == 3)
     assert(io.insert.lsId.value.getWidth == 3)
+    assert(io.insert.lsIdFull.getWidth == 32)
     assert(io.insert.tSeq.value.getWidth == 5)
     assert(io.insert.uSeq.value.getWidth == 5)
     assert(io.insert.tuDstValid.getWidth == 1)
@@ -161,5 +162,12 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(sv.contains("io_insert_tuDstValid"))
     assert(sv.contains("io_insert_pc"))
     assert(sv.contains("io_stdBypassStaBlocked"))
+  }
+
+  test("full LSID width is independent of the ROB projection") {
+    val io = new StoreDispatchToSTQIO(InterfaceParams(robEntries = 8, lsidWidth = 40), entries = 8)
+
+    assert(io.insert.lsId.value.getWidth == 3)
+    assert(io.insert.lsIdFull.getWidth == 40)
   }
 }

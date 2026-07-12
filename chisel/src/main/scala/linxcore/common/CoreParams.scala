@@ -4,11 +4,13 @@ final case class CoreParams(
   robEntries: Int = 128,
   commitWidth: Int = 4,
   scalarLsu: ScalarLsuParams = ScalarLsuParams(),
-  scalarBackend: ScalarBackendParams = ScalarBackendParams()
+  scalarBackend: ScalarBackendParams = ScalarBackendParams(),
+  lsidWidth: Int = 32
 ) {
   require(robEntries > 1, "robEntries must be greater than one")
   require((robEntries & (robEntries - 1)) == 0, "robEntries must be a power of two")
   require(commitWidth > 0, "commitWidth must be positive")
+  require(lsidWidth >= 32, "lsidWidth must preserve the Linx 32-bit memory-order contract")
 }
 
 final case class ScalarBackendParams(

@@ -176,3 +176,8 @@ execution-result versus insert backpressure diagnostics, flush suppression, IO
 widths, enum ordering, PC sidecar ports, and CIRCT elaboration. R61 extends the
 checks to the T/U sidecar-carry ports on `sta`, `std`, and `insert`; R267
 extends the same request-shaping boundary to store PC.
+
+R670 copies the decoded full `uop.lsid` into `lsIdFull` without changing the
+legacy ROBID projection used by unconverted recovery consumers. The full field
+is parameterized by `InterfaceParams.lsidWidth`; a 40-bit LSID/8-entry ROB test
+proves that no truncation occurs at dispatch.

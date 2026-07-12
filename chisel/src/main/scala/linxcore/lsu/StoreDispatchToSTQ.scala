@@ -53,9 +53,9 @@ class StoreDispatchToSTQIO(
   val staDequeueReady = Output(Bool())
   val stdDequeueReady = Output(Bool())
   val insertValid = Output(Bool())
-  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
-  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
-  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
+  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
+  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
   val staCandidate = Output(Bool())
   val stdCandidate = Output(Bool())
   val selectedSta = Output(Bool())
@@ -118,13 +118,14 @@ class StoreDispatchToSTQ(
   }
 
   private def zeroRequest: STQStoreRequest = {
-    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
     req := 0.U.asTypeOf(req)
     req.storeType := STQStoreType.All
     req.bid := ROBID.disabled(entries)
     req.gid := ROBID.disabled(entries)
     req.rid := ROBID.disabled(entries)
     req.lsId := ROBID.disabled(entries)
+    req.lsIdFull := 0.U
     req.tSeq := ROBID.disabled(mapQDepth)
     req.uSeq := ROBID.disabled(mapQDepth)
     req.tuDstValid := false.B
@@ -133,7 +134,7 @@ class StoreDispatchToSTQ(
   }
 
   private def buildRequest(payload: StoreSplitIssuePayload, exec: StoreDispatchExecResult): STQStoreRequest = {
-    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
     req := 0.U.asTypeOf(req)
     req.storeType := mapStoreType(payload.storeType)
     req.peId := exec.peId
@@ -143,6 +144,7 @@ class StoreDispatchToSTQ(
     req.gid := resizeId(payload.uop.gid)
     req.rid := resizeId(payload.uop.rid)
     req.lsId := lsidToId(payload.uop.lsid)
+    req.lsIdFull := payload.uop.lsid
     req.tSeq := payload.tSeq
     req.uSeq := payload.uSeq
     req.tuDstValid := payload.tuDstValid

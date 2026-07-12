@@ -15,6 +15,33 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R670 promotes the scalar store-retirement path from a
+ROBID-shaped LSID projection to the full `CoreParams.lsidWidth` domain. The
+canonical value now crosses store dispatch, STQ split merge and residency,
+early-safe commit authorization, commit-FIFO ordering, split drain requests,
+SCB admission, and the committed-memory overlay. `LSIDOrder` supplies modular
+serial ordering with an explicit half-range ambiguity check. Width contracts
+exercise 40-bit LSID with an 8-entry ROB and 16-entry STQ to prove that LSID,
+ROB identity, and physical queue capacity are independent.
+
+Split-store merge identity is `(STID, BID, full LSID)` so independent STID
+domains cannot combine STA/STD halves. Both fragments of the reduced-top
+commit bypass retain the commit row's BID and full LSID, with explicit
+per-commit-lane diagnostics for width and transport checks.
+
+The final Chisel regression passes 266 suites and 1,588 tests. The corrected
+generated-RTL CoreMark cross-check compares 1,467 rows with zero mismatches in
+`generated/r670-full-lsid-store-retirement-coremark/report/crosscheck_manifest.json`.
+Sideband evidence retains 136 valid MDB conflict-store observations. The
+full-width early-safe comparison drains ready stores sooner than the aliased
+projection, so this workload no longer naturally activates resident-store
+forwarding; focused forwarding and STQ tests remain the mechanism proof.
+
+R670 intentionally leaves the compressed projection beside the canonical STQ
+field for typed recovery and the load forwarding/replay/MDB graph. Those paths
+remain the next implementation packets. No ARM exclusive monitor, barrier,
+condition-code, exception-level, or acquire/release behavior was imported.
+
 Latest packet: R669 separates physical scalar-store capacities from ROB
 identity sizing through the live Chisel path. `ScalarLsuParams.stqEntries`
 sizes STQ rows, masks, forwarding snapshots, replay wait-store indices, and MDB
@@ -32,9 +59,9 @@ eligible-store load lookup.
 
 This packet does not make queue depth architectural and imports no ARM
 exclusive-monitor, barrier, exception-level, condition-code, or acquire/release
-behavior. The next ordered LSU packet is full-width LSID transport: the golden
-contract keeps the 32-bit LSID domain independent, while some current STQ-side
-bundles still carry a transitional ROBID-shaped projection.
+behavior. R670 closes full-width LSID transport through store retirement while
+retaining a transitional ROBID-shaped projection only in the recovery and load
+forwarding/replay/MDB paths that remain to be promoted.
 
 Latest packet: R667 replaces the single live scalar issue queue with a
 parameterized banked fabric. Enqueue selects the least-occupied bank; bank-local

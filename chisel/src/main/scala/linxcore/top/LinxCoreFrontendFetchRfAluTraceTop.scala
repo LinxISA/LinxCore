@@ -331,6 +331,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreMemoryLineCount = Output(UInt(storeMemoryLineCountWidth.W))
   val reducedStoreMemoryLoadForwardMask = Output(UInt(8.W))
   val reducedStoreMemoryStoreDroppedMask = Output(UInt(storeMemoryRequestCount.W))
+  val reducedStoreCommitBypassValidMask = Output(UInt(traceParams.commitWidth.W))
+  val reducedStoreCommitBypassBid = Output(Vec(traceParams.commitWidth, new ROBID(p.robEntries)))
+  val reducedStoreCommitBypassLsId = Output(Vec(traceParams.commitWidth, UInt(p.lsidWidth.W)))
   val reducedStoreResidentForwardMask = Output(UInt(8.W))
   val reducedStoreResidentWaitMask = Output(UInt(8.W))
   val reducedStoreResidentEligibleMask = Output(UInt(physicalStoreStqEntries.W))
@@ -2341,20 +2344,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth,
-    robEntries = p.robEntries
+    robEntries = p.robEntries,
+    lsidWidth = p.lsidWidth
   ))
   val reducedStoreScb = Module(new SCBRowBank(
     stqEntries = coreParams.scalarLsu.stqEntries,
     scbEntries = coreParams.scalarLsu.scbEntries,
     requestCount = reducedStoreScbRequestCount,
     responseBufferDepth = coreParams.scalarLsu.scbResponseBufferDepth,
-    robEntries = p.robEntries
+    robEntries = p.robEntries,
+    lsidWidth = p.lsidWidth
   ))
   val reducedStoreMemoryOverlay = Module(new ReducedStoreMemoryOverlay(
     stqEntries = coreParams.scalarLsu.stqEntries,
     requestCount = reducedStoreMemoryRequestCount,
     lineEntries = reducedStoreMemoryLineEntries,
-    robEntries = p.robEntries
+    robEntries = p.robEntries,
+    lsidWidth = p.lsidWidth
   ))
   val reducedStoreResidentForward = Module(new ReducedStoreResidentForward(
     entries = coreParams.scalarLsu.stqEntries,
@@ -2952,7 +2958,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreCommitDrain.io.enqueueValid := useReducedStoreDispatchStq.B && path.io.storeMarkCommitAccepted
   reducedStoreCommitDrain.io.enqueueIndex := storeCommitOwner.io.markCommitIndex
   reducedStoreCommitDrain.io.enqueueBid := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).bid
-  reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsId
+  reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsIdFull
   reducedStoreCommitDrain.io.flushValid := reducedStoreFlush
   reducedStoreCommitDrain.io.issueEnable := reducedStoreScbReadyForDrain
   reducedStoreCommitDrain.io.primaryReadyMask :=
@@ -2978,7 +2984,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       p.immWidth,
       p.immWidth,
       4,
-      p.robEntries))
+      p.robEntries,
+      p.lsidWidth))
     req := 0.U.asTypeOf(req)
     req
   }
@@ -3000,7 +3007,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       p.immWidth,
       p.immWidth,
       4,
-      p.robEntries)))
+      p.robEntries,
+      p.lsidWidth)))
   val reducedStoreMemoryAcceptedVec = Wire(Vec(reducedStoreMemoryRequestCount, Bool()))
   for (idx <- 0 until reducedStoreMemoryRequestCount) {
     reducedStoreMemoryReqs(idx) := zeroReducedStoreMemoryReq
@@ -3012,6 +3020,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedStoreMemoryAcceptedVec(idx) :=
       useReducedStoreDispatchStq.B && reducedStoreScb.io.acceptedMask(idx)
   }
+
+  val reducedStoreCommitBypassValidVec = Wire(Vec(traceParams.commitWidth, Bool()))
+  val reducedStoreCommitBypassBidVec = Wire(Vec(traceParams.commitWidth, new ROBID(p.robEntries)))
+  val reducedStoreCommitBypassLsIdVec = Wire(Vec(traceParams.commitWidth, UInt(p.lsidWidth.W)))
 
   for (slot <- 0 until traceParams.commitWidth) {
     val commitStoreRow = path.io.commit.rows(slot)
@@ -3034,9 +3046,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       p.immWidth,
       p.immWidth,
       4,
-      p.robEntries))
+      p.robEntries,
+      p.lsidWidth))
     firstReq := zeroReducedStoreMemoryReq
     firstReq.valid := commitStoreValid
+    firstReq.bid := path.io.commitMemoryOrder(slot).bid
+    firstReq.lsId := path.io.commitMemoryOrder(slot).lsId
     firstReq.split := commitStoreCrosses
     firstReq.segment := 0.U
     firstReq.last := !commitStoreCrosses
@@ -3049,9 +3064,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       p.immWidth,
       p.immWidth,
       4,
-      p.robEntries))
+      p.robEntries,
+      p.lsidWidth))
     secondReq := zeroReducedStoreMemoryReq
     secondReq.valid := commitStoreValid && commitStoreCrosses
+    secondReq.bid := path.io.commitMemoryOrder(slot).bid
+    secondReq.lsId := path.io.commitMemoryOrder(slot).lsId
     secondReq.split := commitStoreCrosses
     secondReq.segment := 1.U
     secondReq.last := true.B
@@ -3064,7 +3082,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedStoreMemoryAcceptedVec(base) := commitStoreValid
     reducedStoreMemoryReqs(base + 1) := secondReq
     reducedStoreMemoryAcceptedVec(base + 1) := commitStoreValid && commitStoreCrosses
+    reducedStoreCommitBypassValidVec(slot) := firstReq.valid
+    reducedStoreCommitBypassBidVec(slot) := firstReq.bid
+    reducedStoreCommitBypassLsIdVec(slot) := firstReq.lsId
   }
+
+  io.reducedStoreCommitBypassValidMask := reducedStoreCommitBypassValidVec.asUInt
+  io.reducedStoreCommitBypassBid := reducedStoreCommitBypassBidVec
+  io.reducedStoreCommitBypassLsId := reducedStoreCommitBypassLsIdVec
 
   val reducedLiveLoadLiqEnabled =
     useReducedStoreDispatchStq.B && useReducedLiveLoadLiq.B
@@ -10930,7 +10955,8 @@ object LinxCoreFrontendFetchRfAluTraceTop {
     InterfaceParams(
       robEntries = coreParams.robEntries,
       commitWidth = coreParams.commitWidth,
-      physRegWidth = physRegWidth
+      physRegWidth = physRegWidth,
+      lsidWidth = coreParams.lsidWidth
     )
 
   def traceParamsFor(p: InterfaceParams): CommitTraceParams =

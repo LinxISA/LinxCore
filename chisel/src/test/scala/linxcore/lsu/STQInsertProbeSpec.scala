@@ -18,7 +18,7 @@ object STQInsertProbeReference {
       insertIndex: Option[Int])
 
   private def sameStoreId(entry: Entry, req: Request): Boolean =
-    entry.req.bid == req.bid && entry.req.lsId == req.lsId &&
+    entry.req.stid == req.stid && entry.req.bid == req.bid && entry.req.lsId == req.lsId &&
       (req.scalarIex || entry.req.simtLane == req.simtLane)
 
   private def compatible(entry: Entry, req: Request): Boolean =
@@ -63,14 +63,14 @@ class STQInsertProbeSpec extends AnyFunSuite {
   import STQFlushPruneReference.Id
   import STQInsertProbeReference._
 
-  private def req(n: Int, storeType: StoreType = All, bid: Int = 0, lsId: Int = 0): Request =
+  private def req(n: Int, storeType: StoreType = All, bid: Int = 0, lsId: Int = 0, stid: Int = 1): Request =
     Request(
       storeType = storeType,
       bid = Id(value = bid),
       gid = Id(value = 0),
       rid = Id(value = n),
       lsId = Id(value = lsId),
-      stid = 1,
+      stid = stid,
       peId = 2,
       tid = 3,
       addr = 0x1000 + n * 8,
@@ -118,6 +118,21 @@ class STQInsertProbeSpec extends AnyFunSuite {
     assert(result.conflict)
     assert(result.conflictMask == 0x1)
     assert(result.freeMask == 0x2)
+  }
+
+  test("reference never merges equal BID and LSID identities across STIDs") {
+    val rows = Seq(
+      Some(waitEntry(req(0, storeType = Addr, bid = 2, lsId = 7, stid = 1))),
+      None)
+
+    val result = probe(rows, req(1, storeType = Data, bid = 2, lsId = 7, stid = 2))
+
+    assert(result.ready)
+    assert(!result.canMerge)
+    assert(result.canAllocate)
+    assert(!result.conflict)
+    assert(result.mergeMask == 0)
+    assert(result.insertIndex.contains(1))
   }
 
   test("reference blocks otherwise-ready insertion during a flush-applied bank cycle") {

@@ -228,3 +228,8 @@ The tests cover commit-identity-to-STQ matching, pending commit identity
 buffering, pending mark/free progression, direct-free disable behavior,
 unmatched store diagnostics, non-ready row rejection, drain flush clearing, and
 top/backend elaboration of the SCB-backed free diagnostics.
+
+R670 removes LSID compression from scalar early-safe authorization and pending
+commit retention. Commit frontiers, oldest-ROB watermarks, resident STQ rows,
+and buffered store identities compare in the full `lsidWidth` domain through
+`LSIDOrder`; BID/GID/RID matching remains ROB-sized.

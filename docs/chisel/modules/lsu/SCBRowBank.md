@@ -176,3 +176,7 @@ eviction, cross-index `resp_list` ordering, outstanding-row non-merge, illegal
 response reporting, and Chisel elaboration with the
 egress/retry-queue/retry-select/lookup/response-buffer/response-decode/
 state-update children.
+
+R670 parameterizes the accepted drain request LSID independently from STQ and
+ROB capacity. SCB line coalescing remains physical-address based; carrying
+LSID through admission does not make LSID part of the cache-line merge key.

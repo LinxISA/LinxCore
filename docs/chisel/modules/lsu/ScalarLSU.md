@@ -159,3 +159,8 @@ probe passes; the live fixture compares 3 rows; and the CoreMark replay compares
 R659 additionally requires the live reduced top to elaborate exactly one
 `ScalarLSUMDBPath`, `MDBConflictDetect`, and `MDBQueueFanout`, contain the
 shared recovery boundary, and contain no delivery-only recovery hierarchy.
+
+R670 makes `CoreParams.lsidWidth` the canonical scalar LSU memory-order width
+and passes it into the STQ-to-SCB store composition. This changes no ARM-visible
+state and leaves cache-line coalescing, ROB identity, and queue sizing
+independent.

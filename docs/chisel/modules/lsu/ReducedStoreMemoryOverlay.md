@@ -47,7 +47,8 @@ Inputs:
   tied to ordinary backend redirects because accepted SCB fragments are already
   committed memory-side state.
 - `storeReqs`: `STQCommitDrainRequest` lanes produced by the reduced top. Each
-  lane carries valid, address, size, data, and `last` sidecars. The parent must
+  lane carries valid, full BID/LSID identity, address, size, data, and `last`
+  sidecars. The parent must
   present same-cycle accepted lanes in old-to-young program order because later
   lanes overwrite overlapping bytes in the overlay line image.
 - `storeAcceptedMask`: one bit per request lane. Commit-row bypass lanes are
@@ -110,6 +111,11 @@ rows and must not overwrite a younger commit-row byte. `ReducedStoreMemoryOverla
 implements only that committed-byte visibility subset. It does not model load
 wait/replay, younger-store conflicts, MDB recovery publication, or cache
 coherence.
+
+R670 retains the full commit-row LSID on both direct-bypass fragments and
+publishes the per-commit-lane bypass identity at the reduced-top diagnostic
+boundary. The overlay's physical byte merge remains address-based; LSID is
+request metadata for ordering evidence, not a cache-line lookup key.
 
 ## Deferred Owners
 
@@ -216,3 +222,7 @@ R263 scale evidence reruns the reduced-store live QEMU wrapper with
 The run reduces 16250 expected rows, normalizes 14780 QEMU/DUT rows, compares
 14779 rows, and passes with zero mismatches in
 `generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck/report/crosscheck_manifest.json`.
+
+R670 carries the full parameterized LSID on every accepted store request at
+this final reduced committed-memory boundary. Overlay byte merge order remains
+the parent commit/drain lane order; the overlay does not reinterpret LSID age.

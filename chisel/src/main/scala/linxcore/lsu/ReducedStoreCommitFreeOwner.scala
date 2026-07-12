@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.{log2Ceil, PopCount, PriorityEncoder, PriorityEncoderOH, UIntToOH}
 
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.common.LSIDOrder
 import linxcore.rob.{ROBID, ROBMemoryOrderCommit}
 
 class ReducedStoreCommitFreeOwnerIO(
@@ -41,7 +42,7 @@ class ReducedStoreCommitFreeOwnerIO(
   val commit = Input(new CommitTracePort(traceParams))
   val commitValidMask = Input(UInt(traceParams.commitWidth.W))
   val commitMemoryOrder = Input(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(identityEntries, lsidWidth)))
-  val stqRows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val stqRows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
 
   val markCommitValid = Output(Bool())
   val markCommitIndex = Output(UInt(ptrWidth.W))
@@ -117,15 +118,6 @@ class ReducedStoreCommitFreeOwner(
   private def resize(value: UInt, width: Int): UInt =
     if (width <= value.getWidth) value(width - 1, 0) else value.pad(width)
 
-  private def lsidToId(lsid: UInt): ROBID = {
-    val out = Wire(new ROBID(identityEntries))
-    val wrapBit = if (lsidWidth > identityWidth) lsid(identityWidth) else false.B
-    out.valid := true.B
-    out.wrap := wrapBit
-    out.value := resize(lsid, identityWidth)
-    out
-  }
-
   private def commitStore(slot: Int): Bool = {
     val row = io.commit.rows(slot)
     io.enable &&
@@ -161,15 +153,19 @@ class ReducedStoreCommitFreeOwner(
       distance < io.nonFlushPrefixCount.pad(traceParams.blockBidWidth)
   }
 
-  private def scalarEarlySafe(blockBidValid: Bool, blockBid: UInt, storeLsId: ROBID): Bool =
-    io.oldestBlockValid && blockBidValid && storeLsId.valid &&
+  private def scalarEarlySafe(
+      blockBidValid: Bool,
+      blockBid: UInt,
+      storeLsIdValid: Bool,
+      storeLsId: UInt): Bool =
+    io.oldestBlockValid && blockBidValid && storeLsIdValid &&
       blockBid === io.oldestBlockBid &&
       VecInit((0 until traceParams.commitWidth).map { slot =>
         val frontier = io.commitMemoryOrder(slot)
         frontier.valid && io.commitValidMask(slot) &&
           io.commit.rows(slot).valid && io.commit.rows(slot).blockBidValid &&
           io.commit.rows(slot).blockBid === blockBid &&
-          ROBID.less(storeLsId, lsidToId(frontier.lsId))
+          LSIDOrder.less(storeLsId, frontier.lsId)
       }).asUInt.orR
 
   val pendingMark = RegInit(0.U(entries.W))
@@ -181,7 +177,7 @@ class ReducedStoreCommitFreeOwner(
   val pendingCommitStid = Reg(Vec(entries, UInt(stidWidth.W)))
   val pendingCommitBlockBidValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val pendingCommitBlockBid = Reg(Vec(entries, UInt(traceParams.blockBidWidth.W)))
-  val pendingCommitLsId = Reg(Vec(entries, new ROBID(identityEntries)))
+  val pendingCommitLsId = Reg(Vec(entries, UInt(lsidWidth.W)))
   val pendingCommitEarlySafe = RegInit(VecInit(Seq.fill(entries)(false.B)))
 
   private def pendingBlockInNonFlushPrefix(idx: Int): Bool = {
@@ -194,12 +190,12 @@ class ReducedStoreCommitFreeOwner(
   private def pendingAuthorized(idx: Int, row: STQEntryBankRow): Bool =
     pendingBlockInNonFlushPrefix(idx) ||
       (row.scalarIex && (pendingCommitEarlySafe(idx) || scalarEarlySafe(
-        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx), pendingCommitLsId(idx))))
+        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx), pendingCommitValid(idx), pendingCommitLsId(idx))))
 
   private def pendingEarlySafe(idx: Int, row: STQEntryBankRow): Bool =
     !pendingBlockInNonFlushPrefix(idx) && row.scalarIex &&
       (pendingCommitEarlySafe(idx) || scalarEarlySafe(
-        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx), pendingCommitLsId(idx)))
+        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx), pendingCommitValid(idx), pendingCommitLsId(idx)))
 
   private def samePendingIdentity(idx: Int, row: STQEntryBankRow): Bool =
     pendingCommitValid(idx) &&
@@ -220,14 +216,14 @@ class ReducedStoreCommitFreeOwner(
       pendingCommitRid(idx) === resize(commitRow.identity.rid, identityWidth)
 
   val commitStoreVec = VecInit((0 until traceParams.commitWidth).map(commitStore))
-  val currentStoreLsId = Wire(Vec(traceParams.commitWidth, new ROBID(identityEntries)))
+  val currentStoreLsId = Wire(Vec(traceParams.commitWidth, UInt(lsidWidth.W)))
   val currentStoreEarlySafe = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
-    currentStoreLsId(slot) := lsidToId(io.commitMemoryOrder(slot).lsId)
-    currentStoreLsId(slot).valid := io.commitMemoryOrder(slot).valid && io.commitMemoryOrder(slot).isStore
+    currentStoreLsId(slot) := io.commitMemoryOrder(slot).lsId
     currentStoreEarlySafe(slot) := scalarEarlySafe(
       io.commit.rows(slot).blockBidValid,
       io.commit.rows(slot).blockBid,
+      io.commitMemoryOrder(slot).valid && io.commitMemoryOrder(slot).isStore,
       currentStoreLsId(slot))
   }
   val slotMatchVec = Wire(Vec(traceParams.commitWidth, Bool()))
@@ -242,8 +238,6 @@ class ReducedStoreCommitFreeOwner(
   }
 
   val matchVec = Wire(Vec(entries, Bool()))
-  val oldestRobLsId = lsidToId(io.oldestRobLsId)
-  oldestRobLsId.valid := io.oldestRobValid
   val residentEarlySafeVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
     residentEarlySafeVec(idx) :=
@@ -251,7 +245,7 @@ class ReducedStoreCommitFreeOwner(
         io.oldestRobValid && io.oldestRobBid.valid &&
         io.oldestRobStid === io.activeStid &&
         ROBID.equal(io.stqRows(idx).bid, io.oldestRobBid) &&
-        ROBID.less(io.stqRows(idx).lsId, oldestRobLsId)
+        LSIDOrder.less(io.stqRows(idx).lsIdFull, io.oldestRobLsId)
     matchVec(idx) :=
       markable(io.stqRows(idx)) &&
         (residentEarlySafeVec(idx) || VecInit((0 until traceParams.commitWidth).map { slot =>
@@ -337,7 +331,7 @@ class ReducedStoreCommitFreeOwner(
     val nextPendingStid = Wire(Vec(entries, UInt(stidWidth.W)))
     val nextPendingBlockBidValid = Wire(Vec(entries, Bool()))
     val nextPendingBlockBid = Wire(Vec(entries, UInt(traceParams.blockBidWidth.W)))
-    val nextPendingLsId = Wire(Vec(entries, new ROBID(identityEntries)))
+    val nextPendingLsId = Wire(Vec(entries, UInt(lsidWidth.W)))
     val nextPendingEarlySafe = Wire(Vec(entries, Bool()))
     for (idx <- 0 until entries) {
       basePendingValid(idx) := pendingCommitValid(idx) && !pendingMatchedVec(idx)
@@ -350,7 +344,8 @@ class ReducedStoreCommitFreeOwner(
       nextPendingBlockBid(idx) := pendingCommitBlockBid(idx)
       nextPendingLsId(idx) := pendingCommitLsId(idx)
       nextPendingEarlySafe(idx) := pendingCommitEarlySafe(idx) || scalarEarlySafe(
-        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx), pendingCommitLsId(idx))
+        pendingCommitBlockBidValid(idx), pendingCommitBlockBid(idx),
+        pendingCommitValid(idx), pendingCommitLsId(idx))
     }
     val pendingIdentityFreeMask = VecInit((0 until entries).map(idx => !basePendingValid(idx))).asUInt
     val pendingIdentityFreeOH = PriorityEncoderOH(pendingIdentityFreeMask)

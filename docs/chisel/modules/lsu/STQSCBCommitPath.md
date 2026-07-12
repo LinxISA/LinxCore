@@ -165,3 +165,7 @@ Focused reference tests cover final `last`-fragment free ownership, SCB
 model-batch backpressure, split-store final free, concurrent older drain plus
 younger enqueue, and Chisel elaboration with `STQEntryBank`, `STQCommitDrain`,
 and `SCBRowBank` children.
+
+R670 threads one `lsidWidth` parameter through STQ residency, commit queue,
+split drain, and SCB admission. The composition keeps physical STQ/SCB sizing,
+ROB identity sizing, and full LSID ordering as three independent domains.

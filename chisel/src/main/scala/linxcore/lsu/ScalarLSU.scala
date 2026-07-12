@@ -150,7 +150,8 @@ object ScalarLSU {
       simtLaneWidth = lsuParams.simtLaneWidth,
       lineBytes = lsuParams.lineBytes,
       mapQDepth = lsuParams.mapQDepth,
-      robEntries = coreParams.robEntries
+      robEntries = coreParams.robEntries,
+      lsidWidth = coreParams.lsidWidth
     )
 
   def storeCommitPath(coreParams: CoreParams, lsuParams: ScalarLsuParams): STQSCBCommitPath =
@@ -169,6 +170,7 @@ object ScalarLSU {
       simtLaneWidth = lsuParams.simtLaneWidth,
       lineBytes = lsuParams.lineBytes,
       mapQDepth = lsuParams.mapQDepth,
-      robEntries = coreParams.robEntries
+      robEntries = coreParams.robEntries,
+      lsidWidth = coreParams.lsidWidth
     )
 }
