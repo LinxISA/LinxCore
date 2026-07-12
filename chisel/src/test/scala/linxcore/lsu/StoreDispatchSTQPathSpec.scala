@@ -19,6 +19,7 @@ object StoreDispatchSTQPathReference {
       stdValid: Boolean,
       staExecValid: Boolean,
       stdExecValid: Boolean,
+      addressInsertPermit: Boolean = true,
       flush: Boolean = false,
       flushApplied: Boolean = false): PathDecision = {
     val staCandidate = !flush && staValid && staExecValid
@@ -30,8 +31,8 @@ object StoreDispatchSTQPathReference {
       stdValid = stdValid,
       staExecValid = staExecValid,
       stdExecValid = stdExecValid,
-      staInsertReady = staProbe.ready,
-      stdInsertReady = stdProbe.ready,
+      staInsertReady = staProbe.ready && (staReq.storeType == Data || addressInsertPermit),
+      stdInsertReady = stdProbe.ready && (stdReq.storeType == Data || addressInsertPermit),
       flush = flush)
 
     PathDecision(staProbe, stdProbe, dispatch)
@@ -126,11 +127,30 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(!result.dispatch.blockedByStdExec)
   }
 
+  test("address permit backpressures STA while allowing a data-only STD fragment") {
+    val rows = Seq(None, None)
+    val result = decide(
+      rows = rows,
+      staReq = req(0, storeType = Addr),
+      stdReq = req(1, storeType = Data),
+      staValid = true,
+      stdValid = true,
+      staExecValid = true,
+      stdExecValid = true,
+      addressInsertPermit = false)
+
+    assert(result.staProbe.ready)
+    assert(result.stdProbe.ready)
+    assert(!result.dispatch.selectedSta)
+    assert(result.dispatch.selectedStd)
+  }
+
   test("StoreDispatchSTQPath IO preserves queue, request, and STQ counter widths") {
     val p = InterfaceParams(robEntries = 8)
     val io = new StoreDispatchSTQPathIO(p, queueDepth = 4, entries = 8)
 
     assert(io.queueFlushValid.getWidth == 1)
+    assert(io.addressInsertPermit.getWidth == 1)
     assert(io.staReady.getWidth == 1)
     assert(io.stdReady.getWidth == 1)
     assert(io.staQueueCount.getWidth == 3)
@@ -140,6 +160,8 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(io.stdRequest.lsId.value.getWidth == 3)
     assert(io.staRequest.tSeq.value.getWidth == 5)
     assert(io.staRequest.pc.getWidth == 64)
+    assert(io.insertIntentValid.getWidth == 1)
+    assert(io.insertIntent.pc.getWidth == 64)
     assert(io.staIn.tSeq.value.getWidth == 5)
     assert(io.stdQueue.uSeq.value.getWidth == 5)
     assert(io.lsuTULinkSource.tSeq.value.getWidth == 5)
@@ -157,6 +179,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(sv.contains("module StoreDispatchSTQPath"))
     assert(sv.contains("StoreDispatchQueues"))
     assert(sv.contains("io_queueFlushValid"))
+    assert(sv.contains("io_addressInsertPermit"))
     assert(sv.contains("StoreDispatchToSTQ"))
     assert(sv.contains("STQInsertProbe"))
     assert(sv.contains("STQEntryBank"))
@@ -166,5 +189,6 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(sv.contains("io_lsuTULinkSource_valid"))
     assert(sv.contains("io_lsuTULinkSourceMatched"))
     assert(sv.contains("io_stdBypassStaBlocked"))
+    assert(sv.contains("io_insertIntentValid"))
   }
 }

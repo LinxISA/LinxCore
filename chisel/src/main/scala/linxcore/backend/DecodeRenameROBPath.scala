@@ -102,6 +102,7 @@ class DecodeRenameROBPathIO(
   val renamedOutReady = Input(Bool())
   val storeStaExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
   val storeStdExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
+  val storeAddressInsertPermit = Input(Bool())
   val storeMarkCommitValid = Input(Bool())
   val storeMarkCommitIndex = Input(UInt(ptrWidth.W))
   val storeCommitFreeValid = Input(Bool())
@@ -303,6 +304,8 @@ class DecodeRenameROBPathIO(
   val storeStdBypassStaBlocked = Output(Bool())
   val storeStqInsertValid = Output(Bool())
   val storeStqInsert = Output(new STQStoreRequest(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth))
+  val storeStqInsertIntentValid = Output(Bool())
+  val storeStqInsertIntent = Output(new STQStoreRequest(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth))
   val storeStqInsertAccepted = Output(Bool())
   val storeStqInsertAllocated = Output(Bool())
   val storeStqInsertMerged = Output(Bool())
@@ -1117,6 +1120,7 @@ class DecodeRenameROBPath(
     mapQDepth = mapQDepth
   ))
   storeDispatch.io.flush := canonicalCleanup.flush
+  storeDispatch.io.addressInsertPermit := io.storeAddressInsertPermit
   storeDispatch.io.queueFlushValid := decRenFlush && !canonicalCleanup.flush.req.valid
   storeDispatch.io.staExec := io.storeStaExec
   storeDispatch.io.stdExec := io.storeStdExec
@@ -1441,6 +1445,8 @@ class DecodeRenameROBPath(
   io.storeStdBypassStaBlocked := storeDispatch.io.stdBypassStaBlocked
   io.storeStqInsertValid := storeDispatch.io.insertValid
   io.storeStqInsert := storeDispatch.io.insert
+  io.storeStqInsertIntentValid := storeDispatch.io.insertIntentValid
+  io.storeStqInsertIntent := storeDispatch.io.insertIntent
   io.storeStqInsertAccepted := storeDispatch.io.insertAccepted
   io.storeStqInsertAllocated := storeDispatch.io.insertAllocated
   io.storeStqInsertMerged := storeDispatch.io.insertMerged

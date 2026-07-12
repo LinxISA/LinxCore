@@ -85,6 +85,13 @@ retain their stricter `Repick` and SCB ordering. Registered MDB store wakeups
 now enter the LIQ replay-wakeup path with priority over the existing resident
 store wakeup; a displaced resident wakeup remains held for a later cycle.
 
+R660 closes accepted-store loss under MDB or timing backpressure. Store
+dispatch exports a pre-permit insertion intent, address-bearing admission joins
+canonical transaction readiness with a ROB-sized replay FIFO credit, and the
+accepted STQ pulse is the separate MDB commit. Probes retained for an
+unresolved LIQ row replay in FIFO order only when ResolveQ is visible. Data-only
+STD fragments remain independent of MDB address admission.
+
 R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE
 classes per STID, models `CheckOlder` cancellation and `mergeSignal`

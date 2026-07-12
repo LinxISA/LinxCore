@@ -26,6 +26,7 @@ class StoreDispatchSTQPathIO(
   private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val addressInsertPermit = Input(Bool())
   val queueFlushValid = Input(Bool())
 
   val staIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
@@ -84,6 +85,8 @@ class StoreDispatchSTQPathIO(
 
   val insertValid = Output(Bool())
   val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val insertIntentValid = Output(Bool())
+  val insertIntent = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
   val insertMerged = Output(Bool())
@@ -159,8 +162,9 @@ class StoreDispatchSTQPath(
   bridge.io.std := queues.io.stdOut
   bridge.io.staExec := io.staExec
   bridge.io.stdExec := io.stdExec
-  bridge.io.staInsertReady := staProbe.io.ready
-  bridge.io.stdInsertReady := stdProbe.io.ready
+  bridge.io.staInsertReady := staProbe.io.ready && io.addressInsertPermit
+  bridge.io.stdInsertReady :=
+    stdProbe.io.ready && ((bridge.io.stdRequest.storeType === STQStoreType.Data) || io.addressInsertPermit)
 
   staProbe.io.requestValid := bridge.io.staCandidate
   staProbe.io.request := bridge.io.staRequest
@@ -181,6 +185,15 @@ class StoreDispatchSTQPath(
   stq.io.commitFreeIndex := io.commitFreeIndex
   stq.io.commitFreeMaskValid := io.commitFreeMaskValid
   stq.io.commitFreeMask := io.commitFreeMask
+
+  val intentSelectSta = bridge.io.staCandidate && staProbe.io.ready
+  val intentSelectStd = !intentSelectSta && bridge.io.stdCandidate && stdProbe.io.ready
+  io.insertIntentValid := intentSelectSta || intentSelectStd
+  io.insertIntent := Mux(
+    intentSelectSta,
+    bridge.io.staRequest,
+    Mux(intentSelectStd, bridge.io.stdRequest, 0.U.asTypeOf(io.insertIntent))
+  )
 
   io.staReady := queues.io.staReady
   io.stdReady := queues.io.stdReady

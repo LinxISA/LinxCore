@@ -3392,48 +3392,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         reducedLoadReplayResolveLifecycleRetireValid,
         reducedLoadReplayResolveLifecycleRetireRow.loadLsId,
         reducedLoadReplayResolveRetireLsId))
-  val reducedMdbStoreProbe = Wire(new MDBConflictStoreProbe(
-    p.robEntries,
-    addrWidth = p.immWidth,
-    pcWidth = p.pcWidth,
-    peIdWidth = p.peIdWidth,
-    stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
-  ))
-  reducedMdbStoreProbe := 0.U.asTypeOf(reducedMdbStoreProbe)
-  reducedMdbStoreProbe.bid := ROBID.disabled(p.robEntries)
-  reducedMdbStoreProbe.gid := ROBID.disabled(p.robEntries)
-  reducedMdbStoreProbe.rid := ROBID.disabled(p.robEntries)
-  reducedMdbStoreProbe.lsId := ROBID.disabled(p.robEntries)
-  reducedMdbStoreProbe.valid := reducedLoadReplayLiqAllocEnabled && path.io.storeStqInsertAccepted
-  reducedMdbStoreProbe.addrOnly := path.io.storeStqInsert.storeType === STQStoreType.Addr
-  reducedMdbStoreProbe.isTile := !path.io.storeStqInsert.scalarIex
-  reducedMdbStoreProbe.peId := path.io.storeStqInsert.peId
-  reducedMdbStoreProbe.stid := path.io.storeStqInsert.stid
-  reducedMdbStoreProbe.tid := path.io.storeStqInsert.tid
-  reducedMdbStoreProbe.bid := path.io.storeStqInsert.bid
-  reducedMdbStoreProbe.gid := path.io.storeStqInsert.gid
-  reducedMdbStoreProbe.rid := path.io.storeStqInsert.rid
-  reducedMdbStoreProbe.lsId := path.io.storeStqInsert.lsId
-  reducedMdbStoreProbe.pc := path.io.storeStqInsert.pc
-  reducedMdbStoreProbe.addr := path.io.storeStqInsert.addr
-  reducedMdbStoreProbe.size := path.io.storeStqInsert.size.pad(7)
-
-  val reducedMdbStoreProbeReplay = Module(new MDBStoreProbeReplay(
-    p.robEntries,
-    addrWidth = p.immWidth,
-    pcWidth = p.pcWidth,
-    peIdWidth = p.peIdWidth,
-    stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
-  ))
-  reducedMdbStoreProbeReplay.io.flush := reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled
-  reducedMdbStoreProbeReplay.io.live := reducedMdbStoreProbe
-  reducedMdbStoreProbeReplay.io.replayEnable := reducedLoadReplayResolveQueue.io.count =/= 0.U
-  val reducedMdbStoreProbeConsume = WireDefault(false.B)
-  reducedMdbStoreProbeReplay.io.replayConsume := reducedMdbStoreProbeConsume
-  val reducedMdbConflictStoreProbe = reducedMdbStoreProbeReplay.io.out
-
   val reducedMdbFanoutStoreRows = Wire(Vec(
     p.robEntries,
     new MDBStoreWakeupEntry(
@@ -3465,13 +3423,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   }
 
   reducedMdbPath.io.flush := reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled
-  reducedMdbPath.io.storeProbe := reducedMdbConflictStoreProbe
-  reducedMdbPath.io.storeProbeCommit := reducedMdbConflictStoreProbe.valid
-  reducedMdbStoreProbeConsume :=
-    reducedMdbConflictStoreProbe.valid && reducedMdbPath.io.storeProbeReady
   reducedMdbPath.io.storeRows := reducedMdbFanoutStoreRows
   reducedMdbPath.io.loadRows := reducedLoadReplayLiqAllocPath.io.rows
   reducedMdbPath.io.resolvedRows := reducedLoadReplayResolveQueue.io.conflictRows
+  val reducedMdbConflictStoreProbe =
+    LinxCoreFrontendFetchRfAluTraceTopR660MdbStoreAdmissionWiring.connect(
+      p,
+      reducedLoadReplayLiqAllocEnabled,
+      reducedStoreFlush,
+      path,
+      reducedLoadReplayLiqAllocPath,
+      reducedLoadReplayResolveQueue,
+      reducedMdbPath
+    )
   reducedMdbReplayWakeValid := reducedMdbPath.io.storeWakeup.valid
   reducedMdbReplayWake.source := LoadReplayWakeSource.StoreUnit
   reducedMdbReplayWake.storeId := reducedMdbPath.io.storeWakeup.bid
@@ -7016,6 +6980,81 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR660MdbStoreAdmissionWiring {
+  def connect(
+      p: InterfaceParams,
+      enabled: Bool,
+      flush: Bool,
+      path: DecodeRenameROBPath,
+      liqPath: ReducedLoadReplayLiqAllocPath,
+      resolveQueue: LoadResolveQueue,
+      mdb: ScalarLSUMDBPath): MDBConflictStoreProbe = {
+    val live = Wire(new MDBConflictStoreProbe(
+      p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth
+    ))
+    live := 0.U.asTypeOf(live)
+    live.bid := ROBID.disabled(p.robEntries)
+    live.gid := ROBID.disabled(p.robEntries)
+    live.rid := ROBID.disabled(p.robEntries)
+    live.lsId := ROBID.disabled(p.robEntries)
+    val intent = path.io.storeStqInsertIntent
+    val carriesAddress = intent.storeType =/= STQStoreType.Data
+    live.valid := enabled && path.io.storeStqInsertIntentValid && carriesAddress
+    live.addrOnly := intent.storeType === STQStoreType.Addr
+    live.isTile := !intent.scalarIex
+    live.peId := intent.peId
+    live.stid := intent.stid
+    live.tid := intent.tid
+    live.bid := intent.bid
+    live.gid := intent.gid
+    live.rid := intent.rid
+    live.lsId := intent.lsId
+    live.pc := intent.pc
+    live.addr := intent.addr
+    live.size := intent.size.pad(7)
+
+    val replay = Module(new MDBStoreProbeReplay(
+      p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth
+    ))
+    replay.io.flush := flush || !enabled
+    replay.io.live := live
+    val acceptedCarriesAddress =
+      path.io.storeStqInsertAccepted &&
+        (path.io.storeStqInsert.storeType =/= STQStoreType.Data)
+    replay.io.liveCommit := acceptedCarriesAddress
+    replay.io.retainForReplay := VecInit(
+      liqPath.io.rows.map(row => row.valid && (row.status =/= LoadInflightStatus.Resolved))
+    ).asUInt.orR
+    replay.io.replayEnable := resolveQueue.io.count =/= 0.U
+
+    mdb.io.storeProbe := replay.io.out
+    mdb.io.storeProbeCommit :=
+      (replay.io.liveSelected && acceptedCarriesAddress) ||
+        replay.io.replaySelected
+    val consume = mdb.io.storeProbeCommit && mdb.io.storeProbeReady
+    replay.io.replayConsume := consume
+    path.io.storeAddressInsertPermit :=
+      !enabled || (replay.io.liveReady && mdb.io.storeProbeReady)
+
+    assert(
+      !enabled || !acceptedCarriesAddress ||
+        (replay.io.liveSelected && consume),
+      "accepted address-bearing store must enter canonical MDB atomically"
+    )
+    replay.io.out
   }
 }
 

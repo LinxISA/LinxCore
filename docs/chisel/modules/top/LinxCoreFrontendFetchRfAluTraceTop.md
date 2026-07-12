@@ -4046,7 +4046,7 @@ load after publication, for example by retaining or replaying the store probe
 until the resolved-load candidate exists, before claiming MDB fanout record
 publication.
 R497 adds that reduced timing owner with `MDBStoreProbeReplay`. The reduced
-top retains the latest live store probe and replays it once when
+top originally retained the latest live store probe and replayed it once when
 `LoadResolveQueue` is nonempty, leaving the existing `MDBConflictDetect`
 predicate and `MDBQueueFanout` learning path unchanged. The enabled early-STA
 fixture at `generated/r497-replay-liq-mdb-store-replay-gate` passes with 3
@@ -4058,6 +4058,17 @@ normalized QEMU/DUT rows and zero mismatches, and the sideband report records
 `mdb_fanout_ssit_nonempty=1`. MDB lookup wait-plan counters remain zero, so
 the next packet must prove the learned MDB record can drive a later lookup hit
 and wait-store mutation before claiming load replay prediction.
+
+R660 replaces the latest-value timing register with a finite FIFO and moves
+canonical MDB readiness into address-bearing STQ admission. A pre-permit store
+intent breaks the ready/payload combinational cycle; actual STQ acceptance is
+the separate commit pulse. FIFO credit and canonical record/wait/recovery
+credit must both be available before an address store accepts, while data-only
+STD fragments bypass the address gate. Consecutive accepted probes cannot
+overwrite one another and replay in FIFO order under downstream backpressure.
+MDB commit qualification uses the actual accepted request type rather than the
+pre-permit intent, so a data-only STD bypass cannot falsely commit a stalled
+STA probe.
 R498 moves MDB lookup publication to the source-return query boundary and
 routes any future planner request through the row-mutation source mux. The
 `generated/r498-replay-liq-mdb-lookup-query-gate` report compares three rows

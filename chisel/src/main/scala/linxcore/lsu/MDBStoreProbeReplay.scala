@@ -1,6 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
+import chisel3.util.{log2Ceil, Queue}
 
 class MDBStoreProbeReplayIO(
     val entries: Int,
@@ -13,9 +14,12 @@ class MDBStoreProbeReplayIO(
     extends Bundle {
   val flush = Input(Bool())
   val live = Input(new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
+  val liveCommit = Input(Bool())
+  val retainForReplay = Input(Bool())
   val replayEnable = Input(Bool())
   val replayConsume = Input(Bool())
 
+  val liveReady = Output(Bool())
   val out = Output(new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
   val liveSelected = Output(Bool())
   val replaySelected = Output(Bool())
@@ -23,6 +27,7 @@ class MDBStoreProbeReplayIO(
   val retainedReplayed = Output(Bool())
   val retainedNeedsRetry = Output(Bool())
   val replayAccepted = Output(Bool())
+  val retainedCount = Output(UInt(log2Ceil(entries + 1).W))
 }
 
 class MDBStoreProbeReplay(
@@ -47,37 +52,29 @@ class MDBStoreProbeReplay(
     probe
   }
 
-  val retained = RegInit(0.U.asTypeOf(new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)))
-  val retainedValid = RegInit(false.B)
-  val retainedReplayed = RegInit(false.B)
-  val retainedNeedsRetry = RegInit(false.B)
+  val retained = withReset(reset.asBool || io.flush) {
+    Module(new Queue(
+      new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth),
+      entries
+    ))
+  }
+  val retainLive = io.live.valid && io.liveCommit && io.retainForReplay && !io.replayEnable
+  retained.io.enq.valid := retainLive
+  retained.io.enq.bits := io.live
 
-  val replayEligible =
-    retainedValid && !retainedReplayed && (retainedNeedsRetry || io.replayEnable)
+  val replayEligible = retained.io.deq.valid && io.replayEnable
   val selectLive = io.live.valid
   val selectReplay = !selectLive && replayEligible
 
-  io.out := Mux(selectLive, io.live, Mux(selectReplay, retained, zeroProbe))
+  io.out := Mux(selectLive, io.live, Mux(selectReplay, retained.io.deq.bits, zeroProbe))
   io.out.valid := selectLive || selectReplay
+  io.liveReady := !io.retainForReplay || io.replayEnable || retained.io.enq.ready
   io.liveSelected := selectLive
   io.replaySelected := selectReplay
-  io.retainedValid := retainedValid
-  io.retainedReplayed := retainedReplayed
-  io.retainedNeedsRetry := retainedNeedsRetry
+  io.retainedValid := retained.io.deq.valid
+  io.retainedReplayed := retained.io.deq.fire
+  io.retainedNeedsRetry := retained.io.deq.valid && !io.replayEnable
   io.replayAccepted := selectReplay && io.replayConsume
-
-  when(io.flush) {
-    retained := 0.U.asTypeOf(retained)
-    retainedValid := false.B
-    retainedReplayed := false.B
-    retainedNeedsRetry := false.B
-  }.elsewhen(io.live.valid) {
-    retained := io.live
-    retainedValid := true.B
-    retainedReplayed := io.replayConsume && io.replayEnable
-    retainedNeedsRetry := !io.replayConsume
-  }.elsewhen(io.replayAccepted) {
-    retainedNeedsRetry := false.B
-    retainedReplayed := !retainedNeedsRetry || io.replayEnable
-  }
+  io.retainedCount := retained.io.count
+  retained.io.deq.ready := io.replayAccepted
 }

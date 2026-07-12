@@ -102,6 +102,7 @@ class LinxCoreFrontendAluTraceTop(
   path.io.validMask := f4.io.validMask
   path.io.flushValid := io.frontendFlushValid
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
+  path.io.storeAddressInsertPermit := true.B
   path.io.renamedOutReady := execute.io.inReady
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))

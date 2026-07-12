@@ -5,143 +5,120 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object MDBStoreProbeReplayReference {
   final case class Probe(valid: Boolean, pc: BigInt)
-  final case class State(
-      retained: Option[Probe] = None,
-      replayed: Boolean = false,
-      needsRetry: Boolean = false)
-  final case class Step(out: Option[Probe], liveSelected: Boolean, replaySelected: Boolean, state: State)
+  final case class State(retained: Vector[Probe] = Vector.empty)
+  final case class Step(
+      out: Option[Probe],
+      liveReady: Boolean,
+      liveSelected: Boolean,
+      replaySelected: Boolean,
+      replayAccepted: Boolean,
+      state: State)
 
-  def step(state: State, live: Probe, replayEnable: Boolean, replayConsume: Boolean, flush: Boolean = false): Step = {
+  def step(
+      state: State,
+      live: Probe,
+      liveCommit: Boolean,
+      retainForReplay: Boolean,
+      replayEnable: Boolean,
+      replayConsume: Boolean,
+      depth: Int,
+      flush: Boolean = false): Step = {
     if (flush) {
-      return Step(None, liveSelected = false, replaySelected = false, State())
+      return Step(None, liveReady = true, liveSelected = false, replaySelected = false,
+        replayAccepted = false, State())
     }
 
-    val replayEligible = state.retained.nonEmpty && !state.replayed && (state.needsRetry || replayEnable)
+    val liveReady = !retainForReplay || replayEnable || state.retained.size < depth
     val liveSelected = live.valid
-    val replaySelected = !liveSelected && replayEligible
-    val out =
-      if (liveSelected) {
-        Some(live)
-      } else if (replaySelected) {
-        state.retained
-      } else {
-        None
-      }
+    val replaySelected = !liveSelected && replayEnable && state.retained.nonEmpty
+    val replayAccepted = replaySelected && replayConsume
+    val out = if (liveSelected) Some(live) else if (replaySelected) state.retained.headOption else None
+    val afterReplay = if (replayAccepted) state.retained.tail else state.retained
+    val retainLive = live.valid && liveCommit && retainForReplay && !replayEnable && liveReady
+    val next = if (retainLive) afterReplay :+ live else afterReplay
 
-    val next =
-      if (live.valid) {
-        State(
-          retained = Some(live),
-          replayed = replayConsume && replayEnable,
-          needsRetry = !replayConsume)
-      } else if (replaySelected && replayConsume) {
-        state.copy(replayed = !state.needsRetry || replayEnable, needsRetry = false)
-      } else {
-        state
-      }
-
-    Step(out, liveSelected, replaySelected, next)
+    Step(out, liveReady, liveSelected, replaySelected, replayAccepted, State(next))
   }
 }
 
 class MDBStoreProbeReplaySpec extends AnyFunSuite {
   import MDBStoreProbeReplayReference._
 
-  test("retains a live store probe and replays it once when ResolveQ becomes visible") {
-    val s0 = State()
-    val live = Probe(valid = true, pc = 0x2000)
-    val captured = step(s0, live = live, replayEnable = false, replayConsume = true)
-    assert(captured.liveSelected)
-    assert(!captured.replaySelected)
-    assert(captured.out.contains(live))
-    assert(captured.state.retained.contains(live))
-    assert(!captured.state.replayed)
+  test("retains consecutive accepted live probes without overwrite") {
+    val first = Probe(valid = true, pc = 0x2000)
+    val second = Probe(valid = true, pc = 0x2010)
+    val s0 = step(State(), first, liveCommit = true, retainForReplay = true,
+      replayEnable = false, replayConsume = true, depth = 2)
+    val s1 = step(s0.state, second, liveCommit = true, retainForReplay = true,
+      replayEnable = false, replayConsume = true, depth = 2)
 
-    val replayed = step(captured.state, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true)
-    assert(!replayed.liveSelected)
-    assert(replayed.replaySelected)
-    assert(replayed.out.contains(live))
-    assert(replayed.state.replayed)
-
-    val quiet = step(replayed.state, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true)
-    assert(!quiet.liveSelected)
-    assert(!quiet.replaySelected)
-    assert(quiet.out.isEmpty)
+    assert(s0.liveReady && s0.liveSelected)
+    assert(s1.liveReady && s1.liveSelected)
+    assert(s1.state.retained == Vector(first, second))
   }
 
-  test("an accepted live probe consumes delayed replay when ResolveQ is already visible") {
-    val old = State(retained = Some(Probe(valid = true, pc = 0x2000)), replayed = false)
-    val live = Probe(valid = true, pc = 0x3000)
-    val result = step(old, live = live, replayEnable = true, replayConsume = true)
+  test("full replay queue backpressures a third live probe and drains in order") {
+    val first = Probe(valid = true, pc = 0x2000)
+    val second = Probe(valid = true, pc = 0x2010)
+    val third = Probe(valid = true, pc = 0x2020)
+    val full = State(Vector(first, second))
+    val blocked = step(full, third, liveCommit = false, retainForReplay = true,
+      replayEnable = false, replayConsume = false, depth = 2)
+    val held = step(blocked.state, Probe(valid = false, pc = 0), liveCommit = false,
+      retainForReplay = false, replayEnable = true, replayConsume = false, depth = 2)
+    val firstAccepted = step(held.state, Probe(valid = false, pc = 0), liveCommit = false,
+      retainForReplay = false, replayEnable = true, replayConsume = true, depth = 2)
+    val secondAccepted = step(firstAccepted.state, Probe(valid = false, pc = 0), liveCommit = false,
+      retainForReplay = false, replayEnable = true, replayConsume = true, depth = 2)
 
-    assert(result.liveSelected)
+    assert(!blocked.liveReady)
+    assert(blocked.state == full)
+    assert(held.replaySelected && !held.replayAccepted && held.out.contains(first))
+    assert(firstAccepted.replayAccepted && firstAccepted.out.contains(first))
+    assert(secondAccepted.replayAccepted && secondAccepted.out.contains(second))
+    assert(secondAccepted.state.retained.isEmpty)
+  }
+
+  test("visible ResolveQ consumes the live scan without retaining a duplicate") {
+    val live = Probe(valid = true, pc = 0x3000)
+    val result = step(State(), live, liveCommit = true, retainForReplay = true,
+      replayEnable = true, replayConsume = true, depth = 2)
+
+    assert(result.liveReady && result.liveSelected)
     assert(!result.replaySelected)
     assert(result.out.contains(live))
-    assert(result.state.retained.contains(live))
-    assert(result.state.replayed)
-
-    val quiet = step(
-      result.state,
-      live = Probe(valid = false, pc = 0),
-      replayEnable = true,
-      replayConsume = true
-    )
-    assert(!quiet.replaySelected)
+    assert(result.state.retained.isEmpty)
   }
 
-  test("a replay remains pending until its downstream transaction is accepted") {
-    val old = State(retained = Some(Probe(valid = true, pc = 0x2000)), replayed = false)
-    val blocked = step(old, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = false)
-    assert(blocked.replaySelected)
-    assert(!blocked.state.replayed)
-
-    val accepted = step(blocked.state, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true)
-    assert(accepted.replaySelected)
-    assert(accepted.state.replayed)
-  }
-
-  test("an unaccepted live probe retries without waiting for ResolveQ visibility") {
+  test("uncommitted live intent is not retained") {
     val live = Probe(valid = true, pc = 0x4000)
-    val blocked = step(State(), live, replayEnable = false, replayConsume = false)
-    assert(blocked.state.needsRetry)
+    val result = step(State(), live, liveCommit = false, retainForReplay = true,
+      replayEnable = false, replayConsume = false, depth = 2)
 
-    val retried = step(
-      blocked.state,
-      live = Probe(valid = false, pc = 0),
-      replayEnable = false,
-      replayConsume = true
-    )
-    assert(retried.replaySelected)
-    assert(!retried.state.needsRetry)
-    assert(!retried.state.replayed)
-
-    val delayed = step(
-      retried.state,
-      live = Probe(valid = false, pc = 0),
-      replayEnable = true,
-      replayConsume = true
-    )
-    assert(delayed.replaySelected)
-    assert(delayed.state.replayed)
+    assert(result.liveReady && result.liveSelected)
+    assert(result.state.retained.isEmpty)
   }
 
-  test("flush clears retained replay state") {
-    val old = State(retained = Some(Probe(valid = true, pc = 0x2000)), replayed = false)
-    val result = step(old, live = Probe(valid = false, pc = 0), replayEnable = true, replayConsume = true, flush = true)
+  test("flush clears every retained replay probe") {
+    val old = State(Vector(Probe(valid = true, pc = 0x2000), Probe(valid = true, pc = 0x2010)))
+    val result = step(old, Probe(valid = false, pc = 0), liveCommit = false,
+      retainForReplay = false, replayEnable = true, replayConsume = true, depth = 2, flush = true)
 
     assert(result.out.isEmpty)
     assert(result.state.retained.isEmpty)
-    assert(!result.state.replayed)
   }
 
-  test("Chisel MDBStoreProbeReplay elaborates with live and replay diagnostics") {
+  test("Chisel MDBStoreProbeReplay elaborates as a finite lossless replay queue") {
     val sv = ChiselStage.emitSystemVerilog(new MDBStoreProbeReplay(entries = 8))
 
     assert(sv.contains("module MDBStoreProbeReplay"))
+    assert(sv.contains("io_liveCommit"))
+    assert(sv.contains("io_retainForReplay"))
+    assert(sv.contains("io_liveReady"))
     assert(sv.contains("io_liveSelected"))
     assert(sv.contains("io_replaySelected"))
     assert(sv.contains("io_retainedValid"))
-    assert(sv.contains("io_retainedNeedsRetry"))
+    assert(sv.contains("io_retainedCount"))
     assert(sv.contains("io_replayAccepted"))
   }
 }
