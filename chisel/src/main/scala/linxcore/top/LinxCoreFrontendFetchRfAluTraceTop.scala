@@ -6,7 +6,7 @@ import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarWritebackArbiter, ScalarGPRFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
@@ -2209,6 +2209,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     coreParams,
     physRegWidth = log2Ceil(physRegs)
   )
+  require(physRegs == (1 << p.physRegWidth),
+    "physical GPR capacity must match the complete physical-tag namespace")
   private val traceParams = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
   val io = IO(new LinxCoreFrontendFetchRfAluTraceTopIO(
     p = p,
@@ -2247,7 +2249,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     ptrWidth = log2Ceil(p.robEntries),
     traceParams = traceParams
   ))
-  val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
+  val rf = Module(new ScalarGPRFile(
+    archRegs = archRegs,
+    physRegs = physRegs,
+    dataWidth = p.immWidth,
+    readPorts = 6,
+    writePorts = 1
+  ))
   val rfWritebackArbiter = Module(new ReducedScalarWritebackArbiter(
     dataWidth = p.immWidth,
     physRegWidth = p.physRegWidth
@@ -3603,11 +3611,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   issue.io.flushValid := backendPipeFlush
   LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(issue, execute)
   issue.io.readyMask := rf.io.readyMask
+  issue.io.pWakeupValid := rf.io.write(0).fire
+  issue.io.pWakeupTag := rf.io.write(0).tag
   issue.io.localTReadyMask := localTReady.asUInt
   issue.io.localUReadyMask := localUReady.asUInt
 
-  rf.io.initValid := io.rfInitValid
-  rf.io.initArchTag := io.rfInitArchTag
+  val rfInitTagInRange = io.rfInitArchTag < archRegs.U
+  rf.io.initValid := io.rfInitValid && rfInitTagInRange
+  rf.io.initTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
   for (idx <- 0 until 3) {
     val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
@@ -3641,15 +3652,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val staLocalReadData = Mux(staReadIsT, localTData(staRel), localUData(staRel))
 
     rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
-    rf.io.readTags(idx) := issue.io.readTags(idx)
-    rf.io.auxReadValid(idx) := staReadIsRf
-    rf.io.auxReadTags(idx) := staSrc.physTag
+    rf.io.readTag(idx) := issue.io.readTags(idx)
+    rf.io.readValid(idx + 3) := staReadIsRf
+    rf.io.readTag(idx + 3) := staSrc.physTag
     issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
     issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
     storeStaAddressExecBridge.io.srcReadReady(idx) :=
-      Mux(staReadIsLocal, staLocalReadReady, Mux(staReadIsScalarSp, true.B, rf.io.auxReadReady(idx)))
+      Mux(staReadIsLocal, staLocalReadReady, Mux(staReadIsScalarSp, true.B, rf.io.readReady(idx + 3)))
     storeStaAddressExecBridge.io.srcReadData(idx) :=
-      Mux(staReadIsLocal, staLocalReadData, Mux(staReadIsScalarSp, scalarSpValue, rf.io.auxReadData(idx)))
+      Mux(staReadIsLocal, staLocalReadData, Mux(staReadIsScalarSp, scalarSpValue, rf.io.readData(idx + 3)))
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
@@ -4502,9 +4513,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
-  rf.io.writeValid := rfWritebackArbiter.io.writeValid
-  rf.io.writeTag := rfWritebackArbiter.io.writeTag
-  rf.io.writeData := rfWritebackArbiter.io.writeData
+  rf.io.write(0).requestValid := rfWritebackArbiter.io.writeValid
+  rf.io.write(0).commit := rfWritebackArbiter.io.writeValid
+  rf.io.write(0).tag := rfWritebackArbiter.io.writeTag
+  rf.io.write(0).data := rfWritebackArbiter.io.writeData
   val scalarSpWriteback =
     execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
   when(io.rfInitValid && io.rfInitArchTag === 1.U) {
@@ -6216,18 +6228,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.completeAccepted := path.io.completeAccepted
   io.completeIgnored := path.io.completeIgnored
 
-  io.rfReadReadyMask := rf.io.readReady.asUInt
-  io.rfAllReadReady := rf.io.allReadReady
+  io.rfReadReadyMask := VecInit(rf.io.readReady.take(3)).asUInt
+  io.rfAllReadReady := rf.io.readReady.take(3).reduce(_ && _)
   io.rfReadyMask := rf.io.readyMask
-  io.rfWriteValid := rf.io.writeValid
-  io.rfWriteTag := rf.io.writeTag
-  io.rfWriteData := rf.io.writeData
+  io.rfWriteValid := rf.io.write(0).fire
+  io.rfWriteTag := rfWritebackArbiter.io.writeTag
+  io.rfWriteData := rfWritebackArbiter.io.writeData
   io.executeCompleteSrcPhysValidMask := execute.io.completeSrcPhysValid.asUInt
   io.executeCompleteSrcPhysTag := execute.io.completeSrcPhysTag
   io.executeCompletePc := execute.io.completeRow.pc
   io.executeCompleteInsn := execute.io.completeRow.insn
   io.executeCompleteWbReg := execute.io.completeRow.wb.reg
-  io.rfStateError := rf.io.stateError
+  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
   io.issueQueuePickFire := issue.io.pickFire
   io.issueQueueIssueFire := issue.io.issueFire

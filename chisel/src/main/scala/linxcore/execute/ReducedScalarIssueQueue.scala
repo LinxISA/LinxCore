@@ -28,6 +28,8 @@ class ReducedScalarIssueQueueIO(
   val secondaryReleaseStid = Input(UInt(p.threadIdWidth.W))
 
   val readyMask = Input(UInt((1 << p.physRegWidth).W))
+  val pWakeupValid = Input(Bool())
+  val pWakeupTag = Input(UInt(p.physRegWidth.W))
   val localTReadyMask = Input(UInt(4.W))
   val localUReadyMask = Input(UInt(4.W))
   val readValid = Output(Vec(3, Bool()))
@@ -65,6 +67,8 @@ class ReducedScalarIssueQueueIO(
   val headSrcRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
   val sourceReadyMask = Output(UInt(3.W))
   val allSourcesReady = Output(Bool())
+  val pWakeupMatched = Output(Bool())
+  val pWakeupMatchCount = Output(UInt(log2Ceil(depth * 3 + 1).W))
   val selectedValid = Output(Bool())
   val selectedIndex = Output(UInt(indexWidth.W))
   val selectedReadReady = Output(Bool())
@@ -114,8 +118,22 @@ class ReducedScalarIssueQueue(
     val src = uop.src(lane)
     val isLocal = src.operandClass === OperandClass.T || src.operandClass === OperandClass.U
     val isScalarSp = src.operandClass === OperandClass.P && src.relTag === 1.U
-    !src.valid || Mux(isLocal, localSourceReady(src), Mux(isScalarSp, true.B, io.readyMask(src.physTag)))
+    val pWakeup = io.pWakeupValid && (src.operandClass === OperandClass.P) &&
+      (src.physTag === io.pWakeupTag)
+    !src.valid || Mux(
+      isLocal,
+      localSourceReady(src),
+      Mux(isScalarSp, true.B, io.readyMask(src.physTag) || pWakeup)
+    )
   }
+
+  val pWakeupMatches = Wire(Vec(depth, Vec(3, Bool())))
+  for (entryIdx <- 0 until depth; lane <- 0 until 3) {
+    val src = entries(entryIdx).src(lane)
+    pWakeupMatches(entryIdx)(lane) := io.pWakeupValid && valid(entryIdx) && !issued(entryIdx) &&
+      src.valid && (src.operandClass === OperandClass.P) && (src.physTag === io.pWakeupTag)
+  }
+  val pWakeupMatchCount = PopCount(pWakeupMatches.asUInt)
 
   val rawReleaseMatches = Wire(Vec(depth, Bool()))
   val primaryReleaseMatches = Wire(Vec(depth, Bool()))
@@ -213,6 +231,8 @@ class ReducedScalarIssueQueue(
   }
   io.sourceReadyMask := headSourceReady.asUInt
   io.allSourcesReady := headAllSourcesReady
+  io.pWakeupMatched := pWakeupMatchCount =/= 0.U
+  io.pWakeupMatchCount := pWakeupMatchCount
   io.selectedValid := pick.io.selectedValid
   io.selectedIndex := pick.io.selectedIndex
   io.selectedReadReady := pick.io.selectedReadReady

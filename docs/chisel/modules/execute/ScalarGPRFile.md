@@ -3,8 +3,8 @@
 ## Source Mapping
 
 - Chisel: `chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala`
-- Compatibility wrapper: `chisel/src/main/scala/linxcore/execute/ReducedScalarRegisterFile.scala`
 - Tests: `chisel/src/test/scala/linxcore/execute/ScalarGPRFileSpec.scala`
+- Generated issue proof: `tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh`
 - Model: `model/LinxCoreModel/model/iex/iex_rf.cpp`, `RegFile::recieveWFReqFromRT`;
   `model/LinxCoreModel/model/iex/iex_iq.cpp`, `IssueQueue::WakeupIQTag`;
   `model/LinxCoreModel/configs/core.toml`, `ggpr_count`
@@ -49,8 +49,10 @@ ports increase bandwidth without changing physical identity width.
 
 Reads observe current registered state. Clear and committed writes update on
 the rising edge. A committed write stores data and sets readiness together, so
-an issue queue observing `readyMask` can capture the wakeup for its next pick
-cycle. There is no same-cycle pick effect.
+the same `write.fire` event also drives the live issue queue's P-wakeup input.
+Matching valid, non-issued P sources capture readiness on that edge and may be
+picked in the following cycle. Request without commit drives no wakeup. There
+is no same-cycle pick effect.
 
 Clear/write collision and duplicate committed writes are errors rather than
 implicit priority rules. Reusing a physical tag before its prior producer has
@@ -66,9 +68,16 @@ condition-code, exception-level, or exclusive-monitor behavior is present.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarGPRFileSpec`
-- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarRegisterFileSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueueSpec`
+- `bash tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh`
 - `bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh`
 
 The generated probe proves request hold without mutation, same-tag external
 priority, independent dual-port writes, scalar data retention, P-tag readiness,
 and exact ROB completion from one W2 acceptance.
+
+The generated issue probe proves that an uncommitted request leaves a resident
+dependent row blocked, while committed writeback updates data, P readiness,
+and exactly matching IQ source next state together. The row becomes
+pick-visible on the next cycle and reads the committed value through the
+canonical GPR owner.

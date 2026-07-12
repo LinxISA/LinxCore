@@ -9,7 +9,7 @@
 - Child owners:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DecodeWindow.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarRegisterFile.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
@@ -101,7 +101,7 @@ The wrapper owns no state directly. State lives in child owners:
 - `F4DecodeWindow`: combinational frontend-window slicing.
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, BROB/ROB,
   commit, and deallocation.
-- `ReducedScalarRegisterFile`: reduced physical scalar GPR data and ready bits.
+- `ScalarGPRFile`: canonical physical scalar GPR data and P-ready bits.
 - `ReducedScalarIssueQueue`: reduced FIFO residency, source-ready state, issue
   release, and compaction owner.
 - `ReducedScalarIssuePick`: P1 selected-row lock, I1 RF-read/cancel, I2
@@ -115,7 +115,7 @@ The wrapper owns no state directly. State lives in child owners:
 boundary:
 `path.io.renamedOutReady` is driven by queue capacity, while the selected
 oldest-ready issue row is chosen by `ReducedScalarIssuePick`. The picker locks
-that row in P1, drives `ReducedScalarRegisterFile.readValid/readTags` from I1,
+that row in P1, drives `ScalarGPRFile.readValid/readTag` from I1,
 captures `readData` into I2, cancels the queue lock if I1 RF readiness is not
 confirmed, and emits execute valid from I2.
 The RF `readyMask` feeds the queue's registered resident source-ready bits.
@@ -127,8 +127,10 @@ When a row enqueues with a scalar destination, the top clears the destination
 physical tag readiness in the RF through `issue.enqueueDst*`. When any resident
 non-issued row has all valid sources ready and execute is ready, the oldest
 ready row's `issue.issue*` drives `ReducedScalarAluExecute`. When execute completes,
-`completeDstPhysValid/Tag/Data` write the destination physical tag and mark it
-ready for later queue-head rows. Independently, the ALU W2
+`completeDstPhysValid/Tag/Data` commit the destination physical tag and mark it
+ready. The same `write.fire` event broadcasts the P tag into the issue queue,
+so matching resident sources update with the ready table and become
+pick-visible on the next cycle. Independently, the ALU W2
 `releaseValid/Bid/Rid/Stid` payload returns to the issue queue so the issued
 entry can be removed and younger FIFO rows can become the head.
 
@@ -151,7 +153,7 @@ The RF-backed top mirrors this reduced ordering:
 1. preload identity physical tags for architectural fixture inputs;
 2. decode/rename maps sources and allocates a physical destination;
 3. the renamed row enters a reduced issue queue;
-4. the issue queue samples the RF ready mask into resident source-ready bits;
+4. the issue queue samples the RF ready mask and committed P-wakeup events into resident source-ready bits;
 5. the issue-pick owner locks the selected row in P1;
 6. I1 reads RF data for the selected physical source tags and cancels only the
    in-flight lock if readiness is not confirmed;
@@ -204,8 +206,9 @@ regression for the temporary operand fixture top.
 
 ## Verification
 
-- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarRegisterFile`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarGPRFile`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueue`
+- `bash tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`

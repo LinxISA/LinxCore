@@ -72,7 +72,7 @@ development is:
 | Scalar rename and local T/U | `model/bctrl/spe/GPRRename.*`, `model/bctrl/spe/SPERename.*`, `model/bctrl/LocalRegMgr.*` | `rename/GPRRenameCheckpoint.scala`, `rename/ScalarTURenameBridge.scala`, `rename/TULink*.scala` |
 | ROB commit/dealloc/block last | `model/bctrl/spe/SPEROB.cpp`, `model/pe/PECommon/PROBCommon.*`, `model/interface/CommitInfo.h` | `rob/ROBEntryBank.scala`, `commit/CommitTrace.scala`, `backend/DecodeRenameROBPath.scala` |
 | Frontend F0-F5/F4 bundles | `model/pe/ifu/iside/pe_ifu.cpp`, `model/ModelCommon/bus/FetchReqBus.h`, `model/pe/PECommon/DecodeBundle.h`, `isa/ISACommon/DecodeUtiles.h` | `frontend/FrontendFetchPacketSource.scala`, `frontend/F4DecodeWindow.scala`, `frontend/F4DenseSlotQueue.scala` |
-| Scalar issue and ALU | `model/iex/iex_iq.cpp`, `model/iex/iex_dispatch.cpp`, `model/iex/iex_rf.cpp`, `model/iex/pipe/iex_pipe.h`, `model/iex/pipe/alu_pipe.cpp` | `execute/ReducedScalarIssueQueue.scala`, `execute/ReducedScalarIssuePick.scala`, `execute/ReducedScalarRegisterFile.scala`, `execute/ReducedScalarAluExecute.scala` |
+| Scalar issue and ALU | `model/iex/iex_iq.cpp`, `model/iex/iex_dispatch.cpp`, `model/iex/iex_rf.cpp`, `model/iex/pipe/iex_pipe.h`, `model/iex/pipe/alu_pipe.cpp` | `execute/ReducedScalarIssueQueue.scala`, `execute/ReducedScalarIssuePick.scala`, `execute/ScalarGPRFile.scala`, `execute/ReducedScalarAluExecute.scala` |
 | LSU/STQ/SCB/MDB/LIQ | `model/lsu/**`, `model/ModelCommon/LSUUtils.*` | `lsu/*.scala` |
 | Recovery and flush | `model/core/FlushControl.*`, `model/ModelCommon/bus/FlushBus.h`, `model/bctrl/BROB.cpp`, `model/bctrl/spe/SPEROB.cpp` | `recovery/*.scala`, `rob/ROBFlushPrune.scala`, `rename/TULinkRecoveryCleanupPath.scala`, `lsu/STQFlushPrune.scala` |
 

@@ -6,6 +6,7 @@
 - Child picker: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/execute/ReducedScalarIssueQueueSpec.scala`
 - Parent top: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala`
+- Generated proof: `rtl/LinxCore/tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/iex/iex_iq.cpp`
   - `model/LinxCoreModel/model/iex/iex_iq.h`
@@ -48,6 +49,12 @@ R88 turns that child into a reduced P1/I1/I2 issue owner. The queue now locks
 the selected row at P1 `pickFire`, clears the lock on I1 `cancelFire`, and
 keeps the row resident until the existing ALU release path removes it.
 
+The canonical P-wakeup input closes the model `WakeupIQTag` timing contract.
+`ScalarGPRFile.write.fire` updates the global ready table and broadcasts the
+same physical P tag to resident IQ rows. Matching source next state updates on
+that edge and is pick-visible in the following cycle. A write request without
+commit cannot wake the queue. T/U readiness remains separate and scoped.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -63,6 +70,7 @@ keeps the row resident until the existing ALU release path removes it.
 | input | `secondaryReleaseValid` | `Bool` | valid | Independent second release lane, used when a live E1 load transfers ownership to LIQ while another row reaches W2. |
 | input | `secondaryReleaseBid`, `secondaryReleaseRid`, `secondaryReleaseStid` | mixed | with `secondaryReleaseValid` | Issued-row identity to remove on the independent second release lane. |
 | input | `readyMask` | `UInt(physRegCount.W)` | combinational | Reduced scalar RF ready-table snapshot used to initialize and update resident source-ready bits. |
+| input | `pWakeupValid`, `pWakeupTag` | valid/tag | committed write fire | Global committed P wakeup from the canonical GPR owner. |
 | input | `localTReadyMask`, `localUReadyMask` | `UInt(4.W)` | combinational | Reduced local T/U queue readiness snapshots for source aliases in the live CoreMark prefix. |
 | output | `readValid` | `Vec(3, Bool)` | combinational | Valid source lanes for the selected ready row. |
 | output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | combinational | Physical source tags for the selected ready row. |
@@ -89,6 +97,7 @@ keeps the row resident until the existing ALU release path removes it.
 | output | `headPc`, `headOpcode`, `headSrcValidMask`, `headSrcOperandClass`, `headSrcPhysTag`, `headSrcRelTag` | mixed | diagnostic | Head-row payload and source-lane shape used by live CoreMark stall diagnostics. |
 | output | `sourceReadyMask` | `UInt(3.W)` | diagnostic | Registered readiness bits for the current head, with invalid lanes treated as ready. |
 | output | `allSourcesReady` | `Bool` | diagnostic | Every valid source lane for the head is ready; invalid lanes are ready by definition. |
+| output | `pWakeupMatched`, `pWakeupMatchCount` | mixed | diagnostic | Number of valid, non-issued P sources matched by the committed broadcast. |
 | output | `selectedValid` | `Bool` | diagnostic | An oldest-ready non-issued row was found for issue. |
 | output | `selectedIndex` | `UInt(log2Ceil(depth).W)` | with `selectedValid` | Queue slot selected for RF read and execute issue. |
 | output | `selectedReadReady` | `Bool` | diagnostic | Selected row's valid RF read lanes are all ready. |
@@ -132,19 +141,17 @@ chooses the oldest selectable row by queue slot, locks that row at P1
 readiness is not confirmed, and presents a read-confirmed row to execute from
 I2.
 
-`readyMask` snapshots the reduced scalar RF ready table. On enqueue, each
+`readyMask` snapshots the canonical scalar RF ready table. On enqueue, each
 scalar P source lane captures `!src.valid || readyMask(src.physTag)`. T and U
 source lanes instead sample `localTReadyMask(src.relTag(1,0))` or
 `localUReadyMask(src.relTag(1,0))`. While resident, each lane ORs in the same
-class-specific readiness predicate on the next clock edge. This is the reduced
-equivalent of model issue-queue wakeup: a ready-table bit observed in cycle N
-cannot feed selection in cycle N, but it can make the dependent row selectable
-after the issue queue samples that predicate. In this reduced top, an ALU
-writeback that first updates the RF ready table or local T/U overlay can
-therefore include the register/local-value boundary before the issue queue
-observes it. The RF `readReady` response remains wired for observability and
-read-port contract continuity for scalar P sources, not as the direct issue
-predicate.
+class-specific readiness predicate on the next clock edge. In parallel, a
+committed `pWakeupValid` compares `pWakeupTag` against every valid, non-issued
+P source. This explicit next-state path avoids an extra ready-mask polling edge
+while preserving the rule that wakeup at N cannot affect selection until N+1.
+T/U operands never match the global P broadcast. The RF `readReady` response
+remains wired for observability and read-port contract continuity, not as the
+direct issue predicate.
 
 R141 adds one top-specific scalar exception: architectural `x1/sp` sources are
 considered ready by the queue because `LinxCoreFrontendFetchRfAluTraceTop`
@@ -195,7 +202,9 @@ RF-backed scalar ALU lane:
 3. dependent rows can enqueue before their producer commits;
 4. a ready younger row can issue when older resident rows are not selectable;
 5. issue preserves the row's ROB identity and renamed sidecars into execute.
-6. T/U local sources use local queue readiness and relative tags rather than
+6. committed P writeback updates global readiness and matching IQ next state
+   from one event;
+7. T/U local sources use local queue readiness and relative tags rather than
    scalar RF physical tags.
 
 The deliberate reduction is pipeline depth and cancellation behavior. The full
@@ -205,10 +214,11 @@ selected-row RF read readiness before issue, but still lacks the full model's
 alternate global-register preference, read-port arbitration, cancel checks,
 replay, and bypass.
 
-R85 removes the earlier same-cycle RF-readiness-to-issue shortcut. This matches
-the model rule that wakeup at cycle N is visible to pick no earlier than cycle
-N+1, while still deferring full wakeup ports, P1/I1/I2 read-port arbitration,
-age selection, cancel, replay, and bypass until later packets.
+R85 removes the earlier same-cycle RF-readiness-to-issue shortcut. The
+committed P-wakeup input now matches `IssueQueue::WakeupIQTag`: it updates the
+IQ next state and ready table from one accepted producer event, making wakeup
+at cycle N visible to pick at N+1. Full banked read-port arbitration, replay,
+bypass, and T/U qtag routing remain later work.
 
 R86 implements the first age-selection slice: `IssueState::Select` scans
 resident entries, ignores issued entries, and commits the oldest ready
@@ -228,16 +238,16 @@ row only on the existing ALU release identity.
 
 ## Timing
 
-The queue is combinational on selectable-mask generation and release match,
-and registered on enqueue, source-ready update, P1 lock, I1 cancel, release,
-and flush. RF ready-table updates are sampled into `srcReady`; they do not
-directly affect the current cycle's selection. Selected-row RF `readReady` is
+The queue is combinational on selectable-mask generation, release match, and
+committed P-tag matching, and registered on enqueue, source-ready update, P1
+lock, I1 cancel, release, and flush. RF ready-table and committed wakeup updates
+do not directly affect the current cycle's selection. Selected-row RF `readReady` is
 now consumed in I1: a failed read readiness pulse clears only the in-flight
 lock and leaves the row resident.
 
-Future full issue work must split explicit wakeup payloads, select,
-issued/in-flight tracking, and release into model-aligned stages. In
-particular, wakeup should not let a newly woken row win selection in the same
+Future full issue work must bank wakeup/select, issued/in-flight tracking, and
+release into model-aligned physical queues. In particular, wakeup must not let
+a newly woken row win selection in the same
 cycle unless the full model evidence proves that timing.
 
 ## Flush/Recovery

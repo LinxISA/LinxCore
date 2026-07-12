@@ -70,9 +70,10 @@ lifecycle mutation are promoted together.
 
 ## Timing
 
-No state is stored in the arbiter. The selected output feeds
-`ReducedScalarRegisterFile.write*`, which performs the actual RF mutation on the
-rising edge.
+No state is stored in the arbiter. The selected output drives
+`ScalarGPRFile.write(0)` request and commit together. Accepted `write.fire`
+performs RF/ready mutation and broadcasts committed P wakeup on the rising
+edge.
 
 ## Trace/Observability
 

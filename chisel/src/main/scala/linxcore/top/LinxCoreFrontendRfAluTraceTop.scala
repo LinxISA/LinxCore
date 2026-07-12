@@ -6,7 +6,7 @@ import chisel3.util.log2Ceil
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ScalarGPRFile}
 import linxcore.frontend.F4DecodeWindow
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -118,6 +118,8 @@ class LinxCoreFrontendRfAluTraceTop(
     val physRegs: Int = 64)
     extends Module {
   private val p = LinxCoreFrontendRfAluTraceTop.interfaceParamsFor(coreParams)
+  require(physRegs == (1 << p.physRegWidth),
+    "physical GPR capacity must match the complete physical-tag namespace")
   private val traceParams = LinxCoreFrontendRfAluTraceTop.traceParamsFor(p)
   val io = IO(new LinxCoreFrontendRfAluTraceTopIO(p, traceParams, decRenQueueDepth, issueQueueDepth, physRegs))
 
@@ -133,7 +135,13 @@ class LinxCoreFrontendRfAluTraceTop(
     mapQDepth = mapQDepth
   ))
 
-  val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
+  val rf = Module(new ScalarGPRFile(
+    archRegs = archRegs,
+    physRegs = physRegs,
+    dataWidth = p.immWidth,
+    readPorts = 3,
+    writePorts = 1
+  ))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   val scalarSpValue = RegInit(0.U(p.immWidth.W))
@@ -191,28 +199,30 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.secondaryReleaseRid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseStid := 0.U
   issue.io.readyMask := rf.io.readyMask
+  issue.io.pWakeupValid := rf.io.write(0).fire
+  issue.io.pWakeupTag := rf.io.write(0).tag
   issue.io.localTReadyMask := 0.U
   issue.io.localUReadyMask := 0.U
 
-  rf.io.initValid := io.rfInitValid
-  rf.io.initArchTag := io.rfInitArchTag
+  val rfInitTagInRange = io.rfInitArchTag < archRegs.U
+  rf.io.initValid := io.rfInitValid && rfInitTagInRange
+  rf.io.initTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
   when(io.rfInitValid && io.rfInitArchTag === 1.U) {
     scalarSpValue := io.rfInitData
   }
   for (idx <- 0 until 3) {
     rf.io.readValid(idx) := issue.io.readValid(idx)
-    rf.io.readTags(idx) := issue.io.readTags(idx)
-    rf.io.auxReadValid(idx) := false.B
-    rf.io.auxReadTags(idx) := 0.U
+    rf.io.readTag(idx) := issue.io.readTags(idx)
     issue.io.readReady(idx) := rf.io.readReady(idx)
     issue.io.readData(idx) := rf.io.readData(idx)
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
-  rf.io.writeValid := execute.io.completeDstPhysValid
-  rf.io.writeTag := execute.io.completeDstPhysTag
-  rf.io.writeData := execute.io.completeDstData
+  rf.io.write(0).requestValid := execute.io.completeDstPhysValid
+  rf.io.write(0).commit := execute.io.completeDstPhysValid
+  rf.io.write(0).tag := execute.io.completeDstPhysTag
+  rf.io.write(0).data := execute.io.completeDstData
   when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
     scalarSpValue := execute.io.completeRow.wb.data
   }
@@ -255,12 +265,12 @@ class LinxCoreFrontendRfAluTraceTop(
   io.completeIgnored := path.io.completeIgnored
 
   io.rfReadReadyMask := rf.io.readReady.asUInt
-  io.rfAllReadReady := rf.io.allReadReady
+  io.rfAllReadReady := rf.io.readReady.reduce(_ && _)
   io.rfReadyMask := rf.io.readyMask
-  io.rfWriteValid := rf.io.writeValid
-  io.rfWriteTag := rf.io.writeTag
-  io.rfWriteData := rf.io.writeData
-  io.rfStateError := rf.io.stateError
+  io.rfWriteValid := rf.io.write(0).fire
+  io.rfWriteTag := execute.io.completeDstPhysTag
+  io.rfWriteData := execute.io.completeDstData
+  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
   io.issueQueuePickFire := issue.io.pickFire
   io.issueQueueIssueFire := issue.io.issueFire

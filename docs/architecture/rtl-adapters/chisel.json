@@ -371,17 +371,25 @@
       "module_family": "rename-issue",
       "status": "unit-proven",
       "contracts": ["LC-MA-PIPE-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["The reduced issue owner is not connected to the reduced top or a shared cross-RTL scenario."],
+      "limitations": ["The reduced issue owner is connected to both live RF/ALU tops and has generated P-wakeup timing proof, but full banked IQ/read-port arbitration and T/U qtag wakeup remain open."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala",
-          "symbols": ["ReducedScalarIssueQueue", "ReducedScalarIssuePick", "valid", "issued", "srcReady"]
+          "symbols": ["ReducedScalarIssueQueue", "ReducedScalarIssuePick", "valid", "issued", "srcReady", "pWakeupValid", "pWakeupMatches", "pWakeupMatchCount"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala",
+          "symbols": ["ScalarGPRFile", "pWakeupValid", "pWakeupTag", "readyMask"]
         }
       ],
       "verification": [
         {
           "path": "chisel/src/test/scala/linxcore/execute/ReducedScalarIssueQueueSpec.scala",
           "command": "bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueueSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh"
         }
       ]
     },
@@ -390,7 +398,7 @@
       "module_family": "rename-issue",
       "status": "integrated",
       "contracts": ["LC-MA-RES-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["Canonical GPR data and P-tag readiness are integrated with scalar load W2 in LinxCoreTop. T/U local-link banks and qtag wakeup remain separate, and the full frontend/rename/issue composition still uses its compatibility wrapper."],
+      "limitations": ["Canonical GPR data and P-tag readiness are integrated with scalar load W2 and directly instantiated by both live RF/issue tops. T/U local-link banks and qtag wakeup remain separate."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala",
@@ -403,6 +411,14 @@
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
           "symbols": ["scalarLoadGprSink", "scalarGprReadyMask", "scalarBackendContractError"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala",
+          "symbols": ["ScalarGPRFile", "write", "pWakeupValid", "readyMask"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala",
+          "symbols": ["ScalarGPRFile", "write", "pWakeupValid", "readyMask"]
         }
       ],
       "verification": [
@@ -417,6 +433,10 @@
         {
           "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
           "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_gpr_issue_wakeup_probe.sh"
         }
       ]
     },

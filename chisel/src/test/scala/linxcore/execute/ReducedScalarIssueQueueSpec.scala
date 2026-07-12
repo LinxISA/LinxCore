@@ -17,6 +17,8 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(io.secondaryReleaseRid.value.getWidth == p.robIndexWidth)
     assert(io.secondaryReleaseStid.getWidth == p.threadIdWidth)
     assert(io.readyMask.getWidth == 64)
+    assert(io.pWakeupTag.getWidth == 6)
+    assert(io.pWakeupMatchCount.getWidth == 4)
     assert(io.localTReadyMask.getWidth == 4)
     assert(io.localUReadyMask.getWidth == 4)
     assert(io.readValid.length == 3)
@@ -51,6 +53,9 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ReducedScalarIssuePick"))
     assert(sv.contains("io_inReady"))
+    assert(sv.contains("io_pWakeupValid"))
+    assert(sv.contains("io_pWakeupMatched"))
+    assert(sv.contains("io_pWakeupMatchCount"))
     assert(sv.contains("io_readValid"))
     assert(sv.contains("io_readOperandClass"))
     assert(sv.contains("io_issueValid"))
@@ -75,5 +80,15 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_blockedByIssued"))
     assert(sv.contains("io_blockedBySource"))
     assert(sv.contains("io_blockedByOutput"))
+  }
+
+  test("committed P wakeup matches only global P operands with the same physical tag") {
+    def matches(valid: Boolean, issued: Boolean, operandClass: String, tag: Int, wakeTag: Int): Boolean =
+      valid && !issued && operandClass == "P" && tag == wakeTag
+
+    assert(matches(valid = true, issued = false, operandClass = "P", tag = 40, wakeTag = 40))
+    assert(!matches(valid = true, issued = true, operandClass = "P", tag = 40, wakeTag = 40))
+    assert(!matches(valid = true, issued = false, operandClass = "T", tag = 40, wakeTag = 40))
+    assert(!matches(valid = true, issued = false, operandClass = "P", tag = 41, wakeTag = 40))
   }
 }

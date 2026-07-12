@@ -15,6 +15,25 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R666 removes the obsolete reduced scalar RF wrapper and makes
+both live RF/issue tops instantiate `ScalarGPRFile` directly. Committed
+`write.fire` now updates physical P data/readiness and broadcasts the same tag
+to every resident scalar issue row. Matching valid, non-issued P sources update
+their next-state readiness on that edge and may be picked in the following
+cycle. Request-only writes broadcast nothing; T/U stays on its separate scoped
+local-link path.
+
+R666 verification passes 267 suites and 1,580 tests. The generated canonical
+GPR+IQ probe proves request hold, committed one-tag matching, atomic data/ready
+mutation, next-cycle pick visibility, and RF-read delivery. Both dependent-row
+RF/ALU tops and the canonical top compare 3 rows with zero mismatches.
+Architecture contract/adapter/conformance, MDB transaction, recovery-class,
+and recovery-producer gates pass; independent review is clean. CoreMark replay
+compares 426 rows with zero mismatches and zero CBSTOP at
+`generated/r666-final-canonical-p-iq-wakeup-coremark/report/crosscheck_manifest.json`.
+Full banked IQ/read-port arbitration, bypass/replay, T/U qtag wakeup, cache/miss
+queues, cross-line assembly, and natural recovery activation remain open.
+
 Latest packet: R665 connects canonical scalar W2 to one parameterized physical
 GPR data and P-ready-table owner. A write-port request may reserve bandwidth,
 but only the exact W2 resolve event commits data and readiness together with

@@ -551,7 +551,7 @@ LIQ/LDQ row, remember wait-store identity, or consume store-unit wakeups.
 frontend trace lane. It is designed to feed `ROBEntryBank.completeRow` through
 `LinxCoreFrontendAluTraceTop` and then the existing commit monitor and
 QEMU-shaped comparator. `completeDstPhysValid/Tag/Data` feed
-`ReducedScalarRegisterFile` in `LinxCoreFrontendRfAluTraceTop`, allowing later
+`ScalarGPRFile` in `LinxCoreFrontendRfAluTraceTop`, allowing later
 frontend rows to read earlier Chisel writebacks through renamed physical tags.
 `completeSrcPhysValid/Tag` are diagnostic sidebands used by the live
 CoreMark harness to correlate issue-time source physical tags with the
@@ -566,7 +566,7 @@ that produced it.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`
-- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarRegisterFile`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarGPRFile`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`

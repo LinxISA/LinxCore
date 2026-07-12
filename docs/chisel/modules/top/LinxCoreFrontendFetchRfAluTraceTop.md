@@ -46,7 +46,7 @@ FrontendFetchPacketSource
        -> GPR/T/U rename, ROB/BROB, recovery fabric
        -> split STA/STD dispatch
   -> ReducedScalarIssueQueue
-  -> ReducedScalarRegisterFile
+  -> ScalarGPRFile
   -> ReducedScalarAluExecute
        -> scalar completion / redirect
        -> live load request
@@ -77,8 +77,9 @@ Linx memory ordering, block recovery, or architectural state.
   allocations are all accepted.
 - GPR rename uses SMAP/CMAP/MapQ state. T/U local links use the local queue and
   relation-map contract.
-- Issue observes registered ready state. Wakeups produced in a cycle become
-  eligible for selection on the next cycle.
+- Issue observes registered ready state. A committed `ScalarGPRFile.write.fire`
+  updates P readiness and matching resident IQ next state together; wakeup in
+  a cycle becomes eligible for selection on the next cycle. T/U stays scoped.
 - ROB completion from execute and W2 load return shares an explicit arbiter;
   execute priority cannot cause the W2 row to clear before its completion is
   accepted.
