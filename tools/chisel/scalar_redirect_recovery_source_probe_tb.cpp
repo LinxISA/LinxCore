@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 
 #include "VScalarRedirectRecoverySourceProbe.h"
@@ -28,7 +29,7 @@ static void set_id(uint8_t &valid, uint8_t &wrap, uint8_t &value,
 static void drive_event(VScalarRedirectRecoverySourceProbe &dut,
                         int block_bid, bool bid_wrap, int bid_value,
                         bool rid_valid, bool rid_wrap, int rid_value,
-                        int lsid_value, int order) {
+                        int lsid_value, uint64_t lsid_full, int order) {
     dut.io_eventValid = 1;
     dut.io_blockBidValid = 1;
     dut.io_blockBid = block_bid;
@@ -38,6 +39,7 @@ static void drive_event(VScalarRedirectRecoverySourceProbe &dut,
            rid_valid, rid_wrap, rid_value);
     set_id(dut.io_lsId_valid, dut.io_lsId_wrap, dut.io_lsId_value,
            true, false, lsid_value);
+    dut.io_lsIdFull = lsid_full;
     dut.io_resolveLsIdValid = 1;
     dut.io_orderValid = 1;
     dut.io_order = order;
@@ -54,6 +56,7 @@ int main(int argc, char **argv) {
     set_id(dut.io_bid_valid, dut.io_bid_wrap, dut.io_bid_value, false, false, 0);
     set_id(dut.io_rid_valid, dut.io_rid_wrap, dut.io_rid_value, false, false, 0);
     set_id(dut.io_lsId_valid, dut.io_lsId_wrap, dut.io_lsId_value, false, false, 0);
+    dut.io_lsIdFull = 0;
     dut.io_resolveLsIdValid = 0;
     dut.io_orderValid = 0;
     dut.io_order = 0;
@@ -66,7 +69,8 @@ int main(int argc, char **argv) {
     dut.reset = 0;
 
     // 0x12 projects to wrap=0, slot=2 for an eight-entry ring.
-    drive_event(dut, 0x12, false, 2, true, false, 4, 5, 0x155);
+    drive_event(dut, 0x12, false, 2, true, false, 4, 5,
+                0x123456789aULL, 0x155);
     dut.eval();
     require(dut.io_eventReady && dut.io_eventAccepted,
             "exact redirect was not accepted into an empty source");
@@ -78,6 +82,9 @@ int main(int argc, char **argv) {
     require(dut.io_sourceBlockBid == 0x12 && dut.io_sourceRid_valid &&
                 dut.io_sourceRid_value == 5,
             "published redirect did not preserve block identity or restart RID");
+    require(dut.io_sourceLsIdFullValid &&
+                dut.io_sourceLsIdFull == 0x123456789aULL,
+            "published redirect truncated or lost the full LSID");
     require(!dut.io_cleanupOrderValid && !dut.io_cleanupResolveLsIdValid,
             "private sidecars were exposed before matched payload consumption");
 
@@ -96,13 +103,16 @@ int main(int argc, char **argv) {
     // 0x1b projects to wrap=1, slot=3.
     dut.io_sourceResolved = 1;
     dut.io_payloadIntentConsumed = 1;
-    drive_event(dut, 0x1b, true, 3, true, true, 6, 7, 0x2aa);
+    drive_event(dut, 0x1b, true, 3, true, true, 6, 7,
+                0x0fedcba987ULL, 0x2aa);
     dut.eval();
     require(dut.io_eventReady && dut.io_eventAccepted,
             "resolve-and-replace did not accept the next redirect");
     require(dut.io_cleanupOrderValid && dut.io_cleanupOrder == 0x155 &&
                 dut.io_cleanupResolveLsIdValid && dut.io_cleanupLsId_value == 5,
             "matched payload consumption did not authorize retained sidecars");
+    require(dut.io_cleanupLsIdFull == 0x123456789aULL,
+            "matched cleanup did not preserve the retained full LSID");
     tick(dut);
     dut.io_eventValid = 0;
     dut.io_sourceResolved = 0;
@@ -111,6 +121,9 @@ int main(int argc, char **argv) {
     require(dut.io_pending && !dut.io_published && dut.io_sourceValid &&
                 dut.io_sourceBlockBid == 0x1b && dut.io_cleanupOrder == 0x2aa,
             "resolve-and-replace did not retain the replacement identity");
+    require(dut.io_sourceLsIdFullValid &&
+                dut.io_sourceLsIdFull == 0x0fedcba987ULL,
+            "resolve-and-replace truncated the replacement full LSID");
 
     // Cancellation must suppress publication in the cancellation cycle.
     dut.io_cancel = 1;
@@ -125,7 +138,7 @@ int main(int argc, char **argv) {
 
     // Mismatched projection remains blocked and cannot publish.
     dut.io_sourceReady = 1;
-    drive_event(dut, 0x12, false, 3, true, false, 1, 2, 0x33);
+    drive_event(dut, 0x12, false, 3, true, false, 1, 2, 0x1020304050ULL, 0x33);
     tick(dut);
     dut.io_eventValid = 0;
     dut.eval();
@@ -137,7 +150,7 @@ int main(int argc, char **argv) {
     dut.io_cancel = 0;
 
     // A valid full BID and ring BID still cannot publish without source RID.
-    drive_event(dut, 0x12, false, 2, false, false, 1, 2, 0x44);
+    drive_event(dut, 0x12, false, 2, false, false, 1, 2, 0x1122334455ULL, 0x44);
     tick(dut);
     dut.io_eventValid = 0;
     dut.eval();

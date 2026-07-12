@@ -38,7 +38,7 @@ class ROBEntryBankIO(
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val allocValid = Input(Bool())
   val allocReady = Output(Bool())
@@ -363,7 +363,8 @@ class ROBEntryBank(
   io.recoveryOldestRid := recoveryWatermark.io.oldestRid
   io.recoveryOldestBlockBid := recoveryWatermark.io.oldestBlockBid
 
-  val flushPrune = Module(new ROBFlushPrune(entries, peIdWidth, stidWidth, tidWidth))
+  val flushPrune = Module(new ROBFlushPrune(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   flushPrune.io.flush := io.flush
   flushPrune.io.deallocHead := deallocValue
   flushPrune.io.commitHead := commitValue

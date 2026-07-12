@@ -52,4 +52,20 @@ class RecoveryBackendControlSpec extends AnyFunSuite {
     assert(!sv.contains("io_nonLsuSources_0"))
     assert(sv.contains("io_lsuSource_blockBid"))
   }
+
+  test("backend recovery keeps full LSID independent of ROB ring width") {
+    val io = new RecoveryBackendControlIO(
+      nonLsuSourceCount = 2,
+      stidCount = 2,
+      peCount = 2,
+      entries = 8,
+      bidWidth = 16,
+      lsidWidth = 40)
+
+    assert(io.nonLsuSources.head.lsId.value.getWidth == 3)
+    assert(io.nonLsuSources.head.lsIdFull.getWidth == 40)
+    assert(io.lsuSource.lsIdFull.getWidth == 40)
+    assert(io.intent.flush.req.lsIdFull.getWidth == 40)
+    assert(io.robFlush.req.lsIdFull.getWidth == 40)
+  }
 }

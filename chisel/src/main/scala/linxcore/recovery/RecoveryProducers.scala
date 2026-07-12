@@ -12,12 +12,13 @@ class RecoveryProducerQueueIO(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val in = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val in = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val inReady = Output(Bool())
   val inAccepted = Output(Bool())
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val count = Output(UInt(math.max(1, log2Ceil(queueEntries + 1)).W))
@@ -34,7 +35,8 @@ class RecoveryProducerQueue(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(queueEntries > 0, "recovery producer queue must contain at least one entry")
 
@@ -44,11 +46,12 @@ class RecoveryProducerQueue(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val queue = Module(new Queue(
-    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth),
+    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth),
     queueEntries,
     pipe = false,
     flow = false
@@ -70,7 +73,8 @@ class BccMispredictRecoveryEvent(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val recoveryBlockBid = UInt(bidWidth.W)
@@ -86,12 +90,14 @@ class BccRecoverySourceIO(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val miss = Input(new BccMispredictRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val miss = Input(new BccMispredictRecoveryEvent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val missReady = Output(Bool())
   val missAccepted = Output(Bool())
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val pendingCount = Output(UInt(math.max(1, log2Ceil(queueEntries + 1)).W))
@@ -108,7 +114,8 @@ class BccRecoverySource(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   val io = IO(new BccRecoverySourceIO(
     queueEntries,
@@ -116,7 +123,8 @@ class BccRecoverySource(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val retained = Module(new RecoveryProducerQueue(
@@ -125,9 +133,11 @@ class BccRecoverySource(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
-  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   req.valid := io.miss.valid
   req.typ := FlushType.MissPredFlush
   req.blockBid := io.miss.recoveryBlockBid
@@ -150,13 +160,16 @@ class IexRecoveryEvent(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val recoveryBlockBid = UInt(bidWidth.W)
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val stid = UInt(stidWidth.W)
   val peId = UInt(peIdWidth.W)
   val tid = UInt(tidWidth.W)
@@ -171,12 +184,13 @@ class IexRecoverySourceIO(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val event = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val event = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val eventReady = Output(Bool())
   val eventAccepted = Output(Bool())
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val pendingCount = Output(UInt(math.max(1, log2Ceil(queueEntries + 1)).W))
@@ -191,17 +205,23 @@ class IexSlowInsertRecoverySource(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
-  val io = IO(new IexRecoverySourceIO(queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val retained = Module(new RecoveryProducerQueue(queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val io = IO(new IexRecoverySourceIO(
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val retained = Module(new RecoveryProducerQueue(
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   req.valid := io.event.valid
   req.typ := FlushType.NukeFlush
   req.blockBid := io.event.recoveryBlockBid
   req.gid := io.event.gid
   req.rid := io.event.rid
   req.lsId := io.event.lsId
+  req.lsIdFullValid := io.event.lsIdFullValid
+  req.lsIdFull := io.event.lsIdFull
   req.stid := io.event.stid
   req.peId := io.event.peId
   req.tid := io.event.tid
@@ -226,7 +246,8 @@ class IexIqStallRecoverySourceIO(
     val peIdWidth: Int,
     val stidWidth: Int,
     val tidWidth: Int,
-    val stallThreshold: Int)
+    val stallThreshold: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val stalled = Input(Bool())
   val progress = Input(Bool())
@@ -236,7 +257,7 @@ class IexIqStallRecoverySourceIO(
   val stid = Input(UInt(stidWidth.W))
   val peId = Input(UInt(peIdWidth.W))
   val tid = Input(UInt(tidWidth.W))
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val triggerCaptured = Output(Bool())
@@ -255,7 +276,8 @@ class IexIqStallRecoverySource(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(stallThreshold > 0, "IEX IQ stall threshold must be positive")
 
@@ -267,13 +289,16 @@ class IexIqStallRecoverySource(
     peIdWidth,
     stidWidth,
     tidWidth,
-    stallThreshold
+    stallThreshold,
+    lsidWidth
   ))
 
-  val retained = Module(new RecoveryProducerQueue(queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val retained = Module(new RecoveryProducerQueue(
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val stallCount = RegInit(0.U(stallCountWidth.W))
   val capturePending = RegInit(false.B)
-  val captured = RegInit(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val captured = RegInit(0.U.asTypeOf(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   val waiting = io.stalled && !io.progress && !io.oldestBlockComplete
   val thresholdReached = waiting && (stallCount === (stallThreshold - 1).U)
   val capture = thresholdReached && io.identityValid && !capturePending
@@ -317,12 +342,13 @@ class PeMismatchRecoverySourceIO(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val mismatch = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val mismatch = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val mismatchReady = Output(Bool())
   val mismatchAccepted = Output(Bool())
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val pendingCount = Output(UInt(math.max(1, log2Ceil(queueEntries + 1)).W))
@@ -338,17 +364,23 @@ class PeMismatchRecoverySource(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
-  val io = IO(new PeMismatchRecoverySourceIO(queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val retained = Module(new RecoveryProducerQueue(queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val io = IO(new PeMismatchRecoverySourceIO(
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val retained = Module(new RecoveryProducerQueue(
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val req = WireDefault(0.U.asTypeOf(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   req.valid := io.mismatch.valid
   req.typ := FlushType.InnerFlush
   req.blockBid := io.mismatch.recoveryBlockBid
   req.gid := io.mismatch.gid
   req.rid := io.mismatch.rid
   req.lsId := io.mismatch.lsId
+  req.lsIdFullValid := io.mismatch.lsIdFullValid
+  req.lsIdFull := io.mismatch.lsIdFull
   req.stid := io.mismatch.stid
   req.peId := io.mismatch.peId
   req.tid := io.mismatch.tid

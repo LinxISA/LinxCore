@@ -142,7 +142,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     coreParams.robEntries,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
   val recoveryReady = Input(Bool())
   val recoveryValid = Output(Bool())
@@ -150,7 +151,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     coreParams.robEntries,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
   val recoveryAccepted = Output(Bool())
   val recoveryPending = Output(Bool())
@@ -539,7 +541,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     coreParams.robEntries,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
   flushReq := 0.U.asTypeOf(flushReq)
   flushReq.valid := io.storeProbe.valid && conflict.io.conflictValid
@@ -551,6 +554,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   flushReq.gid := conflict.io.record.load.gid
   flushReq.rid := conflict.io.record.load.rid
   flushReq.lsId := conflict.io.record.load.lsId
+  flushReq.lsIdFullValid := false.B
+  flushReq.lsIdFull := 0.U
   flushReq.execEngine := ExecEngineType.Scalar
   flushReq.fetchTpcValid := true.B
   flushReq.fetchTpc := conflict.io.record.load.pc
@@ -558,7 +563,12 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
 
   val recoveryQ = withReset(reset.asBool || io.flush) {
     Module(new Queue(
-      new FlushReq(coreParams.robEntries, p.peIdWidth, p.stidWidth, p.tidWidth),
+      new FlushReq(
+        coreParams.robEntries,
+        p.peIdWidth,
+        p.stidWidth,
+        p.tidWidth,
+        coreParams.lsidWidth),
       p.mdbRecoveryQueueEntries
     ))
   }

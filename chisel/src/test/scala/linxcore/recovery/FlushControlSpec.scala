@@ -195,4 +195,14 @@ class FlushControlSpec extends AnyFunSuite {
     assert(checkOlder(src, dst, Id(value = 7)))
     assert(!checkOlder(src, dst, Id(value = 7), oldestValid = false))
   }
+
+  test("typed ring and full-BID recovery requests expose independent full LSID width") {
+    val ring = new FlushBus(entries = 8, lsidWidth = 40)
+    val full = new FullBidFlushReq(entries = 8, bidWidth = 16, lsidWidth = 40)
+
+    assert(ring.req.lsId.value.getWidth == 3)
+    assert(ring.req.lsIdFull.getWidth == 40)
+    assert(full.lsId.value.getWidth == 3)
+    assert(full.lsIdFull.getWidth == 40)
+  }
 }

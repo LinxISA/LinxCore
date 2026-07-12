@@ -103,7 +103,7 @@ class STQEntryBankIO(
   private val countWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = identityEntries)
 
-  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
+  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val insertValid = Input(Bool())
   val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
@@ -133,6 +133,9 @@ class STQEntryBankIO(
   val flushMatchMask = Output(UInt(entries.W))
   val flushFreeMask = Output(UInt(entries.W))
   val flushStatusBlockedMask = Output(UInt(entries.W))
+  val flushFullLsIdRequiredMask = Output(UInt(entries.W))
+  val flushFullLsIdMissingMask = Output(UInt(entries.W))
+  val flushFullLsIdAmbiguousMask = Output(UInt(entries.W))
   val flushFreeCount = Output(UInt(countWidth.W))
   val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
   val lsuTULinkSourceMatched = Output(Bool())
@@ -267,7 +270,8 @@ class STQEntryBank(
   io.residentCount := residentCount
   io.outstandingWaitCount := outstandingWaitCount
 
-  val flushPrune = Module(new STQFlushPrune(entries, peIdWidth, stidWidth, tidWidth, identityEntries))
+  val flushPrune = Module(new STQFlushPrune(
+    entries, peIdWidth, stidWidth, tidWidth, identityEntries, lsidWidth))
   flushPrune.io.flush := io.flush
   for (idx <- 0 until entries) {
     flushPrune.io.rows(idx).valid := rows(idx).valid
@@ -278,6 +282,7 @@ class STQEntryBank(
     flushPrune.io.rows(idx).bid := rows(idx).bid
     flushPrune.io.rows(idx).gid := rows(idx).gid
     flushPrune.io.rows(idx).lsId := rows(idx).lsId
+    flushPrune.io.rows(idx).lsIdFull := rows(idx).lsIdFull
   }
 
   val flushApplied = flushPrune.io.freeMask.orR
@@ -285,6 +290,9 @@ class STQEntryBank(
   io.flushMatchMask := flushPrune.io.matchMask
   io.flushFreeMask := flushPrune.io.freeMask
   io.flushStatusBlockedMask := flushPrune.io.statusBlockedMask
+  io.flushFullLsIdRequiredMask := flushPrune.io.fullLsIdRequiredMask
+  io.flushFullLsIdMissingMask := flushPrune.io.fullLsIdMissingMask
+  io.flushFullLsIdAmbiguousMask := flushPrune.io.fullLsIdAmbiguousMask
   io.flushFreeCount := flushPrune.io.freeCount
 
   val lsuSourceMatchVec = Wire(Vec(entries, Bool()))

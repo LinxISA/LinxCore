@@ -14,18 +14,19 @@ class RecoveryBackendControlIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val sourceCount = nonLsuSourceCount + 1
   private val sourceIndexWidth = math.max(1, log2Ceil(sourceCount))
 
   val nonLsuSources = Input(Vec(
     nonLsuSourceCount,
-    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)
+    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)
   ))
   val nonLsuSourceReady = Output(Vec(nonLsuSourceCount, Bool()))
   val nonLsuSourceAccepted = Output(Vec(nonLsuSourceCount, Bool()))
-  val lsuSource = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val lsuSource = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val lsuSourceReady = Output(Bool())
   val lsuSourceAccepted = Output(Bool())
 
@@ -60,8 +61,9 @@ class RecoveryBackendControlIO(
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
   val intentReady = Input(Bool())
-  val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val intent = Output(new RecoveryCleanupIntent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val intentAccepted = Output(Bool())
   val intentConsumed = Output(Bool())
   val intentProvenance = Output(new RecoveryProvenance(sourceCount))
@@ -94,7 +96,8 @@ class RecoveryBackendControl(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(nonLsuSourceCount >= 0, "non-LSU recovery source count cannot be negative")
 
@@ -108,7 +111,8 @@ class RecoveryBackendControl(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val recovery = Module(new RecoveryFabric(
@@ -119,7 +123,8 @@ class RecoveryBackendControl(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   for (source <- 0 until nonLsuSourceCount) {

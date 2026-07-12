@@ -121,16 +121,16 @@ class DecodeRenameROBPathIO(
   val commitStid = Input(UInt(stidWidth.W))
   val recoveryNonLsuSources = Input(Vec(
     recoveryNonLsuSourceCount,
-    new FullBidFlushReq(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth)
+    new FullBidFlushReq(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth, p.lsidWidth)
   ))
   val recoveryNonLsuSourceReady = Output(Vec(recoveryNonLsuSourceCount, Bool()))
   val recoveryNonLsuSourceAccepted = Output(Vec(recoveryNonLsuSourceCount, Bool()))
   val directBccRecoveryMiss = Input(new BccMispredictRecoveryEvent(
-    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth, p.lsidWidth))
   val directBccRecoveryReady = Output(Bool())
   val directBccRecoveryAccepted = Output(Bool())
   val directIexSlowRecovery = Input(new IexRecoveryEvent(
-    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth, p.lsidWidth))
   val directIexSlowRecoveryReady = Output(Bool())
   val directIexSlowRecoveryAccepted = Output(Bool())
   val directIexIqStalled = Input(Bool())
@@ -144,7 +144,7 @@ class DecodeRenameROBPathIO(
   val directIexIqIdentityValid = Output(Bool())
   val directIexIqRecoveryBlockBid = Output(UInt(bidWidth.W))
   val directPeMismatchRecovery = Input(new IexRecoveryEvent(
-    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth, p.lsidWidth))
   val directPeMismatchRecoveryReady = Output(Bool())
   val directPeMismatchRecoveryAccepted = Output(Bool())
   val directRecoveryPendingMask = Output(UInt(directRecoverySourceCount.W))
@@ -184,7 +184,8 @@ class DecodeRenameROBPathIO(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    p.lsidWidth
   ))
   val recoveryIntentConsumed = Output(Bool())
   val recoveryIntentProvenance = Output(new RecoveryProvenance(recoverySourceCount))
@@ -325,6 +326,9 @@ class DecodeRenameROBPathIO(
   val storeStqFlushMatchMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqFlushFreeMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqFlushStatusBlockedMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqFlushFullLsIdRequiredMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqFlushFullLsIdMissingMask = Output(UInt(physicalStoreStqEntries.W))
+  val storeStqFlushFullLsIdAmbiguousMask = Output(UInt(physicalStoreStqEntries.W))
   val storeStqFlushFreeCount = Output(UInt(stqCountWidth.W))
   val storeLsuTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val storeLsuTULinkSourceMatched = Output(Bool())
@@ -779,7 +783,8 @@ class DecodeRenameROBPath(
     bidWidth = bidWidth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    lsidWidth = p.lsidWidth
   ))
   val directRecovery = Module(new RecoveryNonLsuProducerBank(
     queueEntries = directRecoveryQueueEntries,
@@ -788,7 +793,8 @@ class DecodeRenameROBPath(
     bidWidth = bidWidth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    lsidWidth = p.lsidWidth
   ))
   directRecovery.io.bccMiss := io.directBccRecoveryMiss
   directRecovery.io.iexSlow := io.directIexSlowRecovery
@@ -1475,6 +1481,9 @@ class DecodeRenameROBPath(
   io.storeStqFlushMatchMask := storeDispatch.io.stqFlushMatchMask
   io.storeStqFlushFreeMask := storeDispatch.io.stqFlushFreeMask
   io.storeStqFlushStatusBlockedMask := storeDispatch.io.stqFlushStatusBlockedMask
+  io.storeStqFlushFullLsIdRequiredMask := storeDispatch.io.stqFlushFullLsIdRequiredMask
+  io.storeStqFlushFullLsIdMissingMask := storeDispatch.io.stqFlushFullLsIdMissingMask
+  io.storeStqFlushFullLsIdAmbiguousMask := storeDispatch.io.stqFlushFullLsIdAmbiguousMask
   io.storeStqFlushFreeCount := storeDispatch.io.stqFlushFreeCount
   io.storeLsuTULinkSource := storeDispatch.io.lsuTULinkSource
   io.storeLsuTULinkSourceMatched := storeDispatch.io.lsuTULinkSourceMatched

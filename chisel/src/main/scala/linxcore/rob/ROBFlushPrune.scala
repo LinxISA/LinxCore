@@ -19,12 +19,17 @@ class ROBFlushPruneEntry(
   val rid = new ROBID(entries)
 }
 
-class ROBFlushPruneIO(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8, val tidWidth: Int = 8)
+class ROBFlushPruneIO(
+    val entries: Int,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val countWidth = log2Ceil(entries + 1)
 
-  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val deallocHead = Input(UInt(ptrWidth.W))
   val commitHead = Input(UInt(ptrWidth.W))
   val rows = Input(Vec(entries, new ROBFlushPruneEntry(entries, peIdWidth, stidWidth, tidWidth)))
@@ -47,14 +52,15 @@ class ROBFlushPrune(
     val entries: Int = 16,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
 
   private val ptrWidth = log2Ceil(entries)
 
-  val io = IO(new ROBFlushPruneIO(entries, peIdWidth, stidWidth, tidWidth))
+  val io = IO(new ROBFlushPruneIO(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   private def wrapIndex(value: UInt, offset: Int): UInt = {
     val sum = value + offset.U

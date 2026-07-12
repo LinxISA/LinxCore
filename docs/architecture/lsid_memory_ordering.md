@@ -150,9 +150,23 @@ the canonical value; commit authorization, commit-FIFO sorting, split drain,
 SCB admission, and committed-memory overlay retain the canonical value.
 `LSIDOrder` provides modulo serial comparison and rejects half-range ambiguity.
 
-The dual field is temporary. The projection remains necessary only because
-typed STQ recovery and the load forwarding/replay/MDB graph still use
-ROBID-shaped LSID fields. R670 does not declare those paths converted. The next
-LSID packets must move full load/store LSID through typed `FlushBus`, resident
-forwarding, wait-store state, LIQ/ResolveQ, MDB conflict/SSIT/fanout, and return
-identity before removing the projection.
+R671 moves full LSID through typed recovery. `FullBidFlushReq` and `FlushReq`
+carry `lsIdFullValid` plus `lsIdFull`; producer queues, source arbitration,
+class merge, full-BID/ring bridges, and the registered cleanup intent retain
+both fields without reconstruction. Scalar redirect recovery captures the
+execute row's full all-row snapshot. `STQFlushPrune` uses that value for
+same-block modulo serial comparison and never falls back to the projection.
+Missing full-LSID authority and exactly half-range separation are conservative
+non-matches. BID-only cleanup remains legal without LSID because block recovery
+already defines the killed suffix.
+
+Unconverted load-side queues still prune their own projected rows through an
+explicit projection-only helper. That compatibility path is not full-LSID
+authority and must not be reused by STQ recovery; zero-filled placeholder
+values never enter the authoritative matcher.
+
+The dual field is still temporary. The projection remains necessary only for
+the unconverted load forwarding/replay/MDB, LIQ/ResolveQ, return-pipeline, and
+wait-store payload graph. Later LSID packets must promote those consumers
+before removing `FlushReq.lsId`, `STQEntryBankRow.lsId`, and related load-side
+projections.

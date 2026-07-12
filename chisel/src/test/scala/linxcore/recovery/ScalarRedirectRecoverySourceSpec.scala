@@ -84,7 +84,8 @@ class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(new ScalarRedirectRecoverySource(
       entries = 8,
       bidWidth = 16,
-      orderWidth = 12
+      orderWidth = 12,
+      lsidWidth = 40
     ))
 
     assert(sv.contains("module ScalarRedirectRecoverySource"))
@@ -96,5 +97,22 @@ class ScalarRedirectRecoverySourceSpec extends AnyFunSuite {
     assert(sv.contains("io_payloadIntentConsumed"))
     assert(sv.contains("io_cleanupOrder"))
     assert(sv.contains("io_cleanupLsId_value"))
+    assert(sv.contains("io_event_lsIdFull"))
+    assert(sv.contains("io_source_lsIdFull"))
+    assert(sv.contains("io_cleanupLsIdFull"))
+  }
+
+  test("scalar redirect recovery keeps full LSID independent of ROB identity width") {
+    val io = new ScalarRedirectRecoverySourceIO(
+      entries = 8,
+      bidWidth = 16,
+      orderWidth = 12,
+      lsidWidth = 40)
+
+    assert(io.event.lsId.value.getWidth == 3)
+    assert(io.event.lsIdFull.getWidth == 40)
+    assert(io.source.lsId.value.getWidth == 3)
+    assert(io.source.lsIdFull.getWidth == 40)
+    assert(io.cleanupLsIdFull.getWidth == 40)
   }
 }

@@ -11,6 +11,7 @@ class ScalarRedirectRecoverySourceProbeIO extends Bundle {
   val bid = Input(new ROBID(8))
   val rid = Input(new ROBID(8))
   val lsId = Input(new ROBID(8))
+  val lsIdFull = Input(UInt(40.W))
   val resolveLsIdValid = Input(Bool())
   val orderValid = Input(Bool())
   val order = Input(UInt(12.W))
@@ -25,6 +26,8 @@ class ScalarRedirectRecoverySourceProbeIO extends Bundle {
   val sourceAccepted = Output(Bool())
   val sourceBlockBid = Output(UInt(16.W))
   val sourceRid = Output(new ROBID(8))
+  val sourceLsIdFullValid = Output(Bool())
+  val sourceLsIdFull = Output(UInt(40.W))
   val pending = Output(Bool())
   val published = Output(Bool())
   val blockedByMissingIdentity = Output(Bool())
@@ -32,6 +35,7 @@ class ScalarRedirectRecoverySourceProbeIO extends Bundle {
   val cleanupOrder = Output(UInt(12.W))
   val cleanupResolveLsIdValid = Output(Bool())
   val cleanupLsId = Output(new ROBID(8))
+  val cleanupLsIdFull = Output(UInt(40.W))
 }
 
 /** Generated-RTL proof surface for retained scalar redirect recovery. */
@@ -43,7 +47,8 @@ class ScalarRedirectRecoverySourceProbe extends Module {
     peIdWidth = 1,
     stidWidth = 1,
     tidWidth = 1,
-    orderWidth = 12
+    orderWidth = 12,
+    lsidWidth = 40
   ))
 
   source.io.event.valid := io.eventValid
@@ -52,6 +57,7 @@ class ScalarRedirectRecoverySourceProbe extends Module {
   source.io.event.bid := io.bid
   source.io.event.rid := io.rid
   source.io.event.lsId := io.lsId
+  source.io.event.lsIdFull := io.lsIdFull
   source.io.event.resolveLsIdValid := io.resolveLsIdValid
   source.io.event.stid := 0.U
   source.io.event.peId := 0.U
@@ -69,6 +75,8 @@ class ScalarRedirectRecoverySourceProbe extends Module {
   io.sourceAccepted := source.io.sourceAccepted
   io.sourceBlockBid := source.io.source.blockBid
   io.sourceRid := source.io.source.rid
+  io.sourceLsIdFullValid := source.io.source.lsIdFullValid
+  io.sourceLsIdFull := source.io.source.lsIdFull
   io.pending := source.io.pending
   io.published := source.io.published
   io.blockedByMissingIdentity := source.io.blockedByMissingIdentity
@@ -76,6 +84,7 @@ class ScalarRedirectRecoverySourceProbe extends Module {
   io.cleanupOrder := source.io.cleanupOrder
   io.cleanupResolveLsIdValid := source.io.cleanupResolveLsIdValid
   io.cleanupLsId := source.io.cleanupLsId
+  io.cleanupLsIdFull := source.io.cleanupLsIdFull
 }
 
 object EmitScalarRedirectRecoverySourceProbe extends App {

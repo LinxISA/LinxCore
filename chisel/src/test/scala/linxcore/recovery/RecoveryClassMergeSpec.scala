@@ -61,4 +61,18 @@ class RecoveryClassMergeSpec extends AnyFunSuite {
     assert(sv.contains("io_sourceResolvedMask"))
     assert(sv.contains("io_consumedPayloadSourceMask"))
   }
+
+  test("recovery fabric elaborates retained 40-bit LSID transport") {
+    val sv = ChiselStage.emitSystemVerilog(new RecoveryFabric(
+      sourceCount = 4,
+      stidCount = 2,
+      peCount = 3,
+      entries = 8,
+      bidWidth = 16,
+      lsidWidth = 40
+    ))
+
+    assert(sv.contains("io_sources_0_lsIdFull"))
+    assert(sv.contains("io_intent_flush_req_lsIdFull"))
+  }
 }

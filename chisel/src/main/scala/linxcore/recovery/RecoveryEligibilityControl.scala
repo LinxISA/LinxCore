@@ -7,9 +7,10 @@ class RecoveryEligibilityControlIO(
     val entries: Int,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val request = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val request = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val oldestValid = Input(Bool())
   val oldestBid = Input(new ROBID(entries))
   val oldestRid = Input(new ROBID(entries))
@@ -22,9 +23,11 @@ class RecoveryEligibilityControl(
     val entries: Int = 16,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
-  val io = IO(new RecoveryEligibilityControlIO(entries, peIdWidth, stidWidth, tidWidth))
+  val io = IO(new RecoveryEligibilityControlIO(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val ageEligible = Mux(
     io.request.baseOnBid,

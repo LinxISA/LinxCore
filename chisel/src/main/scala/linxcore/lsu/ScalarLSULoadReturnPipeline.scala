@@ -7,7 +7,11 @@ import linxcore.common.{DestinationKind, ScalarLsuParams}
 import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
-class ScalarLSULoadReturnPipelineIO(val idEntries: Int, val p: ScalarLsuParams) extends Bundle {
+class ScalarLSULoadReturnPipelineIO(
+    val idEntries: Int,
+    val p: ScalarLsuParams,
+    val lsidWidth: Int = 32)
+    extends Bundle {
   private val pipeWidth = math.max(1, log2Ceil(p.loadReturnPipeCount))
   private def entryType = new ScalarLSULoadReturnEntry(
     idEntries,
@@ -25,7 +29,8 @@ class ScalarLSULoadReturnPipelineIO(val idEntries: Int, val p: ScalarLsuParams) 
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, p.peIdWidth, p.stidWidth, p.tidWidth))
+  val preciseFlush = Input(new FlushBus(
+    idEntries, p.peIdWidth, p.stidWidth, p.tidWidth, lsidWidth))
 
   val inValid = Input(Bool())
   val in = Input(entryType)
@@ -66,7 +71,11 @@ class ScalarLSULoadReturnPipelineIO(val idEntries: Int, val p: ScalarLsuParams) 
   val protocolError = Output(Bool())
 }
 
-class ScalarLSULoadReturnPipeline(val idEntries: Int, val p: ScalarLsuParams) extends Module {
+class ScalarLSULoadReturnPipeline(
+    val idEntries: Int,
+    val p: ScalarLsuParams,
+    val lsidWidth: Int = 32)
+    extends Module {
   require(idEntries > 1 && (idEntries & (idEntries - 1)) == 0,
     "idEntries must be a power of two greater than one")
   require(p.loadReturnPipeCount > 0, "loadReturnPipeCount must be positive")
@@ -87,7 +96,7 @@ class ScalarLSULoadReturnPipeline(val idEntries: Int, val p: ScalarLsuParams) ex
     p.tidWidth
   )
 
-  val io = IO(new ScalarLSULoadReturnPipelineIO(idEntries, p))
+  val io = IO(new ScalarLSULoadReturnPipelineIO(idEntries, p, lsidWidth))
 
   private def zeroEntry: ScalarLSULoadReturnEntry = {
     val entry = Wire(entryType)
@@ -110,6 +119,7 @@ class ScalarLSULoadReturnPipeline(val idEntries: Int, val p: ScalarLsuParams) ex
     row.bid := entry.payload.bid
     row.gid := entry.payload.gid
     row.lsId := entry.payload.loadLsId
+    row.lsIdFull := 0.U
     row
   }
 
@@ -125,8 +135,10 @@ class ScalarLSULoadReturnPipeline(val idEntries: Int, val p: ScalarLsuParams) ex
   val w1Free = Wire(Vec(pipeCount, Bool()))
 
   for (pipe <- 0 until pipeCount) {
-    w1Prune(pipe) := preciseActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(w1(pipe)))
-    w2Prune(pipe) := preciseActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(w2(pipe)))
+    w1Prune(pipe) := preciseActive &&
+      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(w1(pipe)))
+    w2Prune(pipe) := preciseActive &&
+      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(w2(pipe)))
 
     val w2Live = active && w2(pipe).payload.valid
     val hasDestination = w2(pipe).payload.dst.valid &&

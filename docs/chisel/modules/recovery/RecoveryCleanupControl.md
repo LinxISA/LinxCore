@@ -67,7 +67,7 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
-| input | `req` | `FullBidFlushReq` | `req.valid && reqReady` | Selected recovery request with full block BID and ring sub-ID sidecars. |
+| input | `req` | `FullBidFlushReq` | `req.valid && reqReady` | Selected recovery request with full block BID, ring sub-ID sidecars, and optional authoritative full LSID. |
 | input | `reqProvenance` | `RecoveryProvenance` | with `req` | Implementation-only causes and exact payload owner. |
 | output | `reqReady` | `Bool` | ready | High when the one-entry intent register can accept a request. |
 | input | `ringReq` | `FlushBus` | `ringReq.req.valid && ringReqReady` | Selected source with wrap-qualified ROB identity but no full block BID. |
@@ -118,6 +118,11 @@ pointers, or ROB rows. It prevents those side effects from being smuggled into
   ring-only input stores empty provenance.
 - `FullBidRecoveryBridge`: combinational child used to split the source's exact
   implementation pointer into canonical BID plus ring `FlushBus` context.
+
+R671 retains `lsIdFullValid/lsIdFull` atomically in `pendingReq` and
+`pendingRingReq`, through bridge annotation, and in `intent.flush`. Cleanup
+backpressure therefore cannot separate memory-order identity from its selected
+recovery request.
 
 The boundary accepts a new request when empty or when the current intent is
 being consumed. A simultaneous consume and accept replaces the pending request.
@@ -170,7 +175,8 @@ Backend fanout follows `FlushControl::flushBackend`: SIMT replay, MTC replay,
 and base-on-PE requests target one PE; scalar/global cleanup targets all PEs.
 LSU, STQ, tile-register, and tile-bridge cleanup consume the same selected
 `FlushBus`. `STQFlushPrune` is the first concrete STQ consumer of this intent:
-it emits free masks for valid `STQ_WAIT` entries. `STQEntryBank` now consumes
+it emits free masks for valid `STQ_WAIT` entries and requires full-LSID
+authority for non-BID memory-row comparison. `STQEntryBank` now consumes
 those masks for row-state cleanup, while store-commit queue, SCB/MDB,
 forwarding, and data-array side effects remain owned by future LSU modules.
 

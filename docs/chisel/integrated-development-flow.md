@@ -15,6 +15,35 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R671 promotes full LSID through the central recovery transport
+and scalar-redirect STQ recovery. Ring and
+full-BID recovery requests carry `lsIdFullValid` plus the parameterized value;
+producer retention, source arbitration, class merge, full-BID bridges, and the
+registered cleanup intent preserve it. Scalar redirect recovery captures the
+execute row's full all-row snapshot. `STQFlushPrune` uses modular full-LSID
+order for non-BID cleanup and refuses missing or half-range-ambiguous
+authority. A 40-bit LSID / 8-entry ROB / 16-row STQ composed elaboration proves
+independent sizing. Sources that have not yet promoted their load/MDB payload
+leave full-LSID authority clear and are surfaced by a missing-authority mask;
+they never authorize STQ pruning through the projection. Unconverted LIQ,
+ResolveQ, snapshot, and load-return consumers retain an explicitly named
+projection-only matcher for their own legacy row cleanup; placeholder full
+LSID values never enter the authoritative matcher. Load forwarding/replay/MDB
+and load-return payloads remain the next projection-removal packets. This work
+adds no ARM exception class, barrier, exclusive monitor, acquire/release, or
+exception-level behavior.
+
+The final Chisel regression passes 266 suites and 1,597 tests. Generated RTL
+proves 40-bit scalar redirect capture, blocked publication, publish-once
+retention, matched cleanup sidecars, and consume-and-replace without
+truncation. Missing and ambiguous STQ recovery authority have explicit row
+masks rather than a projected fallback. The generated-RTL CoreMark cross-check
+compares 1,467 architectural rows with zero mismatches in
+`generated/r671-full-lsid-recovery-coremark/report/crosscheck_manifest.json`.
+Sideband evidence records 136 valid MDB conflict-store observations and no
+load lookup with an eligible resident store, so focused recovery/STQ tests
+remain the mechanism proof for this packet.
+
 Latest packet: R670 promotes the scalar store-retirement path from a
 ROBID-shaped LSID projection to the full `CoreParams.lsidWidth` domain. The
 canonical value now crosses store dispatch, STQ split merge and residency,
@@ -37,9 +66,9 @@ full-width early-safe comparison drains ready stores sooner than the aliased
 projection, so this workload no longer naturally activates resident-store
 forwarding; focused forwarding and STQ tests remain the mechanism proof.
 
-R670 intentionally leaves the compressed projection beside the canonical STQ
-field for typed recovery and the load forwarding/replay/MDB graph. Those paths
-remain the next implementation packets. No ARM exclusive monitor, barrier,
+R670 intentionally left the compressed projection beside the canonical STQ
+field for typed recovery and the load forwarding/replay/MDB graph. R671 closes
+the typed store-recovery portion; load-side paths remain. No ARM exclusive monitor, barrier,
 condition-code, exception-level, or acquire/release behavior was imported.
 
 Latest packet: R669 separates physical scalar-store capacities from ROB

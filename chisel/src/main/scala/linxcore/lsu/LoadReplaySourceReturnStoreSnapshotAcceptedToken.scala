@@ -114,12 +114,14 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     entry.bid := tokenBidReg
     entry.gid := tokenGidReg
     entry.lsId := tokenLoadLsIdReg
+    entry.lsIdFull := 0.U
     entry
   }
 
   val baseActive = io.enable && !io.flush
   val precisePruneActive = baseActive && io.preciseFlush.req.valid
-  val precisePruned = precisePruneActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry)
+  val precisePruned = precisePruneActive &&
+    STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry)
   val active = baseActive && !precisePruneActive
   val tokenCanAccept = active && !tokenValidReg
   val captureCandidate = active && io.queryIssued

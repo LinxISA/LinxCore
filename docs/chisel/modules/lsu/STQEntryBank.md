@@ -77,7 +77,8 @@ request type from executed store-dispatch queue heads.
 | `commitFreeAccepted/commitFreeIgnored` | committed-row free command result. |
 | `commitFreeAcceptedMask/commitFreeIgnoredMask/commitFreeCount` | Multi-row committed-free result. Accepted bits clear committed rows; ignored bits name requested rows that were not committed or were blocked by recovery. |
 | `flushApplied` | At least one `STQ_WAIT` row was freed by recovery. |
-| `flushMatchMask/flushFreeMask/flushStatusBlockedMask/flushFreeCount` | Internal `STQFlushPrune` diagnostics. |
+| `flushMatchMask/flushFreeMask/flushStatusBlockedMask/flushFreeCount` | Internal `STQFlushPrune` coverage and mutation diagnostics. |
+| `flushFullLsIdRequiredMask/flushFullLsIdMissingMask/flushFullLsIdAmbiguousMask` | Full-LSID recovery authority diagnostics propagated from `STQFlushPrune`. |
 | `lsuTULinkSource` | Exact non-base T/U cleanup source candidate selected from STQ rows by `(bid,rid,stid)`. |
 | `lsuTULinkSourceMatched` | At least one STQ row matched the non-base cleanup source key. |
 | `lsuTULinkSourceMultipleMatch` | More than one row matched the same source key; this is diagnostic evidence. |
@@ -207,6 +208,8 @@ source suppression, PC sidecar preservation through merge, and Chisel
 elaboration with the `STQFlushPrune` child.
 
 R670 stores `lsIdFull` in every resident row and uses exact full-width equality
-when complementary STA/STD halves merge. The legacy `lsId` projection remains
+when complementary STA/STD halves merge. R671 also supplies that field to the
+internal `STQFlushPrune`, which consumes only authoritative full LSID for
+non-BID recovery age. The legacy `lsId` projection remains
 only for typed flush pruning and forwarding/replay consumers that have not yet
 been promoted. Tests exercise a 40-bit LSID beside 3-bit ROB identity.

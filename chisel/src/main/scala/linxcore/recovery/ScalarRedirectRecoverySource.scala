@@ -11,7 +11,8 @@ class ScalarRedirectRecoveryEvent(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val orderWidth: Int = 64)
+    val orderWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val blockBidValid = Bool()
@@ -19,6 +20,7 @@ class ScalarRedirectRecoveryEvent(
   val bid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFull = UInt(lsidWidth.W)
   val resolveLsIdValid = Bool()
   val stid = UInt(stidWidth.W)
   val peId = UInt(peIdWidth.W)
@@ -33,7 +35,8 @@ class ScalarRedirectRecoverySourceIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val orderWidth: Int = 64)
+    val orderWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val event = Input(new ScalarRedirectRecoveryEvent(
     entries,
@@ -41,11 +44,13 @@ class ScalarRedirectRecoverySourceIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    orderWidth
+    orderWidth,
+    lsidWidth
   ))
   val eventReady = Output(Bool())
   val eventAccepted = Output(Bool())
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val sourceResolved = Input(Bool())
@@ -58,6 +63,7 @@ class ScalarRedirectRecoverySourceIO(
   val cleanupOrder = Output(UInt(orderWidth.W))
   val cleanupResolveLsIdValid = Output(Bool())
   val cleanupLsId = Output(new ROBID(entries))
+  val cleanupLsIdFull = Output(UInt(lsidWidth.W))
 }
 
 /** Retains one scalar execute/marker redirect until central cleanup consumes it.
@@ -71,7 +77,8 @@ class ScalarRedirectRecoverySource(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val orderWidth: Int = 64)
+    val orderWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Module {
   require(orderWidth > 0, "scalar redirect recovery order width must be positive")
 
@@ -81,7 +88,8 @@ class ScalarRedirectRecoverySource(
     peIdWidth,
     stidWidth,
     tidWidth,
-    orderWidth
+    orderWidth,
+    lsidWidth
   ))
 
   val retained = RegInit(0.U.asTypeOf(new ScalarRedirectRecoveryEvent(
@@ -90,7 +98,8 @@ class ScalarRedirectRecoverySource(
     peIdWidth,
     stidWidth,
     tidWidth,
-    orderWidth
+    orderWidth,
+    lsidWidth
   )))
   val pending = RegInit(false.B)
   val published = RegInit(false.B)
@@ -103,7 +112,8 @@ class ScalarRedirectRecoverySource(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   )))
   val projectedBid = FullBidRecoveryBridge.fullBidToRobId(
     retained.blockBid,
@@ -120,6 +130,8 @@ class ScalarRedirectRecoverySource(
   source.gid := ROBID.disabled(entries)
   source.rid := ROBID.inc(retained.rid)
   source.lsId := retained.lsId
+  source.lsIdFullValid := retained.resolveLsIdValid
+  source.lsIdFull := retained.lsIdFull
   source.stid := retained.stid
   source.peId := retained.peId
   source.tid := retained.tid
@@ -152,4 +164,5 @@ class ScalarRedirectRecoverySource(
   io.cleanupOrder := retained.order
   io.cleanupResolveLsIdValid := pending && retained.resolveLsIdValid && io.payloadIntentConsumed
   io.cleanupLsId := retained.lsId
+  io.cleanupLsIdFull := retained.lsIdFull
 }

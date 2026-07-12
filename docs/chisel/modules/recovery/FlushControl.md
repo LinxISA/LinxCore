@@ -45,7 +45,9 @@ backend, ROB, LSU/STQ, tile, PE fanout, and frontend restart intent bits.
 | `bid` | `ROBID` | Block ROB identity. |
 | `gid` | `ROBID` | Group identity for vector/MTC paths. |
 | `rid` | `ROBID` | Micro-instruction ROB identity. |
-| `lsId` | `ROBID` | Load/store sub-identity used by non-BID flush checks. |
+| `lsId` | `ROBID` | Transitional load-side lookup projection; not store-recovery age authority. |
+| `lsIdFullValid` | `Bool` | Request carries authoritative full LSID for a memory-row consumer. |
+| `lsIdFull` | `UInt(lsidWidth.W)` | Canonical per-STID memory-order identity retained through recovery. |
 | `execEngine` | `ExecEngineType` | Scalar, SIMT, MEM, or IEX_NUM-or-higher. |
 | `fetchTpcValid` | `Bool` | PE replay without this bit becomes BID-based. |
 | `fetchTpc` | `UInt(64.W)` | Exact non-block-based recovery restart target. |
@@ -115,6 +117,10 @@ priority tree:
 `ROBID` representation by taking the low slot bits as `value` and the low
 uniqueness bit as `wrap`. This helper is also used by
 `DispatchROBAllocator`, so allocation and recovery share the same BID split.
+The bridge copies `lsIdFullValid/lsIdFull` without truncation. Recovery source
+selection still compares BID/RID and typed priority; it does not reinterpret
+LSID as block age. R671's STQ consumer uses the full field only after scope and
+flush-type classification.
 
 `RecoveryCleanupControl` follows the model `select` fanout after a request has
 won arbitration: global flush drives BCTRL/rename flush plus frontend restart;

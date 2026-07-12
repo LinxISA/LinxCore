@@ -900,7 +900,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
   }
 
   test("IO keeps scalar STQ capacity independent of ROB identity sizing") {
-    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2, lsidWidth = 40)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
     val io = new DecodeRenameROBPathIO(p, trace, storeStqEntries = 16)
 
@@ -910,13 +910,21 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.storeStqInsertIndex.getWidth == 4)
     assert(io.storeStqRows.length == 16)
     assert(io.storeStqRows.head.bid.value.getWidth == 3)
+    assert(io.storeStqRows.head.lsIdFull.getWidth == 40)
     assert(io.storeStqInsert.bid.value.getWidth == 3)
+    assert(io.storeStqInsert.lsIdFull.getWidth == 40)
+    assert(io.recoveryNonLsuSources.head.lsId.value.getWidth == 3)
+    assert(io.recoveryNonLsuSources.head.lsIdFull.getWidth == 40)
+    assert(io.recoveryIntent.flush.req.lsIdFull.getWidth == 40)
     assert(io.storeStqOccupiedMask.getWidth == 16)
     assert(io.storeStqResidentCount.getWidth == 5)
+    assert(io.storeStqFlushFullLsIdRequiredMask.getWidth == 16)
+    assert(io.storeStqFlushFullLsIdMissingMask.getWidth == 16)
+    assert(io.storeStqFlushFullLsIdAmbiguousMask.getWidth == 16)
   }
 
   test("DecodeRenameROBPath elaborates unequal scalar STQ and ROB capacities") {
-    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2, lsidWidth = 40)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
     val sv = ChiselStage.emitSystemVerilog(
       new DecodeRenameROBPath(
@@ -931,6 +939,9 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_storeMarkCommitIndex"))
     assert(sv.contains("io_storeCommitFreeMask"))
     assert(sv.contains("io_storeStqRows_15_bid_value"))
+    assert(sv.contains("io_storeStqRows_15_lsIdFull"))
+    assert(sv.contains("io_recoveryIntent_flush_req_lsIdFull"))
+    assert(sv.contains("io_storeStqFlushFullLsIdMissingMask"))
   }
 
   test("DecodeRenameROBPath elaborates frontend decode through rename and DispatchROBAllocator") {

@@ -27,6 +27,26 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(core.scalarLsu.mdbRecoveryQueueEntries == 8)
   }
 
+  test("scalar load recovery interfaces preserve a non-default full LSID width") {
+    val lsu = ScalarLsuParams(
+      stqEntries = 8,
+      commitQueueEntries = 4,
+      commitIssueWidth = 1,
+      scbEntries = 4,
+      liqEntries = 4,
+      resolveQueueEntries = 8,
+      loadReturnQueueEntries = 2,
+      mapQDepth = 8
+    )
+    val core = CoreParams(robEntries = 8, lsidWidth = 40, scalarLsu = lsu)
+    val io = new ScalarLSULoadPathIO(core, lsu)
+    val recovery = new ScalarLSULoadPathRecoveryIO(core, lsu)
+
+    assert(io.preciseFlush.req.lsIdFull.getWidth == 40)
+    assert(io.mdbConflictFlush.req.lsIdFull.getWidth == 40)
+    assert(recovery.flush.req.lsIdFull.getWidth == 40)
+  }
+
   test("ScalarLSULoadPath elaborates LIQ-to-ResolveQ lifecycle ownership") {
     val lsu = ScalarLsuParams(
       stqEntries = 8,

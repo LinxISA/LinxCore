@@ -43,7 +43,8 @@ class LoadResolveQueueEntry(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val peId = UInt(peIdWidth.W)
@@ -62,12 +63,13 @@ class LoadResolveQueueIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(queueEntries + 1)
 
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val flushPruneMask = Output(UInt(queueEntries.W))
   val flushPruneCount = Output(UInt(countWidth.W))
 
@@ -122,7 +124,8 @@ class LoadResolveQueue(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(queueEntries > 1, "LoadResolveQueue needs at least two entries")
   require((queueEntries & (queueEntries - 1)) == 0, "LoadResolveQueue entries must be a power of two")
@@ -144,7 +147,8 @@ class LoadResolveQueue(
     stidWidth,
     tidWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   ))
 
   private def zeroEntry: LoadResolveQueueEntry = {

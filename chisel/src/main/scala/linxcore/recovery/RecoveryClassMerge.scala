@@ -18,12 +18,13 @@ class RecoveryClassMergeIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sourceCount: Int = 1)
+    val sourceCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
   private val peIndexWidth = math.max(1, log2Ceil(peCount))
 
-  val in = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val in = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val inProvenance = Input(new RecoveryProvenance(sourceCount))
   val inReady = Output(Bool())
   val inAccepted = Output(Bool())
@@ -37,7 +38,7 @@ class RecoveryClassMergeIO(
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
 
-  val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val outProvenance = Output(new RecoveryProvenance(sourceCount))
   val outReady = Input(Bool())
   val outAccepted = Output(Bool())
@@ -68,7 +69,8 @@ class RecoveryClassMerge(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sourceCount: Int = 1)
+    val sourceCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Module {
   require(stidCount > 0, "recovery class merge must expose at least one STID")
   require(peCount > 0, "recovery class merge must expose at least one PE")
@@ -78,7 +80,8 @@ class RecoveryClassMerge(
   private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
   private val peIndexWidth = math.max(1, log2Ceil(peCount))
   private val laneSumWidth = math.max(2, log2Ceil(stidCount * 2))
-  private def requestType = new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)
+  private def requestType = new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)
 
   val io = IO(new RecoveryClassMergeIO(
     stidCount,
@@ -88,11 +91,12 @@ class RecoveryClassMerge(
     peIdWidth,
     stidWidth,
     tidWidth,
-    sourceCount
+    sourceCount,
+    lsidWidth
   ))
 
   private def annotateFull(req: FullBidFlushReq): FlushBus = {
-    val ringReq = Wire(new FlushReq(entries, peIdWidth, stidWidth, tidWidth))
+    val ringReq = Wire(new FlushReq(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
     ringReq := 0.U.asTypeOf(ringReq)
     ringReq.valid := req.valid
     ringReq.typ := req.typ
@@ -103,6 +107,8 @@ class RecoveryClassMerge(
     ringReq.gid := req.gid
     ringReq.rid := req.rid
     ringReq.lsId := req.lsId
+    ringReq.lsIdFullValid := req.lsIdFullValid
+    ringReq.lsIdFull := req.lsIdFull
     ringReq.execEngine := req.execEngine
     ringReq.fetchTpcValid := req.fetchTpcValid
     ringReq.fetchTpc := req.fetchTpc
@@ -149,9 +155,12 @@ class RecoveryClassMerge(
   )))
   val nextStid = RegInit(0.U(stidIndexWidth.W))
 
-  val flushBus = Wire(Vec(stidCount, new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
-  val replayBus = Wire(Vec(stidCount, new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
-  val peBus = Wire(Vec(stidCount, Vec(peCount, new FlushBus(entries, peIdWidth, stidWidth, tidWidth))))
+  val flushBus = Wire(Vec(stidCount, new FlushBus(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth)))
+  val replayBus = Wire(Vec(stidCount, new FlushBus(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth)))
+  val peBus = Wire(Vec(stidCount, Vec(peCount, new FlushBus(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth))))
   for (lane <- 0 until stidCount) {
     flushBus(lane) := annotateFull(globalFlush(lane))
     replayBus(lane) := annotateFull(globalReplay(lane))

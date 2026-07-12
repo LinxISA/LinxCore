@@ -26,7 +26,10 @@ object STQFlushPruneReference {
       baseOnBid: Boolean = false,
       baseOnGroup: Boolean = false,
       baseOnPE: Boolean = false,
-      baseOnThread: Boolean = false)
+      baseOnThread: Boolean = false,
+      fullLsIdValid: Boolean = true,
+      fullLsId: Option[BigInt] = None,
+      lsidWidth: Int = 32)
 
   final case class Row(
       valid: Boolean = true,
@@ -36,7 +39,8 @@ object STQFlushPruneReference {
       tid: Int = 0,
       bid: Id = Id(),
       gid: Id = Id(),
-      lsId: Id = Id())
+      lsId: Id = Id(),
+      fullLsId: Option[BigInt] = None)
 
   final case class Result(matchMask: Int, freeMask: Int, statusBlockedMask: Int, freeCount: Int)
 
@@ -53,6 +57,18 @@ object STQFlushPruneReference {
     less(srcBid, dstBid) ||
       (srcBid == dstBid &&
         (less(srcGid, dstGid) || (srcGid == dstGid && lessEqual(srcLsId, dstLsId))))
+
+  def lessFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    val distance = (rhs - lhs) & mask
+    lhs != rhs && distance < (BigInt(1) << (width - 1))
+  }
+
+  def lessEqualFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean =
+    lhs == rhs || lessFull(lhs, rhs, width)
+
+  private def flushLsId(flush: Flush): BigInt = flush.fullLsId.getOrElse(BigInt(flush.lsId.value))
+  private def rowLsId(row: Row): BigInt = row.fullLsId.getOrElse(BigInt(row.lsId.value))
 
   def matches(flush: Flush, row: Row): Boolean = {
     if (!flush.valid || !row.valid) {
@@ -72,9 +88,15 @@ object STQFlushPruneReference {
     }
     if (flush.baseOnGroup) {
       return lessEqual(flush.bid, row.bid) ||
-        lessEqualBidGroupLs(flush.bid, flush.gid, flush.lsId, row.bid, row.gid, row.lsId)
+        (flush.fullLsIdValid && (less(flush.bid, row.bid) ||
+          (flush.bid == row.bid &&
+            (less(flush.gid, row.gid) ||
+              (flush.gid == row.gid && lessEqualFull(
+                flushLsId(flush), rowLsId(row), flush.lsidWidth))))))
     }
-    lessEqualBidLs(flush.bid, flush.lsId, row.bid, row.lsId)
+    flush.fullLsIdValid &&
+      (less(flush.bid, row.bid) ||
+        (flush.bid == row.bid && lessEqualFull(flushLsId(flush), rowLsId(row), flush.lsidWidth)))
   }
 
   def prune(flush: Flush, rows: Seq[Row]): Result = {
@@ -196,13 +218,65 @@ class STQFlushPruneSpec extends AnyFunSuite {
     assert(result.freeCount == 0)
   }
 
+  test("full LSID recovery preserves high bits and modular wrap semantics") {
+    val width = 40
+    val wrapped = prune(
+      Flush(
+        bid = Id(value = 2),
+        lsId = Id(value = 6),
+        fullLsId = Some((BigInt(1) << width) - 2),
+        lsidWidth = width),
+      Seq(row(bid = 2, lsId = 1).copy(fullLsId = Some(1))))
+    val highBitOlderRow = prune(
+      Flush(
+        bid = Id(value = 2),
+        lsId = Id(value = 1),
+        fullLsId = Some(BigInt("200000001", 16)),
+        lsidWidth = width),
+      Seq(row(bid = 2, lsId = 1).copy(fullLsId = Some(BigInt("100000001", 16)))))
+
+    assert(wrapped.freeMask == 1)
+    assert(highBitOlderRow.freeMask == 0)
+  }
+
+  test("non-BID store recovery blocks missing and half-range full LSID authority") {
+    val width = 40
+    val rowImage = Seq(row(bid = 2, lsId = 1).copy(fullLsId = Some(BigInt(1) << (width - 1))))
+    val missing = prune(
+      Flush(bid = Id(value = 2), lsId = Id(value = 0), fullLsIdValid = false, lsidWidth = width),
+      rowImage)
+    val ambiguous = prune(
+      Flush(bid = Id(value = 2), lsId = Id(value = 0), fullLsId = Some(0), lsidWidth = width),
+      rowImage)
+
+    assert(missing.freeMask == 0)
+    assert(ambiguous.freeMask == 0)
+  }
+
+  test("STQ recovery widths keep physical rows ROB identity and full LSID independent") {
+    val io = new STQFlushPruneIO(entries = 16, robEntries = 8, lsidWidth = 40)
+
+    assert(io.rows.length == 16)
+    assert(io.rows.head.bid.value.getWidth == 3)
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.flush.req.lsId.value.getWidth == 3)
+    assert(io.flush.req.lsIdFull.getWidth == 40)
+    assert(io.fullLsIdRequiredMask.getWidth == 16)
+    assert(io.fullLsIdMissingMask.getWidth == 16)
+    assert(io.fullLsIdAmbiguousMask.getWidth == 16)
+  }
+
   test("Chisel STQFlushPrune elaborates with model-derived masks and counts") {
-    val sv = ChiselStage.emitSystemVerilog(new STQFlushPrune(entries = 8))
+    val sv = ChiselStage.emitSystemVerilog(new STQFlushPrune(
+      entries = 16, robEntries = 8, lsidWidth = 40))
 
     assert(sv.contains("module STQFlushPrune"))
     assert(sv.contains("io_matchMask"))
     assert(sv.contains("io_freeMask"))
     assert(sv.contains("io_statusBlockedMask"))
     assert(sv.contains("io_freeCount"))
+    assert(sv.contains("io_flush_req_lsIdFull"))
+    assert(sv.contains("io_fullLsIdMissingMask"))
+    assert(sv.contains("io_fullLsIdAmbiguousMask"))
   }
 }

@@ -16,9 +16,10 @@ class ScalarLSURecoverySourceIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val ringReqReady = Output(Bool())
   val oldestValid = Input(Bool())
   val oldestBid = Input(new ROBID(entries))
@@ -31,7 +32,8 @@ class ScalarLSURecoverySourceIO(
     stidWidth,
     tidWidth
   ))
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val eligible = Output(Bool())
@@ -54,18 +56,22 @@ class ScalarLSURecoverySource(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   val io = IO(new ScalarLSURecoverySourceIO(
     entries,
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
-  val eligibility = Module(new RecoveryEligibilityControl(entries, peIdWidth, stidWidth, tidWidth))
-  val promotion = Module(new RingFullBidRecoveryBridge(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val eligibility = Module(new RecoveryEligibilityControl(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val promotion = Module(new RingFullBidRecoveryBridge(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   eligibility.io.request := io.ringReq
   eligibility.io.oldestValid := io.oldestValid

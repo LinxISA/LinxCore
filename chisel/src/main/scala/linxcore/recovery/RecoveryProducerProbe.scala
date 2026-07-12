@@ -114,6 +114,8 @@ class RecoveryProducerProbe extends Module {
   producers.io.iexSlow.gid := id(0.U)
   producers.io.iexSlow.rid := id(1.U)
   producers.io.iexSlow.lsId := id(1.U)
+  producers.io.iexSlow.lsIdFullValid := true.B
+  producers.io.iexSlow.lsIdFull := 1.U
   producers.io.iexSlow.stid := io.slowStid
   producers.io.iexSlow.peId := 0.U
   producers.io.iexSlow.tid := 0.U
@@ -126,6 +128,8 @@ class RecoveryProducerProbe extends Module {
   producers.io.peMismatch.gid := id(0.U)
   producers.io.peMismatch.rid := id(2.U)
   producers.io.peMismatch.lsId := id(2.U)
+  producers.io.peMismatch.lsIdFullValid := true.B
+  producers.io.peMismatch.lsIdFull := 2.U
   producers.io.peMismatch.stid := io.peStid
   producers.io.peMismatch.peId := io.peId
   producers.io.peMismatch.tid := 0.U

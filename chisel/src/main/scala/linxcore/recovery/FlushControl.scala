@@ -13,7 +13,12 @@ object ExecEngineType extends ChiselEnum {
   val Scalar, Simt, Mem, IexNumOrHigher = Value
 }
 
-class FlushReq(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8, val tidWidth: Int = 8)
+class FlushReq(
+    val entries: Int,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val typ = FlushType()
@@ -24,15 +29,22 @@ class FlushReq(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8,
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val execEngine = ExecEngineType()
   val fetchTpcValid = Bool()
   val fetchTpc = UInt(64.W)
   val immediateFlush = Bool()
 }
 
-class FlushBus(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8, val tidWidth: Int = 8)
+class FlushBus(
+    val entries: Int,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val req = new FlushReq(entries, peIdWidth, stidWidth, tidWidth)
+  val req = new FlushReq(entries, peIdWidth, stidWidth, tidWidth, lsidWidth)
   val baseOnBid = Bool()
   val baseOnGroup = Bool()
   val baseOnPE = Bool()
@@ -46,7 +58,8 @@ class FullBidFlushReq(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val typ = FlushType()
@@ -57,6 +70,8 @@ class FullBidFlushReq(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val execEngine = ExecEngineType()
   val fetchTpcValid = Bool()
   val fetchTpc = UInt(64.W)
@@ -68,10 +83,11 @@ class FullBidRecoveryBridgeIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val blockFlushValid = Output(Bool())
   val blockFlushBid = Output(UInt(bidWidth.W))
   val robBid = Output(new ROBID(entries))
@@ -97,11 +113,12 @@ class FullBidRecoveryBridge(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
-  val io = IO(new FullBidRecoveryBridgeIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val io = IO(new FullBidRecoveryBridgeIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
-  val robReq = Wire(new FlushReq(entries, peIdWidth, stidWidth, tidWidth))
+  val robReq = Wire(new FlushReq(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   robReq := 0.U.asTypeOf(robReq)
   robReq.valid := io.req.valid
   robReq.typ := io.req.typ
@@ -112,6 +129,8 @@ class FullBidRecoveryBridge(
   robReq.gid := io.req.gid
   robReq.rid := io.req.rid
   robReq.lsId := io.req.lsId
+  robReq.lsIdFullValid := io.req.lsIdFullValid
+  robReq.lsIdFull := io.req.lsIdFull
   robReq.execEngine := io.req.execEngine
   robReq.fetchTpcValid := io.req.fetchTpcValid
   robReq.fetchTpc := io.req.fetchTpc
@@ -155,7 +174,7 @@ object FlushControl {
     req.execEngine === ExecEngineType.Mem
 
   def annotate(req: FlushReq): FlushBus = {
-    val out = Wire(new FlushBus(req.entries, req.peIdWidth, req.stidWidth, req.tidWidth))
+    val out = Wire(new FlushBus(req.entries, req.peIdWidth, req.stidWidth, req.tidWidth, req.lsidWidth))
     out.req := req
     out.baseOnBid := isBaseOnBid(req)
     out.baseOnGroup := isBasedOnGroup(req)

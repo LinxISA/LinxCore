@@ -148,13 +148,14 @@ class LoadInflightQueueIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
 
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val flushPruneMask = Output(UInt(liqEntries.W))
   val flushPruneCount = Output(UInt(countWidth.W))
 
@@ -306,7 +307,8 @@ class LoadInflightQueue(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -336,7 +338,8 @@ class LoadInflightQueue(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =

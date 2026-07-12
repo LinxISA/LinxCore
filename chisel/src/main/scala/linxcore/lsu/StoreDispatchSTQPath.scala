@@ -26,7 +26,8 @@ class StoreDispatchSTQPathIO(
   private val identityEntries = p.robEntries
   private val sourceParams = p
 
-  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
+  val flush = Input(new FlushBus(
+    identityEntries, peIdWidth, stidWidth, tidWidth, p.lsidWidth))
   val addressInsertPermit = Input(Bool())
   val queueFlushValid = Input(Bool())
 
@@ -106,6 +107,9 @@ class StoreDispatchSTQPathIO(
   val stqFlushMatchMask = Output(UInt(entries.W))
   val stqFlushFreeMask = Output(UInt(entries.W))
   val stqFlushStatusBlockedMask = Output(UInt(entries.W))
+  val stqFlushFullLsIdRequiredMask = Output(UInt(entries.W))
+  val stqFlushFullLsIdMissingMask = Output(UInt(entries.W))
+  val stqFlushFullLsIdAmbiguousMask = Output(UInt(entries.W))
   val stqFlushFreeCount = Output(UInt(stqCountWidth.W))
   val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
   val lsuTULinkSourceMatched = Output(Bool())
@@ -263,6 +267,9 @@ class StoreDispatchSTQPath(
   io.stqFlushMatchMask := stq.io.flushMatchMask
   io.stqFlushFreeMask := stq.io.flushFreeMask
   io.stqFlushStatusBlockedMask := stq.io.flushStatusBlockedMask
+  io.stqFlushFullLsIdRequiredMask := stq.io.flushFullLsIdRequiredMask
+  io.stqFlushFullLsIdMissingMask := stq.io.flushFullLsIdMissingMask
+  io.stqFlushFullLsIdAmbiguousMask := stq.io.flushFullLsIdAmbiguousMask
   io.stqFlushFreeCount := stq.io.flushFreeCount
   io.lsuTULinkSource := stq.io.lsuTULinkSource
   io.lsuTULinkSourceMatched := stq.io.lsuTULinkSourceMatched

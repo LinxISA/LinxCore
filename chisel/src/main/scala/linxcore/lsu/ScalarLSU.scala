@@ -13,7 +13,8 @@ class ScalarLSURecoverySourcePortIO(val coreParams: CoreParams, val p: ScalarLsu
     BID.DefaultWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
   val sourceReady = Input(Bool())
   val oldestValid = Input(Vec(p.stidCount, Bool()))
@@ -62,7 +63,8 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
     BID.DefaultWidth,
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
-    lsuParams.tidWidth
+    lsuParams.tidWidth,
+    coreParams.lsidWidth
   ))
   storeCommitPath.io <> io.store
   loadPath.io <> io.load

@@ -9,12 +9,13 @@ class RecoveryCleanupIntent(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val blockBidWidth = BID.slotBits(entries)
 
   val valid = Bool()
-  val flush = new FlushBus(entries, peIdWidth, stidWidth, tidWidth)
+  val flush = new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth)
   val blockFlushValid = Bool()
   val blockFlushBid = UInt(blockBidWidth.W)
   val blockFlushPointerValid = Bool()
@@ -50,15 +51,16 @@ class RecoveryCleanupControlIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sourceCount: Int = 1)
+    val sourceCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val reqProvenance = Input(new RecoveryProvenance(sourceCount))
   val reqReady = Output(Bool())
-  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val ringReqReady = Output(Bool())
   val intentReady = Input(Bool())
-  val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val pending = Output(Bool())
   val accepted = Output(Bool())
   val fullAccepted = Output(Bool())
@@ -75,7 +77,8 @@ class RecoveryCleanupControl(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sourceCount: Int = 1)
+    val sourceCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Module {
   val io = IO(new RecoveryCleanupControlIO(
     entries,
@@ -83,11 +86,14 @@ class RecoveryCleanupControl(
     peIdWidth,
     stidWidth,
     tidWidth,
-    sourceCount
+    sourceCount,
+    lsidWidth
   ))
 
-  val pendingReq = RegInit(0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
-  val pendingRingReq = RegInit(0.U.asTypeOf(new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
+  val pendingReq = RegInit(0.U.asTypeOf(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
+  val pendingRingReq = RegInit(0.U.asTypeOf(new FlushBus(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   val pendingIsRing = RegInit(false.B)
   val pendingValid = RegInit(false.B)
   val pendingProvenance = RegInit(0.U.asTypeOf(new RecoveryProvenance(sourceCount)))
@@ -122,14 +128,16 @@ class RecoveryCleanupControl(
     pendingValid := false.B
   }
 
-  val bridgeReq = Wire(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val bridgeReq = Wire(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   bridgeReq := pendingReq
   bridgeReq.valid := pendingValid && !pendingIsRing
 
-  val bridge = Module(new FullBidRecoveryBridge(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val bridge = Module(new FullBidRecoveryBridge(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   bridge.io.req := bridgeReq
 
-  val activeFlush = Wire(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val activeFlush = Wire(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   activeFlush := bridge.io.robFlush
   when(pendingIsRing) {
     activeFlush := pendingRingReq

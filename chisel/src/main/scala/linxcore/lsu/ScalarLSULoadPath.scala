@@ -94,7 +94,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     coreParams.robEntries,
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
-    lsuParams.tidWidth
+    lsuParams.tidWidth,
+    coreParams.lsidWidth
   ))
 
   val allocValid = Input(Bool())
@@ -247,7 +248,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     coreParams.robEntries,
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
-    lsuParams.tidWidth
+    lsuParams.tidWidth,
+    coreParams.lsidWidth
   ))
   val mdbRecordAccepted = Output(Bool())
   val mdbRecordProcessed = Output(Bool())
@@ -279,7 +281,12 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
 class ScalarLSULoadPathRecoveryIO(val coreParams: CoreParams, val p: ScalarLsuParams) extends Bundle {
   val ready = Input(Bool())
   val valid = Output(Bool())
-  val flush = Output(new FlushBus(coreParams.robEntries, p.peIdWidth, p.stidWidth, p.tidWidth))
+  val flush = Output(new FlushBus(
+    coreParams.robEntries,
+    p.peIdWidth,
+    p.stidWidth,
+    p.tidWidth,
+    coreParams.lsidWidth))
   val accepted = Output(Bool())
   val pending = Output(Bool())
 }
@@ -334,7 +341,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.tidWidth,
-    returnPipeCount = p.loadReturnPipeCount
+    returnPipeCount = p.loadReturnPipeCount,
+    lsidWidth = coreParams.lsidWidth
   ))
   val resolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.resolveQueueEntries,
@@ -346,7 +354,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     stidWidth = p.stidWidth,
     tidWidth = p.tidWidth,
     lineBytes = p.lineBytes,
-    sizeWidth = p.loadSizeWidth
+    sizeWidth = p.loadSizeWidth,
+    lsidWidth = coreParams.lsidWidth
   ))
   val mdbPath = Module(new ScalarLSUMDBPath(coreParams))
   val returnDataExtract = Module(new LoadReplayReturnDataExtract(
@@ -381,9 +390,11 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
-  val returnPipeline = Module(new ScalarLSULoadReturnPipeline(coreParams.robEntries, p))
+  val returnPipeline = Module(new ScalarLSULoadReturnPipeline(
+    coreParams.robEntries, p, coreParams.lsidWidth))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
   private val returnLaneCount = p.stidCount * p.loadReturnPipeCount

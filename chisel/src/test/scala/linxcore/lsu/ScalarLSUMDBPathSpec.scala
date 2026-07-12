@@ -88,6 +88,14 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(consumed == RecoveryState(pending = false, None))
   }
 
+  test("MDB recovery transport retains the configured full LSID width without claiming authority") {
+    val wideCore = core.copy(lsidWidth = 40)
+    val io = new ScalarLSUMDBPathIO(wideCore, lsu)
+
+    assert(io.conflictFlush.req.lsIdFull.getWidth == 40)
+    assert(io.recoveryFlush.req.lsIdFull.getWidth == 40)
+  }
+
   test("ScalarLSUMDBPath elaborates conflict, SSIT, failed-wait delete, wait-plan, and typed flush ownership") {
     val sv = ChiselStage.emitSystemVerilog(new ScalarLSUMDBPath(core))
 

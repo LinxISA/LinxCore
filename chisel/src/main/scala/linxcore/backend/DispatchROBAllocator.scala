@@ -44,7 +44,7 @@ class DispatchROBAllocatorIO(
   private val blockBidWidth = BID.slotBits(entries)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val flush = Input(new FlushBus(entries))
+  val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val allocValid = Input(Bool())
   val allocUsesExistingBlock = Input(Bool())

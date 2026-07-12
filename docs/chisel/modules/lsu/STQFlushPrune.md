@@ -47,7 +47,8 @@ module's `freeMask`.
 | `tid` | Thread owner used by thread-scoped recovery. |
 | `bid` | Store request block identity. |
 | `gid` | Store request group identity. |
-| `lsId` | Store request load/store sub-identity. |
+| `lsId` | Transitional ROBID-shaped lookup projection; never used for R671 store-prune age. |
+| `lsIdFull` | Canonical parameterized store memory-order identity. |
 
 ### Outputs
 
@@ -56,6 +57,9 @@ module's `freeMask`.
 | `matchMask` | `UInt(entries.W)` | Valid rows covered by `FlushBus::match`. |
 | `freeMask` | `UInt(entries.W)` | Matched rows in `Wait` state that the future STQ owner should free. |
 | `statusBlockedMask` | `UInt(entries.W)` | Matched rows preserved because their status is not `Wait`. |
+| `fullLsIdRequiredMask` | `UInt(entries.W)` | In-scope same-BID rows whose non-BID decision requires full LSID. |
+| `fullLsIdMissingMask` | `UInt(entries.W)` | Required rows blocked because the request lacks full-LSID authority. |
+| `fullLsIdAmbiguousMask` | `UInt(entries.W)` | Required rows blocked by exactly half-range serial separation. |
 | `freeCount` | `UInt(log2Ceil(entries + 1).W)` | Population count of `freeMask`. |
 
 ## State
@@ -72,9 +76,13 @@ forwarding, and data-array side effects.
 - `stid` must match;
 - PE and thread identity must match when the flush is PE- or thread-scoped;
 - `baseOnBid` compares only BID age;
-- `baseOnGroup` accepts same-or-younger BIDs first, then compares
-  `(bid, gid, lsId)`;
-- the default path compares `(bid, lsId)`.
+- `baseOnGroup` accepts same-or-younger BIDs first, then requires
+  `lsIdFullValid` for the `(bid, gid, full LSID)` tuple path;
+- the default path requires `lsIdFullValid` and compares
+  `(bid, full LSID)`;
+- full LSID uses `LSIDOrder` modulo serial arithmetic. Exactly half-range
+  separation is ambiguous and does not match;
+- missing full-LSID authority never falls back to the ROBID projection.
 
 The free decision then applies the STQ-specific model rule:
 
@@ -108,6 +116,8 @@ The masks are suitable for a future recovery trace event:
 - `freeMask` records the actual STQ rows to be freed.
 - `statusBlockedMask` records matched rows that remain because the model only
   frees `STQ_WAIT` entries.
+- the full-LSID diagnostic masks distinguish missing source promotion and
+  unreachable half-range contract violations from ordinary age non-matches.
 
 No architectural commit trace row is emitted by this module.
 
@@ -121,6 +131,8 @@ No architectural commit trace row is emitted by this module.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
-Focused tests cover base-on-BID freeing, default BID+LSID comparison, group
-comparison with the model BID fast path, STID/PE/thread scoping, invalid flush
-suppression, non-`Wait` status preservation, and Chisel elaboration.
+Focused tests cover base-on-BID freeing, full-width BID+LSID comparison,
+40-bit wrap and high-bit distinction, missing/half-range authority blocking,
+group comparison with the model BID fast path, STID/PE/thread scoping, invalid
+flush suppression, non-`Wait` status preservation, unequal width contracts,
+and Chisel elaboration.

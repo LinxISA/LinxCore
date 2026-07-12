@@ -57,15 +57,18 @@ class RecoveryNonLsuProducerBankIO(
     val bidWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   import RecoveryNonLsuProducerBank._
 
-  val bccMiss = Input(new BccMispredictRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val bccMiss = Input(new BccMispredictRecoveryEvent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val bccReady = Output(Bool())
   val bccAccepted = Output(Bool())
 
-  val iexSlow = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val iexSlow = Input(new IexRecoveryEvent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val iexSlowReady = Output(Bool())
   val iexSlowAccepted = Output(Bool())
 
@@ -81,12 +84,13 @@ class RecoveryNonLsuProducerBankIO(
   val iexIqBlockedByMissingIdentity = Output(Bool())
   val iexIqStallCount = Output(UInt(math.max(1, log2Ceil(stallThreshold + 1)).W))
 
-  val peMismatch = Input(new IexRecoveryEvent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val peMismatch = Input(new IexRecoveryEvent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val peMismatchReady = Output(Bool())
   val peMismatchAccepted = Output(Bool())
 
   val sources = Output(Vec(SourceCount,
-    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+    new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   val sourceReady = Input(Vec(SourceCount, Bool()))
   val sourceAccepted = Output(Vec(SourceCount, Bool()))
   val pendingMask = Output(UInt(SourceCount.W))
@@ -105,7 +109,8 @@ class RecoveryNonLsuProducerBank(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   import RecoveryNonLsuProducerBank._
 
@@ -116,17 +121,18 @@ class RecoveryNonLsuProducerBank(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val bcc = Module(new BccRecoverySource(
-    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val slow = Module(new IexSlowInsertRecoverySource(
-    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val stall = Module(new IexIqStallRecoverySource(
-    stallThreshold, queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    stallThreshold, queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val pe = Module(new PeMismatchRecoverySource(
-    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    queueEntries, entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   bcc.io.miss := io.bccMiss
   slow.io.event := io.iexSlow

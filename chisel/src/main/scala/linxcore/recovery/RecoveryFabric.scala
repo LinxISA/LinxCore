@@ -14,13 +14,15 @@ class RecoveryFabricIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val sourceIndexWidth = math.max(1, log2Ceil(sourceCount))
   private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
   private val peIndexWidth = math.max(1, log2Ceil(peCount))
 
-  val sources = Input(Vec(sourceCount, new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val sources = Input(Vec(sourceCount, new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   val sourceReady = Output(Vec(sourceCount, Bool()))
   val sourceAccepted = Output(Vec(sourceCount, Bool()))
   val sourceBlockedByStid = Output(Vec(sourceCount, Bool()))
@@ -30,7 +32,8 @@ class RecoveryFabricIO(
   val oldestBlockComplete = Input(Vec(stidCount, Bool()))
 
   val intentReady = Input(Bool())
-  val intent = Output(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val intent = Output(new RecoveryCleanupIntent(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val intentAccepted = Output(Bool())
   val intentConsumed = Output(Bool())
   val intentProvenance = Output(new RecoveryProvenance(sourceCount))
@@ -70,7 +73,8 @@ class RecoveryFabric(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   val io = IO(new RecoveryFabricIO(
     sourceCount,
@@ -80,7 +84,8 @@ class RecoveryFabric(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val sourceArbiter = Module(new RecoverySourceArbiter(
@@ -90,7 +95,8 @@ class RecoveryFabric(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val classMerge = Module(new RecoveryClassMerge(
     stidCount = stidCount,
@@ -100,7 +106,8 @@ class RecoveryFabric(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    sourceCount = sourceCount
+    sourceCount = sourceCount,
+    lsidWidth = lsidWidth
   ))
   val cleanup = Module(new RecoveryCleanupControl(
     entries = entries,
@@ -108,7 +115,8 @@ class RecoveryFabric(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    sourceCount = sourceCount
+    sourceCount = sourceCount,
+    lsidWidth = lsidWidth
   ))
 
   val filteredSources = Wire(chiselTypeOf(io.sources))

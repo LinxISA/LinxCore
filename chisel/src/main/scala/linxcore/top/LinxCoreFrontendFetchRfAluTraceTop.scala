@@ -2668,7 +2668,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    orderWidth = p.uopUidWidth
+    orderWidth = p.uopUidWidth,
+    lsidWidth = p.lsidWidth
   ))
   scalarRedirectRecovery.io.event.valid := markerRedirectFire && markerRedirectNeedsBackendCleanup
   scalarRedirectRecovery.io.event.blockBidValid := execute.io.completeRow.blockBidValid
@@ -2676,6 +2677,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   scalarRedirectRecovery.io.event.bid := execute.io.releaseBid
   scalarRedirectRecovery.io.event.rid := execute.io.releaseRid
   scalarRedirectRecovery.io.event.lsId := lsidToReducedStoreId(execute.io.completeLsId)
+  scalarRedirectRecovery.io.event.lsIdFull := execute.io.completeLsId
   scalarRedirectRecovery.io.event.resolveLsIdValid := execute.io.redirectValid
   scalarRedirectRecovery.io.event.stid := execute.io.releaseStid
   scalarRedirectRecovery.io.event.peId := io.peId
@@ -3262,7 +3264,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
       (path.io.recoveryIntentConsumed && !scalarRedirectRecovery.io.cleanupResolveLsIdValid)
   val reducedReplayLiqStoreSnapshotPreciseFlush =
-    Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+    Wire(new FlushBus(
+      p.robEntries,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth,
+      lsidWidth = p.lsidWidth))
   reducedReplayLiqStoreSnapshotPreciseFlush := 0.U.asTypeOf(reducedReplayLiqStoreSnapshotPreciseFlush)
   val reducedReplayLiqStoreSnapshotReady =
     LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring.connectInputs(
@@ -3414,7 +3421,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnReadiness.io.returnReady)
   LinxCoreFrontendFetchRfAluTraceTopR453ReplayLiqRefillTieOff.connect(reducedLoadReplayLiqAllocPath)
   val reducedLoadReplayResolvePreciseFlush =
-    Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+    Wire(new FlushBus(
+      p.robEntries,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth,
+      lsidWidth = p.lsidWidth))
   reducedLoadReplayResolvePreciseFlush := 0.U.asTypeOf(reducedLoadReplayResolvePreciseFlush)
   reducedLoadReplayLiqAllocPath.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
   val reducedLoadReplayResolveHardFlush =
@@ -3619,7 +3631,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     bidWidth = traceParams.blockBidWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
+    tidWidth = p.threadIdWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedMdbRecoveryRingReq = Wire(chiselTypeOf(reducedMdbPath.io.recoveryFlush))
   reducedMdbRecoveryRingReq := reducedMdbPath.io.recoveryFlush

@@ -672,7 +672,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, and exact full-BID source promotion without local cleanup selection. R652 connects the conservative per-STID strong BROB prefix to the live reduced-top STQ mark owner; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and R671 full-LSID-capable central recovery with scalar-redirect STQ pruning. Load forwarding/replay/MDB payloads and their recovery source still retain a transitional LSID projection and therefore report missing full-LSID authority rather than pruning STQ rows by an alias; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
@@ -688,7 +688,11 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala",
-          "symbols": ["STQEntryBank", "rows"]
+          "symbols": ["STQEntryBank", "rows", "lsIdFull", "flushPrune"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala",
+          "symbols": ["STQFlushPrune", "matchesFlush", "lessEqualBidLs", "LSIDOrder"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala",

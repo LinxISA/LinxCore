@@ -47,6 +47,12 @@ releases residency after cleanup, cancellation, or drop; `payloadIntentConsumed`
 authorizes order/LSID sidecars only when the accepted intent retained this
 source's exact request payload. Consume-and-replace remains atomic.
 
+R671 captures the execute row's parameterized full LSID beside the temporary
+ROBID projection, retains it across backpressure, publishes it through
+`FullBidFlushReq`, and exposes it to matched private-sidecar consumers. The
+generated probe uses a 40-bit LSID with an 8-entry ROB to prove that recovery
+transport does not derive memory-order width from ring identity.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarRedirectRecoverySourceSpec`

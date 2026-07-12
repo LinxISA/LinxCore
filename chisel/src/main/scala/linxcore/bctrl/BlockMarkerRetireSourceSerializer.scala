@@ -27,7 +27,8 @@ class BlockMarkerRetireSourceSerializerIO(
     stidWidth = stidWidth
   )))
   val clear = Input(Bool())
-  val flush = Input(new FlushBus(p.robEntries, stidWidth = stidWidth))
+  val flush = Input(new FlushBus(
+    p.robEntries, stidWidth = stidWidth, lsidWidth = p.lsidWidth))
   val outReady = Input(Bool())
 
   val sourceWindowReady = Output(Bool())

@@ -13,19 +13,21 @@ class RecoverySourceArbiterIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val sourceIndexWidth = math.max(1, log2Ceil(sourceCount))
   private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
 
-  val sources = Input(Vec(sourceCount, new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth)))
+  val sources = Input(Vec(sourceCount, new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   val sourceReady = Output(Vec(sourceCount, Bool()))
   val sourceAccepted = Output(Vec(sourceCount, Bool()))
   val sourceBlockedByStid = Output(Vec(sourceCount, Bool()))
   val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
 
-  val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val out = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val outProvenance = Output(new RecoveryProvenance(sourceCount))
   val outReady = Input(Bool())
   val outAccepted = Output(Bool())
@@ -49,7 +51,8 @@ class RecoverySourceArbiter(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(sourceCount > 0, "recovery arbiter must expose at least one source")
   require(stidCount > 0, "recovery arbiter must expose at least one STID lane")
@@ -66,18 +69,22 @@ class RecoverySourceArbiter(
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val pending = RegInit(VecInit(Seq.fill(sourceCount)(false.B)))
   val requests = RegInit(VecInit(Seq.fill(sourceCount)(
-    0.U.asTypeOf(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    0.U.asTypeOf(new FullBidFlushReq(
+      entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   )))
   val nextStid = RegInit(0.U(stidIndexWidth.W))
 
-  val annotated = Wire(Vec(sourceCount, new FlushBus(entries, peIdWidth, stidWidth, tidWidth)))
+  val annotated = Wire(Vec(sourceCount, new FlushBus(
+    entries, peIdWidth, stidWidth, tidWidth, lsidWidth)))
   for (source <- 0 until sourceCount) {
-    val bridge = Module(new FullBidRecoveryBridge(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    val bridge = Module(new FullBidRecoveryBridge(
+      entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
     val bridgeReq = Wire(chiselTypeOf(requests(source)))
     bridgeReq := requests(source)
     bridgeReq.valid := pending(source)

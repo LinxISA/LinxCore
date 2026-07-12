@@ -143,6 +143,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     entry.bid := request.bid
     entry.gid := request.gid
     entry.lsId := request.loadLsId
+    entry.lsIdFull := 0.U
     entry
   }
 
@@ -183,7 +184,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
 
   for (slot <- 0 until depth) {
     val resident = slot.U < count
-    precisePruneVec(slot) := resident && precisePruneActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
+    precisePruneVec(slot) := resident && precisePruneActive &&
+      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(entries(slot)))
     removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
     keptVec(slot) := resident && !removeVec(slot)
     if (slot == 0) {

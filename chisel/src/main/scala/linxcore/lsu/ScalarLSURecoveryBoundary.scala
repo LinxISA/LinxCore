@@ -13,9 +13,10 @@ class ScalarLSURecoveryBoundaryIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val ringReqReady = Output(Bool())
   val oldestValid = Input(Vec(stidCount, Bool()))
   val oldestBid = Input(Vec(stidCount, new ROBID(entries)))
@@ -23,7 +24,8 @@ class ScalarLSURecoveryBoundaryIO(
   val fullBidLookupRequest = Output(new ROBFullBidLookupRequest(entries, peIdWidth, stidWidth, tidWidth))
   val fullBidLookup = Input(new ROBFullBidLookupResult(
     entries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val source = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val source = Output(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val sourceReady = Input(Bool())
   val sourceAccepted = Output(Bool())
   val stidInRange = Output(Bool())
@@ -48,18 +50,19 @@ class ScalarLSURecoveryBoundary(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(stidCount > 0, "scalar LSU recovery must expose at least one STID")
   require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "scalar LSU recovery STID count must fit stidWidth")
 
   val io = IO(new ScalarLSURecoveryBoundaryIO(
-    entries, stidCount, bidWidth, peIdWidth, stidWidth, tidWidth))
+    entries, stidCount, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val stidMatches = VecInit((0 until stidCount).map(stid => io.ringReq.req.stid === stid.U))
   val stidInRange = io.ringReq.req.valid && stidMatches.asUInt.orR
   val source = Module(new ScalarLSURecoverySource(
-    entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val selectedRingReq = Wire(chiselTypeOf(io.ringReq))
   selectedRingReq := io.ringReq

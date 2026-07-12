@@ -49,7 +49,8 @@ class ScalarLSULoadReturnEntry(
     val physRegWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
@@ -78,13 +79,14 @@ class ScalarLSULoadReturnQueueIO(
     val physRegWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val enqueueValid = Input(Bool())
   val enqueue = Input(new ScalarLSULoadReturnEntry(
     idEntries,
@@ -139,7 +141,8 @@ class ScalarLSULoadReturnQueue(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1 && (idEntries & (idEntries - 1)) == 0,
     "idEntries must be a power of two greater than one")
@@ -159,7 +162,8 @@ class ScalarLSULoadReturnQueue(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   private def zeroEntry: ScalarLSULoadReturnEntry = {
@@ -183,6 +187,7 @@ class ScalarLSULoadReturnQueue(
     row.bid := entry.payload.bid
     row.gid := entry.payload.gid
     row.lsId := entry.payload.loadLsId
+    row.lsIdFull := 0.U
     row
   }
 
@@ -209,7 +214,8 @@ class ScalarLSULoadReturnQueue(
   for (slot <- 0 until depth) {
     val resident = slot.U < count
     precisePruneVec(slot) :=
-      resident && precisePruneActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
+      resident && precisePruneActive &&
+        STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(entries(slot)))
     removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
     keptVec(slot) := resident && !removeVec(slot)
     keptRank(slot) := (if (slot == 0) 0.U else PopCount((0 until slot).map(keptVec(_))))
@@ -270,7 +276,8 @@ class ScalarLSULoadReturnQueueBankIO(
     val physRegWidth: Int,
     val peIdWidth: Int,
     val stidWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val laneCount = stidCount * returnPipeCount
   private val pipeWidth = math.max(1, log2Ceil(returnPipeCount))
@@ -280,7 +287,7 @@ class ScalarLSULoadReturnQueueBankIO(
 
   val enable = Input(Bool())
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val enqueueValid = Input(Bool())
   val enqueuePeId = Input(UInt(peIdWidth.W))
   val enqueueStid = Input(UInt(stidWidth.W))
@@ -348,7 +355,8 @@ class ScalarLSULoadReturnQueueBank(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(stidCount > 0, "stidCount must be positive")
   require(returnPipeCount > 0, "returnPipeCount must be positive")
@@ -371,7 +379,8 @@ class ScalarLSULoadReturnQueueBank(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val queues = Seq.fill(laneCount)(Module(new ScalarLSULoadReturnQueue(
@@ -386,7 +395,8 @@ class ScalarLSULoadReturnQueueBank(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   )))
   val arbiter = Module(new RRArbiter(chiselTypeOf(queues.head.io.dequeue), laneCount))
   val stidInRange = io.enqueueStid < stidCount.U

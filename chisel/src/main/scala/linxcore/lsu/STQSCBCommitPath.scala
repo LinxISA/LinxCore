@@ -37,7 +37,7 @@ class STQSCBCommitPathIO(
   private val scbResponseBufferCountWidth = log2Ceil(scbResponseBufferDepth + 1)
   private val sourceParams = InterfaceParams(robEntries = identityEntries)
 
-  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth))
+  val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val insertValid = Input(Bool())
   val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))

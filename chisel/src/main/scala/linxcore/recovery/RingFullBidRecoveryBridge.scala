@@ -10,9 +10,10 @@ class RingFullBidRecoveryBridgeIO(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val ringReq = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val lookupRequest = Output(new ROBFullBidLookupRequest(entries, peIdWidth, stidWidth, tidWidth))
   val lookupResult = Input(new ROBFullBidLookupResult(
     entries,
@@ -21,7 +22,8 @@ class RingFullBidRecoveryBridgeIO(
     stidWidth,
     tidWidth
   ))
-  val fullReq = Output(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val fullReq = Output(new FullBidFlushReq(
+    entries, bidWidth, peIdWidth, stidWidth, tidWidth, lsidWidth))
   val matched = Output(Bool())
   val blockedByLookupMiss = Output(Bool())
   val blockedByStaleResult = Output(Bool())
@@ -33,14 +35,16 @@ class RingFullBidRecoveryBridge(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   val io = IO(new RingFullBidRecoveryBridgeIO(
     entries,
     bidWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   io.lookupRequest.valid := io.ringReq.req.valid
@@ -87,6 +91,8 @@ class RingFullBidRecoveryBridge(
   io.fullReq.gid := io.ringReq.req.gid
   io.fullReq.rid := io.ringReq.req.rid
   io.fullReq.lsId := io.ringReq.req.lsId
+  io.fullReq.lsIdFullValid := io.ringReq.req.lsIdFullValid
+  io.fullReq.lsIdFull := io.ringReq.req.lsIdFull
   io.fullReq.execEngine := io.ringReq.req.execEngine
   io.fullReq.fetchTpcValid := io.ringReq.req.fetchTpcValid
   io.fullReq.fetchTpc := io.ringReq.req.fetchTpc

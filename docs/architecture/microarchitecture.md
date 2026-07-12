@@ -1002,6 +1002,25 @@ implementation choices and must not change architectural identity widths:
   The compressed STQ LSID projection is retained only for still-unconverted
   typed recovery and load forwarding/replay/MDB boundaries. Those consumers
   remain an implementation gap and may not be cited as full LSID closure.
+- R671 promotes full-LSID-capable central recovery and scalar-redirect STQ
+  pruning. `FullBidFlushReq`, retained recovery
+  queues, source arbitration, class merge, `RecoveryCleanupIntent.flush`, and
+  `FlushReq` carry `lsIdFullValid` plus the parameterized full LSID beside the
+  transitional ring projection. Scalar redirects capture execute's all-row
+  full LSID before retention. `STQFlushPrune` uses `(STID, BID, full LSID)`
+  modular order for non-BID scalar cleanup and refuses to prune when full-LSID
+  authority is absent or exactly half-range ambiguous. BID-only cleanup does
+  not require LSID. Physical STQ size, ROB ring width, and LSID width remain
+  independent through the composed decode/recovery/store path.
+- Recovery arbitration continues to use typed Linx BID/RID priority; LSID does
+  not replace block age, select across STIDs, or add an architectural ordering
+  mode. The new full field is a payload authority for memory-row consumers.
+  Load forwarding/replay/MDB and load-return payloads retain their documented
+  projection until later packets. Recovery sources from those owners leave
+  `lsIdFullValid` clear, produce an explicit missing-authority diagnostic, and
+  may not consume the scalar-redirect recovery claim. Their temporary local
+  cleanup uses a separately named projection-only matcher; it never supplies a
+  placeholder full LSID to authoritative STQ pruning.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.
