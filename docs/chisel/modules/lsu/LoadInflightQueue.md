@@ -336,6 +336,14 @@ The C++ model provides the owner split:
     `Repick` row with `dataComplete`, coarse source-return, SCB-return, and
     STQ-return proofs set and no wait-store blocker. Incomplete or
     wait-store-blocked `Repick` rows remain resident.
+12. R675 marks scalar rows whose original address and size cross one line.
+    `secondSegmentActive` selects the next aligned line and a phase-local
+    offset/size for forwarding, replay, refill, and miss ownership. A complete
+    first phase is retained in `firstLineData` plus byte-valid/forward masks,
+    returns the row to `Wait`, and cannot publish `lhqRecord`. Only a complete
+    second phase publishes the one architectural hit record. Hard flush clears
+    both phases; a precise-flush survivor retains its completed first phase and
+    retries any canceled active phase.
 
 ## Timing
 

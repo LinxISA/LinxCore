@@ -55,19 +55,27 @@ object LoadReplayReturnDataExtractReference {
       validMask: BigInt,
       addr: BigInt,
       size: Int,
-      signExtend: Boolean): Result = {
+      signExtend: Boolean,
+      secondLine: BigInt = 0,
+      secondValidMask: BigInt = 0): Result = {
     val candidate = enable && returnValid
     val offset = (addr & 0x3f).toInt
     val nonZeroSize = size != 0
     val supported = Set(1, 2, 4, 8).contains(size)
     val cross = candidate && nonZeroSize && offset + size > LineBytes
-    val extractCandidate = candidate && nonZeroSize && supported && !cross
+    val extractCandidate = candidate && nonZeroSize && supported
     val requestMask = if (extractCandidate) byteMask(offset, size) else BigInt(0)
-    val complete = extractCandidate && requestMask != 0 && (validMask & requestMask) == requestMask
+    val secondRequestMask =
+      if (extractCandidate && cross) byteMask(0, offset + size - LineBytes) else BigInt(0)
+    val complete =
+      extractCandidate && requestMask != 0 && (validMask & requestMask) == requestMask &&
+        (!cross || (secondRequestMask != 0 && (secondValidMask & secondRequestMask) == secondRequestMask))
     val raw =
       if (extractCandidate) {
         (0 until math.min(size, DataBytes)).foldLeft(BigInt(0)) { case (acc, idx) =>
-          acc | (byte(line, offset + idx) << (idx * 8))
+          val absolute = offset + idx
+          val source = if (absolute < LineBytes) byte(line, absolute) else byte(secondLine, absolute - LineBytes)
+          acc | (source << (idx * 8))
         }
       } else {
         BigInt(0)
@@ -88,7 +96,7 @@ object LoadReplayReturnDataExtractReference {
       blockedByNoCandidate = enable && !returnValid,
       blockedByZeroSize = candidate && !nonZeroSize,
       blockedByUnsupportedSize = candidate && nonZeroSize && !supported,
-      blockedByCrossLine = candidate && nonZeroSize && supported && cross,
+      blockedByCrossLine = candidate && nonZeroSize && supported && cross && !complete,
       blockedByIncompleteBytes = extractCandidate && !complete)
   }
 }
@@ -166,6 +174,28 @@ class LoadReplayReturnDataExtractSpec extends AnyFunSuite {
     assert(!unsupported.dataValid)
   }
 
+  test("assembles a complete scalar value from two cache lines") {
+    val first = lineData(Map(62 -> 0x3e, 63 -> 0x3f))
+    val second = lineData(Map(0 -> 0x80, 1 -> 0x81))
+    val result = LoadReplayReturnDataExtractReference(
+      enable = true,
+      returnValid = true,
+      line = first,
+      validMask = BigInt(3) << 62,
+      addr = 0x103e,
+      size = 4,
+      signExtend = false,
+      secondLine = second,
+      secondValidMask = BigInt(3))
+
+    assert(result.crossLine)
+    assert(result.bytesComplete)
+    assert(result.rawData == BigInt("81803f3e", 16))
+    assert(result.data == BigInt("81803f3e", 16))
+    assert(result.dataValid)
+    assert(!result.blockedByCrossLine)
+  }
+
   test("reports disabled, empty, and zero-size candidates") {
     val disabled = LoadReplayReturnDataExtractReference(false, true, 0, 0, 0x1000, 8, false)
     val empty = LoadReplayReturnDataExtractReference(true, false, 0, 0, 0x1000, 8, false)
@@ -182,6 +212,7 @@ class LoadReplayReturnDataExtractSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplayReturnDataExtract"))
     assert(sv.contains("io_requestByteMask"))
+    assert(sv.contains("io_secondRequestByteMask"))
     assert(sv.contains("io_bytesComplete"))
     assert(sv.contains("io_rawData"))
     assert(sv.contains("io_dataValid"))

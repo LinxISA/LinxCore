@@ -13,12 +13,15 @@ class LoadReplayReturnDataExtractIO(
   val returnValid = Input(Bool())
   val lineData = Input(UInt((lineBytes * 8).W))
   val lineValidMask = Input(UInt(lineBytes.W))
+  val secondLineData = Input(UInt((lineBytes * 8).W))
+  val secondLineValidMask = Input(UInt(lineBytes.W))
   val addr = Input(UInt(addrWidth.W))
   val size = Input(UInt(sizeWidth.W))
   val signExtend = Input(Bool())
 
   val candidateValid = Output(Bool())
   val requestByteMask = Output(UInt(lineBytes.W))
+  val secondRequestByteMask = Output(UInt(lineBytes.W))
   val bytesComplete = Output(Bool())
   val crossLine = Output(Bool())
   val sizeSupported = Output(Bool())
@@ -64,19 +67,30 @@ class LoadReplayReturnDataExtract(
   val crossesLine = candidate && nonZeroSize && (end > lineBytes.U(end.getWidth.W))
   val sizeSupported =
     (io.size === 1.U) || (io.size === 2.U) || (io.size === 4.U) || (io.size === dataBytes.U)
-  val extractCandidate = candidate && nonZeroSize && sizeSupported && !crossesLine
+  val extractCandidate = candidate && nonZeroSize && sizeSupported
 
-  val mask = Wire(Vec(lineBytes, Bool()))
+  val firstMask = Wire(Vec(lineBytes, Bool()))
+  val secondMask = Wire(Vec(lineBytes, Bool()))
   for (byte <- 0 until lineBytes) {
     val byteIdx = byte.U(end.getWidth.W)
-    mask(byte) := extractCandidate && (byteIdx >= offset) && (byteIdx < end)
+    firstMask(byte) := extractCandidate && (byteIdx >= offset) && (byteIdx < end)
+    secondMask(byte) :=
+      extractCandidate && crossesLine && ((byteIdx + lineBytes.U) >= offset) && ((byteIdx + lineBytes.U) < end)
   }
-  val requestMask = mask.asUInt
-  val bytesComplete = extractCandidate && (requestMask =/= 0.U) && ((io.lineValidMask & requestMask) === requestMask)
+  val requestMask = firstMask.asUInt
+  val secondRequestMask = secondMask.asUInt
+  val firstBytesComplete =
+    (requestMask =/= 0.U) && ((io.lineValidMask & requestMask) === requestMask)
+  val secondBytesComplete =
+    !crossesLine || ((secondRequestMask =/= 0.U) &&
+      ((io.secondLineValidMask & secondRequestMask) === secondRequestMask))
+  val bytesComplete = extractCandidate && firstBytesComplete && secondBytesComplete
 
   val line = Wire(Vec(lineBytes, UInt(8.W)))
+  val secondLine = Wire(Vec(lineBytes, UInt(8.W)))
   for (byte <- 0 until lineBytes) {
     line(byte) := io.lineData((byte * 8) + 7, byte * 8)
+    secondLine(byte) := io.secondLineData((byte * 8) + 7, byte * 8)
   }
 
   val rawBytes = Wire(Vec(dataBytes, UInt(8.W)))
@@ -86,6 +100,10 @@ class LoadReplayReturnDataExtract(
     for (lineByte <- 0 until lineBytes) {
       when(extractCandidate && (outByte.U(sizeWidth.W) < io.size) && (source === lineByte.U(source.getWidth.W))) {
         rawBytes(outByte) := line(lineByte)
+      }
+      when(extractCandidate && (outByte.U(sizeWidth.W) < io.size) &&
+          (source === (lineByte + lineBytes).U(source.getWidth.W))) {
+        rawBytes(outByte) := secondLine(lineByte)
       }
     }
   }
@@ -113,6 +131,7 @@ class LoadReplayReturnDataExtract(
 
   io.candidateValid := candidate
   io.requestByteMask := requestMask
+  io.secondRequestByteMask := secondRequestMask
   io.bytesComplete := bytesComplete
   io.crossLine := crossesLine
   io.sizeSupported := candidate && nonZeroSize && sizeSupported
@@ -124,6 +143,6 @@ class LoadReplayReturnDataExtract(
   io.blockedByNoCandidate := io.enable && !io.returnValid
   io.blockedByZeroSize := candidate && !nonZeroSize
   io.blockedByUnsupportedSize := candidate && nonZeroSize && !sizeSupported
-  io.blockedByCrossLine := candidate && nonZeroSize && sizeSupported && crossesLine
+  io.blockedByCrossLine := candidate && nonZeroSize && sizeSupported && crossesLine && !bytesComplete
   io.blockedByIncompleteBytes := extractCandidate && !bytesComplete
 }

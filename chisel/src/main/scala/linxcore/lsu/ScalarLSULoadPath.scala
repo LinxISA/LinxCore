@@ -596,6 +596,12 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   returnDataExtract.io.returnValid := liq.io.lhqRecordValid
   returnDataExtract.io.lineData := liq.io.lhqRecord.data
   returnDataExtract.io.lineValidMask := liq.io.lhqRecord.byteMask
+  returnDataExtract.io.secondLineData := liq.io.lhqRecord.data
+  returnDataExtract.io.secondLineValidMask := liq.io.lhqRecord.byteMask
+  when(hitRow.crossLine) {
+    returnDataExtract.io.lineData := hitRow.firstLineData
+    returnDataExtract.io.lineValidMask := hitRow.firstValidMask
+  }
   returnDataExtract.io.addr := hitRow.addr
   returnDataExtract.io.size := hitRow.size
   returnDataExtract.io.signExtend := hitRow.returnSignExtend

@@ -563,7 +563,7 @@
       "module_family": "lsu",
       "status": "unit-proven",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue and R674 retains dual-source refill traffic; L1D arrays, memory attributes, lower-memory request fabric, and cross-line integration remain staged."],
+      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue, R674 retains dual-source refill traffic, and R675 executes scalar cross-line phases under one LIQ identity. L1D arrays, memory attributes, and the lower-memory request fabric remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
@@ -582,7 +582,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. R674 adds retained dual-ingress refill serialization and exact-response backpressure. L1D arrays, lower-memory request fabric, memory-attribute classification, and cross-line queues remain staged."],
+      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. R674 adds retained dual-ingress refill serialization and exact-response backpressure. R675 adds sequential two-line scalar forwarding, miss/refill replay, and one final assembled return. Parallel half launch, L1D arrays, lower-memory request fabric, and memory-attribute classification remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
@@ -594,7 +594,7 @@
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala",
-          "symbols": ["LoadInflightQueue", "rows", "LoadReplayWakeup", "LoadRefillWakeup"]
+          "symbols": ["LoadInflightQueue", "rows", "crossLine", "secondSegmentActive", "firstSegmentDone", "LoadReplayWakeup", "LoadRefillWakeup"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala",
@@ -629,7 +629,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-RES-001"],
-      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath and retain R672 full-LSID authority through precise cleanup and completion. R672-B promotes reduced replay snapshot recovery; T/U local-link completion, cache/miss, and cross-line return sources remain staged."],
+      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath and retain R672 full-LSID authority through precise cleanup and completion. R675 assembles one cross-line scalar return after two sequential phase-local launches. T/U local-link completion and parallel cross-half launch remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala",
@@ -688,7 +688,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R672-B promotes the reduced snapshot graph, selective recovery, and same-BID forwarding order; early branch/tile non-flush predicates, store-barrier allocation, cache/miss queues, and cross-line returns remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R675 adds sequential scalar cross-line execution and final assembly; early branch/tile non-flush predicates, store-barrier allocation, physical cache arrays, memory attributes, and parallel cross-half launch remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",

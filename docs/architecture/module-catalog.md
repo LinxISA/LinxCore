@@ -486,9 +486,10 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
   The reduced timing top retains its detailed single-pipe sink proof until its
   live ROB/RF/wakeup arbiters consume the canonical outputs. R673 adds the
   cacheable scalar load miss queue and R674 adds bounded dual-ingress refill
-  transport beneath this owner; actual L1D arrays, memory-attribute
-  classification, and cross-line assembly remain outside `ScalarLSU`, so this
-  is not yet a complete LSU.
+  transport beneath this owner. R675 adds one-row sequential cross-line scalar
+  execution, per-line forwarding/miss/refill ownership, and one final assembled
+  return. Actual L1D arrays and memory-attribute classification remain outside
+  `ScalarLSU`, so this is not yet a complete LSU.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnQueue.scala`
 

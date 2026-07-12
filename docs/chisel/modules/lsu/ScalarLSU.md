@@ -33,8 +33,9 @@ R658 makes `ScalarLSURecoveryBoundary` the sole report-STID watermark selector
 shared with the reduced integration lane and parameterizes scalar STID count.
 R659 replaces the reduced lane's duplicate MDB pieces with the complete
 `ScalarLSUMDBPath` and deletes the delivery-only owner. R673 adds retained
-cacheable load misses and R674 adds bounded refill transport. Cache arrays,
-memory classification, cross-line assembly, and final reduced-top replacement
+cacheable load misses, R674 adds bounded refill transport, and R675 adds
+sequential cross-line scalar assembly. Cache arrays, memory classification,
+and final reduced-top replacement
 remain open, so this is not yet a complete LSU.
 
 ## Parameter Contract
@@ -89,6 +90,11 @@ R674 adds `LoadRefillTransport` beneath the same child. Exact miss responses
 and external refills use independent ready/valid ingress, may both enqueue in
 one cycle, and drain to LIQ in deterministic FIFO order. Buffered refill state
 also participates in top-level idle.
+R675 retains one architectural load identity while first- and second-line
+phases independently use forwarding, miss, refill, and replay. The completed
+first line remains in the LIQ row; only the completed second phase may assemble
+and publish one scalar result. Sequential launch is a throughput policy, not a
+second architectural load.
 
 `ScalarLSU` connects the retained MDB report to
 `ScalarLSURecoveryBoundary`, which selects one watermark from the
@@ -113,6 +119,9 @@ side-effect fanout.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- R675 final: 268 suites and 1,626 tests; expanded LSU promotion gate;
+  generated hit/hit, hit/miss/refill/hit, and precise-recovery cross-line
+  proof; 1,467-row CoreMark no-regression with zero mismatches and zero CBSTOP.
 - R674 final: 268 suites and 1,622 tests; expanded LSU promotion gate; both
   generated miss/refill probes; 1,467-row CoreMark no-regression with zero
   mismatches and zero CBSTOP.

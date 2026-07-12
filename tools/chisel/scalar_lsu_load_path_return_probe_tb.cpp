@@ -28,19 +28,24 @@ static void idle(VScalarLSULoadPathReturnProbe &dut) {
     dut.io_hardFlush = 0;
     dut.io_preciseFlushValid = 0;
     dut.io_allocValid = 0;
+    dut.io_allocSize = 1;
     dut.io_launchValid = 0;
+    dut.io_forceSecondMiss = 0;
+    dut.io_missResponseValid = 0;
     dut.io_drainReady = 0;
     dut.io_sideEffectReady = 1;
 }
 
 static unsigned allocate(VScalarLSULoadPathReturnProbe &dut, unsigned stid,
-                         unsigned pipe, unsigned bid, unsigned addr) {
+                         unsigned pipe, unsigned bid, unsigned addr,
+                         unsigned size = 1) {
     idle(dut);
     dut.io_allocValid = 1;
     dut.io_allocStid = stid;
     dut.io_allocPipe = pipe;
     dut.io_allocBid = bid;
     dut.io_allocAddr = addr;
+    dut.io_allocSize = size;
     dut.eval();
     require(dut.io_allocReady && dut.io_allocAccepted,
             "expected LIQ allocation was not accepted");
@@ -49,8 +54,10 @@ static unsigned allocate(VScalarLSULoadPathReturnProbe &dut, unsigned stid,
     return index;
 }
 
-static void launch(VScalarLSULoadPathReturnProbe &dut, unsigned index) {
+static void launch(VScalarLSULoadPathReturnProbe &dut, unsigned index,
+                   bool force_second_miss = false) {
     idle(dut);
+    dut.io_forceSecondMiss = force_second_miss;
     dut.io_launchValid = 1;
     dut.io_launchIndex = index;
     dut.eval();
@@ -116,8 +123,11 @@ int main(int argc, char **argv) {
     dut.io_allocPipe = 0;
     dut.io_allocBid = 0;
     dut.io_allocAddr = 0;
+    dut.io_allocSize = 1;
     dut.io_launchValid = 0;
     dut.io_launchIndex = 0;
+    dut.io_forceSecondMiss = 0;
+    dut.io_missResponseValid = 0;
     dut.io_drainReady = 0;
     dut.io_sideEffectReady = 1;
     tick(dut);
@@ -230,6 +240,122 @@ int main(int argc, char **argv) {
     dut.eval();
     require(dut.io_pipelineEmpty && !dut.io_returnPending && dut.io_returnEmpty,
             "canonical W1/W2 pipeline did not clear after atomic completion");
+
+    const unsigned crossLineRow = allocate(dut, 0, 0, 1, 62, 4);
+    dut.io_launchIndex = crossLineRow;
+    dut.eval();
+    require(dut.io_crossLine && !dut.io_secondSegmentActive,
+            "cross-line allocation did not retain first-segment phase state");
+    const unsigned publicationsBeforeCrossLine = publication_count;
+    launch(dut, crossLineRow);
+    idle(dut);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+        tick(dut);
+    }
+    dut.io_launchIndex = crossLineRow;
+    dut.eval();
+    require(publication_count == publicationsBeforeCrossLine &&
+                dut.io_secondSegmentActive && dut.io_launchReady,
+            "first cross-line segment published or failed to expose the second phase");
+    launch(dut, crossLineRow);
+    advance_to_publication(dut);
+    require(dut.io_publicationAccepted,
+            "second cross-line segment did not publish one architectural return");
+    tick(dut);
+    require(publication_count == publicationsBeforeCrossLine + 1,
+            "cross-line load did not publish exactly once");
+    drain(dut, 0, 0, 1, 0x81803f3eULL);
+
+    const unsigned crossMissRow = allocate(dut, 0, 0, 2, 62, 4);
+    launch(dut, crossMissRow);
+    idle(dut);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+        tick(dut);
+    }
+    launch(dut, crossMissRow, true);
+    idle(dut);
+    bool sawSecondLineMissRequest = false;
+    for (unsigned cycle = 0; cycle < 12; ++cycle) {
+        dut.eval();
+        if (dut.io_missRequestValid) {
+            require(dut.io_missRequestAccepted && dut.io_missRequestLineAddr == 64,
+                    "cross-line second-segment miss used the wrong line address");
+            sawSecondLineMissRequest = true;
+        }
+        tick(dut);
+        if (sawSecondLineMissRequest) {
+            break;
+        }
+    }
+    require(sawSecondLineMissRequest,
+            "cross-line second segment did not allocate and issue a retained miss");
+    idle(dut);
+    dut.io_missResponseValid = 1;
+    dut.eval();
+    require(dut.io_missResponseReady,
+            "retained cross-line miss response was not accepted");
+    tick(dut);
+    idle(dut);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+        tick(dut);
+    }
+    dut.io_launchIndex = crossMissRow;
+    dut.eval();
+    require(dut.io_secondSegmentActive && dut.io_launchReady,
+            "second-line refill did not wake the surviving cross-line row");
+    launch(dut, crossMissRow);
+    advance_to_publication(dut);
+    tick(dut);
+    drain(dut, 0, 0, 2, 0x81803f3eULL);
+
+    const unsigned crossSurvivorRow = allocate(dut, 1, 0, 3, 62, 4);
+    launch(dut, crossSurvivorRow);
+    idle(dut);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+        tick(dut);
+    }
+    launch(dut, crossSurvivorRow);
+    idle(dut);
+    dut.io_preciseFlushValid = 1;
+    dut.io_preciseFlushStid = 0;
+    dut.io_preciseFlushBid = 7;
+    tick(dut);
+    idle(dut);
+    dut.io_launchIndex = crossSurvivorRow;
+    dut.eval();
+    require(dut.io_crossLine && dut.io_secondSegmentActive && dut.io_launchReady,
+            "typed recovery did not preserve a nonmatching cross-line phase");
+    launch(dut, crossSurvivorRow);
+    advance_to_publication(dut);
+    tick(dut);
+    drain(dut, 1, 0, 3, 0x81803f3eULL);
+
+    const unsigned firstPhaseSurvivorRow = allocate(dut, 1, 0, 4, 62, 4);
+    launch(dut, firstPhaseSurvivorRow);
+    idle(dut);
+    tick(dut);
+    dut.io_preciseFlushValid = 1;
+    dut.io_preciseFlushStid = 0;
+    dut.io_preciseFlushBid = 7;
+    tick(dut);
+    idle(dut);
+    dut.io_launchIndex = firstPhaseSurvivorRow;
+    dut.eval();
+    require(dut.io_crossLine && !dut.io_secondSegmentActive && dut.io_launchReady,
+            "typed recovery adopted a canceled first-segment E4 completion");
+    launch(dut, firstPhaseSurvivorRow);
+    idle(dut);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+        tick(dut);
+    }
+    dut.io_launchIndex = firstPhaseSurvivorRow;
+    dut.eval();
+    require(dut.io_secondSegmentActive && dut.io_launchReady,
+            "retried first segment did not advance after precise recovery");
+    launch(dut, firstPhaseSurvivorRow);
+    advance_to_publication(dut);
+    tick(dut);
+    drain(dut, 1, 0, 4, 0x81803f3eULL);
 
     std::cout << "scalar-lsu-load-path-return-probe: PASS\n";
     return 0;

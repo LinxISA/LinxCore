@@ -5180,3 +5180,41 @@ Skill evolve:
   sidecar rule: local T/U retire mark/release commands must route by the PE/STID
   carried from the deallocated ROB row or relation entry, independently of the
   active rename-head selector.
+
+## R675 Canonical Scalar Cross-Line Execution
+
+R675 promotes scalar cross-line loads into the canonical Chisel load owner.
+One LIQ row retains the original Linx identity, completed first-line bytes, and
+the active phase. Forwarding, replay wakeup, miss coalescing, and refill match
+the active line. The first phase never publishes; the second complete phase
+assembles and publishes exactly one scalar result.
+
+Focused and generated gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnDataExtract
+bash tools/chisel/run_chisel_tests.sh --only LoadMissQueue
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPath
+bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh
+```
+
+The generated probe covers hit/hit and hit/miss/refill/hit at address offset
+62 with size four, checks the second miss line address is 64, checks no
+first-phase publication occurs, checks final data `0x81803f3e`, and checks a
+typed precise flush for another STID cancels the active pipeline attempt while
+preserving the completed first phase. Sequential phase launch remains a
+documented performance divergence from model parallel half entries.
+
+Final evidence passes 268 suites and 1,626 tests, the expanded focused LSU
+promotion gate, architecture contract and both adapters, and clean post-fix
+review. CoreMark compares 1,467 rows with zero mismatches and zero CBSTOP at
+`generated/r675-cross-line-coremark/report/crosscheck_manifest.json`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because split-line work must drive every
+  phase consumer from the active line/mask, retain one architectural identity,
+  and suppress all completion until every phase is complete.

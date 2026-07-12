@@ -26,9 +26,14 @@ object LoadRefillWakeupReference {
 
   def apply(row: Row, refill: Refill): Result = {
     val accepted = refill.isRead
-    val sameLine = (row.alloc.addr & ~BigInt(0x3f)) == refill.lineAddr
+    val offset = (row.alloc.addr & BigInt(0x3f)).toInt
+    val firstSize = 64 - offset
+    val second = row.crossLine && row.secondSegmentActive
+    val activeLine = (row.alloc.addr & ~BigInt(0x3f)) + (if (second) 64 else 0)
+    val sameLine = activeLine == refill.lineAddr
     val wake = accepted && working(row) && sameLine && !row.l1Hit && !row.alloc.isTile
-    val requestMask = byteMask((row.alloc.addr & BigInt(0x3f)).toInt, row.alloc.size)
+    val requestMask = byteMask(if (second) 0 else offset,
+      if (second) row.alloc.size - firstSize else if (row.crossLine) firstSize else row.alloc.size)
 
     Result(
       refillAccepted = accepted,
@@ -51,11 +56,15 @@ class LoadRefillWakeupSpec extends AnyFunSuite {
       addr: BigInt = 0x1008,
       size: Int = 4,
       isTile: Boolean = false,
-      l1Hit: Boolean = false): Row =
+      l1Hit: Boolean = false,
+      crossLine: Boolean = false,
+      secondSegmentActive: Boolean = false): Row =
     Row(
       status = status,
       alloc = Alloc(addr = addr, size = size, isTile = isTile),
-      l1Hit = l1Hit)
+      l1Hit = l1Hit,
+      crossLine = crossLine,
+      secondSegmentActive = secondSegmentActive)
 
   test("read refill wakes unresolved same-line scalar rows") {
     val result = LoadRefillWakeupReference(
@@ -86,6 +95,21 @@ class LoadRefillWakeupSpec extends AnyFunSuite {
     assert(LoadRefillWakeupReference(row(Wait, addr = 0x1000), refill).wake)
     assert(LoadRefillWakeupReference(row(Repick, addr = 0x1000), refill).wake)
     assert(LoadRefillWakeupReference(row(L2Wait, addr = 0x1000), refill).wake)
+  }
+
+  test("refill targets the active second line and its phase-local byte mask") {
+    val active = row(
+      L1DcMiss,
+      addr = 0x103e,
+      size = 4,
+      crossLine = true,
+      secondSegmentActive = true)
+    val firstLine = LoadRefillWakeupReference(active, Refill(lineAddr = 0x1000))
+    val secondLine = LoadRefillWakeupReference(active, Refill(lineAddr = 0x1040))
+
+    assert(!firstLine.wake)
+    assert(secondLine.wake)
+    assert(secondLine.requestByteMask == byteMask(0, 2))
   }
 
   test("Chisel LoadRefillWakeup elaborates with refill masks") {

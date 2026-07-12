@@ -31,7 +31,9 @@
   per-STID BID ring-order suite used for focused OOO promotion.
 - `test_lsu_promotion.sh`
 - Purpose: runs the pyCircuit SCB C++/Verilator flow and focused Chisel
-  forwarding, replay, STQ/SCB, and MDB suites used for LSU promotion.
+  forwarding, replay, cross-line scalar assembly, miss/refill, STQ/SCB, and MDB
+  suites plus generated queue and composed return-path probes used for LSU
+  promotion.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
 - `test_konata_sanity.sh` (legacy script name; LinxTrace flow)

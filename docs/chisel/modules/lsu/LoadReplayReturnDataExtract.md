@@ -26,12 +26,12 @@
 
 `LoadReplayReturnDataExtract` owns the scalar data transform used by the model
 after a replayed load has complete line data and before the result can enter
-the IEX load-return path. It mirrors the non-tile, non-cross-line portion of
-`LDQInfo::returnData`:
+the IEX load-return path. It mirrors scalar extraction plus the architectural
+merge in `LDQInfo::processCrossRtn`/`sendCrossRtn`:
 
 1. select bytes from the 512-bit line with `addr[5:0]` and `size`,
-2. reject cross-line requests for a later cross-return owner,
-3. require every requested byte to be valid,
+2. split crossing requests into first- and second-line byte masks,
+3. require every requested byte in both lines to be valid,
 4. zero-extend or sign-extend byte, halfword, and word forms into a 64-bit
    scalar result.
 
@@ -65,6 +65,8 @@ reaches the extractor candidate input.
 | `returnValid` | A selected replay return has reached the data-extraction boundary. |
 | `lineData` | 64-byte final line image after baseline data and store-forward merge. |
 | `lineValidMask` | Byte-valid mask for `lineData`. |
+| `secondLineData` | Next 64-byte line image for a crossing scalar request. |
+| `secondLineValidMask` | Byte-valid mask for `secondLineData`. |
 | `addr` | Load byte address. `addr[5:0]` selects the byte offset within the 64-byte line. |
 | `size` | Load size in bytes. Supported scalar sizes are 1, 2, 4, and 8. |
 | `signExtend` | Extends 1-, 2-, or 4-byte results as signed values when asserted; 8-byte results pass through. |
@@ -74,18 +76,19 @@ reaches the extractor candidate input.
 | Signal | Description |
 |---|---|
 | `candidateValid` | `enable && returnValid`. |
-| `requestByteMask` | Requested byte lanes inside the current 64-byte line. Zero when the request is invalid, unsupported, or cross-line. |
-| `bytesComplete` | Every requested byte is present in `lineValidMask`. |
-| `crossLine` | The request crosses the 64-byte line and must be handled by a later cross-return owner. |
+| `requestByteMask` | Requested byte lanes in the first 64-byte line. |
+| `secondRequestByteMask` | Requested byte lanes in the second line; zero for a non-crossing request. |
+| `bytesComplete` | Every requested byte is present across the required line masks. |
+| `crossLine` | The request crosses the 64-byte line. |
 | `sizeSupported` | Candidate size is one of 1, 2, 4, or 8 bytes. |
-| `rawData` | Little-endian extracted scalar bytes before extension. Valid only for supported non-cross-line candidates. |
+| `rawData` | Little-endian extracted scalar bytes before extension. |
 | `data` | Extended 64-bit scalar return data. Valid only with `dataValid`. |
-| `dataValid` | Candidate has supported nonzero size, does not cross the line, and all requested bytes are complete. |
+| `dataValid` | Candidate has supported nonzero size and every requested byte is complete. |
 | `blockedByDisabled` | A return candidate is present while extraction is disabled. |
 | `blockedByNoCandidate` | Extraction is enabled but no return candidate is present. |
 | `blockedByZeroSize` | Candidate carries size zero. |
 | `blockedByUnsupportedSize` | Candidate size is not 1, 2, 4, or 8 bytes. |
-| `blockedByCrossLine` | Candidate needs the deferred cross-line return owner. |
+| `blockedByCrossLine` | Crossing candidate lacks complete requested bytes in one or both lines. |
 | `blockedByIncompleteBytes` | Candidate is otherwise extractable but not every requested byte is valid. |
 
 ## State
@@ -94,12 +97,13 @@ The module is combinational and owns no state.
 
 ## Logic Design
 
-`ExtractData(uint512_t &, addr, size)` treats `uint512_t.bits` as a
-little-endian byte array, computes `off = addr & 0x3f`, asserts that
-`off + size <= 0x40`, asserts `size <= 8`, then returns:
+The extractor treats each 512-bit line as a little-endian byte array, computes
+`off = addr & 0x3f`, and supports scalar sizes through eight bytes. For each
+output byte it selects the first line when `off + i < 64`, otherwise byte
+`off + i - 64` from the second line:
 
 ```text
-result = sum(line[off + i] << (8 * i)) for i in 0 until size
+result = sum(select(line0, line1, off + i) << (8 * i)) for i in 0 until size
 ```
 
 `SignExtend(data, opcode)` then sign-extends only signed byte, halfword, and
@@ -111,14 +115,14 @@ The Chisel owner follows that split without embedding opcode values:
 ```text
 candidate = enable && returnValid
 crossLine = candidate && size != 0 && addr[5:0] + size > 64
-dataValid = candidate && supportedSize && !crossLine && bytesComplete
+dataValid = candidate && supportedSize && bytesComplete
 data = signExtend ? signed(rawData, size) : zeroed(rawData, size)
 ```
 
-Cross-line requests are blocked instead of merged. The model handles those in
-`processCrossRtn` and `sendCrossRtn` by pairing two partial returns, combining
-their scalar fragments, and only then writing LRET and optional mem-wakeup.
-That merge needs a separate stateful owner.
+The LIQ is the stateful pairing owner: it retains the first completed line and
+supplies that line beside the second E4 line. The extractor performs only the
+combinational byte assembly. This preserves the model rule that no LRET or
+mem-wakeup is visible until both halves are complete.
 
 ## Deferred Owners
 
@@ -127,7 +131,7 @@ That merge needs a separate stateful owner.
 - Destination physical tag, IEX pipe, and full LRET payload formatting.
 - Real IEX load-return queue enqueue/backpressure.
 - Real mem-wakeup payload and ready-table/issue wakeup fanout.
-- Cross-line return pairing and merge.
+- Parallel cross-line half launch; canonical Chisel currently launches phases sequentially.
 - Tile-transfer load return data.
 
 ## Verification
@@ -142,6 +146,6 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r308-replay-return-data-dia
 ```
 
 Reference tests cover little-endian byte extraction, byte/halfword/word
-sign-extension, unsigned zero-extension, incomplete byte masks, cross-line
-blocking, unsupported sizes, empty/disabled candidates, zero-size blocking,
+sign-extension, unsigned zero-extension, incomplete byte masks, complete and
+incomplete cross-line assembly, unsupported sizes, empty/disabled candidates, zero-size blocking,
 and Chisel elaboration.

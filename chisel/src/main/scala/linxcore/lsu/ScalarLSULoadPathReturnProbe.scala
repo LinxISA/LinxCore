@@ -17,6 +17,7 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val allocPipe = Input(UInt(1.W))
   val allocBid = Input(UInt(3.W))
   val allocAddr = Input(UInt(6.W))
+  val allocSize = Input(UInt(4.W))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
   val allocIndex = Output(UInt(3.W))
@@ -25,6 +26,12 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val launchReady = Output(Bool())
   val launchAccepted = Output(Bool())
   val launchBlockedByReturnCredit = Output(Bool())
+  val forceSecondMiss = Input(Bool())
+  val missRequestValid = Output(Bool())
+  val missRequestAccepted = Output(Bool())
+  val missRequestLineAddr = Output(UInt(64.W))
+  val missResponseValid = Input(Bool())
+  val missResponseReady = Output(Bool())
   val drainReady = Input(Bool())
   val sideEffectReady = Input(Bool())
   val drainValid = Output(Bool())
@@ -49,6 +56,8 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val returnPending = Output(Bool())
   val returnEmpty = Output(Bool())
   val protocolError = Output(Bool())
+  val crossLine = Output(Bool())
+  val secondSegmentActive = Output(Bool())
 }
 
 class ScalarLSULoadPathReturnProbe extends Module {
@@ -98,7 +107,7 @@ class ScalarLSULoadPathReturnProbe extends Module {
   alloc.tid := io.allocStid
   alloc.pc := Cat(0.U(55.W), io.allocBid, 0.U(6.W))
   alloc.addr := io.allocAddr
-  alloc.size := 1.U
+  alloc.size := io.allocSize
   alloc.returnSignExtend := false.B
   alloc.dst := LoadReplayDestination.none(lsuParams.archRegWidth, lsuParams.physRegWidth)
   alloc.youngestStoreId := ROBID.disabled(8)
@@ -118,9 +127,14 @@ class ScalarLSULoadPathReturnProbe extends Module {
     path.io.e2Stores(idx) := 0.U.asTypeOf(path.io.e2Stores(idx))
     path.mdbStore.rows(idx) := 0.U.asTypeOf(path.mdbStore.rows(idx))
   }
-  val lineBytes = (0 until lsuParams.lineBytes).reverse.map(_.U(8.W))
-  path.io.e2BaseData := Cat(lineBytes)
-  path.io.e2BaseValidMask := Fill(lsuParams.lineBytes, 1.U(1.W))
+  val firstLineBytes = (0 until lsuParams.lineBytes).reverse.map(_.U(8.W))
+  val secondLineBytes = (0 until lsuParams.lineBytes).reverse.map(idx => (0x80 + idx).U(8.W))
+  val launchSecondSegment = path.io.liqRows(io.launchIndex).secondSegmentActive
+  path.io.e2BaseData := Mux(launchSecondSegment, Cat(secondLineBytes), Cat(firstLineBytes))
+  path.io.e2BaseValidMask := Mux(
+    io.forceSecondMiss && launchSecondSegment,
+    0.U,
+    Fill(lsuParams.lineBytes, 1.U(1.W)))
   path.io.e2LoadDataReturned := true.B
   path.io.e2ScbReturned := true.B
   path.io.e2StqReturned := true.B
@@ -129,8 +143,18 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.io.refillValid := false.B
   path.io.refill := 0.U.asTypeOf(path.io.refill)
   path.io.missRequestReady := true.B
-  path.io.missResponseValid := false.B
+  val savedMissId = RegInit(ROBID.disabled(lsuParams.loadMissQueueEntries))
+  val savedMissLineAddr = RegInit(0.U(lsuParams.addrWidth.W))
+  when(path.io.missRequestAccepted) {
+    savedMissId := path.io.missRequest.missId
+    savedMissLineAddr := path.io.missRequest.lineAddr
+  }
+  path.io.missResponseValid := io.missResponseValid
   path.io.missResponse := 0.U.asTypeOf(path.io.missResponse)
+  path.io.missResponse.missId := savedMissId
+  path.io.missResponse.lineAddr := savedMissLineAddr
+  path.io.missResponse.isRead := true.B
+  path.io.missResponse.data := Cat(secondLineBytes)
   path.io.resolveRetireValid := false.B
   path.io.resolveRetireBid := ROBID.disabled(8)
   path.io.resolveRetireLsId := ROBID.disabled(8)
@@ -152,6 +176,10 @@ class ScalarLSULoadPathReturnProbe extends Module {
   io.launchReady := path.io.launchReady
   io.launchAccepted := path.io.launchAccepted
   io.launchBlockedByReturnCredit := path.io.launchBlockedByReturnCredit
+  io.missRequestValid := path.io.missRequestValid
+  io.missRequestAccepted := path.io.missRequestAccepted
+  io.missRequestLineAddr := path.io.missRequest.lineAddr
+  io.missResponseReady := path.io.missResponseReady
   io.drainValid := path.io.loadReturn.drainValid
   io.drainFire := path.io.loadReturn.drainFire
   io.drainStid := path.io.loadReturn.drainStid
@@ -174,6 +202,8 @@ class ScalarLSULoadPathReturnProbe extends Module {
   io.returnPending := path.io.loadReturn.pending
   io.returnEmpty := path.io.loadReturn.empty
   io.protocolError := path.io.loadReturn.protocolError || path.io.transferProtocolError
+  io.crossLine := path.io.liqRows(io.launchIndex).crossLine
+  io.secondSegmentActive := path.io.liqRows(io.launchIndex).secondSegmentActive
 }
 
 object EmitScalarLSULoadPathReturnProbe extends App {

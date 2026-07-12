@@ -1057,7 +1057,25 @@ implementation choices and must not change architectural identity widths:
   resolve/writeback/wakeup rendezvous. The reduced timing path retains its
   detailed single-pipe proof surface until the live sinks consume the canonical
   outputs. The miss queue and bounded refill transport are now canonical;
-  cache arrays, memory classification, and cross-line ownership remain staged.
+  cache arrays and memory classification remain staged. R675 adds canonical
+  scalar cross-line ownership beneath the same load identity.
+- R675 splits a scalar 1/2/4/8-byte request that crosses one cache-line
+  boundary into two phase-local requests while retaining the original Linx
+  `(PE, STID, TID, BID, GID, RID, LSID, load ID)` identity in one LIQ row. The
+  first phase covers `[byte_offset, line_bytes)` and the second covers
+  `[0, size - first_size)`. Each phase independently uses forwarding, miss
+  coalescing, refill, and replay against its aligned line address.
+- The LIQ retains the completed first line and byte-valid metadata, but the
+  first phase is never an architectural hit: it emits no ResolveQ record,
+  LRET, writeback, or wakeup. Only a complete second phase may assemble the
+  little-endian scalar value, apply the original sign/zero extension, and
+  atomically publish one ResolveQ+LRET transaction.
+- The current Chisel owner launches the two phases sequentially. This is an
+  architectural match and a throughput divergence from LinxCoreModel's two
+  cross-half entries and `processCrossRtn` merge. A future parallel launcher
+  may replace the scheduling policy only if it preserves one final result,
+  per-line forwarding/miss ownership, typed recovery, and identical ordering
+  identity. It must not create a second architectural load.
 
 - A scalar store splits into address (`STA`) and data (`STD`) work with one
   shared instruction, BID, RID, SID, and LSID identity.
@@ -1153,6 +1171,23 @@ implementation choices and must not change architectural identity widths:
   through to an older value for that byte.
 - Cache, SCB, refill, and store-forward data may merge only with explicit byte
   validity and matching live-row identity.
+- For a scalar cross-line row, forwarding, SCB/store wakeup, miss allocation,
+  and refill matching use the active phase's aligned line address and
+  phase-local byte mask. The original address and size remain unchanged for
+  architectural return and ResolveQ conflict overlap. A first-line refill may
+  not satisfy a second-line phase, and a second-line store may not merge into
+  first-line state.
+- Each sequential phase is a normal LIQ launch and therefore reserves and
+  releases miss and return capacity independently at E4. A first-phase E4 hit
+  releases its launch reservations without allocating return-queue state. A
+  second-phase miss enters the ordinary parameterized miss queue and returns
+  through the retained refill transport before relaunch.
+- Hard Linx recovery clears both phase state and retained first-line data.
+  Typed precise recovery prunes a matching row by the existing full identity;
+  a surviving row preserves completed first-line state. If its active phase
+  occupied E3/E4, the payload is canceled and the same phase returns to
+  `Wait`. ARM exception levels, memory types, exclusives, barriers, and
+  acquire/release behavior are not introduced by this mechanism.
 - Cacheable scalar L1 misses enter a parameterized load miss queue before any
   lower-memory request is emitted. Queue depth is independent of LIQ, ROB,
   STQ, and return-queue capacity. Every accepted E2 launch reserves worst-case

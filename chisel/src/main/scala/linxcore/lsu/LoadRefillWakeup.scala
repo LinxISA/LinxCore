@@ -58,14 +58,22 @@ class LoadRefillWakeup(
   private def lineAddr(addr: UInt): UInt =
     Cat(addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
 
+  private def activeSecondSegment(row: LoadInflightRow): Bool =
+    row.crossLine && row.secondSegmentActive
+
+  private def activeLineAddr(row: LoadInflightRow): UInt =
+    Mux(activeSecondSegment(row), lineAddr(row.addr) + lineBytes.U, lineAddr(row.addr))
+
   private def requestByteMask(row: LoadInflightRow): UInt = {
     val mask = Wire(Vec(lineBytes, Bool()))
     val offset = Wire(UInt(sizeWidth.W))
-    offset := row.addr(lineOffsetWidth - 1, 0)
-    val end = offset +& row.size
+    offset := Mux(activeSecondSegment(row), 0.U, row.addr(lineOffsetWidth - 1, 0))
+    val firstSize = lineBytes.U(sizeWidth.W) - row.addr(lineOffsetWidth - 1, 0)
+    val size = Mux(activeSecondSegment(row), row.size - firstSize, Mux(row.crossLine, firstSize, row.size))
+    val end = offset +& size
     for (byte <- 0 until lineBytes) {
       val byteIndex = byte.U(end.getWidth.W)
-      mask(byte) := row.valid && row.size =/= 0.U && byteIndex >= offset && byteIndex < end
+      mask(byte) := row.valid && size =/= 0.U && byteIndex >= offset && byteIndex < end
     }
     mask.asUInt
   }
@@ -78,7 +86,7 @@ class LoadRefillWakeup(
 
   for (idx <- 0 until liqEntries) {
     val row = io.rows(idx)
-    val sameLine = lineAddr(row.addr) === io.refill.lineAddr
+    val sameLine = activeLineAddr(row) === io.refill.lineAddr
     wakeVec(idx) :=
       refillAccepted &&
         isWorking(row) &&

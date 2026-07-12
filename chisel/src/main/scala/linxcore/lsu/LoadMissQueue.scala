@@ -241,7 +241,10 @@ class LoadMissQueue(
   val issueQ = Module(new Queue(UInt(missIndexWidth.W), missEntries, pipe = false, flow = false))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
-  val candidateLineAddr = lineAddr(io.missRow.addr)
+  val candidateLineAddr = Mux(
+    io.missRow.crossLine && io.missRow.secondSegmentActive,
+    lineAddr(io.missRow.addr) + lineBytes.U,
+    lineAddr(io.missRow.addr))
   val candidateUsable =
     io.missValid &&
       io.missRow.valid &&

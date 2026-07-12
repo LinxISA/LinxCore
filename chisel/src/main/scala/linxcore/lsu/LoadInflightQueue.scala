@@ -111,6 +111,14 @@ class LoadInflightRow(
   val forwardMask = UInt(lineBytes.W)
   val waitMask = UInt(lineBytes.W)
 
+  val crossLine = Bool()
+  val secondSegmentActive = Bool()
+  val firstSegmentDone = Bool()
+  val firstLineData = UInt((lineBytes * 8).W)
+  val firstValidMask = UInt(lineBytes.W)
+  val firstLoadByteMask = UInt(lineBytes.W)
+  val firstForwardMask = UInt(lineBytes.W)
+
   val waitStore = Bool()
   val waitStoreInfo = new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth)
   val storeBypass = Bool()
@@ -414,14 +422,33 @@ class LoadInflightQueue(
   private def lineAddr(addr: UInt): UInt =
     Cat(addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
 
+  private def activeSecondSegment(row: LoadInflightRow): Bool =
+    row.crossLine && row.secondSegmentActive
+
+  private def firstSegmentSize(row: LoadInflightRow): UInt = {
+    val offset = Wire(UInt(sizeWidth.W))
+    offset := row.addr(lineOffsetWidth - 1, 0)
+    lineBytes.U(sizeWidth.W) - offset
+  }
+
+  private def activeAddr(row: LoadInflightRow): UInt =
+    Mux(activeSecondSegment(row), lineAddr(row.addr) + lineBytes.U, row.addr)
+
+  private def activeSize(row: LoadInflightRow): UInt =
+    Mux(
+      activeSecondSegment(row),
+      row.size - firstSegmentSize(row),
+      Mux(row.crossLine, firstSegmentSize(row), row.size))
+
   private def requestByteMask(row: LoadInflightRow): UInt = {
     val mask = Wire(Vec(lineBytes, Bool()))
     val offset = Wire(UInt(sizeWidth.W))
-    offset := row.addr(lineOffsetWidth - 1, 0)
-    val end = offset +& row.size
+    offset := Mux(activeSecondSegment(row), 0.U, row.addr(lineOffsetWidth - 1, 0))
+    val size = activeSize(row)
+    val end = offset +& size
     for (byte <- 0 until lineBytes) {
       val byteIndex = byte.U(end.getWidth.W)
-      mask(byte) := row.valid && row.size =/= 0.U && byteIndex >= offset && byteIndex < end
+      mask(byte) := row.valid && size =/= 0.U && byteIndex >= offset && byteIndex < end
     }
     mask.asUInt
   }
@@ -475,9 +502,9 @@ class LoadInflightQueue(
   val query = Wire(new LoadStoreForwardQuery(idEntries, addrWidth, lineBytes, sizeWidth, lsidWidth))
   query := 0.U.asTypeOf(query)
   query.valid := launchAccepted
-  query.lineAddr := lineAddr(launchRow.addr)
-  query.byteOffset := launchRow.addr(lineOffsetWidth - 1, 0)
-  query.size := launchRow.size
+  query.lineAddr := lineAddr(activeAddr(launchRow))
+  query.byteOffset := activeAddr(launchRow)(lineOffsetWidth - 1, 0)
+  query.size := activeSize(launchRow)
   query.youngestStoreId := launchRow.youngestStoreId
   query.youngestStoreLsId := launchRow.youngestStoreLsId
   query.youngestStoreLsIdFullValid := launchRow.youngestStoreLsIdFullValid
@@ -523,7 +550,12 @@ class LoadInflightQueue(
 
   val e4UpdateValid =
     e4IndexValid && pipeline.io.e4Valid && rows(e4Index).valid && (rows(e4Index).status === LoadInflightStatus.Repick)
-  val e4Resolved = e4UpdateValid && pipeline.io.e4WakeupValid && (pipeline.io.e4MissKind === LoadForwardMissKind.NoMiss)
+  val e4SegmentResolved =
+    e4UpdateValid && pipeline.io.e4WakeupValid && (pipeline.io.e4MissKind === LoadForwardMissKind.NoMiss)
+  val e4FirstSegmentResolved =
+    e4SegmentResolved && rows(e4Index).crossLine && !rows(e4Index).secondSegmentActive
+  val e4Resolved =
+    e4SegmentResolved && (!rows(e4Index).crossLine || rows(e4Index).secondSegmentActive)
   val e4StoreWait = e4UpdateValid && (pipeline.io.e4MissKind === LoadForwardMissKind.StoreDataNotReady)
   val e4DataMiss = e4UpdateValid && (pipeline.io.e4MissKind === LoadForwardMissKind.DataNotComplete)
   val e4ReplayWait =
@@ -543,7 +575,7 @@ class LoadInflightQueue(
   lhqRecord.loadLsIdFull := rows(e4Index).loadLsIdFull
   lhqRecord.pc := rows(e4Index).pc
   lhqRecord.addr := rows(e4Index).addr
-  lhqRecord.lineAddr := lineAddr(rows(e4Index).addr)
+  lhqRecord.lineAddr := lineAddr(activeAddr(rows(e4Index)))
   lhqRecord.size := rows(e4Index).size
   lhqRecord.byteMask := pipeline.io.e4LoadByteMask
   lhqRecord.data := pipeline.io.e4LineData
@@ -644,7 +676,29 @@ class LoadInflightQueue(
       rows(e4Index).missKind := pipeline.io.e4MissKind
       rows(e4Index).storeBypass := pipeline.io.e4ForwardMask.orR
 
-      when(e4Resolved) {
+      when(e4FirstSegmentResolved) {
+        rows(e4Index).status := LoadInflightStatus.Wait
+        rows(e4Index).secondSegmentActive := true.B
+        rows(e4Index).firstSegmentDone := true.B
+        rows(e4Index).firstLineData := pipeline.io.e4LineData
+        rows(e4Index).firstValidMask := pipeline.io.e4ValidMask
+        rows(e4Index).firstLoadByteMask := pipeline.io.e4LoadByteMask
+        rows(e4Index).firstForwardMask := pipeline.io.e4ForwardMask
+        rows(e4Index).lineData := 0.U
+        rows(e4Index).validMask := 0.U
+        rows(e4Index).loadByteMask := 0.U
+        rows(e4Index).forwardMask := 0.U
+        rows(e4Index).waitMask := 0.U
+        rows(e4Index).dataComplete := false.B
+        rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).scbReturned := false.B
+        rows(e4Index).stqReturned := false.B
+        rows(e4Index).waitStore := false.B
+        rows(e4Index).waitStoreInfo := zeroWait
+        rows(e4Index).l1Hit := false.B
+        rows(e4Index).l1Miss := false.B
+        rows(e4Index).missKind := LoadForwardMissKind.NoMiss
+      }.elsewhen(e4Resolved) {
         // Preserve the E4 hit as Repick until the return owner publishes its
         // LRET and markResolved accepts the terminal row state.
         rows(e4Index).status := LoadInflightStatus.Repick
@@ -729,7 +783,7 @@ class LoadInflightQueue(
 
     when(io.refillValid) {
       for (idx <- 0 until liqEntries) {
-        val sameRowResolvedAtE4 = e4UpdateValid && e4Resolved && (e4Index === idx.U)
+        val sameRowResolvedAtE4 = e4SegmentResolved && (e4Index === idx.U)
         when(refillWakeup.io.wakeMask(idx) && !sameRowResolvedAtE4) {
           rows(idx).status := LoadInflightStatus.Wait
           rows(idx).lineData := io.refill.data
@@ -800,6 +854,12 @@ class LoadInflightQueue(
       rows(allocPtr).stackValid := io.alloc.stackValid
       rows(allocPtr).returnPipeIndex := io.alloc.returnPipeIndex
 
+      val allocOffset = Wire(UInt(sizeWidth.W))
+      allocOffset := io.alloc.addr(lineOffsetWidth - 1, 0)
+      val allocEnd = allocOffset +& io.alloc.size
+      rows(allocPtr).crossLine :=
+        !io.alloc.isTile && io.alloc.size =/= 0.U && allocEnd > lineBytes.U(allocEnd.getWidth.W)
+
       when(allocPtr === (liqEntries - 1).U) {
         allocPtr := 0.U
         allocWrap := !allocWrap
@@ -826,6 +886,14 @@ class LoadInflightQueue(
           rows(idx).sourcesReturned := false.B
           rows(idx).scbReturned := false.B
           rows(idx).stqReturned := false.B
+          when(rows(idx).crossLine && !rows(idx).secondSegmentActive) {
+            rows(idx).secondSegmentActive := false.B
+            rows(idx).firstSegmentDone := false.B
+            rows(idx).firstLineData := 0.U
+            rows(idx).firstValidMask := 0.U
+            rows(idx).firstLoadByteMask := 0.U
+            rows(idx).firstForwardMask := 0.U
+          }
         }
       }
       residentCount := residentCount - flushPruneCount
@@ -847,6 +915,11 @@ class LoadInflightQueue(
   val waitStoreVec = Wire(Vec(liqEntries, Bool()))
   for (idx <- 0 until liqEntries) {
     val status = rows(idx).status
+    assert(!rows(idx).valid || !rows(idx).secondSegmentActive ||
+      (rows(idx).crossLine && rows(idx).firstSegmentDone),
+      "active second load segment requires retained first-segment completion")
+    assert(!rows(idx).valid || !rows(idx).firstSegmentDone || rows(idx).crossLine,
+      "first-segment completion is legal only for a cross-line scalar load")
     occupiedVec(idx) := rows(idx).valid
     waitVec(idx) := rows(idx).valid && (status === LoadInflightStatus.Wait)
     repickVec(idx) := rows(idx).valid && (status === LoadInflightStatus.Repick)
@@ -896,8 +969,10 @@ class LoadInflightQueue(
   io.e4UpdateValid := e4UpdateValid
   io.e4UpdateIndex := e4Index
   io.e4MissKind := pipeline.io.e4MissKind
-  io.e4WakeupValid := pipeline.io.e4WakeupValid
+  io.e4WakeupValid := e4Resolved
   io.lhqRecordValid := e4Resolved
+  assert(!e4Resolved || !rows(e4Index).crossLine || rows(e4Index).firstSegmentDone,
+    "cross-line scalar publication requires a retained first segment")
   io.lhqRecord := lhqRecord
   io.occupiedMask := occupiedVec.asUInt
   io.waitMask := waitVec.asUInt

@@ -7588,6 +7588,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring 
     dataExtract.io.returnValid := returnPathValid && returnPathSourcesReturned
     dataExtract.io.lineData := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLineData, e2BaseData)
     dataExtract.io.lineValidMask := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedValidMask, e2BaseValidMask)
+    dataExtract.io.secondLineData := 0.U
+    dataExtract.io.secondLineValidMask := 0.U
     dataExtract.io.addr := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedAddr, allocPath.io.launchSelectedAddr)
     dataExtract.io.size := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSize, allocPath.io.launchSelectedSize)
     dataExtract.io.signExtend :=

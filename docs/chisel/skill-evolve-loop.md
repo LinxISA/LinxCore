@@ -76,6 +76,13 @@ development is:
 | LSU/STQ/SCB/MDB/LIQ | `model/lsu/**`, `model/ModelCommon/LSUUtils.*` | `lsu/*.scala` |
 | Recovery and flush | `model/core/FlushControl.*`, `model/ModelCommon/bus/FlushBus.h`, `model/bctrl/BROB.cpp`, `model/bctrl/spe/SPEROB.cpp` | `recovery/*.scala`, `rob/ROBFlushPrune.scala`, `rename/TULinkRecoveryCleanupPath.scala`, `lsu/STQFlushPrune.scala` |
 
+For a split cache-line mechanism, audit every phase consumer, not only final
+data assembly. The active line and phase-local byte mask must drive forwarding,
+store/SCB wakeup, miss coalescing, refill matching, and request generation.
+Retain one architectural identity and suppress completion until all phases are
+complete. Record parallel-versus-sequential launch as a performance policy,
+and keep Linx typed recovery authoritative over partial phase state.
+
 ## ROB And Cross-Check First
 
 The next development wave must keep ROB/BROB and cross-check infrastructure

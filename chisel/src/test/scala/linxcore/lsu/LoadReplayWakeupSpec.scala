@@ -55,8 +55,13 @@ object LoadReplayWakeupReference {
     row.status != Idle && row.status != Resolved
 
   def apply(row: Row, wake: Wakeup): Result = {
-    val requestMask = byteMask((row.alloc.addr & BigInt(0x3f)).toInt, row.alloc.size)
-    val sameLine = (row.alloc.addr & ~BigInt(0x3f)) == wake.lineAddr
+    val offset = (row.alloc.addr & BigInt(0x3f)).toInt
+    val firstSize = 64 - offset
+    val second = row.crossLine && row.secondSegmentActive
+    val requestMask = byteMask(if (second) 0 else offset,
+      if (second) row.alloc.size - firstSize else if (row.crossLine) firstSize else row.alloc.size)
+    val activeLine = (row.alloc.addr & ~BigInt(0x3f)) + (if (second) 64 else 0)
+    val sameLine = activeLine == wake.lineAddr
     val waitStoreClear = wake.source == StoreUnit &&
       row.waitStore.exists(store =>
         store.storeId == wake.storeId &&
@@ -125,13 +130,17 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
       youngestStoreLsId: Id = Id(),
       validMask: BigInt = 0,
       lineData: BigInt = 0,
-      waitStore: Option[LoadStoreForwardingReference.Store] = None): Row =
+      waitStore: Option[LoadStoreForwardingReference.Store] = None,
+      crossLine: Boolean = false,
+      secondSegmentActive: Boolean = false): Row =
     Row(
       status = status,
       alloc = Alloc(addr = addr, size = size, youngestStoreId = youngestStore, youngestStoreLsId = youngestStoreLsId),
       lineData = lineData,
       validMask = validMask,
-      waitStore = waitStore)
+      waitStore = waitStore,
+      crossLine = crossLine,
+      secondSegmentActive = secondSegmentActive)
 
   test("store-unit wakeup clears matching wait-store diagnostics") {
     val storeId = id(4)
@@ -276,6 +285,30 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
 
     assert(!LoadReplayWakeupReference(row(Repick, addr = 0x1000, size = 4), wake).merge)
     assert(!LoadReplayWakeupReference(row(Resolved, addr = 0x1000, size = 4), wake).merge)
+  }
+
+  test("SCB wakeup targets only the active second segment of a cross-line load") {
+    val active = row(
+      Wait,
+      addr = 0x103e,
+      size = 4,
+      crossLine = true,
+      secondSegmentActive = true)
+    val wrongLine = LoadReplayWakeupReference(
+      active,
+      Wakeup(source = StoreCoalescingBuffer, lineAddr = 0x1000, validMask = byteMask(62, 2)))
+    val secondLine = LoadReplayWakeupReference(
+      active,
+      Wakeup(
+        source = StoreCoalescingBuffer,
+        lineAddr = 0x1040,
+        validMask = byteMask(0, 2),
+        data = data(0 -> 0x80, 1 -> 0x81)))
+
+    assert(!wrongLine.merge)
+    assert(secondLine.merge)
+    assert(secondLine.completed)
+    assert(secondLine.requestByteMask == byteMask(0, 2))
   }
 
   test("Chisel LoadReplayWakeup elaborates with replay masks") {

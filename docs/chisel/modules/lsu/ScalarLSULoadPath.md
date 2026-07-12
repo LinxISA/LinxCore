@@ -107,9 +107,17 @@ beneath `ScalarLSU`. The reduced top connects the shared W2 candidate to exact
 ROB completion and the canonical physical GPR/P-ready sink. The exposed
 readiness inputs remain outer allow gates and cannot bypass those resident
 owners. T/U local-link completion is an explicit unsupported contract error
-until its bank/qtag sink is connected. Bounded refill transport is live; L1D
-arrays/replacement/coherence, memory-attribute classification, cross-line
-assembly, and natural recovery activation remain future integration work.
+until its bank/qtag sink is connected. Bounded refill transport and scalar
+cross-line execution are live; L1D arrays/replacement/coherence,
+memory-attribute classification, and natural recovery activation remain future
+integration work.
+
+R675 executes a crossing 1/2/4/8-byte scalar load as two phase-local launches
+under one LIQ identity. The first phase cannot publish ResolveQ or LRET state.
+The second phase may publish only when both line masks are complete, producing
+one little-endian extended value. The generated return-path probe covers both
+hit/hit and hit/miss/refill/hit sequences and verifies the second miss uses the
+next aligned line.
 
 ## Verification
 
@@ -126,6 +134,9 @@ assembly, and natural recovery activation remain future integration work.
 - `bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- R675 final: 268 suites and 1,626 tests; expanded LSU promotion gate;
+  generated hit/hit, hit/miss/refill/hit, and precise-recovery cross-line
+  proof; 1,467-row CoreMark no-regression with zero mismatches and zero CBSTOP.
 - R674 final: 268 suites and 1,622 tests; expanded LSU promotion gate; both
   generated miss/refill probes; 1,467-row CoreMark no-regression with zero
   mismatches and zero CBSTOP.

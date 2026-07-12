@@ -42,6 +42,13 @@ object LoadInflightQueueReference {
       loadByteMask: BigInt = 0,
       forwardMask: BigInt = 0,
       waitMask: BigInt = 0,
+      crossLine: Boolean = false,
+      secondSegmentActive: Boolean = false,
+      firstSegmentDone: Boolean = false,
+      firstLineData: BigInt = 0,
+      firstValidMask: BigInt = 0,
+      firstLoadByteMask: BigInt = 0,
+      firstForwardMask: BigInt = 0,
       waitStore: Option[Store] = None,
       storeBypass: Boolean = false,
       dataComplete: Boolean = false,
@@ -142,16 +149,20 @@ object LoadInflightQueueReference {
     private def mask(bits: Seq[Boolean]): Int =
       bits.zipWithIndex.foldLeft(0) { case (acc, (bit, index)) => if (bit) acc | (1 << index) else acc }
 
-    private def query(row: Row): Query =
+    private def query(row: Row): Query = {
+      val offset = (row.alloc.addr & 0x3f).toInt
+      val firstSize = 64 - offset
+      val second = row.crossLine && row.secondSegmentActive
       Query(
         valid = true,
-        lineAddr = row.alloc.addr & ~BigInt(0x3f),
-        byteOffset = (row.alloc.addr & 0x3f).toInt,
-        size = row.alloc.size,
+        lineAddr = (row.alloc.addr & ~BigInt(0x3f)) + (if (second) 64 else 0),
+        byteOffset = if (second) 0 else offset,
+        size = if (second) row.alloc.size - firstSize else if (row.crossLine) firstSize else row.alloc.size,
         youngestStoreId = row.alloc.youngestStoreId,
         youngestStoreLsId = row.alloc.youngestStoreLsId,
         isTile = row.alloc.isTile
       )
+    }
 
     def allocate(alloc: Alloc): AllocResult = {
       val id = Id(valid = true, wrap = allocWrap, value = allocPtr)
@@ -159,7 +170,9 @@ object LoadInflightQueueReference {
         return AllocResult(accepted = false, index = allocPtr, loadId = id)
       }
 
-      rows(allocPtr) = Some(Row(status = Wait, loadId = id, alloc = alloc))
+      val offset = (alloc.addr & 0x3f).toInt
+      val crossLine = !alloc.isTile && alloc.size != 0 && offset + alloc.size > 64
+      rows(allocPtr) = Some(Row(status = Wait, loadId = id, alloc = alloc, crossLine = crossLine))
       val index = allocPtr
       if (allocPtr == entries - 1) {
         allocPtr = 0
@@ -235,9 +248,34 @@ object LoadInflightQueueReference {
 
           e4.missKind match {
             case NoMiss if e4.wakeupValid =>
-              val row = updated.copy(status = Repick, waitStore = None, l1Hit = false, l1Miss = false)
-              rows(index) = Some(row)
-              CycleResult(Some(index), Some(HitRecord(row, e4.loadByteMask, e4.lineData, e4.forwardMask)))
+              if (old.crossLine && !old.secondSegmentActive) {
+                rows(index) = Some(updated.copy(
+                  status = Wait,
+                  lineData = 0,
+                  validMask = 0,
+                  loadByteMask = 0,
+                  forwardMask = 0,
+                  waitMask = 0,
+                  secondSegmentActive = true,
+                  firstSegmentDone = true,
+                  firstLineData = e4.lineData,
+                  firstValidMask = e4.validMask,
+                  firstLoadByteMask = e4.loadByteMask,
+                  firstForwardMask = e4.forwardMask,
+                  waitStore = None,
+                  dataComplete = false,
+                  sourcesReturned = false,
+                  scbReturned = false,
+                  stqReturned = false,
+                  l1Hit = false,
+                  l1Miss = false,
+                  missKind = NoMiss))
+                CycleResult(Some(index))
+              } else {
+                val row = updated.copy(status = Repick, waitStore = None, l1Hit = false, l1Miss = false)
+                rows(index) = Some(row)
+                CycleResult(Some(index), Some(HitRecord(row, e4.loadByteMask, e4.lineData, e4.forwardMask)))
+              }
             case StoreDataNotReady =>
               rows(index) = Some(updated.copy(
                 status = Wait,
@@ -449,6 +487,30 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
     assert(liq.repickMask == (1 << rowIndex))
     assert(liq.resolvedMask == 0)
+  }
+
+  test("cross-line E4 phases retain one row and publish only after the second line") {
+    val liq = new Model(entries = 4)
+    val rowIndex = liq.allocate(alloc(0, addr = 0x103e, size = 4)).index
+    val fullMask = (BigInt(1) << 64) - 1
+    val firstData = lineData(Map(62 -> 0x3e, 63 -> 0x3f))
+    val secondData = lineData(Map(0 -> 0x80, 1 -> 0x81))
+
+    assert(liq.row(rowIndex).exists(row => row.crossLine && !row.secondSegmentActive))
+    assert(liq.launch(rowIndex, LaunchInput(baseData = firstData, baseValidMask = fullMask)))
+    val first = liq.cycle()
+    val held = liq.row(rowIndex).get
+
+    assert(first.hitRecord.isEmpty)
+    assert(held.status == Wait)
+    assert(held.secondSegmentActive && held.firstSegmentDone)
+    assert(held.firstLoadByteMask == byteMask(62, 2))
+    assert(held.firstLineData == firstData)
+
+    assert(liq.launch(rowIndex, LaunchInput(baseData = secondData, baseValidMask = fullMask)))
+    val second = liq.cycle()
+    assert(second.hitRecord.exists(_.byteMask == byteMask(0, 2)))
+    assert(liq.row(rowIndex).exists(row => row.status == Repick && row.secondSegmentActive))
   }
 
   test("pick moves a WAIT row to REPICK without launching E4 forwarding") {

@@ -15,6 +15,34 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R675 adds canonical scalar cross-line execution beneath one LIQ
+identity. A crossing 1/2/4/8-byte load runs first-line then second-line
+phase-local forwarding, miss, refill, and replay. The LIQ retains completed
+first-line bytes but suppresses all architectural publication until the second
+phase is complete; return extraction then assembles one little-endian scalar
+value and applies the original extension policy. Each phase reserves/releases
+capacity independently. Hard Linx recovery clears both phases; typed precise
+recovery prunes by the existing full identity and preserves a nonmatching
+row's completed first line. This is architecturally aligned with the model's
+cross-return pairing, with sequential rather than parallel half launch as the
+documented throughput divergence.
+
+The evolved generated scalar load-return probe proves hit/hit,
+hit/miss/refill/hit, exact second-line miss address, first-phase publication
+suppression, exactly one final return, and typed-recovery survival. Cache
+arrays, memory classification, lower-memory fabric, and parallel half launch
+remain open. No ARM memory types, barriers, exclusives, acquire/release, or
+exception-level behavior was imported.
+
+R675 final evidence passes 268 Chisel suites and 1,626 tests, the expanded LSU
+promotion gate, generated miss/refill/composed cross-line probes, architecture
+contract and both RTL adapters, and clean post-fix review. The bounded reduced
+CoreMark no-regression run compares 1,467 rows with zero mismatches and zero
+CBSTOP at
+`generated/r675-cross-line-coremark/report/crosscheck_manifest.json`. The
+reduced CoreMark top is no-regression evidence; the composed generated probe is
+the positive cross-line mechanism proof.
+
 Latest packet: R674 replaces combinational refill collision handling with the
 parameterized `LoadRefillTransport`. Exact miss responses and external cache
 refills now have independent ready/valid ingress, may both enqueue in one
@@ -23,7 +51,7 @@ packet per cycle to LIQ. Post-dequeue capacity permits full-side replacement;
 exact read responses cannot free `LoadMissQueue` state until transport enqueue
 accepts. Hard flush clears buffered refills, while typed precise recovery holds
 the physical line data for surviving Linx rows. Cache arrays, memory-class
-ownership, lower-memory request fabric, and cross-line assembly remain open.
+ownership and lower-memory request fabric remain open.
 
 R674 final evidence passes 268 Chisel suites and 1,622 tests, both generated
 miss/refill queue probes, the composed scalar load-return probe, the expanded
