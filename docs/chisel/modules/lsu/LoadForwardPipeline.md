@@ -1,5 +1,13 @@
 # LoadForwardPipeline
 
+## R672-A Full-LSID Wait Metadata
+
+The registered E3/E4 wait payload retains
+`storeLsIdFullValid/storeLsIdFull` at the configured width. A
+`StoreDataNotReady` result therefore reaches LIQ with the same canonical store
+identity selected at E2; the pipeline never reconstructs it from the projected
+LSID.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`

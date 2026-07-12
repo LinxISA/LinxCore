@@ -160,13 +160,28 @@ Missing full-LSID authority and exactly half-range separation are conservative
 non-matches. BID-only cleanup remains legal without LSID because block recovery
 already defines the killed suffix.
 
-Unconverted load-side queues still prune their own projected rows through an
-explicit projection-only helper. That compatibility path is not full-LSID
-authority and must not be reused by STQ recovery; zero-filled placeholder
-values never enter the authoritative matcher.
+The reduced replay snapshot request/token/response graph still prunes its
+projected compatibility rows through an explicitly named projection-only
+helper. Reduced forwarding nearest-store selection also retains projected LSID
+at the R672-A boundary. Once selected, the resident wait key and replay wakeup
+retain and exactly match full LSID authority. The remaining compatibility paths are not full-LSID authority and
+must not be reused by canonical ResolveQ, MDB, load-return, or STQ recovery;
+zero-filled placeholder values never enter an authoritative matcher.
 
-The dual field is still temporary. The projection remains necessary only for
-the unconverted load forwarding/replay/MDB, LIQ/ResolveQ, return-pipeline, and
-wait-store payload graph. Later LSID packets must promote those consumers
-before removing `FlushReq.lsId`, `STQEntryBankRow.lsId`, and related load-side
-projections.
+The dual field is still temporary. After R672-A, the projection remains
+necessary for the reduced load forwarding/replay snapshot graph and legacy
+diagnostics. Later LSID packets must promote those consumers before removing
+`FlushReq.lsId`, `STQEntryBankRow.lsId`, and related reduced-path projections.
+
+R672-A closes the canonical scalar-load control graph. Allocation, LIQ
+residency, LHQ/ResolveQ publication, MDB conflict and fanout queues, SSIT
+same-block distance, wait-store metadata, retained MDB recovery, and load
+return queue/W1/W2 state carry full-LSID validity and value. ResolveQ precise
+cleanup and retirement, group cleanup within one BID, and MDB same-BID
+conflict selection require full authority and use `LSIDOrder`; cross-BID age
+remains ROB/BROB-ring-owned. An MDB lookup may identify a wait candidate before
+the predicted store's local row index is known, but it must not mutate LIQ or
+publish wait/delete state until the store's full LSID is valid. Missing
+authority is not reconstructed from the projection. The compatibility
+projection remains only in the reduced replay snapshot/forwarding harness and
+legacy diagnostics pending R672-B.

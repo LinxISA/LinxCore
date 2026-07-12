@@ -472,6 +472,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
       dataReady = false,
       pc = 0x3450,
       storeId = Id(value = 4),
+      storeLsIdFull = BigInt("8000000001", 16),
       byteMask = byteMask(8, 2),
       data = lineData(Map(8 -> 0x11, 9 -> 0x22))
     )
@@ -512,6 +513,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
       dataReady = false,
       pc = 0x3450,
       storeId = Id(value = 4),
+      storeLsIdFull = BigInt("8000000001", 16),
       byteMask = byteMask(8, 2),
       data = lineData(Map(8 -> 0x11, 9 -> 0x22))
     )
@@ -522,6 +524,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
 
     assert(row.status == Wait)
     assert(row.waitStore.exists(_.pc == 0x3450))
+    assert(row.waitStore.exists(_.storeLsIdFull == BigInt("8000000001", 16)))
     assert(liq.waitStoreMask == (1 << rowIndex))
     assert(row.validMask == 0)
     assert(!row.scbReturned)

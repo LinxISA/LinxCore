@@ -14,10 +14,11 @@ class LoadReplayWakeMatchDiagnosticsIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val wakeValid = Input(Bool())
-  val wake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val wake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
   val rows = Input(Vec(
     liqEntries,
     new LoadInflightRow(
@@ -29,7 +30,8 @@ class LoadReplayWakeMatchDiagnosticsIO(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     )
   ))
 
@@ -51,7 +53,8 @@ class LoadReplayWakeMatchDiagnostics(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -70,7 +73,8 @@ class LoadReplayWakeMatchDiagnostics(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   val waitStoreCandidateVec = Wire(Vec(liqEntries, Bool()))
@@ -88,8 +92,13 @@ class LoadReplayWakeMatchDiagnostics(
     val lsIdMatch =
       bidMatch &&
         (!row.waitStoreInfo.storeLsId.valid || ROBID.equal(row.waitStoreInfo.storeLsId, io.wake.storeLsId))
+    val fullLsIdMatch =
+      lsIdMatch &&
+        row.waitStoreInfo.storeLsIdFullValid &&
+        io.wake.storeLsIdFullValid &&
+        row.waitStoreInfo.storeLsIdFull === io.wake.storeLsIdFull
     val pcMatch = candidate && (row.waitStoreInfo.pc === io.wake.pc)
-    val fullMatch = lsIdMatch && pcMatch
+    val fullMatch = fullLsIdMatch && pcMatch
 
     waitStoreCandidateVec(idx) := candidate
     bidMatchVec(idx) := bidMatch

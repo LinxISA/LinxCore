@@ -89,7 +89,8 @@ object LoadResolveQueueReference {
             tid = entry.tid,
             bid = entry.record.bid,
             gid = entry.record.gid,
-            lsId = entry.record.loadLsId
+            lsId = entry.record.loadLsId,
+            fullLsId = Some(entry.record.loadLsId.value)
           )
         )
       }
@@ -208,6 +209,7 @@ class LoadResolveQueueSpec extends AnyFunSuite {
         tid = 3,
         bid = id(1),
         lsId = id(2),
+        fullLsId = Some(2),
         baseOnPE = true,
         baseOnThread = true
       )

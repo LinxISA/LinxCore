@@ -9,7 +9,8 @@ class LoadInflightRowMutationRequestBridgeIO(
     val sourceStoreEntries: Int,
     val storeEntries: Int,
     val pcWidth: Int,
-    val lineBytes: Int)
+    val lineBytes: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val nativeStoreIndexWidth = log2Ceil(storeEntries)
@@ -25,7 +26,8 @@ class LoadInflightRowMutationRequestBridgeIO(
   val lineWrite = Input(Bool())
   val waitStoreWrite = Input(Bool())
   val nextWaitStore = Input(Bool())
-  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, sourceStoreEntries, pcWidth))
+  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(
+    idEntries, sourceStoreEntries, pcWidth, lsidWidth))
   val nextLineData = Input(UInt((lineBytes * 8).W))
   val nextValidMask = Input(UInt(lineBytes.W))
   val nextDataComplete = Input(Bool())
@@ -43,7 +45,8 @@ class LoadInflightRowMutationRequestBridgeIO(
   val lineWriteOut = Output(Bool())
   val waitStoreWriteOut = Output(Bool())
   val nextWaitStoreOut = Output(Bool())
-  val nativeNextWaitStoreInfoOut = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val nativeNextWaitStoreInfoOut = Output(new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth))
   val nativeStoreIndexOut = Output(UInt(nativeStoreIndexWidth.W))
   val nextLineDataOut = Output(UInt((lineBytes * 8).W))
   val nextValidMaskOut = Output(UInt(lineBytes.W))
@@ -67,7 +70,8 @@ class LoadInflightRowMutationRequestBridge(
     val sourceStoreEntries: Int = 16,
     val storeEntries: Int = 16,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -88,11 +92,12 @@ class LoadInflightRowMutationRequestBridge(
     sourceStoreEntries,
     storeEntries,
     pcWidth,
-    lineBytes
+    lineBytes,
+    lsidWidth
   ))
 
   private def zeroNativeWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
 
   private def resizeStoreIndex(index: UInt): UInt =
     if (index.getWidth == nativeStoreIndexWidth) {
@@ -129,6 +134,8 @@ class LoadInflightRowMutationRequestBridge(
   nativeWait.storeIndex := resizeStoreIndex(io.nextWaitStoreInfo.storeIndex)
   nativeWait.storeId := io.nextWaitStoreInfo.storeId
   nativeWait.storeLsId := io.nextWaitStoreInfo.storeLsId
+  nativeWait.storeLsIdFullValid := io.nextWaitStoreInfo.storeLsIdFullValid
+  nativeWait.storeLsIdFull := io.nextWaitStoreInfo.storeLsIdFull
   nativeWait.pc := io.nextWaitStoreInfo.pc
 
   io.active := active

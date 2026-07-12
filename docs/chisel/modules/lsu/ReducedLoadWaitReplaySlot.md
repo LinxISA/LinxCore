@@ -78,9 +78,9 @@ timing.
 | `captureLsId` | Load allocation snapshot LSID in `ROBID` form. |
 | `captureYoungestStoreId` | Forwarding snapshot BID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureBid`. |
 | `captureYoungestStoreLsId` | Forwarding snapshot LSID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureLsId`. |
-| `captureWaitStore` | Selected not-ready store key from `ReducedStoreResidentForward`: STQ index, BID, LSID, and PC. |
+| `captureWaitStore` | Selected not-ready store key from `ReducedStoreResidentForward`: STQ index, BID, projected LSID, full-LSID authority/value, and PC. |
 | `replayWakeValid` | Store-unit replay wakeup valid from `ResidentStoreReplayWakeup`. |
-| `replayWake` | Typed `LoadReplayWakeupRequest` consumed by `LoadReplayWakeup`. |
+| `replayWake` | Typed `LoadReplayWakeupRequest` consumed by `LoadReplayWakeup`, including the selected store's full-LSID authority/value. |
 
 ### Outputs
 
@@ -90,7 +90,7 @@ timing.
 | `captureAccepted` | A valid wait-store capture was accepted this cycle. |
 | `waitStoreClear` | `LoadReplayWakeup` matched the remembered wait-store key and cleared the diagnostic slot. |
 | `waitStoreClearMask` | Two-entry mask from the internal `LoadReplayWakeup`; bit 0 is the real slot and bit 1 is tied to an empty row. |
-| `storedWaitStore` | Registered wait-store key. The reduced top feeds this back to `ResidentStoreReplayWakeup` so ready stores can wake a load after the live forwarder no longer reports a wait. |
+| `storedWaitStore` | Registered wait-store key, including parameterized full LSID. The reduced top feeds this back to `ResidentStoreReplayWakeup` so ready stores can wake a load after the live forwarder no longer reports a wait. |
 | `relaunch.valid` | One-cycle candidate pulse when the remembered wait-store key is cleared and no same-cycle capture wins the slot. |
 | `relaunch.pc` | PC of the remembered load. |
 | `relaunch.addr` | Byte address of the remembered load. |
@@ -137,7 +137,8 @@ R269 maps that sequence onto the reduced top:
 3. Consume the resulting `LoadReplayWakeupRequest` through the same
    `LoadReplayWakeup` module used by `LoadInflightQueue`.
 4. Clear the diagnostic slot when the wakeup matches the remembered
-   wait-store key by `(storeId, storeLsId, pc)`.
+   wait-store key by `(storeId, storeLsId, storeLsIdFull, pc)`. Full-LSID
+   comparison is mandatory, and missing full authority is a non-match.
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
    address, size, derived return signedness, renamed destination, RF-derived
    source operand traces, BID, GID, RID, reduced LSID, and forwarding snapshot

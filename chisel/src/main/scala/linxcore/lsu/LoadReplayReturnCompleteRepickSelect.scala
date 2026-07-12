@@ -15,7 +15,8 @@ class LoadReplayReturnCompleteRepickSelectIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
@@ -34,7 +35,8 @@ class LoadReplayReturnCompleteRepickSelectIO(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     )
   ))
 
@@ -77,7 +79,8 @@ class LoadReplayReturnCompleteRepickSelect(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ return selector entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ return selector entries must be a power of two")
@@ -101,7 +104,8 @@ class LoadReplayReturnCompleteRepickSelect(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   private def zeroId(entries: Int): ROBID =

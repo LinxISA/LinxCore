@@ -41,8 +41,10 @@ the wait-store identity before this can replace the full model load pipeline.
 
 `entries` sizes the resident STQ vector, eligible mask, and wait-store index;
 `robEntries` sizes load/store BID and current transitional LSID identity
-fields. Forwarding selection never derives identity width from the number of
-resident rows. The focused suite includes a 16-STQ/8-ROB contract.
+fields. `lsidWidth` independently sizes the authoritative full LSID carried by
+resident rows and the selected wait-store result. Forwarding selection never
+derives either identity width from the number of resident rows. The focused
+suite includes 16-STQ/8-ROB and 40-bit full-LSID contracts.
 
 ## Interface
 
@@ -67,7 +69,7 @@ resident rows. The focused suite includes a 16-STQ/8-ROB contract.
 | `loadForwardMask` | One bit per returned byte forwarded from ready resident STQ rows. |
 | `waitMask` | One bit per returned byte whose nearest older resident store is not data-ready. |
 | `eligibleStoreMask` | STQ rows accepted by the resident-forward candidate filter. |
-| `waitStore` | Selected not-ready resident store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, LSID, and PC. R267 exposes this diagnostic for later LIQ/LDQ replay wakeup wiring. |
+| `waitStore` | Selected not-ready resident store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, projected LSID, full-LSID authority/value, and PC. Selection order remains projected pending R672-B, but the selected identity is not narrowed. |
 | `readyForward` | At least one byte was forwarded and no wait byte blocked the load. |
 | `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. R266 top integration uses this to hold execute. |
 | `loadCrossesLine` | Load crosses a 64-byte line and is left on the base overlay path in this ready-only packet. |
@@ -144,4 +146,5 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 Reference tests cover ready resident forwarding over committed overlay data,
 same-BID LSID source selection, not-ready wait pass-through, cross-line
 suppression, selected wait-store identity including PC, and Chisel elaboration
-with diagnostics.
+with diagnostics. A 40-bit structural test locks resident-row to selected-wait
+full-LSID width preservation.

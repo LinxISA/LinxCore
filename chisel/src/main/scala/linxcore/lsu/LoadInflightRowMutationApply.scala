@@ -15,7 +15,8 @@ class LoadInflightRowMutationApplyIO(
     val peIdWidth: Int,
     val stidWidth: Int,
     val tidWidth: Int,
-    val returnPipeCount: Int)
+    val returnPipeCount: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -33,7 +34,8 @@ class LoadInflightRowMutationApplyIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
   val setWaitStatus = Input(Bool())
   val keepRepickStatus = Input(Bool())
@@ -41,7 +43,8 @@ class LoadInflightRowMutationApplyIO(
   val lineWrite = Input(Bool())
   val waitStoreWrite = Input(Bool())
   val nextWaitStore = Input(Bool())
-  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth))
   val nextLineData = Input(UInt((lineBytes * 8).W))
   val nextValidMask = Input(UInt(lineBytes.W))
   val nextDataComplete = Input(Bool())
@@ -65,7 +68,8 @@ class LoadInflightRowMutationApplyIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -90,7 +94,8 @@ class LoadInflightRowMutationApply(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -113,7 +118,8 @@ class LoadInflightRowMutationApply(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
 
   val active = io.enable && !io.flush

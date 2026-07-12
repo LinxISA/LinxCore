@@ -64,6 +64,7 @@ object LoadReplayMdbLookupWaitPlanReference {
       rows: Seq[Row],
       storeIndexValid: Boolean = true,
       storeLsIdValid: Boolean = true,
+      storeLsIdFullValid: Boolean = true,
       storeLsId: Id = Id(valid = true)): Result = {
     val active = enable && !flush
     val lookupIntent = lookup.exists(_.valid)
@@ -91,7 +92,7 @@ object LoadReplayMdbLookupWaitPlanReference {
       else rows.indices.find(idx => ((candidateMask >> idx) & 1) == 1).getOrElse(0)
     val multiTarget = lookupHit && candidateCount > 1
     val waitIntentValid = targetValid
-    val requestValid = waitIntentValid
+    val requestValid = waitIntentValid && storeLsIdFullValid
 
     Result(
       active = active,
@@ -119,7 +120,8 @@ object LoadReplayMdbLookupWaitPlanReference {
       blockedByNoTarget = lookupHit && candidateCount == 0,
       blockedByMultiTarget = multiTarget,
       blockedByMissingStoreIndex = waitIntentValid && !storeIndexValid,
-      blockedByMissingStoreLsId = waitIntentValid && (!storeLsIdValid || !storeLsId.valid))
+      blockedByMissingStoreLsId = waitIntentValid &&
+        (!storeLsIdValid || !storeLsId.valid || !storeLsIdFullValid))
   }
 }
 
@@ -157,7 +159,7 @@ class LoadReplayMdbLookupWaitPlanSpec extends AnyFunSuite {
     assert(result.nextWaitStore)
   }
 
-  test("publishes MDB wait request even when native store index and LSID are unresolved") {
+  test("permits an unresolved local index but blocks a wait without full store LSID authority") {
     val lookup = Lookup(loadBid = id(5), loadLsId = id(3), storeBid = id(2), storePc = 0x2400)
     val missingIndex = LoadReplayMdbLookupWaitPlanReference(
       enable = true,
@@ -170,13 +172,13 @@ class LoadReplayMdbLookupWaitPlanSpec extends AnyFunSuite {
       flush = false,
       lookup = Some(lookup),
       rows = Seq(Row(bid = id(5), loadLsId = id(3))),
-      storeLsId = id(0, valid = false))
+      storeLsIdFullValid = false)
 
     assert(missingIndex.waitIntentValid)
     assert(missingIndex.requestValid)
     assert(missingIndex.blockedByMissingStoreIndex)
     assert(missingLsId.waitIntentValid)
-    assert(missingLsId.requestValid)
+    assert(!missingLsId.requestValid)
     assert(missingLsId.blockedByMissingStoreLsId)
   }
 

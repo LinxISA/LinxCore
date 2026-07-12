@@ -1,5 +1,13 @@
 # LoadReplayRowMutationSourceMux
 
+## R672-A LSID Width Contract
+
+The mux carries a parameterized full store LSID beside the reduced projection.
+Source selection and same-target coalescing preserve
+`storeLsIdFullValid/storeLsIdFull` without truncation. Canonical MDB mutation
+must provide full authority; the reduced source-return snapshot remains an
+explicit R672-B compatibility producer.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayRowMutationSourceMux.scala`

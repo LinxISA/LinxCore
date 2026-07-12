@@ -8,7 +8,8 @@ class LoadReplayRowMutationRequest(
     val idEntries: Int,
     val sourceStoreEntries: Int,
     val pcWidth: Int,
-    val lineBytes: Int)
+    val lineBytes: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
 
@@ -21,7 +22,7 @@ class LoadReplayRowMutationRequest(
   val lineWrite = Bool()
   val waitStoreWrite = Bool()
   val nextWaitStore = Bool()
-  val nextWaitStoreInfo = new LoadStoreForwardWait(idEntries, sourceStoreEntries, pcWidth)
+  val nextWaitStoreInfo = new LoadStoreForwardWait(idEntries, sourceStoreEntries, pcWidth, lsidWidth)
   val nextLineData = UInt((lineBytes * 8).W)
   val nextValidMask = UInt(lineBytes.W)
   val nextDataComplete = Bool()
@@ -35,11 +36,15 @@ class LoadReplayRowMutationSourceMuxIO(
     val idEntries: Int,
     val sourceStoreEntries: Int,
     val pcWidth: Int,
-    val lineBytes: Int)
+    val lineBytes: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val sourceReturn = Input(new LoadReplayRowMutationRequest(liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes))
-  val mdbWaitPlan = Input(new LoadReplayRowMutationRequest(liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes))
-  val out = Output(new LoadReplayRowMutationRequest(liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes))
+  val sourceReturn = Input(new LoadReplayRowMutationRequest(
+    liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes, lsidWidth))
+  val mdbWaitPlan = Input(new LoadReplayRowMutationRequest(
+    liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes, lsidWidth))
+  val out = Output(new LoadReplayRowMutationRequest(
+    liqEntries, idEntries, sourceStoreEntries, pcWidth, lineBytes, lsidWidth))
 
   val selectedSourceReturn = Output(Bool())
   val selectedMdbWaitPlan = Output(Bool())
@@ -51,7 +56,8 @@ class LoadReplayRowMutationSourceMux(
     val idEntries: Int = 16,
     val sourceStoreEntries: Int = 16,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -67,7 +73,8 @@ class LoadReplayRowMutationSourceMux(
     idEntries,
     sourceStoreEntries,
     pcWidth,
-    lineBytes
+    lineBytes,
+    lsidWidth
   ))
 
   val sourceValid = io.sourceReturn.valid

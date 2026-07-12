@@ -16,6 +16,8 @@ object LoadReplayWakeupReference {
       source: Source,
       storeId: Id = Id(),
       storeLsId: Id = Id(),
+      storeLsIdFullValid: Boolean = true,
+      storeLsIdFull: BigInt = 0,
       pc: BigInt = 0,
       lineAddr: BigInt = 0x1000,
       validMask: BigInt = 0,
@@ -59,6 +61,9 @@ object LoadReplayWakeupReference {
       row.waitStore.exists(store =>
         store.storeId == wake.storeId &&
           (!store.storeLsId.valid || store.storeLsId == wake.storeLsId) &&
+          store.storeLsIdFullValid &&
+          wake.storeLsIdFullValid &&
+          store.storeLsIdFull == wake.storeLsIdFull &&
           store.pc == wake.pc)
     val storeMissEligible = wake.source == StoreUnit &&
       sameLine &&
@@ -84,8 +89,20 @@ object LoadReplayWakeupReference {
       mergedLineData = mergedLineData)
   }
 
-  def storeWait(pc: BigInt, storeId: Id, storeLsId: Id = Id()): Store =
-    Store(index = 0, dataReady = false, pc = pc, storeId = storeId, storeLsId = storeLsId)
+  def storeWait(
+      pc: BigInt,
+      storeId: Id,
+      storeLsId: Id = Id(),
+      storeLsIdFullValid: Boolean = true,
+      storeLsIdFull: BigInt = 0): Store =
+    Store(
+      index = 0,
+      dataReady = false,
+      pc = pc,
+      storeId = storeId,
+      storeLsId = storeLsId,
+      storeLsIdFullValid = storeLsIdFullValid,
+      storeLsIdFull = storeLsIdFull)
 
   def data(bytes: (Int, Int)*): BigInt =
     lineData(bytes.toMap)
@@ -127,15 +144,48 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
     assert(!result.completed)
   }
 
-  test("store-unit wakeup clears MDB wait-store rows with wildcard LSID") {
+  test("store-unit wakeup refuses MDB wait-store rows without full LSID authority") {
     val storeId = id(4)
     val result = LoadReplayWakeupReference(
-      row(Wait, waitStore = Some(storeWait(pc = 0x3450, storeId = storeId, storeLsId = Id(valid = false)))),
+      row(Wait, waitStore = Some(storeWait(
+        pc = 0x3450,
+        storeId = storeId,
+        storeLsId = Id(valid = false),
+        storeLsIdFullValid = false))),
       Wakeup(source = StoreUnit, storeId = storeId, storeLsId = id(9), pc = 0x3450, lineAddr = 0x1000))
 
-    assert(result.waitStoreClear)
+    assert(!result.waitStoreClear)
     assert(!result.merge)
     assert(!result.completed)
+  }
+
+  test("store-unit wakeup requires an exact full LSID match") {
+    val storeId = id(4)
+    val waiting = row(Wait, waitStore = Some(storeWait(
+      pc = 0x3450,
+      storeId = storeId,
+      storeLsId = id(1),
+      storeLsIdFull = BigInt("8000000001", 16))))
+
+    val exact = LoadReplayWakeupReference(
+      waiting,
+      Wakeup(
+        source = StoreUnit,
+        storeId = storeId,
+        storeLsId = id(1),
+        storeLsIdFull = BigInt("8000000001", 16),
+        pc = 0x3450))
+    val projectedAlias = LoadReplayWakeupReference(
+      waiting,
+      Wakeup(
+        source = StoreUnit,
+        storeId = storeId,
+        storeLsId = id(1),
+        storeLsIdFull = BigInt(1),
+        pc = 0x3450))
+
+    assert(exact.waitStoreClear)
+    assert(!projectedAlias.waitStoreClear)
   }
 
   test("store-unit wakeup merges older miss bytes and completes requested data") {

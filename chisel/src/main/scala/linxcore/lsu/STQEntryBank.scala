@@ -282,6 +282,7 @@ class STQEntryBank(
     flushPrune.io.rows(idx).bid := rows(idx).bid
     flushPrune.io.rows(idx).gid := rows(idx).gid
     flushPrune.io.rows(idx).lsId := rows(idx).lsId
+    flushPrune.io.rows(idx).lsIdFullValid := true.B
     flushPrune.io.rows(idx).lsIdFull := rows(idx).lsIdFull
   }
 

@@ -6,7 +6,14 @@ import org.scalatest.funsuite.AnyFunSuite
 object ResidentStoreReplayWakeupReference {
   import STQFlushPruneReference.Id
 
-  final case class WaitStore(valid: Boolean = true, index: Int = 0, storeId: Id = Id(), storeLsId: Id = Id(), pc: BigInt = 0)
+  final case class WaitStore(
+      valid: Boolean = true,
+      index: Int = 0,
+      storeId: Id = Id(),
+      storeLsId: Id = Id(),
+      storeLsIdFullValid: Boolean = true,
+      storeLsIdFull: BigInt = 0,
+      pc: BigInt = 0)
   final case class Row(
       valid: Boolean = true,
       waitState: Boolean = true,
@@ -15,6 +22,7 @@ object ResidentStoreReplayWakeupReference {
       scalar: Boolean = true,
       bid: Id = Id(),
       lsId: Id = Id(),
+      lsIdFull: BigInt = 0,
       pc: BigInt = 0,
       addr: BigInt = 0x1000,
       data: BigInt = 0,
@@ -62,6 +70,8 @@ object ResidentStoreReplayWakeupReference {
       selected &&
         row.bid == waitStore.storeId &&
         row.lsId == waitStore.storeLsId &&
+        waitStore.storeLsIdFullValid &&
+        row.lsIdFull == waitStore.storeLsIdFull &&
         row.pc == waitStore.pc
     val cross = crosses(row.addr, row.size)
     val ready = identity && row.addrReady && row.dataReady && row.scalar && !cross
@@ -134,6 +144,38 @@ class ResidentStoreReplayWakeupSpec extends AnyFunSuite {
     assert(!result.wakeValid)
   }
 
+  test("missing or aliased full LSID authority suppresses resident wakeup") {
+    val storeId = id(2)
+    val row = Row(
+      bid = storeId,
+      lsId = id(1),
+      lsIdFull = BigInt("8000000001", 16),
+      pc = 0x2000)
+    val missing = ResidentStoreReplayWakeupReference(
+      enable = true,
+      waitStore = WaitStore(
+        index = 0,
+        storeId = storeId,
+        storeLsId = id(1),
+        storeLsIdFullValid = false,
+        pc = 0x2000),
+      rows = Seq(row))
+    val alias = ResidentStoreReplayWakeupReference(
+      enable = true,
+      waitStore = WaitStore(
+        index = 0,
+        storeId = storeId,
+        storeLsId = id(1),
+        storeLsIdFull = BigInt(1),
+        pc = 0x2000),
+      rows = Seq(row))
+
+    assert(!missing.identityMatch)
+    assert(!missing.wakeValid)
+    assert(!alias.identityMatch)
+    assert(!alias.wakeValid)
+  }
+
   test("cross-line resident store does not emit a scalar replay wakeup") {
     val storeId = id(6)
     val result = ResidentStoreReplayWakeupReference(
@@ -164,5 +206,13 @@ class ResidentStoreReplayWakeupSpec extends AnyFunSuite {
     assert(io.waitStore.storeIndex.getWidth == 4)
     assert(io.waitStore.storeId.value.getWidth == 3)
     assert(io.wake.storeId.value.getWidth == 3)
+  }
+
+  test("resident replay wakeup preserves full selected-store authority at 40-bit LSID width") {
+    val io = new ResidentStoreReplayWakeupIO(entries = 16, robEntries = 8, lsidWidth = 40)
+
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.waitStore.storeLsIdFull.getWidth == 40)
+    assert(io.wake.storeLsIdFull.getWidth == 40)
   }
 }

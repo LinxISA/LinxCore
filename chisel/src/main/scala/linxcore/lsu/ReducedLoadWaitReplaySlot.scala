@@ -40,7 +40,8 @@ class ReducedLoadWaitReplaySlotIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val slotEntries = 2
 
@@ -60,16 +61,16 @@ class ReducedLoadWaitReplaySlotIO(
   val captureLsId = Input(new ROBID(idEntries))
   val captureYoungestStoreId = Input(new ROBID(idEntries))
   val captureYoungestStoreLsId = Input(new ROBID(idEntries))
-  val captureWaitStore = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val captureWaitStore = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
 
   val replayWakeValid = Input(Bool())
-  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
 
   val active = Output(Bool())
   val captureAccepted = Output(Bool())
   val waitStoreClear = Output(Bool())
   val waitStoreClearMask = Output(UInt(slotEntries.W))
-  val storedWaitStore = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val storedWaitStore = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
   val relaunch = Output(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
   val slotPc = Output(UInt(pcWidth.W))
   val slotAddr = Output(UInt(addrWidth.W))
@@ -83,7 +84,8 @@ class ReducedLoadWaitReplaySlot(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   private val slotEntries = 2
 
@@ -103,11 +105,12 @@ class ReducedLoadWaitReplaySlot(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait = {
-    val wait = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+    val wait = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
     wait := 0.U.asTypeOf(wait)
     wait.storeId := ROBID.disabled(idEntries)
     wait.storeLsId := ROBID.disabled(idEntries)
@@ -124,7 +127,8 @@ class ReducedLoadWaitReplaySlot(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     ))
     row := 0.U.asTypeOf(row)
     row.status := LoadInflightStatus.Idle
@@ -164,7 +168,8 @@ class ReducedLoadWaitReplaySlot(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     ))
     row := zeroRow
     row.valid := true.B
@@ -205,13 +210,15 @@ class ReducedLoadWaitReplaySlot(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     )
   ))
   rows(0) := slotReg
   rows(1) := emptyRow
 
-  val replay = Module(new LoadReplayWakeup(slotEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val replay = Module(new LoadReplayWakeup(
+    slotEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
   replay.io.wakeValid := io.replayWakeValid && activeReg && !io.flush
   replay.io.wake := io.replayWake
   replay.io.rows := rows
@@ -234,7 +241,7 @@ class ReducedLoadWaitReplaySlot(
     loadLsIdReg := ROBID.disabled(idEntries)
   }
 
-  val storedWait = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val storedWait = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
   storedWait := zeroWait
   when(activeReg) {
     storedWait := slotReg.waitStoreInfo

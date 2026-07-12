@@ -17,7 +17,8 @@ class LoadReplayMdbLookupWaitPlanIO(
     val physRegWidth: Int,
     val stidWidth: Int,
     val confWidth: Int,
-    val weightWidth: Int)
+    val weightWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
 
@@ -31,7 +32,8 @@ class LoadReplayMdbLookupWaitPlanIO(
     stidWidth = stidWidth,
     sizeWidth = sizeWidth,
     confWidth = confWidth,
-    weightWidth = weightWidth
+    weightWidth = weightWidth,
+    lsidWidth = lsidWidth
   ))
   val rows = Input(Vec(
     liqEntries,
@@ -44,13 +46,16 @@ class LoadReplayMdbLookupWaitPlanIO(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     )
   ))
   val storeIndexValid = Input(Bool())
   val storeIndex = Input(UInt(log2Ceil(storeEntries).W))
   val storeLsIdValid = Input(Bool())
   val storeLsId = Input(new ROBID(idEntries))
+  val storeLsIdFullValid = Input(Bool())
+  val storeLsIdFull = Input(UInt(lsidWidth.W))
 
   val active = Output(Bool())
   val lookupIntent = Output(Bool())
@@ -71,7 +76,8 @@ class LoadReplayMdbLookupWaitPlanIO(
   val lineWrite = Output(Bool())
   val waitStoreWrite = Output(Bool())
   val nextWaitStore = Output(Bool())
-  val nextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val nextWaitStoreInfo = Output(new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth))
   val nextLineData = Output(UInt((lineBytes * 8).W))
   val nextValidMask = Output(UInt(lineBytes.W))
   val nextDataComplete = Output(Bool())
@@ -104,7 +110,8 @@ class LoadReplayMdbLookupWaitPlan(
     val physRegWidth: Int = 6,
     val stidWidth: Int = 8,
     val confWidth: Int = 2,
-    val weightWidth: Int = 2)
+    val weightWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -126,15 +133,17 @@ class LoadReplayMdbLookupWaitPlan(
     physRegWidth,
     stidWidth,
     confWidth,
-    weightWidth
+    weightWidth,
+    lsidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
 
   val active = io.enable && !io.flush
   val lookupIntent = io.luOutValid && io.luOut.valid
-  val loadInfoValid = io.luOut.ldInfo.valid && io.luOut.ldInfo.bid.valid && io.luOut.ldInfo.lsId.valid
+  val loadInfoValid = io.luOut.ldInfo.valid && io.luOut.ldInfo.bid.valid &&
+    io.luOut.ldInfo.lsIdFullValid
   val storeInfoValid = io.luOut.stInfo.valid && io.luOut.stInfo.bid.valid
   val scalarLookup = !io.luOut.ldInfo.isTile && !io.luOut.stInfo.isTile
   val lookupHit = active && lookupIntent && io.luOut.hit && loadInfoValid && storeInfoValid && scalarLookup
@@ -148,9 +157,9 @@ class LoadReplayMdbLookupWaitPlan(
         ((row.status === LoadInflightStatus.Wait) || (row.status === LoadInflightStatus.Repick)) &&
         !row.isTile &&
         row.bid.valid &&
-        row.loadLsId.valid &&
+        row.loadLsIdFullValid &&
         ROBID.equal(row.bid, io.luOut.ldInfo.bid) &&
-        ROBID.equal(row.loadLsId, io.luOut.ldInfo.lsId)
+        row.loadLsIdFull === io.luOut.ldInfo.lsIdFull
   }
 
   val candidateMask = candidateVec.asUInt
@@ -160,14 +169,17 @@ class LoadReplayMdbLookupWaitPlan(
   val multiTarget = lookupHit && candidateCount > 1.U
   val waitIntentValid = targetValid
   val resolvedStoreLsId = io.storeLsIdValid && io.storeLsId.valid
-  val requestValid = waitIntentValid
+  val resolvedStoreLsIdFull = io.storeLsIdFullValid
+  val requestValid = waitIntentValid && resolvedStoreLsIdFull
 
-  val waitInfo = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val waitInfo = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
   waitInfo := zeroWait
   waitInfo.valid := requestValid
   waitInfo.storeIndex := Mux(io.storeIndexValid, io.storeIndex, 0.U)
   waitInfo.storeId := io.luOut.stInfo.bid
   waitInfo.storeLsId := Mux(resolvedStoreLsId, io.storeLsId, ROBID.disabled(idEntries))
+  waitInfo.storeLsIdFullValid := resolvedStoreLsIdFull
+  waitInfo.storeLsIdFull := Mux(resolvedStoreLsIdFull, io.storeLsIdFull, 0.U)
   waitInfo.pc := io.luOut.stInfo.pc
 
   io.active := active
@@ -207,5 +219,5 @@ class LoadReplayMdbLookupWaitPlan(
   io.blockedByNoTarget := lookupHit && candidateCount === 0.U
   io.blockedByMultiTarget := multiTarget
   io.blockedByMissingStoreIndex := waitIntentValid && !io.storeIndexValid
-  io.blockedByMissingStoreLsId := waitIntentValid && !resolvedStoreLsId
+  io.blockedByMissingStoreLsId := waitIntentValid && (!resolvedStoreLsId || !resolvedStoreLsIdFull)
 }

@@ -14,6 +14,7 @@ object ResidentStoreForwardStoreSnapshotReference {
       scalar: Boolean = true,
       bid: Id = Id(),
       lsId: Id = Id(),
+      lsIdFull: BigInt = 0,
       pc: BigInt = 0,
       addr: BigInt = 0x1000,
       data: BigInt = 0,
@@ -25,6 +26,8 @@ object ResidentStoreForwardStoreSnapshotReference {
       addrReady: Boolean,
       dataReady: Boolean,
       isTile: Boolean,
+      storeLsIdFullValid: Boolean,
+      storeLsIdFull: BigInt,
       lineAddr: BigInt,
       byteMask: BigInt,
       data: BigInt)
@@ -69,6 +72,8 @@ object ResidentStoreForwardStoreSnapshotReference {
         addrReady = row.addrReady,
         dataReady = row.dataReady,
         isTile = !row.scalar,
+        storeLsIdFullValid = row.valid,
+        storeLsIdFull = row.lsIdFull,
         lineAddr = lineAddr(row.addr),
         byteMask = mask,
         data = lineData(row.addr, row.data, mask)
@@ -123,23 +128,27 @@ class ResidentStoreForwardStoreSnapshotSpec extends AnyFunSuite {
   }
 
   test("Chisel ResidentStoreForwardStoreSnapshot elaborates forward-store vector") {
-    val sv = ChiselStage.emitSystemVerilog(new ResidentStoreForwardStoreSnapshot(entries = 8))
+    val sv = ChiselStage.emitSystemVerilog(new ResidentStoreForwardStoreSnapshot(
+      entries = 8, lsidWidth = 40))
 
     assert(sv.contains("module ResidentStoreForwardStoreSnapshot"))
     assert(sv.contains("io_stores_0_valid"))
     assert(sv.contains("io_stores_0_storeId_value"))
+    assert(sv.contains("io_stores_0_storeLsIdFull"))
     assert(sv.contains("io_stores_0_byteMask"))
     assert(sv.contains("io_validMask"))
     assert(sv.contains("io_crossLineMask"))
   }
 
   test("resident store snapshot separates physical rows from ROB identities") {
-    val io = new ResidentStoreForwardStoreSnapshotIO(entries = 16, robEntries = 8)
+    val io = new ResidentStoreForwardStoreSnapshotIO(entries = 16, robEntries = 8, lsidWidth = 40)
 
     assert(io.rows.length == 16)
     assert(io.stores.length == 16)
     assert(io.validMask.getWidth == 16)
     assert(io.stores.head.storeIndex.getWidth == 4)
     assert(io.stores.head.storeId.value.getWidth == 3)
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.stores.head.storeLsIdFull.getWidth == 40)
   }
 }

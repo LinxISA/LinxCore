@@ -140,6 +140,13 @@ next-state image for the current command cycle. QEMU and LinxCoreModel
 cross-checks cannot observe this packet directly until the Chisel top emits
 live memory/recovery events.
 
+## R672 Full-LSID Contract
+
+SSIT record legality uses `(BID, full LSID)` and its same-block dependency
+distance is `lsidWidth`, independent of ROB capacity. The table remains a
+performance predictor; it does not create architectural ordering or ARM
+memory semantics.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT`

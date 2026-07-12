@@ -1,5 +1,12 @@
 # ReducedLoadReplayLiqAllocAdapter
 
+## R672-A LSID Width Contract
+
+The adapter's `LoadInflightAlloc` output uses the configured `lsidWidth` rather
+than a ROB-derived or fixed width. Reduced replay candidates still lack
+canonical full-LSID authority and therefore leave its validity clear; later
+canonical owners must not reconstruct the value from the projection.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`

@@ -131,6 +131,8 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.io.resolveRetireValid := false.B
   path.io.resolveRetireBid := ROBID.disabled(8)
   path.io.resolveRetireLsId := ROBID.disabled(8)
+  path.io.resolveRetireLsIdFullValid := false.B
+  path.io.resolveRetireLsIdFull := 0.U
   path.io.loadReturn.robRowValid := io.drainReady
   path.io.loadReturn.robRowNeedFlush := false.B
   path.io.loadReturn.resolveReady := io.sideEffectReady

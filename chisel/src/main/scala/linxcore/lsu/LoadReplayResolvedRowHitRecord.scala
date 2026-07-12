@@ -14,7 +14,8 @@ class LoadReplayResolvedRowHitRecordIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val enable = Input(Bool())
   val row = Input(new LoadInflightRow(
@@ -26,7 +27,8 @@ class LoadReplayResolvedRowHitRecordIO(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth = lsidWidth
   ))
   val useResolvedImage = Input(Bool())
   val resolvedLineData = Input(UInt((lineBytes * 8).W))
@@ -37,7 +39,8 @@ class LoadReplayResolvedRowHitRecordIO(
   val resolvedStqReturned = Input(Bool())
 
   val recordValid = Output(Bool())
-  val record = Output(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth))
+  val record = Output(new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
   val blockedByInvalidRow = Output(Bool())
   val blockedByNotRepick = Output(Bool())
   val blockedByIncompleteReturn = Output(Bool())
@@ -54,7 +57,8 @@ class LoadReplayResolvedRowHitRecord(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(lineBytes > 1, "lineBytes must be greater than one")
   require((lineBytes & (lineBytes - 1)) == 0, "lineBytes must be a power of two")
@@ -70,11 +74,13 @@ class LoadReplayResolvedRowHitRecord(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   private def zeroRecord: LoadHitRecord = {
-    val record = Wire(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth))
+    val record = Wire(new LoadHitRecord(
+      liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
     record := 0.U.asTypeOf(record)
     record.loadId := ROBID.disabled(liqEntries)
     record.bid := ROBID.disabled(idEntries)
@@ -127,6 +133,8 @@ class LoadReplayResolvedRowHitRecord(
   record.gid := row.gid
   record.rid := row.rid
   record.loadLsId := row.loadLsId
+  record.loadLsIdFullValid := row.loadLsIdFullValid
+  record.loadLsIdFull := row.loadLsIdFull
   record.pc := row.pc
   record.addr := row.addr
   record.lineAddr := Cat(row.addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))

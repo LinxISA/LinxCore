@@ -1015,12 +1015,22 @@ implementation choices and must not change architectural identity widths:
 - Recovery arbitration continues to use typed Linx BID/RID priority; LSID does
   not replace block age, select across STIDs, or add an architectural ordering
   mode. The new full field is a payload authority for memory-row consumers.
-  Load forwarding/replay/MDB and load-return payloads retain their documented
-  projection until later packets. Recovery sources from those owners leave
-  `lsIdFullValid` clear, produce an explicit missing-authority diagnostic, and
-  may not consume the scalar-redirect recovery claim. Their temporary local
-  cleanup uses a separately named projection-only matcher; it never supplies a
-  placeholder full LSID to authoritative STQ pruning.
+  Reduced forwarding/replay snapshot payloads retain their documented
+  projection until later packets. Recovery sources from unconverted owners
+  leave `lsIdFullValid` clear and may not consume the scalar-redirect recovery
+  claim. Their temporary local cleanup uses a separately named projection-only
+  matcher; it never supplies a placeholder full LSID to authoritative STQ
+  pruning.
+- R672-A promotes the canonical scalar load graph to full-LSID authority.
+  `LoadInflightAlloc`, LIQ/LHQ/ResolveQ rows, MDB conflict and command queues,
+  SSIT dependency offsets, wait-store metadata, retained MDB recovery, and
+  scalar return queue/W1/W2 payloads preserve validity plus the parameterized
+  full value. Same-BID ResolveQ cleanup/retirement and MDB conflict selection
+  use modular `LSIDOrder`; same-BID group cleanup also requires full authority,
+  while cross-BID age remains ROB/BROB-ring-owned. MDB wait mutation is blocked
+  until the predicted store has a valid full LSID. BID/GID/RID widths do not
+  change. The reduced replay snapshot and forwarding harness remains an
+  explicit R672-B boundary.
 - The scalar LSU owns speculative STQ state and committed SCB state beneath one
   top-level boundary. A core is idle only when both retirement state and the
   LSU's speculative/response state are quiescent.

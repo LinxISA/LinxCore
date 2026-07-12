@@ -375,6 +375,20 @@ The R375 source-trace fields are visible in `rows` and through the launch
 selector, but are deliberately not a replay W2 source provider until the W2
 slot/LRET payload carries them to `LoadReplayReturnPipeW2CommitRowTraceSource`.
 
+## R672 Full-LSID Contract
+
+Allocation and every resident LIQ row carry projected LSID only as a legacy
+sideband plus explicit full-LSID validity/value fields. LHQ publication and
+native row mutation preserve the full fields. Typed same-BID cleanup requires
+full authority and uses modular `LSIDOrder`; it does not reconstruct from the
+projection.
+
+The E2/E3/E4 forwarding path preserves the selected not-ready store's full
+LSID through `LoadStoreForwardStore` and `LoadStoreForwardWait`. Therefore
+`StoreDataNotReady` cannot create a canonical LIQ wait row that lacks the
+authority later consumed by timeout delete or recovery. Forwarding age and
+nearest-store selection still use the reduced projection pending R672-B.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue`

@@ -158,16 +158,28 @@ class LoadReplayRowMutationSourceMuxSpec extends AnyFunSuite {
   }
 
   test("elaborates the replay row-mutation source mux") {
+    val io = new LoadReplayRowMutationSourceMuxIO(
+      liqEntries = 4,
+      idEntries = 16,
+      sourceStoreEntries = 16,
+      pcWidth = 64,
+      lineBytes = 64,
+      lsidWidth = 40)
+    assert(io.mdbWaitPlan.nextWaitStoreInfo.storeLsIdFull.getWidth == 40)
+    assert(io.out.nextWaitStoreInfo.storeLsIdFull.getWidth == 40)
+
     val sv = ChiselStage.emitSystemVerilog(new LoadReplayRowMutationSourceMux(
       liqEntries = 4,
       idEntries = 16,
       sourceStoreEntries = 16,
       pcWidth = 64,
-      lineBytes = 64
+      lineBytes = 64,
+      lsidWidth = 40
     ))
 
     assert(sv.contains("module LoadReplayRowMutationSourceMux"))
     assert(sv.contains("io_selectedSourceReturn"))
     assert(sv.contains("io_selectedMdbWaitPlan"))
+    assert(sv.contains("io_out_nextWaitStoreInfo_storeLsIdFull"))
   }
 }

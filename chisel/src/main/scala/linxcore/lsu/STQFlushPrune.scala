@@ -26,6 +26,7 @@ class STQFlushPruneEntry(
   val bid = new ROBID(entries)
   val gid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
   val lsIdFull = UInt(lsidWidth.W)
 }
 
@@ -90,12 +91,15 @@ object STQFlushPrune {
       ROBID.lessEqual(signal.req.bid, row.bid),
       Mux(
         signal.baseOnGroup,
-        ROBID.lessEqual(signal.req.bid, row.bid) ||
-          (signal.req.lsIdFullValid && lessEqualBidGroupLs(
+        ROBID.less(signal.req.bid, row.bid) ||
+          (ROBID.equal(signal.req.bid, row.bid) &&
+            signal.req.lsIdFullValid && row.lsIdFullValid && lessEqualBidGroupLs(
             signal.req.bid, signal.req.gid, signal.req.lsIdFull,
             row.bid, row.gid, row.lsIdFull)),
-        signal.req.lsIdFullValid && lessEqualBidLs(
-          signal.req.bid, signal.req.lsIdFull, row.bid, row.lsIdFull)
+        ROBID.less(signal.req.bid, row.bid) ||
+          (ROBID.equal(signal.req.bid, row.bid) &&
+            signal.req.lsIdFullValid && row.lsIdFullValid && lessEqualBidLs(
+              signal.req.bid, signal.req.lsIdFull, row.bid, row.lsIdFull))
       )
     )
 
@@ -152,12 +156,14 @@ class STQFlushPrune(
       (!io.flush.baseOnThread || (io.flush.req.tid === row.tid))
   })
   val fullLsIdRequired = VecInit(io.rows.zip(inScope).map { case (row, scoped) =>
-    scoped && !io.flush.baseOnBid && !io.flush.baseOnGroup &&
-      ROBID.equal(io.flush.req.bid, row.bid)
+    scoped && !io.flush.baseOnBid && ROBID.equal(io.flush.req.bid, row.bid)
   })
-  val fullLsIdMissing = VecInit(fullLsIdRequired.map(_ && !io.flush.req.lsIdFullValid))
+  val fullLsIdMissing = VecInit(io.rows.zip(fullLsIdRequired).map { case (row, required) =>
+    required && (!io.flush.req.lsIdFullValid || !row.lsIdFullValid)
+  })
   val fullLsIdAmbiguous = VecInit(io.rows.zip(fullLsIdRequired).map { case (row, required) =>
-    required && io.flush.req.lsIdFullValid &&
+    required && io.flush.req.lsIdFullValid && row.lsIdFullValid &&
+      (!io.flush.baseOnGroup || ROBID.equal(io.flush.req.gid, row.gid)) &&
       LSIDOrder.ambiguous(io.flush.req.lsIdFull, row.lsIdFull)
   })
   val free = VecInit(io.rows.zip(matches).map { case (row, matched) =>

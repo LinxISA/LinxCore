@@ -3,19 +3,21 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{log2Ceil, Mux1H, PopCount, PriorityEncoder}
 
+import linxcore.common.LSIDOrder
 import linxcore.rob.ROBID
 
 class MDBSSITEntry(
     val robEntries: Int,
     val pcWidth: Int = 64,
     val weightWidth: Int = 2,
-    val confWidth: Int = 2)
+    val confWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val loadPc = UInt(pcWidth.W)
   val storePc = UInt(pcWidth.W)
   val bidOff = UInt(log2Ceil(robEntries).W)
-  val lsIdOff = UInt(log2Ceil(robEntries).W)
+  val lsIdOff = UInt(lsidWidth.W)
   val conf = UInt(confWidth.W)
   val weight = UInt(weightWidth.W)
   val nukeValid = Bool()
@@ -31,15 +33,20 @@ class MDBSSITLookupRequest(val robEntries: Int, val pcWidth: Int = 64) extends B
 class MDBSSITRecordRequest(
     val robEntries: Int,
     val pcWidth: Int = 64,
-    val confWidth: Int = 2)
+    val confWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val loadPc = UInt(pcWidth.W)
   val loadBid = new ROBID(robEntries)
   val loadLsId = new ROBID(robEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val storePc = UInt(pcWidth.W)
   val storeBid = new ROBID(robEntries)
   val storeLsId = new ROBID(robEntries)
+  val storeLsIdFullValid = Bool()
+  val storeLsIdFull = UInt(lsidWidth.W)
   val conf = UInt(confWidth.W)
 }
 
@@ -54,14 +61,15 @@ class MDBSSITIO(
     val ssitEntries: Int,
     val pcWidth: Int = 64,
     val weightWidth: Int = 2,
-    val confWidth: Int = 2)
+    val confWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val tableIndexWidth = log2Ceil(ssitEntries)
   private val countWidth = log2Ceil(ssitEntries + 1)
 
   val lookup = Input(new MDBSSITLookupRequest(robEntries, pcWidth))
   val delete = Input(new MDBSSITDeleteRequest(pcWidth))
-  val record = Input(new MDBSSITRecordRequest(robEntries, pcWidth, confWidth))
+  val record = Input(new MDBSSITRecordRequest(robEntries, pcWidth, confWidth, lsidWidth))
 
   val lookupResponseValid = Output(Bool())
   val lookupTableHit = Output(Bool())
@@ -92,7 +100,8 @@ class MDBSSITIO(
 
   val validMask = Output(UInt(ssitEntries.W))
   val entryCount = Output(UInt(countWidth.W))
-  val table = Output(Vec(ssitEntries, new MDBSSITEntry(robEntries, pcWidth, weightWidth, confWidth)))
+  val table = Output(Vec(ssitEntries, new MDBSSITEntry(
+    robEntries, pcWidth, weightWidth, confWidth, lsidWidth)))
 }
 
 class MDBSSIT(
@@ -102,7 +111,8 @@ class MDBSSIT(
     val mdbReleaseWeight: Int = 25,
     val mdbMaxWeight: Int = 3,
     val mdbIncStep: Int = 1,
-    val confWidth: Int = 2)
+    val confWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Module {
   require(robEntries > 1, "ROB entries must be greater than one")
   require((robEntries & (robEntries - 1)) == 0, "ROB entries must be a power of two")
@@ -125,10 +135,12 @@ class MDBSSIT(
   require(initWeightValue <= mdbMaxWeight, "initial MDB weight must fit max weight")
   require(stallThresholdValue <= (mdbMaxWeight + 1), "stall threshold must fit max weight plus one")
 
-  val io = IO(new MDBSSITIO(robEntries, ssitEntries, pcWidth, weightWidth, confWidth))
+  val io = IO(new MDBSSITIO(
+    robEntries, ssitEntries, pcWidth, weightWidth, confWidth, lsidWidth))
 
   private def zeroEntry: MDBSSITEntry = {
-    val entry = Wire(new MDBSSITEntry(robEntries, pcWidth, weightWidth, confWidth))
+    val entry = Wire(new MDBSSITEntry(
+      robEntries, pcWidth, weightWidth, confWidth, lsidWidth))
     entry := 0.U.asTypeOf(entry)
     entry
   }
@@ -173,7 +185,8 @@ class MDBSSIT(
   io.lookupWeight := Mux(io.lookup.valid && lookupRawHit, lookupEntry.weight, 0.U)
   io.lookupConf := Mux(io.lookup.valid && lookupRawHit, lookupEntry.conf, 0.U)
 
-  val afterLookup = Wire(Vec(ssitEntries, new MDBSSITEntry(robEntries, pcWidth, weightWidth, confWidth)))
+  val afterLookup = Wire(Vec(ssitEntries, new MDBSSITEntry(
+    robEntries, pcWidth, weightWidth, confWidth, lsidWidth)))
   afterLookup := table
   for (idx <- 0 until ssitEntries) {
     when(io.lookup.valid && lookupMatchVec(idx)) {
@@ -196,7 +209,8 @@ class MDBSSIT(
   io.deleteIndex := deleteIndex
   io.deleteWeightAfter := Mux(io.delete.valid && deleteRawHit, deleteWeightAfter, 0.U)
 
-  val afterDelete = Wire(Vec(ssitEntries, new MDBSSITEntry(robEntries, pcWidth, weightWidth, confWidth)))
+  val afterDelete = Wire(Vec(ssitEntries, new MDBSSITEntry(
+    robEntries, pcWidth, weightWidth, confWidth, lsidWidth)))
   afterDelete := afterLookup
   for (idx <- 0 until ssitEntries) {
     when(io.delete.valid && deleteMatchVec(idx)) {
@@ -208,7 +222,10 @@ class MDBSSIT(
     }
   }
 
-  val recordOrderLegal = ROBID.lessEqual(io.record.storeBid, io.record.loadBid)
+  val recordOrderLegal = ROBID.less(io.record.storeBid, io.record.loadBid) ||
+    (ROBID.equal(io.record.storeBid, io.record.loadBid) &&
+      io.record.storeLsIdFullValid && io.record.loadLsIdFullValid &&
+      LSIDOrder.lessEqual(io.record.storeLsIdFull, io.record.loadLsIdFull))
   val recordMatchVec = VecInit(afterDelete.map(entry => entry.valid && (entry.loadPc === io.record.loadPc)))
   val recordRawHit = recordMatchVec.asUInt.orR
   val freeVec = VecInit(afterDelete.map(entry => !entry.valid))
@@ -219,7 +236,7 @@ class MDBSSIT(
   val recordOverflow = io.record.valid && recordOrderLegal && !recordRawHit && !hasFree
   val recordAllocated = recordAccepted && !recordRawHit
   val recordBidOff = offset(io.record.loadBid, io.record.storeBid)
-  val recordLsIdOff = offset(io.record.loadLsId, io.record.storeLsId)
+  val recordLsIdOff = io.record.loadLsIdFull - io.record.storeLsIdFull
   val recordDifferentStore = recordRawHit && (recordEntry.storePc =/= io.record.storePc)
   val recordReplace =
     recordAccepted && recordRawHit && recordDifferentStore &&
@@ -238,7 +255,8 @@ class MDBSSIT(
   io.recordOrderIllegal := io.record.valid && !recordOrderLegal
   io.recordIndex := recordIndex
 
-  val afterRecord = Wire(Vec(ssitEntries, new MDBSSITEntry(robEntries, pcWidth, weightWidth, confWidth)))
+  val afterRecord = Wire(Vec(ssitEntries, new MDBSSITEntry(
+    robEntries, pcWidth, weightWidth, confWidth, lsidWidth)))
   afterRecord := afterDelete
   for (idx <- 0 until ssitEntries) {
     when(recordAccepted && (recordIndex === idx.U)) {

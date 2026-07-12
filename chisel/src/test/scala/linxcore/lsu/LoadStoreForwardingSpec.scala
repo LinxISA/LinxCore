@@ -24,6 +24,8 @@ object LoadStoreForwardingReference {
       isTile: Boolean = false,
       storeId: Id = Id(),
       storeLsId: Id = Id(),
+      storeLsIdFullValid: Boolean = true,
+      storeLsIdFull: BigInt = 0,
       pc: BigInt = 0,
       lineAddr: BigInt = 0x1000,
       byteMask: BigInt = 0,
@@ -284,13 +286,19 @@ class LoadStoreForwardingSpec extends AnyFunSuite {
   }
 
   test("Chisel LoadStoreForwarding elaborates with byte masks, merge output, and wait diagnostics") {
-    val sv = ChiselStage.emitSystemVerilog(new LoadStoreForwarding(robEntries = 8, storeEntries = 4))
+    val io = new LoadStoreForwardingIO(robEntries = 8, storeEntries = 4, lsidWidth = 40)
+    assert(io.stores.head.storeLsIdFull.getWidth == 40)
+    assert(io.waitStore.storeLsIdFull.getWidth == 40)
+
+    val sv = ChiselStage.emitSystemVerilog(new LoadStoreForwarding(
+      robEntries = 8, storeEntries = 4, lsidWidth = 40))
 
     assert(sv.contains("module LoadStoreForwarding"))
     assert(sv.contains("io_forwardMask"))
     assert(sv.contains("io_waitMask"))
     assert(sv.contains("io_mergedData"))
     assert(sv.contains("io_waitStore_valid"))
+    assert(sv.contains("io_waitStore_storeLsIdFull"))
     assert(sv.contains("io_selectedStoreIndexByByte"))
   }
 }

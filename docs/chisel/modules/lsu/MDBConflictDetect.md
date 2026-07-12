@@ -149,6 +149,13 @@ passes the selected record into `MDBQueueFanout` diagnostics, but QEMU and
 LinxCoreModel architectural rows cannot observe MDB effects directly until live
 memory or recovery events are emitted from the Chisel top.
 
+## R672 Full-LSID Contract
+
+Scalar conflict eligibility and oldest-conflict selection compare same-BID
+loads and stores with full modular LSID order. Missing full authority blocks a
+same-BID conflict instead of accepting a low-bit alias. Tile rows remain
+suppressed without importing the ARM-specific model bypass.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`

@@ -191,7 +191,8 @@ class LoadReplayResolvedRowHitRecordSpec extends AnyFunSuite {
 
   test("Chisel LoadReplayResolvedRowHitRecord elaborates replay ResolveQ payload outputs") {
     val sv = ChiselStage.emitSystemVerilog(
-      new LoadReplayResolvedRowHitRecord(liqEntries = 4, idEntries = 8, storeEntries = 4))
+      new LoadReplayResolvedRowHitRecord(
+        liqEntries = 4, idEntries = 8, storeEntries = 4, lsidWidth = 40))
 
     assert(sv.contains("module LoadReplayResolvedRowHitRecord"))
     assert(sv.contains("io_recordValid"))

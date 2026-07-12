@@ -76,10 +76,10 @@ forwarding, and data-array side effects.
 - `stid` must match;
 - PE and thread identity must match when the flush is PE- or thread-scoped;
 - `baseOnBid` compares only BID age;
-- `baseOnGroup` accepts same-or-younger BIDs first, then requires
-  `lsIdFullValid` for the `(bid, gid, full LSID)` tuple path;
-- the default path requires `lsIdFullValid` and compares
-  `(bid, full LSID)`;
+- `baseOnGroup` uses ROB/BROB ring age for a younger BID; within the same BID it
+  requires full-LSID authority before comparing `(gid, full LSID)`;
+- the default path uses ROB/BROB ring age for a younger BID and requires
+  full-LSID authority only for same-BID ordering;
 - full LSID uses `LSIDOrder` modulo serial arithmetic. Exactly half-range
   separation is ambiguous and does not match;
 - missing full-LSID authority never falls back to the ROBID projection.
@@ -133,6 +133,6 @@ No architectural commit trace row is emitted by this module.
 
 Focused tests cover base-on-BID freeing, full-width BID+LSID comparison,
 40-bit wrap and high-bit distinction, missing/half-range authority blocking,
-group comparison with the model BID fast path, STID/PE/thread scoping, invalid
+cross-BID group age, same-BID group authority, STID/PE/thread scoping, invalid
 flush suppression, non-`Wait` status preservation, unequal width contracts,
 and Chisel elaboration.

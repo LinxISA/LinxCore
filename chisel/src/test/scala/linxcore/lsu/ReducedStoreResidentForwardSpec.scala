@@ -225,4 +225,11 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
     assert(io.loadBid.value.getWidth == 3)
     assert(io.waitStore.storeId.value.getWidth == 3)
   }
+
+  test("resident forwarding preserves parameterized full LSID authority after selection") {
+    val io = new ReducedStoreResidentForwardIO(entries = 16, robEntries = 8, lsidWidth = 40)
+
+    assert(io.rows.head.lsIdFull.getWidth == 40)
+    assert(io.waitStore.storeLsIdFull.getWidth == 40)
+  }
 }

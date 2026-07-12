@@ -13,11 +13,14 @@ class LoadReplayWakeupRequest(
     val idEntries: Int,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val source = LoadReplayWakeSource()
   val storeId = new ROBID(idEntries)
   val storeLsId = new ROBID(idEntries)
+  val storeLsIdFullValid = Bool()
+  val storeLsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val validMask = UInt(lineBytes.W)
@@ -31,11 +34,14 @@ class LoadReplayWakeupIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val wakeValid = Input(Bool())
-  val wake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
-  val rows = Input(Vec(liqEntries, new LoadInflightRow(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth)))
+  val wake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
+  val rows = Input(Vec(liqEntries, new LoadInflightRow(
+    liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth,
+    lsidWidth = lsidWidth)))
 
   val waitStoreClearMask = Output(UInt(liqEntries.W))
   val mergeMask = Output(UInt(liqEntries.W))
@@ -52,7 +58,8 @@ class LoadReplayWakeup(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -66,10 +73,13 @@ class LoadReplayWakeup(
 
   private val lineOffsetWidth = log2Ceil(lineBytes)
 
-  val io = IO(new LoadReplayWakeupIO(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val io = IO(new LoadReplayWakeupIO(
+    liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
 
   val waitStoreDiagnostics =
-    Module(new LoadReplayWakeMatchDiagnostics(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+    Module(new LoadReplayWakeMatchDiagnostics(
+      liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth,
+      lsidWidth = lsidWidth))
   waitStoreDiagnostics.io.wakeValid := io.wakeValid
   waitStoreDiagnostics.io.wake := io.wake
   waitStoreDiagnostics.io.rows := io.rows

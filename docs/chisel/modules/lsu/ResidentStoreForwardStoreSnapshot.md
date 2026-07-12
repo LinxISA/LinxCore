@@ -1,5 +1,12 @@
 # ResidentStoreForwardStoreSnapshot
 
+## R672-A Full-LSID Snapshot
+
+Each scalar STQ row publishes its parameterized `lsIdFull` and valid authority
+into the forwarding-store vector. Physical STQ index width, ROB identity width,
+and LSID width remain independent. The projection is retained only for the
+R672-B forwarding order comparison.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`

@@ -37,6 +37,15 @@ top does not force the younger load to execute while the resident store is
 address-ready and data-late. This fixture drives that microarchitectural
 window directly and proves the owner chain through generated RTL.
 
+## Sizing and Authority
+
+`lsidWidth` is independent of `entries` and defaults to 40 for this fixture.
+It sizes STQ rows, resident forwarding, selected wait keys, replay wakeups,
+LIQ/ResolveQ rows, and MDB payloads. The fixture accepts explicit
+`loadLsIdFullValid/loadLsIdFull` inputs, captures them with the waiting load,
+and retains them per allocated LIQ slot for ResolveQ and MDB planner evidence.
+It never reconstructs full LSID from the projected `ROBID` fields.
+
 ## Interface
 
 ### Store Insert
@@ -59,6 +68,7 @@ window directly and proves the owner chain through generated RTL.
 | `loadSize` | Load size in bytes. |
 | `loadBid` | Younger load BID. |
 | `loadLsId` | Younger load LSID. |
+| `loadLsIdFullValid` / `loadLsIdFull` | Explicit full-LSID authority and value retained by the fixture for ResolveQ/MDB evidence. |
 | `baseLoadData` | Base data presented to the resident-forward path. |
 | `captureEnable` | Allows `ReducedLoadWaitReplaySlot` to capture a wait-store hit. |
 
@@ -141,15 +151,17 @@ The generated-RTL harness runs two scenarios:
    accepts launch and enters `Repick`.
 4. The same launch cycle drives all source-return sidebands and return-port
    readiness. One cycle later the fixture observes `e4UpdateValid`,
-   `e4WakeupValid`, and `lhqRecordValid`; after the following clock, the row
-   status mask moves from `Repick` to `Resolved`.
+   `e4WakeupValid`, and `lhqRecordValid`. The fixture then performs the
+   explicit `markResolved` handshake; E4 does not bypass the return owner.
 5. The probe appends the LHQ hit record to `LoadResolveQueue` on the E4
    cycle. A fixture-local pending-clear register captures the accepted
-   `loadId.value` and drives `clearResolved` on the next cycle, clearing the
-   LIQ row while the ResolveQ record remains resident.
-6. The harness can drive a model-style ResolveQ retire watermark. A watermark
-   strictly newer than the resolved row's `(BID, loadLsId)` selects that row,
-   and the following cycle compacts ResolveQ to empty.
+   `loadId.value`, waits for `markResolved`, and only then drives
+   `clearResolved`, clearing the LIQ row while the ResolveQ record remains
+   resident.
+6. The harness drives a cross-BID ResolveQ retire watermark, which needs no
+   same-BID LSID ordering authority. The fixture intentionally keeps retire
+   full-LSID valid low because it has no independent retire full-LSID input;
+   the following cycle compacts ResolveQ to empty without fabricating one.
 7. Before the retire watermark, the harness drives a fixture-owned store probe
    matching the older resident store. `MDBConflictDetect` consumes
    `LoadResolveQueue.conflictRows`, selects ResolveQ row zero as a scalar

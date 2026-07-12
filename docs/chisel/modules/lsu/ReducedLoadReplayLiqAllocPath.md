@@ -1,5 +1,13 @@
 # ReducedLoadReplayLiqAllocPath
 
+## R672-A LSID Width Contract
+
+`lsidWidth` is independent of LIQ, STQ, and ROB capacity. The composition
+threads it through allocation payloads, resident LIQ rows, precise flush,
+launch/return selectors, resolved LHQ publication, and native row-mutation
+wait metadata. The reduced forwarding and snapshot identities remain projected
+compatibility fields pending R672-B; they do not authorize canonical ordering.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`

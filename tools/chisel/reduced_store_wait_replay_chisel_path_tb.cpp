@@ -73,6 +73,7 @@ std::string mask_diag(VReducedStoreWaitReplayChiselPathProbe &dut) {
 void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_flush = 0;
   dut.io_storeInsertValid = 0;
+  dut.io_storeInsert_lsIdFull = 0;
   dut.io_storeInsert_storeType = 0;
   dut.io_storeInsert_peId = 0;
   dut.io_storeInsert_stid = 0;
@@ -105,6 +106,8 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_storeInsert_scalarIex = 0;
   dut.io_storeInsert_simtLane = 0;
   dut.io_loadValid = 0;
+  dut.io_loadLsIdFullValid = 0;
+  dut.io_loadLsIdFull = 0;
   dut.io_loadAddr = 0;
   dut.io_loadSize = 0;
   dut.io_loadBid_valid = 0;
@@ -126,6 +129,8 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_liqE2StqReturned = 0;
   dut.io_liqE2ReturnReady = 0;
   dut.io_liqReplayWakeValid = 0;
+  dut.io_liqReplayWake_storeLsIdFullValid = 0;
+  dut.io_liqReplayWake_storeLsIdFull = 0;
   dut.io_liqReplayWake_source = 0;
   dut.io_liqReplayWake_storeId_valid = 0;
   dut.io_liqReplayWake_storeId_wrap = 0;
@@ -150,6 +155,8 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_mdbDeleteValid = 0;
   dut.io_mdbDeleteWaitStorePc = 0;
   dut.io_mdbStore_valid = 0;
+  dut.io_mdbStore_lsIdFullValid = 0;
+  dut.io_mdbStore_lsIdFull = 0;
   dut.io_mdbStore_addrOnly = 0;
   dut.io_mdbStore_isTile = 0;
   dut.io_mdbStore_peId = 0;
@@ -209,6 +216,7 @@ void drive_store(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint8_t store
   dut.io_storeInsert_lsId_valid = 1;
   dut.io_storeInsert_lsId_wrap = 0;
   dut.io_storeInsert_lsId_value = ls_id;
+  dut.io_storeInsert_lsIdFull = ls_id;
   dut.io_storeInsert_pc = kStorePc;
   dut.io_storeInsert_addr = kLoadAddr;
   dut.io_storeInsert_data = kStoreDataValue;
@@ -227,6 +235,8 @@ void drive_load(VReducedStoreWaitReplayChiselPathProbe &dut, bool capture_enable
   dut.io_loadLsId_valid = 1;
   dut.io_loadLsId_wrap = 0;
   dut.io_loadLsId_value = ls_id;
+  dut.io_loadLsIdFullValid = 1;
+  dut.io_loadLsIdFull = ls_id;
   dut.io_baseLoadData = kBaseData;
   dut.io_captureEnable = capture_enable ? 1 : 0;
 }
@@ -244,6 +254,8 @@ void drive_live_lookup_load_identity(VReducedStoreWaitReplayChiselPathProbe &dut
   dut.io_loadLsId_valid = 1;
   dut.io_loadLsId_wrap = 0;
   dut.io_loadLsId_value = ls_id;
+  dut.io_loadLsIdFullValid = 1;
+  dut.io_loadLsIdFull = ls_id;
 }
 
 void drive_scb_replay_wake(VReducedStoreWaitReplayChiselPathProbe &dut) {
@@ -272,6 +284,8 @@ void drive_mdb_store_probe(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_mdbStore_lsId_valid = 1;
   dut.io_mdbStore_lsId_wrap = 0;
   dut.io_mdbStore_lsId_value = kStoreLsId;
+  dut.io_mdbStore_lsIdFullValid = 1;
+  dut.io_mdbStore_lsIdFull = kStoreLsId;
   dut.io_mdbStore_pc = kStorePc;
   dut.io_mdbStore_addr = kLoadAddr;
   dut.io_mdbStore_size = 8;
@@ -475,7 +489,12 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
 
   tick(dut, cycle);
   dut.eval();
-  expect((dut.io_liqResolvedMask & 0x1) != 0, "E4-resolved LIQ row did not enter Resolved");
+  expect((dut.io_liqRepickMask & 0x1) != 0, "E4 hit must remain Repick until markResolved");
+  tick(dut, cycle);
+  dut.eval();
+  expect(
+      (dut.io_liqResolvedMask & 0x1) != 0,
+      "E4-resolved LIQ row did not enter Resolved" + mask_diag(dut));
   expect((dut.io_liqRepickMask & 0x1) == 0, "E4-resolved LIQ row remained in Repick");
   expect(dut.io_resolveQueueCount == 1, "ResolveQ did not retain the pushed LHQ record");
   expect((dut.io_resolveQueueValidMask & 0x1) != 0, "ResolveQ row zero is not valid after push");
@@ -773,7 +792,9 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   clear_inputs(dut);
   dut.io_resolveQueueRetireValid = 1;
   dut.io_resolveQueueRetireBid_valid = 1;
-  dut.io_resolveQueueRetireBid_value = kLoadBid;
+  // This fixture does not carry a full retire LSID input. Use a cross-BID
+  // watermark so retirement never fabricates same-BID full-LSID authority.
+  dut.io_resolveQueueRetireBid_value = kLoadBid + 1;
   dut.io_resolveQueueRetireLsId_valid = 1;
   dut.io_resolveQueueRetireLsId_value = kLoadLsId + 1;
   dut.eval();

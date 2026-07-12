@@ -114,6 +114,7 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     entry.bid := tokenBidReg
     entry.gid := tokenGidReg
     entry.lsId := tokenLoadLsIdReg
+    entry.lsIdFullValid := false.B
     entry.lsIdFull := 0.U
     entry
   }

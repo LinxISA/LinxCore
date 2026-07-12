@@ -1,5 +1,12 @@
 # LoadReplayResolvedRowHitRecord
 
+## R672-A LSID Width Contract
+
+Resolved replay publication copies the LIQ row's parameterized
+`loadLsIdFullValid/loadLsIdFull` into the `LoadHitRecord`. This record can be
+merged with the ordinary LHQ publication without width conversion before
+ResolveQ and MDB consume it.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayResolvedRowHitRecord.scala`
@@ -105,4 +112,3 @@ sideband report shows `resolve_queue_push_accepted=1`,
 `source_return_response_apply_valid=1`, and `mdb_conflict_store_valid=2`.
 MDB conflict publication remains a future packet: `mdb_conflict_valid=0`,
 `mdb_fanout_record_valid=0`, and MDB lookup wait-plan counters remain zero.
-

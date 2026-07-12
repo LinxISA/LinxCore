@@ -1910,7 +1910,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
   test("reduced-store replay-LIQ wrapper elaborates allocation consumer diagnostics") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
-        CoreParams(robEntries = 8, commitWidth = 2),
+        CoreParams(robEntries = 8, commitWidth = 2, lsidWidth = 40),
         mapQDepth = 8)
     )
 

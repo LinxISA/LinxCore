@@ -10,12 +10,15 @@ class MDBMemInfo(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val stidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val pc = UInt(pcWidth.W)
   val bid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val stid = UInt(stidWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -30,11 +33,12 @@ class MDBQueueBus(
     val stidWidth: Int = 8,
     val sizeWidth: Int = 7,
     val confWidth: Int = 2,
-    val weightWidth: Int = 2)
+    val weightWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
-  val ldInfo = new MDBMemInfo(entries, addrWidth, pcWidth, stidWidth, sizeWidth)
-  val stInfo = new MDBMemInfo(entries, addrWidth, pcWidth, stidWidth, sizeWidth)
+  val ldInfo = new MDBMemInfo(entries, addrWidth, pcWidth, stidWidth, sizeWidth, lsidWidth)
+  val stInfo = new MDBMemInfo(entries, addrWidth, pcWidth, stidWidth, sizeWidth, lsidWidth)
   val conf = UInt(confWidth.W)
   val hit = Bool()
 }
@@ -45,13 +49,16 @@ class MDBStoreWakeupEntry(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val stidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val pc = UInt(pcWidth.W)
   val bid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val stid = UInt(stidWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -66,13 +73,16 @@ class MDBStoreWakeup(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val stidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val pc = UInt(pcWidth.W)
   val bid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val stid = UInt(stidWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -89,42 +99,52 @@ class MDBQueueFanoutIO(
     val stidWidth: Int = 8,
     val sizeWidth: Int = 7,
     val confWidth: Int = 2,
-    val weightWidth: Int = 2)
+    val weightWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val flush = Input(Bool())
 
-  val lookupIn = Input(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val lookupIn = Input(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   val lookupInValid = Input(Bool())
   val lookupInReady = Output(Bool())
   val lookupInAccepted = Output(Bool())
 
-  val deleteIn = Input(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val deleteIn = Input(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   val deleteInValid = Input(Bool())
   val deleteInReady = Output(Bool())
   val deleteInAccepted = Output(Bool())
 
-  val recordIn = Input(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val recordIn = Input(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   val recordInValid = Input(Bool())
   val recordInReady = Output(Bool())
   val recordInAccepted = Output(Bool())
 
   val luDequeueReady = Input(Bool())
   val luOutValid = Output(Bool())
-  val luOut = Output(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val luOut = Output(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   val luOutDequeued = Output(Bool())
 
   val suCheckReady = Input(Bool())
   val suOutValid = Output(Bool())
-  val suOut = Output(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val suOut = Output(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   val suOutDequeued = Output(Bool())
 
-  val storeRows = Input(Vec(storeEntries, new MDBStoreWakeupEntry(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth)))
+  val storeRows = Input(Vec(storeEntries, new MDBStoreWakeupEntry(
+    entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth, lsidWidth)))
   val suMatchedStore = Output(Bool())
   val suMatchedStoreIndex = Output(UInt(log2Ceil(storeEntries).W))
   val suMatchedStoreBid = Output(new ROBID(entries))
   val suMatchedStoreLsId = Output(new ROBID(entries))
+  val suMatchedStoreLsIdFullValid = Output(Bool())
+  val suMatchedStoreLsIdFull = Output(UInt(lsidWidth.W))
   val suStorePending = Output(Bool())
-  val suWakeup = Output(new MDBStoreWakeup(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth))
+  val suWakeup = Output(new MDBStoreWakeup(
+    entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth, lsidWidth))
 
   val lookupProcessed = Output(Bool())
   val lookupTableHit = Output(Bool())
@@ -154,7 +174,8 @@ class MDBQueueFanoutIO(
   val transientEmpty = Output(Bool())
 
   val ssitValidMask = Output(UInt(ssitEntries.W))
-  val ssitTable = Output(Vec(ssitEntries, new MDBSSITEntry(entries, pcWidth, weightWidth, confWidth)))
+  val ssitTable = Output(Vec(ssitEntries, new MDBSSITEntry(
+    entries, pcWidth, weightWidth, confWidth, lsidWidth)))
 }
 
 class MDBQueueFanout(
@@ -170,7 +191,8 @@ class MDBQueueFanout(
     val mdbReleaseWeight: Int = 25,
     val mdbMaxWeight: Int = 3,
     val mdbIncStep: Int = 1,
-    val confWidth: Int = 2)
+    val confWidth: Int = 2,
+    val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
@@ -193,27 +215,35 @@ class MDBQueueFanout(
     stidWidth,
     sizeWidth,
     confWidth,
-    weightWidth
+    weightWidth,
+    lsidWidth
   ))
 
   private def zeroBus: MDBQueueBus = {
-    val bus = Wire(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+    val bus = Wire(new MDBQueueBus(
+      entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
     bus := 0.U.asTypeOf(bus)
     bus
   }
 
   private def zeroWakeup: MDBStoreWakeup = {
-    val wakeup = Wire(new MDBStoreWakeup(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth))
+    val wakeup = Wire(new MDBStoreWakeup(
+      entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth, lsidWidth))
     wakeup := 0.U.asTypeOf(wakeup)
     wakeup
   }
 
   val queueReset = reset.asBool || io.flush
-  val lookupQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
-  val deleteQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
-  val recordQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), commandQueueEntries)) }
-  val luOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries)) }
-  val suOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth), outputQueueEntries)) }
+  val lookupQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth), commandQueueEntries)) }
+  val deleteQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth), commandQueueEntries)) }
+  val recordQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth), commandQueueEntries)) }
+  val luOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth), outputQueueEntries)) }
+  val suOutQ = withReset(queueReset) { Module(new Queue(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth), outputQueueEntries)) }
 
   lookupQ.io.enq.valid := io.lookupInValid && !io.flush
   lookupQ.io.enq.bits := io.lookupIn
@@ -237,7 +267,8 @@ class MDBQueueFanout(
     mdbReleaseWeight = mdbReleaseWeight,
     mdbMaxWeight = mdbMaxWeight,
     mdbIncStep = mdbIncStep,
-    confWidth = confWidth
+    confWidth = confWidth,
+    lsidWidth = lsidWidth
   ))
 
   val lookupCanFanout =
@@ -262,12 +293,17 @@ class MDBQueueFanout(
   ssit.io.record.loadPc := recordQ.io.deq.bits.ldInfo.pc
   ssit.io.record.loadBid := recordQ.io.deq.bits.ldInfo.bid
   ssit.io.record.loadLsId := recordQ.io.deq.bits.ldInfo.lsId
+  ssit.io.record.loadLsIdFullValid := recordQ.io.deq.bits.ldInfo.lsIdFullValid
+  ssit.io.record.loadLsIdFull := recordQ.io.deq.bits.ldInfo.lsIdFull
   ssit.io.record.storePc := recordQ.io.deq.bits.stInfo.pc
   ssit.io.record.storeBid := recordQ.io.deq.bits.stInfo.bid
   ssit.io.record.storeLsId := recordQ.io.deq.bits.stInfo.lsId
+  ssit.io.record.storeLsIdFullValid := recordQ.io.deq.bits.stInfo.lsIdFullValid
+  ssit.io.record.storeLsIdFull := recordQ.io.deq.bits.stInfo.lsIdFull
   ssit.io.record.conf := recordQ.io.deq.bits.conf
 
-  val lookupResult = Wire(new MDBQueueBus(entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth))
+  val lookupResult = Wire(new MDBQueueBus(
+    entries, addrWidth, pcWidth, stidWidth, sizeWidth, confWidth, lsidWidth = lsidWidth))
   lookupResult := lookupQ.io.deq.bits
   lookupResult.valid := lookupCanFanout
   lookupResult.hit := ssit.io.lookupHit
@@ -326,6 +362,8 @@ class MDBQueueFanout(
   io.suMatchedStoreIndex := matchedIndex
   io.suMatchedStoreBid := matchedRow.bid
   io.suMatchedStoreLsId := matchedRow.lsId
+  io.suMatchedStoreLsIdFullValid := matchedRow.lsIdFullValid
+  io.suMatchedStoreLsIdFull := matchedRow.lsIdFull
   io.suStorePending := anyStoreMatch && !anyWakeup
   io.suWakeup := zeroWakeup
   io.suWakeup.valid := anyWakeup
@@ -333,6 +371,8 @@ class MDBQueueFanout(
   io.suWakeup.pc := wakeupRow.pc
   io.suWakeup.bid := wakeupRow.bid
   io.suWakeup.lsId := wakeupRow.lsId
+  io.suWakeup.lsIdFullValid := wakeupRow.lsIdFullValid
+  io.suWakeup.lsIdFull := wakeupRow.lsIdFull
   io.suWakeup.stid := wakeupRow.stid
   io.suWakeup.addr := wakeupRow.addr
   io.suWakeup.size := wakeupRow.size

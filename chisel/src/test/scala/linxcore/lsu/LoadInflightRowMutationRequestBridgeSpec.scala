@@ -14,6 +14,8 @@ object LoadInflightRowMutationRequestBridgeReference {
       waitStoreWrite: Boolean = false,
       nextWaitStore: Boolean = false,
       sourceStoreIndex: Int = 0,
+      storeLsIdFullValid: Boolean = false,
+      storeLsIdFull: BigInt = 0,
       nextLineData: BigInt = 0,
       nextValidMask: BigInt = 0,
       nextDataComplete: Boolean = false,
@@ -33,6 +35,8 @@ object LoadInflightRowMutationRequestBridgeReference {
       waitStoreWrite: Boolean,
       nextWaitStore: Boolean,
       nativeStoreIndex: Int,
+      storeLsIdFullValid: Boolean,
+      storeLsIdFull: BigInt,
       nextLineData: BigInt,
       nextValidMask: BigInt,
       nextDataComplete: Boolean,
@@ -83,6 +87,8 @@ object LoadInflightRowMutationRequestBridgeReference {
       waitStoreWrite = bridgeValid && request.waitStoreWrite,
       nextWaitStore = bridgeValid && request.nextWaitStore,
       nativeStoreIndex = if (bridgeValid && request.nextWaitStore) request.sourceStoreIndex else 0,
+      storeLsIdFullValid = bridgeValid && request.nextWaitStore && request.storeLsIdFullValid,
+      storeLsIdFull = if (bridgeValid && request.nextWaitStore && request.storeLsIdFullValid) request.storeLsIdFull else 0,
       nextLineData = if (bridgeValid) request.nextLineData else 0,
       nextValidMask = if (bridgeValid) request.nextValidMask else 0,
       nextDataComplete = bridgeValid && request.nextDataComplete,
@@ -119,6 +125,8 @@ class LoadInflightRowMutationRequestBridgeSpec extends AnyFunSuite {
         waitStoreWrite = true,
         nextWaitStore = true,
         sourceStoreIndex = 3,
+        storeLsIdFullValid = true,
+        storeLsIdFull = BigInt("8000000001", 16),
         nextLineData = BigInt("aabbccdd", 16),
         nextValidMask = BigInt("ff", 16)))
 
@@ -131,6 +139,8 @@ class LoadInflightRowMutationRequestBridgeSpec extends AnyFunSuite {
     assert(result.waitStoreWrite)
     assert(result.nextWaitStore)
     assert(result.nativeStoreIndex == 3)
+    assert(result.storeLsIdFullValid)
+    assert(result.storeLsIdFull == BigInt("8000000001", 16))
     assert(result.nextLineData == BigInt("aabbccdd", 16))
     assert(result.nextValidMask == BigInt("ff", 16))
     assert(result.sourceStoreIndexFits)
@@ -255,12 +265,14 @@ class LoadInflightRowMutationRequestBridgeSpec extends AnyFunSuite {
       liqEntries = 4,
       idEntries = 8,
       sourceStoreEntries = 8,
-      storeEntries = 4
+      storeEntries = 4,
+      lsidWidth = 40
     ))
 
     assert(sv.contains("module LoadInflightRowMutationRequestBridge"))
     assert(sv.contains("io_bridgeValid"))
     assert(sv.contains("io_nativeNextWaitStoreInfoOut_storeIndex"))
+    assert(sv.contains("io_nativeNextWaitStoreInfoOut_storeLsIdFull"))
     assert(sv.contains("io_nativeStoreIndexOut"))
     assert(sv.contains("io_sourceStoreIndexFits"))
     assert(sv.contains("io_invalidStoreIndexOutOfRange"))

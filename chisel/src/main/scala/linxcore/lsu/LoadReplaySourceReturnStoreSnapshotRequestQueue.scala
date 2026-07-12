@@ -143,6 +143,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     entry.bid := request.bid
     entry.gid := request.gid
     entry.lsId := request.loadLsId
+    entry.lsIdFullValid := false.B
     entry.lsIdFull := 0.U
     entry
   }

@@ -45,6 +45,12 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(io.preciseFlush.req.lsIdFull.getWidth == 40)
     assert(io.mdbConflictFlush.req.lsIdFull.getWidth == 40)
     assert(recovery.flush.req.lsIdFull.getWidth == 40)
+    assert(io.alloc.loadLsIdFull.getWidth == 40)
+    assert(io.liqRows.head.loadLsIdFull.getWidth == 40)
+    assert(io.resolveEntries.head.record.loadLsIdFull.getWidth == 40)
+    assert(io.resolveConflictRows.head.lsIdFull.getWidth == 40)
+    assert(io.loadReturn.drain.loadLsIdFull.getWidth == 40)
+    assert(io.loadReturn.completion.payload.loadLsIdFull.getWidth == 40)
   }
 
   test("ScalarLSULoadPath elaborates LIQ-to-ResolveQ lifecycle ownership") {
@@ -105,6 +111,30 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("recovery_flush_req_valid"))
     assert(sv.contains("io_mdbLookupWaitMutation"))
     assert(sv.contains("io_mdbTransientEmpty"))
+  }
+
+  test("composed scalar load path elaborates 40-bit LSID through LIQ MDB ResolveQ and return") {
+    val lsu = ScalarLsuParams(
+      stqEntries = 8,
+      commitQueueEntries = 4,
+      commitIssueWidth = 1,
+      scbEntries = 4,
+      liqEntries = 4,
+      resolveQueueEntries = 8,
+      loadReturnQueueEntries = 2,
+      loadReturnPipeCount = 2,
+      mapQDepth = 8
+    )
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSULoadPath(
+      CoreParams(robEntries = 8, lsidWidth = 40, scalarLsu = lsu)))
+
+    assert("""(?s)module ScalarLSULoadPath\(.*?input\s+\[39:0\]\s+io_alloc_loadLsIdFull""".r
+      .findFirstIn(sv).nonEmpty)
+    assert(sv.contains("io_mdbConflictFlush_req_lsIdFull"))
+    assert(sv.contains("io_loadReturn_drain_loadLsIdFull"))
+    assert(sv.contains("io_loadReturn_completion_payload_loadLsIdFull"))
+    assert(sv.contains("module MDBConflictDetect"))
+    assert(sv.contains("module LoadResolveQueue"))
   }
 
   test("load-return launch credit is reserved independently per STID and pipe") {

@@ -3,7 +3,8 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
-import linxcore.recovery.{FlushBus, FlushControl}
+import linxcore.common.LSIDOrder
+import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
 object LoadQueueFlushMatch {
@@ -15,7 +16,9 @@ object LoadQueueFlushMatch {
       tid: UInt,
       bid: ROBID,
       gid: ROBID,
-      lsId: ROBID): Bool = {
+      lsId: ROBID,
+      lsIdFullValid: Bool,
+      lsIdFull: UInt): Bool = {
     val sameStid = signal.req.stid === stid
     val samePe = !signal.baseOnPE || (signal.req.peId === peId)
     val sameThread = !signal.baseOnThread || (signal.req.tid === tid)
@@ -24,9 +27,15 @@ object LoadQueueFlushMatch {
       ROBID.lessEqual(signal.req.bid, bid),
       Mux(
         signal.baseOnGroup,
-        ROBID.lessEqual(signal.req.bid, bid) ||
-          STQFlushPrune.lessEqualBidGroupLs(signal.req.bid, signal.req.gid, signal.req.lsId, bid, gid, lsId),
-        FlushControl.lessEqualBidRid(signal.req.bid, signal.req.lsId, bid, lsId)
+        ROBID.less(signal.req.bid, bid) ||
+          (ROBID.equal(signal.req.bid, bid) &&
+            signal.req.lsIdFullValid && lsIdFullValid &&
+            STQFlushPrune.lessEqualBidGroupLs(
+              signal.req.bid, signal.req.gid, signal.req.lsIdFull,
+              bid, gid, lsIdFull)),
+        ROBID.less(signal.req.bid, bid) ||
+          (ROBID.equal(signal.req.bid, bid) && signal.req.lsIdFullValid && lsIdFullValid &&
+            LSIDOrder.lessEqual(signal.req.lsIdFull, lsIdFull))
       )
     )
 
@@ -50,7 +59,8 @@ class LoadResolveQueueEntry(
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
-  val record = new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth)
+  val record = new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth)
 }
 
 class LoadResolveQueueIO(
@@ -77,7 +87,8 @@ class LoadResolveQueueIO(
   val pushPeId = Input(UInt(peIdWidth.W))
   val pushStid = Input(UInt(stidWidth.W))
   val pushTid = Input(UInt(tidWidth.W))
-  val pushRecord = Input(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
+  val pushRecord = Input(new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
   val pushReady = Output(Bool())
   val pushAccepted = Output(Bool())
   val pushInsertIndex = Output(UInt(countWidth.W))
@@ -85,6 +96,8 @@ class LoadResolveQueueIO(
   val retireValid = Input(Bool())
   val retireBid = Input(new ROBID(idEntries))
   val retireLsId = Input(new ROBID(idEntries))
+  val retireLsIdFullValid = Input(Bool())
+  val retireLsIdFull = Input(UInt(lsidWidth.W))
   val retireMask = Output(UInt(queueEntries.W))
   val retireCount = Output(UInt(countWidth.W))
 
@@ -97,7 +110,8 @@ class LoadResolveQueueIO(
     stidWidth,
     tidWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   )))
   val conflictRows = Output(Vec(queueEntries, new MDBConflictLoadEntry(
     idEntries,
@@ -106,7 +120,8 @@ class LoadResolveQueueIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   )))
   val validMask = Output(UInt(queueEntries.W))
   val count = Output(UInt(countWidth.W))
@@ -161,7 +176,8 @@ class LoadResolveQueue(
       stidWidth,
       tidWidth,
       lineBytes,
-      sizeWidth
+      sizeWidth,
+      lsidWidth
     ))
     entry := 0.U.asTypeOf(entry)
     entry.record.loadId := ROBID.disabled(liqEntries)
@@ -169,6 +185,8 @@ class LoadResolveQueue(
     entry.record.gid := ROBID.disabled(idEntries)
     entry.record.rid := ROBID.disabled(idEntries)
     entry.record.loadLsId := ROBID.disabled(idEntries)
+    entry.record.loadLsIdFullValid := false.B
+    entry.record.loadLsIdFull := 0.U
     entry
   }
 
@@ -182,7 +200,8 @@ class LoadResolveQueue(
       stidWidth,
       tidWidth,
       lineBytes,
-      sizeWidth
+      sizeWidth,
+      lsidWidth
     ))
     entry := zeroEntry
     entry.valid := true.B
@@ -194,17 +213,28 @@ class LoadResolveQueue(
   }
 
   private def zeroConflict: MDBConflictLoadEntry = {
-    val row = Wire(new MDBConflictLoadEntry(idEntries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
+    val row = Wire(new MDBConflictLoadEntry(
+      idEntries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth))
     row := 0.U.asTypeOf(row)
     row.bid := ROBID.disabled(idEntries)
     row.gid := ROBID.disabled(idEntries)
     row.rid := ROBID.disabled(idEntries)
     row.lsId := ROBID.disabled(idEntries)
+    row.lsIdFullValid := false.B
+    row.lsIdFull := 0.U
     row
   }
 
-  private def lessEqualBidLs(srcBid: ROBID, srcLsId: ROBID, dstBid: ROBID, dstLsId: ROBID): Bool =
-    ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.lessEqual(srcLsId, dstLsId))
+  private def lessEqualBidLs(
+      srcBid: ROBID,
+      srcLsIdFullValid: Bool,
+      srcLsIdFull: UInt,
+      dstBid: ROBID,
+      dstLsIdFullValid: Bool,
+      dstLsIdFull: UInt): Bool =
+    ROBID.less(srcBid, dstBid) ||
+      (ROBID.equal(srcBid, dstBid) && srcLsIdFullValid && dstLsIdFullValid &&
+        LSIDOrder.lessEqual(srcLsIdFull, dstLsIdFull))
 
   private def flushMatchesEntry(signal: FlushBus, entry: LoadResolveQueueEntry): Bool = {
     LoadQueueFlushMatch(
@@ -215,11 +245,14 @@ class LoadResolveQueue(
       entry.tid,
       entry.record.bid,
       entry.record.gid,
-      entry.record.loadLsId)
+      entry.record.loadLsId,
+      entry.record.loadLsIdFullValid,
+      entry.record.loadLsIdFull)
   }
 
   private def toConflict(entry: LoadResolveQueueEntry): MDBConflictLoadEntry = {
-    val row = Wire(new MDBConflictLoadEntry(idEntries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
+    val row = Wire(new MDBConflictLoadEntry(
+      idEntries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth))
     row := zeroConflict
     row.valid := entry.valid
     row.resolved := entry.valid
@@ -231,6 +264,8 @@ class LoadResolveQueue(
     row.gid := entry.record.gid
     row.rid := entry.record.rid
     row.lsId := entry.record.loadLsId
+    row.lsIdFullValid := entry.record.loadLsIdFullValid
+    row.lsIdFull := entry.record.loadLsIdFull
     row.pc := entry.record.pc
     row.addr := entry.record.addr
     row.size := entry.record.size
@@ -254,13 +289,20 @@ class LoadResolveQueue(
     stidWidth,
     tidWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   )))
 
   for (slot <- 0 until queueEntries) {
     retireVec(slot) :=
       queue(slot).valid && io.retireValid &&
-        lessEqualBidLs(queue(slot).record.bid, queue(slot).record.loadLsId, io.retireBid, io.retireLsId)
+        lessEqualBidLs(
+          queue(slot).record.bid,
+          queue(slot).record.loadLsIdFullValid,
+          queue(slot).record.loadLsIdFull,
+          io.retireBid,
+          io.retireLsIdFullValid,
+          io.retireLsIdFull)
     flushPruneVec(slot) := flushMatchesEntry(io.preciseFlush, queue(slot))
     removeVec(slot) := retireVec(slot) || flushPruneVec(slot)
     keptVec(slot) := queue(slot).valid && !removeVec(slot)
@@ -296,7 +338,8 @@ class LoadResolveQueue(
     stidWidth,
     tidWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   )))
   for (dst <- 0 until queueEntries) {
     nextQueue(dst) := compacted(dst)

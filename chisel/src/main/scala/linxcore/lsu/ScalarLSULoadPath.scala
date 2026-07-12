@@ -25,7 +25,8 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   )
 
   val drainValid = Output(Bool())
@@ -37,7 +38,8 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
     p.loadSizeWidth,
     p.loadReturnPipeCount,
     p.archRegWidth,
-    p.physRegWidth
+    p.physRegWidth,
+    coreParams.lsidWidth
   ))
   val drainPeId = Output(UInt(p.peIdWidth.W))
   val drainStid = Output(UInt(p.stidWidth.W))
@@ -53,6 +55,8 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
   val robLookupGid = Output(new ROBID(coreParams.robEntries))
   val robLookupRid = Output(new ROBID(coreParams.robEntries))
   val robLookupLoadLsId = Output(new ROBID(coreParams.robEntries))
+  val robLookupLoadLsIdFullValid = Output(Bool())
+  val robLookupLoadLsIdFull = Output(UInt(coreParams.lsidWidth.W))
   val robRowValid = Input(Bool())
   val robRowNeedFlush = Input(Bool())
   val resolveReady = Input(Bool())
@@ -110,7 +114,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     lsuParams.peIdWidth,
     lsuParams.stidWidth,
     lsuParams.tidWidth,
-    lsuParams.loadReturnPipeCount
+    lsuParams.loadReturnPipeCount,
+    coreParams.lsidWidth
   ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -143,7 +148,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       lsuParams.stqEntries,
       lsuParams.addrWidth,
       lsuParams.pcWidth,
-      lsuParams.lineBytes
+      lsuParams.lineBytes,
+      coreParams.lsidWidth
     )
   ))
   val e2BaseData = Input(UInt((lsuParams.lineBytes * 8).W))
@@ -157,7 +163,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
     coreParams.robEntries,
     lsuParams.addrWidth,
     lsuParams.pcWidth,
-    lsuParams.lineBytes
+    lsuParams.lineBytes,
+    coreParams.lsidWidth
   ))
   val refillValid = Input(Bool())
   val refill = Input(new LoadRefillWakeupRequest(lsuParams.addrWidth, lsuParams.lineBytes))
@@ -165,6 +172,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val resolveRetireValid = Input(Bool())
   val resolveRetireBid = Input(new ROBID(coreParams.robEntries))
   val resolveRetireLsId = Input(new ROBID(coreParams.robEntries))
+  val resolveRetireLsIdFullValid = Input(Bool())
+  val resolveRetireLsIdFull = Input(UInt(coreParams.lsidWidth.W))
 
   val liqRows = Output(Vec(
     lsuParams.liqEntries,
@@ -181,7 +190,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       lsuParams.peIdWidth,
       lsuParams.stidWidth,
       lsuParams.tidWidth,
-      lsuParams.loadReturnPipeCount
+      lsuParams.loadReturnPipeCount,
+      coreParams.lsidWidth
     )
   ))
   val liqOccupiedMask = Output(UInt(lsuParams.liqEntries.W))
@@ -213,7 +223,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       lsuParams.stidWidth,
       lsuParams.tidWidth,
       lsuParams.lineBytes,
-      lsuParams.loadSizeWidth
+      lsuParams.loadSizeWidth,
+      coreParams.lsidWidth
     )
   ))
   val resolveConflictRows = Output(Vec(
@@ -225,7 +236,8 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       lsuParams.peIdWidth,
       lsuParams.stidWidth,
       lsuParams.tidWidth,
-      lsuParams.loadSizeWidth
+      lsuParams.loadSizeWidth,
+      coreParams.lsidWidth
     )
   ))
   val resolveValidMask = Output(UInt(lsuParams.resolveQueueEntries.W))
@@ -299,7 +311,8 @@ class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParam
     p.peIdWidth,
     p.stidWidth,
     p.tidWidth,
-    p.loadSizeWidth
+    p.loadSizeWidth,
+    coreParams.lsidWidth
   ))
   val probeCommit = Input(Bool())
   val probeReady = Output(Bool())
@@ -311,7 +324,8 @@ class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParam
       p.addrWidth,
       p.pcWidth,
       p.stidWidth,
-      p.loadSizeWidth
+      p.loadSizeWidth,
+      coreParams.lsidWidth
     )
   ))
 }
@@ -375,7 +389,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    coreParams.lsidWidth
   ))
   val returnQueue = Module(new ScalarLSULoadReturnQueueBank(
     coreParams.robEntries,
@@ -451,6 +466,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   mdbReplayWake.source := LoadReplayWakeSource.StoreUnit
   mdbReplayWake.storeId := mdbPath.io.storeWakeup.bid
   mdbReplayWake.storeLsId := mdbPath.io.storeWakeup.lsId
+  mdbReplayWake.storeLsIdFullValid := mdbPath.io.storeWakeup.lsIdFullValid
+  mdbReplayWake.storeLsIdFull := mdbPath.io.storeWakeup.lsIdFull
   mdbReplayWake.pc := mdbPath.io.storeWakeup.pc
   mdbReplayWake.lineAddr := Cat(
     mdbPath.io.storeWakeup.addr(p.addrWidth - 1, log2Ceil(p.lineBytes)),
@@ -511,6 +528,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   returnPayload.io.selectedGid := hitRow.gid
   returnPayload.io.selectedRid := hitRow.rid
   returnPayload.io.selectedLoadLsId := hitRow.loadLsId
+  returnPayload.io.selectedLoadLsIdFullValid := hitRow.loadLsIdFullValid
+  returnPayload.io.selectedLoadLsIdFull := hitRow.loadLsIdFull
   returnPayload.io.selectedPeId := hitRow.peId
   returnPayload.io.selectedStid := hitRow.stid
   returnPayload.io.selectedTid := hitRow.tid
@@ -533,6 +552,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   returnEntry.gid := returnPayload.io.payloadGid
   returnEntry.rid := returnPayload.io.payloadRid
   returnEntry.loadLsId := returnPayload.io.payloadLoadLsId
+  returnEntry.loadLsIdFullValid := returnPayload.io.payloadLoadLsIdFullValid
+  returnEntry.loadLsIdFull := returnPayload.io.payloadLoadLsIdFull
   returnEntry.pc := returnPayload.io.payloadPc
   returnEntry.addr := returnPayload.io.payloadAddr
   returnEntry.size := returnPayload.io.payloadSize
@@ -590,6 +611,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   resolveQueue.io.retireValid := io.resolveRetireValid
   resolveQueue.io.retireBid := io.resolveRetireBid
   resolveQueue.io.retireLsId := io.resolveRetireLsId
+  resolveQueue.io.retireLsIdFullValid := io.resolveRetireLsIdFullValid
+  resolveQueue.io.retireLsIdFull := io.resolveRetireLsIdFull
 
   val publicationAccepted = returnQueue.io.enqueueAccepted && resolveQueue.io.pushAccepted
   val publicationAcceptanceMismatch =
@@ -696,6 +719,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.loadReturn.robLookupGid := returnPipeline.io.robLookupGid
   io.loadReturn.robLookupRid := returnPipeline.io.robLookupRid
   io.loadReturn.robLookupLoadLsId := returnPipeline.io.robLookupLoadLsId
+  io.loadReturn.robLookupLoadLsIdFullValid := returnPipeline.io.robLookupLoadLsIdFullValid
+  io.loadReturn.robLookupLoadLsIdFull := returnPipeline.io.robLookupLoadLsIdFull
   io.loadReturn.completionCandidateValid := completionArb.io.out.valid
   io.loadReturn.completionSelectedPipe := completionArb.io.out.bits
   io.loadReturn.resolveFire := selectedResolveFire

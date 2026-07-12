@@ -185,4 +185,21 @@ class ReducedStoreWaitReplayChiselPathSpec extends AnyFunSuite {
     assert(sv.contains("io_liqClearResolvedAccepted"))
     assert(sv.contains("io_liqFirstYoungestStoreLsId_value"))
   }
+
+  test("generated wait-replay fixture keeps full LSID width independent of ROB capacity") {
+    val io = new ReducedStoreWaitReplayChiselPathProbeIO(
+      entries = 8,
+      liqEntries = 4,
+      addrWidth = 64,
+      dataWidth = 64,
+      pcWidth = 64,
+      lineBytes = 64,
+      sizeWidth = 7,
+      lsidWidth = 40)
+
+    assert(io.storeInsert.lsIdFull.getWidth == 40)
+    assert(io.loadLsIdFull.getWidth == 40)
+    assert(io.liqReplayWake.storeLsIdFull.getWidth == 40)
+    assert(io.mdbStore.lsIdFull.getWidth == 40)
+  }
 }

@@ -27,11 +27,11 @@ expected by the R412 row-image apply preview and a future registered
 `LoadInflightQueue` writer.
 
 The important ownership split is the wait-store payload width. The replay path
-currently carries `nextWaitStoreInfo` as
-`LoadStoreForwardWait(idEntries, sourceStoreEntries, pcWidth)`, while a real
-LIQ row stores `LoadStoreForwardWait(idEntries, storeEntries, pcWidth)`. This
-bridge checks that the source store index fits the native LIQ store-entry
-domain before narrowing and forwarding the request.
+currently carries `nextWaitStoreInfo` with a source-store index domain, while a
+real LIQ row uses its independently sized native store-index domain. Both
+shapes also carry the same parameterized full store LSID. This bridge checks
+that the source store index fits before narrowing it and preserves
+`storeLsIdFullValid/storeLsIdFull` without projection or reconstruction.
 
 R415 now consumes this bridge in the standalone
 `LoadInflightRowMutationPath` composition. The bridge still does not wire
@@ -54,7 +54,7 @@ not change generated-top behavior.
 | `nextScbReturned` / `nextStqReturned` / `nextStoreSourceReturned` | Future split and coarse source-return state. |
 | `bridgeValid` | Request is active, not flushed, and has a legal payload shape for native LIQ apply. |
 | `*Out` | Native request payload fields gated by `bridgeValid`. |
-| `nativeNextWaitStoreInfoOut` | LIQ-native wait-store payload with a `storeEntries`-width store index. |
+| `nativeNextWaitStoreInfoOut` | LIQ-native wait-store payload with a `storeEntries`-width store index and unchanged full store LSID authority. |
 | `nativeStoreIndexOut` | Narrowed native store index diagnostic; zero when no wait-store payload is forwarded. |
 | `sourceStoreIndexFits` | True when the source wait-store index is representable in the native LIQ store-entry domain. |
 | `blockedBy*` | Disabled, flush, and no-request diagnostics. |
@@ -73,7 +73,8 @@ bridgeValid = requestLive && legal_payload_shape
 The bridge forwards target, status, return-state, line-data, and split-return
 fields only when `bridgeValid` is true. The native wait-store payload is
 forwarded only when both `bridgeValid` and `nextWaitStore` are true; otherwise
-it is zero.
+it is zero. Forwarding includes both the projected compatibility LSID and the
+parameterized full LSID validity/value.
 
 When `sourceStoreEntries` is wider than `storeEntries`, the bridge requires
 `nextWaitStoreInfo.storeIndex < storeEntries` before narrowing to the native
@@ -104,6 +105,7 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightRowMutationRequestBridge
 ```
 
-Reference tests cover in-range wait-store forwarding, out-of-range wait-store
-blocking, non-wait-store requests with out-of-range source indexes, disabled
-and flush blockers, malformed payload guards, and Chisel elaboration.
+Reference tests cover in-range wait-store forwarding with a 40-bit full LSID,
+out-of-range wait-store blocking, non-wait-store requests with out-of-range
+source indexes, disabled and flush blockers, malformed payload guards, and
+Chisel elaboration.

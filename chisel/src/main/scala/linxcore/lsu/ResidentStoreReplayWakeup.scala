@@ -17,15 +17,18 @@ class ResidentStoreReplayWakeupIO(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   val enable = Input(Bool())
-  val waitStore = Input(new LoadStoreForwardWait(identityEntries, entries, pcWidth))
-  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, pcWidth)))
+  val waitStore = Input(new LoadStoreForwardWait(identityEntries, entries, pcWidth, lsidWidth))
+  val rows = Input(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, pcWidth, lsidWidth)))
 
   val wakeValid = Output(Bool())
-  val wake = Output(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes))
+  val wake = Output(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
   val selectedRowValid = Output(Bool())
   val identityMatch = Output(Bool())
   val selectedRowReady = Output(Bool())
@@ -45,7 +48,8 @@ class ResidentStoreReplayWakeup(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "resident replay wakeup needs at least two STQ entries")
@@ -69,7 +73,8 @@ class ResidentStoreReplayWakeup(
     mapQDepth,
     pcWidth,
     lineBytes,
-    identityEntries
+    identityEntries,
+    lsidWidth
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -117,8 +122,10 @@ class ResidentStoreReplayWakeup(
       (row.status === STQEntryStatus.Wait)
   val identityMatch =
     selectedRowValid &&
+      io.waitStore.storeLsIdFullValid &&
       ROBID.equal(row.bid, io.waitStore.storeId) &&
       ROBID.equal(row.lsId, io.waitStore.storeLsId) &&
+      row.lsIdFull === io.waitStore.storeLsIdFull &&
       (row.pc === io.waitStore.pc)
   val rowCrossesLine = crossesLine(row.addr, row.size)
   val rowReady =
@@ -130,11 +137,13 @@ class ResidentStoreReplayWakeup(
   val byteMask = storeByteMask(row.addr, row.size)
   val wakeValid = rowReady && byteMask.orR
 
-  val wake = Wire(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes))
+  val wake = Wire(new LoadReplayWakeupRequest(identityEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
   wake := 0.U.asTypeOf(wake)
   wake.source := LoadReplayWakeSource.StoreUnit
   wake.storeId := io.waitStore.storeId
   wake.storeLsId := io.waitStore.storeLsId
+  wake.storeLsIdFullValid := io.waitStore.storeLsIdFullValid
+  wake.storeLsIdFull := io.waitStore.storeLsIdFull
   wake.pc := io.waitStore.pc
   wake.lineAddr := lineAddr(row.addr)
   wake.validMask := byteMask

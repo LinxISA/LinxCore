@@ -15,7 +15,8 @@ class ScalarLSUMDBWaitPlan(
     val peIdWidth: Int,
     val stidWidth: Int,
     val tidWidth: Int,
-    val sizeWidth: Int)
+    val sizeWidth: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val targetMask = UInt(liqEntries.W)
   val store = new MDBConflictStoreProbe(
@@ -25,7 +26,8 @@ class ScalarLSUMDBWaitPlan(
     peIdWidth,
     stidWidth,
     tidWidth,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   )
 }
 
@@ -42,7 +44,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.peIdWidth,
     p.stidWidth,
     p.tidWidth,
-    p.loadSizeWidth
+    p.loadSizeWidth,
+    coreParams.lsidWidth
   ))
   val storeProbeCommit = Input(Bool())
   val storeProbeReady = Output(Bool())
@@ -54,7 +57,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
       p.addrWidth,
       p.pcWidth,
       p.stidWidth,
-      p.loadSizeWidth
+      p.loadSizeWidth,
+      coreParams.lsidWidth
     )
   ))
   val loadLookupValid = Input(Bool())
@@ -69,7 +73,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.peIdWidth,
     p.stidWidth,
     p.tidWidth,
-    p.loadReturnPipeCount
+    p.loadReturnPipeCount,
+    coreParams.lsidWidth
   ))
   val loadLookupReady = Output(Bool())
   val loadRows = Input(Vec(
@@ -87,7 +92,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
       p.peIdWidth,
       p.stidWidth,
       p.tidWidth,
-      p.loadReturnPipeCount
+      p.loadReturnPipeCount,
+      coreParams.lsidWidth
     )
   ))
   val resolvedRows = Input(Vec(
@@ -99,7 +105,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
       p.peIdWidth,
       p.stidWidth,
       p.tidWidth,
-      p.loadSizeWidth
+      p.loadSizeWidth,
+      coreParams.lsidWidth
     )
   ))
 
@@ -115,7 +122,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val mutationNextWaitStoreInfo = Output(new LoadStoreForwardWait(
     coreParams.robEntries,
     p.stqEntries,
-    p.pcWidth
+    p.pcWidth,
+    coreParams.lsidWidth
   ))
 
   val conflictValid = Output(Bool())
@@ -136,7 +144,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.peIdWidth,
     p.stidWidth,
     p.tidWidth,
-    p.loadSizeWidth
+    p.loadSizeWidth,
+    coreParams.lsidWidth
   ))
   val conflictFlush = Output(new FlushBus(
     coreParams.robEntries,
@@ -225,7 +234,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
     p.addrWidth,
     p.pcWidth,
     p.stidWidth,
-    p.loadSizeWidth
+    p.loadSizeWidth,
+    coreParams.lsidWidth
   ))
   val waitPlanPending = Output(Bool())
   val waitPlanTargetMask = Output(UInt(p.liqEntries.W))
@@ -233,7 +243,8 @@ class ScalarLSUMDBPathIO(val coreParams: CoreParams, val p: ScalarLsuParams) ext
   val protocolError = Output(Bool())
   val ssitTable = Output(Vec(
     p.mdbSsitEntries,
-    new MDBSSITEntry(coreParams.robEntries, p.pcWidth, weightWidth, p.mdbConfWidth)
+    new MDBSSITEntry(
+      coreParams.robEntries, p.pcWidth, weightWidth, p.mdbConfWidth, coreParams.lsidWidth)
   ))
 }
 
@@ -252,11 +263,13 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       p.stidWidth,
       p.loadSizeWidth,
       p.mdbConfWidth,
-      weightWidth
+      weightWidth,
+      coreParams.lsidWidth
     ))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(coreParams.robEntries, p.stqEntries, p.pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(
+      coreParams.robEntries, p.stqEntries, p.pcWidth, coreParams.lsidWidth))
 
   val conflict = Module(new MDBConflictDetect(
     entries = coreParams.robEntries,
@@ -267,7 +280,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.tidWidth,
-    sizeWidth = p.loadSizeWidth
+    sizeWidth = p.loadSizeWidth,
+    lsidWidth = coreParams.lsidWidth
   ))
   conflict.io.store := io.storeProbe
   for (idx <- 0 until p.liqEntries) {
@@ -284,6 +298,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     out.gid := row.gid
     out.rid := row.rid
     out.lsId := row.loadLsId
+    out.lsIdFullValid := row.loadLsIdFullValid
+    out.lsIdFull := row.loadLsIdFull
     out.pc := row.pc
     out.addr := row.addr
     out.size := row.size
@@ -304,7 +320,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     mdbReleaseWeight = p.mdbReleaseWeight,
     mdbMaxWeight = p.mdbMaxWeight,
     mdbIncStep = p.mdbIncStep,
-    confWidth = p.mdbConfWidth
+    confWidth = p.mdbConfWidth,
+    lsidWidth = coreParams.lsidWidth
   ))
   fanout.io.flush := io.flush
   fanout.io.storeRows := io.storeRows
@@ -317,6 +334,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   recordBus.ldInfo.pc := conflict.io.record.load.pc
   recordBus.ldInfo.bid := conflict.io.record.load.bid
   recordBus.ldInfo.lsId := conflict.io.record.load.lsId
+  recordBus.ldInfo.lsIdFullValid := conflict.io.record.load.lsIdFullValid
+  recordBus.ldInfo.lsIdFull := conflict.io.record.load.lsIdFull
   recordBus.ldInfo.stid := conflict.io.record.load.stid
   recordBus.ldInfo.addr := conflict.io.record.load.addr
   recordBus.ldInfo.size := conflict.io.record.load.size
@@ -325,6 +344,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   recordBus.stInfo.pc := conflict.io.record.store.pc
   recordBus.stInfo.bid := conflict.io.record.store.bid
   recordBus.stInfo.lsId := conflict.io.record.store.lsId
+  recordBus.stInfo.lsIdFullValid := conflict.io.record.store.lsIdFullValid
+  recordBus.stInfo.lsIdFull := conflict.io.record.store.lsIdFull
   recordBus.stInfo.stid := conflict.io.record.store.stid
   recordBus.stInfo.addr := conflict.io.record.store.addr
   recordBus.stInfo.size := conflict.io.record.store.size
@@ -340,6 +361,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   lookupBus.ldInfo.pc := io.loadLookup.pc
   lookupBus.ldInfo.bid := io.loadLookup.bid
   lookupBus.ldInfo.lsId := io.loadLookup.loadLsId
+  lookupBus.ldInfo.lsIdFullValid := io.loadLookup.loadLsIdFullValid
+  lookupBus.ldInfo.lsIdFull := io.loadLookup.loadLsIdFull
   lookupBus.ldInfo.stid := io.loadLookup.stid
   lookupBus.ldInfo.addr := io.loadLookup.addr
   lookupBus.ldInfo.size := io.loadLookup.size
@@ -374,6 +397,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   deleteBus.ldInfo.pc := failedWaitRow.pc
   deleteBus.ldInfo.bid := failedWaitRow.bid
   deleteBus.ldInfo.lsId := failedWaitRow.loadLsId
+  deleteBus.ldInfo.lsIdFullValid := failedWaitRow.loadLsIdFullValid
+  deleteBus.ldInfo.lsIdFull := failedWaitRow.loadLsIdFull
   deleteBus.ldInfo.stid := failedWaitRow.stid
   deleteBus.ldInfo.addr := failedWaitRow.addr
   deleteBus.ldInfo.size := failedWaitRow.size
@@ -383,6 +408,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   deleteBus.stInfo.pc := failedWaitRow.waitStoreInfo.pc
   deleteBus.stInfo.bid := failedWaitRow.waitStoreInfo.storeId
   deleteBus.stInfo.lsId := failedWaitRow.waitStoreInfo.storeLsId
+  deleteBus.stInfo.lsIdFullValid := failedWaitRow.waitStoreInfo.storeLsIdFullValid
+  deleteBus.stInfo.lsIdFull := failedWaitRow.waitStoreInfo.storeLsIdFull
   deleteBus.stInfo.stid := failedWaitRow.stid
   deleteBus.conf := 1.U
   fanout.io.deleteIn := deleteBus
@@ -397,7 +424,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
         p.peIdWidth,
         p.stidWidth,
         p.tidWidth,
-        p.loadSizeWidth
+        p.loadSizeWidth,
+        coreParams.lsidWidth
       ),
       p.mdbWaitPlanQueueEntries
     ))
@@ -460,7 +488,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
     physRegWidth = p.physRegWidth,
     stidWidth = p.stidWidth,
     confWidth = p.mdbConfWidth,
-    weightWidth = weightWidth
+    weightWidth = weightWidth,
+    lsidWidth = coreParams.lsidWidth
   ))
   lookupWaitPlan.io.enable := !currentWaitValid && !failedWait.io.releaseValid
   lookupWaitPlan.io.flush := io.flush
@@ -471,6 +500,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   lookupWaitPlan.io.storeIndex := lookupStoreIndex
   lookupWaitPlan.io.storeLsIdValid := lookupStoreMatch
   lookupWaitPlan.io.storeLsId := lookupStoreRow.lsId
+  lookupWaitPlan.io.storeLsIdFullValid := lookupStoreMatch && lookupStoreRow.lsIdFullValid
+  lookupWaitPlan.io.storeLsIdFull := lookupStoreRow.lsIdFull
 
   val conflictWaitInfo = Wire(chiselTypeOf(io.mutationNextWaitStoreInfo))
   conflictWaitInfo := zeroWait
@@ -478,6 +509,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   conflictWaitInfo.storeIndex := Mux(currentStoreMatch, currentStoreIndex, 0.U)
   conflictWaitInfo.storeId := currentWaitStore.bid
   conflictWaitInfo.storeLsId := Mux(currentStoreMatch, currentWaitStore.lsId, ROBID.disabled(coreParams.robEntries))
+  conflictWaitInfo.storeLsIdFullValid := currentStoreMatch && currentWaitStore.lsIdFullValid
+  conflictWaitInfo.storeLsIdFull := Mux(currentStoreMatch, currentWaitStore.lsIdFull, 0.U)
   conflictWaitInfo.pc := currentWaitStore.pc
 
   val selectFailedWait = failedWait.io.releaseValid && fanout.io.deleteInReady
@@ -554,8 +587,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
   flushReq.gid := conflict.io.record.load.gid
   flushReq.rid := conflict.io.record.load.rid
   flushReq.lsId := conflict.io.record.load.lsId
-  flushReq.lsIdFullValid := false.B
-  flushReq.lsIdFull := 0.U
+  flushReq.lsIdFullValid := conflict.io.record.load.lsIdFullValid
+  flushReq.lsIdFull := conflict.io.record.load.lsIdFull
   flushReq.execEngine := ExecEngineType.Scalar
   flushReq.fetchTpcValid := true.B
   flushReq.fetchTpc := conflict.io.record.load.pc

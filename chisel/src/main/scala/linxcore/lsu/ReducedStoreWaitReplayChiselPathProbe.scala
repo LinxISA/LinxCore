@@ -12,12 +12,14 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
     val dataWidth: Int,
     val pcWidth: Int,
     val lineBytes: Int,
-    val sizeWidth: Int)
+    val sizeWidth: Int,
+    val lsidWidth: Int)
     extends Bundle {
   val flush = Input(Bool())
 
   val storeInsertValid = Input(Bool())
-  val storeInsert = Input(new STQStoreRequest(entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth))
+  val storeInsert = Input(new STQStoreRequest(
+    entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth, lsidWidth = lsidWidth))
   val storeInsertAccepted = Output(Bool())
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqAddrReadyMask = Output(UInt(entries.W))
@@ -28,6 +30,8 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val loadSize = Input(UInt(sizeWidth.W))
   val loadBid = Input(new ROBID(entries))
   val loadLsId = Input(new ROBID(entries))
+  val loadLsIdFullValid = Input(Bool())
+  val loadLsIdFull = Input(UInt(lsidWidth.W))
   val baseLoadData = Input(UInt(dataWidth.W))
   val captureEnable = Input(Bool())
 
@@ -60,7 +64,8 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val liqE2StqReturned = Input(Bool())
   val liqE2ReturnReady = Input(Bool())
   val liqReplayWakeValid = Input(Bool())
-  val liqReplayWake = Input(new LoadReplayWakeupRequest(entries, addrWidth, pcWidth, lineBytes))
+  val liqReplayWake = Input(new LoadReplayWakeupRequest(
+    entries, addrWidth, pcWidth, lineBytes, lsidWidth))
   val liqReplayWakeMergeMask = Output(UInt(liqEntries.W))
   val liqReplayWakeCompletedMask = Output(UInt(liqEntries.W))
   val liqLaunchValid = Output(Bool())
@@ -84,7 +89,9 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val resolveQueueValidMask = Output(UInt(liqEntries.W))
   val resolveQueueCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
-  val mdbStore = Input(new MDBConflictStoreProbe(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
+  val mdbStore = Input(new MDBConflictStoreProbe(
+    entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth))
   val mdbLookupValid = Input(Bool())
   val mdbLookupUseLiveLoad = Input(Bool())
   val mdbDeleteValid = Input(Bool())
@@ -159,7 +166,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
     val dataWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 40)
     extends Module {
   require(entries > 1 && (entries & (entries - 1)) == 0)
   require(liqEntries > 1 && (liqEntries & (liqEntries - 1)) == 0)
@@ -171,10 +179,12 @@ class ReducedStoreWaitReplayChiselPathProbe(
     dataWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   ))
 
-  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, sizeWidth = 4))
+  val stq = Module(new STQEntryBank(
+    entries, addrWidth, dataWidth, sizeWidth = 4, lsidWidth = lsidWidth))
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
   stq.io.flush.req.valid := io.flush
   stq.io.insertValid := io.storeInsertValid && !io.flush
@@ -186,7 +196,9 @@ class ReducedStoreWaitReplayChiselPathProbe(
   stq.io.commitFreeMaskValid := false.B
   stq.io.commitFreeMask := 0.U
 
-  val forward = Module(new ReducedStoreResidentForward(entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth, lineBytes = lineBytes))
+  val forward = Module(new ReducedStoreResidentForward(
+    entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth,
+    lineBytes = lineBytes, lsidWidth = lsidWidth))
   forward.io.enable := !io.flush
   forward.io.loadValid := io.loadValid
   forward.io.loadAddr := io.loadAddr
@@ -196,7 +208,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   forward.io.baseLoadData := io.baseLoadData
   forward.io.rows := stq.io.rows
 
-  val waitSlot = Module(new ReducedLoadWaitReplaySlot(entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val waitSlot = Module(new ReducedLoadWaitReplaySlot(
+    entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth = lsidWidth))
   waitSlot.io.flush := io.flush
   waitSlot.io.captureValid := io.captureEnable && forward.io.waitBlocked
   waitSlot.io.capturePc := 0.U
@@ -215,23 +228,44 @@ class ReducedStoreWaitReplayChiselPathProbe(
   waitSlot.io.captureYoungestStoreLsId := forward.io.waitStore.storeLsId
   waitSlot.io.captureWaitStore := forward.io.waitStore
 
-  val wake = Module(new ResidentStoreReplayWakeup(entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth, lineBytes = lineBytes))
+  val wake = Module(new ResidentStoreReplayWakeup(
+    entries, addrWidth, dataWidth, sizeWidth = 4, pcWidth = pcWidth,
+    lineBytes = lineBytes, lsidWidth = lsidWidth))
   wake.io.enable := !io.flush
   wake.io.waitStore := waitSlot.io.storedWaitStore
   wake.io.rows := stq.io.rows
   waitSlot.io.replayWakeValid := wake.io.wakeValid
   waitSlot.io.replayWake := wake.io.wake
 
+  val capturedLoadLsIdFullValid = RegInit(false.B)
+  val capturedLoadLsIdFull = RegInit(0.U(lsidWidth.W))
+  when(io.flush) {
+    capturedLoadLsIdFullValid := false.B
+    capturedLoadLsIdFull := 0.U
+  }.elsewhen(waitSlot.io.captureAccepted) {
+    capturedLoadLsIdFullValid := io.loadLsIdFullValid
+    capturedLoadLsIdFull := io.loadLsIdFull
+  }
+
   val relaunchQueue = Module(new ReducedLoadReplayRelaunchQueue(entries, depth = 2, addrWidth, pcWidth, sizeWidth))
   relaunchQueue.io.flush := io.flush
   relaunchQueue.io.enqueueValid := waitSlot.io.relaunch.valid
   relaunchQueue.io.enqueue := waitSlot.io.relaunch
 
-  val liq = Module(new ReducedLoadReplayLiqAllocPath(liqEntries, entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val liq = Module(new ReducedLoadReplayLiqAllocPath(
+    liqEntries, entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth,
+    lsidWidth = lsidWidth))
+  val liqLoadLsIdFullValid = RegInit(VecInit(Seq.fill(liqEntries)(false.B)))
+  val liqLoadLsIdFull = RegInit(VecInit(Seq.fill(liqEntries)(0.U(lsidWidth.W))))
   liq.io.preciseFlush := 0.U.asTypeOf(liq.io.preciseFlush)
-  val resolveQueue = Module(new LoadResolveQueue(queueEntries = liqEntries, liqEntries = liqEntries, idEntries = entries, addrWidth = addrWidth, pcWidth = pcWidth, lineBytes = lineBytes, sizeWidth = sizeWidth))
+  val resolveQueue = Module(new LoadResolveQueue(
+    queueEntries = liqEntries, liqEntries = liqEntries, idEntries = entries,
+    addrWidth = addrWidth, pcWidth = pcWidth, lineBytes = lineBytes,
+    sizeWidth = sizeWidth, lsidWidth = lsidWidth))
   val clearResolvedPending = RegInit(false.B)
   val clearResolvedIndex = RegInit(0.U(log2Ceil(liqEntries).W))
+  val markResolvedPending = RegInit(false.B)
+  val markResolvedIndex = RegInit(0.U(log2Ceil(liqEntries).W))
 
   liq.io.flush := io.flush
   liq.io.candidateValid := relaunchQueue.io.outValid
@@ -244,8 +278,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.pickIndex := 0.U
   liq.io.scbReturnValid := false.B
   liq.io.scbReturnIndex := 0.U
-  liq.io.markResolvedValid := false.B
-  liq.io.markResolvedIndex := 0.U
+  liq.io.markResolvedValid := markResolvedPending
+  liq.io.markResolvedIndex := markResolvedIndex
   liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
   liq.io.e2BaseData := 0.U
   liq.io.e2BaseValidMask := 0.U
@@ -270,10 +304,16 @@ class ReducedStoreWaitReplayChiselPathProbe(
   resolveQueue.io.pushPeId := 0.U
   resolveQueue.io.pushStid := 0.U
   resolveQueue.io.pushTid := 0.U
-  resolveQueue.io.pushRecord := liq.io.lhqRecord
+  val resolvePushRecord = Wire(chiselTypeOf(liq.io.lhqRecord))
+  resolvePushRecord := liq.io.lhqRecord
+  resolvePushRecord.loadLsIdFullValid := liqLoadLsIdFullValid(liq.io.lhqRecord.loadId.value)
+  resolvePushRecord.loadLsIdFull := liqLoadLsIdFull(liq.io.lhqRecord.loadId.value)
+  resolveQueue.io.pushRecord := resolvePushRecord
   resolveQueue.io.retireValid := io.resolveQueueRetireValid
   resolveQueue.io.retireBid := io.resolveQueueRetireBid
   resolveQueue.io.retireLsId := io.resolveQueueRetireLsId
+  resolveQueue.io.retireLsIdFullValid := false.B
+  resolveQueue.io.retireLsIdFull := 0.U
 
   val mdbDetect = Module(new MDBConflictDetect(
     entries = entries,
@@ -281,7 +321,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
     resolveEntries = liqEntries,
     addrWidth = addrWidth,
     pcWidth = pcWidth,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth
   ))
   mdbDetect.io.store := io.mdbStore
   mdbDetect.io.activeLoads := 0.U.asTypeOf(mdbDetect.io.activeLoads)
@@ -295,10 +336,13 @@ class ReducedStoreWaitReplayChiselPathProbe(
     storeEntries = entries,
     addrWidth = addrWidth,
     pcWidth = pcWidth,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth
   ))
   mdbFanout.io.flush := io.flush
-  val mdbZeroBus = Wire(new MDBQueueBus(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
+  val mdbZeroBus = Wire(new MDBQueueBus(
+    entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth))
   mdbZeroBus := 0.U.asTypeOf(mdbZeroBus)
   mdbZeroBus.ldInfo.bid := ROBID.disabled(entries)
   mdbZeroBus.ldInfo.lsId := ROBID.disabled(entries)
@@ -312,6 +356,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbRecordBus.ldInfo.pc := mdbDetect.io.record.load.pc
   mdbRecordBus.ldInfo.bid := mdbDetect.io.record.load.bid
   mdbRecordBus.ldInfo.lsId := mdbDetect.io.record.load.lsId
+  mdbRecordBus.ldInfo.lsIdFullValid := mdbDetect.io.record.load.lsIdFullValid
+  mdbRecordBus.ldInfo.lsIdFull := mdbDetect.io.record.load.lsIdFull
   mdbRecordBus.ldInfo.stid := mdbDetect.io.record.load.stid
   mdbRecordBus.ldInfo.addr := mdbDetect.io.record.load.addr
   mdbRecordBus.ldInfo.size := mdbDetect.io.record.load.size
@@ -320,6 +366,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbRecordBus.stInfo.pc := mdbDetect.io.record.store.pc
   mdbRecordBus.stInfo.bid := mdbDetect.io.record.store.bid
   mdbRecordBus.stInfo.lsId := mdbDetect.io.record.store.lsId
+  mdbRecordBus.stInfo.lsIdFullValid := mdbDetect.io.record.store.lsIdFullValid
+  mdbRecordBus.stInfo.lsIdFull := mdbDetect.io.record.store.lsIdFull
   mdbRecordBus.stInfo.stid := mdbDetect.io.record.store.stid
   mdbRecordBus.stInfo.addr := mdbDetect.io.record.store.addr
   mdbRecordBus.stInfo.size := mdbDetect.io.record.store.size
@@ -333,6 +381,14 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbLookupBus.ldInfo.pc := Mux(io.mdbLookupUseLiveLoad, 0.U, resolveQueue.io.entries(0).record.pc)
   mdbLookupBus.ldInfo.bid := Mux(io.mdbLookupUseLiveLoad, io.loadBid, resolveQueue.io.entries(0).record.bid)
   mdbLookupBus.ldInfo.lsId := Mux(io.mdbLookupUseLiveLoad, io.loadLsId, resolveQueue.io.entries(0).record.loadLsId)
+  mdbLookupBus.ldInfo.lsIdFullValid := Mux(
+    io.mdbLookupUseLiveLoad,
+    io.loadLsIdFullValid,
+    resolveQueue.io.entries(0).record.loadLsIdFullValid)
+  mdbLookupBus.ldInfo.lsIdFull := Mux(
+    io.mdbLookupUseLiveLoad,
+    io.loadLsIdFull,
+    resolveQueue.io.entries(0).record.loadLsIdFull)
   mdbLookupBus.ldInfo.stid := resolveQueue.io.entries(0).stid
   mdbLookupBus.ldInfo.addr := Mux(io.mdbLookupUseLiveLoad, io.loadAddr, resolveQueue.io.entries(0).record.addr)
   mdbLookupBus.ldInfo.size := Mux(io.mdbLookupUseLiveLoad, io.loadSize, resolveQueue.io.entries(0).record.size)
@@ -346,13 +402,17 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbDeleteBus.ldInfo.pc := resolveQueue.io.entries(0).record.pc
   mdbDeleteBus.ldInfo.bid := resolveQueue.io.entries(0).record.bid
   mdbDeleteBus.ldInfo.lsId := resolveQueue.io.entries(0).record.loadLsId
+  mdbDeleteBus.ldInfo.lsIdFullValid := resolveQueue.io.entries(0).record.loadLsIdFullValid
+  mdbDeleteBus.ldInfo.lsIdFull := resolveQueue.io.entries(0).record.loadLsIdFull
   mdbDeleteBus.ldInfo.stid := resolveQueue.io.entries(0).stid
   mdbDeleteBus.ldInfo.waitStorePc := io.mdbDeleteWaitStorePc
   mdbDeleteBus.conf := 1.U
 
   val mdbFanoutStoreRows = Wire(Vec(
     entries,
-    new MDBStoreWakeupEntry(entries, entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth)
+    new MDBStoreWakeupEntry(
+      entries, entries, addrWidth = addrWidth, pcWidth = pcWidth,
+      sizeWidth = sizeWidth, lsidWidth = lsidWidth)
   ))
   for (idx <- 0 until entries) {
     val stqRow = stq.io.rows(idx)
@@ -365,6 +425,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
     wakeRow.pc := stqRow.pc
     wakeRow.bid := stqRow.bid
     wakeRow.lsId := stqRow.lsId
+    wakeRow.lsIdFullValid := stqRow.valid
+    wakeRow.lsIdFull := stqRow.lsIdFull
     wakeRow.stid := stqRow.stid
     wakeRow.addr := stqRow.addr
     wakeRow.size := stqRow.size.pad(sizeWidth)
@@ -391,17 +453,26 @@ class ReducedStoreWaitReplayChiselPathProbe(
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth
   ))
   mdbLookupWaitPlan.io.enable := true.B
   mdbLookupWaitPlan.io.flush := io.flush
   mdbLookupWaitPlan.io.luOutValid := mdbFanout.io.luOutValid
   mdbLookupWaitPlan.io.luOut := mdbFanout.io.luOut
-  mdbLookupWaitPlan.io.rows := liq.io.rows
+  val mdbPlannerRows = Wire(chiselTypeOf(liq.io.rows))
+  mdbPlannerRows := liq.io.rows
+  for (idx <- 0 until liqEntries) {
+    mdbPlannerRows(idx).loadLsIdFullValid := liqLoadLsIdFullValid(idx)
+    mdbPlannerRows(idx).loadLsIdFull := liqLoadLsIdFull(idx)
+  }
+  mdbLookupWaitPlan.io.rows := mdbPlannerRows
   mdbLookupWaitPlan.io.storeIndexValid := mdbFanout.io.suMatchedStore
   mdbLookupWaitPlan.io.storeIndex := mdbFanout.io.suMatchedStoreIndex
   mdbLookupWaitPlan.io.storeLsIdValid := mdbFanout.io.suMatchedStore
   mdbLookupWaitPlan.io.storeLsId := mdbFanout.io.suMatchedStoreLsId
+  mdbLookupWaitPlan.io.storeLsIdFullValid := mdbFanout.io.suMatchedStoreLsIdFullValid
+  mdbLookupWaitPlan.io.storeLsIdFull := mdbFanout.io.suMatchedStoreLsIdFull
 
   liq.io.rowMutationRequestValid := mdbLookupWaitPlan.io.requestValid
   liq.io.rowMutationRequestTargetMask := mdbLookupWaitPlan.io.requestTargetMask
@@ -423,13 +494,30 @@ class ReducedStoreWaitReplayChiselPathProbe(
   when(io.flush) {
     clearResolvedPending := false.B
     clearResolvedIndex := 0.U
+    markResolvedPending := false.B
+    markResolvedIndex := 0.U
+    for (idx <- 0 until liqEntries) {
+      liqLoadLsIdFullValid(idx) := false.B
+      liqLoadLsIdFull(idx) := 0.U
+    }
   }.otherwise {
+    when(liq.io.allocAccepted) {
+      liqLoadLsIdFullValid(liq.io.allocIndex) := capturedLoadLsIdFullValid
+      liqLoadLsIdFull(liq.io.allocIndex) := capturedLoadLsIdFull
+    }
     when(clearResolvedPending && liq.io.clearResolvedAccepted) {
       clearResolvedPending := false.B
+      liqLoadLsIdFullValid(clearResolvedIndex) := false.B
+      liqLoadLsIdFull(clearResolvedIndex) := 0.U
+    }
+    when(markResolvedPending && liq.io.markResolvedAccepted) {
+      markResolvedPending := false.B
+      clearResolvedPending := true.B
+      clearResolvedIndex := markResolvedIndex
     }
     when(resolveQueue.io.pushAccepted) {
-      clearResolvedPending := true.B
-      clearResolvedIndex := liq.io.lhqRecord.loadId.value
+      markResolvedPending := true.B
+      markResolvedIndex := liq.io.lhqRecord.loadId.value
     }
   }
 

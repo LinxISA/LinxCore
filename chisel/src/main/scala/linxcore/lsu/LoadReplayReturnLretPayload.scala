@@ -17,7 +17,8 @@ class LoadReplayReturnLretPayloadIO(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
@@ -30,6 +31,8 @@ class LoadReplayReturnLretPayloadIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedLoadLsIdFullValid = Input(Bool())
+  val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
   val selectedTid = Input(UInt(tidWidth.W))
@@ -51,6 +54,8 @@ class LoadReplayReturnLretPayloadIO(
   val payloadGid = Output(new ROBID(idEntries))
   val payloadRid = Output(new ROBID(idEntries))
   val payloadLoadLsId = Output(new ROBID(idEntries))
+  val payloadLoadLsIdFullValid = Output(Bool())
+  val payloadLoadLsIdFull = Output(UInt(lsidWidth.W))
   val payloadPeId = Output(UInt(peIdWidth.W))
   val payloadStid = Output(UInt(stidWidth.W))
   val payloadTid = Output(UInt(tidWidth.W))
@@ -82,7 +87,8 @@ class LoadReplayReturnLretPayload(
     val physRegWidth: Int = 6,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
@@ -105,7 +111,8 @@ class LoadReplayReturnLretPayload(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
 
   val candidateValid = io.enable && io.launchValid
@@ -117,6 +124,8 @@ class LoadReplayReturnLretPayload(
   io.payloadGid := ROBID.disabled(idEntries)
   io.payloadRid := ROBID.disabled(idEntries)
   io.payloadLoadLsId := ROBID.disabled(idEntries)
+  io.payloadLoadLsIdFullValid := false.B
+  io.payloadLoadLsIdFull := 0.U
   io.payloadPeId := 0.U
   io.payloadStid := 0.U
   io.payloadTid := 0.U
@@ -138,6 +147,8 @@ class LoadReplayReturnLretPayload(
     io.payloadGid := io.selectedGid
     io.payloadRid := io.selectedRid
     io.payloadLoadLsId := io.selectedLoadLsId
+    io.payloadLoadLsIdFullValid := io.selectedLoadLsIdFullValid
+    io.payloadLoadLsIdFull := io.selectedLoadLsIdFull
     io.payloadPeId := io.selectedPeId
     io.payloadStid := io.selectedStid
     io.payloadTid := io.selectedTid

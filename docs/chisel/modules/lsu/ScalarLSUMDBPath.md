@@ -135,6 +135,13 @@ retention, native wait mutation, store-wakeup delivery, and real ROB pruning
 are proven. Reduced CoreMark regression remains a no-regression gate until a
 natural workload produces positive canonical MDB counters.
 
+## R672 Full-LSID Contract
+
+The canonical MDB owner retains full load/store identity through conflict
+selection, command queues, wait plans, failed-wait delete, and recovery queue
+publication. A selected conflict supplies `FlushReq.lsIdFullValid/lsIdFull`
+directly; missing authority is never replaced by the projected field.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec`

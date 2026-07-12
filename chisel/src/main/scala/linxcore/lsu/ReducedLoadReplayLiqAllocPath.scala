@@ -16,7 +16,8 @@ class ReducedLoadReplayLiqAllocPathIO(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
@@ -24,7 +25,7 @@ class ReducedLoadReplayLiqAllocPathIO(
     CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
   val flush = Input(Bool())
-  val preciseFlush = Input(new FlushBus(idEntries))
+  val preciseFlush = Input(new FlushBus(idEntries, lsidWidth = lsidWidth))
   val flushPruneMask = Output(UInt(liqEntries.W))
   val flushPruneCount = Output(UInt(countWidth.W))
   val candidateValid = Input(Bool())
@@ -38,7 +39,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val scbReturnIndex = Input(UInt(liqPtrWidth.W))
   val markResolvedValid = Input(Bool())
   val markResolvedIndex = Input(UInt(liqPtrWidth.W))
-  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
+  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(
+    idEntries, storeEntries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
@@ -46,7 +48,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val e2StqReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
   val replayWakeValid = Input(Bool())
-  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
   val replayWakeWaitStoreCandidateMask = Output(UInt(liqEntries.W))
   val replayWakeBidMatchMask = Output(UInt(liqEntries.W))
   val replayWakeLsIdMatchMask = Output(UInt(liqEntries.W))
@@ -70,7 +72,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val rowMutationLineWrite = Input(Bool())
   val rowMutationWaitStoreWrite = Input(Bool())
   val rowMutationNextWaitStore = Input(Bool())
-  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth))
   val rowMutationNextLineData = Input(UInt((lineBytes * 8).W))
   val rowMutationNextValidMask = Input(UInt(lineBytes.W))
   val rowMutationNextDataComplete = Input(Bool())
@@ -123,7 +126,8 @@ class ReducedLoadReplayLiqAllocPathIO(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth = lsidWidth
   ))
 
   val rows = Output(Vec(
@@ -137,7 +141,8 @@ class ReducedLoadReplayLiqAllocPathIO(
       lineBytes,
       sizeWidth,
       archRegWidth,
-      physRegWidth
+      physRegWidth,
+      lsidWidth = lsidWidth
     )
   ))
   val occupiedMask = Output(UInt(liqEntries.W))
@@ -214,7 +219,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val e4MissKind = Output(LoadForwardMissKind())
   val e4WakeupValid = Output(Bool())
   val lhqRecordValid = Output(Bool())
-  val lhqRecord = Output(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
+  val lhqRecord = Output(new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
   val residentCount = Output(UInt(countWidth.W))
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -231,7 +237,8 @@ class ReducedLoadReplayLiqAllocPath(
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -253,7 +260,8 @@ class ReducedLoadReplayLiqAllocPath(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth = lsidWidth
   ))
 
   val adapter = Module(new ReducedLoadReplayLiqAllocAdapter(
@@ -263,7 +271,8 @@ class ReducedLoadReplayLiqAllocPath(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth = lsidWidth
   ))
   val liq = Module(new LoadInflightQueue(
     liqEntries,
@@ -274,7 +283,8 @@ class ReducedLoadReplayLiqAllocPath(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth = lsidWidth
   ))
   val launchSelect = Module(new LoadInflightLaunchSelect(
     liqEntries,
@@ -285,7 +295,8 @@ class ReducedLoadReplayLiqAllocPath(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
   val completeRepickSelect = Module(new LoadReplayReturnCompleteRepickSelect(
     liqEntries,
@@ -296,7 +307,8 @@ class ReducedLoadReplayLiqAllocPath(
     lineBytes,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
   val rowMutationBridge = Module(new LoadInflightRowMutationRequestBridge(
     liqEntries = liqEntries,
@@ -304,7 +316,8 @@ class ReducedLoadReplayLiqAllocPath(
     sourceStoreEntries = idEntries,
     storeEntries = storeEntries,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    lsidWidth = lsidWidth
   ))
 
   adapter.io.flush := io.flush
@@ -382,7 +395,9 @@ class ReducedLoadReplayLiqAllocPath(
   completeRepickSelect.io.rows := liq.io.rows
 
   val replayWakeDiagnostics =
-    Module(new LoadReplayWakeMatchDiagnostics(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, archRegWidth, physRegWidth))
+    Module(new LoadReplayWakeMatchDiagnostics(
+      liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth,
+      archRegWidth, physRegWidth, lsidWidth))
   replayWakeDiagnostics.io.wakeValid := io.replayWakeValid
   replayWakeDiagnostics.io.wake := io.replayWake
   replayWakeDiagnostics.io.rows := liq.io.rows

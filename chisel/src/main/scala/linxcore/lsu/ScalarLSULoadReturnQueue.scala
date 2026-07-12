@@ -14,7 +14,8 @@ class LoadReplayReturnLretEntry(
     val sizeWidth: Int = 7,
     val returnPipeCount: Int = 1,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
@@ -25,6 +26,8 @@ class LoadReplayReturnLretEntry(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -63,7 +66,8 @@ class ScalarLSULoadReturnEntry(
     sizeWidth,
     returnPipeCount,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   )
 }
 
@@ -99,7 +103,8 @@ class ScalarLSULoadReturnQueueIO(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
@@ -117,7 +122,8 @@ class ScalarLSULoadReturnQueueIO(
     physRegWidth,
     peIdWidth,
     stidWidth,
-    tidWidth
+    tidWidth,
+    lsidWidth
   ))
   val dequeueFire = Output(Bool())
   val count = Output(UInt(countWidth.W))
@@ -173,12 +179,15 @@ class ScalarLSULoadReturnQueue(
     entry.payload.gid := ROBID.disabled(idEntries)
     entry.payload.rid := ROBID.disabled(idEntries)
     entry.payload.loadLsId := ROBID.disabled(idEntries)
+    entry.payload.loadLsIdFullValid := false.B
+    entry.payload.loadLsIdFull := 0.U
     entry.payload.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     entry
   }
 
   private def toPruneEntry(entry: ScalarLSULoadReturnEntry): STQFlushPruneEntry = {
-    val row = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth))
+    val row = Wire(new STQFlushPruneEntry(
+      idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
     row.valid := entry.payload.valid
     row.status := STQEntryStatus.Wait
     row.peId := entry.peId
@@ -187,7 +196,8 @@ class ScalarLSULoadReturnQueue(
     row.bid := entry.payload.bid
     row.gid := entry.payload.gid
     row.lsId := entry.payload.loadLsId
-    row.lsIdFull := 0.U
+    row.lsIdFullValid := entry.payload.loadLsIdFullValid
+    row.lsIdFull := entry.payload.loadLsIdFull
     row
   }
 
@@ -215,7 +225,7 @@ class ScalarLSULoadReturnQueue(
     val resident = slot.U < count
     precisePruneVec(slot) :=
       resident && precisePruneActive &&
-        STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(entries(slot)))
+        STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
     removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
     keptVec(slot) := resident && !removeVec(slot)
     keptRank(slot) := (if (slot == 0) 0.U else PopCount((0 until slot).map(keptVec(_))))
@@ -301,7 +311,8 @@ class ScalarLSULoadReturnQueueBankIO(
     sizeWidth,
     returnPipeCount,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
   val enqueueReady = Output(Bool())
   val preEnqueueReady = Output(Bool())
@@ -318,7 +329,8 @@ class ScalarLSULoadReturnQueueBankIO(
     sizeWidth,
     returnPipeCount,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
   val drainPeId = Output(UInt(peIdWidth.W))
   val drainStid = Output(UInt(stidWidth.W))

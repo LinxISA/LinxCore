@@ -131,7 +131,14 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
   }
 
   test("Chisel ReducedLoadReplayLiqAllocPath elaborates adapter and LIQ row owner") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedLoadReplayLiqAllocPath(liqEntries = 4, idEntries = 8, storeEntries = 4))
+    val io = new ReducedLoadReplayLiqAllocPathIO(
+      liqEntries = 4, idEntries = 8, storeEntries = 4, lsidWidth = 40)
+    assert(io.rowMutationNextWaitStoreInfo.storeLsIdFull.getWidth == 40)
+    assert(io.allocPayload.loadLsIdFull.getWidth == 40)
+    assert(io.rows.head.waitStoreInfo.storeLsIdFull.getWidth == 40)
+
+    val sv = ChiselStage.emitSystemVerilog(new ReducedLoadReplayLiqAllocPath(
+      liqEntries = 4, idEntries = 8, storeEntries = 4, lsidWidth = 40))
 
     assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
     assert(sv.contains("ReducedLoadReplayLiqAllocAdapter"))
@@ -139,6 +146,7 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadInflightLaunchSelect"))
     assert(sv.contains("LoadInflightRowMutationRequestBridge"))
     assert(sv.contains("io_rowMutationRequestValid"))
+    assert(sv.contains("io_rowMutationNextWaitStoreInfo_storeLsIdFull"))
     assert(sv.contains("io_rowMutationBridgeValid"))
     assert(sv.contains("io_rowMutationWriteEnable"))
     assert(sv.contains("io_rowMutationInvalidStoreIndexOutOfRange"))

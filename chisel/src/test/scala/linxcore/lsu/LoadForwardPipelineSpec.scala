@@ -155,6 +155,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
       dataReady = false,
       pc = 0x3000,
       storeId = id(3),
+      storeLsIdFull = BigInt("8000000001", 16),
       byteMask = byteMask(8, 2),
       data = lineData(Map(8 -> 0x11, 9 -> 0x22))
     )
@@ -166,6 +167,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(!e4.wakeupValid)
     assert(e4.missKind == StoreDataNotReady)
     assert(e4.waitStore.map(_.pc).contains(0x3000))
+    assert(e4.waitStore.exists(_.storeLsIdFull == BigInt("8000000001", 16)))
   }
 
   test("uncovered bytes use base valid mask and classify incomplete data") {
@@ -206,7 +208,12 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
   }
 
   test("Chisel LoadForwardPipeline elaborates with E3/E4 forwarding and miss-kind outputs") {
-    val sv = ChiselStage.emitSystemVerilog(new LoadForwardPipeline(robEntries = 8, storeEntries = 4))
+    val io = new LoadForwardPipelineIO(robEntries = 8, storeEntries = 4, lsidWidth = 40)
+    assert(io.e2Stores.head.storeLsIdFull.getWidth == 40)
+    assert(io.e4WaitStore.storeLsIdFull.getWidth == 40)
+
+    val sv = ChiselStage.emitSystemVerilog(new LoadForwardPipeline(
+      robEntries = 8, storeEntries = 4, lsidWidth = 40))
 
     assert(sv.contains("module LoadForwardPipeline"))
     assert(sv.contains("LoadStoreForwarding"))
@@ -217,5 +224,6 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(sv.contains("io_e4StqReturned"))
     assert(sv.contains("io_e4MissKind"))
     assert(sv.contains("io_e4WaitStore_valid"))
+    assert(sv.contains("io_e4WaitStore_storeLsIdFull"))
   }
 }

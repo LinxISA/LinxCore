@@ -22,7 +22,8 @@ class LoadInflightAlloc(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
@@ -32,6 +33,8 @@ class LoadInflightAlloc(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -45,6 +48,8 @@ class LoadInflightAlloc(
   val source1 = new CommitOperandTrace(sourceTraceParams)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
+  val youngestStoreLsIdFullValid = Bool()
+  val youngestStoreLsIdFull = UInt(lsidWidth.W)
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
@@ -64,7 +69,8 @@ class LoadInflightRow(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
@@ -77,6 +83,8 @@ class LoadInflightRow(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -90,6 +98,8 @@ class LoadInflightRow(
   val source1 = new CommitOperandTrace(sourceTraceParams)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
+  val youngestStoreLsIdFullValid = Bool()
+  val youngestStoreLsIdFull = UInt(lsidWidth.W)
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
@@ -102,7 +112,7 @@ class LoadInflightRow(
   val waitMask = UInt(lineBytes.W)
 
   val waitStore = Bool()
-  val waitStoreInfo = new LoadStoreForwardWait(idEntries, storeEntries, pcWidth)
+  val waitStoreInfo = new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth)
   val storeBypass = Bool()
   val dataComplete = Bool()
   val sourcesReturned = Bool()
@@ -119,13 +129,16 @@ class LoadHitRecord(
     val addrWidth: Int = 64,
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
-    val pcWidth: Int = 64)
+    val pcWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val loadId = new ROBID(liqEntries)
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val loadLsIdFullValid = Bool()
+  val loadLsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val lineAddr = UInt(addrWidth.W)
@@ -171,7 +184,8 @@ class LoadInflightQueueIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -198,7 +212,8 @@ class LoadInflightQueueIO(
   val markResolvedReady = Output(Bool())
   val markResolvedAccepted = Output(Bool())
 
-  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
+  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(
+    idEntries, storeEntries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
@@ -207,7 +222,7 @@ class LoadInflightQueueIO(
   val e2ReturnReady = Input(Bool())
 
   val replayWakeValid = Input(Bool())
-  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
   val replayWakeWaitStoreClearMask = Output(UInt(liqEntries.W))
   val replayWakeMergeMask = Output(UInt(liqEntries.W))
   val replayWakeCompletedMask = Output(UInt(liqEntries.W))
@@ -229,7 +244,8 @@ class LoadInflightQueueIO(
   val rowMutationLineWrite = Input(Bool())
   val rowMutationWaitStoreWrite = Input(Bool())
   val rowMutationNextWaitStore = Input(Bool())
-  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth))
   val rowMutationNextLineData = Input(UInt((lineBytes * 8).W))
   val rowMutationNextValidMask = Input(UInt(lineBytes.W))
   val rowMutationNextDataComplete = Input(Bool())
@@ -262,7 +278,8 @@ class LoadInflightQueueIO(
   val e4WakeupValid = Output(Bool())
 
   val lhqRecordValid = Output(Bool())
-  val lhqRecord = Output(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
+  val lhqRecord = Output(new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
 
   val rows = Output(Vec(
     liqEntries,
@@ -279,7 +296,8 @@ class LoadInflightQueueIO(
       peIdWidth,
       stidWidth,
       tidWidth,
-      returnPipeCount
+      returnPipeCount,
+      lsidWidth
     )
   ))
   val occupiedMask = Output(UInt(liqEntries.W))
@@ -343,7 +361,7 @@ class LoadInflightQueue(
   ))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth, lsidWidth))
 
   private def zeroRow: LoadInflightRow = {
     val row = Wire(new LoadInflightRow(
@@ -359,7 +377,8 @@ class LoadInflightQueue(
       peIdWidth,
       stidWidth,
       tidWidth,
-      returnPipeCount
+      returnPipeCount,
+      lsidWidth
     ))
     row := 0.U.asTypeOf(row)
     row.status := LoadInflightStatus.Idle
@@ -371,13 +390,18 @@ class LoadInflightQueue(
     row.gid := ROBID.disabled(idEntries)
     row.rid := ROBID.disabled(idEntries)
     row.loadLsId := ROBID.disabled(idEntries)
+    row.loadLsIdFullValid := false.B
+    row.loadLsIdFull := 0.U
     row.youngestStoreId := ROBID.disabled(idEntries)
     row.youngestStoreLsId := ROBID.disabled(idEntries)
+    row.youngestStoreLsIdFullValid := false.B
+    row.youngestStoreLsIdFull := 0.U
     row
   }
 
   private def zeroHitRecord: LoadHitRecord =
-    0.U.asTypeOf(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
+    0.U.asTypeOf(new LoadHitRecord(
+      liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
 
   private def currentLoadId: ROBID = {
     val id = Wire(new ROBID(liqEntries))
@@ -408,7 +432,8 @@ class LoadInflightQueue(
   val residentCount = RegInit(0.U(countWidth.W))
   val flushCycle = io.flush || io.preciseFlush.req.valid
 
-  val pipeline = Module(new LoadForwardPipeline(idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val pipeline = Module(new LoadForwardPipeline(
+    idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
   pipeline.io.flush := flushCycle
   pipeline.io.e2Stores := io.e2Stores
   pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
@@ -460,7 +485,8 @@ class LoadInflightQueue(
   pipeline.io.e2Valid := launchAccepted
   pipeline.io.e2Query := query
 
-  val replayWakeup = Module(new LoadReplayWakeup(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val replayWakeup = Module(new LoadReplayWakeup(
+    liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
   replayWakeup.io.wakeValid := io.replayWakeValid && !flushCycle
   replayWakeup.io.wake := io.replayWake
   replayWakeup.io.rows := rows
@@ -503,13 +529,16 @@ class LoadInflightQueue(
       ((pipeline.io.e4MissKind === LoadForwardMissKind.AwaitingSources) ||
         (pipeline.io.e4MissKind === LoadForwardMissKind.ReturnPortBlocked))
 
-  val lhqRecord = Wire(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
+  val lhqRecord = Wire(new LoadHitRecord(
+    liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
   lhqRecord := zeroHitRecord
   lhqRecord.loadId := rows(e4Index).loadId
   lhqRecord.bid := rows(e4Index).bid
   lhqRecord.gid := rows(e4Index).gid
   lhqRecord.rid := rows(e4Index).rid
   lhqRecord.loadLsId := rows(e4Index).loadLsId
+  lhqRecord.loadLsIdFullValid := rows(e4Index).loadLsIdFullValid
+  lhqRecord.loadLsIdFull := rows(e4Index).loadLsIdFull
   lhqRecord.pc := rows(e4Index).pc
   lhqRecord.addr := rows(e4Index).addr
   lhqRecord.lineAddr := lineAddr(rows(e4Index).addr)
@@ -532,7 +561,8 @@ class LoadInflightQueue(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    returnPipeCount = returnPipeCount
+    returnPipeCount = returnPipeCount,
+    lsidWidth = lsidWidth
   ))
   val rowMutationReplayConflictMask = replayWakeup.io.waitStoreClearMask | replayWakeup.io.mergeMask
   val rowMutationTargetMask = UIntToOH(io.rowMutationTargetIndex, liqEntries)
@@ -578,7 +608,9 @@ class LoadInflightQueue(
     row.tid,
     row.bid,
     row.gid,
-    row.loadLsId)))
+    row.loadLsId,
+    row.loadLsIdFullValid,
+    row.loadLsIdFull)))
   val flushPruneMask = flushPruneVec.asUInt
   val flushPruneCount = PopCount(flushPruneVec)
 
@@ -744,6 +776,8 @@ class LoadInflightQueue(
       rows(allocPtr).gid := io.alloc.gid
       rows(allocPtr).rid := io.alloc.rid
       rows(allocPtr).loadLsId := io.alloc.loadLsId
+      rows(allocPtr).loadLsIdFullValid := io.alloc.loadLsIdFullValid
+      rows(allocPtr).loadLsIdFull := io.alloc.loadLsIdFull
       rows(allocPtr).peId := io.alloc.peId
       rows(allocPtr).stid := io.alloc.stid
       rows(allocPtr).tid := io.alloc.tid
@@ -757,6 +791,8 @@ class LoadInflightQueue(
       rows(allocPtr).source1 := io.alloc.source1
       rows(allocPtr).youngestStoreId := io.alloc.youngestStoreId
       rows(allocPtr).youngestStoreLsId := io.alloc.youngestStoreLsId
+      rows(allocPtr).youngestStoreLsIdFullValid := io.alloc.youngestStoreLsIdFullValid
+      rows(allocPtr).youngestStoreLsIdFull := io.alloc.youngestStoreLsIdFull
       rows(allocPtr).isTile := io.alloc.isTile
       rows(allocPtr).specWakeup := io.alloc.specWakeup
       rows(allocPtr).stackValid := io.alloc.stackValid

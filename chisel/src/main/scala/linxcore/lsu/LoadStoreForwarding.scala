@@ -25,7 +25,8 @@ class LoadStoreForwardStore(
     val storeEntries: Int,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val working = Bool()
@@ -35,6 +36,8 @@ class LoadStoreForwardStore(
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val storeId = new ROBID(robEntries)
   val storeLsId = new ROBID(robEntries)
+  val storeLsIdFullValid = Bool()
+  val storeLsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val byteMask = UInt(lineBytes.W)
@@ -44,12 +47,15 @@ class LoadStoreForwardStore(
 class LoadStoreForwardWait(
     val robEntries: Int,
     val storeEntries: Int,
-    val pcWidth: Int = 64)
+    val pcWidth: Int = 64,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val storeId = new ROBID(robEntries)
   val storeLsId = new ROBID(robEntries)
+  val storeLsIdFullValid = Bool()
+  val storeLsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
 }
 
@@ -59,10 +65,12 @@ class LoadStoreForwardingIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val query = Input(new LoadStoreForwardQuery(robEntries, addrWidth, lineBytes, sizeWidth))
-  val stores = Input(Vec(storeEntries, new LoadStoreForwardStore(robEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
+  val stores = Input(Vec(storeEntries, new LoadStoreForwardStore(
+    robEntries, storeEntries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val cacheData = Input(UInt((lineBytes * 8).W))
 
   val loadByteMask = Output(UInt(lineBytes.W))
@@ -76,7 +84,7 @@ class LoadStoreForwardingIO(
   val mergedData = Output(UInt((lineBytes * 8).W))
   val forwardValid = Output(Bool())
   val storeBypassComplete = Output(Bool())
-  val waitStore = Output(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
+  val waitStore = Output(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth, lsidWidth))
   val selectedStoreIndexByByte = Output(Vec(lineBytes, UInt(log2Ceil(storeEntries).W)))
 }
 
@@ -86,7 +94,8 @@ class LoadStoreForwarding(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(robEntries > 1, "ROB entries must be greater than one")
   require((robEntries & (robEntries - 1)) == 0, "ROB entries must be a power of two")
@@ -96,7 +105,8 @@ class LoadStoreForwarding(
   require(lineBytes == 64, "LoadStoreForwarding currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
 
-  val io = IO(new LoadStoreForwardingIO(robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val io = IO(new LoadStoreForwardingIO(
+    robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
 
   private def zeroRobId: ROBID =
     0.U.asTypeOf(new ROBID(robEntries))
@@ -111,7 +121,7 @@ class LoadStoreForwarding(
     STQCommitQueue.lessEqualBidLs(bBid, bLsId, aBid, aLsId) && !sameStore(aBid, aLsId, bBid, bLsId)
 
   private def zeroWait: LoadStoreForwardWait = {
-    val wait = Wire(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
+    val wait = Wire(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth, lsidWidth))
     wait := 0.U.asTypeOf(wait)
     wait.storeId := zeroRobId
     wait
@@ -203,6 +213,8 @@ class LoadStoreForwarding(
   var waitStoreIndex: UInt = 0.U(log2Ceil(storeEntries).W)
   var waitStoreId: ROBID = zeroRobId
   var waitStoreLsId: ROBID = zeroRobId
+  var waitStoreLsIdFullValid: Bool = false.B
+  var waitStoreLsIdFull: UInt = 0.U(lsidWidth.W)
   var waitStorePc: UInt = 0.U(pcWidth.W)
   for (storeIdx <- 0 until storeEntries) {
     val store = io.stores(storeIdx)
@@ -212,16 +224,20 @@ class LoadStoreForwarding(
     waitStoreIndex = Mux(takeWait, store.storeIndex, waitStoreIndex)
     waitStoreId = Mux(takeWait, store.storeId, waitStoreId)
     waitStoreLsId = Mux(takeWait, store.storeLsId, waitStoreLsId)
+    waitStoreLsIdFullValid = Mux(takeWait, store.storeLsIdFullValid, waitStoreLsIdFullValid)
+    waitStoreLsIdFull = Mux(takeWait, store.storeLsIdFull, waitStoreLsIdFull)
     waitStorePc = Mux(takeWait, store.pc, waitStorePc)
     waitValid = waitValid || selectedInvalidStoreVec(storeIdx)
   }
 
-  val waitInfo = Wire(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
+  val waitInfo = Wire(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth, lsidWidth))
   waitInfo := zeroWait
   waitInfo.valid := waitValid
   waitInfo.storeIndex := waitStoreIndex
   waitInfo.storeId := waitStoreId
   waitInfo.storeLsId := waitStoreLsId
+  waitInfo.storeLsIdFullValid := waitStoreLsIdFullValid
+  waitInfo.storeLsIdFull := waitStoreLsIdFull
   waitInfo.pc := waitStorePc
 
   val coveredMask = coveredVec.asUInt & loadMask

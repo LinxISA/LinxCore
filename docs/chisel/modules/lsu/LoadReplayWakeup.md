@@ -87,16 +87,10 @@ The Chisel mapping is:
    replay.
 2. A `StoreUnit` wakeup clears wait-store diagnostics through the shared
    `LoadReplayWakeMatchDiagnostics` predicate owner when row
-   `waitStoreInfo.storeId` and `waitStoreInfo.pc` match the wakeup and the row's
-   stored LSID is either invalid or equal to the wakeup LSID. The invalid-LSID
-   wildcard is required for MDB-origin waits published before native store LSID
-   resolution. R511 makes this shared predicate the actual child clear-mask
-   source after R510 proved active top-level full matches while the duplicated
-   child clear predicate stayed zero. The R511 live replay-loop gate still
-   records `liq_replay_wake_store_unit_full_match_active=11` and
-   `liq_replay_wake_wait_store_clear=0`, so the remaining integration blocker
-   is outside the duplicate predicate body, likely in the row image/mask
-   application path between `LoadReplayWakeup` and `LoadInflightQueue`.
+   `waitStoreInfo.storeId`, projected LSID, full LSID, and PC match the wakeup.
+   Both the row and wakeup must mark full LSID valid. Missing authority is a
+   conservative non-match; MDB waits cannot publish until native store full
+   LSID resolution completes.
 3. A `StoreUnit` wakeup may merge data only into `L1DcMiss` or `L2Wait` rows
    on the same line, and only when `(wake.storeId, wake.storeLsId)` is older
    than or equal to the row's `(youngestStoreId, youngestStoreLsId)` snapshot
@@ -137,7 +131,8 @@ yet compared against QEMU or LinxCoreModel execution traces.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
-Focused tests cover exact wait-store clear, MDB wildcard-LSID wait-store clear,
+Focused tests cover exact full-LSID wait-store clear, missing-authority and
+projected-alias suppression,
 store-unit miss-byte merge, younger-store suppression, SCB partial and complete
 merges, SCB suppression for `Repick` and `Resolved` rows, and Chisel
 elaboration.

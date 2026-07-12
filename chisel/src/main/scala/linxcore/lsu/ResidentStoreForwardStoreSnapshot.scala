@@ -17,13 +17,17 @@ class ResidentStoreForwardStoreSnapshotIO(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   val enable = Input(Bool())
-  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, pcWidth)))
+  val rows = Input(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, pcWidth, lsidWidth)))
 
-  val stores = Output(Vec(entries, new LoadStoreForwardStore(identityEntries, entries, addrWidth, pcWidth, lineBytes)))
+  val stores = Output(Vec(entries, new LoadStoreForwardStore(
+    identityEntries, entries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val validMask = Output(UInt(entries.W))
   val waitMask = Output(UInt(entries.W))
   val addrReadyMask = Output(UInt(entries.W))
@@ -44,7 +48,8 @@ class ResidentStoreForwardStoreSnapshot(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "resident store snapshot needs at least two STQ entries")
@@ -68,7 +73,8 @@ class ResidentStoreForwardStoreSnapshot(
     mapQDepth,
     pcWidth,
     lineBytes,
-    identityEntries
+    identityEntries,
+    lsidWidth
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -109,7 +115,8 @@ class ResidentStoreForwardStoreSnapshot(
   }
 
   private def zeroStore: LoadStoreForwardStore = {
-    val store = Wire(new LoadStoreForwardStore(identityEntries, entries, addrWidth, pcWidth, lineBytes))
+    val store = Wire(new LoadStoreForwardStore(
+      identityEntries, entries, addrWidth, pcWidth, lineBytes, lsidWidth))
     store := 0.U.asTypeOf(store)
     store.storeId := ROBID.disabled(identityEntries)
     store.storeLsId := ROBID.disabled(identityEntries)
@@ -128,7 +135,8 @@ class ResidentStoreForwardStoreSnapshot(
     val rowWait = row.valid && (row.status === STQEntryStatus.Wait)
     val rowCrosses = crossesLine(row.addr, row.size)
     val byteMask = storeByteMask(row.addr, row.size)
-    val store = Wire(new LoadStoreForwardStore(identityEntries, entries, addrWidth, pcWidth, lineBytes))
+    val store = Wire(new LoadStoreForwardStore(
+      identityEntries, entries, addrWidth, pcWidth, lineBytes, lsidWidth))
     store := zeroStore
     store.valid := io.enable && rowWait && !rowCrosses
     store.working := row.status === STQEntryStatus.Wait
@@ -138,6 +146,8 @@ class ResidentStoreForwardStoreSnapshot(
     store.storeIndex := idx.U
     store.storeId := row.bid
     store.storeLsId := row.lsId
+    store.storeLsIdFullValid := row.valid
+    store.storeLsIdFull := row.lsIdFull
     store.pc := row.pc
     store.lineAddr := lineAddr(row.addr)
     store.byteMask := byteMask

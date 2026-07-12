@@ -47,6 +47,12 @@ The reduced timing top still owns the physical single-pipe ROB/RF/wakeup
 arbiters. Connecting those live sinks to this canonical output is the next
 integration boundary; cache/miss and cross-line return sources remain staged.
 
+## R672 Full-LSID Contract
+
+W1 and W2 retain full load LSID alongside the projected ROB sideband. ROB
+lookup observability and completion payloads expose the full value, and typed
+same-BID recovery prunes only with full authority.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipelineSpec`

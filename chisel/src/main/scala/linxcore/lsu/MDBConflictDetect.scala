@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
+import linxcore.common.LSIDOrder
 import linxcore.rob.ROBID
 
 class MDBConflictStoreProbe(
@@ -12,7 +13,8 @@ class MDBConflictStoreProbe(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val addrOnly = Bool()
@@ -24,6 +26,8 @@ class MDBConflictStoreProbe(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -36,7 +40,8 @@ class MDBConflictLoadEntry(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val resolved = Bool()
@@ -48,6 +53,8 @@ class MDBConflictLoadEntry(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val lsIdFullValid = Bool()
+  val lsIdFull = UInt(lsidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -60,10 +67,13 @@ class MDBConflictRecord(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
-  val load = new MDBConflictLoadEntry(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)
-  val store = new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)
+  val load = new MDBConflictLoadEntry(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth)
+  val store = new MDBConflictStoreProbe(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth)
 }
 
 class MDBConflictDetectIO(
@@ -75,15 +85,19 @@ class MDBConflictDetectIO(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val loadIndexWidth = log2Ceil(loadEntries.max(2))
   private val resolveIndexWidth = log2Ceil(resolveEntries.max(2))
   private val totalEntries = loadEntries + resolveEntries
 
-  val store = Input(new MDBConflictStoreProbe(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
-  val activeLoads = Input(Vec(loadEntries, new MDBConflictLoadEntry(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)))
-  val resolvedQueue = Input(Vec(resolveEntries, new MDBConflictLoadEntry(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)))
+  val store = Input(new MDBConflictStoreProbe(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth))
+  val activeLoads = Input(Vec(loadEntries, new MDBConflictLoadEntry(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth)))
+  val resolvedQueue = Input(Vec(resolveEntries, new MDBConflictLoadEntry(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth)))
 
   val activeCandidateMask = Output(UInt(loadEntries.W))
   val resolveCandidateMask = Output(UInt(resolveEntries.W))
@@ -97,7 +111,8 @@ class MDBConflictDetectIO(
   val conflictActiveIndex = Output(UInt(loadIndexWidth.W))
   val conflictResolveIndex = Output(UInt(resolveIndexWidth.W))
   val conflictOrdinal = Output(UInt(log2Ceil(totalEntries.max(1)).W))
-  val record = Output(new MDBConflictRecord(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
+  val record = Output(new MDBConflictRecord(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth))
 
   val innerFlush = Output(Bool())
   val nukeFlush = Output(Bool())
@@ -112,7 +127,8 @@ class MDBConflictDetect(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
@@ -134,11 +150,13 @@ class MDBConflictDetect(
     peIdWidth,
     stidWidth,
     tidWidth,
-    sizeWidth
+    sizeWidth,
+    lsidWidth
   ))
 
   private def zeroLoad: MDBConflictLoadEntry = {
-    val out = Wire(new MDBConflictLoadEntry(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
+    val out = Wire(new MDBConflictLoadEntry(
+      entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth))
     out := 0.U.asTypeOf(out)
     out
   }
@@ -147,7 +165,9 @@ class MDBConflictDetect(
     store.stid === load.stid
 
   private def orderedBeforeOrSame(store: MDBConflictStoreProbe, load: MDBConflictLoadEntry): Bool =
-    STQCommitQueue.lessEqualBidLs(store.bid, store.lsId, load.bid, load.lsId)
+    ROBID.less(store.bid, load.bid) ||
+      (ROBID.equal(store.bid, load.bid) && store.lsIdFullValid && load.lsIdFullValid &&
+        LSIDOrder.lessEqual(store.lsIdFull, load.lsIdFull))
 
   private def addressOverlap(store: MDBConflictStoreProbe, load: MDBConflictLoadEntry): Bool = {
     val storeSize = store.size.asUInt
@@ -186,7 +206,8 @@ class MDBConflictDetect(
     resolveTileSuppressedVec(idx) := tileSuppressed(io.store, io.resolvedQueue(idx))
   }
 
-  val candidateLoads = Wire(Vec(totalEntries, new MDBConflictLoadEntry(entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth)))
+  val candidateLoads = Wire(Vec(totalEntries, new MDBConflictLoadEntry(
+    entries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, lsidWidth)))
   val candidateValid = Wire(Vec(totalEntries, Bool()))
   for (idx <- 0 until loadEntries) {
     candidateLoads(idx) := io.activeLoads(idx)
@@ -201,8 +222,11 @@ class MDBConflictDetect(
   var selectedOrdinal: UInt = 0.U(log2Ceil(totalEntries.max(2)).W)
   var selectedLoad: MDBConflictLoadEntry = zeroLoad
   for (idx <- 0 until totalEntries) {
-    val candidateOlder =
-      !selectedValid || STQCommitQueue.lessEqualBidLs(candidateLoads(idx).bid, candidateLoads(idx).lsId, selectedLoad.bid, selectedLoad.lsId)
+    val candidateOlder = !selectedValid ||
+      ROBID.less(candidateLoads(idx).bid, selectedLoad.bid) ||
+      (ROBID.equal(candidateLoads(idx).bid, selectedLoad.bid) &&
+        candidateLoads(idx).lsIdFullValid && selectedLoad.lsIdFullValid &&
+        LSIDOrder.lessEqual(candidateLoads(idx).lsIdFull, selectedLoad.lsIdFull))
     val takeCandidate = candidateValid(idx) && candidateOlder
     selectedLoad = Mux(takeCandidate, candidateLoads(idx), selectedLoad)
     selectedOrdinal = Mux(takeCandidate, idx.U, selectedOrdinal)

@@ -268,12 +268,15 @@ class MDBSSITSpec extends AnyFunSuite {
   }
 
   test("Chisel MDBSSIT elaborates with lookup, record, delete, and table observability") {
-    val sv = ChiselStage.emitSystemVerilog(new MDBSSIT(robEntries = 8, ssitEntries = 4))
+    val sv = ChiselStage.emitSystemVerilog(new MDBSSIT(
+      robEntries = 8, ssitEntries = 4, lsidWidth = 40))
 
     assert(sv.contains("module MDBSSIT"))
     assert(sv.contains("io_lookupHit"))
     assert(sv.contains("io_recordReinforced"))
     assert(sv.contains("io_deleteDroppedBelowStall"))
     assert(sv.contains("io_table_0_storePc"))
+    assert(sv.contains("io_record_loadLsIdFull"))
+    assert(sv.contains("io_table_0_lsIdOff"))
   }
 }

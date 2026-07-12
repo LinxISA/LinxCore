@@ -2368,7 +2368,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedReplayLiqStoreSnapshot = Module(new ResidentStoreForwardStoreSnapshot(
     entries = coreParams.scalarLsu.stqEntries,
@@ -2376,7 +2377,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedReplayLiqBaseDataAlign = Module(new LoadReplayBaseDataAlign(
     addrWidth = p.immWidth,
@@ -2420,7 +2422,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     physRegWidth = p.physRegWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
+    tidWidth = p.threadIdWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedReplayLiqReturnLretSink = Module(new ScalarLSULoadReturnQueueBank(
     idEntries = p.robEntries,
@@ -2434,7 +2437,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     physRegWidth = p.physRegWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
+    tidWidth = p.threadIdWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedReplayLiqReturnIexPipeOccupancyLiveControl =
     Module(new LoadReplayReturnIexPipeOccupancyLiveControl(returnPipeCount = 1))
@@ -2535,13 +2539,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedLoadWaitReplaySlot = Module(new ReducedLoadWaitReplaySlot(
     idEntries = p.robEntries,
     storeEntries = coreParams.scalarLsu.stqEntries,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedLoadReplayRelaunchQueue = Module(new ReducedLoadReplayRelaunchQueue(
     idEntries = p.robEntries,
@@ -2554,7 +2560,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     idEntries = p.robEntries,
     storeEntries = coreParams.scalarLsu.stqEntries,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedLiveLoadLiqCapture = Module(new ReducedLiveLoadLiqCapture(
     idEntries = p.robEntries,
@@ -2574,7 +2581,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     pcWidth = p.pcWidth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
+    tidWidth = p.threadIdWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedMdbCoreParams = coreParams.copy(scalarLsu = coreParams.scalarLsu.copy(
     stqEntries = coreParams.scalarLsu.stqEntries,
@@ -3443,7 +3451,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     lineBytes = 64,
     sizeWidth = 7,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   val reducedReplayRowMutationResolvedForResolveQ =
     reducedLoadReplayLiqAllocEnabled &&
@@ -3542,6 +3551,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         reducedLoadReplayResolveLifecycleRetireValid,
         reducedLoadReplayResolveLifecycleRetireRow.loadLsId,
         reducedLoadReplayResolveRetireLsId))
+  reducedLoadReplayResolveQueue.io.retireLsIdFullValid :=
+    Mux(
+      reducedLoadReplayResolveClearRetireValid,
+      reducedLoadReplayResolveClearRetireRow.loadLsIdFullValid,
+      Mux(
+        reducedLoadReplayResolveLifecycleRetireValid,
+        reducedLoadReplayResolveLifecycleRetireRow.loadLsIdFullValid,
+        reducedLoadReplayResolveRetireSource.valid && reducedLoadReplayResolveRetireSource.isLoadStore))
+  reducedLoadReplayResolveQueue.io.retireLsIdFull :=
+    Mux(
+      reducedLoadReplayResolveClearRetireValid,
+      reducedLoadReplayResolveClearRetireRow.loadLsIdFull,
+      Mux(
+        reducedLoadReplayResolveLifecycleRetireValid,
+        reducedLoadReplayResolveLifecycleRetireRow.loadLsIdFull,
+        reducedLoadReplayResolveRetireSource.lsId))
   val reducedMdbFanoutStoreRows = Wire(Vec(
     coreParams.scalarLsu.stqEntries,
     new MDBStoreWakeupEntry(
@@ -3549,7 +3574,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       coreParams.scalarLsu.stqEntries,
       addrWidth = p.immWidth,
       pcWidth = p.pcWidth,
-      stidWidth = p.threadIdWidth
+      stidWidth = p.threadIdWidth,
+      lsidWidth = p.lsidWidth
     )
   ))
   for (idx <- 0 until coreParams.scalarLsu.stqEntries) {
@@ -3590,6 +3616,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbReplayWake.source := LoadReplayWakeSource.StoreUnit
   reducedMdbReplayWake.storeId := reducedMdbPath.io.storeWakeup.bid
   reducedMdbReplayWake.storeLsId := reducedMdbPath.io.storeWakeup.lsId
+  reducedMdbReplayWake.storeLsIdFullValid := reducedMdbPath.io.storeWakeup.lsIdFullValid
+  reducedMdbReplayWake.storeLsIdFull := reducedMdbPath.io.storeWakeup.lsIdFull
   reducedMdbReplayWake.pc := reducedMdbPath.io.storeWakeup.pc
   reducedMdbReplayWake.lineAddr := Cat(
     reducedMdbPath.io.storeWakeup.addr(p.immWidth - 1, log2Ceil(64)),
@@ -3845,7 +3873,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     dataWidth = p.immWidth,
     returnPipeCount = 1,
     archRegWidth = p.archRegWidth,
-    physRegWidth = p.physRegWidth
+    physRegWidth = p.physRegWidth,
+    lsidWidth = p.lsidWidth
   ))
   LinxCoreFrontendFetchRfAluTraceTopR388IexPipeOccupancyLiveWiring.connect(
     live = reducedReplayLiqReturnIexPipeOccupancyLiveControl,
@@ -6637,6 +6666,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR547LretSetMemDataWiring {
     sinkEntry.gid := payload.io.payloadGid
     sinkEntry.rid := payload.io.payloadRid
     sinkEntry.loadLsId := payload.io.payloadLoadLsId
+    sinkEntry.loadLsIdFullValid := payload.io.payloadLoadLsIdFullValid
+    sinkEntry.loadLsIdFull := payload.io.payloadLoadLsIdFull
     sinkEntry.pc := payload.io.payloadPc
     sinkEntry.addr := payload.io.payloadAddr
     sinkEntry.size := payload.io.payloadSize
@@ -7230,7 +7261,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR659CanonicalMdbMutationWiring 
       idEntries = p.robEntries,
       sourceStoreEntries = storeEntries,
       pcWidth = p.pcWidth,
-      lineBytes = 64
+      lineBytes = 64,
+      lsidWidth = p.lsidWidth
     ))
 
     mux.io.sourceReturn.valid := source.io.rowMutationRequestValid
@@ -7296,7 +7328,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR659CanonicalMdbMutationWiring 
       idEntries = p.robEntries,
       sourceStoreEntries = storeEntries,
       storeEntries = storeEntries,
-      pcWidth = p.pcWidth
+      pcWidth = p.pcWidth,
+      lsidWidth = p.lsidWidth
     ))
     bridge.io.enable := true.B
     bridge.io.flush := false.B
@@ -7552,13 +7585,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring 
     lretPayload.io.selectedBid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedBid, allocPath.io.launchSelectedBid)
     lretPayload.io.selectedGid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedGid, allocPath.io.launchSelectedGid)
     lretPayload.io.selectedRid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedRid, allocPath.io.launchSelectedRid)
-    lretPayload.io.selectedLoadLsId :=
-      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLoadLsId, allocPath.io.launchSelectedLoadLsId)
     val selectedScopeRow =
       Mux(
         returnCompleteValid,
         allocPath.io.rows(allocPath.io.returnCompleteIndex),
         allocPath.io.rows(allocPath.io.launchIndex))
+    lretPayload.io.selectedLoadLsId :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLoadLsId, allocPath.io.launchSelectedLoadLsId)
+    lretPayload.io.selectedLoadLsIdFullValid := selectedScopeRow.loadLsIdFullValid
+    lretPayload.io.selectedLoadLsIdFull := selectedScopeRow.loadLsIdFull
     lretPayload.io.selectedPeId := selectedScopeRow.peId
     lretPayload.io.selectedStid := selectedScopeRow.stid
     lretPayload.io.selectedTid := selectedScopeRow.tid

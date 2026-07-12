@@ -221,6 +221,12 @@ records `mdb_fanout_lu_out_hit=1` and `mdb_fanout_su_out_hit=1`, but requires
 when the matching store is address-ready and data-ready. Treat this as a
 store-ready wakeup fixture gap, not a reason to weaken LU wait publication.
 
+## R672 Full-LSID Contract
+
+MDB lookup, delete, record, LU, and SU queues retain full-LSID validity/value
+for both load and store metadata. Store wakeup rows and published wakeups carry
+the same full identity through backpressure and fanout.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout`

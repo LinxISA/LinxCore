@@ -17,7 +17,8 @@ class LoadInflightRowMutationPathIO(
     val peIdWidth: Int,
     val stidWidth: Int,
     val tidWidth: Int,
-    val returnPipeCount: Int)
+    val returnPipeCount: Int,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val nativeStoreIndexWidth = log2Ceil(storeEntries)
@@ -40,7 +41,8 @@ class LoadInflightRowMutationPathIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
   val setWaitStatus = Input(Bool())
   val keepRepickStatus = Input(Bool())
@@ -48,7 +50,8 @@ class LoadInflightRowMutationPathIO(
   val lineWrite = Input(Bool())
   val waitStoreWrite = Input(Bool())
   val nextWaitStore = Input(Bool())
-  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, sourceStoreEntries, pcWidth))
+  val nextWaitStoreInfo = Input(new LoadStoreForwardWait(
+    idEntries, sourceStoreEntries, pcWidth, lsidWidth))
   val nextLineData = Input(UInt((lineBytes * 8).W))
   val nextValidMask = Input(UInt(lineBytes.W))
   val nextDataComplete = Input(Bool())
@@ -90,7 +93,8 @@ class LoadInflightRowMutationPathIO(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
 
   val blockedByBridge = Output(Bool())
@@ -133,7 +137,8 @@ class LoadInflightRowMutationPath(
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
-    val returnPipeCount: Int = 1)
+    val returnPipeCount: Int = 1,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -159,7 +164,8 @@ class LoadInflightRowMutationPath(
     peIdWidth,
     stidWidth,
     tidWidth,
-    returnPipeCount
+    returnPipeCount,
+    lsidWidth
   ))
 
   val bridge = Module(new LoadInflightRowMutationRequestBridge(
@@ -168,7 +174,8 @@ class LoadInflightRowMutationPath(
     sourceStoreEntries = sourceStoreEntries,
     storeEntries = storeEntries,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    lsidWidth = lsidWidth
   ))
   bridge.io.enable := io.enable
   bridge.io.flush := io.flush
@@ -219,7 +226,8 @@ class LoadInflightRowMutationPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
     tidWidth = tidWidth,
-    returnPipeCount = returnPipeCount
+    returnPipeCount = returnPipeCount,
+    lsidWidth = lsidWidth
   ))
   apply.io.enable := io.enable
   apply.io.flush := io.flush

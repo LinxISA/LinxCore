@@ -11,7 +11,8 @@ class ReducedLoadReplayLiqAllocAdapterIO(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val flush = Input(Bool())
   val candidateValid = Input(Bool())
@@ -19,7 +20,9 @@ class ReducedLoadReplayLiqAllocAdapterIO(
   val allocReady = Input(Bool())
 
   val allocValid = Output(Bool())
-  val alloc = Output(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val alloc = Output(new LoadInflightAlloc(
+    liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth,
+    lsidWidth = lsidWidth))
   val consumeReady = Output(Bool())
   val blockedByAlloc = Output(Bool())
   val candidateUsable = Output(Bool())
@@ -32,7 +35,8 @@ class ReducedLoadReplayLiqAllocAdapter(
     val pcWidth: Int = 64,
     val sizeWidth: Int = 7,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val lsidWidth: Int = 32)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -47,11 +51,14 @@ class ReducedLoadReplayLiqAllocAdapter(
     pcWidth,
     sizeWidth,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    lsidWidth
   ))
 
   private def zeroAlloc: LoadInflightAlloc = {
-    val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+    val alloc = Wire(new LoadInflightAlloc(
+      liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth,
+      lsidWidth = lsidWidth))
     alloc := 0.U.asTypeOf(alloc)
     alloc.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     alloc.bid := ROBID.disabled(idEntries)
@@ -64,7 +71,9 @@ class ReducedLoadReplayLiqAllocAdapter(
   }
 
   val candidateUsable = io.candidateValid && io.candidate.valid && !io.flush
-  val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
+  val alloc = Wire(new LoadInflightAlloc(
+    liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth,
+    lsidWidth = lsidWidth))
   alloc := zeroAlloc
 
   when(candidateUsable) {

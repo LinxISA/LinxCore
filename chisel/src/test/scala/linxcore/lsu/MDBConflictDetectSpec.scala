@@ -13,6 +13,9 @@ object MDBConflictDetectReference {
       stid: Int = 0,
       bid: Id = Id(),
       lsId: Id = Id(),
+      lsIdFullValid: Boolean = true,
+      lsIdFull: Option[BigInt] = None,
+      lsidWidth: Int = 32,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: BigInt = 4)
@@ -24,6 +27,9 @@ object MDBConflictDetectReference {
       stid: Int = 0,
       bid: Id = Id(),
       lsId: Id = Id(),
+      lsIdFullValid: Boolean = true,
+      lsIdFull: Option[BigInt] = None,
+      lsidWidth: Int = 32,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: BigInt = 4)
@@ -47,8 +53,28 @@ object MDBConflictDetectReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
-  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
-    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+  private def fullValue(lsId: Id, full: Option[BigInt]): BigInt = full.getOrElse(BigInt(lsId.value))
+
+  private def lessFull(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    val distance = (rhs - lhs) & mask
+    lhs != rhs && distance < (BigInt(1) << (width - 1))
+  }
+
+  private def lessEqualBidLs(store: Store, load: Load): Boolean =
+    less(store.bid, load.bid) ||
+      (store.bid == load.bid && store.lsIdFullValid && load.lsIdFullValid &&
+        (fullValue(store.lsId, store.lsIdFull) == fullValue(load.lsId, load.lsIdFull) ||
+          lessFull(
+            fullValue(store.lsId, store.lsIdFull),
+            fullValue(load.lsId, load.lsIdFull),
+            store.lsidWidth)))
+
+  private def lessEqualLoads(lhs: Load, rhs: Load): Boolean =
+    less(lhs.bid, rhs.bid) ||
+      (lhs.bid == rhs.bid && lhs.lsIdFullValid && rhs.lsIdFullValid &&
+        (fullValue(lhs.lsId, lhs.lsIdFull) == fullValue(rhs.lsId, rhs.lsIdFull) ||
+          lessFull(fullValue(lhs.lsId, lhs.lsIdFull), fullValue(rhs.lsId, rhs.lsIdFull), lhs.lsidWidth)))
 
   private def overlap(store: Store, load: Load): Boolean = {
     store.size != 0 && load.size != 0 &&
@@ -58,7 +84,7 @@ object MDBConflictDetectReference {
 
   private def orderedOverlap(store: Store, load: Load): Boolean =
     store.valid && load.valid && store.stid == load.stid && overlap(store, load) &&
-      lessEqualBidLs(store.bid, store.lsId, load.bid, load.lsId)
+      lessEqualBidLs(store, load)
 
   private def scalarConflict(store: Store, load: Load): Boolean =
     orderedOverlap(store, load) && !store.isTile && !load.isTile
@@ -84,7 +110,7 @@ object MDBConflictDetectReference {
     val selected = candidates.zipWithIndex.foldLeft(Option.empty[(Load, Int)]) {
       case (best, ((candidate, valid), ordinal)) if valid =>
         best match {
-          case Some((cur, _)) if !lessEqualBidLs(candidate.bid, candidate.lsId, cur.bid, cur.lsId) => best
+          case Some((cur, _)) if !lessEqualLoads(candidate, cur) => best
           case _ => Some(candidate -> ordinal)
         }
       case (best, _) => best
@@ -165,6 +191,21 @@ class MDBConflictDetectSpec extends AnyFunSuite {
     assert(result.waitStoreMask == 0)
   }
 
+  test("same-BID conflict ordering uses full LSID high bits and rejects missing authority") {
+    val width = 40
+    val store = Store(
+      bid = id(2), lsId = id(1), lsIdFull = Some(BigInt("100000001", 16)),
+      lsidWidth = width, addr = 0x1000, size = 8)
+    val younger = Load(
+      resolved = true, bid = id(2), lsId = id(1),
+      lsIdFull = Some(BigInt("200000001", 16)), lsidWidth = width,
+      addr = 0x1000, size = 8)
+    val missing = younger.copy(lsIdFullValid = false)
+
+    assert(detect(store, Seq(younger), Seq.empty).conflictValid)
+    assert(!detect(store, Seq(missing), Seq.empty).conflictValid)
+  }
+
   test("ST_ADDR probe marks younger unresolved loads as waiting without flushing") {
     val store = Store(addrOnly = true, bid = id(2), lsId = id(4), pc = 0x2040, addr = 0x1800, size = 8)
     val active = Seq(
@@ -206,12 +247,14 @@ class MDBConflictDetectSpec extends AnyFunSuite {
   }
 
   test("Chisel MDBConflictDetect elaborates with ROB-facing conflict outputs") {
-    val sv = ChiselStage.emitSystemVerilog(new MDBConflictDetect(entries = 8, loadEntries = 4, resolveEntries = 2))
+    val sv = ChiselStage.emitSystemVerilog(new MDBConflictDetect(
+      entries = 8, loadEntries = 4, resolveEntries = 2, lsidWidth = 40))
 
     assert(sv.contains("module MDBConflictDetect"))
     assert(sv.contains("io_waitStoreMask"))
     assert(sv.contains("io_innerFlush"))
     assert(sv.contains("io_nukeFlush"))
     assert(sv.contains("io_record_load_pc"))
+    assert(sv.contains("io_record_load_lsIdFull"))
   }
 }

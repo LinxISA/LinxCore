@@ -123,6 +123,12 @@ per-lane credit, fair shared drain, registered E4/W1/W2 staging, and scoped
 flush. It deliberately rejects ARM exception levels, condition state,
 exclusive monitors, barrier encodings, and acquire/release opcode policy.
 
+## R672 Full-LSID Contract
+
+Every scoped return FIFO entry carries full load LSID through retention,
+drain, and compaction. Precise cleanup uses the authoritative matcher and
+requires both flush and row full-LSID validity for same-BID ordering.
+
 ## Verification
 
 `ScalarLSULoadReturnQueueSpec` covers:

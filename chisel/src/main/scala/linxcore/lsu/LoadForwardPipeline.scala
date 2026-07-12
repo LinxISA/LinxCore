@@ -13,13 +13,15 @@ class LoadForwardPipelineIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Bundle {
   val flush = Input(Bool())
 
   val e2Valid = Input(Bool())
   val e2Query = Input(new LoadStoreForwardQuery(robEntries, addrWidth, lineBytes, sizeWidth))
-  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(robEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
+  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(
+    robEntries, storeEntries, addrWidth, pcWidth, lineBytes, lsidWidth)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
@@ -45,7 +47,7 @@ class LoadForwardPipelineIO(
   val e4StqReturned = Output(Bool())
   val e4SourcesReturned = Output(Bool())
   val e4WakeupValid = Output(Bool())
-  val e4WaitStore = Output(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
+  val e4WaitStore = Output(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth, lsidWidth))
   val e4MissKind = Output(LoadForwardMissKind())
 }
 
@@ -55,7 +57,8 @@ class LoadForwardPipeline(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val lsidWidth: Int = 32)
     extends Module {
   require(robEntries > 1, "ROB entries must be greater than one")
   require((robEntries & (robEntries - 1)) == 0, "ROB entries must be a power of two")
@@ -65,12 +68,14 @@ class LoadForwardPipeline(
   require(lineBytes == 64, "LoadForwardPipeline currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
 
-  val io = IO(new LoadForwardPipelineIO(robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val io = IO(new LoadForwardPipelineIO(
+    robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
 
   private def zeroWait: LoadStoreForwardWait =
-    0.U.asTypeOf(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
+    0.U.asTypeOf(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth, lsidWidth))
 
-  val e2Forward = Module(new LoadStoreForwarding(robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val e2Forward = Module(new LoadStoreForwarding(
+    robEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
   e2Forward.io.query := io.e2Query
   e2Forward.io.stores := io.e2Stores
   e2Forward.io.cacheData := io.e2BaseData

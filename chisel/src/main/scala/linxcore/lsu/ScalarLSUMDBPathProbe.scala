@@ -112,6 +112,8 @@ class ScalarLSUMDBPathProbe extends Module {
   loadRows(0).gid := id(0.U)
   loadRows(0).rid := id(1.U)
   loadRows(0).loadLsId := id(io.loadLsId)
+  loadRows(0).loadLsIdFullValid := true.B
+  loadRows(0).loadLsIdFull := io.loadLsId
   loadRows(0).peId := 0.U
   loadRows(0).stid := 0.U
   loadRows(0).tid := 0.U
@@ -124,6 +126,8 @@ class ScalarLSUMDBPathProbe extends Module {
   loadRows(0).waitStoreInfo.storeIndex := 0.U
   loadRows(0).waitStoreInfo.storeId := id(io.storeBid)
   loadRows(0).waitStoreInfo.storeLsId := id(io.storeLsId)
+  loadRows(0).waitStoreInfo.storeLsIdFullValid := true.B
+  loadRows(0).waitStoreInfo.storeLsIdFull := io.storeLsId
   loadRows(0).waitStoreInfo.pc := io.storePc
   mdb.io.loadRows := loadRows
   mdb.io.resolvedRows := 0.U.asTypeOf(mdb.io.resolvedRows)
@@ -137,6 +141,8 @@ class ScalarLSUMDBPathProbe extends Module {
   storeProbe.gid := id(0.U)
   storeProbe.rid := id(1.U)
   storeProbe.lsId := id(io.storeLsId)
+  storeProbe.lsIdFullValid := true.B
+  storeProbe.lsIdFull := io.storeLsId
   storeProbe.pc := io.storePc
   storeProbe.addr := io.storeAddr
   storeProbe.size := io.storeSize
@@ -150,6 +156,8 @@ class ScalarLSUMDBPathProbe extends Module {
   storeRows(0).pc := io.storePc
   storeRows(0).bid := id(io.storeBid)
   storeRows(0).lsId := id(io.storeLsId)
+  storeRows(0).lsIdFullValid := true.B
+  storeRows(0).lsIdFull := io.storeLsId
   storeRows(0).stid := 0.U
   storeRows(0).addr := io.storeAddr
   storeRows(0).size := io.storeSize
@@ -164,6 +172,8 @@ class ScalarLSUMDBPathProbe extends Module {
   lookup.gid := id(0.U)
   lookup.rid := id(1.U)
   lookup.loadLsId := id(io.loadLsId)
+  lookup.loadLsIdFullValid := true.B
+  lookup.loadLsIdFull := io.loadLsId
   lookup.pc := io.loadPc
   lookup.addr := io.loadAddr
   lookup.size := io.loadSize
@@ -208,6 +218,8 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedAlloc.gid := id(0.U)
   integratedAlloc.rid := id(1.U)
   integratedAlloc.loadLsId := id(io.loadLsId)
+  integratedAlloc.loadLsIdFullValid := true.B
+  integratedAlloc.loadLsIdFull := io.loadLsId
   integratedAlloc.pc := io.loadPc
   integratedAlloc.addr := io.loadAddr
   integratedAlloc.size := io.loadSize
@@ -291,6 +303,8 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedResolvedRows(0).gid := id(0.U)
   integratedResolvedRows(0).rid := id(1.U)
   integratedResolvedRows(0).lsId := id(io.loadLsId)
+  integratedResolvedRows(0).lsIdFullValid := true.B
+  integratedResolvedRows(0).lsIdFull := io.loadLsId
   integratedResolvedRows(0).pc := io.loadPc
   integratedResolvedRows(0).addr := io.loadAddr
   integratedResolvedRows(0).size := io.loadSize

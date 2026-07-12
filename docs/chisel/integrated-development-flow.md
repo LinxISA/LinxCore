@@ -15,6 +15,41 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R672-A promotes full LSID through the canonical scalar load
+owner. `LoadInflightAlloc`, LIQ rows, LHQ hit records, ResolveQ rows, MDB
+conflict records, MDB command/fanout queues, wait-store metadata, retained MDB
+recovery, and scalar load-return queue/W1/W2 payloads carry explicit
+`lsIdFullValid` plus `CoreParams.lsidWidth` data. Same-BID ResolveQ cleanup and
+retirement, MDB conflict selection, and SSIT dependency-distance learning use
+full modular LSID order; same-BID group cleanup cannot bypass full authority,
+and MDB wait mutation is blocked until the predicted store has a valid full
+LSID. Forwarding selection remains projected pending R672-B, but its selected
+not-ready store carries full identity through E3/E4 and the reduced resident
+wait-slot/wakeup bridge into canonical LIQ wait, timeout-delete, and recovery
+state. Replay matching requires exact full LSID whenever the stored wait key
+marks it valid. Cross-BID age remains ROB/BROB-ring-owned
+and BID/GID/RID remain ROB-sized. A composed 8-entry ROB, 40-bit LSID elaboration covers LIQ,
+ResolveQ, MDB/SSIT, recovery, and return publication. The reduced replay top
+also elaborates with a 40-bit LSID. Generated MDB and scalar load-return probes
+pass after the promotion.
+
+R672-A final evidence passes 266 Chisel suites and 1,606 tests, both generated
+scalar MDB/load-return probes, the pyCircuit/Chisel LSU promotion gate, and the
+architecture contract/adapters/conformance gate. The regenerated CoreMark
+cross-check compares 1,467 architectural rows with zero mismatches and zero
+QEMU/DUT CBSTOP rows at
+`generated/r672a-final-canonical-load-full-lsid-coremark/report/crosscheck_manifest.json`.
+Its sideband report observes 136 valid MDB store probes and no MDB load lookup,
+so focused 40-bit and missing-authority tests are the mechanism proof; CoreMark
+is no-regression evidence for this packet.
+
+The reduced replay source-return snapshot request/token/response graph still
+uses the named projection-only cleanup helper, and reduced forwarding nearest-
+store selection still uses projected LSID. Those are the R672-B conversion boundary;
+they may not be cited as canonical scalar-load closure. No ARM tile-conflict
+bypass, exclusive monitor, barrier, acquire/release, or exception-level
+behavior was imported.
+
 Latest packet: R671 promotes full LSID through the central recovery transport
 and scalar-redirect STQ recovery. Ring and
 full-BID recovery requests carry `lsIdFullValid` plus the parameterized value;
@@ -23,13 +58,11 @@ registered cleanup intent preserve it. Scalar redirect recovery captures the
 execute row's full all-row snapshot. `STQFlushPrune` uses modular full-LSID
 order for non-BID cleanup and refuses missing or half-range-ambiguous
 authority. A 40-bit LSID / 8-entry ROB / 16-row STQ composed elaboration proves
-independent sizing. Sources that have not yet promoted their load/MDB payload
-leave full-LSID authority clear and are surfaced by a missing-authority mask;
-they never authorize STQ pruning through the projection. Unconverted LIQ,
-ResolveQ, snapshot, and load-return consumers retain an explicitly named
-projection-only matcher for their own legacy row cleanup; placeholder full
-LSID values never enter the authoritative matcher. Load forwarding/replay/MDB
-and load-return payloads remain the next projection-removal packets. This work
+independent sizing. At the R671 boundary, unpromoted load/MDB sources left
+full-LSID authority clear and never authorized STQ pruning through the
+projection. R672-A supersedes that limitation for the canonical load owner;
+only the reduced replay snapshot/forwarding graph retains the explicitly named
+projection-only cleanup helper. This work
 adds no ARM exception class, barrier, exclusive monitor, acquire/release, or
 exception-level behavior.
 

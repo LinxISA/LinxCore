@@ -1,5 +1,13 @@
 # LoadStoreForwarding
 
+## R672-A Full-LSID Wait Metadata
+
+Resident store inputs and the selected not-ready `waitStore` output carry a
+parameterized full store LSID beside the reduced projection. The selected
+store's validity/value is preserved into LIQ wait state for timeout delete and
+recovery. Store eligibility and nearest-store selection remain projected
+compatibility logic and are the explicit R672-B ordering boundary.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`

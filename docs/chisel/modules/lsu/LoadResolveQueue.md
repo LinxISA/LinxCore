@@ -162,6 +162,13 @@ fallback.
 - Clear-resolved feedback outside the opt-in replay-LIQ top path.
 - Live MDB/recovery publication using `MDBConflictDetect`.
 
+## R672 Full-LSID Contract
+
+ResolveQ accepts the full load identity from LHQ publication, exports it to
+MDB conflict rows, and retains it during compaction. Same-BID precise cleanup
+and commit-watermark retirement require full validity and compare with
+`LSIDOrder`; cross-BID age remains ROB/BROB-owned.
+
 ## Verification
 
 Focused gates:

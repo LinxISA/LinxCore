@@ -24,7 +24,8 @@ class ScalarLSULoadReturnPipelineIO(
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    lsidWidth
   )
 
   val enable = Input(Bool())
@@ -49,6 +50,8 @@ class ScalarLSULoadReturnPipelineIO(
   val robLookupGid = Output(new ROBID(idEntries))
   val robLookupRid = Output(new ROBID(idEntries))
   val robLookupLoadLsId = Output(new ROBID(idEntries))
+  val robLookupLoadLsIdFullValid = Output(Bool())
+  val robLookupLoadLsIdFull = Output(UInt(lsidWidth.W))
   val robRowValid = Input(Bool())
   val robRowNeedFlush = Input(Bool())
 
@@ -93,7 +96,8 @@ class ScalarLSULoadReturnPipeline(
     p.physRegWidth,
     p.peIdWidth,
     p.stidWidth,
-    p.tidWidth
+    p.tidWidth,
+    lsidWidth
   )
 
   val io = IO(new ScalarLSULoadReturnPipelineIO(idEntries, p, lsidWidth))
@@ -105,12 +109,15 @@ class ScalarLSULoadReturnPipeline(
     entry.payload.gid := ROBID.disabled(idEntries)
     entry.payload.rid := ROBID.disabled(idEntries)
     entry.payload.loadLsId := ROBID.disabled(idEntries)
+    entry.payload.loadLsIdFullValid := false.B
+    entry.payload.loadLsIdFull := 0.U
     entry.payload.dst := LoadReplayDestination.none(p.archRegWidth, p.physRegWidth)
     entry
   }
 
   private def toPruneEntry(entry: ScalarLSULoadReturnEntry): STQFlushPruneEntry = {
-    val row = Wire(new STQFlushPruneEntry(idEntries, p.peIdWidth, p.stidWidth, p.tidWidth))
+    val row = Wire(new STQFlushPruneEntry(
+      idEntries, p.peIdWidth, p.stidWidth, p.tidWidth, lsidWidth))
     row.valid := entry.payload.valid
     row.status := STQEntryStatus.Wait
     row.peId := entry.peId
@@ -119,7 +126,8 @@ class ScalarLSULoadReturnPipeline(
     row.bid := entry.payload.bid
     row.gid := entry.payload.gid
     row.lsId := entry.payload.loadLsId
-    row.lsIdFull := 0.U
+    row.lsIdFullValid := entry.payload.loadLsIdFullValid
+    row.lsIdFull := entry.payload.loadLsIdFull
     row
   }
 
@@ -136,9 +144,9 @@ class ScalarLSULoadReturnPipeline(
 
   for (pipe <- 0 until pipeCount) {
     w1Prune(pipe) := preciseActive &&
-      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(w1(pipe)))
+      STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(w1(pipe)))
     w2Prune(pipe) := preciseActive &&
-      STQFlushPrune.matchesFlushProjected(io.preciseFlush, toPruneEntry(w2(pipe)))
+      STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(w2(pipe)))
 
     val w2Live = active && w2(pipe).payload.valid
     val hasDestination = w2(pipe).payload.dst.valid &&
@@ -216,6 +224,8 @@ class ScalarLSULoadReturnPipeline(
   io.robLookupGid := io.in.payload.gid
   io.robLookupRid := io.in.payload.rid
   io.robLookupLoadLsId := io.in.payload.loadLsId
+  io.robLookupLoadLsIdFullValid := io.in.payload.loadLsIdFullValid
+  io.robLookupLoadLsIdFull := io.in.payload.loadLsIdFull
   io.w1ValidMask := VecInit(w1.map(_.payload.valid)).asUInt
   io.w2ValidMask := VecInit(w2.map(_.payload.valid)).asUInt
   io.w1PrecisePruneMask := w1Prune.asUInt

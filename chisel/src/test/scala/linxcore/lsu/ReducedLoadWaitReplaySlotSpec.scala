@@ -268,4 +268,21 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_relaunch_youngestStoreId_value"))
     assert(sv.contains("io_relaunch_youngestStoreLsId_value"))
   }
+
+  test("wait slot preserves full selected-store authority at 40-bit LSID width") {
+    val io = new ReducedLoadWaitReplaySlotIO(
+      idEntries = 8,
+      storeEntries = 8,
+      lsidWidth = 40)
+    val sv = ChiselStage.emitSystemVerilog(new ReducedLoadWaitReplaySlot(
+      idEntries = 8,
+      storeEntries = 8,
+      lsidWidth = 40))
+
+    assert(io.captureWaitStore.storeLsIdFull.getWidth == 40)
+    assert(io.storedWaitStore.storeLsIdFull.getWidth == 40)
+    assert(io.replayWake.storeLsIdFull.getWidth == 40)
+    assert(sv.contains("io_storedWaitStore_storeLsIdFull"))
+    assert(sv.contains("io_replayWake_storeLsIdFull"))
+  }
 }

@@ -36,9 +36,9 @@ consume.
 ## Sizing Contract
 
 `entries` sizes the resident row vector and wait-store index. `robEntries`
-sizes the selected store identity and replay wakeup identity. A capacity change
-therefore changes row addressing without silently widening or narrowing the
-ROB identity contract.
+sizes BID and projected LSID. `lsidWidth` independently sizes resident-row,
+wait-key, and replay-wakeup full LSID. A capacity change therefore changes row
+addressing without silently widening or narrowing either identity contract.
 
 ## Interface
 
@@ -47,7 +47,7 @@ ROB identity contract.
 | Signal | Description |
 |---|---|
 | `enable` | Enables the reduced resident replay-wakeup bridge. |
-| `waitStore` | Selected not-ready store identity: valid bit, STQ index, BID, LSID, and PC. In the reduced top this is the registered key from `ReducedLoadWaitReplaySlot`. |
+| `waitStore` | Selected not-ready store identity: valid bit, STQ index, BID, projected LSID, full-LSID authority/value, and PC. In the reduced top this is the registered key from `ReducedLoadWaitReplaySlot`. |
 | `rows` | Resident STQ row image from `StoreDispatchSTQPath`. |
 
 ### Outputs
@@ -55,7 +55,7 @@ ROB identity contract.
 | Signal | Description |
 |---|---|
 | `wakeValid` | The selected row still matches the wait-store identity and is ready to publish store data. |
-| `wake` | `LoadReplayWakeupRequest` with source `StoreUnit`, row `(BID, LSID, PC)`, line address, byte-valid mask, and 64-byte line data. |
+| `wake` | `LoadReplayWakeupRequest` with source `StoreUnit`, row `(BID, projected LSID, full LSID, PC)`, line address, byte-valid mask, and 64-byte line data. |
 | `selectedRowValid` | The wait-store index names a valid `STQ_WAIT` row while enabled. |
 | `identityMatch` | The indexed row still matches the stored `(BID, LSID, PC)` identity. |
 | `selectedRowReady` | The indexed row is address-ready, data-ready, scalar, non-cross-line, and identity-matched. |
@@ -81,7 +81,8 @@ R268 covers the producer side of step 3 for the reduced top:
 
 1. Select the STQ row named by `waitStore.storeIndex`.
 2. Require `waitStore.valid`, `row.valid`, `row.status == Wait`, and exact
-   `(row.bid, row.lsId, row.pc)` match with the stored wait key.
+   `(row.bid, row.lsId, row.pc)` match with the stored wait key, plus exact
+   `row.lsIdFull` match. A wait key without full authority cannot wake a row.
 3. Require `addrReady`, `dataReady`, scalar store class, and non-cross-line
    range. Cross-line resident replay is deferred to a later owner.
 4. Build the 64-byte line address, byte-valid mask, and line-positioned store
@@ -122,4 +123,5 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 
 Reference tests cover matching ready-row wakeup emission, matching not-ready
 suppression, stale identity suppression, cross-line suppression, and Chisel
-elaboration with the typed wakeup request ports.
+elaboration with the typed wakeup request ports. A 40-bit structural test
+locks full-LSID preservation from resident row through wait key to wakeup.

@@ -40,6 +40,7 @@ object STQFlushPruneReference {
       bid: Id = Id(),
       gid: Id = Id(),
       lsId: Id = Id(),
+      fullLsIdValid: Boolean = true,
       fullLsId: Option[BigInt] = None)
 
   final case class Result(matchMask: Int, freeMask: Int, statusBlockedMask: Int, freeCount: Int)
@@ -87,16 +88,15 @@ object STQFlushPruneReference {
       return lessEqual(flush.bid, row.bid)
     }
     if (flush.baseOnGroup) {
-      return lessEqual(flush.bid, row.bid) ||
-        (flush.fullLsIdValid && (less(flush.bid, row.bid) ||
-          (flush.bid == row.bid &&
-            (less(flush.gid, row.gid) ||
-              (flush.gid == row.gid && lessEqualFull(
-                flushLsId(flush), rowLsId(row), flush.lsidWidth))))))
+      return less(flush.bid, row.bid) ||
+        (flush.bid == row.bid && flush.fullLsIdValid && row.fullLsIdValid &&
+          (less(flush.gid, row.gid) ||
+            (flush.gid == row.gid && lessEqualFull(
+              flushLsId(flush), rowLsId(row), flush.lsidWidth))))
     }
-    flush.fullLsIdValid &&
-      (less(flush.bid, row.bid) ||
-        (flush.bid == row.bid && lessEqualFull(flushLsId(flush), rowLsId(row), flush.lsidWidth)))
+    less(flush.bid, row.bid) ||
+      (flush.bid == row.bid && flush.fullLsIdValid && row.fullLsIdValid &&
+        lessEqualFull(flushLsId(flush), rowLsId(row), flush.lsidWidth))
   }
 
   def prune(flush: Flush, rows: Seq[Row]): Result = {
@@ -120,7 +120,7 @@ class STQFlushPruneSpec extends AnyFunSuite {
   import STQFlushPruneReference._
 
   private def row(status: Status = Wait, bid: Int = 0, gid: Int = 0, lsId: Int = 0, stid: Int = 0, peId: Int = 0, tid: Int = 0): Row =
-    Row(status = status, bid = Id(value = bid), gid = Id(value = gid), lsId = Id(value = lsId), stid = stid, peId = peId, tid = tid)
+    Row(status = status, bid = Id(value = bid), gid = Id(value = gid), lsId = Id(value = lsId), stid = stid, peId = peId, tid = tid, fullLsId = Some(lsId))
 
   test("base-on-BID frees only valid WAIT stores covered by the flush") {
     val rows = Seq(
@@ -162,7 +162,7 @@ class STQFlushPruneSpec extends AnyFunSuite {
     assert(result.freeCount == 3)
   }
 
-  test("group-based flush follows the model BID fast path before group tuple comparison") {
+  test("group-based flush uses cross-BID age and same-BID group plus full-LSID order") {
     val rows = Seq(
       row(bid = 1, gid = 9, lsId = 9),
       row(bid = 2, gid = 0, lsId = 0),
@@ -179,10 +179,28 @@ class STQFlushPruneSpec extends AnyFunSuite {
       rows
     )
 
-    assert(result.matchMask == 0x1e)
-    assert(result.freeMask == 0x0e)
+    assert(result.matchMask == 0x18)
+    assert(result.freeMask == 0x08)
     assert(result.statusBlockedMask == 0x10)
-    assert(result.freeCount == 3)
+    assert(result.freeCount == 1)
+  }
+
+  test("same-BID group cleanup requires full LSID authority while cross-BID cleanup does not") {
+    val flush = Flush(
+      bid = Id(value = 2),
+      gid = Id(value = 1),
+      lsId = Id(value = 1),
+      baseOnGroup = true,
+      fullLsId = Some(1))
+    val rows = Seq(
+      row(bid = 3, gid = 0, lsId = 0).copy(fullLsIdValid = false, fullLsId = None),
+      row(bid = 2, gid = 2, lsId = 0).copy(fullLsIdValid = false, fullLsId = None),
+      row(bid = 2, gid = 2, lsId = 0))
+
+    val result = prune(flush, rows)
+
+    assert(result.matchMask == 0x5)
+    assert(result.freeMask == 0x5)
   }
 
   test("STID, PE, and thread scoping must all match before a store is freed") {

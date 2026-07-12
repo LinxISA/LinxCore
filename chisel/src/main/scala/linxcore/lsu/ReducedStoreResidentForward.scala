@@ -17,7 +17,8 @@ class ReducedStoreResidentForwardIO(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   val enable = Input(Bool())
@@ -27,13 +28,15 @@ class ReducedStoreResidentForwardIO(
   val loadBid = Input(new ROBID(identityEntries))
   val loadLsId = Input(new ROBID(identityEntries))
   val baseLoadData = Input(UInt(dataWidth.W))
-  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
+  val rows = Input(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, pcWidth, lsidWidth)))
 
   val loadData = Output(UInt(dataWidth.W))
   val loadForwardMask = Output(UInt((dataWidth / 8).W))
   val waitMask = Output(UInt((dataWidth / 8).W))
   val eligibleStoreMask = Output(UInt(entries.W))
-  val waitStore = Output(new LoadStoreForwardWait(identityEntries, entries, pcWidth))
+  val waitStore = Output(new LoadStoreForwardWait(identityEntries, entries, pcWidth, lsidWidth))
   val readyForward = Output(Bool())
   val waitBlocked = Output(Bool())
   val loadCrossesLine = Output(Bool())
@@ -51,7 +54,8 @@ class ReducedStoreResidentForward(
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val robEntries: Int = 0)
+    val robEntries: Int = 0,
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "resident store forwarding needs at least two STQ entries")
@@ -76,7 +80,8 @@ class ReducedStoreResidentForward(
     mapQDepth,
     pcWidth,
     lineBytes,
-    identityEntries
+    identityEntries,
+    lsidWidth
   ))
 
   private def lineAddr(addr: UInt): UInt =
@@ -122,9 +127,12 @@ class ReducedStoreResidentForward(
     mapQDepth,
     pcWidth,
     lineBytes,
-    identityEntries
+    identityEntries,
+    lsidWidth
   ))
-  val forward = Module(new LoadStoreForwarding(identityEntries, entries, addrWidth, pcWidth, lineBytes, sizeWidth = 7))
+  val forward = Module(new LoadStoreForwarding(
+    identityEntries, entries, addrWidth, pcWidth, lineBytes, sizeWidth = 7,
+    lsidWidth = lsidWidth))
 
   storeSnapshot.io.enable := io.enable
   storeSnapshot.io.rows := io.rows
