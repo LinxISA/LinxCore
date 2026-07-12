@@ -124,14 +124,9 @@ module intentionally keeps two pipe identifiers distinct:
 - top-level outputs expose insert validity, pipe indices, load-return marker,
   wakeup-required, and blockers.
 
-The integrated top still ties `LoadReplayReturnLretSink.drainReady` low and
-ties the current IEX return-pipe occupied mask full. Therefore R322 remains a
-diagnostic insert boundary only.
-R328 observes this module's candidate and insert-valid outputs, reports the
-scalar LDA or vector AGU residency target, and keeps `liveEnable` false in the
-current reduced top. R329 wires this module's payload outputs into a dormant
-one-entry residency slot, so payload capture has a state owner ready once live
-E4 pipe writes are enabled.
+The integrated top drives queue-bank drain from real residency availability.
+This module's accepted output writes the registered E4 residency slot, which
+then advances through W1 and W2.
 R539 extends only the generated-RTL sideband stats report with harness-sampled
 LRET sink, drain-permit, and IEX insert counters:
 `lret_sink_*`, `lret_drain_permit_*`, and `lret_iex_insert_*`. These counters

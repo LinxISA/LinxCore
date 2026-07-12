@@ -33,12 +33,12 @@ This module keeps that split explicit:
 - the LRET sink is required for every selected replay return;
 - the mem-wakeup sink is required only for selected rows that are neither
   speculative-wakeup rows nor stack-valid rows;
-- R378 feeds LRET readiness from `LoadReplayReturnLretSink.enqueueReady`;
+- R661 feeds LRET readiness from STID-local
+  `ScalarLSULoadReturnQueueBank.preEnqueueReady`, before return-pipe choice;
 - R379 feeds the conditional mem-wakeup sink from
   `LoadReplayReturnWakeupSinkReady`, whose abstract capacity can arm but whose
-  live output remains false while ready-table and issue-wakeup mutation are
-  disabled. Live relaunch therefore remains disabled for rows that require
-  regular memory wakeup.
+  live output is enabled only when the integrated W2 wakeup owner can accept
+  the matching destination.
 
 ## Interface
 
@@ -51,8 +51,8 @@ This module keeps that split explicit:
 | `sourcesReturned` | Base/load, store, and SCB source readiness has completed. Used for ordered blocker reporting. |
 | `specWakeup` | Selected row has already produced the model speculative load wakeup. |
 | `stackValid` | Selected row is a stack-valid load. |
-| `lretSinkReady` | IEX load-return queue capacity can accept the data result. R378 feeds this from `LoadReplayReturnLretSink.enqueueReady`; live enqueue is still blocked by publish control. |
-| `wakeupSinkReady` | Future IEX mem-wakeup path can accept the dependent wakeup. R379 feeds this from a live-disabled readiness owner rather than a raw false tie-off. |
+| `lretSinkReady` | The selected STID has pre-admission load-return queue credit. Final selected-pipe acceptance is checked at publication. |
+| `wakeupSinkReady` | The IEX memory-wakeup path can accept the dependent wakeup when one is required. |
 
 ### Outputs
 
@@ -82,8 +82,7 @@ The model path has two different consumers after data is complete:
    `IEX::setMemWakeup`.
 4. `IEX::setMemWakeup` itself ignores invalid or stack-valid requests.
 
-The Chisel owner does not publish data or wakeups yet. It only reports whether
-a future replay return is allowed to consume those sinks:
+The owner reports whether the live return publication may consume those sinks:
 
 ```text
 wakeupRequired = enable && launchValid && !specWakeup && !stackValid
@@ -96,9 +95,7 @@ blocking because model data return cannot skip the load-return queue.
 
 ## Deferred Owners
 
-- Live IEX load-return queue enqueue fire from replay-return publication.
-- Live IEX mem-wakeup payload, ready-table mutation, and issue wakeup fanout.
-- IEX drain-side backpressure once the reduced top exposes real return-pipe capacity.
+- Multiple live W1/W2 return pipes beyond the current shared scalar pipe.
 - Tile-transfer return data and cross-line return splitting.
 
 ## Verification

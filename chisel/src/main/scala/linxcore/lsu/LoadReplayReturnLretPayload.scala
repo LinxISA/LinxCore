@@ -14,7 +14,10 @@ class LoadReplayReturnLretPayloadIO(
     val sizeWidth: Int = 7,
     val returnPipeCount: Int = 1,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
   private val sourceTraceParams =
@@ -27,6 +30,9 @@ class LoadReplayReturnLretPayloadIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedPeId = Input(UInt(peIdWidth.W))
+  val selectedStid = Input(UInt(stidWidth.W))
+  val selectedTid = Input(UInt(tidWidth.W))
   val selectedPc = Input(UInt(pcWidth.W))
   val selectedAddr = Input(UInt(addrWidth.W))
   val selectedSize = Input(UInt(sizeWidth.W))
@@ -45,6 +51,9 @@ class LoadReplayReturnLretPayloadIO(
   val payloadGid = Output(new ROBID(idEntries))
   val payloadRid = Output(new ROBID(idEntries))
   val payloadLoadLsId = Output(new ROBID(idEntries))
+  val payloadPeId = Output(UInt(peIdWidth.W))
+  val payloadStid = Output(UInt(stidWidth.W))
+  val payloadTid = Output(UInt(tidWidth.W))
   val payloadPc = Output(UInt(pcWidth.W))
   val payloadAddr = Output(UInt(addrWidth.W))
   val payloadSize = Output(UInt(sizeWidth.W))
@@ -70,7 +79,10 @@ class LoadReplayReturnLretPayload(
     val sizeWidth: Int = 7,
     val returnPipeCount: Int = 1,
     val archRegWidth: Int = 6,
-    val physRegWidth: Int = 6)
+    val physRegWidth: Int = 6,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(idEntries > 1, "ID entries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
@@ -90,7 +102,10 @@ class LoadReplayReturnLretPayload(
     sizeWidth,
     returnPipeCount,
     archRegWidth,
-    physRegWidth
+    physRegWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   val candidateValid = io.enable && io.launchValid
@@ -102,6 +117,9 @@ class LoadReplayReturnLretPayload(
   io.payloadGid := ROBID.disabled(idEntries)
   io.payloadRid := ROBID.disabled(idEntries)
   io.payloadLoadLsId := ROBID.disabled(idEntries)
+  io.payloadPeId := 0.U
+  io.payloadStid := 0.U
+  io.payloadTid := 0.U
   io.payloadPc := 0.U
   io.payloadAddr := 0.U
   io.payloadSize := 0.U
@@ -120,6 +138,9 @@ class LoadReplayReturnLretPayload(
     io.payloadGid := io.selectedGid
     io.payloadRid := io.selectedRid
     io.payloadLoadLsId := io.selectedLoadLsId
+    io.payloadPeId := io.selectedPeId
+    io.payloadStid := io.selectedStid
+    io.payloadTid := io.selectedTid
     io.payloadPc := io.selectedPc
     io.payloadAddr := io.selectedAddr
     io.payloadSize := io.selectedSize

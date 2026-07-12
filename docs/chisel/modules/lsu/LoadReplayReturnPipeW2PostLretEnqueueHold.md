@@ -13,7 +13,7 @@
   - `model/LinxCoreModel/model/iex/iex.cpp`
     - `IEX::receiveFromLSU`
 - Related Chisel contracts:
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`

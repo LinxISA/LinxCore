@@ -112,17 +112,14 @@ LRET drain permit
   -> IEX E4 insert-shaped candidate
 ```
 
-The current top still keeps `LoadReplayReturnLretSink.drainReady` tied low and
-keeps live IEX pipe residency disabled. Therefore this packet cannot drain a
-FIFO entry or mutate ROB, RF, ready-table, issue, replay-row, or E4 pipe state.
+The current top drains the scoped return queue into live E4 residency and uses
+this candidate as the W2 ROB resolve-data source. The W2 transaction also
+coordinates RF writeback, wakeup, completion, and exact LIQ row clear.
 
 ## Deferred Owners
 
-- Real `ROBState::resolveData` mutation of ROB instruction destination state.
 - Real scalar load-pair lane completion and `retLane` count storage.
 - Vector lane writes under `simtMask` and MEM/IEX `realReqCnt` accounting.
-- RF/writeback, ready-table, and issue-wakeup side effects after returned data.
-- Real LRET FIFO drain, replay-row lifecycle, and IEX E4 residency mutation.
 
 ## Verification
 

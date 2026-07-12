@@ -480,7 +480,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, scalar MDB wait mutation, and retained recovery publication, but cache/miss queues and final load-return publication remain outside the canonical owner."],
+      "limitations": ["ScalarLSULoadPath integrates LIQ, ResolveQ, replay/refill sidecars, typed pruning, scalar MDB wait mutation, and retained recovery publication. Final load-return publication is live in the reduced timing top through ScalarLSULoadReturnQueueBank, but remains outside this canonical ScalarLSULoadPath owner; cache/miss queues remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
@@ -503,11 +503,38 @@
       ]
     },
     {
+      "id": "chisel-scalar-load-return-handoff",
+      "module_family": "lsu",
+      "status": "integrated",
+      "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-RES-001"],
+      "limitations": ["The queue bank supports parameterized STID and return-pipe lanes, but the live reduced W1/W2 integration currently exposes one shared scalar return pipe. Moving this owner beneath the complete ScalarLSU hierarchy and adding cache/miss and cross-line return sources remain staged."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala",
+          "symbols": ["ScalarLSULoadReturnQueue", "ScalarLSULoadReturnQueueBank", "preEnqueueReady", "precisePruneCount"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala",
+          "symbols": ["reducedReplayLiqReturnLretSink", "acceptedRecoveryFlush", "reducedReplayLiqReturnIexDrainPermit"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/lsu/ScalarLSULoadReturnQueueSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnQueue"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_lsu_load_return_queue_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_lsu_load_return_queue_probe.sh"
+        }
+      ]
+    },
+    {
       "id": "chisel-store-stq-scb",
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, oldest BID/RID eligibility, and exact full-BID source promotion without local cleanup selection. R652 connects the conservative per-STID strong BROB prefix to the live reduced-top STQ mark owner; early branch/tile non-flush predicates, store-barrier allocation, and load-return/cache ownership remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, oldest BID/RID eligibility, and exact full-BID source promotion without local cleanup selection. R652 connects the conservative per-STID strong BROB prefix to the live reduced-top STQ mark owner; early branch/tile non-flush predicates and store-barrier allocation remain outside this owner. The reduced timing top owns live scoped load-return queues, but that bank and cache/miss ownership are not yet children of ScalarLSU."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",

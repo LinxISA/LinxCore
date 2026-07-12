@@ -14,7 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-OCCUPANCY-001`
 
 ## Purpose
@@ -101,7 +101,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
-bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnQueue
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r383x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```

@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-07
+Date: 2026-07-12
 
 ## Purpose
 
@@ -15,40 +15,34 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R654 makes block store-count publication a retained ownership
-boundary. `BrobStoreCountPublisher` keeps scalar closure and explicit CTU/tile
-events in independent one-entry slots, admits exact identities only inside the
-selected STID's BROB head/live-count window, and applies the accepted
-killed-suffix recovery to both. Same-block explicit data is authoritative;
-different blocks serialize scalar-first while the explicit payload remains
-resident. Agreeing frozen-count repeats are idempotent and conflicting values
-remain visible as integration errors.
+Latest packet: R661 replaces the global unscoped two-entry LRET sink with
+`ScalarLSULoadReturnQueueBank`. The bank is parameterized by STID count,
+return-pipe count, and per-lane depth; carries PE/STID/TID plus
+BID/GID/RID/load-LSID provenance; preserves FIFO order per lane; and uses
+round-robin arbitration for the shared IEX drain port. Typed accepted recovery
+compacts only matching entries, while reset/start/restart retain the hard-clear
+path.
 
-The model audit distinguishes behavior from dormant intent. DCTop, Decoder,
-and GenCoder actively maintain per-STID starts, instruction offsets, and
-scalar/template accumulation, while BROB `deliveryStoreID` actively consumes
-count certainty. `BlockROB::setStoreCount` and DCTop `calcLSCnt` have no active
-caller, so R654 defines a real future Chisel producer handoff rather than
-claiming those routines are a live reference path. Current reduced shells tie
-the explicit input inactive. Scalar closure remains live internally, and exact
-head retirement now also requires `headCountKnown` so delayed publication
-cannot remove a range row early.
+R661 also separates STID-local pre-admission credit from final selected-pipe
+acceptance. This is required because return-pipe selection depends on consumer
+readiness; feeding final target readiness back into that decision creates a
+combinational cycle. The live reduced top asserts that every published return
+is accepted by exactly one queue. The old sink source, test, and standalone
+page are removed; git is the archive.
 
-R654 final verification passes 260 suites and 1,536 tests. The generated probe
-passes live-window rejection, scalar accumulation, same/different-block
-collisions, agreeing/conflicting duplicates, recovery cancellation, and
-missing-row backpressure. Chisel adapter, shared conformance,
-microarchitecture contract, and strict architecture mirror gates pass. The
-live reduced-store fixture compares 3 rows with zero mismatches and zero
-CBSTOP. Reduced CoreMark compares 426 rows with zero mismatches and zero CBSTOP
-at
-`generated/r654-final-store-count-publisher-coremark/report/crosscheck_manifest.json`.
-A canonical Chisel CTU/tile count calculator, early non-flush predicates,
-configurable multi-block retirement, upstream live BCC/IEX/PE trigger
-generation, replacement of the reduced MDB producer by the full ScalarLSU
-hierarchy, and complete cleanup fanout remain open. R656 closes canonical BID
-versus pointer context, and R657 appends
-the retained four-lane non-LSU producer bank to the production backend path.
+The current integration uses one shared W1/W2 return pipe, while the queue bank
+and golden contract support multiple per-STID pipe lanes. Moving the bank and
+E4/W1/W2 boundary beneath the complete `ScalarLSU`, widening live return pipes,
+cache/miss ownership, natural BCC/IEX/PE trigger generation, and complete
+cleanup fanout remain open.
+
+R661 verification passes 260 suites and 1,543 tests. The generated queue probe
+covers selected-pipe backpressure, same-cycle full-lane dequeue/enqueue,
+ROBID-wrap pruning, prune-cycle mutation suppression, resident all-lane
+fullness, and scoped drain identity. Architecture, layout, transaction, and
+recovery-class gates pass. The live top compares 3 rows and CoreMark compares
+426 rows with zero mismatches and zero CBSTOP at
+`generated/r661-final-scoped-load-return-queue-coremark/report/crosscheck_manifest.json`.
 
 R649 first connected retained scalar MDB recovery to the live reduced top.
 R659 replaces that delivery-only composition with canonical
@@ -91,6 +85,13 @@ canonical transaction readiness with a ROB-sized replay FIFO credit, and the
 accepted STQ pulse is the separate MDB commit. Probes retained for an
 unresolved LIQ row replay in FIFO order only when ResolveQ is visible. Data-only
 STD fragments remain independent of MDB address admission.
+
+R661 closes the next LSU/IEX ownership gap. Returned data is retained in a
+scoped per-STID/per-pipe queue before IEX E4 residency, and accepted Linx
+recovery selectively prunes the queue by its typed scope. Queue capacity,
+return-pipe selection, ROB provenance, W2 resolve, RF writeback, wakeup, and
+LIQ lifecycle clear remain separate handshakes; no ARM architectural behavior
+is imported.
 
 R641 adds the parameterized recovery class/fabric packet.
 `RecoveryClassMerge` now retains global flush, global replay, and per-PE
@@ -197,9 +198,10 @@ records with row-owned identity and clears the exact source LIQ row. The full
 suite passes 245 suites and 1,454 tests; the top xcheck passes 3 rows with zero
 mismatches; and the reduced CoreMark regression at
 `generated/r634-post-load-owner-coremark/report/crosscheck_manifest.json`
-passes 665 compared rows with zero mismatches. MDB learning/fanout, live row
-mutation, cache/miss queues, and final load-return publication are the next
-integration boundary.
+passes 665 compared rows with zero mismatches. At R634, MDB learning/fanout,
+live row mutation, cache/miss queues, and final load-return publication were the
+next integration boundary; later packets through R661 promote all except
+cache/miss ownership into the reduced live composition.
 
 R633 establishes the canonical Chisel `ScalarLSU`, moves the
 proven STQ-to-SCB store path beneath it, and connects that owner to

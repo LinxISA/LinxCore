@@ -15,7 +15,7 @@
     - `LDQInfo::returnData`
     - `LDQInfo::sendCrossRtn`
 - Related Chisel contracts:
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBRowStatusLookup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
@@ -31,8 +31,8 @@ return pipe has E4 capacity. `IEX::setMemData` then rejects invalid payloads and
 ROB rows marked `INST_NEEDFLUSH` before resolving returned data into the ROB
 instruction and inserting the cloned load-return instruction into an E4 pipe.
 
-R320 names only that first admission boundary. It copies a drained
-`LoadReplayReturnLretEntry` into a future `setMemData`-shaped diagnostic output
+The module copies a drained `LoadReplayReturnLretEntry` into the live
+`setMemData`-shaped boundary
 when all of these are true:
 
 - replay-LIQ diagnostics are enabled;
@@ -41,12 +41,10 @@ when all of these are true:
 - the ROB row image is present;
 - the ROB row is not marked need-flush.
 
-R321 feeds `robRowValid` and `robRowNeedFlush` from the read-only
-`ROBRowStatusLookup` path through `DecodeRenameROBPath`. The current reduced
-top still keeps `LoadReplayReturnLretSink.drainReady` tied low and the IEX
-return-pipe permit blocked. Therefore this packet cannot drain LRET, mutate
-ROB/RF/local state, publish ready-table wakeup, or insert a load-return
-instruction into an IEX return pipe.
+`robRowValid` and `robRowNeedFlush` come from the read-only
+`ROBRowStatusLookup` path through `DecodeRenameROBPath`. The queue bank now
+drains when the live E4 residency slot is free; admitted payloads feed ROB
+resolve and the registered E4/W1/W2 path.
 
 R376 also copies the LRET entry source-trace pair into the admitted
 `setMemData` diagnostic payload. The source sideband is valid only when
@@ -100,35 +98,24 @@ insertion.
 
 ## Integration
 
-R320 wires the module behind `LoadReplayReturnLretSink` and
+R320 wires the module behind `ScalarLSULoadReturnQueueBank` and
 `LoadReplayReturnIexDrainPermit` in `LinxCoreFrontendFetchRfAluTraceTop`:
 
 - `sinkValid` and `entry` come from the LRET sink head;
 - `drainReady` comes from the R319 permit;
 - `robRowValid` comes from the R321 ROB row status query;
 - `robRowNeedFlush` comes from the R321 ROB row status query;
-- `LoadReplayReturnLretSink.drainReady` remains `false`.
+- queue-bank `drainReady` is the live IEX drain permit.
 
-The top exposes candidate, would-drain, setMemData, ROB-row, and blocker
-diagnostics only. No output feeds ROB, RF, ready-table, issue queue, replay-LIQ
-row lifecycle, or return-pipe state. R322 consumes these diagnostics to form a
-separate E4 insert-shaped candidate, but that module is also diagnostic-only
-and does not feed live pipe residency.
-R323 inserts `LoadReplayReturnRobResolveDataCandidate` as the immediate
-consumer of `setMemDataValid` before the R322 E4 insert-shaped diagnostic. It
-names the future `ROBState::resolveData` request shape but still leaves this
-module side-effect-free and keeps FIFO drain disabled.
+`LoadReplayReturnRobResolveDataCandidate` consumes `setMemDataValid`, and the
+E4 insert candidate feeds live residency. RF, wakeup, ROB completion, and LIQ
+clear occur later at the atomic W2 boundary.
 
 ## Deferred Owners
 
-- Driving the LRET sink's real `drainReady`.
-- Proving nonzero LRET sink drain and `setMemData` overlap with occupied W2 in a
-  passing generated-RTL/QEMU fixture.
-- `IEX::setMemData` data resolution into ROB instruction destinations.
+- Multiple simultaneous queue drains for a widened return-pipe design.
 - Scalar load-pair lane completion and vector/MEM_IEX `realReqCnt` accounting.
 - TLOAD tile-SCB side effects and load-branch resolve.
-- Return-pipe E4 residency and subsequent commit/wakeup behavior behind the
-  R322 insert candidate.
 
 ## Verification
 

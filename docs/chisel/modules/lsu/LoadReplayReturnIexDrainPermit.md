@@ -14,7 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancy.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretPayload.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-LRET-DRAIN-001`
 
@@ -67,26 +67,21 @@ ROB destination writes, and branch-load resolution are deferred.
 
 The R319/R383 top wiring uses:
 
-- `LoadReplayReturnLretSink.drainValid` as `sinkValid`;
+- `ScalarLSULoadReturnQueueBank.drainValid` as `sinkValid`;
 - reduced-store flush as `flush`;
 - replay-LIQ wrapper enable as `enable`;
-- `LoadReplayReturnIexPipeOccupancyLiveControl` as the live-disabled request
-  and source-valid gate for future real occupancy;
+- `LoadReplayReturnIexPipeOccupancyLiveControl` as the live request and
+  source-valid gate for registered residency occupancy;
 - `LoadReplayReturnIexPipeOccupancy.pipeOccupiedMask` as the selected
   return-pipe occupancy source.
 
-R382 drives `LoadReplayReturnLretSink.drainReady` from this permit's
-`drainReady` output. The R383/R388 occupancy path preserves the
-disabled-live-replay contract by forcing a full mask while the live-control
-request remains disabled, so the permit remains false and this packet alone
-cannot drain or discard an LRET payload.
+`ScalarLSULoadReturnQueueBank.drainReady` is driven from this permit. The
+occupancy source is the live E4 residency slot, so a queued entry remains held
+when that slot is occupied and drains when it becomes free.
 
 ## Deferred Owners
 
-- Real IEX return-pipe occupancy from scalar/vector return-pipe state.
-- Allowing the tied-full permit to observe real free pipe capacity.
-- `IEX::setMemData` effects on ROB rows, destination payload data, load-pair
-  lane counts, TLOAD side effects, and load branch resolution.
+- Load-pair lane counts, TLOAD side effects, and load branch resolution.
 - Multi-thread and multi-return-pipe queue arbitration beyond lowest-free-pipe
   diagnostics.
 
@@ -98,7 +93,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
-bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnQueue
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r383x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
