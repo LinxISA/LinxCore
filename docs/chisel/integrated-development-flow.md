@@ -15,6 +15,28 @@ the change still works across repos.
 
 ## Current Handoff
 
+Latest packet: R665 connects canonical scalar W2 to one parameterized physical
+GPR data and P-ready-table owner. A write-port request may reserve bandwidth,
+but only the exact W2 resolve event commits data and readiness together with
+ROB completion. One-port configurations serialize all external writes;
+multi-port configurations admit independent tags while same-tag writes retain
+fixed external priority. Public resolve/writeback/wakeup inputs remain outer
+allow gates and cannot bypass resident owners. T/U destinations are not
+converted to P writes: until the local-link bank/qtag sink is connected they
+raise an explicit backend contract error and produce no completion evidence.
+
+R665 verification passes 268 suites and 1,581 tests. Focused GPR/sink/top
+suites and the generated completion/ROB/GPR probe pass. The probe covers
+request-without-mutation, public allow withdrawal, same-tag retry, independent
+two-port completion, actual one-port serialization, and unsupported T
+rejection. Architecture contract, adapter, conformance, MDB transaction,
+recovery-class, and recovery-producer gates pass. Independent review is clean.
+The live top compares 3 rows and CoreMark replay compares 426 rows with zero
+mismatches and zero CBSTOP at
+`generated/r665-final-scalar-gpr-wakeup-coremark/report/crosscheck_manifest.json`.
+T/U local-link completion, full issue-queue wakeup composition, cache/miss
+queues, cross-line assembly, and natural recovery activation remain open.
+
 Latest packet: R664 connects canonical scalar W2 resolve to the real
 `ReducedCommitROB` completion port in `LinxCoreTop`. The ROB supplies exact
 slot-plus-wrap validation before LRET dequeue and repeats that validation at

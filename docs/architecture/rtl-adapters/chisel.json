@@ -8,7 +8,7 @@
       "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
       "role": "reduced-bringup",
       "forbidden_roles": ["full-composition", "full-replacement"],
-      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU", "ScalarLoadCompletionROBBridge"],
+      "symbols": ["LinxCoreTop", "LinxCoreTopIO", "Elaborate", "ReducedCommitROB", "ScalarLSU", "ScalarLoadCompletionROBBridge", "ScalarLoadGPRCompletionSink"],
       "text_contains": [
         "val commitRob = Module(new ReducedCommitROB",
         "val scalarLsu = Module(new ScalarLSU",
@@ -56,6 +56,21 @@
         "stqEntries must be a power of two greater than one",
         "mdbRecoveryQueueEntries must be a power of two greater than one",
         "loadSizeWidth must encode a full scalar cache line"
+      ]
+    },
+    {
+      "id": "scalar-backend-defaults",
+      "path": "chisel/src/main/scala/linxcore/common/CoreParams.scala",
+      "class": "ScalarBackendParams",
+      "values": {
+        "gprArchRegs": 24,
+        "gprPhysRegs": 128,
+        "gprWritePorts": 2
+      },
+      "validation_text": [
+        "LinxCoreModel scalar GPR namespace has 24 architectural registers",
+        "scalar physical GPR capacity must be a power of two",
+        "scalar GPR write-port count must be positive"
       ]
     },
     {
@@ -156,7 +171,7 @@
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
-          "symbols": ["LinxCoreTop", "ReducedCommitROB", "ScalarLoadCompletionROBBridge", "robExactCompleteRid", "scalarLoadCompleteSelected", "commitMonitorValidMask"]
+          "symbols": ["LinxCoreTop", "ReducedCommitROB", "ScalarLoadCompletionROBBridge", "ScalarLoadGPRCompletionSink", "robExactCompleteRid", "scalarLoadCompleteSelected", "scalarLoadWritebackSelected", "scalarLoadWakeupPublished", "commitMonitorValidMask"]
         }
       ],
       "verification": [
@@ -371,6 +386,41 @@
       ]
     },
     {
+      "id": "chisel-scalar-gpr-ready-owner",
+      "module_family": "rename-issue",
+      "status": "integrated",
+      "contracts": ["LC-MA-RES-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
+      "limitations": ["Canonical GPR data and P-tag readiness are integrated with scalar load W2 in LinxCoreTop. T/U local-link banks and qtag wakeup remain separate, and the full frontend/rename/issue composition still uses its compatibility wrapper."],
+      "evidence": [
+        {
+          "path": "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala",
+          "symbols": ["ScalarGPRFile", "requestValid", "commit", "writeFire", "readyMask", "blockedByHigherSameTag", "protocolError"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/ScalarLoadGPRCompletionSink.scala",
+          "symbols": ["ScalarLoadGPRCompletionSink", "loadWritebackReady", "loadWakeupReady", "loadWritebackSelected", "loadWakeupPublished", "loadBlockedByExternalWrite"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala",
+          "symbols": ["scalarLoadGprSink", "scalarGprReadyMask", "scalarBackendContractError"]
+        }
+      ],
+      "verification": [
+        {
+          "path": "chisel/src/test/scala/linxcore/execute/ScalarGPRFileSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarGPRFileSpec"
+        },
+        {
+          "path": "chisel/src/test/scala/linxcore/top/ScalarLoadGPRCompletionSinkSpec.scala",
+          "command": "bash tools/chisel/run_chisel_tests.sh --only ScalarLoadGPRCompletionSinkSpec"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
+        }
+      ]
+    },
+    {
       "id": "chisel-reduced-rob",
       "module_family": "rob-recovery",
       "status": "unit-proven",
@@ -519,7 +569,7 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-RES-001"],
-      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath. The reduced top connects fair shared W2 arbitration to exact ROB completion, but physical RF and wakeup sinks remain external; cache/miss and cross-line return sources remain staged."],
+      "limitations": ["The queue bank and parameterized W1/W2 pipeline are children of canonical ScalarLSULoadPath. The reduced top connects fair shared W2 arbitration to exact ROB completion plus canonical GPR data/P-tag readiness. T/U local-link completion, cache/miss, and cross-line return sources remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala",
@@ -540,6 +590,10 @@
         {
           "path": "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala",
           "symbols": ["lookupRid", "lookupRowValid", "exactCompleteRid", "exactCompleteReady", "exactCompleteAccepted"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/top/ScalarLoadGPRCompletionSink.scala",
+          "symbols": ["loadWritebackReady", "loadWakeupReady", "loadWritebackSelected", "loadWakeupPublished"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala",

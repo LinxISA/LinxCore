@@ -10,6 +10,7 @@ import linxcore.rob.ReducedCommitROB
 class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTraceParams) extends Bundle {
   private val ptrWidth = log2Ceil(coreParams.robEntries)
   private val sizeWidth = log2Ceil(coreParams.robEntries + 1)
+  private val gprTagWidth = log2Ceil(coreParams.scalarBackend.gprPhysRegs)
 
   val allocValid = Input(Bool())
   val allocReady = Output(Bool())
@@ -20,6 +21,26 @@ class LinxCoreTopIO(val coreParams: CoreParams, val traceParams: CommitTracePara
   val completeRobValue = Input(UInt(ptrWidth.W))
   val scalarLoadCompleteSelected = Output(Bool())
   val completeCollision = Output(Bool())
+
+  val scalarGprInitValid = Input(Bool())
+  val scalarGprInitTag = Input(UInt(gprTagWidth.W))
+  val scalarGprInitData = Input(UInt(coreParams.scalarLsu.dataWidth.W))
+  val scalarGprClearValid = Input(Bool())
+  val scalarGprClearTag = Input(UInt(gprTagWidth.W))
+  val externalGprWriteValid = Input(Bool())
+  val externalGprWriteTag = Input(UInt(gprTagWidth.W))
+  val externalGprWriteData = Input(UInt(coreParams.scalarLsu.dataWidth.W))
+  val externalGprWriteReady = Output(Bool())
+  val externalGprWriteFire = Output(Bool())
+  val scalarGprReadTag = Input(UInt(gprTagWidth.W))
+  val scalarGprReadData = Output(UInt(coreParams.scalarLsu.dataWidth.W))
+  val scalarGprReadReady = Output(Bool())
+  val scalarGprReadyMask = Output(UInt(coreParams.scalarBackend.gprPhysRegs.W))
+  val scalarLoadWritebackSelected = Output(Bool())
+  val scalarLoadWakeupPublished = Output(Bool())
+  val scalarLoadBlockedByExternalWrite = Output(Bool())
+  val scalarLoadBlockedByUnsupportedDestination = Output(Bool())
+  val scalarBackendContractError = Output(Bool())
 
   val scalarLsu = new ScalarLSUIO(coreParams, coreParams.scalarLsu)
 
@@ -53,6 +74,10 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
   ))
   val scalarLsu = Module(new ScalarLSU(coreParams))
   val scalarLoadCompletion = Module(new ScalarLoadCompletionROBBridge(coreParams.robEntries))
+  val scalarLoadGprSink = Module(new ScalarLoadGPRCompletionSink(
+    coreParams.scalarBackend,
+    coreParams.scalarLsu
+  ))
 
   scalarLsu.io <> io.scalarLsu
 
@@ -75,17 +100,54 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
   scalarLoadCompletion.io.robExactCompleteReady := commitRob.io.exactCompleteReady
   scalarLoadCompletion.io.loadResolveFire := scalarLsu.io.load.loadReturn.resolveFire
 
+  scalarLoadGprSink.io.initValid := io.scalarGprInitValid
+  scalarLoadGprSink.io.initTag := io.scalarGprInitTag
+  scalarLoadGprSink.io.initData := io.scalarGprInitData
+  scalarLoadGprSink.io.clearValid := io.scalarGprClearValid
+  scalarLoadGprSink.io.clearTag := io.scalarGprClearTag
+  scalarLoadGprSink.io.externalWriteValid := io.externalGprWriteValid
+  scalarLoadGprSink.io.externalWriteTag := io.externalGprWriteTag
+  scalarLoadGprSink.io.externalWriteData := io.externalGprWriteData
+  scalarLoadGprSink.io.loadCandidateValid :=
+    scalarLsu.io.load.loadReturn.completionCandidateValid
+  scalarLoadGprSink.io.loadDst := scalarLsu.io.load.loadReturn.completion.payload.dst
+  scalarLoadGprSink.io.loadData := scalarLsu.io.load.loadReturn.completion.payload.data
+  scalarLoadGprSink.io.loadSpecWakeup :=
+    scalarLsu.io.load.loadReturn.completion.payload.specWakeup
+  scalarLoadGprSink.io.loadStackValid :=
+    scalarLsu.io.load.loadReturn.completion.payload.stackValid
+  scalarLoadGprSink.io.loadResolveFire := scalarLsu.io.load.loadReturn.resolveFire
+  scalarLoadGprSink.io.loadWritebackFire := scalarLsu.io.load.loadReturn.writebackFire
+  scalarLoadGprSink.io.loadWakeupFire := scalarLsu.io.load.loadReturn.wakeupFire
+  scalarLoadGprSink.io.readTag := io.scalarGprReadTag
+
   commitRob.io.lookupValid := scalarLoadCompletion.io.robLookupValid
   commitRob.io.lookupRid := scalarLoadCompletion.io.robLookupRid
   scalarLsu.io.load.loadReturn.robRowValid := scalarLoadCompletion.io.loadRobRowValid
   scalarLsu.io.load.loadReturn.robRowNeedFlush := scalarLoadCompletion.io.loadRobRowNeedFlush
   scalarLsu.io.load.loadReturn.resolveReady := scalarLoadCompletion.io.loadResolveReady
+  scalarLsu.io.load.loadReturn.writebackReady :=
+    io.scalarLsu.load.loadReturn.writebackReady && scalarLoadGprSink.io.loadWritebackReady
+  scalarLsu.io.load.loadReturn.wakeupReady :=
+    io.scalarLsu.load.loadReturn.wakeupReady && scalarLoadGprSink.io.loadWakeupReady
   commitRob.io.completeValid := scalarLoadCompletion.io.robCompleteValid
   commitRob.io.completeRobValue := scalarLoadCompletion.io.robCompleteRobValue
   commitRob.io.exactCompleteValid := scalarLoadCompletion.io.robExactCompleteValid
   commitRob.io.exactCompleteRid := scalarLoadCompletion.io.robExactCompleteRid
   io.scalarLoadCompleteSelected := scalarLoadCompletion.io.scalarLoadSelected
   io.completeCollision := scalarLoadCompletion.io.collision
+  io.externalGprWriteReady := scalarLoadGprSink.io.externalWriteReady
+  io.externalGprWriteFire := scalarLoadGprSink.io.externalWriteFire
+  io.scalarGprReadData := scalarLoadGprSink.io.readData
+  io.scalarGprReadReady := scalarLoadGprSink.io.readReady
+  io.scalarGprReadyMask := scalarLoadGprSink.io.readyMask
+  io.scalarLoadWritebackSelected := scalarLoadGprSink.io.loadWritebackSelected
+  io.scalarLoadWakeupPublished := scalarLoadGprSink.io.loadWakeupPublished
+  io.scalarLoadBlockedByExternalWrite := scalarLoadGprSink.io.loadBlockedByExternalWrite
+  io.scalarLoadBlockedByUnsupportedDestination :=
+    scalarLoadGprSink.io.loadBlockedByUnsupportedDestination
+  io.scalarBackendContractError :=
+    scalarLoadCompletion.io.protocolError || scalarLoadGprSink.io.protocolError
 
   io.commit := commitRob.io.commit
   io.commitValidMask := commitRob.io.commitValidMask
@@ -96,7 +158,7 @@ class LinxCoreTop(val coreParams: CoreParams = CoreParams()) extends Module {
   io.commitDuplicateIdentity := commitRob.io.commitDuplicateIdentity
   io.commitSlotMismatch := commitRob.io.commitSlotMismatch
   io.commitInvalidSideEffect := commitRob.io.commitInvalidSideEffect
-  io.commitContractError := commitRob.io.commitContractError
+  io.commitContractError := commitRob.io.commitContractError || io.scalarBackendContractError
 
   io.empty := commitRob.io.empty
   io.full := commitRob.io.full

@@ -14,9 +14,10 @@
 
 ## Purpose
 
-`ReducedScalarRegisterFile` is the first scalar physical GPR data owner in the
-Chisel frontend ALU lane. It replaces the R81 top-level per-uop operand
-fixture with persistent register state keyed by renamed physical tags.
+`ReducedScalarRegisterFile` is the compatibility interface used by the older
+frontend ALU lane. Its data and ready state are now owned by canonical
+`ScalarGPRFile`; this wrapper maps the established three issue reads, three
+auxiliary reads, one clear, and one write onto that owner.
 
 This is a reduced RF/ready owner, not the final issue queue or bypass network.
 It is intentionally single-bank, STID0/PE0 oriented, and exists to make
@@ -48,8 +49,8 @@ dependent scalar ALU rows observable through the monitored commit trace.
 
 ## State
 
-- `data[physRegs]`: scalar physical GPR values.
-- `ready[physRegs]`: reduced physical tag readiness.
+- `ScalarGPRFile.data[physRegs]`: scalar physical GPR values.
+- `ScalarGPRFile.ready[physRegs]`: physical P-tag readiness.
 
 Reset initializes physical tags `0..23` ready and tags `24..physRegs-1`
 not-ready.
@@ -71,7 +72,7 @@ ready, and `ReadyState::GetSrcData` copies ready physical-tag data back into
 operand source fields. The RF model read path in `iex_rf.cpp` reads OPD_GREG
 data by physical tag.
 
-The Chisel module mirrors the reduced subset:
+The wrapper maps the reduced subset:
 
 - preload writes architectural identity tags for test fixtures;
 - allocation clear marks the renamed destination physical tag not-ready;
@@ -82,8 +83,8 @@ The Chisel module mirrors the reduced subset:
   sideband owners without arbitrating away the scalar issue queue's three
   source-read lanes.
 
-If init, clear, and write target the same tag in one cycle, writeback has final
-priority because it is applied after init and clear in the sequential block.
+Canonical `ScalarGPRFile` rejects init/write and clear/write collision instead
+of relying on sequential statement priority.
 
 ## Timing
 

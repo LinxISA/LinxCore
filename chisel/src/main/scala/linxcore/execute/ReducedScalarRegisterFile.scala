@@ -44,40 +44,39 @@ class ReducedScalarRegisterFile(
   require(archRegs <= physRegs, "architectural identity tags must fit in the physical RF")
 
   val io = IO(new ReducedScalarRegisterFileIO(p, archRegs, physRegs))
-
-  val data = RegInit(VecInit(Seq.fill(physRegs)(0.U(p.immWidth.W))))
-  val ready = RegInit(VecInit((0 until physRegs).map(idx => (idx < archRegs).B)))
+  val gpr = Module(new ScalarGPRFile(
+    archRegs = archRegs,
+    physRegs = physRegs,
+    dataWidth = p.immWidth,
+    readPorts = 6,
+    writePorts = 1
+  ))
 
   val initTagInRange = io.initArchTag < archRegs.U
-  val clearTagInRange = io.clearTag < physRegs.U
-  val writeTagInRange = io.writeTag < physRegs.U
   val initPhysTag = io.initArchTag.pad(p.physRegWidth)(p.physRegWidth - 1, 0)
 
   for (idx <- 0 until 3) {
-    io.readData(idx) := data(io.readTags(idx))
-    io.readReady(idx) := !io.readValid(idx) || ready(io.readTags(idx))
-    io.auxReadData(idx) := data(io.auxReadTags(idx))
-    io.auxReadReady(idx) := !io.auxReadValid(idx) || ready(io.auxReadTags(idx))
+    gpr.io.readValid(idx) := io.readValid(idx)
+    gpr.io.readTag(idx) := io.readTags(idx)
+    io.readData(idx) := gpr.io.readData(idx)
+    io.readReady(idx) := gpr.io.readReady(idx)
+    gpr.io.readValid(idx + 3) := io.auxReadValid(idx)
+    gpr.io.readTag(idx + 3) := io.auxReadTags(idx)
+    io.auxReadData(idx) := gpr.io.readData(idx + 3)
+    io.auxReadReady(idx) := gpr.io.readReady(idx + 3)
   }
 
   io.allReadReady := io.readReady.reduce(_ && _)
-  io.readyMask := ready.asUInt
-  io.stateError :=
-    (io.initValid && !initTagInRange) ||
-      (io.clearValid && !clearTagInRange) ||
-      (io.writeValid && !writeTagInRange)
+  io.readyMask := gpr.io.readyMask
+  io.stateError := (io.initValid && !initTagInRange) || gpr.io.protocolError
 
-  when(io.initValid && initTagInRange) {
-    data(initPhysTag) := io.initData
-    ready(initPhysTag) := true.B
-  }
-
-  when(io.clearValid && clearTagInRange) {
-    ready(io.clearTag) := false.B
-  }
-
-  when(io.writeValid && writeTagInRange) {
-    data(io.writeTag) := io.writeData
-    ready(io.writeTag) := true.B
-  }
+  gpr.io.initValid := io.initValid && initTagInRange
+  gpr.io.initTag := initPhysTag
+  gpr.io.initData := io.initData
+  gpr.io.clearValid := io.clearValid
+  gpr.io.clearTag := io.clearTag
+  gpr.io.write(0).requestValid := io.writeValid
+  gpr.io.write(0).commit := io.writeValid
+  gpr.io.write(0).tag := io.writeTag
+  gpr.io.write(0).data := io.writeData
 }

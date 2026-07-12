@@ -3,11 +3,26 @@ package linxcore.common
 final case class CoreParams(
   robEntries: Int = 128,
   commitWidth: Int = 4,
-  scalarLsu: ScalarLsuParams = ScalarLsuParams()
+  scalarLsu: ScalarLsuParams = ScalarLsuParams(),
+  scalarBackend: ScalarBackendParams = ScalarBackendParams()
 ) {
   require(robEntries > 1, "robEntries must be greater than one")
   require((robEntries & (robEntries - 1)) == 0, "robEntries must be a power of two")
   require(commitWidth > 0, "commitWidth must be positive")
+}
+
+final case class ScalarBackendParams(
+  gprArchRegs: Int = 24,
+  gprPhysRegs: Int = 128,
+  gprWritePorts: Int = 2
+) {
+  require(gprArchRegs == 24,
+    "LinxCoreModel scalar GPR namespace has 24 architectural registers")
+  require(gprPhysRegs > gprArchRegs,
+    "scalar physical GPR capacity must exceed the architectural namespace")
+  require((gprPhysRegs & (gprPhysRegs - 1)) == 0,
+    "scalar physical GPR capacity must be a power of two")
+  require(gprWritePorts > 0, "scalar GPR write-port count must be positive")
 }
 
 final case class ScalarLsuParams(

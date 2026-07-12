@@ -89,10 +89,12 @@ this canonical boundary. Same-cycle writer arbitration holds lookup output
 until mutation applies, and MDB transient state contributes to `empty`.
 Canonical scalar LRET data extraction, lane reservation, retained publication,
 ROB validation, and parameterized W1/W2 atomic side-effect ownership are live
-beneath `ScalarLSU`. The reduced top still drives the actual single-pipe
-ROB/RF/wakeup sinks through its diagnostic composition. Cache/miss queues,
-cross-line assembly, live canonical sink arbitration, and natural recovery
-activation remain future integration work.
+beneath `ScalarLSU`. The reduced top connects the shared W2 candidate to exact
+ROB completion and the canonical physical GPR/P-ready sink. The exposed
+readiness inputs remain outer allow gates and cannot bypass those resident
+owners. T/U local-link completion is an explicit unsupported contract error
+until its bank/qtag sink is connected. Cache/miss queues, cross-line assembly,
+and natural recovery activation remain future integration work.
 
 ## Verification
 

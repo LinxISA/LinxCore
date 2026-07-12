@@ -5,6 +5,15 @@ import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 class LinxCoreTopSpec extends AnyFunSuite {
+  test("public load-return allow cannot bypass resident owner readiness") {
+    def combinedReady(publicAllow: Boolean, ownerReady: Boolean): Boolean =
+      publicAllow && ownerReady
+
+    assert(combinedReady(publicAllow = true, ownerReady = true))
+    assert(!combinedReady(publicAllow = false, ownerReady = true))
+    assert(!combinedReady(publicAllow = true, ownerReady = false))
+  }
+
   test("trace parameters follow the top-level ROB and commit configuration") {
     val params = CoreParams(robEntries = 8, commitWidth = 2)
     val trace = LinxCoreTop.traceParamsFor(params)
@@ -33,6 +42,8 @@ class LinxCoreTopSpec extends AnyFunSuite {
     assert(sv.contains("module CommitTraceMonitor"))
     assert(sv.contains("module ScalarLSU"))
     assert(sv.contains("module ScalarLoadCompletionROBBridge"))
+    assert(sv.contains("module ScalarLoadGPRCompletionSink"))
+    assert(sv.contains("module ScalarGPRFile"))
     assert(sv.contains("module STQSCBCommitPath"))
     assert(sv.contains("module ScalarLSULoadPath"))
     assert(sv.contains("module ScalarLSURecoveryBoundary"))
@@ -45,6 +56,10 @@ class LinxCoreTopSpec extends AnyFunSuite {
     assert(sv.contains("io_scalarLsu_load_loadReturn_completion_payload_rid_value"))
     assert(sv.contains("io_scalarLoadCompleteSelected"))
     assert(sv.contains("io_completeCollision"))
+    assert(sv.contains("io_scalarGprReadyMask"))
+    assert(sv.contains("io_scalarLoadWritebackSelected"))
+    assert(sv.contains("io_scalarLoadWakeupPublished"))
+    assert(sv.contains("io_scalarBackendContractError"))
     assert(sv.contains("io_scalarLsu_recovery_oldestBid_0_value"))
     assert(sv.contains("io_scalarLsu_recovery_fullBidLookupRequest_rid_value"))
     assert(sv.contains("io_scalarLsu_recovery_fullBidLookup_blockBid"))
