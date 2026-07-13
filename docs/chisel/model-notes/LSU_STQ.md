@@ -415,7 +415,9 @@ same-line scalar rows that have not already recorded `l1Hit`, returning them
 to `Wait`, and setting a local `l1Hit` sideband. The Chisel LIQ also stores the
 full cacheline in the row and uses row-owned valid bytes as the next
 `LoadForwardPipeline` base, which mirrors the model's cluster-data merge plus
-later relaunch while avoiding a full L1D/LDQ buffer owner in this packet.
+later relaunch. R676 removes the former external base-line boundary: canonical
+`ScalarLSULoadPath` now owns parameterized `ScalarL1D`, while LIQ row data
+remains the precise replay/refill snapshot for an already active load.
 
 R634 places `LoadInflightQueue` and `LoadResolveQueue` beneath
 `ScalarLSULoadPath`. Active rows now retain PE/STID/TID, typed `FlushBus`

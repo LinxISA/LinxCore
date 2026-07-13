@@ -13,6 +13,7 @@ for suite in \
   LoadReplayReturnDataExtractSpec \
   LoadMissQueueSpec \
   LoadRefillTransportSpec \
+  ScalarL1DSpec \
   STQEntryBankSpec \
   SCBRowBankSpec \
   MDBSSITSpec \
@@ -22,6 +23,8 @@ done
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_load_miss_queue_probe.sh"
 bash "${ROOT_DIR}/tools/chisel/run_chisel_load_refill_transport_probe.sh"
+bash "${ROOT_DIR}/tools/chisel/run_chisel_scalar_l1d_probe.sh"
+bash "${ROOT_DIR}/tools/chisel/run_chisel_scalar_l1d_scb_probe.sh"
 bash "${ROOT_DIR}/tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh"
 
 echo "ok: focused LSU promotion gate passed"

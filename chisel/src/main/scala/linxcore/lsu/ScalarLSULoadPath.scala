@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Cat, Mux1H, RRArbiter, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Fill, Mux1H, RRArbiter, UIntToOH, log2Ceil}
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.recovery.FlushBus
@@ -88,6 +88,17 @@ class ScalarLSULoadReturnPortIO(val coreParams: CoreParams, val p: ScalarLsuPara
   val protocolError = Output(Bool())
 }
 
+class ScalarL1DStorePortIO(val p: ScalarLsuParams) extends Bundle {
+  val update = Input(new SCBDCacheUpdate(p.scbEntries, p.addrWidth, p.lineBytes))
+  val lookupValid = Input(Bool())
+  val lookupLineAddr = Input(UInt(p.addrWidth.W))
+  val grantWriteValid = Input(Bool())
+  val grantWriteLineAddr = Input(UInt(p.addrWidth.W))
+  val ready = Output(Bool())
+  val tagHit = Output(Bool())
+  val writeHit = Output(Bool())
+}
+
 class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
   private val liqPtrWidth = log2Ceil(lsuParams.liqEntries)
   private val liqCountWidth = log2Ceil(lsuParams.liqEntries + 1)
@@ -155,11 +166,17 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
       coreParams.lsidWidth
     )
   ))
-  val e2BaseData = Input(UInt((lsuParams.lineBytes * 8).W))
-  val e2BaseValidMask = Input(UInt(lsuParams.lineBytes.W))
-  val e2LoadDataReturned = Input(Bool())
   val e2ScbReturned = Input(Bool())
   val e2StqReturned = Input(Bool())
+
+  val l1dEviction = Output(new ScalarL1DEviction(lsuParams.addrWidth, lsuParams.lineBytes))
+  val l1dEvictionReady = Input(Bool())
+  val l1dLoadLookupHit = Output(Bool())
+  val l1dRefillAccepted = Output(Bool())
+  val l1dRefillDuplicate = Output(Bool())
+  val l1dResidentCount = Output(UInt(log2Ceil(lsuParams.l1dSets * lsuParams.l1dWays + 1).W))
+  val l1dDirtyCount = Output(UInt(log2Ceil(lsuParams.l1dSets * lsuParams.l1dWays + 1).W))
+  val l1dProtocolError = Output(Bool())
 
   val replayWakeValid = Input(Bool())
   val replayWake = Input(new LoadReplayWakeupRequest(
@@ -372,6 +389,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   require(p.lineBytes == 64, "canonical scalar load path currently requires 64-byte cache lines")
 
   val io = IO(new ScalarLSULoadPathIO(coreParams, p))
+  val scbCache = IO(new ScalarL1DStorePortIO(p))
   val mdbStore = IO(new ScalarLSULoadPathStoreIO(coreParams, p))
   val recovery = IO(new ScalarLSULoadPathRecoveryIO(coreParams, p))
 
@@ -410,6 +428,13 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   ))
   val refillTransport = Module(new LoadRefillTransport(
     entries = p.loadRefillQueueEntries,
+    addrWidth = p.addrWidth,
+    lineBytes = p.lineBytes
+  ))
+  val l1d = Module(new ScalarL1D(
+    sets = p.l1dSets,
+    ways = p.l1dWays,
+    scbEntries = p.scbEntries,
     addrWidth = p.addrWidth,
     lineBytes = p.lineBytes
   ))
@@ -486,6 +511,11 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   liq.io.allocValid := io.allocValid && allocMdbReady
   liq.io.alloc := io.alloc
   val launchRow = liq.io.rows(io.launchIndex)
+  private val lineOffsetWidth = log2Ceil(p.lineBytes)
+  val launchLineAddr = Mux(
+    launchRow.crossLine && launchRow.secondSegmentActive,
+    Cat(launchRow.addr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W)) + p.lineBytes.U,
+    Cat(launchRow.addr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W)))
   val launchStidInRange = launchRow.stid < p.stidCount.U
   val launchPipeInRange = launchRow.returnPipeIndex < p.loadReturnPipeCount.U
   val launchTargetValid = launchStidInRange && launchPipeInRange
@@ -504,7 +534,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
       ((launchResidentCount +& launchReservedCount) < p.loadReturnQueueEntries.U || launchDrainCredit)
   val launchMissCreditSafe = missQueue.io.freeCount > missReservations
   liq.io.launchValid :=
-    io.launchValid && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe
+    io.launchValid && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe &&
+      l1d.io.arrayReady && !launchRow.isTile
   liq.io.launchIndex := io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
@@ -513,9 +544,11 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   liq.io.markResolvedValid := false.B
   liq.io.markResolvedIndex := 0.U
   liq.io.e2Stores := io.e2Stores
-  liq.io.e2BaseData := io.e2BaseData
-  liq.io.e2BaseValidMask := io.e2BaseValidMask
-  liq.io.e2LoadDataReturned := io.e2LoadDataReturned
+  l1d.io.loadLookupValid := liq.io.launchAccepted
+  l1d.io.loadLookupLineAddr := launchLineAddr
+  liq.io.e2BaseData := l1d.io.loadLookup.data
+  liq.io.e2BaseValidMask := Fill(p.lineBytes, l1d.io.loadLookup.readHit)
+  liq.io.e2LoadDataReturned := liq.io.launchAccepted
   liq.io.e2ScbReturned := io.e2ScbReturned
   liq.io.e2StqReturned := io.e2StqReturned
   liq.io.e2ReturnReady := true.B
@@ -555,9 +588,34 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   refillTransport.io.miss := missQueue.io.refill
   refillTransport.io.externalValid := io.refillValid
   refillTransport.io.external := io.refill
-  refillTransport.io.outReady := !flushCycle
-  liq.io.refillValid := refillTransport.io.outValid
-  liq.io.refill := refillTransport.io.out
+  l1d.io.refill.valid := refillTransport.io.outValid && refillTransport.io.out.isRead && !flushCycle
+  l1d.io.refill.lineAddr := refillTransport.io.out.lineAddr
+  l1d.io.refill.data := refillTransport.io.out.data
+  l1d.io.refill.writable := false.B
+  l1d.io.evictionReady := io.l1dEvictionReady
+  refillTransport.io.outReady :=
+    !flushCycle && (!refillTransport.io.out.isRead || l1d.io.refillReady)
+  val canonicalRefill = Wire(chiselTypeOf(refillTransport.io.out))
+  canonicalRefill := refillTransport.io.out
+  canonicalRefill.data := l1d.io.refillData
+  liq.io.refillValid := refillTransport.io.outAccepted
+  liq.io.refill := canonicalRefill
+
+  l1d.io.storeLookupValid := scbCache.lookupValid
+  l1d.io.storeLookupLineAddr := scbCache.lookupLineAddr
+  l1d.io.grantWriteValid := scbCache.grantWriteValid
+  l1d.io.grantWriteLineAddr := scbCache.grantWriteLineAddr
+  l1d.io.storeUpdate := scbCache.update
+  scbCache.ready := l1d.io.arrayReady
+  scbCache.tagHit := l1d.io.storeLookup.tagHit
+  scbCache.writeHit := l1d.io.storeLookup.writeHit
+  io.l1dEviction := l1d.io.eviction
+  io.l1dLoadLookupHit := liq.io.launchAccepted && l1d.io.loadLookup.readHit
+  io.l1dRefillAccepted := l1d.io.refillAccepted
+  io.l1dRefillDuplicate := l1d.io.refillDuplicate
+  io.l1dResidentCount := l1d.io.residentCount
+  io.l1dDirtyCount := l1d.io.dirtyCount
+  io.l1dProtocolError := l1d.io.protocolError
   liq.io.clearResolvedValid := transferPending
   liq.io.clearResolvedIndex := transferIndex
 
@@ -763,7 +821,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.allocIndex := liq.io.allocIndex
   io.allocLoadId := liq.io.allocLoadId
   io.launchReady :=
-    liq.io.launchReady && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe
+    liq.io.launchReady && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe &&
+      l1d.io.arrayReady && !launchRow.isTile
   io.launchAccepted := liq.io.launchAccepted
   io.launchBlockedByResolveCredit := io.launchValid && !resolveCreditSafe
   io.launchBlockedByReturnCredit := io.launchValid && !launchReturnCreditSafe

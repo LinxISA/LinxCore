@@ -488,8 +488,25 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
   cacheable scalar load miss queue and R674 adds bounded dual-ingress refill
   transport beneath this owner. R675 adds one-row sequential cross-line scalar
   execution, per-line forwarding/miss/refill ownership, and one final assembled
-  return. Actual L1D arrays and memory-attribute classification remain outside
-  `ScalarLSU`, so this is not yet a complete LSU.
+  return. R676 adds the canonical parameterized `ScalarL1D` array beneath this
+  path and shares its SCB write-side port through `ScalarLSU`. Memory-attribute
+  classification, translation/protection, and the complete coherence fabric
+  remain outside `ScalarLSU`, so this is not yet a complete LSU.
+
+### `chisel/.../lsu/ScalarL1D.scala`
+
+- Owns the only canonical scalar L1D tag, line-data, write-permission, dirty,
+  and LRU state. Set and way counts are independent `ScalarLsuParams` fields.
+- Provides one active-phase scalar load lookup and one SCB tag/permission
+  lookup. A writable SCB hit applies a full-line byte mask and marks the line
+  dirty.
+- Installs retained read refills with duplicate-line preservation. Replacement
+  is invalid-first then LRU; every valid victim is held on an explicit eviction
+  interface until accepted.
+- Does not consume Linx recovery identity. Cache state survives typed recovery
+  and backend hard restart because it is physical, non-speculative state.
+- Does not define ARM memory types, exception levels, exclusives, barriers,
+  acquire/release semantics, or any ISA-specific coherence state.
 
 ### `chisel/.../lsu/ScalarLSULoadReturnQueue.scala`
 
@@ -521,6 +538,10 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 - Reserves worst-case miss capacity at launch, transfers every E4 data miss to
   `LoadMissQueue`, and routes exact miss responses back through LIQ refill.
   Miss queue state and reservations participate in quiescence.
+- Owns `ScalarL1D`, sources E2 base-line validity only from its lookup or a
+  retained LIQ refill, and installs each accepted read refill before LIQ wakeup.
+  Duplicate refills use resident cache data so a stale response cannot erase a
+  newer committed-store byte update.
 
 ### `chisel/.../lsu/LoadMissQueue.scala`
 

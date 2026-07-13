@@ -69,6 +69,16 @@ class ScalarLSU(val coreParams: CoreParams = CoreParams()) extends Module {
   storeCommitPath.io <> io.store
   loadPath.io <> io.load
 
+  loadPath.scbCache.lookupValid := storeCommitPath.io.scbLookupRequest.valid
+  loadPath.scbCache.lookupLineAddr := storeCommitPath.io.scbLookupRequest.lineAddr
+  loadPath.scbCache.update := storeCommitPath.io.scbDCacheUpdate
+  loadPath.scbCache.grantWriteValid := storeCommitPath.io.scbRespDecodedUpgrade
+  loadPath.scbCache.grantWriteLineAddr :=
+    storeCommitPath.io.scbEntriesState(storeCommitPath.io.scbRespDecodedEntryIndex).lineAddr
+  storeCommitPath.io.dcacheReady := loadPath.scbCache.ready
+  storeCommitPath.io.dcacheTagHit := loadPath.scbCache.tagHit
+  storeCommitPath.io.dcacheWriteHit := loadPath.scbCache.writeHit
+
   val pendingRingReq = Wire(chiselTypeOf(loadPath.recovery.flush))
   pendingRingReq := loadPath.recovery.flush
   pendingRingReq.req.valid := loadPath.recovery.valid

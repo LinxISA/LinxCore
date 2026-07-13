@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Cat, Fill}
+import chisel3.util.Cat
 import circt.stage.ChiselStage
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
@@ -16,7 +16,7 @@ class ScalarLSULoadPathReturnProbeIO extends Bundle {
   val allocStid = Input(UInt(1.W))
   val allocPipe = Input(UInt(1.W))
   val allocBid = Input(UInt(3.W))
-  val allocAddr = Input(UInt(6.W))
+  val allocAddr = Input(UInt(8.W))
   val allocSize = Input(UInt(4.W))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
@@ -129,19 +129,27 @@ class ScalarLSULoadPathReturnProbe extends Module {
   }
   val firstLineBytes = (0 until lsuParams.lineBytes).reverse.map(_.U(8.W))
   val secondLineBytes = (0 until lsuParams.lineBytes).reverse.map(idx => (0x80 + idx).U(8.W))
-  val launchSecondSegment = path.io.liqRows(io.launchIndex).secondSegmentActive
-  path.io.e2BaseData := Mux(launchSecondSegment, Cat(secondLineBytes), Cat(firstLineBytes))
-  path.io.e2BaseValidMask := Mux(
-    io.forceSecondMiss && launchSecondSegment,
-    0.U,
-    Fill(lsuParams.lineBytes, 1.U(1.W)))
-  path.io.e2LoadDataReturned := true.B
   path.io.e2ScbReturned := true.B
   path.io.e2StqReturned := true.B
+  path.scbCache.update := 0.U.asTypeOf(path.scbCache.update)
+  path.scbCache.lookupValid := false.B
+  path.scbCache.lookupLineAddr := 0.U
+  path.scbCache.grantWriteValid := false.B
+  path.scbCache.grantWriteLineAddr := 0.U
+  path.io.l1dEvictionReady := true.B
   path.io.replayWakeValid := false.B
   path.io.replayWake := 0.U.asTypeOf(path.io.replayWake)
-  path.io.refillValid := false.B
+  val preloadPhase = RegInit(0.U(2.W))
+  when(!reset.asBool && preloadPhase =/= 2.U) {
+    when(path.io.refillReady) {
+      preloadPhase := preloadPhase + 1.U
+    }
+  }
+  path.io.refillValid := !reset.asBool && preloadPhase =/= 2.U
   path.io.refill := 0.U.asTypeOf(path.io.refill)
+  path.io.refill.isRead := true.B
+  path.io.refill.lineAddr := Mux(preloadPhase === 0.U, 0.U, lsuParams.lineBytes.U)
+  path.io.refill.data := Mux(preloadPhase === 0.U, Cat(firstLineBytes), Cat(secondLineBytes))
   path.io.missRequestReady := true.B
   val savedMissId = RegInit(ROBID.disabled(lsuParams.loadMissQueueEntries))
   val savedMissLineAddr = RegInit(0.U(lsuParams.addrWidth.W))

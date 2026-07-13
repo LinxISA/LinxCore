@@ -15,33 +15,31 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R675 adds canonical scalar cross-line execution beneath one LIQ
-identity. A crossing 1/2/4/8-byte load runs first-line then second-line
-phase-local forwarding, miss, refill, and replay. The LIQ retains completed
-first-line bytes but suppresses all architectural publication until the second
-phase is complete; return extraction then assembles one little-endian scalar
-value and applies the original extension policy. Each phase reserves/releases
-capacity independently. Hard Linx recovery clears both phases; typed precise
-recovery prunes by the existing full identity and preserves a nonmatching
-row's completed first line. This is architecturally aligned with the model's
-cross-return pairing, with sequential rather than parallel half launch as the
-documented throughput divergence.
+Latest packet: R676 makes `ScalarL1D` the canonical scalar cache-array owner.
+Independent set/way parameters size aligned tags, full-line data,
+readable/writable/dirty metadata, and deterministic LRU state. LIQ active-phase
+lookup now supplies E2 base bytes; the old external base-line injection is
+removed from `ScalarLSULoadPath`. Accepted retained read refills install before
+LIQ wakeup. Duplicate responses return resident data without overwriting newer
+committed-store bytes, and every valid victim remains stable on an explicit
+eviction interface until accepted. `ScalarLSU` connects SCB tag/write
+permission lookup and byte-masked dirty updates to the same owner.
 
-The evolved generated scalar load-return probe proves hit/hit,
-hit/miss/refill/hit, exact second-line miss address, first-phase publication
-suppression, exactly one final return, and typed-recovery survival. Cache
-arrays, memory classification, lower-memory fabric, and parallel half launch
-remain open. No ARM memory types, barriers, exclusives, acquire/release, or
-exception-level behavior was imported.
+Physical cache lines survive typed Linx recovery and backend restart; reset
+alone initializes the array invalid. Memory classification, translation and
+protection, explicit invalidation/cache maintenance, the complete coherence
+fabric, and parallel cross-half launch remain open. No ARM memory types,
+exception levels, exclusives, barriers, or acquire/release behavior were
+imported.
 
-R675 final evidence passes 268 Chisel suites and 1,626 tests, the expanded LSU
-promotion gate, generated miss/refill/composed cross-line probes, architecture
-contract and both RTL adapters, and clean post-fix review. The bounded reduced
-CoreMark no-regression run compares 1,467 rows with zero mismatches and zero
-CBSTOP at
-`generated/r675-cross-line-coremark/report/crosscheck_manifest.json`. The
-reduced CoreMark top is no-regression evidence; the composed generated probe is
-the positive cross-line mechanism proof.
+R676 final evidence passes 269 Chisel suites and 1,630 tests, the expanded LSU
+promotion gate, generated L1D and composed cross-line probes, the architecture
+contract, Chisel adapter, and conformance gates. The bounded reduced CoreMark
+no-regression run captures 2,048 raw rows, reduces 1,914 workload rows, and
+compares 1,467 architectural rows with zero mismatches and zero CBSTOP at
+`generated/r676-scalar-l1d-coremark/report/crosscheck_manifest.json`. The
+reduced CoreMark top does not instantiate canonical `ScalarL1D`; the dedicated
+generated probe is positive cache-mechanism evidence.
 
 Latest packet: R674 replaces combinational refill collision handling with the
 parameterized `LoadRefillTransport`. Exact miss responses and external cache
@@ -50,8 +48,9 @@ cycle with deterministic miss-then-external order, and drain one retained line
 packet per cycle to LIQ. Post-dequeue capacity permits full-side replacement;
 exact read responses cannot free `LoadMissQueue` state until transport enqueue
 accepts. Hard flush clears buffered refills, while typed precise recovery holds
-the physical line data for surviving Linx rows. Cache arrays, memory-class
-ownership and lower-memory request fabric remain open.
+the physical line data for surviving Linx rows. R676 adds the parameterized
+L1D array owner after this transport. Memory-class ownership and the complete
+lower-memory/coherence request fabric remain open.
 
 R674 final evidence passes 268 Chisel suites and 1,622 tests, both generated
 miss/refill queue probes, the composed scalar load-return probe, the expanded
@@ -71,9 +70,10 @@ cannot be dropped between pipeline and queue. Typed Linx recovery prunes full
 PE/STID/TID/BID/GID/RID/full-LSID dependents; unissued empty entries cancel,
 while issued empty entries remain orphans until their response drains. The
 generated-RTL probe covers request hold, cross-STID pruning, exact refill,
-stale response rejection, cancellation, and orphan drain. L1D arrays,
-replacement/coherence, lower-memory transport, cross-line assembly, and the
-normal-memory attribute classifier remain separate owners. No ARM-specific
+stale response rejection, cancellation, and orphan drain. This historical R673
+boundary predates the R676 L1D owner; lower-memory transport, coherence,
+cross-line assembly, and the normal-memory attribute classifier were then
+separate owners. No ARM-specific
 architectural behavior was imported.
 
 R673 final evidence passes 267 Chisel suites and 1,617 tests, the generated

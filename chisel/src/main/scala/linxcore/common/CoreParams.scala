@@ -50,6 +50,8 @@ final case class ScalarLsuParams(
   mdbRecoveryQueueEntries: Int = 8,
   loadReturnQueueEntries: Int = 2,
   loadReturnPipeCount: Int = 1,
+  l1dSets: Int = 64,
+  l1dWays: Int = 4,
   mdbFailedWaitTimeoutCycles: Int = 300,
   mdbReleaseWeight: Int = 25,
   mdbMaxWeight: Int = 3,
@@ -100,6 +102,10 @@ final case class ScalarLsuParams(
     "mdbRecoveryQueueEntries must be a power of two greater than one")
   require(loadReturnQueueEntries > 0, "loadReturnQueueEntries must be positive")
   require(loadReturnPipeCount > 0, "loadReturnPipeCount must be positive")
+  require(l1dSets > 1 && (l1dSets & (l1dSets - 1)) == 0,
+    "l1dSets must be a power of two greater than one")
+  require(l1dWays > 1 && (l1dWays & (l1dWays - 1)) == 0,
+    "l1dWays must be a power of two greater than one")
   require(mdbFailedWaitTimeoutCycles > 0,
     "mdbFailedWaitTimeoutCycles must be positive")
   require(mdbReleaseWeight >= 0 && mdbReleaseWeight <= 100,

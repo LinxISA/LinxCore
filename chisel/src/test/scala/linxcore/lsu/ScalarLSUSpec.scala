@@ -96,6 +96,10 @@ class ScalarLSUSpec extends AnyFunSuite {
     assert(sv.contains("io_load_missQueueProtocolError"))
     assert(sv.contains("io_load_refillReady"))
     assert(sv.contains("io_load_refillTransportDualIngress"))
+    assert(sv.contains("scbRespDecodedUpgrade"))
+    assert(sv.contains("grantWriteValid"))
+    assert(!sv.contains("io_load_scbDCacheLookupValid"))
+    assert(!sv.contains("io_load_scbDCacheUpdate"))
   }
 
   test("ScalarLSURecoverySource elaborates exact promotion without local cleanup arbitration") {

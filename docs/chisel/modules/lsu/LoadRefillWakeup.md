@@ -22,9 +22,11 @@ read refill packets wake matching unresolved scalar rows, mark the local L1
 hit sideband, and provide a full-line valid mask so `LoadInflightQueue` can
 relaunch the load through the normal forwarding pipeline.
 
-This module deliberately does not own the full L1D/LDQ data buffer, miss
-queue, prefetch set, L2/CHI response ordering, ready-table updates, consumer
-bypass routing, ResolveQ/LHQ movement, or trace emission.
+This module deliberately does not own L1D arrays, the miss queue, prefetch set,
+L2/CHI response ordering, ready-table updates, consumer bypass routing,
+ResolveQ/LHQ movement, or trace emission. Canonical `ScalarLSULoadPath` places
+it after `ScalarL1D` refill installation; it owns only matching and LIQ row
+wakeup.
 
 ## Interface
 

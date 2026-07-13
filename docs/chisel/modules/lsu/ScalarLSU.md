@@ -34,9 +34,10 @@ shared with the reduced integration lane and parameterizes scalar STID count.
 R659 replaces the reduced lane's duplicate MDB pieces with the complete
 `ScalarLSUMDBPath` and deletes the delivery-only owner. R673 adds retained
 cacheable load misses, R674 adds bounded refill transport, and R675 adds
-sequential cross-line scalar assembly. Cache arrays, memory classification,
-and final reduced-top replacement
-remain open, so this is not yet a complete LSU.
+sequential cross-line scalar assembly. R676 adds the canonical parameterized
+scalar L1D arrays. Memory classification, the complete lower-memory/coherence
+fabric, and final reduced-top replacement remain open, so this is not yet a
+complete LSU.
 
 ## Parameter Contract
 
@@ -55,6 +56,7 @@ LSID, and typed flush identities. `ScalarLsuParams` independently controls:
 - `loadSizeWidth`, architectural/physical register-tag widths, and PC width
 - address, data, PE, STID, TID, size, and SIMT-lane widths
 - `lineBytes` and `mapQDepth`
+- `l1dSets` and `l1dWays`
 
 The STQ family retains backward-compatible constructors, but an explicit
 `robEntries` value now propagates through insert probing, flush pruning, row
@@ -95,6 +97,13 @@ phases independently use forwarding, miss, refill, and replay. The completed
 first line remains in the LIQ row; only the completed second phase may assemble
 and publish one scalar result. Sequential launch is a throughput policy, not a
 second architectural load.
+R676 adds `ScalarL1D` beneath the load child and connects SCB lookup/update
+through the parent, so scalar load and committed store paths share one cache
+tag/data/permission owner. Refills, duplicate protection, eviction, and cache
+state are no longer external base-data assumptions. The reusable load child
+exposes this store-side connection as a separate internal `scbCache` port;
+the public `ScalarLSUIO.load` interface does not expose ignored duplicate SCB
+cache inputs.
 
 `ScalarLSU` connects the retained MDB report to
 `ScalarLSURecoveryBoundary`, which selects one watermark from the
@@ -119,6 +128,12 @@ side-effect fanout.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarL1DSpec`
+- `bash tools/chisel/run_chisel_scalar_l1d_probe.sh`
+- `bash tools/chisel/run_chisel_scalar_l1d_scb_probe.sh`
+- R676 final: 269 suites and 1,630 tests; expanded LSU promotion gate;
+  generated cache, SCB/L1D composition, and composed cross-line proof; 1,467-row CoreMark
+  no-regression with zero mismatches and zero CBSTOP.
 - R675 final: 268 suites and 1,626 tests; expanded LSU promotion gate;
   generated hit/hit, hit/miss/refill/hit, and precise-recovery cross-line
   proof; 1,467-row CoreMark no-regression with zero mismatches and zero CBSTOP.

@@ -91,6 +91,7 @@ class SCBRowBankIO(
   val stateError = Output(Bool())
 
   val respDecodedValid = Output(Bool())
+  val respDecodedUpgrade = Output(Bool())
   val respDecodedEntryIndex = Output(UInt(entryIndexWidth.W))
   val respDecodedMask = Output(UInt(scbEntries.W))
   val respTypeIllegal = Output(Bool())
@@ -361,6 +362,7 @@ class SCBRowBank(
   io.stateError := state.io.stateError || responseDecode.io.illegal || retrySelect.io.retryHeadBlocked
 
   io.respDecodedValid := responseRetryQueue.io.pushAccepted
+  io.respDecodedUpgrade := responseRetryQueue.io.pushAccepted && responseBuffer.io.headUpgradeResp
   io.respDecodedEntryIndex := responseDecode.io.memRespEntryIndex
   io.respDecodedMask := responseDecode.io.decodedMask
   io.respTypeIllegal := responseDecode.io.typeIllegal

@@ -107,10 +107,19 @@ beneath `ScalarLSU`. The reduced top connects the shared W2 candidate to exact
 ROB completion and the canonical physical GPR/P-ready sink. The exposed
 readiness inputs remain outer allow gates and cannot bypass those resident
 owners. T/U local-link completion is an explicit unsupported contract error
-until its bank/qtag sink is connected. Bounded refill transport and scalar
-cross-line execution are live; L1D arrays/replacement/coherence,
-memory-attribute classification, and natural recovery activation remain future
-integration work.
+until its bank/qtag sink is connected. Bounded refill transport, scalar
+cross-line execution, and parameterized L1D tag/data/permission arrays are
+live. Memory-attribute classification, translation/protection, the complete
+coherence fabric, and natural recovery activation remain future integration
+work.
+
+R676 removes canonical `e2BaseData` and `e2BaseValidMask` inputs from this
+owner. `ScalarL1D` supplies active-phase line data and validity, installs each
+accepted retained read refill before LIQ wakeup, and substitutes resident data
+for duplicate responses. `ScalarLSU` routes SCB lookup and byte-masked updates
+to the same cache state through the load child's dedicated internal `scbCache`
+port. Those store-side signals are not duplicated in the public parent load
+interface.
 
 R675 executes a crossing 1/2/4/8-byte scalar load as two phase-local launches
 under one LIQ identity. The first phase cannot publish ResolveQ or LRET state.
@@ -134,6 +143,13 @@ next aligned line.
 - `bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - `bash tools/chisel/run_chisel_load_miss_queue_probe.sh`
 - `bash tools/chisel/run_chisel_load_refill_transport_probe.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarL1DSpec`
+- `bash tools/chisel/run_chisel_scalar_l1d_probe.sh`
+- `bash tools/chisel/run_chisel_scalar_l1d_scb_probe.sh`
+- R676 final: 269 suites and 1,630 tests; expanded LSU promotion gate;
+  generated cache, SCB/L1D composition, and hit/miss/refill/cross-line proof;
+  1,467-row CoreMark
+  no-regression with zero mismatches and zero CBSTOP.
 - R675 final: 268 suites and 1,626 tests; expanded LSU promotion gate;
   generated hit/hit, hit/miss/refill/hit, and precise-recovery cross-line
   proof; 1,467-row CoreMark no-regression with zero mismatches and zero CBSTOP.

@@ -131,6 +131,7 @@ class STQSCBCommitPathIO(
   val scbStateIllegalMask = Output(UInt(scbEntries.W))
   val scbStateError = Output(Bool())
   val scbRespDecodedValid = Output(Bool())
+  val scbRespDecodedUpgrade = Output(Bool())
   val scbRespDecodedEntryIndex = Output(UInt(scbIndexWidth.W))
   val scbRespDecodedMask = Output(UInt(scbEntries.W))
   val scbRespTypeIllegal = Output(Bool())
@@ -329,6 +330,7 @@ class STQSCBCommitPath(
   io.scbStateIllegalMask := scb.io.stateIllegalMask
   io.scbStateError := scb.io.stateError
   io.scbRespDecodedValid := scb.io.respDecodedValid
+  io.scbRespDecodedUpgrade := scb.io.respDecodedUpgrade
   io.scbRespDecodedEntryIndex := scb.io.respDecodedEntryIndex
   io.scbRespDecodedMask := scb.io.respDecodedMask
   io.scbRespTypeIllegal := scb.io.respTypeIllegal

@@ -266,7 +266,7 @@ int main(int argc, char **argv) {
             "cross-line load did not publish exactly once");
     drain(dut, 0, 0, 1, 0x81803f3eULL);
 
-    const unsigned crossMissRow = allocate(dut, 0, 0, 2, 62, 4);
+    const unsigned crossMissRow = allocate(dut, 0, 0, 2, 126, 4);
     launch(dut, crossMissRow);
     idle(dut);
     for (unsigned cycle = 0; cycle < 5; ++cycle) {
@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
     for (unsigned cycle = 0; cycle < 12; ++cycle) {
         dut.eval();
         if (dut.io_missRequestValid) {
-            require(dut.io_missRequestAccepted && dut.io_missRequestLineAddr == 64,
+            require(dut.io_missRequestAccepted && dut.io_missRequestLineAddr == 128,
                     "cross-line second-segment miss used the wrong line address");
             sawSecondLineMissRequest = true;
         }
@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
     launch(dut, crossMissRow);
     advance_to_publication(dut);
     tick(dut);
-    drain(dut, 0, 0, 2, 0x81803f3eULL);
+    drain(dut, 0, 0, 2, 0x8180bfbeULL);
 
     const unsigned crossSurvivorRow = allocate(dut, 1, 0, 3, 62, 4);
     launch(dut, crossSurvivorRow);

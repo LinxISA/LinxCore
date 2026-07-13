@@ -1056,9 +1056,10 @@ implementation choices and must not change architectural identity widths:
   owns the parameterized scoped W1/W2 return pipeline and its atomic
   resolve/writeback/wakeup rendezvous. The reduced timing path retains its
   detailed single-pipe proof surface until the live sinks consume the canonical
-  outputs. The miss queue and bounded refill transport are now canonical;
-  cache arrays and memory classification remain staged. R675 adds canonical
-  scalar cross-line ownership beneath the same load identity.
+  outputs. The miss queue, bounded refill transport, and parameterized scalar
+  L1D arrays are now canonical; memory classification remains staged. R675
+  adds scalar cross-line ownership beneath the same load identity, and R676
+  makes both phases use the shared L1D owner.
 - R675 splits a scalar 1/2/4/8-byte request that crosses one cache-line
   boundary into two phase-local requests while retaining the original Linx
   `(PE, STID, TID, BID, GID, RID, LSID, load ID)` identity in one LIQ row. The
@@ -1188,6 +1189,41 @@ implementation choices and must not change architectural identity widths:
   occupied E3/E4, the payload is canceled and the same phase returns to
   `Wait`. ARM exception levels, memory types, exclusives, barriers, and
   acquire/release behavior are not introduced by this mechanism.
+- `ScalarL1D` is the single scalar data-cache array owner. `l1dSets`,
+  `l1dWays`, and `lineBytes` are independent parameters; none is derived from
+  ROB, LIQ, STQ, SCB, miss-queue, or return-queue sizing. Each resident way
+  retains an aligned physical line address, full-line data, readable validity,
+  writable permission, dirty state, and replacement age.
+- A scalar LIQ launch performs one combinational tag/data lookup for the active
+  line phase. The L1D response, SCB return, and speculative STQ forwarding are
+  merged by the registered E2-to-E3 load-forwarding boundary. A tag miss
+  returns an explicit empty byte-valid mask; externally injected base-line
+  data is not a canonical load source.
+- Refill installation has priority over load and committed-store array access.
+  The refill head remains retained in `LoadRefillTransport` while L1D cannot
+  accept it. A refill first searches for the same line. A duplicate returns the
+  resident data to LIQ and may add write permission, but never overwrites
+  resident bytes or clears dirty state with a potentially stale lower-memory
+  response.
+- A new line selects the first invalid way; otherwise it selects the least
+  recently used way. Any valid victim is published with line address, data,
+  and dirty state and the refill remains backpressured until the eviction owner
+  accepts that payload. Silent clean or dirty replacement is forbidden.
+- The committed SCB path queries the same tags. A tag hit without write
+  permission emits an ownership-upgrade request; a writable hit applies the
+  SCB byte mask to the resident line and marks it dirty. The cache array does
+  not infer permission from Linx opcodes, block boundaries, or ARM memory
+  types. Lower-memory/coherence logic grants permission explicitly. When an
+  accepted SCB response is decoded as an upgrade for a resident line, the L1D
+  sets that line writable before the SCB retries its lookup. A write response
+  for a missing line still requires the staged lower-memory refill-data path;
+  permission alone must not allocate uninitialized cache data.
+- L1D contents are physical, non-speculative state. Typed Linx recovery and
+  hard backend restart prune LIQ, miss, refill-transport, and speculative store
+  ownership as specified, but do not invalidate cache lines. Reset initializes
+  every line invalid. Explicit coherence, cache-maintenance, and platform reset
+  messages are separate future interfaces and must not be synthesized from a
+  BID, LSID, exception level, barrier, or acquire/release operation.
 - Cacheable scalar L1 misses enter a parameterized load miss queue before any
   lower-memory request is emitted. Queue depth is independent of LIQ, ROB,
   STQ, and return-queue capacity. Every accepted E2 launch reserves worst-case

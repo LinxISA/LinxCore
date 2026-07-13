@@ -563,7 +563,7 @@
       "module_family": "lsu",
       "status": "unit-proven",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001"],
-      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue, R674 retains dual-source refill traffic, and R675 executes scalar cross-line phases under one LIQ identity. L1D arrays, memory attributes, and the lower-memory request fabric remain staged."],
+      "limitations": ["Same-BID forwarding uses parameterized full LSID and fails closed on missing or half-range-ambiguous authority. R673 connects cacheable scalar E4 misses to a retained miss queue, R674 retains dual-source refill traffic, R675 executes scalar cross-line phases under one LIQ identity, and R676 sources base bytes from the canonical L1D. Memory attributes and the lower-memory request fabric remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala",
@@ -582,11 +582,19 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-HAZ-001", "LC-MA-FWD-001"],
-      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. R674 adds retained dual-ingress refill serialization and exact-response backpressure. R675 adds sequential two-line scalar forwarding, miss/refill replay, and one final assembled return. Parallel half launch, L1D arrays, lower-memory request fabric, and memory-attribute classification remain staged."],
+      "limitations": ["R672-B carries parameterized full LSID through replay and forwarding. R673 integrates a parameterized cacheable scalar load miss queue with exact response generation, FIFO request issue, coalescing, launch reservations, and typed dependent pruning. R674 adds retained dual-ingress refill serialization and exact-response backpressure. R675 adds sequential two-line scalar forwarding, miss/refill replay, and one final assembled return. R676 adds parameterized L1D arrays, duplicate-refill protection, and explicit eviction backpressure. Parallel half launch, the complete coherence/lower-memory request fabric, and memory-attribute classification remain staged."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala",
-          "symbols": ["ScalarLSULoadPath", "LoadInflightQueue", "LoadMissQueue", "LoadRefillTransport", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "completionArb", "returnReservations", "missReservations", "refillTransport", "publicationAccepted", "transferPending"]
+          "symbols": ["ScalarLSULoadPath", "ScalarL1D", "LoadInflightQueue", "LoadMissQueue", "LoadRefillTransport", "LoadResolveQueue", "ScalarLSUMDBPath", "ScalarLSULoadReturnQueueBank", "ScalarLSULoadReturnPipeline", "completionArb", "returnReservations", "missReservations", "refillTransport", "l1d", "publicationAccepted", "transferPending"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarL1D.scala",
+          "symbols": ["ScalarL1D", "valid", "writable", "dirty", "tags", "data", "age", "refillDuplicate", "victimWay", "storeUpdateLegal", "grantWriteValid"]
+        },
+        {
+          "path": "chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala",
+          "symbols": ["ScalarL1DScbProbe", "SCBRowBank", "ScalarL1D", "respDecodedUpgrade", "dcacheUpdate"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala",
@@ -621,6 +629,10 @@
         {
           "path": "tools/chisel/run_chisel_load_refill_transport_probe.sh",
           "command": "bash tools/chisel/run_chisel_load_refill_transport_probe.sh"
+        },
+        {
+          "path": "tools/chisel/run_chisel_scalar_l1d_scb_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_l1d_scb_probe.sh"
         }
       ]
     },
@@ -678,6 +690,10 @@
           "command": "bash tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh"
         },
         {
+          "path": "tools/chisel/run_chisel_scalar_l1d_probe.sh",
+          "command": "bash tools/chisel/run_chisel_scalar_l1d_probe.sh"
+        },
+        {
           "path": "tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh",
           "command": "bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh"
         }
@@ -688,11 +704,11 @@
       "module_family": "lsu",
       "status": "integrated",
       "contracts": ["LC-MA-MEM-001", "LC-MA-RES-001"],
-      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, and full-LSID load/MDB/recovery/return state. R675 adds sequential scalar cross-line execution and final assembly; early branch/tile non-flush predicates, store-barrier allocation, physical cache arrays, memory attributes, and parallel cross-half launch remain outside this owner."],
+      "limitations": ["The canonical ScalarLSU integrates store, active/resolved load state, scalar MDB prediction, retained recovery, scoped load-return queues, oldest BID/RID eligibility, exact full-BID source promotion, full-LSID load/MDB/recovery/return state, and one shared parameterized scalar L1D owner. Early branch/tile non-flush predicates, store-barrier allocation, memory attributes, the complete coherence fabric, and parallel cross-half launch remain outside this owner."],
       "evidence": [
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
-          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit", "recoveryBoundary"]
+          "symbols": ["ScalarLSU", "ScalarLsuParams", "storeCommitPath", "loadPath", "storeMdbPermit", "recoveryBoundary", "scbCache", "grantWriteValid"]
         },
         {
           "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala",
