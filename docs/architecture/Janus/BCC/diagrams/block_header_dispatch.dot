@@ -26,7 +26,7 @@ digraph BLOCK_HEADER_DISPATCH {
   BSTART [label="BSTART\nblock type / datatype / tileop"];
   BIOR [label="B.IOR\nGPR getlist / setlist"];
   BIOT [label="B.IOT\nTile src/dst + dst size"];
-  BDIM [label="B.DIM / B.ATTR / B.TEXT\nloop bound / attr / body PC"];
+  BDIM [label="B.DIM / B.CATR / B.DATR / B.TEXT\nloop bound / control+data attr / body PC"];
 
   BROB_ALLOC [label="BROB allocate\nBID / TID"];
   BISQ_ALLOC [label="BlockDispatch\nallocate BISQ entry"];

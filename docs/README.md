@@ -37,6 +37,7 @@ checkout.
 - `trace/`: LinxTrace, pipeview, and viewer-side contracts
 - `cosim/`: co-simulation protocol notes
 - `flows/`: implementation and tooling workflow notes
+- `archive/`: explicitly retired, non-normative design and ISA snapshots
 
 ## Janus engine specs
 

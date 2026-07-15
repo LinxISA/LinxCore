@@ -1,0 +1,13 @@
+archive_version: 1
+release: v0.3
+status: retired
+normative: false
+archived_on: 2026-07-15
+reason: >-
+  The v0.3 uop snapshot contains retired instruction identities and is retained
+  only as historical design evidence.
+replacement:
+  repository: linx-isa
+  path: isa/v0.56/uop_classification_v0.56
+  profile: v0.56.5
+allow_active_consumers: false

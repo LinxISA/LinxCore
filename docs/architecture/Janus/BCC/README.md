@@ -129,7 +129,7 @@ IFU/Decode 解析块头
   -> BSTART 分配 BROB/BISQ entry，记录 BID/TID/type/PC/offset
   -> B.IOR 在 scalar rename 查询 getlist GPR ptag、分配 setlist GPR ptag
   -> B.IOT 在 TileRename 查询 src Tile tag/address/ready，按 dst size 分配 dst Tile tag/address
-  -> B.DIM/B.ATTR/B.TEXT 补齐 loop bound、datatype、tileop、块体 PC 等配置
+  -> B.DIM/B.CATR/B.DATR/B.TEXT 补齐 loop bound、datatype、tileop、块体 PC 等配置
   -> CMD_ISQ/BISQ 收集配置，config counter 归零后置 configReady
   -> BlockISQ 根据 Tile ready、GPR ready、allInstReceived、age、credit 发射给特殊核
   -> 特殊核 get/set GPR 或执行 TileOP，完成后返回 ptag write / Tile resolve / BID resolve

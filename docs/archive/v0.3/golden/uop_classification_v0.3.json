@@ -9808,7 +9808,7 @@
     }
   },
   "deprecated": true,
-  "replacement": "docs/architecture/golden/uop_classification_v0.3/",
+  "replacement": "linx-isa:isa/v0.56/uop_classification_v0.56/",
   "stats": {
     "total_mnemonics": 710
   },

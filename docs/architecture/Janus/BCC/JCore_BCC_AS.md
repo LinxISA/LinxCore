@@ -218,7 +218,8 @@ flowchart TB
 | B.IOR | 指示特殊块 GPR 类型入参和出参 |
 | B.IOT | 指示 TileReg 类型入参和出参，以及输出 TileReg size |
 | B.DIM | 指示 loop bound / 数据维度信息；BN 完成 `+imm` 运算 |
-| B.IOD | TBD |
+| B.CATR | 指示 block 控制属性，包括 trap、atomic、ordering 和 far/direct-return 属性 |
+| B.DATR | 指示 block 数据属性，包括 layout、datatype、padding 和 conversion 模式 |
 | BSTOP | 作为 End-of-Block 指示；可作为 NOP 进入 PE 后端，也支持 EOB_NOP 消除 |
 
 ### 4.2 Downstream Block Dispatch Payload
@@ -259,7 +260,7 @@ sequenceDiagram
   IFU->>REN: B.IOT and dst size reg
   REN->>TR: size value + tile src/dst index
   TR->>BISQ: write tile tags/addresses/ready
-  IFU->>CMD: B.DIM/B.TEXT/B.ATTR
+  IFU->>CMD: B.DIM/B.TEXT/B.CATR/B.DATR
   CMD->>BISQ: write dimension/body pc/config
 ```
 

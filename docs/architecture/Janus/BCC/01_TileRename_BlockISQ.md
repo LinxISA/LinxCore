@@ -56,7 +56,7 @@ flowchart LR
   GRN --> CMD["CMD_ISQ<br/>IOR ready/config"]
   CMD --> BISQ
   TR --> BISQ
-  BDIM["B.DIM/B.ATTR/B.TEXT"] --> CMD
+  BDIM["B.DIM/B.CATR/B.DATR/B.TEXT"] --> CMD
   BISQ --> ISSUE["ready + config + age + credit"]
   ISSUE --> CORE["Vector / Cube / TMA"]
 ```
@@ -451,7 +451,7 @@ counter == 0 且 data type / GPR / DIM 等已写入: configReady = 1
 - B.IOR 在寄存器就绪时写入 ready 和 ptag。
 - B.IOT 写入 Tile src/dst tag/address/ready。
 - B.DIM 写入 dimension。
-- B.ATTR 写入属性。
+- B.CATR 写入 block 控制属性，B.DATR 写入 block 数据属性。
 - B.TEXT 写入块体 PC。
 
 configReady 等价于 data type 已写入、GPR 输入已就绪、Dimension 信息已配置等多个条件的组合。

@@ -22,7 +22,7 @@
 BCC 中除 LSU 外的组件构成 BCC_IOE。JCore BCC 相比原 GFU 的主要新增点:
 
 - IFU 中新增 BROB，维护 block 顺序提交。
-- 新增数据块块头微指令路径: BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.IOD。
+- 新增数据块块头微指令路径: BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.CATR、B.DATR。
 - 新增两写两 pick 的 CMD_ISQ，完成块头微指令依赖解除。
 - 新增 TileRename，将 src tile index 转换为 Tile tag 和 base address。
 - 分别为 VEC、CUBE、TMA 增加对应 BlockISQ。

@@ -27,7 +27,7 @@ JCore BCC 负责块级控制、块头解析、跨 core 参数传递、TileRegist
 BCC 中除 LSU 外的组件构成 BCC_IOE。BCC_IOE 的新增重点是:
 
 - IFU 新增 BROB，用于接收 scalar_PE、VEC、CUBE、TMA 的 block resolve，维护 block 顺序 commit。
-- IFU/PE 需要传递数据块块头微指令，包括 BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.IOD。
+- IFU/PE 需要传递数据块块头微指令，包括 BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.CATR、B.DATR。
 - PE 新增 CMD_ISQ，用于块头微指令依赖解除和配置写入。
 - PE 新增 TileRename，将 B.IOT 的相对 TileReg index 转换为 Tile tag 和物理 base address。
 - PE 新增 BlockISQ/BISQ，完成 block 级 Tile/GPR/config 依赖解除，并按类型发给 Vector/Cube/TMA。
@@ -131,7 +131,7 @@ sequenceDiagram
   IFU->>REN: B.IOT dst size src/dst tile index
   REN->>TR: 读取 size 后发起 TileRename
   TR->>BISQ: 写入 src tag/address/ready 和 dst tag/address
-  IFU->>CMD: B.DIM/B.ATTR/B.TEXT 配置
+  IFU->>CMD: B.DIM/B.CATR/B.DATR/B.TEXT 配置
   CMD->>BISQ: 写入 dim/datatype/tileop/body pc
   BISQ->>BISQ: allInstReceived && configReady && srcReady
   BISQ->>CORE: dispatch block with BID/TID/type/tile/reg/dim

@@ -14,9 +14,9 @@ This document captures the opcode/decode parity baseline used for the QEMU-align
 
 ## Measured Inventory
 
-- QEMU unique mnemonics from decode trees: `281`
-- LinxCore catalog rows: `284`
-  - `281` QEMU mnemonics
+- QEMU unique mnemonics from decode trees: `645`
+- LinxCore catalog rows: `648`
+  - `645` QEMU mnemonics
   - `3` internal synthetic rows:
     - `internal_invalid`
     - `internal_c_bstart_std`
@@ -39,14 +39,15 @@ This document captures the opcode/decode parity baseline used for the QEMU-align
 - `COMPRESSED`
 - `MISC`
 
-## Known Legacy Compatibility Mapping
+## Canonical Symbol Mapping
 
-To keep existing LinxCore backend behavior stable during renumbering:
+The generated catalog maps the canonical block-header spellings directly:
 
 - `b_text -> OP_BTEXT`
 - `b_ior -> OP_BIOR`
-- `b_iot -> OP_BLOAD`
-- `b_ioti -> OP_BSTORE`
+- `b_iot -> OP_B_IOT`
+- `b_catr -> OP_B_CATR`
+- `b_datr -> OP_B_DATR`
 - `bstart_{direct,cond,call} -> OP_BSTART_STD_*`
 - `hl_bstart_std_* -> OP_BSTART_STD_*`
 - Internal synthetic ops retained for bring-up:
@@ -56,4 +57,4 @@ To keep existing LinxCore backend behavior stable during renumbering:
 ## Current Gate
 
 - `python3 rtl/LinxCore/tools/generate/check_decode_parity.py --qemu-linx-dir emulator/qemu/target/linx --catalog rtl/LinxCore/src/common/opcode_catalog.yaml`
-- Expected result: `decode parity check passed: 281 mnemonics`
+- Expected result: `decode parity check passed: 645 mnemonics`
