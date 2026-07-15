@@ -50,8 +50,6 @@ LEGACY_SYMBOL_OVERRIDES = {
     "c_bstop": "OP_C_BSTOP",
     "b_text": "OP_BTEXT",
     "b_ior": "OP_BIOR",
-    "b_iot": "OP_BLOAD",
-    "b_ioti": "OP_BSTORE",
     "internal_invalid": "OP_INVALID",
     "internal_c_bstart_std": "OP_C_BSTART_STD",
     "internal_c_setret": "OP_C_SETRET",
@@ -178,7 +176,7 @@ def classify_major_minor(mnemonic: str) -> tuple[str, str]:
         return "BRU_SETC_CMP", "branch_pred"
     if m.startswith("setc") or m.startswith("cmp_"):
         return "BRU_SETC_CMP", "setc_cmp"
-    if m in {"b_text", "b_ior", "b_iot", "b_ioti"}:
+    if m in {"b_text", "b_ior", "b_iot"}:
         return "CMD_PIPE", "block_cmd"
     if m.startswith("b_"):
         return "BLOCK_ARGS_DESC", "block_desc"
@@ -228,8 +226,7 @@ def cmd_kind_for_mnemonic(mnemonic: str) -> str:
     return {
         "b_text": "BTEXT",
         "b_ior": "BIOR",
-        "b_iot": "BLOAD",
-        "b_ioti": "BSTORE",
+        "b_iot": "BIOT",
     }.get(mnemonic, "NONE")
 
 

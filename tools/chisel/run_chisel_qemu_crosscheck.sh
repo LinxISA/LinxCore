@@ -221,7 +221,7 @@ manifest = {
     },
     "git": {
         "linxcore": git_context(root_dir),
-        "linxcore_model": git_context(str(Path(linx_root) / "model" / "LinxCoreModel")),
+        "linxcore_model": git_context(str(Path(linx_root) / "tools" / "LinxCoreModel")),
         "qemu": git_context(str(Path(linx_root) / "emulator" / "qemu")),
         "superproject": git_context(linx_root),
     },

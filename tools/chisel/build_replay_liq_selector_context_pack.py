@@ -151,7 +151,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         },
         "git": {
             "linxcore": git_sha(ROOT_DIR),
-            "linxcore_model": git_sha(ROOT_DIR.parent.parent / "model/LinxCoreModel"),
+            "linxcore_model": git_sha(ROOT_DIR.parent.parent / "tools/LinxCoreModel"),
             "qemu": git_sha(ROOT_DIR.parent.parent / "emulator/qemu"),
             "superproject": git_sha(ROOT_DIR.parent.parent),
         },
