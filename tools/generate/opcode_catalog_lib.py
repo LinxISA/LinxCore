@@ -43,6 +43,7 @@ LEGACY_SYMBOL_OVERRIDES = {
     "bstart_direct": "OP_BSTART_STD_DIRECT",
     "bstart_tload": "OP_BSTART_TMA",
     "bstart_tstore": "OP_BSTART_TMA",
+    "bstart_tmov": "OP_BSTART_TMA",
     "bstart_tmatmul": "OP_BSTART_CUBE",
     "bstart_tmatmul_acc": "OP_BSTART_CUBE",
     "hl_bstart_std_fall": "OP_BSTART_STD_FALL",
