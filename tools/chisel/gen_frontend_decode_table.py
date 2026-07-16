@@ -13,7 +13,7 @@ OUT = ROOT / "chisel" / "src" / "main" / "scala" / "linxcore" / "frontend" / "Fr
 
 sys.path.insert(0, str(SRC))
 
-from common.opcode_meta_gen import OPCODE_META_BY_MNEMONIC  # noqa: E402
+from common.opcode_meta_gen import OPCODE_META_FORMS  # noqa: E402
 
 
 DISPATCH = {
@@ -136,7 +136,7 @@ def bool_lit(value: bool) -> str:
 
 
 def main() -> None:
-    metas = list(OPCODE_META_BY_MNEMONIC.values())
+    metas = list(OPCODE_META_FORMS)
     rules = [
         (idx, meta)
         for idx, meta in enumerate(metas)

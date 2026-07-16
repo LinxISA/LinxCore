@@ -251,29 +251,31 @@ def block_kind_for_mnemonic(mnemonic: str) -> str:
 
 def build_catalog(qemu_linx_dir: Path) -> Dict[str, object]:
     entries = load_qemu_entries(qemu_linx_dir)
-    by_mnemonic: Dict[str, DecodeEntry] = {}
+    by_mnemonic: Dict[str, List[DecodeEntry]] = {}
     for e in entries:
-        by_mnemonic.setdefault(e.mnemonic, e)
+        by_mnemonic.setdefault(e.mnemonic, []).append(e)
 
     for m in MISC_INTERNAL_MNEMONICS:
         if m not in by_mnemonic:
-            by_mnemonic[m] = DecodeEntry(
-                mnemonic=m,
-                file="internal",
-                enc_len=0,
-                pattern="",
-                mask=0,
-                match=0,
-                fields=[],
-            )
+            by_mnemonic[m] = [
+                DecodeEntry(
+                    mnemonic=m,
+                    file="internal",
+                    enc_len=0,
+                    pattern="",
+                    mask=0,
+                    match=0,
+                    fields=[],
+                )
+            ]
 
     records = []
     for mnemonic in sorted(by_mnemonic.keys()):
-        e = by_mnemonic[mnemonic]
-        major, minor = classify_major_minor(mnemonic)
-        rd_kind, rs1_kind, rs2_kind, imm_kind = classify_fields(e.fields)
-        records.append(
-            {
+        forms = by_mnemonic[mnemonic]
+        for form_index, e in enumerate(forms):
+            major, minor = classify_major_minor(mnemonic)
+            rd_kind, rs1_kind, rs2_kind, imm_kind = classify_fields(e.fields)
+            record = {
                 "mnemonic": mnemonic,
                 "symbol": mnemonic_to_symbol(mnemonic),
                 "enc_len": e.enc_len,
@@ -291,7 +293,13 @@ def build_catalog(qemu_linx_dir: Path) -> Dict[str, object]:
                 "flags": "",
                 "source_file": e.file,
             }
-        )
+            if len(forms) > 1:
+                # Additive schema extension: legacy single-form records keep
+                # their original shape, while repeated mnemonic forms expose
+                # deterministic source-order identity.
+                record["form_index"] = form_index
+                record["form_count"] = len(forms)
+            records.append(record)
 
     sym_to_cat: Dict[str, str] = {}
     for r in records:

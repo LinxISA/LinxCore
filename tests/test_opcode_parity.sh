@@ -5,6 +5,8 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
 
+python3 "${ROOT_DIR}/tests/test_opcode_catalog_forms.py"
+
 python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" \
   --qemu-linx-dir "${QEMU_LINX_DIR}" \
   --out "${ROOT_DIR}/src/common/opcode_catalog.yaml"

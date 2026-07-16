@@ -195,9 +195,9 @@ OPCODE_META_BY_MNEMONIC = {
     "dc_csw": OpcodeMeta(op_id=594, symbol="OP_DC_CSW", mnemonic="dc_csw", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x50602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "dc_cva": OpcodeMeta(op_id=595, symbol="OP_DC_CVA", mnemonic="dc_cva", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x20602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "dc_iall": OpcodeMeta(op_id=596, symbol="OP_DC_IALL", mnemonic="dc_iall", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xffffffff, match=0x10602b, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
-    "dc_isw": OpcodeMeta(op_id=597, symbol="OP_DC_ISW", mnemonic="dc_isw", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x70602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
+    "dc_isw": OpcodeMeta(op_id=597, symbol="OP_DC_ISW", mnemonic="dc_isw", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x40602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "dc_iva": OpcodeMeta(op_id=598, symbol="OP_DC_IVA", mnemonic="dc_iva", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
-    "dc_zva": OpcodeMeta(op_id=599, symbol="OP_DC_ZVA", mnemonic="dc_zva", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x40602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
+    "dc_zva": OpcodeMeta(op_id=599, symbol="OP_DC_ZVA", mnemonic="dc_zva", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0xfff07fff, match=0x70602b, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "div": OpcodeMeta(op_id=78, symbol="OP_DIV", mnemonic="div", major_cat="ALU_INT", minor_cat="alu", insn_len=32, mask=0xfe00707f, match=0x57, rd_kind="REG", rs1_kind="REG", rs2_kind="REG", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "divu": OpcodeMeta(op_id=79, symbol="OP_DIVU", mnemonic="divu", major_cat="ALU_INT", minor_cat="alu", insn_len=32, mask=0xfe00707f, match=0x1057, rd_kind="REG", rs1_kind="REG", rs2_kind="REG", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "divuw": OpcodeMeta(op_id=80, symbol="OP_DIVUW", mnemonic="divuw", major_cat="ALU_INT", minor_cat="alu", insn_len=32, mask=0xfe00707f, match=0x3057, rd_kind="REG", rs1_kind="REG", rs2_kind="REG", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
@@ -445,9 +445,9 @@ OPCODE_META_BY_MNEMONIC = {
     "internal_invalid": OpcodeMeta(op_id=0, symbol="OP_INVALID", mnemonic="internal_invalid", major_cat="MISC", minor_cat="internal", insn_len=0, mask=0x0, match=0x0, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="internal"),
     "j": OpcodeMeta(op_id=623, symbol="OP_J", mnemonic="j", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0x707f, match=0x37, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM22", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "jr": OpcodeMeta(op_id=624, symbol="OP_JR", mnemonic="jr", major_cat="MISC", minor_cat="misc", insn_len=32, mask=0x707f, match=0x6027, rd_kind="NONE", rs1_kind="REG", rs2_kind="NONE", imm_kind="SIMM12_7_S5_25_7", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
-    "l_bstart_fp": OpcodeMeta(op_id=630, symbol="OP_L_BSTART_FP", mnemonic="l_bstart_fp", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x11010000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+    "l_bstart_fp": OpcodeMeta(op_id=630, symbol="OP_L_BSTART_FP", mnemonic="l_bstart_fp", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x10810000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
     "l_bstart_std": OpcodeMeta(op_id=631, symbol="OP_L_BSTART_STD", mnemonic="l_bstart_std", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x10010000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
-    "l_bstart_sys": OpcodeMeta(op_id=632, symbol="OP_L_BSTART_SYS", mnemonic="l_bstart_sys", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x10810000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+    "l_bstart_sys": OpcodeMeta(op_id=632, symbol="OP_L_BSTART_SYS", mnemonic="l_bstart_sys", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x10110000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
     "lb": OpcodeMeta(op_id=339, symbol="OP_LB", mnemonic="lb", major_cat="LOAD", minor_cat="load", insn_len=32, mask=0x707f, match=0x9, rd_kind="REG", rs1_kind="REG", rs2_kind="REG", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "lb_pcr": OpcodeMeta(op_id=344, symbol="OP_LB_PCR", mnemonic="lb_pcr", major_cat="LOAD", minor_cat="load", insn_len=32, mask=0x707f, match=0x39, rd_kind="REG", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM17", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
     "lbi": OpcodeMeta(op_id=340, symbol="OP_LBI", mnemonic="lbi", major_cat="LOAD", minor_cat="load", insn_len=32, mask=0x707f, match=0x19, rd_kind="REG", rs1_kind="REG", rs2_kind="NONE", imm_kind="SIMM12_20_S12", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
@@ -710,12 +710,50 @@ OPCODE_META_BY_MNEMONIC = {
     "xorw": OpcodeMeta(op_id=295, symbol="OP_XORW", mnemonic="xorw", major_cat="ALU_INT", minor_cat="alu", insn_len=32, mask=0x707f, match=0x4025, rd_kind="REG", rs1_kind="REG", rs2_kind="REG", imm_kind="NONE", block_kind="NONE", cmd_kind="NONE", flags="", source_file="insn32.decode"),
 }
 
+_OPCODE_META_ADDITIONAL_FORMS_BY_MNEMONIC = {
+    "b_iot": (
+        OpcodeMeta(op_id=421, symbol="OP_B_IOT", mnemonic="b_iot", major_cat="CMD_PIPE", minor_cat="block_cmd", insn_len=32, mask=0x803f707f, match=0x5013, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="IOTIMM4", block_kind="NONE", cmd_kind="BIOT", flags="", source_file="insn32.decode"),
+        OpcodeMeta(op_id=421, symbol="OP_B_IOT", mnemonic="b_iot", major_cat="CMD_PIPE", minor_cat="block_cmd", insn_len=32, mask=0xc03fffff, match=0x6013, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="IOTIMM4", block_kind="NONE", cmd_kind="BIOT", flags="", source_file="insn32.decode"),
+    ),
+    "l_bstart_fp": (
+        OpcodeMeta(op_id=630, symbol="OP_L_BSTART_FP", mnemonic="l_bstart_fp", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x20810000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+        OpcodeMeta(op_id=630, symbol="OP_L_BSTART_FP", mnemonic="l_bstart_fp", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x30810000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+        OpcodeMeta(op_id=630, symbol="OP_L_BSTART_FP", mnemonic="l_bstart_fp", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x40810000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+    ),
+    "l_bstart_std": (
+        OpcodeMeta(op_id=631, symbol="OP_L_BSTART_STD", mnemonic="l_bstart_std", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x20010000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+        OpcodeMeta(op_id=631, symbol="OP_L_BSTART_STD", mnemonic="l_bstart_std", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x30010000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+        OpcodeMeta(op_id=631, symbol="OP_L_BSTART_STD", mnemonic="l_bstart_std", major_cat="MISC", minor_cat="misc", insn_len=64, mask=0x7fff0000007f, match=0x40010000000f, rd_kind="NONE", rs1_kind="NONE", rs2_kind="NONE", imm_kind="SIMM42_7_S25_47_17", block_kind="BLOCK", cmd_kind="NONE", flags="", source_file="insn64.decode"),
+    ),
+}
+
+OPCODE_META_FORMS_BY_MNEMONIC = {
+    mnemonic: (meta,) + _OPCODE_META_ADDITIONAL_FORMS_BY_MNEMONIC.get(mnemonic, ())
+    for mnemonic, meta in OPCODE_META_BY_MNEMONIC.items()
+}
+OPCODE_META_FORMS = tuple(
+    form
+    for forms in OPCODE_META_FORMS_BY_MNEMONIC.values()
+    for form in forms
+)
+
 OPCODE_META_BY_ID = {}
-for _m in OPCODE_META_BY_MNEMONIC.values():
+_opcode_meta_forms_by_id = {}
+for _m in OPCODE_META_FORMS:
     OPCODE_META_BY_ID.setdefault(_m.op_id, _m)
+    _opcode_meta_forms_by_id.setdefault(_m.op_id, []).append(_m)
+OPCODE_META_FORMS_BY_ID = {
+    key: tuple(value) for key, value in _opcode_meta_forms_by_id.items()
+}
 
 def opcode_meta_by_mnemonic(mnemonic: str) -> OpcodeMeta | None:
     return OPCODE_META_BY_MNEMONIC.get(mnemonic)
 
+def opcode_meta_forms_by_mnemonic(mnemonic: str) -> tuple[OpcodeMeta, ...]:
+    return OPCODE_META_FORMS_BY_MNEMONIC.get(mnemonic, ())
+
 def opcode_meta_by_id(op_id: int) -> OpcodeMeta | None:
     return OPCODE_META_BY_ID.get(op_id)
+
+def opcode_meta_forms_by_id(op_id: int) -> tuple[OpcodeMeta, ...]:
+    return OPCODE_META_FORMS_BY_ID.get(op_id, ())

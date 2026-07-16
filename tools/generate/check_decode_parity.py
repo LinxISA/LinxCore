@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from opcode_catalog_lib import load_catalog, load_qemu_entries
@@ -11,11 +12,18 @@ LINXCORE_ROOT = THIS_FILE.parents[2]
 LINXISA_ROOT = THIS_FILE.parents[4]
 
 
-def _norm(records: list[dict]) -> dict[str, dict]:
-    out = {}
-    for r in records:
-        out[r["mnemonic"]] = r
-    return out
+def _record_signature(record: dict) -> tuple[str, int, int, int]:
+    return (
+        str(record["mnemonic"]),
+        int(record["enc_len"]),
+        int(str(record["mask"]), 0),
+        int(str(record["match"]), 0),
+    )
+
+
+def _format_signature(signature: tuple[str, int, int, int]) -> str:
+    mnemonic, enc_len, mask, match = signature
+    return f"{mnemonic}: len={enc_len} mask=0x{mask:x} match=0x{match:x}"
 
 
 def main() -> int:
@@ -27,43 +35,62 @@ def main() -> int:
     expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))
     actual = load_catalog(Path(args.catalog))
 
-    e = {}
-    for row in expected_entries:
-        e.setdefault(
-            row.mnemonic,
-            {
-                "mnemonic": row.mnemonic,
-                "enc_len": row.enc_len,
-                "mask": f"0x{row.mask:x}",
-                "match": f"0x{row.match:x}",
-            },
-        )
-    a = _norm(actual["records"])
+    expected = Counter(
+        (row.mnemonic, row.enc_len, row.mask, row.match)
+        for row in expected_entries
+    )
+    actual_qemu_records = [
+        record
+        for record in actual["records"]
+        if not str(record["mnemonic"]).startswith("internal_")
+    ]
+    observed = Counter(_record_signature(record) for record in actual_qemu_records)
 
-    # Ignore internal synthetic rows for parity against qemu decode files.
-    a_qemu = {k: v for k, v in a.items() if not k.startswith("internal_")}
-
-    missing = sorted(set(e) - set(a_qemu))
-    extra = sorted(set(a_qemu) - set(e))
+    missing = expected - observed
+    extra = observed - expected
     mismatches: list[str] = []
 
-    for k in sorted(set(e) & set(a_qemu)):
-        ek = e[k]
-        ak = a_qemu[k]
-        for fld in ("enc_len", "mask", "match"):
-            if str(ek[fld]) != str(ak[fld]):
-                mismatches.append(f"{k}: field {fld} expected={ek[fld]} actual={ak[fld]}")
-        if ak.get("major_cat", "") == "":
-            mismatches.append(f"{k}: missing major_cat")
+    identities: dict[str, set[tuple[str, int]]] = defaultdict(set)
+    form_indices: dict[str, list[int]] = defaultdict(list)
+    form_counts: dict[str, set[int]] = defaultdict(set)
+    for record in actual_qemu_records:
+        mnemonic = str(record["mnemonic"])
+        identities[mnemonic].add((str(record["symbol"]), int(record["op_id"])))
+        form_indices[mnemonic].append(int(record.get("form_index", 0)))
+        form_counts[mnemonic].add(int(record.get("form_count", 1)))
+        if record.get("major_cat", "") == "":
+            mismatches.append(f"{mnemonic}: missing major_cat")
+
+    for mnemonic in sorted(identities):
+        count = sum(
+            multiplicity
+            for signature, multiplicity in observed.items()
+            if signature[0] == mnemonic
+        )
+        if len(identities[mnemonic]) != 1:
+            mismatches.append(
+                f"{mnemonic}: forms do not share one (symbol, op_id): "
+                f"{sorted(identities[mnemonic])}"
+            )
+        if sorted(form_indices[mnemonic]) != list(range(count)):
+            mismatches.append(
+                f"{mnemonic}: form_index expected={list(range(count))} "
+                f"actual={sorted(form_indices[mnemonic])}"
+            )
+        if form_counts[mnemonic] != {count}:
+            mismatches.append(
+                f"{mnemonic}: form_count expected={count} "
+                f"actual={sorted(form_counts[mnemonic])}"
+            )
 
     if missing:
-        print("missing mnemonics:")
-        for m in missing:
-            print(f"  {m}")
+        print("missing decode forms:")
+        for signature, count in sorted(missing.items()):
+            print(f"  {_format_signature(signature)} count={count}")
     if extra:
-        print("extra mnemonics:")
-        for m in extra:
-            print(f"  {m}")
+        print("extra catalog forms:")
+        for signature, count in sorted(extra.items()):
+            print(f"  {_format_signature(signature)} count={count}")
     if mismatches:
         print("mismatches:")
         for m in mismatches[:200]:
@@ -74,7 +101,10 @@ def main() -> int:
     if missing or extra or mismatches:
         return 1
 
-    print(f"decode parity check passed: {len(a_qemu)} mnemonics")
+    print(
+        "decode parity check passed: "
+        f"{sum(observed.values())} forms, {len(identities)} mnemonics"
+    )
     return 0
 
 
