@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pycircuit import Circuit, module
 
-from common.isa import OP_BIOR, OP_BLOAD, OP_BSTORE
+from common.isa import OP_BIOR
 from common.module_specs import backend_block_if_spec
 
 
@@ -49,8 +49,6 @@ def build_backend_cmd_bridge(m: Circuit, *, rob_w: int = 6) -> None:
 
     cmd_kind = c(0, width=3)
     cmd_kind = cmd_op.__eq__(c(OP_BIOR, width=12))._select_internal(c(1, width=3), cmd_kind)
-    cmd_kind = cmd_op.__eq__(c(OP_BLOAD, width=12))._select_internal(c(2, width=3), cmd_kind)
-    cmd_kind = cmd_op.__eq__(c(OP_BSTORE, width=12))._select_internal(c(3, width=3), cmd_kind)
     cmd_payload = cmd_value
     cmd_tile = cmd_payload._trunc(width=6)
 

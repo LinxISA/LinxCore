@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import json
 import re
 from dataclasses import dataclass
@@ -41,6 +42,27 @@ LEGACY_SYMBOL_OVERRIDES = {
     "bstart_call": "OP_BSTART_STD_CALL",
     "bstart_cond": "OP_BSTART_STD_COND",
     "bstart_direct": "OP_BSTART_STD_DIRECT",
+    "bstart_tload": "OP_BSTART_TMA",
+    "bstart_tstore": "OP_BSTART_TMA",
+    "bstart_tmov": "OP_BSTART_TMA",
+    "bstart_tmatmul": "OP_BSTART_CUBE",
+    "bstart_tmatmul_acc": "OP_BSTART_CUBE",
+    "bstart_tmatmul_bias": "OP_BSTART_CUBE",
+    "bstart_tmatmulmx": "OP_BSTART_CUBE",
+    "bstart_tmatmulmx_acc": "OP_BSTART_CUBE",
+    "bstart_tmatmulmx_bias": "OP_BSTART_CUBE",
+    "bstart_tgemv": "OP_BSTART_CUBE",
+    "bstart_tgemv_acc": "OP_BSTART_CUBE",
+    "bstart_tgemv_bias": "OP_BSTART_CUBE",
+    "bstart_tgemvmx": "OP_BSTART_CUBE",
+    "bstart_tgemvmx_acc": "OP_BSTART_CUBE",
+    "bstart_tgemvmx_bias": "OP_BSTART_CUBE",
+    "bstart_tprefetch": "OP_BSTART_TMA",
+    "bstart_mgather": "OP_BSTART_TMA",
+    "bstart_mscatter": "OP_BSTART_TMA",
+    "bstart_mgather_mask": "OP_BSTART_TMA",
+    "bstart_mscatter_mask": "OP_BSTART_TMA",
+    "bstart_mgather_cas": "OP_BSTART_TMA",
     "hl_bstart_std_fall": "OP_BSTART_STD_FALL",
     "hl_bstart_std_call": "OP_BSTART_STD_CALL",
     "hl_bstart_std_cond": "OP_BSTART_STD_COND",
@@ -65,6 +87,7 @@ class DecodeEntry:
     mask: int
     match: int
     fields: List[str]
+    source_profile: str = ""
 
 
 def _pattern_to_mask_match(bits: str) -> tuple[int, int]:
@@ -164,6 +187,8 @@ def classify_major_minor(mnemonic: str) -> tuple[str, str]:
         return "HL_PCR", "hl_pcr"
     if m in {"fentry", "fexit", "fret_ra", "fret_stk", "mcopy", "mset", "esave", "ercov"}:
         return "MACRO_TEMPLATE", "template"
+    if m in {"casb", "cash", "casw", "casd", "dma"}:
+        return "ALU_INT", "atomic"
     if m.startswith("c_"):
         if m.startswith("c_bstart") or m == "c_bstop":
             return "BLOCK_BOUNDARY", "c_boundary"
@@ -249,31 +274,121 @@ def block_kind_for_mnemonic(mnemonic: str) -> str:
     return "NONE"
 
 
-def build_catalog(qemu_linx_dir: Path) -> Dict[str, object]:
+def _camel_to_decode_name(name: str) -> str:
+    return name.lower().replace(".", "_")
+
+
+def _field_tokens_from_linxisa_instruction(insn: dict) -> list[str]:
+    fields = []
+    enc = insn.get("encoding", {})
+    parts = enc.get("parts", [])
+    if not parts:
+        return fields
+    for field in parts[0].get("fields", []):
+        name = str(field.get("name", ""))
+        if name:
+            fields.append(f"%{name}")
+    return fields
+
+
+def load_linxisa_v057_supplement(linxisa_json: Path) -> list[DecodeEntry]:
+    data = json.loads(linxisa_json.read_text(encoding="utf-8"))
+    wanted = {
+        "BSTART.TPREFETCH",
+        "BSTART.MGATHER",
+        "BSTART.MSCATTER",
+        "BSTART.MGATHER.MASK",
+        "BSTART.MSCATTER.MASK",
+        "BSTART.MGATHER.CAS",
+        "BSTART.TMATMUL",
+        "BSTART.TMATMUL.BIAS",
+        "BSTART.TMATMUL.ACC",
+        "BSTART.TMATMULMX",
+        "BSTART.TMATMULMX.BIAS",
+        "BSTART.TMATMULMX.ACC",
+        "BSTART.TGEMV",
+        "BSTART.TGEMV.BIAS",
+        "BSTART.TGEMV.ACC",
+        "BSTART.TGEMVMX",
+        "BSTART.TGEMVMX.BIAS",
+        "BSTART.TGEMVMX.ACC",
+        "CASB",
+        "CASH",
+        "CASW",
+        "CASD",
+        "DMA",
+    }
+    out: list[DecodeEntry] = []
+    for insn in data.get("instructions", []):
+        mnemonic = str(insn.get("mnemonic", ""))
+        if mnemonic not in wanted:
+            continue
+        enc_parts = insn.get("encoding", {}).get("parts", [])
+        if not enc_parts:
+            continue
+        enc = enc_parts[0]
+        out.append(
+            DecodeEntry(
+                mnemonic=_camel_to_decode_name(mnemonic),
+                file="insn32.decode",
+                enc_len=int(insn.get("length_bits", enc.get("length_bits", 32))),
+                pattern=str(enc["pattern"]),
+                mask=int(str(enc["mask"]), 0),
+                match=int(str(enc["match"]), 0),
+                fields=_field_tokens_from_linxisa_instruction(insn),
+                source_profile="v0.57",
+            )
+        )
+    return out
+
+
+def _resolve_linxisa_json(profile: str | None) -> Path | None:
+    if not profile:
+        return None
+    root = os.environ.get("LINXISA_ROOT") or os.environ.get("LINXISA_DIR")
+    if root:
+        candidate = Path(root) / "isa" / profile / f"linxisa-{profile}.json"
+    else:
+        candidate = Path(__file__).resolve().parents[4] / "isa" / profile / f"linxisa-{profile}.json"
+    return candidate if candidate.exists() else None
+
+
+def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dict[str, object]:
     entries = load_qemu_entries(qemu_linx_dir)
-    by_mnemonic: Dict[str, DecodeEntry] = {}
+    supplement_json = _resolve_linxisa_json(isa_profile)
+    if supplement_json is not None:
+        seen = {(entry.mnemonic, entry.enc_len, entry.mask, entry.match) for entry in entries}
+        for entry in load_linxisa_v057_supplement(supplement_json):
+            signature = (entry.mnemonic, entry.enc_len, entry.mask, entry.match)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            entries.append(entry)
+    by_mnemonic: Dict[str, List[DecodeEntry]] = {}
     for e in entries:
-        by_mnemonic.setdefault(e.mnemonic, e)
+        by_mnemonic.setdefault(e.mnemonic, []).append(e)
 
     for m in MISC_INTERNAL_MNEMONICS:
         if m not in by_mnemonic:
-            by_mnemonic[m] = DecodeEntry(
-                mnemonic=m,
-                file="internal",
-                enc_len=0,
-                pattern="",
-                mask=0,
-                match=0,
-                fields=[],
-            )
+            by_mnemonic[m] = [
+                DecodeEntry(
+                    mnemonic=m,
+                    file="internal",
+                    enc_len=0,
+                    pattern="",
+                    mask=0,
+                    match=0,
+                    fields=[],
+                )
+            ]
 
     records = []
     for mnemonic in sorted(by_mnemonic.keys()):
-        e = by_mnemonic[mnemonic]
-        major, minor = classify_major_minor(mnemonic)
-        rd_kind, rs1_kind, rs2_kind, imm_kind = classify_fields(e.fields)
-        records.append(
-            {
+        forms = by_mnemonic[mnemonic]
+        for form_index, e in enumerate(forms):
+            major, minor = classify_major_minor(mnemonic)
+            rd_kind, rs1_kind, rs2_kind, imm_kind = classify_fields(e.fields)
+            record = {
                 "mnemonic": mnemonic,
                 "symbol": mnemonic_to_symbol(mnemonic),
                 "enc_len": e.enc_len,
@@ -291,7 +406,15 @@ def build_catalog(qemu_linx_dir: Path) -> Dict[str, object]:
                 "flags": "",
                 "source_file": e.file,
             }
-        )
+            if e.source_profile:
+                record["source_profile"] = e.source_profile
+            if len(forms) > 1:
+                # Additive schema extension: legacy single-form records keep
+                # their original shape, while repeated mnemonic forms expose
+                # deterministic source-order identity.
+                record["form_index"] = form_index
+                record["form_count"] = len(forms)
+            records.append(record)
 
     sym_to_cat: Dict[str, str] = {}
     for r in records:

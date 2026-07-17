@@ -26,6 +26,21 @@ def _emit_py_ids(out: Path, symbol_to_id: OrderedDict[str, int]) -> None:
 
 
 def _emit_py_meta(out: Path, records: list[dict]) -> None:
+    ordered_records = sorted(
+        records, key=lambda x: (x["mnemonic"], int(x.get("form_index", 0)))
+    )
+    records_by_mnemonic: OrderedDict[str, list[dict]] = OrderedDict()
+    for record in ordered_records:
+        records_by_mnemonic.setdefault(record["mnemonic"], []).append(record)
+
+    def meta_expr(record: dict) -> str:
+        return (
+            "OpcodeMeta(op_id={op_id}, symbol=\"{symbol}\", mnemonic=\"{mnemonic}\", "
+            "major_cat=\"{major_cat}\", minor_cat=\"{minor_cat}\", insn_len={enc_len}, mask={mask}, match={match}, "
+            "rd_kind=\"{rd_kind}\", rs1_kind=\"{rs1_kind}\", rs2_kind=\"{rs2_kind}\", imm_kind=\"{imm_kind}\", "
+            "block_kind=\"{block_kind}\", cmd_kind=\"{cmd_kind}\", flags=\"{flags}\", source_file=\"{source_file}\")"
+        ).format(**record)
+
     lines: list[str] = []
     lines.append("from __future__ import annotations")
     lines.append("")
@@ -72,26 +87,50 @@ def _emit_py_meta(out: Path, records: list[dict]) -> None:
     lines.append("    source_file: str")
     lines.append("")
     lines.append("OPCODE_META_BY_MNEMONIC = {")
-    for r in sorted(records, key=lambda x: x["mnemonic"]):
-        lines.append(
-            "    \"{mnemonic}\": OpcodeMeta(op_id={op_id}, symbol=\"{symbol}\", mnemonic=\"{mnemonic}\", "
-            "major_cat=\"{major_cat}\", minor_cat=\"{minor_cat}\", insn_len={enc_len}, mask={mask}, match={match}, "
-            "rd_kind=\"{rd_kind}\", rs1_kind=\"{rs1_kind}\", rs2_kind=\"{rs2_kind}\", imm_kind=\"{imm_kind}\", "
-            "block_kind=\"{block_kind}\", cmd_kind=\"{cmd_kind}\", flags=\"{flags}\", source_file=\"{source_file}\"),".format(
-                **r
-            )
-        )
+    for mnemonic, forms in records_by_mnemonic.items():
+        lines.append(f'    "{mnemonic}": {meta_expr(forms[0])},')
     lines.append("}")
     lines.append("")
+    lines.append("_OPCODE_META_ADDITIONAL_FORMS_BY_MNEMONIC = {")
+    for mnemonic, forms in records_by_mnemonic.items():
+        if len(forms) == 1:
+            continue
+        lines.append(f'    "{mnemonic}": (')
+        for form in forms[1:]:
+            lines.append(f"        {meta_expr(form)},")
+        lines.append("    ),")
+    lines.append("}")
+    lines.append("")
+    lines.append("OPCODE_META_FORMS_BY_MNEMONIC = {")
+    lines.append("    mnemonic: (meta,) + _OPCODE_META_ADDITIONAL_FORMS_BY_MNEMONIC.get(mnemonic, ())")
+    lines.append("    for mnemonic, meta in OPCODE_META_BY_MNEMONIC.items()")
+    lines.append("}")
+    lines.append("OPCODE_META_FORMS = tuple(")
+    lines.append("    form")
+    lines.append("    for forms in OPCODE_META_FORMS_BY_MNEMONIC.values()")
+    lines.append("    for form in forms")
+    lines.append(")")
+    lines.append("")
     lines.append("OPCODE_META_BY_ID = {}")
-    lines.append("for _m in OPCODE_META_BY_MNEMONIC.values():")
+    lines.append("_opcode_meta_forms_by_id = {}")
+    lines.append("for _m in OPCODE_META_FORMS:")
     lines.append("    OPCODE_META_BY_ID.setdefault(_m.op_id, _m)")
+    lines.append("    _opcode_meta_forms_by_id.setdefault(_m.op_id, []).append(_m)")
+    lines.append("OPCODE_META_FORMS_BY_ID = {")
+    lines.append("    key: tuple(value) for key, value in _opcode_meta_forms_by_id.items()")
+    lines.append("}")
     lines.append("")
     lines.append("def opcode_meta_by_mnemonic(mnemonic: str) -> OpcodeMeta | None:")
     lines.append("    return OPCODE_META_BY_MNEMONIC.get(mnemonic)")
     lines.append("")
+    lines.append("def opcode_meta_forms_by_mnemonic(mnemonic: str) -> tuple[OpcodeMeta, ...]:")
+    lines.append("    return OPCODE_META_FORMS_BY_MNEMONIC.get(mnemonic, ())")
+    lines.append("")
     lines.append("def opcode_meta_by_id(op_id: int) -> OpcodeMeta | None:")
     lines.append("    return OPCODE_META_BY_ID.get(op_id)")
+    lines.append("")
+    lines.append("def opcode_meta_forms_by_id(op_id: int) -> tuple[OpcodeMeta, ...]:")
+    lines.append("    return OPCODE_META_FORMS_BY_ID.get(op_id, ())")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -144,7 +183,10 @@ def _emit_qemu_meta(out: Path, records: list[dict]) -> None:
     lines.append("};")
     lines.append("")
     lines.append("static const LinxOpcodeMeta linx_opcode_meta_table[] = {")
-    for r in sorted(records, key=lambda x: (x["op_id"], x["mnemonic"])):
+    for r in sorted(
+        records,
+        key=lambda x: (x["op_id"], x["mnemonic"], int(x.get("form_index", 0))),
+    ):
         lines.append(
             "    {{.op_id={op_id}, .major_cat=LINX_CAT_{major_cat}, .insn_len={enc_len}, .mask=UINT64_C({mask}), .match=UINT64_C({match}), "
             ".mnemonic=\"{mnemonic}\", .minor_cat=\"{minor_cat}\", .rd_kind=\"{rd_kind}\", .rs1_kind=\"{rs1_kind}\", "
@@ -165,6 +207,11 @@ def main() -> int:
     ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
     ap.add_argument("--linxcore-common", default="/Users/zhoubot/LinxCore/src/common")
     ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
+    ap.add_argument(
+        "--no-qemu-output",
+        action="store_true",
+        help="Only regenerate LinxCore Python metadata; leave QEMU generated headers untouched",
+    )
     args = ap.parse_args()
 
     catalog = load_catalog(Path(args.catalog))
@@ -185,14 +232,16 @@ def main() -> int:
     _emit_py_ids(lc_dir / "opcode_ids_gen.py", symbol_to_id)
     _emit_py_meta(lc_dir / "opcode_meta_gen.py", records)
 
-    qemu_dir.mkdir(parents=True, exist_ok=True)
-    _emit_qemu_ids(qemu_dir / "linx_opcode_ids_gen.h", symbol_to_id)
-    _emit_qemu_meta(qemu_dir / "linx_opcode_meta_gen.h", records)
+    if not args.no_qemu_output:
+        qemu_dir.mkdir(parents=True, exist_ok=True)
+        _emit_qemu_ids(qemu_dir / "linx_opcode_ids_gen.h", symbol_to_id)
+        _emit_qemu_meta(qemu_dir / "linx_opcode_meta_gen.h", records)
 
     print(f"generated {lc_dir / 'opcode_ids_gen.py'}")
     print(f"generated {lc_dir / 'opcode_meta_gen.py'}")
-    print(f"generated {qemu_dir / 'linx_opcode_ids_gen.h'}")
-    print(f"generated {qemu_dir / 'linx_opcode_meta_gen.h'}")
+    if not args.no_qemu_output:
+        print(f"generated {qemu_dir / 'linx_opcode_ids_gen.h'}")
+        print(f"generated {qemu_dir / 'linx_opcode_meta_gen.h'}")
     return 0
 
 

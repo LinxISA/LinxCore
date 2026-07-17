@@ -21,6 +21,7 @@ if [[ ! -d "${PYC_ROOT}" ]]; then
   exit 1
 fi
 CALLFRAME_SIZE_RAW="${LINXCORE_CALLFRAME_SIZE:-0}"
+ISA_PROFILE="${LINXCORE_ISA_PROFILE:-}"
 CALLFRAME_SIZE="$(
 python3 - <<'PY' "${CALLFRAME_SIZE_RAW}"
 import sys
@@ -35,17 +36,27 @@ print(v & ((1 << 64) - 1))
 PY
 )"
 
-# Keep opcode ids/meta synchronized with QEMU decode trees.
-python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" \
-  --qemu-linx-dir "${QEMU_LINX_DIR}" \
+# Keep opcode ids/meta synchronized with QEMU decode trees. When
+# LINXCORE_ISA_PROFILE is set, add source-golden forms that QEMU has not
+# imported yet (v0.57 tile aliases and scalar 32-bit CAS/DMA).
+extract_args=(
+  --qemu-linx-dir "${QEMU_LINX_DIR}"
   --out "${ROOT_DIR}/src/common/opcode_catalog.yaml"
+)
+parity_args=(
+  --qemu-linx-dir "${QEMU_LINX_DIR}"
+  --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
+)
+if [[ -n "${ISA_PROFILE}" ]]; then
+  extract_args+=(--isa-profile "${ISA_PROFILE}")
+  parity_args+=(--allow-source-profile "${ISA_PROFILE}")
+fi
+python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" "${extract_args[@]}"
 python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --linxcore-common "${ROOT_DIR}/src/common" \
   --qemu-linx-dir "${QEMU_LINX_DIR}"
-python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" \
-  --qemu-linx-dir "${QEMU_LINX_DIR}" \
-  --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
+python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" "${parity_args[@]}"
 
 if [[ -f "${PYC_ROOT}/scripts/lib.sh" ]]; then
   # Legacy pyCircuit tree layout.

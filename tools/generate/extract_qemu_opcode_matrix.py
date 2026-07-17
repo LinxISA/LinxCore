@@ -23,11 +23,16 @@ def main() -> int:
         default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"),
         help="Output catalog path (JSON-formatted YAML)",
     )
+    ap.add_argument(
+        "--isa-profile",
+        default=None,
+        help="Optional LinxISA profile supplement, e.g. v0.57 for source-golden forms not yet in QEMU",
+    )
     args = ap.parse_args()
 
     qemu_dir = Path(args.qemu_linx_dir)
     out = Path(args.out)
-    catalog = build_catalog(qemu_dir)
+    catalog = build_catalog(qemu_dir, isa_profile=args.isa_profile)
     save_catalog(out, catalog)
 
     records = catalog["records"]

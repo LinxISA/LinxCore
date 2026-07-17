@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from .opcode_meta_gen import OPCODE_META_BY_MNEMONIC, OpcodeMeta
+from .opcode_meta_gen import OPCODE_META_FORMS, OpcodeMeta
 
 
-_DECODE32 = tuple(m for m in OPCODE_META_BY_MNEMONIC.values() if m.source_file == "insn32.decode")
+_DECODE32 = tuple(m for m in OPCODE_META_FORMS if m.source_file == "insn32.decode")
 
 
 def decode32_meta(insn: int) -> OpcodeMeta | None:

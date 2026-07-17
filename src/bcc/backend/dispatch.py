@@ -7,13 +7,12 @@ from pycircuit import Circuit, function, module
 
 from common.isa import (
     OP_BIOR,
-    OP_BLOAD,
+    OP_B_IOT,
     OP_BSTART_MSEQ,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
-    OP_BSTORE,
     OP_BTEXT,
     OP_C_BSTART_COND,
     OP_C_BSTART_DIRECT,
@@ -104,8 +103,7 @@ def classify_dispatch_target(m: Circuit, op, op_is):
         op,
         OP_BTEXT,
         OP_BIOR,
-        OP_BLOAD,
-        OP_BSTORE,
+        OP_B_IOT,
     )
     to_lsu = is_mem
     to_d2 = (~to_lsu) & is_boundary_d2 & (~is_macro)
