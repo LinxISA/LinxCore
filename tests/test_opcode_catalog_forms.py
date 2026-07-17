@@ -183,6 +183,69 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             for raw in raw_forms:
                 self.assertIn(f'value = BigInt("{raw:x}", 16)', scala)
 
+    def test_v057_tma_cube_and_scalar_delta_decode(self) -> None:
+        from common.decode32 import decode32_meta
+        from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
+
+        tma_forms = (
+            ("bstart_tload", 0x00011181),
+            ("bstart_tstore", 0x00111181),
+            ("bstart_tmov", 0x00211181),
+            ("bstart_tprefetch", 0x00311181),
+            ("bstart_mgather", 0x00411181),
+            ("bstart_mscatter", 0x00511181),
+            ("bstart_mgather_mask", 0x00611181),
+            ("bstart_mscatter_mask", 0x00711181),
+            ("bstart_mgather_cas", 0x00811181),
+        )
+        for expected_function, (mnemonic, raw) in enumerate(tma_forms):
+            decoded = decode32_meta(raw)
+            self.assertIsNotNone(decoded)
+            self.assertEqual(decoded.mnemonic, mnemonic)
+            self.assertEqual(decoded.symbol, "OP_BSTART_TMA")
+            self.assertEqual((raw >> 20) & 0x1F, expected_function)
+            self.assertEqual(len(opcode_meta_forms_by_mnemonic(mnemonic)), 1)
+
+        cube_aliases = (
+            ("bstart_tmatmul", 0x00031181),
+            ("bstart_tmatmul_bias", 0x00131181),
+            ("bstart_tmatmul_acc", 0x00231181),
+            ("bstart_tmatmulmx", 0x00431181),
+            ("bstart_tmatmulmx_bias", 0x00531181),
+            ("bstart_tmatmulmx_acc", 0x00631181),
+        )
+        for mnemonic, raw in cube_aliases:
+            decoded = decode32_meta(raw)
+            self.assertIsNotNone(decoded)
+            self.assertEqual(decoded.mnemonic, mnemonic)
+            self.assertEqual(decoded.symbol, "OP_BSTART_CUBE")
+
+        scalar_forms = (
+            ("casb", "OP_CASB", 0x0000001B),
+            ("cash", "OP_CASH", 0x0000101B),
+            ("casw", "OP_CASW", 0x0000201B),
+            ("casd", "OP_CASD", 0x0000301B),
+            ("dma", "OP_DMA", 0x0000700B),
+        )
+        for mnemonic, symbol, raw in scalar_forms:
+            decoded = decode32_meta(raw)
+            self.assertIsNotNone(decoded)
+            self.assertEqual(decoded.mnemonic, mnemonic)
+            self.assertEqual(decoded.symbol, symbol)
+
+        for retired in (
+            "texract",
+            "tfill",
+            "tfmod",
+            "tfmods",
+            "tlrelu",
+            "tpow",
+            "tpows",
+            "tprelu",
+            "trandom",
+        ):
+            self.assertEqual(opcode_meta_forms_by_mnemonic(f"bstart_{retired}"), ())
+
 
 if __name__ == "__main__":
     unittest.main()

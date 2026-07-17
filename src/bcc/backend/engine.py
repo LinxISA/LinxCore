@@ -14,14 +14,12 @@ from pycircuit.dsl import Signal
 from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
 from common.isa import (
     OP_BIOR,
-    OP_BLOAD,
     BK_CALL,
     BK_COND,
     BK_DIRECT,
     BK_FALL,
     BK_ICALL,
     BK_IND,
-    OP_BSTORE,
     OP_BTEXT,
     BK_RET,
     OP_BSTART_STD_COND,
@@ -1282,8 +1280,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     issue_fires_eff[cmd_slot] = cmd_slot_sel._select_internal(cmd_issue_fire_eff, issue_fires_eff[cmd_slot])
     cmd_payload_lane = cmd_uop_imm
     cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BIOR, width=12))._select_internal(sl_vals[cmd_slot] | sr_vals[cmd_slot], cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BLOAD, width=12))._select_internal(sl_vals[cmd_slot] + cmd_uop_imm, cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
     m.assign(lsu_probe_fire_i, issue_fires[0] & exs[0].is_load)
@@ -2873,8 +2869,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_op = cmd_uop_op
     cmd_kind = c(0, width=3)
     cmd_kind = cmd_op.__eq__(c(OP_BIOR, width=12))._select_internal(c(1, width=3), cmd_kind)
-    cmd_kind = cmd_op.__eq__(c(OP_BLOAD, width=12))._select_internal(c(2, width=3), cmd_kind)
-    cmd_kind = cmd_op.__eq__(c(OP_BSTORE, width=12))._select_internal(c(3, width=3), cmd_kind)
     cmd_payload = cmd_payload_lane
     cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob

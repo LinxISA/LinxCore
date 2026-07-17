@@ -1,7 +1,7 @@
 # LinxCore Module Catalog
 
 This chapter defines the canonical module structure for LinxCore under the live
-`v0.56` superscalar contract.
+`v0.57` superscalar contract.
 
 It freezes which module families own architectural behavior, which files are
 the canonical owners of those behaviors, and how those modules compose into the
@@ -870,7 +870,7 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ### TEPL owner status
 
-- LinxISA `v0.56` `TEPL` targets the `TAU` typed tile-to-tile
+- LinxISA `v0.57` `TEPL` targets the `TAU` typed tile-to-tile
   template/tile-operation boundary through `TileOpcode`.
 - Current `src/tau/tau.py` is a reduced fixed-latency shell without promoted
   TileOpcode, descriptor, STID, rejection, or tile-state behavior. BCTRL must
@@ -879,7 +879,7 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ### FIXP owner status
 
-- LinxISA `v0.56` defines `FIXP` as a non-scalar block type, but this
+- LinxISA `v0.57` defines `FIXP` as a non-scalar block type, but this
   repository does not yet have a promoted FIXP execution-owner module.
 - BCTRL/BROB must preserve its `{non-scalar}` completion obligation and reject
   unsupported execution explicitly; FIXP must not alias a scalar or unrelated

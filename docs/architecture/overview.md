@@ -1,9 +1,9 @@
-# LinxCore v0.56 Superscalar Bring-up Overview
+# LinxCore v0.57 Superscalar Bring-up Overview
 
 ## Scope
 
 This document is the top-level specification overview for LinxCore under the
-live LinxISA `v0.56` contract.
+live LinxISA `v0.57` contract.
 
 LinxCore is specified here as:
 
@@ -13,7 +13,7 @@ LinxCore is specified here as:
 - the owner of precise retirement, recovery, interrupt, MMU, and trace-visible
   execution behavior,
 - the machine that downstream compiler, emulator, pyCircuit, and testbench
-  work must target for canonical `v0.56` behavior.
+  work must target for canonical `v0.57` behavior.
 
 This specification is not a performance wish-list and not a historical bring-up
 log. It defines the live contract the implementation must preserve.
@@ -25,9 +25,9 @@ glue.
 
 ## Normative links
 
-- Base ISA architecture contract: `docs/architecture/v0.56-architecture-contract.md`
-- Workload-to-engine model: `docs/architecture/v0.56-workload-engine-model.md`
-- Rendering command model: `docs/architecture/v0.56-rendering-command-contract.md`
+- Base ISA architecture contract: `docs/architecture/v0.57-architecture-contract.md`
+- Workload-to-engine model: `docs/architecture/v0.57-workload-engine-model.md`
+- Rendering command model: `docs/architecture/v0.57-rendering-command-contract.md`
 - LinxCore microarchitecture contract: `rtl/LinxCore/docs/architecture/microarchitecture.md`
 - LinxCore interface contract: `rtl/LinxCore/docs/architecture/interfaces.md`
 - LinxCore verification matrix: `rtl/LinxCore/docs/architecture/verification-matrix.md`
@@ -139,7 +139,7 @@ stream, completion model, flush rules, and observability rules as scalar work.
 
 ## Architectural role in LinxISA
 
-Under `v0.56`, LinxCore is the execution substrate for the multi-workload
+Under `v0.57`, LinxCore is the execution substrate for the multi-workload
 LinxISA model.
 
 - BCC and the block fabric provide the architectural control and submission
@@ -157,9 +157,9 @@ LinxISA model.
 
 This composition rule is required for consistency with:
 
-- `docs/architecture/v0.56-architecture-contract.md`
-- `docs/architecture/v0.56-workload-engine-model.md`
-- `docs/architecture/v0.56-rendering-command-contract.md`
+- `docs/architecture/v0.57-architecture-contract.md`
+- `docs/architecture/v0.57-workload-engine-model.md`
+- `docs/architecture/v0.57-rendering-command-contract.md`
 
 ## Current architecture closure slice
 
@@ -238,7 +238,7 @@ expand a mechanism, but they must not weaken or redefine the live contract.
 
 The live closure target for this specification is:
 
-- LinxISA `v0.56` architectural behavior,
+- LinxISA `v0.57` architectural behavior,
 - ACR service-request entry/return behavior, including `BI=1` block-state
   restoration,
 - MMU and interrupt correctness,
@@ -254,6 +254,6 @@ This overview does not freeze:
 
 - final frequency, area, or power targets,
 - future width scaling beyond the current live contract,
-- future engine additions not already covered by the LinxISA `v0.56`
+- future engine additions not already covered by the LinxISA `v0.57`
   architecture contract,
 - historical bring-up strategies that are no longer part of the live behavior.

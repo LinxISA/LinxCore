@@ -30,6 +30,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Check QEMU vs LinxCore opcode catalog parity")
     ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
     ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
+    ap.add_argument(
+        "--allow-source-profile",
+        action="append",
+        default=[],
+        help="Allow catalog records from this non-QEMU source_profile as additive supplements",
+    )
     args = ap.parse_args()
 
     expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))
@@ -39,10 +45,17 @@ def main() -> int:
         (row.mnemonic, row.enc_len, row.mask, row.match)
         for row in expected_entries
     )
+    allowed_profiles = set(args.allow_source_profile)
     actual_qemu_records = [
         record
         for record in actual["records"]
         if not str(record["mnemonic"]).startswith("internal_")
+        and str(record.get("source_profile", "")) not in allowed_profiles
+    ]
+    actual_source_records = [
+        record
+        for record in actual["records"]
+        if str(record.get("source_profile", "")) in allowed_profiles
     ]
     observed = Counter(_record_signature(record) for record in actual_qemu_records)
 
@@ -105,6 +118,12 @@ def main() -> int:
         "decode parity check passed: "
         f"{sum(observed.values())} forms, {len(identities)} mnemonics"
     )
+    if actual_source_records:
+        profiles = sorted({str(record.get("source_profile")) for record in actual_source_records})
+        print(
+            "source supplement accepted: "
+            f"{len(actual_source_records)} forms, profiles={','.join(profiles)}"
+        )
     return 0
 
 

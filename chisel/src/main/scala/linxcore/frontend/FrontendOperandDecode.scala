@@ -224,19 +224,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setDst(10.U)
     }
 
-    when(opcodeIs(FrontendOpcodeDecodeTable.OP_BLOAD, FrontendOpcodeDecodeTable.OP_BSTORE)) {
-      setDst(rd32)
-      setSrc(0, rs1_32)
-      setSrc(1, rs2_32)
-    }
-
     when(opcodeIs(
       FrontendOpcodeDecodeTable.OP_MADD,
       FrontendOpcodeDecodeTable.OP_MADDW,
       FrontendOpcodeDecodeTable.OP_CSEL,
       FrontendOpcodeDecodeTable.OP_BIOR,
-      FrontendOpcodeDecodeTable.OP_BLOAD,
-      FrontendOpcodeDecodeTable.OP_BSTORE,
       FrontendOpcodeDecodeTable.OP_SB,
       FrontendOpcodeDecodeTable.OP_SH,
       FrontendOpcodeDecodeTable.OP_SW,

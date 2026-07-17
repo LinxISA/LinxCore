@@ -17,6 +17,10 @@ ALLOWLIST = {
     SRC / "bcc" / "backend" / "backend.py",  # thin shell by design
     SRC / "bcc" / "backend" / "modules" / "index_mux.py",  # small reusable mux helper
     SRC / "bcc" / "block_struct" / "test_block_struct_rtl_smoke.py",
+    # Deliberately stateless ready/valid fan-out controller. Its Boolean
+    # handshake equations are substantive dataflow but do not need a mux or
+    # registered state, so the generic stub heuristic cannot recognize them.
+    SRC / "bcc" / "lsu" / "mdb_transaction.py",
 }
 
 TARGET_DIRS = [

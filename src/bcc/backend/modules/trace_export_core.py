@@ -9,13 +9,11 @@ from pycircuit import Circuit, module
 from common.exec_uop import ExecOut
 from common.isa import (
     OP_BIOR,
-    OP_BLOAD,
     BK_CALL,
     BK_COND,
     BK_DIRECT,
     BK_ICALL,
     BK_IND,
-    OP_BSTORE,
     OP_BTEXT,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_CALL,
@@ -1767,8 +1765,6 @@ def _build_trace_export_core(
     issue_fires_eff[cmd_slot] = cmd_slot_sel._select_internal(cmd_issue_fire_eff, issue_fires_eff[cmd_slot])
     cmd_payload_lane = cmd_uop_imm
     cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BIOR, width=12))._select_internal(sl_vals[cmd_slot] | sr_vals[cmd_slot], cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BLOAD, width=12))._select_internal(sl_vals[cmd_slot] + cmd_uop_imm, cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
     m.assign(rob_issue_fire_lane0_raw, issue_fires[0])

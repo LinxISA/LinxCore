@@ -207,6 +207,11 @@ def main() -> int:
     ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
     ap.add_argument("--linxcore-common", default="/Users/zhoubot/LinxCore/src/common")
     ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
+    ap.add_argument(
+        "--no-qemu-output",
+        action="store_true",
+        help="Only regenerate LinxCore Python metadata; leave QEMU generated headers untouched",
+    )
     args = ap.parse_args()
 
     catalog = load_catalog(Path(args.catalog))
@@ -227,14 +232,16 @@ def main() -> int:
     _emit_py_ids(lc_dir / "opcode_ids_gen.py", symbol_to_id)
     _emit_py_meta(lc_dir / "opcode_meta_gen.py", records)
 
-    qemu_dir.mkdir(parents=True, exist_ok=True)
-    _emit_qemu_ids(qemu_dir / "linx_opcode_ids_gen.h", symbol_to_id)
-    _emit_qemu_meta(qemu_dir / "linx_opcode_meta_gen.h", records)
+    if not args.no_qemu_output:
+        qemu_dir.mkdir(parents=True, exist_ok=True)
+        _emit_qemu_ids(qemu_dir / "linx_opcode_ids_gen.h", symbol_to_id)
+        _emit_qemu_meta(qemu_dir / "linx_opcode_meta_gen.h", records)
 
     print(f"generated {lc_dir / 'opcode_ids_gen.py'}")
     print(f"generated {lc_dir / 'opcode_meta_gen.py'}")
-    print(f"generated {qemu_dir / 'linx_opcode_ids_gen.h'}")
-    print(f"generated {qemu_dir / 'linx_opcode_meta_gen.h'}")
+    if not args.no_qemu_output:
+        print(f"generated {qemu_dir / 'linx_opcode_ids_gen.h'}")
+        print(f"generated {qemu_dir / 'linx_opcode_meta_gen.h'}")
     return 0
 
 

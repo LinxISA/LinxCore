@@ -22,8 +22,7 @@ from .isa import (
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
     OP_BIOR,
-    OP_BLOAD,
-    OP_BSTORE,
+    OP_B_IOT,
     OP_BTEXT,
     OP_ANDW,
     OP_BXS,
@@ -522,6 +521,21 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     srcp_32 = insn32[27:32]
     shamt6_32 = insn32[20:26]
 
+    # Canonical v0.57 B.IOT operands are not in scalar R-format positions:
+    # SrcTile0={bit15,bits11:7}, SrcTile1=bits21:16, DstTile=bits24:22,
+    # imm4=bits28:25, L=bit29, and reuse flags=bits31:30. DstTile=7 is
+    # the source-only sentinel used by PR #123/#133 descriptor chains.
+    iot_src0 = insn32[7:12]._zext(width=6) | insn32[15:16]._zext(width=6).shl(amount=5)
+    iot_src1 = insn32[16:22]
+    iot_dst_raw = insn32[22:25]
+    iot_dst = iot_dst_raw.__eq__(c(7, width=3))._select_internal(
+        reg_invalid, iot_dst_raw._zext(width=6)
+    )
+    iot_reuse = insn32[30:32]
+    iot_imm4 = insn32[25:29]._zext(width=6)
+    iot_func = insn32[12:15]._zext(width=6)
+    iot_last = insn32[29:30]._zext(width=64)
+
     imm12_u64 = insn32[20:32]
     imm12_s64 = insn32[20:32]._sext(width=64)
 
@@ -975,10 +989,10 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BIOR, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
 
     cond = in32 & masked_eq(m, insn32, mask=0x0000607F, match=0x00004013)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BLOAD, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
+    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_B_IOT, len_v=4, regdst_v=iot_dst, srcl_v=iot_src0, srcr_v=iot_src1, srcr_type_v=iot_reuse, shamt_v=iot_imm4, srcp_v=iot_func, imm_v=iot_last)
 
     cond = in32 & masked_eq(m, insn32, mask=0x0000607F, match=0x00006013)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BSTORE, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
+    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_B_IOT, len_v=4, regdst_v=iot_dst, srcl_v=iot_src0, srcr_v=iot_src1, srcr_type_v=iot_reuse, shamt_v=iot_imm4, srcp_v=iot_func, imm_v=iot_last)
 
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00001001)
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BSTART_STD_FALL, len_v=4, regdst_v=REG_INVALID)

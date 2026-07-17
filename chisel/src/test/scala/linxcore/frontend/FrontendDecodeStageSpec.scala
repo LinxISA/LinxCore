@@ -120,18 +120,11 @@ object FrontendDecodeStageReference {
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET) || cSetretAlias) {
       dst = Some(10)
     }
-    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BLOAD, FrontendOpcodeDecodeTable.OP_BSTORE)) {
-      dst = Some(rd32)
-      src(0) = Some(rs1_32)
-      src(1) = Some(rs2_32)
-    }
     if (opcodeIs(rule,
       FrontendOpcodeDecodeTable.OP_MADD,
       FrontendOpcodeDecodeTable.OP_MADDW,
       FrontendOpcodeDecodeTable.OP_CSEL,
       FrontendOpcodeDecodeTable.OP_BIOR,
-      FrontendOpcodeDecodeTable.OP_BLOAD,
-      FrontendOpcodeDecodeTable.OP_BSTORE,
       FrontendOpcodeDecodeTable.OP_SB,
       FrontendOpcodeDecodeTable.OP_SH,
       FrontendOpcodeDecodeTable.OP_SW,
@@ -311,13 +304,17 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 649)
-    assert(FrontendOpcodeDecodeTable.OP_ADD == 58)
-    assert(FrontendOpcodeDecodeTable.OP_LD == 342)
-    assert(FrontendOpcodeDecodeTable.OP_SD == 381)
-    assert(FrontendOpcodeDecodeTable.OP_BIOR == 416)
-    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 38)
-    assert(FrontendOpcodeDecodeTable.OP_BSTOP == 578)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 680)
+    assert(FrontendOpcodeDecodeTable.OP_ADD == 61)
+    assert(FrontendOpcodeDecodeTable.OP_LD == 350)
+    assert(FrontendOpcodeDecodeTable.OP_SD == 389)
+    assert(FrontendOpcodeDecodeTable.OP_BIOR == 424)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 41)
+    assert(FrontendOpcodeDecodeTable.OP_BSTOP == 591)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_CUBE == 1)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_TMA == 23)
+    assert(FrontendOpcodeDecodeTable.OP_CASB == 75)
+    assert(FrontendOpcodeDecodeTable.OP_DMA == 86)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
   }
@@ -368,6 +365,15 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(decode(0x00003009L, lenBytes = 4).map(_.symbol).contains("OP_LD"))
     assert(decode(0x00003049L, lenBytes = 4).map(_.symbol).contains("OP_SD"))
     assert(decode(0x00000013L, lenBytes = 4).map(_.symbol).contains("OP_BIOR"))
+    assert(decode(0x00311181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TMA"))
+    assert(decode(0x00811181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TMA"))
+    assert(decode(0x00131181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
+    assert(decode(0x00631181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
+    assert(decode(0x0000001BL, lenBytes = 4).map(_.symbol).contains("OP_CASB"))
+    assert(decode(0x0000101BL, lenBytes = 4).map(_.symbol).contains("OP_CASH"))
+    assert(decode(0x0000201BL, lenBytes = 4).map(_.symbol).contains("OP_CASW"))
+    assert(decode(0x0000301BL, lenBytes = 4).map(_.symbol).contains("OP_CASD"))
+    assert(decode(0x0000700BL, lenBytes = 4).map(_.symbol).contains("OP_DMA"))
   }
 
   test("reference decode classifies dispatch and block sidebands") {
