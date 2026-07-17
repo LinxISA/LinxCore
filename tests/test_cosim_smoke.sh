@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 LLVM_MC="${LLVM_MC:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-mc}"
+QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 SRC="${SRC:-${LINX_ROOT}/emulator/qemu/tests/linxisa/commit_trace_smoke.s}"
 TMP_DIR="$(mktemp -d -t linxcore_cosim_smoke.XXXXXX)"
 OBJ="${TMP_DIR}/commit_trace_smoke.o"
@@ -26,10 +27,11 @@ fi
 
 # Positive case: short lockstep window that includes trigger commit and one more.
 bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
+  --qemu-bin "${QEMU_BIN}" \
   --elf "${OBJ}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \
-  --terminate-pc 0x10020 \
+  --terminate-pc 0x10022 \
   --max-commits 64 \
   --max-dut-cycles 500000 \
   -- \
@@ -37,10 +39,11 @@ bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
 
 # Negative case: force mismatch should fail-fast.
 if bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
+  --qemu-bin "${QEMU_BIN}" \
   --elf "${OBJ}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \
-  --terminate-pc 0x10020 \
+  --terminate-pc 0x10022 \
   --max-commits 64 \
   --max-dut-cycles 500000 \
   --force-mismatch 1 \

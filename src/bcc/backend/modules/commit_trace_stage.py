@@ -230,7 +230,7 @@ def build_commit_trace_stage(
             parent_uid = rob_parent_uids[slot]
             is_macro_commit = op_is_any(m, op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
             fire = fire_raw & (~is_macro_commit)
-            is_gpr_dst = rob_dst_kinds[slot] == u(2, 1)
+            is_scalar_dst = rob_dst_kinds[slot] != u(2, 0)
             wb_trace_suppress = op_is_any(
                 m,
                 op,
@@ -244,7 +244,7 @@ def build_commit_trace_stage(
                 OP_C_BSTOP,
             )
             rd = rob_dst_aregs[slot]
-            wb_valid = fire & is_gpr_dst & (rd != z6) & (~wb_trace_suppress)
+            wb_valid = fire & is_scalar_dst & (rd != z6) & (~wb_trace_suppress)
             wb_rd = rd
             wb_data = rob_values[slot]
             src0_valid = fire & rob_src0_valids[slot]
@@ -290,7 +290,7 @@ def build_commit_trace_stage(
             parent_prev = rob_parent_uids[prev]
             is_macro_prev = op_is_any(m, op_prev, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
             fire_prev = fire_prev_raw & (~is_macro_prev)
-            is_gpr_prev = rob_dst_kinds[prev] == u(2, 1)
+            is_scalar_prev = rob_dst_kinds[prev] != u(2, 0)
             wb_suppress_prev = op_is_any(
                 m,
                 op_prev,
@@ -304,7 +304,7 @@ def build_commit_trace_stage(
                 OP_C_BSTOP,
             )
             rd_prev = rob_dst_aregs[prev]
-            wb_valid_prev = fire_prev & is_gpr_prev & (rd_prev != z6) & (~wb_suppress_prev)
+            wb_valid_prev = fire_prev & is_scalar_prev & (rd_prev != z6) & (~wb_suppress_prev)
             wb_rd_prev = rd_prev
             wb_data_prev = rob_values[prev]
             src0_valid_prev = fire_prev & rob_src0_valids[prev]
