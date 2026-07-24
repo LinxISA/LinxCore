@@ -9908,6 +9908,13 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRowValid, replay.io.completeRowValid)
     arbiter.io.replayCompleteRow :=
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRow, replay.io.completeRow)
+    arbiter.io.serviceCompleteValid := false.B
+    arbiter.io.serviceCompleteRobValue := 0.U
+    arbiter.io.templateCompleteValid := false.B
+    arbiter.io.templateCompleteRobValue := 0.U
+    arbiter.io.templateCompleteRowValid := false.B
+    arbiter.io.templateCompleteRow := 0.U.asTypeOf(arbiter.io.templateCompleteRow)
+    arbiter.io.templateCompleteParentSlot := 0.U
 
     path.io.completeValid := arbiter.io.completeValid
     path.io.completeRobValue := arbiter.io.completeRobValue
