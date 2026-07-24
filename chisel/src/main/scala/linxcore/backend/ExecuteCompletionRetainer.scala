@@ -234,16 +234,20 @@ class ExecuteCompletionRetainer(
   private val base1Valid = !dequeueStored && secondValid
   private val base1Entry = secondEntry
   private val baseCount = PopCount(Seq(base0Valid, base1Valid))
-  private val freeSlots = 2.U(2.W) - baseCount
+  private val residentCountBeforeDequeue = PopCount(Seq(storedLive(0), storedLive(1)))
+  private val freeSlotsBeforeDequeue = 2.U(2.W) - residentCountBeforeDequeue
   private val lane0NeedsStore = laneCanAccept(0) && !flowLane0Consumed
   private val lane1NeedsStore = laneCanAccept(1)
 
   private val laneReady = Wire(Vec(2, Bool()))
   private val laneAccepted = Wire(Vec(2, Bool()))
-  laneReady(0) := !protocolError && !laneCleared(0) &&
-    Mux(flowLane0, io.outputReady || freeSlots >= 1.U, freeSlots >= 1.U)
+  // Ingress readiness is intentionally based only on the resident state at the
+  // start of the cycle.  Do not use outputReady/dequeue-created capacity here:
+  // top-level arbiters may compute outputReady from side-effect readiness that
+  // itself depends on laneReady.
+  laneReady(0) := !protocolError && !laneCleared(0) && (freeSlotsBeforeDequeue >= 1.U)
   laneReady(1) := !protocolError && !laneCleared(1) &&
-    Mux(lane0NeedsStore, freeSlots >= 2.U, freeSlots >= 1.U)
+    Mux(laneCanAccept(0), freeSlotsBeforeDequeue >= 2.U, freeSlotsBeforeDequeue >= 1.U)
   for (idx <- 0 until 2) {
     laneAccepted(idx) := io.lanes(idx).valid && laneReady(idx)
     io.laneReady(idx) := laneReady(idx)

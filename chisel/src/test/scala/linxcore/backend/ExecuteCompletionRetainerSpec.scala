@@ -333,6 +333,65 @@ class ExecuteCompletionRetainerSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("lane readiness is independent of outputReady while resident occupancy is unchanged") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      pokeLane(dut, lane = 0, keyA, token = 0x4a1)
+      dut.io.outputReady.poke(false.B)
+      dut.io.laneReady(0).expect(true.B)
+      dut.io.laneReady(1).expect(true.B)
+      dut.io.outputReady.poke(true.B)
+      dut.io.laneReady(0).expect(true.B)
+      dut.io.laneReady(1).expect(true.B)
+
+      dut.io.outputReady.poke(false.B)
+      dut.clock.step()
+      idle(dut)
+      pokeLane(dut, lane = 0, keyB, token = 0x4b2)
+      dut.io.outputReady.poke(false.B)
+      dut.io.laneReady(0).expect(true.B)
+      dut.io.laneReady(1).expect(false.B)
+      dut.io.outputReady.poke(true.B)
+      dut.io.laneReady(0).expect(true.B)
+      dut.io.laneReady(1).expect(false.B)
+    }
+  }
+
+  test("full retainer does not accept a new lane in the same cycle it dequeues") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      val keyC = keyA.copy(pc = 0x1008, ridValue = 3, robValue = 3)
+      idle(dut)
+      pokeLane(dut, lane = 0, keyA, token = 0x4c1)
+      pokeLane(dut, lane = 1, keyB, token = 0x4c2)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      pokeLane(dut, lane = 0, keyC, token = 0x4c3)
+      expectComplete(dut, robValue = 1, token = 0x4c1)
+      dut.io.laneReady(0).expect(false.B)
+      dut.io.laneAccepted(0).expect(false.B)
+      dut.io.overflowBlocked.expect(true.B)
+      dut.io.residentCount.expect(1.U)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(false.B)
+      pokeLane(dut, lane = 0, keyC, token = 0x4c3)
+      expectComplete(dut, robValue = 2, token = 0x4c2)
+      dut.io.laneReady(0).expect(true.B)
+      dut.io.laneAccepted(0).expect(true.B)
+      dut.io.residentCount.expect(2.U)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      expectComplete(dut, robValue = 2, token = 0x4c2)
+      dut.clock.step()
+      expectComplete(dut, robValue = 3, token = 0x4c3)
+    }
+  }
+
   test("nuke kill suppresses invalid incoming before protocol checks") {
     simulate(new ExecuteCompletionRetainerProbe) { dut =>
       idle(dut)
