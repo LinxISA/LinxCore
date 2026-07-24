@@ -67,9 +67,9 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         )
         self.assertEqual(
             report["cross_stack_aligned_support"]["covered"],
-            contract["expected"]["cross_stack_aligned_support"]["covered"],
+            190,
         )
-        self.assertIn("CSEL", report["cross_stack_aligned_support"]["known_divergences"])
+        self.assertEqual(report["cross_stack_aligned_support"]["known_divergences"], {})
 
     def test_expanded_contract_fixture_uses_expanded_expected_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -202,6 +202,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_LWI",
                         "OP_LWI_U",
                         "OP_LWUI",
+                        "OP_LR_W",
                         "OP_MADD",
                         "OP_MAX",
                         "OP_MAXU",
@@ -277,8 +278,8 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
         self.assertEqual(contract["contract_id"], "expanded_current")
         _assert_report_matches_detected_contract(self, report)
-        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 189)
-        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 188)
+        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 190)
+        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 190)
 
     def test_legacy_contract_fixture_uses_legacy_expected_values(self) -> None:
         legacy_symbols = [
@@ -356,7 +357,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         self.assertEqual(contract["contract_id"], "legacy_clean_head")
         _assert_report_matches_detected_contract(self, report)
         self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 58)
-        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 57)
+        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 58)
 
     def test_cli_check_is_machine_consumable_json(self) -> None:
         result = subprocess.run(

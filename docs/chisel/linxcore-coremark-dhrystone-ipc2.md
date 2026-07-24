@@ -10,6 +10,10 @@ and Dhrystone ELFs in natural mode. The target is end-to-end finisher pass for
 both workloads with IPC close to 2.0. The performance gate currently uses
 `target_ipc = 1.90` as the acceptance threshold.
 
+Related scalar coverage specs:
+
+- [`linxcore-scalar-lrsc.md`](linxcore-scalar-lrsc.md)
+
 This document is not a claim that the target has been reached. The current
 state still times out on both workloads. `OP_HL_SDI_PO` has now been verified
 only on the autonomous direct-execute/commit-row natural benchmark path. The
@@ -340,14 +344,14 @@ unless the exact implementation and tests are committed at that revision.
 | Non-vector/tile operational ISA denominator | 547 | 100% denominator | Scalar/control/system/FP surface after excluding vector/tile |
 | Frontend effective decode | 546 / 547 | 99.82% | All but `XB` have frontend decode coverage |
 | Clean committed HEAD reduced ALU baseline | 58 / 547 | 10.60% | Implementation baseline that may be claimed for the clean committed tree |
-| Clean committed HEAD aligned baseline | 57 / 547 | 10.42% | Clean baseline excluding the current `CSEL` semantic divergence |
-| Active dirty candidate reduced ALU contract | 189 / 547 | 34.55% | Expanded mixed ALU implementation under active dirty worktree; not a clean committed claim |
-| Active dirty candidate aligned contract | 188 / 547 | 34.37% | Dirty candidate excluding the current `CSEL` semantic divergence; not a clean committed claim |
+| Clean committed HEAD aligned baseline | 58 / 547 | 10.60% | Clean baseline for the committed tree; the current `CSEL` contract is aligned |
+| Active dirty candidate reduced ALU contract | 190 / 547 | 34.73% | Expanded mixed ALU implementation under active dirty worktree; not a clean committed claim |
+| Active dirty candidate aligned contract | 190 / 547 | 34.73% | Dirty candidate with the current `CSEL` contract aligned across Sail, LinxCoreModel, QEMU, LLVM, and Chisel; not a clean committed claim |
 
-The 189/547 and 188/547 numbers depend on uncommitted mixed ALU implementation
+The 190/547 and 190/547 numbers depend on uncommitted mixed ALU implementation
 state in the active worktree. They are not evidence that commit `e648` or the
 clean committed HEAD implements that surface. Promotion language MUST use the
-58/547 and 57/547 clean baselines unless the expanded candidate is committed
+58/547 and 58/547 clean baselines unless the expanded candidate is committed
 and reverified.
 
 The dual source-shape gate is mandatory for expanded ALU coverage. An
@@ -360,8 +364,6 @@ the owner is audited and tested.
 Open red items:
 
 - `XB`: frontend decode hole.
-- `CSEL`: QEMU/Sail/model operand-semantics divergence must be resolved before
-  claiming aligned support.
 - `REV`: QEMU whole-register reversal and Sail ring-segment reversal disagree;
   fix the cross-stack contract before RTL promotion.
 - Atomics: `LR`, `SC`, `CAS`, and AMO forms require atomicity, ordering, and

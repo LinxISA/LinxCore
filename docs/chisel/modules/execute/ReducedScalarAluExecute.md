@@ -198,6 +198,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
+| `OP_C_SLLI`, `OP_C_SRLI` | shift implicit `t#1` source left/right by `uimm5` and write implicit `t` |
 | `OP_C_AND` | `srcData(0) & srcData(1)` |
 | `OP_C_SUB` | `srcData(0) - srcData(1)` |
 | `OP_C_SEXT_B/H/W` | sign-extend `srcData(0)` from 8, 16, or 32 bits |
@@ -213,7 +214,12 @@ The Chisel module implements the first reduced subset:
 | `OP_CSEL` | `srcData(0)` when `srcData(2) != 0`, otherwise `srcData(1)` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
 | `OP_FRET_STK` | redirect-only while a live SETC/marker target is selected; on an explicit condition-false path, or when no condition and no target owner exist, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
-| `OP_HL_LUI` | `in.imm` |
+| `OP_HL_LIS`, `OP_HL_LUI` | sign-extended 32-bit immediate |
+| `OP_HL_LIU` | zero-extended 32-bit immediate |
+| `OP_HL_ADDI`, `OP_HL_SUBI` | 64-bit add/subtract with the frontend-zero-extended `uimm24` |
+| `OP_HL_ADDIW`, `OP_HL_SUBIW` | low-32-bit add/subtract with `uimm24`, then sign-extend |
+| `OP_HL_ANDI`, `OP_HL_ORI`, `OP_HL_XORI` | 64-bit logical operation with the frontend-sign-extended `simm24` |
+| `OP_HL_ANDIW`, `OP_HL_ORIW`, `OP_HL_XORIW` | low-32-bit logical operation with sign-extended `simm24`, then sign-extend |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_HL_SB_PCR` | `0`, with a reduced 1-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
 | `OP_HL_SD_PCR` | `0`, with a reduced 8-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
@@ -232,6 +238,12 @@ The Chisel module implements the first reduced subset:
 | `OP_SWI` | `0`, with a reduced 4-byte store sideband at `srcData(1) + (in.imm << 2)` and store data `srcData(0)` |
 | `OP_MUL` | low 64 bits of `srcData(0) * srcData(1)` |
 | `OP_MULW` | sign-extended low-32-bit `srcData(0) * srcData(1)` |
+| `OP_MULU` | low 64 bits of unsigned `srcData(0) * srcData(1)` |
+| `OP_MULUW` | sign-extended low 32 bits of unsigned `srcData(0) * srcData(1)` |
+| `OP_MAX`, `OP_MIN` | signed 64-bit maximum/minimum |
+| `OP_MAXU`, `OP_MINU` | unsigned 64-bit maximum/minimum |
+| `OP_BIC`, `OP_BIS` | clear/set the ring-selected `SrcL` bitfield |
+| `OP_CTZ` | trailing-zero count of the ring-selected field |
 | `OP_SBI` | `0`, with a reduced 1-byte store sideband at `srcData(1) + in.imm` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
@@ -562,6 +574,33 @@ LIQ-owned E1 load can each retire their issued residency in the same cycle.
 The W2 identity still feeds `ReducedLoadReplayCompletionDrain` in the reduced
 top, ensuring a queued replay candidate is drained only by the exact load row
 that produced it.
+
+## Non-vector/tile coverage status
+
+The operational v0.57 denominator is 547 canonical instruction forms after
+excluding 184 vector forms, 30 tile/PTO descriptors, and eight vector-mode
+block descriptors. Against that denominator:
+
+- strict frontend decode covers 546/547 forms (99.82%); the remaining runtime
+  decode hole is `XB ACR-ID,C-ID`, which requires the platform CAC/XBINFO table
+  and exception contract rather than a decoder-only implementation;
+- `ReducedScalarAluExecute.isSupported` covers 190/547 forms (34.73%);
+- all 190 supported forms are now cross-stack aligned; `CSEL` matches
+  Sail, LinxCoreModel, QEMU, LLVM MC lowering, and this Chisel module on
+  `SrcP, SrcL, SrcR` ordering and true-to-`SrcL` selection.
+
+The latest scalar packet adds `BIC`, `BIS`, `CTZ`, signed and unsigned
+`MIN/MAX`, `MULU/MULUW`, eight HL immediate ALU forms, `HL.LIS/LIU`, and
+compressed `C.SLLI/SRLI`. It also repairs `BXS/BXU/CLZ/BCNT` to the
+Sail/LinxCoreModel 64-bit ring semantics. QEMU
+currently rejects ring-wrapping fields for these bitfield operations and is
+therefore not used as the semantic oracle for wrap encodings.
+
+The next uncovered groups are not all ALU-local. Atomic forms require an
+LR/SC/AMO memory owner; system/cache/TLB forms require CSR, trap, and
+maintenance owners; and `REV` cannot be copied from QEMU because its current
+translator is explicitly simplified to a whole-register byte swap, whereas
+Sail specifies byte reversal inside a ring-selected field.
 
 ## Verification
 

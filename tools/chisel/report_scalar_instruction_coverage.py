@@ -80,9 +80,7 @@ VECTOR_MODE_BLOCK_MNEMONICS = {
     "C.BSTART.VPAR",
     "C.BSTART.VSEQ",
 }
-KNOWN_ALIGNMENT_DIVERGENCES = {
-    "CSEL": "QEMU/Sail operand-order divergence; exclude from cross-stack aligned support",
-}
+KNOWN_ALIGNMENT_DIVERGENCES: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -269,27 +267,27 @@ EXPANDED_END_SIGNATURE = "private def isDivideOrRemainder(op: UInt): Bool ="
 LEGACY_END_SIGNATURE = "private def ldiScaledOffset(imm: UInt): UInt ="
 
 SOURCE_SHAPE_CONTRACTS = {
-    "expanded_current": {
-        "start_signature": IS_SUPPORTED_SIGNATURE,
-        "end_signature": EXPANDED_END_SIGNATURE,
-        "forbidden_private_def_between_markers": True,
-        "expected": {
-            "frontend_strict_decode": {"covered": 546, "denominator": 547},
-            "reduced_scalar_alu_support": {"covered": 189, "denominator": 547},
-            "cross_stack_aligned_support": {"covered": 188, "denominator": 547},
+        "expanded_current": {
+            "start_signature": IS_SUPPORTED_SIGNATURE,
+            "end_signature": EXPANDED_END_SIGNATURE,
+            "forbidden_private_def_between_markers": True,
+            "expected": {
+                "frontend_strict_decode": {"covered": 546, "denominator": 547},
+                "reduced_scalar_alu_support": {"covered": 190, "denominator": 547},
+                "cross_stack_aligned_support": {"covered": 190, "denominator": 547},
+            },
         },
-    },
-    "legacy_clean_head": {
-        "start_signature": IS_SUPPORTED_SIGNATURE,
-        "end_signature": LEGACY_END_SIGNATURE,
-        "forbidden_private_def_between_markers": True,
-        "forbidden_signature_after_start": EXPANDED_END_SIGNATURE,
-        "expected": {
-            "frontend_strict_decode": {"covered": 546, "denominator": 547},
-            "reduced_scalar_alu_support": {"covered": 58, "denominator": 547},
-            "cross_stack_aligned_support": {"covered": 57, "denominator": 547},
+        "legacy_clean_head": {
+            "start_signature": IS_SUPPORTED_SIGNATURE,
+            "end_signature": LEGACY_END_SIGNATURE,
+            "forbidden_private_def_between_markers": True,
+            "forbidden_signature_after_start": EXPANDED_END_SIGNATURE,
+            "expected": {
+                "frontend_strict_decode": {"covered": 546, "denominator": 547},
+                "reduced_scalar_alu_support": {"covered": 58, "denominator": 547},
+                "cross_stack_aligned_support": {"covered": 58, "denominator": 547},
+            },
         },
-    },
 }
 
 
