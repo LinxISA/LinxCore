@@ -13,7 +13,21 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SPEC = ROOT.parent.parent / "isa" / "v0.57" / "linxisa-v0.57.json"
+
+
+def _first_existing_path(candidates: tuple[Path, ...]) -> Path:
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
+
+
+DEFAULT_SPEC = _first_existing_path(
+    (
+        ROOT.parent.parent / "isa" / "v0.57" / "linxisa-v0.57.json",
+        Path("/Users/zhoubot/linx-isa/isa/v0.57/linxisa-v0.57.json"),
+    )
+)
 DEFAULT_FRONTEND = (
     ROOT
     / "chisel"
@@ -251,37 +265,88 @@ def _parse_frontend_symbols(path: Path) -> set[str]:
 
 
 IS_SUPPORTED_SIGNATURE = "private def isSupported(op: UInt): Bool ="
-IS_SUPPORTED_END_SIGNATURE = "private def isDivideOrRemainder(op: UInt): Bool ="
+EXPANDED_END_SIGNATURE = "private def isDivideOrRemainder(op: UInt): Bool ="
+LEGACY_END_SIGNATURE = "private def ldiScaledOffset(imm: UInt): UInt ="
+
+SOURCE_SHAPE_CONTRACTS = {
+    "expanded_current": {
+        "start_signature": IS_SUPPORTED_SIGNATURE,
+        "end_signature": EXPANDED_END_SIGNATURE,
+        "forbidden_private_def_between_markers": True,
+        "expected": {
+            "frontend_strict_decode": {"covered": 546, "denominator": 547},
+            "reduced_scalar_alu_support": {"covered": 189, "denominator": 547},
+            "cross_stack_aligned_support": {"covered": 188, "denominator": 547},
+        },
+    },
+    "legacy_clean_head": {
+        "start_signature": IS_SUPPORTED_SIGNATURE,
+        "end_signature": LEGACY_END_SIGNATURE,
+        "forbidden_private_def_between_markers": True,
+        "forbidden_signature_after_start": EXPANDED_END_SIGNATURE,
+        "expected": {
+            "frontend_strict_decode": {"covered": 546, "denominator": 547},
+            "reduced_scalar_alu_support": {"covered": 58, "denominator": 547},
+            "cross_stack_aligned_support": {"covered": 57, "denominator": 547},
+        },
+    },
+}
 
 
-def _extract_is_supported_body(path: Path) -> str:
+def _private_def_between(body: str) -> re.Match[str] | None:
+    return re.search(r"(?m)^\s*private def (?!isSupported\b)[A-Za-z0-9_]+\b", body)
+
+
+def _extract_is_supported_body(path: Path) -> tuple[str, str, dict[str, Any]]:
     text = path.read_text(encoding="utf-8")
     start = text.find(IS_SUPPORTED_SIGNATURE)
-    end = text.find(IS_SUPPORTED_END_SIGNATURE)
-    if start < 0 or end < 0 or end <= start:
+    if start < 0:
         raise ValueError(
             f"{path}: could not isolate isSupported source-shape contract "
-            f"({IS_SUPPORTED_SIGNATURE!r} before {IS_SUPPORTED_END_SIGNATURE!r})"
+            f"({IS_SUPPORTED_SIGNATURE!r} not found)"
         )
+
+    expanded_end = text.find(EXPANDED_END_SIGNATURE, start + len(IS_SUPPORTED_SIGNATURE))
+    legacy_end = text.find(LEGACY_END_SIGNATURE, start + len(IS_SUPPORTED_SIGNATURE))
+
+    if expanded_end >= 0:
+        if legacy_end >= 0 and legacy_end < expanded_end:
+            raise ValueError(
+                f"{path}: ambiguous isSupported source-shape contract; "
+                f"legacy end appears before expanded end"
+            )
+        contract_id = "expanded_current"
+        end = expanded_end
+    elif legacy_end >= 0:
+        contract_id = "legacy_clean_head"
+        end = legacy_end
+    else:
+        raise ValueError(
+            f"{path}: unknown isSupported source-shape contract; expected "
+            f"{EXPANDED_END_SIGNATURE!r} or {LEGACY_END_SIGNATURE!r} after isSupported"
+        )
+
+    if end <= start:
+        raise ValueError(f"{path}: invalid isSupported source-shape marker order")
+
     body = text[start:end]
-    nested_helper = re.search(
-        r"(?m)^\s*private def (?!isSupported\b)[A-Za-z0-9_]+\b", body
-    )
+    nested_helper = _private_def_between(body)
     if nested_helper is not None:
         raise ValueError(
             f"{path}: isSupported source-shape contract drifted; "
-            f"found helper before {IS_SUPPORTED_END_SIGNATURE!r}: "
+            f"found helper before {SOURCE_SHAPE_CONTRACTS[contract_id]['end_signature']!r}: "
             f"{nested_helper.group(0).strip()}"
         )
-    return body
+
+    return contract_id, body, SOURCE_SHAPE_CONTRACTS[contract_id]
 
 
-def _parse_supported_alu_symbols(path: Path) -> set[str]:
-    body = _extract_is_supported_body(path)
+def _parse_supported_alu_symbols(path: Path) -> tuple[set[str], str, dict[str, Any]]:
+    contract_id, body, contract = _extract_is_supported_body(path)
     symbols = set(re.findall(r"FrontendOpcodeDecodeTable\.(OP_[A-Z0-9_]+)", body))
     if not symbols:
         raise ValueError(f"{path}: isSupported contains no OP_* symbols")
-    return symbols
+    return symbols, contract_id, contract
 
 
 def _bucket_ids(items: list[dict[str, Any]]) -> list[str]:
@@ -331,7 +396,7 @@ def build_report(
         raise ValueError(f"scalar denominator drifted: {len(scalar_forms)}")
 
     frontend_symbols = _parse_frontend_symbols(frontend_path)
-    alu_supported_symbols = _parse_supported_alu_symbols(alu_path)
+    alu_supported_symbols, contract_id, contract = _parse_supported_alu_symbols(alu_path)
     meta_symbols_by_name = _load_opcode_meta_symbols(src_root)
 
     frontend_missing = []
@@ -368,9 +433,11 @@ def build_report(
         "reduced_scalar_alu": str(alu_path),
         "source_shape_contracts": {
             "reduced_scalar_alu_is_supported": {
-                "start_signature": IS_SUPPORTED_SIGNATURE,
-                "end_signature": IS_SUPPORTED_END_SIGNATURE,
+                "contract_id": contract_id,
+                "start_signature": contract["start_signature"],
+                "end_signature": contract["end_signature"],
                 "private_def_between_markers": "forbidden",
+                "expected": contract["expected"],
                 "purpose": "fail closed if helper reordering would silently change support parsing",
             }
         },
@@ -426,12 +493,11 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.check:
-        expected = {
-            "frontend_strict_decode": (546, EXPECTED_SCALAR_DENOMINATOR),
-            "reduced_scalar_alu_support": (189, EXPECTED_SCALAR_DENOMINATOR),
-            "cross_stack_aligned_support": (188, EXPECTED_SCALAR_DENOMINATOR),
-        }
-        for key, (covered, denominator) in expected.items():
+        contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
+        expected = contract["expected"]
+        for key, values in expected.items():
+            covered = values["covered"]
+            denominator = values["denominator"]
             actual = report[key]
             if actual["covered"] != covered or actual["denominator"] != denominator:
                 print(

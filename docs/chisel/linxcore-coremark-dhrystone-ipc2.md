@@ -329,14 +329,33 @@ Acceptance:
 
 Coverage MUST be reported with separate denominators. Vector and tile
 instructions are excluded from this scalar bring-up metric unless a future
-spec expands the scope.
+spec expands the scope. Coverage claims MUST also state whether they come from
+a clean committed implementation baseline or from the active dirty candidate.
+The active candidate may guide the next implementation loop, but it MUST NOT be
+used as a clean promotion claim for commit `e648` or any other committed HEAD
+unless the exact implementation and tests are committed at that revision.
 
 | Metric | Count | Coverage | Meaning |
 | --- | ---: | ---: | --- |
 | Non-vector/tile operational ISA denominator | 547 | 100% denominator | Scalar/control/system/FP surface after excluding vector/tile |
 | Frontend effective decode | 546 / 547 | 99.82% | All but `XB` have frontend decode coverage |
-| Reduced scalar ALU/backend support | 189 / 547 | 34.55% | Instructions with implemented reduced scalar execution support |
-| Cross-stack aligned reduced support | 188 / 547 | 34.37% | Same as above excluding current `CSEL` semantic divergence |
+| Clean committed HEAD reduced ALU baseline | 58 / 547 | 10.60% | Implementation baseline that may be claimed for the clean committed tree |
+| Clean committed HEAD aligned baseline | 57 / 547 | 10.42% | Clean baseline excluding the current `CSEL` semantic divergence |
+| Active dirty candidate reduced ALU contract | 189 / 547 | 34.55% | Expanded mixed ALU implementation under active dirty worktree; not a clean committed claim |
+| Active dirty candidate aligned contract | 188 / 547 | 34.37% | Dirty candidate excluding the current `CSEL` semantic divergence; not a clean committed claim |
+
+The 189/547 and 188/547 numbers depend on uncommitted mixed ALU implementation
+state in the active worktree. They are not evidence that commit `e648` or the
+clean committed HEAD implements that surface. Promotion language MUST use the
+58/547 and 57/547 clean baselines unless the expanded candidate is committed
+and reverified.
+
+The dual source-shape gate is mandatory for expanded ALU coverage. An
+instruction is eligible for the active candidate count only when both frontend
+operand shape and execute source-shape behavior are known and compatible with
+the ISA/QEMU/model contract. Unknown, ambiguous, or divergent source-shape
+metadata MUST fail closed and stay out of the aligned coverage numerator until
+the owner is audited and tested.
 
 Open red items:
 
