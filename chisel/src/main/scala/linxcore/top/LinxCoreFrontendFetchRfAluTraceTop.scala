@@ -3,7 +3,7 @@ package linxcore.top
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 
-import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
+import linxcore.backend.{DecodeRenameROBPath, ExecuteCompletionRetainer, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass, ScalarLsuParams}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric}
@@ -2287,6 +2287,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     ptrWidth = log2Ceil(p.robEntries),
     traceParams = traceParams
   ))
+  val executeCompletionRetainer = Module(new ExecuteCompletionRetainer(
+    ptrWidth = log2Ceil(p.robEntries),
+    traceParams = traceParams,
+    robEntries = p.robEntries,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth
+  ))
   val rf = Module(new ScalarGPRFile(
     archRegs = archRegs,
     physRegs = physRegs,
@@ -3758,6 +3766,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     path,
     robCompleteArbiter,
+    executeCompletionRetainer,
     execute,
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
     reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
@@ -6417,7 +6426,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeCompletePc := execute.io.completeRow.pc
   io.executeCompleteInsn := execute.io.completeRow.insn
   io.executeCompleteWbReg := execute.io.completeRow.wb.reg
-  io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError || issue.io.protocolError
+  io.rfStateError :=
+    (io.rfInitValid && !rfInitTagInRange) ||
+      rf.io.protocolError ||
+      issue.io.protocolError ||
+      executeCompletionRetainer.io.protocolError
   LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring.connect(io, issue)
   io.localTReadyMask := localTReady.asUInt
   io.localUReadyMask := localUReady.asUInt
@@ -9888,15 +9901,37 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       path: DecodeRenameROBPath,
       arbiter: ReducedRobCompletionArbiter,
+      retainer: ExecuteCompletionRetainer,
       execute: ReducedScalarAluExecute,
       replay: LoadReplayReturnPipeW2RobCompleteSource,
       retainedFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
       retainedFallbackLiveProbe: Bool,
       suppressPhysicalReplay: Bool): Unit = {
-    arbiter.io.executeCompleteValid := execute.io.completeValid
-    arbiter.io.executeCompleteRobValue := execute.io.completeRobValue
-    arbiter.io.executeCompleteRowValid := execute.io.completeValid
-    arbiter.io.executeCompleteRow := execute.io.completeRow
+    retainer.io.lanes(0).valid := execute.io.completeValid
+    retainer.io.lanes(0).key.valid := execute.io.completeValid
+    retainer.io.lanes(0).key.peId := execute.io.completePeId
+    retainer.io.lanes(0).key.stid := execute.io.completeStid
+    retainer.io.lanes(0).key.tid := execute.io.completeTid
+    retainer.io.lanes(0).key.pc := execute.io.completeRow.pc
+    retainer.io.lanes(0).key.bid := execute.io.releaseBid
+    retainer.io.lanes(0).key.gid := execute.io.releaseGid
+    retainer.io.lanes(0).key.rid := execute.io.releaseRid
+    retainer.io.lanes(0).key.rob.valid := execute.io.completeValid && execute.io.completeRow.rob.valid
+    retainer.io.lanes(0).key.rob.wrap := execute.io.completeRow.rob.wrap
+    retainer.io.lanes(0).key.rob.value := execute.io.completeRow.rob.value(retainer.io.completeRobValue.getWidth - 1, 0)
+    retainer.io.lanes(0).rowValid := execute.io.completeValid
+    retainer.io.lanes(0).row := execute.io.completeRow
+    retainer.io.lanes(1) := 0.U.asTypeOf(retainer.io.lanes(1))
+    // Reduced top has no exact completion-key range-clear translator yet.
+    // Reset clears retained state; stale retained rows after recovery drain via
+    // the ROB path's ignored-completion result instead of an invented clear.
+    retainer.io.clear := 0.U.asTypeOf(retainer.io.clear)
+    retainer.io.outputReady := arbiter.io.selectedExecute && (path.io.completeAccepted || path.io.completeIgnored)
+
+    arbiter.io.executeCompleteValid := retainer.io.completeValid
+    arbiter.io.executeCompleteRobValue := retainer.io.completeRobValue
+    arbiter.io.executeCompleteRowValid := retainer.io.completeRowValid
+    arbiter.io.executeCompleteRow := retainer.io.completeRow
     arbiter.io.replayCompleteValid :=
       Mux(
         retainedFallbackLiveProbe,

@@ -31,6 +31,9 @@ class ReducedScalarAluExecuteIO(
 
   val completeValid = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
+  val completePeId = Output(UInt(p.peIdWidth.W))
+  val completeStid = Output(UInt(p.threadIdWidth.W))
+  val completeTid = Output(UInt(p.threadIdWidth.W))
   val completeRow = Output(new CommitTraceRow(traceParams))
   val completeLsId = Output(UInt(p.lsidWidth.W))
   val completeDstPhysValid = Output(Bool())
@@ -713,6 +716,9 @@ class ReducedScalarAluExecute(
   io.loadWaitHold := !io.flushValid && eLoadWaitHold
   io.completeValid := !io.flushValid && w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
+  io.completePeId := Mux(io.completeValid, w2Uop.peId, 0.U)
+  io.completeStid := Mux(io.completeValid, w2Uop.threadId, 0.U)
+  io.completeTid := Mux(io.completeValid, w2Uop.threadId, 0.U)
   io.completeLsId := Mux(io.completeValid, w2Uop.lsid, 0.U)
   val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
   val w2FretStkFallbackTargetValid = io.fretStkFallbackTargetValid
