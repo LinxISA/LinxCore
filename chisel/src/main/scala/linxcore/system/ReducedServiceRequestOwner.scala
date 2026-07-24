@@ -178,10 +178,10 @@ class ReducedServiceRequestOwner(
     io.completeRow.insn := pending.insnRaw
     io.completeRow.len := pending.insnLen
     io.completeRow.wb.valid := true.B
-    io.completeRow.wb.reg := 10.U
+    io.completeRow.wb.reg := 2.U
     io.completeRow.wb.data := io.serviceResponse.bits.a0
     io.completeRow.dst.valid := true.B
-    io.completeRow.dst.reg := 10.U
+    io.completeRow.dst.reg := 2.U
     io.completeRow.dst.data := io.serviceResponse.bits.a0
     io.completeRow.nextPc := pending.pc + pending.insnLen
     io.releaseRid := pending.identity.rid
