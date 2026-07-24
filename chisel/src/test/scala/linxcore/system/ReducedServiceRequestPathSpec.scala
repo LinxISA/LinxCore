@@ -263,7 +263,20 @@ class ReducedServiceRequestPathSpec extends AnyFunSuite with ChiselSim {
 
       driveResponse(dut)
       dut.io.completeReady.poke(true.B)
+      dut.io.releaseReady.poke(false.B)
+      dut.io.writebackReady.poke(true.B)
+      dut.io.completeValid.expect(false.B)
+      dut.io.releaseValid.expect(false.B)
+      dut.io.writebackValid.expect(false.B)
+      dut.clock.step()
+
       dut.io.releaseReady.poke(true.B)
+      dut.io.writebackReady.poke(false.B)
+      dut.io.completeValid.expect(false.B)
+      dut.io.releaseValid.expect(false.B)
+      dut.io.writebackValid.expect(false.B)
+      dut.clock.step()
+
       dut.io.writebackReady.poke(true.B)
       dut.io.completeValid.expect(true.B)
       dut.io.releaseValid.expect(true.B)
@@ -286,9 +299,17 @@ class ReducedServiceRequestPathSpec extends AnyFunSuite with ChiselSim {
       gatherArgs(dut)
 
       dut.io.completeReady.poke(true.B)
+      dut.io.releaseReady.poke(false.B)
       dut.io.serviceRequest.valid.expect(false.B)
+      dut.io.issueReady.expect(false.B)
+      dut.io.completeValid.expect(false.B)
+      dut.io.releaseValid.expect(false.B)
+      dut.clock.step()
+
+      dut.io.releaseReady.poke(true.B)
       dut.io.issueReady.expect(true.B)
       dut.io.completeValid.expect(true.B)
+      dut.io.releaseValid.expect(true.B)
       dut.io.completeRow.trap.valid.expect(true.B)
       dut.io.completeRow.trap.cause.expect(ReducedServiceRequestOwner.TrapIllegalServiceSequence.U)
       dut.io.trappedIllegalSequence.expect(true.B)

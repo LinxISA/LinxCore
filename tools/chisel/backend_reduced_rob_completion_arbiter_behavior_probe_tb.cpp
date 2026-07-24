@@ -61,6 +61,8 @@ void drive(VReducedRobCompletionArbiterBehaviorProbe &dut,
     dut.io_replayRowToken = replay.token;
     dut.io_serviceValid = service.valid;
     dut.io_serviceSlot = service.slot;
+    dut.io_serviceRowValid = service.row_valid;
+    dut.io_serviceRowToken = service.token;
     dut.io_templateValid = templ.valid;
     dut.io_templateSlot = templ.slot;
     dut.io_templateRowValid = templ.row_valid;
@@ -80,7 +82,7 @@ Expected expected_for(
         return {true, replay.slot, replay.row_valid, replay.token, false, true, false, false, 2, true};
     }
     if (service.valid) {
-        return {true, service.slot, false, 0, false, false, true, false, 4, false};
+        return {true, service.slot, service.row_valid, service.token, false, false, true, false, 4, true};
     }
     if (templ.valid) {
         return {true, templ.slot, templ.row_valid, templ.token, false, false, false, true, 8, true};
@@ -137,7 +139,7 @@ void prove_all_valid_combinations(VReducedRobCompletionArbiterBehaviorProbe &dut
     for (unsigned bits = 0; bits < 16; ++bits) {
         const Source execute{(bits & 8U) != 0, 1, true, kExecuteToken};
         const Source replay{(bits & 4U) != 0, 3, false, kReplayToken};
-        const Source service{(bits & 2U) != 0, 5, false, 0};
+        const Source service{(bits & 2U) != 0, 5, true, 0x0102030405060708ULL};
         const Source templ{(bits & 1U) != 0, 6, true, kTemplateToken};
         drive(dut, execute, replay, service, templ, templ.slot);
         check_outputs(dut, execute, replay, service, templ, "valid-combination-" + std::to_string(bits));
@@ -167,31 +169,31 @@ void prove_row_valid_forwarding(VReducedRobCompletionArbiterBehaviorProbe &dut) 
 void prove_unselected_payload_independence(VReducedRobCompletionArbiterBehaviorProbe &dut) {
     Source execute{true, 1, true, kExecuteToken};
     Source replay{true, 3, false, kReplayToken};
-    Source service{true, 5, false, 0};
+    Source service{true, 5, true, 0x0102030405060708ULL};
     Source templ{true, 6, true, kTemplateToken};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "execute-before-unselected-mutation");
     replay = {true, 7, true, 0x0102030405060708ULL};
-    service = {true, 4, false, 0};
+    service = {true, 4, true, 0x2222333344445555ULL};
     templ = {true, 2, false, 0xf0e0d0c0b0a09080ULL};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "execute-after-unselected-mutation");
 
     execute = {false, 7, false, 0xdeadbeefdeadbeefULL};
     replay = {true, 3, true, kReplayToken};
-    service = {true, 5, false, 0};
+    service = {true, 5, true, 0x0102030405060708ULL};
     templ = {true, 6, false, kTemplateToken};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "replay-before-unselected-mutation");
     execute = {false, 2, true, 0x1212121212121212ULL};
-    service = {true, 4, false, 0};
+    service = {true, 4, true, 0x2222333344445555ULL};
     templ = {true, 5, true, 0x3434343434343434ULL};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "replay-after-unselected-mutation");
 
     execute = {false, 1, true, kExecuteToken};
     replay = {false, 3, false, kReplayToken};
-    service = {true, 5, false, 0};
+    service = {true, 5, true, 0x0102030405060708ULL};
     templ = {true, 6, true, kTemplateToken};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "service-before-template-mutation");
@@ -213,7 +215,7 @@ void prove_unselected_payload_independence(VReducedRobCompletionArbiterBehaviorP
 void prove_idle_sanitization(VReducedRobCompletionArbiterBehaviorProbe &dut) {
     const Source execute{false, 7, true, 0x1111111111111111ULL};
     const Source replay{false, 5, true, 0x2222222222222222ULL};
-    const Source service{false, 3, false, 0};
+    const Source service{false, 3, true, 0x4444444444444444ULL};
     const Source templ{false, 4, true, 0x3333333333333333ULL};
     drive(dut, execute, replay, service, templ, templ.slot);
     check_outputs(dut, execute, replay, service, templ, "idle-with-stale-payloads");
@@ -222,7 +224,7 @@ void prove_idle_sanitization(VReducedRobCompletionArbiterBehaviorProbe &dut) {
 void prove_contention_diagnostics(VReducedRobCompletionArbiterBehaviorProbe &dut) {
     Source execute{true, 2, true, kExecuteToken};
     Source replay{true, 2, true, kReplayToken};
-    Source service{true, 2, false, 0};
+    Source service{true, 2, true, 0x0102030405060708ULL};
     Source templ{true, 2, true, kTemplateToken};
     drive(dut, execute, replay, service, templ, templ.slot);
     dut.eval();
@@ -233,7 +235,7 @@ void prove_contention_diagnostics(VReducedRobCompletionArbiterBehaviorProbe &dut
 
     execute = {false, 2, true, kExecuteToken};
     replay = {true, 1, true, kReplayToken};
-    service = {true, 3, false, 0};
+    service = {true, 3, true, 0x0102030405060708ULL};
     templ = {true, 3, true, kTemplateToken};
     drive(dut, execute, replay, service, templ, templ.slot);
     dut.eval();
@@ -247,7 +249,7 @@ void prove_contention_diagnostics(VReducedRobCompletionArbiterBehaviorProbe &dut
     VReducedRobCompletionArbiterBehaviorProbe &dut) {
     const Source execute{false, 1, true, kExecuteToken};
     const Source replay{false, 3, true, kReplayToken};
-    const Source service{false, 5, false, 0};
+    const Source service{false, 5, true, 0x0102030405060708ULL};
     const Source templ{true, 6, true, kTemplateToken};
     dut.reset = 0;
     dut.clock = 0;
@@ -281,6 +283,6 @@ int main(int argc, char **argv) {
 
     std::cout
         << "backend-reduced-rob-completion-arbiter-behavior-probe: PASS "
-        << "(16 combinations, service RID-only, template rows, blockers, diagnostics, one-hot, idle)\n";
+        << "(16 combinations, service rows, template rows, blockers, diagnostics, one-hot, idle)\n";
     return 0;
 }

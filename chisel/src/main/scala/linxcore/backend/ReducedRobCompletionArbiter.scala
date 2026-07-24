@@ -21,6 +21,8 @@ class ReducedRobCompletionArbiterIO(
 
   val serviceCompleteValid = Input(Bool())
   val serviceCompleteRobValue = Input(UInt(ptrWidth.W))
+  val serviceCompleteRowValid = Input(Bool())
+  val serviceCompleteRow = Input(new CommitTraceRow(traceParams))
 
   val templateCompleteValid = Input(Bool())
   val templateCompleteRobValue = Input(UInt(ptrWidth.W))
@@ -110,7 +112,7 @@ class ReducedRobCompletionArbiter(
     Mux(
       selectedReplay,
       io.replayCompleteRowValid,
-      Mux(selectedService, false.B, Mux(selectedTemplate, io.templateCompleteRowValid, false.B))))
+      Mux(selectedService, io.serviceCompleteRowValid, Mux(selectedTemplate, io.templateCompleteRowValid, false.B))))
   io.completeRow := Mux(
     selectedExecute,
     io.executeCompleteRow,
@@ -119,7 +121,7 @@ class ReducedRobCompletionArbiter(
       io.replayCompleteRow,
       Mux(
         selectedService,
-        0.U.asTypeOf(new CommitTraceRow(traceParams)),
+        io.serviceCompleteRow,
         Mux(
           selectedTemplate,
           io.templateCompleteRow,

@@ -73,7 +73,9 @@ class ReducedServiceRequestOwnerIO(
   val completeRobValue = Output(UInt(p.robIndexWidth.W))
   val completeRow = Output(new CommitTraceRow(traceParams))
   val releaseValid = Output(Bool())
+  val releaseBid = Output(new ROBID(p.robEntries))
   val releaseRid = Output(new ROBID(p.robEntries))
+  val releaseStid = Output(UInt(p.threadIdWidth.W))
   val writebackValid = Output(Bool())
   val writeback = Output(new ReducedServiceWriteback(p))
 
@@ -133,9 +135,10 @@ class ReducedServiceRequestOwner(
   val normalSideEffectsReady = io.completeReady && io.releaseReady && io.writebackReady
   val responseFire = !io.flush && io.serviceResponse.valid && responseIdentityMatches && normalSideEffectsReady
   val canceledResponseDrain = !io.flush && cancelDrain && io.serviceResponse.valid
-  val trapFire = !io.flush && requestTrap && io.completeReady
+  val trapSideEffectsReady = io.completeReady && io.releaseReady
+  val trapFire = !io.flush && requestTrap && trapSideEffectsReady
 
-  io.request.ready := acceptingRequests && Mux(requestTrap, io.completeReady, io.serviceRequest.ready)
+  io.request.ready := acceptingRequests && Mux(requestTrap, trapSideEffectsReady, io.serviceRequest.ready)
   io.serviceRequest.valid := requestLegal
   io.serviceRequest.bits := io.request.bits
   io.serviceResponse.ready := !io.flush && (cancelDrain || (!busy) || (responseIdentityMatches && normalSideEffectsReady))
@@ -143,8 +146,10 @@ class ReducedServiceRequestOwner(
   io.completeValid := trapFire || responseFire
   io.completeRobValue := Mux(trapFire, io.request.bits.identity.rid.value, pending.identity.rid.value)
   io.completeRow := zeroRow
-  io.releaseValid := responseFire
+  io.releaseValid := trapFire || responseFire
+  io.releaseBid := ROBID.disabled(p.robEntries)
   io.releaseRid := ROBID.disabled(p.robEntries)
+  io.releaseStid := 0.U
   io.writebackValid := responseFire
   io.writeback := zeroWriteback
 
@@ -166,6 +171,9 @@ class ReducedServiceRequestOwner(
       TrapIllegalServiceRequest.U(traceParams.causeWidth.W))
     io.completeRow.trap.arg0 := io.request.bits.pc
     io.completeRow.nextPc := io.request.bits.pc
+    io.releaseBid := io.request.bits.identity.bid
+    io.releaseRid := io.request.bits.identity.rid
+    io.releaseStid := io.request.bits.identity.stid
   }.elsewhen(responseFire) {
     io.completeRow.valid := true.B
     io.completeRow.identity.bid := pending.identity.bid.value
@@ -184,7 +192,9 @@ class ReducedServiceRequestOwner(
     io.completeRow.dst.reg := 2.U
     io.completeRow.dst.data := io.serviceResponse.bits.a0
     io.completeRow.nextPc := pending.pc + pending.insnLen
+    io.releaseBid := pending.identity.bid
     io.releaseRid := pending.identity.rid
+    io.releaseStid := pending.identity.stid
     io.writeback.stid := pending.identity.stid
     io.writeback.bid := pending.identity.bid
     io.writeback.gid := pending.identity.gid

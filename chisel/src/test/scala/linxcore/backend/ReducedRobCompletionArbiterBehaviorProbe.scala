@@ -24,6 +24,8 @@ class ReducedRobCompletionArbiterBehaviorProbeIO extends Bundle {
 
   val serviceValid = Input(Bool())
   val serviceSlot = Input(UInt(3.W))
+  val serviceRowValid = Input(Bool())
+  val serviceRowToken = Input(UInt(64.W))
 
   val completeValid = Output(Bool())
   val completeSlot = Output(UInt(3.W))
@@ -81,6 +83,8 @@ class ReducedRobCompletionArbiterBehaviorProbe extends Module {
 
   arbiter.io.serviceCompleteValid := io.serviceValid
   arbiter.io.serviceCompleteRobValue := io.serviceSlot
+  arbiter.io.serviceCompleteRowValid := io.serviceRowValid
+  driveRow(arbiter.io.serviceCompleteRow, io.serviceRowValid, io.serviceRowToken)
 
   arbiter.io.templateCompleteValid := io.templateValid
   arbiter.io.templateCompleteRobValue := io.templateSlot

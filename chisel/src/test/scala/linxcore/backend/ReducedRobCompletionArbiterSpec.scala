@@ -58,7 +58,7 @@ object ReducedRobCompletionArbiterReference {
     val selected =
       if (selectedExecute) Some(execute)
       else if (selectedReplay) Some(replay)
-      else if (selectedService) Some(service.copy(rowValid = false, rowToken = 0))
+      else if (selectedService) Some(service)
       else if (selectedTemplate) Some(template)
       else None
     val sourceMask =
@@ -106,6 +106,8 @@ class ReducedRobCompletionArbiterProbeIO extends Bundle {
   val replayRowToken = Input(UInt(64.W))
   val serviceValid = Input(Bool())
   val serviceRobValue = Input(UInt(3.W))
+  val serviceRowValid = Input(Bool())
+  val serviceRowToken = Input(UInt(64.W))
   val templateValid = Input(Bool())
   val templateRobValue = Input(UInt(3.W))
   val templateRowValid = Input(Bool())
@@ -165,6 +167,8 @@ class ReducedRobCompletionArbiterProbe extends Module {
 
   arbiter.io.serviceCompleteValid := io.serviceValid
   arbiter.io.serviceCompleteRobValue := io.serviceRobValue
+  arbiter.io.serviceCompleteRowValid := io.serviceRowValid
+  driveRow(arbiter.io.serviceCompleteRow, io.serviceRowValid, io.serviceRowToken)
 
   arbiter.io.templateCompleteValid := io.templateValid
   arbiter.io.templateCompleteRobValue := io.templateRobValue
@@ -197,7 +201,7 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
 
   private val executePayload = Source(valid = false, robValue = 2, rowValid = true, rowToken = 0x11)
   private val replayPayload = Source(valid = false, robValue = 5, rowValid = false, rowToken = 0x22)
-  private val servicePayload = Source(valid = false, robValue = 3, rowValid = false, rowToken = 0)
+  private val servicePayload = Source(valid = false, robValue = 3, rowValid = true, rowToken = 0x33)
   private val templatePayload = Source(valid = false, robValue = 4, rowValid = true, rowToken = 0x44)
 
   test("exhausts execute replay service template validity combinations") {
@@ -215,7 +219,7 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
       val selected =
         if (execute.valid) Some(("execute", execute))
         else if (replay.valid) Some(("replay", replay))
-        else if (service.valid) Some(("service", service.copy(rowValid = false, rowToken = 0)))
+        else if (service.valid) Some(("service", service))
         else if (template.valid) Some(("template", template))
         else None
       val selections =
@@ -243,7 +247,7 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("forwards row-valid and row payload only from selected row-carrying sources") {
-    val rowSources = Seq(executePayload, replayPayload, templatePayload)
+    val rowSources = Seq(executePayload, replayPayload, servicePayload, templatePayload)
 
     for {
       selectedIndex <- rowSources.indices
@@ -252,11 +256,12 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
       val selectedSource = rowSources(selectedIndex).copy(valid = true, rowValid = rowValid)
       val execute = if (selectedIndex == 0) selectedSource else executePayload
       val replay = if (selectedIndex == 1) selectedSource else replayPayload
-      val template = if (selectedIndex == 2) selectedSource else templatePayload
+      val service = if (selectedIndex == 2) selectedSource else servicePayload
+      val template = if (selectedIndex == 3) selectedSource else templatePayload
       val result = ReducedRobCompletionArbiterReference(
         execute,
         replay,
-        servicePayload,
+        service,
         template,
         templateParentSlot = template.robValue)
 
@@ -266,7 +271,7 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("service-only completion selects RID and never fabricates a trace row") {
+  test("service-only completion selects RID and forwards the owner trace row") {
     val result = ReducedRobCompletionArbiterReference(
       executePayload,
       replayPayload,
@@ -276,8 +281,8 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
 
     assert(result.completeValid)
     assert(result.completeRobValue == servicePayload.robValue)
-    assert(!result.completeRowValid)
-    assert(result.completeRowToken == 0)
+    assert(result.completeRowValid)
+    assert(result.completeRowToken == servicePayload.rowToken)
     assert(result.selectedService)
     assert(result.selectedSourceMask == 0x4)
     assert(!result.protocolError)
@@ -434,6 +439,8 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.replayRowToken.poke(0x22.U)
       dut.io.serviceValid.poke(true.B)
       dut.io.serviceRobValue.poke(3.U)
+      dut.io.serviceRowValid.poke(true.B)
+      dut.io.serviceRowToken.poke(0x33.U)
       dut.io.templateValid.poke(false.B)
       dut.io.templateRobValue.poke(4.U)
       dut.io.templateRowValid.poke(true.B)
@@ -441,8 +448,8 @@ class ReducedRobCompletionArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.templateParentSlot.poke(4.U)
       dut.io.completeValid.expect(true.B)
       dut.io.completeRobValue.expect(3.U)
-      dut.io.completeRowValid.expect(false.B)
-      dut.io.completeRowToken.expect(0.U)
+      dut.io.completeRowValid.expect(true.B)
+      dut.io.completeRowToken.expect(0x33.U)
       dut.io.selectedService.expect(true.B)
       dut.io.selectedSourceMask.expect(4.U)
       dut.io.protocolError.expect(false.B)

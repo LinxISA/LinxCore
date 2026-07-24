@@ -59,7 +59,9 @@ class ReducedServiceRequestPathIO(
   val completeRobValue = Output(UInt(p.robIndexWidth.W))
   val completeRow = Output(new CommitTraceRow(traceParams))
   val releaseValid = Output(Bool())
+  val releaseBid = Output(new ROBID(p.robEntries))
   val releaseRid = Output(new ROBID(p.robEntries))
+  val releaseStid = Output(UInt(p.threadIdWidth.W))
   val writebackValid = Output(Bool())
   val writeback = Output(new ReducedServiceWriteback(p))
 
@@ -174,7 +176,9 @@ class ReducedServiceRequestPath(
   io.completeRobValue := owner.io.completeRobValue
   io.completeRow := owner.io.completeRow
   io.releaseValid := owner.io.releaseValid
+  io.releaseBid := owner.io.releaseBid
   io.releaseRid := owner.io.releaseRid
+  io.releaseStid := owner.io.releaseStid
   io.writebackValid := owner.io.writebackValid
   io.writeback := owner.io.writeback
 
