@@ -1280,6 +1280,11 @@ row-mutation helpers。
 - cycle、commit、IPC、terminal reason；
 - 每个目标模块的 activation counters。
 
+硬规则：任何 CoreMark、Dhrystone 或后续 FishToucher workload 结论都必须
+引用记录了 exact ELF path 和 SHA-256 的 manifest。若 manifest 缺少这两个
+字段，或实际 ELF 与冻结路径/SHA 不一致，该 run 只能作为调试日志，不能
+作为 workload 性能、正确性或回归结论。
+
 ### 13.1 Performance 和 DFX 计数器
 
 所有计数器使用 64-bit，并只从 owner 的 `fire` 或真实状态迁移点派生。
@@ -1373,6 +1378,75 @@ P1-B 验收：
 5. 如果某条指令、FU 语义或 ISA/QEMU/compiler 对齐问题阻止 P1-B，
    必须反馈具体 opcode、PC、manifest 和最小复现，而不是扩大到双发射
    或 commit width 重构。
+
+#### 13.1.2 P1-B1 completeReady/retainer/continuous safe scalar ALU
+
+P1-B1 的有效改动范围是解除 execute/completion 单驻留负载点，而不是扩
+frontend、rename、issue width 或 commit width：
+
+1. `ReducedScalarAluExecute` 使用显式 `completeReady`，W2 completion 未被
+   ROB/retire sink 接受时保持 E/W1/W2 payload 和 terminal side effects。
+2. retainer ingress 使用 registered resident occupancy 保守回收容量，避免
+   通过 downstream ready 或同周期 dequeue-created capacity 形成 ready loop。
+3. fixed scalar ALU row 可以在 safety predicate 允许时连续接受；writeback、
+   release、redirect 和 completion 只从 `completeFire` 发射。
+
+P1-B1 正确 FishToucher 结果使用第 13.1.1 冻结 ELF 和 SHA。相对于
+P1-A，CoreMark 和 Dhrystone 都减少 34 cycles：
+
+| Workload | Manifest | Terminal | Cycles | P1-A cycles | Improvement | Commits | IPC |
+|---|---|---|---:|---:|---:|---:|---:|
+| CoreMark | [`generated/backpressure-fishtoucher-coremark-reuse-r6/report/natural_manifest.json`](../../generated/backpressure-fishtoucher-coremark-reuse-r6/report/natural_manifest.json) | `finisher_pass`, `finisher_code=0x5555` | 9,962 | 9,996 | +34 cycles | 1,426 | 0.143143946999 |
+| Dhrystone | [`generated/backpressure-fishtoucher-dhrystone-reuse-r6/report/natural_manifest.json`](../../generated/backpressure-fishtoucher-dhrystone-reuse-r6/report/natural_manifest.json) | `finisher_pass`, `finisher_code=0x5555` | 7,961 | 7,995 | +34 cycles | 1,150 | 0.144454214295 |
+
+P1-B1 promotion 依据是 same frozen FishToucher ELF、same natural runner 和
+same max-cycle policy 下的 end-to-end finisher pass 与 IPC/cycle 改善。单元
+测试、错误 ELF 或 shorter-prefix QEMU replay 不得替代该证据。
+
+#### 13.1.3 P1-B2 queue bypass rejection and revert evidence
+
+P1-B2 尝试让 `ReducedScalarIssueQueue` 对已发射的 same-bank older resident
+进行 younger-candidate bypass。两轮有效性能测量均为负结果：
+
+| Round | Baseline | Result | Regression |
+|---|---|---|---:|
+| P1-B2 queue bypass r1 | P1-B1 FishToucher | valid workload run regressed | +147 cycles |
+| P1-B2 queue bypass r2 | P1-B1 FishToucher | valid workload run regressed | +143 cycles |
+
+第二轮负结果的 counter 形状说明问题不在 finisher 或 workload 选择，而在
+微架构收益假设本身：相对 P1-B1，CoreMark 和 Dhrystone 都出现
+`issue.pick_fire -155`、`issue.candidate_cycles -151`，
+`issue.blocked_bit_cycles[3] +320`，而 execute/completion throughput 没有
+形成可抵消的新增容量。根因是该 bypass 只改变 IQ picker eligibility 和
+same-bank resident 诊断路径，没有增加 downstream `completeReady`/retainer
+或 execute completion 吞吐；它绕过 head-issued 居民约束后反而降低了可选
+candidate/pick 活动，扩大了 blocked 周期。
+
+P1-B2 已完全撤销：
+
+- `ReducedScalarIssueQueue` 恢复为 P1-B2 前的 `selectionMask`/`blocked`
+  诊断语义；
+- P1-B2 新增的 same-bank bypass spec cases 和 test helpers 已删除；
+- `ScalarPipeSafety` 仅保留 execute 所需 `fixedScalarAlu`，删除未使用的
+  same-bank/symmetric hazard helpers。
+
+撤销后重新跑正确 FishToucher 新目录，结果 exact 回到 P1-B1：
+
+| Workload | Manifest | Terminal | Cycles | P1-B1 cycles | Delta |
+|---|---|---|---:|---:|---:|
+| CoreMark | [`generated/revert-bypass-frozen-coremark-9c734694/report/natural_manifest.json`](../../generated/revert-bypass-frozen-coremark-9c734694/report/natural_manifest.json) | `finisher_pass`, `finisher_code=0x5555` | 9,962 | 9,962 | 0 |
+| Dhrystone | [`generated/revert-bypass-frozen-dhrystone-617bd098/report/natural_manifest.json`](../../generated/revert-bypass-frozen-dhrystone-617bd098/report/natural_manifest.json) | `finisher_pass`, `finisher_code=0x5555` | 7,961 | 7,961 | 0 |
+
+撤销后关键 counters 也 exact 恢复：CoreMark
+`issue.pick_fire=2077`、`candidate_cycles=2092`、
+`blocked_bit_cycles=[1142, 734, 320, 6098]`、
+`execute.accepted=1424`；Dhrystone `issue.pick_fire=1709`、
+`candidate_cycles=1724`、`blocked_bit_cycles=[1027, 619, 297, 4810]`、
+`execute.accepted=1148`。
+
+证据边界：探索过程中出现过 `tests` ELF SHA 前缀 `6b8d` 和 CASW-oriented
+run。它们不是第 13.1.1 冻结 FishToucher ELF，不能计入 P1-B1/P1-B2
+FishToucher 性能结论，也不能用于声明 queue bypass 成功或失败。
 
 ### 13.2 LinxTrace v2 事件协议
 
