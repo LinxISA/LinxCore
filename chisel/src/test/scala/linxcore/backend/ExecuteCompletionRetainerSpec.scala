@@ -258,6 +258,119 @@ class ExecuteCompletionRetainerSpec extends AnyFunSuite with ChiselSim {
   private val keyA = KeyCase(0, 0, 0, 0x1000, bidValue = 1, gidValue = 1, ridValue = 1, robValue = 1)
   private val keyB = KeyCase(0, 0, 0, 0x1004, bidValue = 1, gidValue = 1, ridValue = 2, robValue = 2)
 
+  test("flows empty lane0 to output in the same cycle and stores nothing when ready") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      pokeLane(dut, lane = 0, keyA, token = 0x41)
+      expectComplete(dut, robValue = 1, token = 0x41)
+      dut.io.laneAccepted(0).expect(true.B)
+      dut.io.residentCount.expect(0.U)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
+  test("captures empty lane0 flow-through when downstream is blocked") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      dut.io.outputReady.poke(false.B)
+      pokeLane(dut, lane = 0, keyA, token = 0x42)
+      expectComplete(dut, robValue = 1, token = 0x42)
+      dut.io.laneAccepted(0).expect(true.B)
+      dut.io.residentCount.expect(1.U)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(false.B)
+      expectComplete(dut, robValue = 1, token = 0x42)
+      dut.clock.step()
+      expectComplete(dut, robValue = 1, token = 0x42)
+    }
+  }
+
+  test("flows lane0 and retains lane1 when both arrive to an empty ready retainer") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      pokeLane(dut, lane = 0, keyA, token = 0x43)
+      pokeLane(dut, lane = 1, keyB, token = 0x44)
+      expectComplete(dut, robValue = 1, token = 0x43)
+      dut.io.laneAccepted(0).expect(true.B)
+      dut.io.laneAccepted(1).expect(true.B)
+      dut.io.residentCount.expect(1.U)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      expectComplete(dut, robValue = 2, token = 0x44)
+      dut.clock.step()
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
+  test("stored completion has priority over incoming lane0 flow-through") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      dut.io.outputReady.poke(false.B)
+      pokeLane(dut, lane = 0, keyA, token = 0x45)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      pokeLane(dut, lane = 0, keyB, token = 0x46)
+      expectComplete(dut, robValue = 1, token = 0x45)
+      dut.io.laneAccepted(0).expect(true.B)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.outputReady.poke(true.B)
+      expectComplete(dut, robValue = 2, token = 0x46)
+      dut.clock.step()
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
+  test("nuke kill suppresses invalid incoming before protocol checks") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      dut.io.clearValid.poke(true.B)
+      dut.io.clearNuke.poke(true.B)
+      dut.io.laneValid(0).poke(true.B)
+      dut.io.laneKeyValid(0).poke(false.B)
+      dut.io.laneRowValid(0).poke(true.B)
+      dut.io.laneToken(0).poke(0x47.U)
+      dut.io.completeValid.expect(false.B)
+      dut.io.invalidCompletionIdentity.expect(false.B)
+      dut.io.protocolError.expect(false.B)
+      dut.io.laneAccepted(0).expect(false.B)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
+  test("exact kill suppresses duplicate incoming before duplicate checks") {
+    simulate(new ExecuteCompletionRetainerProbe) { dut =>
+      idle(dut)
+      pokeClearKey(dut, keyA)
+      pokeLane(dut, lane = 0, keyA, token = 0x48)
+      pokeLane(dut, lane = 1, keyA, token = 0x49)
+      dut.io.completeValid.expect(false.B)
+      dut.io.duplicateFullIdentity.expect(false.B)
+      dut.io.protocolError.expect(false.B)
+      dut.io.laneAccepted(0).expect(false.B)
+      dut.io.laneAccepted(1).expect(false.B)
+      dut.clock.step()
+
+      idle(dut)
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
   test("accepts simultaneous different exact identities and drains lane order over two cycles") {
     simulate(new ExecuteCompletionRetainerProbe) { dut =>
       idle(dut)

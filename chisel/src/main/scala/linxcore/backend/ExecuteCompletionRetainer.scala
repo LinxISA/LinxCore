@@ -1,7 +1,7 @@
 package linxcore.backend
 
 import chisel3._
-import chisel3.util.{log2Ceil, PopCount}
+import chisel3.util.{log2Ceil, Mux1H, PopCount}
 
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
 import linxcore.rob.ROBID
@@ -171,20 +171,6 @@ class ExecuteCompletionRetainer(
   private val secondValid = storedLive(0) && storedLive(1)
   private val secondEntry = slots(1)
 
-  // A matching kill suppresses the output combinationally. Any top-level
-  // connector that generates this exact kill must assert it in the same cycle
-  // that downstream ROB/flush logic suppresses the matching completion.
-  io.completeValid := firstValid
-  io.completeRobValue := Mux(firstValid, firstEntry.key.rob.value, 0.U)
-  io.completeRowValid := firstValid && firstEntry.rowValid
-  io.completeRow := Mux(firstValid, firstEntry.row, 0.U.asTypeOf(new CommitTraceRow(traceParams)))
-
-  private val dequeue = firstValid && io.outputReady
-  private val base0Valid = Mux(dequeue, secondValid, firstValid)
-  private val base0Entry = Mux(dequeue, secondEntry, firstEntry)
-  private val baseCount = PopCount(Seq(base0Valid))
-  private val freeSlots = 2.U(2.W) - baseCount
-
   private val laneEntry = Wire(Vec(2, new ExecuteCompletionRetainerEntry(
     ptrWidth,
     effectiveRobEntries,
@@ -198,45 +184,77 @@ class ExecuteCompletionRetainer(
     laneCleared(idx) := clearMatches(laneEntry(idx))
   }
 
+  private val laneActive = Wire(Vec(2, Bool()))
   private val laneInvalid = Wire(Vec(2, Bool()))
   for (idx <- 0 until 2) {
-    laneInvalid(idx) := io.lanes(idx).valid && !keyValid(io.lanes(idx).key)
+    laneActive(idx) := io.lanes(idx).valid && !laneCleared(idx)
+    laneInvalid(idx) := laneActive(idx) && !keyValid(io.lanes(idx).key)
   }
 
   private val incomingDuplicate =
-    io.lanes(0).valid && io.lanes(1).valid && sameKey(laneEntry(0).key, laneEntry(1).key)
+    laneActive(0) && laneActive(1) && sameKey(laneEntry(0).key, laneEntry(1).key)
   private val residentDuplicate = Wire(Vec(2, Bool()))
   for (lane <- 0 until 2) {
     residentDuplicate(lane) :=
-      io.lanes(lane).valid &&
+      laneActive(lane) &&
         ((storedLive(0) && sameKey(slots(0).key, laneEntry(lane).key)) ||
           (storedLive(1) && sameKey(slots(1).key, laneEntry(lane).key)))
   }
 
   private val duplicateFullIdentity = incomingDuplicate || residentDuplicate.asUInt.orR
   private val invalidCompletionIdentity = laneInvalid.asUInt.orR
-  private val validNewCount =
-    io.lanes(0).valid.asUInt +& io.lanes(1).valid.asUInt
-  private val overflowBlocked = validNewCount > freeSlots
   private val protocolError = duplicateFullIdentity || invalidCompletionIdentity
 
   io.duplicateFullIdentity := duplicateFullIdentity
   io.invalidCompletionIdentity := invalidCompletionIdentity
-  io.overflowBlocked := overflowBlocked && !protocolError
   io.protocolError := protocolError
+
+  private val laneCanAccept = Wire(Vec(2, Bool()))
+  for (idx <- 0 until 2) {
+    laneCanAccept(idx) := laneActive(idx) && !protocolError
+  }
+
+  private val flowLane0 = !firstValid && laneCanAccept(0)
+
+  // A matching kill suppresses the output combinationally. Any top-level
+  // connector that generates this exact kill must assert it in the same cycle
+  // that downstream ROB/flush logic suppresses the matching completion.
+  io.completeValid := firstValid || flowLane0
+  io.completeRobValue := Mux(firstValid, firstEntry.key.rob.value, Mux(flowLane0, laneEntry(0).key.rob.value, 0.U))
+  io.completeRowValid := Mux(firstValid, firstEntry.rowValid, flowLane0 && laneEntry(0).rowValid)
+  io.completeRow := Mux(
+    firstValid,
+    firstEntry.row,
+    Mux(flowLane0, laneEntry(0).row, 0.U.asTypeOf(new CommitTraceRow(traceParams))))
+
+  private val dequeueStored = firstValid && io.outputReady
+  private val flowLane0Consumed = flowLane0 && io.outputReady
+  private val base0Valid = Mux(dequeueStored, secondValid, firstValid)
+  private val base0Entry = Mux(dequeueStored, secondEntry, firstEntry)
+  private val base1Valid = !dequeueStored && secondValid
+  private val base1Entry = secondEntry
+  private val baseCount = PopCount(Seq(base0Valid, base1Valid))
+  private val freeSlots = 2.U(2.W) - baseCount
+  private val lane0NeedsStore = laneCanAccept(0) && !flowLane0Consumed
+  private val lane1NeedsStore = laneCanAccept(1)
 
   private val laneReady = Wire(Vec(2, Bool()))
   private val laneAccepted = Wire(Vec(2, Bool()))
-  laneReady(0) := !protocolError && !laneCleared(0) && (freeSlots >= 1.U)
+  laneReady(0) := !protocolError && !laneCleared(0) &&
+    Mux(flowLane0, io.outputReady || freeSlots >= 1.U, freeSlots >= 1.U)
   laneReady(1) := !protocolError && !laneCleared(1) &&
-    Mux(io.lanes(0).valid && !laneCleared(0), freeSlots >= 2.U, freeSlots >= 1.U)
+    Mux(lane0NeedsStore, freeSlots >= 2.U, freeSlots >= 1.U)
   for (idx <- 0 until 2) {
     laneAccepted(idx) := io.lanes(idx).valid && laneReady(idx)
     io.laneReady(idx) := laneReady(idx)
     io.laneAccepted(idx) := laneAccepted(idx)
   }
 
-  io.residentCount := PopCount(Seq(base0Valid)) + laneAccepted(0).asUInt + laneAccepted(1).asUInt
+  private val lane0StoreFire = laneAccepted(0) && !flowLane0Consumed
+  private val lane1StoreFire = laneAccepted(1)
+  io.overflowBlocked :=
+    !protocolError && ((laneActive(0) && !laneReady(0)) || (laneActive(1) && !laneReady(1)))
+  io.residentCount := baseCount + lane0StoreFire.asUInt + lane1StoreFire.asUInt
 
   private val nextEntries = Wire(Vec(2, new ExecuteCompletionRetainerEntry(
     ptrWidth,
@@ -246,17 +264,42 @@ class ExecuteCompletionRetainer(
     stidWidth,
     tidWidth)))
   private val nextValid = Wire(Vec(2, Bool()))
-  nextEntries(0) := Mux(base0Valid, base0Entry, Mux(laneAccepted(0), laneEntry(0), laneEntry(1)))
-  nextValid(0) := base0Valid || laneAccepted(0) || laneAccepted(1)
+  private val candidateValid = Wire(Vec(4, Bool()))
+  private val candidateEntry = Wire(Vec(4, new ExecuteCompletionRetainerEntry(
+    ptrWidth,
+    effectiveRobEntries,
+    traceParams,
+    peIdWidth,
+    stidWidth,
+    tidWidth)))
+  candidateValid(0) := base0Valid
+  candidateEntry(0) := base0Entry
+  candidateValid(1) := base1Valid
+  candidateEntry(1) := base1Entry
+  candidateValid(2) := lane0StoreFire
+  candidateEntry(2) := laneEntry(0)
+  candidateValid(3) := lane1StoreFire
+  candidateEntry(3) := laneEntry(1)
+
+  private val firstSelect = Wire(Vec(4, Bool()))
+  private val secondSelect = Wire(Vec(4, Bool()))
+  for (idx <- 0 until 4) {
+    val priorCount =
+      if (idx == 0) 0.U(3.W) else PopCount((0 until idx).map(candidateValid(_)))
+    firstSelect(idx) := candidateValid(idx) && priorCount === 0.U
+    secondSelect(idx) := candidateValid(idx) && priorCount === 1.U
+  }
+
+  nextValid(0) := candidateValid.asUInt.orR
+  nextEntries(0) := Mux(
+    nextValid(0),
+    Mux1H(firstSelect, candidateEntry),
+    0.U.asTypeOf(nextEntries(0)))
+  nextValid(1) := secondSelect.asUInt.orR
   nextEntries(1) := Mux(
-    base0Valid,
-    Mux(laneAccepted(0), laneEntry(0), laneEntry(1)),
-    laneEntry(1))
-  nextValid(1) :=
-    Mux(
-      base0Valid,
-      laneAccepted(0) || laneAccepted(1),
-      laneAccepted(0) && laneAccepted(1))
+    nextValid(1),
+    Mux1H(secondSelect, candidateEntry),
+    0.U.asTypeOf(nextEntries(1)))
 
   for (idx <- 0 until 2) {
     slotValid(idx) := nextValid(idx)
