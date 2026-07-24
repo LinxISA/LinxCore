@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 
 import linxcore.common.{DestinationKind, InterfaceParams}
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rename.{StoreSplitIssuePayload, StoreSplitStoreType}
 import linxcore.rob.ROBID
 
@@ -28,6 +29,18 @@ class StoreDispatchExecResult(
   val simtLane = UInt(simtLaneWidth.W)
 }
 
+class StoreDispatchScIdentity(
+    val entries: Int,
+    val stidWidth: Int = 8,
+    val lsidWidth: Int = 32)
+    extends Bundle {
+  val stid = UInt(stidWidth.W)
+  val bid = new ROBID(entries)
+  val gid = new ROBID(entries)
+  val rid = new ROBID(entries)
+  val lsIdFull = UInt(lsidWidth.W)
+}
+
 class StoreDispatchToSTQIO(
     val p: InterfaceParams = InterfaceParams(),
     val entries: Int = 16,
@@ -49,6 +62,10 @@ class StoreDispatchToSTQIO(
   val stdExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val staInsertReady = Input(Bool())
   val stdInsertReady = Input(Bool())
+  val scResultValid = Input(Bool())
+  val scResultSuccess = Input(Bool())
+  val scResultIdentity = Input(new StoreDispatchScIdentity(entries, stidWidth, p.lsidWidth))
+  val scStoreData = Input(UInt(dataWidth.W))
 
   val staDequeueReady = Output(Bool())
   val stdDequeueReady = Output(Bool())
@@ -65,6 +82,13 @@ class StoreDispatchToSTQIO(
   val blockedByStaInsert = Output(Bool())
   val blockedByStdInsert = Output(Bool())
   val stdBypassStaBlocked = Output(Bool())
+  val scCandidate = Output(Bool())
+  val scIdentityMatch = Output(Bool())
+  val scSelectedSuccess = Output(Bool())
+  val scSelectedMissDiscard = Output(Bool())
+  val scBlockedByResult = Output(Bool())
+  val scBlockedByInsert = Output(Bool())
+  val scAcceptedIdentity = Output(new StoreDispatchScIdentity(entries, stidWidth, p.lsidWidth))
 }
 
 class StoreDispatchToSTQ(
@@ -106,6 +130,29 @@ class StoreDispatchToSTQ(
     out
   }
 
+  private def payloadIdentity(payload: StoreSplitIssuePayload): StoreDispatchScIdentity = {
+    val identity = Wire(new StoreDispatchScIdentity(entries, stidWidth, p.lsidWidth))
+    identity.stid := resizeUInt(payload.uop.threadId, stidWidth)
+    identity.bid := resizeId(payload.uop.bid)
+    identity.gid := resizeId(payload.uop.gid)
+    identity.rid := resizeId(payload.uop.rid)
+    identity.lsIdFull := payload.uop.lsid
+    identity
+  }
+
+  private def scIdentityMatches(payload: StoreSplitIssuePayload, identity: StoreDispatchScIdentity): Bool = {
+    val expected = payloadIdentity(payload)
+    payload.valid &&
+      expected.stid === identity.stid &&
+      ROBID.equal(expected.bid, identity.bid) &&
+      ROBID.equal(expected.gid, identity.gid) &&
+      ROBID.equal(expected.rid, identity.rid) &&
+      expected.lsIdFull === identity.lsIdFull
+  }
+
+  private def scOpcode(payload: StoreSplitIssuePayload): Bool =
+    payload.uop.opcode === FrontendOpcodeDecodeTable.OP_SC_W.U(p.opcodeWidth.W)
+
   private def mapStoreType(payloadType: StoreSplitStoreType.Type): STQStoreType.Type = {
     val out = Wire(STQStoreType())
     out := STQStoreType.All
@@ -133,7 +180,11 @@ class StoreDispatchToSTQ(
     req
   }
 
-  private def buildRequest(payload: StoreSplitIssuePayload, exec: StoreDispatchExecResult): STQStoreRequest = {
+  private def buildRequest(
+      payload: StoreSplitIssuePayload,
+      exec: StoreDispatchExecResult,
+      dataOverrideValid: Bool = false.B,
+      dataOverride: UInt = 0.U(dataWidth.W)): STQStoreRequest = {
     val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
     req := 0.U.asTypeOf(req)
     req.storeType := mapStoreType(payload.storeType)
@@ -151,7 +202,7 @@ class StoreDispatchToSTQ(
     req.tuDstKind := Mux(payload.tuDstValid, payload.tuDstKind, DestinationKind.None)
     req.pc := payload.uop.pc
     req.addr := exec.addr
-    req.data := exec.data
+    req.data := Mux(dataOverrideValid, dataOverride, exec.data)
     req.size := exec.size
     req.stackValid := exec.stackValid
     req.scalarIex := exec.scalarIex
@@ -161,20 +212,42 @@ class StoreDispatchToSTQ(
 
   val staPayloadAvailable = io.staValid && io.sta.valid
   val stdPayloadAvailable = io.stdValid && io.std.valid
-  val staCandidate = !io.flushValid && staPayloadAvailable && io.staExec.valid
-  val stdCandidate = !io.flushValid && stdPayloadAvailable && io.stdExec.valid
+  val staScPayload =
+    staPayloadAvailable &&
+      ((io.sta.storeType === StoreSplitStoreType.All) || (io.sta.storeType === StoreSplitStoreType.Addr)) &&
+      scOpcode(io.sta)
+  val staScSplitPayload = staScPayload && (io.sta.storeType === StoreSplitStoreType.Addr)
+  val stdScPayload =
+    stdPayloadAvailable &&
+      (io.std.storeType === StoreSplitStoreType.Data) &&
+      scOpcode(io.std)
+  val splitScPairReady = !staScSplitPayload || stdScPayload
+  val scCandidate = !io.flushValid && staScPayload && io.staExec.valid
+  val scIdentityMatch =
+    scCandidate &&
+      io.scResultValid &&
+      scIdentityMatches(io.sta, io.scResultIdentity) &&
+      splitScPairReady &&
+      (!staScSplitPayload || scIdentityMatches(io.std, io.scResultIdentity))
+  val scSelectedSuccess = scIdentityMatch && io.scResultSuccess && io.staInsertReady
+  val scSelectedMissDiscard = scIdentityMatch && !io.scResultSuccess
+  val staCandidate = !io.flushValid && staPayloadAvailable && io.staExec.valid && !staScPayload
+  val stdCandidate = !io.flushValid && stdPayloadAvailable && io.stdExec.valid && !stdScPayload
   val selectedSta = staCandidate && io.staInsertReady
   val selectedStd = !selectedSta && stdCandidate && io.stdInsertReady
 
   val staRequest = buildRequest(io.sta, io.staExec)
   val stdRequest = buildRequest(io.std, io.stdExec)
+  val scRequest = buildRequest(io.sta, io.staExec, dataOverrideValid = true.B, dataOverride = io.scStoreData)
+  scRequest.storeType := STQStoreType.All
+  val scAcceptedIdentity = payloadIdentity(io.sta)
 
-  io.staRequest := Mux(staPayloadAvailable, staRequest, zeroRequest)
+  io.staRequest := Mux(staPayloadAvailable, Mux(staScPayload, scRequest, staRequest), zeroRequest)
   io.stdRequest := Mux(stdPayloadAvailable, stdRequest, zeroRequest)
-  io.insert := Mux(selectedSta, staRequest, Mux(selectedStd, stdRequest, zeroRequest))
-  io.insertValid := selectedSta || selectedStd
-  io.staDequeueReady := selectedSta
-  io.stdDequeueReady := selectedStd
+  io.insert := Mux(scSelectedSuccess, scRequest, Mux(selectedSta, staRequest, Mux(selectedStd, stdRequest, zeroRequest)))
+  io.insertValid := scSelectedSuccess || selectedSta || selectedStd
+  io.staDequeueReady := scSelectedSuccess || scSelectedMissDiscard || selectedSta
+  io.stdDequeueReady := selectedStd || (staScSplitPayload && (scSelectedSuccess || scSelectedMissDiscard))
   io.staCandidate := staCandidate
   io.stdCandidate := stdCandidate
   io.selectedSta := selectedSta
@@ -184,4 +257,11 @@ class StoreDispatchToSTQ(
   io.blockedByStaInsert := staCandidate && !io.staInsertReady
   io.blockedByStdInsert := stdCandidate && !io.stdInsertReady && !selectedSta
   io.stdBypassStaBlocked := selectedStd && staCandidate && !io.staInsertReady
+  io.scCandidate := scCandidate
+  io.scIdentityMatch := scIdentityMatch
+  io.scSelectedSuccess := scSelectedSuccess
+  io.scSelectedMissDiscard := scSelectedMissDiscard
+  io.scBlockedByResult := scCandidate && !scIdentityMatch
+  io.scBlockedByInsert := scIdentityMatch && io.scResultSuccess && !io.staInsertReady
+  io.scAcceptedIdentity := Mux(scSelectedSuccess || scSelectedMissDiscard, scAcceptedIdentity, 0.U.asTypeOf(io.scAcceptedIdentity))
 }
