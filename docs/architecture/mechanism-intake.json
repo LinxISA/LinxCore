@@ -46,7 +46,7 @@
       "disposition": "adapt",
       "status": "promoted",
       "rationale": "Compact PC transport is neutral; Linx variable lengths and legal block targets change the metadata.",
-      "linx_binding": "F0-F4/IB and the PC buffer preserve full-PC reconstruction, STID, boundary metadata, and legal BSTART recovery.",
+      "linx_binding": "I-SIDE I-F0..I-F4, B-SIDE B-F0..B-F4, the distinct Instruction Buffer, and the PC buffer preserve full-PC reconstruction, STID, prediction correction, boundary metadata, and legal BSTART recovery.",
       "target_contracts": ["LC-MA-PIPE-001", "LC-MA-BLK-001"],
       "module_families": ["frontend", "block-control"],
       "scenarios": ["scenario-pipeline-admission", "scenario-rob-block-recovery"],

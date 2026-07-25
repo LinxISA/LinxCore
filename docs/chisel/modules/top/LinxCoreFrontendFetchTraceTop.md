@@ -1,5 +1,10 @@
 # LinxCoreFrontendFetchTraceTop
 
+> **Architecture status — reduced verification top.** This source-to-window
+> path is not the production IFU. The target has decoupled I-SIDE/B-SIDE,
+> parallel ITLB/L1I in I-F1, independent Instruction Buffer after I-F4,
+> and four-wide 64-bit D1.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala`
@@ -30,7 +35,8 @@ window response, slices that window through `F4DecodeWindow`, allocates and
 renames one reduced scalar row through `DecodeRenameROBPath`, then emits the
 same monitored commit-row stream used by the neutral QEMU-shaped comparator.
 
-This is still a bring-up trace top. It proves the live source-to-F4-to-ROB
+This is still a bring-up trace top. It proves the live
+source-to-legacy-window-to-ROB
 handoff and the generated-RTL JSONL plumbing. It does not prove full ELF,
 CoreMark, or QEMU equivalence because memory loading, multi-slot packet
 retirement, real execute/LSU ownership, branch prediction, and recovery are
@@ -126,7 +132,8 @@ separate harness-observable steps. F4 slot generation and decode selection are
 combinational once the source has a resident packet.
 
 The top supports backpressure at request acceptance, response acceptance, and
-decode-path acceptance. It does not yet model IFU F0-F5 multi-stage timing,
+decode-path acceptance. It does not implement target I-F0–I-F4/B-F0–B-F4
+timing,
 multiple outstanding requests, RAHQ, or prefetch.
 
 ## Flush/Recovery
@@ -188,4 +195,5 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 - Real ELF/image memory provider instead of the bounded C++ fixture.
 - Live ALU/RF/issue/LSU completion behind the fetch source top.
 - Fetch redirect/recovery ownership beyond the reduced restart input.
-- Cacheline merge, branch prediction, RAHQ, and F0-F5 timing fidelity.
+- Target I-SIDE cache-line assembly, decoupled B-F0–B-F4 prediction, and
+  independent I-F0–I-F4/B-F0–B-F4 timing fidelity.

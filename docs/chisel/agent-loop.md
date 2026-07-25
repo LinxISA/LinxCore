@@ -754,7 +754,8 @@ packet producer. The superproject root was
 `d783c308c8ed3fda088901f011c7c6457c30105f` before local skill edits. R94 is
 the first live frontend fetch trace-top packet: `LinxCoreFrontendFetchTraceTop`
 connects `FrontendFetchPacketSource` to `F4DecodeWindow` and
-`DecodeRenameROBPath`, uses F4 decoded byte count to advance the source PC,
+`DecodeRenameROBPath`, uses the legacy window fixture's decoded byte count to
+advance the source PC,
 and dumps generated-RTL commit rows through the shared JSONL writer. The
 bounded memory-window fixture intentionally exposes one valid slot per response
 while the reduced backend can retire only one selected row per packet. Its
@@ -1439,7 +1440,7 @@ Use this order for each promoted slice:
 7. `run_chisel_frontend_trace_top_xcheck.sh` after changes to the frontend
    trace-top driver, temporary completion surrogate, or top commit export.
 8. `run_chisel_frontend_fetch_trace_top_xcheck.sh` after changes to the live
-   frontend fetch source top, bounded memory-window fixture, source-to-F4
+   frontend fetch source top, bounded memory-window fixture, source-to-legacy-window
    handshake, temporary completion surrogate, or top commit export.
 9. `run_chisel_frontend_alu_trace_top_xcheck.sh` after changes to scalar ALU
    execute completion, completion-row payload wiring, or the frontend ALU

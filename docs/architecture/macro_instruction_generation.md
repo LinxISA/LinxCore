@@ -1,9 +1,11 @@
 # LinxCore Macro Instruction Generation
 
 This document records expansion order plus the reduced standalone
-implementation. The canonical target lifecycle is
-`code_template_unit.md`: F4 marks the parent, D3 reserves child rows plus a
-final template row, and CTU children use normal precise backend ownership.
+implementation. The canonical lifecycle is defined by
+`code_template_unit.md`: I-F4 predecode recognizes only BSTART/BSTOP and writes
+a 64-bit instruction; D1 full decode identifies a template opcode; D3 reserves
+child rows plus a final template row; CTU children use normal precise backend
+ownership.
 
 Relevant files:
 

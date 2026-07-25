@@ -45,6 +45,10 @@
       "class": "canonical"
     },
     {
+      "path": "docs/architecture/ifu.md",
+      "class": "canonical"
+    },
+    {
       "path": "docs/architecture/microarchitecture.md",
       "class": "canonical"
     },
@@ -130,13 +134,18 @@
   "stage_families": [
     {
       "id": "frontend",
-      "owner_document": "docs/architecture/pipeline-stage-catalog.md",
+      "owner_document": "docs/architecture/ifu.md",
       "stages": [
-        "F0",
-        "F1",
-        "F2",
-        "F3",
-        "F4"
+        "I-F0",
+        "I-F1",
+        "I-F2",
+        "I-F3",
+        "I-F4",
+        "B-F0",
+        "B-F1",
+        "B-F2",
+        "B-F3",
+        "B-F4"
       ]
     },
     {

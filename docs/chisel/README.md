@@ -4,14 +4,34 @@ This directory is the authoring home for the Chisel replacement lane. The lane
 is developed beside the current pyCircuit implementation until Chisel reaches
 equivalent module, trace, QEMU, and LinxCoreModel evidence.
 
+Architecture planning:
+
+- [LinxCore Chisel microarchitecture improvement design](linxcore-chisel-microarchitecture-improvement-design.md)
+  is the umbrella document for shared contracts, ownership, integration order,
+  and cross-domain acceptance.
+- [IFU improvement design](linxcore-chisel-ifu-improvement-design.md)
+  freezes the decoupled I-SIDE/B-SIDE architecture. I-SIDE owns I-F0–I-F4
+  with parallel ITLB/L1I access, line assembly, boundary-only predecode, and
+  64-bit expansion; B-SIDE owns the independent B-F0–B-F4 prediction pipeline.
+  An
+  independent Instruction Buffer feeds four-wide D1 full decode.
+- [OOO improvement design](linxcore-chisel-ooo-improvement-design.md)
+  covers D2/D3, rename, ROB/BROB, commit, recovery, and Template reservation.
+- [IEX improvement design](linxcore-chisel-iex-improvement-design.md)
+  covers issue/read/confirm, RF, execution units, system/service, and
+  writeback/completion.
+- [LSU improvement design](linxcore-chisel-lsu-improvement-design.md)
+  covers load/store ordering, queues, replay, cache, translation, and lower
+  memory.
+
 Current phase:
 
 - Phase 0: build skeleton
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- Phase 2: frontend F4 decode-window, instruction-buffer, and decode-ingress
-  slicing started
+- Phase 2 migration bring-up: packet-window slicing and serialized decode ingress
+  exist as migration fixtures; they do not define production IFU stages
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started
@@ -22,6 +42,20 @@ Current phase:
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
+The production IFU contract is normative in the IFU design: I-SIDE and B-SIDE
+are decoupled, non-lockstep five-stage engines named I-F0–I-F4 and
+B-F0–B-F4. I-F4 is followed by an independent Instruction Buffer and
+four-wide D1. ITLB and L1I run in parallel, ITLB miss causes an IFU inner
+flush, and I-F4 predecode
+only recognizes length plus `BSTART`/`BSTOP` before zero-extending instructions
+to 64 bit. LinxCoreModel BFU F0–F4 supplies the predictor behavior and timing
+reference for B-F0–B-F4. Model BHC/fetch-cache behavior maps to the I-SIDE L1I
+owner. B-SIDE resolves providers with stage rank
+`B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`; any later stage may correct
+an accepted earlier prediction through a typed inner flush to I-F0, with B-F4
+as the final correction point. Backend restart remains the highest control
+priority and is not a predictor provider.
+
 The first implementation packets are ROBID, commit identity, the initial
 FlushControl arbitration primitive, BROB/BID metadata, and the shared Phase 1
 common interface bundles. They are derived from
@@ -29,12 +63,13 @@ common interface bundles. They are derived from
 `model/LinxCoreModel/model/interface/CommitInfo.h`, and
 `model/LinxCoreModel/model/core/FlushControl.*`,
 `model/LinxCoreModel/model/bctrl/BROB.*`, and the C++ model bus headers under
-`model/LinxCoreModel/model/ModelCommon/bus/`. The first Phase 2 frontend slice
-also follows the LinxCoreModel `CheckMInstSize` instruction-length rule from
-`model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h` and the F4/F5/instBuffer
-queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
-current frontend transport slice composes the instruction buffer with F4
-visibility. `FrontendDecodeStage` now consumes those F4 slots and uses the
+`model/LinxCoreModel/model/ModelCommon/bus/`. The current Phase 2 frontend
+slice follows the LinxCoreModel `CheckMInstSize` instruction-length rule from
+`model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`. Its packet window,
+`F4DecodeWindow`, dense-slot queue, and reduced BFU helpers are migration
+fixtures; they do not define production I-F4, Instruction Buffer placement, or
+B-SIDE ownership. `FrontendDecodeStage` consumes the resulting migration slots
+and uses the
 pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
 records plus block/load/store sideband masks and generated store split
 metadata for load/store pairs, PCR stores, and cache-maintain rows.

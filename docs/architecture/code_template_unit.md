@@ -7,8 +7,9 @@ Canonical contract summary:
 ## Purpose
 
 `CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`,
-`FRET_STK`) into a one-uop-per-cycle stream for the owning STID. It is an
-internal producer at F4/IB, not a serial F5 stage.
+`FRET_STK`) into a one-uop-per-cycle stream for the owning STID. It is a
+backend template-expansion producer after D3 admission; it is not part of
+I-SIDE, B-SIDE, I-F4, or Instruction Buffer.
 
 Source:
 
@@ -116,8 +117,9 @@ Primary outputs:
 
 Canonical target integration is:
 
-1. F4 predecode marks a template parent, sends it through D1/D2, and holds
-   later ordinary records only for that STID. F4 does not allocate BID.
+1. D1 full decode classifies the template parent after reading its fixed
+   64-bit Instruction Buffer entry. I-F4 predecode remains limited to
+   BSTART/BSTOP and does not recognize templates.
 2. D3 atomically reserves one `(STID,BID)`, checkpoint/resource credits, N
    child ROB rows, and a final template completion/trace row. The child count
    and resource demand are derived from the classified template.

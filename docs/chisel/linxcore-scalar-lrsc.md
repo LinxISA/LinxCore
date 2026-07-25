@@ -22,7 +22,7 @@ contract unless a separate ISA decision changes that contract.
 | Sail state | `isa/sail/model/state/state.sail` | Reservation is a single local monitor at 64-byte cache-line granularity. |
 | QEMU | `emulator/qemu/target/linx/helper.c`, `translate.c` | QEMU implements helpers and clears reservations on stores/atomics, but its LR reservation match is exact address plus access size. QEMU `linx_lr_w` currently zero-extends. |
 | LinxCoreModel | `tools/LinxCoreModel/emulator/engine/AaccelssMemoryEngine.cpp`, `model/lsu/lsu.cpp` | Model classifies LR/SC as `InstGroup::ATOMIC`; LR is load-like, SC is store-like, SC data comes from source index 0, and status writes the destination. |
-| SuperNPU SLSU RTL | `Documents/superscalarNPU/rtl/sn_slsu/*`, `docs/microarch/sn_slsu/sn_slsu_arch.md` | Use retained committed-store boundaries, full identity revalidation, and recovery-owner handshakes. Do not release speculative rows from a slot-only or mask-only side effect. |
+| SuperNPU SLSU RTL (non-normative reference only) | `Documents/superscalarNPU/rtl/sn_slsu/*`, `docs/microarch/sn_slsu/sn_slsu_arch.md` | Provides comparison evidence for retained committed-store boundaries, full identity revalidation, and recovery-owner handshakes; it does not override the Linx ISA or LinxCore contract. |
 
 Normative Chisel rule: `LR.W` must sign-extend from bit 31 to XLEN. The current
 QEMU zero-extension for `linx_lr_w` is a known divergence and must be reported
@@ -198,8 +198,8 @@ The first implementation is small:
 - one LSU completion/ROB arbitration source;
 - conservative memory-order gates from existing LSID/ROB commit-head signals.
 
-The critical hardware rule learned from LinxCoreModel and SuperNPU RTL is to
-keep side effects behind retained, full-identity boundaries. Slot-only STQ
+The LinxCore rule, informed by LinxCoreModel and non-normative SuperNPU RTL
+comparison evidence, is to keep side effects behind retained, full-identity boundaries. Slot-only STQ
 free, mask-only commit, or speculative-store invalidation is not sufficient for
 LR/SC because SC success has both a memory side effect and a destination
 writeback side effect.

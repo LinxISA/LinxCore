@@ -45,9 +45,9 @@ stage owners.
 
 - Defines `LinxCoreTop`, the full top-level composition with the explicit IFU
   stage chain.
-- Instantiates the current IFU implementation modules and must converge them to
-  the canonical `F0 -> F1 -> F2 -> F3 -> F4/IB` chain before claiming
-  frontend stage ownership.
+- Must instantiate I-SIDE
+  `I-F0 -> I-F1 -> I-F2 -> I-F3 -> I-F4 -> Instruction Buffer` plus B-SIDE
+  `B-F0 -> B-F1 -> B-F2 -> B-F3 -> B-F4`.
 - Serves as the reference composition for stage-to-stage wiring names.
 - Must converge toward a connection-only composition shell as stage-local trace
   and bring-up logic is pushed into dedicated children.
@@ -78,8 +78,8 @@ canonical build-time configuration rules.
 - `src/common/decode32.py`
 - `src/common/decode48.py`
 - `src/common/decode64.py`
-- `src/common/decode_f4.py` (legacy filename for a D1-ingress compatibility
-  helper; not an F4 stage owner)
+- `src/common/decode_f4.py` (implementation filename pending replacement; it
+  is not the canonical I-F4 owner)
 
 These files define opcode identity and decode behavior consumed by the
 frontend/decode stages.
@@ -99,48 +99,43 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ### `src/bcc/ifu/f0.py`
 
-- Owns canonical F0 thread arbitration, redirect/next-PC selection, and the
-  registered request context handed to F1.
-- F0 is frontend control and is not counted as a fifth fetch-data stage.
+- Must own I-F0 PC/request capture, line alignment, and
+  request/epoch/checkpoint identity allocation.
+- Launches decoupled I-SIDE and B-SIDE requests.
 
 ### `src/bcc/ifu/f1.py`
 
-- Must converge on canonical F1 iTLB/I-cache request/lookup launch for the
-  F0-selected thread and PC.
+- Must own I-F1 parallel ITLB and L1I request/lookup launch for the
+  I-F0-selected thread and PC.
 - Preserves the architecture-facing per-thread fetch-control model even though
   the current physical I-cache read path is single-ported.
 
 ### `src/bcc/ifu/icache.py`
 
-- Owns the fetch-cache access module used by the IFU path.
+- Owns the I-SIDE L1I cache access module.
 - Produces bundle, hit/miss, and refill-facing metadata for downstream stages.
 
 ### `src/bcc/ifu/f2.py`
 
-- Current mixed fetch-return/decode-window helper. Its cache-return,
-  integrity/ECC-facing work contributes to F2; assembly work belongs to F3.
-- Any four-lane window extraction in this module is D1-ingress behavior, not a
-  reason to name the module F4.
+- Must own I-F2 translation/L1I result joining, physical-tag and
+  permission validation, ITLB-miss inner flush, and L1I miss/refill dispatch.
 
 ### `src/bcc/ifu/ctrl.py`
 
-- Owns IFU control metadata such as checkpoint flow and flush interaction.
-- Coordinates frontend-side control decisions without redefining stage
-  ownership.
+- Owns IFU request identity, checkpoint, inner-flush, and cancellation control
+  shared through explicit decoupled channels.
 
 ### `src/bcc/ifu/f3.py`
 
-- Contributes variable-length assembly, cross-line carry, and byte-stream
-  ordering to F3. Its prediction, boundary-predecode, and template-ordering
-  logic must converge under F4/IB ownership.
-- Its internal instruction-buffer instance is target F4/IB state and must be
-  separated from F3 combinational ownership in the final stage mapping.
+- Must own I-F3 cache-line capture, byte-stream alignment, and
+  cross-line carry.
+- Does not determine instruction length or perform predecode.
 
 ### `src/top/modules/ib.py`
 
-- Owns `LinxCoreTopIb`, the host-fed form of canonical F4/IB used by the export
-  shell.
-- `IB` aliases F4; host injection must not create a serial `IB -> F4` stage.
+- Owns `LinxCoreTopIb`, the host-fed form of the Instruction Buffer used by the
+  export shell.
+- Instruction Buffer is a queue after I-F4 and before D1.
 
 ### `src/top/modules/xchk.py`
 
@@ -156,10 +151,19 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ### `src/bcc/ifu/f4.py`
 
-- Legacy-misnamed register/window slicer. Its continuous-view extraction is a
-  D1 ingress helper; it is not the canonical F4 stage.
-- New code must not extend the `F4DecodeWindow` naming. The target F4 owner is
-  the instruction-buffer state described above.
+- Must converge on I-F4: determine 2/4/6/8-byte length, complete
+  instruction assembly, recognize only BSTART/BSTOP, zero-extend to 64 bits,
+  and write Instruction Buffer.
+- It may not own branch prediction or full decode.
+
+### B-SIDE predictor owner family
+
+- Owns B-F0 L0/NLP plus history snapshot; B-F1 uBTB/RAS; B-F2 PBTB/BTB+BIM;
+  B-F3 short/medium TAGE+IBTB; and B-F4 long TAGE+IBTB/loop/final arbitration.
+- Accepts identity-qualified cancellation and backend training.
+- B-F1..B-F4 correction of an accepted lower-ranked prediction emits an
+  identity-qualified inner flush, restores GHR/RAS, and
+  restarts I-F0. Backend resolved mispredict instead uses typed recovery.
 
 ### `src/bcc/frontend/`
 
@@ -173,15 +177,16 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 ### `src/bcc/ooo/dec1.py`
 
 - Owns `D1`.
-- Reads contiguous F4/IB entries, performs early decode/fault detection,
+- Reads up to four contiguous fixed 64-bit Instruction Buffer entries,
+  performs the first full opcode/operand/immediate decode and fault detection,
   recognizes split/fuse shapes, and forms the decode group.
 - Computes demand but does not mutate ROB/BROB/rename/IQ state.
 
 ### `src/bcc/ooo/dec2.py`
 
 - Owns `D2`.
-- Extracts operands/immediates, resolves boundary metadata, and prepares one
-  coherent resource-admission request for D3.
+- Resolves boundary metadata and prepares one coherent resource-admission
+  request for D3.
 
 ### `src/bcc/ooo/ren.py`
 

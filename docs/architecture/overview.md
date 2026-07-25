@@ -163,23 +163,27 @@ This composition rule is required for consistency with:
 
 ## Current architecture closure slice
 
-The canonical pipeline taxonomy follows the ISA-neutral coordinate system from
-the ARM reference while correcting the Linx-specific ownership boundaries.
-There are four fetch stages (`F1..F4`) after `F0` frontend control, `F4` is the
-instruction buffer, and result stages (`W1..W3`) overlay execution stages
-rather than following them as a serial tail.
+The canonical IFU contains two non-lockstep decoupled engines. I-SIDE owns
+`I-F0..I-F4` followed by Instruction Buffer; B-SIDE owns `B-F0..B-F4`.
+Result stages (`W1..W3`) overlay execution stages rather than following them
+as a serial tail.
 
 Stage lineup in this pass:
 
-- `F0`: per-thread arbitration, redirect selection, and next-PC control.
-- `F1`: translation and I-cache request/lookup launch.
-- `F2`: fetch-return staging and integrity/ECC handling.
-- `F3`: variable-length assembly, cross-line carry, and byte-stream ordering.
-- `F4/IB`: final predecode/prediction and block-boundary metadata, plus the
-  per-thread instruction buffer and D1 handoff. It is the fourth fetch stage,
-  not a four-slot decode stage.
-- `D1`: early decode, exception detection, split/fuse recognition, and group
-  formation.
+- `I-F0`: I-SIDE PC/request capture.
+- `I-F1`: parallel ITLB and L1I lookup launch.
+- `I-F2`: translation/cache result join; ITLB miss creates an inner flush.
+- `I-F3`: cache-line capture, byte-stream alignment, and cross-line carry.
+- `I-F4`: 2/4/6/8-byte assembly, BSTART/BSTOP-only predecode, 64-bit expansion,
+  and Instruction Buffer write.
+- `Instruction Buffer`: per-STID queue between I-F4 and D1.
+- `B-F0`: L0/NLP plus history snapshot.
+- `B-F1`: uBTB plus RAS.
+- `B-F2`: PBTB/BTB plus BIM.
+- `B-F3`: short/medium TAGE plus IBTB lookup.
+- `B-F4`: long TAGE, final IBTB/loop results, and final arbitration.
+- `D1`: reads up to four fixed 64-bit instructions and performs the first full
+  decode.
 - `D2`: operand extraction, boundary resolution, and resource-demand
   preparation.
 - `D3`: atomic resource admission, physical rename, ordering-ID acceptance,
@@ -200,15 +204,16 @@ Stage lineup in this pass:
 - `R0..R4`: completion intake, retirement decision, R2 commit/flush
   publication, recovery processing, and R4 restart.
 
-Serial `IB -> F4` naming and decode helpers named `F4DecodeWindow` remain
-migration work. They are implementation evidence, not alternate canonical
-stage definitions.
+`I-F4 -> Instruction Buffer -> D1` are three distinct boundaries. Implementation
+names that imply another ordering or alias are not architectural definitions.
 
 ## Specification set
 
 The LinxCore specification is split into four contract pages:
 
 - `overview.md`: scope, role, document boundaries, and authority rules.
+- `ifu.md`: I-F0..I-F4/B-F0..B-F4 decoupled engines, Instruction Buffer, and D1
+  input contract.
 - `microarchitecture.md`: execution model, detailed pipeline rules, recovery,
   memory, BID, `BROB`, and engine-composition semantics.
 - `interfaces.md`: pyCircuit, commit trace, LinxTrace, block-fabric, and

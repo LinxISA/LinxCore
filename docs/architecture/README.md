@@ -19,6 +19,7 @@ bash tests/test_microarchitecture_contract.sh
 ## Contract pages
 
 - `overview.md`
+- `ifu.md` (canonical I-SIDE/B-SIDE IFU architecture)
 - `NAMING.md` (parameter and stage-name governance; not separately published)
 - `microarchitecture.md`
 - `microarchitecture-contract.json` (machine-readable ownership and
@@ -43,6 +44,9 @@ The six publication pages below are mirrored into the superproject paths:
 - `docs/architecture/linxcore/module-catalog.md`
 - `docs/architecture/linxcore/pipeline-stage-catalog.md`
 
+`ifu.md` is the canonical IFU deep contract in this repository and must be
+mirrored or referenced by any published LinxCore architecture set.
+
 Do not edit the superproject mirrors by hand.
 
 ## Deep dives retained here
@@ -64,17 +68,13 @@ Do not edit the superproject mirrors by hand.
 - `Janus/Cube/`: CUBE matrix accelerator specifications and design notes
 - `Janus/Vector/`: Vector Core specifications
 
-These subdirectories are subsystem notes and may use local or historical
-pipeline names. They do not override the canonical BID or stage taxonomy in
-`microarchitecture.md`, `NAMING.md`, and `pipeline-stage-catalog.md`.
+These subdirectories are subsystem notes. Whenever they describe the
+LinxCore/BCC IFU, they must use the I-SIDE/B-SIDE contract in `ifu.md` and the
+stage taxonomy in `NAMING.md` and `pipeline-stage-catalog.md`.
 
 The migration inputs were removed after classification and promotion. Their
-recoverable snapshots are commits
-`f72c0ee6fb21d08b2ac38d1f9918021bf6c28af3` and
-`8f6b821f75aa5170766d6ab4d37a9443b9a4f0ec`; the machine-readable disposition
-and target mapping is `mechanism-intake.json`. Historical serial `IB/F4`,
-`F4DecodeWindow`-as-stage, 64-bit-BID, and ARM-specific architectural
-wording is not part of the live contract.
+machine-readable disposition and target mapping is `mechanism-intake.json`;
+they are not part of the live contract.
 
 ## RTL evidence adapters
 

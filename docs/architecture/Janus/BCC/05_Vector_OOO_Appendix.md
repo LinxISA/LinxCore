@@ -22,8 +22,8 @@
 
 D1:
 
-- 按线程接收 IFU IBCT_BUF 输出微指令，最多 4 inst/cycle。
-- 执行指令预解码与 uop 拆分预处理。
+- 按线程从 Instruction Buffer 接收最多 4 条固定 64-bit 指令。
+- 执行首次 full opcode/operand/immediate decode 与 uop 拆分预处理。
 - 考虑 ISQ 写口和一拍可分配寄存器资源限制，不能取出超过两条 load 指令，不能超过两条 VALU 指令。
 
 取指约束:

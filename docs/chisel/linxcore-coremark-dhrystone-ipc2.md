@@ -285,7 +285,8 @@ Acceptance:
 
 ### P3: Multi-Uop Decode, Rename, and Dispatch
 
-The frontend already carries 4-slot F4/decode structures. Decode/rename still
+The legacy frontend fixture already carries a four-slot window/decode shape;
+this is not I-F0–I-F4/B-F0–B-F4 evidence. Decode/rename still
 collapses to one selected scalar row in the live path. P3 SHALL preserve all
 valid decoded slots through queueing, rename admission, ROB allocation, and
 issue enqueue where resource credits permit.

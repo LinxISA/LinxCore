@@ -1,5 +1,10 @@
 # LinxCoreFrontendFetchRfAluTraceTop
 
+> **Architecture status — reduced verification top.** Its fetch source,
+> window slicer, dense-slot queue, and reduced BFU helpers are migration
+> fixtures only. They do not define I-F0–I-F4, B-F0–B-F4, Instruction Buffer,
+> or D1 production ownership.
+
 ## Status
 
 - Package: `linxcore.top`

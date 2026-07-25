@@ -1,5 +1,9 @@
 # FrontendRegAliasClassify
 
+> **Architecture status — D1 leaf migration object.** Register-alias
+> classification belongs to D1 full decode. It is not I-SIDE predecode or
+> B-SIDE prediction behavior.
+
 ## Purpose
 
 `FrontendRegAliasClassify` is the decode-time owner for the scalar reg6

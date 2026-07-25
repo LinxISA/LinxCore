@@ -1,5 +1,11 @@
 # F4DecodeWindow
 
+> **Architecture status — legacy migration fixture.** This code identifier
+> does not name architectural I-F4. Production I-F4 is I-SIDE stage 4 and only
+> performs instruction-length/`BSTART`/`BSTOP` predecode plus 64-bit expansion.
+> This 8-byte window slicer is an input to the F3/F4 migration and must not
+> define the target pipeline.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DecodeWindow.scala`
@@ -85,10 +91,10 @@ the Chisel opcode table and decode-owner modules exist.
 
 ## Timing
 
-`F4DecodeWindow` is a combinational F4-to-D1 helper. It is safe to instantiate
-inside a future registered F4 stage or an F4/D1 boundary wrapper, but it must
-not absorb F0/F1/F2/F3 fetch ownership, IB queue state, or D1 opcode-decode
-state.
+`F4DecodeWindow` is a combinational legacy packet-window helper. It must not
+be instantiated as architectural I-F4 or hidden inside the target Instruction
+Buffer. During migration, an enclosing fixture must hold its packet stable
+when the consumer stalls.
 
 ## Flush/Recovery
 

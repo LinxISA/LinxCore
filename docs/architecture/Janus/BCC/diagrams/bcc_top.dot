@@ -39,12 +39,11 @@ digraph BCC_TOP {
     label="IFU";
     color="#90CDF4";
     style="rounded";
-    FETCH [label="Fetch / Predict\nuBTB F1 / MainPred F4"];
-    HBB [label="HBB\nheader PC / offset"];
-    CT [label="IFU_CT\nC0 / C1 / C2"];
-    IB [label="IBCT_INST_BUF\nSTD + CT + headers"];
-    BROB [label="IFU_BROB\nBID/TID resolve commit"];
+    FETCH [label="IFU\nI-SIDE + decoupled B-SIDE"];
+    IB [label="Instruction Buffer\n64-bit instructions"];
   }
+
+  BROB [label="BROB\nSTID/BID resolve commit"];
 
   subgraph cluster_pe {
     label="BCC Scalar PE / IOE";
@@ -78,10 +77,7 @@ digraph BCC_TOP {
   L2 -> FETCH [label="I miss"];
   L2 -> LSU [label="D miss"];
 
-  FETCH -> HBB;
-  FETCH -> CT;
-  HBB -> IB;
-  CT -> IB;
+  FETCH -> IB;
   IB -> DECODE;
   DECODE -> RENAME;
   RENAME -> CMD_ISQ [label="B.IOR / B.IOT / B.DIM"];

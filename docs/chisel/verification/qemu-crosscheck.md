@@ -352,7 +352,8 @@ packets containing scalar `ADD`, `ADDI`, and compressed move rows through
 the allocated ROB rows, dumps DUT JSONL, and compares three rows against a
 QEMU-shaped reference with zero mismatches.
 `run_chisel_frontend_fetch_trace_top_xcheck.sh` drives a bounded instruction
-window fixture through `FrontendFetchPacketSource`, F4, and the reduced
+window fixture through `FrontendFetchPacketSource`, the legacy window slicer,
+and the reduced
 decode/ROB path in `LinxCoreFrontendFetchTraceTop`, uses the explicit
 completion surrogate to retire allocated ROB rows, and compares three rows
 against a QEMU-shaped reference with zero mismatches. Its manifest under

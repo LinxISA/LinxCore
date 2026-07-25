@@ -5,13 +5,14 @@
   "signal": [
     { "name": "clk", "wave": "p............" },
     { "name": "OriginBuffer PC", "wave": "x3...........", "data": ["redirect/seq PC"] },
-    { "name": "RR thread pick", "wave": "0.1.0........", "data": ["tid"] },
-    { "name": "F1 TLB/Tag/Data", "wave": "0..1.0.......", "data": ["lookup"] },
-    { "name": "F2 hit/miss", "wave": "0...1.0......", "data": ["hit"] },
-    { "name": "F3 align/predecode", "wave": "0....1.0.....", "data": ["bundle"] },
-    { "name": "F4 branch/BSTOP check", "wave": "0.....1.0....", "data": ["pc ctrl"] },
+    { "name": "I-F0 PC request", "wave": "0.1.0........", "data": ["stid/pc/id"] },
+    { "name": "I-F1 ITLB + L1I parallel", "wave": "0..1.0.......", "data": ["lookup"] },
+    { "name": "I-F2 translation/cache join", "wave": "0...1.0......", "data": ["hit"] },
+    { "name": "ITLB-miss inner_flush", "wave": "0...10.......", "data": ["stid/epoch"] },
+    { "name": "I-F3 line align/carry", "wave": "0....1.0.....", "data": ["ordered bytes"] },
+    { "name": "I-F4 length/assembly/BSTART-BSTOP", "wave": "0.....1.0....", "data": ["64-bit inst"] },
     { "name": "InstBuffer write", "wave": "0......1.0...", "data": ["up to 4 inst"] },
-    { "name": "D0 OOO thread select", "wave": "0.......1.0..", "data": ["dispatch"] },
-    { "name": "intra_flush", "wave": "0.....10.....", "data": ["direct/indirect/BSTOP"] }
+    { "name": "D1 four-wide full decode", "wave": "0.......1.0..", "data": ["4 x 64-bit"] },
+    { "name": "B-F0..B-F4 (decoupled)", "wave": "0....1...0...", "data": ["prediction/correction"] }
   ]
 }

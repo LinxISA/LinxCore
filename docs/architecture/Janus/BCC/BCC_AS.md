@@ -8,15 +8,11 @@
 > **Source**: Forked from the existing BCC architecture notes and narrowed to Chapters 1-8
 > **Dependencies**: TMU-Core interface specification, Vector Core AS, Vector OOO AS, Vector TileLSU AS
 
-> **Canonical-stage crosswalk:** This draft preserves historical/local stage
-> labels in Chapter 8 for provenance; they are not the LinxCore pipeline
-> contract. Apply `pipeline-stage-catalog.md`: F0 is thread/PC control;
-> F1-F3 are cache request, return/ECC, and instruction assembly; historical
-> F4 plus F5/CT/pred_buf/INST_BUF behavior converges into canonical F4/IB;
-> historical D0/R0/R1/D2/I0/E0/W0/C0 labels map by function into canonical
-> D1-D3, S1-S3, P/I/E/W, and R0-R4. Canonical CMT/FLS publish at R2 and restart
-> state publishes at R4. Do not use this draft to create a serial F4 -> F5/IB
-> architectural pipeline.
+> **IFU contract:** The IFU uses the I-SIDE/B-SIDE decoupled-engine
+> architecture in `../../ifu.md`. I-SIDE owns `I-F0 -> I-F1 -> I-F2 -> I-F3
+> -> I-F4`, followed by a distinct Instruction Buffer. B-SIDE independently
+> owns `B-F0 -> B-F1 -> B-F2 -> B-F3 -> B-F4`.
+> D1 reads four fixed 64-bit instructions from Instruction Buffer.
 > Historical `BID/TID` on a shared block path means canonical `(STID,BID)`;
 > PE/engine-local TID is a separate subordinate qualifier.
 
@@ -408,7 +404,7 @@ TMA 访存单元必须顺序下发。原因是内部 memory 指令地址依赖�
 
 ### 7.1 BROB Purpose
 
-IFU_BROB 在分配 BID 时记录 BID/TID，接收 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，通过 commit pointer 维护 block 顺序 commit。
+BROB 在 D3 admission 分配 BID 时记录 STID/BID，接收 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，通过 commit pointer 维护 block 顺序 commit。
 
 BROB 的两个关键时间点:
 
@@ -447,15 +443,15 @@ FREE -> ALLOC -> DISPATCHED -> RESOLVED -> COMMIT -> FREE
 
 ```mermaid
 sequenceDiagram
-  participant IFU as IFU
+  participant D3 as D3 Admission
   participant BROB as BROB
   participant BISQ as BISQ
   participant CORE as Special Core
   participant TR as TileRename
   participant REN as GPR MAPQ/CMAP
 
-  IFU->>BROB: allocate BID/TID on BSTART
-  IFU->>BISQ: allocate BISQ entry
+  D3->>BROB: atomic allocate STID/BID on decoded BSTART
+  D3->>BISQ: allocate admitted BISQ entry
   BISQ->>CORE: dispatch block
   CORE->>BROB: bid_resolve
   BROB->>TR: wakeup dst tile tag
@@ -520,12 +516,18 @@ BCC 后端包含两条并行但相互协同的执行域:
 
 | Logical Stage | Main Structure | Work Performed | Primary Output |
 | --- | --- | --- | --- |
-| F0 | Thread scheduler / redirect mux | 选择可取指线程，仲裁 reset、flush、commit restart 和预测 PC | fetch TID and PC |
-| F1-F3 | uBTB, iTLB, L1 I-cache | 快速预测、地址翻译、I-cache 访问和 miss 管理 | fetch bytes and prediction |
-| F4 | Predecode / main predictor | 识别 16/32/48-bit 边界、块边界和主预测结果 | aligned instruction bundle |
-| F5/CT | CT, INST_BUF, IBCT_INST_BUF | 展开模板指令，缓存普通指令和块头指令 | per-thread instruction entries |
-| D0 | Thread dequeue | 从可运行线程选择最多 4 条指令，保持单线程内顺序 | decode bundle |
-| D1 | Decode | 产生 opcode、src/dst、立即数、uop-break、执行类别和块控制属性 | decoded instructions |
+| I-F0 | I-SIDE request capture | 捕获 PC/STID，分配 request/epoch/checkpoint identity | line-aligned fetch request |
+| I-F1 | Parallel ITLB + L1I | 同一 PC 并行发起地址翻译和 L1I lookup | tagged lookup state |
+| I-F2 | Translation/cache join | 校验 permission/tag；ITLB miss 产生 inner flush；L1I miss 进入 refill | cache-line result or replay |
+| I-F3 | Line align/carry | 捕获 cacheline、对齐有序字节流并处理跨 line carry | ordered byte stream |
+| I-F4 | Formation/predecode | 判定 2/4/6/8-byte 长度，组装并扩展成 64-bit；只识别 BSTART/BSTOP | 64-bit instruction records |
+| Instruction Buffer | Per-STID FIFO | 保存 I-F4 输出与 prediction/checkpoint/fault metadata | four-entry D1 input |
+| B-F0 | L0/NLP + history | L0/NLP 查询并快照 GHR/GHRQ/RAS | early candidate |
+| B-F1 | uBTB + RAS | 快速 target/type 与 return target | early prediction |
+| B-F2 | PBTB/BTB + BIM | direct target/type 与 base direction | prediction candidate |
+| B-F3 | short/medium TAGE + IBTB | 历史方向和 indirect target 查询 | refined candidate |
+| B-F4 | long TAGE + IBTB/loop | final arbitration/correction | final prediction |
+| D1 | Full decode | 读取最多 4 条 64-bit 指令并完成 opcode/src/dst/immediate decode | decoded instructions |
 | R0 | Rename / allocate | GPR/ClockHands rename，分配 PE ROB、MAPQ、BROB/BISQ 资源 | physical tags and IDs |
 | R1 | Dependency / dispatch preparation | 查询 ready、生成 DPD、读取 B.IOT size、形成 dispatch route | dispatch-ready uops |
 | D2 | Dispatch | 向 AB/AM/LS0/LS1/CMD_ISQ 分发并扣减 credit | issue-queue entries |
@@ -537,61 +539,50 @@ BCC 后端包含两条并行但相互协同的执行域:
 | C0 | PE ROB commit | 按线程顺序提交 scalar uop，更新精确状态和释放微指令资源 | committed scalar state |
 | BC | BROB commit | 按 BROB live-ring head/age 顺序提交 block，更新 GPR CMAP 并释放 TileReg | committed block state |
 
-### 8.3 F0: SMT Thread Selection and Redirect
+### 8.3 I-F0: I-SIDE Request Capture
 
-F0 从 SMT4/SMT8 的线程集合中选择下一条 fetch stream。线程只有满足以下条件时才参与仲裁:
+I-F0 从 SMT4/SMT8 的线程集合中选择下一条 fetch stream。线程只有满足以下条件时才参与仲裁:
 
 - 线程处于 active 状态，且没有等待未处理的 redirect。
-- 对应 INST_BUF/IBCT_INST_BUF 有足够空间。
-- 不处于 CT 独占或 CT backpressure 状态。
+- 对应 Instruction Buffer 有足够空间。
 - 未被前端 flush、异常处理或低功耗状态屏蔽。
 
 PC 来源按优先级选择:
 
-1. 外部 reset/异常/flush PC。
-2. PE ROB branch replay 或 exception recovery PC。
-3. BROB/BWE commit 后的 block restart PC。
-4. 主预测器 F4 产生的 next PC。
-5. uBTB F1 快速预测 next PC。
-6. 软件配置的初始 PC。
+1. accepted backend typed restart，包括 reset、exception、resolved
+   mispredict、replay 和 block restart。
+2. B-F4 prediction。
+3. B-F3 prediction。
+4. B-F2 prediction。
+5. B-F1 prediction。
+6. B-F0 prediction。
+7. sequential PC。
 
 同一线程存在 redirect 时，旧路径 fetch request 和尚未进入 rename 的指令必须失效。线程调度建议采用 RR 为基础，并叠加 starvation counter；不能因为某线程持续命中 I-cache 就长期压制其他线程。
 
-### 8.4 F1-F4: Address Translation, I-Cache and Predecode
+### 8.4 I-SIDE I-F1..I-F4 and B-SIDE B-F0..B-F4
 
-F1-F4 完成取指地址翻译、cache 访问、预测和指令边界识别:
-
-- L1 I-cache 使用 iTLB 地址翻译，替代旧指令段表方案。
-- uBTB 提供早期 target，主预测器在 F4 覆盖早期预测。
+- I-F1 对同一 PC 并行启动 ITLB 和 L1I lookup。
+- I-F2 汇合 translation/cache result。ITLB miss 产生只作用于对应
+  STID/epoch 的 inner flush 和 replay；L1I miss 进入 refill。
 - I-cache miss 只阻塞对应线程；其他 ready thread 应继续取指。
-- Predecode 支持 16/32/48-bit 指令，以 16-bit parcel 为最小存储和对齐单位。
-- 识别 BSTART、块头配置、块体指令和 EOB，产生 block boundary metadata。
-- 同一 fetch bundle 内若块体末指令与下一块 BSTART 相邻，可把 EOB 标记折叠到末指令并消除 EOB_NOP。
-- 连续 Fall STD block 可按配置合并，但必须保留可恢复的原始 block 边界和 BID 分配语义。
+- I-F3 捕获 cacheline、对齐字节流并保留跨 line carry。
+- I-F4 判定 2/4/6/8-byte 长度，完成组装，只识别 BSTART/BSTOP，并把
+  指令 zero-extend 为 64-bit 后写 Instruction Buffer。
+- B-SIDE B-F0..B-F4 与 I-SIDE 解耦，依次执行 L0/NLP+history、
+  uBTB/RAS、PBTB/BTB+BIM、short/medium TAGE+IBTB、long
+  TAGE+IBTB/loop/final arbitration。后级 correction 产生 inner flush、
+  恢复 GHR/RAS 并重启 I-F0；backend resolved mispredict 走 typed recovery。
 
-F4 输出进入 per-thread `pred_buf` 或 INST_BUF。预测错误在后端确认后，通过 redirect generation 回到 F0。
+### 8.5 Template Expansion
 
-### 8.5 F5/CT: Template Expansion and Instruction Buffering
+CT 是 D3 admission 之后的 backend producer，不属于 IFU stage，也不在
+I-F4 与 Instruction Buffer 之间插入额外流水级。
 
-CT 根据模板块指令和输入参数产生模板块块体，以减少 code size。CT 位于 IFU 后端，逻辑上包含:
+### 8.6 Instruction Buffer and D1 Decode
 
-| Stage | Function |
-| --- | --- |
-| C0 | 将 `pred_buf` 中的 CT 指令写入 CT_BUF，记录 TID、TPC 和模板参数 |
-| C1 | `CT_FSM_GEN` 在 ready FSM 间 RR 仲裁，选择一个线程/模板 |
-| C2 | FSM 产生指令；仅在 IBCT_INST_BUF 空位满足一次生成需求时推进状态 |
-
-控制信号:
-
-- `ct_pre_done`: 允许对应线程重新进入早期 fetch 调度。
-- `ct_done`: 表示模板展开完成，允许 F4 将该线程后续指令送入 buffer。
-
-INST_BUF/IBCT_INST_BUF 必须保存 TID、TPC、预测信息、指令长度、block boundary 和有效位。出队 bundle 最多 4 条指令，可附带最多 2 条块头配置指令，其中最多 1 条 BSTART。任何 partial dequeue 都必须保持线程内程序顺序。
-
-### 8.6 D0-D1: Thread Dequeue and Decode
-
-D0 从各线程 IBCT_INST_BUF 中选择一个可译码线程。基础策略为 RR，选择后从该线程顺序取出最多 4 条指令。首版不建议在同一个 decode bundle 内混合多个 TID，以降低 rename map、ROB allocation 和 flush mask 的复杂度。
-
+D1 从一个线程的 Instruction Buffer 顺序读取最多 4 条固定 64-bit
+指令。每条指令在 I-F4 已完成长度判定和扩展；D1 不再拼接变长字节流。
 D1 对每条指令产生:
 
 - `tid/tpc/inst_len/bid_context`。
@@ -869,8 +860,9 @@ BROB 可在 block resolve 时唤醒 dst Tile/GPR consumer，但只有当该 bloc
 
 | Stage / Structure | Flush Action |
 | --- | --- |
-| F0-F5 | 取消错误路径 fetch，清除对应 TID 的 pred_buf/INST_BUF/CT 状态，装载 recovery PC |
-| D0-D1 | 丢弃尚未 rename 的错误路径指令 |
+| I-SIDE I-F0..I-F4 / Instruction Buffer | 按 STID/epoch 取消错误路径 fetch 和 buffer entry，装载 recovery PC |
+| B-SIDE | 取消 prediction request/response，恢复 GHR/GHRQ/RAS checkpoint |
+| D1 | 丢弃尚未 rename 的错误路径指令 |
 | Rename/MAPQ | 恢复 speculative map，回收错误路径 ptag 和分配资源 |
 | Scalar ISQ | 按 TID/ROB age 清除 younger uop |
 | Scalar LSU | cancel younger load，清除未提交 store 和 translation request |
@@ -904,8 +896,8 @@ Flush source 可能来自 branch、exception、scalar memory replay、外部中�
 **Scalar ALU dependency chain**
 
 ```text
-F0-F5 fetch
-  -> D0/D1 decode
+I-SIDE I-F0..I-F4 -> Instruction Buffer
+  -> D1 four-wide fixed-64-bit decode
   -> R0 rename: r1 -> p17, allocate ROB
   -> D2 dispatch AB
   -> I0 wait/select
@@ -952,7 +944,7 @@ BISQ configReady && srcReady && targetCredit
 
 ### 8.22 Items Requiring CA Finalization
 
-- F1-F4 的实际 iTLB/I-cache/predictor 周期切分。
+- B-SIDE predictor table 的 banking、queue depth 和内部 latency。
 - SMT4 与 SMT8 下每周期允许参与 Decode/Rename 的线程数。
 - AB/AM/LS0/LS1 的 entry depth、issue width 和共享执行端口关系。
 - ALU、MUL、branch、load-hit 的精确 latency 和 bypass tap。

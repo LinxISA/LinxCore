@@ -6,6 +6,7 @@ Canonical contract summary:
 - `rtl/LinxCore/docs/architecture/microarchitecture.md`
 - `rtl/LinxCore/docs/architecture/module-catalog.md`
 - `rtl/LinxCore/docs/architecture/pipeline-stage-catalog.md`
+- `rtl/LinxCore/docs/architecture/ifu.md`
 
 ## Scope
 
@@ -41,10 +42,10 @@ semantics; those remain normative in the canonical contract pages.
 ### `top/top.py`
 
 - Provides the full explicit IFU composition path.
-- Instantiates the current frontend modules, memory wrappers, backend,
-  block-control path, LSU, and engine integrations. The current module names
-  are not yet one-to-one with canonical `F0 -> F1 -> F2 -> F3 -> F4/IB`
-  ownership.
+- Instantiates I-SIDE, B-SIDE, memory wrappers, backend, block-control path,
+  LSU, and engine integrations. The required IFU order is
+  `I-F0 -> I-F1 -> I-F2 -> I-F3 -> I-F4 -> Instruction Buffer -> D1`
+  plus decoupled `B-F0 -> B-F1 -> B-F2 -> B-F3 -> B-F4`.
 - Serves as the reference stage-to-stage wiring map for stage-connectivity and
   trace contract alignment.
 
@@ -60,32 +61,48 @@ semantics; those remain normative in the canonical contract pages.
 
 ## Frontend composition
 
-In the full IFU path, the top-level composition is:
+The full IFU has two decoupled engines.
 
-- `F0`: thread arbitration, redirect selection, and next-PC control
-- `F1`: translation and I-cache request/lookup launch
-- `F2`: fetch-return staging and integrity/ECC handling
-- `F3`: variable-length assembly, cross-line carry, and byte-stream ordering
-- `F4/IB`: final predecode/prediction and block-boundary metadata, plus the
-  fourth fetch-stage instruction buffer
+I-SIDE composition:
+
+- `I-F0`: PC/request capture and identity allocation
+- `I-F1`: parallel ITLB and L1I lookup launch
+- `I-F2`: translation/cache result join, inner flush, and miss/refill handling
+- `I-F3`: cache-line capture, byte-stream alignment, and cross-line carry
+- `I-F4`: 2/4/6/8-byte instruction assembly, BSTART/BSTOP-only predecode,
+  64-bit expansion, and Instruction Buffer write
+- `Instruction Buffer`: per-STID queue after I-F4
+- `D1`: reads up to four fixed 64-bit entries and performs the first full
+  opcode/operand/immediate decode
+
+B-SIDE composition:
+
+- `B-F0`: L0/NLP and history snapshot
+- `B-F1`: uBTB and RAS
+- `B-F2`: PBTB/BTB and BIM
+- `B-F3`: short/medium TAGE and IBTB lookup
+- `B-F4`: long TAGE, final IBTB/loop result, final arbitration, retained
+  response, and prediction correction
+- later-stage correction inner flush restores GHR/RAS and restarts I-F0;
+  backend resolved
+  mispredict uses typed recovery and I-F0 restart
 
 In the export/bring-up path, the native IFU source may be replaced by a
-host-fed F4/IB module. That substitution must preserve the same F4/IB-to-D1
-contract and must not create a serial `IB -> F4` stage.
+host-fed Instruction Buffer writer. That substitution must preserve fixed
+64-bit Instruction Buffer entries and the four-wide D1 input contract.
 
 Current `f1.py`/`f2.py`/`f3.py` responsibilities do not yet match those target
-boundaries one-to-one. The `f3.py` internal IB contributes to F4/IB state;
-`f4.py` and Chisel `F4DecodeWindow` are legacy names for a D1-ingress
-continuous-view helper and do not define F4.
+boundaries one-to-one. Implementation promotion requires five observable
+I-SIDE stage owners, a distinct Instruction Buffer, and independently
+backpressured B-SIDE state.
 
 ## Decode, dispatch, and backend composition
 
 The top-level composition must preserve this ownership:
 
-- `D1`: early decode, exception detection, split/fuse recognition, and group
-  formation
-- `D2`: operand extraction, boundary resolution, and resource-demand
-  preparation
+- `D1`: four-wide fixed-64-bit full decode, exception detection, split/fuse
+  recognition, and group formation
+- `D2`: boundary resolution and resource-demand preparation
 - `D3`: atomic admission, physical rename, and ordering-ID acceptance
 - `S1`: admitted-uop speculative-buffer capture
 - `S2`: IQ entry allocation/write

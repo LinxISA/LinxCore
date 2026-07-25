@@ -42,9 +42,9 @@ model `CommitInfo.bid` field.
 
 | Field | Default | Source contract |
 |---|---:|---|
-| `fetchWidth` / `decodeWidth` | 4 | `OooParams.fetch_w`, `dispatch_w`; 64-bit F4 window |
+| `fetchWidth` / `decodeWidth` | 4 | `OooParams.fetch_w`, `dispatch_w`; current fixture has a 64-bit packet window, target D1 is four 64-bit instructions |
 | `issueWidth` / `commitWidth` | 4 | Current bring-up issue and retire widths |
-| `pcWidth` / `windowWidth` | 64 | F4 and D1 packet interfaces |
+| `pcWidth` / `windowWidth` | 64 | Current legacy packet-window interfaces; target I-F4/Instruction Buffer/D1 carry 64-bit instruction entries |
 | `opcodeWidth` | 12 | pyCircuit opcode catalog IDs |
 | `insnWidth` / `lenWidth` | 64 / 4 | 16/32/48/64-bit Linx encodings plus byte length |
 | `archRegWidth` / `physRegWidth` | 6 / 6 | `REG_INVALID=0x3f`, 64-entry ptag bring-up by default; live reduced tops may widen physical tags when matching model capacity |
@@ -52,14 +52,14 @@ model `CommitInfo.bid` field.
 | `blockBidWidth` / `blockUidWidth` | 64 / 64 | model and DFX identity fields |
 | `uopUidWidth` | 64 | `UOP_UID_FIELDS` |
 | `lsidWidth` | 32 | backend and model memory request ID fields |
-| `checkpointWidth` | 6 | F4/D1 start-marker checkpoint contract |
+| `checkpointWidth` | 6 | Current migration-packet checkpoint field; target uses fetch/prediction identity through Instruction Buffer and D1 |
 | `peIdWidth` / `threadIdWidth` | 8 / 8 | scalar PE owner and STID/thread sidecars |
 
 ### Bundle Summary
 
 | Bundle | Purpose | Key fields |
 |---|---|---|
-| `FrontendDecodePacket` | F4-to-D1 decode ingress | `valid`, `peId`, `threadId`, `pc`, `window`, `pktUid`, `checkpointId` |
+| `FrontendDecodePacket` | Legacy packet-window migration ingress | `valid`, `peId`, `threadId`, `pc`, `window`, `pktUid`, `checkpointId` |
 | `UopUidPacket` | DFX/dynamic uop identity | `uid`, `parentUid`, `fetchPacketUid`, `fetchSlot`, `replayDepth` |
 | `DecodedUop` | Canonical D2 architectural uop | `peId/threadId`, `src[3]`, `dst[1]`, `imm`, `rid/bid/gid`, `lsid`, memory class/split metadata, boundary metadata, raw instruction |
 | `RenamedUop` | D3/S1 backend-visible uop | `peId/threadId`, renamed source/destination tags, dispatch target, memory class/split metadata, model identity, block identity |
@@ -80,7 +80,8 @@ compile-time parameter validation through `InterfaceParams`.
 
 The bundle shape follows these rules:
 
-- preserve F4/D1 width contracts from `src/common/interfaces.py`;
+- preserve current packet-fixture widths only while migration tests depend on
+  them; the target Instruction Buffer stores 64-bit instruction entries;
 - preserve LinxCoreModel instruction lengths 2, 4, 6, and 8 bytes from
   `CheckMInstSize`;
 - preserve `REG_INVALID=0x3f` for the architectural reg6 namespace and
@@ -127,7 +128,9 @@ The bundle shape follows these rules:
 All records are passive `Bundle` definitions. Timing belongs to the future
 stage owners:
 
-- F4/D1 own fetch packet movement and no-slot-compaction behavior.
+- the current packet fixture preserves no-slot-compaction behavior; the target
+  I-F4 writes 64-bit entries to an independent Instruction Buffer and D1 reads a
+  four-entry continuous prefix.
 - D1/D2 own decoded uop construction and boundary metadata.
 - D2/D3 own rename, resource allocation, and source readiness.
 - S1/S2/IQ own issue residency and `inflight` transitions.

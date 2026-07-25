@@ -10,7 +10,7 @@ LinxCore Chisel 微架构改进方案拆成四份可独立评审、可独立实�
 
 | 方案 | 负责范围 | 详细文档 |
 |---|---|---|
-| IFU | F0-F4/IB、ITLB/I-cache、D1 decode、BFU/boundary prediction | [IFU 改进设计](linxcore-chisel-ifu-improvement-design.md) |
+| IFU | decoupled I-F0–I-F4 / B-F0–B-F4、独立 Instruction Buffer、四宽 D1、branch prediction | [IFU 改进设计](linxcore-chisel-ifu-improvement-design.md) |
 | OOO | D2/D3、rename、ROB/BROB、commit、recovery、Template reservation/fill | [OOO 改进设计](linxcore-chisel-ooo-improvement-design.md) |
 | IEX | issue/read/confirm、RF、FU、system/service、writeback/completion | [IEX 改进设计](linxcore-chisel-iex-improvement-design.md) |
 | LSU | load/store ordering、queues、replay、L1D、translation、lower memory | [LSU 改进设计](linxcore-chisel-lsu-improvement-design.md) |
@@ -63,14 +63,24 @@ finisher，都不能单独证明 production owner 已闭合。模块 promotion �
 
 ### 3.1 IFU
 
-IFU 从 platform I-side memory 接口开始，到 accepted D1 decoded group
-结束。IFU 拥有：
+IFU 由两个 decoupled engines 组成：
 
-- 每 STID 的 PC、fetch checkpoint 和 restart token consumption；
-- fetch outstanding transaction、ITLB 和 I-cache state；
-- F3 align/carry、F4/IB resident packet；
-- D1 continuous window、group gather、opcode/operand/alias decode；
-- boundary prediction 和 resolved training。
+- I-SIDE 拥有每 STID PC、fetch identity、I-F0–I-F4 五个真实 stage、I-F1
+  并行 ITLB/L1I lookup、I-F2 translation/cache resolve、I-F3 line
+  assembly、I-F4 boundary predecode 和 64-bit expansion；
+- B-SIDE 拥有独立且不与 I-SIDE 锁步的 B-F0–B-F4 五级 pipeline，以及
+  BTB/uBTB/PBTB/IBTB、GHR/GHRQ、TAGE、BIM、RAS、loop
+  predictor/buffer、provider rank、B-F4 correction 和 resolved training。
+
+Instruction Buffer 是 I-F4 之后、D1 之前的独立 queue boundary。I-F4
+不表示 Instruction Buffer。D1 每周期从 Instruction Buffer
+读取最多四条 64-bit instruction，完成 opcode/operand/immediate/alias
+full decode。从 D1 开始，所有 instruction representation 固定为 64 bit。
+
+ITLB miss 由 I-SIDE 产生 typed inner flush，只清理同 STID、尚未越过
+Instruction Buffer/D1 边界的较年轻 IFU work。B-SIDE 与 I-SIDE 只通过
+带 `stid`、fetch sequence、epoch 和 prediction tag 的 Decoupled
+request/response/training/redirect 接口交互。
 
 IFU 不分配 ROB、物理寄存器、LSID、IQ 或 LSU row。IFU 向 OOO 发送
 `D1DecodeGroup`，并在整组 handshake 成功前保持全部 lane 稳定。
@@ -128,8 +138,11 @@ transaction。
 
 ```mermaid
 flowchart LR
-  MEMI["I-side Memory"] --> IFU["IFU F0-F4/IB + D1"]
-  IFU -->|"D1DecodeGroup"| OOO["OOO D2/D3 + Rename + ROB/BROB"]
+  MEMI["I-side Memory"] --> ISIDE["IFU I-SIDE I-F0..I-F4"]
+  BSIDE["IFU B-SIDE B-F0..B-F4"] <-->|"Decoupled prediction/training"| ISIDE
+  ISIDE --> IB["Instruction Buffer"]
+  IB --> D1["D1 4-wide 64-bit full decode"]
+  D1 -->|"D1DecodeGroup"| OOO["OOO D2/D3 + Rename + ROB/BROB"]
   OOO -->|"IssueDispatchTxn"| IEX["IEX IQ + RF + FU"]
   OOO -->|"LsuReservation/Dispatch"| LSU["LSU + L1D + Memory"]
   IEX -->|"AguRequest"| LSU
@@ -137,7 +150,8 @@ flowchart LR
   LSU -->|"LoadResultTxn"| IEX
   LSU -->|"RecoveryEvent"| REC["OOO RecoveryFabric"]
   IEX -->|"RecoveryEvent"| REC
-  REC -->|"R4 RestartToken"| IFU
+  REC -->|"R4 RestartToken"| ISIDE
+  REC -->|"predictor recovery"| BSIDE
   REC --> OOO
   REC --> IEX
   REC --> LSU
@@ -283,7 +297,7 @@ LID/SID width；cache set/way/line/bank/latency。
 | `LoadResultTxn` | LSU | IEX W2 | retained full identity/LSID/result；accept 后返回 `LSU_RETURN_ACK` |
 | `RecoveryEvent` | IEX/LSU | OOO recovery | typed、retained、带 class/provenance；IFU fault 只走 D1 fault row |
 | `RecoveryResolvedTxn` | OOO recovery | 四域 | 单次 canonical resolve、prepare/commit/ack |
-| `RestartToken` | OOO recovery | IFU F0 | 只在 R4 accepted 时改变 PC |
+| `RestartToken` | OOO recovery | IFU I-F0，并同步恢复 B-F0–B-F4 speculative state | 只在 R4 accepted 时改变 PC |
 | `CommitTxn` | OOO | trace/platform | accepted architectural retirement |
 
 ## 10. 分阶段实施依赖
@@ -304,7 +318,7 @@ LID/SID width；cache set/way/line/bank/latency。
 
 ### Phase 2：IFU、D3 和 IEX 基础流水
 
-- F0-F4/IB、decoupled I-side transaction；
+- decoupled I-F0–I-F4 / B-F0–B-F4、独立 Instruction Buffer；
 - width-wide D1 和最大连续 prefix D3；
 - GPR/T/U rename；
 - S1-S3、P1/I1/I2、RF 和基础 ALU/BRU；
@@ -371,7 +385,8 @@ LID/SID width；cache set/way/line/bank/latency。
 - [ ] BID、BROB pointer、GID/RID、LSID、LID/SID 域完全分离。
 - [ ] 所有 completion/response/recovery 使用 exact identity。
 - [ ] canonical recovery miss 时四域零 mutation。
-- [ ] IFU 使用真实 F0-F4/IB 和 I-side transaction owner。
+- [ ] IFU 使用不锁步的 decoupled I-F0–I-F4 / B-F0–B-F4；
+      Instruction Buffer 独立位于 I-F4 与 D1 之间。
 - [ ] OOO 不再单 lane，ROB/BROB/rename/commit/recovery 闭环。
 - [ ] IEX 的 IQ release、W2 completion 和副作用严格分离。
 - [ ] `ScalarLSU` 是唯一 STQ/LIQ/L1D owner。

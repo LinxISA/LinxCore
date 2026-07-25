@@ -21,7 +21,7 @@
 
 BCC 中除 LSU 外的组件构成 BCC_IOE。JCore BCC 相比原 GFU 的主要新增点:
 
-- IFU 中新增 BROB，维护 block 顺序提交。
+- BROB 在 D3 admission 分配 STID/BID，并维护 block 顺序提交。
 - 新增数据块块头微指令路径: BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.CATR、B.DATR。
 - 新增两写两 pick 的 CMD_ISQ，完成块头微指令依赖解除。
 - 新增 TileRename，将 src tile index 转换为 Tile tag 和 base address。
@@ -45,34 +45,29 @@ BCC 中除 LSU 外的组件构成 BCC_IOE。JCore BCC 相比原 GFU 的主要新
 
 ## 3. IFU
 
-IFU 负责块指令与微指令取指。为复用 INST_BUF，CT 模块迁移到 IFU 后端。
+IFU 由 I-SIDE 和 B-SIDE 两个 decoupled engine 组成。
 
-块头处理:
-
-- 解析到块头时，将块头 PC、跳转 offset 等信息存入 Header Branch Buffer。
-- Pre-decoder 解析到下一个块头指令时，读取 HBB 与预测信息比较。
-- BSTART/B.TEXT/B.IOR/B.IOT/B.DIM 需要经 INST_BUF 传给 PE。
-- IBCT_INST_BUF 出队时，一拍最多出 2 条块头微指令，最多包含 1 条 BSTART。
-- INST_BUF 支持 16bit、32bit、48bit 三种长度，考虑按 16bit 粒度存储。
-
-EOB_Nop:
-
-- BSTOP 作为 Nop 微指令进入 PE 后端，指示 End of Block。
-- 若同一个 fetch bundle 同时包含当前块最后一条块体微指令和下一块 BSTART/CT，则当前块 EOB_NOP 可消除，EOB 标记打到最后一条块体微指令上。
-- 若最后一条块体微指令正好在 fetch bundle 边界，下一 fetch bundle 才取到下一块 BSTART/CT，则 EOB_NOP 不消除。
+- I-F1 并行访问 ITLB 和 L1I；ITLB miss 在 I-F2 产生 inner flush。
+- I-F3 捕获 cacheline、完成 byte-stream alignment/cross-line carry。
+- I-F4 判定 2/4/6/8-byte 长度，完成 assembly，只识别 BSTART/BSTOP，
+  zero-extend 成 64-bit 后写 Instruction Buffer。
+- B-SIDE 使用 B-F0..B-F4：L0/NLP+history、uBTB/RAS、PBTB/BTB+BIM、
+  short/medium TAGE+IBTB、long TAGE+IBTB/loop/final arbitration。
+- D1 从 Instruction Buffer 顺序读取最多四条固定 64-bit 指令并进行
+  full decode。
 
 线程 PC 来源优先级:
 
-1. 外部 flush 输入 PC、BWE commit 后下一次 wakeup 起始 PC。
-2. 主预测器 F4 计算 next PC。
-3. uBTB F1 快速预测 next PC。
-4. 寄存器配置初始 PC。
+1. accepted backend typed restart。
+2. B-F4、B-F3、B-F2、B-F1、B-F0 prediction，按该顺序。
+3. sequential PC。
 
-其中 ROB flush 和 commit 不存在同拍情况，因此实际写 PC 优先级为 `flush/commit > main predictor > uBTB`。
+实际写 PC 优先级为
+`backend typed restart > B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`。
 
-## 4. IFU_BROB
+## 4. BROB
 
-IFU_BROB 在分配 BID 时记录 BID/TID，并接收 scalar PE、VEC、CUBE、TMA 的 resolve。
+BROB 在 D3 admission 分配 BID 时记录 STID/BID，并接收 scalar PE、VEC、CUBE、TMA 的 resolve。
 
 关键动作:
 
@@ -88,7 +83,7 @@ IFU_BROB 在分配 BID 时记录 BID/TID，并接收 scalar PE、VEC、CUBE、TM
 
 PE_D1:
 
-- 按线程接收 IFU IBCT_INST_BUF 输出，最多 4 inst/cycle。
+- 按线程接收 Instruction Buffer 输出，最多 4 条 64-bit inst/cycle。
 - D1_MUX_THREAD 对四线程 RR 调度。
 - Decode Unit 译码后产生控制和数据信息，送 D2。
 - 响应 PE 后端整体反压和线程级反压。
@@ -281,8 +276,8 @@ Flush:
 
 ## 17. CA 实现要点
 
-- IFU 支持块头微指令经 INST_BUF 传给 PE。
-- IFU 新增 BROB，管理 BID 分配、resolve、commit。
+- I-F4 将 64-bit 指令写入 Instruction Buffer；D1 完成 full decode。
+- BROB 在 D3 admission 管理 STID/BID 分配、resolve、commit。
 - PE Rename 拆分 GPR MAPQ 和 ClockHands MAPQ。
 - 新增 CMD_ISQ，支持 2 写 2 pick 和 B.IOR/B.IOT/B.DIM 特化路径。
 - PE_DISP 增加 CMD_ISQ credit 管理。
@@ -290,4 +285,4 @@ Flush:
 - 新增 BlockISQ，完成 TileReg block 级依赖解除和发射。
 - RF 增加特殊核 Get data 独立读口和 VEC/TMA 写口。
 - BN 增加 B.TEXT TPC 计算和 B.DIM 加法。
-- Flush 需要统一覆盖 IFU_BROB、PE ROB、CMD_ISQ、TileRename、BlockISQ、特殊核在途状态。
+- Flush 需要统一覆盖 BROB、PE ROB、CMD_ISQ、TileRename、BlockISQ、特殊核在途状态。
