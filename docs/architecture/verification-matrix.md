@@ -14,7 +14,7 @@ It is the normative mapping between:
 | Contract ID | Area | Normative statement |
 |---|---|---|
 | `LC-ARCH-DOC-001` | Architecture docs | Canonical LinxCore docs live in `rtl/LinxCore/docs/architecture`, are mirrored into `docs/architecture/linxcore`, and stay nav-wired in LinxArch docs |
-| `LC-MA-PIPE-001` | Pipeline | F0 controls thread/PC selection; fetch is `F1..F4/IB`; decode/dispatch is `D1..D3/S1..S3`; E stages are absolute execute cycles; W alignment is declared per producer; precise completion/commit/recovery uses R0..R4 with CMT/FLS at R2 and restart at R4 |
+| `LC-MA-PIPE-001` | Pipeline | IFU is non-lockstep decoupled I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`; I-F4 is followed by Instruction Buffer and four-wide fixed-64-bit D1; B-F4 correction uses inner flush while backend resolved mispredict uses typed recovery and I-F0 restart |
 | `LC-MA-RES-001` | Resource admission | Decode groups reserve ROB/BROB, rename, IQ, and memory-order resources atomically or make no state change |
 | `LC-MA-ROB-001` | ROB/retirement | Instruction rows allocate in order, commit contiguously, retain cleanup sidecars through deallocation, and recover precisely |
 | `LC-MA-HAZ-001` | Hazards/replay | Replay, redirect, wakeup, and issue behavior do not violate correctness |
@@ -129,10 +129,19 @@ Mandatory scenario families:
 - MMU translation and page or permission fault paths
 - timer interrupt delivery and boundary interactions
 - branch, block, and recovery legality
-- stage taxonomy: F0 owns frontend PC/thread control but is not one of the four
-  fetch-data stages, F4 aliases IB and owns final predecode/prediction, decode
-  width does not name F4, S3 is IQ visibility, W alignment is declared per
+- stage taxonomy: I-F0..I-F4 and B-F0..B-F4 are independent pipelines, I-F4
+  writes a distinct Instruction Buffer, D1 reads four
+  fixed 64-bit instructions, S3 is IQ visibility, W alignment is declared per
   producer, CMT/FLS publish at R2, and restart state publishes at R4
+- B-SIDE provider arbitration:
+  `backend typed restart > B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`;
+  within B-F4 exact RAS return/high-confidence IBTB are type-selected target
+  authorities, direction override is
+  `loop > long-TAGE > short-TAGE > BIM`, and BTB supplies direct target
+- B-F1..B-F4 correction of an accepted lower-ranked prediction produces an
+  identity-qualified inner flush, restores
+  GHR/GHRQ/RAS, and restarts I-F0 without backend flush; backend-resolved
+  misprediction instead exercises typed recovery and I-F0 restart
 - atomic decode-group admission failure with no partial RID/BID/rename/store
   allocation
 - contiguous ROB commit, delayed deallocation, precise head fault/nuke, and

@@ -1,5 +1,11 @@
 # LinxCoreFrontendTraceTop
 
+> **Architecture status — reduced verification top.** This wrapper preserves
+> legacy packet-window evidence only. It must not be used to infer the
+> production decoupled I-F0–I-F4/B-F0–B-F4 pipelines or the
+> I-F4/Instruction Buffer/D1
+> boundaries.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala`

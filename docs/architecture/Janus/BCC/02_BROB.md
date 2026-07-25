@@ -5,7 +5,7 @@
 > **Date**: 2026-05-14
 > **Status**: Draft
 > **Parent**: [JCore_BCC_AS.md](JCore_BCC_AS.md)
-> **Keywords**: IFU_BROB, BID, TID, block resolve, block commit, GPR CMAP, Tile wakeup, Tile release
+> **Keywords**: BROB, BID, STID, block resolve, block commit, GPR CMAP, Tile wakeup, Tile release
 
 > **Canonical identity rule:** each STID owns an independent BROB ring;
 > `BROB_ENTRIES=256` by default and
@@ -26,7 +26,9 @@
 
 ## 1. 定位
 
-IFU_BROB 是 BCC 中负责 block 顺序提交的结构。它在 IFU 分配 BID 时记录 BID/TID，接收来自 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，并通过 commit pointer 维护 block 的顺序 commit。
+BROB 是 BCC 中负责 block 顺序提交的结构。它在 D3 admission 分配 BID
+时记录 STID/BID，接收来自 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，
+并通过 commit pointer 维护 block 的顺序 commit。
 
 BROB 管控第一层架构状态:
 
@@ -42,8 +44,8 @@ WaveDrom timing source: [diagrams/resolve_commit_timing.wavedrom.json](diagrams/
 
 ```mermaid
 flowchart LR
-  IFU["IFU<br/>BSTART decode"] --> BROB["IFU_BROB<br/>BID/TID allocate"]
-  IFU --> BISQ["BlockDispatch<br/>BISQ entry allocate"]
+  D3["D3 admission<br/>decoded BSTART"] --> BROB["BROB<br/>STID/BID allocate"]
+  D3 --> BISQ["BlockDispatch<br/>BISQ entry allocate"]
   BISQ --> VEC["Vector"]
   BISQ --> CUBE["Cube"]
   BISQ --> TMA["TMA"]
@@ -97,22 +99,25 @@ BROB 负责:
 
 ```mermaid
 sequenceDiagram
-  participant IFU as IFU/Predecode
-  participant BROB as IFU_BROB
+  participant D1 as D1 Full Decode
+  participant D3 as D3 Admission
+  participant BROB as BROB
   participant DISP as BlockDispatch
   participant BISQ as BISQ
 
-  IFU->>BROB: 解析 BSTART，申请 BID
-  BROB-->>IFU: 返回 BID/TID
-  IFU->>DISP: 携带 BID/TID/type/PC/offset
+  D1->>D3: decoded BSTART + boundary hint + group demand
+  D3->>BROB: atomic allocate(STID,BID)
+  BROB-->>D3: accepted STID/BID
+  D3->>DISP: admitted STID/BID/type/PC/offset
   DISP->>BISQ: 分配对应 Vector/Cube/AGU entry
   BISQ-->>BROB: 可选记录 BISQ entry index / block type
 ```
 
 分配时机:
 
-- IFU 解析到 block 起始信息时分配 BID。
-- BlockDispatch 在 Rename 附近为 block 分配 BISQ entry。
+- I-F4 只提供 BSTART/BSTOP boundary hint；D1 full decode 验证 BSTART。
+- D3 在整组资源可原子接受时通过 BROB 分配 STID/BID，并同时准备
+  BlockDispatch/BISQ admission。
 - 后续 B.IOR/B.IOT/B.DIM/B.TEXT 携带 BID 或 BISQ entry index，对同一个 BISQ entry 补配置。
 
 ## 6. Resolve 流程
@@ -120,7 +125,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant CORE as Special Core
-  participant BROB as IFU_BROB
+  participant BROB as BROB
   participant TR as TileRename/ReadyTable
   participant BISQ as BlockISQ
 
@@ -144,7 +149,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant BROB as IFU_BROB
+  participant BROB as BROB
   participant REN as GPR Rename/MAPQ
   participant TR as TileRename
   participant IFU as IFU/PE
@@ -287,7 +292,7 @@ flush 影响:
 
 ## 14. CA 实现要点
 
-- IFU_BROB 分配 BID 时记录 BID/TID。
+- BROB 在 D3 admission 分配 BID 时记录 STID/BID。
 - BROB 接收 scalar_PE、VEC、CUBE、TMA 的 resolve。
 - BROB commit pointer 维护 block 顺序提交。
 - block resolve 时触发 dst Tile tag wakeup。

@@ -18,7 +18,7 @@
 | [BCC_AS.md](BCC_AS.md) | 聚焦 BCC SMT/OoO pipeline 的独立规格，收敛标量执行、CMD_ISQ、TileRename、BISQ、BROB 与恢复路径 |
 | [00_BCC_Architecture.md](00_BCC_Architecture.md) | BCC 顶层架构图、块头主数据流、状态提交/释放总览 |
 | [01_TileRename_BlockISQ.md](01_TileRename_BlockISQ.md) | B.IOR/B.IOT、TileRename、ReadyTable、BlockISQ/BISQ、Cube/Vector/AGU 发射规则 |
-| [02_BROB.md](02_BROB.md) | IFU_BROB 职责、BID/TID、block resolve/commit、Tile wakeup/release、GPR CMAP 提交关系 |
+| [02_BROB.md](02_BROB.md) | BROB 职责、STID/BID、block resolve/commit、Tile wakeup/release、GPR CMAP 提交关系 |
 | [03_BCC_OOO.md](03_BCC_OOO.md) | JCore BCC 乱序前后端、IFU/CT/PE/Rename/CMD_ISQ/ROB/DISP/RF 与特殊核接口 |
 | [04_Tile_Side_LSU.md](04_Tile_Side_LSU.md) | Tile 侧 LSU、LD/ST ID、non-spec、LDQ/STQ/SCB/VAB、gather/scatter 规则 |
 | [05_Vector_OOO_Appendix.md](05_Vector_OOO_Appendix.md) | Vector Decode/Rename/ROB 乱序附录，保留与 BCC block dispatch/参数传递相关信息 |
@@ -67,8 +67,8 @@ dot -Tsvg E:\Workarea\design_documents\BCC\diagrams\bcc_top.dot -o E:\Workarea\d
 
 ```mermaid
 flowchart LR
-  IFU["IFU<br/>fetch / predecode / HBB / CT / BROB"] --> IB["IBCT_INST_BUF<br/>STD + CT + block header"]
-  IB --> PE_D["PE Decode<br/>D1/D2"]
+  IFU["IFU<br/>decoupled I-SIDE + B-SIDE"] --> IB["Instruction Buffer<br/>64-bit instructions"]
+  IB --> PE_D["D1 full decode<br/>four fixed 64-bit instructions"]
   PE_D --> RN["PE Rename<br/>GPR MAPQ / ClockHands MAPQ"]
   RN --> CMD["CMD_ISQ<br/>B.IOR / B.IOT / B.DIM"]
   RN --> TR["TileRename<br/>T/U/M/N maps + ReadyTable"]
@@ -77,7 +77,7 @@ flowchart LR
   BISQ --> VEC["Vector Core"]
   BISQ --> CUBE["Cube Core"]
   BISQ --> TMA["TMA<br/>Tile Memory Access"]
-  VEC --> BROB["IFU_BROB<br/>per-STID ring-order commit"]
+  VEC --> BROB["BROB<br/>per-STID ring-order commit"]
   CUBE --> BROB
   TMA --> BROB
   BROB --> TR
@@ -115,7 +115,7 @@ flowchart LR
    - flush/replay 对 IFU、PE、CMD_ISQ、BISQ、TileRename、特殊核的影响集中记录。
 
 5. BCC OoO 前后端
-   - IFU、CT、PE_D1、PE_Rename、CMD_ISQ、PE_ROB、TPCBUF、DISP、TileRename、BlockISQ、RF、BN、EXE。
+   - I-SIDE、B-SIDE、Instruction Buffer、D1、D3、backend CTU、PE_Rename、CMD_ISQ、PE_ROB、TPCBUF、DISP、TileRename、BlockISQ、RF、BN、EXE。
    - BCC 与 RIU/TH_CTRL/PMU_CTRL/INT/REG_SLV/L2/特殊核接口。
    - 特殊核 dispatch、get/set、dst ptag write、dst Tile resolve、bid resolve、flush 通路。
 

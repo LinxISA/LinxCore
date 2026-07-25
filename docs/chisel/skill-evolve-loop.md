@@ -71,7 +71,7 @@ development is:
 | Decode to ROB reservation | `model/bctrl/spe/DCTop.cpp`, `model/bctrl/spe/Decoder.*`, `model/bctrl/spe/SPEROB.{h,cpp}` | `frontend/*Decode*.scala`, `backend/DecodeRenameQueue.scala`, `backend/DecodeRenameROBPath.scala`, `rob/ROBEntryBank.scala` |
 | Scalar rename and local T/U | `model/bctrl/spe/GPRRename.*`, `model/bctrl/spe/SPERename.*`, `model/bctrl/LocalRegMgr.*` | `rename/GPRRenameCheckpoint.scala`, `rename/ScalarTURenameBridge.scala`, `rename/TULink*.scala` |
 | ROB commit/dealloc/block last | `model/bctrl/spe/SPEROB.cpp`, `model/pe/PECommon/PROBCommon.*`, `model/interface/CommitInfo.h` | `rob/ROBEntryBank.scala`, `commit/CommitTrace.scala`, `backend/DecodeRenameROBPath.scala` |
-| Frontend F0-F5/F4 bundles | `model/pe/ifu/iside/pe_ifu.cpp`, `model/ModelCommon/bus/FetchReqBus.h`, `model/pe/PECommon/DecodeBundle.h`, `isa/ISACommon/DecodeUtiles.h` | `frontend/FrontendFetchPacketSource.scala`, `frontend/F4DecodeWindow.scala`, `frontend/F4DenseSlotQueue.scala` |
+| IFU migration evidence | `model/pe/ifu/iside/pe_ifu.cpp`, Model BFU F0–F4, `model/ModelCommon/bus/FetchReqBus.h`, `model/pe/PECommon/DecodeBundle.h`, `isa/ISACommon/DecodeUtiles.h` | `frontend/FrontendFetchPacketSource.scala`, `frontend/F4DecodeWindow.scala`, `frontend/F4DenseSlotQueue.scala`; target is decoupled I-F0–I-F4 and B-F0–B-F4, with Model BFU providing B-SIDE predictor behavior/timing reference |
 | Scalar issue and ALU | `model/iex/iex_iq.cpp`, `model/iex/iex_dispatch.cpp`, `model/iex/iex_rf.cpp`, `model/iex/pipe/iex_pipe.h`, `model/iex/pipe/alu_pipe.cpp` | `execute/ReducedScalarIssueQueue.scala`, `execute/ReducedScalarIssuePick.scala`, `execute/ScalarGPRFile.scala`, `execute/ReducedScalarAluExecute.scala` |
 | LSU/STQ/SCB/MDB/LIQ | `model/lsu/**`, `model/ModelCommon/LSUUtils.*` | `lsu/*.scala` |
 | Recovery and flush | `model/core/FlushControl.*`, `model/ModelCommon/bus/FlushBus.h`, `model/bctrl/BROB.cpp`, `model/bctrl/spe/SPEROB.cpp` | `recovery/*.scala`, `rob/ROBFlushPrune.scala`, `rename/TULinkRecoveryCleanupPath.scala`, `lsu/STQFlushPrune.scala` |
@@ -86,7 +86,7 @@ and keep Linx typed recovery authoritative over partial phase state.
 ## ROB And Cross-Check First
 
 The next development wave must keep ROB/BROB and cross-check infrastructure
-ahead of wider frontend or opcode work. R102 proves dense F4 windows can feed
+ahead of wider frontend or opcode work. R102 proves legacy dense windows can feed
 the reduced serialized path, but `BSTART` and `BSTOP` are still skip-only rows.
 Full block correctness starts only when marker rows update real block lifecycle
 state:

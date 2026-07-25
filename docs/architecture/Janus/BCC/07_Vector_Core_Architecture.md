@@ -9,9 +9,9 @@
 
 > **Stage-name scope:** VIFU labels in this appendix are local Vector-core
 > implementation labels, not the canonical LinxCore BCC pipeline. Where the
-> appendix discusses the BCC/core frontend, use `pipeline-stage-catalog.md`:
-> F0 is frontend control, F1-F4 are the four fetch stages, and F4 aliases IB.
-> A lane count never defines F4.
+> appendix discusses the BCC/core frontend, use `../../ifu.md`: decoupled
+> decoupled I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`, then a distinct
+> Instruction Buffer and four-wide fixed-64-bit D1.
 
 ---
 
@@ -264,7 +264,8 @@ VIFU 支持四线程 SMT RR 调度取指:
 - 软件层面不支持 SIMT 下的分支分叉执行，即不同 lane 执行不同分支路径。
 - 此类场景由软件 Stack 替代实现分支逻辑。
 - 当所有 lane 跳转方向一致时，例如 loop 或 direct jump，硬件支持。
-- 跳转目标 PC 在 F4 完成解析，并通过内部 flush 清除 F0-F3 中该线程错误 PC 指令。
+- B-F4 完成最终预测仲裁；后级 prediction correction 通过 identity-qualified
+  inner flush 清除错误 fetch、恢复 GHR/RAS 并重启 I-F0。
 
 ### 5.2 VIFU Blocks
 
@@ -285,12 +286,15 @@ WaveDrom source: [diagrams/vector_ifu_pipeline.wavedrom.json](diagrams/vector_if
 
 1. 仲裁器按优先级选择 PC 写入 Origin Buffer:
    - BRU misprediction flush，根据计算内容更新 PC。
-   - F4 识别 Indirect Branch，产生 intra flush 清空 F0-F4 该线程全部取指，Thread_en 拉低，直到 BRU 算出正确跳转地址，并将该地址写入 Origin Buffer。
-   - F4 识别 Direct Branch，产生 intra flush 清空 F0-F4 该线程全部取指，并根据 Static Predictor 计算 PC 更新 Origin Buffer。
-   - Predecode 识别 BSTOP，在 F4 产生 intra flush 清空 F0-F4 该线程取指，并更新 Origin Buffer 为 GROB 下一个 entry 起始 PC。
+   - B-SIDE B-F0..B-F4 prediction response 提供 indirect/direct branch 的
+     预测方向和 target；I-F4 不识别这些 branch opcode。
+   - I-F2 在 ITLB miss 时产生 inner flush；B-F4 prediction correction
+     也可产生 identity-qualified inner flush；后端 recovery 使用独立
+     precise recovery channel。
+   - I-F4 只完成长度判定、64-bit 扩展和 BSTART/BSTOP boundary hint。
    - 若指令为 TileOp，更新 Origin Buffer 为 GROB 下一个 entry 起始 PC。
    - 若以上都未发生，Origin Buffer + 32，顺延获取下一个 Fetch Bundle。
-2. 后级 RR 调度器选取有效线程进入 IFU F1 stage。
+2. 后级 RR 调度器选取有效线程进入 I-F1 stage。
 3. PC 同时进入:
    - TLB 做 VA -> PA 翻译。
    - Tag Array 查询 cacheline tag。
@@ -304,9 +308,9 @@ WaveDrom source: [diagrams/vector_ifu_pipeline.wavedrom.json](diagrams/vector_if
    - Alignment Buffer 按 32-bit 分界顺序识别，抽出四条指令传给下游。
    - Alignment Buffer 满时反压前端对应线程。
    - Predecode 识别跳转信息。
-6. F4 stage 根据 BID 选取进入 Instruction Buffer 的源头，最多写入 4 条指令。
-7. F4 stage Static Predictor 根据预解码信息提前计算跳转 PC，并对 indirect/direct branch 产生 intra flush。
-8. D0 stage，四线程通过 RR 调度器选择一个有效线程进入 OOO。
+6. 本地 VIFU buffer-write 逻辑根据 BID 选取进入 Instruction Buffer 的源头。
+7. B-F4 完成最终 prediction arbitration；B-SIDE 与 I-SIDE 不锁步。
+8. D1 从选中的线程读取最多四条固定 64-bit 指令并完成 full decode。
 
 ---
 

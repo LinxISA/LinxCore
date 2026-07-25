@@ -75,14 +75,16 @@ The following must stay synchronized when trace/pipeline contracts change:
 
 Viewer-side contract sync is validated through LinxTrace gates.
 
-The canonical stage taxonomy is `F0` control followed by `F1..F4/IB`,
+The canonical stage taxonomy is I-SIDE `I-F0..I-F4`, then Instruction Buffer,
+and decoupled B-SIDE `B-F0..B-F4`, followed by
 `D1..D3`, `S1..S3`, optional
 `P0`, `P1/I1/I2`, per-pipe `E1..En` with `W1..Wn` result overlays, and
-`R0..R4`. The current LinxTrace v1 `F0` token is canonical, but its separate
-serial `IB/F4` tokens and incomplete `W`/`R` coverage are legacy. Removing or
-reordering fields is a breaking trace change and requires a new schema major
-plus synchronized producer, linter, viewer, sample, and compatibility
-evidence.
+`R0..R4`. B-SIDE prediction uses independent request/response/correction/
+training visibility. LinxTrace must expose ordered
+`I-F4 -> Instruction Buffer -> D1` boundaries and separately tagged B-F stage
+events. Removing or reordering fields is
+a breaking trace change and requires a new schema major plus synchronized
+producer, linter, viewer, sample, and compatibility evidence.
 
 ## LinxCoreModel simulator contract (LC-IF-MODEL-001)
 

@@ -1,5 +1,9 @@
 # ReducedBfuPendingRuntimeBodyEndCandidate
 
+> **Architecture status — legacy feedback fixture.** Retained resolved
+> feedback migrates to the B-F0–B-F4 training queue and must carry exact
+> prediction/fetch identity.
+
 ## Purpose
 
 `ReducedBfuPendingRuntimeBodyEndCandidate` is the R157 active-header eligibility

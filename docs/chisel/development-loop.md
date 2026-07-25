@@ -10,8 +10,20 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The current priority is replay-LIQ retained physical-bundle replacement
-evidence, with a clear separation between positive replay-fixture proof,
+The old "current priority" replay-LIQ retained physical-bundle replacement
+text is historical context, not the active launch directive. The authoritative
+current handoff is the top `Current Handoff` section in
+`docs/chisel/integrated-development-flow.md`; at R676, `ScalarL1D` is the
+canonical scalar cache-array owner and the still-open hardware boundaries are
+memory classification, translation/protection, explicit invalidation/cache
+maintenance, complete coherence/lower-memory fabric, and parallel cross-half
+launch. New agents must start from that R676 handoff and the latest rows in
+`docs/chisel/agent-loop.md`, then use the older R571-R632 replay-LIQ material
+below only as historical evidence for replay-search tooling and claim-boundary
+discipline.
+
+Historical replay-LIQ block (R571-R632): retained physical-bundle replacement
+evidence separated positive replay-fixture proof,
 CoreMark no-regression coverage, and QEMU-only candidate location. R571-R574
 prove the LRET/W2 clear phasing gap; R575-R610 develop the retained
 retire-record, all-or-none suppression, and selector-origin audit path. R611
@@ -134,7 +146,10 @@ The next inner-loop choice is either continue at `--skip-windows 6` for
 state-light windows, or add a local T/U checkpoint/seed mechanism before
 spending on larger skipped windows.
 
-## Packet Start Baseline
+## Historical Packet Start Baseline
+
+This baseline belongs to the historical replay-LIQ plan above and is superseded
+by the current handoff plus each assignment's revision manifest.
 
 Record these at the start of each packet and refresh only by explicit fetch, not
 by merging over dirty worktrees:
@@ -1036,16 +1051,16 @@ facts:
 | `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` / `isa/calculate/pc/PC.cpp` | Reduced scalar ALU semantics are `ADD = src0 + src1`, `ADDI = src0 + imm`, `MOVR/MOVI` move the selected source/immediate into the destination, `ADDTPC = (pc & ~0xfff) + imm`, `HL.LUI` materializes its decoded IMM32, and `SLL = SrcL << (SrcR & 0x3f)`. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
 | `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/iex_pipe.h` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R88 scalar issue handoff stores renamed rows before execute, initializes and wakes sources by physical tag, selects the oldest resident ready non-issued entry, marks selected entries issued without removing them, separates P1 pick from I1 RF-read request and I2 RF-return consumption in the pipe model, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, registered RF-readiness gating, ROB identity, oldest-ready resident selection, P1 in-flight lock, I1 read-cancel unlock, I2 execute handoff, issued-entry residency, and ALU W2 release while still deferring full read-port arbitration, alternate select preferences, load miss suppression, replay, and bypass. |
-| `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 frontend fetch source evidence: F0 captures `fetchTPC`, block/thread identity, `fid`, and sidebands in `FetchReqBus`; F2 fills instruction window data and sizes with `CheckMInstSize`; F3/F4/F5 move `DecodeBundle` records under backpressure. The reduced Chisel source preserves one-outstanding PC request, response-window packetization, packet-owned UID/checkpoint, restart/flush clearing, and downstream decoded-byte PC advance while deferring cacheline merge, branch prediction, RAHQ, ELF memory loading, and multiple outstanding requests. |
-| `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/interface/CommitInfo.h` | R94 live frontend fetch trace-top evidence: model fetch requests become decode bundles before scalar decode/ROB allocation, and commit rows preserve model `(bid,gid,rid)` identity separately from hardware block identity. The Chisel top preserves the reduced form by feeding source-produced packets into F4 and `DecodeRenameROBPath`, advancing source PC from F4 decoded byte count, and dumping generated-RTL commit rows through the shared JSONL writer and neutral comparator. |
-| `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/GPRRename.cpp` / `model/iex/iex_iq.cpp` / `model/iex/iex_rf.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/interface/CommitInfo.h` | R95 live frontend fetch RF/ALU evidence: source-produced packets flow through F4 into scalar decode/rename/ROB allocation, RF-backed issue residency, RF source reads, ALU W2 completion, destination RF writeback, and commit-row export. The reduced Chisel top preserves source PC request/response ownership, F4 byte-count PC advance, queue-capacity rename acceptance, RF-readiness-gated issue, model-derived issue release identity, and separate model commit identity versus hardware block identity while still using a bounded instruction-window fixture. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / Model BFU F0–F4 / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 historical migration evidence: the reduced Chisel source preserves one-outstanding PC request and packet-window behavior. The target replaces it with decoupled I-F0–I-F4 and B-F0–B-F4; Model BFU supplies the B-SIDE predictor behavior/timing reference, while Model BHC/cache behavior maps to I-SIDE L1I. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/interface/CommitInfo.h` | R94 historical migration evidence: model fetch requests become decode bundles before scalar decode/ROB allocation. The reduced Chisel top feeds source packets into the legacy `F4DecodeWindow` fixture and `DecodeRenameROBPath`; neither the fixture name nor its decoded-byte PC advance defines production I-F4. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/GPRRename.cpp` / `model/iex/iex_iq.cpp` / `model/iex/iex_rf.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/interface/CommitInfo.h` | R95 historical migration evidence: source packets flow through the legacy window fixture into scalar decode/rename/ROB allocation, RF-backed issue, ALU W2, and commit export. Production replaces that serialized path with an independent Instruction Buffer and four-wide 64-bit D1. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R96 fetch-memory harness evidence: the model IFU boundary requests a PC and returns instruction bytes plus size-derived decode metadata before downstream scalar ownership. The reduced Chisel gate now reads response instruction bytes from a reusable memory image at the requested PC before packaging the bounded response window. It intentionally keeps one expected instruction length per response until the dense multi-slot packet path is implemented. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R97 sparse ELF fetch-memory evidence: IFU request/response ownership is address based, so harness memory must support non-contiguous and high-address program bytes before CoreMark-style direct-boot images can become live fetch inputs. The Chisel harness now accepts sparse address-to-byte memory extracted from ELF PT_LOAD segments while keeping expected row selection as a separate future owner. |
 | `model/interface/CommitInfo.h` / `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/iex/pipe/alu_pipe.cpp` | R98 expected-row source evidence: commit comparison is already a QEMU-shaped architectural row stream, while live fetch requests still need row-owned PC, instruction length, source data, and destination data to drive the reduced scalar top. The harness now consumes those expected rows from JSONL instead of deriving them from an internal fixture, preserving the model split between IFU memory bytes, scalar execution data, and commit-row comparison. |
 | `model/interface/CommitInfo.h` / QEMU commit JSONL / `tools/chisel/trace_schema_adapter.py` | R99 row extraction evidence: QEMU and DUT comparison already meet at normalized commit rows, but the reduced live-fetch RF/ALU top can only execute a strict sequential scalar ALU prefix. The extractor keeps QEMU row spelling and adapter normalization, then rejects rows outside the reduced scalar envelope before they become Verilator expected rows. |
 | QEMU commit JSONL / `tools/qemu/run_qemu_commit_trace.sh` / `tools/chisel/frontend_fetch_elf_memory.py` | R100 live capture evidence: the reduced gate can now collect bounded QEMU rows from a direct-boot ELF and feed the validated scalar prefix plus matching ELF bytes into the live fetch RF/ALU top. PC filters are still required to skip legal block headers until that instruction class is live in the DUT. |
 | QEMU commit JSONL / `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py` / `DecodeRenameROBPath` | R101 marker evidence: the reduced gate can consume legal single-instruction `BSTART`/`BSTOP` rows as frontend markers while keeping them out of the architectural commit comparator. Marker-only packets must advance fetch without BROB/ROB allocation or issue enqueue; R102 supersedes the earlier mixed-packet limitation with a dense-slot queue. |
-| `model/pe/ifu/iside/pe_ifu.cpp` / `model/pe/PECommon/DecodeBundle.h` / `model/bctrl/spe/DCTop.cpp` / QEMU commit JSONL | R102 dense-slot evidence: model IFU carries `DecodeBundle.mask`, `entry[]`, `isize[]`, and `tpcArr[]` through F4/F5/IB before scalar decode iterates rows. The reduced Chisel gate now captures all valid slots from one 8-byte F4 window in `F4DenseSlotQueue` and drains them serially into the existing one-row ROB path, preserving marker rows as DUT-only skip slots and scalar rows as comparator commits. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/pe/PECommon/DecodeBundle.h` / `model/bctrl/spe/DCTop.cpp` / QEMU commit JSONL | R102 historical dense-slot evidence: the reduced Chisel gate captures slots from one 8-byte legacy window in `F4DenseSlotQueue` and serializes them; production instead writes 64-bit entries after I-F4 and reads four entries per cycle at D1. Model BFU predictor stages map to B-F0–B-F4 and are independent of this I-SIDE transport migration. |
 | `model/bctrl/BCtrl.cpp` / `model/bctrl/BROB.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/pe/PEBase.cpp` | R104 marker lifecycle evidence: `BCtrlUnit::RunFetchStage5` allocates BROB for block-start markers, keeps the resulting BID as the current block identity, stamps following scalar rows from that active BID, and treats `BSTOP` as the current block's terminal marker. `SPEROB::CommitBlock` then calls `SetBlockComplete`, and `BlockROB::commitBlock` retires only contiguous completed block entries. The reduced Chisel path now allocates BROB-only on consumed `BSTART`, reuses the active full BID for scalar ROB rows, and completes the active BID on consumed `BSTOP`. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
@@ -1202,7 +1217,8 @@ Use this ladder for every promoted packet:
    to the frontend trace-top driver, completion surrogate, or commit export.
 9. `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` after
    changes to the live frontend fetch source top, bounded memory-window
-   fixture, source-to-F4 handshake, completion surrogate, or commit export.
+   fixture, source-to-legacy-window handshake, completion surrogate, or commit
+   export.
 10. `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` after
    changes to scalar ALU execute completion, completion-row payload wiring, or
    the frontend ALU trace-top driver.

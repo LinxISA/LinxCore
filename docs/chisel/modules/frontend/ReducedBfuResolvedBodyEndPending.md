@@ -1,5 +1,9 @@
 # ReducedBfuResolvedBodyEndPending
 
+> **Architecture status — legacy feedback fixture.** The target equivalent is
+> a retained B-F0–B-F4 training entry with exact STID, prediction tag, fetch
+> sequence, and epoch.
+
 ## Purpose
 
 `ReducedBfuResolvedBodyEndPending` is the R155 lifetime owner for reduced BFU

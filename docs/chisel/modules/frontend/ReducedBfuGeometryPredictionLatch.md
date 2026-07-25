@@ -1,5 +1,10 @@
 # ReducedBfuGeometryPredictionLatch
 
+> **Architecture status — legacy diagnostic fixture.** Useful learned-geometry
+> behavior migrates into B-SIDE predictor/training state; this latch is not a
+> production predictor owner; its target behavior belongs to B-F0–B-F4, not
+> I-F4.
+
 ## Purpose
 
 `ReducedBfuGeometryPredictionLatch` is the reduced BFU handoff between accepted

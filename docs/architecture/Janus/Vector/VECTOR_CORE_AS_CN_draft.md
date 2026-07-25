@@ -328,32 +328,17 @@ Vector Core 通过 TMU Ring 的 3 个节点访问 TileReg：
 
 Vector Core 采用 SMT4 + OoO + SIMD 架构。前端取指/译码规格与 BCC 保持一致（4-wide），后端执行宽度为 2048-bit。
 
+```text
+GS -> I-F0 -> I-F1 -> I-F2 -> I-F3 -> I-F4 -> Instruction Buffer
+                                      |
+                                      +-> D1 (4 x 64-bit full decode)
+                                          -> D2 -> REN -> S1 -> S2
+                                          -> P1 -> I1 -> I2 -> E1...
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Vector Core Pipeline                         │
-│                                                                     │
-│  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐                     │
-│  │ GS  │─>│ F0  │─>│ F1  │─>│ F2  │─>│ F3  │  Frontend           │
-│  │Group│  │Fetch│  │ICache│  │ICache│  │Inst │                     │
-│  │Split│  │ PC  │  │ Tag │  │ Data │  │ Buf │                     │
-│  └─────┘  └─────┘  └─────┘  └─────┘  └──┬──┘                     │
-│                                           │                         │
-│  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌──v──┐                     │
-│  │ F4  │─>│ D1  │─>│ D2  │─>│ REN │─>│ S1  │  Decode + Rename    │
-│  │Align│  │ Dec │  │uOp  │  │CkHd │  │Ready│                     │
-│  └─────┘  └─────┘  └─────┘  └─────┘  └──┬──┘                     │
-│                                           │                         │
-│  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌──v──┐                     │
-│  │ S2  │─>│ P1  │─>│ I1  │─>│ I2  │─>│ E1  │  Issue + Execute    │
-│  │Issue│  │Pick │  │RdRF │  │Bypas│  │Exec │                     │
-│  └─────┘  └─────┘  └─────┘  └─────┘  └──┬──┘                     │
-│                                           │                         │
-│                              ┌─────┐  ┌──v──┐                     │
-│                              │ W2  │<─│ W1  │  Writeback           │
-│                              │WrRF │  │Fwd  │                     │
-│                              └─────┘  └─────┘                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+
+For BCC/core use, B-SIDE is the decoupled `B-F0..B-F4` prediction pipeline.
+Vector linear-group configurations may omit predictor tables, but they do not
+change I-F0..I-F4, Instruction Buffer, or D1 meanings.
 
 ### 6.2 Group Splitter（GS 阶段）
 
@@ -412,6 +397,11 @@ Frontend 规格与 BCC 保持一致：
 | 译码宽度 | 4 条指令/cycle |
 | ICache | 与 BCC 共享或独立（可配置） |
 | 指令缓冲 | 每线程独立的指令 buffer |
+
+I-F1 parallel-launches ITLB and L1I, I-F2 creates inner flush on ITLB
+miss, I-F3 aligns the cache-line byte stream, I-F4 completes 2/4/6/8-byte
+assembly and BSTART/BSTOP-only predecode, and D1 consumes four fixed 64-bit
+instructions.
 
 **关键差异**：
 - 取指 PC 由 Group Splitter 提供，而非分支预测器

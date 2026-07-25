@@ -13,6 +13,15 @@ QEMU proves architectural row streams, Chisel generated RTL proves DUT behavior,
 LinxCoreModel proves model convergence, and the superproject gates prove that
 the change still works across repos.
 
+For IFU packets, the normative target is two decoupled, non-lockstep pipelines:
+I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`. Model BFU F0–F4 provides the
+B-SIDE predictor behavior/timing reference. Model BHC, ITLB, and L1I behavior
+belongs to I-SIDE. Promotion must prove per-stage ready/valid residency,
+checkpoint/epoch stale filtering, exact `{taken, branchPc, target, kind}`
+comparison for every B-F1–B-F4 correction to I-F0 inner-flush restart, B-F4
+as final correction point, provider rank, and retained training; a reduced
+`F4*` fixture is never this evidence.
+
 ## Current Handoff
 
 Latest packet: R676 makes `ScalarL1D` the canonical scalar cache-array owner.
@@ -1597,8 +1606,8 @@ Evidence:
   CoreMark `ET_EXEC` maps at `0x10000`, while a high-address `ET_DYN` image
   needs an explicit larger `--qemu-memory` value. The corrected driver emits
   a complete 1,000-row QEMU/DUT artifact. A redirect must kill the D1/D2/D3/
-  S1/S2 packet pipeline *and* block F4 admission for the following backend
-  recovery cycle. Otherwise an F4 packet sampled before the redirect survives
+  S1/S2 packet pipeline *and* block the legacy window admission for the following backend
+  recovery cycle. Otherwise a legacy window packet sampled before the redirect survives
   `flush_pending` and can allocate a younger instruction ahead of the
   redirected macro header. `dispatch_frontend.flush_i` carries that recovery
   kill; the directed 20-commit trace now retires the `FENTRY` parent at
@@ -1620,7 +1629,8 @@ Evidence:
   `0x124e8` header rather than an FENTRY immediate or frame-addend mismatch.
   The recovery fix must be atomic across two ownership domains: retire-time
   recovery must discard *same-BID* rows younger than the committed FRET parent,
-  and F4/IB recovery must retain or replay the first packet at `0x15670` after
+  and Instruction Buffer recovery must retain or replay the first packet at
+  `0x15670` after
   the redirect. Gating CTU admission by the architectural PC alone exposes the
   stale header but deadlocks because the target packet is consumed during the
   recovery window; clearing the residual ROB window alone has the same missing

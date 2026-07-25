@@ -44,8 +44,16 @@ flags, exclusives, barriers, acquire/release policy, and return state are not
 part of this owner.
 
 The reduced timing top still owns the physical single-pipe ROB/RF/wakeup
-arbiters. Connecting those live sinks to this canonical output is the next
-integration boundary; cache/miss and cross-line return sources remain staged.
+arbiters. Connecting those live sinks to this canonical output remains a
+separate integration boundary.
+
+Upstream load-return sources are no longer all staged: R673 provides the
+retained `LoadMissQueue`, R674 provides `LoadRefillTransport`, R675 provides
+sequential cross-line assembly under one architectural load identity, and R676
+provides `ScalarL1D` as the active-phase cache line owner. Parallel cross-half
+launch, memory classification, translation/protection, explicit invalidation
+and cache maintenance, and the complete lower-memory/coherence fabric remain
+future owners; this return pipeline does not claim those R677 behaviors.
 
 ## R672 Full-LSID Contract
 

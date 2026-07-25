@@ -305,7 +305,7 @@ exists. The default constructor keeps the old behavior for non-reduced users.
 
 Inputs:
 
-- `d1`, `slots`, `validMask`, `flushValid`: D1/F4 decode inputs consumed by
+- `d1`, `slots`, `validMask`, `flushValid`: legacy packet-window fixture inputs consumed by
   `FrontendDecodeStage`.
 - `robStatusLookupValid`, `robStatusLookupRid`: read-only native RID status
   query forwarded to the ROB row owner.

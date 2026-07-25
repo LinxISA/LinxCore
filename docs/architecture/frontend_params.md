@@ -6,6 +6,10 @@ Frontend parameters are exposed at:
 - `rtl/LinxCore/src/top/top.py`
 - `rtl/LinxCore/src/bcc/ifu/icache.py`
 
+The normative structure is the I-SIDE/B-SIDE decoupled-engine contract in
+`ifu.md`. Parameter implementations must not merge I-F4 with Instruction Buffer
+or move predictor ownership into I-SIDE.
+
 ## Parameters
 
 - `ic_sets`:
@@ -23,15 +27,31 @@ Frontend parameters are exposed at:
   - legal in this milestone: `64` only
   - meaning: I-cache line size
 
-- `ifetch_bundle_bytes`:
-  - default: `128`
-  - legal in this milestone: `128` only
-  - meaning: fetch bundle assembled from two 64B lines
+- `ifetch_line_bytes`:
+  - default: `64`
+  - legal in this milestone: equal to `ic_line_bytes`
+  - meaning: one I-SIDE fetch request returns one L1I cache line
+
+- `d1_decode_width`:
+  - default: `4`
+  - legal in this milestone: `4` only
+  - meaning: maximum fixed-64-bit Instruction Buffer entries read by D1
+
+- `instruction_payload_bits`:
+  - default: `64`
+  - legal in this milestone: `64` only
+  - meaning: instruction payload width in Instruction Buffer and after D1
 
 - `ib_depth`:
   - default: `8`
   - legal: power-of-two, `>= 1`
   - meaning: instruction buffer depth
+
+- `bside_request_entries` / `bside_response_entries`:
+  - default: implementation-defined by the selected configuration
+  - legal: `>= 1`
+  - meaning: decoupling capacity between I-SIDE requests, B-SIDE prediction,
+    and fetch steering
 
 - `ic_miss_outstanding`:
   - default: `1`
@@ -50,3 +70,13 @@ Frontend parameters are exposed at:
 - Contract:
   - single blocking miss,
   - one refill line (`64B`) per response.
+
+## Fixed structural requirements
+
+- I-F1 launches ITLB and L1I in parallel.
+- I-F2 generates an inner flush on ITLB miss.
+- I-F4 writes complete 64-bit instructions into Instruction Buffer.
+- B-F1..B-F4 correction of an accepted lower-ranked prediction generates an
+  identity-qualified inner flush, restores
+  GHR/RAS, and restarts I-F0.
+- B-SIDE predictor queues advance independently from I-SIDE.

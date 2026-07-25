@@ -1,5 +1,10 @@
 # FrontendInstructionBuffer
 
+> **Architecture status — storage migration object.** The production
+> Instruction Buffer is an independent queue after I-F4 and before D1.
+> It stores per-instruction 64-bit entries and supports up to four D1 reads per
+> cycle. The current packet FIFO does not define that architecture.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/FrontendInstructionBuffer.scala`
@@ -15,19 +20,19 @@
 
 ## Purpose
 
-`FrontendInstructionBuffer` is the first stateful frontend Chisel module. It
-stores fetched F4/D1 packets between F3/F4 production and backend/decode
-consumption. The buffer preserves packet PC, 64-bit decode window, packet UID,
-and fetch checkpoint identity as one record so later F4/D1/D2 work does not
-reconstruct checkpoint state from external timing.
+`FrontendInstructionBuffer` currently stores legacy packet windows. This
+implementation is a migration object only. The target buffer is an independent
+queue after I-F4 and before D1; each row stores one 64-bit instruction
+plus PC, original length, `BSTART`/`BSTOP`, fetch identity, epoch, and
+prediction identity.
 
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
-| input | `push` | `FrontendDecodePacket` | `push.valid && pushReady` | Packet accepted from F3/F4 frontend production |
+| input | `push` | `FrontendDecodePacket` | `push.valid && pushReady` | Packet accepted from the current legacy producer |
 | output | `pushReady` | `Bool` | ready | High when the queue is not full and not being flushed |
-| input | `popReady` | `Bool` | ready | Consumer readiness from F4/D1/decode side |
+| input | `popReady` | `Bool` | ready | Consumer readiness from the current fixture |
 | output | `out` | `FrontendDecodePacket` | `out.valid && popReady` | Oldest buffered packet |
 | output | `popFire` | `Bool` | fire | Oldest packet is consumed this cycle |
 | input | `flushValid` | `Bool` | always sampled | Clears queue occupancy and masks visible output |
@@ -70,15 +75,16 @@ and checkpoint identity as packet-owned at frontend ingress.
 
 ## Timing
 
-`FrontendInstructionBuffer` is a registered F3/F4-owned queue. It does not
-decode opcodes, allocate ROB/BROB IDs, or build D1/D2 uops. It is intended to
-feed `F4DecodeWindow` or a future registered F4/D1 transport wrapper.
+`FrontendInstructionBuffer` is currently a registered packet FIFO and does
+not decode opcodes or allocate backend resources. It feeds the legacy
+`F4DecodeWindow` fixture. Production replaces this packet shape with an
+independent 64-bit instruction-entry queue and four-entry D1 head access.
 
 ## Flush/Recovery
 
 `flushValid` synchronously clears occupancy and masks visible output for the
 cycle. A packet presented on `push` during a flush is not accepted because
-`pushReady` is low. Future integration with `FLS -> F0` restart must still own
+`pushReady` is low. Future integration with recovery-to-I-F0 restart must own
 restart PC and checkpoint selection outside this FIFO.
 
 ## Trace/Observability

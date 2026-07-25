@@ -1,5 +1,10 @@
 # FrontendDecodeStage
 
+> **Architecture status — D1 migration object.** Production D1 reads up to
+> four 64-bit entries from the independent Instruction Buffer and performs full
+> opcode/operand/immediate/alias decode. Variable-length slicing and branch
+> prediction do not belong to this module.
+
 ## Purpose
 
 `FrontendDecodeStage` turns `F4DecodeWindow` slots into `DecodedUop` records.

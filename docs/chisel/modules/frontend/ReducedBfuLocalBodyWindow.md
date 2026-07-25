@@ -1,10 +1,15 @@
 # ReducedBfuLocalBodyWindow
 
+> **Architecture status — legacy migration fixture.** The production B-SIDE
+> owns speculative branch state in B-F0–B-F4. I-F4 only predecodes instruction length
+> and `BSTART`/`BSTOP`, then writes 64-bit entries to Instruction Buffer.
+
 ## Purpose
 
-`ReducedBfuLocalBodyWindow` is the reduced frontend owner that turns a learned
-BFU body geometry row into a local body-cut window. It watches the F4 decode
-window for the predicted block header, latches the prediction payload when that
+`ReducedBfuLocalBodyWindow` is the reduced frontend fixture that turns a
+learned BFU body geometry row into a local body-cut window. It watches the
+legacy packet-window slots for the predicted block header and latches the
+prediction payload when that
 header is visible, and holds the geometry until the body-cut predictor fires or
 a flush clears the window.
 
@@ -29,7 +34,7 @@ has already cut the packet.
 | input | `cutFire` | `Bool` | Releases the active local body window after the predictor cuts the current packet. |
 | input | `predictionValid` | `Bool` | A learned body-cut geometry row is available. |
 | input | `predictionHeaderPc`, `predictionHSizeBytes`, `predictionBSizeBytes` | `UInt(pcWidth.W)` | Learned BFU geometry payload. |
-| input | `f4Valid`, `f4Slots`, `f4ValidMask` | mixed | Current F4 decode-window slots. |
+| input | `f4Valid`, `f4Slots`, `f4ValidMask` | mixed | Current legacy packet-window slots; not architectural I-F4. |
 | output | `geometryValid` | `Bool` | A body-cut geometry row is active or is arming in the current F4 window. |
 | output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Geometry forwarded to `ReducedBfuBodyCutPredictor`. |
 | output | `active`, `armFire`, `releaseFire`, `armSlot` | mixed | Diagnostics for active state, accepted local header match, release, and matched F4 slot. |

@@ -9,13 +9,10 @@
 > **Format Reference**: `E:\Workarea\DavinciOO\Davinci_BlockROB_v1.md`, `E:\Workarea\DavinciOO\Davinci_BCC_ScalarPipeline_v1.md`
 > **Dependencies**: TMU-Core interface specification, JCore BCC AS, Vector-OOO AS, Tile-side LSU AS
 
-> **Canonical-stage crosswalk:** This draft retains historical F4/F5/CT and
-> other local pipeline labels as source evidence only. The normative LinxCore
-> mapping is `F0 -> F1 -> F2 -> F3 -> F4/IB -> D1`; F4 and IB are one final
-> fetch stage, while CT/template handling is an owner within that boundary,
-> not a serial F5 architectural stage. Backend behavior maps by function to
-> canonical D1-D3, S1-S3, P/I/E/W, and R0-R4, with CMT/FLS at R2 and restart
-> state at R4. See `pipeline-stage-catalog.md`.
+> **IFU contract:** The normative IFU is defined by `../../ifu.md`. I-SIDE owns
+> `I-F0 -> I-F1 -> I-F2 -> I-F3 -> I-F4`, followed by a distinct Instruction
+> Buffer. B-SIDE owns `B-F0 -> B-F1 -> B-F2 -> B-F3 -> B-F4`. The engines are
+> decoupled and non-lockstep. D1 reads four fixed 64-bit instructions.
 > Historical `BID/TID` on a shared block path means canonical `(STID,BID)`;
 > PE/engine-local TID is a separate subordinate qualifier.
 
@@ -101,8 +98,8 @@ BROB 提供 block 顺序提交点；TileRename 提供 TileRegister 空间和 tag
 | Parameter | Value / Current Assumption | Notes |
 |-----------|----------------------------|-------|
 | SMT mode | SMT4 | 用户材料中 BCC/Vector 多处以 4 线程为基线 |
-| Decode width | 4 inst/cycle | IFU/IBCT_INST_BUF/Decode 相关描述均按 4 宽 |
-| Header dispatch width | up to 2 header uops/cycle | IBCT_INST_BUF 出队叠加最多 2 条块头微指令，最多 1 条 BSTART |
+| Decode width | 4 inst/cycle | D1 从 Instruction Buffer 读取 4 条固定 64-bit 指令 |
+| Boundary capacity | one admitted boundary allocation/cycle | D1/D2 group 必须遵守 BROB allocation 限制 |
 | CMD_ISQ | 2 write / 2 pick | 专用于 B.IOR/B.IOT/B.DIM 等特殊核块头微指令 |
 | TileRename hands | T/U/M/N | 四类 FIFO/hand |
 | TileReg total example | 1 MB | T/U/M/N = 512KB/256KB/128KB/128KB |
@@ -147,12 +144,12 @@ DOT source: [diagrams/bcc_top.dot](diagrams/bcc_top.dot)
 ```mermaid
 flowchart TB
   subgraph IFU["IFU"]
-    FETCH["Fetch / Predict<br/>uBTB F1 / MainPred F4"]
-    HBB["Header Branch Buffer<br/>block PC / offset"]
-    CT["IFU_CT<br/>template block expansion"]
-    IB["IBCT_INST_BUF<br/>STD + CT + header"]
-    BROB["IFU_BROB<br/>BID/TID / resolve / commit"]
+    FETCH["IFU<br/>I-SIDE + decoupled B-SIDE"]
+    IB["Instruction Buffer<br/>64-bit instructions"]
   end
+
+  CT["Backend CTU<br/>after D3 admission"]
+  BROB["BROB<br/>STID/BID resolve / commit"]
 
   subgraph PE["BCC Scalar PE / IOE"]
     D12["D1/D2 Decode<br/>thread RR + header decode"]
@@ -171,10 +168,7 @@ flowchart TB
     TMA["TMA<br/>Tile Memory Access"]
   end
 
-  FETCH --> HBB
-  FETCH --> CT
-  CT --> IB
-  HBB --> IB
+  FETCH --> IB
   IB --> D12
   D12 --> REN
   REN --> CMD
@@ -245,22 +239,24 @@ WaveDrom timing source: [diagrams/block_header_pipeline.wavedrom.json](diagrams/
 
 ```mermaid
 sequenceDiagram
-  participant IFU as IFU/Predecode
+  participant D1 as D1 Full Decode
+  participant D3 as D3 Admission
   participant BROB as BROB
   participant REN as Rename
   participant CMD as CMD_ISQ
   participant TR as TileRename
   participant BISQ as BISQ
 
-  IFU->>BROB: BSTART allocate BID/TID
-  IFU->>BISQ: BlockDispatch allocate entry
-  IFU->>REN: B.IOR getlist/setlist
+  D1->>D3: decoded BSTART + group demand
+  D3->>BROB: atomic allocate STID/BID
+  D3->>BISQ: admitted BlockDispatch entry
+  D3->>REN: decoded B.IOR getlist/setlist
   REN->>CMD: reg src/dst ptag and ready
   CMD->>BISQ: write IOR config
-  IFU->>REN: B.IOT and dst size reg
+  D3->>REN: decoded B.IOT and dst size reg
   REN->>TR: size value + tile src/dst index
   TR->>BISQ: write tile tags/addresses/ready
-  IFU->>CMD: B.DIM/B.TEXT/B.CATR/B.DATR
+  D3->>CMD: decoded B.DIM/B.TEXT/B.CATR/B.DATR
   CMD->>BISQ: write dimension/body pc/config
 ```
 
@@ -481,7 +477,7 @@ TMA 访存单元必须顺序下发。原因是内部 memory 指令地址依赖�
 
 ### 7.1 BROB Purpose
 
-IFU_BROB 在分配 BID 时记录 BID/TID，接收 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，通过 commit pointer 维护 block 顺序 commit。
+BROB 在 D3 admission 分配 BID 时记录 STID/BID，接收 scalar_PE、VEC、CUBE、TMA 的 resolve 信息，通过 commit pointer 维护 block 顺序 commit。
 
 BROB 的两个关键时间点:
 
@@ -520,15 +516,15 @@ FREE -> ALLOC -> DISPATCHED -> RESOLVED -> COMMIT -> FREE
 
 ```mermaid
 sequenceDiagram
-  participant IFU as IFU
+  participant D3 as D3 Admission
   participant BROB as BROB
   participant BISQ as BISQ
   participant CORE as Special Core
   participant TR as TileRename
   participant REN as GPR MAPQ/CMAP
 
-  IFU->>BROB: allocate BID/TID on BSTART
-  IFU->>BISQ: allocate BISQ entry
+  D3->>BROB: atomic allocate STID/BID on decoded BSTART
+  D3->>BISQ: allocate admitted BISQ entry
   BISQ->>CORE: dispatch block
   CORE->>BROB: bid_resolve
   BROB->>TR: wakeup dst tile tag
@@ -570,51 +566,43 @@ BROB flush 需要覆盖:
 
 ### 8.1 IFU
 
-IFU 负责块指令与微指令取指。为复用 INST_BUF，CT 模块迁移到 IFU 后端。
+IFU 由 I-SIDE 和 B-SIDE 两个 decoupled engine 组成。I-SIDE 负责取指和
+受限预解码，B-SIDE 负责跳转预测。
 
 新增/差异:
 
-- L1 I-cache 替换，需要支持带 TLB 的 I-cache，替代指令段表机制。
-- BSTART、B.TEXT、B.IOR、B.IOT、B.DIM 需要经 INST_BUF 传给 PE。
-- IBCT_INST_BUF 微指令出队可叠加最多 2 条块头微指令，最多 1 条 BSTART。
+- I-F1 对同一个 PC 并行启动 ITLB 和 L1I；ITLB miss 在 I-F2
+  生成 STID/epoch-qualified inner flush。
+- I-F3 捕获 cacheline、对齐字节流并处理跨 line carry。
+- I-F4 判定 2/4/6/8-byte 长度，完成指令组装，只识别 BSTART/BSTOP，
+  zero-extend 为 64-bit 后写 Instruction Buffer。
+- D1 从 Instruction Buffer 顺序读取最多 4 条 64-bit 指令并完成 full decode。
+- B-F0 负责 L0/NLP+history snapshot，B-F1 负责 uBTB/RAS，B-F2 负责
+  PBTB/BTB+BIM，B-F3 负责 short/medium TAGE+IBTB，B-F4 负责 long
+  TAGE+IBTB/loop/final arbitration。prediction correction 产生 inner
+  flush、恢复 GHR/RAS 并重启 I-F0；backend resolved mispredict 走 typed
+  recovery。
 - 新增 BROB。
-- INST_BUF 支持 16/32/48 bit 三种长度，考虑按 16 bit 粒度存储。
-- 支持 EOB_NOP 消除。
-- 支持同 fetch bundle 连续 Fall STD block 合并，可由寄存器配置关闭。
 
 线程 PC 来源:
 
-1. 寄存器配置初始 PC。
-2. 外部 flush PC。
-3. 主预测器 F4 next PC。
-4. uBTB F1 next PC。
-5. BWE commit 时 block 最后一条指令 PC + size。
+1. accepted backend typed restart。
+2. B-F4、B-F3、B-F2、B-F1、B-F0 prediction，按该顺序。
+3. sequential PC。
 
-优先级: `flush/commit > main predictor > uBTB`。
+优先级:
+`backend typed restart > B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`。
 
-### 8.2 IFU_CT
+### 8.2 Code Template Unit
 
-CT 根据模板块指令和输入参数产生模板块块体，减少 code size，提升取指效率。
-
-CT 处于 IFU F5 stage，分为 C0/C1/C2:
-
-| Stage | Function |
-|-------|----------|
-| F4 | IFU 128bit/cycle 译码，结果存入 8 深 pred_buf |
-| C0 | pred_buf 中 CT 指令写入 CT_BUF |
-| C1 | CT_FSM_GEN RR 调度，选择 FSM |
-| C2 | FSM 产生指令，若 IBCT_INST_BUF 空位 > 4，则写入并跳转下一状态 |
-
-控制信号:
-
-- `ct_pre_done`: 告知 IFU F1 demask，对应线程可提前参与调度。
-- `ct_done`: 告知 IFU F4 该线程指令可调出到 CT/IBCT_INST_BUF。
+CT 根据模板块指令和输入参数产生模板块块体。CT 是 D3 admission 之后的
+backend producer，不属于 IFU，也不在 I-F4 与 Instruction Buffer 之间。
 
 ### 8.3 PE_D1 / PE_Rename / PE_DISP
 
 PE_D1:
 
-- 按线程接收 IBCT_INST_BUF 输出，最多 4 inst/cycle。
+- 按线程接收 Instruction Buffer 输出，最多 4 条 64-bit inst/cycle。
 - D1_MUX_THREAD 对 4 线程 RR 调度。
 - Decode Unit 产生指令控制和数据信息。
 - 接收 PE 后端整体和线程级反压。

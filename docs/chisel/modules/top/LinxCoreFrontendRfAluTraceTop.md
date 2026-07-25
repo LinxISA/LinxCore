@@ -1,5 +1,10 @@
 # LinxCoreFrontendRfAluTraceTop
 
+> **Architecture status — reduced verification top.** Packet-window inputs
+> and any `F4*` signal names describe the current fixture, not architectural
+> I-F4. Production I-F4 is I-SIDE stage 4 and is followed by an independent
+> Instruction Buffer.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala`
@@ -28,7 +33,8 @@
 ## Purpose
 
 `LinxCoreFrontendRfAluTraceTop` is the R83 RF-backed successor to
-`LinxCoreFrontendAluTraceTop`. It drives raw frontend packets through F4,
+`LinxCoreFrontendAluTraceTop`. It drives raw frontend packets through the
+legacy window-decode fixture,
 decode/rename, ROB allocation/update, the canonical scalar physical RF, a
 parameterized scalar issue-bank fabric, and the reduced scalar ALU execute pipe, then commits
 through the monitored ROB path.

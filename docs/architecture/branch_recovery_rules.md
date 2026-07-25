@@ -18,6 +18,15 @@ Architectural redirect is resolved at block boundary commit.
 - BRU mismatch only records deferred correction (`br_corr_*`) and epoch tags.
 - Boundary commit consumes deferred correction if epoch-matched.
 
+Frontend prediction refinement and backend resolution are distinct:
+
+- a B-F4 correction of an earlier B-SIDE provider generates an
+  identity-qualified frontend inner flush, restores GHR/GHRQ/RAS, and restarts
+  I-F0 without pruning ROB state;
+- a backend-resolved misprediction enters the typed precise-recovery fabric,
+  restores predictor state through the accepted recovery event, and publishes
+  the restart PC to I-F0.
+
 ## Rule 2: BSTART head vs in-body behavior
 
 LinxCore tracks whether next instruction is block-head (`state.block_head`).
@@ -28,7 +37,7 @@ LinxCore tracks whether next instruction is block-head (`state.block_head`).
 This matches the QEMU split behavior where a BSTART seen in-body can first close the previous block, then be re-executed as the next block head.
 
 The first D3 admission allocates the new `(STID,BID)` and one marker ROB row.
-If boundary commit restarts at the same PC, R4/F0 carries a marker-reentry token
+If boundary commit restarts at the same PC, R4/I-F0 carries a marker-reentry token
 containing STID, BID, checkpoint, and boundary epoch. D1 validates the refetched
 marker against that token, reestablishes head context, and emits no second
 ROB/BROB allocation or commit row. The original marker fires old-block

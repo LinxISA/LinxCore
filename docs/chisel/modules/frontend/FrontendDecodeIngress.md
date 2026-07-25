@@ -1,5 +1,10 @@
 # FrontendDecodeIngress
 
+> **Architecture status — legacy migration fixture.** This packet/window
+> wrapper does not define a production boundary. The target boundary is
+> `I-F4 -> independent Instruction Buffer -> four-wide D1`, with
+> 64-bit instructions already resident in the buffer.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/FrontendDecodeIngress.scala`
@@ -32,8 +37,8 @@ backend-owner responsibilities.
 | input | `push` | `FrontendDecodePacket` | `push.valid && pushReady` | Packet from F3/F4 production |
 | output | `pushReady` | `Bool` | ready | High when the instruction buffer can accept the packet |
 | input | `decodeReady` | `Bool` | ready | Downstream D1/decode readiness for the current visible packet |
-| input | `flushValid` | `Bool` | always sampled | Clears the instruction buffer and masks F4/D1 visibility |
-| output | `d1` | `FrontendDecodePacket` | `d1.valid && decodeReady` | Oldest buffered packet after F4 flush masking |
+| input | `flushValid` | `Bool` | always sampled | Clears the legacy packet FIFO and masks fixture decode visibility |
+| output | `d1` | `FrontendDecodePacket` | `d1.valid && decodeReady` | Oldest buffered packet after legacy window-fixture flush masking |
 | output | `slots[4]` | `F4Slot` | `slots(i).valid` | F4 length/offset/PC/raw/UID metadata for the oldest packet |
 | output | `validMask` | `UInt(4.W)` | bit mask | Valid slots with slot 0 in bit 0 |
 | output | `slotCount` | `UInt(3.W)` | derived | Popcount of `validMask` |
@@ -97,7 +102,7 @@ opcode decode or uop construction back into this wrapper.
   and `totalLenBytes`.
 
 The module does not choose a restart PC, owner, or checkpoint. Frontend restart
-remains owned by the later FLS/F0 recovery handoff, while packet owner and
+remains owned by the later recovery-to-I-F0 handoff, while packet owner and
 checkpoint identity are carried as `FrontendDecodePacket.peId`, `threadId`,
 and `checkpointId`.
 

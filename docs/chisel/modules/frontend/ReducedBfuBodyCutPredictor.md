@@ -1,5 +1,9 @@
 # ReducedBfuBodyCutPredictor
 
+> **Architecture status — legacy migration fixture.** Production body/branch
+> prediction is a B-F0–B-F4 responsibility communicated to I-SIDE through
+> Decoupled prediction messages with exact fetch identity and epoch.
+
 ## Purpose
 
 `ReducedBfuBodyCutPredictor` is the reduced Chisel boundary for the

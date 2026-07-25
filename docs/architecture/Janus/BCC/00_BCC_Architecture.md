@@ -26,7 +26,7 @@ JCore BCC 负责块级控制、块头解析、跨 core 参数传递、TileRegist
 
 BCC 中除 LSU 外的组件构成 BCC_IOE。BCC_IOE 的新增重点是:
 
-- IFU 新增 BROB，用于接收 scalar_PE、VEC、CUBE、TMA 的 block resolve，维护 block 顺序 commit。
+- BROB 在 D3 admission 分配 STID/BID，接收 scalar_PE、VEC、CUBE、TMA 的 block resolve，并维护 block 顺序 commit。
 - IFU/PE 需要传递数据块块头微指令，包括 BSTART、B.TEXT、B.IOR、B.IOT、B.DIM、B.CATR、B.DATR。
 - PE 新增 CMD_ISQ，用于块头微指令依赖解除和配置写入。
 - PE 新增 TileRename，将 B.IOT 的相对 TileReg index 转换为 Tile tag 和物理 base address。
@@ -51,12 +51,11 @@ flowchart TB
 
   subgraph BCC["JCore BCC"]
     subgraph IFU["IFU"]
-      FETCH["Fetch / Pred<br/>uBTB F1 / MainPred F4"]
-      HBB["HBB<br/>Header Branch Buffer"]
-      CT["IFU_CT<br/>C0/C1/C2"]
-      IB["IBCT_INST_BUF<br/>STD + CT + Header"]
-      BROB["IFU_BROB<br/>BID/TID / resolve / commit"]
+      FETCH["IFU<br/>I-SIDE + decoupled B-SIDE"]
+      IB["Instruction Buffer<br/>64-bit instructions"]
     end
+    CT["Backend CTU<br/>after D3 admission"]
+    BROB["BROB<br/>STID/BID resolve / commit"]
 
     subgraph PE["Scalar PE / BCC_IOE"]
       D1["D1/D2 Decode<br/>thread RR / header decode"]
@@ -86,10 +85,7 @@ flowchart TB
   L2 <--> IFU
   L2 <--> LSU
 
-  FETCH --> HBB
-  FETCH --> CT
-  CT --> IB
-  HBB --> IB
+  FETCH --> IB
   IB --> D1
   D1 --> REN
   REN --> CMD
@@ -115,23 +111,25 @@ WaveDrom timing source: [diagrams/block_header_pipeline.wavedrom.json](diagrams/
 
 ```mermaid
 sequenceDiagram
-  participant IFU as IFU/Decode
-  participant BROB as IFU_BROB
+  participant D1 as D1 Full Decode
+  participant D3 as D3 Admission
+  participant BROB as BROB
   participant REN as Scalar Rename
   participant CMD as CMD_ISQ
   participant TR as TileRename
   participant BISQ as BlockISQ
   participant CORE as VEC/CUBE/TMA
 
-  IFU->>BROB: BSTART 分配 BID/TID，记录 block type/PC/offset
-  IFU->>BISQ: BlockDispatch 分配 BISQ entry
-  IFU->>REN: B.IOR getlist/setlist
+  D1->>D3: decoded BSTART + group resource demand
+  D3->>BROB: atomic allocate STID/BID
+  D3->>BISQ: admitted BlockDispatch entry
+  D3->>REN: decoded B.IOR getlist/setlist
   REN->>CMD: IOR ptag ready/wakeup 信息
   CMD->>BISQ: 写入 GPR 输入/输出 ptag 和 ready
-  IFU->>REN: B.IOT dst size src/dst tile index
+  D3->>REN: decoded B.IOT dst size src/dst tile index
   REN->>TR: 读取 size 后发起 TileRename
   TR->>BISQ: 写入 src tag/address/ready 和 dst tag/address
-  IFU->>CMD: B.DIM/B.CATR/B.DATR/B.TEXT 配置
+  D3->>CMD: decoded B.DIM/B.CATR/B.DATR/B.TEXT 配置
   CMD->>BISQ: 写入 dim/datatype/tileop/body pc
   BISQ->>BISQ: allInstReceived && configReady && srcReady
   BISQ->>CORE: dispatch block with BID/TID/type/tile/reg/dim
@@ -146,7 +144,7 @@ WaveDrom timing source: [diagrams/resolve_commit_timing.wavedrom.json](diagrams/
 sequenceDiagram
   participant CORE as VEC/CUBE/TMA
   participant RF as BCC RF/PRST
-  participant BROB as IFU_BROB
+  participant BROB as BROB
   participant TR as TileRename/ReadyTable
   participant BISQ as BlockISQ
   participant REN as GPR MAPQ/CMAP

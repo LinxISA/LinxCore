@@ -91,7 +91,6 @@
         "lsidWidth": 32
       },
       "validation_text": [
-        "fetchWidth and decodeWidth share the F4 bundle contract",
         "robEntries must be a power of two",
         "iqEntries must be a power of two",
         "load/store ID must preserve the 32-bit backend contract"

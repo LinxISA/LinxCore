@@ -125,7 +125,8 @@ data-array mutation belong to later LSU owners.
   through the Chisel top before replacing replayed rows with live
   frontend/decode/execute/LSU-generated rows.
 - Use `LinxCoreFrontendTraceTop` as the R79 bridge from raw frontend windows
-  through F4 decode and `DecodeRenameROBPath`.
+  through the legacy packet-window decode fixture and
+  `DecodeRenameROBPath`.
 - Use the R80 frontend trace-top Verilator xcheck as the generated-RTL proof
   that raw scalar frontend packets can produce monitored DUT commit JSONL and
   compare with zero mismatches against a QEMU-shaped reference stream. The

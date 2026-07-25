@@ -16,12 +16,13 @@ if str(SRC) not in sys.path:
 from common.stage_tokens import LINXTRACE_STAGE_ID_ORDER  # noqa: E402
 
 
-STAGE_RE = re.compile(r"^###\s+([A-Z0-9]+)\s*$")
-CANONICAL_STAGE_RE = re.compile(r"^###\s+([A-Z][A-Z0-9]*)(?:\s|/|—|$)")
+STAGE_RE = re.compile(r"^###\s+([A-Z][A-Z0-9-]*)\s*$")
+CANONICAL_STAGE_RE = re.compile(r"^###\s+([A-Z][A-Z0-9-]*)(?:\s|/|—|$)")
 OWNER_PATH_RE = re.compile(r"`(src/[^`\s]+\.py)`")
 
 CANONICAL_STAGE_COORDINATES = (
-    "F0", "F1", "F2", "F3", "F4",
+    "I-F0", "I-F1", "I-F2", "I-F3", "I-F4",
+    "B-F0", "B-F1", "B-F2", "B-F3", "B-F4",
     "D1", "D2", "D3",
     "S1", "S2", "S3",
     "P0", "P1", "I1", "I2",
@@ -29,6 +30,14 @@ CANONICAL_STAGE_COORDINATES = (
     "W1", "W2", "W3",
     "ROB", "R0", "R1", "R2", "R3", "R4", "CMT", "FLS",
 )
+
+TRACE_STAGE_TO_DOC_COORDINATE = {
+    "F0": "I-F0",
+    "F1": "I-F1",
+    "F2": "I-F2",
+    "F3": "I-F3",
+    "F4": "I-F4",
+}
 
 
 def _parse_stage_owner_paths(text: str) -> dict[str, list[str]]:
@@ -104,10 +113,16 @@ def main() -> int:
     errors: list[str] = []
 
     expected = list(LINXTRACE_STAGE_ID_ORDER)
-    for stage in expected:
-        stage_owners = owners.get(stage)
+    expected_doc_coordinates = [
+        TRACE_STAGE_TO_DOC_COORDINATE.get(stage, stage) for stage in expected
+    ]
+    for stage, doc_stage in zip(expected, expected_doc_coordinates, strict=True):
+        stage_owners = owners.get(doc_stage)
         if not stage_owners:
-            errors.append(f"{DOC}: missing stage section or owner paths for {stage}")
+            errors.append(
+                f"{DOC}: missing stage section or owner paths for "
+                f"{stage} (documented as {doc_stage})"
+            )
             continue
         for rel in stage_owners:
             path = ROOT / rel
@@ -118,7 +133,11 @@ def main() -> int:
             if "@module" not in text:
                 errors.append(f"{DOC}: owner file for {stage} has no @module boundary: {rel}")
 
-    extra = sorted(set(owners) - set(expected))
+    extra = sorted(
+        set(owners)
+        - set(expected_doc_coordinates)
+        - set(CANONICAL_STAGE_COORDINATES)
+    )
     if extra:
         errors.append(f"{DOC}: undocumented stage ids not present in stage token catalog: {', '.join(extra)}")
 
@@ -132,7 +151,10 @@ def main() -> int:
             + ", ".join(missing_canonical)
         )
 
+    owner_required_coordinates = set(expected_doc_coordinates)
     for stage in CANONICAL_STAGE_COORDINATES:
+        if stage not in owner_required_coordinates:
+            continue
         stage_owners = canonical_owners.get(stage, [])
         if not stage_owners:
             errors.append(f"{DOC}: missing canonical owner path for {stage}")
@@ -148,8 +170,13 @@ def main() -> int:
                     f"{DOC}: canonical owner file for {stage} has no @module boundary: {rel}"
                 )
 
-    if "`F4` and `IB` are two names for the same final fetch stage." not in doc_text:
-        errors.append(f"{DOC}: missing canonical F4/IB alias statement")
+    if (
+        "Is a queue boundary between I-F4 and D1; it is not another name for I-F4."
+        not in doc_text
+    ):
+        errors.append(
+            f"{DOC}: missing canonical I-F4 -> Instruction Buffer -> D1 boundary statement"
+        )
 
     if errors:
         print("stage spec ownership lint failed:", file=sys.stderr)

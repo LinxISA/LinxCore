@@ -1,5 +1,10 @@
 # LinxCoreFrontendAluTraceTop
 
+> **Architecture status — reduced verification top.** This wrapper records the
+> current migration fixture and does not define production IFU stages.
+> Production uses decoupled I-F0–I-F4/B-F0–B-F4, an independent
+> Instruction Buffer, and four-wide 64-bit D1.
+
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendAluTraceTop.scala`
@@ -21,7 +26,8 @@
 ## Purpose
 
 `LinxCoreFrontendAluTraceTop` is the R81 successor to the R80 frontend trace
-top. It drives raw frontend packets through F4 decode, decode/rename,
+top. It drives raw frontend packets through the legacy window-decode fixture,
+decode/rename,
 BROB/ROB reservation, post-rename row update, and a reduced scalar ALU execute
 owner before committing rows through the monitored ROB path.
 

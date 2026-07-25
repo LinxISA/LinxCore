@@ -1,5 +1,10 @@
 # ReducedBfuStaticGeometryProducer
 
+> **Architecture status — legacy geometry fixture.** Production I-F4 does not
+> predict body geometry: it only identifies instruction length and
+> `BSTART`/`BSTOP`, expands the instruction to 64 bit, and enqueues it.
+> Prediction and learning belong to B-F0–B-F4.
+
 ## Purpose
 
 `ReducedBfuStaticGeometryProducer` is the first reduced Chisel owner for

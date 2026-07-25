@@ -5,21 +5,27 @@ It exists to keep multi-agent development consistent.
 
 ## 1) Stage names (canonical)
 
-### Frontend fetch pipeline
+### IFU
 
-- `f0` — thread arbitration, redirect selection, and next-PC control ahead of
-  the four fetch stages.
-- `f1`, `f2`, `f3`, `f4` — the four canonical fetch stages.
-- `f4` and `ib` name the same final fetch/instruction-buffer boundary. Do not
-  model `ib -> f4` as two serial architectural stages.
-- `f0` is canonical frontend control, but is not counted as a fifth fetch-data
-  stage.
+- `iside` — instruction-side engine; owns instruction-byte fetch, alignment,
+  restricted predecode, 64-bit instruction formation, and Instruction Buffer
+  write.
+- `bside` — branch-side engine; owns branch prediction and predictor training.
+- `i_f0`, `i_f1`, `i_f2`, `i_f3`, `i_f4` — I-SIDE stage 0 through stage 4.
+- `b_f0`, `b_f1`, `b_f2`, `b_f3`, `b_f4` — B-SIDE stage 0 through stage 4.
+- `I-F0..I-F4` and `B-F0..B-F4` are independently backpressured coordinates;
+  equal suffixes do not imply lockstep timing.
+- `ib` or `inst_buffer` — Instruction Buffer queue after `i_f4` and before
+  `d1`. It must never be used as an alias for `i_f4`.
+- `inner_flush` — frontend-local, identity-qualified cancellation/replay event;
+  for example, an ITLB-miss inner flush. It is not an architectural backend
+  recovery event.
 
 ### Decode / dispatch pipeline
 
-- `d1` — early decode, exception detection, split/fuse recognition, and group
-  formation.
-- `d2` — operand extraction and resource/admission request preparation.
+- `d1` — reads up to four fixed 64-bit instructions, performs the first full
+  opcode/operand/immediate decode, checks early exceptions, and forms a group.
+- `d2` — boundary resolution and resource/admission request preparation.
 - `d3` — atomic admission, physical rename, ordering-ID acceptance, and
   dispatch-packet formation.
 - `s1` — admitted-uop capture into the speculative issue-buffer boundary.
