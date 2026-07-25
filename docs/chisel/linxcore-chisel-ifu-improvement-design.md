@@ -575,9 +575,10 @@ younger-pruned row 不得复活。terminal I-F4 group 与 boundary completion
 必须原子 fire，boundary table collision 必须 backpressure，禁止覆盖 resident
 event。
 
-`LinxCoreIfu` 是上述 owner 的 production composition baseline。它原子接受 I-F0
-lookup 与 join allocation，按 `miss replay > cross-line continuation >
-new F0 request` 仲裁唯一 I-F1 入口，并把 I-F2 结果明确分流到：
+`LinxCoreIfu` 是上述 owner 的 production composition。它原子接受 I-F0
+lookup、join allocation 与 ordered line-context allocation，按
+`miss replay > cross-line continuation > new F0 request` 仲裁唯一 I-F1
+入口，并把 I-F2 结果明确分流到：
 
 - hit：I-F3 resident line 或 matching cross-line response；
 - ITLB miss：retained PTW-pending row 与 ITLB redirect proposal，refill 前
@@ -587,12 +588,15 @@ new F0 request` 仲裁唯一 I-F1 入口，并把 I-F2 结果明确分流到：
 - stale：只消费并报告，不进入后续流水。
 
 跨 line continuation 不旁路翻译或 cache；它重新走 I-F1 并行 ITLB/L1I、
-I-F2 和同一 miss/refill owner。当前 correctness baseline 在前一 fetch
-transaction 的 final prediction 与所有 I-F4 groups 完成前，不分配下一
-sequential transaction。B-F4 final response 给 I-F0 安装真实 next PC；
-因此跨线指令已经消费的第二行 prefix 不会再次从 cacheline 起点解码。未来
-若加入多 cacheline 并发，必须引入等价的 prefix/carry context queue，不得
-删除该顺序正确性约束。
+I-F2 和同一 miss/refill owner。I-F0 可以分配多个 sequential cacheline；
+`ISideLineContextQueue` 按 I-F0 顺序保留 context，允许 I-F2 exact hit 乱序
+完成，但只把最老 completed context 交给 I-F3。跨线 instruction 被接受时，
+I-F3 发布 exact successor prefix/carry；若 successor 已预取则原位更新其
+semantic start PC，否则保留到该 context 分配。lookup request PC 保持不变，
+因此 delayed I-F2 completion 仍能 exact match。non-correcting B-F4 final
+response 不再改写 I-F0 speculative line frontier；只有 canonical correction
+或 backend recovery 可以重定向 I-F0。由此跨线指令消费的第二行 prefix 不会
+被再次解码，同时多个 cacheline 可以并发在途。
 
 - direct branch/call 的无需运行时 operand 的 direction/target/kind 在
   Dispatch 校验；
@@ -1049,6 +1053,9 @@ predictor tables 不因普通 redirect 清零。
   ready/valid 稳定性。
 - [ ] 四条 D1 instruction 原子进入 production full decode、rename 和 dispatch。
 - [x] D1 之后不再传播 variable-width instruction representation。
+- [x] I-SIDE 支持多 cacheline 在途、I-F2 乱序完成/I-F3 顺序消费，以及
+  exact successor prefix/carry；hot-L1I composition 跨过 context 深度并连续
+  20 周期输出四条。
 - [ ] B-SIDE 完整实现 BTB family、speculative GHRQ、TAGE、BIM、RAS、IBTB
   和 loop units。
 - [x] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
@@ -1062,9 +1069,10 @@ predictor tables 不因普通 redirect 清零。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。
-- [ ] CoreMark/Dhrystone 使用的 production benchmark graph 已替换旧
-  `FrontendFetchPacketSource + F4DecodeWindow + F4DenseSlotQueue` 路径并接入
-  `LinxCoreIfu`。
+- [ ] CoreMark/Dhrystone 使用的 production benchmark graph 已从
+  verification-only reduced fixture 切换到 `LinxCoreIfu`。
+- [ ] generated RTL IFU probe 证明持续四宽、队列高水位和 starvation 计数；
+  当前 20 周期证据仅为 ChiselSim composition proof。
 
 ## 不在本设计内
 

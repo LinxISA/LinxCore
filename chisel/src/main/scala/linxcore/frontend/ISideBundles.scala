@@ -126,6 +126,16 @@ class ISideLineResponse(
   val lineData = UInt((lineBytes * 8).W)
 }
 
+class ISidePrefixCarry(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val successorTransactionId = UInt(p.uopUidWidth.W)
+  val successorIdentity = new IfuFetchIdentity(p)
+  val successorLineVa = UInt(p.pcWidth.W)
+  val successorPc = UInt(p.pcWidth.W)
+}
+
 class ISideInstructionCandidate(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pc = UInt(p.pcWidth.W)
   val insn = UInt(p.insnWidth.W)

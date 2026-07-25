@@ -1,7 +1,7 @@
 package linxcore.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, PopCount, log2Ceil}
+import chisel3.util.{Cat, Decoupled, PopCount, Valid, log2Ceil}
 import linxcore.common.InterfaceParams
 
 class ISideF3LineAssemblerIO(
@@ -12,6 +12,7 @@ class ISideF3LineAssemblerIO(
   val nextLineRequest = Decoupled(new ISideFetchRequest(p, lineBytes))
   val nextLineResponse = Flipped(Decoupled(new ISideLineResponse(p, lineBytes)))
   val out = Decoupled(new ISideAssembledGroup(p))
+  val prefixCarry = Valid(new ISidePrefixCarry(p, lineBytes))
   val terminateResident = Input(Bool())
   val flush = Input(new IfuInnerFlush(p))
 
@@ -88,6 +89,12 @@ class ISideF3LineAssembler(
   val needsSecondLine = laneNeedsSecond.reduce(_ || _)
   val finalLane = p.fetchWidth - 1
   val nextCursor = offsets(finalLane) + lengths(finalLane)
+  val emittedEnd = WireDefault(cursorOffset)
+  for (lane <- 0 until p.fetchWidth) {
+    when(laneValid(lane)) {
+      emittedEnd := offsets(lane) + lengths(lane)
+    }
+  }
   val residentContinuesAfterOut =
     laneValid(finalLane) &&
       !io.terminateResident &&
@@ -141,6 +148,19 @@ class ISideF3LineAssembler(
     io.out.bits.entries(lane).identity.fetchSlot := lane.U
     io.out.bits.entries(lane).prediction := resident.request.prediction
   }
+
+  io.prefixCarry.valid := io.out.fire && emittedEnd > lineBytes.U
+  io.prefixCarry.bits := 0.U.asTypeOf(io.prefixCarry.bits)
+  io.prefixCarry.bits.successorTransactionId := resident.request.transactionId + 1.U
+  io.prefixCarry.bits.successorIdentity := resident.request.identity
+  io.prefixCarry.bits.successorIdentity.fetchPacketUid :=
+    resident.request.identity.fetchPacketUid + 1.U
+  io.prefixCarry.bits.successorIdentity.fetchSeq := resident.request.identity.fetchSeq + 1.U
+  io.prefixCarry.bits.successorIdentity.fetchSlot := 0.U
+  io.prefixCarry.bits.successorIdentity.checkpointId :=
+    resident.request.identity.checkpointId + 1.U
+  io.prefixCarry.bits.successorLineVa := resident.request.lineVa + lineBytes.U
+  io.prefixCarry.bits.successorPc := resident.request.lineVa + emittedEnd
 
   io.waitingForNextLine := residentValid && needsSecondLine
   io.staleNextLineResponse :=

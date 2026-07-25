@@ -74,6 +74,9 @@ class IfuPredictionJoin(
   def advance(ptr: UInt, amount: UInt): UInt =
     (ptr + amount)(ptrWidth - 1, 0)
 
+  def rowAt(index: UInt): IfuPredictionJoinRow =
+    if (entries == 1) rows(0) else rows(index)
+
   def exactRequest(lhs: ISideFetchRequest, rhs: ISideFetchRequest): Bool =
     lhs.identity.peId === rhs.identity.peId &&
       lhs.transactionId === rhs.transactionId &&
@@ -116,12 +119,12 @@ class IfuPredictionJoin(
   io.iSide.ready :=
     !io.flush.valid &&
       iSideMatchValid &&
-      rows(iSideMatchIndex).groupCount < maxGroupsPerTransaction.U
+      rowAt(iSideMatchIndex).groupCount < maxGroupsPerTransaction.U
   io.prediction.ready := !io.flush.valid && predictionMatchValid
   io.iSideUnmatched := io.iSide.valid && !iSideMatchValid
   io.predictionUnmatched := io.prediction.valid && !predictionMatchValid
 
-  val headRow = rows(head)
+  val headRow = rowAt(head)
   val headCorrectionReady = !headRow.correctionSeen || headRow.correctionApplied
   val headReady =
     count =/= 0.U &&
@@ -161,7 +164,7 @@ class IfuPredictionJoin(
     val keep = Wire(Vec(entries, Bool()))
     for (offset <- 0 until entries) {
       val readPtr = advance(head, offset.U)
-      val row = rows(readPtr)
+      val row = rowAt(readPtr)
       keep(offset) :=
         offset.U < count &&
           !IfuFlushContract.kills(
@@ -175,15 +178,15 @@ class IfuPredictionJoin(
       keepPrefix(offset + 1) := keepPrefix(offset) + keep(offset).asUInt
       val readPtr = advance(head, offset.U)
       val writePtr = keepPrefix(offset)(ptrWidth - 1, 0)
-      val row = rows(readPtr)
+      val row = rowAt(readPtr)
       when(keep(offset)) {
-        rows(writePtr) := row
-        rows(writePtr).finalEpoch := io.flush.newEpoch
+        rowAt(writePtr) := row
+        rowAt(writePtr).finalEpoch := io.flush.newEpoch
         when(
           row.request.transactionId === io.flush.transactionId &&
             row.request.identity.fetchSeq === io.flush.fetchSeq &&
             row.request.identity.epoch === io.flush.oldEpoch) {
-          rows(writePtr).correctionApplied := true.B
+          rowAt(writePtr).correctionApplied := true.B
         }
       }
     }
@@ -193,37 +196,37 @@ class IfuPredictionJoin(
     count := keptCount
   }.otherwise {
     when(allocateFire) {
-      rows(tail) := 0.U.asTypeOf(rows(tail))
-      rows(tail).valid := true.B
-      rows(tail).request := io.allocate.bits
-      rows(tail).finalEpoch := io.allocate.bits.identity.epoch
+      rowAt(tail) := 0.U.asTypeOf(rowAt(tail))
+      rowAt(tail).valid := true.B
+      rowAt(tail).request := io.allocate.bits
+      rowAt(tail).finalEpoch := io.allocate.bits.identity.epoch
       tail := advance(tail, 1.U)
     }
 
     when(io.iSide.fire) {
-      val groupIndex = rows(iSideMatchIndex).groupCount
-      rows(iSideMatchIndex).groups(groupIndex(groupIndexWidth - 1, 0)) := io.iSide.bits
-      rows(iSideMatchIndex).groupCount := groupIndex + 1.U
+      val groupIndex = rowAt(iSideMatchIndex).groupCount
+      rowAt(iSideMatchIndex).groups(groupIndex(groupIndexWidth - 1, 0)) := io.iSide.bits
+      rowAt(iSideMatchIndex).groupCount := groupIndex + 1.U
       when(io.iSide.bits.transactionComplete) {
-        rows(iSideMatchIndex).iSideComplete := true.B
+        rowAt(iSideMatchIndex).iSideComplete := true.B
       }
     }
 
     when(io.prediction.fire) {
-      rows(predictionMatchIndex).finalPrediction := io.prediction.bits.prediction
+      rowAt(predictionMatchIndex).finalPrediction := io.prediction.bits.prediction
       when(io.prediction.bits.correction) {
-        rows(predictionMatchIndex).correctionSeen := true.B
+        rowAt(predictionMatchIndex).correctionSeen := true.B
       }
       when(io.prediction.bits.finalResponse) {
-        rows(predictionMatchIndex).finalPredictionValid := true.B
+        rowAt(predictionMatchIndex).finalPredictionValid := true.B
       }
     }
 
     when(outFire && !emitsLastGroup) {
-      rows(head).emitIndex := headRow.emitIndex + 1.U
+      rowAt(head).emitIndex := headRow.emitIndex + 1.U
     }
     when(emitsLastGroup) {
-      rows(head).valid := false.B
+      rowAt(head).valid := false.B
       head := advance(head, 1.U)
     }
 

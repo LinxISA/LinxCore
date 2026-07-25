@@ -24,19 +24,28 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-Latest IFU packet: R682 closes exact I-F2/I-F3 identity matching and two
-B-F4 direction-state errors before multi-transaction promotion. I-F2 now
-compares PE, transaction, STID, packet UID, fetch sequence, checkpoint, epoch,
-PC, and line VA; I-F3 continuation additionally requires the exact next-line
-VA. BIM/TAGE trains only conditional resolutions, and B-F4 preserves the
-documented `long-TAGE > earlier direction > static` rank. Focused I-SIDE,
-B-SIDE, and `LinxCoreIfu` runs pass 29 tests; the four reduced wrapper families
-also pass 52 tests after the main merge. The remaining P0 boundary is unchanged:
-The current frontend regression passes 26 suites and 135 tests. The
-`LinxCoreIfu` still admits one unresolved sequential transaction, and the
-CoreMark/Dhrystone natural top still uses the reduced serialized fetch fixture.
-Do not claim four-wide or benchmark promotion until prefix/carry contexts and
-the production benchmark composition are proven.
+Latest IFU packet: R683 removes the one-sequential-transaction I-SIDE gate.
+`ISideLineContextQueue` allocates ordered line contexts with I-F0, accepts exact
+I-F2 completions out of order, and exposes only the oldest completed context to
+I-F3. An I-F3 instruction crossing a cacheline publishes an exact successor
+prefix/carry record; an already-prefetched successor is adjusted in place, or
+the carry is retained until that successor allocates. A delayed non-correcting
+B-F4 final response no longer rewinds I-F0's speculative line frontier. The
+composition proof recycles an eight-entry context window and supplies twenty
+consecutive four-instruction D1 groups from ten hot cachelines, while the consecutive
+cross-line proof checks that consumed prefixes are never decoded twice.
+
+R682 remains the exact-identity/provider-rank foundation: I-F2 compares PE,
+transaction, STID, packet UID, fetch sequence, checkpoint, epoch, PC, and line
+VA; I-F3 continuation additionally requires the exact next-line VA. BIM/TAGE
+trains only conditional resolutions, and B-F4 preserves
+`long-TAGE > earlier direction > static`. The four reduced wrapper families
+pass 52 tests after the main merge. The remaining P0 boundary is now generated
+RTL and workload integration: CoreMark/Dhrystone natural execution still uses
+the reduced serialized fetch fixture. Do not claim benchmark promotion or
+four-wide end-to-end backend throughput from the ChiselSim hot-cache proof.
+The R683 frontend regression passes 27 suites and 142 tests; the focused
+`LinxCoreIfuSpec` passes all seven composition scenarios.
 
 Latest packet: R676 makes `ScalarL1D` the canonical scalar cache-array owner.
 Independent set/way parameters size aligned tags, full-line data,
@@ -1620,8 +1629,8 @@ Evidence:
   CoreMark `ET_EXEC` maps at `0x10000`, while a high-address `ET_DYN` image
   needs an explicit larger `--qemu-memory` value. The corrected driver emits
   a complete 1,000-row QEMU/DUT artifact. A redirect must kill the D1/D2/D3/
-  S1/S2 packet pipeline *and* block the legacy window admission for the following backend
-  recovery cycle. Otherwise a legacy window packet sampled before the redirect survives
+  S1/S2 packet pipeline *and* block verification-only window admission for the following backend
+  recovery cycle. Otherwise a reduced-window packet sampled before the redirect survives
   `flush_pending` and can allocate a younger instruction ahead of the
   redirected macro header. `dispatch_frontend.flush_i` carries that recovery
   kill; the directed 20-commit trace now retires the `FENTRY` parent at
@@ -1656,7 +1665,7 @@ Evidence:
   stability evidence only—not terminal-CoreMark closure.
 
 Packet closeout: `skill-evolve: update linx-core` — inspect direct-boot ELF
-headers before choosing QEMU RAM and prefer `build-linx` over a stale legacy
+headers before choosing QEMU RAM and prefer `build-linx` over a stale fallback
 QEMU build when both are present.
 - The short driver compares a raw-row bound, while its comparator bound is in
   architectural rows. A deliberately small `PYC_MAX_COMMITS` run can therefore

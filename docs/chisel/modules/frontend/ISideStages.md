@@ -19,6 +19,11 @@ The current owners are:
 on an exact refill, retries a live request, and drains an orphaned refill
 without reviving a stale frontend request.
 
+`ISideLineContextQueue` allocates with every accepted I-F0 line. I-F2 may
+complete younger cacheline hits before an older miss returns, but I-F3 observes
+completed lines strictly in I-F0 order. The queue also owns the semantic start
+PC adjustment for bytes consumed by a predecessor's cross-line instruction.
+
 `LinxCoreIfu` connects these stages to the canonical redirect arbiter,
 B-SIDE, final-prediction join, Instruction Buffer, and D1.
 
@@ -35,12 +40,12 @@ epoch. Accepted requests are copied into a small B-SIDE request queue, so
 B-F0 backpressure does not directly pull down I-F1. A queued request whose
 epoch no longer matches its STID is discarded and counted after restart.
 
-An accepted request advances provisionally to the next aligned cache line.
-The B-F4 final response installs the exact next PC before the next sequential
-transaction is admitted. This matters when the final instruction crosses the
-line: the continuation bytes consumed from the second line are skipped rather
-than decoded again. No predictor writes the PC directly; every correction
-passes through the canonical redirect arbiter.
+An accepted request advances the speculative frontier to the next aligned
+cacheline. Multiple sequential lines may be resident concurrently. A delayed
+non-correcting B-F4 final response cannot replace that frontier; only a
+canonical prediction correction or backend recovery can redirect it. No
+predictor writes the PC directly; every correction passes through the
+canonical redirect arbiter.
 
 ## I-F1 Parallel Lookup
 
@@ -103,6 +108,16 @@ across cache lines. Boundary recognition remains exclusively in I-F4:
 `acceptedStop` terminates the resident line after the group containing BSTOP is
 accepted. The terminal group supports consume-and-replace with the next line.
 
+When a crossing instruction is accepted, I-F3 publishes an exact carry naming
+the successor transaction, identity, line VA, and first unconsumed PC. The
+ordered context queue updates an already-allocated successor or retains one
+pending carry until it allocates. If the exact successor is resident but not
+complete, I-F3 waits for its original I-F2 completion instead of issuing a
+duplicate lookup. If it is already the oldest completed context, I-F3 reuses
+its line data to assemble the crossing instruction. The successor is withheld
+from I-F3 for the carry-update cycle, so the old cacheline prefix cannot escape
+as an instruction.
+
 ## I-F4 Boundary-Only Predecode
 
 I-F4 evaluates only the generated opcode rules marked `isBlockBoundary` or
@@ -141,7 +156,9 @@ F0 -> F1 -> ITLB + L1I -> F2 -> F3 -> F4
 ```
 
 The F1 input priority is miss retry, cross-line continuation, then a new F0
-transaction. A new F0 request and prediction-join row allocate atomically.
+transaction. A new F0 request, prediction-join row, and ordered line-context
+row allocate atomically. Context allocation, lookup, and speculative frontier
+advance therefore describe the same transaction or none of them.
 Likewise, an L1I miss-table row and its external line-read request allocate
 atomically. The first ITLB miss creates a retained PTW-pending row and a
 canonical redirect proposal; F0 cannot repeat the same miss before refill.
@@ -180,6 +197,11 @@ The focused leaf and composition suites cover:
 - ITLB miss PTW request plus canonical epoch redirect;
 - cross-line continuation through the normal lookup/miss path and exact
   post-prefix next PC;
+- out-of-order I-F2 line completion with in-order I-F3 delivery;
+- carry application to completed, not-yet-completed, and not-yet-allocated
+  successor contexts;
+- context recycling across ten hot cachelines and twenty consecutive
+  four-entry D1 groups from a hot L1I;
 - backend redirect priority and thread-local state clearing.
 
 The R677 Instruction Buffer and D1 suites are rerun after the fetch identity
@@ -191,10 +213,10 @@ gains `fetchSeq`.
   hierarchy.
 - Replace the direct-mapped L1I leaf with the selected production
   associativity/replacement policy without changing I-F1/I-F2 contracts.
-- Replace the correctness-first one-unresolved-transaction admission gate with
-  a prefix/carry context queue before enabling multiple sequential cachelines
-  in flight.
-- Add generated-RTL and sustained one-group-per-cycle performance gates.
+- Add a generated-RTL sustained one-group-per-cycle performance gate; the
+  current twenty-cycle result is a ChiselSim composition proof.
+- Promote CoreMark/Dhrystone from the reduced serialized fetch fixture to the
+  production `LinxCoreIfu` graph.
 
 `skill-evolve: no-update` — transaction identity, parallel ITLB/L1I, orphan
 refill, cross-line ownership, and boundary-only I-F4 are already normative in

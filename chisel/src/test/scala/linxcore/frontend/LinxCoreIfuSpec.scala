@@ -48,6 +48,15 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
     assert(condition, s"condition did not become true within $limit cycles")
   }
 
+  private def waitUntilClue(limit: Int, clue: String)(condition: => Boolean)(step: => Unit): Unit = {
+    var cycles = 0
+    while (!condition && cycles < limit) {
+      step
+      cycles += 1
+    }
+    assert(condition, s"$clue did not become true within $limit cycles")
+  }
+
   private def refillLine(
       dut: LinxCoreIfu,
       transactionId: Int,
@@ -229,7 +238,7 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
         itlbEntries = 4,
         l1iSets = 4,
         missEntries = 4,
-        joinEntries = 4,
+        joinEntries = 1,
         maxGroupsPerTransaction = 4,
         instructionBufferDepth = 8)) { dut =>
       clear(dut)
@@ -268,7 +277,7 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
         dut,
         transactionId = 0,
         linePa = 0x230,
-        lineData = BigInt(1) << (14 * 8))
+        lineData = BigInt("00010010001000100010001000100010", 16))
 
       waitUntil(80)(dut.io.d1.valid.peek().litToBoolean) {
         dut.clock.step()
@@ -276,27 +285,21 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
       dut.io.d1.bits.validMask.expect("b0001".U)
       dut.io.d1.bits.entries(0).pc.expect(0x12e.U)
       dut.io.d1.bits.entries(0).lenBytes.expect(4.U)
-      dut.io.d1.bits.entries(0).insn.expect(1.U)
+      dut.io.d1.bits.entries(0).insn.expect(0x00100001.U)
       dut.io.d1.ready.poke(true.B)
       dut.clock.step()
       dut.io.d1.ready.poke(false.B)
 
-      waitUntil(80)(dut.io.d1.valid.peek().litToBoolean) {
-        dut.clock.step()
-      }
-      dut.io.d1.bits.entries(0).pc.expect(0x132.U)
-      dut.io.d1.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.d1.ready.poke(false.B)
-
-      waitUntil(80)(
+      // The prediction join releases one transaction only after I-F4 marks
+      // it complete.  The successor transaction therefore cannot reach D1
+      // until its own crossing instruction has consumed line 0x240.
+      waitUntilClue(80, "second continuation line read")(
         dut.io.lineRead.valid.peek().litToBoolean &&
           dut.io.lineRead.bits.linePa.peek().litValue == 0x240) {
         dut.clock.step()
       }
       val secondCrossTransactionId =
         dut.io.lineRead.bits.request.transactionId.peek().litValue
-      dut.io.crossLinePending.expect(true.B)
       dut.clock.step()
       refillLine(
         dut,
@@ -306,9 +309,10 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
 
       var sawSecondCrossing = false
       var sawPostPrefixInstruction = false
+      var sawSuccessorStart = false
       var groups = 0
       while (!sawPostPrefixInstruction && groups < 12) {
-        waitUntil(80)(dut.io.d1.valid.peek().litToBoolean) {
+        waitUntilClue(80, "post-second-crossing D1 group")(dut.io.d1.valid.peek().litToBoolean) {
           dut.clock.step()
         }
         val validMask = dut.io.d1.bits.validMask.peek().litValue
@@ -316,6 +320,9 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
           val pc = dut.io.d1.bits.entries(lane).pc.peek().litValue
           assert(pc != 0x130, "first consumed continuation prefix must not be decoded")
           assert(pc != 0x140, "second consumed continuation prefix must not be decoded")
+          if (pc == 0x132) {
+            sawSuccessorStart = true
+          }
           if (pc == 0x13e) {
             dut.io.d1.bits.entries(lane).lenBytes.expect(4.U)
             sawSecondCrossing = true
@@ -331,8 +338,75 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
         dut.io.d1.ready.poke(false.B)
         groups += 1
       }
+      assert(sawSuccessorStart, "successor transaction did not resume at the carried PC")
       assert(sawSecondCrossing, "second crossing instruction was not delivered to D1")
       assert(sawPostPrefixInstruction, "second consumed prefix was not skipped")
+    }
+  }
+
+  test("hot I-SIDE recycles line contexts across twenty consecutive four-wide groups") {
+    simulate(
+      new LinxCoreIfu(
+        p,
+        threadCount = 1,
+        lineBytes = lineBytes,
+        pageBytes = pageBytes,
+        itlbEntries = 4,
+        l1iSets = 16,
+        missEntries = 8,
+        joinEntries = 8,
+        maxGroupsPerTransaction = 4,
+        instructionBufferDepth = 32)) { dut =>
+      clear(dut)
+
+      dut.io.ptwRefill.valid.poke(true.B)
+      dut.io.ptwRefill.bits.vpn.poke(1.U)
+      dut.io.ptwRefill.bits.ppn.poke(2.U)
+      dut.io.ptwRefill.bits.executable.poke(true.B)
+      dut.clock.step()
+      dut.io.ptwRefill.valid.poke(false.B)
+
+      dut.io.lineRead.ready.poke(false.B)
+      start(dut, 0x120)
+      val lineData = BigInt("00100010001000100010001000100010", 16)
+      for (line <- 0 until 10) {
+        val expectedPa = 0x220 + line * lineBytes
+        waitUntil(80)(
+          dut.io.lineRead.valid.peek().litToBoolean &&
+            dut.io.lineRead.bits.linePa.peek().litValue == expectedPa) {
+          dut.clock.step()
+        }
+        val transactionId = dut.io.lineRead.bits.request.transactionId.peek().litValue.toInt
+        dut.io.lineRead.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.lineRead.ready.poke(false.B)
+        refillLine(dut, transactionId, expectedPa, lineData)
+      }
+
+      // A new start removes all warm-up transactions but deliberately retains
+      // physical ITLB/L1I contents.
+      start(dut, 0x120)
+      dut.io.d1.ready.poke(true.B)
+
+      var lineContextPeak = BigInt(0)
+      waitUntil(80)(dut.io.d1.valid.peek().litToBoolean) {
+        lineContextPeak = lineContextPeak.max(dut.io.lineContextCount.peek().litValue)
+        dut.clock.step()
+      }
+
+      for (group <- 0 until 20) {
+        lineContextPeak = lineContextPeak.max(dut.io.lineContextCount.peek().litValue)
+        dut.io.d1.valid.expect(true.B)
+        dut.io.d1.bits.validMask.expect("b1111".U)
+        for (lane <- 0 until p.decodeWidth) {
+          val expectedPc = 0x120 + group * 8 + lane * 2
+          dut.io.d1.bits.entries(lane).pc.expect(expectedPc.U)
+          dut.io.d1.bits.entries(lane).lenBytes.expect(2.U)
+          dut.io.d1.bits.entries(lane).prediction.stage.expect(BSideStage.BF4)
+        }
+        dut.clock.step()
+      }
+      assert(lineContextPeak >= 2, s"expected multiple live line contexts, peak=$lineContextPeak")
     }
   }
 

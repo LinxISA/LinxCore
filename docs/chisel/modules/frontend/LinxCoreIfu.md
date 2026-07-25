@@ -5,9 +5,9 @@
 `LinxCoreIfu` is the production composition baseline of the decoupled I-SIDE
 and B-SIDE engines. It is the only IFU owner that connects F0 through D1,
 allocates canonical redirect epochs, and routes PTW and L1I memory traffic.
-This baseline deliberately permits only one unresolved sequential fetch
-transaction; it does not claim the future multi-transaction performance
-surface is complete.
+The composition admits multiple sequential cacheline transactions while
+preserving ordered I-F3 consumption and exact cross-line prefix ownership. It
+does not claim generated-RTL or benchmark-top performance promotion.
 
 ## Pipeline Composition
 
@@ -19,7 +19,8 @@ I-F0 -> I-F1 -> ITLB + L1I -> I-F2 -> I-F3 -> I-F4
 I-F4 groups + B-F4 final -> prediction join -> IB -> D1
 ```
 
-I-F0 request acceptance and prediction-join allocation are atomic. The
+I-F0 request acceptance, prediction-join allocation, and ordered line-context
+allocation are atomic. The
 B-SIDE request is retained in I-F0's independent queue, so B-SIDE
 backpressure does not form a ready loop through I-F1.
 
@@ -54,18 +55,22 @@ refill clears the row and allows the restarted PC to retry with the canonical
 epoch. Backend restart or a new start may cancel logical waiting; a later
 refill still updates physical ITLB state.
 
-## Cross-Line Correctness
+## Ordered Multi-Line and Cross-Line Correctness
 
-I-F3 is the sole instruction-byte carry owner. A continuation request traverses
-the normal I-F1/I-F2 and miss/refill path; it does not bypass translation or
-cache ownership. I-F4's no-boundary completion includes the actual
-post-assembly fallthrough PC. B-F4 returns that PC to I-F0 before another
-sequential transaction is admitted, so bytes consumed by a crossing
-instruction are not decoded again from the next line.
+`ISideLineContextQueue` keeps I-F0 allocation order separate from I-F2 return
+order. Exact younger hits may complete early, but only the oldest completed
+line reaches I-F3. I-F3 is the sole instruction-byte carry owner. A
+continuation request traverses the normal I-F1/I-F2 and miss/refill path; it
+does not bypass translation or cache ownership. If the successor context is
+resident but incomplete, I-F3 waits for its original completion; if already
+complete, its data satisfies the continuation without a duplicate lookup.
 
-The current admission discipline permits one unresolved sequential fetch
-transaction. A future multi-line optimization must add an equivalent
-prefix/carry context queue before relaxing this gate.
+On acceptance of a crossing instruction, I-F3 publishes an exact successor
+carry. The context queue changes only that successor's semantic start PC, or
+retains the carry until the row allocates. Request identity used to match the
+I-F2 completion is unchanged. This separates physical lookup ownership from
+the first unconsumed byte and prevents the consumed prefix from being decoded
+twice while multiple cachelines are in flight.
 
 ## Redirect and Epoch Ownership
 
@@ -102,8 +107,10 @@ predictor tables.
 3. retained PTW ownership cancellation by a new start;
 4. back-to-back cross-line continuation through the normal lookup path, with
    each next instruction starting after consumed prefix bytes;
-5. backend redirect priority and removal of younger frontend state;
-6. simultaneous start and backend redirect ordering.
+5. context recycling across ten hot cachelines and twenty consecutive full
+   four-entry D1 groups from a hot L1I;
+6. backend redirect priority and removal of younger frontend state;
+7. simultaneous start and backend redirect ordering.
 
 The R682 identity/rank packet additionally proves that I-F2 rejects a
 checkpoint collision, I-F3 rejects a continuation collision despite matching

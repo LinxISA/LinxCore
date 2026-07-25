@@ -38,9 +38,12 @@ class LinxCoreIfuIO(
   val missValidMask = Output(UInt(missMaskWidth.W))
   val missOrphanMask = Output(UInt(missMaskWidth.W))
   val joinCount = Output(UInt(joinCountWidth.W))
+  val lineContextCount = Output(UInt(joinCountWidth.W))
+  val lineContextCompletedMask = Output(UInt(joinEntries.W))
   val bSideStageValid = Output(UInt(5.W))
   val ptwPending = Output(Bool())
   val crossLinePending = Output(Bool())
+  val f3WaitingForNextLine = Output(Bool())
   val staleF2Result = Output(Bool())
 }
 
@@ -85,6 +88,7 @@ class LinxCoreIfu(
   val l1i = Module(new ISideL1I(p, l1iSets, lineBytes))
   val f2 = Module(new ISideF2Resolve(p, lineBytes, pageBytes))
   val misses = Module(new ISideFetchMissTable(p, missEntries, lineBytes))
+  val lineContexts = Module(new ISideLineContextQueue(p, lineBytes, joinEntries))
   val f3 = Module(new ISideF3LineAssembler(p, lineBytes))
   val f4 = Module(new ISideF4Predecode(p, threadCount))
   val bSide = Module(new BSidePredictionPipeline(p, lineBytes, threadCount))
@@ -109,12 +113,11 @@ class LinxCoreIfu(
   f0.io.backendRestart.valid := false.B
   f0.io.backendRestart.bits := 0.U.asTypeOf(f0.io.backendRestart.bits)
   f0.io.predictionCorrection := acceptedRedirect
-  f0.io.resolvedNextPc.valid := bSide.io.response.fire && bSide.io.response.bits.finalResponse
-  f0.io.resolvedNextPc.bits.threadId := bSide.io.response.bits.request.identity.threadId
-  f0.io.resolvedNextPc.bits.pc := Mux(
-    bSide.io.response.bits.prediction.taken,
-    bSide.io.response.bits.prediction.target,
-    bSide.io.response.bits.prediction.fallthroughPc)
+  // F0 advances the speculative sequential frontier on every accepted line.
+  // A delayed non-correcting B-F4 final must never move that frontier backward;
+  // only the canonical correction/recovery path may replace it.
+  f0.io.resolvedNextPc.valid := false.B
+  f0.io.resolvedNextPc.bits := 0.U.asTypeOf(f0.io.resolvedNextPc.bits)
 
   redirects.io.epochSeed.valid := f0.io.startAccepted
   redirects.io.epochSeed.bits.threadId := io.start.bits.threadId
@@ -142,6 +145,7 @@ class LinxCoreIfu(
   l1i.io.innerFlush := stateFlush
   f2.io.externalFlush := stateFlush
   misses.io.innerFlush := stateFlush
+  lineContexts.io.flush := stateFlush
   f3.io.flush := stateFlush
   f4.io.flush := stateFlush
   bSide.io.prune := stateFlush
@@ -164,17 +168,49 @@ class LinxCoreIfu(
   // One normal lookup port serves replay, cross-line continuation, and new F0
   // traffic. Replay has priority so a filled miss cannot starve behind fetch.
   val lookupFromRetry = misses.io.retry.valid
-  val lookupFromCrossLine = !lookupFromRetry && f3.io.nextLineRequest.valid
+  val successorContextResident =
+    lineContexts.io.headValid &&
+      lineContexts.io.headRequest.identity.peId ===
+        f3.io.nextLineRequest.bits.identity.peId &&
+      lineContexts.io.headRequest.transactionId ===
+        f3.io.nextLineRequest.bits.transactionId + 1.U &&
+      lineContexts.io.headRequest.identity.threadId ===
+        f3.io.nextLineRequest.bits.identity.threadId &&
+      lineContexts.io.headRequest.identity.fetchPacketUid ===
+        f3.io.nextLineRequest.bits.identity.fetchPacketUid + 1.U &&
+      lineContexts.io.headRequest.identity.fetchSeq ===
+        f3.io.nextLineRequest.bits.identity.fetchSeq + 1.U &&
+      lineContexts.io.headRequest.identity.checkpointId ===
+        f3.io.nextLineRequest.bits.identity.checkpointId + 1.U &&
+      lineContexts.io.headRequest.identity.epoch ===
+        f3.io.nextLineRequest.bits.identity.epoch &&
+      lineContexts.io.headRequest.lineVa === f3.io.nextLineRequest.bits.lineVa
+  val successorContextMatchesContinuation =
+    successorContextResident && lineContexts.io.headCompleted
+  val contextContinuationPending = RegInit(false.B)
+  val contextContinuationResponse =
+    RegInit(0.U.asTypeOf(new ISideLineResponse(p, lineBytes)))
+  val lookupFromContext =
+    !lookupFromRetry &&
+      f3.io.nextLineRequest.valid &&
+      successorContextMatchesContinuation &&
+      !contextContinuationPending
+  val lookupFromCrossLine =
+    !lookupFromRetry &&
+      f3.io.nextLineRequest.valid &&
+      !successorContextResident &&
+      !contextContinuationPending
   val lookupFromF0 =
     !lookupFromRetry &&
       !f3.io.nextLineRequest.valid &&
       f0.io.fetch.valid &&
       !ptwPendingValid &&
-      join.io.count === 0.U
+      join.io.allocate.ready &&
+      lineContexts.io.allocate.ready
 
   f1.io.in.valid :=
     !stateFlush.valid &&
-      (lookupFromRetry || lookupFromCrossLine || (lookupFromF0 && join.io.allocate.ready))
+      (lookupFromRetry || lookupFromCrossLine || lookupFromF0)
   f1.io.in.bits := Mux(
     lookupFromRetry,
     misses.io.retry.bits,
@@ -186,12 +222,10 @@ class LinxCoreIfu(
       f1.io.in.ready
   f3.io.nextLineRequest.ready :=
     !stateFlush.valid &&
-      lookupFromCrossLine &&
-      f1.io.in.ready
+      (lookupFromContext || (lookupFromCrossLine && f1.io.in.ready))
   f0.io.fetch.ready :=
     !stateFlush.valid &&
       lookupFromF0 &&
-      join.io.allocate.ready &&
       f1.io.in.ready
 
   join.io.allocate.valid :=
@@ -199,6 +233,12 @@ class LinxCoreIfu(
       lookupFromF0 &&
       f1.io.in.ready
   join.io.allocate.bits := f0.io.fetch.bits
+
+  lineContexts.io.allocate.valid :=
+    !stateFlush.valid &&
+      lookupFromF0 &&
+      f1.io.in.ready
+  lineContexts.io.allocate.bits := f0.io.fetch.bits
 
   f1.io.itlbRequest <> itlb.io.lookup
   f1.io.l1iRequest <> l1i.io.lookup
@@ -228,27 +268,55 @@ class LinxCoreIfu(
   val f2L1IMiss = f2.io.result.bits.status === ISideF2Status.L1IMiss
   val f2Stale = f2.io.result.bits.status === ISideF2Status.Stale
 
-  f3.io.in.valid :=
+  lineContexts.io.complete.valid :=
     f2.io.result.valid &&
       f2Hit &&
       !f2CrossLine
-  f3.io.in.bits := f2.io.result.bits
+  lineContexts.io.complete.bits := f2.io.result.bits
+
+  f3.io.in <> lineContexts.io.out
+  lineContexts.io.carry := f3.io.prefixCarry
+
+  val f2NextLineResponse = Wire(new ISideLineResponse(p, lineBytes))
+  f2NextLineResponse := 0.U.asTypeOf(f2NextLineResponse)
+  f2NextLineResponse.peId := f2.io.result.bits.request.identity.peId
+  f2NextLineResponse.transactionId := f2.io.result.bits.request.transactionId
+  f2NextLineResponse.threadId := f2.io.result.bits.request.identity.threadId
+  f2NextLineResponse.fetchPacketUid := f2.io.result.bits.request.identity.fetchPacketUid
+  f2NextLineResponse.fetchSeq := f2.io.result.bits.request.identity.fetchSeq
+  f2NextLineResponse.checkpointId := f2.io.result.bits.request.identity.checkpointId
+  f2NextLineResponse.epoch := f2.io.result.bits.request.identity.epoch
+  f2NextLineResponse.lineVa := f2.io.result.bits.request.lineVa
+  f2NextLineResponse.linePa := f2.io.result.bits.linePa
+  f2NextLineResponse.lineData := f2.io.result.bits.lineData
 
   f3.io.nextLineResponse.valid :=
-    f2.io.result.valid &&
-      f2Hit &&
-      f2CrossLine
-  f3.io.nextLineResponse.bits := 0.U.asTypeOf(f3.io.nextLineResponse.bits)
-  f3.io.nextLineResponse.bits.peId := f2.io.result.bits.request.identity.peId
-  f3.io.nextLineResponse.bits.transactionId := f2.io.result.bits.request.transactionId
-  f3.io.nextLineResponse.bits.threadId := f2.io.result.bits.request.identity.threadId
-  f3.io.nextLineResponse.bits.fetchPacketUid := f2.io.result.bits.request.identity.fetchPacketUid
-  f3.io.nextLineResponse.bits.fetchSeq := f2.io.result.bits.request.identity.fetchSeq
-  f3.io.nextLineResponse.bits.checkpointId := f2.io.result.bits.request.identity.checkpointId
-  f3.io.nextLineResponse.bits.epoch := f2.io.result.bits.request.identity.epoch
-  f3.io.nextLineResponse.bits.lineVa := f2.io.result.bits.request.lineVa
-  f3.io.nextLineResponse.bits.linePa := f2.io.result.bits.linePa
-  f3.io.nextLineResponse.bits.lineData := f2.io.result.bits.lineData
+    contextContinuationPending ||
+      (f2.io.result.valid && f2Hit && f2CrossLine)
+  f3.io.nextLineResponse.bits :=
+    Mux(contextContinuationPending, contextContinuationResponse, f2NextLineResponse)
+
+  when(stateFlush.valid) {
+    contextContinuationPending := false.B
+  }.elsewhen(f3.io.nextLineResponse.fire && contextContinuationPending) {
+    contextContinuationPending := false.B
+  }
+  when(f3.io.nextLineRequest.fire && lookupFromContext) {
+    contextContinuationPending := true.B
+    contextContinuationResponse := 0.U.asTypeOf(contextContinuationResponse)
+    contextContinuationResponse.peId := f3.io.nextLineRequest.bits.identity.peId
+    contextContinuationResponse.transactionId := f3.io.nextLineRequest.bits.transactionId
+    contextContinuationResponse.threadId := f3.io.nextLineRequest.bits.identity.threadId
+    contextContinuationResponse.fetchPacketUid :=
+      f3.io.nextLineRequest.bits.identity.fetchPacketUid
+    contextContinuationResponse.fetchSeq := f3.io.nextLineRequest.bits.identity.fetchSeq
+    contextContinuationResponse.checkpointId :=
+      f3.io.nextLineRequest.bits.identity.checkpointId
+    contextContinuationResponse.epoch := f3.io.nextLineRequest.bits.identity.epoch
+    contextContinuationResponse.lineVa := f3.io.nextLineRequest.bits.lineVa
+    contextContinuationResponse.linePa := lineContexts.io.out.bits.linePa
+    contextContinuationResponse.lineData := lineContexts.io.out.bits.lineData
+  }
 
   io.ptwRequest.valid := f2.io.result.valid && f2ItlbMiss
   io.ptwRequest.bits := 0.U.asTypeOf(io.ptwRequest.bits)
@@ -298,7 +366,7 @@ class LinxCoreIfu(
 
   f2.io.result.ready := Mux(
     f2Hit,
-    Mux(f2CrossLine, f3.io.nextLineResponse.ready, f3.io.in.ready),
+    Mux(f2CrossLine, f3.io.nextLineResponse.ready, lineContexts.io.complete.ready),
     Mux(
       f2ItlbMiss,
       io.ptwRequest.ready,
@@ -307,7 +375,7 @@ class LinxCoreIfu(
         io.fetchFault.ready,
         Mux(f2L1IMiss, misses.io.allocate.ready && io.lineRead.ready, true.B))))
 
-  when(f3.io.nextLineRequest.fire) {
+  when(f3.io.nextLineRequest.fire && lookupFromCrossLine) {
     crossLineRequestValid := true.B
     crossLineRequest := f3.io.nextLineRequest.bits
   }
@@ -347,16 +415,33 @@ class LinxCoreIfu(
   io.missValidMask := misses.io.validMask
   io.missOrphanMask := misses.io.orphanMask
   io.joinCount := join.io.count
+  io.lineContextCount := lineContexts.io.count
+  io.lineContextCompletedMask := lineContexts.io.completedMask
   io.bSideStageValid := bSide.io.stageValid
   io.ptwPending := ptwPendingValid
-  io.crossLinePending := crossLineRequestValid
+  io.crossLinePending := crossLineRequestValid || contextContinuationPending
+  io.f3WaitingForNextLine := f3.io.waitingForNextLine
   io.staleF2Result := f2.io.result.valid && f2Stale
 
   when(f0.io.fetch.fire) {
     assert(join.io.allocate.fire, "F0 lookup and final-prediction join allocation must be atomic")
+    assert(
+      lineContexts.io.allocate.fire,
+      "F0 lookup and ordered line-context allocation must be atomic")
   }
   when(join.io.allocate.fire) {
     assert(f0.io.fetch.fire, "join rows may only be allocated by an accepted F0 transaction")
+  }
+  when(lineContexts.io.allocate.fire) {
+    assert(f0.io.fetch.fire, "line contexts may only be allocated by an accepted F0 transaction")
+  }
+  when(
+    f3.io.nextLineRequest.valid &&
+      successorContextResident &&
+      !lineContexts.io.headCompleted) {
+    assert(
+      !f3.io.nextLineRequest.ready,
+      "I-F3 must await an incomplete prefetched successor instead of launching a duplicate lookup")
   }
   when(f2.io.result.fire && f2L1IMiss) {
     assert(

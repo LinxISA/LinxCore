@@ -144,6 +144,12 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(0).lenBytes.expect(4.U)
       dut.io.out.bits.entries(0).insn.expect(1.U)
       dut.io.out.bits.entries(0).crossesLine.expect(true.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.prefixCarry.valid.expect(true.B)
+      dut.io.prefixCarry.bits.successorTransactionId.expect(10.U)
+      dut.io.prefixCarry.bits.successorIdentity.fetchSeq.expect(10.U)
+      dut.io.prefixCarry.bits.successorLineVa.expect(16.U)
+      dut.io.prefixCarry.bits.successorPc.expect(18.U)
     }
   }
 
