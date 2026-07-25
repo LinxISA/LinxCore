@@ -342,17 +342,17 @@ unless the exact implementation and tests are committed at that revision.
 | Metric | Count | Coverage | Meaning |
 | --- | ---: | ---: | --- |
 | Non-vector/tile operational ISA denominator | 547 | 100% denominator | Scalar/control/system/FP surface after excluding vector/tile |
-| Frontend effective decode | 546 / 547 | 99.82% | All but `XB` have frontend decode coverage |
-| Clean committed HEAD reduced ALU baseline | 58 / 547 | 10.60% | Implementation baseline that may be claimed for the clean committed tree |
-| Clean committed HEAD aligned baseline | 58 / 547 | 10.60% | Clean baseline for the committed tree; the current `CSEL` contract is aligned |
-| Active dirty candidate reduced ALU contract | 190 / 547 | 34.73% | Expanded mixed ALU implementation under active dirty worktree; not a clean committed claim |
-| Active dirty candidate aligned contract | 190 / 547 | 34.73% | Dirty candidate with the current `CSEL` contract aligned across Sail, LinxCoreModel, QEMU, LLVM, and Chisel; not a clean committed claim |
+| Frontend effective decode | 547 / 547 | 100.00% | Frontend/parser can classify every scalar/control/system/FP form; `XB` is explicit decode-only |
+| Parser-supported scalar subset | 218 / 547 | 39.85% | Forms accepted by the reduced scalar parser/reporting path |
+| Active dirty candidate RTL semantic contract | 197 / 547 | 36.01% | Forms with a Chisel RTL semantic owner in the active dirty candidate; not a clean committed claim |
+| Active dirty candidate cross-stack aligned contract | 197 / 547 | 36.01% | Forms aligned across Sail, LinxCoreModel, QEMU/LLVM where executable evidence exists; QEMU executable provenance is clean for the seven HL.CMP promotions |
 
-The 190/547 and 190/547 numbers depend on uncommitted mixed ALU implementation
-state in the active worktree. They are not evidence that commit `e648` or the
-clean committed HEAD implements that surface. Promotion language MUST use the
-58/547 and 58/547 clean baselines unless the expanded candidate is committed
-and reverified.
+The 197/547 RTL semantic and cross-stack aligned numbers depend on uncommitted
+mixed ALU implementation state in the active worktree. They are not evidence
+that commit `e648` or any clean committed HEAD implements that surface.
+Promotion language MUST identify the exact implementation revision and rerun
+`python3 tools/chisel/report_scalar_instruction_coverage.py --check` before
+treating the expanded candidate as a committed baseline.
 
 The dual source-shape gate is mandatory for expanded ALU coverage. An
 instruction is eligible for the active candidate count only when both frontend
@@ -361,15 +361,33 @@ the ISA/QEMU/model contract. Unknown, ambiguous, or divergent source-shape
 metadata MUST fail closed and stay out of the aligned coverage numerator until
 the owner is audited and tested.
 
-Open red items:
+The final QEMU scoped ledger promotes seven HL.CMP forms into the aligned
+numerator with clean provenance: L2=7, L3=7, rejected=0, QEMU SHA
+`b4df5c31d06eaee04b602b4b6fd8b6f2c2592b4c`. The manifest of record is
+`/Users/zhoubot/linx-isa/avs/qemu/qemu_executable_hl_cmp_manifest.json`; the
+ledger is
+`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/qemu-executable-hl-cmp-ledger.json`;
+runtime evidence is in the same directory's `run-evidence.json`. The reporter
+therefore has no remaining QEMU executable observation pending items.
 
-- `XB`: frontend decode hole.
+Open red items and accounting exclusions:
+
+- `XB`: explicit decode-only. It needs the platform CAC/XBINFO table and
+  exception contract before executable parser, QEMU, or RTL semantic credit.
+- HL long-offset memory: 19 load/store forms are pending general memory/LSU
+  ownership and are not counted in the cross-stack aligned numerator.
 - `REV`: QEMU whole-register reversal and Sail ring-segment reversal disagree;
   fix the cross-stack contract before RTL promotion.
 - Atomics: `LR`, `SC`, `CAS`, and AMO forms require atomicity, ordering, and
   memory-system ownership.
+- Dual-destination HL multiply/divide/remainder forms require a commit
+  argument/result owner rather than a single scalar writeback shortcut.
+- `SETC` commit-argument forms require the commit-condition argument owner, not
+  only no-writeback branch sidebands.
 - System, CSR, TLB, cache-maintenance, trap, and protection forms require
   privilege, exception, and maintenance owners.
+- XB CAC/XBINFO and BCTRL forms require their platform/control owners before
+  executable semantic credit.
 - FP forms require rounding mode, NaN, denormal, exception flag, and pipeline
   ownership.
 - `ACRC` opcode `0x222` is the current workload-blocking non-vector/tile audit

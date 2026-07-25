@@ -1508,7 +1508,52 @@ This is a scheduler-residency improvement, not width closure. IPC remains
 around 0.144 because decode/rename ingress, issue, execute, completion, and
 commit are still effectively one-row paths for the benchmark top.
 
-#### 13.1.5 P1-C next: 2-wide decode/rename ingress
+#### 13.1.5 P1-B4 issue-ingress skid closeout evidence
+
+The 2026-07-25 issue-ingress skid closeout fixed the review-blocking
+acceptance contract: `inputAcceptFire/inputAcceptUop` describe the upstream
+rename-to-fabric/skid acceptance boundary, while `bankEnqueueFireMask` and
+`bankEnqueueUop` describe actual bank enqueue. Occupancy and readiness must
+therefore be reasoned from the skid/fabric effective resident state and the
+real rename handshake, not from same-cycle bank enqueue alone. The focused
+review verdict for the repaired contract was `APPROVE`.
+
+Natural A/B closeout on the same frozen FishToucher ELF identities reported
+both workloads still `finisher_pass` and one cycle faster than the previous
+P1-B3 best:
+
+- CoreMark ELF:
+  `/Users/zhoubot/linx-isa/workloads/generated/fishtoucher-c-workloads-ca3e11b-20260717-r1/benchmarks/coremark/coremark.elf`
+- Dhrystone ELF:
+  `/Users/zhoubot/linx-isa/workloads/generated/fishtoucher-c-workloads-ca3e11b-20260717-r1/benchmarks/dhrystone/dhrystone.elf`
+
+Summary:
+`/Users/zhoubot/linx-isa/runs/linxcore-skid2-natural-20260725/report/dual_natural_ab_summary.json`.
+
+| Workload | Manifest | Frozen ELF SHA-256 | Closeout cycles | Commits | IPC | Previous best manifest | Previous best cycles | Delta |
+|---|---|---|---:|---:|---:|---|---:|---:|
+| CoreMark | `/Users/zhoubot/linx-isa/runs/linxcore-skid2-natural-20260725/coremark/report/natural_manifest.json` | `9c734694793da5d3b3765bc45c7acff787a3ca1854ad1780897e1d5b8deb3cff` | 9,920 | 1,426 | 0.143750000000 | [`generated/early-tertiary-fishtoucher-coremark-100k-f9b43229/report/natural_manifest.json`](../../generated/early-tertiary-fishtoucher-coremark-100k-f9b43229/report/natural_manifest.json) | 9,921 | -1 |
+| Dhrystone | `/Users/zhoubot/linx-isa/runs/linxcore-skid2-natural-20260725/dhrystone/report/natural_manifest.json` | `617bd0985595ccf208dd2130809c1befc1605de1ee9188dbf3cfaf46fd9e9911` | 7,919 | 1,150 | 0.145220356106 | [`generated/early-tertiary-fishtoucher-dhrystone-100k-f9b43229/report/natural_manifest.json`](../../generated/early-tertiary-fishtoucher-dhrystone-100k-f9b43229/report/natural_manifest.json) | 7,920 | -1 |
+
+This is no-regression/very small improvement evidence, not an IPC2 milestone.
+The main bottleneck remains the serialized benchmark path: single effective
+decode/rename ingress, single resident issue/execute path, and one-row
+ROB/retire observation dominate.
+
+Scalar coverage accounting also closed the previous HL.CMP QEMU provenance
+gap. The clean scoped executable ledger admits seven forms at L2 and seven at
+L3, rejects zero, and is bound to QEMU SHA
+`b4df5c31d06eaee04b602b4b6fd8b6f2c2592b4c`. The manifest of record is
+`/Users/zhoubot/linx-isa/avs/qemu/qemu_executable_hl_cmp_manifest.json`; the
+ledger is
+`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/qemu-executable-hl-cmp-ledger.json`;
+the runtime evidence is
+`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/run-evidence.json`.
+With that evidence, the active candidate coverage reporter records frontend
+547/547, parser 218/547, RTL semantic 197/547, cross-stack aligned 197/547,
+and QEMU pending 0.
+
+#### 13.1.6 P1-C next: 2-wide decode/rename ingress
 
 The next stage should not start with commit width or speculative dual-issue.
 The next bottleneck to remove is decode/rename ingress collapsing dense F4/D1

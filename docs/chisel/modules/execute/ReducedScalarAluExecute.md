@@ -579,13 +579,16 @@ that produced it.
 
 The operational v0.57 denominator is 547 canonical instruction forms after
 excluding 184 vector forms, 30 tile/PTO descriptors, and eight vector-mode
-block descriptors. Against that denominator:
+block descriptors. Coverage is layered; do not collapse frontend decode,
+parser acceptance, RTL semantics, and cross-stack executable alignment into one
+number. Against that denominator:
 
-- strict frontend decode covers 546/547 forms (99.82%); the remaining runtime
-  decode hole is `XB ACR-ID,C-ID`, which requires the platform CAC/XBINFO table
-  and exception contract rather than a decoder-only implementation;
-- `ReducedScalarAluExecute.isSupported` covers 190/547 forms (34.73%);
-- all 190 supported forms are now cross-stack aligned; `CSEL` matches
+- strict frontend decode covers 547/547 forms (100.00%); `XB ACR-ID,C-ID` is
+  explicit decode-only because it requires the platform CAC/XBINFO table and
+  exception contract before executable semantics;
+- the parser-supported scalar subset is 218/547 forms (39.85%);
+- active dirty candidate RTL semantics cover 197/547 forms (36.01%);
+- 197/547 forms (36.01%) are cross-stack aligned; `CSEL` matches
   Sail, LinxCoreModel, QEMU, LLVM MC lowering, and this Chisel module on
   `SrcP, SrcL, SrcR` ordering and true-to-`SrcL` selection.
 
@@ -596,11 +599,25 @@ Sail/LinxCoreModel 64-bit ring semantics. QEMU
 currently rejects ring-wrapping fields for these bitfield operations and is
 therefore not used as the semantic oracle for wrap encodings.
 
-The next uncovered groups are not all ALU-local. Atomic forms require an
-LR/SC/AMO memory owner; system/cache/TLB forms require CSR, trap, and
-maintenance owners; and `REV` cannot be copied from QEMU because its current
-translator is explicitly simplified to a whole-register byte swap, whereas
-Sail specifies byte reversal inside a ring-selected field.
+The final clean QEMU scoped ledger promotes seven `HL.CMP` forms into the
+aligned numerator: L2=7, L3=7, rejected=0, QEMU SHA
+`b4df5c31d06eaee04b602b4b6fd8b6f2c2592b4c`, manifest
+`/Users/zhoubot/linx-isa/avs/qemu/qemu_executable_hl_cmp_manifest.json`, and
+ledger
+`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/qemu-executable-hl-cmp-ledger.json`.
+The reporter now has zero QEMU executable observation pending items.
+
+The next uncovered groups are not all ALU-local. Nineteen HL long-offset memory
+forms remain pending and are not counted in the aligned numerator until the
+general LSU/memory owner can carry them. Atomic forms require an LR/SC/AMO
+memory owner; dual-destination HL multiply/divide/remainder forms need an
+explicit result/commit-argument owner; `SETC` commit-argument forms need their
+commit-condition argument owner; XB CAC/XBINFO forms require the platform table
+and exception contract; system/cache/TLB/BCTRL forms require CSR, trap,
+maintenance, or block-control owners; FP forms require rounding, NaN/denormal,
+exception flag, and pipeline ownership. `REV` cannot be copied from QEMU
+because its current translator is explicitly simplified to a whole-register
+byte swap, whereas Sail specifies byte reversal inside a ring-selected field.
 
 ## Verification
 
