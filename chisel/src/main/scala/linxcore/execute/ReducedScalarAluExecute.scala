@@ -29,7 +29,9 @@ class ReducedScalarAluExecuteIO(
   val fretStkConditionValid = Input(Bool())
   val fretStkConditionTaken = Input(Bool())
 
+  val completeReady = Input(Bool())
   val completeValid = Output(Bool())
+  val completeFire = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
   val completePeId = Output(UInt(p.peIdWidth.W))
   val completeStid = Output(UInt(p.threadIdWidth.W))
@@ -692,6 +694,12 @@ class ReducedScalarAluExecute(
     io.loadLookupValid && Mux(eLoadLiqEligible && io.loadLiqEnable, !io.loadLiqAccepted, io.loadLookupWaitBlocked)
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
+  val w2CompleteValid = !io.flushValid && w2Valid && w2Supported
+  val w2CompleteFire = w2CompleteValid && io.completeReady
+  val w2UnsupportedDrain = !io.flushValid && w2Valid && !w2Supported
+  val w2CanAdvance = !w2Valid || w2CompleteFire || w2UnsupportedDrain
+  val eCanAdvanceToW1 = eValid && !eLoadWaitHold
+  val pipeSafeAdvanceReady = eCanAdvanceToW1 && ScalarPipeSafety.fixedScalarAlu(eUop)
 
   when(io.flushValid) {
     eValid := false.B
@@ -699,7 +707,7 @@ class ReducedScalarAluExecute(
     w2Valid := false.B
     setcTargetValid := false.B
     setcTarget := 0.U
-  }.otherwise {
+  }.elsewhen(w2CanAdvance) {
     w2Valid := w1Valid
     w2Uop := w1Uop
     w2SrcData := w1SrcData
@@ -731,11 +739,12 @@ class ReducedScalarAluExecute(
     }
   }
 
-  io.inReady := !io.flushValid && (!eValid || eLoadLiqRetire)
+  io.inReady := !io.flushValid && w2CanAdvance && (!eValid || eLoadLiqRetire || pipeSafeAdvanceReady)
   io.accepted := accept
   io.busy := !io.flushValid && (eValid || w1Valid || w2Valid)
   io.loadWaitHold := !io.flushValid && eLoadWaitHold
-  io.completeValid := !io.flushValid && w2Valid && w2Supported
+  io.completeValid := w2CompleteValid
+  io.completeFire := w2CompleteFire
   io.completeRobValue := w2Uop.rid.value
   io.completePeId := Mux(io.completeValid, w2Uop.peId, 0.U)
   io.completeStid := Mux(io.completeValid, w2Uop.threadId, 0.U)
@@ -759,16 +768,16 @@ class ReducedScalarAluExecute(
     w2FretStkLoadReturn,
     w2StackPointerData)
   io.completeDstPhysValid :=
-    io.completeValid &&
+    io.completeFire &&
       Mux(w2FretStkLoadReturn, true.B, w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr))
   io.completeDstPhysTag := Mux(w2FretStkLoadReturn, 10.U(p.physRegWidth.W), w2Uop.dst(0).physTag)
   io.completeDstData := w2Result
   for (idx <- 0 until 3) {
     io.completeSrcPhysValid(idx) :=
-      io.completeValid && w2Uop.src(idx).valid && (w2Uop.src(idx).operandClass === OperandClass.P)
+      io.completeFire && w2Uop.src(idx).valid && (w2Uop.src(idx).operandClass === OperandClass.P)
     io.completeSrcPhysTag(idx) := w2Uop.src(idx).physTag
   }
-  io.fretStkSpRestoreValid := io.completeValid && w2FretStkLoadReturn
+  io.fretStkSpRestoreValid := io.completeFire && w2FretStkLoadReturn
   io.fretStkSpRestoreData := w2StackPointerData + w2Uop.imm
   val branchSrc0 = Mux(w2Uop.src(0).valid, w2SrcData(0), 0.U)
   val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
@@ -782,7 +791,7 @@ class ReducedScalarAluExecute(
     w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
       w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT)
   io.branchConditionValid :=
-    io.completeValid && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLt || branchIsSetcLtu || branchIsSetcLtui || branchIsSetcTgt)
+    io.completeFire && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLt || branchIsSetcLtu || branchIsSetcLtui || branchIsSetcTgt)
   io.branchConditionTaken := Mux(
     branchIsSetcTgt,
     true.B,
@@ -796,17 +805,17 @@ class ReducedScalarAluExecute(
             branchIsSetcLt,
             branchSrc0.asSInt < branchSrc1AddSub.asSInt,
             Mux(branchIsSetcLtui, branchSrc0 < w2Uop.imm, branchSrc0 < branchSrc1AddSub)))))
-  io.redirectValid := io.completeValid && w2IsFretStk && (w2FretStkLoadReturn || w2FretStkTargetTaken)
+  io.redirectValid := io.completeFire && w2IsFretStk && (w2FretStkLoadReturn || w2FretStkTargetTaken)
   io.redirectPc := Mux(w2FretStkLoadReturn, w2Result(p.pcWidth - 1, 0), w2FretStkTarget)
   io.redirectOrder := w2Uop.uid.uid
-  when(io.completeValid && branchIsSetcTgt) {
+  when(io.completeFire && branchIsSetcTgt) {
     setcTargetValid := true.B
     setcTarget := branchSrc0(p.pcWidth - 1, 0)
-  }.elsewhen(io.completeValid && w2IsFretStk) {
+  }.elsewhen(io.completeFire && w2IsFretStk) {
     setcTargetValid := false.B
     setcTarget := 0.U
   }
-  io.releaseValid := !io.flushValid && w2Valid
+  io.releaseValid := io.completeFire || w2UnsupportedDrain
   io.releaseBid := w2Uop.bid
   io.releaseGid := w2Uop.gid
   io.releaseRid := w2Uop.rid
@@ -819,7 +828,7 @@ class ReducedScalarAluExecute(
   io.liqReleaseBid := Mux(io.liqReleaseValid, eUop.bid, ROBID.disabled(p.robEntries))
   io.liqReleaseRid := Mux(io.liqReleaseValid, eUop.rid, ROBID.disabled(p.robEntries))
   io.liqReleaseStid := Mux(io.liqReleaseValid, eUop.threadId, 0.U)
-  io.unsupported := !io.flushValid && w2Valid && !w2Supported
+  io.unsupported := w2UnsupportedDrain
   io.unsupportedOpcode := w2Uop.opcode
 }
 

@@ -1783,4 +1783,14 @@ object DecodeRenameROBPath {
     path.io.blockExplicitStoreCountStid := 0.U
     path.io.blockExplicitStoreCountValue := 0.U
   }
+
+  /** Tie off SC result feedback in reduced shells that do not instantiate an
+    * SC completion owner.
+    */
+  def tieOffStoreScResult(path: DecodeRenameROBPath): Unit = {
+    path.io.storeScResultValid := false.B
+    path.io.storeScResultSuccess := false.B
+    path.io.storeScResultIdentity := 0.U.asTypeOf(path.io.storeScResultIdentity)
+    path.io.storeScStoreData := 0.U
+  }
 }

@@ -9,6 +9,62 @@ import linxcore.frontend.FrontendOpcodeDecodeTable
 import org.scalatest.funsuite.AnyFunSuite
 
 class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
+  private def initExecute(dut: ReducedScalarAluExecute): Unit = {
+    dut.io.inValid.poke(false.B)
+    dut.io.in.poke(0.U.asTypeOf(dut.io.in))
+    dut.io.srcData.foreach(_.poke(0.U))
+    dut.io.loadLookupData.poke(0.U)
+    dut.io.loadLookupWaitBlocked.poke(false.B)
+    dut.io.loadLiqEnable.poke(false.B)
+    dut.io.loadLiqAccepted.poke(false.B)
+    dut.io.stackPointerData.poke(0.U)
+    dut.io.flushValid.poke(false.B)
+    dut.io.fretStkFallbackTargetValid.poke(false.B)
+    dut.io.fretStkFallbackTarget.poke(0.U)
+    dut.io.fretStkConditionValid.poke(false.B)
+    dut.io.fretStkConditionTaken.poke(false.B)
+    dut.io.completeReady.poke(true.B)
+  }
+
+  private def pokeAlu(
+      dut: ReducedScalarAluExecute,
+      opcode: Int,
+      rid: Int,
+      pc: BigInt,
+      src0: BigInt,
+      src1: BigInt,
+      imm: BigInt = 0): Unit = {
+    dut.io.in.poke(0.U.asTypeOf(dut.io.in))
+    dut.io.in.valid.poke(true.B)
+    dut.io.in.peId.poke((rid + 1).U)
+    dut.io.in.threadId.poke((rid + 2).U)
+    dut.io.in.pc.poke(pc.U)
+    dut.io.in.opcode.poke(opcode.U)
+    dut.io.in.dispatchTarget.poke(DispatchTarget.Alu)
+    dut.io.in.insnLen.poke(4.U)
+    dut.io.in.insnRaw.poke(0.U)
+    dut.io.in.imm.poke(imm.U)
+    dut.io.in.bid.valid.poke(true.B)
+    dut.io.in.bid.value.poke(0.U)
+    dut.io.in.gid.valid.poke(true.B)
+    dut.io.in.gid.value.poke(0.U)
+    dut.io.in.rid.valid.poke(true.B)
+    dut.io.in.rid.value.poke(rid.U)
+    dut.io.in.dst(0).valid.poke(true.B)
+    dut.io.in.dst(0).kind.poke(DestinationKind.Gpr)
+    dut.io.in.dst(0).archTag.poke((rid + 10).U)
+    dut.io.in.dst(0).physTag.poke((rid + 20).U)
+    dut.io.in.src(0).valid.poke(true.B)
+    dut.io.in.src(0).operandClass.poke(OperandClass.P)
+    dut.io.in.src(0).archTag.poke(2.U)
+    dut.io.in.src(1).valid.poke(true.B)
+    dut.io.in.src(1).operandClass.poke(OperandClass.P)
+    dut.io.in.src(1).archTag.poke(3.U)
+    dut.io.srcData(0).poke(src0.U)
+    dut.io.srcData(1).poke(src1.U)
+    dut.io.inValid.poke(true.B)
+  }
+
   test("reference results match the model-derived reduced scalar ALU subset") {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResultWithInsn(
@@ -325,6 +381,7 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
       dut.io.fretStkFallbackTarget.poke(0.U)
       dut.io.fretStkConditionValid.poke(false.B)
       dut.io.fretStkConditionTaken.poke(false.B)
+      dut.io.completeReady.poke(true.B)
 
       for (((opcode, src0, imm, expected), index) <- cases.zipWithIndex) {
         val rid = index + 1
@@ -380,6 +437,8 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
 
     assert(sv.contains("module ReducedScalarAluExecute"))
     assert(sv.contains("io_completeValid"))
+    assert(sv.contains("io_completeReady"))
+    assert(sv.contains("io_completeFire"))
     assert(sv.contains("io_completeRobValue"))
     assert(sv.contains("io_completePeId"))
     assert(sv.contains("io_completeStid"))
@@ -419,5 +478,119 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_loadLiqAccepted"))
     assert(sv.contains("io_loadWaitHold"))
     assert(sv.contains("io_unsupportedOpcode"))
+  }
+
+  test("W2 completion backpressure holds payloads stable and fires once when ready returns") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    simulate(new ReducedScalarAluExecute(p, trace)) { dut =>
+      initExecute(dut)
+
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADD, 1, BigInt("40002000", 16), 10, 1)
+      dut.io.inReady.expect(true.B)
+      dut.clock.step()
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADDI, 2, BigInt("40002004", 16), 10, 0, imm = 7)
+      dut.io.inReady.expect(true.B)
+      dut.clock.step()
+
+      dut.io.completeReady.poke(false.B)
+      dut.io.inValid.poke(false.B)
+      dut.io.completeValid.expect(false.B)
+      dut.io.inReady.expect(true.B)
+      dut.io.accepted.expect(false.B)
+      dut.clock.step()
+
+      dut.io.completeValid.expect(true.B)
+      dut.io.completeFire.expect(false.B)
+      dut.io.releaseValid.expect(false.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.completeRow.pc.expect(BigInt("40002000", 16).U)
+      dut.io.completeDstPhysValid.expect(false.B)
+      dut.io.inReady.expect(false.B)
+      dut.io.accepted.expect(false.B)
+
+      dut.clock.step()
+      dut.io.completeValid.expect(true.B)
+      dut.io.completeFire.expect(false.B)
+      dut.io.releaseValid.expect(false.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.completeRow.pc.expect(BigInt("40002000", 16).U)
+      dut.io.completeDstPhysValid.expect(false.B)
+      dut.io.inReady.expect(false.B)
+
+      dut.io.completeReady.poke(true.B)
+      dut.io.completeFire.expect(true.B)
+      dut.io.releaseValid.expect(true.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.completeDstPhysValid.expect(true.B)
+      dut.clock.step()
+
+      dut.io.inValid.poke(false.B)
+      dut.io.completeFire.expect(true.B)
+      dut.io.completeRobValue.expect(2.U)
+      dut.io.completeDstData.expect(17.U)
+      dut.clock.step()
+      dut.io.completeValid.expect(false.B)
+    }
+  }
+
+  test("dense fixed ALU stream completes one per cycle after a W2 stall clears") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    simulate(new ReducedScalarAluExecute(p, trace)) { dut =>
+      initExecute(dut)
+
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADD, 1, BigInt("40003000", 16), 1, 10)
+      dut.io.inReady.expect(true.B)
+      dut.clock.step()
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADD, 2, BigInt("40003004", 16), 2, 20)
+      dut.io.inReady.expect(true.B)
+      dut.clock.step()
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADD, 3, BigInt("40003008", 16), 3, 30)
+      dut.io.inReady.expect(true.B)
+      dut.clock.step()
+
+      dut.io.completeReady.poke(false.B)
+      pokeAlu(dut, FrontendOpcodeDecodeTable.OP_ADD, 4, BigInt("4000300c", 16), 4, 40)
+      dut.io.completeValid.expect(true.B)
+      dut.io.completeFire.expect(false.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.inReady.expect(false.B)
+      dut.io.accepted.expect(false.B)
+      dut.clock.step()
+
+      dut.io.completeValid.expect(true.B)
+      dut.io.completeFire.expect(false.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.inReady.expect(false.B)
+      dut.clock.step()
+      dut.io.completeValid.expect(true.B)
+      dut.io.completeFire.expect(false.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.inReady.expect(false.B)
+
+      dut.io.completeReady.poke(true.B)
+      dut.io.inReady.expect(true.B)
+      dut.io.accepted.expect(true.B)
+      dut.io.completeFire.expect(true.B)
+      dut.io.completeRobValue.expect(1.U)
+      dut.io.completeDstData.expect(11.U)
+      dut.clock.step()
+
+      dut.io.inValid.poke(false.B)
+      dut.io.completeFire.expect(true.B)
+      dut.io.completeRobValue.expect(2.U)
+      dut.io.completeDstData.expect(22.U)
+      dut.clock.step()
+      dut.io.completeFire.expect(true.B)
+      dut.io.completeRobValue.expect(3.U)
+      dut.io.completeDstData.expect(33.U)
+      dut.clock.step()
+      dut.io.completeFire.expect(true.B)
+      dut.io.completeRobValue.expect(4.U)
+      dut.io.completeDstData.expect(44.U)
+      dut.clock.step()
+      dut.io.completeValid.expect(false.B)
+    }
   }
 }

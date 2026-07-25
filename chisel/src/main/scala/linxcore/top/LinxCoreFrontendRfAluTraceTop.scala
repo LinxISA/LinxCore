@@ -173,6 +173,7 @@ class LinxCoreFrontendRfAluTraceTop(
     bankCount = coreParams.scalarBackend.scalarIssueBanks
   ))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+  execute.io.completeReady := true.B
   val scalarSpValue = RegInit(0.U(p.immWidth.W))
 
   path.io.d1 := f4.io.d1
@@ -180,6 +181,7 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.validMask := f4.io.validMask
   path.io.flushValid := io.frontendFlushValid
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
+  DecodeRenameROBPath.tieOffStoreScResult(path)
   path.io.storeAddressInsertPermit := true.B
   path.io.renamedOutReady := issue.io.inReady
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
@@ -259,7 +261,7 @@ class LinxCoreFrontendRfAluTraceTop(
   rf.io.write(0).commit := execute.io.completeDstPhysValid
   rf.io.write(0).tag := execute.io.completeDstPhysTag
   rf.io.write(0).data := execute.io.completeDstData
-  when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
+  when(execute.io.completeFire && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
     scalarSpValue := execute.io.completeRow.wb.data
   }
 

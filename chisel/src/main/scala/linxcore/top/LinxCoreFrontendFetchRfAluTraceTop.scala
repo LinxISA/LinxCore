@@ -2911,6 +2911,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.validMask := Mux(admittedMarkerDrainBarrier, 0.U, denseSlots.io.outValidMask)
   path.io.flushValid := backendPipeFlush
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
+  DecodeRenameROBPath.tieOffStoreScResult(path)
   val localIncomingUsesLocal =
     path.io.decRenValid && path.io.decRenHeadUsesLocal
   val localIncomingBlocked =
@@ -2918,7 +2919,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
   val reducedStoreFlush = backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
   storeExecBridge.io.flushValid := reducedStoreFlush
-  storeExecBridge.io.completeValid := execute.io.completeValid && useReducedStoreDispatchStq.B
+  storeExecBridge.io.completeValid := execute.io.completeFire && useReducedStoreDispatchStq.B
   storeExecBridge.io.completeRow := execute.io.completeRow
   storeExecBridge.io.completeBid := execute.io.releaseBid
   storeExecBridge.io.completeRid := execute.io.releaseRid
@@ -3712,7 +3713,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayRelaunchQueue.io.outValid && !reducedLoadReplayLiqAllocEnabled
   reducedLoadReplayCompletionDrain.io.candidate := reducedLoadReplayRelaunchQueue.io.out
   reducedLoadReplayCompletionDrain.io.completeValid :=
-    useReducedStoreDispatchStq.B && !reducedLoadReplayLiqAllocEnabled && execute.io.completeValid
+    useReducedStoreDispatchStq.B && !reducedLoadReplayLiqAllocEnabled && execute.io.completeFire
   reducedLoadReplayCompletionDrain.io.completeMemLoad :=
     execute.io.completeRow.mem.valid && !execute.io.completeRow.mem.isStore
   reducedLoadReplayCompletionDrain.io.completePc := execute.io.completeRow.pc
@@ -4701,7 +4702,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.write(0).tag := rfWritebackArbiter.io.writeTag
   rf.io.write(0).data := rfWritebackArbiter.io.writeData
   val scalarSpWriteback =
-    execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
+    execute.io.completeFire && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
   when(io.rfInitValid && io.rfInitArchTag === 1.U) {
     scalarSpValue := io.rfInitData
   }.elsewhen(execute.io.fretStkSpRestoreValid) {
@@ -4716,9 +4717,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localDstAllocU =
     issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid && (issue.io.inputAcceptUop.dst(0).kind === DestinationKind.U)
   val localCompleteT =
-    execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)
+    execute.io.completeFire && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)
   val localCompleteU =
-    execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 30.U)
+    execute.io.completeFire && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 30.U)
   val reducedReplayLiqLiveLocalComplete =
     reducedLiveLoadLiqEnabled &&
       reducedReplayLiqReturnPipeW2Modules.sideEffectFireComplete.io.fireComplete &&
@@ -8703,6 +8704,14 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackRfWritebackMu
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackTag, physicalInput.io.writeTag)
     arbiter.io.replayData :=
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackData, physicalInput.io.writeData)
+    arbiter.io.serviceEnable := false.B
+    arbiter.io.serviceValid := false.B
+    arbiter.io.serviceTag := 0.U
+    arbiter.io.serviceData := 0.U
+    arbiter.io.templateEnable := false.B
+    arbiter.io.templateValid := false.B
+    arbiter.io.templateTag := 0.U
+    arbiter.io.templateData := 0.U
   }
 }
 
@@ -9922,6 +9931,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
     retainer.io.lanes(0).key.rob.value := execute.io.completeRow.rob.value(retainer.io.completeRobValue.getWidth - 1, 0)
     retainer.io.lanes(0).rowValid := execute.io.completeValid
     retainer.io.lanes(0).row := execute.io.completeRow
+    execute.io.completeReady := retainer.io.laneReady(0)
     retainer.io.lanes(1) := 0.U.asTypeOf(retainer.io.lanes(1))
     // Reduced top has no exact completion-key range-clear translator yet.
     // Reset clears retained state; stale retained rows after recovery drain via
@@ -9946,6 +9956,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRow, replay.io.completeRow)
     arbiter.io.serviceCompleteValid := false.B
     arbiter.io.serviceCompleteRobValue := 0.U
+    arbiter.io.serviceCompleteRowValid := false.B
+    arbiter.io.serviceCompleteRow := 0.U.asTypeOf(arbiter.io.serviceCompleteRow)
     arbiter.io.templateCompleteValid := false.B
     arbiter.io.templateCompleteRobValue := 0.U
     arbiter.io.templateCompleteRowValid := false.B
