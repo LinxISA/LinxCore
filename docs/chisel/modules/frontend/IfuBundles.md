@@ -51,12 +51,17 @@ global state.
 - typed reason and prune scope;
 - typed GHR recovery action (`None`, `Reset`, or `RestoreTrigger`);
 - optional corrected/actual conditional direction to append after restore.
+- typed RAS recovery action (`None`, `Reset`, or `RestoreTrigger`);
+- typed RAS delta (`None`, `Push`, or `Pop`) and Call return address.
 
 The current reasons cover ITLB miss, prediction correction, fetch replay, and
 stale response. A correction proposal carries an exact history key, but GHR is
 not changed until the proposal returns from `IfuRedirectArbiter` as the
-canonical prune. ITLB may request unkeyed oldest-killed recovery, and start uses
-explicit reset. This transport is scoped to I-SIDE/B-SIDE speculative state.
+canonical prune. The same event restores the request-owned RAS image and applies
+its Call/Return delta. ITLB may request unkeyed oldest-killed recovery, and start
+uses explicit GHR/RAS reset. No other producer may issue an unkeyed
+`RestoreTrigger`; prediction and backend recovery must identify an exact live
+checkpoint. This transport is scoped to I-SIDE/B-SIDE speculative state.
 It must not be connected to ROB, rename, LSU, or other backend cleanup owners.
 
 ## Verification

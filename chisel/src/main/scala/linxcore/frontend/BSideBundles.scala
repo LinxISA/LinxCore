@@ -67,6 +67,8 @@ class BSidePipePayload(
   val request = new ISideFetchRequest(p, lineBytes)
   val effective = new BranchPredictionRecord(p)
   val ghrBefore = UInt(BSideHistoryContract.GhrWidth.W)
+  val rasTopValidBefore = Bool()
+  val rasTopBefore = UInt(p.pcWidth.W)
 }
 
 class BSideHistoryAllocate(
@@ -79,14 +81,22 @@ class BSideHistoryAllocate(
 
 class BSideHistoryCheckpoint(
     val p: InterfaceParams = InterfaceParams(),
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val rasDepth: Int = 8)
     extends Bundle {
+  private val rasPointerWidth = math.max(1, chisel3.util.log2Ceil(rasDepth))
+  private val rasCountWidth = math.max(1, chisel3.util.log2Ceil(rasDepth + 1))
+
   val valid = Bool()
   val request = new ISideFetchRequest(p, lineBytes)
   val predictionTag = UInt(p.uopUidWidth.W)
   val ghrBefore = UInt(BSideHistoryContract.GhrWidth.W)
   val appliedValid = Bool()
   val appliedTaken = Bool()
+  val rasBefore = Vec(rasDepth, UInt(p.pcWidth.W))
+  val rasSpBefore = UInt(rasPointerWidth.W)
+  val rasCountBefore = UInt(rasCountWidth.W)
+  val rasAppliedValid = Bool()
 }
 
 class BSideBtbEntry(val p: InterfaceParams = InterfaceParams()) extends Bundle {

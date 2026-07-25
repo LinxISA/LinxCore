@@ -122,7 +122,7 @@ used by LinxCoreModel. Its canonical structures are:
 
 - BTB family: BTB, UBTB, and PBTB;
 - direction prediction: TAGE and BIM;
-- history state: per-STID GHR and GHRQ;
+- history state: per-STID GHR/GHRQ and speculative RAS;
 - target prediction: RAS for returns and IBTB for indirect targets;
 - loop prediction: loop predictor and loop buffer;
 - prediction-response, checkpoint, cancellation, and training queues.
@@ -134,11 +134,12 @@ banking, and exact internal latency remain parameters.
 
 - Accepts a decoupled `(STID, PC, request ID, epoch, checkpoint)` request.
 - Looks up the L0/NLP predictor for a zero-distance next-line decision.
-- Atomically allocates a prediction tag and exact GHRQ row containing the full
-  request identity and immutable pre-request `ghrBefore` snapshot.
-- Carries that same snapshot to every later direction lookup; later stages do
-  not resample live GHR. RAS/path-history checkpointing follows the same owner
-  contract when implemented.
+- Atomically allocates a prediction tag and exact history row containing the
+  full request identity, immutable pre-request `ghrBefore`, and complete RAS
+  image/pointer/count snapshot.
+- Carries those snapshots to later consumers; later stages do not resample live
+  GHR or RAS. Path-history checkpointing follows the same owner contract when
+  implemented.
 
 ### B-F1 — uBTB and RAS
 
@@ -170,9 +171,10 @@ banking, and exact internal latency remain parameters.
 - Selects the final provider using type, history length, confidence, and target
   availability.
 - Publishes a decoupled final prediction response to fetch steering.
-- Publishes the history recovery key and corrected conditional delta with a
-  tuple-changing redirect proposal; it does not mutate GHR before that proposal
-  returns from the redirect arbiter as the canonical prune.
+- Publishes the history recovery key, corrected conditional delta, and typed
+  Call/Return RAS delta with a tuple-changing redirect proposal; it does not
+  mutate GHR or RAS before that proposal returns from the redirect arbiter as
+  the canonical prune.
 - Retains the response until accepted or cancelled by matching inner flush,
   backend recovery, or epoch change.
 - Sends prediction metadata toward the matching Instruction Buffer entry.
@@ -195,11 +197,12 @@ identity-qualified prediction correction. B-F4 is the final correction point.
 If the accepted earlier result has already driven fetch, the correction:
 
 - produces a frontend inner flush for the matching STID/request/epoch;
-- marks the STID history redirect pending without immediately changing GHR;
+- marks the STID history redirect pending without immediately changing GHR/RAS;
 - changes the matching fetch epoch, preserves the correction producer, and
   cancels younger I-SIDE and B-SIDE work;
-- on canonical prune, restores the exact request-owned `ghrBefore`, appends the
-  corrected conditional direction exactly once, and prunes younger GHRQ rows;
+- on canonical prune, restores the exact request-owned GHR/RAS snapshots,
+  appends the corrected conditional direction or applies the corrected
+  Call/Return push/pop exactly once, and prunes younger history rows;
 - restarts the corrected PC at I-F0;
 - does not flush ROB/backend architectural state.
 
@@ -216,14 +219,16 @@ the accepted recovery event, and publishes the architectural restart PC to
 I-F0. It must not be reported as a frontend-only inner flush.
 
 Resolved branch and block-control events train the relevant BTB, TAGE, BIM,
-IBTB, RAS, and loop structures. Training is keyed by full STID/request/
+IBTB, and loop structures. Training is keyed by full STID/request/
 checkpoint identity. TAGE training uses the request-owned pre-branch history,
 not live GHR. A stale event may update neither learned tables nor speculative
 state. Correct resolves release their history row; mispredict resolves retain
 it until a keyed backend BRU recovery restores that exact checkpoint and
-appends the actual conditional direction. ITLB recovery whose
-trigger never reached B-SIDE restores the oldest killed snapshot; start/reset
-clears the selected STID history explicitly.
+applies the actual conditional and Call/Return deltas. ITLB recovery whose
+trigger never reached B-SIDE restores the oldest killed GHR/RAS snapshot;
+start/reset clears the selected STID speculative GHR/RAS explicitly. The
+oldest-killed fallback is legal only for an unkeyed ITLB miss. Prediction and
+backend recovery must carry and match the exact request-owned history key.
 
 ## Decoupled-engine interface contract
 

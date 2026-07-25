@@ -429,7 +429,7 @@ B-F0：
 
 1. 验证 request epoch；
 2. 分配单调 `predictionTag`；
-3. 冻结 per-STID GHR、path history 和 RAS pointer；
+3. 冻结 per-STID GHR、path history 和完整 RAS image/pointer/count；
 4. 原子分配 GHRQ/checkpoint row；
 5. 查询 L0/Nano-BTB 或 NLP；
 6. 若命中，发布最早的 identity-tagged prediction candidate；
@@ -503,11 +503,13 @@ B-F4：
   `{taken, branchPc, target, kind}` tuple 比较；
 - 必要时产生 `PredictionCorrection`；
 - final tuple 相对 accepted result 发生变化时，随 correction proposal 携带
-  exact predictionTag、history recovery action 和 conditional delta；
+  exact predictionTag、GHR/RAS recovery action、conditional delta 和 typed
+  Call/Return delta；
 - correction proposal fire 时只设置 `historyRedirectPending`，不能更新 live
   GHR/RAS/loop；
 - arbiter 返回 canonical prune 时从同一 B-F0 checkpoint rollback，再应用
-  final conditional delta；若 final 与 earlier result 相同，不重复更新。
+  final conditional 或 Call/Return delta；若 final 与 earlier result 相同，
+  不重复更新。
 
 所有 B-F0–B-F4 stage 都允许发布 prediction。若顺序路径已经被 I-F0
 采用，B-F0 与该路径不同也构成 correction；任何 later-stage prediction
@@ -556,9 +558,10 @@ prune 后：
 3. 保留 Instruction Buffer 中 correction producer 和 older rows，只压紧删除
    younger 错误路径 entries；
 4. 从 corrected PC restart I-F0；
-5. B-SIDE 按 exact predictionTag/checkpoint 恢复 speculative GHR，追加一次
-   corrected conditional direction；RAS/path/loop state 在后续实现中必须复用
-   同一 canonical ordering。
+5. B-SIDE 按 exact predictionTag/checkpoint 恢复 speculative GHR 和完整 RAS
+   snapshot，追加一次 corrected conditional direction 或应用一次 typed
+   Call/Return push/pop；path/loop state 在后续实现中必须复用同一 canonical
+   ordering。
 
 B-F4 final response 被接受后，effective prediction 封存为不可变
 `predictionRecord`，随 instruction bundle 写入 Instruction Buffer，并在 D1
@@ -650,9 +653,13 @@ ready[n]   = !valid[n] || ready[n+1]
 - stale identity/epoch response/training 丢弃并计数，不得修改 predictor table；
 - epoch wrap 必须结合 outstanding tag/sequence，不能仅比较低位 epoch。
 
-当前 Chisel 包已经实现上述 conditional GHR/GHRQ 合同。RAS pointer、path
-history 和 loop speculative state 将在后续包复用同一 request-owned snapshot
-与 canonical recovery 时序，不能另建第二套 flush ordering。
+当前 Chisel 包已经实现上述 conditional GHR/GHRQ 和 RAS 合同。B-F0 row
+保存完整 RAS image、pointer 和 count；B-F1 fast-RAS 与 B-F4 final-RAS 只读
+该 request-owned top。correction proposal 不直接 push/pop，canonical prune
+恢复 snapshot 后才应用 typed `None/Push/Pop` delta。resolve training 不再修改
+speculative RAS。path history 和 loop speculative state 将在后续包复用同一
+request-owned snapshot 与 canonical recovery 时序，不能另建第二套 flush
+ordering。
 
 ### Training pipeline
 
@@ -867,8 +874,8 @@ Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，�
 - 切换 fetch epoch；
 - 清理匹配的 I-F0–I-F4、B-F0–B-F4 和 Instruction Buffer transient rows；
 - 通过 typed history action 通知 B-SIDE 从 mispredict-retained exact
-  checkpoint 恢复 GHR/GHRQ，并追加 actual conditional delta；RAS/path state
-  必须复用同一 canonical recovery ordering；
+  checkpoint 恢复 GHR/GHRQ/RAS，并追加 actual conditional delta 或应用 actual
+  Call/Return delta；path state 必须复用同一 canonical recovery ordering；
 - 保留 predictor learned state 和 cache/TLB physical state；
 - 通过 age/epoch 丢弃迟到 response。
 
@@ -1080,6 +1087,9 @@ predictor tables 不因普通 redirect 清零。
 - [x] conditional GHR/GHRQ 已实现 request-owned B-F0 snapshot、B-F3/B-F4
   lookup/training history、canonical correction rollback、backend actual repair、
   ITLB fallback recovery 和 stale training rejection。
+- [x] RAS 已实现 request-owned B-F0 full-image/pointer/count snapshot、B-F1
+  fast target、B-F4 exact final target，以及 canonical Call/Return push/pop、
+  late re-correction、ITLB fallback 和 start reset。
 - [x] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
   I-F0 restart。
 - [ ] B-F4 provider rank 与 direction override 有独立 assertion 和覆盖率。

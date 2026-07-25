@@ -138,6 +138,7 @@ class LinxCoreIfu(
   startFlush.reason := IfuInnerFlushReason.FetchReplay
   startFlush.scope := IfuPruneScope.KillAllThreadState
   startFlush.ghrAction := GhrRecoveryAction.Reset
+  startFlush.rasAction := RasRecoveryAction.Reset
 
   val stateFlush = Wire(new IfuInnerFlush(p))
   stateFlush := Mux(f0.io.startAccepted, startFlush, acceptedRedirect)

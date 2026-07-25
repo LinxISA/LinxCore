@@ -35,6 +35,14 @@ object GhrRecoveryAction extends ChiselEnum {
   val None, Reset, RestoreTrigger = Value
 }
 
+object RasRecoveryAction extends ChiselEnum {
+  val None, Reset, RestoreTrigger = Value
+}
+
+object RasUpdateAction extends ChiselEnum {
+  val None, Push, Pop = Value
+}
+
 class IfuEpochSeed(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val threadId = UInt(p.threadIdWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
@@ -104,6 +112,9 @@ class IfuInnerFlush(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val ghrAction = GhrRecoveryAction()
   val ghrAppendValid = Bool()
   val ghrAppendTaken = Bool()
+  val rasAction = RasRecoveryAction()
+  val rasUpdate = RasUpdateAction()
+  val rasPushAddress = UInt(p.pcWidth.W)
 }
 
 object IfuFlushContract {

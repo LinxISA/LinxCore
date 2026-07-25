@@ -16,8 +16,8 @@ This note records the block-structured control-flow contract used for lockstep p
   hints; it does not perform branch prediction.
 - A later B-SIDE prediction correction generates an identity-qualified inner
   flush and marks predictor recovery pending. The returned canonical prune
-  restores the request-owned history snapshot, applies the corrected
-  conditional delta, prunes younger checkpoints, and restarts I-F0; B-F4 is
+  restores the request-owned GHR/RAS snapshots, applies the corrected
+  conditional or Call/Return delta, prunes younger checkpoints, and restarts I-F0; B-F4 is
   the final such point.
 - The complete B-F4 prediction record is carried on every valid D1 lane.
 - Post-B-F4 direct/call validation belongs to Dispatch; conditional direction

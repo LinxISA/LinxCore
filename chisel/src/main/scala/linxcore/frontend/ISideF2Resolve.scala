@@ -111,6 +111,7 @@ class ISideF2Resolve(
   io.innerFlush.bits.historyKeyValid := false.B
   io.innerFlush.bits.fetchPacketUid := translation.request.identity.fetchPacketUid
   io.innerFlush.bits.ghrAction := GhrRecoveryAction.RestoreTrigger
+  io.innerFlush.bits.rasAction := RasRecoveryAction.RestoreTrigger
 
   io.joined := joined
   io.identityMatch := identityMatch

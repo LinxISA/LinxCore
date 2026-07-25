@@ -156,7 +156,8 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       transactionId: Int,
       predictionTag: Int,
       taken: Boolean,
-      kind: BoundaryKind.Type): Unit = {
+      kind: BoundaryKind.Type,
+      rasPushAddress: BigInt = 0): Unit = {
     dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
     dut.io.prune.valid.poke(true.B)
     dut.io.prune.peId.poke(1.U)
@@ -174,6 +175,13 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
     dut.io.prune.ghrAppendValid.poke((kind == BoundaryKind.Cond).B)
     dut.io.prune.ghrAppendTaken.poke(taken.B)
+    dut.io.prune.rasAction.poke(RasRecoveryAction.RestoreTrigger)
+    dut.io.prune.rasUpdate.poke(
+      (if (!taken) RasUpdateAction.None
+       else if (kind == BoundaryKind.Call || kind == BoundaryKind.ICall) RasUpdateAction.Push
+       else if (kind == BoundaryKind.Ret) RasUpdateAction.Pop
+       else RasUpdateAction.None))
+    dut.io.prune.rasPushAddress.poke(rasPushAddress.U)
     dut.clock.step()
     dut.io.prune.valid.poke(false.B)
   }
@@ -203,7 +211,13 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
     dut.clock.step()
     dut.io.response.ready.poke(false.B)
-    applyCanonicalCorrection(dut, transactionId, predictionTag, taken, kind)
+    applyCanonicalCorrection(
+      dut,
+      transactionId,
+      predictionTag,
+      taken,
+      kind,
+      rasPushAddress = fallthroughPc)
     pokeResolve(
       dut,
       transactionId,
@@ -261,6 +275,8 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.innerFlush.bits.ghrAction.expect(GhrRecoveryAction.RestoreTrigger)
       dut.io.innerFlush.bits.ghrAppendValid.expect(true.B)
       dut.io.innerFlush.bits.ghrAppendTaken.expect(true.B)
+      dut.io.innerFlush.bits.rasAction.expect(RasRecoveryAction.RestoreTrigger)
+      dut.io.innerFlush.bits.rasUpdate.expect(RasUpdateAction.None)
       dut.clock.step()
       dut.io.speculativeGhr(0).expect(0.U)
       applyCanonicalCorrection(
@@ -517,6 +533,72 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.finalResponse.expect(true.B)
       dut.io.response.bits.prediction.provider.expect(PredictionProvider.FinalRas)
       dut.io.response.bits.prediction.target.expect(0x7004.U)
+    }
+  }
+
+  test("trained return uses the request-owned RAS at B-F1 before B-F4 final") {
+    simulate(module) { dut =>
+      clear(dut)
+      trainPrediction(
+        dut,
+        transactionId = 61,
+        requestPc = 0x7008,
+        branchPc = 0x700a,
+        target = 0x7100,
+        fallthroughPc = 0x700c,
+        kind = BoundaryKind.Call,
+        taken = true)
+      trainPrediction(
+        dut,
+        transactionId = 62,
+        requestPc = 0x7100,
+        branchPc = 0x7102,
+        target = 0x700c,
+        fallthroughPc = 0x7104,
+        kind = BoundaryKind.Ret,
+        taken = true)
+      trainPrediction(
+        dut,
+        transactionId = 63,
+        requestPc = 0x7208,
+        branchPc = 0x720a,
+        target = 0x7100,
+        fallthroughPc = 0x720c,
+        kind = BoundaryKind.Call,
+        taken = true)
+
+      sendBoundary(
+        dut,
+        transactionId = 7,
+        requestPc = 0x7100,
+        hasBoundary = true,
+        branchPc = 0x7102,
+        target = 0,
+        fallthroughPc = 0x7104,
+        kind = BoundaryKind.Ret,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 7, pc = 0x7100)
+
+      waitForResponse(dut)
+      dut.io.response.bits.prediction.stage.expect(BSideStage.BF0)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.NanoBtb)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 7,
+        predictionTag = predictionTag,
+        taken = true,
+        kind = BoundaryKind.Ret)
+
+      waitForResponse(dut)
+      dut.io.response.bits.finalResponse.expect(false.B)
+      dut.io.response.bits.correction.expect(true.B)
+      dut.io.response.bits.prediction.stage.expect(BSideStage.BF1)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.FastRas)
+      dut.io.response.bits.prediction.target.expect(0x720c.U)
     }
   }
 

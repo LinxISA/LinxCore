@@ -8,7 +8,8 @@ class BSideHistoryQueueIO(
     val p: InterfaceParams = InterfaceParams(),
     val lineBytes: Int = 64,
     val threadCount: Int = 1,
-    val entries: Int = 16)
+    val entries: Int = 16,
+    val rasDepth: Int = 8)
     extends Bundle {
   private val countWidth = log2Ceil(entries + 1)
 
@@ -19,45 +20,59 @@ class BSideHistoryQueueIO(
   val prune = Input(new IfuInnerFlush(p))
 
   val allocateHistory = Output(UInt(BSideHistoryContract.GhrWidth.W))
+  val allocateRasTopValid = Output(Bool())
+  val allocateRasTop = Output(UInt(p.pcWidth.W))
   val resolveHistory = Output(UInt(BSideHistoryContract.GhrWidth.W))
   val resolveMatch = Output(Bool())
   val correctionMatch = Output(Bool())
   val count = Output(UInt(countWidth.W))
   val validMask = Output(UInt(entries.W))
   val speculativeGhr = Output(Vec(threadCount, UInt(BSideHistoryContract.GhrWidth.W)))
+  val speculativeRasCount =
+    Output(Vec(threadCount, UInt(math.max(1, log2Ceil(rasDepth + 1)).W)))
   val redirectPending = Output(Vec(threadCount, Bool()))
 }
 
-/** Request-owned speculative global-history checkpoint queue.
+/** Request-owned speculative GHR and return-address-stack checkpoint queue.
   *
   * B-F0 snapshots GHR before a request enters the prediction pipeline. Later
-  * predictor stages and resolved training use that immutable snapshot rather
-  * than whichever global history happens to be live when they execute.
-  * A correction proposal only reserves the affected STID. The speculative GHR
-  * changes after the redirect arbiter returns the canonical prune, so history
-  * recovery and all other IFU state observe one common ordering point.
+  * predictor stages and resolved training use immutable request snapshots
+  * rather than whichever speculative GHR/RAS state happens to be live when
+  * they execute. A correction proposal only reserves the affected STID. GHR
+  * and RAS change after the redirect arbiter returns the canonical prune, so
+  * predictor recovery and all other IFU state observe one ordering point.
   */
 class BSideHistoryQueue(
     val p: InterfaceParams = InterfaceParams(),
     val lineBytes: Int = 64,
     val threadCount: Int = 1,
-    val entries: Int = 16)
+    val entries: Int = 16,
+    val rasDepth: Int = 8)
     extends Module {
   require(threadCount > 0 && (threadCount & (threadCount - 1)) == 0)
   require(threadCount <= (1 << p.threadIdWidth))
   require(entries > 0 && (entries & (entries - 1)) == 0)
+  require(rasDepth > 0 && (rasDepth & (rasDepth - 1)) == 0)
 
   private val indexWidth = math.max(1, log2Ceil(entries))
   private val threadIndexWidth = math.max(1, log2Ceil(threadCount))
   private val countWidth = log2Ceil(entries + 1)
+  private val rasPointerWidth = math.max(1, log2Ceil(rasDepth))
+  private val rasCountWidth = math.max(1, log2Ceil(rasDepth + 1))
 
-  val io = IO(new BSideHistoryQueueIO(p, lineBytes, threadCount, entries))
+  val io = IO(new BSideHistoryQueueIO(p, lineBytes, threadCount, entries, rasDepth))
 
   val rows = RegInit(
-    VecInit(Seq.fill(entries)(0.U.asTypeOf(new BSideHistoryCheckpoint(p, lineBytes)))))
+    VecInit(Seq.fill(entries)(0.U.asTypeOf(new BSideHistoryCheckpoint(p, lineBytes, rasDepth)))))
   val speculativeGhr =
     RegInit(VecInit(Seq.fill(threadCount)(0.U(BSideHistoryContract.GhrWidth.W))))
   val redirectPending = RegInit(VecInit(Seq.fill(threadCount)(false.B)))
+  val speculativeRas = RegInit(
+    VecInit(Seq.fill(threadCount)(VecInit(Seq.fill(rasDepth)(0.U(p.pcWidth.W))))))
+  val speculativeRasSp =
+    RegInit(VecInit(Seq.fill(threadCount)(0.U(rasPointerWidth.W))))
+  val speculativeRasCount =
+    RegInit(VecInit(Seq.fill(threadCount)(0.U(rasCountWidth.W))))
 
   def threadIndex(threadId: UInt): UInt =
     if (threadCount == 1) 0.U(threadIndexWidth.W) else threadId(threadIndexWidth - 1, 0)
@@ -110,6 +125,8 @@ class BSideHistoryQueue(
       !redirectPending(allocateThread) &&
       !io.prune.valid
   io.allocateHistory := speculativeGhr(allocateThread)
+  io.allocateRasTopValid := speculativeRasCount(allocateThread) =/= 0.U
+  io.allocateRasTop := speculativeRas(allocateThread)(speculativeRasSp(allocateThread))
 
   val correctionIndex = rowIndex(io.correction.bits.prediction.predictionTag)
   val correctionRow = rowAt(correctionIndex)
@@ -191,13 +208,16 @@ class BSideHistoryQueue(
     oldestKilledIndex(entry + 1) := Mux(chooseEntry, entry.U, oldestKilledIndex(entry))
   }
   val fallbackRow = rowAt(oldestKilledIndex(entries))
+  val allowUnkeyedItlbFallback =
+    io.prune.reason === IfuInnerFlushReason.ItlbMiss && !io.prune.historyKeyValid
 
-  val recoveryBaseValid = pruneLiveMatch || oldestKilledValid(entries)
+  val recoveryBaseValid =
+    pruneLiveMatch || (allowUnkeyedItlbFallback && oldestKilledValid(entries))
   val recoveryBase = Wire(UInt(BSideHistoryContract.GhrWidth.W))
   recoveryBase := speculativeGhr(pruneThread)
   when(pruneLiveMatch) {
     recoveryBase := rowAt(pruneLiveIndex).ghrBefore
-  }.elsewhen(oldestKilledValid(entries)) {
+  }.elsewhen(allowUnkeyedItlbFallback && oldestKilledValid(entries)) {
     recoveryBase := fallbackRow.ghrBefore
   }
   val repairedHistory =
@@ -207,6 +227,40 @@ class BSideHistoryQueue(
       recoveryBase)
   val pruneKillsAppliedHistory =
     VecInit((0 until entries).map(entry => pruneKilled(entry) && rows(entry).appliedValid)).asUInt.orR
+  val recoveryRas = Wire(Vec(rasDepth, UInt(p.pcWidth.W)))
+  val recoveryRasSp = Wire(UInt(rasPointerWidth.W))
+  val recoveryRasCount = Wire(UInt(rasCountWidth.W))
+  recoveryRas := speculativeRas(pruneThread)
+  recoveryRasSp := speculativeRasSp(pruneThread)
+  recoveryRasCount := speculativeRasCount(pruneThread)
+  when(pruneLiveMatch) {
+    recoveryRas := rowAt(pruneLiveIndex).rasBefore
+    recoveryRasSp := rowAt(pruneLiveIndex).rasSpBefore
+    recoveryRasCount := rowAt(pruneLiveIndex).rasCountBefore
+  }.elsewhen(allowUnkeyedItlbFallback && oldestKilledValid(entries)) {
+    recoveryRas := fallbackRow.rasBefore
+    recoveryRasSp := fallbackRow.rasSpBefore
+    recoveryRasCount := fallbackRow.rasCountBefore
+  }
+  val repairedRas = Wire(Vec(rasDepth, UInt(p.pcWidth.W)))
+  val repairedRasSp = Wire(UInt(rasPointerWidth.W))
+  val repairedRasCount = Wire(UInt(rasCountWidth.W))
+  repairedRas := recoveryRas
+  repairedRasSp := recoveryRasSp
+  repairedRasCount := recoveryRasCount
+  when(io.prune.rasUpdate === RasUpdateAction.Push) {
+    val nextSp = recoveryRasSp + 1.U
+    repairedRas(nextSp) := io.prune.rasPushAddress
+    repairedRasSp := nextSp
+    repairedRasCount := Mux(recoveryRasCount === rasDepth.U, rasDepth.U, recoveryRasCount + 1.U)
+  }.elsewhen(io.prune.rasUpdate === RasUpdateAction.Pop) {
+    when(recoveryRasCount =/= 0.U) {
+      repairedRasSp := recoveryRasSp - 1.U
+      repairedRasCount := recoveryRasCount - 1.U
+    }
+  }
+  val pruneKillsAppliedRas =
+    VecInit((0 until entries).map(entry => pruneKilled(entry) && rows(entry).rasAppliedValid)).asUInt.orR
 
   when(io.prune.valid) {
     for (entry <- 0 until entries) {
@@ -223,12 +277,30 @@ class BSideHistoryQueue(
       }
     }
 
+    when(io.prune.rasAction === RasRecoveryAction.Reset) {
+      speculativeRas(pruneThread) := 0.U.asTypeOf(speculativeRas(pruneThread))
+      speculativeRasSp(pruneThread) := 0.U
+      speculativeRasCount(pruneThread) := 0.U
+    }.elsewhen(io.prune.rasAction === RasRecoveryAction.RestoreTrigger) {
+      when(recoveryBaseValid) {
+        speculativeRas(pruneThread) := repairedRas
+        speculativeRasSp(pruneThread) := repairedRasSp
+        speculativeRasCount(pruneThread) := repairedRasCount
+      }
+    }
+
     when(
       io.prune.ghrAction === GhrRecoveryAction.RestoreTrigger &&
         io.prune.historyKeyValid && pruneLiveMatch &&
         io.prune.scope === IfuPruneScope.PreserveTriggerKillYounger) {
       rowAt(pruneLiveIndex).appliedValid := io.prune.ghrAppendValid
       rowAt(pruneLiveIndex).appliedTaken := io.prune.ghrAppendTaken
+    }
+    when(
+      io.prune.rasAction === RasRecoveryAction.RestoreTrigger &&
+        io.prune.historyKeyValid && pruneLiveMatch &&
+        io.prune.scope === IfuPruneScope.PreserveTriggerKillYounger) {
+      rowAt(pruneLiveIndex).rasAppliedValid := io.prune.rasUpdate =/= RasUpdateAction.None
     }
     redirectPending(pruneThread) := false.B
   }.otherwise {
@@ -238,6 +310,9 @@ class BSideHistoryQueue(
       rowAt(allocateIndex).request := io.allocate.bits.request
       rowAt(allocateIndex).predictionTag := io.allocate.bits.predictionTag
       rowAt(allocateIndex).ghrBefore := io.allocateHistory
+      rowAt(allocateIndex).rasBefore := speculativeRas(allocateThread)
+      rowAt(allocateIndex).rasSpBefore := speculativeRasSp(allocateThread)
+      rowAt(allocateIndex).rasCountBefore := speculativeRasCount(allocateThread)
     }
 
     when(io.correction.valid && correctionMatch) {
@@ -259,6 +334,7 @@ class BSideHistoryQueue(
   io.count := PopCount(rows.map(_.valid))
   io.validMask := VecInit(rows.map(_.valid)).asUInt
   io.speculativeGhr := speculativeGhr
+  io.speculativeRasCount := speculativeRasCount
   io.redirectPending := redirectPending
 
   when(io.correction.valid) {
@@ -275,6 +351,26 @@ class BSideHistoryQueue(
     assert(
       io.prune.ghrAction =/= GhrRecoveryAction.None,
       "a prune that removes applied conditional history must carry reset or restore intent")
+  }
+  when(
+    io.prune.valid && io.prune.historyKeyValid &&
+      io.prune.rasAction === RasRecoveryAction.RestoreTrigger) {
+    assert(
+      pruneLiveMatch,
+      "keyed RAS recovery must match a live request-owned checkpoint")
+  }
+  when(io.prune.valid && pruneKillsAppliedRas) {
+    assert(
+      io.prune.rasAction =/= RasRecoveryAction.None,
+      "a prune that removes applied speculative RAS state must carry reset or restore intent")
+  }
+  when(
+    io.prune.valid && io.prune.reason =/= IfuInnerFlushReason.ItlbMiss &&
+      (io.prune.ghrAction === GhrRecoveryAction.RestoreTrigger ||
+        io.prune.rasAction === RasRecoveryAction.RestoreTrigger)) {
+    assert(
+      io.prune.historyKeyValid,
+      "non-ITLB speculative-history recovery must carry an exact request-owned key")
   }
   when(io.resolve.valid && resolveMatch) {
     assert(resolveRow.predictionTag === io.resolve.bits.predictionTag)

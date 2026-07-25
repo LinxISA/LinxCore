@@ -19,6 +19,14 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
   private def oneEntryTwoThreadModule =
     new BSideHistoryQueue(p = p, lineBytes = lineBytes, threadCount = 2, entries = 1)
 
+  private def smallRasModule =
+    new BSideHistoryQueue(
+      p = p,
+      lineBytes = lineBytes,
+      threadCount = 1,
+      entries = 4,
+      rasDepth = 2)
+
   private def clear(dut: BSideHistoryQueue): Unit = {
     dut.io.allocate.valid.poke(false.B)
     dut.io.allocate.bits.poke(0.U.asTypeOf(dut.io.allocate.bits))
@@ -93,7 +101,10 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
       append: Boolean = true,
       threadId: Int = 0,
       fetchSeq: Int = -1,
-      scope: IfuPruneScope.Type = IfuPruneScope.PreserveTriggerKillYounger): Unit = {
+      scope: IfuPruneScope.Type = IfuPruneScope.PreserveTriggerKillYounger,
+      rasUpdate: RasUpdateAction.Type = RasUpdateAction.None,
+      rasPushAddress: BigInt = 0,
+      reason: IfuInnerFlushReason.Type = IfuInnerFlushReason.PredictionCorrection): Unit = {
     val sequence = if (fetchSeq < 0) transactionId else fetchSeq
     dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
     dut.io.prune.valid.poke(true.B)
@@ -104,13 +115,16 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     dut.io.prune.fetchSeq.poke(sequence.U)
     dut.io.prune.oldEpoch.poke(0.U)
     dut.io.prune.checkpointId.poke((transactionId & 0x3f).U)
-    dut.io.prune.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+    dut.io.prune.reason.poke(reason)
     dut.io.prune.scope.poke(scope)
     dut.io.prune.historyKeyValid.poke(true.B)
     dut.io.prune.predictionTag.poke(predictionTag.U)
     dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
     dut.io.prune.ghrAppendValid.poke(append.B)
     dut.io.prune.ghrAppendTaken.poke(taken.B)
+    dut.io.prune.rasAction.poke(RasRecoveryAction.RestoreTrigger)
+    dut.io.prune.rasUpdate.poke(rasUpdate)
+    dut.io.prune.rasPushAddress.poke(rasPushAddress.U)
     dut.clock.step()
     dut.io.prune.valid.poke(false.B)
   }
@@ -174,6 +188,164 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     }
   }
 
+  test("call and return mutate request-owned RAS only at canonical prune") {
+    simulate(module) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 1, predictionTag = 0)
+      dut.io.allocateRasTopValid.expect(false.B)
+      correctionIntent(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        kind = BoundaryKind.Call)
+      dut.io.speculativeRasCount(0).expect(0.U)
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Push,
+        rasPushAddress = 0x1800)
+      dut.io.speculativeRasCount(0).expect(1.U)
+
+      allocate(dut, transactionId = 2, predictionTag = 1)
+      dut.io.allocateRasTopValid.expect(true.B)
+      dut.io.allocateRasTop.expect(0x1800.U)
+      correctionIntent(
+        dut,
+        transactionId = 2,
+        predictionTag = 1,
+        taken = true,
+        kind = BoundaryKind.Ret)
+      dut.io.speculativeRasCount(0).expect(1.U)
+      canonicalPrune(
+        dut,
+        transactionId = 2,
+        predictionTag = 1,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Pop)
+      dut.io.speculativeRasCount(0).expect(0.U)
+    }
+  }
+
+  test("late call re-correction restores its RAS snapshot and removes younger state") {
+    simulate(module) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 1, predictionTag = 0)
+      correctionIntent(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        kind = BoundaryKind.Call)
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Push,
+        rasPushAddress = 0x1800)
+      allocate(dut, transactionId = 2, predictionTag = 1)
+
+      correctionIntent(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        kind = BoundaryKind.Fall)
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        append = false)
+      dut.io.speculativeRasCount(0).expect(0.U)
+      dut.io.validMask.expect("b0001".U)
+    }
+  }
+
+  test("full circular RAS overwrites the oldest return and empty pop is stable") {
+    simulate(smallRasModule) { dut =>
+      clear(dut)
+      for (index <- 0 until 3) {
+        val transactionId = index + 1
+        allocate(dut, transactionId = transactionId, predictionTag = index)
+        correctionIntent(
+          dut,
+          transactionId = transactionId,
+          predictionTag = index,
+          taken = true,
+          kind = BoundaryKind.Call)
+        canonicalPrune(
+          dut,
+          transactionId = transactionId,
+          predictionTag = index,
+          taken = true,
+          append = false,
+          rasUpdate = RasUpdateAction.Push,
+          rasPushAddress = 0x1800 + index * 4)
+        dut.io.speculativeRasCount(0).expect(math.min(index + 1, 2).U)
+        resolve(dut, transactionId = transactionId, predictionTag = index, taken = true)
+      }
+
+      allocate(dut, transactionId = 4, predictionTag = 3)
+      dut.io.allocateRasTopValid.expect(true.B)
+      dut.io.allocateRasTop.expect(0x1808.U)
+      correctionIntent(
+        dut,
+        transactionId = 4,
+        predictionTag = 3,
+        taken = true,
+        kind = BoundaryKind.Ret)
+      canonicalPrune(
+        dut,
+        transactionId = 4,
+        predictionTag = 3,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Pop)
+      dut.io.speculativeRasCount(0).expect(1.U)
+
+      allocate(dut, transactionId = 5, predictionTag = 4)
+      dut.io.allocateRasTop.expect(0x1804.U)
+      correctionIntent(
+        dut,
+        transactionId = 5,
+        predictionTag = 4,
+        taken = true,
+        kind = BoundaryKind.Ret)
+      canonicalPrune(
+        dut,
+        transactionId = 5,
+        predictionTag = 4,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Pop)
+      dut.io.speculativeRasCount(0).expect(0.U)
+
+      allocate(dut, transactionId = 6, predictionTag = 5)
+      dut.io.allocateRasTopValid.expect(false.B)
+      correctionIntent(
+        dut,
+        transactionId = 6,
+        predictionTag = 5,
+        taken = true,
+        kind = BoundaryKind.Ret)
+      canonicalPrune(
+        dut,
+        transactionId = 6,
+        predictionTag = 5,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Pop)
+      dut.io.speculativeRasCount(0).expect(0.U)
+    }
+  }
+
   test("resolved training reads the immutable B-F0 history snapshot") {
     simulate(module) { dut =>
       clear(dut)
@@ -222,6 +394,85 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     }
   }
 
+  test("backend actual non-call restores the exact older RAS checkpoint and kills younger state") {
+    simulate(module) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 1, predictionTag = 0)
+      correctionIntent(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        kind = BoundaryKind.Call)
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Push,
+        rasPushAddress = 0x1800)
+      dut.io.speculativeRasCount(0).expect(1.U)
+      resolve(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        mispredict = true)
+
+      allocate(dut, transactionId = 2, predictionTag = 1)
+      correctionIntent(
+        dut,
+        transactionId = 2,
+        predictionTag = 1,
+        taken = true,
+        kind = BoundaryKind.Call)
+      canonicalPrune(
+        dut,
+        transactionId = 2,
+        predictionTag = 1,
+        taken = true,
+        append = false,
+        rasUpdate = RasUpdateAction.Push,
+        rasPushAddress = 0x2800)
+      dut.io.speculativeRasCount(0).expect(2.U)
+
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        append = false,
+        scope = IfuPruneScope.KillAllThreadState,
+        reason = IfuInnerFlushReason.FetchReplay)
+      dut.io.speculativeRasCount(0).expect(0.U)
+      dut.io.validMask.expect(0.U)
+    }
+  }
+
+  test("non-ITLB history recovery rejects an unkeyed backend redirect") {
+    intercept[Exception] {
+      simulate(module) { dut =>
+        clear(dut)
+        allocate(dut, transactionId = 1, predictionTag = 0)
+        dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
+        dut.io.prune.valid.poke(true.B)
+        dut.io.prune.peId.poke(1.U)
+        dut.io.prune.threadId.poke(0.U)
+        dut.io.prune.transactionId.poke(1.U)
+        dut.io.prune.fetchPacketUid.poke(1.U)
+        dut.io.prune.fetchSeq.poke(1.U)
+        dut.io.prune.oldEpoch.poke(0.U)
+        dut.io.prune.checkpointId.poke(1.U)
+        dut.io.prune.reason.poke(IfuInnerFlushReason.FetchReplay)
+        dut.io.prune.scope.poke(IfuPruneScope.KillAllThreadState)
+        dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
+        dut.io.prune.rasAction.poke(RasRecoveryAction.RestoreTrigger)
+        dut.clock.step()
+      }
+    }
+  }
+
   test("ITLB recovery without a trigger row restores the oldest killed snapshot") {
     simulate(module) { dut =>
       clear(dut)
@@ -248,6 +499,7 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
       dut.io.prune.reason.poke(IfuInnerFlushReason.ItlbMiss)
       dut.io.prune.scope.poke(IfuPruneScope.KillTriggerAndYounger)
       dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
+      dut.io.prune.rasAction.poke(RasRecoveryAction.RestoreTrigger)
       dut.clock.step()
       dut.io.prune.valid.poke(false.B)
       dut.io.speculativeGhr(0).expect(1.U)
@@ -311,6 +563,7 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
       dut.io.prune.threadId.poke(0.U)
       dut.io.prune.scope.poke(IfuPruneScope.KillAllThreadState)
       dut.io.prune.ghrAction.poke(GhrRecoveryAction.Reset)
+      dut.io.prune.rasAction.poke(RasRecoveryAction.Reset)
       dut.clock.step()
       dut.io.prune.valid.poke(false.B)
       dut.io.speculativeGhr(0).expect(0.U)

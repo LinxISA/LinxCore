@@ -86,8 +86,8 @@ B-SIDE composition:
   final IBTB/loop result, final arbitration, retained response, and the last
   prediction-driven correction
 - B-F4 correction inner flush marks predictor recovery pending; its returned
-  canonical prune restores request-owned history, applies the corrected
-  conditional delta, and restarts I-F0. After the final record is sealed,
+  canonical prune restores request-owned GHR/RAS, applies the corrected
+  conditional or Call/Return delta, and restarts I-F0. After the final record is sealed,
   Dispatch/BRU mismatch uses BRU flush/recover and I-F0 restart
 
 In the export/bring-up path, the native IFU source may be replaced by a
