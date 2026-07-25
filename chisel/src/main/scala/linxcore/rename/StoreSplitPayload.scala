@@ -3,6 +3,7 @@ package linxcore.rename
 import chisel3._
 
 import linxcore.common._
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.ROBID
 
 object StoreSplitStoreType extends ChiselEnum {
@@ -64,6 +65,8 @@ class StoreSplitPayload(val p: InterfaceParams = InterfaceParams(), val mapQDept
   val readyForStore = Mux(split, io.staReady && io.stdReady, io.staReady)
   val fire = storeActive && readyForStore
   val dataSrcIndex = Mux(io.in.isStorePcr, 1.U(2.W), 0.U(2.W))
+  val preserveStaSrc0 = io.in.isStorePcr ||
+    (io.in.opcode === FrontendOpcodeDecodeTable.OP_SC_W.U(p.opcodeWidth.W))
 
   io.storeActive := storeActive
   io.split := split
@@ -83,10 +86,10 @@ class StoreSplitPayload(val p: InterfaceParams = InterfaceParams(), val mapQDept
   sta := 0.U.asTypeOf(sta)
   sta.valid := fire && split
   sta.uop := io.in
-  sta.uop.src(0) := Mux(io.in.isStorePcr, io.in.src(0), zeroStoreAddressOperand)
+  sta.uop.src(0) := Mux(preserveStaSrc0, io.in.src(0), zeroStoreAddressOperand)
   sta.storeType := StoreSplitStoreType.Addr
   sta.dataSrcIndex := dataSrcIndex
-  sta.staSrc0Zeroed := !io.in.isStorePcr
+  sta.staSrc0Zeroed := !preserveStaSrc0
   attachTUSidecar(sta)
 
   val std = Wire(new StoreSplitIssuePayload(p, mapQDepth))

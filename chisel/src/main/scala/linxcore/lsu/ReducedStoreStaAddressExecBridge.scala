@@ -115,6 +115,11 @@ class ReducedStoreStaAddressExecBridge(
     addrSourceMask := "b010".U
     addr := src1 + resize(io.queue.uop.imm, addrWidth)
     size := 1.U
+  }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SC_W)) {
+    supportedOpcode := true.B
+    addrSourceMask := "b011".U
+    addr := src1
+    size := 4.U
   }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SD)) {
     supportedOpcode := true.B
     addrSourceMask := "b110".U
@@ -136,7 +141,8 @@ class ReducedStoreStaAddressExecBridge(
     io.enable &&
       io.queueValid &&
       io.queue.valid &&
-      (io.queue.storeType === StoreSplitStoreType.Addr)
+      ((io.queue.storeType === StoreSplitStoreType.Addr) ||
+        (io.queue.storeType === StoreSplitStoreType.All))
   val srcReadyVec = VecInit((0 until 3).map { idx =>
     !addrSourceMask(idx) || (io.queue.uop.src(idx).valid && io.srcReadReady(idx))
   })
@@ -145,7 +151,7 @@ class ReducedStoreStaAddressExecBridge(
   val exec = zeroExec
   exec.valid := candidate && supportedOpcode && addrSourceReady
   exec.addr := addr
-  exec.data := 0.U
+  exec.data := Mux(op === opcode(FrontendOpcodeDecodeTable.OP_SC_W), src0, 0.U)
   exec.size := size
   exec.peId := resize(io.queue.uop.peId, peIdWidth)
   exec.stid := resize(io.queue.uop.threadId, stidWidth)

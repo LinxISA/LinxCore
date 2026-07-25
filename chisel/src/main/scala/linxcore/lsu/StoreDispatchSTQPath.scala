@@ -36,6 +36,10 @@ class StoreDispatchSTQPathIO(
   val unsplitIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
   val staExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val stdExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val scResultValid = Input(Bool())
+  val scResultSuccess = Input(Bool())
+  val scResultIdentity = Input(new StoreDispatchScIdentity(identityEntries, stidWidth, p.lsidWidth))
+  val scStoreData = Input(UInt(dataWidth.W))
 
   val markCommitValid = Input(Bool())
   val markCommitIndex = Input(UInt(ptrWidth.W))
@@ -84,6 +88,13 @@ class StoreDispatchSTQPathIO(
   val blockedByStaInsert = Output(Bool())
   val blockedByStdInsert = Output(Bool())
   val stdBypassStaBlocked = Output(Bool())
+  val scCandidate = Output(Bool())
+  val scIdentityMatch = Output(Bool())
+  val scSelectedSuccess = Output(Bool())
+  val scSelectedMissDiscard = Output(Bool())
+  val scBlockedByResult = Output(Bool())
+  val scBlockedByInsert = Output(Bool())
+  val scAcceptedIdentity = Output(new StoreDispatchScIdentity(identityEntries, stidWidth, p.lsidWidth))
 
   val insertValid = Output(Bool())
   val insert = Output(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, p.lsidWidth))
@@ -176,8 +187,12 @@ class StoreDispatchSTQPath(
   bridge.io.staInsertReady := staProbe.io.ready && io.addressInsertPermit
   bridge.io.stdInsertReady :=
     stdProbe.io.ready && ((bridge.io.stdRequest.storeType === STQStoreType.Data) || io.addressInsertPermit)
+  bridge.io.scResultValid := io.scResultValid
+  bridge.io.scResultSuccess := io.scResultSuccess
+  bridge.io.scResultIdentity := io.scResultIdentity
+  bridge.io.scStoreData := io.scStoreData
 
-  staProbe.io.requestValid := bridge.io.staCandidate
+  staProbe.io.requestValid := bridge.io.staCandidate || bridge.io.scCandidate
   staProbe.io.request := bridge.io.staRequest
   staProbe.io.rows := stq.io.rows
   staProbe.io.flushApplied := stq.io.flushApplied
@@ -246,6 +261,13 @@ class StoreDispatchSTQPath(
   io.blockedByStaInsert := bridge.io.blockedByStaInsert
   io.blockedByStdInsert := bridge.io.blockedByStdInsert
   io.stdBypassStaBlocked := bridge.io.stdBypassStaBlocked
+  io.scCandidate := bridge.io.scCandidate
+  io.scIdentityMatch := bridge.io.scIdentityMatch
+  io.scSelectedSuccess := bridge.io.scSelectedSuccess
+  io.scSelectedMissDiscard := bridge.io.scSelectedMissDiscard
+  io.scBlockedByResult := bridge.io.scBlockedByResult
+  io.scBlockedByInsert := bridge.io.scBlockedByInsert
+  io.scAcceptedIdentity := bridge.io.scAcceptedIdentity
 
   io.insertValid := bridge.io.insertValid
   io.insert := bridge.io.insert

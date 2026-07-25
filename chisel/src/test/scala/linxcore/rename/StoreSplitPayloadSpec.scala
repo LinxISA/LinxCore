@@ -1,7 +1,11 @@
 package linxcore.rename
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
-import linxcore.common.{DestinationKind, InterfaceParams}
+import linxcore.common.{DestinationKind, InterfaceParams, OperandClass}
+import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.rob.ROBID
 import org.scalatest.funsuite.AnyFunSuite
 
 object StoreSplitPayloadReference {
@@ -17,6 +21,7 @@ object StoreSplitPayloadReference {
       isLoadStorePair: Boolean = false,
       isStorePcr: Boolean = false,
       cacheMaintainNoSplit: Boolean = false,
+      opcode: Int = 0,
       bid: Int = 0,
       rid: Int = 0,
       lsid: Int = 0,
@@ -84,6 +89,7 @@ object StoreSplitPayloadReference {
     val readyForStore = if (split) staReady && stdReady else staReady
     val fire = storeActive && readyForStore
     val dataSrcIndex = if (uop.isStorePcr) 1 else 0
+    val preserveStaSrc0 = uop.isStorePcr || uop.opcode == FrontendOpcodeDecodeTable.OP_SC_W
 
     Decision(
       inReady = !storeActive || readyForStore,
@@ -97,7 +103,7 @@ object StoreSplitPayloadReference {
         valid = fire && split,
         storeType = Addr,
         dataSrcIndex = dataSrcIndex,
-        staSrc0Zeroed = !uop.isStorePcr),
+        staSrc0Zeroed = !preserveStaSrc0),
       std = payload(
         uop = uop,
         valid = fire && split,
@@ -113,8 +119,14 @@ object StoreSplitPayloadReference {
   }
 }
 
-class StoreSplitPayloadSpec extends AnyFunSuite {
+class StoreSplitPayloadSpec extends AnyFunSuite with ChiselSim {
   import StoreSplitPayloadReference._
+
+  private def pokeRobId(id: ROBID, value: Int, valid: Boolean = true, wrap: Boolean = false): Unit = {
+    id.valid.poke(valid.B)
+    id.wrap.poke(wrap.B)
+    id.value.poke(value.U)
+  }
 
   test("reference splits ordinary stores into atomic STA and STD payloads") {
     val uop = Uop(
@@ -167,6 +179,75 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
     assert(!decision.sta.staSrc0Zeroed)
     assert(decision.sta.dataSrcIndex == 1)
     assert(decision.std.dataSrcIndex == 1)
+  }
+
+  test("reference preserves SC.W split STA source 0 while ordinary split stores still zero it") {
+    val ordinary = decide(Uop(valid = true, isStore = true, storeSplitIntent = true), staReady = true, stdReady = true)
+    val sc = decide(
+      Uop(
+        valid = true,
+        isStore = true,
+        storeSplitIntent = true,
+        opcode = FrontendOpcodeDecodeTable.OP_SC_W),
+      staReady = true,
+      stdReady = true)
+
+    assert(ordinary.split)
+    assert(ordinary.sta.valid)
+    assert(ordinary.sta.staSrc0Zeroed)
+    assert(sc.split)
+    assert(sc.sta.valid)
+    assert(!sc.sta.staSrc0Zeroed)
+    assert(sc.sta.dataSrcIndex == 0)
+    assert(sc.std.dataSrcIndex == 0)
+  }
+
+  test("StoreSplitPayload preserves executable SC.W STA SrcL and still zeroes ordinary STA SrcL") {
+    simulate(new StoreSplitPayload(InterfaceParams(robEntries = 8), mapQDepth = 8)) { dut =>
+      dut.io.in.poke(0.U.asTypeOf(dut.io.in))
+      dut.io.tSeq.poke(0.U.asTypeOf(dut.io.tSeq))
+      dut.io.uSeq.poke(0.U.asTypeOf(dut.io.uSeq))
+      dut.io.tuDstValid.poke(false.B)
+      dut.io.tuDstKind.poke(DestinationKind.None)
+      dut.io.staReady.poke(true.B)
+      dut.io.stdReady.poke(true.B)
+
+      dut.io.in.valid.poke(true.B)
+      dut.io.in.isStore.poke(true.B)
+      dut.io.in.storeSplitIntent.poke(true.B)
+      dut.io.in.opcode.poke(FrontendOpcodeDecodeTable.OP_SC_W.U)
+      dut.io.in.lsid.poke(13.U)
+      pokeRobId(dut.io.in.bid, 1)
+      pokeRobId(dut.io.in.gid, 2)
+      pokeRobId(dut.io.in.rid, 3)
+      dut.io.in.src(0).valid.poke(true.B)
+      dut.io.in.src(0).operandClass.poke(OperandClass.P)
+      dut.io.in.src(0).archTag.poke(5.U)
+      dut.io.in.src(0).relTag.poke(6.U)
+      dut.io.in.src(0).physTag.poke(7.U)
+      dut.io.in.src(0).ready.poke(false.B)
+      dut.io.in.src(0).literalValid.poke(false.B)
+      dut.io.in.src(0).literal.poke(0x1234.U)
+
+      dut.io.fire.expect(true.B)
+      dut.io.sta.valid.expect(true.B)
+      dut.io.sta.storeType.expect(StoreSplitStoreType.Addr)
+      dut.io.sta.staSrc0Zeroed.expect(false.B)
+      dut.io.sta.dataSrcIndex.expect(0.U)
+      dut.io.sta.uop.src(0).valid.expect(true.B)
+      dut.io.sta.uop.src(0).operandClass.expect(OperandClass.P)
+      dut.io.sta.uop.src(0).archTag.expect(5.U)
+      dut.io.sta.uop.src(0).relTag.expect(6.U)
+      dut.io.sta.uop.src(0).physTag.expect(7.U)
+      dut.io.sta.uop.src(0).ready.expect(false.B)
+      dut.io.sta.uop.src(0).literalValid.expect(false.B)
+      dut.io.sta.uop.src(0).literal.expect(0x1234.U)
+
+      dut.io.in.opcode.poke(FrontendOpcodeDecodeTable.OP_SDI.U)
+      dut.io.sta.staSrc0Zeroed.expect(true.B)
+      dut.io.sta.uop.src(0).valid.expect(false.B)
+      dut.io.sta.uop.src(0).operandClass.expect(OperandClass.Invalid)
+    }
   }
 
   test("reference emits a single ST_ALL payload for pair and cache-maintain stores") {
