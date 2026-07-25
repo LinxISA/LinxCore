@@ -32,6 +32,8 @@ class F4DenseSlotQueueIO(
   val outD1 = Output(new FrontendDecodePacket(p))
   val outSlots = Output(Vec(p.decodeWidth, new F4Slot(p)))
   val outValidMask = Output(UInt(p.decodeWidth.W))
+  val outNextSamePacketSlotValid = Output(Bool())
+  val outNextSamePacketSlot = Output(new F4Slot(p))
   val outReady = Input(Bool())
 
   val flushValid = Input(Bool())
@@ -73,8 +75,16 @@ class F4DenseSlotQueue(
   val outFire = headValid && io.outReady
 
   val headEntry = entries(head)
+  val nextHead = advancePtr(head, 1.U)
+  val nextHeadEntry = entries(nextHead)
   val zeroD1 = 0.U.asTypeOf(new FrontendDecodePacket(p))
   val zeroSlot = 0.U.asTypeOf(new F4Slot(p))
+  val nextSamePacketSlotValid =
+    headValid && count > 1.U &&
+      nextHeadEntry.d1.valid &&
+      nextHeadEntry.d1.pktUid === headEntry.d1.pktUid &&
+      nextHeadEntry.d1.checkpointId === headEntry.d1.checkpointId &&
+      nextHeadEntry.d1.threadId === headEntry.d1.threadId
 
   io.inReady := canAcceptPacket
   io.outD1 := Mux(headValid, headEntry.d1, zeroD1)
@@ -87,6 +97,8 @@ class F4DenseSlotQueue(
     }
   }
   io.outValidMask := Mux(headValid, UIntToOH(headEntry.slotIndex, p.decodeWidth), 0.U(p.decodeWidth.W))
+  io.outNextSamePacketSlotValid := nextSamePacketSlotValid
+  io.outNextSamePacketSlot := Mux(nextSamePacketSlotValid, nextHeadEntry.slot, zeroSlot)
   io.inFire := inFire
   io.outFire := outFire
   io.inSlotCount := inSlotCount

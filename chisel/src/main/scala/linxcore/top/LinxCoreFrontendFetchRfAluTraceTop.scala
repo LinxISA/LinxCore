@@ -2909,6 +2909,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.d1.valid := denseSlots.io.outD1.valid && !admittedMarkerDrainBarrier
   path.io.slots := denseSlots.io.outSlots
   path.io.validMask := Mux(admittedMarkerDrainBarrier, 0.U, denseSlots.io.outValidMask)
+  path.io.samePacketNextSlotValid := denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier
+  path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot
   path.io.flushValid := backendPipeFlush
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
   DecodeRenameROBPath.tieOffStoreScResult(path)

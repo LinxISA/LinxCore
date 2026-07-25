@@ -110,6 +110,8 @@ class LinxCoreFrontendAluTraceTop(
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots
   path.io.validMask := f4.io.validMask
+  path.io.samePacketNextSlotValid := false.B
+  path.io.samePacketNextSlot := 0.U.asTypeOf(path.io.samePacketNextSlot)
   path.io.flushValid := io.frontendFlushValid
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
   DecodeRenameROBPath.tieOffStoreScResult(path)

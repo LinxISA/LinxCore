@@ -11,7 +11,7 @@ import linxcore.bctrl.{
 }
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
-import linxcore.frontend.{F4Slot, FrontendDecodeStage}
+import linxcore.frontend.{F4Slot, FrontendDecodeStage, FrontendOpcodeDecodeTable}
 import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchScIdentity, StoreDispatchSTQPath}
 import linxcore.recovery.{
   FullBidFlushReq,
@@ -43,6 +43,61 @@ import linxcore.rob.{
 class BlockRenameCommitIdentity(val bidWidth: Int = BID.DefaultWidth, val stidWidth: Int = 8) extends Bundle {
   val fullBid = UInt(bidWidth.W)
   val stid = UInt(stidWidth.W)
+}
+
+class DecodeRenameServiceAdjacentStop(
+    val p: InterfaceParams = InterfaceParams(),
+    val bidWidth: Int = BID.DefaultWidth,
+    val stidWidth: Int = 8)
+    extends Bundle {
+  val valid = Bool()
+  val pc = UInt(p.pcWidth.W)
+  val insn = UInt(p.insnWidth.W)
+  val len = UInt(p.lenWidth.W)
+  val stid = UInt(stidWidth.W)
+  val bid = new ROBID(p.robEntries)
+  val gid = new ROBID(p.robEntries)
+  val rid = new ROBID(p.robEntries)
+  val blockBidValid = Bool()
+  val blockBid = UInt(bidWidth.W)
+}
+
+class DecodeRenameServiceAdjacentStopClassifierIO(
+    val p: InterfaceParams = InterfaceParams(),
+    val bidWidth: Int = BID.DefaultWidth,
+    val stidWidth: Int = 8)
+    extends Bundle {
+  val selected = Input(new DecodedUop(p))
+  val nextSlotValid = Input(Bool())
+  val nextSlot = Input(new F4Slot(p))
+  val out = Output(new DecodeRenameServiceAdjacentStop(p, bidWidth, stidWidth))
+}
+
+class DecodeRenameServiceAdjacentStopClassifier(
+    val p: InterfaceParams = InterfaceParams(),
+    val bidWidth: Int = BID.DefaultWidth,
+    val stidWidth: Int = 8)
+    extends Module {
+  val io = IO(new DecodeRenameServiceAdjacentStopClassifierIO(p, bidWidth, stidWidth))
+  val nextMeta = FrontendOpcodeDecodeTable.decode(p, io.nextSlot.insnRaw, io.nextSlot.lenBytes)
+
+  io.out := 0.U.asTypeOf(io.out)
+  io.out.valid :=
+    io.selected.valid &&
+      io.selected.opcode === FrontendOpcodeDecodeTable.OP_ACRC.U(p.opcodeWidth.W) &&
+      io.nextSlotValid &&
+      nextMeta.valid &&
+      nextMeta.opcode === FrontendOpcodeDecodeTable.OP_C_BSTOP.U(p.opcodeWidth.W) &&
+      io.nextSlot.pc === (io.selected.pc + io.selected.insnLen)
+  io.out.pc := io.nextSlot.pc
+  io.out.insn := io.nextSlot.insnRaw
+  io.out.len := io.nextSlot.lenBytes
+  io.out.stid := io.selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  io.out.bid := io.selected.bid
+  io.out.gid := io.selected.gid
+  io.out.rid := io.selected.rid
+  io.out.blockBidValid := io.selected.blockBidValid
+  io.out.blockBid := io.selected.blockBid
 }
 
 class DecodeRenameROBPathIO(
@@ -93,6 +148,8 @@ class DecodeRenameROBPathIO(
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
   val validMask = Input(UInt(p.decodeWidth.W))
+  val samePacketNextSlotValid = Input(Bool())
+  val samePacketNextSlot = Input(new F4Slot(p))
   val flushValid = Input(Bool())
   val blockExplicitStoreCountValid = Input(Bool())
   val blockExplicitStoreCountReady = Output(Bool())
@@ -258,6 +315,7 @@ class DecodeRenameROBPathIO(
   val decRenHeadUsesLocal = Output(Bool())
   val decRenHeadRidValid = Output(Bool())
   val decRenHeadRidValue = Output(UInt(p.robIndexWidth.W))
+  val serviceAdjacentStop = Output(new DecodeRenameServiceAdjacentStop(p, bidWidth, stidWidth))
   val selectedIsLoad = Output(Bool())
   val selectedIsStore = Output(Bool())
   val selectedMemoryValid = Output(Bool())
@@ -1041,6 +1099,12 @@ class DecodeRenameROBPath(
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
 
+  val serviceAdjacentStopClassifier =
+    Module(new DecodeRenameServiceAdjacentStopClassifier(p, bidWidth, stidWidth))
+  serviceAdjacentStopClassifier.io.selected := selectedForQueue
+  serviceAdjacentStopClassifier.io.nextSlotValid := io.samePacketNextSlotValid
+  serviceAdjacentStopClassifier.io.nextSlot := io.samePacketNextSlot
+
   val gprFreeBudget = Wire(UInt(log2Ceil(physRegs + 1).W))
   val gprMapQFreeBudget = Wire(UInt(log2Ceil(gprMapQDepth + 1).W))
   val gprReservations = Module(new GPRReservationTracker(
@@ -1068,6 +1132,18 @@ class DecodeRenameROBPath(
   val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
   decRenQ.io.push := decRenPush
   decRenQ.io.flushValid := decRenFlush
+  val serviceAdjacentStopQ = withReset(reset.asBool || decRenFlush) {
+    Module(new Queue(new DecodeRenameServiceAdjacentStop(p, bidWidth, stidWidth), decRenQueueDepth))
+  }
+  serviceAdjacentStopQ.io.enq.valid := decRenQ.io.pushFire
+  serviceAdjacentStopQ.io.enq.bits := serviceAdjacentStopClassifier.io.out
+  serviceAdjacentStopQ.io.deq.ready := decRenQ.io.popFire
+  assert(
+    !decRenQ.io.pushFire || serviceAdjacentStopQ.io.enq.ready,
+    "service-adjacent stop sidecar must accept every decode/rename push")
+  assert(
+    !decRenQ.io.popFire || serviceAdjacentStopQ.io.deq.valid,
+    "service-adjacent stop sidecar must remain aligned with decode/rename pop")
   memIds.io.accept := decRenQ.io.pushFire
   decodeContextCloseSafe := !decodeContextCloseIntent || (decRenQ.io.empty && allocator.io.empty)
   selectedClosesActiveRedirect := selectedClosesActiveRedirectIntent && decodeContextCloseSafe
@@ -1424,6 +1500,8 @@ class DecodeRenameROBPath(
           (queuedForRename.dst(0).kind === DestinationKind.U))))
   io.decRenHeadRidValid := queuedForRename.rid.valid
   io.decRenHeadRidValue := queuedForRename.rid.value
+  io.serviceAdjacentStop := serviceAdjacentStopQ.io.deq.bits
+  io.serviceAdjacentStop.valid := serviceAdjacentStopQ.io.deq.valid && serviceAdjacentStopQ.io.deq.bits.valid
   io.selectedIsLoad := selectedIsLoad
   io.selectedIsStore := selectedIsStore
   io.selectedMemoryValid := memIds.io.memoryValid

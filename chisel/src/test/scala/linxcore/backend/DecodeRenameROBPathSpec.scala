@@ -1,8 +1,11 @@
 package linxcore.backend
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import linxcore.commit.CommitTraceParams
 import linxcore.common.InterfaceParams
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rename.{TULinkFlushSequencePublisherReference, TULinkFlushSourceSelectorReference}
 import linxcore.rob.ROBIDValue
 import org.scalatest.funsuite.AnyFunSuite
@@ -221,7 +224,7 @@ object DecodeRenameROBPathReference {
   }
 }
 
-class DecodeRenameROBPathSpec extends AnyFunSuite {
+class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
   import DecodeRenameROBPathReference._
 
   test("reference selects the oldest decoded slot without compacting later slots") {
@@ -1130,5 +1133,51 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_recoveryOldestBid_1_value"))
     assert(sv.contains("io_recoveryOldestRid_1_wrap"))
     assert(sv.contains("io_recoveryOldestBlockComplete_1"))
+  }
+
+  test("service-adjacent stop classifier accepts only an exact ACRC plus same-packet C.BSTOP pair") {
+    val p = InterfaceParams(robEntries = 8)
+    simulate(new DecodeRenameServiceAdjacentStopClassifier(p, bidWidth = 16, stidWidth = 8)) { dut =>
+      dut.io.selected.poke(0.U.asTypeOf(dut.io.selected))
+      dut.io.nextSlot.poke(0.U.asTypeOf(dut.io.nextSlot))
+      dut.io.nextSlotValid.poke(true.B)
+
+      dut.io.selected.valid.poke(true.B)
+      dut.io.selected.opcode.poke(FrontendOpcodeDecodeTable.OP_ACRC.U)
+      dut.io.selected.pc.poke(0x1000.U)
+      dut.io.selected.insnLen.poke(4.U)
+      dut.io.selected.threadId.poke(3.U)
+      dut.io.selected.bid.valid.poke(true.B)
+      dut.io.selected.bid.value.poke(1.U)
+      dut.io.selected.gid.valid.poke(true.B)
+      dut.io.selected.gid.value.poke(2.U)
+      dut.io.selected.rid.valid.poke(true.B)
+      dut.io.selected.rid.value.poke(3.U)
+      dut.io.selected.blockBidValid.poke(true.B)
+      dut.io.selected.blockBid.poke(0x44.U)
+
+      dut.io.nextSlot.valid.poke(true.B)
+      dut.io.nextSlot.pc.poke(0x1004.U)
+      dut.io.nextSlot.lenBytes.poke(2.U)
+      dut.io.nextSlot.insnRaw.poke(0.U)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.pc.expect(0x1004.U)
+      dut.io.out.len.expect(2.U)
+      dut.io.out.stid.expect(3.U)
+      dut.io.out.bid.value.expect(1.U)
+      dut.io.out.gid.value.expect(2.U)
+      dut.io.out.rid.value.expect(3.U)
+      dut.io.out.blockBid.expect(0x44.U)
+
+      dut.io.nextSlot.pc.poke(0x1006.U)
+      dut.io.out.valid.expect(false.B)
+      dut.io.nextSlot.pc.poke(0x1004.U)
+      dut.io.nextSlotValid.poke(false.B)
+      dut.io.out.valid.expect(false.B)
+      dut.io.nextSlotValid.poke(true.B)
+      dut.io.selected.opcode.poke(FrontendOpcodeDecodeTable.OP_ADDI.U)
+      dut.io.out.valid.expect(false.B)
+    }
   }
 }
