@@ -52,6 +52,7 @@ class ISideFetchMissTable(
         !refilled(entry) &&
         requests(entry).transactionId === io.refill.bits.transactionId &&
         requests(entry).identity.threadId === io.refill.bits.threadId &&
+        requests(entry).identity.epoch === io.refill.bits.epoch &&
         linePas(entry) === io.refill.bits.linePa
   }
   val refillMatchMask = refillMatch.asUInt
@@ -82,7 +83,12 @@ class ISideFetchMissTable(
 
   when(io.innerFlush.valid) {
     for (entry <- 0 until entries) {
-      when(valid(entry) && requests(entry).identity.threadId === io.innerFlush.threadId) {
+      when(
+        valid(entry) &&
+          IfuFlushContract.kills(
+            requests(entry).identity,
+            requests(entry).transactionId,
+            io.innerFlush)) {
         when(refilled(entry)) {
           valid(entry) := false.B
           orphan(entry) := false.B

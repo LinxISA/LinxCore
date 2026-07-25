@@ -1,16 +1,17 @@
 package linxcore.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Queue, Valid, log2Ceil}
+import chisel3.util.{Cat, Decoupled, Queue, log2Ceil}
 import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class BSidePredictionPipelineIO(
-    val p: InterfaceParams = InterfaceParams(),
-    val lineBytes: Int = 64)
+  val p: InterfaceParams = InterfaceParams(),
+  val lineBytes: Int = 64)
     extends Bundle {
   val request = Flipped(Decoupled(new ISideFetchRequest(p, lineBytes)))
-  val boundary = Flipped(Valid(new BSideBoundaryMetadata(p)))
+  val boundary = Flipped(Decoupled(new BSideBoundaryMetadata(p)))
   val resolve = Flipped(Decoupled(new BSideResolveUpdate(p)))
+  val prune = Input(new IfuInnerFlush(p))
 
   val response = Decoupled(new BSidePredictionUpdate(p, lineBytes))
   val innerFlush = Decoupled(new IfuInnerFlush(p))
@@ -141,14 +142,35 @@ class BSidePredictionPipeline(
   val boundaryIndex =
     if (boundaryEntries == 1) 0.U(boundaryIndexWidth.W)
     else io.boundary.bits.transactionId(boundaryIndexWidth - 1, 0)
+  val boundarySameIdentity =
+    boundaries(boundaryIndex).peId === io.boundary.bits.peId &&
+      boundaries(boundaryIndex).transactionId === io.boundary.bits.transactionId &&
+      boundaries(boundaryIndex).threadId === io.boundary.bits.threadId &&
+      boundaries(boundaryIndex).fetchPacketUid === io.boundary.bits.fetchPacketUid &&
+      boundaries(boundaryIndex).fetchSeq === io.boundary.bits.fetchSeq &&
+      boundaries(boundaryIndex).checkpointId === io.boundary.bits.checkpointId &&
+      boundaries(boundaryIndex).epoch === io.boundary.bits.epoch
   val boundaryCollision =
     io.boundary.valid &&
       boundaryValid(boundaryIndex) &&
-      (boundaries(boundaryIndex).transactionId =/= io.boundary.bits.transactionId ||
-        boundaries(boundaryIndex).threadId =/= io.boundary.bits.threadId ||
-        boundaries(boundaryIndex).epoch =/= io.boundary.bits.epoch)
+      !boundarySameIdentity
+  io.boundary.ready :=
+    !io.prune.valid &&
+      (!boundaryValid(boundaryIndex) || boundarySameIdentity)
   io.boundaryCollision := boundaryCollision
-  when(io.boundary.valid) {
+  for (entry <- 0 until boundaryEntries) {
+    when(
+      boundaryValid(entry) &&
+        IfuFlushContract.kills(
+          boundaries(entry).threadId,
+          boundaries(entry).epoch,
+          boundaries(entry).fetchSeq,
+          boundaries(entry).transactionId,
+          io.prune)) {
+      boundaryValid(entry) := false.B
+    }
+  }
+  when(io.boundary.fire) {
     boundaryValid(boundaryIndex) := true.B
     boundaries(boundaryIndex) := io.boundary.bits
   }
@@ -271,14 +293,23 @@ class BSidePredictionPipeline(
   initialPayload.effective.confidence := 0.U
   initialPayload.effective.checkpointId := io.request.bits.identity.checkpointId
   initialPayload.effective.epoch := io.request.bits.identity.epoch
-  stages.head.io.enq.valid := io.request.valid
+  stages.head.io.enq.valid := io.request.valid && !io.prune.valid
   stages.head.io.enq.bits := initialPayload
-  io.request.ready := stages.head.io.enq.ready
+  io.request.ready := stages.head.io.enq.ready && !io.prune.valid
   when(io.request.fire) {
     nextPredictionTag := nextPredictionTag + 1.U
   }
 
   val payloads = stages.map(_.io.deq.bits)
+  val stageKilled = Wire(Vec(5, Bool()))
+  for (stage <- 0 until 5) {
+    stageKilled(stage) :=
+      stages(stage).io.deq.valid &&
+        IfuFlushContract.kills(
+          payloads(stage).request.identity,
+          payloads(stage).request.transactionId,
+          io.prune)
+  }
   val candidates = Wire(Vec(5, new BSidePredictionCandidate(p)))
   candidates(0) := btbCandidate(payloads(0), nanoBtb, PredictionProvider.NanoBtb, BSideStage.BF0)
   candidates(1) := btbCandidate(payloads(1), ubtb, PredictionProvider.UBtb, BSideStage.BF1)
@@ -321,8 +352,10 @@ class BSidePredictionPipeline(
   val boundary = boundaries(stage4BoundaryIndex)
   val boundaryPresent =
     boundaryValid(stage4BoundaryIndex) &&
+      boundary.peId === stage4Payload.request.identity.peId &&
       boundary.transactionId === stage4Payload.request.transactionId &&
       boundary.threadId === stage4Payload.request.identity.threadId &&
+      boundary.fetchPacketUid === stage4Payload.request.identity.fetchPacketUid &&
       boundary.fetchSeq === stage4Payload.request.identity.fetchSeq &&
       boundary.checkpointId === stage4Payload.request.identity.checkpointId &&
       boundary.epoch === stage4Payload.request.identity.epoch
@@ -411,6 +444,7 @@ class BSidePredictionPipeline(
   for (stage <- 0 until 5) {
     publishRequest(stage) :=
       stages(stage).io.deq.valid &&
+        !stageKilled(stage) &&
         publishNeeded(stage) &&
         downstreamReady(stage) &&
         (if (stage == 4) boundaryPresent else true.B)
@@ -447,19 +481,33 @@ class BSidePredictionPipeline(
   for (stage <- 0 until 4) {
     val canAdvance =
       stages(stage).io.deq.valid &&
+        !stageKilled(stage) &&
         (!publishNeeded(stage) || grants(stage))
     stages(stage + 1).io.enq.valid := canAdvance
     stages(stage + 1).io.enq.bits :=
       updatePayload(payloads(stage), nextPredictions(stage), tupleMismatch(stage))
     stages(stage).io.deq.ready :=
-      stages(stage + 1).io.enq.ready &&
-        (!publishNeeded(stage) || grants(stage))
+      stageKilled(stage) ||
+        (stages(stage + 1).io.enq.ready &&
+          (!publishNeeded(stage) || grants(stage)))
   }
-  stages(4).io.deq.ready := grants(4)
+  stages(4).io.deq.ready := stageKilled(4) || grants(4)
 
   val responseHead = responseQueue.io.deq.bits
-  val responseNeedsFlush = responseQueue.io.deq.valid && responseHead.correction
-  io.response.valid := responseQueue.io.deq.valid && (!responseNeedsFlush || io.innerFlush.ready)
+  val responseHeadKilled =
+    responseQueue.io.deq.valid &&
+      IfuFlushContract.kills(
+        responseHead.request.identity,
+        responseHead.request.transactionId,
+        io.prune)
+  val responseNeedsFlush =
+    responseQueue.io.deq.valid &&
+      !responseHeadKilled &&
+      responseHead.correction
+  io.response.valid :=
+    responseQueue.io.deq.valid &&
+      !responseHeadKilled &&
+      (!responseNeedsFlush || io.innerFlush.ready)
   io.response.bits := responseHead
   io.innerFlush.valid := responseNeedsFlush && io.response.ready
   io.innerFlush.bits := 0.U.asTypeOf(io.innerFlush.bits)
@@ -474,11 +522,13 @@ class BSidePredictionPipeline(
   io.innerFlush.bits.checkpointId := responseHead.prediction.checkpointId
   io.innerFlush.bits.newEpoch := responseHead.prediction.epoch
   io.innerFlush.bits.reason := IfuInnerFlushReason.PredictionCorrection
+  io.innerFlush.bits.scope := IfuPruneScope.PreserveTriggerKillYounger
   responseQueue.io.deq.ready :=
-    io.response.ready && (!responseNeedsFlush || io.innerFlush.ready)
+    responseHeadKilled ||
+      (io.response.ready && (!responseNeedsFlush || io.innerFlush.ready))
 
-  when(stages(4).io.deq.fire) {
-    when(io.boundary.valid && boundaryIndex === stage4BoundaryIndex) {
+  when(stages(4).io.deq.fire && !stageKilled(4)) {
+    when(io.boundary.fire && boundaryIndex === stage4BoundaryIndex) {
       boundaryValid(stage4BoundaryIndex) := true.B
     }.otherwise {
       boundaryValid(stage4BoundaryIndex) := false.B
@@ -489,5 +539,5 @@ class BSidePredictionPipeline(
   io.responseQueueCount := responseQueue.io.count
   io.boundaryCollision :=
     boundaryCollision &&
-      !(stages(4).io.deq.fire && boundaryIndex === stage4BoundaryIndex)
+      !(stages(4).io.deq.fire && !stageKilled(4) && boundaryIndex === stage4BoundaryIndex)
 }

@@ -146,6 +146,7 @@ class ISideLookupResolveSpec extends AnyFunSuite with ChiselSim {
       dut.io.innerFlush.valid.expect(true.B)
       dut.io.innerFlush.bits.restartPc.expect(0x500.U)
       dut.io.innerFlush.bits.newEpoch.expect(1.U)
+      dut.io.innerFlush.bits.scope.expect(IfuPruneScope.KillTriggerAndYounger)
       dut.clock.step()
 
       refill(dut, vpn = 6, ppn = 7, executable = false, linePa = 0x700, lineData = 0x66)

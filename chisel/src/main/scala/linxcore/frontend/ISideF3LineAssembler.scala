@@ -40,9 +40,8 @@ class ISideF3LineAssembler(
   val nextRequestIssued = RegInit(false.B)
 
   val killResident =
-    io.flush.valid &&
-      residentValid &&
-      resident.request.identity.threadId === io.flush.threadId
+    residentValid &&
+      IfuFlushContract.kills(resident.request.identity, resident.request.transactionId, io.flush)
 
   val combinedData = Cat(
     Mux(secondLineValid, secondLine.lineData, 0.U((lineBytes * 8).W)),

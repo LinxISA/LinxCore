@@ -51,8 +51,11 @@ neither happens. A hardware assertion enforces this invariant.
 tag and data. Both produce registered, backpressured responses tagged with the
 original request.
 
-An inner flush may cancel a matching transient response. It does not invalidate
-TLB or cache contents.
+An inner flush applies its explicit prune scope to matching transient
+transactions. Prediction correction preserves its producer and removes only
+younger work; ITLB miss removes the trigger and younger work; architectural
+restart removes all transient state for the STID. It does not invalidate TLB
+or cache contents.
 
 ## I-F2 Join and Miss Handling
 
@@ -61,10 +64,11 @@ transaction ID, STID, fetch sequence, and epoch equality before classifying
 them. The translated PPN plus page offset supplies the physical line tag used
 to validate the L1I candidate.
 
-An ITLB miss emits a retained typed IFU inner flush with PE, STID, transaction,
-fetch sequence, old epoch, checkpoint, original restart PC, and `epoch + 1`.
-It does not emit backend recovery. Access faults and L1I misses remain distinct
-results.
+An ITLB miss emits a retained typed IFU redirect proposal with PE, STID,
+transaction, fetch sequence, old epoch, checkpoint, original restart PC, and
+`KillTriggerAndYounger`. `IfuRedirectArbiter`, not I-F2, assigns the canonical
+new epoch. It does not emit backend recovery. Access faults and L1I misses
+remain distinct results.
 
 The miss table distinguishes speculative request lifetime from physical refill
 lifetime:
@@ -72,7 +76,8 @@ lifetime:
 - a live exact refill updates L1I and generates a retry;
 - an inner flush marks an outstanding miss orphaned;
 - an exact orphan refill still updates L1I but cannot retry stale work;
-- a mismatched transaction is rejected and reported.
+- a mismatched transaction, epoch, STID, or physical line is rejected and
+  reported.
 
 ## I-F3 Assembly
 

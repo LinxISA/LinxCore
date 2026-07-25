@@ -27,6 +27,15 @@ object IfuInnerFlushReason extends ChiselEnum {
   val ItlbMiss, PredictionCorrection, FetchReplay, StaleResponse = Value
 }
 
+object IfuPruneScope extends ChiselEnum {
+  val KillAllThreadState, KillTriggerAndYounger, PreserveTriggerKillYounger = Value
+}
+
+class IfuEpochSeed(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val threadId = UInt(p.threadIdWidth.W)
+  val epoch = UInt(p.blockEpochWidth.W)
+}
+
 class IfuFetchIdentity(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val peId = UInt(p.peIdWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
@@ -83,4 +92,45 @@ class IfuInnerFlush(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val checkpointId = UInt(p.checkpointWidth.W)
   val newEpoch = UInt(p.blockEpochWidth.W)
   val reason = IfuInnerFlushReason()
+  val scope = IfuPruneScope()
+}
+
+object IfuFlushContract {
+  def isYounger(candidateFetchSeq: UInt, triggerFetchSeq: UInt): Bool = {
+    require(candidateFetchSeq.getWidth == triggerFetchSeq.getWidth)
+    val delta = candidateFetchSeq - triggerFetchSeq
+    delta =/= 0.U && !delta(delta.getWidth - 1)
+  }
+
+  def kills(
+      threadId: UInt,
+      epoch: UInt,
+      fetchSeq: UInt,
+      transactionId: UInt,
+      flush: IfuInnerFlush): Bool = {
+    val sameThread = threadId === flush.threadId
+    val sameTrigger =
+      epoch === flush.oldEpoch &&
+      fetchSeq === flush.fetchSeq &&
+        transactionId === flush.transactionId
+    val younger = isYounger(fetchSeq, flush.fetchSeq)
+
+    flush.valid &&
+      sameThread &&
+      Mux(
+        flush.scope === IfuPruneScope.KillAllThreadState,
+        true.B,
+        Mux(
+          flush.scope === IfuPruneScope.KillTriggerAndYounger,
+          sameTrigger || younger,
+          younger))
+  }
+
+  def kills(identity: IfuFetchIdentity, transactionId: UInt, flush: IfuInnerFlush): Bool =
+    kills(
+      identity.threadId,
+      identity.epoch,
+      identity.fetchSeq,
+      transactionId,
+      flush)
 }

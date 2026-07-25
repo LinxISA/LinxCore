@@ -22,6 +22,8 @@ class InstructionBufferSpec extends AnyFunSuite with ChiselSim {
       threadId: Int,
       epoch: Int,
       pcs: Seq[BigInt],
+      fetchSeq: Int = 0x80,
+      transactionId: Int = 0x40,
       provider: PredictionProvider.Type = PredictionProvider.ShortTage): Unit = {
     dut.io.enq.bits.poke(0.U.asTypeOf(dut.io.enq.bits))
     dut.io.enq.valid.poke(true.B)
@@ -35,8 +37,8 @@ class InstructionBufferSpec extends AnyFunSuite with ChiselSim {
       entry.isBlockStop.poke((lane == pcs.size - 1).B)
       entry.identity.peId.poke(0.U)
       entry.identity.threadId.poke(threadId.U)
-      entry.identity.fetchPacketUid.poke(0x40.U)
-      entry.identity.fetchSeq.poke((0x80 + lane).U)
+      entry.identity.fetchPacketUid.poke(transactionId.U)
+      entry.identity.fetchSeq.poke(fetchSeq.U)
       entry.identity.fetchSlot.poke(lane.U)
       entry.identity.checkpointId.poke(3.U)
       entry.identity.epoch.poke(epoch.U)
@@ -130,6 +132,116 @@ class InstructionBufferSpec extends AnyFunSuite with ChiselSim {
       dut.io.deqThreadId.poke(1.U)
       dut.io.deq.valid.expect(true.B)
       dut.io.deq.bits.entries(0).pc.expect(0x8000.U)
+    }
+  }
+
+  test("prediction correction preserves its producer and older rows while pruning younger transactions") {
+    simulate(new InstructionBuffer(p, depthPerThread = 8, threadCount = 1)) { dut =>
+      clear(dut)
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 0,
+        pcs = Seq(0x1000, 0x1002),
+        fetchSeq = 10,
+        transactionId = 10)
+      dut.clock.step()
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 0,
+        pcs = Seq(0x2000, 0x2002),
+        fetchSeq = 11,
+        transactionId = 11)
+      dut.clock.step()
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 0,
+        pcs = Seq(0x3000, 0x3002),
+        fetchSeq = 12,
+        transactionId = 12)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.transactionId.poke(11.U)
+      dut.io.flush.fetchSeq.poke(11.U)
+      dut.io.flush.oldEpoch.poke(0.U)
+      dut.io.flush.newEpoch.poke(1.U)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.counts(0).expect(4.U)
+      dut.io.activeEpochs(0).expect(1.U)
+      dut.io.deq.valid.expect(true.B)
+      dut.io.deq.bits.validMask.expect("b1111".U)
+      dut.io.deq.bits.entries(0).pc.expect(0x1000.U)
+      dut.io.deq.bits.entries(2).pc.expect(0x2000.U)
+      dut.io.deq.bits.entries(3).identity.fetchSeq.expect(11.U)
+
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 1,
+        pcs = Seq(0x4000, 0x4002),
+        fetchSeq = 13,
+        transactionId = 13)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.transactionId.poke(11.U)
+      dut.io.flush.fetchSeq.poke(11.U)
+      dut.io.flush.oldEpoch.poke(0.U)
+      dut.io.flush.newEpoch.poke(2.U)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.counts(0).expect(4.U)
+      dut.io.activeEpochs(0).expect(2.U)
+      dut.io.deq.bits.entries(3).identity.fetchSeq.expect(11.U)
+    }
+  }
+
+  test("ITLB miss prunes its trigger as well as younger transactions") {
+    simulate(new InstructionBuffer(p, depthPerThread = 8, threadCount = 1)) { dut =>
+      clear(dut)
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 0,
+        pcs = Seq(0x1000, 0x1002),
+        fetchSeq = 20,
+        transactionId = 20)
+      dut.clock.step()
+      pokeGroup(
+        dut,
+        threadId = 0,
+        epoch = 0,
+        pcs = Seq(0x2000, 0x2002),
+        fetchSeq = 21,
+        transactionId = 21)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.transactionId.poke(20.U)
+      dut.io.flush.fetchSeq.poke(20.U)
+      dut.io.flush.oldEpoch.poke(0.U)
+      dut.io.flush.newEpoch.poke(1.U)
+      dut.io.flush.scope.poke(IfuPruneScope.KillTriggerAndYounger)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.counts(0).expect(0.U)
+      dut.io.activeEpochs(0).expect(1.U)
+      dut.io.deq.valid.expect(false.B)
     }
   }
 

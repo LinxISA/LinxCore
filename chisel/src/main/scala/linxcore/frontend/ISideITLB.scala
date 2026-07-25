@@ -40,9 +40,8 @@ class ISideITLB(
   val responseValid = RegInit(false.B)
   val response = RegInit(0.U.asTypeOf(new ISideTranslationResult(p, lineBytes, pageBytes)))
   val killResponse =
-    io.innerFlush.valid &&
-      responseValid &&
-      response.request.identity.threadId === io.innerFlush.threadId
+    responseValid &&
+      IfuFlushContract.kills(response.request.identity, response.request.transactionId, io.innerFlush)
 
   io.response.valid := responseValid && !killResponse
   io.response.bits := response

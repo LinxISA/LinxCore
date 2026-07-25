@@ -5,8 +5,10 @@ import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class BSideBoundaryMetadata(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
   val transactionId = UInt(p.uopUidWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
+  val fetchPacketUid = UInt(p.uopUidWidth.W)
   val fetchSeq = UInt(p.uopUidWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
   val checkpointId = UInt(p.checkpointWidth.W)

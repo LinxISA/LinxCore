@@ -133,12 +133,42 @@ class InstructionBuffer(
   io.enqRejectedMalformed := io.enq.valid && (enqMalformed || (enqHasRows && !enqThreadSupported))
 
   when(io.flush.valid) {
-    when(io.flush.threadId < threadCount.U) {
-      val flushThread = threadIndex(io.flush.threadId)
-      heads(flushThread) := 0.U
-      tails(flushThread) := 0.U
-      counts(flushThread) := 0.U
-      activeEpochs(flushThread) := io.flush.newEpoch
+    for (thread <- 0 until threadCount) {
+      when(io.flush.threadId === thread.U) {
+        when(io.flush.scope === IfuPruneScope.KillAllThreadState) {
+          heads(thread) := 0.U
+          tails(thread) := 0.U
+          counts(thread) := 0.U
+        }.otherwise {
+          val keep = Wire(Vec(depthPerThread, Bool()))
+          for (offset <- 0 until depthPerThread) {
+            val readPtr = advancePtr(heads(thread), offset.U)
+            val candidate = entries(thread)(readPtr)
+            keep(offset) :=
+              offset.U < counts(thread) &&
+                !IfuFlushContract.kills(
+                  candidate.identity,
+                  candidate.identity.fetchPacketUid,
+                  io.flush)
+          }
+          val keepPrefix = Wire(Vec(depthPerThread + 1, UInt(countWidth.W)))
+          keepPrefix(0) := 0.U
+          for (offset <- 0 until depthPerThread) {
+            keepPrefix(offset + 1) := keepPrefix(offset) + keep(offset).asUInt
+            val readPtr = advancePtr(heads(thread), offset.U)
+            val candidate = entries(thread)(readPtr)
+            val writePtr = keepPrefix(offset)(ptrWidth - 1, 0)
+            when(keep(offset)) {
+              entries(thread)(writePtr) := candidate
+            }
+          }
+          val keptCount = keepPrefix(depthPerThread)
+          heads(thread) := 0.U
+          tails(thread) := keptCount(ptrWidth - 1, 0)
+          counts(thread) := keptCount
+        }
+        activeEpochs(thread) := io.flush.newEpoch
+      }
     }
   }.otherwise {
     when(deqFire) {

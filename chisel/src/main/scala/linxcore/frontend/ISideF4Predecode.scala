@@ -20,8 +20,9 @@ class ISideF4Predecode(val p: InterfaceParams = InterfaceParams()) extends Modul
 
   val io = IO(new ISideF4PredecodeIO(p))
 
-  val inputThreadId = io.in.bits.entries(0).identity.threadId
-  val killed = io.flush.valid && inputThreadId === io.flush.threadId
+  val inputIdentity = io.in.bits.entries(0).identity
+  val killed =
+    IfuFlushContract.kills(inputIdentity, inputIdentity.fetchPacketUid, io.flush)
 
   io.in.ready := io.out.ready && !killed
   io.out.valid := io.in.valid && !killed

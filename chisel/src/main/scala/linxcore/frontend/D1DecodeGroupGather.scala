@@ -19,14 +19,17 @@ class D1DecodeGroupGather(val p: InterfaceParams = InterfaceParams()) extends Mo
   val occupied = RegInit(false.B)
   val group = RegInit(0.U.asTypeOf(new D1InstructionGroup(p)))
 
-  val storedThreadId = group.entries(0).identity.threadId
-  val killStored = io.flush.valid && occupied && storedThreadId === io.flush.threadId
+  val storedIdentity = group.entries(0).identity
+  val killStored =
+    occupied &&
+      IfuFlushContract.kills(storedIdentity, storedIdentity.fetchPacketUid, io.flush)
 
   io.out.valid := occupied && !killStored
   io.out.bits := group
 
-  val incomingThreadId = io.in.bits.entries(0).identity.threadId
-  val killIncoming = io.flush.valid && incomingThreadId === io.flush.threadId
+  val incomingIdentity = io.in.bits.entries(0).identity
+  val killIncoming =
+    IfuFlushContract.kills(incomingIdentity, incomingIdentity.fetchPacketUid, io.flush)
   io.in.ready := !killIncoming && (!occupied || io.out.ready || killStored)
 
   val outFire = io.out.valid && io.out.ready

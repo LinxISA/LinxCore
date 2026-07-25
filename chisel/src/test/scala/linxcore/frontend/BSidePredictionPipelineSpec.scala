@@ -36,6 +36,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.resolve.bits.poke(0.U.asTypeOf(dut.io.resolve.bits))
     dut.io.response.ready.poke(false.B)
     dut.io.innerFlush.ready.poke(true.B)
+    dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
   }
 
   private def sendBoundary(
@@ -51,8 +52,10 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.boundary.bits.poke(0.U.asTypeOf(dut.io.boundary.bits))
     dut.io.boundary.valid.poke(true.B)
     dut.io.boundary.bits.valid.poke(hasBoundary.B)
+    dut.io.boundary.bits.peId.poke(1.U)
     dut.io.boundary.bits.transactionId.poke(transactionId.U)
     dut.io.boundary.bits.threadId.poke(0.U)
+    dut.io.boundary.bits.fetchPacketUid.poke(transactionId.U)
     dut.io.boundary.bits.fetchSeq.poke(transactionId.U)
     dut.io.boundary.bits.epoch.poke(0.U)
     dut.io.boundary.bits.checkpointId.poke((transactionId & 0x3f).U)
@@ -61,6 +64,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.boundary.bits.fallthroughPc.poke(fallthroughPc.U)
     dut.io.boundary.bits.kind.poke(kind)
     dut.io.boundary.bits.staticTaken.poke(staticTaken.B)
+    dut.io.boundary.ready.expect(true.B)
     dut.clock.step()
     dut.io.boundary.valid.poke(false.B)
   }
@@ -76,6 +80,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.request.bits.transactionId.poke(transactionId.U)
     dut.io.request.bits.identity.peId.poke(1.U)
     dut.io.request.bits.identity.threadId.poke(0.U)
+    dut.io.request.bits.identity.fetchPacketUid.poke(transactionId.U)
     dut.io.request.bits.identity.fetchSeq.poke(transactionId.U)
     dut.io.request.bits.identity.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.request.bits.identity.epoch.poke(0.U)
@@ -156,6 +161,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.innerFlush.bits.fetchSeq.expect(1.U)
       dut.io.innerFlush.bits.oldEpoch.expect(0.U)
       dut.io.innerFlush.bits.newEpoch.expect(1.U)
+      dut.io.innerFlush.bits.scope.expect(IfuPruneScope.PreserveTriggerKillYounger)
       dut.io.innerFlush.bits.restartPc.expect(0x800.U)
       dut.clock.step()
     }
@@ -379,7 +385,9 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
         dut.io.request.bits.pc.poke((0x5000 + tx * lineBytes).U)
         dut.io.request.bits.lineVa.poke((0x5000 + tx * lineBytes).U)
         dut.io.request.bits.transactionId.poke(tx.U)
+        dut.io.request.bits.identity.peId.poke(1.U)
         dut.io.request.bits.identity.threadId.poke(0.U)
+        dut.io.request.bits.identity.fetchPacketUid.poke(tx.U)
         dut.io.request.bits.identity.fetchSeq.poke(tx.U)
         dut.io.request.bits.identity.checkpointId.poke(tx.U)
         dut.io.request.ready.expect(true.B)
@@ -400,6 +408,38 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       }
       assert(finalCycles.size == 4, s"expected four final responses, got $finalCycles")
       assert(finalCycles.sliding(2).forall(pair => pair(1) - pair(0) == 1), finalCycles.toString)
+    }
+  }
+
+  test("prediction correction prune preserves its producer and cancels younger B-SIDE work") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(dut, transactionId = 30, requestPc = 0x9000, hasBoundary = false)
+      sendBoundary(dut, transactionId = 31, requestPc = 0x9010, hasBoundary = false)
+      sendRequest(dut, transactionId = 30, pc = 0x9000)
+      sendRequest(dut, transactionId = 31, pc = 0x9010)
+
+      dut.io.prune.valid.poke(true.B)
+      dut.io.prune.threadId.poke(0.U)
+      dut.io.prune.transactionId.poke(30.U)
+      dut.io.prune.fetchSeq.poke(30.U)
+      dut.io.prune.oldEpoch.poke(0.U)
+      dut.io.prune.newEpoch.poke(1.U)
+      dut.io.prune.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.clock.step()
+      dut.io.prune.valid.poke(false.B)
+
+      waitForResponse(dut)
+      dut.io.response.bits.request.transactionId.expect(30.U)
+      dut.io.response.bits.finalResponse.expect(true.B)
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+
+      for (_ <- 0 until 12) {
+        dut.io.response.valid.expect(false.B)
+        dut.clock.step()
+      }
+      dut.io.stageValid.expect(0.U)
     }
   }
 

@@ -38,16 +38,17 @@ class ISideF2Resolve(
   val cache = RegInit(0.U.asTypeOf(new ISideCacheCandidate(p, lineBytes)))
 
   val killTranslation =
-    io.externalFlush.valid &&
-      translationValid &&
-      translation.request.identity.threadId === io.externalFlush.threadId
+    translationValid &&
+      IfuFlushContract.kills(
+        translation.request.identity,
+        translation.request.transactionId,
+        io.externalFlush)
   val killCache =
-    io.externalFlush.valid &&
-      cacheValid &&
-      cache.request.identity.threadId === io.externalFlush.threadId
-
-  io.translation.ready := !translationValid || killTranslation
-  io.cacheCandidate.ready := !cacheValid || killCache
+    cacheValid &&
+      IfuFlushContract.kills(
+        cache.request.identity,
+        cache.request.transactionId,
+        io.externalFlush)
 
   val joined = translationValid && cacheValid
   val identityMatch =
@@ -101,11 +102,14 @@ class ISideF2Resolve(
   io.innerFlush.bits.checkpointId := translation.request.identity.checkpointId
   io.innerFlush.bits.newEpoch := translation.request.identity.epoch + 1.U
   io.innerFlush.bits.reason := IfuInnerFlushReason.ItlbMiss
+  io.innerFlush.bits.scope := IfuPruneScope.KillTriggerAndYounger
 
   io.joined := joined
   io.identityMatch := identityMatch
 
-  val resultFire = io.result.valid && publishReady
+  val resultFire = io.result.valid && io.result.ready
+  io.translation.ready := !translationValid || killTranslation || resultFire
+  io.cacheCandidate.ready := !cacheValid || killCache || resultFire
 
   when(killTranslation || resultFire) {
     translationValid := false.B

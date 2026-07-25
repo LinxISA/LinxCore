@@ -761,6 +761,26 @@ prediction-driven inner flush；其 final response 被接受并封存
 `predictionRecord` 后，任何 mismatch 都进入 OOO 可见的
 `BRU flush + recover`。
 
+所有 inner-flush proposal 进入唯一的 `IfuRedirectArbiter`，由它按
+`backend > ITLB > prediction` 的优先级为每个 STID 分配 canonical
+`newEpoch`。predictor 或 I-SIDE leaf 提供的局部 `epoch + 1` 不是最终 epoch
+authority。即使较老但仍 live 的 transaction 较晚产生 correction，arbiter
+也基于当前 canonical epoch 继续单调分配。
+
+`IfuInnerFlush.scope` 明确定义裁剪范围：
+
+| Scope | 语义 |
+| --- | --- |
+| `KillAllThreadState` | architectural restart，删除目标 STID 的全部 transient state |
+| `KillTriggerAndYounger` | ITLB miss/replay，删除 trigger 及所有 younger transaction |
+| `PreserveTriggerKillYounger` | prediction correction，保留 producer、删除所有 younger transaction |
+
+younger 判定使用完整 fetch sequence 的有界模序关系，而不是仅比较低位 epoch。
+因此一次 older live correction 能裁剪已处于更新 epoch 的 younger target-path
+transaction。Instruction Buffer 必须压紧 surviving rows，并把 active epoch
+切换到 canonical `newEpoch`；B-SIDE 只裁剪 pipeline、response 和 boundary
+transient row，BTB/TAGE/GHR training table 等 learned state 不清零。
+
 ### 9.2 Post-B-F4 按类型校验
 
 `predictionRecord` 随每条 instruction 从 Instruction Buffer 进入 D1，并继续
