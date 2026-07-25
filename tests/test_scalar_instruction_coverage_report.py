@@ -55,11 +55,11 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
 
         contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
         _assert_report_matches_detected_contract(self, report)
-        self.assertEqual(report["frontend_strict_decode"]["covered"], 546)
+        self.assertEqual(report["frontend_strict_decode"]["covered"], 547)
         self.assertEqual(report["frontend_strict_decode"]["denominator"], 547)
         self.assertEqual(
             [item["mnemonic"] for item in report["frontend_strict_decode"]["missing"]],
-            ["XB"],
+            [],
         )
         self.assertEqual(
             report["reduced_scalar_alu_support"]["covered"],
@@ -70,6 +70,33 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
             190,
         )
         self.assertEqual(report["cross_stack_aligned_support"]["known_divergences"], {})
+        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 218)
+        parser_symbols = {
+            symbol
+            for item in report["reduced_scalar_alu_support"]["supported_by_parser"]
+            for symbol in item["symbols"]
+        }
+        self.assertEqual(
+            sorted(
+                symbol
+                for item in report["reduced_scalar_alu_support"]["semantic_pending"]
+                for symbol in item["symbols"]
+            ),
+            sorted(report_cov.RTL_SEMANTIC_PENDING_SYMBOLS & parser_symbols),
+        )
+        self.assertEqual(
+            sorted(
+                symbol
+                for item in report["cross_stack_aligned_support"]["qemu_executable_observation_pending"]
+                for symbol in item["symbols"]
+            ),
+            sorted(report_cov.QEMU_EXECUTABLE_OBSERVATION_PENDING_SYMBOLS),
+        )
+        decode_only = report["reduced_scalar_decode_only"]
+        self.assertEqual(decode_only["count"], 1)
+        self.assertEqual(decode_only["symbols"], ["OP_XB"])
+        self.assertEqual([item["mnemonic"] for item in decode_only["forms"]], ["XB"])
+        self.assertIn("explicit allowlist", decode_only["source"])
 
     def test_expanded_contract_fixture_uses_expanded_expected_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -148,6 +175,51 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_HL_ANDI",
                         "OP_HL_ANDIW",
                         "OP_HL_CMP_ANDI",
+                        "OP_HL_ADDTPC",
+                        "OP_HL_CMP_EQI",
+                        "OP_HL_CMP_GEI",
+                        "OP_HL_CMP_GEUI",
+                        "OP_HL_CMP_LTI",
+                        "OP_HL_CMP_LTUI",
+                        "OP_HL_CMP_NEI",
+                        "OP_HL_CMP_ORI",
+                        "OP_HL_DIV",
+                        "OP_HL_DIVU",
+                        "OP_HL_DIVUW",
+                        "OP_HL_DIVW",
+                        "OP_HL_LBI",
+                        "OP_HL_LBUI",
+                        "OP_HL_LDI",
+                        "OP_HL_LDI_U",
+                        "OP_HL_LHI",
+                        "OP_HL_LHI_U",
+                        "OP_HL_LHUI",
+                        "OP_HL_LHUI_U",
+                        "OP_HL_LWI",
+                        "OP_HL_LWI_U",
+                        "OP_HL_LWUI",
+                        "OP_HL_LWUI_U",
+                        "OP_HL_MUL",
+                        "OP_HL_MULU",
+                        "OP_HL_REM",
+                        "OP_HL_REMU",
+                        "OP_HL_REMUW",
+                        "OP_HL_REMW",
+                        "OP_HL_SBI",
+                        "OP_HL_SDI",
+                        "OP_HL_SDI_U",
+                        "OP_HL_SETC_ANDI",
+                        "OP_HL_SETC_EQI",
+                        "OP_HL_SETC_GEI",
+                        "OP_HL_SETC_GEUI",
+                        "OP_HL_SETC_LTI",
+                        "OP_HL_SETC_LTUI",
+                        "OP_HL_SETC_NEI",
+                        "OP_HL_SETC_ORI",
+                        "OP_HL_SHI",
+                        "OP_HL_SHI_U",
+                        "OP_HL_SWI",
+                        "OP_HL_SWI_U",
                         "OP_HL_LBIP",
                         "OP_HL_LBUIP",
                         "OP_HL_LBU_PCR",
@@ -225,6 +297,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_SD",
                         "OP_SDI",
                         "OP_SETC_ANDI",
+                        "OP_SETC_AND",
                         "OP_SETC_EQ",
                         "OP_SETC_EQI",
                         "OP_SETC_GE",
@@ -238,6 +311,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_SETC_NE",
                         "OP_SETC_NEI",
                         "OP_SETC_ORI",
+                        "OP_SETC_OR",
                         "OP_SETC_TGT",
                         "OP_SETRET",
                         "OP_SH",
@@ -278,7 +352,8 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
         self.assertEqual(contract["contract_id"], "expanded_current")
         _assert_report_matches_detected_contract(self, report)
-        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 190)
+        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 237)
+        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 197)
         self.assertEqual(report["cross_stack_aligned_support"]["covered"], 190)
 
     def test_legacy_contract_fixture_uses_legacy_expected_values(self) -> None:

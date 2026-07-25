@@ -123,6 +123,13 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDIW) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_EQI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_GEI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_GEUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_LTI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_LTUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_NEI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_ORI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_SB_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_SD_PCR) ||
@@ -357,6 +364,20 @@ class ReducedScalarAluExecute(
       out := stackPointerData - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
       out := imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_EQI)) {
+      out := Mux(srcData(0) === imm, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_GEI)) {
+      out := Mux(srcData(0).asSInt >= imm.asSInt, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_GEUI)) {
+      out := Mux(srcData(0) >= imm, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_LTI)) {
+      out := Mux(srcData(0).asSInt < imm.asSInt, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_LTUI)) {
+      out := Mux(srcData(0) < imm, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_NEI)) {
+      out := Mux(srcData(0) =/= imm, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_CMP_ORI)) {
+      out := Mux((srcData(0) | imm) =/= 0.U, 1.U, 0.U)
     }.elsewhen(
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
         op === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR)) {
@@ -890,6 +911,13 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LD_PCR => Some(loadData & Mask64)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_EQI => Some(if ((src0 & Mask64) == (imm & Mask64)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_GEI => Some(if (signed64(src0) >= signed64(imm)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_GEUI => Some(if ((src0 & Mask64) >= (imm & Mask64)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_LTI => Some(if (signed64(src0) < signed64(imm)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_LTUI => Some(if ((src0 & Mask64) < (imm & Mask64)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_NEI => Some(if ((src0 & Mask64) != (imm & Mask64)) 1 else 0)
+      case FrontendOpcodeDecodeTable.OP_HL_CMP_ORI => Some(if (((src0 | imm) & Mask64) != 0) 1 else 0)
       case FrontendOpcodeDecodeTable.OP_HL_SB_PCR => Some(0)
       case FrontendOpcodeDecodeTable.OP_HL_SD_PCR => Some(0)
       case FrontendOpcodeDecodeTable.OP_HL_SH_PCR => Some(0)

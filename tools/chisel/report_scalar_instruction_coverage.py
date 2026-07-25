@@ -82,6 +82,75 @@ VECTOR_MODE_BLOCK_MNEMONICS = {
 }
 KNOWN_ALIGNMENT_DIVERGENCES: dict[str, str] = {}
 
+REDUCED_SCALAR_DECODE_ONLY_SYMBOLS = {
+    # Explicit reduced-backend decode-only inventory. This is not inferred from
+    # frontend/parser coverage deltas, so newly decoded forms are visible even
+    # when coverage counts are intentionally unchanged.
+    "OP_XB",
+}
+
+RTL_SEMANTIC_PENDING_SYMBOLS = {
+    # Concurrent HL long-offset memory support was injected into the reduced
+    # ALU owner without direct owner/semantic closure. Keep it out of the
+    # semantic numerator until the LSU/ALU ownership boundary is re-audited.
+    "OP_HL_LBI",
+    "OP_HL_LBUI",
+    "OP_HL_LDI",
+    "OP_HL_LDI_U",
+    "OP_HL_LHI",
+    "OP_HL_LHI_U",
+    "OP_HL_LHUI",
+    "OP_HL_LHUI_U",
+    "OP_HL_LWI",
+    "OP_HL_LWI_U",
+    "OP_HL_LWUI",
+    "OP_HL_LWUI_U",
+    "OP_HL_SBI",
+    "OP_HL_SDI",
+    "OP_HL_SDI_U",
+    "OP_HL_SHI",
+    "OP_HL_SHI_U",
+    "OP_HL_SWI",
+    "OP_HL_SWI_U",
+    # SETC immediate forms need branch-condition oracle coverage before they
+    # can count as reduced backend semantic support.
+    "OP_SETC_ANDI",
+    "OP_SETC_ORI",
+    "OP_HL_SETC_ANDI",
+    "OP_HL_SETC_EQI",
+    "OP_HL_SETC_GEI",
+    "OP_HL_SETC_GEUI",
+    "OP_HL_SETC_LTI",
+    "OP_HL_SETC_LTUI",
+    "OP_HL_SETC_NEI",
+    "OP_HL_SETC_ORI",
+    # HL multiply/divide/remainder forms have two architectural destinations;
+    # the reduced ALU path has not closed that pair writeback oracle.
+    "OP_HL_DIV",
+    "OP_HL_DIVU",
+    "OP_HL_DIVW",
+    "OP_HL_DIVUW",
+    "OP_HL_MUL",
+    "OP_HL_MULU",
+    "OP_HL_REM",
+    "OP_HL_REMU",
+    "OP_HL_REMW",
+    "OP_HL_REMUW",
+    # Scalar FP conversion is implemented by a helper but lacks this report's
+    # focused integer-ALU semantic evidence.
+    "OP_UCVTF",
+}
+
+QEMU_EXECUTABLE_OBSERVATION_PENDING_SYMBOLS = {
+    "OP_HL_CMP_EQI",
+    "OP_HL_CMP_GEI",
+    "OP_HL_CMP_GEUI",
+    "OP_HL_CMP_LTI",
+    "OP_HL_CMP_LTUI",
+    "OP_HL_CMP_NEI",
+    "OP_HL_CMP_ORI",
+}
+
 
 @dataclass(frozen=True)
 class CoverageReport:
@@ -272,8 +341,8 @@ SOURCE_SHAPE_CONTRACTS = {
             "end_signature": EXPANDED_END_SIGNATURE,
             "forbidden_private_def_between_markers": True,
             "expected": {
-                "frontend_strict_decode": {"covered": 546, "denominator": 547},
-                "reduced_scalar_alu_support": {"covered": 190, "denominator": 547},
+                "frontend_strict_decode": {"covered": 547, "denominator": 547},
+                "reduced_scalar_alu_support": {"covered": 197, "denominator": 547},
                 "cross_stack_aligned_support": {"covered": 190, "denominator": 547},
             },
         },
@@ -283,7 +352,7 @@ SOURCE_SHAPE_CONTRACTS = {
             "forbidden_private_def_between_markers": True,
             "forbidden_signature_after_start": EXPANDED_END_SIGNATURE,
             "expected": {
-                "frontend_strict_decode": {"covered": 546, "denominator": 547},
+                "frontend_strict_decode": {"covered": 547, "denominator": 547},
                 "reduced_scalar_alu_support": {"covered": 58, "denominator": 547},
                 "cross_stack_aligned_support": {"covered": 58, "denominator": 547},
             },
@@ -399,14 +468,25 @@ def build_report(
 
     frontend_missing = []
     frontend_covered = []
+    parser_supported = []
     alu_supported = []
     aligned_supported = []
     unsupported = []
+    decode_only = []
+    semantic_pending = []
+    observation_pending = []
     for insn in scalar_forms:
         symbols = _symbols_for_form(insn, meta_symbols_by_name)
         frontend_hit = bool(symbols & frontend_symbols)
-        alu_hit = bool(symbols & alu_supported_symbols)
-        aligned_hit = alu_hit and str(insn["mnemonic"]) not in KNOWN_ALIGNMENT_DIVERGENCES
+        parser_hit = bool(symbols & alu_supported_symbols)
+        semantic_pending_hit = bool(symbols & RTL_SEMANTIC_PENDING_SYMBOLS)
+        observation_pending_hit = bool(symbols & QEMU_EXECUTABLE_OBSERVATION_PENDING_SYMBOLS)
+        alu_hit = parser_hit and not semantic_pending_hit
+        aligned_hit = (
+            alu_hit
+            and not observation_pending_hit
+            and str(insn["mnemonic"]) not in KNOWN_ALIGNMENT_DIVERGENCES
+        )
         row = {
             "id": insn["id"],
             "mnemonic": insn["mnemonic"],
@@ -417,10 +497,18 @@ def build_report(
             frontend_covered.append(row)
         else:
             frontend_missing.append(row)
+        if parser_hit:
+            parser_supported.append(row)
         if alu_hit:
             alu_supported.append(row)
         else:
             unsupported.append(row)
+        if parser_hit and semantic_pending_hit:
+            semantic_pending.append(row)
+        if alu_hit and observation_pending_hit:
+            observation_pending.append(row)
+        if symbols & REDUCED_SCALAR_DECODE_ONLY_SYMBOLS:
+            decode_only.append(row)
         if aligned_hit:
             aligned_supported.append(row)
 
@@ -458,7 +546,10 @@ def build_report(
             "covered": len(alu_supported),
             "denominator": len(scalar_forms),
             "ratio_percent": round(100.0 * len(alu_supported) / len(scalar_forms), 4),
+            "parser_supported": len(parser_supported),
             "supported_symbol_count": len(alu_supported_symbols),
+            "supported_by_parser": parser_supported,
+            "semantic_pending": semantic_pending,
             "unsupported_first_50": unsupported[:50],
         },
         "cross_stack_aligned_support": {
@@ -466,6 +557,18 @@ def build_report(
             "denominator": len(scalar_forms),
             "ratio_percent": round(100.0 * len(aligned_supported) / len(scalar_forms), 4),
             "known_divergences": KNOWN_ALIGNMENT_DIVERGENCES,
+            "qemu_executable_observation_pending": observation_pending,
+        },
+        "reduced_scalar_decode_only": {
+            "count": len(decode_only),
+            "source": "explicit allowlist; not inferred from frontend/parser hit or miss",
+            "symbols": sorted(
+                symbol
+                for item in decode_only
+                for symbol in item["symbols"]
+                if symbol in REDUCED_SCALAR_DECODE_ONLY_SYMBOLS
+            ),
+            "forms": decode_only,
         },
     }
     return CoverageReport(report)

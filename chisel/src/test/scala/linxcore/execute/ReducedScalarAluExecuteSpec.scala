@@ -1,12 +1,14 @@
 package linxcore.execute
 
+import chisel3._
 import circt.stage.ChiselStage
+import chisel3.simulator.scalatest.ChiselSim
 import linxcore.commit.CommitTraceParams
-import linxcore.common.InterfaceParams
+import linxcore.common.{DestinationKind, DispatchTarget, InterfaceParams, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import org.scalatest.funsuite.AnyFunSuite
 
-class ReducedScalarAluExecuteSpec extends AnyFunSuite {
+class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
   test("reference results match the model-derived reduced scalar ALU subset") {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResultWithInsn(
@@ -294,6 +296,81 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SWI, 0, 0x4ffefbf8L, 0)
       .contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LD, 1, 2, 3).isEmpty)
+  }
+
+
+  test("HL CMP immediate forms produce ISA boolean results in the ALU pipeline") {
+    val cases = Seq(
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_EQI, BigInt("ffffffffffffffff", 16), BigInt("ffffffffffffffff", 16), BigInt(1)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_GEI, BigInt("ffffffffffffffff", 16), BigInt(0), BigInt(0)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_GEUI, BigInt("ffffffffffffffff", 16), BigInt(0), BigInt(1)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_LTI, BigInt("ffffffffffffffff", 16), BigInt(0), BigInt(1)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_LTUI, BigInt("ffffffffffffffff", 16), BigInt(1), BigInt(0)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_NEI, BigInt("100", 16), BigInt("101", 16), BigInt(1)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_ORI, BigInt(0), BigInt(0), BigInt(0)),
+      (FrontendOpcodeDecodeTable.OP_HL_CMP_ORI, BigInt(0), BigInt("ffffffffffffffff", 16), BigInt(1)))
+    val p = InterfaceParams(robEntries = 16, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    simulate(new ReducedScalarAluExecute(p, trace)) { dut =>
+      dut.io.inValid.poke(false.B)
+      dut.io.in.poke(0.U.asTypeOf(dut.io.in))
+      dut.io.srcData.foreach(_.poke(0.U))
+      dut.io.loadLookupData.poke(0.U)
+      dut.io.loadLookupWaitBlocked.poke(false.B)
+      dut.io.loadLiqEnable.poke(false.B)
+      dut.io.loadLiqAccepted.poke(false.B)
+      dut.io.stackPointerData.poke(0.U)
+      dut.io.flushValid.poke(false.B)
+      dut.io.fretStkFallbackTargetValid.poke(false.B)
+      dut.io.fretStkFallbackTarget.poke(0.U)
+      dut.io.fretStkConditionValid.poke(false.B)
+      dut.io.fretStkConditionTaken.poke(false.B)
+
+      for (((opcode, src0, imm, expected), index) <- cases.zipWithIndex) {
+        val rid = index + 1
+        dut.io.in.poke(0.U.asTypeOf(dut.io.in))
+        dut.io.in.valid.poke(true.B)
+        dut.io.in.peId.poke((rid + 1).U)
+        dut.io.in.threadId.poke((rid + 2).U)
+        dut.io.in.pc.poke((BigInt("40008000", 16) + (index * 4)).U)
+        dut.io.in.opcode.poke(opcode.U)
+        dut.io.in.dispatchTarget.poke(DispatchTarget.Alu)
+        dut.io.in.insnLen.poke(4.U)
+        dut.io.in.insnRaw.poke(0.U)
+        dut.io.in.imm.poke(imm.U)
+        dut.io.in.bid.valid.poke(true.B)
+        dut.io.in.bid.value.poke(0.U)
+        dut.io.in.gid.valid.poke(true.B)
+        dut.io.in.gid.value.poke(0.U)
+        dut.io.in.rid.valid.poke(true.B)
+        dut.io.in.rid.value.poke(rid.U)
+        dut.io.in.dst(0).valid.poke(true.B)
+        dut.io.in.dst(0).kind.poke(DestinationKind.Gpr)
+        dut.io.in.dst(0).archTag.poke((rid + 10).U)
+        dut.io.in.dst(0).physTag.poke((rid + 20).U)
+        dut.io.in.src(0).valid.poke(true.B)
+        dut.io.in.src(0).operandClass.poke(OperandClass.P)
+        dut.io.in.src(0).archTag.poke(2.U)
+        dut.io.in.src(1).valid.poke(true.B)
+        dut.io.in.src(1).operandClass.poke(OperandClass.P)
+        dut.io.in.src(1).archTag.poke(3.U)
+        dut.io.srcData(0).poke(src0.U)
+        dut.io.srcData(1).poke(0.U)
+        dut.io.inValid.poke(true.B)
+        dut.io.inReady.expect(true.B)
+        dut.io.accepted.expect(true.B)
+        dut.clock.step()
+        dut.io.inValid.poke(false.B)
+        dut.clock.step(2)
+        dut.io.completeValid.expect(true.B)
+        dut.io.unsupported.expect(false.B)
+        dut.io.completeRobValue.expect(rid.U)
+        dut.io.completeDstData.expect(expected.U)
+        dut.io.completeRow.wb.valid.expect(true.B)
+        dut.io.completeRow.wb.data.expect(expected.U)
+        dut.clock.step()
+      }
+    }
   }
 
   test("ReducedScalarAluExecute elaborates completion-row writeback payloads") {
