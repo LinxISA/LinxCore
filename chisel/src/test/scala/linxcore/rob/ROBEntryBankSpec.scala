@@ -1,5 +1,7 @@
 package linxcore.rob
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import linxcore.common.{BoundaryKind, DestinationKind}
 import linxcore.commit.CommitTraceParams
@@ -15,6 +17,7 @@ object ROBEntryBankReference {
   case object Retired extends Status
   case object Fault extends Status
   case object NeedFlush extends Status
+  case object ReservedUnfilled extends Status
   sealed trait TUDst
   case object NoTUDst extends TUDst
   case object TDst extends TUDst
@@ -127,7 +130,8 @@ object ROBEntryBankReference {
       less(srcBid, dstBid) || (equal(srcBid, dstBid) && lessEqual(srcRid, dstRid))
 
     private def osdActive(status: Status): Boolean =
-      status == Allocated || status == Renamed || status == Issued || status == Completed || status == NeedFlush
+      status == Allocated || status == Renamed || status == Issued || status == Completed ||
+        status == NeedFlush || status == ReservedUnfilled
 
     private def markerWindowStop(tu: TUSidecar): Boolean =
       tu.marker.isBoundary || tu.marker.isStop
@@ -160,6 +164,31 @@ object ROBEntryBankReference {
       count += 1
       outstanding += 1
       Some(rob)
+    }
+
+    def reserveUnfilled(countValue: Int, bid: Id = Id(), peId: Int = 0, stid: Int = 0): Option[Seq[Int]] = {
+      require(countValue > 0 && countValue <= entries)
+      if (count + countValue > entries) {
+        return None
+      }
+      val allocated = (0 until countValue).map { offset =>
+        val idx = (allocPtr + offset) & (entries - 1)
+        val rid = Id(wrap = allocWrap ^ (allocPtr + offset >= entries), value = idx)
+        table(idx) = Some(
+          Entry(Row(0x2000 + idx * 4, 0, 4, bid.value, 0, idx, 0, robValue = idx), ReservedUnfilled, bid, Id(), rid, TUSidecar(peId = peId, stid = stid))
+        )
+        idx
+      }
+      var advanced = 0
+      while (advanced < countValue) {
+        val (nextAllocPtr, nextAllocWrap) = advance(allocPtr, allocWrap)
+        allocPtr = nextAllocPtr
+        allocWrap = nextAllocWrap
+        advanced += 1
+      }
+      count += countValue
+      outstanding += countValue
+      Some(allocated)
     }
 
     def renameUpdate(rid: Id, row: Row, tu: TUSidecar = TUSidecar()): Boolean = {
@@ -368,7 +397,7 @@ object ROBEntryBankReference {
   }
 }
 
-class ROBEntryBankSpec extends AnyFunSuite {
+class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
   import ROBEntryBankReference._
 
   private def id(value: Int, wrap: Boolean = false): Id =
@@ -384,6 +413,118 @@ class ROBEntryBankSpec extends AnyFunSuite {
       rid = n,
       blockBid = 0x100 + n
     )
+
+  private def clearInputs(dut: ROBEntryBank): Unit = {
+    dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+    dut.io.allocValid.poke(false.B)
+    dut.io.allocRow.poke(0.U.asTypeOf(dut.io.allocRow))
+    dut.io.allocBid.poke(0.U.asTypeOf(dut.io.allocBid))
+    dut.io.allocGid.poke(0.U.asTypeOf(dut.io.allocGid))
+    dut.io.allocPeId.poke(0.U)
+    dut.io.allocStid.poke(0.U)
+    dut.io.allocTid.poke(0.U)
+    dut.io.allocLsId.poke(0.U)
+    dut.io.allocIsLoad.poke(false.B)
+    dut.io.allocIsStore.poke(false.B)
+    dut.io.allocTSeq.poke(0.U.asTypeOf(dut.io.allocTSeq))
+    dut.io.allocUSeq.poke(0.U.asTypeOf(dut.io.allocUSeq))
+    dut.io.allocTUDstValid.poke(false.B)
+    dut.io.allocTUDstKind.poke(DestinationKind.None)
+    dut.io.allocIsLast.poke(false.B)
+    dut.io.allocMarkerBoundary.poke(false.B)
+    dut.io.allocMarkerStop.poke(false.B)
+    dut.io.allocMarkerBoundaryKind.poke(BoundaryKind.Fall)
+    dut.io.allocMarkerBoundaryTarget.poke(0.U)
+    dut.io.renameUpdateValid.poke(false.B)
+    dut.io.renameUpdateRid.poke(0.U.asTypeOf(dut.io.renameUpdateRid))
+    dut.io.renameUpdateRow.poke(0.U.asTypeOf(dut.io.renameUpdateRow))
+    dut.io.renameUpdateTSeq.poke(0.U.asTypeOf(dut.io.renameUpdateTSeq))
+    dut.io.renameUpdateUSeq.poke(0.U.asTypeOf(dut.io.renameUpdateUSeq))
+    dut.io.renameUpdateTUDstValid.poke(false.B)
+    dut.io.renameUpdateTUDstKind.poke(DestinationKind.None)
+    dut.io.completeValid.poke(false.B)
+    dut.io.completeRobValue.poke(0.U)
+    dut.io.completeRowValid.poke(false.B)
+    dut.io.completeRow.poke(0.U.asTypeOf(dut.io.completeRow))
+    dut.io.deallocReady.poke(false.B)
+    dut.io.deallocHoldMask.poke(0.U)
+    dut.io.statusLookupValid.poke(false.B)
+    dut.io.statusLookupRid.poke(0.U.asTypeOf(dut.io.statusLookupRid))
+    dut.io.commitTraceLookupValid.poke(false.B)
+    dut.io.commitTraceLookupRid.poke(0.U.asTypeOf(dut.io.commitTraceLookupRid))
+    dut.io.commitTraceLookupSourceTraceEnable.poke(false.B)
+    dut.io.fullBidLookupRequest.poke(0.U.asTypeOf(dut.io.fullBidLookupRequest))
+  }
+
+  private def pokeId(id: ROBID, value: Int, valid: Boolean = true, wrap: Boolean = false): Unit = {
+    id.valid.poke(valid.B)
+    id.wrap.poke(wrap.B)
+    id.value.poke(value.U)
+  }
+
+  private def allocRowOnly(
+      dut: ROBEntryBank,
+      n: Int,
+      isStore: Boolean = false,
+      trap: Boolean = false,
+      isLast: Boolean = false,
+      markerBoundary: Boolean = false,
+      markerStop: Boolean = false): Unit = {
+    clearInputs(dut)
+    dut.io.allocValid.poke(true.B)
+    dut.io.allocRow.poke(0.U.asTypeOf(dut.io.allocRow))
+    dut.io.allocRow.valid.poke(true.B)
+    dut.io.allocRow.pc.poke((0x1000 + n * 4).U)
+    dut.io.allocRow.insn.poke(0x13.U)
+    dut.io.allocRow.len.poke(4.U)
+    dut.io.allocRow.identity.bid.poke(1.U)
+    dut.io.allocRow.identity.gid.poke(0.U)
+    dut.io.allocRow.identity.rid.poke(n.U)
+    dut.io.allocRow.blockBidValid.poke(true.B)
+    dut.io.allocRow.blockBid.poke((0x100 + n).U)
+    dut.io.allocRow.mem.valid.poke(isStore.B)
+    dut.io.allocRow.mem.isStore.poke(isStore.B)
+    dut.io.allocRow.mem.addr.poke((0x4000 + n * 8).U)
+    dut.io.allocRow.mem.wdata.poke((0x80 + n).U)
+    dut.io.allocRow.mem.size.poke(8.U)
+    dut.io.allocRow.trap.valid.poke(trap.B)
+    dut.io.allocRow.trap.cause.poke(7.U)
+    pokeId(dut.io.allocBid, 1)
+    pokeId(dut.io.allocGid, 0)
+    dut.io.allocPeId.poke(1.U)
+    dut.io.allocStid.poke(0.U)
+    dut.io.allocTid.poke(0.U)
+    dut.io.allocLsId.poke(n.U)
+    dut.io.allocIsStore.poke(isStore.B)
+    dut.io.allocIsLast.poke(isLast.B)
+    dut.io.allocMarkerBoundary.poke(markerBoundary.B)
+    dut.io.allocMarkerStop.poke(markerStop.B)
+    dut.io.allocReady.expect(true.B)
+    dut.clock.step()
+  }
+
+  private def completeRow(dut: ROBEntryBank, n: Int): Unit = {
+    clearInputs(dut)
+    dut.io.completeValid.poke(true.B)
+    dut.io.completeRobValue.poke(n.U)
+    dut.io.completeAccepted.expect(true.B)
+    dut.clock.step()
+  }
+
+  private def allocTwoCompletedRows(
+      dut: ROBEntryBank,
+      firstIsStore: Boolean = false,
+      firstTrap: Boolean = false,
+      firstIsLast: Boolean = false,
+      firstMarkerBoundary: Boolean = false,
+      firstMarkerStop: Boolean = false,
+      secondIsStore: Boolean = false): Unit = {
+    allocRowOnly(dut, 0, isStore = firstIsStore, trap = firstTrap, isLast = firstIsLast,
+      markerBoundary = firstMarkerBoundary, markerStop = firstMarkerStop)
+    allocRowOnly(dut, 1, isStore = secondIsStore)
+    completeRow(dut, 1)
+    completeRow(dut, 0)
+  }
 
   test("reference keeps commit and dealloc as separate pointer walks") {
     val rob = new Model(entries = 8, commitWidth = 2)
@@ -419,6 +560,28 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.complete(r0))
     assert(rob.commit().map(_.rid) == Seq(0, 1))
     assert(rob.commit().map(_.rid) == Seq(2))
+  }
+
+  test("reference ReservedUnfilled occupies ROB but remains invisible to commit and dealloc") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+
+    assert(rob.reserveUnfilled(3).contains(Seq(0, 1, 2)))
+    assert(rob.size == 3)
+    assert(rob.outstandingCount == 3)
+    assert(rob.statusAt(0) == ReservedUnfilled)
+    assert(rob.commit().isEmpty)
+    assert(rob.dealloc().isEmpty)
+  }
+
+  test("reference flush clears ReservedUnfilled rows and rebases allocation") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+
+    assert(rob.reserveUnfilled(3, bid = id(1)).contains(Seq(0, 1, 2)))
+    assert(rob.flush(flushBid = id(1), flushRid = id(0), baseOnBid = true) == Seq(0, 1, 2))
+    assert(rob.size == 0)
+    assert(rob.outstandingCount == 0)
+    assert(rob.allocPointer == 0)
+    assert(rob.commitPointer == 0)
   }
 
   test("reference rejects duplicate identity until deallocation frees the row") {
@@ -704,6 +867,114 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r2)))
     assert(rob.dealloc() == Seq(r1, r2))
     assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r3)))
+  }
+
+  test("RTL commit window stops younger lane after trap block-last store and marker rows") {
+    def checkStop(
+        isStore: Boolean = false,
+        trap: Boolean = false,
+        isLast: Boolean = false,
+        markerBoundary: Boolean = false,
+        markerStop: Boolean = false): Unit = {
+      simulate(new ROBEntryBank(
+        entries = 8,
+        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+        mapQDepth = 8,
+        stidWidth = 4,
+        stidCount = 1
+      )) { dut =>
+        clearInputs(dut)
+        allocTwoCompletedRows(dut, firstIsStore = isStore, firstTrap = trap, firstIsLast = isLast,
+          firstMarkerBoundary = markerBoundary, firstMarkerStop = markerStop)
+        clearInputs(dut)
+
+        dut.io.commitValidMask.expect(1.U)
+        dut.io.commitCount.expect(1.U)
+        dut.io.commit.rows(0).valid.expect(true.B)
+        dut.io.commit.rows(0).identity.rid.expect(0.U)
+        dut.io.commit.rows(1).valid.expect(false.B)
+        dut.clock.step()
+
+        clearInputs(dut)
+        dut.io.commitValidMask.expect(1.U)
+        dut.io.commit.rows(0).identity.rid.expect(1.U)
+      }
+    }
+
+    checkStop(trap = true)
+    checkStop(isLast = true)
+    checkStop(isStore = true)
+    checkStop(markerBoundary = true)
+    checkStop(markerStop = true)
+  }
+
+  test("RTL serializes two ready stores across commit cycles") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocTwoCompletedRows(dut, firstIsStore = true, secondIsStore = true)
+      clearInputs(dut)
+
+      dut.io.commitValidMask.expect(1.U)
+      dut.io.commitCount.expect(1.U)
+      dut.io.commitMemoryOrder(0).valid.expect(true.B)
+      dut.io.commitMemoryOrder(0).isStore.expect(true.B)
+      dut.io.commit.rows(0).identity.rid.expect(0.U)
+      dut.io.commit.rows(1).valid.expect(false.B)
+      dut.clock.step()
+
+      clearInputs(dut)
+      dut.io.commitValidMask.expect(1.U)
+      dut.io.commitMemoryOrder(0).isStore.expect(true.B)
+      dut.io.commit.rows(0).identity.rid.expect(1.U)
+    }
+  }
+
+  test("RTL still dual-retires two ready register rows") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocTwoCompletedRows(dut)
+      clearInputs(dut)
+
+      dut.io.commitValidMask.expect(3.U)
+      dut.io.commitCount.expect(2.U)
+      dut.io.commit.rows(0).identity.rid.expect(0.U)
+      dut.io.commit.rows(1).identity.rid.expect(1.U)
+    }
+  }
+
+  test("RTL flush prunes completed rows before stale commit output can fire") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocTwoCompletedRows(dut)
+      clearInputs(dut)
+      dut.io.commitValidMask.expect(3.U)
+
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.flush.baseOnBid.poke(true.B)
+      pokeId(dut.io.flush.req.bid, 1)
+      dut.io.flushApplied.expect(true.B)
+      dut.io.commitValidMask.expect(0.U)
+      dut.io.commit.rows(0).valid.expect(false.B)
+      dut.io.commit.rows(1).valid.expect(false.B)
+    }
   }
 
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {

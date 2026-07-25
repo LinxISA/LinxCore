@@ -457,12 +457,13 @@ class ROBEntryBank(
     val idx = wrapIndex(commitValue, slot)
     val priorSlotsContinue =
       if (slot == 0) true.B else commitContinueVec(slot - 1)
-    val markerWindowStop = rowMarkerBoundary(idx) || rowMarkerStop(idx)
+    val commitWindowStop =
+      rowIsStore(idx) || rows(idx).trap.valid || rowIsLast(idx) || rowMarkerBoundary(idx) || rowMarkerStop(idx)
     val fires =
       !flushApplied && !deallocMarkerWindowStop && priorSlotsContinue &&
         rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
     commitFireVec(slot) := fires
-    commitContinueVec(slot) := fires && !markerWindowStop
+    commitContinueVec(slot) := fires && !commitWindowStop
 
     val out = Wire(new CommitTraceRow(traceParams))
     out := rows(idx)
