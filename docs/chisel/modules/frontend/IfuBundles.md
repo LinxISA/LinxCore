@@ -13,7 +13,8 @@ The contract removes the legacy packet-only handoff from the new path:
 - the original byte length remains explicit as `lenBytes`;
 - I-F4 boundary-only predecode is represented by `isBlockStart` and
   `isBlockStop`;
-- fetch identity contains PE, STID, packet UID, slot, checkpoint, and epoch;
+- fetch identity contains PE, STID, packet UID, monotonic fetch sequence, slot,
+  checkpoint, and epoch;
 - every instruction owns an immutable `BranchPredictionRecord`;
 - IFU-local correction uses `IfuInnerFlush` and is separate from backend
   architectural recovery.
