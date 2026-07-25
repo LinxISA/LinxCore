@@ -1,15 +1,21 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{Queue, log2Ceil}
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
-import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams}
+import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams, RenamedUop}
 import linxcore.execute.ReducedScalarAluExecute
 import linxcore.frontend.F4DecodeWindow
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.rob.{ROBEntryStatus, ROBID}
+
+class FrontendAluExecuteIngress(val p: InterfaceParams) extends Bundle {
+  val uop = new RenamedUop(p)
+  val srcData = Vec(3, UInt(p.immWidth.W))
+  val stackPointerData = UInt(p.immWidth.W)
+}
 
 class LinxCoreFrontendAluTraceTopIO(
     val p: InterfaceParams,
@@ -97,6 +103,9 @@ class LinxCoreFrontendAluTraceTop(
 
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   execute.io.completeReady := true.B
+  val executeIngress = withReset(reset.asBool || io.frontendFlushValid) {
+    Module(new Queue(new FrontendAluExecuteIngress(p), entries = 1, pipe = false, flow = true))
+  }
 
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots
@@ -105,7 +114,7 @@ class LinxCoreFrontendAluTraceTop(
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
   DecodeRenameROBPath.tieOffStoreScResult(path)
   path.io.storeAddressInsertPermit := true.B
-  path.io.renamedOutReady := execute.io.inReady
+  path.io.renamedOutReady := executeIngress.io.enq.ready
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeMarkCommitValid := false.B
@@ -140,14 +149,20 @@ class LinxCoreFrontendAluTraceTop(
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
 
-  execute.io.inValid := path.io.renamedOutValid
-  execute.io.in := path.io.renamedOut
-  execute.io.srcData := io.operandData
+  executeIngress.io.enq.valid := path.io.renamedOutValid
+  executeIngress.io.enq.bits.uop := path.io.renamedOut
+  executeIngress.io.enq.bits.srcData := io.operandData
+  executeIngress.io.enq.bits.stackPointerData := io.operandData(1)
+  executeIngress.io.deq.ready := execute.io.inReady
+
+  execute.io.inValid := executeIngress.io.deq.valid
+  execute.io.in := executeIngress.io.deq.bits.uop
+  execute.io.srcData := executeIngress.io.deq.bits.srcData
   execute.io.loadLookupData := 0.U
   execute.io.loadLookupWaitBlocked := false.B
   execute.io.loadLiqEnable := false.B
   execute.io.loadLiqAccepted := false.B
-  execute.io.stackPointerData := io.operandData(1)
+  execute.io.stackPointerData := executeIngress.io.deq.bits.stackPointerData
   execute.io.flushValid := io.frontendFlushValid
   execute.io.fretStkFallbackTargetValid := false.B
   execute.io.fretStkFallbackTarget := 0.U
@@ -199,7 +214,7 @@ class LinxCoreFrontendAluTraceTop(
   io.occupiedMask := path.io.occupiedMask
   io.completedMask := path.io.completedMask
   io.retiredMask := path.io.retiredMask
-  io.idle := path.io.empty && !execute.io.busy
+  io.idle := path.io.empty && !executeIngress.io.deq.valid && !execute.io.busy
 }
 
 object LinxCoreFrontendAluTraceTop {
