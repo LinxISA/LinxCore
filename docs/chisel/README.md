@@ -30,8 +30,9 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- Phase 2 migration bring-up: packet-window slicing and serialized decode ingress
-  exist as migration fixtures; they do not define production IFU stages
+- Production IFU implementation: independent I-SIDE leaf owners, fixed-width
+  Instruction Buffer, and four-wide D1 group transport are present; B-SIDE and
+  the final prediction join remain integration work
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started
@@ -65,13 +66,10 @@ common interface bundles. They are derived from
 `model/LinxCoreModel/model/interface/CommitInfo.h`, and
 `model/LinxCoreModel/model/core/FlushControl.*`,
 `model/LinxCoreModel/model/bctrl/BROB.*`, and the C++ model bus headers under
-`model/LinxCoreModel/model/ModelCommon/bus/`. The current Phase 2 frontend
-slice follows the LinxCoreModel `CheckMInstSize` instruction-length rule from
-`model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`. Its packet window,
-`F4DecodeWindow`, dense-slot queue, and reduced BFU helpers are migration
-fixtures; they do not define production I-F4, Instruction Buffer placement, or
-B-SIDE ownership. `FrontendDecodeStage` consumes the resulting migration slots
-and uses the
+`model/LinxCoreModel/model/ModelCommon/bus/`. Production frontend ownership is
+defined only by the IFU design and the I-SIDE/B-SIDE module set. Test-only
+packet-window helpers do not define I-F4, Instruction Buffer placement, or
+B-SIDE ownership. `FrontendDecodeStage` consumes those test inputs and uses the
 pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
 records plus block/load/store sideband masks and generated store split
 metadata for load/store pairs, PCR stores, and cache-maintain rows.

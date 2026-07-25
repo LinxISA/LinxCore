@@ -221,9 +221,9 @@ The minimum logical channels are:
 | --- | --- | --- | --- |
 | `fetch_req` | fetch steering | I-SIDE | STID, PC, request ID, epoch, checkpoint |
 | `pred_req` | I-F0 | B-F0 | matching fetch identity and PC |
-| `pred_rsp` | B-F4 | fetch steering/I-SIDE metadata join | direction, target, confidence, provider, checkpoint |
-| `boundary_event` | I-F4/D1 | B-SIDE | BSTART/BSTOP location and accepted identity |
-| `inner_flush` | I-F2 or B-F1..B-F4 correction | I-SIDE/B-SIDE | STID, request, epoch, replay PC, cause |
+| `pred_rsp` | B-F0..B-F4 | fetch steering/final metadata join | direction, target, confidence, provider, checkpoint, final bit |
+| `boundary_event` | I-F4 | B-F4 | BSTART/BSTOP location and accepted identity |
+| `inner_flush` | I-F2 or accepted B-F0..B-F4 correction | I-SIDE/B-SIDE | STID, request, epoch, replay PC, cause |
 | `resolve_train` | Dispatch/BRU/recovery | B-SIDE | actual direction/target/kind and full prediction/recovery identity |
 
 All channels use explicit `valid/ready` or queue semantics. No interface may
@@ -253,10 +253,11 @@ past an invalid, cancelled, faulting, or different-STID entry.
 1. I-F0 through I-F4 and B-F0 through B-F4 are two independent five-stage
    engines; Instruction Buffer is a queue after I-F4.
 2. ITLB and L1I launch in parallel in I-F1.
-3. ITLB miss at I-F2 and B-F1..B-F4 prediction corrections produce
+3. ITLB miss at I-F2 and accepted B-F0..B-F4 prediction corrections produce
    identity-qualified frontend inner flushes; B-F4 is the final such point.
-4. I-F4 determines 2/4/6/8-byte length, completes assembly, and predecodes only
-   `BSTART`/`BSTOP` boundary metadata.
+4. I-F3 determines 2/4/6/8-byte length and completes cross-line assembly;
+   I-F4 predecodes only `BSTART`/`BSTOP` boundary metadata and normalizes the
+   completed instruction to 64 bits.
 5. Every Instruction Buffer instruction payload is 64 bits.
 6. D1 reads at most four fixed 64-bit instructions and performs the first full
    decode.
