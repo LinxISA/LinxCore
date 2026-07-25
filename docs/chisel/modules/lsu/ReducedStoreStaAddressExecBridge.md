@@ -39,8 +39,9 @@ STA and STD work, the issue side can dispatch `ST_ADDR`, and STQ merge records
 Inputs:
 
 - `enable`: enables the reduced STA bridge.
-- `queueValid`, `queue`: current STA queue head. The bridge only emits when
-  `queue.valid` and `queue.storeType == Addr`.
+- `queueValid`, `queue`: current store queue head. The bridge emits for
+  address halves (`storeType == Addr`) and unsplit all-store rows
+  (`storeType == All`) whose address can be produced directly.
 - `srcReadReady`: readiness for the original source lanes required by the
   address formula.
 - `srcReadData`: read data for the source lanes used by the address formula.
@@ -70,6 +71,8 @@ The bridge supports the reduced scalar store address formulas already used by
 - `OP_SWI`: `src1 + (imm << 2)`, size 4.
 - `OP_SBI`: `src1 + imm`, size 1.
 - `OP_SD`: `src1 + (src2 << 3)`, size 8.
+- `OP_SC_W`: address from `SrcR`/source lane 1, store data from `SrcL`/source
+  lane 0, size 4. `SrcP`/source lane 2 is ignored.
 - `OP_C_SDI`: `src0 + (imm << 3)`, size 8.
 - `OP_C_SWI`: `src0 + (imm << 2)`, size 4.
 
@@ -82,10 +85,12 @@ owner must provide read data/readiness for the address lanes without waiting
 for full scalar-store issue.
 
 The compressed store cases are marked supported but still require source 0.
-Current non-PCR `StoreSplitPayload` zeroes STA source 0, so the bridge reports
-`blockedBySource` for those rows. That preserves the existing payload contract
-and makes the compact-store source-loss visible instead of silently computing
-from a zeroed operand.
+Current non-PCR/non-`SC.W` `StoreSplitPayload` zeroes STA source 0, so the
+bridge reports `blockedBySource` for those rows. That preserves the existing
+payload contract and makes the compact-store source-loss visible instead of
+silently computing from a zeroed operand. `SC.W` is a deliberate exception:
+the splitter preserves source 0 so the bridge can carry store data while still
+requiring source 1 for the address.
 
 ## Model Alignment
 
@@ -116,6 +121,9 @@ R476 covered:
 
 - `OP_SDI` computes address from source 1 and ignores store-data source 0.
 - `OP_SDI` blocks when source 1 is not ready.
+- `OP_SC_W` accepts unsplit `All` and split `Addr` rows, requires only source
+  lanes 0 and 1, emits `SrcR` as address and `SrcL` as store data, and ignores
+  source lane 2.
 - PCR store STA computes from `pc + imm` without RF source readiness.
 - `OP_C_SDI` exposes the current STA source-0 payload loss as a source block.
 - The Chisel module elaborates with the reduced top interface parameters.

@@ -98,9 +98,11 @@ generated STA/STD metadata.
 
 For ordinary split stores, the STA payload replaces `src(0)` with a zero
 literal/invalid operand and raises `staSrc0Zeroed`. This mirrors model
-`HandleSta`, which removes the store-data source from the address half. For
-PCR stores, STA preserves `src(0)` and `dataSrcIndex` is `1`, matching
-`GetStoreDataSrcIndex`. Ordinary stores use `dataSrcIndex = 0`.
+`HandleSta`, which removes the store-data source from the address half. PCR
+stores preserve `src(0)` and use `dataSrcIndex = 1`, matching
+`GetStoreDataSrcIndex`. `SC.W` also preserves STA `src(0)` because the reduced
+STA bridge needs `SrcL` as store data while using `SrcR` as the address source.
+Other ordinary stores use `dataSrcIndex = 0`.
 
 When `split` is false for a store row, the module emits only `unsplit` with
 store type `All` and requires only `staReady`, matching the C++ path that writes
@@ -167,7 +169,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 
 The focused tests cover ordinary split payload construction, PCR data source
-selection, load/store-pair and cache-maintain suppression, no-partial-fire
-backpressure, non-store no-op behavior, enum values, IO widths, and CIRCT
-elaboration. R61 extends that coverage to T/U sidecar preservation on split
-STA/STD payloads and disabled sidecars on invalid payloads.
+selection, `SC.W` STA source preservation, load/store-pair and cache-maintain
+suppression, no-partial-fire backpressure, non-store no-op behavior, enum
+values, IO widths, and CIRCT elaboration. R61 extends that coverage to T/U
+sidecar preservation on split STA/STD payloads and disabled sidecars on invalid
+payloads.
