@@ -24,6 +24,17 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
+Latest IFU packet: R686 adds a generated-RTL throughput gate around the
+canonical `LinxCoreIfu`, using architectural 64-byte cachelines and a
+synthesizable line responder. After warming four lines, both ChiselSim and
+Verilator require thirty-two consecutive full four-entry D1 groups with final
+B-F4 metadata on every lane. The Verilator run observes eight prediction joins
+and six line contexts in flight. This work also fixes and regression-locks an
+exact-capacity `IfuPredictionJoin` bug: the previous narrow `emitIndex + 1`
+wrapped when retiring group eight and replayed the row. This proves eligible
+dense hot-cache IFU supply, not mixed-length flow, backend four-wide acceptance,
+or CoreMark/Dhrystone promotion.
+
 Latest IFU packet: R685 extends the Model-aligned B-SIDE speculative-state owner
 from conditional GHR to RAS. B-F0 atomically freezes GHR plus the complete
 per-STID RAS image/pointer/count in the exact prediction-tagged row. B-F1
@@ -33,8 +44,8 @@ canonical prune restores the producer snapshot, applies one typed conditional
 or Call/Return delta, and removes younger rows. ITLB fallback and start reset
 cover both GHR and RAS. Resolve training mutates learned predictor tables only;
 it no longer owns speculative RAS push/pop. Path history, loop speculative
-state, full TAGE provider/alternate policy, generated RTL, and natural benchmark
-promotion remain later packets.
+state, full TAGE provider/alternate policy, predictor-specific generated-RTL
+recovery stimulus, and natural benchmark promotion remain later packets.
 
 Latest IFU packet: R683 removes the one-sequential-transaction I-SIDE gate.
 `ISideLineContextQueue` allocates ordered line contexts with I-F0, accepts exact

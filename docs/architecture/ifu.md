@@ -286,6 +286,21 @@ past an invalid, cancelled, faulting, or different-STID entry.
    decoupled, identity-qualified channels.
 11. Backend-resolved misprediction uses typed recovery and restarts I-F0.
 
+## Generated-RTL throughput gate
+
+The canonical hot-cache supply gate is:
+
+```bash
+bash tools/chisel/run_chisel_ifu_throughput_gate.sh
+```
+
+It emits `LinxCoreIfu` with architectural 64-byte cachelines and requires
+thirty-two consecutive full four-entry D1 groups, final B-F4 metadata on every
+lane, and multiple prediction joins plus ordered line contexts in flight. This
+gate proves eligible dense sequential IFU supply. It does not prove mixed
+instruction lengths, prediction-recovery stress, production decode/dispatch
+acceptance, or CoreMark/Dhrystone throughput.
+
 ## Non-normative superscalarNPU comparison
 
 Reference evidence: `superscalarNPU` `origin/main@1fae7d0`. This comparison

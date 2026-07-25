@@ -7,7 +7,8 @@ and B-SIDE engines. It is the only IFU owner that connects F0 through D1,
 allocates canonical redirect epochs, and routes PTW and L1I memory traffic.
 The composition admits multiple sequential cacheline transactions while
 preserving ordered I-F3 consumption and exact cross-line prefix ownership. It
-does not claim generated-RTL or benchmark-top performance promotion.
+has a dedicated generated-RTL hot-cache throughput proof. It does not yet
+claim benchmark-top promotion or four-wide backend throughput.
 
 ## Pipeline Composition
 
@@ -121,6 +122,16 @@ deltas.
    four-entry D1 groups from a hot L1I;
 6. backend redirect priority and removal of younger frontend state;
 7. simultaneous start and backend redirect ordering.
+8. an architectural 64-byte-line hot-cache run that sustains thirty-two
+   consecutive full four-entry D1 groups, carries B-F4 final prediction on
+   every lane, and keeps multiple joins and line contexts in flight.
+
+`LinxCoreIfuThroughputProbe` emits the canonical composition with a
+synthesizable line responder. Its Verilator gate checks the same thirty-two
+cycle stream and observes join/context peaks of eight/six. The proof is scoped
+to an eligible dense sequential hot-cache window; it does not substitute for
+mixed-length traffic, predictor-recovery stress, production decode/dispatch,
+or CoreMark/Dhrystone integration.
 
 The R682 identity/rank packet additionally proves that I-F2 rejects a
 checkpoint collision, I-F3 rejects a continuation collision despite matching
@@ -132,4 +143,6 @@ Run:
 ```bash
 SBT_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' \
   bash tools/chisel/run_chisel_tests.sh --only frontend
+
+bash tools/chisel/run_chisel_ifu_throughput_gate.sh
 ```

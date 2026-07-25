@@ -179,11 +179,13 @@ expanded prediction tag, fallthrough, confidence, provider, stage, checkpoint,
 and epoch remain intact through four-wide transport.
 
 The focused predictor suite contains 16 passing tests and the focused history
-queue suite contains twelve. The `LinxCoreIfuSpec`
+queue suite contains 13. The `LinxCoreIfuSpec`
 end-to-end scenarios additionally prove final B-F4
 metadata on every D1 lane, canonical prediction correction ordering,
-cross-line fallthrough, and backend redirect priority. These simulations are
-not yet generated-RTL or production benchmark-promotion evidence.
+cross-line fallthrough, and backend redirect priority. The canonical IFU now
+also has generated-RTL dense hot-cache throughput evidence; predictor-specific
+generated-RTL recovery stimulus and production benchmark promotion remain
+open.
 
 ## Remaining B-SIDE Work
 

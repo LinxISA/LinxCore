@@ -1103,8 +1103,12 @@ predictor tables 不因普通 redirect 清零。
   Instruction Buffer 和 D1 owners。
 - [ ] CoreMark/Dhrystone 使用的 production benchmark graph 已从
   verification-only reduced fixture 切换到 `LinxCoreIfu`。
-- [ ] generated RTL IFU probe 证明持续四宽、队列高水位和 starvation 计数；
-  当前 20 周期证据仅为 ChiselSim composition proof。
+- [x] generated RTL IFU probe 使用 64-byte cacheline，证明 eligible dense
+  hot-cache window 连续 32 周期输出四宽 D1、每 lane 携带 B-F4 final record，
+  并观测到 prediction join/line-context high-watermark 为 8/6。
+- [ ] 用 production benchmark graph 补充真实混合长度指令、预测纠正、
+  decode/dispatch backpressure 和 workload starvation 计数；standalone probe
+  不等价于 CoreMark/Dhrystone promotion。
 
 ## 不在本设计内
 

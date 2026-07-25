@@ -178,4 +178,35 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.valid.expect(false.B)
     }
   }
+
+  test("retires a transaction that fills every group slot without wrapping emit index") {
+    simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 8)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 2, epoch = 0)
+      for (group <- 0 until 8) {
+        sendGroup(
+          dut,
+          transactionId = 2,
+          epoch = 0,
+          basePc = 0x2000 + group * 8,
+          complete = group == 7)
+      }
+      sendPrediction(
+        dut,
+        transactionId = 2,
+        epoch = 0,
+        correction = false,
+        finalResponse = true,
+        target = 0x2800)
+
+      dut.io.out.ready.poke(true.B)
+      for (group <- 0 until 8) {
+        dut.io.out.valid.expect(true.B)
+        dut.io.out.bits.entries(0).pc.expect((0x2000 + group * 8).U)
+        dut.clock.step()
+      }
+      dut.io.out.valid.expect(false.B)
+      dut.io.count.expect(0.U)
+    }
+  }
 }

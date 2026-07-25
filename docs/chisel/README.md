@@ -30,9 +30,10 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- Production IFU implementation: independent I-SIDE leaf owners, fixed-width
-  Instruction Buffer, and four-wide D1 group transport are present; B-SIDE and
-  the final prediction join remain integration work
+- Production IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
+  B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
+  and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide
+  output; production decode/dispatch and benchmark promotion remain open.
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started

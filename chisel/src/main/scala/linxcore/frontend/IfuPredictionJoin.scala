@@ -146,7 +146,7 @@ class IfuPredictionJoin(
   val outFire = io.out.valid && io.out.ready
   val emitsLastGroup =
     outFire &&
-      headRow.emitIndex + 1.U === headRow.groupCount
+      (headRow.emitIndex.pad(groupCountWidth) +& 1.U) === headRow.groupCount
 
   io.count := count
   io.headWaitingForISide := headRow.valid && !headRow.iSideComplete
