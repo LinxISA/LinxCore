@@ -1448,6 +1448,89 @@ P1-B2 已完全撤销：
 run。它们不是第 13.1.1 冻结 FishToucher ELF，不能计入 P1-B1/P1-B2
 FishToucher 性能结论，也不能用于声明 queue bypass 成功或失败。
 
+#### 13.1.4 P1-B3 registered early scheduler release / tertiary release
+
+P1-B3 的有效目标是降低 fixed scalar ALU row 在 scheduler 中的额外驻留，
+但不改变 architectural terminal owner。最终设计边界如下：
+
+1. `ReducedScalarAluExecute` 在 execute accept 时捕获 fixed scalar ALU
+   的 `(bid, gid, rid, stid)`，下一拍发布 registered early scheduler
+   release。
+2. early scheduler release 只释放 issue-row residency；ROB completion、
+   RF writeback、wakeup、redirect、unsupported、service、LIQ 和 SC terminal
+   side effects 仍由原 W2/terminal owner 发布。
+3. `ScalarIssueFabric` / `ReducedScalarIssueQueue` 使用独立 tertiary
+   release lane 接收 early scheduler release。primary release 保留给
+   ROB/execute terminal，secondary release 保留给 LIQ/service/SC 等可与
+   primary 同拍出现的路径，避免同拍占用时丢 release。
+4. 同拍 marker redirect 不组合 kill early release。该 release 本身没有
+   architectural side effect；次拍 backend flush 清理残留 resident row。
+
+中间失败形状不得复用：
+
+- 不能让 early-release identity 组合依赖 current issue input。current
+  issue input 又受 issue readiness 和 release-created capacity 影响，会把
+  execute accept、issue release、queue capacity 和 issue valid/ready 接成
+  ready loop。
+- 不能把 marker redirect kill 组合反馈到 issue release/readiness。redirect
+  的架构清理由 backend flush 负责，同拍组合 kill 只会扩大 loop surface。
+- 不能复用 secondary release lane。primary terminal completion 与
+  secondary LIQ/service/SC completion 可以同拍占用，fixed ALU early release
+  必须是独立 tertiary lane。
+
+P1-B3 先通过结构门，再跑正确 FishToucher 双 workload：
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Chisel build | pass | `bash tools/chisel/build_chisel.sh` |
+| LR/SC natural cross-check | pass | [`generated/chisel-lrsc-natural-crosscheck/report/lrsc_natural_crosscheck_manifest.json`](../../generated/chisel-lrsc-natural-crosscheck/report/lrsc_natural_crosscheck_manifest.json), `status=pass`, Chisel natural `cycles=61`, `commits=11`, `finisher_pass=true` |
+| CoreMark FishToucher | pass | [`generated/early-tertiary-fishtoucher-coremark-100k-f9b43229/report/natural_manifest.json`](../../generated/early-tertiary-fishtoucher-coremark-100k-f9b43229/report/natural_manifest.json) |
+| Dhrystone FishToucher | pass | [`generated/early-tertiary-fishtoucher-dhrystone-100k-f9b43229/report/natural_manifest.json`](../../generated/early-tertiary-fishtoucher-dhrystone-100k-f9b43229/report/natural_manifest.json) |
+
+P1-B3 FishToucher 结果使用第 13.1.1 冻结 ELF 和 SHA，显式 LinxCore
+revision `f9b43229297c029d2140b7bf73222ec3ed3770aa`、superproject revision
+`46ca78c88db29e99c7a6b32c35b7822aac06ae25`、`max_cycles=100000`：
+
+| Workload | Terminal | Cycles | P1-B1 cycles | Delta | Commits | IPC | `blockedByIssued` | P1-B1 `blockedByIssued` | Delta |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| CoreMark | `finisher_pass`, `finisher_code=0x5555` | 9,921 | 9,962 | -41 | 1,426 | 0.143735510533 | 5,131 | 6,098 | -967 |
+| Dhrystone | `finisher_pass`, `finisher_code=0x5555` | 7,920 | 7,961 | -41 | 1,150 | 0.145202020202 | 4,073 | 4,810 | -737 |
+
+Additional counters confirm the change reduces scheduler residency without
+fabricating extra architectural work: CoreMark `head_issued_cycles` falls
+from 5,828 to 4,985, `candidate_cycles` moves from 2,092 to 2,068, and
+`issue_fire` remains 1,427. Dhrystone `head_issued_cycles` falls from 4,563
+to 3,950, `candidate_cycles` moves from 1,724 to 1,700, and `issue_fire`
+remains 1,151. Decode output stall also drops slightly:
+CoreMark 3,651 to 3,621 and Dhrystone 2,684 to 2,654.
+
+This is a scheduler-residency improvement, not width closure. IPC remains
+around 0.144 because decode/rename ingress, issue, execute, completion, and
+commit are still effectively one-row paths for the benchmark top.
+
+#### 13.1.5 P1-C next: 2-wide decode/rename ingress
+
+The next stage should not start with commit width or speculative dual-issue.
+The next bottleneck to remove is decode/rename ingress collapsing dense F4/D1
+windows into one admitted row. P1-C should implement a conservative 2-wide
+ingress first:
+
+1. preserve two valid decoded scalar slots from the same F4/D1 window into the
+   decode/rename queue when block-marker boundaries and stop rows permit it;
+2. allocate ROB/BROB, GPR/T/U sidecars, LSID/SID, and store-split intent
+   atomically for both rows, or accept neither row when any required resource
+   is short;
+3. keep row order, BID/GID/RID/STID, block-last, marker context, template
+   sidecars, and recovery provenance exact across both lanes;
+4. emit counters for 0/1/2-row ingress, resource-short stalls, marker-boundary
+   stalls, and per-lane accepted row classes;
+5. prove no functional regression on the same build, LR/SC, and FishToucher
+   gates before considering wider issue/execute or retire changes.
+
+P1-C is deliberately 2-wide, not 4-wide, so failure attribution stays local to
+decode/rename ingress. Once 2-wide ingress is correct and visible in counters,
+later stages may independently widen issue/execute and commit.
+
 ### 13.2 LinxTrace v2 事件协议
 
 `CommitTrace` 只描述 accepted architectural retirement；`LinxTrace v2`
