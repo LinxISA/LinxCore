@@ -233,6 +233,52 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             self.assertEqual(decoded.mnemonic, mnemonic)
             self.assertEqual(decoded.symbol, symbol)
 
+    def test_lr_sc_catalog_routes_through_lsu_not_d2_or_alu(self) -> None:
+        from common.opcode_meta_gen import opcode_meta_by_mnemonic, opcode_meta_forms_by_mnemonic
+
+        expected = {
+            "lr_b": ("OP_LR_B", "LOAD"),
+            "lr_h": ("OP_LR_H", "LOAD"),
+            "lr_w": ("OP_LR_W", "LOAD"),
+            "lr_d": ("OP_LR_D", "LOAD"),
+            "sc_b": ("OP_SC_B", "STORE"),
+            "sc_h": ("OP_SC_H", "STORE"),
+            "sc_w": ("OP_SC_W", "STORE"),
+            "sc_d": ("OP_SC_D", "STORE"),
+        }
+        for mnemonic, (symbol, major_cat) in expected.items():
+            meta = opcode_meta_by_mnemonic(mnemonic)
+            self.assertEqual(meta.symbol, symbol)
+            self.assertEqual(meta.major_cat, major_cat)
+            self.assertEqual(meta.minor_cat, "atomic")
+
+        scala = (
+            ROOT
+            / "chisel"
+            / "src"
+            / "main"
+            / "scala"
+            / "linxcore"
+            / "frontend"
+            / "FrontendOpcodeDecodeTable.scala"
+        ).read_text(encoding="utf-8")
+        for symbol in ("OP_LR_B", "OP_LR_H", "OP_LR_W", "OP_LR_D"):
+            needle = f'Rule(symbol = "{symbol}"'
+            start = scala.index(needle)
+            rule = scala[start : scala.index("\n", start)]
+            self.assertIn("category = CatLOAD", rule)
+            self.assertIn("dispatch = 4", rule)
+            self.assertIn("isLoad = true", rule)
+            self.assertIn("isStore = false", rule)
+        for symbol in ("OP_SC_B", "OP_SC_H", "OP_SC_W", "OP_SC_D"):
+            needle = f'Rule(symbol = "{symbol}"'
+            start = scala.index(needle)
+            rule = scala[start : scala.index("\n", start)]
+            self.assertIn("category = CatSTORE", rule)
+            self.assertIn("dispatch = 4", rule)
+            self.assertIn("isLoad = false", rule)
+            self.assertIn("isStore = true", rule)
+
         for retired in (
             "texract",
             "tfill",

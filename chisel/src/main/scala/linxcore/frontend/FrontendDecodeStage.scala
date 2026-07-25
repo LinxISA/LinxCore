@@ -41,6 +41,18 @@ class FrontendDecodeStageIO(val p: InterfaceParams = InterfaceParams()) extends 
   val uopCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
 }
 
+object FrontendDecodeStage {
+  val BoundaryTargetOpcodes: Set[Int] = Set(
+    FrontendOpcodeDecodeTable.OP_C_BSTART_COND,
+    FrontendOpcodeDecodeTable.OP_C_BSTART_DIRECT,
+    FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_COND,
+    FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_DIRECT,
+    FrontendOpcodeDecodeTable.OP_BSTART_STD_CALL,
+    FrontendOpcodeDecodeTable.OP_BSTART_STD_COND,
+    FrontendOpcodeDecodeTable.OP_BSTART_STD_DIRECT
+  )
+}
+
 class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Module {
   require(p.decodeWidth == 4, "FrontendDecodeStage currently consumes the 4-slot F4 window")
   require(p.opcodeWidth == 12, "FrontendDecodeStage follows the pyCircuit 12-bit opcode catalog")
@@ -74,13 +86,10 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     operandDecode.io.active := slotActive(slot) && meta.valid
     operandDecode.io.meta := meta
     operandDecode.io.insn := io.slots(slot).insnRaw
-    val hasBoundaryTarget = Seq(
-      FrontendOpcodeDecodeTable.OP_C_BSTART_COND,
-      FrontendOpcodeDecodeTable.OP_C_BSTART_DIRECT,
-      FrontendOpcodeDecodeTable.OP_BSTART_STD_CALL,
-      FrontendOpcodeDecodeTable.OP_BSTART_STD_COND,
-      FrontendOpcodeDecodeTable.OP_BSTART_STD_DIRECT
-    ).map(op => meta.opcode === op.U(p.opcodeWidth.W)).reduce(_ || _)
+    val hasBoundaryTarget =
+      FrontendDecodeStage.BoundaryTargetOpcodes.toSeq
+        .map(op => meta.opcode === op.U(p.opcodeWidth.W))
+        .reduce(_ || _)
 
     val out = Wire(new DecodedUop(p))
     out := 0.U.asTypeOf(out)
@@ -93,6 +102,7 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out.uopType := meta.dispatchTarget.asUInt
     out.src := operandDecode.io.src
     out.dst := operandDecode.io.dst
+    out.pairFirstDst := operandDecode.io.pairFirstDst
     out.imm := operandDecode.io.imm
     out.immType := 0.U
     out.immValid := operandDecode.io.immValid

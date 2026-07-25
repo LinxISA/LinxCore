@@ -380,8 +380,10 @@ def exec_uop_comb(
     srcr_addsub_shl = shl_var(m, srcr_addsub, shamt)
     srcr_logic_shl = shl_var(m, srcr_logic, shamt)
 
-    idx_mod = srcr_val._trunc(width=32)._zext(width=64)
+    idx_mod = srcr_val
     idx_mod = st0._select_internal(srcr_val._trunc(width=32)._sext(width=64), idx_mod)
+    idx_mod = st1._select_internal(srcr_val._trunc(width=32)._zext(width=64), idx_mod)
+    idx_mod = st2._select_internal((~srcr_val) + 1, idx_mod)
     idx_mod_shl = shl_var(m, idx_mod, shamt)
 
     # Common offsets.
@@ -942,9 +944,13 @@ def exec_uop(
         srcr_addsub_shl = shl_var(m, srcr_addsub, shamt)
         srcr_logic_shl = shl_var(m, srcr_logic, shamt)
 
-        idx_mod = srcr_val._trunc(width=32)._zext(width=64)
+        idx_mod = srcr_val
         if srcr_type == 0:
             idx_mod = srcr_val._trunc(width=32)._sext(width=64)
+        if srcr_type == 1:
+            idx_mod = srcr_val._trunc(width=32)._zext(width=64)
+        if srcr_type == 2:
+            idx_mod = (~srcr_val) + 1
         idx_mod_shl = shl_var(m, idx_mod, shamt)
 
         if (

@@ -16,7 +16,11 @@ import linxcore.common.{
 import org.scalatest.funsuite.AnyFunSuite
 
 object FrontendDecodeStageReference {
-  final case class OperandShape(src: Vector[Option[Int]], dst: Option[Int], imm: Option[BigInt])
+  final case class OperandShape(
+      src: Vector[Option[Int]],
+      dst: Option[Int],
+      imm: Option[BigInt],
+      pairFirstDst: Option[Int] = None)
 
   private val Mask64 = (BigInt(1) << 64) - 1
 
@@ -45,6 +49,7 @@ object FrontendDecodeStageReference {
         ((word & BigInt("f83f", 16)) == BigInt("5016", 16))
     val src = Array.fill[Option[Int]](3)(None)
     var dst: Option[Int] = None
+    var pairFirstDst: Option[Int] = None
     var imm: Option[BigInt] = None
 
     val rd16 = bitRange(word, 15, 11).toInt
@@ -63,8 +68,64 @@ object FrontendDecodeStageReference {
     val genericRs2 = if (lenBytes == 2) rd16 else if (lenBytes == 6) rs2Hl else rs2_32
 
     if (rule.rdKind == FrontendOpcodeDecodeTable.OperandREG) dst = Some(genericRd)
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_HL_SBI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SBI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SB_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SB_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SH_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SH_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SH_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SH_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SW_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SW_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SW_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SW_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SD_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SD_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SD_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SD_UPR)) {
+      dst = Some(rd16)
+    }
     if (rule.rs1Kind == FrontendOpcodeDecodeTable.OperandREG) src(0) = Some(genericRs1)
     if (rule.rs2Kind == FrontendOpcodeDecodeTable.OperandREG) src(1) = Some(genericRs2)
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_HL_SWIP,
+      FrontendOpcodeDecodeTable.OP_HL_SWIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_SDIP,
+      FrontendOpcodeDecodeTable.OP_HL_SDIP_U)) {
+      src(0) = Some(bitRange(word, 35, 31).toInt)
+      src(1) = Some(bitRange(word, 10, 6).toInt)
+      src(2) = Some(bitRange(word, 40, 36).toInt)
+    }
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_HL_LBIP,
+      FrontendOpcodeDecodeTable.OP_HL_LBUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LHUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHUIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LWIP,
+      FrontendOpcodeDecodeTable.OP_HL_LWIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LWUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LWUIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LDIP,
+      FrontendOpcodeDecodeTable.OP_HL_LDIP_U)) {
+      dst = Some(bitRange(word, 15, 11).toInt)
+      pairFirstDst = Some(bitRange(word, 27, 23).toInt)
+    }
 
     if (opcodeIs(rule,
       FrontendOpcodeDecodeTable.OP_C_ADD,
@@ -74,6 +135,8 @@ object FrontendDecodeStageReference {
       FrontendOpcodeDecodeTable.OP_C_SUB,
       FrontendOpcodeDecodeTable.OP_C_LDI,
       FrontendOpcodeDecodeTable.OP_C_LWI,
+      FrontendOpcodeDecodeTable.OP_C_SLLI,
+      FrontendOpcodeDecodeTable.OP_C_SRLI,
       FrontendOpcodeDecodeTable.OP_C_SEXT_W,
       FrontendOpcodeDecodeTable.OP_C_ZEXT_W,
       FrontendOpcodeDecodeTable.OP_C_CMP_EQI,
@@ -81,6 +144,9 @@ object FrontendDecodeStageReference {
       dst = Some(31)
     }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_C_CMP_EQI, FrontendOpcodeDecodeTable.OP_C_CMP_NEI)) {
+      src(0) = Some(24)
+    }
+    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_C_SLLI, FrontendOpcodeDecodeTable.OP_C_SRLI)) {
       src(0) = Some(24)
     }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_C_SDI, FrontendOpcodeDecodeTable.OP_C_SWI)) {
@@ -117,7 +183,10 @@ object FrontendDecodeStageReference {
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BTEXT)) {
       src(0) = Some(rs1_32)
     }
-    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET) || cSetretAlias) {
+    if (opcodeIs(
+      rule,
+      FrontendOpcodeDecodeTable.OP_SETRET,
+      FrontendOpcodeDecodeTable.OP_HL_SETRET) || cSetretAlias) {
       dst = Some(10)
     }
     if (opcodeIs(rule,
@@ -147,7 +216,15 @@ object FrontendDecodeStageReference {
       case FrontendOpcodeDecodeTable.ImmSIMM12_7_S5_25_7 =>
         imm = Some(sext((bitRange(word, 11, 7) << 7) | bitRange(word, 31, 25), 12))
       case FrontendOpcodeDecodeTable.ImmSIMM17 => imm = Some((sext(bitRange(word, 31, 15), 17) << 1) & Mask64)
-      case FrontendOpcodeDecodeTable.ImmSIMM25 => imm = Some(sext(bitRange(word, 31, 7), 25))
+      case FrontendOpcodeDecodeTable.ImmSIMM25 =>
+        val raw = sext(bitRange(word, 31, 7), 25)
+        if (opcodeIs(rule,
+          FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_COND,
+          FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_DIRECT)) {
+          imm = Some((raw << 1) & Mask64)
+        } else {
+          imm = Some(raw)
+        }
       case FrontendOpcodeDecodeTable.ImmSIMM5_11_S5 => imm = Some(sext(bitRange(word, 15, 11), 5))
       case FrontendOpcodeDecodeTable.ImmSIMM5_6_S5 =>
         if (cSetretAlias) {
@@ -159,6 +236,15 @@ object FrontendDecodeStageReference {
       case FrontendOpcodeDecodeTable.ImmFENTRY_UIMM_HI =>
         imm = Some((bitRange(word, 11, 7) << 10) | (bitRange(word, 31, 25) << 3))
       case FrontendOpcodeDecodeTable.ImmIMM32 =>
+        val pfx16 = bitRange(word, 15, 0)
+        val main = word >> 16
+        val raw = (bitRange(pfx16, 15, 4) << 20) | bitRange(main, 31, 12)
+        val decoded = sext(raw, 32)
+        imm = Some(
+          if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_HL_SETRET)) (decoded << 1) & Mask64
+          else if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_HL_LIU)) raw
+          else decoded)
+      case FrontendOpcodeDecodeTable.ImmSIMM32 =>
         val pfx16 = bitRange(word, 15, 0)
         val main = word >> 16
         imm = Some(sext((bitRange(pfx16, 15, 4) << 20) | bitRange(main, 31, 12), 32))
@@ -179,6 +265,18 @@ object FrontendDecodeStageReference {
       case FrontendOpcodeDecodeTable.ImmSIMM_4_S12_23_5_36_12 =>
         val pfx16 = bitRange(word, 15, 0)
         imm = Some(sext((bitRange(pfx16, 15, 4) << 17) | (bitRange(word, 27, 23) << 12) | bitRange(word, 47, 36), 29))
+      case FrontendOpcodeDecodeTable.ImmSIMM17_6_S5_23_5_41_7 =>
+        imm = Some(sext((bitRange(word, 10, 6) << 12) | (bitRange(word, 27, 23) << 7) | bitRange(word, 47, 41), 17))
+      case FrontendOpcodeDecodeTable.ImmSIMM17_6_S5_36_12 =>
+        imm = Some(sext((bitRange(word, 10, 6) << 12) | bitRange(word, 47, 36), 17))
+      case FrontendOpcodeDecodeTable.ImmSIMM17_11_S5_23_5_41_7 =>
+        imm = Some(sext((bitRange(word, 15, 11) << 12) | (bitRange(word, 27, 23) << 7) | bitRange(word, 47, 41), 17))
+      case FrontendOpcodeDecodeTable.ImmSIMM22_6_S10_23_5_41_7 =>
+        imm = Some(sext((bitRange(word, 15, 6) << 12) | (bitRange(word, 27, 23) << 7) | bitRange(word, 47, 41), 22))
+      case FrontendOpcodeDecodeTable.ImmSIMM24 =>
+        imm = Some(sext((bitRange(word, 15, 4) << 12) | bitRange(word, 47, 36), 24))
+      case FrontendOpcodeDecodeTable.ImmUIMM24 =>
+        imm = Some((bitRange(word, 15, 4) << 12) | bitRange(word, 47, 36))
       case FrontendOpcodeDecodeTable.ImmIMM20 =>
         if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET)) {
           imm = Some((bitRange(word, 31, 12) << 1) & Mask64)
@@ -213,7 +311,7 @@ object FrontendDecodeStageReference {
       imm = Some(sext(bitRange(word, 31, 15), 17))
     }
 
-    OperandShape(src.toVector, dst, imm)
+    OperandShape(src.toVector, dst, imm, pairFirstDst)
   }
 }
 
@@ -304,7 +402,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 680)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 687)
     assert(FrontendOpcodeDecodeTable.OP_ADD == 61)
     assert(FrontendOpcodeDecodeTable.OP_LD == 350)
     assert(FrontendOpcodeDecodeTable.OP_SD == 389)
@@ -317,6 +415,14 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(FrontendOpcodeDecodeTable.OP_DMA == 86)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
+  }
+
+  test("all immediate block-boundary opcodes produce boundary targets") {
+    assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_COND))
+    assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_DIRECT))
+    assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_STD_CALL))
+    assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_STD_COND))
+    assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_STD_DIRECT))
   }
 
   test("frontend reg6 alias classifier follows LinxCoreModel scalar operand bounds") {
@@ -460,6 +566,22 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(cLdiScaled.src(0).contains(24))
     assert(cLdiScaled.imm.contains(BigInt("fffffffffffffff0", 16)))
 
+    val cSlli = operands(BigInt("116c", 16), lenBytes = 2).get
+    assert(cSlli.dst.contains(31))
+    assert(cSlli.src(0).contains(24))
+    assert(cSlli.imm.contains(5))
+
+    val cSrli = operands(BigInt("196c", 16), lenBytes = 2).get
+    assert(cSrli.dst.contains(31))
+    assert(cSrli.src(0).contains(24))
+    assert(cSrli.imm.contains(5))
+
+    val hlLis = operands(BigInt("00000000100d800e", 16), lenBytes = 6).get
+    assert(hlLis.imm.contains(BigInt("ffffffff80000001", 16)))
+
+    val hlLiu = operands(BigInt("00000000101d800e", 16), lenBytes = 6).get
+    assert(hlLiu.imm.contains(BigInt("0000000080000001", 16)))
+
     val sd = operands(0x00003049L | (9L << 15) | (10L << 20) | (11L << 27), lenBytes = 4).get
     assert(sd.src(0).contains(11))
     assert(sd.src(1).contains(9))
@@ -470,6 +592,13 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(bstart.dst.isEmpty)
     assert(bstart.src.forall(_.isEmpty))
     assert(bstart.imm.contains(2))
+
+    val splitBstart = operands(BigInt("00000391", 16), lenBytes = 4).get
+    assert(splitBstart.imm.contains(14))
+    assert(0x138c4L + splitBstart.imm.get == 0x138d2L)
+
+    val btext = operands(BigInt("00000383", 16), lenBytes = 4).get
+    assert(btext.imm.contains(7))
 
     val hlBstartCall = operands(BigInt("3c001000e", 16), lenBytes = 6).get
     assert(hlBstartCall.dst.isEmpty)
@@ -545,6 +674,52 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(hlLui.src.forall(_.isEmpty))
     assert(hlLui.imm.contains(1))
 
+    // QEMU's Dhrystone exit sequence executes this exact backward HL.SETRET:
+    // PC 0x10012 + (-3 halfwords) = return label 0x1000c.
+    val hlSetret = operands(BigInt("ffffd507fffe", 16), lenBytes = 6).get
+    assert(decode(BigInt("ffffd507fffe", 16), lenBytes = 6).exists(_.opcode == FrontendOpcodeDecodeTable.OP_HL_SETRET))
+    assert(hlSetret.dst.contains(10))
+    assert(hlSetret.src.forall(_.isEmpty))
+    assert(hlSetret.imm.contains(BigInt("fffffffffffffffa", 16)))
+
+    // Exact Dhrystone stack writeback. RegDst1 is prefix[15:11] (= x2's
+    // architectural tag 22); main32.rd is zero and must never receive it.
+    val hlSwiPo = operands(BigInt("0363a059b03e", 16), lenBytes = 6).get
+    assert(decode(BigInt("0363a059b03e", 16), lenBytes = 6).exists(_.opcode == FrontendOpcodeDecodeTable.OP_HL_SWI_PO))
+    assert(hlSwiPo.dst.contains(22))
+    assert(hlSwiPo.src(0).contains(7))
+    assert(hlSwiPo.src(1).contains(22))
+    assert(hlSwiPo.imm.contains(1))
+
+    // Exact CoreMark pair store: QEMU decodes SrcD=s2, SrcD1=s1,
+    // SrcR=sp and scales the signed element offset 3 by eight bytes.
+    val hlSdip = operands(BigInt("0616b059031e", 16), lenBytes = 6).get
+    assert(decode(BigInt("0616b059031e", 16), lenBytes = 6).exists(_.opcode == FrontendOpcodeDecodeTable.OP_HL_SDIP))
+    assert(hlSdip.dst.isEmpty)
+    assert(hlSdip.src(0).contains(13))
+    assert(hlSdip.src(1).contains(12))
+    assert(hlSdip.src(2).contains(1))
+    assert(hlSdip.imm.contains(3))
+
+    // Exact CoreMark pair load. RegDst0=r4 is the first loaded lane and
+    // RegDst1=t is the second lane retained by the scalar commit projection.
+    val hlLdip = operands(BigInt("0030b219f81e", 16), lenBytes = 6).get
+    assert(decode(BigInt("0030b219f81e", 16), lenBytes = 6).exists(_.opcode == FrontendOpcodeDecodeTable.OP_HL_LDIP))
+    assert(hlLdip.dst.contains(31))
+    assert(hlLdip.pairFirstDst.contains(4))
+    assert(hlLdip.src(0).contains(1))
+    assert(hlLdip.src(1).isEmpty)
+    assert(hlLdip.src(2).isEmpty)
+    assert(hlLdip.imm.contains(3))
+
+    // Exact CoreMark CRC mask.  The split SIMM24 is prefix[15:4] followed by
+    // instruction[47:36], yielding +0xffff rather than the old zero default.
+    val hlAndi = operands(BigInt("fffc211500fe", 16), lenBytes = 6).get
+    assert(decode(BigInt("fffc211500fe", 16), lenBytes = 6).exists(_.opcode == FrontendOpcodeDecodeTable.OP_HL_ANDI))
+    assert(hlAndi.dst.contains(2))
+    assert(hlAndi.src(0).contains(24))
+    assert(hlAndi.imm.contains(BigInt("ffff", 16)))
+
     val fentry = operands(BigInt("90a50041", 16), lenBytes = 4).get
     assert(fentry.dst.contains(1))
     assert(fentry.src(0).contains(10))
@@ -613,5 +788,6 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(sv.contains("io_blockBoundaryMask"))
     assert(sv.contains("io_loadMask"))
     assert(sv.contains("io_storeMask"))
+    assert(sv.contains("pairFirstDst"))
   }
 }

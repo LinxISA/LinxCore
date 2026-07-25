@@ -77,6 +77,24 @@ LEGACY_SYMBOL_OVERRIDES = {
     "internal_c_setret": "OP_C_SETRET",
 }
 
+OP_ID_CATEGORY_OVERRIDES = {
+    # Preserve existing opcode IDs when repairing the product category.
+    "OP_HL_SDI": "ALU_INT",
+    "OP_HL_SDI_PO": "ALU_INT",
+    "OP_HL_SDI_PR": "ALU_INT",
+    "OP_HL_SDI_U": "ALU_INT",
+    "OP_HL_SDI_UPO": "ALU_INT",
+    "OP_HL_SDI_UPR": "ALU_INT",
+    "OP_LR_B": "MISC",
+    "OP_LR_D": "MISC",
+    "OP_LR_H": "MISC",
+    "OP_LR_W": "MISC",
+    "OP_SC_B": "MISC",
+    "OP_SC_D": "MISC",
+    "OP_SC_H": "MISC",
+    "OP_SC_W": "MISC",
+}
+
 
 @dataclass(frozen=True)
 class DecodeEntry:
@@ -179,6 +197,14 @@ def mnemonic_to_symbol(mnemonic: str) -> str:
 
 def classify_major_minor(mnemonic: str) -> tuple[str, str]:
     m = mnemonic.lower()
+    hl_sdi_immediate_stores = {
+        "hl_sdi",
+        "hl_sdi_u",
+        "hl_sdi_po",
+        "hl_sdi_pr",
+        "hl_sdi_upo",
+        "hl_sdi_upr",
+    }
     if m.startswith("internal_"):
         return "MISC", "internal"
     if m.startswith("v_"):
@@ -187,6 +213,10 @@ def classify_major_minor(mnemonic: str) -> tuple[str, str]:
         return "HL_PCR", "hl_pcr"
     if m in {"fentry", "fexit", "fret_ra", "fret_stk", "mcopy", "mset", "esave", "ercov"}:
         return "MACRO_TEMPLATE", "template"
+    if m in {"lr_b", "lr_h", "lr_w", "lr_d"}:
+        return "LOAD", "atomic"
+    if m in {"sc_b", "sc_h", "sc_w", "sc_d"}:
+        return "STORE", "atomic"
     if m in {"casb", "cash", "casw", "casd", "dma"}:
         return "ALU_INT", "atomic"
     if m.startswith("c_"):
@@ -207,7 +237,7 @@ def classify_major_minor(mnemonic: str) -> tuple[str, str]:
         return "BLOCK_ARGS_DESC", "block_desc"
     if re.match(r"^l[bhwd]", m) or m in {"lbi", "lhi", "lhui", "lwui", "ldi", "lwi", "lbui", "lw_pcr"}:
         return "LOAD", "load"
-    if re.match(r"^s[bhwd]", m) or m in {"sbi", "shi", "sdi", "swi", "sw_pcr"}:
+    if re.match(r"^s[bhwd]", m) or m in {"sbi", "shi", "sdi", "swi", "sw_pcr"} or m in hl_sdi_immediate_stores:
         return "STORE", "store"
     if m in {"feq", "flt", "fge", "fadd", "fsub", "fmul", "fdiv", "fcvt", "fcvtz", "fabs"}:
         return "FP_SYS", "fp"
@@ -235,11 +265,11 @@ def classify_fields(fields: Iterable[str]) -> tuple[str, str, str, str]:
         if core.startswith("%"):
             core = core[1:]
         name = core.lower()
-        if name in {"regdst", "rd", "dsttype"}:
+        if name in {"regdst", "regdst1", "rd", "dsttype"}:
             rd_kind = "REG"
-        elif name in {"srcl", "src0", "srca"}:
+        elif name in {"srcl", "src0", "srca", "srcd"}:
             rs1_kind = "REG"
-        elif name in {"srcr", "src1", "srcd", "srcp"}:
+        elif name in {"srcr", "src1", "srcp"}:
             rs2_kind = "REG"
         if "imm" in name:
             if imm_kind == "NONE":
@@ -418,7 +448,8 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
 
     sym_to_cat: Dict[str, str] = {}
     for r in records:
-        sym_to_cat.setdefault(r["symbol"], r["major_cat"])
+        symbol = r["symbol"]
+        sym_to_cat.setdefault(symbol, OP_ID_CATEGORY_OVERRIDES.get(symbol, r["major_cat"]))
 
     ordered_symbols = sorted(
         sym_to_cat.keys(),

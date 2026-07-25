@@ -11,6 +11,7 @@ class FrontendOperandDecodeIO(val p: InterfaceParams = InterfaceParams()) extend
 
   val src = Output(Vec(3, new DecodedOperand(p)))
   val dst = Output(Vec(1, new DecodedDestination(p)))
+  val pairFirstDst = Output(new DecodedDestination(p))
   val imm = Output(UInt(p.immWidth.W))
   val immValid = Output(Bool())
 }
@@ -76,6 +77,10 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   io.dst(0).kind := DestinationKind.None
   io.dst(0).archTag := regInvalid
   io.dst(0).relTag := regInvalid
+  io.pairFirstDst.valid := false.B
+  io.pairFirstDst.kind := DestinationKind.None
+  io.pairFirstDst.archTag := regInvalid
+  io.pairFirstDst.relTag := regInvalid
   io.imm := 0.U
   io.immValid := false.B
 
@@ -91,8 +96,10 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val rs2_32 = archTag(insn32(24, 20))
   val srcp32 = archTag(insn32(31, 27))
   val rdHl = archTag(main32(11, 7))
+  val rd1Hl = archTag(io.insn(15, 11))
   val rs1Hl = archTag(main32(19, 15))
   val rs2Hl = archTag(main32(24, 20))
+  val srcD1Hl = archTag(io.insn(10, 6))
 
   val genericRd = Mux(io.meta.lenBytes === 2.U, rd16, Mux(io.meta.lenBytes === 6.U, rdHl, rd32))
   val genericRs1 = Mux(io.meta.lenBytes === 2.U, rs16, Mux(io.meta.lenBytes === 6.U, rs1Hl, rs1_32))
@@ -108,6 +115,7 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val simm17Raw = sext(insn32(31, 15), 17)
   val simm17Off = fitImm(simm17Raw << 1)
   val simm25 = sext(insn32(31, 7), 25)
+  val simm25Off = fitImm(simm25 << 1)
   val simm5_11 = sext(insn16(15, 11), 5)
   val simm5_6 = sext(insn16(10, 6), 5)
   val cBranchOff = fitImm(sext(insn16(15, 4), 12) << 1)
@@ -115,10 +123,22 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val shamt20_25 = insn32(25, 20).pad(p.immWidth)
   val macroImm = fitImm(insn32(11, 7).pad(p.immWidth) << 10) |
     fitImm(insn32(31, 25).pad(p.immWidth) << 3)
-  val hlLuiImm = sext(Cat(pfx16(15, 4), main32(31, 12)), 32)
+  val hlImm32 = Cat(pfx16(15, 4), main32(31, 12))
+  val hlLuiImm = sext(hlImm32, 32)
+  val hlLiuImm = hlImm32.pad(p.immWidth)
+  val hlSetretImm = fitImm(hlLuiImm << 1)
   val hlBstartOff = sext(Cat(pfx16(15, 4), io.insn(47, 31), 0.U(1.W)), 30)
   val hlPcrOff = sext(Cat(pfx16(15, 4), io.insn(47, 31)), 29)
   val hlStorePcrOff = sext(Cat(pfx16(15, 4), io.insn(27, 23), io.insn(47, 36)), 29)
+  val hlSimm17_6_s5_23_5_41_7 = sext(Cat(io.insn(10, 6), io.insn(27, 23), io.insn(47, 41)), 17)
+  val hlSimm17_6_s5_36_12 = sext(Cat(io.insn(10, 6), io.insn(47, 36)), 17)
+  val hlSimm17_11_s5_23_5_41_7 = sext(Cat(io.insn(15, 11), io.insn(27, 23), io.insn(47, 41)), 17)
+  val hlSimm22_6_s10_23_5_41_7 = sext(Cat(io.insn(15, 6), io.insn(27, 23), io.insn(47, 41)), 22)
+  // QEMU decodetree `%{s,u}imm24 4:12 36:12` and Sail both concatenate
+  // prefix[15:4] as the high half and instruction[47:36] as the low half.
+  val hlImm24 = Cat(io.insn(15, 4), io.insn(47, 36))
+  val hlSimm24 = sext(hlImm24, 24)
+  val hlUimm24 = hlImm24.pad(p.immWidth)
 
   private def isLoadPcrOpcode: Bool =
     opcodeIs(
@@ -151,15 +171,88 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       FrontendOpcodeDecodeTable.OP_SETC_NEI,
       FrontendOpcodeDecodeTable.OP_SETC_ORI)
 
+  // QEMU insn48.decode names this field RegDst1: writeback stores encode their
+  // sole destination in the 16-bit prefix, not in the main word's rd field.
+  private def isHlStoreWritebackOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_HL_SBI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SBI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SB_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SB_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SHI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SH_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SH_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SH_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SH_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SWI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SW_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SW_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SW_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SW_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SDI_UPR,
+      FrontendOpcodeDecodeTable.OP_HL_SD_PO,
+      FrontendOpcodeDecodeTable.OP_HL_SD_PR,
+      FrontendOpcodeDecodeTable.OP_HL_SD_UPO,
+      FrontendOpcodeDecodeTable.OP_HL_SD_UPR)
+
+  private def isHlStorePairOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_HL_SWIP,
+      FrontendOpcodeDecodeTable.OP_HL_SWIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_SDIP,
+      FrontendOpcodeDecodeTable.OP_HL_SDIP_U)
+
+  private def isHlImmediateLoadPairOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_HL_LBIP,
+      FrontendOpcodeDecodeTable.OP_HL_LBUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LHUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LHUIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LWIP,
+      FrontendOpcodeDecodeTable.OP_HL_LWIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LWUIP,
+      FrontendOpcodeDecodeTable.OP_HL_LWUIP_U,
+      FrontendOpcodeDecodeTable.OP_HL_LDIP,
+      FrontendOpcodeDecodeTable.OP_HL_LDIP_U)
+
   when(io.active) {
     when(io.meta.rdKind === FrontendOpcodeDecodeTable.OperandREG.U) {
       setDst(genericRd)
+    }
+    when(isHlStoreWritebackOpcode) {
+      setDst(rd16)
+    }
+    when(isHlImmediateLoadPairOpcode) {
+      // QEMU insn48.decode: RegDst0=[27:23], RegDst1=[15:11].  Keep RegDst1
+      // as the scalar commit-row destination and carry RegDst0 explicitly for
+      // the second atomic rename/writeback mutation.
+      setDst(rd1Hl)
+      io.pairFirstDst := FrontendRegAliasClassify.destination(p, true.B, archTag(io.insn(27, 23)))
     }
     when(io.meta.rs1Kind === FrontendOpcodeDecodeTable.OperandREG.U) {
       setSrc(0, genericRs1)
     }
     when(io.meta.rs2Kind === FrontendOpcodeDecodeTable.OperandREG.U) {
       setSrc(1, genericRs2)
+    }
+    when(isHlStorePairOpcode) {
+      // QEMU insn48.decode: SrcD=[35:31], SrcD1=[10:6], SrcR=[40:36].
+      // Keep the two data operands in lanes 0/1 and the address base in lane
+      // 2 so the reduced execute path can publish both architectural stores.
+      setSrc(0, archTag(io.insn(35, 31)))
+      setSrc(1, srcD1Hl)
+      setSrc(2, archTag(io.insn(40, 36)))
     }
 
     when(opcodeIs(
@@ -170,6 +263,8 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       FrontendOpcodeDecodeTable.OP_C_SUB,
       FrontendOpcodeDecodeTable.OP_C_LDI,
       FrontendOpcodeDecodeTable.OP_C_LWI,
+      FrontendOpcodeDecodeTable.OP_C_SLLI,
+      FrontendOpcodeDecodeTable.OP_C_SRLI,
       FrontendOpcodeDecodeTable.OP_C_SEXT_B,
       FrontendOpcodeDecodeTable.OP_C_SEXT_H,
       FrontendOpcodeDecodeTable.OP_C_SEXT_W,
@@ -182,6 +277,10 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     }
 
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_CMP_EQI, FrontendOpcodeDecodeTable.OP_C_CMP_NEI)) {
+      setSrc(0, 24.U)
+    }
+
+    when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_SLLI, FrontendOpcodeDecodeTable.OP_C_SRLI)) {
       setSrc(0, 24.U)
     }
 
@@ -220,7 +319,9 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setSrc(0, rs1_32)
     }
 
-    when(opcodeIs(FrontendOpcodeDecodeTable.OP_SETRET)) {
+    when(opcodeIs(
+      FrontendOpcodeDecodeTable.OP_SETRET,
+      FrontendOpcodeDecodeTable.OP_HL_SETRET)) {
       setDst(10.U)
     }
 
@@ -263,7 +364,13 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       }
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM25.U) {
-      setImm(simm25)
+      when(opcodeIs(
+        FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_COND,
+        FrontendOpcodeDecodeTable.OP_BSTART_SPLIT_DIRECT)) {
+        setImm(simm25Off)
+      }.otherwise {
+        setImm(simm25)
+      }
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM5_11_S5.U) {
       setImm(simm5_11)
@@ -281,6 +388,18 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setImm(macroImm)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM32.U) {
+      when(opcodeIs(FrontendOpcodeDecodeTable.OP_HL_SETRET)) {
+        // SETRET immediates are signed halfword displacements.  Keep the
+        // scaling here beside the shorter SETRET forms so execute receives a
+        // uniform byte displacement for PC + imm.
+        setImm(hlSetretImm)
+      }.elsewhen(opcodeIs(FrontendOpcodeDecodeTable.OP_HL_LIU)) {
+        setImm(hlLiuImm)
+      }.otherwise {
+        setImm(hlLuiImm)
+      }
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM32.U) {
       setImm(hlLuiImm)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM_4_S12_31_17.U) {
@@ -292,6 +411,24 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM_4_S12_23_5_36_12.U) {
       setImm(hlStorePcrOff)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM17_6_S5_23_5_41_7.U) {
+      setImm(hlSimm17_6_s5_23_5_41_7)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM17_6_S5_36_12.U) {
+      setImm(hlSimm17_6_s5_36_12)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM17_11_S5_23_5_41_7.U) {
+      setImm(hlSimm17_11_s5_23_5_41_7)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM22_6_S10_23_5_41_7.U) {
+      setImm(hlSimm22_6_s10_23_5_41_7)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM24.U) {
+      setImm(hlSimm24)
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmUIMM24.U) {
+      setImm(hlUimm24)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM20.U) {
       when(opcodeIs(FrontendOpcodeDecodeTable.OP_SETRET)) {
@@ -309,8 +446,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     }
     when(opcodeIs(
       FrontendOpcodeDecodeTable.OP_SLLI,
+      FrontendOpcodeDecodeTable.OP_SLLIW,
       FrontendOpcodeDecodeTable.OP_SRLI,
-      FrontendOpcodeDecodeTable.OP_SRAI)) {
+      FrontendOpcodeDecodeTable.OP_SRLIW,
+      FrontendOpcodeDecodeTable.OP_SRAI,
+      FrontendOpcodeDecodeTable.OP_SRAIW)) {
       setImm(shamt20_25)
     }
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
