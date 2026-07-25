@@ -14,6 +14,7 @@ object FrontendFetchPacketSourceReference {
       out: Packet,
       active: Boolean,
       waitingResponse: Boolean,
+      discardResponse: Boolean,
       packetValid: Boolean,
       reqFire: Boolean,
       respFire: Boolean,
@@ -29,6 +30,7 @@ object FrontendFetchPacketSourceReference {
     private var active = false
     private var currentPc = BigInt(0)
     private var waitingResponse = false
+    private var discardResponse = false
     private var issuedPc = BigInt(0)
     private var issuedUid = BigInt(0)
     private var issuedPeId = 0
@@ -50,10 +52,11 @@ object FrontendFetchPacketSourceReference {
         outReady: Boolean = false,
         advanceBytes: Int = 8): Output = {
       val restartOrStart = restartValid || startValid
+      val controlValid = flushValid || restartOrStart
       val selectedRestartPc = if (restartValid) restartPc else startPc
-      val reqValid = active && !waitingResponse && !packet.valid && !flushValid && !restartOrStart
-      val respReady = waitingResponse && !packet.valid && !flushValid && !restartOrStart
-      val out = packet.copy(valid = packet.valid && !flushValid && !restartOrStart)
+      val reqValid = active && !waitingResponse && !packet.valid && !controlValid
+      val respReady = waitingResponse && !packet.valid
+      val out = packet.copy(valid = packet.valid && !controlValid)
       val reqFire = reqValid && reqReady
       val respFire = respValid && respReady
       val outFire = out.valid && outReady
@@ -66,6 +69,7 @@ object FrontendFetchPacketSourceReference {
         out = out,
         active = active,
         waitingResponse = waitingResponse,
+        discardResponse = discardResponse,
         packetValid = packet.valid,
         reqFire = reqFire,
         respFire = respFire,
@@ -75,8 +79,10 @@ object FrontendFetchPacketSourceReference {
         issuedPc = issuedPc,
         nextPktUid = nextPktUid)
 
-      if (flushValid || restartOrStart) {
-        waitingResponse = false
+      if (controlValid) {
+        val mustDrainOutstanding = waitingResponse && !respFire
+        waitingResponse = mustDrainOutstanding
+        discardResponse = mustDrainOutstanding
         packet = packet.copy(valid = false)
         if (restartOrStart) {
           active = true
@@ -90,6 +96,7 @@ object FrontendFetchPacketSourceReference {
       } else {
         if (reqFire) {
           waitingResponse = true
+          discardResponse = false
           issuedPc = currentPc
           issuedUid = nextPktUid
           issuedPeId = peId
@@ -98,14 +105,19 @@ object FrontendFetchPacketSourceReference {
         }
         if (respFire) {
           waitingResponse = false
-          packet = Packet(
-            valid = true,
-            peId = issuedPeId,
-            threadId = issuedThreadId,
-            pc = issuedPc,
-            window = respWindow,
-            pktUid = issuedUid,
-            checkpointId = (issuedUid & 0x3f).toInt)
+          if (discardResponse) {
+            discardResponse = false
+            packet = packet.copy(valid = false)
+          } else {
+            packet = Packet(
+              valid = true,
+              peId = issuedPeId,
+              threadId = issuedThreadId,
+              pc = issuedPc,
+              window = respWindow,
+              pktUid = issuedUid,
+              checkpointId = (issuedUid & 0x3f).toInt)
+          }
         }
         if (outFire) {
           packet = packet.copy(valid = false)
@@ -133,7 +145,15 @@ class FrontendFetchPacketSourceProbeIO(val p: InterfaceParams = InterfaceParams(
   val outReady = Input(Bool())
   val out = Output(new FrontendDecodePacket(p))
   val advanceBytes = Input(UInt(4.W))
+  val active = Output(Bool())
+  val waitingResponse = Output(Bool())
+  val packetValid = Output(Bool())
+  val reqFire = Output(Bool())
+  val respFire = Output(Bool())
+  val outFire = Output(Bool())
+  val advanceZero = Output(Bool())
   val currentPc = Output(UInt(p.pcWidth.W))
+  val issuedPc = Output(UInt(p.pcWidth.W))
   val nextPktUid = Output(UInt(p.uopUidWidth.W))
 }
 
@@ -158,8 +178,24 @@ class FrontendFetchPacketSourceProbe(val p: InterfaceParams = InterfaceParams())
   io.reqPc := source.io.reqPc
   io.respReady := source.io.respReady
   io.out := source.io.out
+  io.active := source.io.active
+  io.waitingResponse := source.io.waitingResponse
+  io.packetValid := source.io.packetValid
+  io.reqFire := source.io.reqFire
+  io.respFire := source.io.respFire
+  io.outFire := source.io.outFire
+  io.advanceZero := source.io.advanceZero
   io.currentPc := source.io.currentPc
+  io.issuedPc := source.io.issuedPc
   io.nextPktUid := source.io.nextPktUid
+}
+
+object ElaborateFrontendFetchPacketSourceProbe extends App {
+  ChiselStage.emitSystemVerilogFile(
+    new FrontendFetchPacketSourceProbe(InterfaceParams()),
+    args,
+    Array("--strip-debug-info", "--disable-all-randomization")
+  )
 }
 
 class FrontendFetchPacketSourceSpec extends AnyFunSuite {
@@ -209,7 +245,7 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
     assert(next.nextPktUid == 1)
   }
 
-  test("reference restart flushes pending work and preserves packet uid progression") {
+  test("reference restart drains stale outstanding response before redirected request") {
     val source = new FrontendFetchPacketSourceReference.Model
 
     source.step(startValid = true, startPc = 0x1000)
@@ -217,16 +253,109 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
     val restart = source.step(restartValid = true, restartPc = 0x2000)
     assert(!restart.reqValid)
     assert(restart.waitingResponse)
+    assert(restart.respReady)
 
     val afterRestart = source.step()
-    assert(!afterRestart.waitingResponse)
-    assert(afterRestart.reqValid)
-    assert(afterRestart.reqPc == 0x2000)
+    assert(afterRestart.waitingResponse)
+    assert(afterRestart.discardResponse)
+    assert(afterRestart.respReady)
+    assert(!afterRestart.reqValid)
+
+    val stale = source.step(respValid = true, respWindow = 0xaaaa)
+    assert(stale.respReady)
+    assert(stale.respFire)
 
     val req = source.step(reqReady = true)
     assert(req.reqFire)
     assert(req.reqPc == 0x2000)
     assert(req.nextPktUid == 1)
+  }
+
+  test("reference discards stale response arriving on the restart cycle") {
+    val source = new FrontendFetchPacketSourceReference.Model
+
+    source.step(startValid = true, startPc = 0x1000)
+    source.step(reqReady = true)
+    val restartAndResponse =
+      source.step(restartValid = true, restartPc = 0x2000, respValid = true, respWindow = 0xaaaa)
+
+    assert(restartAndResponse.respReady)
+    assert(restartAndResponse.respFire)
+
+    val req = source.step(reqReady = true)
+    assert(!req.waitingResponse)
+    assert(!req.out.valid)
+    assert(req.reqFire)
+    assert(req.reqPc == 0x2000)
+    assert(req.nextPktUid == 1)
+  }
+
+  test("reference holds redirected request until a delayed stale response drains") {
+    val source = new FrontendFetchPacketSourceReference.Model
+
+    source.step(startValid = true, startPc = 0x1000)
+    source.step(reqReady = true)
+    source.step(restartValid = true, restartPc = 0x2000)
+
+    for (_ <- 0 until 3) {
+      val hold = source.step(reqReady = true)
+      assert(hold.waitingResponse)
+      assert(hold.discardResponse)
+      assert(hold.respReady)
+      assert(!hold.reqValid)
+      assert(!hold.out.valid)
+      assert(hold.currentPc == 0x2000)
+    }
+
+    val stale = source.step(respValid = true, respWindow = 0xbbbb)
+    assert(stale.respFire)
+
+    val req = source.step(reqReady = true)
+    assert(req.reqFire)
+    assert(req.reqPc == 0x2000)
+  }
+
+  test("reference start drains stale outstanding response and resets next request uid") {
+    val source = new FrontendFetchPacketSourceReference.Model
+
+    source.step(startValid = true, startPc = 0x1000)
+    source.step(reqReady = true)
+    source.step(respValid = true, respWindow = 0x1111)
+    source.step(outReady = true)
+    source.step(reqReady = true)
+    val start = source.step(startValid = true, startPc = 0x3000)
+
+    assert(start.waitingResponse)
+    assert(!start.reqValid)
+    val stale = source.step(respValid = true, respWindow = 0x2222)
+    assert(stale.respFire)
+    val req = source.step(reqReady = true)
+    assert(req.reqFire)
+    assert(req.reqPc == 0x3000)
+    assert(req.nextPktUid == 0)
+  }
+
+  test("reference start discards stale response arriving on the start cycle and resets next request uid") {
+    val source = new FrontendFetchPacketSourceReference.Model
+
+    source.step(startValid = true, startPc = 0x1000)
+    source.step(reqReady = true)
+    source.step(respValid = true, respWindow = 0x1111)
+    source.step(outReady = true)
+    source.step(reqReady = true)
+    val startAndResponse =
+      source.step(startValid = true, startPc = 0x3000, respValid = true, respWindow = 0x2222)
+
+    assert(startAndResponse.respReady)
+    assert(startAndResponse.respFire)
+    assert(!startAndResponse.reqValid)
+
+    val req = source.step(reqReady = true)
+    assert(!req.waitingResponse)
+    assert(!req.out.valid)
+    assert(req.reqFire)
+    assert(req.reqPc == 0x3000)
+    assert(req.nextPktUid == 0)
   }
 
   test("reference flush without restart disables the source until the next start") {
@@ -238,7 +367,8 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
 
     val idle = source.step(reqReady = true, respValid = true, respWindow = 0x1234)
     assert(!idle.reqValid)
-    assert(!idle.respReady)
+    assert(idle.respReady)
+    assert(idle.respFire)
     assert(!idle.out.valid)
 
     val restart = source.step(startValid = true, startPc = 0x3000)
@@ -246,6 +376,30 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
     val req = source.step(reqReady = true)
     assert(req.reqFire)
     assert(req.reqPc == 0x3000)
+  }
+
+  test("reference flush discards stale response arriving on the flush cycle and stays inactive") {
+    val source = new FrontendFetchPacketSourceReference.Model
+
+    source.step(startValid = true, startPc = 0x1000)
+    source.step(reqReady = true)
+    val flushAndResponse = source.step(flushValid = true, respValid = true, respWindow = 0x1234)
+
+    assert(flushAndResponse.respReady)
+    assert(flushAndResponse.respFire)
+    assert(!flushAndResponse.reqValid)
+
+    val idle = source.step(reqReady = true)
+    assert(!idle.waitingResponse)
+    assert(!idle.out.valid)
+    assert(!idle.active)
+    assert(!idle.reqValid)
+
+    source.step(startValid = true, startPc = 0x3000)
+    val req = source.step(reqReady = true)
+    assert(req.reqFire)
+    assert(req.reqPc == 0x3000)
+    assert(req.nextPktUid == 0)
   }
 
   test("IO fields preserve fetch request, response, packet, and diagnostics widths") {
@@ -263,6 +417,7 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
     assert(io.out.checkpointId.getWidth == 6)
     assert(io.advanceBytes.getWidth == 4)
     assert(io.currentPc.getWidth == 64)
+    assert(io.issuedPc.getWidth == 64)
     assert(io.nextPktUid.getWidth == 64)
   }
 
@@ -275,6 +430,7 @@ class FrontendFetchPacketSourceSpec extends AnyFunSuite {
     assert(sv.contains("io_respReady"))
     assert(sv.contains("io_out_valid"))
     assert(sv.contains("io_currentPc"))
+    assert(sv.contains("io_issuedPc"))
     assert(sv.contains("io_nextPktUid"))
   }
 }

@@ -46,6 +46,7 @@ class FrontendFetchPacketSource(val p: InterfaceParams = InterfaceParams()) exte
   private val activeReg = RegInit(false.B)
   private val currentPcReg = RegInit(0.U(p.pcWidth.W))
   private val waitingResponseReg = RegInit(false.B)
+  private val discardResponseReg = RegInit(false.B)
   private val issuedPcReg = RegInit(0.U(p.pcWidth.W))
   private val issuedUidReg = RegInit(0.U(p.uopUidWidth.W))
   private val issuedPeIdReg = RegInit(0.U(p.peIdWidth.W))
@@ -54,10 +55,11 @@ class FrontendFetchPacketSource(val p: InterfaceParams = InterfaceParams()) exte
   private val packetReg = RegInit(0.U.asTypeOf(new FrontendDecodePacket(p)))
 
   val restartOrStart = io.restartValid || io.startValid
+  val controlValid = io.flushValid || restartOrStart
   val restartPc = Mux(io.restartValid, io.restartPc, io.startPc)
-  val reqValid = activeReg && !waitingResponseReg && !packetReg.valid && !io.flushValid && !restartOrStart
-  val respReady = waitingResponseReg && !packetReg.valid && !io.flushValid && !restartOrStart
-  val outValid = packetReg.valid && !io.flushValid && !restartOrStart
+  val reqValid = activeReg && !waitingResponseReg && !packetReg.valid && !controlValid
+  val respReady = waitingResponseReg && !packetReg.valid
+  val outValid = packetReg.valid && !controlValid
   val reqFire = reqValid && io.reqReady
   val respFire = io.respValid && respReady
   val outFire = outValid && io.outReady
@@ -82,8 +84,10 @@ class FrontendFetchPacketSource(val p: InterfaceParams = InterfaceParams()) exte
   io.issuedPc := issuedPcReg
   io.nextPktUid := nextPktUidReg
 
-  when(io.flushValid || restartOrStart) {
-    waitingResponseReg := false.B
+  when(controlValid) {
+    val mustDrainOutstanding = waitingResponseReg && !respFire
+    waitingResponseReg := mustDrainOutstanding
+    discardResponseReg := mustDrainOutstanding
     packetReg.valid := false.B
     when(restartOrStart) {
       activeReg := true.B
@@ -97,6 +101,7 @@ class FrontendFetchPacketSource(val p: InterfaceParams = InterfaceParams()) exte
   }.otherwise {
     when(reqFire) {
       waitingResponseReg := true.B
+      discardResponseReg := false.B
       issuedPcReg := currentPcReg
       issuedUidReg := nextPktUidReg
       issuedPeIdReg := io.peId
@@ -106,13 +111,18 @@ class FrontendFetchPacketSource(val p: InterfaceParams = InterfaceParams()) exte
 
     when(respFire) {
       waitingResponseReg := false.B
-      packetReg.valid := true.B
-      packetReg.peId := issuedPeIdReg
-      packetReg.threadId := issuedThreadIdReg
-      packetReg.pc := issuedPcReg
-      packetReg.window := io.respWindow
-      packetReg.pktUid := issuedUidReg
-      packetReg.checkpointId := issuedUidReg(p.checkpointWidth - 1, 0)
+      when(discardResponseReg) {
+        discardResponseReg := false.B
+        packetReg.valid := false.B
+      }.otherwise {
+        packetReg.valid := true.B
+        packetReg.peId := issuedPeIdReg
+        packetReg.threadId := issuedThreadIdReg
+        packetReg.pc := issuedPcReg
+        packetReg.window := io.respWindow
+        packetReg.pktUid := issuedUidReg
+        packetReg.checkpointId := issuedUidReg(p.checkpointWidth - 1, 0)
+      }
     }
 
     when(outFire) {
