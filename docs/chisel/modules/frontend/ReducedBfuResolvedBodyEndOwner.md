@@ -1,6 +1,6 @@
 # ReducedBfuResolvedBodyEndOwner
 
-> **Architecture status — legacy geometry fixture.** Resolved branch feedback
+> **Architecture status — verification-only geometry fixture.** Resolved branch feedback
 > is retained and trained through B-F0–B-F4; I-SIDE receives only Decoupled
 > prediction/redirect messages.
 

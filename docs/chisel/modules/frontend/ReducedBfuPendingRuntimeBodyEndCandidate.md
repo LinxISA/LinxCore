@@ -1,7 +1,7 @@
 # ReducedBfuPendingRuntimeBodyEndCandidate
 
-> **Architecture status — legacy feedback fixture.** Retained resolved
-> feedback migrates to the B-F0–B-F4 training queue and must carry exact
+> **Architecture status — verification-only feedback fixture.** Retained resolved
+> feedback belongs to the B-F0–B-F4 training queue and must carry exact
 > prediction/fetch identity.
 
 ## Purpose

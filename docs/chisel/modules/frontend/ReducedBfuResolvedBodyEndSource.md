@@ -1,7 +1,7 @@
 # ReducedBfuResolvedBodyEndSource
 
-> **Architecture status — legacy source fixture.** Source arbitration and
-> training ownership migrate to B-F0–B-F4. This helper must not directly mutate
+> **Architecture status — verification-only source fixture.** Source arbitration
+> and training are owned by B-F0–B-F4. This helper must not directly mutate
 > I-SIDE PC or stage state.
 
 ## Purpose

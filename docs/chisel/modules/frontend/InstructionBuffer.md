@@ -2,9 +2,9 @@
 
 ## Status
 
-`InstructionBuffer` is the production-shaped I-F4-to-D1 queue foundation. It
-is separate from the migration-only `FrontendInstructionBuffer`, which stores
-one raw fetch packet and drains one packet at a time.
+`InstructionBuffer` is the production I-F4-to-D1 queue. The similarly named
+`FrontendInstructionBuffer` is a verification-only packet FIFO and is excluded
+from the production graph.
 
 The new owner implements:
 
@@ -51,7 +51,8 @@ Run:
 bash tools/chisel/run_chisel_tests.sh --only InstructionBuffer
 ```
 
-R677 passed 11 tests across the existing migration FIFO and the new buffer.
+The focused suite covers both the verification packet FIFO and this production
+buffer without conflating their owner contracts.
 The real Chisel simulations cover:
 
 - four-row enqueue/dequeue with per-lane prediction preservation;

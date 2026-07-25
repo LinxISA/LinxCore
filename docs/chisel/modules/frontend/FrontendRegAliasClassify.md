@@ -1,6 +1,6 @@
 # FrontendRegAliasClassify
 
-> **Architecture status — D1 leaf migration object.** Register-alias
+> **Architecture status — D1 decode leaf.** Register-alias
 > classification belongs to D1 full decode. It is not I-SIDE predecode or
 > B-SIDE prediction behavior.
 

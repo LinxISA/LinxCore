@@ -1,7 +1,7 @@
 # F4DenseSlotQueue
 
-> **Architecture status — legacy migration fixture.** The serialized slot
-> queue is not architectural I-F4 or the target Instruction Buffer. Production
+> **Architecture status — verification-only fixture.** The serialized slot
+> queue is not architectural I-F4 or `InstructionBuffer`. Production
 > uses an independent 64-bit instruction-entry buffer after I-F4 and
 > supplies up to four entries per cycle to D1.
 

@@ -1,6 +1,6 @@
 # ReducedBfuResolvedBodyEndPending
 
-> **Architecture status — legacy feedback fixture.** The target equivalent is
+> **Architecture status — verification-only feedback fixture.** Production uses
 > a retained B-F0–B-F4 training entry with exact STID, prediction tag, fetch
 > sequence, and epoch.
 

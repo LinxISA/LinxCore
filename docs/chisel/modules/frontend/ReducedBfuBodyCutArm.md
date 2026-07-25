@@ -1,9 +1,8 @@
 # ReducedBfuBodyCutArm
 
-> **Architecture status — legacy diagnostic fixture.** Production prediction
-> is owned by the decoupled B-SIDE engine. This helper may supply migration
-> evidence but must not directly control I-F0–I-F4. Its behavior migrates into
-> the B-F0–B-F4 prediction/correction pipeline.
+> **Architecture status — verification-only diagnostic.** Production prediction
+> is owned by the decoupled B-SIDE engine. This helper supplies focused evidence
+> only and must not directly control I-F0–I-F4.
 
 ## Purpose
 

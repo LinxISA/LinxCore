@@ -15,9 +15,8 @@ The module:
 - may accept a different STID on the same cycle that a matching resident group
   is killed.
 
-This is the production-shaped replacement boundary for the migration
-`F4DenseSlotQueue`, which serializes decoded slots and therefore cannot prove
-four-wide D1 throughput.
+This is the production boundary. `F4DenseSlotQueue` remains verification-only;
+its serialized slots cannot prove four-wide D1 throughput.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 # FrontendOperandDecode
 
-> **Architecture status — D1 leaf migration object.** Operand decode belongs
+> **Architecture status — D1 decode leaf.** Operand decode belongs
 > to four-wide D1 after the Instruction Buffer. I-F4 predecode must not
 > perform these operations; from D1 onward every lane carries a 64-bit
 > instruction.

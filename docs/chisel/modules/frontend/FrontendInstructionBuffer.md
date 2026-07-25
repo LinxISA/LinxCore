@@ -1,6 +1,6 @@
 # FrontendInstructionBuffer
 
-> **Architecture status — storage migration object.** The production
+> **Architecture status — verification-only packet FIFO.** The production
 > Instruction Buffer is an independent queue after I-F4 and before D1.
 > It stores per-instruction 64-bit entries and supports up to four D1 reads per
 > cycle. The current packet FIFO does not define that architecture.
@@ -20,8 +20,8 @@
 
 ## Purpose
 
-`FrontendInstructionBuffer` currently stores legacy packet windows. This
-implementation is a migration object only. The target buffer is an independent
+`FrontendInstructionBuffer` stores packet windows only for focused tests and is
+excluded from the production graph. `InstructionBuffer` is the independent
 queue after I-F4 and before D1; each row stores one 64-bit instruction
 plus PC, original length, `BSTART`/`BSTOP`, fetch identity, epoch, and
 prediction identity.
@@ -30,7 +30,7 @@ prediction identity.
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
-| input | `push` | `FrontendDecodePacket` | `push.valid && pushReady` | Packet accepted from the current legacy producer |
+| input | `push` | `FrontendDecodePacket` | `push.valid && pushReady` | Packet accepted from the test producer |
 | output | `pushReady` | `Bool` | ready | High when the queue is not full and not being flushed |
 | input | `popReady` | `Bool` | ready | Consumer readiness from the current fixture |
 | output | `out` | `FrontendDecodePacket` | `out.valid && popReady` | Oldest buffered packet |
@@ -75,10 +75,10 @@ and checkpoint identity as packet-owned at frontend ingress.
 
 ## Timing
 
-`FrontendInstructionBuffer` is currently a registered packet FIFO and does
-not decode opcodes or allocate backend resources. It feeds the legacy
-`F4DecodeWindow` fixture. Production replaces this packet shape with an
-independent 64-bit instruction-entry queue and four-entry D1 head access.
+`FrontendInstructionBuffer` is a registered packet FIFO and does not decode
+opcodes or allocate backend resources. It feeds the verification-only
+`F4DecodeWindow` fixture. Production uses `InstructionBuffer` with independent
+64-bit instruction rows and four-entry D1 head access.
 
 ## Flush/Recovery
 

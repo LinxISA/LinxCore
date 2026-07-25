@@ -1,7 +1,6 @@
 # ReducedBfuPromotedRuntimeBodyEndOracle
 
-> **Architecture status — legacy oracle fixture.** Keep only for migration
-> comparison. It is not part of the production decoupled
+> **Architecture status — verification-only oracle.** It is not part of the production decoupled
 > I-F0–I-F4/B-F0–B-F4 owner
 > graph.
 

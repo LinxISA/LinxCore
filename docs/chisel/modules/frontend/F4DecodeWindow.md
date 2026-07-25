@@ -1,10 +1,9 @@
 # F4DecodeWindow
 
-> **Architecture status — legacy migration fixture.** This code identifier
+> **Architecture status — verification-only fixture.** This code identifier
 > does not name architectural I-F4. Production I-F4 is I-SIDE stage 4 and only
 > performs instruction-length/`BSTART`/`BSTOP` predecode plus 64-bit expansion.
-> This 8-byte window slicer is an input to the F3/F4 migration and must not
-> define the target pipeline.
+> This 8-byte window slicer is excluded from the production IFU graph.
 
 ## Source Mapping
 
@@ -91,10 +90,10 @@ the Chisel opcode table and decode-owner modules exist.
 
 ## Timing
 
-`F4DecodeWindow` is a combinational legacy packet-window helper. It must not
-be instantiated as architectural I-F4 or hidden inside the target Instruction
-Buffer. During migration, an enclosing fixture must hold its packet stable
-when the consumer stalls.
+`F4DecodeWindow` is a combinational packet-window test helper. It must not be
+instantiated as architectural I-F4 or hidden inside `InstructionBuffer`. An
+enclosing verification fixture must hold its packet stable when the consumer
+stalls.
 
 ## Flush/Recovery
 
