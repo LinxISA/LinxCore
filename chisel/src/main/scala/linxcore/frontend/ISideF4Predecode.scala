@@ -7,6 +7,7 @@ import linxcore.common.InterfaceParams
 class ISideF4PredecodeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val in = Flipped(Decoupled(new ISideAssembledGroup(p)))
   val out = Decoupled(new InstructionBufferEnqueueGroup(p))
+  val acceptedStop = Output(Bool())
   val flush = Input(new IfuInnerFlush(p))
 }
 
@@ -62,4 +63,5 @@ class ISideF4Predecode(val p: InterfaceParams = InterfaceParams()) extends Modul
   }
 
   io.out.bits.validMask := outputValid.asUInt
+  io.acceptedStop := io.out.fire && stopLane.asUInt.orR
 }

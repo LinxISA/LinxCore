@@ -76,15 +76,20 @@ lifetime:
 
 ## I-F3 Assembly
 
-I-F3 is the only cross-line instruction owner. It parses up to four candidates
-using the Linx 2/4/6/8-byte low-bit length rule. If an instruction crosses the
-line boundary, I-F3 retains the first line and requests the next aligned line.
+I-F3 is the only cross-line instruction owner. It parses consecutive groups of
+up to four candidates using the Linx 2/4/6/8-byte low-bit length rule and keeps
+a byte cursor until every instruction starting in the resident cacheline has
+been accepted. If the last such instruction crosses the line boundary, I-F3
+retains the first line and requests the next aligned line only to complete that
+instruction. It does not emit instructions that start in the second line.
 Only a second-line response with matching transaction ID, STID, and epoch is
 accepted.
 
 The completed candidate is zero-extended to 64 bits and carries a
 `crossesLine` diagnostic. Downstream I-F4 and D1 never reconstruct raw bytes
-across cache lines.
+across cache lines. Boundary recognition remains exclusively in I-F4:
+`acceptedStop` terminates the resident line after the group containing BSTOP is
+accepted. The terminal group supports consume-and-replace with the next line.
 
 ## I-F4 Boundary-Only Predecode
 

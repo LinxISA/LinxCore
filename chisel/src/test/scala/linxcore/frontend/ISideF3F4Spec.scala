@@ -16,6 +16,7 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
     dut.io.nextLineResponse.valid.poke(false.B)
     dut.io.nextLineResponse.bits.poke(0.U.asTypeOf(dut.io.nextLineResponse.bits))
     dut.io.out.ready.poke(false.B)
+    dut.io.terminateResident.poke(false.B)
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
   }
 
@@ -53,6 +54,51 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(0).lenBytes.expect(2.U)
       dut.io.out.bits.entries(3).insn.expect(0x40.U)
       dut.io.waitingForNextLine.expect(false.B)
+    }
+  }
+
+  test("I-F3 drains every instruction in a cacheline across consecutive four-wide groups") {
+    simulate(new ISideF3LineAssembler(p, lineBytes)) { dut =>
+      clearF3(dut)
+      val eightCompressedInstructions = BigInt("00800070006000500040003000200010", 16)
+      pokeHit(dut, pc = 0, transactionId = 2, lineData = eightCompressedInstructions)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.validMask.expect("b1111".U)
+      dut.io.out.bits.entries(0).pc.expect(0.U)
+      dut.io.out.bits.entries(3).pc.expect(6.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.in.ready.expect(false.B)
+      dut.clock.step()
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.validMask.expect("b1111".U)
+      dut.io.out.bits.entries(0).pc.expect(8.U)
+      dut.io.out.bits.entries(3).pc.expect(14.U)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("I-F3 releases a cacheline after a BSTOP instead of emitting younger bytes") {
+    simulate(new ISideF3LineAssembler(p, lineBytes)) { dut =>
+      clearF3(dut)
+      val stopInFirstGroup = BigInt("00800070006000500040000000200010", 16)
+      pokeHit(dut, pc = 0, transactionId = 3, lineData = stopInFirstGroup)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.validMask.expect("b1111".U)
+      dut.io.out.bits.entries(2).insn.expect(0.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.terminateResident.poke(true.B)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
     }
   }
 
@@ -114,6 +160,7 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(2).isBlockStop.expect(true.B)
       dut.io.out.bits.entries(3).isBlockStop.expect(false.B)
       dut.io.out.bits.entries(0).insn.expect(0x80.U)
+      dut.io.acceptedStop.expect(true.B)
       assert(dut.io.out.bits.entries(0).insn.getWidth == 64)
     }
   }

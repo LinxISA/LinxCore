@@ -246,8 +246,17 @@ instruction carry。
 | bit 0 = 1 且 bits `[3:1] != 111` | 4 bytes |
 | bit 0 = 1 且 bits `[3:1] == 111` | 8 bytes |
 
+一个 cache line 可以产生多个连续的四宽 group。I-F3 必须保留当前 line 和
+byte cursor，直到所有起始字节位于该 line 内的 instruction candidate 都已被
+I-F4 接受；不得在第一个四宽 group 后直接释放 line。第二个 line 只用于补齐
+跨 line 的最后一条指令，不能顺带产生起始于第二个 line 的 candidate，避免与
+该 line 自己的 fetch transaction 重复。
+
 I-F3 是跨 line instruction assembly 的唯一 owner。I-F4、Instruction Buffer 和
-D1 都不得重新拼接 variable-length bytes。
+D1 都不得重新拼接 variable-length bytes。I-F3 不识别 block boundary；当 I-F4
+接受的 group 含 `BSTOP` 时，通过 `acceptedStop` 反馈终止当前 line 的后续
+candidate。最后一个 group fire 的同周期，I-F3 必须允许下一条 line
+consume-and-replace。
 
 ### 4.5 I-F4：预解码和 64-bit 定长化
 

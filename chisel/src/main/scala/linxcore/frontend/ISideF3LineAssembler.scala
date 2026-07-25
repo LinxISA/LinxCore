@@ -12,6 +12,7 @@ class ISideF3LineAssemblerIO(
   val nextLineRequest = Decoupled(new ISideFetchRequest(p, lineBytes))
   val nextLineResponse = Flipped(Decoupled(new ISideLineResponse(p, lineBytes)))
   val out = Decoupled(new ISideAssembledGroup(p))
+  val terminateResident = Input(Bool())
   val flush = Input(new IfuInnerFlush(p))
 
   val waitingForNextLine = Output(Bool())
@@ -33,6 +34,7 @@ class ISideF3LineAssembler(
 
   val residentValid = RegInit(false.B)
   val resident = RegInit(0.U.asTypeOf(new ISideF2Result(p, lineBytes)))
+  val cursorOffset = RegInit(0.U(byteOffsetWidth.W))
   val secondLineValid = RegInit(false.B)
   val secondLine = RegInit(0.U.asTypeOf(new ISideLineResponse(p, lineBytes)))
   val nextRequestIssued = RegInit(false.B)
@@ -41,8 +43,6 @@ class ISideF3LineAssembler(
     io.flush.valid &&
       residentValid &&
       resident.request.identity.threadId === io.flush.threadId
-
-  io.in.ready := !residentValid || killResident
 
   val combinedData = Cat(
     Mux(secondLineValid, secondLine.lineData, 0.U((lineBytes * 8).W)),
@@ -53,7 +53,7 @@ class ISideF3LineAssembler(
   val laneNeedsSecond = Wire(Vec(p.fetchWidth, Bool()))
   val rawInsns = Wire(Vec(p.fetchWidth, UInt(p.insnWidth.W)))
 
-  offsets(0) := resident.request.pc(lineOffsetBits - 1, 0)
+  offsets(0) := cursorOffset
 
   for (lane <- 0 until p.fetchWidth) {
     val shifted = combinedData >> (offsets(lane) << 3)
@@ -74,6 +74,7 @@ class ISideF3LineAssembler(
       residentValid &&
         resident.status === ISideF2Status.Hit &&
         priorContinues &&
+        startsInFirstLine &&
         fitsAvailable
     rawInsns(lane) :=
       shifted(p.insnWidth - 1, 0) &
@@ -86,6 +87,12 @@ class ISideF3LineAssembler(
   }
 
   val needsSecondLine = laneNeedsSecond.reduce(_ || _)
+  val finalLane = p.fetchWidth - 1
+  val nextCursor = offsets(finalLane) + lengths(finalLane)
+  val residentContinuesAfterOut =
+    laneValid(finalLane) &&
+      !io.terminateResident &&
+      nextCursor < lineBytes.U
   val nextLineIdentityMatch =
     io.nextLineResponse.bits.transactionId === resident.request.transactionId &&
       io.nextLineResponse.bits.threadId === resident.request.identity.threadId &&
@@ -113,6 +120,10 @@ class ISideF3LineAssembler(
       !needsSecondLine &&
       laneValid.asUInt.orR &&
       !killResident
+  io.in.ready :=
+    !residentValid ||
+      killResident ||
+      (io.out.fire && !residentContinuesAfterOut)
   io.out.bits := 0.U.asTypeOf(io.out.bits)
   io.out.bits.validMask := laneValid.asUInt
   for (lane <- 0 until p.fetchWidth) {
@@ -133,14 +144,21 @@ class ISideF3LineAssembler(
       nextRequestIssued &&
       !nextLineIdentityMatch
 
-  when(killResident || io.out.fire) {
+  when(killResident || (io.out.fire && !residentContinuesAfterOut)) {
     residentValid := false.B
+    cursorOffset := 0.U
+    secondLineValid := false.B
+    nextRequestIssued := false.B
+  }
+  when(io.out.fire && residentContinuesAfterOut) {
+    cursorOffset := nextCursor
     secondLineValid := false.B
     nextRequestIssued := false.B
   }
   when(io.in.fire) {
     residentValid := true.B
     resident := io.in.bits
+    cursorOffset := io.in.bits.request.pc(lineOffsetBits - 1, 0)
     secondLineValid := false.B
     nextRequestIssued := false.B
   }
