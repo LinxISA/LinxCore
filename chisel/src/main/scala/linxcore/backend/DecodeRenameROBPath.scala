@@ -12,7 +12,7 @@ import linxcore.bctrl.{
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
-import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchSTQPath}
+import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchScIdentity, StoreDispatchSTQPath}
 import linxcore.recovery.{
   FullBidFlushReq,
   FullBidRecoveryBridge,
@@ -105,6 +105,10 @@ class DecodeRenameROBPathIO(
   val renamedOutReady = Input(Bool())
   val storeStaExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
   val storeStdExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
+  val storeScResultValid = Input(Bool())
+  val storeScResultSuccess = Input(Bool())
+  val storeScResultIdentity = Input(new StoreDispatchScIdentity(p.robEntries, stidWidth, p.lsidWidth))
+  val storeScStoreData = Input(UInt(64.W))
   val storeAddressInsertPermit = Input(Bool())
   val storeMarkCommitValid = Input(Bool())
   val storeMarkCommitIndex = Input(UInt(stqPtrWidth.W))
@@ -306,6 +310,13 @@ class DecodeRenameROBPathIO(
   val storeBlockedByStaInsert = Output(Bool())
   val storeBlockedByStdInsert = Output(Bool())
   val storeStdBypassStaBlocked = Output(Bool())
+  val storeScCandidate = Output(Bool())
+  val storeScIdentityMatch = Output(Bool())
+  val storeScSelectedSuccess = Output(Bool())
+  val storeScSelectedMissDiscard = Output(Bool())
+  val storeScBlockedByResult = Output(Bool())
+  val storeScBlockedByInsert = Output(Bool())
+  val storeScAcceptedIdentity = Output(new StoreDispatchScIdentity(p.robEntries, stidWidth, p.lsidWidth))
   val storeStqInsertValid = Output(Bool())
   val storeStqInsert = Output(new STQStoreRequest(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth, 64, p.lsidWidth))
   val storeStqInsertIntentValid = Output(Bool())
@@ -1142,6 +1153,10 @@ class DecodeRenameROBPath(
   storeDispatch.io.queueFlushValid := decRenFlush && !canonicalCleanup.flush.req.valid
   storeDispatch.io.staExec := io.storeStaExec
   storeDispatch.io.stdExec := io.storeStdExec
+  storeDispatch.io.scResultValid := io.storeScResultValid
+  storeDispatch.io.scResultSuccess := io.storeScResultSuccess
+  storeDispatch.io.scResultIdentity := io.storeScResultIdentity
+  storeDispatch.io.scStoreData := io.storeScStoreData
   storeDispatch.io.markCommitValid := io.storeMarkCommitValid
   storeDispatch.io.markCommitIndex := io.storeMarkCommitIndex
   storeDispatch.io.commitFreeValid := io.storeCommitFreeValid
@@ -1461,6 +1476,13 @@ class DecodeRenameROBPath(
   io.storeBlockedByStaInsert := storeDispatch.io.blockedByStaInsert
   io.storeBlockedByStdInsert := storeDispatch.io.blockedByStdInsert
   io.storeStdBypassStaBlocked := storeDispatch.io.stdBypassStaBlocked
+  io.storeScCandidate := storeDispatch.io.scCandidate
+  io.storeScIdentityMatch := storeDispatch.io.scIdentityMatch
+  io.storeScSelectedSuccess := storeDispatch.io.scSelectedSuccess
+  io.storeScSelectedMissDiscard := storeDispatch.io.scSelectedMissDiscard
+  io.storeScBlockedByResult := storeDispatch.io.scBlockedByResult
+  io.storeScBlockedByInsert := storeDispatch.io.scBlockedByInsert
+  io.storeScAcceptedIdentity := storeDispatch.io.scAcceptedIdentity
   io.storeStqInsertValid := storeDispatch.io.insertValid
   io.storeStqInsert := storeDispatch.io.insert
   io.storeStqInsertIntentValid := storeDispatch.io.insertIntentValid
