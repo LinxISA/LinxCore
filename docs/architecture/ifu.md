@@ -286,6 +286,14 @@ past an invalid, cancelled, faulting, or different-STID entry.
    decoupled, identity-qualified channels.
 11. Backend-resolved misprediction uses typed recovery and restarts I-F0.
 
+The production D1 implementation is `D1InstructionDecodeStage`. It consumes a
+four-entry `D1InstructionGroup` directly, performs full decode without an
+intermediate byte-window/slot representation, and copies the complete final
+prediction record into each decoded uop. I-F3 derives a dynamic instruction
+UID from an independent 64-bit monotonic allocator. Allocation advances only
+when an assembled group is accepted, remains stable under backpressure, and
+does not alias when fetch-packet identity high bits change.
+
 ## Generated-RTL throughput gate
 
 The canonical hot-cache supply gate is:

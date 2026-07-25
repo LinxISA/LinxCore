@@ -39,6 +39,7 @@ class ISideF3LineAssembler(
   val secondLineValid = RegInit(false.B)
   val secondLine = RegInit(0.U.asTypeOf(new ISideLineResponse(p, lineBytes)))
   val nextRequestIssued = RegInit(false.B)
+  val nextInstructionUid = RegInit(0.U(p.uopUidWidth.W))
 
   val killResident =
     residentValid &&
@@ -139,7 +140,11 @@ class ISideF3LineAssembler(
   io.out.bits.validMask := laneValid.asUInt
   io.out.bits.lineComplete := !laneValid(finalLane) || nextCursor >= lineBytes.U
   for (lane <- 0 until p.fetchWidth) {
+    val laneOrdinal =
+      if (lane == 0) 0.U else PopCount(VecInit(laneValid.take(lane)))
     io.out.bits.entries(lane).pc := resident.request.lineVa + offsets(lane)
+    io.out.bits.entries(lane).instructionUid :=
+      Mux(laneValid(lane), nextInstructionUid + laneOrdinal, 0.U)
     io.out.bits.entries(lane).insn := Mux(laneValid(lane), rawInsns(lane), 0.U)
     io.out.bits.entries(lane).lenBytes := Mux(laneValid(lane), lengths(lane), 0.U)
     io.out.bits.entries(lane).crossesLine :=
@@ -196,6 +201,7 @@ class ISideF3LineAssembler(
   }
 
   when(io.out.fire) {
+    nextInstructionUid := nextInstructionUid + PopCount(io.out.bits.validMask)
     assert(PopCount(io.out.bits.validMask) =/= 0.U)
   }
 }

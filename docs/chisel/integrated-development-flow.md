@@ -24,6 +24,17 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
+Latest IFU packet: R687 adds the production `D1InstructionDecodeStage`. It
+consumes four fixed-64-bit Instruction Buffer entries directly, without a
+packet-window or `F4Slot` conversion, and uses the shared
+`FrontendInstructionDecodeLane` for opcode/operand semantics. Every decoded
+uop receives the complete backend-safe prediction sidecar, scalar rename
+copies it unchanged, and I-F3 now assigns UIDs from an independent monotonic
+allocator that remains stable under backpressure. ChiselSim and generated
+RTL prove atomic four-wide decode, two-cycle backpressure stability, and exact
+partial-flush older-prefix survival. Four-lane rename/dispatch and BRU
+validation/recovery remain open.
+
 Latest IFU packet: R686 adds a generated-RTL throughput gate around the
 canonical `LinxCoreIfu`, using architectural 64-byte cachelines and a
 synthesizable line responder. After warming four lines, both ChiselSim and

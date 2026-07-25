@@ -1077,7 +1077,9 @@ predictor tables 不因普通 redirect 清零。
 - [x] Instruction Buffer 是 I-F4 与 D1 之间的独立 queue。
 - [x] D1 boundary 每周期读取最多四条 64-bit instruction，保持完整预测记录和
   ready/valid 稳定性。
-- [ ] 四条 D1 instruction 原子进入 production full decode、rename 和 dispatch。
+- [x] 四条 D1 instruction 不经过 `F4Slot`，原子进入 production full decode，
+  并逐 lane 保留 dynamic instruction UID 与完整 prediction sidecar。
+- [ ] 四条 decoded instruction 原子进入 production rename 和 dispatch。
 - [x] D1 之后不再传播 variable-width instruction representation。
 - [x] I-SIDE 支持多 cacheline 在途、I-F2 乱序完成/I-F3 顺序消费，以及
   exact successor prefix/carry；hot-L1I composition 跨过 context 深度并连续

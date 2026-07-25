@@ -33,9 +33,11 @@ NanoBTB, uBTB, fast/final RAS, PBTB, BIM, short/medium/long TAGE, static,
 indirect BTB, and loop sources.
 
 The record is carried inside each Instruction Buffer row so D1 receives one
-prediction record per lane. Later packets must preserve it through decode,
-rename, dispatch, and BRU validation instead of reconstructing prediction from
-global state.
+prediction record per lane. `D1InstructionDecodeStage` copies it into the
+common `BranchPredictionSidecar`, and scalar rename copies that sidecar into
+`RenamedUop`. Dispatch, ROB/issue consumers, and BRU validation must continue
+to use the retained record instead of reconstructing prediction from global
+state.
 
 ## Inner Flush
 
@@ -67,15 +69,16 @@ It must not be connected to ROB, rename, LSU, or other backend cleanup owners.
 ## Verification
 
 The bundles are exercised through the real Chisel simulations in
-`BSideHistoryQueueSpec`, `BSidePredictionPipelineSpec`, `InstructionBufferSpec`, and
-`D1DecodeGroupGatherSpec`. Those tests prove that prediction tag, exact tuple,
-fallthrough, confidence, provider, stage, checkpoint, and epoch survive
+`BSideHistoryQueueSpec`, `BSidePredictionPipelineSpec`,
+`InstructionBufferSpec`, `D1DecodeGroupGatherSpec`, and
+`D1InstructionDecodeStageSpec`. Those tests prove that prediction tag, exact
+tuple, fallthrough, confidence, provider, stage, checkpoint, and epoch survive
 B-SIDE response retention plus four-wide queueing and D1 backpressure.
 
 ## Open Work
 
-- Carry the same record through `DecodedUop`/`RenamedUop` when the four-wide D1
-  production path is composed with the backend.
+- Carry the same record atomically through four-lane dispatch, issue/ROB, and
+  BRU resolution; `DecodedUop` and `RenamedUop` transport is already present.
 - Add resolved provider/alternate indices and usefulness metadata to the
   training-only payload; they do not belong in the immutable forward record.
 

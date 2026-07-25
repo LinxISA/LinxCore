@@ -290,6 +290,7 @@ class ScalarDecodeRenameBridge(
   renamed.boundaryKind := io.in.boundaryKind
   renamed.boundaryTarget := io.in.boundaryTarget
   renamed.predTaken := io.in.predTaken
+  renamed.prediction := io.in.prediction
   renamed.fretStkContextValid := io.in.fretStkContextValid
   renamed.fretStkConditionValid := io.in.fretStkConditionValid
   renamed.fretStkConditionTaken := io.in.fretStkConditionTaken

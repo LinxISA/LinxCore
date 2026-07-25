@@ -88,6 +88,31 @@ object DispatchTarget extends ChiselEnum {
   val None, D2, Alu, Bru, Lsu, Cmd, Bn = Value
 }
 
+object BranchPredictionSidecar {
+  val ProviderWidth = 4
+  val StageWidth = 3
+}
+
+/** Backend-safe copy of the complete effective IFU prediction record.
+  *
+  * Provider and stage are encoded as UInts here so the common decoded/renamed
+  * uop contract does not depend on frontend-owned ChiselEnum types.
+  */
+class BranchPredictionSidecar(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val valid = Bool()
+  val predictionTag = UInt(p.uopUidWidth.W)
+  val taken = Bool()
+  val branchPc = UInt(p.pcWidth.W)
+  val target = UInt(p.pcWidth.W)
+  val fallthroughPc = UInt(p.pcWidth.W)
+  val kind = BoundaryKind()
+  val provider = UInt(BranchPredictionSidecar.ProviderWidth.W)
+  val stage = UInt(BranchPredictionSidecar.StageWidth.W)
+  val confidence = UInt(2.W)
+  val checkpointId = UInt(p.checkpointWidth.W)
+  val epoch = UInt(p.blockEpochWidth.W)
+}
+
 class FrontendDecodePacket(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
   val peId = UInt(p.peIdWidth.W)
@@ -177,6 +202,7 @@ class DecodedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val boundaryKind = BoundaryKind()
   val boundaryTarget = UInt(p.pcWidth.W)
   val predTaken = Bool()
+  val prediction = new BranchPredictionSidecar(p)
   val fretStkContextValid = Bool()
   val fretStkConditionValid = Bool()
   val fretStkConditionTaken = Bool()
@@ -221,6 +247,7 @@ class RenamedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val boundaryKind = BoundaryKind()
   val boundaryTarget = UInt(p.pcWidth.W)
   val predTaken = Bool()
+  val prediction = new BranchPredictionSidecar(p)
   val fretStkContextValid = Bool()
   val fretStkConditionValid = Bool()
   val fretStkConditionTaken = Bool()

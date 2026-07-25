@@ -71,74 +71,29 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
 
   for (slot <- 0 until p.decodeWidth) {
     slotActive(slot) := active && io.slots(slot).valid && io.validMask(slot)
-    val rawMeta = FrontendOpcodeDecodeTable.decode(p, io.slots(slot).insnRaw, io.slots(slot).lenBytes)
-    val cSetretAlias =
-      rawMeta.valid &&
-        rawMeta.opcode === FrontendOpcodeDecodeTable.OP_C_MOVI.U(p.opcodeWidth.W) &&
-        io.slots(slot).lenBytes === 2.U &&
-        (io.slots(slot).insnRaw(15, 0) & "hf83f".U) === "h5016".U
-    val meta = Wire(new FrontendOpcodeMeta(p))
-    meta := rawMeta
-    when(cSetretAlias) {
-      meta.opcode := FrontendOpcodeDecodeTable.OP_C_SETRET.U(p.opcodeWidth.W)
-    }
-    val operandDecode = Module(new FrontendOperandDecode(p))
-    operandDecode.io.active := slotActive(slot) && meta.valid
-    operandDecode.io.meta := meta
-    operandDecode.io.insn := io.slots(slot).insnRaw
-    val hasBoundaryTarget =
-      FrontendDecodeStage.BoundaryTargetOpcodes.toSeq
-        .map(op => meta.opcode === op.U(p.opcodeWidth.W))
-        .reduce(_ || _)
+    val decode = Module(new FrontendInstructionDecodeLane(p))
+    decode.io.active := slotActive(slot)
+    decode.io.peId := io.d1.peId
+    decode.io.threadId := io.d1.threadId
+    decode.io.pc := io.slots(slot).pc
+    decode.io.insn := io.slots(slot).insnRaw
+    decode.io.lenBytes := io.slots(slot).lenBytes
+    decode.io.isLastInBlock := io.slots(slot).isLastInBlock
+    decode.io.checkpointId := io.d1.checkpointId
+    decode.io.instructionUid := io.slots(slot).uopUid
+    decode.io.parentUid := io.d1.pktUid
+    decode.io.fetchPacketUid := io.d1.pktUid
+    decode.io.fetchSlot := slot.U
+    decode.io.prediction := 0.U.asTypeOf(decode.io.prediction)
 
-    val out = Wire(new DecodedUop(p))
-    out := 0.U.asTypeOf(out)
-
-    out.valid := slotActive(slot) && meta.valid
-    out.peId := io.d1.peId
-    out.threadId := io.d1.threadId
-    out.pc := io.slots(slot).pc
-    out.opcode := meta.opcode
-    out.uopType := meta.dispatchTarget.asUInt
-    out.src := operandDecode.io.src
-    out.dst := operandDecode.io.dst
-    out.pairFirstDst := operandDecode.io.pairFirstDst
-    out.imm := operandDecode.io.imm
-    out.immType := 0.U
-    out.immValid := operandDecode.io.immValid
-    out.isLoad := meta.isLoad
-    out.isStore := meta.isStore
-    out.isLoadStorePair := meta.isLoadStorePair
-    out.isStorePcr := meta.isStorePcr
-    out.cacheMaintainNoSplit := meta.cacheMaintainNoSplit
-    out.sob := meta.isBlockBoundary
-    out.eob := meta.isBlockStop
-    out.isLastInBlock := meta.isBlockStop || io.slots(slot).isLastInBlock
-    out.boundaryKind := meta.boundaryKind
-    out.boundaryTarget := Mux(hasBoundaryTarget && operandDecode.io.immValid, out.pc + operandDecode.io.imm, 0.U)
-    out.predTaken := false.B
-    out.insnLen := meta.lenBytes
-    out.insnRaw := io.slots(slot).insnRaw
-    out.checkpointId := io.d1.checkpointId
-    out.blockUid := 0.U
-    out.blockBidValid := false.B
-    out.blockBid := 0.U
-    out.uid.uid := io.slots(slot).uopUid
-    out.uid.parentUid := io.d1.pktUid
-    out.uid.kind := meta.dispatchTarget.asUInt
-    out.uid.fetchPacketUid := io.d1.pktUid
-    out.uid.fetchSlot := slot.U
-    out.uid.replayDepth := 0.U
-    out.uid.templateKind := 0.U
-
-    io.meta(slot) := meta
-    io.out(slot) := out
-    decodedValid(slot) := out.valid
-    invalidOpcode(slot) := slotActive(slot) && !meta.valid
-    blockBoundary(slot) := out.valid && meta.isBlockBoundary
-    blockStop(slot) := out.valid && meta.isBlockStop
-    loadVec(slot) := out.valid && meta.isLoad
-    storeVec(slot) := out.valid && meta.isStore
+    io.meta(slot) := decode.io.meta
+    io.out(slot) := decode.io.out
+    decodedValid(slot) := decode.io.out.valid
+    invalidOpcode(slot) := decode.io.invalidOpcode
+    blockBoundary(slot) := decode.io.blockBoundary
+    blockStop(slot) := decode.io.blockStop
+    loadVec(slot) := decode.io.isLoad
+    storeVec(slot) := decode.io.isStore
   }
 
   io.outValidMask := decodedValid.asUInt

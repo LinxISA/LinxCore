@@ -103,6 +103,7 @@ class ISideF4Predecode(
     outputValid(lane) := laneAllowed
 
     io.out.bits.entries(lane).pc := candidate.pc
+    io.out.bits.entries(lane).instructionUid := candidate.instructionUid
     io.out.bits.entries(lane).insn := candidate.insn
     io.out.bits.entries(lane).lenBytes := candidate.lenBytes
     io.out.bits.entries(lane).isBlockStart := startLane(lane)

@@ -75,6 +75,7 @@ class BranchPredictionRecord(val p: InterfaceParams = InterfaceParams()) extends
 
 class InstructionBufferEntry(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pc = UInt(p.pcWidth.W)
+  val instructionUid = UInt(p.uopUidWidth.W)
   val insn = UInt(p.insnWidth.W)
   val lenBytes = UInt(p.lenWidth.W)
   val isBlockStart = Bool()

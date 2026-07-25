@@ -67,8 +67,9 @@ The real Chisel simulations cover:
 
 - The `LinxCoreIfu` composition already connects I-F4 through the final-prediction
   join into this queue and connects `deq` through `D1DecodeGroupGather`.
-- Connect that four-wide D1 boundary atomically to production full decode,
-  rename, and dispatch.
+- `D1InstructionDecodeStage` is the production full-decode consumer contract
+  for this boundary; top-level composition, four-lane rename, and dispatch
+  remain open.
 - Add fetch-fault payload before I-F2 fault rows are promoted.
 - Prove sustained four-row traffic through D1/rename/dispatch, not only at the
   queue boundary.

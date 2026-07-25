@@ -23,7 +23,7 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
   private def pokeHit(
       dut: ISideF3LineAssembler,
       pc: BigInt,
-      transactionId: Int,
+      transactionId: BigInt,
       lineData: BigInt): Unit = {
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.in.valid.poke(true.B)
@@ -32,7 +32,9 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
     dut.io.in.bits.request.pc.poke(pc.U)
     dut.io.in.bits.request.lineVa.poke((pc & ~BigInt(lineBytes - 1)).U)
     dut.io.in.bits.request.transactionId.poke(transactionId.U)
+    dut.io.in.bits.request.identity.peId.poke(1.U)
     dut.io.in.bits.request.identity.threadId.poke(0.U)
+    dut.io.in.bits.request.identity.fetchPacketUid.poke(transactionId.U)
     dut.io.in.bits.request.identity.fetchSeq.poke(transactionId.U)
     dut.io.in.bits.request.identity.epoch.poke(0.U)
     dut.io.in.bits.request.prediction.kind.poke(BoundaryKind.Fall)
@@ -51,6 +53,8 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.validMask.expect("b1111".U)
       dut.io.out.bits.entries(0).pc.expect(0.U)
       dut.io.out.bits.entries(3).pc.expect(6.U)
+      dut.io.out.bits.entries(0).instructionUid.expect(0.U)
+      dut.io.out.bits.entries(3).instructionUid.expect(3.U)
       dut.io.out.bits.entries(0).lenBytes.expect(2.U)
       dut.io.out.bits.entries(3).insn.expect(0x40.U)
       dut.io.waitingForNextLine.expect(false.B)
@@ -69,6 +73,8 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.validMask.expect("b1111".U)
       dut.io.out.bits.entries(0).pc.expect(0.U)
       dut.io.out.bits.entries(3).pc.expect(6.U)
+      dut.io.out.bits.entries(0).instructionUid.expect(0.U)
+      dut.io.out.bits.entries(3).instructionUid.expect(3.U)
       dut.io.out.ready.poke(true.B)
       dut.io.in.ready.expect(false.B)
       dut.clock.step()
@@ -77,9 +83,35 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.validMask.expect("b1111".U)
       dut.io.out.bits.entries(0).pc.expect(8.U)
       dut.io.out.bits.entries(3).pc.expect(14.U)
+      dut.io.out.bits.entries(0).instructionUid.expect(4.U)
+      dut.io.out.bits.entries(3).instructionUid.expect(7.U)
       dut.io.in.ready.expect(true.B)
       dut.clock.step()
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("I-F3 allocates instruction UIDs independently of fetch-packet high bits") {
+    simulate(new ISideF3LineAssembler(p, lineBytes)) { dut =>
+      clearF3(dut)
+      val line = BigInt("0040003000200010", 16)
+
+      pokeHit(dut, pc = 0, transactionId = BigInt(1) << 58, lineData = line)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.bits.entries(0).instructionUid.expect(0.U)
+      dut.io.out.bits.entries(3).instructionUid.expect(3.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.terminateResident.poke(true.B)
+      dut.clock.step()
+
+      dut.io.out.ready.poke(false.B)
+      dut.io.terminateResident.poke(false.B)
+      pokeHit(dut, pc = 16, transactionId = 0, lineData = line)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.bits.entries(0).instructionUid.expect(4.U)
+      dut.io.out.bits.entries(3).instructionUid.expect(7.U)
     }
   }
 
@@ -118,10 +150,10 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.nextLineRequest.ready.poke(false.B)
 
       dut.io.nextLineResponse.valid.poke(true.B)
-      dut.io.nextLineResponse.bits.peId.poke(0.U)
+      dut.io.nextLineResponse.bits.peId.poke(1.U)
       dut.io.nextLineResponse.bits.transactionId.poke(8.U)
       dut.io.nextLineResponse.bits.threadId.poke(0.U)
-      dut.io.nextLineResponse.bits.fetchPacketUid.poke(0.U)
+      dut.io.nextLineResponse.bits.fetchPacketUid.poke(9.U)
       dut.io.nextLineResponse.bits.fetchSeq.poke(9.U)
       dut.io.nextLineResponse.bits.checkpointId.poke(0.U)
       dut.io.nextLineResponse.bits.epoch.poke(0.U)

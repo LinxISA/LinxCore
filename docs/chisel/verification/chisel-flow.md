@@ -5,8 +5,8 @@
 The LinxCore Chisel lane uses explicit targets:
 
 Frontend targets containing `F4DecodeWindow` or `F4DenseSlotQueue` below are
-legacy no-regression fixtures. Production IFU verification must separately
-cover decoupled/non-lockstep I-F0–I-F4 and B-F0–B-F4, the stage rank
+verification-only no-regression fixtures. Production IFU verification must
+separately cover decoupled/non-lockstep I-F0–I-F4 and B-F0–B-F4, the stage rank
 `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`, all later-stage correction
 paths to I-F0 restart with B-F4 as the final correction point,
 exact `{taken, branchPc, target, kind}` comparison, checkpoint/epoch stale
@@ -22,16 +22,17 @@ retained training.
 | `emit-verilog` | `tools/chisel/emit_verilog.sh` | Emit `generated/chisel-verilog/LinxCoreTop.sv`. |
 | `verilator-lint` | `tools/chisel/run_chisel_verilator_lint.sh` | Emit the Chisel top and run Verilator lint over every top-level emitted SystemVerilog file. |
 | `ifu-throughput` | `tools/chisel/run_chisel_ifu_throughput_gate.sh` | Emit canonical `LinxCoreIfu` with 64-byte cachelines, build its Verilator harness, and require thirty-two consecutive full four-wide D1 groups with final B-F4 metadata and multiple joins/line contexts in flight. |
+| `d1-instruction-decode` | `tools/chisel/run_chisel_d1_instruction_decode_probe.sh` | Emit the production D1 decoder and prove atomic four-wide decode, instruction-UID preservation, complete final-prediction sidecars, blocked-output stability, and precise older-prefix survival. |
 | `robid-xcheck` | `tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` | Run Packet A ROBID semantic gate. |
 | `flushcontrol-xcheck` | `tools/chisel/run_chisel_tests.sh --only FlushControl` | Run Packet B FlushControl classification and older-signal tests. |
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |
 | `commit-monitor-xcheck` | `tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor` | Run Phase 1 fixed-width commit-window contract checks. |
 | `reduced-rob-xcheck` | `tools/chisel/run_chisel_reduced_rob_xcheck.sh` | Emit `ReducedCommitROB`, build the Verilator harness, assert commit-window monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
 | `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
-| `frontend-fetch-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` | Legacy fixture: drive a bounded memory window through `FrontendFetchPacketSource`, the window slicer, and reduced decode/ROB; this does not prove I-F0–I-F4 or B-F0–B-F4. |
+| `frontend-fetch-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` | Verification-only fixture: drive a bounded memory window through `FrontendFetchPacketSource`, the window slicer, and reduced decode/ROB; this does not prove I-F0–I-F4 or B-F0–B-F4. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
-| `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Legacy fixture: drive PC request/response windows through the current source/window path, reduced rename/ROB, RF-backed issue, and ALU execute; it is not production IFU pipeline evidence. |
+| `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Verification-only fixture: drive PC request/response windows through the current source/window path, reduced rename/ROB, RF-backed issue, and ALU execute; it is not production IFU pipeline evidence. |
 | `frontend-fetch-rf-alu-qemu-elf-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` | Capture a bounded live QEMU commit prefix from a direct-boot ELF, validate the selected rows as the strict reduced scalar subset, pair them with `FETCH_ELF` sparse fetch memory, and run the live fetch RF/ALU generated-RTL comparator gate. |
 | `frontend-fetch-rf-alu-qemu-fixture-elf` | `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh` | Build a tiny legal-entry direct-boot ELF (`C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP`) and print the scalar PC filter used by the live QEMU ELF xcheck. |
 | `frontend-fetch-rf-alu-fixture-rows` | `tools/chisel/frontend_fetch_rf_alu_fixture_rows.py --self-test` | Validate the default QEMU-shaped expected-row fixture used when `FETCH_EXPECTED_ROWS` is unset. |
