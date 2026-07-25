@@ -16,6 +16,7 @@ final case class CoreParams(
 final case class ScalarBackendParams(
   gprArchRegs: Int = 24,
   gprPhysRegs: Int = 128,
+  gprMapQDepth: Int = 128,
   gprWritePorts: Int = 2,
   scalarIssueBanks: Int = 2,
   gprReadPorts: Int = 3
@@ -26,6 +27,10 @@ final case class ScalarBackendParams(
     "scalar physical GPR capacity must exceed the architectural namespace")
   require((gprPhysRegs & (gprPhysRegs - 1)) == 0,
     "scalar physical GPR capacity must be a power of two")
+  require(gprMapQDepth >= gprPhysRegs,
+    "scalar GPR MapQ must cover the physical rename namespace")
+  require((gprMapQDepth & (gprMapQDepth - 1)) == 0,
+    "scalar GPR MapQ depth must be a power of two")
   require(gprWritePorts > 0, "scalar GPR write-port count must be positive")
   require(scalarIssueBanks > 1 && (scalarIssueBanks & (scalarIssueBanks - 1)) == 0,
     "scalar issue-bank count must be a power of two greater than one")
