@@ -14,7 +14,7 @@ It is the normative mapping between:
 | Contract ID | Area | Normative statement |
 |---|---|---|
 | `LC-ARCH-DOC-001` | Architecture docs | Canonical LinxCore docs live in `rtl/LinxCore/docs/architecture`, are mirrored into `docs/architecture/linxcore`, and stay nav-wired in LinxArch docs |
-| `LC-MA-PIPE-001` | Pipeline | IFU is non-lockstep decoupled I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`; I-F4 is followed by Instruction Buffer and four-wide fixed-64-bit D1; B-F4 correction uses inner flush while backend resolved mispredict uses typed recovery and I-F0 restart |
+| `LC-MA-PIPE-001` | Pipeline | IFU is non-lockstep decoupled I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`; I-F4 is followed by Instruction Buffer and four-wide fixed-64-bit D1 with a complete prediction record per valid lane; B-F4 runs static/final arbitration and is the last prediction-driven inner-flush point; post-B-F4 Dispatch/BRU mismatch uses BRU flush/recover and I-F0 restart |
 | `LC-MA-RES-001` | Resource admission | Decode groups reserve ROB/BROB, rename, IQ, and memory-order resources atomically or make no state change |
 | `LC-MA-ROB-001` | ROB/retirement | Instruction rows allocate in order, commit contiguously, retain cleanup sidecars through deallocation, and recover precisely |
 | `LC-MA-HAZ-001` | Hazards/replay | Replay, redirect, wakeup, and issue behavior do not violate correctness |
@@ -137,11 +137,12 @@ Mandatory scenario families:
   `backend typed restart > B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`;
   within B-F4 exact RAS return/high-confidence IBTB are type-selected target
   authorities, direction override is
-  `loop > long-TAGE > short-TAGE > BIM`, and BTB supplies direct target
+  `loop > long-TAGE > short-TAGE > BIM > static`, and BTB supplies direct
+  target
 - B-F1..B-F4 correction of an accepted lower-ranked prediction produces an
-  identity-qualified inner flush, restores
-  GHR/GHRQ/RAS, and restarts I-F0 without backend flush; backend-resolved
-  misprediction instead exercises typed recovery and I-F0 restart
+  identity-qualified inner flush, restores GHR/GHRQ/RAS, and restarts I-F0
+  without backend flush; B-F4 is the final such point. Post-B-F4
+  Dispatch/BRU mismatch exercises BRU flush/recover and I-F0 restart
 - atomic decode-group admission failure with no partial RID/BID/rename/store
   allocation
 - contiguous ROB commit, delayed deallocation, precise head fault/nuke, and

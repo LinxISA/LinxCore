@@ -10,8 +10,10 @@ cover decoupled/non-lockstep I-F0–I-F4 and B-F0–B-F4, the stage rank
 `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`, all later-stage correction
 paths to I-F0 restart with B-F4 as the final correction point,
 exact `{taken, branchPc, target, kind}` comparison, checkpoint/epoch stale
-rejection, provider overrides, and retained
-training.
+rejection, B-F4 static/final arbitration as the last prediction-driven
+inner-flush point, complete per-lane D1 prediction records, post-B-F4
+Dispatch/BRU validation with BRU flush/recover, provider overrides, and
+retained training.
 
 | Target | Script | Purpose |
 |---|---|---|

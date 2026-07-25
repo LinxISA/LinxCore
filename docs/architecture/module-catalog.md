@@ -159,11 +159,13 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 ### B-SIDE predictor owner family
 
 - Owns B-F0 L0/NLP plus history snapshot; B-F1 uBTB/RAS; B-F2 PBTB/BTB+BIM;
-  B-F3 short/medium TAGE+IBTB; and B-F4 long TAGE+IBTB/loop/final arbitration.
+  B-F3 short/medium TAGE+IBTB; and B-F4
+  static+long-TAGE+IBTB/loop/final arbitration.
 - Accepts identity-qualified cancellation and backend training.
 - B-F1..B-F4 correction of an accepted lower-ranked prediction emits an
-  identity-qualified inner flush, restores GHR/RAS, and
-  restarts I-F0. Backend resolved mispredict instead uses typed recovery.
+  identity-qualified inner flush, restores GHR/RAS, and restarts I-F0; B-F4 is
+  the final such point. Its record passes through every valid D1 lane, and
+  post-B-F4 mismatch uses Dispatch/BRU flush/recover.
 
 ### `src/bcc/frontend/`
 

@@ -44,7 +44,7 @@ flowchart LR
     BF1["B-F1: uBTB + fast RAS / launch"]
     BF2["B-F2: PBTB/main BTB + BIM"]
     BF3["B-F3: short/medium TAGE + IBTB launch"]
-    BF4["B-F4: long TAGE + final IBTB/loop/RAS"]
+    BF4["B-F4: static + long TAGE + final IBTB/loop/RAS"]
     TR["Training Queue"]
     BF0 --> BF1 --> BF2 --> BF3 --> BF4
     TR --> BF1
@@ -67,7 +67,9 @@ flowchart LR
   BF1 -- "early prediction" --> IF0
   BF4 -- "final prediction/correction" --> IF0
   BF4 -- "prediction metadata" --> IF3
-  D1 -- "decoded control-flow metadata" --> TR
+  D1 -- "per-lane prediction record" --> DP
+  D1 -- "per-lane prediction record" --> EX
+  DP["Dispatch: direct/call validation"] -- "resolved metadata + training" --> TR
   IS -- "resolved inner redirect" --> IF0
   EX["BRU / recovery"] -- "resolved redirect + training" --> TR
   EX -- "restart" --> IF0
@@ -280,7 +282,15 @@ InstBufferEntry {
   isBstop
   fetchSeq
   fetchEpoch
-  predictionTag
+  predictionRecord {
+    predictionTag
+    branchPc
+    taken
+    target
+    kind
+    provider
+    checkpointId
+  }
   fetchFault
 }
 ```
@@ -317,7 +327,8 @@ I-SIDE I-F4 -> Instruction Buffer -> D1 decode
 - I-F4 enqueue group 只有在目标 bank 有完整容量时才原子接受。
 
 Instruction Buffer entry 一旦写入，`pc`、`inst64`、`instLenBytes`、
-boundary、epoch 和 prediction identity 必须作为 row-owned state 保存。
+boundary、epoch 和完整 effective `predictionRecord` 必须作为 row-owned
+state 保存。不得依赖一个全局“当前预测”寄存器为后续 lane 补写预测。
 
 ## 6. D1：四宽完整解码
 
@@ -359,7 +370,15 @@ D1DecodeGroup {
     boundary
     fetchSeq
     fetchEpoch
-    predictionTag
+    predictionRecord {
+      predictionTag
+      branchPc
+      taken
+      target
+      kind
+      provider
+      checkpointId
+    }
     exception
   }
 }
@@ -368,6 +387,8 @@ D1DecodeGroup {
 规则：
 
 - lane 必须是同一 STID 的程序顺序连续前缀；
+- 每个 valid lane 都必须携带完整 effective `predictionRecord`；多个 lane
+  可以共享不可变 backing storage，但接口语义仍是 per-instruction metadata；
 - 不允许跨空洞 compaction；
 - group 未被 D2 接受前，全部 payload 保持稳定；
 - dequeue 数量等于 accepted group 的有效 lane 数；
@@ -442,10 +463,11 @@ B-F3：
 B-F3 不执行最终 loop、long-history TAGE、IBTB 或 RAS 仲裁；这些属于
 B-F4。
 
-### 7.5 B-F4：long TAGE、final target 和统一仲裁
+### 7.5 B-F4：static predictor、long TAGE、final target 和统一仲裁
 
 B-F4 同周期汇合：
 
+- 基于 identity-matched I-F4 boundary metadata 的 static predictor；
 - long-history TAGE provider/alternate；
 - B-F3 short/medium TAGE 结果；
 - final tagged IBTB target/confidence；
@@ -487,8 +509,10 @@ B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential
 结果。B-F4 同级 target 仲裁中，exact RAS return 与 high-confidence IBTB
 indirect target 属于同一最高等级，control-flow kind 决定二者谁合法；
 direct target 由 BTB 提供。B-F4 方向 override 保持
-`loop > long-TAGE > short-TAGE > BIM`；这里的 `short-TAGE` 是 B-F3
-已经在 short/medium tables 内选出的 provider class。
+`loop > long-TAGE > short-TAGE > BIM > static`；这里的 `short-TAGE`
+是 B-F3 已经在 short/medium tables 内选出的 provider class。static
+predictor 是最终 fallback；它消费 I-F4 提供的 boundary metadata，但运行和
+仲裁均归 B-F4，不得回迁到 I-F4。
 
 backend restart 不属于任何 provider。它是 I-F0 控制仲裁的最高优先级，
 高于全部 B-F1–B-F4 correction、全部 B-SIDE stage response 和
@@ -503,18 +527,29 @@ sequential PC。
 - early miss 而 final provider hit；
 - early provider 后来被 tag/epoch 检查判定无效。
 
-若错误路径仍完全位于 IFU 内，任一 B-F1/B-F2/B-F3/B-F4 later
-correction 都产生 typed inner flush，目标为 corrected target 或 sequential
-PC；B-F4 是 final correction point。I-F0 接受 correction 后：
+任一 B-F1/B-F2/B-F3/B-F4 later correction 都产生 typed inner flush，
+目标为 corrected target 或 sequential PC；**B-F4 correction 是最后一次
+prediction-driven inner flush**。I-F0 接受 correction 后：
 
 1. 切换对应 STID 的 I-SIDE fetch epoch；
 2. 从 correction request 之后清除 I-F0–I-F4 transient work；
-3. 清除尚未被 D1 接受的错误路径 Instruction Buffer entries；
+3. 清除匹配 correction 年龄及其更年轻的错误路径 Instruction Buffer
+   entries；
 4. 从 corrected PC restart I-F0；
 5. 通知 B-SIDE 按 checkpoint 恢复 speculative GHR/RAS/loop state。
 
-若错误路径已经越过 D1 acceptance，则任何 B-SIDE later correction 都不能
-自行完成 inner flush，必须发布 OOO 可见的 recovery request。
+B-F4 final response 被接受后，effective prediction 封存为不可变
+`predictionRecord`，随 instruction bundle 写入 Instruction Buffer，并在 D1
+附着到每个 valid lane。此后不再允许 predictor stage 产生 inner flush：
+
+- direct branch/call 的无需运行时 operand 的 direction/target/kind 在
+  Dispatch 校验；
+- conditional `setc.*` 的实际 direction 在 BRU E1 校验；
+- indirect/return `setc.tgt` 的实际 target 在 BRU E1 校验。
+
+任一 post-B-F4 校验 mismatch 都产生 `BRU flush + recover`，恢复
+predictor/rename/block checkpoint，并向 I-F0 发布 architectural restart；
+不得重新分类为 inner flush。
 
 ### 7.6 B-SIDE ready/valid 和独立推进
 
@@ -548,7 +583,8 @@ ready[n]   = !valid[n] || ready[n+1]
 
 ### 7.8 Training pipeline
 
-BRU/D1/recovery 通过 retained `PredTraining` queue 向 B-SIDE提交反馈。
+Dispatch/BRU/recovery 通过 retained `PredTraining` queue 向 B-SIDE 提交
+反馈。
 Training entry 至少包含：
 
 - exact `stid/requestPc/branchPc/fetchSeq/fetchEpoch/predictionTag`；
@@ -586,6 +622,13 @@ entry。它不能直接绕过 D1，也不能访问 BHC/L1I physical state。
 - FTQ-style request/prediction 解耦、队列吸收速率差和显式 backpressure；
 - per-thread GHR/RAS/predictor speculative state；
 - BRQ、prediction checkpoint、resolved training 和 rollback 的基本原则。
+- `origin/main@1fae7d0` 的 IFU→OOO 接口已经为 D1 slot 0..3 分别定义
+  `predict_taken`/`predict_target`，证明 per-lane prediction carry 是明确的
+  接口边界；Linx 在此基础上携带完整 `predictionRecord`，而不只携带
+  taken/target。
+- 该仓的 OOO→IEX BRU 接口继续携带 prediction metadata，IEX→IFU 在 E1
+  发布 target/address mispredict。这支持把数据相关 direction/target 校验留在
+  BRU E1；Linx 额外把 operand-independent direct/call 校验前移到 Dispatch。
 
 不能直接移植的部分：
 
@@ -595,16 +638,18 @@ entry。它不能直接绕过 D1，也不能访问 BHC/L1I physical state。
 - 删除 UBTB 或 intra-frontend flush 的选择不适用于 Linx；
 - B2/B3 predictor clumping 不替代 Linx 的逐级 resident、跨 stage rank
   和 B-F4 final correction；
-- F3 static/context decode 不进入 Linx I-F3；Linx I-F3 只负责 line
-  extraction 和跨 line assembly；
+- superscalarNPU 的 F3 static/context decode 与当前 LinxCoreModel Model F3
+  SP 都不映射到 Linx I-F3；目标 Linx static predictor 明确运行在 B-F4，
+  Linx I-F3 只负责 line extraction 和跨 line assembly；
 - variable-width Instruction Buffer 不适用于 Linx。Linx I-F4 将
   2/4/6/8-byte 指令扩展为固定 64 bit 后才写 Instruction Buffer，D1 也只读
   64-bit entries。
 
 因此 superscalarNPU 只提供 decoupling、per-thread predictor state 和
 checkpoint/BRQ 方法参考。Linx 的冻结契约仍是双 I-F/B-F pipeline、并行
-ITLB/L1I、late B-F4 correction inner flush、独立 fixed-64-bit Instruction
-Buffer 和四宽 D1。
+ITLB/L1I、B-F4 final prediction/最后一次 prediction-driven inner flush、
+独立 fixed-64-bit Instruction Buffer、四宽 D1 per-lane prediction record，
+以及 post-B-F4 的 Dispatch/BRU typed validation。
 
 ## 8. I-SIDE 与 B-SIDE 的解耦接口
 
@@ -650,7 +695,7 @@ I-SIDE 只接受 exact identity 匹配且 epoch 当前的 response。迟到 resp
 ### 8.3 Training
 
 ```text
-BRU / D1 / recovery -> B-SIDE
+Dispatch / BRU / recovery -> B-SIDE
 PredTraining {
   stid
   requestPc
@@ -697,10 +742,31 @@ backend restart 不是 predictor provider，不参与 provider rank。
 - I-SIDE 检测到 prediction/line-boundary 不一致；
 - B-SIDE 较晚但仍可在 IFU 内纠正的 prediction。
 
-作用域只覆盖匹配 STID 的 IFU transient state。若错误路径 entry 已被 D1
-接受，则必须升级为 OOO 可见的 typed recovery，不能继续称作 inner flush。
+作用域只覆盖匹配 STID 的 IFU transient state。B-F4 correction 是最后一个
+prediction-driven inner flush；其 final response 被接受并封存
+`predictionRecord` 后，任何 mismatch 都进入 OOO 可见的
+`BRU flush + recover`。
 
-### 9.2 Architectural restart
+### 9.2 Post-B-F4 按类型校验
+
+`predictionRecord` 随每条 instruction 从 Instruction Buffer 进入 D1，并继续
+传到校验 owner：
+
+| 控制流类型 | 校验位置 | 校验内容 |
+| --- | --- | --- |
+| direct branch / call | Dispatch | `kind`、必然 taken 属性和静态 direct target |
+| conditional `setc.*` | BRU E1 | 使用运行时 operand 计算的实际 direction |
+| indirect / return `setc.tgt` | BRU E1 | 使用运行时 operand/RAS 语义计算的实际 target |
+
+校验比较有效记录中的 `{taken, branchPc, target, kind}` 适用字段。任一 mismatch
+产生 `BRU flush + recover`，并携带 prediction/checkpoint identity 向 B-SIDE
+训练、向 I-F0 发布 restart。
+
+当前 LinxCoreModel 将上述 `setc.*` direction/target 检查集中在 IEX/BRU E1；
+Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，不是对
+当前 Model 实现位置的描述。
+
+### 9.3 Architectural restart
 
 来自 BRU、exception、interrupt 或 central recovery。它：
 
@@ -823,7 +889,9 @@ ownership。
 - 建立 B-F0–B-F4 resident ready/valid pipeline；
 - 接入 uBTB/PBTB/BTB、BIM、GHR/GHRQ 和 RAS；
 - 接入 TAGE、IBTB、loop predictor/buffer；
-- 实现跨 stage rank、B-F4 final arbitration、correction 和 training。
+- 实现跨 stage rank、B-F4 static/final arbitration、最后一次
+  prediction-driven inner flush、per-instruction prediction record 和
+  training。
 
 ### IFU-5：production promotion
 
@@ -876,10 +944,11 @@ ownership。
 - correction exact compare tuple `{taken, branchPc, target, kind}` 的每个
   单字段 mismatch；
 - B-F0 L0/Nano-BTB、B-F1 uBTB/fast-RAS、B-F2 PBTB/BTB+BIM、
-  B-F3 short/medium-TAGE+IBTB launch、B-F4 final-provider 归属；
+  B-F3 short/medium-TAGE+IBTB launch、B-F4
+  static+long-TAGE+final-provider 归属；
 - `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential` stage rank；
 - B-F4 同级 exact RAS/high-confidence IBTB target 选择；
-- `loop > long-TAGE > short-TAGE > BIM` direction override；
+- `loop > long-TAGE > short-TAGE > BIM > static` direction override；
 - BTB direct target；
 - 各 predictor table hit/miss；
 - TAGE provider/alternate；
@@ -890,6 +959,11 @@ ownership。
 - loop trip count；
 - B-F1 early prediction 与 B-F4 final prediction 相同；
 - B-F1/B-F4 taken、target、kind 不同触发 correction 和 inner flush；
+- B-F4 correction 是最后一次 prediction-driven inner flush；
+- B-F4 final `predictionRecord` 在 D1 每个 valid lane 上保持一致身份和内容；
+- direct/call Dispatch 校验，以及 conditional direction 和 indirect/return
+  target 的 BRU E1 校验；
+- post-B-F4 mismatch 只产生 `BRU flush + recover`，不产生 inner flush；
 - correction 到 I-F0 restart 的 exact PC/epoch/checkpoint；
 - backend restart 覆盖全部 provider/correction；
 - training queue backpressure；
@@ -911,8 +985,14 @@ ownership。
 - [ ] D1 每周期读取最多四条 64-bit instruction 并执行 full decode。
 - [ ] D1 之后不再传播 variable-width instruction representation。
 - [ ] B-SIDE 包含 BTB family、GHR/GHRQ、TAGE、BIM、RAS、IBTB 和 loop units。
-- [ ] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 final correction 和 I-F0 restart。
+- [ ] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
+  I-F0 restart。
 - [ ] B-F4 provider rank 与 direction override 有独立 assertion 和覆盖率。
+- [ ] B-F4 correction 是最后一次 prediction-driven inner flush。
+- [ ] B-F4 final `predictionRecord` 随 bundle 进入 IB，并附着到每个 D1
+  valid lane。
+- [ ] Dispatch 校验 direct/call，BRU E1 校验 conditional direction 与
+  indirect/return target；mismatch 产生 `BRU flush + recover`。
 - [ ] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [ ] 当前 reduced frontend/BFU 模块只作为迁移对象，不定义目标架构。
 

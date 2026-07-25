@@ -52,9 +52,10 @@ IFU 由 I-SIDE 和 B-SIDE 两个 decoupled engine 组成。
 - I-F4 判定 2/4/6/8-byte 长度，完成 assembly，只识别 BSTART/BSTOP，
   zero-extend 成 64-bit 后写 Instruction Buffer。
 - B-SIDE 使用 B-F0..B-F4：L0/NLP+history、uBTB/RAS、PBTB/BTB+BIM、
-  short/medium TAGE+IBTB、long TAGE+IBTB/loop/final arbitration。
+  short/medium TAGE+IBTB、static+long-TAGE/IBTB/loop/final arbitration；
+  B-F4 是最后一个 prediction-driven inner flush 点。
 - D1 从 Instruction Buffer 顺序读取最多四条固定 64-bit 指令并进行
-  full decode。
+  full decode，每个 valid lane 携带完整 prediction record。
 
 线程 PC 来源优先级:
 

@@ -521,13 +521,13 @@ BCC 后端包含两条并行但相互协同的执行域:
 | I-F2 | Translation/cache join | 校验 permission/tag；ITLB miss 产生 inner flush；L1I miss 进入 refill | cache-line result or replay |
 | I-F3 | Line align/carry | 捕获 cacheline、对齐有序字节流并处理跨 line carry | ordered byte stream |
 | I-F4 | Formation/predecode | 判定 2/4/6/8-byte 长度，组装并扩展成 64-bit；只识别 BSTART/BSTOP | 64-bit instruction records |
-| Instruction Buffer | Per-STID FIFO | 保存 I-F4 输出与 prediction/checkpoint/fault metadata | four-entry D1 input |
+| Instruction Buffer | Per-STID FIFO | 保存 I-F4 输出、完整 effective prediction record 与 fault metadata | four-entry D1 input |
 | B-F0 | L0/NLP + history | L0/NLP 查询并快照 GHR/GHRQ/RAS | early candidate |
 | B-F1 | uBTB + RAS | 快速 target/type 与 return target | early prediction |
 | B-F2 | PBTB/BTB + BIM | direct target/type 与 base direction | prediction candidate |
 | B-F3 | short/medium TAGE + IBTB | 历史方向和 indirect target 查询 | refined candidate |
-| B-F4 | long TAGE + IBTB/loop | final arbitration/correction | final prediction |
-| D1 | Full decode | 读取最多 4 条 64-bit 指令并完成 opcode/src/dst/immediate decode | decoded instructions |
+| B-F4 | static + long TAGE + IBTB/loop | final arbitration/最后一次 prediction-driven correction | final prediction record |
+| D1 | Full decode | 读取最多 4 条 64-bit 指令，每个 valid lane 携带完整 prediction record，并完成 opcode/src/dst/immediate decode | decoded instructions |
 | R0 | Rename / allocate | GPR/ClockHands rename，分配 PE ROB、MAPQ、BROB/BISQ 资源 | physical tags and IDs |
 | R1 | Dependency / dispatch preparation | 查询 ready、生成 DPD、读取 B.IOT size、形成 dispatch route | dispatch-ready uops |
 | D2 | Dispatch | 向 AB/AM/LS0/LS1/CMD_ISQ 分发并扣减 credit | issue-queue entries |
@@ -571,8 +571,10 @@ PC 来源按优先级选择:
   指令 zero-extend 为 64-bit 后写 Instruction Buffer。
 - B-SIDE B-F0..B-F4 与 I-SIDE 解耦，依次执行 L0/NLP+history、
   uBTB/RAS、PBTB/BTB+BIM、short/medium TAGE+IBTB、long
-  TAGE+IBTB/loop/final arbitration。后级 correction 产生 inner flush、
-  恢复 GHR/RAS 并重启 I-F0；backend resolved mispredict 走 typed recovery。
+  TAGE+IBTB/loop/static/final arbitration。B-F4 correction 是最后一个
+  prediction-driven inner flush。final record 封存后，Dispatch 校验
+  direct/call，BRU E1 校验 conditional direction 和 indirect/return target；
+  mismatch 使用 BRU flush/recover 并重启 I-F0。
 
 ### 8.5 Template Expansion
 
@@ -582,7 +584,8 @@ I-F4 与 Instruction Buffer 之间插入额外流水级。
 ### 8.6 Instruction Buffer and D1 Decode
 
 D1 从一个线程的 Instruction Buffer 顺序读取最多 4 条固定 64-bit
-指令。每条指令在 I-F4 已完成长度判定和扩展；D1 不再拼接变长字节流。
+指令。每条指令在 I-F4 已完成长度判定和扩展，并携带完整 effective
+prediction record；D1 不再拼接变长字节流。
 D1 对每条指令产生:
 
 - `tid/tpc/inst_len/bid_context`。
