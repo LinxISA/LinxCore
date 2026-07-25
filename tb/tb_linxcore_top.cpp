@@ -1798,6 +1798,10 @@ int main(int argc, char **argv) {
     if (!linxtrace_writer.isOpen())
       return;
     (void)reason;
+    // Termination can follow ordinary occupancy emitted in curCycleTrace.
+    // Put the synthetic terminal FLS occupancy in the next cycle so each
+    // dynamic row retains the single-stage-per-cycle LinxTrace invariant.
+    linxtrace_writer.atCycle(curCycleTrace + 1);
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
       linxtrace_writer.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");

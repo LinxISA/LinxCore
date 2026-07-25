@@ -308,7 +308,7 @@ def build_commit_trace_export(
         if slot < commit_w:
             is_macro_commit = _op_is(m, op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
             fire = fire & (~is_macro_commit)
-            is_gpr_dst = raw["dst_kind"].__eq__(c(1, width=2))
+            is_scalar_dst = ~raw["dst_kind"].__eq__(c(0, width=2))
             wb_trace_suppress = _op_is(
                 m,
                 op,
@@ -321,7 +321,7 @@ def build_commit_trace_export(
                 OP_BSTART_STD_CALL,
                 OP_C_BSTOP,
             )
-            wb_valid = fire & is_gpr_dst & (~raw["dst_areg"].__eq__(c(0, width=6))) & (~wb_trace_suppress)
+            wb_valid = fire & is_scalar_dst & (~raw["dst_areg"].__eq__(c(0, width=6))) & (~wb_trace_suppress)
             wb_rd = raw["dst_areg"]
             wb_data = raw["value"]
             src0_valid = fire & raw["src0_valid"]
@@ -356,7 +356,7 @@ def build_commit_trace_export(
         if slot > 0 and (slot - 1) < commit_w:
             prev = raw_slots[slot - 1]
             fire_prev = prev["fire"] & (~_op_is(m, prev["op"], OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
-            is_gpr_prev = prev["dst_kind"].__eq__(c(1, width=2))
+            is_scalar_prev = ~prev["dst_kind"].__eq__(c(0, width=2))
             wb_suppress_prev = _op_is(
                 m,
                 prev["op"],
@@ -369,7 +369,7 @@ def build_commit_trace_export(
                 OP_BSTART_STD_CALL,
                 OP_C_BSTOP,
             )
-            wb_valid_prev = fire_prev & is_gpr_prev & (~prev["dst_areg"].__eq__(c(0, width=6))) & (~wb_suppress_prev)
+            wb_valid_prev = fire_prev & is_scalar_prev & (~prev["dst_areg"].__eq__(c(0, width=6))) & (~wb_suppress_prev)
             ld_trace_prev = prev["ld_data"]
             for i in range(sq_entries):
                 st_hit_prev = stbuf_entries[i]["valid"] & stbuf_entries[i]["addr"].__eq__(prev["ld_addr"])

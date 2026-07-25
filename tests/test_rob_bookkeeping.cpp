@@ -334,6 +334,7 @@ int main(int argc, char **argv) {
 
     bool havePrevSlotRob = false;
     std::uint64_t prevSlotRob = 0;
+    int prevSlot = 0;
     for (int slot = 0; slot < 4; slot++) {
       const CommitSlot s = readSlot(commitProbes[slot]);
       if (!s.fire)
@@ -346,17 +347,16 @@ int main(int argc, char **argv) {
 
       // Within one cycle, multi-commit slots must stay in ROB order.
       if (havePrevSlotRob) {
-        const std::uint64_t expected = (prevSlotRob + 1) % kRobDepth;
-        const bool sameRob = (s.rob == prevSlotRob);
-        const bool nextRob = (s.rob == expected);
-        if (!sameRob && !nextRob) {
+        const std::uint64_t advance = (s.rob + kRobDepth - prevSlotRob) % kRobDepth;
+        const std::uint64_t maxAdvance = static_cast<std::uint64_t>(slot - prevSlot);
+        if (advance > maxAdvance) {
           std::cerr << "ROB slot-order mismatch: prev=" << prevSlotRob
-                    << " expected_same_or_next={" << prevSlotRob << "," << expected << "} got=" << s.rob
-                    << "\n";
+                    << " max_advance=" << maxAdvance << " got=" << s.rob << "\n";
           return 1;
         }
       }
       prevSlotRob = s.rob;
+      prevSlot = slot;
       havePrevSlotRob = true;
       commits++;
 

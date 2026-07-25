@@ -71,17 +71,17 @@ import json
 events = [json.loads(line) for line in Path(r"${LINXTRACE}").read_text().splitlines() if line.strip()]
 trace_rows = [json.loads(line) for line in Path(r"${TRACE}").read_text().splitlines() if line.strip()]
 
-rob_occ = sum(1 for rec in events if rec.get("type") == "OCC" and rec.get("stage_id") == "ROB")
+cmt_occ = sum(1 for rec in events if rec.get("type") == "OCC" and rec.get("stage_id") == "CMT")
 retires = sum(1 for rec in events if rec.get("type") == "RETIRE")
-if rob_occ < 1:
-    raise SystemExit("no ROB stages in linxtrace")
+if cmt_occ < 1:
+    raise SystemExit("no CMT stages in linxtrace")
 if retires < 1:
     raise SystemExit("no retire records in linxtrace")
 if len(trace_rows) < 1:
     raise SystemExit("no commit trace rows")
-if rob_occ > len(trace_rows) * 64:
-    raise SystemExit(f"ROB occupancy implausibly high: rob={rob_occ} trace={len(trace_rows)}")
-print(f"linxtrace sanity: rob_occ={rob_occ} retires={retires} commits={len(trace_rows)}")
+if cmt_occ > len(trace_rows) * 64:
+    raise SystemExit(f"CMT occupancy implausibly high: cmt={cmt_occ} trace={len(trace_rows)}")
+print(f"linxtrace sanity: cmt_occ={cmt_occ} retires={retires} commits={len(trace_rows)}")
 PY
 
 echo "linxtrace sanity test: ok"
