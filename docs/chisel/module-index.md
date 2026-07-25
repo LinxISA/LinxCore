@@ -11,15 +11,16 @@ and do not advance in lockstep. Instruction Buffer is an independent queue
 after I-F4 and before four-wide D1. B-SIDE final rank is
 `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`, with B-F4 correction
 as the final instance of the later-stage correction path returning to I-F0
-through the canonical redirect arbiter. `LinxCoreIfu` is the production
-composition. Rows explicitly marked verification-only are excluded from the
-production owner graph even when their source remains available for focused
-tests.
+through the canonical redirect arbiter. `LinxCoreIfu` is the production IFU
+composition baseline, but the natural benchmark top has not yet been promoted
+from its reduced legacy fetch fixture to this composition. Rows explicitly
+marked verification-only are excluded from the production owner graph even
+when their source remains available for focused tests.
 
 | Module | Package | Documentation | Status |
 |---|---|---|---|
 | `InterfaceBundles` / `TULinkBundles` / `BlockMarkerBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green shared type packets including R56 T/U cleanup source, R74 retire-source/command PE/STID sidecars, R141 widened physical tag support with all-ones invalid physical tags above reg6, and R169 marker retire-source payloads |
-| `LinxCoreIfu` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Production composition of I-F0–I-F4, B-F0–B-F4, canonical redirects, final-prediction join, Instruction Buffer, and four-wide D1 |
+| `LinxCoreIfu` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Production IFU composition baseline of I-F0–I-F4, B-F0–B-F4, canonical redirects, final-prediction join, Instruction Buffer, and four-wide D1; multi-transaction throughput and benchmark-top promotion remain open |
 | `ISideF0PcSelect` / `ISideF1Lookup` / `ISideF2Resolve` / `ISideF3LineAssembler` / `ISideF4Predecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/ISideStages.md` | Canonical five-stage I-SIDE with parallel ITLB/L1I, exact miss/fault routing, cross-line assembly, boundary-only predecode, and fixed 64-bit output |
 | `BSidePredictionPipeline` | `linxcore.frontend` | `docs/chisel/modules/frontend/BSideStages.md` | Canonical B-F0–B-F4 predictor owner with retained responses/training, exact I-F4 completion join, and final static/TAGE/IBTB/loop/RAS arbitration |
 | `IfuRedirectArbiter` / `IfuPredictionJoin` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Sole canonical epoch allocator and ordered final-prediction barrier before Instruction Buffer admission |

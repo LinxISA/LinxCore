@@ -114,9 +114,14 @@ class ISideLineResponse(
     val p: InterfaceParams = InterfaceParams(),
     val lineBytes: Int = 64)
     extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
   val transactionId = UInt(p.uopUidWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
+  val fetchPacketUid = UInt(p.uopUidWidth.W)
+  val fetchSeq = UInt(p.uopUidWidth.W)
+  val checkpointId = UInt(p.checkpointWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
+  val lineVa = UInt(p.pcWidth.W)
   val linePa = UInt(p.pcWidth.W)
   val lineData = UInt((lineBytes * 8).W)
 }

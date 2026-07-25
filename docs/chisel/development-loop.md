@@ -13,11 +13,11 @@ history.
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative
 current handoff is the top `Current Handoff` section in
-`docs/chisel/integrated-development-flow.md`; at R676, `ScalarL1D` is the
-canonical scalar cache-array owner and the still-open hardware boundaries are
-memory classification, translation/protection, explicit invalidation/cache
-maintenance, complete coherence/lower-memory fabric, and parallel cross-half
-launch. New agents must start from that R676 handoff and the latest rows in
+`docs/chisel/integrated-development-flow.md`; R682 adds the current IFU
+identity/provider-rank closure on top of the R676 scalar-cache handoff. The
+IFU still needs prefix/carry multi-transaction admission, benchmark-top
+promotion, generated-RTL throughput evidence, speculative GHRQ/RAS recovery,
+and post-B-F4 BRU validation. New agents must start from that combined handoff and the latest rows in
 `docs/chisel/agent-loop.md`, then use the older R571-R632 replay-LIQ material
 below only as historical evidence for replay-search tooling and claim-boundary
 discipline.

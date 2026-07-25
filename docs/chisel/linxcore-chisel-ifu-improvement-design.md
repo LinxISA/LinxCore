@@ -1045,7 +1045,9 @@ predictor tables 不因普通 redirect 清零。
   `BSTART` 和 `BSTOP`。
 - [x] 2/4/6/8-byte instruction 全部扩展为 64 bit 后写入 Instruction Buffer。
 - [x] Instruction Buffer 是 I-F4 与 D1 之间的独立 queue。
-- [x] D1 每周期读取最多四条 64-bit instruction 并执行 full decode。
+- [x] D1 boundary 每周期读取最多四条 64-bit instruction，保持完整预测记录和
+  ready/valid 稳定性。
+- [ ] 四条 D1 instruction 原子进入 production full decode、rename 和 dispatch。
 - [x] D1 之后不再传播 variable-width instruction representation。
 - [ ] B-SIDE 完整实现 BTB family、speculative GHRQ、TAGE、BIM、RAS、IBTB
   和 loop units。
@@ -1058,8 +1060,11 @@ predictor tables 不因普通 redirect 清零。
 - [ ] Dispatch 校验 direct/call，BRU E1 校验 conditional direction 与
   indirect/return target；mismatch 产生 `BRU flush + recover`。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
-- [x] production graph 只实例化本设计列出的 I-SIDE、B-SIDE、
+- [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。
+- [ ] CoreMark/Dhrystone 使用的 production benchmark graph 已替换旧
+  `FrontendFetchPacketSource + F4DecodeWindow + F4DenseSlotQueue` 路径并接入
+  `LinxCoreIfu`。
 
 ## 不在本设计内
 

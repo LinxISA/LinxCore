@@ -177,4 +177,50 @@ class ISideLookupResolveSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.bits.lineData.expect(data.U)
     }
   }
+
+  test("I-F2 rejects joined responses when any exact fetch identity field differs") {
+    simulate(new ISideF2Resolve(p, lineBytes, pageBytes)) { dut =>
+      dut.io.translation.valid.poke(false.B)
+      dut.io.translation.bits.poke(0.U.asTypeOf(dut.io.translation.bits))
+      dut.io.cacheCandidate.valid.poke(false.B)
+      dut.io.cacheCandidate.bits.poke(0.U.asTypeOf(dut.io.cacheCandidate.bits))
+      dut.io.result.ready.poke(true.B)
+      dut.io.innerFlush.ready.poke(true.B)
+      dut.io.externalFlush.poke(0.U.asTypeOf(dut.io.externalFlush))
+
+      dut.io.translation.valid.poke(true.B)
+      dut.io.translation.bits.request.pc.poke(0x123.U)
+      dut.io.translation.bits.request.lineVa.poke(0x120.U)
+      dut.io.translation.bits.request.transactionId.poke(9.U)
+      dut.io.translation.bits.request.identity.peId.poke(1.U)
+      dut.io.translation.bits.request.identity.threadId.poke(0.U)
+      dut.io.translation.bits.request.identity.fetchPacketUid.poke(9.U)
+      dut.io.translation.bits.request.identity.fetchSeq.poke(9.U)
+      dut.io.translation.bits.request.identity.checkpointId.poke(3.U)
+      dut.io.translation.bits.request.identity.epoch.poke(2.U)
+      dut.io.translation.bits.hit.poke(true.B)
+      dut.io.translation.bits.ppn.poke(2.U)
+
+      dut.io.cacheCandidate.valid.poke(true.B)
+      dut.io.cacheCandidate.bits.request.pc.poke(0x123.U)
+      dut.io.cacheCandidate.bits.request.lineVa.poke(0x120.U)
+      dut.io.cacheCandidate.bits.request.transactionId.poke(9.U)
+      dut.io.cacheCandidate.bits.request.identity.peId.poke(1.U)
+      dut.io.cacheCandidate.bits.request.identity.threadId.poke(0.U)
+      dut.io.cacheCandidate.bits.request.identity.fetchPacketUid.poke(9.U)
+      dut.io.cacheCandidate.bits.request.identity.fetchSeq.poke(9.U)
+      dut.io.cacheCandidate.bits.request.identity.checkpointId.poke(4.U)
+      dut.io.cacheCandidate.bits.request.identity.epoch.poke(2.U)
+      dut.io.cacheCandidate.bits.candidateValid.poke(true.B)
+      dut.io.cacheCandidate.bits.physicalTag.poke(0x22.U)
+      dut.clock.step()
+      dut.io.translation.valid.poke(false.B)
+      dut.io.cacheCandidate.valid.poke(false.B)
+
+      dut.io.result.valid.expect(true.B)
+      dut.io.identityMatch.expect(false.B)
+      dut.io.result.bits.status.expect(ISideF2Status.Stale)
+      dut.io.innerFlush.valid.expect(false.B)
+    }
+  }
 }

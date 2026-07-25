@@ -212,33 +212,34 @@ class BSidePredictionPipeline(
 
     val thread = threadIndex(update.threadId)
     val history = ghr(thread)
-    val shortIndex =
-      tableIndex(update.requestPc ^ history(3, 0), tageEntries)
-    val longIndex =
-      tableIndex(update.requestPc ^ history, tageEntries)
-    val shortTag = (update.requestPc(13, 2) ^ history(11, 0))(11, 0)
-    val longTag = (update.requestPc(13, 2) ^ history(15, 4))(11, 0)
-    shortValid(shortIndex) := true.B
-    shortTags(shortIndex) := shortTag
-    shortCounters(shortIndex) :=
-      Mux(
-        update.taken,
-        Mux(shortCounters(shortIndex) === 3.U, 3.U, shortCounters(shortIndex) + 1.U),
-        Mux(shortCounters(shortIndex) === 0.U, 0.U, shortCounters(shortIndex) - 1.U))
-    longValid(longIndex) := true.B
-    longTags(longIndex) := longTag
-    longCounters(longIndex) :=
-      Mux(
-        update.taken,
-        Mux(longCounters(longIndex) === 3.U, 3.U, longCounters(longIndex) + 1.U),
-        Mux(longCounters(longIndex) === 0.U, 0.U, longCounters(longIndex) - 1.U))
-    bim(tableIndex(update.requestPc, bimEntries)) :=
-      Mux(
-        update.taken,
-        Mux(bim(tableIndex(update.requestPc, bimEntries)) === 3.U, 3.U, bim(tableIndex(update.requestPc, bimEntries)) + 1.U),
-        Mux(bim(tableIndex(update.requestPc, bimEntries)) === 0.U, 0.U, bim(tableIndex(update.requestPc, bimEntries)) - 1.U))
-
     when(update.kind === BoundaryKind.Cond) {
+      val shortIndex =
+        tableIndex(update.requestPc ^ history(3, 0), tageEntries)
+      val longIndex =
+        tableIndex(update.requestPc ^ history, tageEntries)
+      val shortTag = (update.requestPc(13, 2) ^ history(11, 0))(11, 0)
+      val longTag = (update.requestPc(13, 2) ^ history(15, 4))(11, 0)
+      shortValid(shortIndex) := true.B
+      shortTags(shortIndex) := shortTag
+      shortCounters(shortIndex) :=
+        Mux(
+          update.taken,
+          Mux(shortCounters(shortIndex) === 3.U, 3.U, shortCounters(shortIndex) + 1.U),
+          Mux(shortCounters(shortIndex) === 0.U, 0.U, shortCounters(shortIndex) - 1.U))
+      longValid(longIndex) := true.B
+      longTags(longIndex) := longTag
+      longCounters(longIndex) :=
+        Mux(
+          update.taken,
+          Mux(longCounters(longIndex) === 3.U, 3.U, longCounters(longIndex) + 1.U),
+          Mux(longCounters(longIndex) === 0.U, 0.U, longCounters(longIndex) - 1.U))
+      val bimIndex = tableIndex(update.requestPc, bimEntries)
+      bim(bimIndex) :=
+        Mux(
+          update.taken,
+          Mux(bim(bimIndex) === 3.U, 3.U, bim(bimIndex) + 1.U),
+          Mux(bim(bimIndex) === 0.U, 0.U, bim(bimIndex) - 1.U))
+
       val loopIndex = tableIndex(update.branchPc, loopEntries)
       when(loopTags(loopIndex) === update.branchPc && loopDirection(loopIndex) === update.taken) {
         loopConfidence(loopIndex) :=
@@ -367,6 +368,13 @@ class BSidePredictionPipeline(
   val longHit = longValid(longIndex) && longTags(longIndex) === longTag
   val resolvedKind = Mux(boundaryHit, boundary.kind, stage4Payload.effective.kind)
   val longEligible = longHit && resolvedKind === BoundaryKind.Cond
+  val earlierDirectionEligible =
+    boundaryHit &&
+      resolvedKind === BoundaryKind.Cond &&
+      stage4Payload.effective.valid &&
+      stage4Payload.effective.kind === BoundaryKind.Cond &&
+      (stage4Payload.effective.provider === PredictionProvider.ShortTage ||
+        stage4Payload.effective.provider === PredictionProvider.Bim)
   val loopIndex = tableIndex(boundary.branchPc, loopEntries)
   val loopHit =
     boundaryHit &&
@@ -389,7 +397,10 @@ class BSidePredictionPipeline(
     Mux(
       longEligible,
       longCounters(longIndex)(1),
-      Mux(boundaryHit, boundary.staticTaken, stage4Payload.effective.taken)))
+      Mux(
+        earlierDirectionEligible,
+        stage4Payload.effective.taken,
+        Mux(boundaryHit, boundary.staticTaken, stage4Payload.effective.taken))))
   stage4.target := Mux(
     rasHit,
     rasTarget,
@@ -411,13 +422,19 @@ class BSidePredictionPipeline(
         Mux(
           longEligible,
           PredictionProvider.LongTage,
-          Mux(boundaryHit, PredictionProvider.Static, stage4Payload.effective.provider)))))
+          Mux(
+            earlierDirectionEligible,
+            stage4Payload.effective.provider,
+            Mux(boundaryHit, PredictionProvider.Static, stage4Payload.effective.provider))))))
   stage4.stage := BSideStage.BF4
   stage4.confidence :=
     Mux(
       loopHit || longEligible || indirectHit || rasHit,
       3.U,
-      Mux(boundaryHit, 1.U, stage4Payload.effective.confidence))
+      Mux(
+        earlierDirectionEligible,
+        stage4Payload.effective.confidence,
+        Mux(boundaryHit, 1.U, stage4Payload.effective.confidence)))
   candidates(4) := stage4
 
   val nextPredictions = Wire(Vec(5, new BranchPredictionRecord(p)))

@@ -239,9 +239,14 @@ class LinxCoreIfu(
       f2Hit &&
       f2CrossLine
   f3.io.nextLineResponse.bits := 0.U.asTypeOf(f3.io.nextLineResponse.bits)
+  f3.io.nextLineResponse.bits.peId := f2.io.result.bits.request.identity.peId
   f3.io.nextLineResponse.bits.transactionId := f2.io.result.bits.request.transactionId
   f3.io.nextLineResponse.bits.threadId := f2.io.result.bits.request.identity.threadId
+  f3.io.nextLineResponse.bits.fetchPacketUid := f2.io.result.bits.request.identity.fetchPacketUid
+  f3.io.nextLineResponse.bits.fetchSeq := f2.io.result.bits.request.identity.fetchSeq
+  f3.io.nextLineResponse.bits.checkpointId := f2.io.result.bits.request.identity.checkpointId
   f3.io.nextLineResponse.bits.epoch := f2.io.result.bits.request.identity.epoch
+  f3.io.nextLineResponse.bits.lineVa := f2.io.result.bits.request.lineVa
   f3.io.nextLineResponse.bits.linePa := f2.io.result.bits.linePa
   f3.io.nextLineResponse.bits.lineData := f2.io.result.bits.lineData
 

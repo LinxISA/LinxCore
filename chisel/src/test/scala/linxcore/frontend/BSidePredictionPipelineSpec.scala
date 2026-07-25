@@ -130,6 +130,22 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     assert(dut.io.response.valid.peek().litToBoolean, s"prediction response missing after $cycles cycles")
   }
 
+  private def waitForFinal(dut: BSidePredictionPipeline, limit: Int = 32): Unit = {
+    dut.io.response.ready.poke(true.B)
+    var cycles = 0
+    var finalSeen = false
+    while (!finalSeen && cycles < limit) {
+      finalSeen =
+        dut.io.response.valid.peek().litToBoolean &&
+          dut.io.response.bits.finalResponse.peek().litToBoolean
+      if (!finalSeen) {
+        dut.clock.step()
+        cycles += 1
+      }
+    }
+    assert(finalSeen, s"final prediction response missing after $cycles cycles")
+  }
+
   test("B-F4 static prediction is the final correction and restarts at the exact target") {
     simulate(module) { dut =>
       clear(dut)
@@ -240,6 +256,73 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.prediction.provider.expect(PredictionProvider.LongTage)
       dut.io.response.bits.prediction.epoch.expect(1.U)
       dut.io.innerFlush.valid.expect(false.B)
+    }
+  }
+
+  test("B-F4 long TAGE direction outranks a conflicting static fallback") {
+    simulate(module) { dut =>
+      clear(dut)
+      pokeResolve(
+        dut,
+        transactionId = 41,
+        predictionTag = 41,
+        requestPc = 0x3400,
+        branchPc = 0x3404,
+        target = 0x3800,
+        fallthroughPc = 0x3406,
+        kind = BoundaryKind.Cond,
+        taken = false)
+      dut.clock.step()
+
+      sendBoundary(
+        dut,
+        transactionId = 8,
+        requestPc = 0x3400,
+        hasBoundary = true,
+        branchPc = 0x3404,
+        target = 0x3800,
+        fallthroughPc = 0x3406,
+        kind = BoundaryKind.Cond,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 8, pc = 0x3400)
+
+      waitForFinal(dut)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.LongTage)
+      dut.io.response.bits.prediction.taken.expect(false.B)
+      dut.io.response.bits.correction.expect(false.B)
+    }
+  }
+
+  test("non-conditional resolution never pollutes BIM or TAGE direction tables") {
+    simulate(module) { dut =>
+      clear(dut)
+      pokeResolve(
+        dut,
+        transactionId = 42,
+        predictionTag = 42,
+        requestPc = 0x3600,
+        branchPc = 0x3604,
+        target = 0x3a00,
+        fallthroughPc = 0x3606,
+        kind = BoundaryKind.Direct,
+        taken = true)
+      dut.clock.step()
+
+      sendBoundary(
+        dut,
+        transactionId = 9,
+        requestPc = 0x3600,
+        hasBoundary = true,
+        branchPc = 0x3604,
+        target = 0x3a00,
+        fallthroughPc = 0x3606,
+        kind = BoundaryKind.Cond,
+        staticTaken = false)
+      sendRequest(dut, transactionId = 9, pc = 0x3600)
+
+      waitForFinal(dut)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.Static)
+      dut.io.response.bits.prediction.taken.expect(false.B)
     }
   }
 

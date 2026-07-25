@@ -65,8 +65,10 @@ The real Chisel simulations cover:
 
 ## Open Work
 
-- Connect I-F4 output directly to this queue.
-- Connect `deq` through `D1DecodeGroupGather` to four-wide full decode.
+- The `LinxCoreIfu` composition already connects I-F4 through the final-prediction
+  join into this queue and connects `deq` through `D1DecodeGroupGather`.
+- Connect that four-wide D1 boundary atomically to production full decode,
+  rename, and dispatch.
 - Add fetch-fault payload before I-F2 fault rows are promoted.
 - Prove sustained four-row traffic through D1/rename/dispatch, not only at the
   queue boundary.

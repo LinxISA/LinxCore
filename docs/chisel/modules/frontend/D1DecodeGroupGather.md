@@ -35,7 +35,8 @@ R677 passed two real Chisel simulation cases:
 
 ## Open Work
 
-- Compose the gatherer with the Instruction Buffer in the production IFU top.
+- The gatherer is already composed with the Instruction Buffer in
+  `LinxCoreIfu`.
 - Replace the current single-selected-lane backend admission with an atomic
   four-lane D1-to-rename contract.
 - Add group-level fault and exception metadata when I-F2 is implemented.

@@ -42,9 +42,10 @@ routes the exact joined result:
 | Access fault | retained `fetchFault` output |
 | Stale | consumed and reported, never sent to I-F3 |
 
-An L1I refill is accepted only by the matching transaction, STID, epoch, and
-physical line. An orphaned refill may populate L1I but cannot replay stale
-work.
+I-F2 accepts a translation/cache join only when PE, transaction, STID, fetch
+packet UID, fetch sequence, checkpoint, epoch, PC, and line VA all match. An
+L1I refill is accepted only by the matching live miss identity and physical
+line. An orphaned refill may populate L1I but cannot replay stale work.
 
 Only the first ITLB miss for the unresolved transaction publishes a PTW
 request. The canonical ITLB redirect removes the stale fetch work but retains
@@ -104,9 +105,14 @@ predictor tables.
 5. backend redirect priority and removal of younger frontend state;
 6. simultaneous start and backend redirect ordering.
 
+The R682 identity/rank packet additionally proves that I-F2 rejects a
+checkpoint collision, I-F3 rejects a continuation collision despite matching
+transaction/STID/epoch, B-F4 keeps long-TAGE above static fallback, and
+non-conditional resolutions do not train BIM/TAGE.
+
 Run:
 
 ```bash
-JVM_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' \
+SBT_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' \
   bash tools/chisel/run_chisel_tests.sh --only frontend
 ```

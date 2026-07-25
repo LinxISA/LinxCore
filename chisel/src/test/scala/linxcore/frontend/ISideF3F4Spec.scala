@@ -118,13 +118,23 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.nextLineRequest.ready.poke(false.B)
 
       dut.io.nextLineResponse.valid.poke(true.B)
+      dut.io.nextLineResponse.bits.peId.poke(0.U)
       dut.io.nextLineResponse.bits.transactionId.poke(8.U)
       dut.io.nextLineResponse.bits.threadId.poke(0.U)
+      dut.io.nextLineResponse.bits.fetchPacketUid.poke(0.U)
+      dut.io.nextLineResponse.bits.fetchSeq.poke(9.U)
+      dut.io.nextLineResponse.bits.checkpointId.poke(0.U)
       dut.io.nextLineResponse.bits.epoch.poke(0.U)
+      dut.io.nextLineResponse.bits.lineVa.poke(16.U)
       dut.io.staleNextLineResponse.expect(true.B)
       dut.io.nextLineResponse.ready.expect(false.B)
 
       dut.io.nextLineResponse.bits.transactionId.poke(9.U)
+      dut.io.nextLineResponse.bits.fetchSeq.poke(8.U)
+      dut.io.staleNextLineResponse.expect(true.B)
+      dut.io.nextLineResponse.ready.expect(false.B)
+
+      dut.io.nextLineResponse.bits.fetchSeq.poke(9.U)
       dut.io.nextLineResponse.ready.expect(true.B)
       dut.clock.step()
       dut.io.nextLineResponse.valid.poke(false.B)

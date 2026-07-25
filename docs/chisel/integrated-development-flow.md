@@ -24,6 +24,20 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
+Latest IFU packet: R682 closes exact I-F2/I-F3 identity matching and two
+B-F4 direction-state errors before multi-transaction promotion. I-F2 now
+compares PE, transaction, STID, packet UID, fetch sequence, checkpoint, epoch,
+PC, and line VA; I-F3 continuation additionally requires the exact next-line
+VA. BIM/TAGE trains only conditional resolutions, and B-F4 preserves the
+documented `long-TAGE > earlier direction > static` rank. Focused I-SIDE,
+B-SIDE, and `LinxCoreIfu` runs pass 29 tests; the four reduced wrapper families
+also pass 52 tests after the main merge. The remaining P0 boundary is unchanged:
+The current frontend regression passes 26 suites and 135 tests. The
+`LinxCoreIfu` still admits one unresolved sequential transaction, and the
+CoreMark/Dhrystone natural top still uses the reduced serialized fetch fixture.
+Do not claim four-wide or benchmark promotion until prefix/carry contexts and
+the production benchmark composition are proven.
+
 Latest packet: R676 makes `ScalarL1D` the canonical scalar cache-array owner.
 Independent set/way parameters size aligned tags, full-line data,
 readable/writable/dirty metadata, and deterministic LRU state. LIQ active-phase

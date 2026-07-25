@@ -52,10 +52,15 @@ class ISideF2Resolve(
 
   val joined = translationValid && cacheValid
   val identityMatch =
-    translation.request.transactionId === cache.request.transactionId &&
+    translation.request.identity.peId === cache.request.identity.peId &&
+      translation.request.transactionId === cache.request.transactionId &&
       translation.request.identity.threadId === cache.request.identity.threadId &&
+      translation.request.identity.fetchPacketUid === cache.request.identity.fetchPacketUid &&
       translation.request.identity.fetchSeq === cache.request.identity.fetchSeq &&
-      translation.request.identity.epoch === cache.request.identity.epoch
+      translation.request.identity.checkpointId === cache.request.identity.checkpointId &&
+      translation.request.identity.epoch === cache.request.identity.epoch &&
+      translation.request.pc === cache.request.pc &&
+      translation.request.lineVa === cache.request.lineVa
 
   val pageOffset = translation.request.lineVa(pageOffsetBits - 1, 0)
   val physicalAddress = Cat(translation.ppn, pageOffset)

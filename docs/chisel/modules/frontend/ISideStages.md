@@ -89,7 +89,8 @@ a byte cursor until every instruction starting in the resident cacheline has
 been accepted. If the last such instruction crosses the line boundary, I-F3
 retains the first line and requests the next aligned line only to complete that
 instruction. It does not emit instructions that start in the second line.
-Only a second-line response with matching transaction ID, STID, and epoch is
+Only a second-line response with matching PE, transaction ID, STID, fetch
+packet UID, fetch sequence, checkpoint, epoch, and expected next-line VA is
 accepted.
 
 The second-line request goes through the same I-F1 parallel ITLB/L1I launch,
@@ -168,10 +169,12 @@ The focused leaf and composition suites cover:
 - exact L1I miss refill/retry and orphan refill without stale retry;
 - same-cycle ITLB/L1I launch;
 - translated physical-tag hit;
+- exact I-F2 identity rejection when PE/packet/checkpoint/address metadata do
+  not match;
 - L1I miss, ITLB miss, and execute-fault classification;
 - transient flush while retaining physical ITLB/L1I contents;
 - four-candidate variable-length extraction;
-- cross-line assembly and mismatched-response rejection;
+- cross-line assembly and full-identity mismatched-response rejection;
 - BSTART/BSTOP recognition and post-BSTOP truncation.
 - L1I miss allocation, refill, retry, final B-F4 join, and four-wide D1 output;
 - ITLB miss PTW request plus canonical epoch redirect;

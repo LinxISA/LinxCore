@@ -93,9 +93,14 @@ class ISideF3LineAssembler(
       !io.terminateResident &&
       nextCursor < lineBytes.U
   val nextLineIdentityMatch =
-    io.nextLineResponse.bits.transactionId === resident.request.transactionId &&
+    io.nextLineResponse.bits.peId === resident.request.identity.peId &&
+      io.nextLineResponse.bits.transactionId === resident.request.transactionId &&
       io.nextLineResponse.bits.threadId === resident.request.identity.threadId &&
-      io.nextLineResponse.bits.epoch === resident.request.identity.epoch
+      io.nextLineResponse.bits.fetchPacketUid === resident.request.identity.fetchPacketUid &&
+      io.nextLineResponse.bits.fetchSeq === resident.request.identity.fetchSeq &&
+      io.nextLineResponse.bits.checkpointId === resident.request.identity.checkpointId &&
+      io.nextLineResponse.bits.epoch === resident.request.identity.epoch &&
+      io.nextLineResponse.bits.lineVa === resident.request.lineVa + lineBytes.U
 
   io.nextLineRequest.valid :=
     residentValid &&

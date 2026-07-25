@@ -123,13 +123,16 @@ elaboration check:
 1. cold B-F4 static final correction and exact target restart;
 2. B-F4 wait for an explicit exact no-boundary event;
 3. trained B-F0 correction followed by non-correcting B-F4 confirmation;
-4. response stability and atomic correction/flush under backpressure;
-5. exact not-taken correction restart at instruction fallthrough;
-6. nonempty RAS final return-target authority;
-7. trained IBTB final indirect-target authority;
-8. four fetch-line requests accepted in consecutive cycles and four final
+4. long-TAGE direction outranking a conflicting static fallback;
+5. direct/call/return/indirect training cannot pollute BIM/TAGE direction
+   state;
+6. response stability and atomic correction/flush under backpressure;
+7. exact not-taken correction restart at instruction fallthrough;
+8. nonempty RAS final return-target authority;
+9. trained IBTB final indirect-target authority;
+10. four fetch-line requests accepted in consecutive cycles and four final
    responses returned in consecutive cycles;
-9. duplicate retained training detection by prediction identity.
+11. duplicate retained training detection by prediction identity.
 
 The elaboration check requires all five-stage occupancy, retained response,
 typed inner-flush, and boundary-collision ports in generated SystemVerilog.
@@ -138,10 +141,12 @@ The shared Instruction Buffer and D1 suites additionally prove that the
 expanded prediction tag, fallthrough, confidence, provider, stage, checkpoint,
 and epoch remain intact through four-wide transport.
 
-The `LinxCoreIfuSpec` end-to-end scenarios additionally prove final B-F4
+The focused predictor suite contains 13 passing tests. The current frontend
+regression contains 26 suites and 135 passing tests. The `LinxCoreIfuSpec`
+end-to-end scenarios additionally prove final B-F4
 metadata on every D1 lane, canonical prediction correction ordering,
-cross-line fallthrough, and backend redirect priority. The current frontend
-regression passes 26 suites and 126 tests.
+cross-line fallthrough, and backend redirect priority. These simulations are
+not yet generated-RTL or production benchmark-promotion evidence.
 
 ## Remaining B-SIDE Work
 
