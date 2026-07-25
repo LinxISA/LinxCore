@@ -43,6 +43,8 @@ class BlockMarkerLifecycleIO(
 
   val scalarRedirectValid = Input(Bool())
   val scalarRedirectStid = Input(UInt(stidWidth.W))
+  val scalarContinuationOwnershipCutFire = Input(Bool())
+  val scalarContinuationOwnershipCutStid = Input(UInt(stidWidth.W))
   val scalarBlockStartFire = Input(Bool())
   val scalarBlockStartStid = Input(UInt(stidWidth.W))
   val scalarBlockStartBid = Input(UInt(bidWidth.W))
@@ -150,6 +152,8 @@ class BlockMarkerLifecycle(
   val queryStidInRange = stidInRange(queryStidMatch)
   val scalarRedirectStidMatch = matchesStid(io.scalarRedirectStid)
   val scalarRedirectStidInRange = stidInRange(scalarRedirectStidMatch)
+  val scalarContinuationOwnershipCutStidMatch = matchesStid(io.scalarContinuationOwnershipCutStid)
+  val scalarContinuationOwnershipCutStidInRange = stidInRange(scalarContinuationOwnershipCutStidMatch)
   val scalarBlockStartStidMatch = matchesStid(io.scalarBlockStartStid)
   val scalarBlockStartStidInRange = stidInRange(scalarBlockStartStidMatch)
   val flushStidMatch = matchesStid(io.flushStid)
@@ -202,12 +206,15 @@ class BlockMarkerLifecycle(
   val markerPreRetireFire =
     markerStidInRange && markerFallthroughBoundary && !io.markerLifecycleConflict && !io.markerAllocReady &&
       markerAllocBlockedByActiveSlot && !io.retirePending
+  val markerRedirectDrainReady = !io.scalarWorkPending
   val markerReady =
     markerStidInRange && !markerOwnedDonePending && !io.markerLifecycleConflict && !markerFlush &&
-      (io.markerStop || markerRedirectBoundary || (markerFallthroughBoundary && io.markerAllocReady))
+      ((io.markerStop && markerRedirectDrainReady) ||
+        (markerRedirectBoundary && markerRedirectDrainReady) ||
+        (markerFallthroughBoundary && io.markerAllocReady))
   val markerBoundaryFire = markerFallthroughBoundary && markerReady && io.markerAllocReady
   val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
-  val markerStopFire = io.markerStop && markerReady
+  val markerStopFire = io.markerStop && markerActiveValid && markerReady
 
   val markerScalarDoneFire =
     markerActiveValid && (markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire || markerPreRetireFire)
@@ -217,7 +224,6 @@ class BlockMarkerLifecycle(
       io.robBlockLastValid && activeValid(idx) && activeClearsOnRobBlockLast(idx) &&
         io.robBlockLastStid === idx.U(stidWidth.W) && io.robBlockLastBid === activeBid(idx)))
 
-  val decodeMarkerActive = io.markerBoundary || io.markerStop
   val retiredBoundary = io.retiredMarker.valid && io.retiredMarker.isBoundary
   val retiredStop = io.retiredMarker.valid && io.retiredMarker.isStop
   val retiredNeedsBranchDecision =
@@ -231,12 +237,14 @@ class BlockMarkerLifecycle(
   val retiredFallthroughBoundary =
     retiredBoundary && !retiredUnconditionalRedirect &&
       (!retiredNeedsBranchDecision || (io.branchTakenValid && !io.branchTaken))
+  val decodeMarkerLifecycleFire =
+    markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire || markerPreRetireFire
   val retiredMarkerOwnsBlockLast =
     io.retiredMarker.valid && io.retiredMarker.isLast && io.retiredMarker.blockBidValid &&
       io.robBlockLastValid && io.retiredMarker.stid === io.robBlockLastStid &&
       io.retiredMarker.blockBid === io.robBlockLastBid
   val retiredLifecycleIdle =
-    !markerOwnedDonePending && !decodeMarkerActive && !retiredFlush && !scalarRedirectScalarDoneFire &&
+    !markerOwnedDonePending && !decodeMarkerLifecycleFire && !retiredFlush && !scalarRedirectScalarDoneFire &&
       (!io.robBlockLastValid || retiredMarkerOwnsBlockLast)
   val retiredMarkerConflict = io.markerLifecycleConflict && !retiredMarkerOwnsBlockLast
   val retiredReady =
@@ -336,6 +344,12 @@ class BlockMarkerLifecycle(
     for (idx <- 0 until stidCount) {
       when(retiredStidMatch(idx)) {
         installLane(idx, io.retiredMarker.blockBid, io.retiredMarker.boundaryTarget, io.retiredMarker.boundaryKind)
+      }
+    }
+  }.elsewhen(io.scalarContinuationOwnershipCutFire && scalarContinuationOwnershipCutStidInRange) {
+    for (idx <- 0 until stidCount) {
+      when(scalarContinuationOwnershipCutStidMatch(idx)) {
+        clearLane(idx)
       }
     }
   }.elsewhen(io.scalarBlockStartFire && scalarBlockStartStidInRange) {

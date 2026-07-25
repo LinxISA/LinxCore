@@ -175,7 +175,7 @@ object ROBEntryBankReference {
         val idx = (allocPtr + offset) & (entries - 1)
         val rid = Id(wrap = allocWrap ^ (allocPtr + offset >= entries), value = idx)
         table(idx) = Some(
-          Entry(Row(0x2000 + idx * 4, 0, 4, bid.value, 0, idx, 0, robValue = idx), ReservedUnfilled, bid, Id(), rid, TUSidecar(peId = peId, stid = stid))
+          Entry(Row(0x2000 + idx * 4, 0, 0, bid.value, 0, idx, 0, robValue = idx), ReservedUnfilled, bid, Id(), rid, TUSidecar(peId = peId, stid = stid))
         )
         idx
       }
@@ -435,6 +435,9 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.allocMarkerStop.poke(false.B)
     dut.io.allocMarkerBoundaryKind.poke(BoundaryKind.Fall)
     dut.io.allocMarkerBoundaryTarget.poke(0.U)
+    dut.io.blockCloseValid.poke(false.B)
+    dut.io.blockCloseBid.poke(0.U)
+    dut.io.blockCloseStid.poke(0.U)
     dut.io.renameUpdateValid.poke(false.B)
     dut.io.renameUpdateRid.poke(0.U.asTypeOf(dut.io.renameUpdateRid))
     dut.io.renameUpdateRow.poke(0.U.asTypeOf(dut.io.renameUpdateRow))

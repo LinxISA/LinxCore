@@ -55,6 +55,7 @@ DEFAULT_FETCH_MEMORY_HEX="${BUILD_DIR}/elf.fetch.mem"
 DEFAULT_EXPECTED_ROWS="${BUILD_DIR}/fixture.expected.jsonl"
 DEFAULT_QEMU_EXPECTED_ROWS="${BUILD_DIR}/qemu.expected.jsonl"
 FETCH_ELF="${FETCH_ELF:-}"
+FETCH_ELF_LOAD_BIAS="${FETCH_ELF_LOAD_BIAS:-0}"
 FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-}"
 FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-}"
 FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
@@ -166,7 +167,8 @@ if [[ -n "${FETCH_ELF}" ]]; then
   FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-${DEFAULT_FETCH_MEMORY_HEX}}"
   python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_elf_memory.py" \
     --elf "${FETCH_ELF}" \
-    --output "${FETCH_MEMORY_HEX}"
+    --output "${FETCH_MEMORY_HEX}" \
+    --load-bias "${FETCH_ELF_LOAD_BIAS}"
 fi
 
 if [[ -n "${FETCH_MEMORY_HEX}" ]]; then

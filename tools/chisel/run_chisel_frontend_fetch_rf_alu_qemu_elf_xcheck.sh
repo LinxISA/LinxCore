@@ -33,6 +33,19 @@ RF_SEED=""
 FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET:-}"
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
 FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO:-}"
+FETCH_ELF_LOAD_BIAS="${FETCH_ELF_LOAD_BIAS:-}"
+FINALIZE_ONLY=0
+FINALIZE_PHASE="generated-rtl"
+FINALIZE_STATUS="pass"
+FINALIZE_EXIT_STATUS=0
+ORIGINAL_ARGV_JSON="$(python3 - "$@" <<'PY'
+import json
+import sys
+
+print(json.dumps(sys.argv[1:]))
+PY
+)"
+QEMU_ARGS_JSON="[]"
 
 usage() {
   cat <<USAGE
@@ -100,6 +113,10 @@ Options:
                           generated-RTL harness before source-derived preloads
 
 Environment:
+  FETCH_ELF_LOAD_BIAS=<int>
+                          Explicit PT_LOAD address bias for generated-RTL sparse
+                          memory. Defaults to QEMU direct-loader policy:
+                          0x10000 for ET_DYN and zero for ET_EXEC.
   FETCH_REPLAY_LIQ_REQUIRE_PRESET=<csv>
                           Pass named sideband validator presets through to the
                           generated-RTL runner. Supported presets are owned by
@@ -183,6 +200,13 @@ while [[ $# -gt 0 ]]; do
     --expect-load-pcs) EXPECT_LOAD_PCS="$2"; shift 2 ;;
     --expect-store-pcs) EXPECT_STORE_PCS="$2"; shift 2 ;;
     --rf-seed) RF_SEED="$2"; shift 2 ;;
+    --finalize-only)
+      FINALIZE_ONLY=1
+      FINALIZE_PHASE="$2"
+      FINALIZE_STATUS="$3"
+      FINALIZE_EXIT_STATUS="$4"
+      shift 4
+      ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -200,6 +224,9 @@ TRACE_DIR="${BUILD_DIR}/traces"
 REPORT_DIR="${BUILD_DIR}/report"
 QEMU_TRACE="${TRACE_DIR}/qemu.live.raw.jsonl"
 QEMU_FIFO="${TRACE_DIR}/qemu.live.raw.fifo"
+EXPECTED_PREVIEW="${TRACE_DIR}/qemu.live.expected.preview.jsonl"
+FRONTEND_REPORT="${REPORT_DIR}/frontend_fetch_rf_alu_qemu_elf_report.json"
+FRONTEND_MANIFEST="${REPORT_DIR}/frontend_fetch_rf_alu_qemu_elf_manifest.json"
 QEMU_TRACE_RUNNER="${ROOT_DIR}/tools/qemu/run_qemu_commit_trace.sh"
 FETCH_RUNNER="${ROOT_DIR}/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh"
 QEMU_CROSSCHECK_RUNNER="${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh"
@@ -208,6 +235,335 @@ qemu_pid=""
 reader_pid=""
 watchdog_pid=""
 producer_watch_pid=""
+raw_rows=0
+if (( ${#QEMU_ARGS[@]} == 0 )); then
+  QEMU_ARGS_JSON="[]"
+else
+  QEMU_ARGS_JSON="$(python3 - "${QEMU_ARGS[@]}" <<'PY'
+import json
+import sys
+
+print(json.dumps(sys.argv[1:]))
+PY
+  )"
+fi
+
+write_frontend_manifest() {
+  local phase="$1"
+  local status="$2"
+  local exit_status="$3"
+  local common_manifest="${REPORT_DIR}/crosscheck_manifest.json"
+  python3 - \
+    "${FRONTEND_MANIFEST}" \
+    "${FRONTEND_REPORT}" \
+    "${common_manifest}" \
+    "${phase}" \
+    "${status}" \
+    "${exit_status}" \
+    "${ROOT_DIR}" \
+    "${ELF}" \
+    "${QEMU_BIN}" \
+    "${QEMU_TRACE}" \
+    "${EXPECTED_PREVIEW}" \
+    "${REPORT_DIR}" \
+    "${raw_rows}" \
+    "${QEMU_SKIP_ROWS}" \
+    "${EXPECTED_ROWS}" \
+    "${CAPTURE_ROWS}" \
+    "${FETCH_ELF_LOAD_BIAS}" \
+    "${QEMU_ONLY}" \
+    "${QEMU_RAW_ONLY}" \
+    "${ORIGINAL_ARGV_JSON}" \
+    "${QEMU_ARGS_JSON}" \
+    "${PC_LO}" \
+    "${PC_HI}" \
+    "${ALLOW_BLOCK_MARKERS}" \
+    "${ALLOW_BLOCK_LOOP_REENTRY}" \
+    "${MARKER_ROWS}" \
+    "${REDUCED_STORE_DISPATCH_STQ}" \
+    "${REDUCED_STORE_REPLAY_LIQ}" \
+    "${REDUCED_STORE_LIVE_LOAD_LIQ}" \
+    "${DISABLE_STORE_MEMORY_MUTATION}" \
+    "${ALLOW_RESIDUAL_REPLAY_LIQ_WAIT}" \
+    "${EXPECT_LOAD_PCS}" \
+    "${EXPECT_STORE_PCS}" \
+    "${RF_SEED}" <<'PY'
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+(
+    manifest_path,
+    report_path,
+    common_manifest_path,
+    phase,
+    status,
+    exit_status,
+    root_dir,
+    elf,
+    qemu_bin,
+    qemu_trace,
+    expected_preview,
+    report_dir,
+    raw_rows,
+    skipped_rows,
+    expected_rows,
+    capture_rows,
+    fetch_elf_load_bias,
+    qemu_only,
+    qemu_raw_only,
+    original_argv_json,
+    qemu_args_json,
+    pc_lo,
+    pc_hi,
+    allow_block_markers,
+    allow_block_loop_reentry,
+    marker_rows,
+    reduced_store_dispatch_stq,
+    reduced_store_replay_liq,
+    reduced_store_live_load_liq,
+    disable_store_memory_mutation,
+    allow_residual_replay_liq_wait,
+    expect_load_pcs,
+    expect_store_pcs,
+    rf_seed,
+) = sys.argv[1:]
+
+
+def read_json(path: str, default):
+    p = Path(path)
+    if not p.is_file():
+        return default
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def count_jsonl(path: str) -> int:
+    p = Path(path)
+    if not p.is_file():
+        return 0
+    count = 0
+    with p.open("r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                count += 1
+    return count
+
+
+def sha256_file(path: str) -> str:
+    p = Path(path)
+    if not p.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with p.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def existing(path: str) -> str:
+    return path if path and Path(path).is_file() else ""
+
+
+def git_rev(path: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "-C", path, "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def git_dirty(path: str) -> bool:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", path, "status", "--short"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return bool(out.strip())
+    except subprocess.CalledProcessError:
+        return False
+
+
+def git_context(path: Path) -> dict:
+    return {"path": str(path), "head": git_rev(str(path)), "dirty": git_dirty(str(path))}
+
+
+def atomic_json(path: str, payload: dict) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = -1
+    tmp_name = ""
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=str(target.parent),
+            text=True,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, target)
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if tmp_name and Path(tmp_name).exists():
+            Path(tmp_name).unlink()
+
+
+def artifact(path: str) -> dict | None:
+    if not path or not Path(path).is_file():
+        return None
+    return {
+        "path": path,
+        "sha256": sha256_file(path),
+        "bytes": Path(path).stat().st_size,
+        "rows": count_jsonl(path) if path.endswith(".jsonl") else None,
+    }
+
+
+common_manifest = read_json(common_manifest_path, {})
+common_reports = common_manifest.get("reports", {}) if isinstance(common_manifest, dict) else {}
+common_inputs = common_manifest.get("inputs", {}) if isinstance(common_manifest, dict) else {}
+common_normalized = common_manifest.get("normalized", {}) if isinstance(common_manifest, dict) else {}
+common_report_path = common_reports.get("json") or str(Path(report_dir) / "crosscheck_report.json")
+common_report = read_json(common_report_path, {})
+first_mismatch = common_report.get("first_mismatch")
+mismatch_count = int(common_report.get("mismatch_count", 0) or 0)
+compared_rows = int(common_report.get("compared_rows", 0) or 0)
+dut_trace = common_inputs.get("dut_trace", "")
+qemu_reference_trace = common_inputs.get("qemu_trace", "")
+if not qemu_reference_trace:
+    qemu_reference_trace = qemu_trace
+
+artifacts = []
+for candidate in [
+    qemu_trace,
+    expected_preview,
+    qemu_reference_trace,
+    dut_trace,
+    common_normalized.get("qemu_trace", ""),
+    common_normalized.get("dut_trace", ""),
+    common_report_path,
+    common_reports.get("mismatches", ""),
+    common_reports.get("markdown", ""),
+    common_manifest_path,
+]:
+    item = artifact(candidate)
+    if item is not None and item["path"] not in {a["path"] for a in artifacts}:
+        artifacts.append(item)
+
+linx_root = Path(root_dir).resolve().parents[1]
+counts = {
+    "qemu_live_raw_rows": count_jsonl(qemu_trace),
+    "expected_preview_rows": count_jsonl(expected_preview),
+    "qemu_reference_rows": count_jsonl(qemu_reference_trace),
+    "dut_captured_rows": count_jsonl(dut_trace),
+    "qemu_normalized_rows": count_jsonl(common_normalized.get("qemu_trace", "")),
+    "dut_normalized_rows": count_jsonl(common_normalized.get("dut_trace", "")),
+    "common_report_qemu_rows": int(common_report.get("qemu_rows", 0) or 0),
+    "common_report_dut_rows": int(common_report.get("dut_rows", 0) or 0),
+    "compared_rows": compared_rows,
+    "mismatch_count": mismatch_count,
+}
+selected = {
+    "original_argv": json.loads(original_argv_json),
+    "qemu_args": json.loads(qemu_args_json),
+    "elf": elf,
+    "qemu_bin": qemu_bin,
+    "expected_rows": int(expected_rows),
+    "capture_rows": int(capture_rows),
+    "qemu_skip_rows": int(skipped_rows),
+    "fetch_elf_load_bias": fetch_elf_load_bias,
+    "pc_lo": pc_lo,
+    "pc_hi": pc_hi,
+    "allow_block_markers": allow_block_markers == "1",
+    "allow_block_loop_reentry": allow_block_loop_reentry == "1",
+    "marker_rows": marker_rows == "1",
+    "reduced_store_dispatch_stq": reduced_store_dispatch_stq == "1",
+    "reduced_store_replay_liq": reduced_store_replay_liq == "1",
+    "reduced_store_live_load_liq": reduced_store_live_load_liq == "1",
+    "disable_store_memory_mutation": disable_store_memory_mutation == "1",
+    "allow_residual_replay_liq_wait": allow_residual_replay_liq_wait == "1",
+    "qemu_only": qemu_only == "1",
+    "qemu_raw_only": qemu_raw_only == "1",
+    "expect_load_pcs": expect_load_pcs,
+    "expect_store_pcs": expect_store_pcs,
+    "rf_seed": rf_seed,
+}
+report = {
+    "schema": "linxcore.chisel.frontend_fetch_rf_alu_qemu_elf_report.v2",
+    "phase": phase,
+    "status": status,
+    "exit_status": int(exit_status),
+    "counts": counts,
+    "mismatch_count": mismatch_count,
+    "first_mismatch": first_mismatch,
+    "selected": selected,
+    "artifacts": artifacts,
+    "common_crosscheck_manifest": existing(common_manifest_path),
+    "proof_boundary": "reduced generated-RTL/QEMU trace comparison only; not natural full-core execution",
+}
+manifest = {
+    "schema": "linxcore.chisel.frontend_fetch_rf_alu_qemu_elf_manifest.v2",
+    "generated_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "status": status,
+    "exit_status": int(exit_status),
+    "phase": phase,
+    "root_dir": root_dir,
+    "git": {
+        "linxcore": git_context(Path(root_dir)),
+        "linxcore_model": git_context(linx_root / "tools" / "LinxCoreModel"),
+        "qemu": git_context(linx_root / "emulator" / "qemu"),
+        "superproject": git_context(linx_root),
+    },
+    "selected": selected,
+    "inputs": {
+        "qemu_trace": existing(qemu_trace),
+        "expected_preview": existing(expected_preview),
+        "qemu_reference_trace": existing(qemu_reference_trace),
+        "dut_trace": existing(dut_trace),
+    },
+    "reports": {
+        "frontend_report": report_path,
+        "frontend_manifest": manifest_path,
+        "common_crosscheck_manifest": existing(common_manifest_path),
+        "common_crosscheck_report": existing(common_report_path),
+        "common_crosscheck_mismatches": existing(common_reports.get("mismatches", "")),
+        "common_crosscheck_markdown": existing(common_reports.get("markdown", "")),
+    },
+    "counts": counts,
+    "mismatch_count": mismatch_count,
+    "first_mismatch": first_mismatch,
+    "artifacts": artifacts,
+    "proof_boundary": report["proof_boundary"],
+    "report_dir": report_dir,
+}
+atomic_json(report_path, report)
+atomic_json(manifest_path, manifest)
+print(f"frontend_manifest_json={manifest_path}")
+print(f"frontend_report_json={report_path}")
+PY
+}
+
+if [[ "${FINALIZE_ONLY}" == "1" ]]; then
+  mkdir -p "${TRACE_DIR}" "${REPORT_DIR}"
+  raw_rows="$(awk 'END { print NR + 0 }' "${QEMU_TRACE}" 2>/dev/null || echo 0)"
+  write_frontend_manifest "${FINALIZE_PHASE}" "${FINALIZE_STATUS}" "${FINALIZE_EXIT_STATUS}"
+  exit "${FINALIZE_EXIT_STATUS}"
+fi
 
 if [[ -n "${ELF}" && -n "${FIXTURE}" ]]; then
   echo "error: --elf and --fixture are mutually exclusive" >&2
@@ -359,6 +715,21 @@ fi
 if [[ ! -f "${ELF}" ]]; then
   echo "error: ELF not found: ${ELF}" >&2
   exit 2
+fi
+if [[ -z "${FETCH_ELF_LOAD_BIAS}" ]]; then
+  FETCH_ELF_LOAD_BIAS="$(
+    python3 - "${ELF}" <<'PY'
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as f:
+    header = f.read(18)
+if len(header) != 18 or header[:4] != b"\x7fELF":
+    raise SystemExit(f"error: not an ELF file: {sys.argv[1]}")
+etype = struct.unpack_from("<H", header, 16)[0]
+print("0x10000" if etype == 3 else "0")
+PY
+  )"
 fi
 if [[ -z "${QEMU_BIN}" ]]; then
   QEMU_BIN="$(bash "${QEMU_CROSSCHECK_RUNNER}" --print-qemu-bin)"
@@ -555,18 +926,19 @@ if [[ "${QEMU_SKIP_ROWS}" -gt 0 ]]; then
 fi
 
 if [[ ! -s "${QEMU_TRACE}" ]]; then
+  write_frontend_manifest "qemu-capture" "fail" 2
   echo "error: QEMU trace not found or empty: ${QEMU_TRACE}" >&2
   exit 2
 fi
 
 if [[ "${QEMU_RAW_ONLY}" == "1" ]]; then
+  write_frontend_manifest "qemu-raw-only" "pass" 0
   echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-raw-only raw_rows=${raw_rows} skipped_rows=${QEMU_SKIP_ROWS}"
   echo "qemu-live-trace=${QEMU_TRACE}"
   echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
   exit 0
 fi
 
-EXPECTED_PREVIEW="${TRACE_DIR}/qemu.live.expected.preview.jsonl"
 row_args=(
   --input "${QEMU_TRACE}"
   --output "${EXPECTED_PREVIEW}"
@@ -578,9 +950,20 @@ fi
 if [[ "${ALLOW_BLOCK_LOOP_REENTRY}" == "1" ]]; then
   row_args+=(--allow-block-loop-reentry)
 fi
+set +e
 python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" "${row_args[@]}"
+reducer_rc=$?
+set -e
+if [[ "${reducer_rc}" -ne 0 ]]; then
+  write_frontend_manifest "qemu-reduce" "fail" "${reducer_rc}"
+  echo "frontend-fetch-rf-alu-qemu-elf-status=fail phase=qemu-reduce rc=${reducer_rc}"
+  echo "qemu-live-trace=${QEMU_TRACE}"
+  echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+  exit "${reducer_rc}"
+fi
 
 if [[ -n "${EXPECT_LOAD_PCS}" || -n "${EXPECT_STORE_PCS}" ]]; then
+  set +e
   python3 - "${EXPECTED_PREVIEW}" "${EXPECT_LOAD_PCS}" "${EXPECT_STORE_PCS}" <<'PY'
 import json
 import sys
@@ -636,9 +1019,20 @@ if expected_stores_s and stores != expected_stores:
 print("qemu-live-load-pcs=" + ",".join(hex(pc) for pc in loads))
 print("qemu-live-store-pcs=" + ",".join(hex(pc) for pc in stores))
 PY
+  pc_expect_rc=$?
+  set -e
+  if [[ "${pc_expect_rc}" -ne 0 ]]; then
+    write_frontend_manifest "qemu-pc-expect" "fail" "${pc_expect_rc}"
+    echo "frontend-fetch-rf-alu-qemu-elf-status=fail phase=qemu-pc-expect rc=${pc_expect_rc}"
+    echo "qemu-live-trace=${QEMU_TRACE}"
+    echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
+    echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+    exit "${pc_expect_rc}"
+  fi
 fi
 
 if [[ "${QEMU_ONLY}" == "1" ]]; then
+  write_frontend_manifest "qemu-only" "pass" 0
   echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-only raw_rows=${raw_rows} skipped_rows=${QEMU_SKIP_ROWS}"
   echo "qemu-live-trace=${QEMU_TRACE}"
   echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
@@ -646,8 +1040,10 @@ if [[ "${QEMU_ONLY}" == "1" ]]; then
   exit 0
 fi
 
+set +e
 BUILD_DIR="${BUILD_DIR}" \
 FETCH_ELF="${ELF}" \
+FETCH_ELF_LOAD_BIAS="${FETCH_ELF_LOAD_BIAS}" \
 FETCH_QEMU_TRACE="${QEMU_TRACE}" \
 FETCH_QEMU_MAX_ROWS="${EXPECTED_ROWS}" \
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
@@ -663,11 +1059,28 @@ FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" \
 FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO}" \
 FETCH_RF_SEED="${RF_SEED}" \
 bash "${FETCH_RUNNER}"
+fetch_rc=$?
+set -e
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"
 if [[ ! -s "${MANIFEST}" ]]; then
-  echo "error: expected cross-check manifest was not produced: ${MANIFEST}" >&2
-  exit 3
+  if [[ "${fetch_rc}" -eq 0 ]]; then
+    write_frontend_manifest "generated-rtl" "fail" 3
+    echo "error: expected cross-check manifest was not produced: ${MANIFEST}" >&2
+    exit 3
+  fi
+  write_frontend_manifest "generated-rtl" "fail" "${fetch_rc}"
+  echo "warn: generated-RTL runner exited ${fetch_rc} before producing cross-check manifest: ${MANIFEST}" >&2
+  echo "qemu-live-trace=${QEMU_TRACE}"
+  echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
+  echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+  exit "${fetch_rc}"
+fi
+
+if [[ "${fetch_rc}" -eq 0 ]]; then
+  write_frontend_manifest "generated-rtl" "pass" 0
+else
+  write_frontend_manifest "generated-rtl" "fail" "${fetch_rc}"
 fi
 
 python3 - "${MANIFEST}" <<'PY'
@@ -689,3 +1102,4 @@ PY
 echo "qemu-live-trace=${QEMU_TRACE}"
 echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
 echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+exit "${fetch_rc}"

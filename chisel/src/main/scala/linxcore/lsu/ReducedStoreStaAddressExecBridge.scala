@@ -1,6 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
+import chisel3.util._
 
 import linxcore.common.InterfaceParams
 import linxcore.frontend.FrontendOpcodeDecodeTable
@@ -67,6 +68,23 @@ class ReducedStoreStaAddressExecBridge(
   private def scaledImm(shift: Int): UInt =
     resize(io.queue.uop.imm << shift, addrWidth)
 
+  private def sext32(value: UInt): UInt =
+    if (addrWidth == 32) value(31, 0) else Cat(Fill(addrWidth - 32, value(31)), value(31, 0))
+
+  private def zext32(value: UInt): UInt =
+    value(31, 0).pad(addrWidth)
+
+  private def storeRegSrcR(insn: UInt, value: UInt): UInt = {
+    val converted = Wire(UInt(addrWidth.W))
+    converted := value
+    switch(insn(26, 25)) {
+      is(0.U) { converted := sext32(value) }
+      is(1.U) { converted := zext32(value) }
+      is(2.U) { converted := (0.U(addrWidth.W) - value)(addrWidth - 1, 0) }
+    }
+    converted
+  }
+
   private def pcrStoreSize(op: UInt): UInt =
     Mux(
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_SB_PCR),
@@ -105,15 +123,30 @@ class ReducedStoreStaAddressExecBridge(
     addrSourceMask := "b010".U
     addr := src1 + scaledImm(3)
     size := 8.U
+  }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_SDI_PR)) {
+    supportedOpcode := true.B
+    addrSourceMask := "b010".U
+    addr := src1 + scaledImm(3)
+    size := 8.U
   }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SWI)) {
     supportedOpcode := true.B
     addrSourceMask := "b010".U
     addr := src1 + scaledImm(2)
     size := 4.U
+  }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SHI)) {
+    supportedOpcode := true.B
+    addrSourceMask := "b010".U
+    addr := src1 + scaledImm(1)
+    size := 2.U
   }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SBI)) {
     supportedOpcode := true.B
     addrSourceMask := "b010".U
     addr := src1 + resize(io.queue.uop.imm, addrWidth)
+    size := 1.U
+  }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SB)) {
+    supportedOpcode := true.B
+    addrSourceMask := "b110".U
+    addr := src1 + storeRegSrcR(io.queue.uop.insnRaw, src2)
     size := 1.U
   }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SC_W)) {
     supportedOpcode := true.B

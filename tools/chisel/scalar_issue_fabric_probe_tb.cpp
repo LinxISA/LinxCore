@@ -46,7 +46,7 @@ static void idle(VScalarIssueFabricProbe &dut) {
 }
 
 static void enqueue(VScalarIssueFabricProbe &dut, unsigned stid, unsigned rid, unsigned pc,
-                    bool bru = false, bool store = false) {
+                    bool bru = false, bool store = false, unsigned source_tag = 40) {
     idle(dut);
     dut.io_enqueueValid = 1;
     dut.io_enqueueStid = stid;
@@ -54,6 +54,7 @@ static void enqueue(VScalarIssueFabricProbe &dut, unsigned stid, unsigned rid, u
     dut.io_enqueuePc = pc;
     dut.io_enqueueBru = bru;
     dut.io_enqueueStore = store;
+    dut.io_sourceTag = source_tag;
     eval(dut);
     require(dut.io_enqueueReady, "fabric did not accept an enqueue");
     tick(dut);
@@ -262,6 +263,68 @@ int main(int argc, char **argv) {
     eval(dut);
     require(!dut.io_storeOrderBlocked && dut.io_bankReadGrantMask == 2,
             "younger store did not retry after exact older-store release");
+
+    idle(dut);
+    dut.io_flush = 1;
+    tick(dut);
+    enqueue(dut, 0, 1, 0x500, true, false, 40);
+    enqueue(dut, 0, 2, 0x504, true, false, 41);
+    enqueue(dut, 0, 6, 0x508, false, false, 42);
+    enqueue(dut, 0, 7, 0x50c, false, false, 43);
+    idle(dut);
+    eval(dut);
+    require(dut.io_bankOccupancy_0 == 2 && dut.io_bankOccupancy_1 == 2,
+            "compaction regression did not create two resident rows per bank");
+
+    dut.io_sourceTag = 40;
+    dut.io_wakeupValid = 1;
+    tick(dut);
+    idle(dut);
+    eval(dut);
+    require(dut.io_bankPickMask == 1,
+            "bank A older control row was not the unique first pick");
+    tick(dut);
+    idle(dut);
+    eval(dut);
+    require(dut.io_bankReadAttemptMask == 1 && dut.io_bankReadGrantMask == 1,
+            "bank A older control row did not reach I1 alone");
+    tick(dut);
+    idle(dut);
+    dut.io_issueReady = 1;
+    eval(dut);
+    require(dut.io_issueFire && dut.io_issueRid == 1,
+            "bank A older control row did not become issued-resident");
+    tick(dut);
+
+    idle(dut);
+    dut.io_sourceTag = 42;
+    dut.io_wakeupValid = 1;
+    tick(dut);
+    idle(dut);
+    dut.io_releaseValid = 1;
+    dut.io_releaseStid = 0;
+    dut.io_releaseRid = 1;
+    eval(dut);
+    require(dut.io_bankPickMask == 1 && dut.io_bankOccupancy_0 == 2,
+            "bank A slot-1 target was not picked with slot-0 release");
+    tick(dut);
+
+    idle(dut);
+    dut.io_releaseValid = 1;
+    dut.io_releaseStid = 0;
+    dut.io_releaseRid = 5;
+    eval(dut);
+    require(dut.io_bankOccupancy_0 == 1 && dut.io_bankOccupancy_1 == 2 &&
+                dut.io_controlFenceActive && dut.io_bankReadAttemptMask == 1 &&
+                dut.io_bankControlBlockedMask == 1 &&
+                dut.io_bankReadGrantMask == 0 && dut.io_cancelFire,
+            "compacted target was not cancelled by the older bank-B control frontier");
+    tick(dut);
+
+    idle(dut);
+    eval(dut);
+    require(dut.io_bankOccupancy_0 == 1 && dut.io_bankPickMask == 1,
+            "cancelled compacted target identity did not become selectable for retry");
 
     std::cout << "scalar-issue-fabric-probe: PASS\n";
     return 0;

@@ -196,7 +196,6 @@ class STQCommitDrainSpec extends AnyFunSuite {
       new STQCommitDrain(
         entries = 16, queueEntries = 16, issueWidth = 2, robEntries = 8, lsidWidth = 40))
     assert(sv.contains("module STQCommitDrain"))
-    assert(sv.contains("io_memReqs_0_stid"))
     assert(sv.contains("io_memReqs_0_bid_value"))
     assert(sv.contains("io_memReqs_0_gid_value"))
     assert(sv.contains("io_memReqs_0_rid_value"))

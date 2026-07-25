@@ -14,6 +14,14 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     Files.readString(path)
   }
 
+  private def executeSourceText: String = {
+    val candidates = Seq(
+      Paths.get("src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala"),
+      Paths.get("chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala"))
+    val path = candidates.find(Files.exists(_)).getOrElse(candidates.head)
+    Files.readString(path)
+  }
+
   test("interface combines live fetch source with RF-backed issue and ALU diagnostics") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1047,6 +1055,14 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.robCompleteArbiterSelectedExecute.getWidth == 1)
     assert(io.robCompleteArbiterSelectedReplay.getWidth == 1)
     assert(io.robCompleteArbiterReplayBlockedByExecute.getWidth == 1)
+    assert(io.scalarLrReservationSetCandidate.getWidth == 1)
+    assert(io.scalarLrReservationSetAccepted.getWidth == 1)
+    assert(io.scalarLrReservationSetLineAddr.getWidth == 64)
+    assert(io.scalarLrReservationSetRidValue.getWidth == 3)
+    assert(io.scalarLrReservationValidStid0.getWidth == 1)
+    assert(io.scalarLrReservationLineStid0.getWidth == 64)
+    assert(io.scalarLrReservationCount.getWidth == 1)
+    assert(io.scalarLrReservationCommittedStoreInvalidate.getWidth == 1)
   }
 
   test("R365 replay W2 clear commit guard diagnostics have stable widths") {
@@ -1623,6 +1639,16 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ReducedScalarIssuePick"))
     assert(sv.contains("module ReducedScalarAluExecute"))
+    assert(sv.contains("io_releaseValid"))
+    assert(sv.contains("io_secondaryReleaseValid"))
+    assert(sv.contains("io_tertiaryReleaseValid"))
+    assert(sv.contains("io_earlyReleaseValid"))
+    assert(sv.contains("io_earlyReleaseBid"))
+    assert(sv.contains("io_earlyReleaseRid"))
+    assert(sv.contains("io_earlyReleaseStid"))
+    assert(sv.contains("fretStkContextValid"))
+    assert(sv.contains("fretStkConditionTaken"))
+    assert(sv.contains("fretStkFallbackTarget"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceSourceReady"))
@@ -2102,16 +2128,138 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_admittedMarkerDrainBarrier"))
   }
 
-  test("Fetch/RF top accepts issue ingress only on ready-valid fire") {
+  test("ACRC service enqueue uses one accepted ready-valid contract") {
     val source = topSourceText
 
+    assert(source.contains("execute.io.completeReady := retainer.io.laneReady(0)"))
+    assert(source.contains("retainer.io.lanes(0).valid := execute.io.completeValid"))
+    assert(source.contains("retainer.io.lanes(0).rowValid := execute.io.completeValid"))
+    assert(source.contains("retainer.io.outputReady := arbiter.io.selectedExecute && (path.io.completeAccepted || path.io.completeIgnored)"))
+    assert(source.contains("arbiter.io.executeCompleteValid := retainer.io.completeValid"))
+    assert(source.contains("retainer.io.lanes(1) := 0.U.asTypeOf(retainer.io.lanes(1))"))
+    assert(source.contains("stale retained rows after recovery drain via"))
+    assert(source.contains("val incomingServiceRow = path.io.decRenValid && path.io.decRenHeadOpcode === serviceOpcode"))
+    assert(source.contains("val serviceQueueAccepts = !incomingServiceRow || servicePath.io.enqueueReady"))
+    assert(source.contains("!servicePath.io.renameFence && serviceQueueAccepts"))
     assert(source.contains("issue.io.inValid := path.io.renamedOutValid && path.io.renamedOutReady"))
+    assert(source.contains("val serviceEnqueueFire = issue.io.inputAcceptFire && issue.io.inputAcceptUop.opcode === serviceOpcode"))
     assert(source.contains("rf.io.clearValid := issue.io.inputAcceptDstValid"))
-    assert(source.contains("rf.io.clearTag := issue.io.inputAcceptDstTag"))
     assert(source.contains("val localDstAllocT =\n    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid"))
-    assert(source.contains("val localDstAllocU =\n    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid"))
-    assert(source.contains("io.issueQueueEnqueueFire := issue.io.inputAcceptFire"))
-    assert(!source.contains("rf.io.clearValid := issue.io.enqueueDstValid"))
-    assert(!source.contains("io.issueQueueEnqueueFire := issue.io.enqueueFire"))
+    assert(source.contains("val conditionalFretEnqueueFire =\n    issue.io.inputAcceptFire &&"))
+    assert(source.contains("path.io.samePacketNextSlotValid := denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier"))
+    assert(source.contains("path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot"))
+  }
+
+  test("issue release wiring keeps terminal, LIQ-service-SC, and early-release identities on separate ports") {
+    val source = topSourceText
+    val executeSource = executeSourceText
+
+    assert(source.contains("issue.io.releaseValid := execute.io.releaseValid"))
+    assert(source.contains("issue.io.releaseBid := execute.io.releaseBid"))
+    assert(source.contains("issue.io.releaseRid := execute.io.releaseRid"))
+    assert(source.contains("issue.io.releaseStid := execute.io.releaseStid"))
+    assert(source.contains("val serviceOrScReleaseValid = servicePath.io.releaseValid || scalarScReleaseValid"))
+    assert(source.contains("issue.io.secondaryReleaseValid := execute.io.liqReleaseValid || serviceOrScReleaseValid"))
+    assert(source.contains("execute.io.liqReleaseValid,\n        execute.io.liqReleaseBid"))
+    assert(source.contains("Mux(servicePath.io.releaseValid, servicePath.io.releaseBid, scalarScReleaseBid)"))
+    assert(source.contains("execute.io.liqReleaseValid,\n        execute.io.liqReleaseRid"))
+    assert(source.contains("Mux(servicePath.io.releaseValid, servicePath.io.releaseRid, scalarScReleaseRid)"))
+    assert(source.contains("execute.io.liqReleaseValid,\n        execute.io.liqReleaseStid"))
+    assert(source.contains("Mux(servicePath.io.releaseValid, servicePath.io.releaseStid, scalarScReleaseStid)"))
+    assert(source.contains("issue.io.tertiaryReleaseValid := execute.io.earlyReleaseValid"))
+    assert(source.contains("issue.io.tertiaryReleaseBid := execute.io.earlyReleaseBid"))
+    assert(source.contains("issue.io.tertiaryReleaseRid := execute.io.earlyReleaseRid"))
+    assert(source.contains("issue.io.tertiaryReleaseStid := execute.io.earlyReleaseStid"))
+    assert(source.contains("val redirectCleanupCutsIssue = LinxCoreFrontendFetchRfAluTraceTopRedirectIssueCutWiring.cutsIssue("))
+    assert(source.contains("execute.io.inReady && !conditionalFretStkWaiting && !templateContextBlocksIssue && !redirectCleanupCutsIssue"))
+    assert(source.contains("issue.io.issueValid && !serviceIssueCandidate && !scalarScIssueGate.candidate &&\n      !conditionalFretStkWaiting && !templateContextBlocksIssue && !redirectCleanupCutsIssue"))
+    assert(source.contains("execute.io.flushValid := backendPipeFlush"))
+    assert(!source.contains("execute.io.earlyReleaseKill"))
+    assert(!source.contains("issue.io.releaseValid := execute.io.earlyReleaseValid"))
+    assert(!source.contains("issue.io.secondaryReleaseValid := execute.io.earlyReleaseValid"))
+
+    assert(executeSource.contains("val earlyReleasePendingValid = RegInit(false.B)"))
+    assert(executeSource.contains("val earlyReleasePendingBid = RegInit(ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("val earlyReleasePendingGid = RegInit(ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("val earlyReleasePendingRid = RegInit(ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("val earlyReleasePendingStid = RegInit(0.U(p.threadIdWidth.W))"))
+    assert(executeSource.contains("val earlyReleaseCapture = accept && ScalarPipeSafety.fixedScalarAlu(io.in)"))
+    assert(executeSource.contains("when(io.flushValid)"))
+    assert(executeSource.contains("earlyReleasePendingValid := earlyReleaseCapture"))
+    assert(executeSource.contains("earlyReleasePendingBid := io.in.bid"))
+    assert(executeSource.contains("earlyReleasePendingGid := io.in.gid"))
+    assert(executeSource.contains("earlyReleasePendingRid := io.in.rid"))
+    assert(executeSource.contains("earlyReleasePendingStid := io.in.threadId"))
+    assert(executeSource.contains("io.earlyReleaseValid := !io.flushValid && earlyReleasePendingValid"))
+    assert(!executeSource.contains("earlyReleaseKill"))
+    assert(executeSource.contains("io.releaseValid := (io.completeFire && !w2EarlyReleased) || w2UnsupportedDrain"))
+    assert(executeSource.contains("io.earlyReleaseBid := Mux(io.earlyReleaseValid, earlyReleasePendingBid, ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("io.earlyReleaseGid := Mux(io.earlyReleaseValid, earlyReleasePendingGid, ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("io.earlyReleaseRid := Mux(io.earlyReleaseValid, earlyReleasePendingRid, ROBID.disabled(p.robEntries))"))
+    assert(executeSource.contains("io.earlyReleaseStid := Mux(io.earlyReleaseValid, earlyReleasePendingStid, 0.U)"))
+    assert(!executeSource.contains("io.earlyReleaseBid := Mux(io.earlyReleaseValid, io.in.bid"))
+    assert(!executeSource.contains("io.earlyReleaseRid := Mux(io.earlyReleaseValid, io.in.rid"))
+    assert(!executeSource.contains("io.earlyReleaseStid := Mux(io.earlyReleaseValid, io.in.threadId"))
+  }
+
+  test("execute W2 side effects fire only after retained completion backpressure accepts") {
+    val source = topSourceText
+
+    assert(source.contains(
+      "reducedLoadReplayCompletionDrain.io.completeValid :=\n" +
+        "    useReducedStoreDispatchStq.B && !reducedLoadReplayLiqAllocEnabled && execute.io.completeFire"))
+    assert(source.contains("execute.io.completeFire && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)"))
+    assert(source.contains("execute.io.completeFire && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 30.U)"))
+    assert(source.contains(
+      "val scalarLrSetCandidate =\n" +
+        "      execute.io.completeFire &&"))
+    assert(source.contains("storeExecBridge.io.completeValid := execute.io.completeFire && useReducedStoreDispatchStq"))
+    assert(source.contains(
+      "val executeCompleteIsFentry =\n" +
+        "      execute.io.completeFire &&"))
+    assert(!source.contains("storeExecBridge.io.completeValid := execute.io.completeValid"))
+    assert(!source.contains("reducedLoadReplayCompletionDrain.io.completeValid :=\n    useReducedStoreDispatchStq.B && !reducedLoadReplayLiqAllocEnabled && execute.io.completeValid"))
+  }
+
+  test("ACRC service issue uses full commit-head identity") {
+    val source = topSourceText
+
+    assert(source.contains("path.io.commitHeadStid === issue.io.issueUop.threadId"))
+    assert(source.contains("path.io.commitHeadBid.valid && path.io.commitHeadGid.valid && path.io.commitHeadRid.valid"))
+    assert(source.contains("ROBID.equal(path.io.commitHeadBid, issue.io.issueUop.bid)"))
+    assert(source.contains("ROBID.equal(path.io.commitHeadGid, issue.io.issueUop.gid)"))
+    assert(source.contains("ROBID.equal(path.io.commitHeadRid, issue.io.issueUop.rid)"))
+  }
+
+  test("ACRC service marker adjacency only latches accepted same-context stops") {
+    val source = topSourceText
+
+    assert(source.contains("val acceptedServiceStopMarkerFire ="))
+    assert(source.contains("acceptedMarkerDrainFire && path.io.blockMarkerStop"))
+    assert(source.contains("}.elsewhen(acceptedServiceStopMarkerFire)"))
+    assert(source.contains("latestStopStid === issue.io.issueUop.threadId"))
+    assert(source.contains("latestStopBlockBidValid && issue.io.issueUop.blockBidValid"))
+    assert(source.contains("latestStopBlockBid === issue.io.issueUop.blockBid"))
+    assert(!source.contains("}.elsewhen(path.io.blockMarkerStop)"))
+  }
+
+  test("ACRC service issue prefers decode-captured same-packet C.BSTOP metadata") {
+    val source = topSourceText
+
+    assert(source.contains("val enqueueAdjacentStop ="))
+    assert(source.contains("val serviceDecodeStopPendingValid = RegInit(false.B)"))
+    assert(source.contains("when(!serviceMetadataFlush && path.io.serviceAdjacentStop.valid)"))
+    assert(source.contains("val pendingMatches ="))
+    assert(source.contains("val enqueueAdjacentStop = serviceEnqueueFire && (liveMatches || pendingMatches)"))
+    assert(source.contains("ROBID.equal(serviceDecodeStopPendingBid, issue.io.inputAcceptUop.bid)"))
+    assert(source.contains("ROBID.equal(serviceDecodeStopPendingGid, issue.io.inputAcceptUop.gid)"))
+    assert(source.contains("ROBID.equal(serviceDecodeStopPendingRid, issue.io.inputAcceptUop.rid)"))
+    assert(source.contains("serviceQueuedStopBid.valid && serviceQueuedStopGid.valid && serviceQueuedStopRid.valid"))
+    assert(source.contains("ROBID.equal(serviceQueuedStopBid, issue.io.issueUop.bid)"))
+    assert(source.contains("ROBID.equal(serviceQueuedStopGid, issue.io.issueUop.gid)"))
+    assert(source.contains("ROBID.equal(serviceQueuedStopRid, issue.io.issueUop.rid)"))
+    assert(source.contains("queuedMatches || acceptedMarkerMatches"))
+    assert(source.contains("Mux(queuedMatches, serviceQueuedStopInsn, latestStopInsn)"))
+    assert(source.contains("Mux(queuedMatches, serviceQueuedStopLen, latestStopLen)"))
   }
 }

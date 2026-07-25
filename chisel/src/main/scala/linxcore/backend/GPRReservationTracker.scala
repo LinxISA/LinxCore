@@ -8,17 +8,21 @@ class GPRReservationTrackerIO(
     val physRegs: Int,
     val mapQDepth: Int,
     val stidWidth: Int) extends Bundle {
-  private val countWidth = log2Ceil(queueDepth + 1)
+  private val maxCreditsPerUop = 2
+  private val countWidth = log2Ceil(queueDepth * maxCreditsPerUop + 1)
+  private val creditWidth = log2Ceil(maxCreditsPerUop + 1)
 
   val flush = Input(Bool())
   val pushValid = Input(Bool())
   val pushStid = Input(UInt(stidWidth.W))
+  val pushCount = Input(UInt(creditWidth.W))
   val popValid = Input(Bool())
   val popStid = Input(UInt(stidWidth.W))
+  val popCount = Input(UInt(creditWidth.W))
 
   val selectedValid = Input(Bool())
   val selectedStid = Input(UInt(stidWidth.W))
-  val selectedNeedsGpr = Input(Bool())
+  val selectedCount = Input(UInt(creditWidth.W))
   val freePhysCount = Input(UInt(log2Ceil(physRegs + 1).W))
   val selectedMapQFreeCount = Input(UInt(log2Ceil(mapQDepth + 1).W))
 
@@ -31,7 +35,12 @@ class GPRReservationTrackerIO(
   val stateError = Output(Bool())
 }
 
-/** Tracks shared physical-register credit and lane-local MapQ credit. */
+/** Tracks shared physical-register credit and lane-local MapQ credit.
+  *
+  * A scalar uop can reserve zero, one, or two credits.  The two-credit case is
+  * required by architectural pair loads, whose two GPR destinations must be
+  * renamed atomically.
+  */
 class GPRReservationTracker(
     val queueDepth: Int,
     val physRegs: Int,
@@ -44,7 +53,9 @@ class GPRReservationTracker(
   require(stidCount > 0, "GPR reservation tracker must expose at least one STID")
   require(BigInt(stidCount) <= (BigInt(1) << stidWidth), "GPR reservation STID count must fit stidWidth")
 
-  private val countWidth = log2Ceil(queueDepth + 1)
+  private val maxCreditsPerUop = 2
+  private val maxCredits = queueDepth * maxCreditsPerUop
+  private val countWidth = log2Ceil(maxCredits + 1)
   val io = IO(new GPRReservationTrackerIO(queueDepth, physRegs, mapQDepth, stidWidth))
 
   private def matchesStid(stid: UInt): Vec[Bool] =
@@ -56,17 +67,22 @@ class GPRReservationTracker(
   val pushInRange = pushMatch.asUInt.orR
   val popInRange = popMatch.asUInt.orR
   val selectedInRange = selectedMatch.asUInt.orR
-  val pushFire = io.pushValid && pushInRange
-  val popFire = io.popValid && popInRange
+  val pushCountValid = io.pushCount <= maxCreditsPerUop.U
+  val popCountValid = io.popCount <= maxCreditsPerUop.U
+  val selectedCountValid = io.selectedCount <= maxCreditsPerUop.U
+  val pushFire = io.pushValid && pushInRange && pushCountValid && io.pushCount =/= 0.U
+  val popFire = io.popValid && popInRange && popCountValid && io.popCount =/= 0.U
+  val pushSlots = io.pushCount.pad(countWidth)
+  val popSlots = io.popCount.pad(countWidth)
 
   val physReservationCount = RegInit(0.U(countWidth.W))
   val mapQReservationCount = RegInit(VecInit(Seq.fill(stidCount)(0.U(countWidth.W))))
   val selectedMapQReservationCount = Mux1H(selectedMatch, mapQReservationCount)
-  val selectedSlots = Mux(io.selectedNeedsGpr, 1.U(countWidth.W), 0.U(countWidth.W))
+  val selectedSlots = io.selectedCount.pad(countWidth)
   val physReservationNeed = physReservationCount + selectedSlots
   val selectedMapQReservationNeed = selectedMapQReservationCount + selectedSlots
 
-  io.ready := (!io.selectedValid || selectedInRange) &&
+  io.ready := (!io.selectedValid || selectedInRange) && selectedCountValid &&
     (physReservationNeed <= io.freePhysCount) &&
     (selectedMapQReservationNeed <= io.selectedMapQFreeCount)
   io.selectedStidInRange := selectedInRange
@@ -74,27 +90,39 @@ class GPRReservationTracker(
   io.physReservationNeed := physReservationNeed
   io.selectedMapQReservationCount := Mux(selectedInRange, selectedMapQReservationCount, 0.U)
   io.selectedMapQReservationNeed := Mux(selectedInRange, selectedMapQReservationNeed, 0.U)
-  io.stateError := (io.pushValid && !pushInRange) || (io.popValid && !popInRange) ||
-    (io.selectedValid && !selectedInRange) || (popFire && physReservationCount === 0.U) ||
-    (0 until stidCount).map(stid => popMatch(stid) && mapQReservationCount(stid) === 0.U).reduce(_ || _)
+  val physPushOverflow =
+    pushFire && ((physReservationCount +& pushSlots) > (maxCredits.U + popSlots))
+  val laneStateError = (0 until stidCount).map { stid =>
+    val lanePush = pushFire && pushMatch(stid)
+    val lanePop = popFire && popMatch(stid)
+    val lanePushSlots = Mux(lanePush, pushSlots, 0.U)
+    val lanePopSlots = Mux(lanePop, popSlots, 0.U)
+    (lanePop && mapQReservationCount(stid) < popSlots) ||
+      (lanePush && ((mapQReservationCount(stid) +& lanePushSlots) > (maxCredits.U + lanePopSlots)))
+  }.reduce(_ || _)
+  io.stateError := (io.pushValid && (!pushInRange || !pushCountValid || io.pushCount === 0.U)) ||
+    (io.popValid && (!popInRange || !popCountValid || io.popCount === 0.U)) ||
+    (io.selectedValid && (!selectedInRange || !selectedCountValid)) ||
+    (!io.selectedValid && io.selectedCount =/= 0.U) ||
+    (popFire && physReservationCount < popSlots) || physPushOverflow || laneStateError
 
   when(io.flush) {
     physReservationCount := 0.U
     mapQReservationCount := VecInit(Seq.fill(stidCount)(0.U(countWidth.W)))
   }.otherwise {
-    when(pushFire && !popFire) {
-      physReservationCount := physReservationCount + 1.U
-    }.elsewhen(!pushFire && popFire) {
-      physReservationCount := physReservationCount - 1.U
+    when(pushFire || popFire) {
+      physReservationCount :=
+        physReservationCount + Mux(pushFire, pushSlots, 0.U) - Mux(popFire, popSlots, 0.U)
     }
 
     for (stid <- 0 until stidCount) {
       val lanePush = pushFire && pushMatch(stid)
       val lanePop = popFire && popMatch(stid)
-      when(lanePush && !lanePop) {
-        mapQReservationCount(stid) := mapQReservationCount(stid) + 1.U
-      }.elsewhen(!lanePush && lanePop) {
-        mapQReservationCount(stid) := mapQReservationCount(stid) - 1.U
+      when(lanePush || lanePop) {
+        mapQReservationCount(stid) :=
+          mapQReservationCount(stid) +
+            Mux(lanePush, pushSlots, 0.U) -
+            Mux(lanePop, popSlots, 0.U)
       }
     }
   }

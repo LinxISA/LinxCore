@@ -89,6 +89,22 @@ REDUCED_SCALAR_DECODE_ONLY_SYMBOLS = {
     "OP_XB",
 }
 
+UNSUPPORTED_DUAL_DST_SYMBOLS = {
+    # HL multiply/divide/remainder forms have two architectural destinations;
+    # the reduced ALU path has no pair writeback oracle, so keep parser support
+    # fail-closed until a real dual-destination owner exists.
+    "OP_HL_DIV",
+    "OP_HL_DIVU",
+    "OP_HL_DIVW",
+    "OP_HL_DIVUW",
+    "OP_HL_MUL",
+    "OP_HL_MULU",
+    "OP_HL_REM",
+    "OP_HL_REMU",
+    "OP_HL_REMW",
+    "OP_HL_REMUW",
+}
+
 RTL_SEMANTIC_PENDING_SYMBOLS = {
     # Concurrent HL long-offset memory support was injected into the reduced
     # ALU owner without direct owner/semantic closure. Keep it out of the
@@ -112,30 +128,6 @@ RTL_SEMANTIC_PENDING_SYMBOLS = {
     "OP_HL_SHI_U",
     "OP_HL_SWI",
     "OP_HL_SWI_U",
-    # SETC immediate forms need branch-condition oracle coverage before they
-    # can count as reduced backend semantic support.
-    "OP_SETC_ANDI",
-    "OP_SETC_ORI",
-    "OP_HL_SETC_ANDI",
-    "OP_HL_SETC_EQI",
-    "OP_HL_SETC_GEI",
-    "OP_HL_SETC_GEUI",
-    "OP_HL_SETC_LTI",
-    "OP_HL_SETC_LTUI",
-    "OP_HL_SETC_NEI",
-    "OP_HL_SETC_ORI",
-    # HL multiply/divide/remainder forms have two architectural destinations;
-    # the reduced ALU path has not closed that pair writeback oracle.
-    "OP_HL_DIV",
-    "OP_HL_DIVU",
-    "OP_HL_DIVW",
-    "OP_HL_DIVUW",
-    "OP_HL_MUL",
-    "OP_HL_MULU",
-    "OP_HL_REM",
-    "OP_HL_REMU",
-    "OP_HL_REMW",
-    "OP_HL_REMUW",
     # Scalar FP conversion is implemented by a helper but lacks this report's
     # focused integer-ALU semantic evidence.
     "OP_UCVTF",
@@ -334,8 +326,8 @@ SOURCE_SHAPE_CONTRACTS = {
             "forbidden_private_def_between_markers": True,
             "expected": {
                 "frontend_strict_decode": {"covered": 547, "denominator": 547},
-                "reduced_scalar_alu_support": {"covered": 197, "denominator": 547},
-                "cross_stack_aligned_support": {"covered": 197, "denominator": 547},
+                "reduced_scalar_alu_support": {"covered": 207, "denominator": 547},
+                "cross_stack_aligned_support": {"covered": 207, "denominator": 547},
             },
         },
         "legacy_clean_head": {
@@ -466,6 +458,7 @@ def build_report(
     unsupported = []
     decode_only = []
     semantic_pending = []
+    unsupported_dual_dst = []
     observation_pending = []
     for insn in scalar_forms:
         symbols = _symbols_for_form(insn, meta_symbols_by_name)
@@ -497,6 +490,8 @@ def build_report(
             unsupported.append(row)
         if parser_hit and semantic_pending_hit:
             semantic_pending.append(row)
+        if symbols & UNSUPPORTED_DUAL_DST_SYMBOLS:
+            unsupported_dual_dst.append(row)
         if alu_hit and observation_pending_hit:
             observation_pending.append(row)
         if symbols & REDUCED_SCALAR_DECODE_ONLY_SYMBOLS:
@@ -542,6 +537,7 @@ def build_report(
             "supported_symbol_count": len(alu_supported_symbols),
             "supported_by_parser": parser_supported,
             "semantic_pending": semantic_pending,
+            "unsupported_dual_dst": unsupported_dual_dst,
             "unsupported_first_50": unsupported[:50],
         },
         "cross_stack_aligned_support": {

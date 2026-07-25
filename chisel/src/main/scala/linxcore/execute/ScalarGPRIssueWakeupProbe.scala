@@ -68,6 +68,10 @@ class ScalarGPRIssueWakeupProbe extends Module {
   issue.io.secondaryReleaseBid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseRid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseStid := 0.U
+  issue.io.tertiaryReleaseValid := false.B
+  issue.io.tertiaryReleaseBid := ROBID.disabled(p.robEntries)
+  issue.io.tertiaryReleaseRid := ROBID.disabled(p.robEntries)
+  issue.io.tertiaryReleaseStid := 0.U
   issue.io.readyMask := gpr.io.readyMask
   issue.io.pWakeupValid := gpr.io.write(0).fire
   issue.io.pWakeupTag := gpr.io.write(0).tag
@@ -80,6 +84,8 @@ class ScalarGPRIssueWakeupProbe extends Module {
   gpr.io.initData := 0.U
   gpr.io.clearValid := false.B
   gpr.io.clearTag := 0.U
+  gpr.io.clearSecondValid := false.B
+  gpr.io.clearSecondTag := 0.U
   gpr.io.write(0).requestValid := io.writeRequest
   gpr.io.write(0).commit := io.writeCommit
   gpr.io.write(0).tag := io.writeTag

@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from common.decode32 import decode32_meta
 from trace_schema_adapter import REQUIRED_TRACE_FIELDS, load_jsonl, normalize_row
 
 
@@ -82,6 +87,10 @@ SETC_LT_MASK = 0xF800_7FFF
 SETC_LT_MATCH = 0x0000_4065
 SETC_LTU_MASK = 0xF800_7FFF
 SETC_LTU_MATCH = 0x0000_6065
+SETC_GE_MASK = 0xF800_7FFF
+SETC_GE_MATCH = 0x0000_5065
+SETC_GEU_MASK = 0xF800_7FFF
+SETC_GEU_MATCH = 0x0000_7065
 SETC_LTUI_MASK = 0x707F
 SETC_LTUI_MATCH = 0x6075
 SETC_TGT_MASK = 0xFFF0_7FFF
@@ -159,7 +168,7 @@ def _classify(row: dict[str, int]) -> str | None:
         if key == 0x0077:
             return "CSEL"
         if (insn & 0xFFF) == 0x0507:
-            return None
+            return "SETRET"
         if (insn & 0x7F) == 0x0007:
             return "ADDTPC"
         if key == 0x0041:
@@ -200,6 +209,10 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SETC_LT"
         if (insn & SETC_LTU_MASK) == SETC_LTU_MATCH:
             return "SETC_LTU"
+        if (insn & SETC_GE_MASK) == SETC_GE_MATCH:
+            return "SETC_GE"
+        if (insn & SETC_GEU_MASK) == SETC_GEU_MATCH:
+            return "SETC_GEU"
         if (insn & SETC_TGT_MASK) == SETC_TGT_MATCH:
             return "SETC_TGT"
         if (insn & SSRSET_MASK) == SSRSET_MATCH:
@@ -270,6 +283,10 @@ def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None
             or (insn & 0xC7FF) == 0x0080  # C.BSTART.FP
         ):
             return ("C.BSTART", True, False)
+    if row["len"] == 4:
+        meta = decode32_meta(insn)
+        if meta is not None and meta.major_cat == "BLOCK_BOUNDARY":
+            return (meta.symbol, True, False)
     if row["len"] == 6 and (insn & HL_BSTART_MASK) in HL_BSTART_MATCHES:
         return ("HL.BSTART", True, False)
     return None
@@ -277,7 +294,7 @@ def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None
 
 def _is_fall_bstart_marker(row: dict[str, int], marker: tuple[str, bool, bool]) -> bool:
     opcode, boundary, stop = marker
-    if not boundary or stop or not opcode.endswith("BSTART"):
+    if not boundary or stop:
         return False
     insn = _mask_insn(row["insn"], row["len"])
     if row["len"] == 2:
@@ -285,6 +302,9 @@ def _is_fall_bstart_marker(row: dict[str, int], marker: tuple[str, bool, bool]) 
             insn in C_BSTART_FALL_EXACT or
             ((insn & 0xC7FF) == 0x0080 and ((insn >> 11) & 0x7) == 1)
         )
+    if row["len"] == 4:
+        meta = decode32_meta(insn)
+        return meta is not None and meta.block_kind == "FALL"
     if row["len"] == 6:
         return (insn & HL_BSTART_MASK) in HL_BSTART_FALL_MATCHES
     return False
@@ -361,6 +381,10 @@ def _simm12_7_s5_25_7_scaled_word(row: dict[str, int]) -> int:
 
 def _c_setret_imm(row: dict[str, int]) -> int:
     return ((_mask_insn(row["insn"], row["len"]) >> 6) & 0x1F) << 1
+
+
+def _setret_imm(row: dict[str, int]) -> int:
+    return ((_mask_insn(row["insn"], row["len"]) >> 12) & 0xF_FFFF) << 1
 
 
 def _fentry_imm(row: dict[str, int]) -> int:
@@ -726,6 +750,8 @@ def _expected_result(
         return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFFFF_FFFF
     if opcode == "C.SETRET":
         return (row["pc"] + _c_setret_imm(row)) & MASK64
+    if opcode == "SETRET":
+        return (row["pc"] + _setret_imm(row)) & MASK64
     if opcode == "CMP_EQI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return 1 if src0 == (_simm12_20_s12(row) & MASK64) else 0
@@ -755,6 +781,10 @@ def _expected_result(
     if opcode == "SETC_LT":
         return 0
     if opcode == "SETC_LTU":
+        return 0
+    if opcode == "SETC_GE":
+        return 0
+    if opcode == "SETC_GEU":
         return 0
     if opcode == "SETC_LTUI":
         return 0
@@ -876,7 +906,7 @@ def _validate_reduced_row(
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
-    elif opcode == "C.SETRET":
+    elif opcode in {"C.SETRET", "SETRET"}:
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "CMP_EQI":
         if row["src1_valid"]:
@@ -1005,7 +1035,7 @@ def _validate_reduced_row(
     elif opcode in {"C.SETC_EQ", "C.SETC_NE"}:
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
-    elif opcode in {"SETC_LT", "SETC_LTU"}:
+    elif opcode in {"SETC_LT", "SETC_LTU", "SETC_GE", "SETC_GEU"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode == "SETC_LTUI":
@@ -1097,6 +1127,8 @@ def _validate_reduced_row(
         "C.SDI",
         "C.SWI",
         "SBI",
+        "SETC_GE",
+        "SETC_GEU",
         "SETC_LT",
         "SETC_LTU",
         "SETC_LTUI",
@@ -1150,8 +1182,6 @@ def _validate_block_marker_row(
     if row["mem_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
     redirecting_boundary = boundary and not stop and row["next_pc"] != row["pc"] + row["len"]
-    if redirecting_boundary and not opcode.endswith("BSTART"):
-        raise RowExtractionError(f"row {index} {opcode} has unsupported marker redirect")
     if not stop and not redirecting_boundary and row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
             f"row {index} {opcode} is not sequential: next_pc=0x{row['next_pc']:x}, "
@@ -1172,7 +1202,6 @@ def _is_zero_advance_marker_artifact(row: dict[str, int], marker: tuple[str, boo
     return (
         boundary and
         not stop and
-        opcode.endswith("BSTART") and
         row["next_pc"] == row["pc"] and
         not row["trap_valid"] and
         not row["mem_valid"] and
@@ -1348,6 +1377,26 @@ def self_test() -> None:
         assert extracted_addtpc_t[0]["dst_reg"] == 31
         assert extracted_addtpc_t[0]["wb_rd"] == 31
         assert extracted_addtpc_t[0]["dst_data"] == 0x4000E000
+
+        setret_source = tmp / "setret.jsonl"
+        setret_output = tmp / "setret.rows.jsonl"
+        setret = {
+            **addtpc,
+            "pc": 0x138CC,
+            "insn": 0x00003507,
+            "next_pc": 0x138D0,
+            "wb_rd": 10,
+            "wb_data": 0x138D2,
+            "dst_reg": 10,
+            "dst_data": 0x138D2,
+        }
+        _write_jsonl(setret_source, [setret])
+        count = extract_rows(setret_source, setret_output)
+        assert count == 1
+        extracted_setret = [
+            json.loads(line) for line in setret_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_setret[0]["dst_data"] == 0x138D2
 
         hl_sd_pcr_source = tmp / "hl-sd-pcr.jsonl"
         hl_sd_pcr_output = tmp / "hl-sd-pcr.rows.jsonl"

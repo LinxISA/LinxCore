@@ -1,14 +1,221 @@
 package linxcore.backend
 
+import circt.stage.ChiselStage
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
-import circt.stage.ChiselStage
 import linxcore.commit.CommitTraceParams
-import linxcore.common.InterfaceParams
-import linxcore.frontend.FrontendOpcodeDecodeTable
-import linxcore.rename.{TULinkFlushSequencePublisherReference, TULinkFlushSourceSelectorReference}
-import linxcore.rob.ROBIDValue
+import linxcore.common.{DestinationKind, InterfaceParams}
+import linxcore.frontend.{F4Slot, FrontendOpcodeDecodeTable}
+import linxcore.rename.{ScalarTURenameBridgeIO, TULinkFlushSequencePublisherReference, TULinkFlushSourceSelectorReference}
+import linxcore.rob.{ROBID, ROBIDValue}
 import org.scalatest.funsuite.AnyFunSuite
+
+class DecodeRenameROBPathIdentityProbeIO extends Bundle {
+  val decodeValid = Input(Bool())
+  val decodeInsn = Input(UInt(64.W))
+  val decodeLenBytes = Input(UInt(4.W))
+  val decodePc = Input(UInt(64.W))
+  val decodeLast = Input(Bool())
+  val flushValid = Input(Bool())
+  val renamedOutReady = Input(Bool())
+  val decodeReady = Output(Bool())
+  val selectedValid = Output(Bool())
+  val selectedRobValue = Output(UInt(4.W))
+  val selectedBlockBid = Output(UInt(64.W))
+  val renamedAccepted = Output(Bool())
+  val storeDispatchFire = Output(Bool())
+  val storeDispatchSplit = Output(Bool())
+  val storeStaEnqueueFire = Output(Bool())
+  val storeStdEnqueueFire = Output(Bool())
+  val storeStaQueueValid = Output(Bool())
+  val storeStdQueueValid = Output(Bool())
+  val storeStaQueueCount = Output(UInt(3.W))
+  val storeStdQueueCount = Output(UInt(3.W))
+  val storeStaQueueRid = Output(UInt(4.W))
+  val storeStdQueueRid = Output(UInt(4.W))
+  val storeStaQueueLsId = Output(UInt(32.W))
+  val storeStdQueueLsId = Output(UInt(32.W))
+
+  val completeValid = Input(Bool())
+  val completeRobValue = Input(UInt(4.W))
+  val completeBlockBid = Input(UInt(64.W))
+  val completePc = Input(UInt(64.W))
+
+  val commandValid = Output(Bool())
+  val commandKind = Output(DestinationKind())
+  val commandSeqWrap = Output(Bool())
+  val commandSeqValue = Output(UInt(3.W))
+  val commandDealloc = Output(Bool())
+  val commandPeId = Output(UInt(8.W))
+  val commandStid = Output(UInt(8.W))
+  val commandFire = Output(Bool())
+  val tDeallocSeqWrap = Output(Bool())
+  val tDeallocSeqValue = Output(UInt(3.W))
+  val uDeallocSeqWrap = Output(Bool())
+  val uDeallocSeqValue = Output(UInt(3.W))
+  val tValidMask = Output(UInt(8.W))
+  val uValidMask = Output(UInt(8.W))
+  val tRetiredMask = Output(UInt(8.W))
+  val uRetiredMask = Output(UInt(8.W))
+  val tUsedEntries = Output(UInt(6.W))
+  val uUsedEntries = Output(UInt(6.W))
+  val retireAccepted = Output(Bool())
+  val retireReleaseMismatch = Output(Bool())
+}
+
+class DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass: Boolean = true) extends Module {
+  private val p = InterfaceParams(robEntries = 16, commitWidth = 2)
+  private val trace = CommitTraceParams(
+    commitWidth = p.commitWidth,
+    robValueWidth = p.robIndexWidth,
+    blockBidWidth = p.blockBidWidth,
+    pcWidth = p.pcWidth,
+    insnWidth = p.insnWidth,
+    lenWidth = p.lenWidth)
+  private val mapQDepth = 8
+
+  val io = IO(new DecodeRenameROBPathIdentityProbeIO)
+
+  private def zeroRobId: ROBID = 0.U.asTypeOf(new ROBID(p.robEntries))
+
+  val path = Module(new DecodeRenameROBPath(
+    p = p,
+    traceParams = trace,
+    mapQDepth = mapQDepth,
+    gprMapQDepth = 16,
+    decRenQueueDepth = 4,
+    tuRetireSourceQueueDepth = 8,
+    tuRetireRelationCmapDepth = 16,
+    markerRetireSourceQueueDepth = 4,
+    blockRenameCommitQueueDepth = 4,
+    scalarContinuationGprCutThreshold = 16,
+    scalarContinuationTuCutThreshold = 8,
+    scalarStidCount = 2,
+    useMarkerDecodeContext = false,
+    skipBlockMarkers = true,
+    reducedStoreDispatchBypass = reducedStoreDispatchBypass))
+
+  path.io.d1 := 0.U.asTypeOf(path.io.d1)
+  path.io.d1.valid := io.decodeValid
+  path.io.d1.peId := 0.U
+  path.io.d1.threadId := 0.U
+  path.io.d1.pc := io.decodePc
+  for (slot <- 0 until p.decodeWidth) {
+    path.io.slots(slot) := 0.U.asTypeOf(new F4Slot(p))
+    path.io.slots(slot).pc := io.decodePc
+    path.io.slots(slot).uopUid := slot.U
+  }
+  path.io.slots(0).valid := io.decodeValid
+  path.io.slots(0).insnRaw := io.decodeInsn
+  path.io.slots(0).lenBytes := io.decodeLenBytes
+  path.io.slots(0).isLastInBlock := io.decodeLast
+  path.io.validMask := Mux(io.decodeValid, 1.U, 0.U)
+  path.io.samePacketNextSlotValid := false.B
+  path.io.samePacketNextSlot := 0.U.asTypeOf(new F4Slot(p))
+
+  path.io.flushValid := io.flushValid
+  path.io.blockExplicitStoreCountValid := false.B
+  path.io.blockExplicitStoreCountBid := 0.U
+  path.io.blockExplicitStoreCountStid := 0.U
+  path.io.blockExplicitStoreCountValue := 0.U
+  path.io.renamedOutReady := io.renamedOutReady
+  path.io.storeStaExec := 0.U.asTypeOf(path.io.storeStaExec)
+  path.io.storeStdExec := 0.U.asTypeOf(path.io.storeStdExec)
+  path.io.storeScResultValid := false.B
+  path.io.storeScResultSuccess := false.B
+  path.io.storeScResultIdentity := 0.U.asTypeOf(path.io.storeScResultIdentity)
+  path.io.storeScStoreData := 0.U
+  path.io.storeAddressInsertPermit := true.B
+  path.io.storeMarkCommitValid := false.B
+  path.io.storeMarkCommitIndex := 0.U
+  path.io.storeCommitFreeValid := false.B
+  path.io.storeCommitFreeIndex := 0.U
+  path.io.storeCommitFreeMaskValid := false.B
+  path.io.storeCommitFreeMask := 0.U
+  path.io.checkpointValid := false.B
+  path.io.checkpointBid := zeroRobId
+  path.io.checkpointStid := 0.U
+  path.io.commitValid := false.B
+  path.io.commitBid := zeroRobId
+  path.io.commitBlockBid := 0.U
+  path.io.commitStid := 0.U
+  path.io.recoveryNonLsuSources.foreach(_ := 0.U.asTypeOf(path.io.recoveryNonLsuSources.head))
+  path.io.directBccRecoveryMiss := 0.U.asTypeOf(path.io.directBccRecoveryMiss)
+  path.io.directIexSlowRecovery := 0.U.asTypeOf(path.io.directIexSlowRecovery)
+  path.io.directIexIqStalled := false.B
+  path.io.directIexIqProgress := false.B
+  path.io.directIexIqStid := 0.U
+  path.io.directIexIqPeId := 0.U
+  path.io.directIexIqTid := 0.U
+  path.io.directPeMismatchRecovery := 0.U.asTypeOf(path.io.directPeMismatchRecovery)
+  path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
+  path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
+  path.io.recoveryIntentReady := true.B
+  path.io.scalarCleanupOrderValid := false.B
+  path.io.scalarCleanupOrder := 0.U
+  path.io.completeValid := io.completeValid
+  path.io.completeRobValue := io.completeRobValue
+  path.io.completeRowValid := io.completeValid
+  path.io.completeRow := 0.U.asTypeOf(path.io.completeRow)
+  path.io.completeRow.valid := io.completeValid
+  path.io.completeRow.blockBidValid := io.completeValid
+  path.io.completeRow.blockBid := io.completeBlockBid
+  path.io.completeRow.pc := io.completePc
+  path.io.blockBranchTakenValid := false.B
+  path.io.blockBranchTaken := false.B
+  path.io.scalarRedirectValid := false.B
+  path.io.scalarRedirectStid := 0.U
+  path.io.deallocReady := true.B
+  path.io.deallocHoldMask := 0.U
+  path.io.robStatusLookupValid := false.B
+  path.io.robStatusLookupRid := zeroRobId
+  path.io.robCommitTraceLookupValid := false.B
+  path.io.robCommitTraceLookupRid := zeroRobId
+  path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  path.io.recoveryNonLsuSources.foreach(_.valid := false.B)
+  path.io.directBccRecoveryMiss.valid := false.B
+  path.io.directIexSlowRecovery.valid := false.B
+  path.io.directPeMismatchRecovery.valid := false.B
+  path.io.lsuRecoverySource.valid := false.B
+
+  io.decodeReady := path.io.decodeReady
+  io.selectedValid := path.io.selectedValid
+  io.selectedRobValue := path.io.selectedRobValue
+  io.selectedBlockBid := path.io.selectedBlockBid
+  io.renamedAccepted := path.io.accepted
+  io.storeDispatchFire := path.io.storeDispatchFire
+  io.storeDispatchSplit := path.io.storeDispatchSplit
+  io.storeStaEnqueueFire := path.io.storeStaEnqueueFire
+  io.storeStdEnqueueFire := path.io.storeStdEnqueueFire
+  io.storeStaQueueValid := path.io.storeStaQueueValid
+  io.storeStdQueueValid := path.io.storeStdQueueValid
+  io.storeStaQueueCount := path.io.storeStaQueueCount
+  io.storeStdQueueCount := path.io.storeStdQueueCount
+  io.storeStaQueueRid := path.io.storeStaQueue.uop.rid.value
+  io.storeStdQueueRid := path.io.storeStdQueue.uop.rid.value
+  io.storeStaQueueLsId := path.io.storeStaQueue.uop.lsid
+  io.storeStdQueueLsId := path.io.storeStdQueue.uop.lsid
+  io.commandValid := path.io.tuRetireCommandValid
+  io.commandKind := path.io.tuRetireCommandKind
+  io.commandSeqWrap := path.io.tuRetireCommandSeq.wrap
+  io.commandSeqValue := path.io.tuRetireCommandSeq.value
+  io.commandDealloc := path.io.tuRetireCommandDealloc
+  io.commandPeId := path.io.tuRetireCommandPeId
+  io.commandStid := path.io.tuRetireCommandStid
+  io.commandFire := path.io.tuRetireCommandFire
+  io.tDeallocSeqWrap := path.io.tuRetireSelectedTDeallocSeq.wrap
+  io.tDeallocSeqValue := path.io.tuRetireSelectedTDeallocSeq.value
+  io.uDeallocSeqWrap := path.io.tuRetireSelectedUDeallocSeq.wrap
+  io.uDeallocSeqValue := path.io.tuRetireSelectedUDeallocSeq.value
+  io.tValidMask := path.io.tuRetireSelectedTValidMask
+  io.uValidMask := path.io.tuRetireSelectedUValidMask
+  io.tRetiredMask := path.io.tuRetireSelectedTRetiredMask
+  io.uRetiredMask := path.io.tuRetireSelectedURetiredMask
+  io.tUsedEntries := path.io.tuRenameTUsedEntries
+  io.uUsedEntries := path.io.tuRenameUUsedEntries
+  io.retireAccepted := path.io.tuRetireAccepted
+  io.retireReleaseMismatch := path.io.tuRetireReleaseMismatch
+}
 
 object DecodeRenameROBPathReference {
   def firstValidSlot(mask: Int, width: Int): Option[Int] = {
@@ -44,16 +251,18 @@ object DecodeRenameROBPathReference {
   def gprReservationReady(
       globalPending: Int,
       selectedLanePending: Int,
-      selectedNeedsGpr: Boolean,
+      selectedCount: Int,
       freePhys: Int,
       selectedLaneFreeMapQ: Int): Boolean = {
-    val selected = if (selectedNeedsGpr) 1 else 0
-    globalPending + selected <= freePhys && selectedLanePending + selected <= selectedLaneFreeMapQ
+    require(0 <= selectedCount && selectedCount <= 2)
+    globalPending + selectedCount <= freePhys &&
+      selectedLanePending + selectedCount <= selectedLaneFreeMapQ
   }
 
   def closesActiveRedirectTarget(
       selectedValid: Boolean,
       selectedMarker: Boolean,
+      selectedTemplateBoundary: Boolean,
       selectedPc: BigInt,
       activeValid: Boolean,
       activeTarget: BigInt,
@@ -61,8 +270,28 @@ object DecodeRenameROBPathReference {
       activeUnconditionalRedirect: Boolean,
       branchValid: Boolean,
       branchTaken: Boolean): Boolean =
-    selectedValid && !selectedMarker && activeValid && activeTarget != 0 && selectedPc == activeTarget &&
+    selectedValid && !selectedMarker && activeValid && activeTarget != 0 &&
+      (selectedPc == activeTarget || selectedTemplateBoundary) &&
       (activeUnconditionalRedirect || (activeCond && branchValid && branchTaken))
+
+  def activeRedirectNeedsTransfer(
+      closesActiveRedirect: Boolean,
+      selectedPc: BigInt,
+      activeTarget: BigInt): Boolean =
+    closesActiveRedirect && selectedPc != activeTarget
+
+  def closingBlockBid(
+      useMarkerDecodeContext: Boolean,
+      markerDecodeActiveBid: BigInt,
+      lifecycleActiveBid: BigInt): BigInt =
+    if (useMarkerDecodeContext) markerDecodeActiveBid else lifecycleActiveBid
+
+  def fretOwnsConditionalFallback(
+      isFretStk: Boolean,
+      activeValid: Boolean,
+      activeCond: Boolean,
+      activeTarget: BigInt): Boolean =
+    isFretStk && activeValid && activeCond && activeTarget != 0
 
   def queuePushReady(count: Int, depth: Int, popFire: Boolean, flush: Boolean = false): Boolean = {
     require(depth > 0 && (depth & (depth - 1)) == 0)
@@ -108,10 +337,53 @@ object DecodeRenameROBPathReference {
       nextActiveBid: Option[BigInt],
       preRetire: Boolean = false)
 
+  final case class MarkerConflictDecision(
+      conflict: Boolean,
+      markerReady: Boolean,
+      decodeReady: Boolean,
+      stopRedirect: Boolean)
+
   final case class BlockRenameCommitQueueStep(
       nextQueue: Vector[BigInt],
       presentedBid: Option[BigInt],
       accepted: Boolean)
+
+  final case class ScalarContinuationPressureState(gpr: Int = 0, t: Int = 0, u: Int = 0)
+
+  final case class ScalarContinuationPressureStep(
+      next: ScalarContinuationPressureState,
+      gprCut: Boolean,
+      tCut: Boolean,
+      uCut: Boolean) {
+    def ownershipCut: Boolean = gprCut || tCut || uCut
+  }
+
+  def scalarContinuationPressureStep(
+      state: ScalarContinuationPressureState,
+      usesExistingBlock: Boolean,
+      boundary: Boolean,
+      gprDst: Boolean,
+      tDst: Boolean,
+      uDst: Boolean,
+      gprThreshold: Int,
+      tuThreshold: Int): ScalarContinuationPressureStep = {
+    require(gprThreshold > 1)
+    require(tuThreshold > 1)
+    val gprCut = usesExistingBlock && !boundary && gprDst && state.gpr == gprThreshold - 1
+    val tCut = usesExistingBlock && !boundary && tDst && state.t == tuThreshold - 1
+    val uCut = usesExistingBlock && !boundary && uDst && state.u == tuThreshold - 1
+    val cut = gprCut || tCut || uCut
+    val next =
+      if (boundary || cut) {
+        ScalarContinuationPressureState()
+      } else {
+        ScalarContinuationPressureState(
+          gpr = if (gprDst) { if (usesExistingBlock) state.gpr + 1 else 1 } else if (usesExistingBlock) state.gpr else 0,
+          t = if (tDst) { if (usesExistingBlock) state.t + 1 else 1 } else if (usesExistingBlock) state.t else 0,
+          u = if (uDst) { if (usesExistingBlock) state.u + 1 else 1 } else if (usesExistingBlock) state.u else 0)
+      }
+    ScalarContinuationPressureStep(next, gprCut = gprCut, tCut = tCut, uCut = uCut)
+  }
 
   def scalarStartLifecycleStep(
       activeValid: Boolean,
@@ -197,6 +469,29 @@ object DecodeRenameROBPathReference {
     )
   }
 
+  def markerDecodeConflictDecision(
+      markerOnlyPacket: Boolean,
+      markerStop: Boolean,
+      markerBoundaryRedirect: Boolean,
+      robBlockLastValid: Boolean,
+      robBlockLastBid: BigInt,
+      robBlockLastStid: Int,
+      activeValid: Boolean,
+      activeBid: BigInt,
+      markerStid: Int,
+      blanketConflict: Boolean = false): MarkerConflictDecision = {
+    val ownsBlockLast =
+      markerOnlyPacket && activeValid && robBlockLastValid &&
+        robBlockLastBid == activeBid && robBlockLastStid == markerStid
+    val conflict = robBlockLastValid && !(ownsBlockLast && !blanketConflict)
+    val markerReady = !conflict && (markerStop || markerBoundaryRedirect)
+    MarkerConflictDecision(
+      conflict = conflict,
+      markerReady = markerReady,
+      decodeReady = markerOnlyPacket && markerReady,
+      stopRedirect = markerBoundaryRedirect && markerReady)
+  }
+
   def blockRenameCommitQueueStep(
       queue: Vector[BigInt],
       depth: Int,
@@ -234,6 +529,17 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(firstValidSlot(0xc, width = 4).contains(2))
   }
 
+  test("FRET inherits fallback only from a live conditional marker") {
+    assert(fretOwnsConditionalFallback(
+      isFretStk = true, activeValid = true, activeCond = true, activeTarget = 0x1271e))
+    assert(!fretOwnsConditionalFallback(
+      isFretStk = true, activeValid = true, activeCond = false, activeTarget = 0x13e1e))
+    assert(!fretOwnsConditionalFallback(
+      isFretStk = false, activeValid = true, activeCond = true, activeTarget = 0x1271e))
+    assert(!fretOwnsConditionalFallback(
+      isFretStk = true, activeValid = true, activeCond = true, activeTarget = 0))
+  }
+
   test("reference keeps ROB allocation attempt independent of allocator ready") {
     assert(allocAttemptValid(inputValid = true, maintenanceBusy = false, unsupported = false, canRename = true, outReady = true))
     assert(!accepted(attemptValid = true, robReady = false))
@@ -253,28 +559,71 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
 
   test("reference gates ROB/BROB reservation on queued scalar GPR rename capacity") {
     assert(gprReservationReady(
-      globalPending = 0, selectedLanePending = 0, selectedNeedsGpr = true,
+      globalPending = 0, selectedLanePending = 0, selectedCount = 1,
       freePhys = 1, selectedLaneFreeMapQ = 1))
     assert(gprReservationReady(
-      globalPending = 1, selectedLanePending = 1, selectedNeedsGpr = false,
+      globalPending = 1, selectedLanePending = 1, selectedCount = 0,
       freePhys = 1, selectedLaneFreeMapQ = 1))
     assert(!gprReservationReady(
-      globalPending = 1, selectedLanePending = 0, selectedNeedsGpr = true,
+      globalPending = 1, selectedLanePending = 0, selectedCount = 1,
       freePhys = 1, selectedLaneFreeMapQ = 2))
     assert(!gprReservationReady(
-      globalPending = 1, selectedLanePending = 1, selectedNeedsGpr = true,
+      globalPending = 1, selectedLanePending = 1, selectedCount = 1,
       freePhys = 2, selectedLaneFreeMapQ = 1))
     assert(gprReservationReady(
-      globalPending = 1, selectedLanePending = 0, selectedNeedsGpr = true,
+      globalPending = 1, selectedLanePending = 0, selectedCount = 1,
+      freePhys = 2, selectedLaneFreeMapQ = 1))
+    assert(gprReservationReady(
+      globalPending = 0, selectedLanePending = 0, selectedCount = 2,
+      freePhys = 2, selectedLaneFreeMapQ = 2))
+    assert(!gprReservationReady(
+      globalPending = 0, selectedLanePending = 0, selectedCount = 2,
+      freePhys = 1, selectedLaneFreeMapQ = 2))
+    assert(!gprReservationReady(
+      globalPending = 0, selectedLanePending = 0, selectedCount = 2,
       freePhys = 2, selectedLaneFreeMapQ = 1))
     assert(!robReservationAttemptValid(inputValid = true, queueReady = true, gprReservationReady = false))
     assert(!decodeReady(queueReady = true, robReady = true, gprReservationReady = false))
+  }
+
+  test("reference tracks scalar continuation GPR, T, and U pressure independently") {
+    val gpr0 = scalarContinuationPressureStep(
+      ScalarContinuationPressureState(), usesExistingBlock = true, boundary = false,
+      gprDst = true, tDst = false, uDst = false, gprThreshold = 2, tuThreshold = 3)
+    assert(gpr0.next == ScalarContinuationPressureState(gpr = 1))
+    val t0 = scalarContinuationPressureStep(
+      gpr0.next, usesExistingBlock = true, boundary = false,
+      gprDst = false, tDst = true, uDst = false, gprThreshold = 2, tuThreshold = 3)
+    assert(t0.next == ScalarContinuationPressureState(gpr = 1, t = 1))
+    val u0 = scalarContinuationPressureStep(
+      t0.next, usesExistingBlock = true, boundary = false,
+      gprDst = false, tDst = false, uDst = true, gprThreshold = 2, tuThreshold = 3)
+    assert(u0.next == ScalarContinuationPressureState(gpr = 1, t = 1, u = 1))
+
+    val gprCut = scalarContinuationPressureStep(
+      u0.next, usesExistingBlock = true, boundary = false,
+      gprDst = true, tDst = false, uDst = false, gprThreshold = 2, tuThreshold = 3)
+    assert(gprCut.gprCut)
+    assert(!gprCut.tCut && !gprCut.uCut)
+    assert(gprCut.next == ScalarContinuationPressureState())
+
+    val t1 = scalarContinuationPressureStep(
+      ScalarContinuationPressureState(t = 1, u = 1), usesExistingBlock = true, boundary = false,
+      gprDst = false, tDst = true, uDst = false, gprThreshold = 2, tuThreshold = 3)
+    assert(!t1.ownershipCut)
+    val tCut = scalarContinuationPressureStep(
+      t1.next, usesExistingBlock = true, boundary = false,
+      gprDst = false, tDst = true, uDst = false, gprThreshold = 2, tuThreshold = 3)
+    assert(tCut.tCut)
+    assert(!tCut.gprCut && !tCut.uCut)
+    assert(tCut.next == ScalarContinuationPressureState())
   }
 
   test("reference closes active redirect blocks before admitting the target scalar row") {
     val directClose = closesActiveRedirectTarget(
       selectedValid = true,
       selectedMarker = false,
+      selectedTemplateBoundary = false,
       selectedPc = 0x40005f2cL,
       activeValid = true,
       activeTarget = 0x40005f2cL,
@@ -289,6 +638,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     val condTakenClose = closesActiveRedirectTarget(
       selectedValid = true,
       selectedMarker = false,
+      selectedTemplateBoundary = false,
       selectedPc = 0x40005f2cL,
       activeValid = true,
       activeTarget = 0x40005f2cL,
@@ -301,6 +651,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(!closesActiveRedirectTarget(
       selectedValid = true,
       selectedMarker = true,
+      selectedTemplateBoundary = false,
       selectedPc = 0x40005f2cL,
       activeValid = true,
       activeTarget = 0x40005f2cL,
@@ -311,6 +662,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(!closesActiveRedirectTarget(
       selectedValid = true,
       selectedMarker = false,
+      selectedTemplateBoundary = false,
       selectedPc = 0x40005f2cL,
       activeValid = true,
       activeTarget = 0x40005f2cL,
@@ -318,6 +670,58 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
       activeUnconditionalRedirect = false,
       branchValid = true,
       branchTaken = false))
+  }
+
+  test("reference closes a pending CALL before admitting a following executable template boundary") {
+    val portableMallocCallClose = closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = false,
+      selectedTemplateBoundary = true,
+      selectedPc = 0x1272aL,
+      activeValid = true,
+      activeTarget = 0x13e1eL,
+      activeCond = false,
+      activeUnconditionalRedirect = true,
+      branchValid = false,
+      branchTaken = false)
+    assert(portableMallocCallClose)
+    assert(activeRedirectNeedsTransfer(
+      closesActiveRedirect = portableMallocCallClose,
+      selectedPc = 0x1272aL,
+      activeTarget = 0x13e1eL))
+    assert(!robReservationAttemptValid(
+      inputValid = true,
+      queueReady = true,
+      redirectClose = portableMallocCallClose))
+    assert(!decodeReady(
+      queueReady = true,
+      robReady = true,
+      redirectClose = portableMallocCallClose))
+
+    assert(!closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = false,
+      selectedTemplateBoundary = true,
+      selectedPc = 0x1272aL,
+      activeValid = true,
+      activeTarget = 0x13e1eL,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      branchValid = true,
+      branchTaken = false))
+
+    assert(!activeRedirectNeedsTransfer(
+      closesActiveRedirect = true,
+      selectedPc = 0x13e1eL,
+      activeTarget = 0x13e1eL))
+    assert(closingBlockBid(
+      useMarkerDecodeContext = false,
+      markerDecodeActiveBid = 0,
+      lifecycleActiveBid = 0x35L) == 0x35L)
+    assert(closingBlockBid(
+      useMarkerDecodeContext = true,
+      markerDecodeActiveBid = 0x35L,
+      lifecycleActiveBid = 0) == 0x35L)
   }
 
   test("reference retries internal block rename commits while cleanup blocks GPR commit") {
@@ -575,6 +979,63 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(!markerOnly.redirect)
     assert(markerOnly.doneBid.contains(32))
     assert(markerOnly.nextActiveBid.contains(33))
+  }
+
+  test("reference admits marker-only redirect when ROB block-last owns the same active BID and STID") {
+    val blanket = markerDecodeConflictDecision(
+      markerOnlyPacket = true,
+      markerStop = true,
+      markerBoundaryRedirect = true,
+      robBlockLastValid = true,
+      robBlockLastBid = 0x44,
+      robBlockLastStid = 0,
+      activeValid = true,
+      activeBid = 0x44,
+      markerStid = 0,
+      blanketConflict = true)
+    assert(blanket.conflict)
+    assert(!blanket.markerReady)
+    assert(!blanket.decodeReady)
+    assert(!blanket.stopRedirect)
+
+    val owned = markerDecodeConflictDecision(
+      markerOnlyPacket = true,
+      markerStop = true,
+      markerBoundaryRedirect = true,
+      robBlockLastValid = true,
+      robBlockLastBid = 0x44,
+      robBlockLastStid = 0,
+      activeValid = true,
+      activeBid = 0x44,
+      markerStid = 0)
+    assert(!owned.conflict)
+    assert(owned.markerReady)
+    assert(owned.decodeReady)
+    assert(owned.stopRedirect)
+
+    val wrongBid = markerDecodeConflictDecision(
+      markerOnlyPacket = true,
+      markerStop = true,
+      markerBoundaryRedirect = true,
+      robBlockLastValid = true,
+      robBlockLastBid = 0x45,
+      robBlockLastStid = 0,
+      activeValid = true,
+      activeBid = 0x44,
+      markerStid = 0)
+    assert(wrongBid.conflict)
+
+    val wrongStid = markerDecodeConflictDecision(
+      markerOnlyPacket = true,
+      markerStop = true,
+      markerBoundaryRedirect = true,
+      robBlockLastValid = true,
+      robBlockLastBid = 0x44,
+      robBlockLastStid = 1,
+      activeValid = true,
+      activeBid = 0x44,
+      markerStid = 0)
+    assert(wrongStid.conflict)
   }
 
   test("reference pre-retires an active marker block when allocation wraps onto its BROB slot") {
@@ -846,10 +1307,20 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(io.tuRetireSourcePruneCount.getWidth == 4)
     assert(io.tuRetireRelationPruneTCount.getWidth == 4)
     assert(io.tuRetireRelationPruneUCount.getWidth == 4)
+    assert(io.tuRetireCommandKind.getWidth == DestinationKind.getWidth)
+    assert(io.tuRetireCommandSeq.wrap.getWidth == 1)
     assert(io.tuRetireCommandSeq.value.getWidth == 5)
     assert(io.tuRetireCommandDealloc.getWidth == 1)
     assert(io.tuRetireCommandPeId.getWidth == 8)
     assert(io.tuRetireCommandStid.getWidth == 8)
+    assert(io.tuRetireSelectedTDeallocSeq.wrap.getWidth == 1)
+    assert(io.tuRetireSelectedTDeallocSeq.value.getWidth == 5)
+    assert(io.tuRetireSelectedUDeallocSeq.wrap.getWidth == 1)
+    assert(io.tuRetireSelectedUDeallocSeq.value.getWidth == 5)
+    assert(io.tuRetireSelectedTValidMask.getWidth == 32)
+    assert(io.tuRetireSelectedUValidMask.getWidth == 32)
+    assert(io.tuRetireSelectedTRetiredMask.getWidth == 32)
+    assert(io.tuRetireSelectedURetiredMask.getWidth == 32)
     assert(io.tuRetireAutoCleanBlockPending.getWidth == 1)
     assert(io.tuRetireAutoCleanBlockValid.getWidth == 1)
     assert(io.tuRetireAutoCleanBlockBid.value.getWidth == 3)
@@ -1023,6 +1494,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_blockMarkerAllocFire"))
     assert(sv.contains("io_blockMarkerActiveBid"))
     assert(sv.contains("io_blockMarkerStopRedirectValid"))
+    assert(sv.contains("markerDecodeQueryStid"))
+    assert(sv.contains("robBlockLastOwnsMarkerDecode"))
     assert(sv.contains("io_scalarRedirectStid"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_robTULinkSourceMatched"))
@@ -1069,8 +1542,17 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_tuRetireCleanupActive"))
     assert(sv.contains("io_tuRetireSourcePruneCount"))
     assert(sv.contains("io_tuRetireCommandSeq_value"))
+    assert(sv.contains("io_tuRetireCommandSeq_wrap"))
     assert(sv.contains("io_tuRetireCommandPeId"))
     assert(sv.contains("io_tuRetireCommandStid"))
+    assert(sv.contains("io_tuRetireSelectedTDeallocSeq_wrap"))
+    assert(sv.contains("io_tuRetireSelectedTDeallocSeq_value"))
+    assert(sv.contains("io_tuRetireSelectedUDeallocSeq_wrap"))
+    assert(sv.contains("io_tuRetireSelectedUDeallocSeq_value"))
+    assert(sv.contains("io_tuRetireSelectedTValidMask"))
+    assert(sv.contains("io_tuRetireSelectedUValidMask"))
+    assert(sv.contains("io_tuRetireSelectedTRetiredMask"))
+    assert(sv.contains("io_tuRetireSelectedURetiredMask"))
     assert(sv.contains("io_tuRetireAutoCleanBlockPending"))
     assert(sv.contains("io_tuRetireAutoCleanBlockValid"))
     assert(sv.contains("io_tuRetireAutoCleanBlockBid_value"))
@@ -1095,6 +1577,357 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_commitContractError"))
   }
 
+  test("T/U retire identity observability preserves full command and selected-bank widths") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val bridgeIo = new ScalarTURenameBridgeIO(p, trace, mapQDepth = 8, scalarStidCount = 2)
+    val pathIo = new DecodeRenameROBPathIO(p, trace, mapQDepth = 8, scalarStidCount = 2)
+
+    Seq(bridgeIo.tuRetireCommandSeq, pathIo.tuRetireCommandSeq).foreach { seq =>
+      assert(seq.wrap.getWidth == 1)
+      assert(seq.value.getWidth == 3)
+    }
+    Seq(
+      bridgeIo.tuRetireSelectedTDeallocSeq,
+      bridgeIo.tuRetireSelectedUDeallocSeq,
+      pathIo.tuRetireSelectedTDeallocSeq,
+      pathIo.tuRetireSelectedUDeallocSeq).foreach { seq =>
+      assert(seq.wrap.getWidth == 1)
+      assert(seq.value.getWidth == 3)
+    }
+    Seq(
+      bridgeIo.tuRetireSelectedTValidMask,
+      bridgeIo.tuRetireSelectedUValidMask,
+      bridgeIo.tuRetireSelectedTRetiredMask,
+      bridgeIo.tuRetireSelectedURetiredMask,
+      pathIo.tuRetireSelectedTValidMask,
+      pathIo.tuRetireSelectedUValidMask,
+      pathIo.tuRetireSelectedTRetiredMask,
+      pathIo.tuRetireSelectedURetiredMask).foreach(mask => assert(mask.getWidth == 8))
+
+    assert(bridgeIo.tuRetireCommandKind.getWidth == DestinationKind.getWidth)
+    assert(pathIo.tuRetireCommandKind.getWidth == DestinationKind.getWidth)
+    assert(bridgeIo.tuRetireCommandDealloc.getWidth == 1)
+    assert(pathIo.tuRetireCommandDealloc.getWidth == 1)
+    assert(bridgeIo.tuRetireCommandPeId.getWidth == 8)
+    assert(pathIo.tuRetireCommandPeId.getWidth == 8)
+    assert(bridgeIo.tuRetireCommandStid.getWidth == 8)
+    assert(pathIo.tuRetireCommandStid.getWidth == 8)
+  }
+
+  test("sim forwards exact backend retire commands and mutation-sensitive T/U queue state") {
+    simulate(new DecodeRenameROBPathIdentityProbe) { dut =>
+      final case class Row(rob: Int, bid: BigInt, pc: BigInt)
+      final case class Command(
+          kind: DestinationKind.Type,
+          seqValue: Int,
+          dealloc: Boolean,
+          tHead: Int,
+          uHead: Int,
+          tValid: Int,
+          uValid: Int,
+          tRetired: Int,
+          uRetired: Int,
+          accepted: Boolean = true,
+          releaseMismatch: Boolean = false)
+      final case class ObservedCommand(
+          valid: Boolean,
+          kind: BigInt,
+          seqWrap: Boolean,
+          seqValue: Int,
+          dealloc: Boolean,
+          peId: BigInt,
+          stid: BigInt,
+          tHeadWrap: Boolean,
+          tHead: Int,
+          uHeadWrap: Boolean,
+          uHead: Int,
+          tValid: BigInt,
+          uValid: BigInt,
+          tRetired: BigInt,
+          uRetired: BigInt,
+          accepted: Boolean,
+          releaseMismatch: Boolean)
+
+      def idle(): Unit = {
+        dut.io.decodeValid.poke(false.B)
+        dut.io.decodeInsn.poke(0.U)
+        dut.io.decodeLenBytes.poke(2.U)
+        dut.io.decodePc.poke(0.U)
+        dut.io.decodeLast.poke(false.B)
+        dut.io.flushValid.poke(false.B)
+        dut.io.renamedOutReady.poke(true.B)
+        dut.io.completeValid.poke(false.B)
+        dut.io.completeRobValue.poke(0.U)
+        dut.io.completeBlockBid.poke(0.U)
+        dut.io.completePc.poke(0.U)
+      }
+
+      def issue(raw: BigInt, pc: BigInt, last: Boolean): Row = {
+        idle()
+        dut.io.decodeValid.poke(true.B)
+        dut.io.decodeInsn.poke(raw.U)
+        dut.io.decodeLenBytes.poke(2.U)
+        dut.io.decodePc.poke(pc.U)
+        dut.io.decodeLast.poke(last.B)
+        dut.io.decodeReady.expect(true.B)
+        dut.io.selectedValid.expect(true.B)
+        val row = Row(
+          rob = dut.io.selectedRobValue.peek().litValue.toInt,
+          bid = dut.io.selectedBlockBid.peek().litValue,
+          pc = pc)
+        dut.clock.step()
+        idle()
+        dut.clock.step()
+        row
+      }
+
+      def complete(row: Row): Unit = {
+        idle()
+        dut.io.completeValid.poke(true.B)
+        dut.io.completeRobValue.poke(row.rob.U)
+        dut.io.completeBlockBid.poke(row.bid.U)
+        dut.io.completePc.poke(row.pc.U)
+        dut.clock.step()
+        idle()
+      }
+
+      def marker(raw: BigInt, pc: BigInt): Unit = {
+        idle()
+        dut.io.decodeValid.poke(true.B)
+        dut.io.decodeInsn.poke(raw.U)
+        dut.io.decodeLenBytes.poke(2.U)
+        dut.io.decodePc.poke(pc.U)
+        dut.io.decodeLast.poke(false.B)
+        dut.io.decodeReady.expect(true.B)
+        dut.clock.step()
+        idle()
+        dut.clock.step()
+      }
+
+      val markerRaw = BigInt("0194", 16)
+      def cMovr(dst: Int, src: Int): BigInt =
+        BigInt(0x0006 | ((src & 0x1f) << 6) | ((dst & 0x1f) << 11))
+      val tRaw = cMovr(dst = 31, src = 2)
+      val uRaw = cMovr(dst = 30, src = 3)
+
+      idle()
+      dut.clock.step()
+      marker(markerRaw, pc = 0x2000)
+      val rows = Seq(
+        issue(tRaw, pc = 0x2002, last = false),
+        issue(tRaw, pc = 0x2004, last = false),
+        issue(uRaw, pc = 0x2006, last = false),
+        issue(uRaw, pc = 0x2008, last = true))
+
+      idle()
+      dut.clock.step(8)
+      dut.io.tUsedEntries.expect(2.U)
+      dut.io.uUsedEntries.expect(2.U)
+      dut.io.tDeallocSeqWrap.expect(false.B)
+      dut.io.tDeallocSeqValue.expect(0.U)
+      dut.io.uDeallocSeqWrap.expect(false.B)
+      dut.io.uDeallocSeqValue.expect(0.U)
+      dut.io.tValidMask.expect("h03".U)
+      dut.io.uValidMask.expect("h03".U)
+      dut.io.tRetiredMask.expect(0.U)
+      dut.io.uRetiredMask.expect(0.U)
+
+      rows.reverse.foreach(complete)
+
+      // commandFire and the queue observability signals are sampled before the
+      // active edge.  Each row therefore pairs the current retire command with
+      // the registered T/U state produced by the preceding command.
+      val expected = Seq(
+        Command(DestinationKind.T, 0, dealloc = false, 0, 0, 0x03, 0x03, 0x00, 0x00),
+        Command(DestinationKind.T, 1, dealloc = false, 0, 0, 0x03, 0x03, 0x01, 0x00),
+        Command(DestinationKind.U, 0, dealloc = false, 0, 0, 0x03, 0x03, 0x03, 0x00),
+        Command(
+          DestinationKind.T,
+          0,
+          dealloc = true,
+          0,
+          0,
+          0x03,
+          0x03,
+          0x03,
+          0x01,
+          accepted = true),
+        Command(DestinationKind.T, 1, dealloc = true, 1, 0, 0x02, 0x03, 0x02, 0x01),
+        Command(DestinationKind.U, 0, dealloc = true, 2, 0, 0x00, 0x03, 0x00, 0x01),
+        Command(DestinationKind.U, 1, dealloc = false, 2, 1, 0x00, 0x02, 0x00, 0x00),
+        Command(DestinationKind.U, 1, dealloc = true, 2, 1, 0x00, 0x02, 0x00, 0x02))
+
+      val actual = scala.collection.mutable.ArrayBuffer.empty[ObservedCommand]
+      var observed = 0
+      var cycles = 0
+      while (observed < expected.length && cycles < 160) {
+        if (dut.io.commandFire.peek().litToBoolean) {
+          actual += ObservedCommand(
+            valid = dut.io.commandValid.peek().litToBoolean,
+            kind = dut.io.commandKind.peek().litValue,
+            seqWrap = dut.io.commandSeqWrap.peek().litToBoolean,
+            seqValue = dut.io.commandSeqValue.peek().litValue.toInt,
+            dealloc = dut.io.commandDealloc.peek().litToBoolean,
+            peId = dut.io.commandPeId.peek().litValue,
+            stid = dut.io.commandStid.peek().litValue,
+            tHeadWrap = dut.io.tDeallocSeqWrap.peek().litToBoolean,
+            tHead = dut.io.tDeallocSeqValue.peek().litValue.toInt,
+            uHeadWrap = dut.io.uDeallocSeqWrap.peek().litToBoolean,
+            uHead = dut.io.uDeallocSeqValue.peek().litValue.toInt,
+            tValid = dut.io.tValidMask.peek().litValue,
+            uValid = dut.io.uValidMask.peek().litValue,
+            tRetired = dut.io.tRetiredMask.peek().litValue,
+            uRetired = dut.io.uRetiredMask.peek().litValue,
+            accepted = dut.io.retireAccepted.peek().litToBoolean,
+            releaseMismatch = dut.io.retireReleaseMismatch.peek().litToBoolean)
+          observed += 1
+        }
+        dut.clock.step()
+        cycles += 1
+      }
+
+      assert(observed == expected.length, s"observed $observed/${expected.length} retire commands in $cycles cycles")
+      val exactExpected = expected.map { exp =>
+        ObservedCommand(
+          valid = true,
+          kind = exp.kind.asUInt.litValue,
+          seqWrap = false,
+          seqValue = exp.seqValue,
+          dealloc = exp.dealloc,
+          peId = 0,
+          stid = 0,
+          tHeadWrap = false,
+          tHead = exp.tHead,
+          uHeadWrap = false,
+          uHead = exp.uHead,
+          tValid = exp.tValid,
+          uValid = exp.uValid,
+          tRetired = exp.tRetired,
+          uRetired = exp.uRetired,
+          accepted = exp.accepted,
+          releaseMismatch = exp.releaseMismatch)
+      }
+      assert(actual.toSeq == exactExpected, s"exact retire forwarding mismatch:\nactual=$actual\nexpected=$exactExpected")
+      idle()
+      dut.clock.step(8)
+      dut.io.commandValid.expect(false.B)
+      dut.io.tDeallocSeqWrap.expect(false.B)
+      dut.io.tDeallocSeqValue.expect(2.U)
+      dut.io.uDeallocSeqWrap.expect(false.B)
+      dut.io.uDeallocSeqValue.expect(2.U)
+      dut.io.tValidMask.expect(0.U)
+      dut.io.uValidMask.expect(0.U)
+      dut.io.tRetiredMask.expect(0.U)
+      dut.io.uRetiredMask.expect(0.U)
+      dut.io.tUsedEntries.expect(0.U)
+      dut.io.uUsedEntries.expect(0.U)
+    }
+  }
+
+  test("sim holds store split enqueue until the renamed row is accepted") {
+    simulate(new DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass = false)) { dut =>
+      def idle(): Unit = {
+        dut.io.decodeValid.poke(false.B)
+        dut.io.decodeInsn.poke(0.U)
+        dut.io.decodeLenBytes.poke(2.U)
+        dut.io.decodePc.poke(0.U)
+        dut.io.decodeLast.poke(false.B)
+        dut.io.flushValid.poke(false.B)
+        dut.io.renamedOutReady.poke(true.B)
+        dut.io.completeValid.poke(false.B)
+        dut.io.completeRobValue.poke(0.U)
+        dut.io.completeBlockBid.poke(0.U)
+        dut.io.completePc.poke(0.U)
+      }
+
+      def presentSc(ready: Boolean): Unit = {
+        dut.io.decodeValid.poke(true.B)
+        dut.io.decodeInsn.poke(BigInt("2000100b", 16).U)
+        dut.io.decodeLenBytes.poke(4.U)
+        dut.io.decodePc.poke(0x6242.U)
+        dut.io.decodeLast.poke(false.B)
+        dut.io.flushValid.poke(false.B)
+        dut.io.renamedOutReady.poke(ready.B)
+        dut.io.completeValid.poke(false.B)
+      }
+
+      idle()
+      dut.clock.step()
+
+      presentSc(ready = false)
+      dut.io.decodeReady.expect(true.B)
+      dut.io.renamedAccepted.expect(false.B)
+      dut.io.storeDispatchFire.expect(false.B)
+      dut.io.storeStaEnqueueFire.expect(false.B)
+      dut.io.storeStdEnqueueFire.expect(false.B)
+      dut.io.storeStaQueueCount.expect(0.U)
+      dut.io.storeStdQueueCount.expect(0.U)
+      dut.clock.step()
+
+      for (_ <- 0 until 3) {
+        dut.io.decodeValid.poke(false.B)
+        dut.io.decodeInsn.poke(0.U)
+        dut.io.decodeLenBytes.poke(2.U)
+        dut.io.decodePc.poke(0.U)
+        dut.io.decodeLast.poke(false.B)
+        dut.io.flushValid.poke(false.B)
+        dut.io.renamedOutReady.poke(false.B)
+        dut.io.completeValid.poke(false.B)
+        dut.io.renamedAccepted.expect(false.B)
+        dut.io.storeDispatchFire.expect(false.B)
+        dut.io.storeStaEnqueueFire.expect(false.B)
+        dut.io.storeStdEnqueueFire.expect(false.B)
+        dut.io.storeStaQueueCount.expect(0.U)
+        dut.io.storeStdQueueCount.expect(0.U)
+        dut.clock.step()
+      }
+
+      dut.io.decodeValid.poke(false.B)
+      dut.io.decodeInsn.poke(0.U)
+      dut.io.decodeLenBytes.poke(2.U)
+      dut.io.decodePc.poke(0.U)
+      dut.io.decodeLast.poke(false.B)
+      dut.io.flushValid.poke(false.B)
+      dut.io.renamedOutReady.poke(true.B)
+      dut.io.completeValid.poke(false.B)
+      dut.io.renamedAccepted.expect(true.B)
+      dut.io.storeDispatchFire.expect(true.B)
+      dut.io.storeDispatchSplit.expect(true.B)
+      dut.io.storeStaEnqueueFire.expect(true.B)
+      dut.io.storeStdEnqueueFire.expect(true.B)
+      dut.clock.step()
+
+      idle()
+      dut.io.storeStaQueueValid.expect(true.B)
+      dut.io.storeStdQueueValid.expect(true.B)
+      dut.io.storeStaQueueCount.expect(1.U)
+      dut.io.storeStdQueueCount.expect(1.U)
+      dut.io.storeStaQueueRid.expect(0.U)
+      dut.io.storeStdQueueRid.expect(0.U)
+      dut.io.storeStaQueueLsId.expect(0.U)
+      dut.io.storeStdQueueLsId.expect(0.U)
+      dut.io.storeStaEnqueueFire.expect(false.B)
+      dut.io.storeStdEnqueueFire.expect(false.B)
+      dut.clock.step(2)
+      dut.io.storeStaQueueCount.expect(1.U)
+      dut.io.storeStdQueueCount.expect(1.U)
+
+      idle()
+      dut.io.flushValid.poke(true.B)
+      dut.io.renamedAccepted.expect(false.B)
+      dut.io.storeDispatchFire.expect(false.B)
+      dut.io.storeStaEnqueueFire.expect(false.B)
+      dut.io.storeStdEnqueueFire.expect(false.B)
+      dut.clock.step()
+      idle()
+      dut.io.storeStaQueueValid.expect(false.B)
+      dut.io.storeStdQueueValid.expect(false.B)
+      dut.io.storeStaQueueCount.expect(0.U)
+      dut.io.storeStdQueueCount.expect(0.U)
+    }
+  }
+
   test("DecodeRenameROBPath elaborates marker decode context in opt-in mode") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
@@ -1110,6 +1943,23 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_decodeValid"))
     assert(sv.contains("io_decodeBlockBid"))
     assert(sv.contains("io_decodeUsesExistingBlock"))
+    assert(sv.contains("io_samePacketNextSlotValid"))
+    assert(sv.contains("io_serviceAdjacentStop_valid"))
+  }
+
+  test("DecodeRenameROBPath exposes full commit-head identity including GID") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val sv = ChiselStage.emitSystemVerilog(
+      new DecodeRenameROBPath(
+        p = p,
+        traceParams = trace,
+        mapQDepth = 8)
+    )
+
+    assert(sv.contains("io_commitHeadBid_valid"))
+    assert(sv.contains("io_commitHeadGid_valid"))
+    assert(sv.contains("io_commitHeadRid_valid"))
   }
 
   test("DecodeRenameROBPath elaborates two STID BROB and GPR rename ownership lanes") {

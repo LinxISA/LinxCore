@@ -231,10 +231,22 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.secondaryReleaseBid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseRid := ROBID.disabled(p.robEntries)
   issue.io.secondaryReleaseStid := 0.U
+  issue.io.tertiaryReleaseValid := execute.io.earlyReleaseValid
+  issue.io.tertiaryReleaseBid := execute.io.earlyReleaseBid
+  issue.io.tertiaryReleaseRid := execute.io.earlyReleaseRid
+  issue.io.tertiaryReleaseStid := execute.io.earlyReleaseStid
   issue.io.externalControlFenceValid := false.B
   issue.io.externalControlFenceBid := ROBID.disabled(p.robEntries)
   issue.io.externalControlFenceRid := ROBID.disabled(p.robEntries)
   issue.io.externalControlFenceStid := 0.U
+  issue.io.scalarSpHeadValidByStid(0) := true.B
+  issue.io.scalarSpHeadBidByStid(0).valid := true.B
+  issue.io.scalarSpHeadBidByStid(0).wrap := false.B
+  issue.io.scalarSpHeadBidByStid(0).value := path.io.renamedOut.rid.value
+  issue.io.scalarSpHeadRidByStid(0).valid := true.B
+  issue.io.scalarSpHeadRidByStid(0).wrap := false.B
+  issue.io.scalarSpHeadRidByStid(0).value := path.io.renamedOut.rid.value
+  issue.io.scalarSpSnapshotByStid(0) := scalarSpValue
   issue.io.readyMask := rf.io.readyMask
   issue.io.pWakeupValid := rf.io.write(0).fire
   issue.io.pWakeupTag := rf.io.write(0).tag
@@ -259,11 +271,13 @@ class LinxCoreFrontendRfAluTraceTop(
   }
   rf.io.clearValid := issue.io.inputAcceptDstValid
   rf.io.clearTag := issue.io.inputAcceptDstTag
+  rf.io.clearSecondValid := false.B
+  rf.io.clearSecondTag := 0.U
   rf.io.write(0).requestValid := execute.io.completeDstPhysValid
   rf.io.write(0).commit := execute.io.completeDstPhysValid
   rf.io.write(0).tag := execute.io.completeDstPhysTag
   rf.io.write(0).data := execute.io.completeDstData
-  when(execute.io.completeFire && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
+  when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
     scalarSpValue := execute.io.completeRow.wb.data
   }
 
@@ -272,6 +286,7 @@ class LinxCoreFrontendRfAluTraceTop(
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := 0.U
+  execute.io.loadPairFirstLookupData := 0.U
   execute.io.loadLookupWaitBlocked := false.B
   execute.io.loadLiqEnable := false.B
   execute.io.loadLiqAccepted := false.B

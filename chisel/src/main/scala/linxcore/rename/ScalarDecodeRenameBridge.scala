@@ -6,6 +6,7 @@ import chisel3.util.{PopCount, log2Ceil}
 import linxcore.bctrl.BID
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
 import linxcore.common._
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.ROBID
 
@@ -79,6 +80,10 @@ class ScalarDecodeRenameBridgeIO(
   val gprNextFreeFromLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
   val gprCommittedMapQCount = Output(UInt(log2Ceil(mapQDepth + 1).W))
   val gprReleasedPhysCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val templateSnapshotValid = Output(Bool())
+  val templateSnapshotGeneration = Output(UInt(16.W))
+  val templateSmapSnapshot = Output(Vec(scalarArchRegs, UInt(p.physRegWidth.W)))
+  val templateCmapSnapshot = Output(Vec(scalarArchRegs, UInt(p.physRegWidth.W)))
 }
 
 class ScalarDecodeRenameBridge(
@@ -138,11 +143,18 @@ class ScalarDecodeRenameBridge(
   val dstIsGpr = io.in.dst(0).valid && (io.in.dst(0).kind === DestinationKind.Gpr)
   val dstInRange = io.in.dst(0).archTag < scalarArchRegLimit
   val dstUnsupported = dstIsGpr && !dstInRange
+  val pairFirstDstIsGpr =
+    io.in.pairFirstDst.valid && (io.in.pairFirstDst.kind === DestinationKind.Gpr)
+  val pairFirstDstInRange = io.in.pairFirstDst.archTag < scalarArchRegLimit
+  val pairFirstDstUnsupported =
+    io.in.pairFirstDst.valid &&
+      (!pairFirstDstIsGpr || !pairFirstDstInRange)
 
   val unsupportedOperandClass =
     io.in.src.map(src => src.valid && (src.operandClass =/= OperandClass.P)).reduce(_ || _) ||
       (io.in.dst(0).valid && (io.in.dst(0).kind =/= DestinationKind.Gpr))
-  val unsupported = srcUnsupported.asUInt.orR || dstUnsupported || unsupportedOperandClass
+  val unsupported =
+    srcUnsupported.asUInt.orR || dstUnsupported || pairFirstDstUnsupported || unsupportedOperandClass
   val cleanupActive = io.cleanup.valid && (io.cleanup.renameFlushValid || io.cleanup.renameReplayValid)
   val maintenanceBusy = cleanupActive || io.commitValid || io.checkpointValid
 
@@ -164,13 +176,30 @@ class ScalarDecodeRenameBridge(
   }
 
   val needsRename = dstIsGpr && dstInRange
-  val canRename = !needsRename || gpr.io.renameReady
+  val needsPairFirstRename = pairFirstDstIsGpr && pairFirstDstInRange
+  val needsAnyRename = needsRename || needsPairFirstRename
+  val canRename = !needsAnyRename || gpr.io.renameReady
   val allocAttemptValid = io.in.valid && !maintenanceBusy && !unsupported && canRename && io.outReady
   val canAccept = !maintenanceBusy && !unsupported && canRename && io.robAllocReady && io.outReady
   val accepted = io.in.valid && canAccept
+  val isTemplateOpcode =
+    io.in.opcode === FrontendOpcodeDecodeTable.OP_FENTRY.U(p.opcodeWidth.W) ||
+      io.in.opcode === FrontendOpcodeDecodeTable.OP_FEXIT.U(p.opcodeWidth.W) ||
+      io.in.opcode === FrontendOpcodeDecodeTable.OP_FRET_RA.U(p.opcodeWidth.W) ||
+      io.in.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+  val templateAccepted = accepted && isTemplateOpcode
+  val templateGeneration = RegInit(0.U(16.W))
+
+  when(templateAccepted) {
+    templateGeneration := templateGeneration + 1.U
+  }
 
   gpr.io.renameValid := accepted && needsRename
   gpr.io.renameArchTag := Mux(needsRename, archIndex(io.in.dst(0).archTag), 0.U)
+  gpr.io.renameSecondRequired := needsPairFirstRename
+  gpr.io.renameSecondValid := accepted && needsPairFirstRename
+  gpr.io.renameSecondArchTag :=
+    Mux(needsPairFirstRename, archIndex(io.in.pairFirstDst.archTag), 0.U)
   gpr.io.renameBid := io.in.bid
   gpr.io.renameBlockBid := Mux(io.in.blockBidValid, io.in.blockBid, 0.U)
   gpr.io.renameStid := io.in.threadId.pad(stidWidth)(stidWidth - 1, 0)
@@ -197,13 +226,13 @@ class ScalarDecodeRenameBridge(
   io.outValid := accepted
   io.robAllocAttemptValid := allocAttemptValid
   io.robAllocValid := accepted
-  io.needsGprRename := io.in.valid && needsRename
+  io.needsGprRename := io.in.valid && needsAnyRename
   io.unsupportedSrcMask := srcUnsupported.asUInt
   io.unsupportedDst := dstUnsupported
   io.unsupportedOperandClass := unsupportedOperandClass
   io.unsupported := io.in.valid && unsupported
   io.blockedByMaintenance := io.in.valid && maintenanceBusy
-  io.blockedByRename := io.in.valid && !maintenanceBusy && !unsupported && needsRename && !gpr.io.renameReady
+  io.blockedByRename := io.in.valid && !maintenanceBusy && !unsupported && needsAnyRename && !gpr.io.renameReady
   io.blockedByRob := io.in.valid && !maintenanceBusy && !unsupported && canRename && !io.robAllocReady
   io.blockedByOutput := io.in.valid && !maintenanceBusy && !unsupported && canRename && io.robAllocReady && !io.outReady
   io.srcPhysTags := gpr.io.srcPhysTags
@@ -229,6 +258,10 @@ class ScalarDecodeRenameBridge(
   io.gprNextFreeFromLiveCount := gpr.io.nextFreeFromLiveCount
   io.gprCommittedMapQCount := PopCount(gpr.io.committedMapQMask).asUInt
   io.gprReleasedPhysCount := PopCount(gpr.io.releasedPhysMask).asUInt
+  io.templateSnapshotValid := templateAccepted
+  io.templateSnapshotGeneration := templateGeneration
+  io.templateSmapSnapshot := gpr.io.renameNextSmap
+  io.templateCmapSnapshot := gpr.io.renameNextCmap
 
   val renamed = Wire(new RenamedUop(p))
   renamed := 0.U.asTypeOf(renamed)
@@ -257,6 +290,11 @@ class ScalarDecodeRenameBridge(
   renamed.boundaryKind := io.in.boundaryKind
   renamed.boundaryTarget := io.in.boundaryTarget
   renamed.predTaken := io.in.predTaken
+  renamed.fretStkContextValid := io.in.fretStkContextValid
+  renamed.fretStkConditionValid := io.in.fretStkConditionValid
+  renamed.fretStkConditionTaken := io.in.fretStkConditionTaken
+  renamed.fretStkFallbackTargetValid := io.in.fretStkFallbackTargetValid
+  renamed.fretStkFallbackTarget := io.in.fretStkFallbackTarget
   renamed.resolvedD2 := accepted
   renamed.insnLen := io.in.insnLen
   renamed.insnRaw := io.in.insnRaw
@@ -284,6 +322,14 @@ class ScalarDecodeRenameBridge(
   renamed.dst(0).relTag := io.in.dst(0).relTag
   renamed.dst(0).physTag := Mux(needsRename, gpr.io.renamePhysTag, 0.U)
   renamed.dst(0).oldPhysTag := Mux(needsRename, gpr.io.renameOldPhysTag, 0.U)
+  renamed.pairFirstDst.valid := accepted && io.in.pairFirstDst.valid
+  renamed.pairFirstDst.kind := io.in.pairFirstDst.kind
+  renamed.pairFirstDst.archTag := io.in.pairFirstDst.archTag
+  renamed.pairFirstDst.relTag := io.in.pairFirstDst.relTag
+  renamed.pairFirstDst.physTag :=
+    Mux(needsPairFirstRename, gpr.io.renameSecondPhysTag, 0.U)
+  renamed.pairFirstDst.oldPhysTag :=
+    Mux(needsPairFirstRename, gpr.io.renameSecondOldPhysTag, 0.U)
   io.out := renamed
 
   val row = Wire(new CommitTraceRow(traceParams))

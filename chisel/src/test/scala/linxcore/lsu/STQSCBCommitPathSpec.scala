@@ -185,6 +185,9 @@ class STQSCBCommitPathSpec extends AnyFunSuite {
     assert(sv.contains("module STQCommitDrain"))
     assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("io_scbCommitFreeMask"))
+    assert(sv.contains("io_scbAcceptedReqs_0_valid"))
+    assert(sv.contains("io_scbAcceptedReqs_0_gid_value"))
+    assert(sv.contains("io_scbAcceptedReqs_0_rid_value"))
     assert(sv.contains("io_rawRespTxnId"))
     assert(sv.contains("io_rawRespReady"))
     assert(sv.contains("io_lsuTULinkSource_valid"))
@@ -193,9 +196,5 @@ class STQSCBCommitPathSpec extends AnyFunSuite {
     assert(sv.contains("io_scbRespDecodeError"))
     assert(sv.contains("io_stqCommitFreeAcceptedMask"))
     assert(sv.contains("io_drainEarlyFreeMask"))
-    assert(sv.contains("io_drainMemReqs_0_stid"))
-    assert(sv.contains("io_scbAcceptedReqs_0_stid"))
-    assert(sv.contains("io_scbAcceptedReqs_0_gid_value"))
-    assert(sv.contains("io_scbAcceptedReqs_0_rid_value"))
   }
 }

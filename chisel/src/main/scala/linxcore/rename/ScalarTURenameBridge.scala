@@ -6,7 +6,7 @@ import chisel3.util.log2Ceil
 import linxcore.bctrl.BID
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
 import linxcore.common._
-import linxcore.recovery.RecoveryCleanupIntent
+import linxcore.recovery.{ExecEngineType, RecoveryCleanupIntent}
 import linxcore.rob.ROBID
 
 class ScalarTURenameBridgeIO(
@@ -64,6 +64,18 @@ class ScalarTURenameBridgeIO(
   val tuRetireBankValid = Output(Bool())
   val tuRetirePeOH = Output(UInt(scalarPeCount.W))
   val tuRetireStidOH = Output(UInt(scalarStidCount.W))
+  val tuRetireCommandValid = Output(Bool())
+  val tuRetireCommandKind = Output(DestinationKind())
+  val tuRetireCommandSeq = Output(new ROBID(mapQDepth))
+  val tuRetireCommandDealloc = Output(Bool())
+  val tuRetireCommandPeId = Output(UInt(peIdWidth.W))
+  val tuRetireCommandStid = Output(UInt(stidWidth.W))
+  val tuRetireSelectedTDeallocSeq = Output(new ROBID(mapQDepth))
+  val tuRetireSelectedUDeallocSeq = Output(new ROBID(mapQDepth))
+  val tuRetireSelectedTValidMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedUValidMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedTRetiredMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedURetiredMask = Output(UInt(mapQDepth.W))
   val tuLocalBlockCommitValid = Input(Bool())
   val tuLocalBlockCommitBid = Input(new ROBID(p.robEntries))
   val tuLocalBlockCommitStid = Input(UInt(stidWidth.W))
@@ -123,6 +135,10 @@ class ScalarTURenameBridgeIO(
   val gprNextFreeFromLiveCount = Output(UInt(gprFreeWidth.W))
   val gprCommittedMapQCount = Output(UInt(gprMapQFreeWidth.W))
   val gprReleasedPhysCount = Output(UInt(gprFreeWidth.W))
+  val templateSnapshotValid = Output(Bool())
+  val templateSnapshotGeneration = Output(UInt(16.W))
+  val templateSmapSnapshot = Output(Vec(scalarArchRegs, UInt(p.physRegWidth.W)))
+  val templateCmapSnapshot = Output(Vec(scalarArchRegs, UInt(p.physRegWidth.W)))
 
   val tuReady = Output(Bool())
   val tuAccepted = Output(Bool())
@@ -307,6 +323,16 @@ class ScalarTURenameBridge(
   scalar.io.cleanupOrderValid := io.cleanupOrderValid
   scalar.io.cleanupOrder := io.cleanupOrder
 
+  // Scalar GPR recovery is RID-precise, but T/U links are block-local and
+  // cannot survive a redirect back into the same block.  Prune the complete
+  // T/U block while preserving the original cleanup intent for GPR rename.
+  val tuCleanup = Wire(chiselTypeOf(io.cleanup))
+  tuCleanup := io.cleanup
+  when(io.cleanup.valid && io.cleanup.backendFlushValid &&
+      (io.cleanup.flush.req.execEngine === ExecEngineType.Scalar)) {
+    tuCleanup.flush.baseOnBid := true.B
+  }
+
   tu.io.in := tuInput
   tu.io.renameValid := scalar.io.accepted
   tu.io.retireValid := io.tuRetireValid
@@ -315,12 +341,12 @@ class ScalarTURenameBridge(
   tu.io.retireDealloc := io.tuRetireDealloc
   tu.io.retirePeId := io.tuRetirePeId
   tu.io.retireStid := io.tuRetireStid
-  tu.io.commitValid := io.commitValid
+  tu.io.commitValid := io.commitValid && !io.tuLocalBlockCommitValid
   tu.io.commitBid := io.commitBid
   tu.io.localBlockCommitValid := io.tuLocalBlockCommitValid
   tu.io.localBlockCommitBid := io.tuLocalBlockCommitBid
   tu.io.localBlockCommitStid := io.tuLocalBlockCommitStid
-  tu.io.cleanup := io.cleanup
+  tu.io.cleanup := tuCleanup
   tu.io.robSource := io.robSource
   tu.io.lsuSource := io.lsuSource
 
@@ -373,6 +399,10 @@ class ScalarTURenameBridge(
   io.gprNextFreeFromLiveCount := scalar.io.gprNextFreeFromLiveCount
   io.gprCommittedMapQCount := scalar.io.gprCommittedMapQCount
   io.gprReleasedPhysCount := scalar.io.gprReleasedPhysCount
+  io.templateSnapshotValid := scalar.io.templateSnapshotValid
+  io.templateSnapshotGeneration := scalar.io.templateSnapshotGeneration
+  io.templateSmapSnapshot := scalar.io.templateSmapSnapshot
+  io.templateCmapSnapshot := scalar.io.templateCmapSnapshot
 
   io.tuReady := tu.io.ready
   io.tuAccepted := tu.io.accepted
@@ -390,6 +420,18 @@ class ScalarTURenameBridge(
   io.tuRetireBankValid := tu.io.retireBankValid
   io.tuRetirePeOH := tu.io.retirePeOH
   io.tuRetireStidOH := tu.io.retireStidOH
+  io.tuRetireCommandValid := io.tuRetireValid
+  io.tuRetireCommandKind := io.tuRetireKind
+  io.tuRetireCommandSeq := io.tuRetireSeq
+  io.tuRetireCommandDealloc := io.tuRetireDealloc
+  io.tuRetireCommandPeId := io.tuRetirePeId
+  io.tuRetireCommandStid := io.tuRetireStid
+  io.tuRetireSelectedTDeallocSeq := tu.io.tDeallocSeq
+  io.tuRetireSelectedUDeallocSeq := tu.io.uDeallocSeq
+  io.tuRetireSelectedTValidMask := tu.io.tMapQValidMask
+  io.tuRetireSelectedUValidMask := tu.io.uMapQValidMask
+  io.tuRetireSelectedTRetiredMask := tu.io.tRetiredMask
+  io.tuRetireSelectedURetiredMask := tu.io.uRetiredMask
   io.tuLocalBlockCommitReady := tu.io.localBlockCommitReady
   io.tuLocalBlockCommitAccepted := tu.io.localBlockCommitAccepted
   io.tuLocalBlockCommitStidMatch := tu.io.localBlockCommitStidMatch

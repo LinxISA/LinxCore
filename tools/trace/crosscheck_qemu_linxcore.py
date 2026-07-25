@@ -4,9 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from common.decode32 import decode32_meta
 
 REQUIRED_TRACE_FIELDS = [
     "pc",
@@ -88,15 +94,8 @@ def _is_bstart16(hw: int) -> bool:
 
 
 def _is_bstart32(insn: int) -> bool:
-    return (insn & 0x00007FFF) in (
-        0x00001001,
-        0x00002001,
-        0x00003001,
-        0x00004001,
-        0x00005001,
-        0x00006001,
-        0x00007001,
-    )
+    meta = decode32_meta(insn)
+    return meta is not None and meta.major_cat == "BLOCK_BOUNDARY"
 
 
 def _is_bstart48(raw: int) -> bool:

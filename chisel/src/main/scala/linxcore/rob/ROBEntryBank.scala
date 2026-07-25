@@ -64,6 +64,11 @@ class ROBEntryBankIO(
   val allocRobValue = Output(UInt(ptrWidth.W))
   val allocRobWrap = Output(Bool())
 
+  val blockCloseValid = Input(Bool())
+  val blockCloseBid = Input(UInt(traceParams.blockBidWidth.W))
+  val blockCloseStid = Input(UInt(stidWidth.W))
+  val blockCloseMatched = Output(Bool())
+
   val renameUpdateValid = Input(Bool())
   val renameUpdateReady = Output(Bool())
   val renameUpdateAccepted = Output(Bool())
@@ -142,6 +147,8 @@ class ROBEntryBankIO(
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
   val commitHeadBid = Output(new ROBID(entries))
+  val commitHeadGid = Output(new ROBID(entries))
+  val commitHeadRid = Output(new ROBID(entries))
   val commitHeadLsId = Output(UInt(lsidWidth.W))
   val commitHeadStid = Output(UInt(stidWidth.W))
   val deallocHeadValid = Output(Bool())
@@ -450,6 +457,30 @@ class ROBEntryBank(
   io.completeAccepted := completeAccepted
   io.completeIgnored := io.completeValid && (!completeMayUpdate || flushApplied)
 
+  val blockCloseActive = !flushApplied && io.blockCloseValid
+  val blockCloseAllocMatch =
+    blockCloseActive && allocFire && io.allocRow.blockBidValid && io.allocRow.blockBid === io.blockCloseBid &&
+      io.allocStid === io.blockCloseStid
+  val blockCloseSlotMatch = Wire(Vec(entries, Bool()))
+  for (slot <- 0 until entries) {
+    val idx = wrapIndex(deallocValue, slot)
+    blockCloseSlotMatch(slot) :=
+      blockCloseActive &&
+        rows(idx).valid &&
+        ROBEntryStatus.occupiesRob(status(idx)) &&
+        rows(idx).blockBidValid &&
+        rows(idx).blockBid === io.blockCloseBid &&
+        rowStid(idx) === io.blockCloseStid
+  }
+  val blockCloseYoungestSlot = Wire(Vec(entries, Bool()))
+  for (slot <- 0 until entries) {
+    val laterMatch =
+      if (slot == entries - 1) false.B else blockCloseSlotMatch.asUInt(entries - 1, slot + 1).orR
+    blockCloseYoungestSlot(slot) := blockCloseSlotMatch(slot) && !laterMatch && !blockCloseAllocMatch
+  }
+  val blockCloseStallsDealloc = blockCloseAllocMatch || blockCloseSlotMatch.asUInt.orR
+  io.blockCloseMatched := blockCloseStallsDealloc
+
   val deallocMarkerWindowStop = Wire(Bool())
   val commitFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
   val commitContinueVec = Wire(Vec(traceParams.commitWidth, Bool()))
@@ -507,7 +538,7 @@ class ROBEntryBank(
     val priorSlotsContinue =
       if (slot == 0) true.B else deallocContinueVec(slot - 1)
     deallocFireVec(slot) :=
-      !flushApplied && io.deallocReady && priorSlotsContinue && !io.deallocHoldMask(idx) &&
+      !flushApplied && io.deallocReady && !blockCloseStallsDealloc && priorSlotsContinue && !io.deallocHoldMask(idx) &&
         rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
     deallocMarkerWindowStopVec(slot) := deallocFireVec(slot) && (rowMarkerBoundary(idx) || rowMarkerStop(idx))
     deallocContinueVec(slot) := deallocFireVec(slot) &&
@@ -529,11 +560,13 @@ class ROBEntryBank(
     source.rid := rowRid(idx)
     source.peId := rowPeId(idx)
     source.stid := rowStid(idx)
-    source.tSeq := rowTSeq(idx)
-    source.uSeq := rowUSeq(idx)
-    source.dstValid := rowTUDstValid(idx)
-    source.dstKind := rowTUDstKind(idx)
-    io.deallocTURetireSource(slot) := source
+      source.tSeq := rowTSeq(idx)
+      source.uSeq := rowUSeq(idx)
+      source.dstValid := rowTUDstValid(idx)
+      source.dstKind := rowTUDstKind(idx)
+      source.blockBidValid := rows(idx).blockBidValid
+      source.blockBid := rows(idx).blockBid
+      io.deallocTURetireSource(slot) := source
 
     val markerSource = Wire(new BlockMarkerRetireSource(
       entries = entries,
@@ -589,6 +622,8 @@ class ROBEntryBank(
   io.commitHeadStatus := status(commitValue)
   io.commitHeadRobValue := commitValue
   io.commitHeadBid := rowBid(commitValue)
+  io.commitHeadGid := rowGid(commitValue)
+  io.commitHeadRid := rowRid(commitValue)
   io.commitHeadLsId := rowLsId(commitValue)
   io.commitHeadStid := rowStid(commitValue)
   io.deallocHeadValid := rows(deallocValue).valid && ROBEntryStatus.occupiesRob(status(deallocValue))
@@ -689,6 +724,13 @@ class ROBEntryBank(
     status(io.completeRobValue) := ROBEntryStatus.Completed
   }
 
+  for (slot <- 0 until entries) {
+    val idx = wrapIndex(deallocValue, slot)
+    when(blockCloseSlotMatch(slot)) {
+      rowIsLast(idx) := blockCloseYoungestSlot(slot)
+    }
+  }
+
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(commitValue, slot)
     when(commitFireVec(slot)) {
@@ -743,7 +785,7 @@ class ROBEntryBank(
     rowUSeq(allocValue) := io.allocUSeq
     rowTUDstValid(allocValue) := io.allocTUDstValid
     rowTUDstKind(allocValue) := io.allocTUDstKind
-    rowIsLast(allocValue) := io.allocIsLast
+    rowIsLast(allocValue) := io.allocIsLast || blockCloseAllocMatch
     rowMarkerBoundary(allocValue) := io.allocMarkerBoundary
     rowMarkerStop(allocValue) := io.allocMarkerStop
     rowMarkerBoundaryKind(allocValue) := io.allocMarkerBoundaryKind

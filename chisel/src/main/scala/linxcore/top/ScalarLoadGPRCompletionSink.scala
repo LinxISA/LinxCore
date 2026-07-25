@@ -119,6 +119,8 @@ class ScalarLoadGPRCompletionSink(
   gpr.io.initData := io.initData
   gpr.io.clearValid := io.clearValid
   gpr.io.clearTag := io.clearTag
+  gpr.io.clearSecondValid := false.B
+  gpr.io.clearSecondTag := 0.U
   gpr.io.readValid(0) := true.B
   gpr.io.readTag(0) := io.readTag
 

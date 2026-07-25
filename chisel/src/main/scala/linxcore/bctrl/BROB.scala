@@ -24,7 +24,9 @@ class BrobEntryMeta(
   val peId = UInt(peIdWidth.W)
   val blockType = UInt(blockTypeWidth.W)
   val needsEngine = Bool()
+  val hasScalarRow = Bool()
   val scalarDone = Bool()
+  val scalarDrainDone = Bool()
   val engineDone = Bool()
   val exception = Bool()
   val trapCause = UInt(trapCauseWidth.W)
@@ -35,7 +37,7 @@ object BrobEntryMeta {
     (status =/= BrobStatus.Free) && (status =/= BrobStatus.Flushed)
 
   def isComplete(meta: BrobEntryMeta): Bool =
-    meta.scalarDone && (!meta.needsEngine || meta.engineDone)
+    meta.scalarDone && (!meta.hasScalarRow || meta.scalarDrainDone) && (!meta.needsEngine || meta.engineDone)
 }
 
 class BrobMetaTrackerIO(
@@ -55,7 +57,15 @@ class BrobMetaTrackerIO(
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocBlockType = Input(UInt(blockTypeWidth.W))
   val allocNeedsEngine = Input(Bool())
+  val allocHasScalarRow = Input(Bool())
   val allocReady = Output(Bool())
+
+  val scalarRowObservedValid = Input(Bool())
+  val scalarRowObservedBid = Input(UInt(bidWidth.W))
+  val scalarRowObservedStid = Input(UInt(stidWidth.W))
+  val scalarRowCloseValid = Output(Bool())
+  val scalarRowCloseBid = Output(UInt(bidWidth.W))
+  val scalarRowCloseStid = Output(UInt(stidWidth.W))
 
   val scalarDoneValid = Input(Bool())
   val scalarDoneBid = Input(UInt(bidWidth.W))
@@ -68,6 +78,10 @@ class BrobMetaTrackerIO(
   val engineDoneStid = Input(UInt(stidWidth.W))
   val engineTrapValid = Input(Bool())
   val engineTrapCause = Input(UInt(trapCauseWidth.W))
+
+  val scalarDrainValid = Input(Bool())
+  val scalarDrainBid = Input(UInt(bidWidth.W))
+  val scalarDrainStid = Input(UInt(stidWidth.W))
 
   val retireValid = Input(Bool())
   val retireBid = Input(UInt(bidWidth.W))
@@ -146,22 +160,39 @@ class BrobMetaTracker(
     Mux1H(stidMatch, table.map(_(slot)))
 
   val allocSlot = BID.slot(io.allocBid, entries)
+  val scalarRowObservedSlot = BID.slot(io.scalarRowObservedBid, entries)
   val scalarSlot = BID.slot(io.scalarDoneBid, entries)
+  val scalarDrainSlot = BID.slot(io.scalarDrainBid, entries)
   val engineSlot = BID.slot(io.engineDoneBid, entries)
   val retireSlot = BID.slot(io.retireBid, entries)
   val querySlot = BID.slot(io.queryBid, entries)
   val allocStidMatch = matchesStid(io.allocStid)
+  val scalarRowObservedStidMatch = matchesStid(io.scalarRowObservedStid)
   val scalarStidMatch = matchesStid(io.scalarDoneStid)
+  val scalarDrainStidMatch = matchesStid(io.scalarDrainStid)
   val engineStidMatch = matchesStid(io.engineDoneStid)
   val retireStidMatch = matchesStid(io.retireStid)
   val flushStidMatch = matchesStid(io.flushStid)
   val queryStidMatch = matchesStid(io.queryStid)
   val allocEntry = selectMeta(allocStidMatch, allocSlot)
+  val scalarRowObservedEntry = selectMeta(scalarRowObservedStidMatch, scalarRowObservedSlot)
   val scalarEntry = selectMeta(scalarStidMatch, scalarSlot)
+  val scalarDrainEntry = selectMeta(scalarDrainStidMatch, scalarDrainSlot)
   val engineEntry = selectMeta(engineStidMatch, engineSlot)
   val retireEntry = selectMeta(retireStidMatch, retireSlot)
-  val scalarHit = scalarStidMatch.asUInt.orR &&
+  val allocFire = io.allocValid && io.allocReady
+  val scalarDoneAllocHit =
+    allocFire && io.allocBid === io.scalarDoneBid && io.allocStid === io.scalarDoneStid
+  val scalarRowObservedAllocHit =
+    allocFire && io.allocBid === io.scalarRowObservedBid && io.allocStid === io.scalarRowObservedStid
+  val scalarHit = scalarDoneAllocHit || (scalarStidMatch.asUInt.orR &&
     BrobEntryMeta.isAllocated(scalarEntry.status) && scalarEntry.bid === io.scalarDoneBid
+  )
+  val scalarRowObservedHit = scalarRowObservedAllocHit || (scalarRowObservedStidMatch.asUInt.orR &&
+    BrobEntryMeta.isAllocated(scalarRowObservedEntry.status) &&
+    scalarRowObservedEntry.bid === io.scalarRowObservedBid)
+  val scalarDrainHit = scalarDrainStidMatch.asUInt.orR &&
+    BrobEntryMeta.isAllocated(scalarDrainEntry.status) && scalarDrainEntry.bid === io.scalarDrainBid
   val engineHit = engineStidMatch.asUInt.orR &&
     BrobEntryMeta.isAllocated(engineEntry.status) && engineEntry.bid === io.engineDoneBid
   val retireHit = retireStidMatch.asUInt.orR &&
@@ -169,10 +200,23 @@ class BrobMetaTracker(
   io.retireAccepted := io.retireValid && retireHit
   io.retireIgnored := io.retireValid && !retireHit
 
+  val scalarDoneSeesRow =
+    io.scalarDoneValid && scalarHit &&
+      (scalarDoneAllocHit || !scalarEntry.scalarDone) &&
+      (Mux(scalarDoneAllocHit, io.allocHasScalarRow, scalarEntry.hasScalarRow) ||
+        (io.scalarRowObservedValid && scalarRowObservedHit &&
+          io.scalarRowObservedStid === io.scalarDoneStid && io.scalarRowObservedBid === io.scalarDoneBid))
+  val scalarRowSeesDone =
+    io.scalarRowObservedValid && scalarRowObservedHit && scalarRowObservedEntry.scalarDone &&
+      !scalarRowObservedEntry.hasScalarRow && !scalarRowObservedEntry.scalarDrainDone
+  io.scalarRowCloseValid := scalarDoneSeesRow || scalarRowSeesDone
+  io.scalarRowCloseBid := Mux(scalarDoneSeesRow, io.scalarDoneBid, io.scalarRowObservedBid)
+  io.scalarRowCloseStid := Mux(scalarDoneSeesRow, io.scalarDoneStid, io.scalarRowObservedStid)
+
   io.allocReady := allocStidMatch.asUInt.orR &&
     ((allocEntry.status === BrobStatus.Free) || (allocEntry.status === BrobStatus.Flushed))
 
-  when(io.allocValid && io.allocReady) {
+  when(allocFire) {
     for (stid <- 0 until stidCount) {
       when(allocStidMatch(stid)) {
         table(stid)(allocSlot).bid := io.allocBid
@@ -182,7 +226,9 @@ class BrobMetaTracker(
         table(stid)(allocSlot).peId := io.allocPeId
         table(stid)(allocSlot).blockType := io.allocBlockType
         table(stid)(allocSlot).needsEngine := io.allocNeedsEngine
+        table(stid)(allocSlot).hasScalarRow := io.allocHasScalarRow
         table(stid)(allocSlot).scalarDone := false.B
+        table(stid)(allocSlot).scalarDrainDone := false.B
         table(stid)(allocSlot).engineDone := false.B
         table(stid)(allocSlot).exception := false.B
         table(stid)(allocSlot).trapCause := 0.U
@@ -198,8 +244,40 @@ class BrobMetaTracker(
           table(stid)(scalarSlot).exception := true.B
           table(stid)(scalarSlot).trapCause := io.scalarTrapCause
         }
-        when(!table(stid)(scalarSlot).needsEngine || table(stid)(scalarSlot).engineDone) {
+        val rowBacked = Mux(scalarDoneAllocHit, io.allocHasScalarRow, table(stid)(scalarSlot).hasScalarRow) ||
+          (io.scalarRowObservedValid && scalarRowObservedHit &&
+            io.scalarRowObservedStid === io.scalarDoneStid && io.scalarRowObservedBid === io.scalarDoneBid)
+        val drainSatisfied = !rowBacked ||
+          Mux(scalarDoneAllocHit, false.B, table(stid)(scalarSlot).scalarDrainDone) ||
+          (io.scalarDrainValid && scalarDrainHit && io.scalarDrainStid === io.scalarDoneStid &&
+            io.scalarDrainBid === io.scalarDoneBid)
+        val needsEngine = Mux(scalarDoneAllocHit, io.allocNeedsEngine, table(stid)(scalarSlot).needsEngine)
+        val engineDone = Mux(scalarDoneAllocHit, false.B, table(stid)(scalarSlot).engineDone)
+        when(drainSatisfied && (!needsEngine || engineDone)) {
           table(stid)(scalarSlot).status := BrobStatus.Completed
+        }
+      }
+    }
+  }
+
+  when(io.scalarRowObservedValid && scalarRowObservedHit) {
+    for (stid <- 0 until stidCount) {
+      when(scalarRowObservedStidMatch(stid)) {
+        table(stid)(scalarRowObservedSlot).hasScalarRow := true.B
+        when(!table(stid)(scalarRowObservedSlot).scalarDrainDone) {
+          table(stid)(scalarRowObservedSlot).status := BrobStatus.Allocated
+        }
+      }
+    }
+  }
+
+  when(io.scalarDrainValid && scalarDrainHit) {
+    for (stid <- 0 until stidCount) {
+      when(scalarDrainStidMatch(stid)) {
+        table(stid)(scalarDrainSlot).scalarDrainDone := true.B
+        when(table(stid)(scalarDrainSlot).scalarDone &&
+          (!table(stid)(scalarDrainSlot).needsEngine || table(stid)(scalarDrainSlot).engineDone)) {
+          table(stid)(scalarDrainSlot).status := BrobStatus.Completed
         }
       }
     }
@@ -213,7 +291,8 @@ class BrobMetaTracker(
           table(stid)(engineSlot).exception := true.B
           table(stid)(engineSlot).trapCause := io.engineTrapCause
         }
-        when(table(stid)(engineSlot).scalarDone) {
+        when(table(stid)(engineSlot).scalarDone &&
+          (!table(stid)(engineSlot).hasScalarRow || table(stid)(engineSlot).scalarDrainDone)) {
           table(stid)(engineSlot).status := BrobStatus.Completed
         }
       }
@@ -240,6 +319,7 @@ class BrobMetaTracker(
           inKilledSuffix) {
           table(stid)(idx).status := BrobStatus.Flushed
           table(stid)(idx).scalarDone := false.B
+          table(stid)(idx).scalarDrainDone := false.B
           table(stid)(idx).engineDone := false.B
           table(stid)(idx).exception := false.B
           table(stid)(idx).trapCause := 0.U

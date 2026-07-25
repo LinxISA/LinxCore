@@ -46,6 +46,9 @@ class GPRRenameCheckpointIO(
 
   val renameValid = Input(Bool())
   val renameArchTag = Input(UInt(archTagWidth.W))
+  val renameSecondRequired = Input(Bool())
+  val renameSecondValid = Input(Bool())
+  val renameSecondArchTag = Input(UInt(archTagWidth.W))
   val renameBid = Input(new ROBID(entries))
   val renameBlockBid = Input(UInt(bidWidth.W))
   val renameStid = Input(UInt(stidWidth.W))
@@ -75,6 +78,8 @@ class GPRRenameCheckpointIO(
   val renameAccepted = Output(Bool())
   val renamePhysTag = Output(UInt(physTagWidth.W))
   val renameOldPhysTag = Output(UInt(physTagWidth.W))
+  val renameSecondPhysTag = Output(UInt(physTagWidth.W))
+  val renameSecondOldPhysTag = Output(UInt(physTagWidth.W))
   val checkpointAccepted = Output(Bool())
   val commitAccepted = Output(Bool())
   val cleanupReady = Output(Bool())
@@ -97,6 +102,8 @@ class GPRRenameCheckpointIO(
   val renamePtr = Output(new ROBID(entries))
   val smap = Output(Vec(archRegs, UInt(physTagWidth.W)))
   val cmap = Output(Vec(archRegs, UInt(physTagWidth.W)))
+  val renameNextSmap = Output(Vec(archRegs, UInt(physTagWidth.W)))
+  val renameNextCmap = Output(Vec(archRegs, UInt(physTagWidth.W)))
   val smapLiveCount = Output(UInt(freeCountWidth.W))
   val cmapLiveCount = Output(UInt(freeCountWidth.W))
   val mapQLiveCount = Output(UInt(freeCountWidth.W))
@@ -329,8 +336,14 @@ class GPRRenameCheckpoint(
   val currentFreeListMismatchMask = (freeList.asUInt ^ currentFreeFromLiveMask) & allocatablePhysMask
   val firstFreePhys = PriorityEncoder(freeMask)
   val firstFreeMapQ = PriorityEncoder(~renameMapQValidVec.asUInt)
+  val freePhysAfterFirst = freeMask & ~UIntToOH(firstFreePhys, physRegs)
+  val freeMapQAfterFirst = (~renameMapQValidVec.asUInt).asUInt & ~UIntToOH(firstFreeMapQ, mapQDepth)
+  val secondFreePhys = PriorityEncoder(freePhysAfterFirst)
+  val secondFreeMapQ = PriorityEncoder(freeMapQAfterFirst)
   val hasFreePhys = freeMask.orR
   val hasFreeMapQ = !renameMapQValidVec.asUInt.andR
+  val hasSecondFreePhys = freePhysAfterFirst.orR
+  val hasSecondFreeMapQ = freeMapQAfterFirst.orR
   val cleanupMapQArchTagVec = Wire(Vec(mapQDepth, UInt(archTagWidth.W)))
   val cleanupMapQFullBidVec = Wire(Vec(mapQDepth, UInt(bidWidth.W)))
   val cleanupMapQRidVec = Wire(Vec(mapQDepth, new ROBID(entries)))
@@ -363,8 +376,11 @@ class GPRRenameCheckpoint(
   val postRenameCheckpointFire =
     !cleanupValid && !io.commitValid && !io.checkpointValid && io.postRenameCheckpointValid &&
       postRenameCheckpointStidInRange
+  val renameResourcesReady =
+    hasFreePhys && hasFreeMapQ &&
+      (!io.renameSecondRequired || (hasSecondFreePhys && hasSecondFreeMapQ))
   val renameCanFire = !cleanupValid && !io.commitValid && !io.checkpointValid &&
-    renameStidInRange && hasFreePhys && hasFreeMapQ
+    renameStidInRange && renameResourcesReady
   val renameAccepted = io.renameValid && renameCanFire
 
   when(io.cleanup.valid && io.cleanup.renameFlushValid) {
@@ -385,7 +401,6 @@ class GPRRenameCheckpoint(
   val flushPruneVec = Wire(Vec(mapQDepth, Bool()))
   val flushSameBidSurvivorVec = Wire(Vec(mapQDepth, Bool()))
   val commitHitVec = Wire(Vec(mapQDepth, Bool()))
-  val commitHitHasLaterSameArch = Wire(Vec(mapQDepth, Bool()))
   for (idx <- 0 until mapQDepth) {
     val flushEntry = cleanupMapQ(idx)
     val commitEntry = commitMapQ(idx)
@@ -403,17 +418,6 @@ class GPRRenameCheckpoint(
         (io.cleanup.blockFlushPointer === flushEntry.fullBid)
     commitHitVec(idx) := commitEntry.valid && (commitEntry.fullBid === io.commitBlockBid)
   }
-  for (idx <- 0 until mapQDepth) {
-    val hasNewerSameArch = (0 until mapQDepth)
-      .map { other =>
-        commitHitVec(other) &&
-          (commitMapQ(other).archTag === commitMapQ(idx).archTag) &&
-          (commitMapQ(idx).order < commitMapQ(other).order)
-      }
-      .reduce(_ || _)
-    commitHitHasLaterSameArch(idx) := commitHitVec(idx) && hasNewerSameArch
-  }
-
   val committedMapQMask = commitHitVec.asUInt
   val prunedMapQMask = flushPruneVec.asUInt
   val flushSurvivorVec = Wire(Vec(mapQDepth, Bool()))
@@ -463,6 +467,16 @@ class GPRRenameCheckpoint(
     commitRidForArch(arch) := commitSelect.io.rid
     commitOrderForArch(arch) := commitSelect.io.order
   }
+  // The per-architecture winner above is already the youngest committing
+  // mapping.  Compare every hit with that winner instead of building an
+  // all-entry pairwise matrix; this is O(archRegs * mapQDepth), not O(N^2).
+  val commitHitHasLaterSameArch = Wire(Vec(mapQDepth, Bool()))
+  for (idx <- 0 until mapQDepth) {
+    val arch = commitMapQ(idx).archTag
+    commitHitHasLaterSameArch(idx) :=
+      commitHitVec(idx) && commitAnyForArch(arch) &&
+        (commitMapQ(idx).order < commitOrderForArch(arch))
+  }
   val commitCmapReleaseMask =
     (0 until archRegs)
       .map(arch => Mux(commitAnyForArch(arch), UIntToOH(commitCmap(arch), physRegs), 0.U(physRegs.W)))
@@ -504,6 +518,9 @@ class GPRRenameCheckpoint(
   nextMapQ := mapQ
   smapAfterRename := renameSmap
   smapAfterRename(io.renameArchTag) := firstFreePhys
+  when(io.renameSecondValid) {
+    smapAfterRename(io.renameSecondArchTag) := secondFreePhys
+  }
 
   when(flushFire) {
     for (stid <- 0 until stidCount) {
@@ -578,6 +595,17 @@ class GPRRenameCheckpoint(
         nextMapQ(stid)(firstFreeMapQ).order := io.renameOrder
         nextMapQ(stid)(firstFreeMapQ).archTag := io.renameArchTag
         nextMapQ(stid)(firstFreeMapQ).physTag := firstFreePhys
+        when(io.renameSecondValid) {
+          nextMapQ(stid)(secondFreeMapQ).valid := true.B
+          nextMapQ(stid)(secondFreeMapQ).bid := io.renameBid
+          nextMapQ(stid)(secondFreeMapQ).fullBid := io.renameBlockBid
+          nextMapQ(stid)(secondFreeMapQ).stid := io.renameStid
+          nextMapQ(stid)(secondFreeMapQ).rid := io.renameRid
+          nextMapQ(stid)(secondFreeMapQ).gid := io.renameGid
+          nextMapQ(stid)(secondFreeMapQ).order := io.renameOrder
+          nextMapQ(stid)(secondFreeMapQ).archTag := io.renameSecondArchTag
+          nextMapQ(stid)(secondFreeMapQ).physTag := secondFreePhys
+        }
         when(io.postRenameCheckpointValid && postRenameCheckpointMatchesRename) {
           nextCheckpointMap(stid)(io.postRenameCheckpointBid.value) := smapAfterRename
           nextCheckpointValid(stid)(io.postRenameCheckpointBid.value) := true.B
@@ -632,6 +660,9 @@ class GPRRenameCheckpoint(
   io.renameAccepted := renameAccepted
   io.renamePhysTag := firstFreePhys
   io.renameOldPhysTag := Mux(renameStidInRange, renameSmap(io.renameArchTag), 0.U)
+  io.renameSecondPhysTag := secondFreePhys
+  io.renameSecondOldPhysTag :=
+    Mux(renameStidInRange && io.renameSecondValid, renameSmap(io.renameSecondArchTag), 0.U)
   io.checkpointAccepted := checkpointFire ||
     (renameAccepted && io.postRenameCheckpointValid && postRenameCheckpointMatchesRename) ||
     (postRenameCheckpointFire && !io.renameValid)
@@ -658,6 +689,8 @@ class GPRRenameCheckpoint(
   io.renamePtr := Mux1H(queryStidMatch, renamePtr)
   io.smap := querySmap
   io.cmap := queryCmap
+  io.renameNextSmap := Mux1H(renameStidMatch, nextSmap)
+  io.renameNextCmap := Mux1H(renameStidMatch, nextCmap)
   io.smapLiveCount := PopCount(currentSmapLiveMask).asUInt(freeCountWidth - 1, 0)
   io.cmapLiveCount := PopCount(currentCmapLiveMask).asUInt(freeCountWidth - 1, 0)
   io.mapQLiveCount := PopCount(currentMapQLiveMask).asUInt(freeCountWidth - 1, 0)
@@ -673,10 +706,16 @@ class GPRRenameCheckpoint(
   io.releasedPhysMask := Mux(commitFire, commitReleaseMask, 0.U(physRegs.W)) |
     Mux(flushFire, flushReleaseMask, 0.U(physRegs.W))
   val renameStidError = io.renameValid && !renameStidInRange
+  val invalidSecondRename =
+    io.renameSecondValid &&
+      (!io.renameValid || (io.renameSecondArchTag === io.renameArchTag))
   val checkpointStidError = io.checkpointValid && !checkpointStidInRange
   val commitStidError = io.commitValid && !commitStidInRange
   val postRenameCheckpointError = io.postRenameCheckpointValid &&
     (!postRenameCheckpointStidInRange || (io.renameValid && !postRenameCheckpointMatchesRename))
-  io.stateError := (cleanupValid && !cleanupStidInRange) || renameStidError ||
+  io.stateError := (cleanupValid && !cleanupStidInRange) || renameStidError || invalidSecondRename ||
     checkpointStidError || commitStidError || postRenameCheckpointError
+
+  assert(!invalidSecondRename,
+    "secondary GPR rename requires a distinct primary destination in the same atomic group")
 }

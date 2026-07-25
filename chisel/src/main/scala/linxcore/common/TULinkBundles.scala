@@ -30,6 +30,8 @@ class TULinkRetireSource(
   val bid = new ROBID(p.robEntries)
   val gid = new ROBID(p.robEntries)
   val rid = new ROBID(p.robEntries)
+  val blockBidValid = Bool()
+  val blockBid = UInt(p.blockBidWidth.W)
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tSeq = new ROBID(mapQDepth)

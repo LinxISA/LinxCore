@@ -182,6 +182,9 @@ class RecoveryCleanupROBProbe extends Module {
   rob.io.allocMarkerStop := false.B
   rob.io.allocMarkerBoundaryKind := BoundaryKind.Fall
   rob.io.allocMarkerBoundaryTarget := 0.U
+  rob.io.blockCloseValid := false.B
+  rob.io.blockCloseBid := 0.U
+  rob.io.blockCloseStid := 0.U
 
   rob.io.renameUpdateValid := false.B
   rob.io.renameUpdateRid := 0.U.asTypeOf(rob.io.renameUpdateRid)

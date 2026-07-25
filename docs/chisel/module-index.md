@@ -1,23 +1,44 @@
 # Chisel Module Index
 
+The current benchmark bring-up boundary and ISA/LLVM/QEMU/reference-RTL
+alignment are recorded in
+[`microarchitecture-cross-stack-audit.md`](microarchitecture-cross-stack-audit.md).
+
+The normative frontend is the
+[decoupled I-SIDE/B-SIDE IFU](linxcore-chisel-ifu-improvement-design.md).
+I-SIDE uses I-F0–I-F4; B-SIDE uses B-F0–B-F4. The two engines are decoupled
+and do not advance in lockstep. Instruction Buffer is an independent queue
+after I-F4 and before four-wide D1. B-SIDE final rank is
+`B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`, with B-F4 correction
+as the final instance of the later-stage correction path returning to I-F0
+through the canonical redirect arbiter. `LinxCoreIfu` is the production
+composition. Rows explicitly marked verification-only are excluded from the
+production owner graph even when their source remains available for focused
+tests.
+
 | Module | Package | Documentation | Status |
 |---|---|---|---|
 | `InterfaceBundles` / `TULinkBundles` / `BlockMarkerBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green shared type packets including R56 T/U cleanup source, R74 retire-source/command PE/STID sidecars, R141 widened physical tag support with all-ones invalid physical tags above reg6, and R169 marker retire-source payloads |
-| `F4DecodeWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DecodeWindow.md` | Migration fixture: 8-byte combinational slicer; not architectural I-F4 |
-| `F4DenseSlotQueue` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DenseSlotQueue.md` | Migration fixture: serializes slots; must be replaced by four-wide Instruction Buffer/D1 |
-| `ReducedBfuBodyCutPredictor` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuBodyCutPredictor.md` | Migration fixture; target owner is decoupled B-SIDE prediction |
+| `LinxCoreIfu` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Production composition of I-F0–I-F4, B-F0–B-F4, canonical redirects, final-prediction join, Instruction Buffer, and four-wide D1 |
+| `ISideF0PcSelect` / `ISideF1Lookup` / `ISideF2Resolve` / `ISideF3LineAssembler` / `ISideF4Predecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/ISideStages.md` | Canonical five-stage I-SIDE with parallel ITLB/L1I, exact miss/fault routing, cross-line assembly, boundary-only predecode, and fixed 64-bit output |
+| `BSidePredictionPipeline` | `linxcore.frontend` | `docs/chisel/modules/frontend/BSideStages.md` | Canonical B-F0–B-F4 predictor owner with retained responses/training, exact I-F4 completion join, and final static/TAGE/IBTB/loop/RAS arbitration |
+| `IfuRedirectArbiter` / `IfuPredictionJoin` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Sole canonical epoch allocator and ordered final-prediction barrier before Instruction Buffer admission |
+| `InstructionBuffer` / `D1DecodeGroupGather` | `linxcore.frontend` | `docs/chisel/modules/frontend/ISideStages.md` | Canonical per-STID fixed-64-bit instruction queue and four-wide D1 boundary |
+| `F4DecodeWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DecodeWindow.md` | Verification-only 8-byte combinational slicer; excluded from architectural I-F4 |
+| `F4DenseSlotQueue` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DenseSlotQueue.md` | Verification-only serialized-slot fixture; excluded from the production IFU graph |
+| `ReducedBfuBodyCutPredictor` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuBodyCutPredictor.md` | Verification-only predictor fixture; excluded from B-SIDE ownership |
 | `ReducedBfuBodyCutArm` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuBodyCutArm.md` | Diagnostic fixture; not a production predictor owner |
-| `ReducedBfuGeometryPredictionLatch` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuGeometryPredictionLatch.md` | Diagnostic fixture; migrate useful training evidence to B-SIDE |
-| `ReducedBfuLocalBodyWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuLocalBodyWindow.md` | Migration fixture; target prediction moves to B-F0–B-F4 |
-| `ReducedBfuPendingRuntimeBodyEndCandidate` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPendingRuntimeBodyEndCandidate.md` | Feedback fixture; target is B-SIDE training queue |
-| `ReducedBfuPromotedRuntimeBodyEndOracle` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPromotedRuntimeBodyEndOracle.md` | Oracle fixture; retained only for migration comparison |
-| `ReducedBfuResolvedBodyEndPending` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndPending.md` | Feedback fixture; target is retained B-SIDE training |
-| `ReducedBfuResolvedBodyEndSource` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndSource.md` | Source-arbitration fixture; target is exact-identity B-SIDE training |
-| `ReducedBfuResolvedBodyEndOwner` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndOwner.md` | Geometry fixture; target behavior moves to B-SIDE |
-| `ReducedBfuStaticGeometryProducer` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuStaticGeometryProducer.md` | Geometry fixture; target I-F4 only predecodes length and BSTART/BSTOP, while prediction moves to B-F0–B-F4 |
-| `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Migration object: current packet FIFO must become independent 64-bit instruction-entry queue after I-F4 |
-| `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Migration packet/window wrapper; replace with four-wide Instruction Buffer-to-D1 boundary |
-| `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | Migration object for four-wide D1 full decode of 64-bit entries |
+| `ReducedBfuGeometryPredictionLatch` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuGeometryPredictionLatch.md` | Verification-only geometry diagnostic; excluded from B-SIDE ownership |
+| `ReducedBfuLocalBodyWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuLocalBodyWindow.md` | Verification-only local-window diagnostic; excluded from B-SIDE ownership |
+| `ReducedBfuPendingRuntimeBodyEndCandidate` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPendingRuntimeBodyEndCandidate.md` | Verification-only feedback fixture; excluded from production training |
+| `ReducedBfuPromotedRuntimeBodyEndOracle` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPromotedRuntimeBodyEndOracle.md` | Verification-only oracle fixture |
+| `ReducedBfuResolvedBodyEndPending` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndPending.md` | Verification-only feedback fixture |
+| `ReducedBfuResolvedBodyEndSource` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndSource.md` | Verification-only source-arbitration fixture |
+| `ReducedBfuResolvedBodyEndOwner` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndOwner.md` | Verification-only geometry fixture |
+| `ReducedBfuStaticGeometryProducer` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuStaticGeometryProducer.md` | Verification-only geometry fixture; I-F4 remains boundary-only |
+| `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Verification-only packet FIFO; production uses `InstructionBuffer` |
+| `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Verification-only packet/window wrapper; production uses the four-wide IB-to-D1 boundary |
+| `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | D1 full-decode owner for fixed 64-bit entries |
 | `FrontendRegAliasClassify` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendRegAliasClassify.md` | Unit-green R43 scalar reg6 GPR/T/U alias classifier used by frontend operand decode |
 | `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R141 scalar architectural operand/immediate field owner behind `FrontendDecodeStage` with model-derived GPR/T/U alias classification, compact `C.SETRET`, shifted `BSTART` target immediates, unshifted PCR load/store immediates, CoreMark macro rows, explicit shift-immediate shamt extraction, scaled `C.LDI`, compact store, extension, and SETC decode shapes |
 | `ReducedScalarAluExecute` | `linxcore.execute` | `docs/chisel/modules/execute/ReducedScalarAluExecute.md` | Unit-green R375 reduced scalar ADD/ADDI/SUBI/ADDTPC/MOVI/MOVR/CSEL/C.ADD/C.AND/C.SETRET plus model SrcR modifiers for register ADD/ADDW/SUB/AND/OR, compact extension rows, XORI, SSRSET, signed/unsigned SETC sidebands, target-priority FRET.STK load/redirect arbitration, single-save/ranged FENTRY, HL.LUI, shifts, C.LDI/LDI/LBUI/PCR read-only load lookup, PCR byte/half/word/doubleword stores, SDI/OP_SD/C.SDI/C.SWI/SBI store sidebands, P-only scalar source fields, GPR-only RF writeback side effects for T/U destinations, source-phys diagnostics, load replay BID/GID/RID sidecars, return signedness, one-destination replay sideband, RF-derived load source-trace lookup sideband, and W2 issue-queue release identity |
@@ -82,10 +103,13 @@
 | `SCBRowBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBRowBank.md` | Unit-green R670 registered SCB owner accepting full-LSID drain requests while line coalescing remains physical-address based |
 | `ReducedStoreMemoryOverlay` | `linxcore.lsu` | `docs/chisel/modules/lsu/ReducedStoreMemoryOverlay.md` | R670 reduced committed-memory image retaining full LSID request metadata without changing old-to-young byte merge order |
 | `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R670 STQ-to-SCB composition with independent physical capacities, ROB identity, and full LSID transport; SCB accepted `last` fragments remain the only committed-row free source |
-| `ScalarLSU` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSU.md` | R670 canonical scalar LSU owner with `CoreParams.lsidWidth`, independently sized store/load/MDB resources, and retained central recovery publication |
+| `ScalarLSU` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSU.md` | R676 canonical scalar LSU composition with full-LSID store/load/MDB resources, retained central recovery publication, retained miss/refill/cross-line owners, and SCB plus load lookup/update wiring into `ScalarL1D` |
 | `ScalarLSURecoverySource` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSURecoverySource.md` | R640 production oldest-eligible exact full-BID promotion boundary between retained MDB and central recovery arbitration |
-| `ScalarLSULoadPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSULoadPath.md` | R663 canonical LIQ/ResolveQ/MDB/LRET/W1/W2 owner with scoped identity, typed pruning, per-lane reservations, atomic E4 publication, and atomic W2 side effects |
-| `ScalarLSULoadReturnPipeline` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSULoadReturnPipeline.md` | R663 canonical parameterized scoped W1/W2 owner with exact ROB validation, typed recovery, same-cycle stage replacement, and atomic resolve/GPR-writeback/wakeup completion |
+| `ScalarLSULoadPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSULoadPath.md` | R676 canonical load-path composition with LIQ/ResolveQ/MDB/LRET/W1/W2 ownership, retained R673 miss queue, R674 refill transport, R675 sequential cross-line assembly, and `ScalarL1D` as active-phase line-data owner |
+| `ScalarLSULoadReturnPipeline` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSULoadReturnPipeline.md` | R672/R676 canonical parameterized scoped W1/W2 owner with full-LSID retention, exact ROB validation, typed recovery, same-cycle stage replacement, and atomic resolve/GPR-writeback/wakeup completion; upstream cache/miss/refill/cross-line sources are canonical while parallel cross-half launch remains staged |
+| `LoadMissQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadMissQueue.md` | R673 canonical cacheable scalar load miss owner with independent depth, launch-time worst-case reservation, FIFO first-miss requests, exact slot/generation/line responses, full Linx dependent identity, and issued-orphan preservation |
+| `LoadRefillTransport` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadRefillTransport.md` | R674 canonical dual-ingress scalar refill FIFO accepting exact miss responses and external refills with deterministic miss-then-external order, post-dequeue capacity, and typed-recovery data hold |
+| `ScalarL1D` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarL1D.md` | R676 canonical parameterized scalar L1D array owner for aligned tags, full-line data, readable/writable/dirty metadata, deterministic LRU, duplicate-refill preservation, SCB byte updates, dirty eviction hold, and recovery-surviving physical cache state |
 | `ScalarLSUMDBPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSUMDBPath.md` | Canonical scalar MDB composition with R672 full-LSID conflict, fanout, SSIT, wait/delete, and retained Linx inner/nuke recovery identity |
 | `ScalarLSUMDBPathProbe` | `linxcore.lsu` | `docs/chisel/modules/lsu/ScalarLSUMDBPath.md` | R637 generated-RTL probe for held recovery reports plus conflict learning, lookup mutation, and timeout-driven delete behavior |
 | `LoadWaitStoreTimeout` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadWaitStoreTimeout.md` | R636 per-LIQ-row failed-prediction age owner; restarts on load/store identity change, saturates at a parameterized interval, serializes expiry, and holds release until atomic LIQ mutation plus MDB delete acceptance |
@@ -127,7 +151,7 @@
 | `LoadReplaySourceReturnStoreSnapshotIdentityMatch` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.md` | Unit/top-green R395 selected-row local STQ snapshot identity matcher; gates future raw STQ responses by issued query, selected-row validity, repick stale-row state, and response `cID/eID` inside the composite path |
 | `LoadReplaySourceReturnStoreSnapshotResponseMatch` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.md` | R393 live-disabled selected-row local STQ snapshot response-match owner; now composed inside the R395 path and gates future raw STQ responses by query-issued, selected-row match, and SCB-before-STQ ordering before evidence |
 | `LoadReplaySourceReturnStoreSnapshotEvidence` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.md` | R391 live-disabled selected-row local STQ snapshot evidence classifier; now composed inside the R395 path and feeds ready-control while query, identity, and response inputs remain live-disabled |
-| `LoadReplaySourceReturnStoreSnapshotReadyControl` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.md` | R390 live-disabled replay-LIQ local STQ snapshot readiness request owner; now composed inside the R395 path and feeds `LoadReplaySourceReturnReadiness.storeSnapshotReady` while preserving legacy readiness |
+| `LoadReplaySourceReturnStoreSnapshotReadyControl` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.md` | R390 live-disabled replay-LIQ local STQ snapshot readiness request owner; now composed inside the R395 path and feeds `LoadReplaySourceReturnReadiness.storeSnapshotReady` while preserving the established readiness contract |
 | `LoadReplaySourceReturnScbLiveControl` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplaySourceReturnScbLiveControl.md` | R389 live-disabled replay-LIQ external-SCB pending/returned request owner; feeds `LoadReplaySourceReturnReadiness.externalScb*` from a named gate while the reduced top keeps live SCB evidence disabled |
 | `LoadReplayReturnConsumerReady` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplayReturnConsumerReady.md` | Unit/top-green R379 replay-return consumer owner that separates always-required IEX LRET capacity, now fed from the LRET FIFO `enqueueReady`, from the conditional mem-wakeup sink now fed by live-disabled `LoadReplayReturnWakeupSinkReady` diagnostics |
 | `LoadReplayDestination` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplayDestination.md` | Unit/top-green R311 compact one-destination replay-return sideband carried from execute load lookup through wait-slot, replay queue, LIQ residency, selected launch diagnostics, and LRET-payload diagnostics |

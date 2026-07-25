@@ -67,10 +67,10 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         )
         self.assertEqual(
             report["cross_stack_aligned_support"]["covered"],
-            197,
+            207,
         )
         self.assertEqual(report["cross_stack_aligned_support"]["known_divergences"], {})
-        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 218)
+        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 208)
         parser_symbols = {
             symbol
             for item in report["reduced_scalar_alu_support"]["supported_by_parser"]
@@ -84,6 +84,13 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
             ),
             sorted(report_cov.RTL_SEMANTIC_PENDING_SYMBOLS & parser_symbols),
         )
+        unsupported_dual_dst_symbols = {
+            symbol
+            for item in report["reduced_scalar_alu_support"]["unsupported_dual_dst"]
+            for symbol in item["symbols"]
+        }
+        self.assertEqual(unsupported_dual_dst_symbols, report_cov.UNSUPPORTED_DUAL_DST_SYMBOLS)
+        self.assertFalse(unsupported_dual_dst_symbols & parser_symbols)
         self.assertEqual(
             sorted(
                 symbol
@@ -183,10 +190,6 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_HL_CMP_LTUI",
                         "OP_HL_CMP_NEI",
                         "OP_HL_CMP_ORI",
-                        "OP_HL_DIV",
-                        "OP_HL_DIVU",
-                        "OP_HL_DIVUW",
-                        "OP_HL_DIVW",
                         "OP_HL_LBI",
                         "OP_HL_LBUI",
                         "OP_HL_LDI",
@@ -199,12 +202,6 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
                         "OP_HL_LWI_U",
                         "OP_HL_LWUI",
                         "OP_HL_LWUI_U",
-                        "OP_HL_MUL",
-                        "OP_HL_MULU",
-                        "OP_HL_REM",
-                        "OP_HL_REMU",
-                        "OP_HL_REMUW",
-                        "OP_HL_REMW",
                         "OP_HL_SBI",
                         "OP_HL_SDI",
                         "OP_HL_SDI_U",
@@ -352,9 +349,9 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
         self.assertEqual(contract["contract_id"], "expanded_current")
         _assert_report_matches_detected_contract(self, report)
-        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 237)
-        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 197)
-        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 197)
+        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 227)
+        self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 207)
+        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 207)
 
     def test_legacy_contract_fixture_uses_legacy_expected_values(self) -> None:
         legacy_symbols = [

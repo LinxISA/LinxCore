@@ -86,11 +86,13 @@ def write_sparse_memory(
     out: BinaryIO,
     include_bss: bool,
     max_bytes: int,
+    load_bias: int,
 ) -> Tuple[int, int]:
     total = 0
     segment_count = 0
     out.write(b"# linxcore.frontend_fetch_memory.v1\n")
     for base, payload, bss_zeros in segments:
+        base += load_bias
         segment_count += 1
         for index, byte in enumerate(payload):
             total += 1
@@ -106,11 +108,23 @@ def write_sparse_memory(
     return segment_count, total
 
 
-def extract_elf(elf_path: Path, output_path: Path, include_bss: bool, max_bytes: int) -> Tuple[int, int]:
+def extract_elf(
+    elf_path: Path,
+    output_path: Path,
+    include_bss: bool,
+    max_bytes: int,
+    load_bias: int = 0,
+) -> Tuple[int, int]:
     data = elf_path.read_bytes()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as out:
-        segment_count, total = write_sparse_memory(iter_load_segments(data), out, include_bss, max_bytes)
+        segment_count, total = write_sparse_memory(
+            iter_load_segments(data),
+            out,
+            include_bss,
+            max_bytes,
+            load_bias,
+        )
     if segment_count == 0:
         raise ElfFormatError("ELF has no PT_LOAD segments")
     if total == 0:
@@ -163,6 +177,7 @@ def run_self_test() -> int:
         tmp_path = Path(tmp)
         elf_path = tmp_path / "fixture.elf"
         mem_path = tmp_path / "fixture.mem"
+        biased_mem_path = tmp_path / "fixture-biased.mem"
         elf_path.write_bytes(make_self_test_elf())
         segments, total = extract_elf(elf_path, mem_path, include_bss=True, max_bytes=1024)
         lines = [line for line in mem_path.read_text().splitlines() if line and not line.startswith("#")]
@@ -182,6 +197,20 @@ def run_self_test() -> int:
         ]
         if segments != 1 or total != len(expected) or lines != expected:
             raise AssertionError(f"unexpected self-test extraction: segments={segments} total={total} lines={lines}")
+        extract_elf(
+            elf_path,
+            biased_mem_path,
+            include_bss=True,
+            max_bytes=1024,
+            load_bias=0x10000,
+        )
+        biased_lines = [
+            line
+            for line in biased_mem_path.read_text().splitlines()
+            if line and not line.startswith("#")
+        ]
+        if biased_lines[0] != "0x0000000000011000 0x85" or biased_lines[-1] != "0x000000000001100b 0x00":
+            raise AssertionError(f"unexpected biased self-test extraction: lines={biased_lines}")
     print("frontend-fetch-elf-memory-self-test: ok")
     return 0
 
@@ -191,6 +220,12 @@ def main() -> int:
     parser.add_argument("--elf", help="input ELF64 little-endian program")
     parser.add_argument("--output", help="output sparse memory image")
     parser.add_argument("--max-bytes", type=parse_int, default=64 * 1024 * 1024)
+    parser.add_argument(
+        "--load-bias",
+        type=parse_int,
+        default=0,
+        help="explicit address bias added to every PT_LOAD segment (default: 0)",
+    )
     parser.add_argument("--no-bss-zero-fill", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
@@ -206,11 +241,15 @@ def main() -> int:
             Path(args.output),
             include_bss=not args.no_bss_zero_fill,
             max_bytes=args.max_bytes,
+            load_bias=args.load_bias,
         )
     except ElfFormatError as exc:
         raise SystemExit(f"error: {exc}") from exc
 
-    print(f"frontend-fetch-elf-memory={args.output} load_segments={segments} bytes={total}")
+    print(
+        f"frontend-fetch-elf-memory={args.output} load_segments={segments}"
+        f" bytes={total} load_bias=0x{args.load_bias:x}"
+    )
     return 0
 
 

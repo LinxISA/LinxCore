@@ -71,6 +71,25 @@ class InterfaceBundleProbe(val p: InterfaceParams = InterfaceParams()) extends M
   io.trace.blockBid := io.robRow.blockBid
 }
 
+class TULinkRetireSourceProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val validSource = Output(new TULinkRetireSource(p, mapQDepth = 8, stidWidth = 4, peIdWidth = 5))
+  val invalidZeroSource = Output(new TULinkRetireSource(p, mapQDepth = 8, stidWidth = 4, peIdWidth = 5))
+}
+
+class TULinkRetireSourceProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new TULinkRetireSourceProbeIO(p))
+
+  io.validSource := 0.U.asTypeOf(io.validSource)
+  io.validSource.valid := true.B
+  io.validSource.blockBidValid := true.B
+  io.validSource.blockBid := ((BigInt(1) << (p.blockBidWidth - 1)) | BigInt("1234", 16)).U(p.blockBidWidth.W)
+
+  io.invalidZeroSource := 0.U.asTypeOf(io.invalidZeroSource)
+  io.invalidZeroSource.valid := true.B
+  io.invalidZeroSource.blockBidValid := false.B
+  io.invalidZeroSource.blockBid := 0.U(p.blockBidWidth.W)
+}
+
 class InterfaceBundlesSpec extends AnyFunSuite {
   test("InterfaceParams defaults match the current pyCircuit bring-up contract") {
     val p = InterfaceParams()
@@ -199,6 +218,8 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(source.bid.value.getWidth == 3)
     assert(source.gid.value.getWidth == 3)
     assert(source.rid.value.getWidth == 3)
+    assert(source.blockBidValid.getWidth == 1)
+    assert(source.blockBid.getWidth == p.blockBidWidth)
     assert(source.peId.getWidth == 5)
     assert(source.stid.getWidth == 4)
     assert(source.tSeq.value.getWidth == 3)
@@ -209,6 +230,22 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(command.dealloc.getWidth == 1)
     assert(command.peId.getWidth == 5)
     assert(command.stid.getWidth == 4)
+  }
+
+  test("T/U retire source carries full-width block BID validity and high bits") {
+    val p = InterfaceParams(robEntries = 8, blockBidWidth = 72)
+    val source = new TULinkRetireSource(p, mapQDepth = 8, stidWidth = 4, peIdWidth = 5)
+    val highBitValue = (BigInt(1) << 71) | BigInt("1234", 16)
+    val sv = ChiselStage.emitSystemVerilog(new TULinkRetireSourceProbe(p))
+
+    assert(source.blockBidValid.getWidth == 1)
+    assert(source.blockBid.getWidth == 72)
+    assert(sv.contains("output [71:0] io_validSource_blockBid"))
+    assert(sv.contains("output [71:0] io_invalidZeroSource_blockBid"))
+    assert(sv.contains(s"assign io_validSource_blockBid = 72'h${highBitValue.toString(16)};"))
+    assert(sv.contains("assign io_validSource_blockBidValid = 1'h1;"))
+    assert(sv.contains("assign io_invalidZeroSource_blockBid = 72'h0;"))
+    assert(sv.contains("assign io_invalidZeroSource_blockBidValid = 1'h0;"))
   }
 
   test("common interface packets elaborate through Chisel") {

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
+
+SV_DIR="${ROOT_DIR}/generated/chisel-verilog/backend-scalar-continuation-block-identity-probe"
+BUILD_DIR="${ROOT_DIR}/generated/chisel-verilator/backend-scalar-continuation-block-identity-probe"
+rm -rf "${SV_DIR}" "${BUILD_DIR}"
+mkdir -p "${SV_DIR}" "${BUILD_DIR}"
+
+(
+  cd "${ROOT_DIR}/chisel"
+  sbt --server --batch --no-colors --mem 4096 \
+    "Test / runMain linxcore.backend.EmitScalarContinuationBlockIdentityProbe --target-dir ${SV_DIR}"
+)
+
+sv_sources=()
+while IFS= read -r source; do
+  sv_sources+=("${source}")
+done < <(find "${SV_DIR}" -maxdepth 1 -name '*.sv' -type f -print | sort)
+
+verilator --cc "${sv_sources[@]}" --top-module ScalarContinuationBlockIdentityProbe \
+  --exe "${ROOT_DIR}/tools/chisel/backend_scalar_continuation_block_identity_probe_tb.cpp" \
+  --build --build-jobs 0 -Mdir "${BUILD_DIR}/obj_dir" \
+  -o backend_scalar_continuation_block_identity_probe_tb -CFLAGS '-std=c++17 -O2'
+
+"${BUILD_DIR}/obj_dir/backend_scalar_continuation_block_identity_probe_tb"

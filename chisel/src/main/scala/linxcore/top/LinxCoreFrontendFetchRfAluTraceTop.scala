@@ -1,14 +1,14 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Decoupled, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
 
 import linxcore.backend.{DecodeRenameROBPath, ExecuteCompletionRetainer, ReducedRobCompletionArbiter}
-import linxcore.commit.{CommitTraceParams, CommitTracePort}
-import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass, ScalarLsuParams}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass, ScalarLsuParams, ScalarSpAccess, ScalarSpTransaction}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ReducedTemplateContextStack, ReducedTemplateSnapshotTable, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric, ScalarSpOrderOwner}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, FrontendOpcodeDecodeTable, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, ScalarLrScReservationOwner, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.ScalarLSULoadReturnQueueBank
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
@@ -35,8 +35,9 @@ import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayResolvedRow
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.lsu.LoadReplayWakeSource
 import linxcore.lsu.{ScalarLSUMDBPath, ScalarLSURecoveryBoundary}
-import linxcore.recovery.{FlushBus, ScalarRedirectRecoverySource}
+import linxcore.recovery.{FlushBus, FullBidRecoveryBridge, ScalarRedirectRecoverySource}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
+import linxcore.system.{ReducedServiceRequestOwner, ReducedServiceRequestPath, ReducedServiceRequestPayload, ReducedServiceRequestResponse}
 
 class MdbLookupWaitPlanBridgeDiagnostics extends Bundle {
   val active = Bool()
@@ -124,6 +125,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val rfInitData = Input(UInt(p.immWidth.W))
   val deallocReady = Input(Bool())
   val loadLookupData = Input(UInt(p.immWidth.W))
+  val loadPairFirstLookupData = Input(UInt(p.immWidth.W))
 
   val fetchReqValid = Output(Bool())
   val fetchReqPc = Output(UInt(p.pcWidth.W))
@@ -136,9 +138,21 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val sourceOutFire = Output(Bool())
   val sourceAdvanceZero = Output(Bool())
   val sourceAdvanceBytes = Output(UInt(4.W))
+  val sourceRestartValid = Output(Bool())
+  val sourceRestartPc = Output(UInt(p.pcWidth.W))
   val sourceCurrentPc = Output(UInt(p.pcWidth.W))
   val sourceIssuedPc = Output(UInt(p.pcWidth.W))
   val sourceNextPktUid = Output(UInt(p.uopUidWidth.W))
+  val debugBlockMarkerStopRedirectValid = Output(Bool())
+  val debugBlockMarkerStopRedirectPc = Output(UInt(p.pcWidth.W))
+  val debugMarkerRedirectFire = Output(Bool())
+  val debugMarkerRedirectPending = Output(Bool())
+  val debugMarkerRedirectPc = Output(UInt(p.pcWidth.W))
+  val debugBodyCutAdvanceBytes = Output(UInt(4.W))
+  val debugF4TotalLenBytes = Output(UInt(4.W))
+  val debugReadinessBits = Output(UInt(8.W))
+  val debugFretConditionBits = Output(UInt(8.W))
+  val debugContinuationBits = Output(UInt(8.W))
   val reducedBodyCutActive = Output(Bool())
   val reducedBodyCutFire = Output(Bool())
   val reducedBodyCutAdvanceBytes = Output(UInt(4.W))
@@ -208,8 +222,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val decodeGprReservationReady = Output(Bool())
   val decodeSelectedClosesActiveRedirect = Output(Bool())
   val decodeSelectedNeedsGprReservation = Output(Bool())
-  val gprReservationCount = Output(UInt(decRenCountWidth.W))
-  val gprReservationNeed = Output(UInt(decRenCountWidth.W))
+  val gprReservationCount = Output(UInt(log2Ceil(decRenQueueDepth * 2 + 1).W))
+  val gprReservationNeed = Output(UInt(log2Ceil(decRenQueueDepth * 2 + 1).W))
   val selectedValid = Output(Bool())
   val selectedRobValue = Output(UInt(ptrWidth.W))
   val selectedBlockBid = Output(UInt(p.blockBidWidth.W))
@@ -265,6 +279,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeLoadWaitHold = Output(Bool())
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
+  val loadPairFirstLookupValid = Output(Bool())
+  val loadPairFirstLookupAddr = Output(UInt(p.immWidth.W))
   val loadLookupPc = Output(UInt(p.pcWidth.W))
   val loadLookupDstValid = Output(Bool())
   val loadLookupDstKind = Output(UInt(2.W))
@@ -1665,7 +1681,21 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlockedByRobResolveMismatch = Output(Bool())
   val robCompleteArbiterSelectedExecute = Output(Bool())
   val robCompleteArbiterSelectedReplay = Output(Bool())
+  val robCompleteArbiterSelectedService = Output(Bool())
   val robCompleteArbiterReplayBlockedByExecute = Output(Bool())
+  val scalarLrReservationSetCandidate = Output(Bool())
+  val scalarLrReservationSetAccepted = Output(Bool())
+  val scalarLrReservationSetStid = Output(UInt(p.threadIdWidth.W))
+  val scalarLrReservationSetLineAddr = Output(UInt(p.immWidth.W))
+  val scalarLrReservationSetRidValid = Output(Bool())
+  val scalarLrReservationSetRidWrap = Output(Bool())
+  val scalarLrReservationSetRidValue = Output(UInt(ptrWidth.W))
+  val scalarLrReservationValidStid0 = Output(Bool())
+  val scalarLrReservationLineStid0 = Output(UInt(p.immWidth.W))
+  val scalarLrReservationCount = Output(UInt(log2Ceil(scalarStidCount + 1).W))
+  val scalarLrReservationProtocolError = Output(Bool())
+  val scalarLrReservationBlockedByFlush = Output(Bool())
+  val scalarLrReservationCommittedStoreInvalidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2WritebackFirePayloadCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2WritebackFirePayloadPayloadValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2WritebackFirePayloadFireValid = Output(Bool())
@@ -2069,6 +2099,15 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val rfWriteValid = Output(Bool())
   val rfWriteTag = Output(UInt(p.physRegWidth.W))
   val rfWriteData = Output(UInt(p.immWidth.W))
+  val reducedServiceRequest = Decoupled(new ReducedServiceRequestPayload(p))
+  val reducedServiceResponse = Flipped(Decoupled(new ReducedServiceRequestResponse(p)))
+  val reducedServiceRenameFence = Output(Bool())
+  val reducedServiceControlFence = Output(Bool())
+  val reducedServiceGatherBusy = Output(Bool())
+  val reducedServiceOwnerBusy = Output(Bool())
+  val reducedServiceSnapshotLookupMatch = Output(Bool())
+  val reducedServiceTrappedInvalidRequestType = Output(Bool())
+  val reducedServiceTrappedIllegalSequence = Output(Bool())
   val executeCompleteSrcPhysValidMask = Output(UInt(3.W))
   val executeCompleteSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
   val executeCompletePc = Output(UInt(p.pcWidth.W))
@@ -2076,8 +2115,38 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeCompleteWbReg = Output(UInt(traceParams.regWidth.W))
   val rfStateError = Output(Bool())
   val issueQueueEnqueueFire = Output(Bool())
+  val issueQueueInputValid = Output(Bool())
+  val issueQueueInputPc = Output(UInt(p.pcWidth.W))
+  val issueQueueInputOpcode = Output(UInt(p.opcodeWidth.W))
+  val issueQueueInputBidValid = Output(Bool())
+  val issueQueueInputBidWrap = Output(Bool())
+  val issueQueueInputBidValue = Output(UInt(p.robIndexWidth.W))
+  val issueQueueInputRidValid = Output(Bool())
+  val issueQueueInputRidWrap = Output(Bool())
+  val issueQueueInputRidValue = Output(UInt(p.robIndexWidth.W))
+  val issueQueueInputStid = Output(UInt(p.threadIdWidth.W))
   val issueQueuePickFire = Output(Bool())
   val issueQueueIssueFire = Output(Bool())
+  val issueQueueOutputValid = Output(Bool())
+  val issueQueueOutputPc = Output(UInt(p.pcWidth.W))
+  val issueQueueOutputOpcode = Output(UInt(p.opcodeWidth.W))
+  val issueQueueOutputBidValid = Output(Bool())
+  val issueQueueOutputBidWrap = Output(Bool())
+  val issueQueueOutputBidValue = Output(UInt(p.robIndexWidth.W))
+  val issueQueueOutputRidValid = Output(Bool())
+  val issueQueueOutputRidWrap = Output(Bool())
+  val issueQueueOutputRidValue = Output(UInt(p.robIndexWidth.W))
+  val issueQueueOutputStid = Output(UInt(p.threadIdWidth.W))
+  val executeAcceptedIdentityValid = Output(Bool())
+  val executeAcceptedPc = Output(UInt(p.pcWidth.W))
+  val executeAcceptedOpcode = Output(UInt(p.opcodeWidth.W))
+  val executeAcceptedBidValid = Output(Bool())
+  val executeAcceptedBidWrap = Output(Bool())
+  val executeAcceptedBidValue = Output(UInt(p.robIndexWidth.W))
+  val executeAcceptedRidValid = Output(Bool())
+  val executeAcceptedRidWrap = Output(Bool())
+  val executeAcceptedRidValue = Output(UInt(p.robIndexWidth.W))
+  val executeAcceptedStid = Output(UInt(p.threadIdWidth.W))
   val issueQueueCancelFire = Output(Bool())
   val issueQueueReleaseFire = Output(Bool())
   val issueQueueCount = Output(UInt(issueCountWidth.W))
@@ -2087,6 +2156,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueHeadIssued = Output(Bool())
   val issueQueueHeadPc = Output(UInt(p.pcWidth.W))
   val issueQueueHeadOpcode = Output(UInt(p.opcodeWidth.W))
+  val issueQueueHeadStid = Output(UInt(p.threadIdWidth.W))
+  val issueQueueHeadBidValid = Output(Bool())
+  val issueQueueHeadBidWrap = Output(Bool())
+  val issueQueueHeadBidValue = Output(UInt(p.robIndexWidth.W))
+  val issueQueueHeadRidValid = Output(Bool())
+  val issueQueueHeadRidWrap = Output(Bool())
+  val issueQueueHeadRidValue = Output(UInt(p.robIndexWidth.W))
   val issueQueueHeadSrcValidMask = Output(UInt(3.W))
   val issueQueueHeadSrcClass = Output(Vec(3, OperandClass()))
   val issueQueueHeadSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
@@ -2118,7 +2194,16 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueBankControlBlockedMask = Output(UInt(issueBankCount.W))
   val issueQueueStoreOrderBlocked = Output(Bool())
   val issueQueueBankStoreOrderBlockedMask = Output(UInt(issueBankCount.W))
+  val issueQueueScalarSpOrderBlocked = Output(Bool())
+  val issueQueueBankScalarSpOrderBlockedMask = Output(UInt(issueBankCount.W))
   val issueQueueProtocolError = Output(Bool())
+  val scalarSpStid0IssueHeadValid = Output(Bool())
+  val scalarSpStid0IssueHeadBidValid = Output(Bool())
+  val scalarSpStid0IssueHeadBidWrap = Output(Bool())
+  val scalarSpStid0IssueHeadBidValue = Output(UInt(p.robIndexWidth.W))
+  val scalarSpStid0IssueHeadRidValid = Output(Bool())
+  val scalarSpStid0IssueHeadRidWrap = Output(Bool())
+  val scalarSpStid0IssueHeadRidValue = Output(UInt(p.robIndexWidth.W))
   val localTReadyMask = Output(UInt(4.W))
   val localUReadyMask = Output(UInt(4.W))
   val localTPendingCount = Output(UInt(issueCountWidth.W))
@@ -2295,12 +2380,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth
   ))
+  val servicePath = Module(new ReducedServiceRequestPath(p, traceParams))
   val rf = Module(new ScalarGPRFile(
     archRegs = archRegs,
     physRegs = physRegs,
     dataWidth = p.immWidth,
-    readPorts = coreParams.scalarBackend.gprReadPorts + 3,
-    writePorts = 1
+    readPorts = coreParams.scalarBackend.gprReadPorts + 5,
+    writePorts = 2
   ))
   val rfWritebackArbiter = Module(new ReducedScalarWritebackArbiter(
     dataWidth = p.immWidth,
@@ -2309,10 +2395,31 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val issue = Module(new ScalarIssueFabric(
     p,
     depth = issueQueueDepth,
-    bankCount = coreParams.scalarBackend.scalarIssueBanks
+    bankCount = coreParams.scalarBackend.scalarIssueBanks,
+    stidCount = scalarStidCount
   ))
+  val scalarSpOrder = Module(new ScalarSpOrderOwner(
+    p = p,
+    traceParams = traceParams,
+    depth = p.robEntries,
+    stidCount = scalarStidCount
+  ))
+  private val scalarSpStidIndexWidth = math.max(1, log2Ceil(scalarStidCount))
+  private def scalarSpStidIndex(stid: UInt): UInt =
+    if (scalarStidCount == 1) 0.U(scalarSpStidIndexWidth.W) else stid(scalarSpStidIndexWidth - 1, 0)
   val markerIssueControlFence = Module(new ScalarIssueExternalControlFence(p))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+  val templateContext = Module(new ReducedTemplateContextStack(
+    archRegs = archRegs,
+    physRegWidth = p.physRegWidth,
+    dataWidth = p.immWidth,
+    frameDepth = p.robEntries
+  ))
+  val templateSnapshotTable = Module(new ReducedTemplateSnapshotTable(
+    entries = p.robEntries,
+    archRegs = archRegs,
+    physRegWidth = p.physRegWidth
+  ))
   val storeExecBridge = Module(new ReducedStoreExecResultBridge(
     p = p,
     traceParams = traceParams,
@@ -2361,8 +2468,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     requestCount = reducedStoreScbRequestCount,
     responseBufferDepth = coreParams.scalarLsu.scbResponseBufferDepth,
     robEntries = p.robEntries,
-    lsidWidth = p.lsidWidth,
-    stidWidth = p.threadIdWidth
+    lsidWidth = p.lsidWidth
   ))
   val reducedStoreMemoryOverlay = Module(new ReducedStoreMemoryOverlay(
     stqEntries = coreParams.scalarLsu.stqEntries,
@@ -2401,6 +2507,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     Module(new LoadReplaySourceReturnStoreSnapshotPath(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
+      entryIdWidth = p.robIndexWidth,
       stqEntries = coreParams.scalarLsu.stqEntries,
       peIdWidth = p.peIdWidth,
       stidWidth = p.threadIdWidth,
@@ -2585,6 +2692,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     physRegWidth = p.physRegWidth,
     lsidWidth = p.lsidWidth
   ))
+  val scalarLrScReservationOwner = Module(new ScalarLrScReservationOwner(
+    coreParams.copy(scalarLsu = coreParams.scalarLsu.copy(stidCount = scalarStidCount))
+  ))
   val reducedLoadReplayResolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.robEntries,
     liqEntries = p.robEntries,
@@ -2627,7 +2737,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localPendingCountWidth = log2Ceil(issueQueueDepth + 2)
   val localTPendingCount = RegInit(0.U(localPendingCountWidth.W))
   val localUPendingCount = RegInit(0.U(localPendingCountWidth.W))
-  val scalarSpValue = RegInit(0.U(p.immWidth.W))
 
   private def pushLocal(
       data: Vec[UInt],
@@ -2669,6 +2778,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val markerRedirectPending = RegInit(false.B)
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
+  val fretSpRestorePending = RegInit(false.B)
+  val fretSpRestoreStidReg = RegInit(0.U(p.threadIdWidth.W))
+  val fretSpRestoreDataReg = RegInit(0.U(p.immWidth.W))
   val bodyCutRestartPending = RegInit(false.B)
   val bodyCutRestartPcReg = RegInit(0.U(p.pcWidth.W))
   val reducedLoadReplayResolveClearPending = RegInit(false.B)
@@ -2676,13 +2788,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerOnlyRedirectFire = path.io.blockMarkerStopRedirectValid && !execute.io.redirectValid
-  val markerRedirectNeedsBackendCleanup = execute.io.redirectValid
   val markerRedirectFire = markerOnlyRedirectFire || execute.io.redirectValid
   val admittedMarkerDrainBarrier = RegInit(false.B)
   val selectedSlotOH = UIntToOH(path.io.selectedSlot, p.decodeWidth)
   val selectedMarkerMask = path.io.blockBoundaryMask | path.io.blockStopMask
   val admittedMarkerDrainFire =
     (!skipBlockMarkers).B && denseSlots.io.outFire && path.io.selectedValid && (selectedMarkerMask & selectedSlotOH).orR
+  val skippedMarkerLifecycleFire =
+    skipBlockMarkers.B && denseSlots.io.outFire && path.io.blockMarkerSkipValid
   val scalarRedirectRecovery = Module(new ScalarRedirectRecoverySource(
     entries = p.robEntries,
     bidWidth = p.blockBidWidth,
@@ -2692,25 +2805,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     orderWidth = p.uopUidWidth,
     lsidWidth = p.lsidWidth
   ))
-  scalarRedirectRecovery.io.event.valid := markerRedirectFire && markerRedirectNeedsBackendCleanup
-  scalarRedirectRecovery.io.event.blockBidValid := execute.io.completeRow.blockBidValid
-  scalarRedirectRecovery.io.event.blockBid := execute.io.completeRow.blockBid
-  scalarRedirectRecovery.io.event.bid := execute.io.releaseBid
-  scalarRedirectRecovery.io.event.rid := execute.io.releaseRid
-  scalarRedirectRecovery.io.event.lsId := lsidToReducedStoreId(execute.io.completeLsId)
-  scalarRedirectRecovery.io.event.lsIdFull := execute.io.completeLsId
-  scalarRedirectRecovery.io.event.resolveLsIdValid := execute.io.redirectValid
-  scalarRedirectRecovery.io.event.stid := execute.io.releaseStid
-  scalarRedirectRecovery.io.event.peId := io.peId
-  scalarRedirectRecovery.io.event.tid := io.threadId
-  scalarRedirectRecovery.io.event.orderValid := execute.io.redirectValid
-  scalarRedirectRecovery.io.event.order := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
-  scalarRedirectRecovery.io.sourceReady := path.io.recoveryNonLsuSourceReady(0)
-  scalarRedirectRecovery.io.sourceResolved := path.io.recoverySourceResolvedMask(0)
-  scalarRedirectRecovery.io.payloadIntentConsumed := path.io.recoveryConsumedPayloadSourceMask(0)
-  scalarRedirectRecovery.io.cancel := io.frontendFlushValid || io.restartValid || io.startValid
+  LinxCoreFrontendFetchRfAluTraceTopMarkerRedirectRecoveryWiring.connect(
+    io,
+    path,
+    execute,
+    scalarRedirectRecovery,
+    markerOnlyRedirectFire,
+    lsidToReducedStoreId(execute.io.completeLsId),
+    p)
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
-  val backendPipeFlush = io.frontendFlushValid || path.io.recoveryIntentConsumed
+  // Every marker redirect invalidates decoded/queued old-path work, even when
+  // the ROB is already empty and no architectural recovery intent is needed.
+  // Keep ROB/GPR recovery qualified separately; this pulse only clears the
+  // backend pipeline queues that sit in front of ROB allocation.
+  val backendPipeFlush =
+    io.frontendFlushValid || markerRedirectPending || path.io.recoveryIntentConsumed
   val externalBfuGeometryValid = io.reducedBfuBodyValid
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
   val localBfuCutFeedbackPending = Module(new ReducedBfuResolvedBodyEndPending(p))
@@ -2850,11 +2959,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
     markerRedirectPcReg := 0.U
+    fretSpRestorePending := false.B
+    fretSpRestoreStidReg := 0.U
+    fretSpRestoreDataReg := 0.U
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
+    fretSpRestorePending := execute.io.redirectValid && execute.io.fretStkSpRestoreValid
+    fretSpRestoreStidReg := execute.io.releaseStid
+    fretSpRestoreDataReg := execute.io.fretStkSpRestoreData
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
+    fretSpRestorePending := false.B
   }
   assert(
     !scalarRedirectRecovery.io.event.valid || scalarRedirectRecovery.io.cancel ||
@@ -2912,86 +3028,49 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.samePacketNextSlotValid := denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier
   path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot
   path.io.flushValid := backendPipeFlush
+  LinxCoreFrontendFetchRfAluTraceTopScalarSpOrderWiring.connect(
+    io,
+    path,
+    scalarSpOrder,
+    backendPipeFlush,
+    markerRedirectPending && fretSpRestorePending,
+    fretSpRestoreStidReg,
+    fretSpRestoreDataReg)
   DecodeRenameROBPath.tieOffExplicitStoreCount(path)
-  DecodeRenameROBPath.tieOffStoreScResult(path)
   val localIncomingUsesLocal =
     path.io.decRenValid && path.io.decRenHeadUsesLocal
   val localIncomingBlocked =
     localIncomingUsesLocal && ((localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U))
-  path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
+  val serviceOpcode = FrontendOpcodeDecodeTable.OP_ACRC.U(p.opcodeWidth.W)
+  val incomingServiceRow = path.io.decRenValid && path.io.decRenHeadOpcode === serviceOpcode
+  val serviceQueueAccepts = !incomingServiceRow || servicePath.io.enqueueReady
+  path.io.renamedOutReady :=
+    issue.io.inReady && !localIncomingBlocked && !servicePath.io.renameFence && serviceQueueAccepts
   val reducedStoreFlush = backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
-  storeExecBridge.io.flushValid := reducedStoreFlush
-  storeExecBridge.io.completeValid := execute.io.completeFire && useReducedStoreDispatchStq.B
-  storeExecBridge.io.completeRow := execute.io.completeRow
-  storeExecBridge.io.completeBid := execute.io.releaseBid
-  storeExecBridge.io.completeRid := execute.io.releaseRid
-  storeExecBridge.io.completeStid := execute.io.releaseStid
-  storeExecBridge.io.staQueueValid := path.io.storeStaQueueValid
-  storeExecBridge.io.staQueue := path.io.storeStaQueue
-  storeExecBridge.io.stdQueueValid := path.io.storeStdQueueValid
-  storeExecBridge.io.stdQueue := path.io.storeStdQueue
-  storeExecBridge.io.staConsumed := path.io.storeSelectedSta
-  storeExecBridge.io.stdConsumed := path.io.storeSelectedStd
-  storeStaAddressExecBridge.io.enable := useReducedStoreStaAddressExecBridge.B && useReducedStoreDispatchStq.B
-  storeStaAddressExecBridge.io.queueValid := path.io.storeStaQueueValid
-  storeStaAddressExecBridge.io.queue := path.io.storeStaQueue
-  val zeroStoreExec = 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
-  val selectedStoreStaExec =
-    Mux(storeStaAddressExecBridge.io.exec.valid, storeStaAddressExecBridge.io.exec, storeExecBridge.io.staExec)
-  path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, selectedStoreStaExec, zeroStoreExec)
-  path.io.storeStdExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.stdExec, zeroStoreExec)
-  storeCommitOwner.io.enable := useReducedStoreDispatchStq.B
-  storeCommitOwner.io.directFreeEnable := false.B
-  storeCommitOwner.io.flushValid := reducedStoreFlush
-  storeCommitOwner.io.activeStid := io.threadId
-  val storeCommitStidMatch = VecInit((0 until scalarStidCount).map { stid =>
-    io.threadId === stid.U(p.threadIdWidth.W)
-  })
-  val storeCommitStidInRange = storeCommitStidMatch.asUInt.orR
-  storeCommitOwner.io.nonFlushValid := storeCommitStidInRange &&
-    Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid)
-  storeCommitOwner.io.nonFlushHeadBid := Mux(
-    storeCommitStidInRange,
-    Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
-    0.U)
-  storeCommitOwner.io.nonFlushPrefixCount := Mux(
-    storeCommitStidInRange,
-    Mux1H(storeCommitStidMatch, path.io.blockNonFlushPrefixCount),
-    0.U)
-  storeCommitOwner.io.oldestBlockValid := storeCommitStidInRange &&
-    (Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid) ||
-      Mux1H(storeCommitStidMatch, path.io.blockNonFlushBlockedValid))
-  storeCommitOwner.io.oldestBlockBid := Mux(
-    storeCommitStidInRange,
-    Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
-    0.U)
-  storeCommitOwner.io.oldestRobValid := path.io.commitHeadValid
-  storeCommitOwner.io.oldestRobBid := path.io.commitHeadBid
-  storeCommitOwner.io.oldestRobLsId := path.io.commitHeadLsId
-  storeCommitOwner.io.oldestRobStid := path.io.commitHeadStid
-  storeCommitOwner.io.commit := path.io.commit
-  storeCommitOwner.io.commitValidMask := path.io.commitValidMask
-  storeCommitOwner.io.commitMemoryOrder := path.io.commitMemoryOrder
-  storeCommitOwner.io.stqRows := path.io.storeStqRows
-  storeCommitOwner.io.markCommitAccepted := path.io.storeMarkCommitAccepted
-  storeCommitOwner.io.markCommitIgnored := path.io.storeMarkCommitIgnored
-  storeCommitOwner.io.commitFreeAccepted := path.io.storeCommitFreeAccepted
-  storeCommitOwner.io.commitFreeIgnored := path.io.storeCommitFreeIgnored
-  storeCommitOwner.io.commitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
-  storeCommitOwner.io.commitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
-
-  val reducedStoreScbReadyForDrain = useReducedStoreDispatchStq.B && reducedStoreScb.io.modelBatchReady && !reducedStoreFlush
-  reducedStoreCommitDrain.io.enqueueValid := useReducedStoreDispatchStq.B && path.io.storeMarkCommitAccepted
-  reducedStoreCommitDrain.io.enqueueIndex := storeCommitOwner.io.markCommitIndex
-  reducedStoreCommitDrain.io.enqueueBid := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).bid
-  reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsIdFull
-  reducedStoreCommitDrain.io.flushValid := reducedStoreFlush
-  reducedStoreCommitDrain.io.issueEnable := reducedStoreScbReadyForDrain
-  reducedStoreCommitDrain.io.primaryReadyMask :=
-    Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
-  reducedStoreCommitDrain.io.secondaryReadyMask :=
-    Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
-  reducedStoreCommitDrain.io.rows := path.io.storeStqRows
+  val reducedStoreScbReadyForDrain = LinxCoreFrontendFetchRfAluTraceTopStoreCommitIngressWiring.connect(
+    io,
+    path,
+    execute,
+    storeExecBridge,
+    storeStaAddressExecBridge,
+    storeCommitOwner,
+    reducedStoreCommitDrain,
+    reducedStoreScb,
+    reducedStoreFlush,
+    useReducedStoreDispatchStq.B,
+    useReducedStoreStaAddressExecBridge.B,
+    scalarStidCount,
+    coreParams
+  )
+  LinxCoreFrontendFetchRfAluTraceTopStaScalarSpWiring.connect(
+    path,
+    execute,
+    storeStaAddressExecBridge,
+    storeExecBridge,
+    scalarSpOrder,
+    useReducedStoreDispatchStq.B,
+    p,
+    scalarStidCount)
 
   reducedStoreScb.io.reqs := reducedStoreCommitDrain.io.memReqs
   reducedStoreScb.io.evictEnable := useReducedStoreDispatchStq.B
@@ -3766,29 +3845,150 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayResolvePreciseFlush.req.lsId := scalarRedirectRecovery.io.cleanupLsId
   path.io.scalarCleanupOrderValid := scalarRedirectRecovery.io.cleanupOrderValid
   path.io.scalarCleanupOrder := scalarRedirectRecovery.io.cleanupOrder
+
+  val scalarScIssueFire = WireDefault(false.B)
+  val scalarScIssueAddr = WireDefault(0.U(p.immWidth.W))
+  val scalarScIssueData = WireDefault(0.U(p.immWidth.W))
+  val scalarScIssueUop = WireDefault(0.U.asTypeOf(issue.io.issueUop))
+  val scalarScHandshake = Module(new ScalarScTopHandshake(
+    p = p,
+    traceParams = traceParams,
+    scbRequestCount = reducedStoreScbRequestCount,
+    stqEntries = coreParams.scalarLsu.stqEntries))
+  scalarScHandshake.io.flush := reducedStoreFlush
+  scalarScHandshake.io.issueFire := scalarScIssueFire
+  scalarScHandshake.io.issueUop := scalarScIssueUop
+  scalarScHandshake.io.issueAddr := scalarScIssueAddr
+  scalarScHandshake.io.issueData := scalarScIssueData
+  scalarScHandshake.io.ownerScReqReady := scalarLrScReservationOwner.io.scReqReady
+  scalarScHandshake.io.ownerScReqAccepted := scalarLrScReservationOwner.io.scReqAccepted
+  scalarScHandshake.io.ownerScSuccess := scalarLrScReservationOwner.io.scSuccess
+  scalarScHandshake.io.ownerScStatus := scalarLrScReservationOwner.io.scStatus
+  scalarScHandshake.io.ownerScStoreData := scalarLrScReservationOwner.io.scStoreData
+  scalarScHandshake.io.ownerScCompleteFire := scalarLrScReservationOwner.io.scCompleteFire
+  scalarScHandshake.io.storeScSelectedSuccess := path.io.storeScSelectedSuccess
+  scalarScHandshake.io.storeScSelectedMissDiscard := path.io.storeScSelectedMissDiscard
+  scalarScHandshake.io.storeStqInsertAccepted := path.io.storeStqInsertAccepted
+  scalarScHandshake.io.scbAcceptedMask := reducedStoreScb.io.acceptedMask
+  scalarScHandshake.io.scbAcceptedReqs := reducedStoreScb.io.acceptedReqs
+  scalarScHandshake.io.serviceCompleteValid := servicePath.io.completeValid
+
   LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring.connect(
     io,
     path,
     robCompleteArbiter,
     executeCompletionRetainer,
     execute,
+    servicePath,
+    scalarScHandshake.io.completeValid,
+    scalarScHandshake.io.completeRow,
+    scalarScHandshake.io.completeRobValue,
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
     reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
     reducedReplayLiqRetainedOwnerFallbackLiveProbe.B,
     reducedReplayLiqReturnPipeW2Modules.retireRecordPhysicalBundleSuppressLiveMask.io.suppressRobComplete
   )
-  path.io.blockBranchTakenValid := blockBranchTakenValid
-  path.io.blockBranchTaken := blockBranchTaken
+  LinxCoreFrontendFetchRfAluTraceTopScalarLrReservationWiring.connect(
+    io = io,
+    owner = scalarLrScReservationOwner,
+    arbiter = robCompleteArbiter,
+    execute = execute,
+    robCompleteAccepted = path.io.completeAccepted,
+    acceptedRecoveryFlush = acceptedRecoveryFlush,
+    reducedStoreMemoryReqs = reducedStoreMemoryReqs,
+    reducedStoreMemoryAcceptedVec = reducedStoreMemoryAcceptedVec,
+    reducedStoreMemoryRequestCount = reducedStoreMemoryRequestCount,
+    scalarScIssueFire = scalarScIssueFire,
+    scalarScIssueStid = scalarScHandshake.io.ownerScReqStid,
+    scalarScIssueLineAddr = scalarScHandshake.io.ownerScReqLineAddr,
+    scalarScIssueData = scalarScHandshake.io.ownerScReqData,
+    scalarScIssueBid = scalarScHandshake.io.ownerScReqBid,
+    scalarScIssueGid = scalarScHandshake.io.ownerScReqGid,
+    scalarScIssueRid = scalarScHandshake.io.ownerScReqRid,
+    scalarScIssueLsId = scalarScHandshake.io.ownerScReqLsId,
+    scalarScCommitReady = scalarScHandshake.io.ownerScCommitReady,
+    coreParams = coreParams,
+    p = p)
+  path.io.storeScResultValid := scalarScHandshake.io.storeScResultValid
+  path.io.storeScResultSuccess := scalarScHandshake.io.storeScResultSuccess
+  path.io.storeScResultIdentity := scalarScHandshake.io.storeScResultIdentity
+  path.io.storeScStoreData := scalarScHandshake.io.storeScStoreData
+  // SETC completes in W2 and may coincide with the decode-side marker that
+  // closes the block.  Bypass the W2 result into the marker lifecycle so the
+  // decision is visible in that cycle; retain the register for later FRET.
+  val liveBlockBranchTakenValid = blockBranchTakenValid || execute.io.branchConditionValid
+  val liveBlockBranchTaken = Mux(execute.io.branchConditionValid, execute.io.branchConditionTaken, blockBranchTaken)
+  path.io.blockBranchTakenValid := liveBlockBranchTakenValid
+  path.io.blockBranchTaken := liveBlockBranchTaken
   path.io.scalarRedirectValid := execute.io.redirectValid
   path.io.scalarRedirectStid := execute.io.releaseStid
   path.io.deallocReady := io.deallocReady
 
   issue.io.inValid := path.io.renamedOutValid && path.io.renamedOutReady
   issue.io.in := path.io.renamedOut
+  val serviceEnqueueFire = issue.io.inputAcceptFire && issue.io.inputAcceptUop.opcode === serviceOpcode
+  val serviceStopInfo = LinxCoreFrontendFetchRfAluTraceTopServiceStopMetadataWiring.connect(
+    io,
+    path,
+    issue,
+    servicePath,
+    serviceOpcode,
+    serviceEnqueueFire,
+    admittedMarkerDrainFire || skippedMarkerLifecycleFire,
+    backendPipeFlush)
+  val serviceIssueCandidate = serviceStopInfo.issueCandidate
+  val serviceStopAdjacent = serviceStopInfo.stopAdjacent
+  val serviceNextStopInsn = serviceStopInfo.nextStopInsn
+  val serviceNextStopLen = serviceStopInfo.nextStopLen
+  val serviceReplayCompleteValid =
+    Mux(
+      reducedReplayLiqRetainedOwnerFallbackLiveProbe.B,
+      reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard.io.fallbackCompleteValid,
+      reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.completeValid &&
+        !reducedReplayLiqReturnPipeW2Modules.retireRecordPhysicalBundleSuppressLiveMask.io.suppressRobComplete)
+  val serviceHigherPriorityRobCompleteIdle =
+    !execute.io.completeValid && !serviceReplayCompleteValid
+  val serviceHigherPriorityWritebackIdle =
+    !rfWritebackArbiter.io.selectedExecute && !rfWritebackArbiter.io.selectedReplay
+  LinxCoreFrontendFetchRfAluTraceTopServicePathWiring.connect(
+    io,
+    path,
+    issue,
+    execute,
+    servicePath,
+    serviceEnqueueFire,
+    serviceIssueCandidate,
+    serviceStopAdjacent,
+    serviceNextStopInsn,
+    serviceNextStopLen,
+    backendPipeFlush,
+    serviceHigherPriorityRobCompleteIdle,
+    serviceHigherPriorityWritebackIdle
+  )
+  val scalarScIssueGate = LinxCoreFrontendFetchRfAluTraceTopScalarScIssueWiring.connect(
+    issue,
+    path,
+    storeStaAddressExecBridge,
+    scalarLrScReservationOwner,
+    scalarScIssueFire,
+    scalarScIssueAddr,
+    scalarScIssueData,
+    scalarScIssueUop,
+    p)
+
   issue.io.flushValid := backendPipeFlush
+  issue.io.scalarSpHeadValidByStid := scalarSpOrder.io.issueHeadValidByStid
+  issue.io.scalarSpHeadBidByStid := scalarSpOrder.io.issueHeadBidByStid
+  issue.io.scalarSpHeadRidByStid := scalarSpOrder.io.issueHeadRidByStid
+  issue.io.scalarSpSnapshotByStid := scalarSpOrder.io.issueSnapshotByStid
   LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(
     issue,
     execute,
+    servicePath,
+    scalarScHandshake.io.releaseValid,
+    scalarScHandshake.io.releaseBid,
+    scalarScHandshake.io.releaseRid,
+    scalarScHandshake.io.releaseStid,
     markerIssueControlFence,
     io.frontendFlushValid || io.restartValid || io.startValid || backendPipeFlush)
   issue.io.readyMask := rf.io.readyMask
@@ -3801,57 +4001,37 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.initValid := io.rfInitValid && rfInitTagInRange
   rf.io.initTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
-  for (idx <- 0 until 3) {
-    val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
-    val readIsU = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.U)
-    val readIsLocal = readIsT || readIsU
-    val readIsScalarSp =
-      issue.io.readValid(idx) &&
-        (issue.io.readOperandClass(idx) === OperandClass.P) &&
-        (issue.io.readRelTag(idx) === 1.U)
-    val rel = issue.io.readRelTag(idx)(1, 0)
-    val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
-    val scalarReadData = Mux(readIsScalarSp, scalarSpValue, rf.io.readData(idx))
-    val staSrc = path.io.storeStaQueue.uop.src(idx)
-    val staReadValid =
-      useReducedStoreStaAddressExecBridge.B && useReducedStoreDispatchStq.B &&
-        path.io.storeStaQueueValid && path.io.storeStaQueue.valid && staSrc.valid
-    val staReadIsT = staReadValid && (staSrc.operandClass === OperandClass.T)
-    val staReadIsU = staReadValid && (staSrc.operandClass === OperandClass.U)
-    val staReadIsLocal = staReadIsT || staReadIsU
-    val staReadIsScalarSp =
-      staReadValid &&
-        (staSrc.operandClass === OperandClass.P) &&
-        (staSrc.relTag === 1.U)
-    val staReadIsRf =
-      staReadValid &&
-        (staSrc.operandClass === OperandClass.P) &&
-        !staReadIsScalarSp
-    val staRel = staSrc.relTag(1, 0)
-    val staLocalReadReady = Mux(staReadIsT, localTReady(staRel), Mux(staReadIsU, localUReady(staRel), false.B))
-    val staLocalReadData = Mux(staReadIsT, localTData(staRel), localUData(staRel))
-
-    rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
-    rf.io.readTag(idx) := issue.io.readTags(idx)
-    rf.io.readValid(idx + coreParams.scalarBackend.gprReadPorts) := staReadIsRf
-    rf.io.readTag(idx + coreParams.scalarBackend.gprReadPorts) := staSrc.physTag
-    issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
-    storeStaAddressExecBridge.io.srcReadReady(idx) :=
-      Mux(staReadIsLocal, staLocalReadReady,
-        Mux(staReadIsScalarSp, true.B, rf.io.readReady(idx + coreParams.scalarBackend.gprReadPorts)))
-    storeStaAddressExecBridge.io.srcReadData(idx) :=
-      Mux(staReadIsLocal, staLocalReadData,
-        Mux(staReadIsScalarSp, scalarSpValue, rf.io.readData(idx + coreParams.scalarBackend.gprReadPorts)))
-  }
-  for (idx <- 3 until coreParams.scalarBackend.gprReadPorts) {
-    rf.io.readValid(idx) := false.B
-    rf.io.readTag(idx) := 0.U
-  }
+  LinxCoreFrontendFetchRfAluTraceTopRfReadWiring.connect(
+    rf,
+    issue,
+    path,
+    storeStaAddressExecBridge,
+    scalarSpOrder,
+    localTData,
+    localUData,
+    localTReady,
+    localUReady,
+    coreParams.scalarBackend.gprReadPorts,
+    useReducedStoreStaAddressExecBridge.B && useReducedStoreDispatchStq.B,
+    scalarStidCount)
+  LinxCoreFrontendFetchRfAluTraceTopServiceRfReadWiring.connect(
+    rf,
+    servicePath,
+    serviceRfReadPort = coreParams.scalarBackend.gprReadPorts + 4
+  )
   rf.io.clearValid := issue.io.inputAcceptDstValid
   rf.io.clearTag := issue.io.inputAcceptDstTag
-  rfWritebackArbiter.io.executeValid := execute.io.completeDstPhysValid
-  rfWritebackArbiter.io.executeTag := execute.io.completeDstPhysTag
-  rfWritebackArbiter.io.executeData := execute.io.completeDstData
+  LinxCoreFrontendFetchRfAluTraceTopWritebackPrimaryWiring.connect(
+    rfWritebackArbiter,
+    execute,
+    servicePath,
+    scalarScHandshake.io.writebackValid,
+    scalarScHandshake.io.writebackTag,
+    scalarScHandshake.io.writebackData,
+    templateContext,
+    p.physRegWidth,
+    p.immWidth
+  )
   val reducedReplayLiqRetainedOwnerFallbackLiveProbeActive =
     reducedReplayLiqRetainedOwnerFallbackLiveProbe.B &&
       reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable
@@ -4703,16 +4883,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.write(0).commit := rfWritebackArbiter.io.writeValid
   rf.io.write(0).tag := rfWritebackArbiter.io.writeTag
   rf.io.write(0).data := rfWritebackArbiter.io.writeData
-  val scalarSpWriteback =
-    execute.io.completeFire && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
-  when(io.rfInitValid && io.rfInitArchTag === 1.U) {
-    scalarSpValue := io.rfInitData
-  }.elsewhen(execute.io.fretStkSpRestoreValid) {
-    scalarSpValue := execute.io.fretStkSpRestoreData
-  }.elsewhen(scalarSpWriteback) {
-    scalarSpValue := execute.io.completeRow.wb.data
-  }
-
   val localReset = backendPipeFlush || io.startValid || io.restartValid
   val localDstAllocT =
     issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid && (issue.io.inputAcceptUop.dst(0).kind === DestinationKind.T)
@@ -4769,30 +4939,100 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqReturnPipeW2Modules.slot.io.entryData)
   }
 
-  issue.io.issueReady := execute.io.inReady
-  execute.io.inValid := issue.io.issueValid
-  execute.io.in := issue.io.issueUop
+  // Conditional FRET.STK may be renamed before the older SETC reaches W2.
+  // Preserve normal ROB/rename allocation order, but hold the issue handshake
+  // until the block-condition latch is valid so execute cannot consume an
+  // invalid condition snapshot and return instead of taking the loop edge.
+  val issueIsFretStk =
+    issue.io.issueValid &&
+      issue.io.issueUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+  val issueFretStkFallbackValid =
+    issueIsFretStk && issue.io.issueUop.fretStkFallbackTargetValid
+  val conditionalFretEnqueueFire =
+    issue.io.inputAcceptFire &&
+      issue.io.inputAcceptUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W) &&
+      issue.io.inputAcceptUop.fretStkFallbackTargetValid
+  val conditionalFretIssueFire = issue.io.issueFire && issueFretStkFallbackValid
+  val conditionalFretPending = RegInit(false.B)
+  when(localReset) {
+    conditionalFretPending := false.B
+  }.elsewhen(conditionalFretEnqueueFire =/= conditionalFretIssueFire) {
+    conditionalFretPending := conditionalFretEnqueueFire
+  }
+  val conditionalFretOwnsCondition = conditionalFretPending || conditionalFretEnqueueFire
+  val conditionalFretStkWaiting =
+    issueFretStkFallbackValid && !liveBlockBranchTakenValid
+  val templateContextBlocksIssue = LinxCoreFrontendFetchRfAluTraceTopTemplateContextWiring.connect(
+    top = io,
+    path = path,
+    issue = issue,
+    execute = execute,
+    rf = rf,
+    context = templateContext,
+    snapshots = templateSnapshotTable,
+    localReset = localReset,
+    conditionalFretWaiting = conditionalFretStkWaiting,
+    liveConditionValid = liveBlockBranchTakenValid,
+    liveConditionTaken = liveBlockBranchTaken,
+    templateRfReadPort = coreParams.scalarBackend.gprReadPorts + 3,
+    p = p)
+  val redirectCleanupCutsIssue = LinxCoreFrontendFetchRfAluTraceTopRedirectIssueCutWiring.cutsIssue(
+    io,
+    issue,
+    scalarRedirectRecovery,
+    backendPipeFlush,
+    p)
+  val executeInputUop = Wire(chiselTypeOf(issue.io.issueUop))
+  executeInputUop := issue.io.issueUop
+  when(issueIsFretStk) {
+    // Every FRET snapshots a complete control context at the issue boundary,
+    // including the explicit absence of a condition or fallback target.  E1
+    // runs one cycle later, when decode may already have installed another
+    // marker; leaving contextValid low would let that younger marker redirect
+    // an older return.  A FRET that owns a fallback still waits above until
+    // its causal SETC condition is live.
+    executeInputUop.fretStkContextValid := true.B
+    executeInputUop.fretStkConditionValid := liveBlockBranchTakenValid
+    executeInputUop.fretStkConditionTaken := liveBlockBranchTaken
+  }
+  issue.io.issueReady :=
+    Mux(
+      serviceIssueCandidate,
+      servicePath.io.issueReady,
+      Mux(
+        scalarScIssueGate.candidate,
+        scalarScIssueGate.ready,
+        execute.io.inReady && !conditionalFretStkWaiting && !templateContextBlocksIssue && !redirectCleanupCutsIssue))
+  execute.io.inValid :=
+    issue.io.issueValid && !serviceIssueCandidate && !scalarScIssueGate.candidate &&
+      !conditionalFretStkWaiting && !templateContextBlocksIssue && !redirectCleanupCutsIssue
+  execute.io.in := executeInputUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := reducedStoreResidentForward.io.loadData
+  LinxCoreFrontendFetchRfAluTraceTopPairLoadWiring.connect(io, rf, issue, path, execute)
   execute.io.loadLookupWaitBlocked := reducedStoreResidentForward.io.waitBlocked
   execute.io.loadLiqEnable := reducedLiveLoadLiqEnabled
   execute.io.loadLiqAccepted := reducedLiveLoadLiqCapture.io.captureAccepted
-  execute.io.stackPointerData := scalarSpValue
+  execute.io.stackPointerData := issue.io.scalarSpIssueSnapshot
   execute.io.flushValid := backendPipeFlush
-  execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
-  execute.io.fretStkFallbackTarget := path.io.blockMarkerActiveTarget
-  execute.io.fretStkConditionValid := blockBranchTakenValid
-  execute.io.fretStkConditionTaken := blockBranchTaken
+  // The fallback target is owned by the renamed FRET.  Consulting the live
+  // marker here can attach a younger or unrelated CALL/DIRECT target after
+  // issue and turn an unconditional return into a conditional redirect.
+  execute.io.fretStkFallbackTargetValid := issueFretStkFallbackValid
+  execute.io.fretStkFallbackTarget := issue.io.issueUop.fretStkFallbackTarget
+  execute.io.fretStkConditionValid := liveBlockBranchTakenValid
+  execute.io.fretStkConditionTaken := liveBlockBranchTaken
 
-  val blockBoundaryConsumed = denseSlots.io.outFire && path.io.blockMarkerSkipValid && path.io.blockMarkerBoundary
   when(localReset) {
     blockBranchTakenValid := false.B
     blockBranchTaken := false.B
-  }.elsewhen(blockBoundaryConsumed) {
-    // The architectural block condition belongs to the marker boundary. An
-    // older FRET.STK samples it in E1 and carries that sample to W2, so this
-    // younger boundary may clear the shared latch without leaking an old SETC
-    // result into a later conditional marker.
+  }.elsewhen(markerRedirectFire || (skippedMarkerLifecycleFire && !conditionalFretOwnsCondition)) {
+    // A marker consumes the condition even when it falls through.  A
+    // same-cycle W2 result already reaches marker/FRET through the live bypass,
+    // so clearing the retained copy here prevents the next block boundary from
+    // reusing a stale decision.  A program-order older conditional FRET owns
+    // the condition from issue enqueue through issue fire; a younger marker
+    // must not clear that lease while the FRET is still waiting in the fabric.
     blockBranchTakenValid := false.B
     blockBranchTaken := false.B
   }.elsewhen(execute.io.branchConditionValid) {
@@ -4811,9 +5051,45 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.sourceOutFire := source.io.outFire
   io.sourceAdvanceZero := source.io.advanceZero
   io.sourceAdvanceBytes := effectiveSourceAdvanceBytes
+  io.sourceRestartValid := io.restartValid || markerRedirectPending || bodyCutRestartPending
+  io.sourceRestartPc := Mux(markerRedirectPending, markerRedirectPcReg, Mux(bodyCutRestartPending, bodyCutRestartPcReg, io.restartPc))
   io.sourceCurrentPc := source.io.currentPc
   io.sourceIssuedPc := source.io.issuedPc
   io.sourceNextPktUid := source.io.nextPktUid
+  io.debugBlockMarkerStopRedirectValid := path.io.blockMarkerStopRedirectValid
+  io.debugBlockMarkerStopRedirectPc := path.io.blockMarkerStopRedirectPc
+  io.debugMarkerRedirectFire := markerRedirectFire
+  io.debugMarkerRedirectPending := markerRedirectPending
+  io.debugMarkerRedirectPc := markerRedirectPcReg
+  io.debugBodyCutAdvanceBytes := effectiveSourceAdvanceBytes
+  io.debugF4TotalLenBytes := f4.io.totalLenBytes
+  io.debugReadinessBits := Cat(
+    path.io.robMarkerRetireSourceLifecycleFire,
+    localIncomingBlocked,
+    issue.io.inReady,
+    issue.io.inReady && !localIncomingBlocked,
+    path.io.decodeReady,
+    path.io.decodeReady && !admittedMarkerDrainBarrier,
+    denseSlots.io.inReady,
+    denseSlots.io.inReady)
+  io.debugFretConditionBits := Cat(
+    issueFretStkFallbackValid,
+    issue.io.issueUop.fretStkContextValid,
+    conditionalFretStkWaiting,
+    execute.io.branchConditionValid,
+    execute.io.branchConditionTaken,
+    blockBranchTakenValid,
+    blockBranchTaken,
+    liveBlockBranchTakenValid)
+  io.debugContinuationBits := Cat(
+    path.io.scalarContinuationOwnershipCutFire,
+    path.io.scalarContinuationGprCutFire,
+    path.io.scalarContinuationTCutFire,
+    path.io.scalarContinuationUCutFire,
+    path.io.blockMarkerAllocFire,
+    path.io.blockScalarDoneFire,
+    path.io.blockRetireFire,
+    path.io.robDeallocBlockLastValid)
 
   io.reducedBodyCutActive := reducedBodyCutActive
   io.reducedBodyCutFire := bodyCutRestartFire
@@ -4909,7 +5185,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.selectedValid := path.io.selectedValid
   io.selectedRobValue := path.io.selectedRobValue
   io.selectedBlockBid := path.io.selectedBlockBid
-  io.blockMarkerSkipFire := denseSlots.io.outFire && path.io.blockMarkerSkipValid
+  io.blockMarkerSkipFire := skippedMarkerLifecycleFire
   io.blockMarkerSkipValid := path.io.blockMarkerSkipValid
   io.blockMarkerMixedPacket := path.io.blockMarkerMixedPacket
   io.blockMarkerBoundary := path.io.blockMarkerBoundary
@@ -6425,6 +6701,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.rfWriteValid := rf.io.write(0).fire
   io.rfWriteTag := rfWritebackArbiter.io.writeTag
   io.rfWriteData := rfWritebackArbiter.io.writeData
+  LinxCoreFrontendFetchRfAluTraceTopServiceDiagnosticsWiring.connect(io, servicePath)
   io.executeCompleteSrcPhysValidMask := execute.io.completeSrcPhysValid.asUInt
   io.executeCompleteSrcPhysTag := execute.io.completeSrcPhysTag
   io.executeCompletePc := execute.io.completeRow.pc
@@ -6434,8 +6711,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     (io.rfInitValid && !rfInitTagInRange) ||
       rf.io.protocolError ||
       issue.io.protocolError ||
+      scalarSpOrder.io.protocolError ||
       executeCompletionRetainer.io.protocolError
-  LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring.connect(io, issue)
+  LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring.connect(
+    io,
+    issue,
+    scalarSpOrder,
+    execute.io.accepted)
   io.localTReadyMask := localTReady.asUInt
   io.localUReadyMask := localUReady.asUInt
   io.localTPendingCount := localTPendingCount
@@ -7206,6 +7488,31 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopPairLoadWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      rf: ScalarGPRFile,
+      issue: ScalarIssueFabric,
+      path: DecodeRenameROBPath,
+      execute: ReducedScalarAluExecute): Unit = {
+    execute.io.loadPairFirstLookupData := io.loadPairFirstLookupData
+
+    rf.io.clearSecondValid :=
+      issue.io.inputAcceptFire &&
+        issue.io.inputAcceptUop.pairFirstDst.valid &&
+        (issue.io.inputAcceptUop.pairFirstDst.kind === DestinationKind.Gpr)
+    rf.io.clearSecondTag := issue.io.inputAcceptUop.pairFirstDst.physTag
+
+    rf.io.write(1).requestValid := execute.io.completePairFirstDstPhysValid
+    rf.io.write(1).commit := execute.io.completePairFirstDstPhysValid
+    rf.io.write(1).tag := execute.io.completePairFirstDstPhysTag
+    rf.io.write(1).data := execute.io.completePairFirstDstData
+
+    io.loadPairFirstLookupValid := execute.io.loadPairFirstLookupValid
+    io.loadPairFirstLookupAddr := execute.io.loadPairFirstLookupAddr
   }
 }
 
@@ -8706,14 +9013,6 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackRfWritebackMu
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackTag, physicalInput.io.writeTag)
     arbiter.io.replayData :=
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackData, physicalInput.io.writeData)
-    arbiter.io.serviceEnable := false.B
-    arbiter.io.serviceValid := false.B
-    arbiter.io.serviceTag := 0.U
-    arbiter.io.serviceData := 0.U
-    arbiter.io.templateEnable := false.B
-    arbiter.io.templateValid := false.B
-    arbiter.io.templateTag := 0.U
-    arbiter.io.templateData := 0.U
   }
 }
 
@@ -9915,6 +10214,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       arbiter: ReducedRobCompletionArbiter,
       retainer: ExecuteCompletionRetainer,
       execute: ReducedScalarAluExecute,
+      servicePath: ReducedServiceRequestPath,
+      scalarScCompleteValid: Bool,
+      scalarScCompleteRow: CommitTraceRow,
+      scalarScCompleteRobValue: UInt,
       replay: LoadReplayReturnPipeW2RobCompleteSource,
       retainedFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
       retainedFallbackLiveProbe: Bool,
@@ -9956,10 +10259,14 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRowValid, replay.io.completeRowValid)
     arbiter.io.replayCompleteRow :=
       Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRow, replay.io.completeRow)
-    arbiter.io.serviceCompleteValid := false.B
-    arbiter.io.serviceCompleteRobValue := 0.U
-    arbiter.io.serviceCompleteRowValid := false.B
-    arbiter.io.serviceCompleteRow := 0.U.asTypeOf(arbiter.io.serviceCompleteRow)
+    val selectedServicePathComplete = servicePath.io.completeValid
+    val selectedScalarScComplete = !selectedServicePathComplete && scalarScCompleteValid
+    arbiter.io.serviceCompleteValid := selectedServicePathComplete || selectedScalarScComplete
+    arbiter.io.serviceCompleteRobValue :=
+      Mux(selectedServicePathComplete, servicePath.io.completeRobValue, scalarScCompleteRobValue)
+    arbiter.io.serviceCompleteRowValid := selectedServicePathComplete || selectedScalarScComplete
+    arbiter.io.serviceCompleteRow :=
+      Mux(selectedServicePathComplete, servicePath.io.completeRow, scalarScCompleteRow)
     arbiter.io.templateCompleteValid := false.B
     arbiter.io.templateCompleteRobValue := 0.U
     arbiter.io.templateCompleteRowValid := false.B
@@ -9973,6 +10280,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
 
     io.robCompleteArbiterSelectedExecute := arbiter.io.selectedExecute
     io.robCompleteArbiterSelectedReplay := arbiter.io.selectedReplay
+    io.robCompleteArbiterSelectedService := arbiter.io.selectedService
     io.robCompleteArbiterReplayBlockedByExecute := arbiter.io.replayBlockedByExecute
   }
 }
@@ -10851,20 +11159,366 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreLookupWiring {
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopScalarLrReservationWiring {
+  private def lineAddr(addr: UInt, width: Int): UInt =
+    Cat(addr(width - 1, 6), 0.U(6.W))
+
+  private def robIdToReducedLrBid(id: ROBID, robIndexWidth: Int): UInt =
+    Cat(0.U((64 - robIndexWidth - 1).W), id.wrap, id.value)
+
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      owner: ScalarLrScReservationOwner,
+      arbiter: ReducedRobCompletionArbiter,
+      execute: ReducedScalarAluExecute,
+      robCompleteAccepted: Bool,
+      acceptedRecoveryFlush: FlushBus,
+      reducedStoreMemoryReqs: Vec[STQCommitDrainRequest],
+      reducedStoreMemoryAcceptedVec: Vec[Bool],
+      reducedStoreMemoryRequestCount: Int,
+      scalarScIssueFire: Bool,
+      scalarScIssueStid: UInt,
+      scalarScIssueLineAddr: UInt,
+      scalarScIssueData: UInt,
+      scalarScIssueBid: ROBID,
+      scalarScIssueGid: ROBID,
+      scalarScIssueRid: ROBID,
+      scalarScIssueLsId: UInt,
+      scalarScCommitReady: Bool,
+      coreParams: CoreParams,
+      p: InterfaceParams): Unit = {
+    val scalarLrInsn =
+      (execute.io.completeRow.insn(31, 0) & "hf000707f".U(32.W)) === "h2000000b".U(32.W)
+    val scalarLrSetCandidate =
+      execute.io.completeFire &&
+        execute.io.completeRow.mem.valid &&
+        !execute.io.completeRow.mem.isStore &&
+        execute.io.completeRow.mem.size === 4.U &&
+        scalarLrInsn
+    val scalarLrSetAccepted = scalarLrSetCandidate && arbiter.io.selectedExecute && robCompleteAccepted
+    val scalarLrLineAddr = lineAddr(execute.io.completeRow.mem.addr, p.immWidth)
+    val scalarLrCommittedStoreInvalidateMask =
+      VecInit((0 until reducedStoreMemoryRequestCount).map(idx =>
+        reducedStoreMemoryAcceptedVec(idx) && reducedStoreMemoryReqs(idx).valid)).asUInt
+    val scalarLrCommittedStoreInvalidate = scalarLrCommittedStoreInvalidateMask.orR
+    val scalarLrCommittedStoreInvalidateReq =
+      reducedStoreMemoryReqs(PriorityEncoder(scalarLrCommittedStoreInvalidateMask))
+    val scalarLrCommittedStoreInvalidateReg = RegInit(false.B)
+    val scalarLrCommittedStoreInvalidateReqReg =
+      Reg(chiselTypeOf(scalarLrCommittedStoreInvalidateReq))
+    when(io.startValid || io.restartValid || acceptedRecoveryFlush.req.valid) {
+      scalarLrCommittedStoreInvalidateReg := false.B
+      scalarLrCommittedStoreInvalidateReqReg := 0.U.asTypeOf(scalarLrCommittedStoreInvalidateReqReg)
+    }.otherwise {
+      scalarLrCommittedStoreInvalidateReg := scalarLrCommittedStoreInvalidate
+      scalarLrCommittedStoreInvalidateReqReg := scalarLrCommittedStoreInvalidateReq
+    }
+
+    owner.io.enable := true.B
+    owner.io.contextInvalidate := io.startValid || io.restartValid
+    owner.io.flushAll := io.startValid || io.restartValid
+    owner.io.flushValid := acceptedRecoveryFlush.req.valid
+    owner.io.flushStid := acceptedRecoveryFlush.req.stid
+    owner.io.flushIdentityValid := acceptedRecoveryFlush.req.valid
+    owner.io.flushIdentity.bid := robIdToReducedLrBid(acceptedRecoveryFlush.req.bid, p.robIndexWidth)
+    owner.io.flushIdentity.gid := acceptedRecoveryFlush.req.gid
+    owner.io.flushIdentity.rid := acceptedRecoveryFlush.req.rid
+    owner.io.flushIdentity.lsIdFull := acceptedRecoveryFlush.req.lsIdFull
+
+    owner.io.lrCompleteValid := scalarLrSetCandidate
+    owner.io.lrCompleteAccepted := scalarLrSetAccepted
+    owner.io.lrStid := execute.io.releaseStid
+    owner.io.lrLineAddr := scalarLrLineAddr
+    owner.io.lrSize := 4.U(coreParams.scalarLsu.loadSizeWidth.W)
+    owner.io.lrRawData := execute.io.completeRow.mem.rdata
+    owner.io.lrIdentity.bid := robIdToReducedLrBid(execute.io.releaseBid, p.robIndexWidth)
+    owner.io.lrIdentity.gid := execute.io.releaseGid
+    owner.io.lrIdentity.rid := execute.io.releaseRid
+    owner.io.lrIdentity.lsIdFull := execute.io.completeLsId
+
+    owner.io.scReqValid := scalarScIssueFire
+    owner.io.scReqStid := scalarScIssueStid
+    owner.io.scReqLineAddr := scalarScIssueLineAddr
+    owner.io.scReqSize := 4.U(coreParams.scalarLsu.loadSizeWidth.W)
+    owner.io.scReqData := scalarScIssueData
+    owner.io.scReqIdentity.bid := robIdToReducedLrBid(scalarScIssueBid, p.robIndexWidth)
+    owner.io.scReqIdentity.gid := scalarScIssueGid
+    owner.io.scReqIdentity.rid := scalarScIssueRid
+    owner.io.scReqIdentity.lsIdFull := scalarScIssueLsId
+    owner.io.scCommitReady := scalarScCommitReady
+    owner.io.committedStoreInvalidateValid := scalarLrCommittedStoreInvalidateReg
+    owner.io.committedStoreInvalidateStid := scalarLrCommittedStoreInvalidateReqReg.stid
+    owner.io.committedStoreInvalidateLineAddr := lineAddr(scalarLrCommittedStoreInvalidateReqReg.addr, p.immWidth)
+
+    io.scalarLrReservationSetCandidate := scalarLrSetCandidate
+    io.scalarLrReservationSetAccepted := owner.io.lrSetAccepted
+    io.scalarLrReservationSetStid := execute.io.releaseStid
+    io.scalarLrReservationSetLineAddr := scalarLrLineAddr
+    io.scalarLrReservationSetRidValid := execute.io.releaseRid.valid
+    io.scalarLrReservationSetRidWrap := execute.io.releaseRid.wrap
+    io.scalarLrReservationSetRidValue := execute.io.releaseRid.value
+    io.scalarLrReservationValidStid0 := owner.io.reservationValidByStid(0)
+    io.scalarLrReservationLineStid0 := owner.io.reservationLineByStid(0)
+    io.scalarLrReservationCount := owner.io.reservationCount
+    io.scalarLrReservationProtocolError := owner.io.protocolError
+    io.scalarLrReservationBlockedByFlush := owner.io.blockedByFlush
+    io.scalarLrReservationCommittedStoreInvalidate := scalarLrCommittedStoreInvalidate
+  }
+}
+
+final case class ScalarScIssueGate(candidate: Bool, ready: Bool)
+
+private object LinxCoreFrontendFetchRfAluTraceTopScalarScIssueWiring {
+  def connect(
+      issue: ScalarIssueFabric,
+      path: DecodeRenameROBPath,
+      storeStaAddressExecBridge: ReducedStoreStaAddressExecBridge,
+      owner: ScalarLrScReservationOwner,
+      issueFire: Bool,
+      issueAddr: UInt,
+      issueData: UInt,
+      issueUop: linxcore.common.RenamedUop,
+      p: InterfaceParams): ScalarScIssueGate = {
+    val scalarScOpcode = FrontendOpcodeDecodeTable.OP_SC_W.U(p.opcodeWidth.W)
+    val candidate =
+      issue.io.issueValid && issue.io.issueUop.opcode === scalarScOpcode
+    val atCommitHead =
+      path.io.commitHeadValid && candidate &&
+        path.io.commitHeadStid === issue.io.issueUop.threadId &&
+        issue.io.issueUop.bid.valid && issue.io.issueUop.gid.valid && issue.io.issueUop.rid.valid &&
+        path.io.commitHeadBid.valid && path.io.commitHeadGid.valid && path.io.commitHeadRid.valid &&
+        ROBID.equal(path.io.commitHeadBid, issue.io.issueUop.bid) &&
+        ROBID.equal(path.io.commitHeadGid, issue.io.issueUop.gid) &&
+        ROBID.equal(path.io.commitHeadRid, issue.io.issueUop.rid)
+    val storeQueueMatches =
+      path.io.storeStaQueueValid && path.io.storeStaQueue.valid &&
+        path.io.storeStaQueue.uop.opcode === scalarScOpcode &&
+        path.io.storeStaQueue.uop.threadId === issue.io.issueUop.threadId &&
+        ROBID.equal(path.io.storeStaQueue.uop.bid, issue.io.issueUop.bid) &&
+        ROBID.equal(path.io.storeStaQueue.uop.gid, issue.io.issueUop.gid) &&
+        ROBID.equal(path.io.storeStaQueue.uop.rid, issue.io.issueUop.rid) &&
+        path.io.storeStaQueue.uop.lsid === issue.io.issueUop.lsid
+    val addressReady = storeStaAddressExecBridge.io.exec.valid && storeQueueMatches
+    val ready = owner.io.scReqReady && atCommitHead && addressReady
+
+    issueFire := issue.io.issueFire && candidate
+    issueAddr := storeStaAddressExecBridge.io.exec.addr
+    issueData := storeStaAddressExecBridge.io.exec.data
+    issueUop := issue.io.issueUop
+
+    ScalarScIssueGate(candidate, ready)
+  }
+}
+
+final case class ServiceStopMetadata(issueCandidate: Bool, stopAdjacent: Bool, nextStopInsn: UInt, nextStopLen: UInt)
+
+private object LinxCoreFrontendFetchRfAluTraceTopServiceStopMetadataWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      issue: ScalarIssueFabric,
+      servicePath: ReducedServiceRequestPath,
+      serviceOpcode: UInt,
+      serviceEnqueueFire: Bool,
+      acceptedMarkerDrainFire: Bool,
+      backendPipeFlush: Bool): ServiceStopMetadata = {
+    val p = path.p
+    val latestStopValid = RegInit(false.B)
+    val latestStopPc = RegInit(0.U(p.pcWidth.W))
+    val latestStopInsn = RegInit(0.U(p.insnWidth.W))
+    val latestStopLen = RegInit(0.U(p.lenWidth.W))
+    val latestStopStid = RegInit(0.U(p.threadIdWidth.W))
+    val latestStopBlockBidValid = RegInit(false.B)
+    val latestStopBlockBid = RegInit(0.U(p.blockBidWidth.W))
+    val serviceDecodeStopPendingValid = RegInit(false.B)
+    val serviceDecodeStopPendingPc = RegInit(0.U(p.pcWidth.W))
+    val serviceDecodeStopPendingInsn = RegInit(0.U(p.insnWidth.W))
+    val serviceDecodeStopPendingLen = RegInit(0.U(p.lenWidth.W))
+    val serviceDecodeStopPendingStid = RegInit(0.U(p.threadIdWidth.W))
+    val serviceDecodeStopPendingBid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceDecodeStopPendingGid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceDecodeStopPendingRid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceDecodeStopPendingBlockBidValid = RegInit(false.B)
+    val serviceDecodeStopPendingBlockBid = RegInit(0.U(p.blockBidWidth.W))
+    val serviceQueuedStopValid = RegInit(false.B)
+    val serviceQueuedStopPc = RegInit(0.U(p.pcWidth.W))
+    val serviceQueuedStopInsn = RegInit(0.U(p.insnWidth.W))
+    val serviceQueuedStopLen = RegInit(0.U(p.lenWidth.W))
+    val serviceQueuedStopStid = RegInit(0.U(p.threadIdWidth.W))
+    val serviceQueuedStopBid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceQueuedStopGid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceQueuedStopRid = RegInit(ROBID.disabled(p.robEntries))
+    val serviceQueuedStopBlockBidValid = RegInit(false.B)
+    val serviceQueuedStopBlockBid = RegInit(0.U(p.blockBidWidth.W))
+    val acceptedServiceStopMarkerFire = acceptedMarkerDrainFire && path.io.blockMarkerStop
+    val serviceMetadataFlush = backendPipeFlush || io.startValid || io.restartValid || io.frontendFlushValid
+
+    when(serviceMetadataFlush) {
+      latestStopValid := false.B
+      latestStopPc := 0.U
+      latestStopInsn := 0.U
+      latestStopLen := 0.U
+      latestStopStid := 0.U
+      latestStopBlockBidValid := false.B
+      latestStopBlockBid := 0.U
+      serviceDecodeStopPendingValid := false.B
+      serviceDecodeStopPendingPc := 0.U
+      serviceDecodeStopPendingInsn := 0.U
+      serviceDecodeStopPendingLen := 0.U
+      serviceDecodeStopPendingStid := 0.U
+      serviceDecodeStopPendingBid := ROBID.disabled(p.robEntries)
+      serviceDecodeStopPendingGid := ROBID.disabled(p.robEntries)
+      serviceDecodeStopPendingRid := ROBID.disabled(p.robEntries)
+      serviceDecodeStopPendingBlockBidValid := false.B
+      serviceDecodeStopPendingBlockBid := 0.U
+      serviceQueuedStopValid := false.B
+      serviceQueuedStopPc := 0.U
+      serviceQueuedStopInsn := 0.U
+      serviceQueuedStopLen := 0.U
+      serviceQueuedStopStid := 0.U
+      serviceQueuedStopBid := ROBID.disabled(p.robEntries)
+      serviceQueuedStopGid := ROBID.disabled(p.robEntries)
+      serviceQueuedStopRid := ROBID.disabled(p.robEntries)
+      serviceQueuedStopBlockBidValid := false.B
+      serviceQueuedStopBlockBid := 0.U
+    }.elsewhen(acceptedServiceStopMarkerFire) {
+      latestStopValid := true.B
+      latestStopPc := path.io.blockMarkerPc
+      latestStopInsn := path.io.blockMarkerInsn
+      latestStopLen := path.io.blockMarkerLen
+      latestStopStid := io.threadId
+      latestStopBlockBidValid := path.io.blockMarkerActiveValid
+      latestStopBlockBid := path.io.blockMarkerActiveBid
+    }
+
+    val liveMatches =
+      path.io.serviceAdjacentStop.valid &&
+        path.io.serviceAdjacentStop.stid === issue.io.inputAcceptUop.threadId &&
+        path.io.serviceAdjacentStop.bid.valid && path.io.serviceAdjacentStop.gid.valid &&
+        path.io.serviceAdjacentStop.rid.valid &&
+        ROBID.equal(path.io.serviceAdjacentStop.bid, issue.io.inputAcceptUop.bid) &&
+        ROBID.equal(path.io.serviceAdjacentStop.gid, issue.io.inputAcceptUop.gid) &&
+        ROBID.equal(path.io.serviceAdjacentStop.rid, issue.io.inputAcceptUop.rid) &&
+        path.io.serviceAdjacentStop.blockBidValid && issue.io.inputAcceptUop.blockBidValid &&
+        path.io.serviceAdjacentStop.blockBid === issue.io.inputAcceptUop.blockBid &&
+        path.io.serviceAdjacentStop.pc === (issue.io.inputAcceptUop.pc + issue.io.inputAcceptUop.insnLen)
+    val pendingMatches =
+      serviceDecodeStopPendingValid &&
+        serviceDecodeStopPendingStid === issue.io.inputAcceptUop.threadId &&
+        serviceDecodeStopPendingBid.valid && serviceDecodeStopPendingGid.valid &&
+        serviceDecodeStopPendingRid.valid &&
+        ROBID.equal(serviceDecodeStopPendingBid, issue.io.inputAcceptUop.bid) &&
+        ROBID.equal(serviceDecodeStopPendingGid, issue.io.inputAcceptUop.gid) &&
+        ROBID.equal(serviceDecodeStopPendingRid, issue.io.inputAcceptUop.rid) &&
+        serviceDecodeStopPendingBlockBidValid && issue.io.inputAcceptUop.blockBidValid &&
+        serviceDecodeStopPendingBlockBid === issue.io.inputAcceptUop.blockBid &&
+        serviceDecodeStopPendingPc === (issue.io.inputAcceptUop.pc + issue.io.inputAcceptUop.insnLen)
+    val enqueueAdjacentStop = serviceEnqueueFire && (liveMatches || pendingMatches)
+    val enqueueFromLive = serviceEnqueueFire && liveMatches
+    val enqueuePc = Mux(enqueueFromLive, path.io.serviceAdjacentStop.pc, serviceDecodeStopPendingPc)
+    val enqueueInsn = Mux(enqueueFromLive, path.io.serviceAdjacentStop.insn, serviceDecodeStopPendingInsn)
+    val enqueueLen = Mux(enqueueFromLive, path.io.serviceAdjacentStop.len, serviceDecodeStopPendingLen)
+    val enqueueStid = Mux(enqueueFromLive, path.io.serviceAdjacentStop.stid, serviceDecodeStopPendingStid)
+    val enqueueBid = Mux(enqueueFromLive, path.io.serviceAdjacentStop.bid, serviceDecodeStopPendingBid)
+    val enqueueGid = Mux(enqueueFromLive, path.io.serviceAdjacentStop.gid, serviceDecodeStopPendingGid)
+    val enqueueRid = Mux(enqueueFromLive, path.io.serviceAdjacentStop.rid, serviceDecodeStopPendingRid)
+    val enqueueBlockBidValid =
+      Mux(enqueueFromLive, path.io.serviceAdjacentStop.blockBidValid, serviceDecodeStopPendingBlockBidValid)
+    val enqueueBlockBid =
+      Mux(enqueueFromLive, path.io.serviceAdjacentStop.blockBid, serviceDecodeStopPendingBlockBid)
+
+    when(!serviceMetadataFlush && path.io.serviceAdjacentStop.valid) {
+      serviceDecodeStopPendingValid := true.B
+      serviceDecodeStopPendingPc := path.io.serviceAdjacentStop.pc
+      serviceDecodeStopPendingInsn := path.io.serviceAdjacentStop.insn
+      serviceDecodeStopPendingLen := path.io.serviceAdjacentStop.len
+      serviceDecodeStopPendingStid := path.io.serviceAdjacentStop.stid
+      serviceDecodeStopPendingBid := path.io.serviceAdjacentStop.bid
+      serviceDecodeStopPendingGid := path.io.serviceAdjacentStop.gid
+      serviceDecodeStopPendingRid := path.io.serviceAdjacentStop.rid
+      serviceDecodeStopPendingBlockBidValid := path.io.serviceAdjacentStop.blockBidValid
+      serviceDecodeStopPendingBlockBid := path.io.serviceAdjacentStop.blockBid
+    }.elsewhen(serviceEnqueueFire && pendingMatches) {
+      serviceDecodeStopPendingValid := false.B
+    }
+
+    when(enqueueAdjacentStop) {
+      serviceQueuedStopValid := true.B
+      serviceQueuedStopPc := enqueuePc
+      serviceQueuedStopInsn := enqueueInsn
+      serviceQueuedStopLen := enqueueLen
+      serviceQueuedStopStid := enqueueStid
+      serviceQueuedStopBid := enqueueBid
+      serviceQueuedStopGid := enqueueGid
+      serviceQueuedStopRid := enqueueRid
+      serviceQueuedStopBlockBidValid := enqueueBlockBidValid
+      serviceQueuedStopBlockBid := enqueueBlockBid
+    }.elsewhen(servicePath.io.issueReady) {
+      serviceQueuedStopValid := false.B
+    }
+
+    val issueCandidate = issue.io.issueValid && issue.io.issueUop.opcode === serviceOpcode
+    val queuedMatches =
+      serviceQueuedStopValid &&
+        serviceQueuedStopStid === issue.io.issueUop.threadId &&
+        serviceQueuedStopBid.valid && serviceQueuedStopGid.valid && serviceQueuedStopRid.valid &&
+        ROBID.equal(serviceQueuedStopBid, issue.io.issueUop.bid) &&
+        ROBID.equal(serviceQueuedStopGid, issue.io.issueUop.gid) &&
+        ROBID.equal(serviceQueuedStopRid, issue.io.issueUop.rid) &&
+        serviceQueuedStopBlockBidValid && issue.io.issueUop.blockBidValid &&
+        serviceQueuedStopBlockBid === issue.io.issueUop.blockBid &&
+        serviceQueuedStopPc === (issue.io.issueUop.pc + issue.io.issueUop.insnLen)
+    val acceptedMarkerMatches =
+      latestStopValid &&
+        latestStopStid === issue.io.issueUop.threadId &&
+        latestStopBlockBidValid && issue.io.issueUop.blockBidValid &&
+        latestStopBlockBid === issue.io.issueUop.blockBid &&
+        latestStopPc === (issue.io.issueUop.pc + issue.io.issueUop.insnLen)
+
+    ServiceStopMetadata(
+      issueCandidate,
+      queuedMatches || acceptedMarkerMatches,
+      Mux(queuedMatches, serviceQueuedStopInsn, latestStopInsn),
+      Mux(queuedMatches, serviceQueuedStopLen, latestStopLen))
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
   def connect(
       issue: ScalarIssueFabric,
       execute: ReducedScalarAluExecute,
+      servicePath: ReducedServiceRequestPath,
+      scalarScReleaseValid: Bool,
+      scalarScReleaseBid: ROBID,
+      scalarScReleaseRid: ROBID,
+      scalarScReleaseStid: UInt,
       controlFence: ScalarIssueExternalControlFence,
       clearControlFence: Bool): Unit = {
     issue.io.releaseValid := execute.io.releaseValid
     issue.io.releaseBid := execute.io.releaseBid
     issue.io.releaseRid := execute.io.releaseRid
     issue.io.releaseStid := execute.io.releaseStid
-    issue.io.secondaryReleaseValid := execute.io.liqReleaseValid
-    issue.io.secondaryReleaseBid := execute.io.liqReleaseBid
-    issue.io.secondaryReleaseRid := execute.io.liqReleaseRid
-    issue.io.secondaryReleaseStid := execute.io.liqReleaseStid
+    val serviceOrScReleaseValid = servicePath.io.releaseValid || scalarScReleaseValid
+    issue.io.secondaryReleaseValid := execute.io.liqReleaseValid || serviceOrScReleaseValid
+    issue.io.secondaryReleaseBid :=
+      Mux(
+        execute.io.liqReleaseValid,
+        execute.io.liqReleaseBid,
+        Mux(servicePath.io.releaseValid, servicePath.io.releaseBid, scalarScReleaseBid))
+    issue.io.secondaryReleaseRid :=
+      Mux(
+        execute.io.liqReleaseValid,
+        execute.io.liqReleaseRid,
+        Mux(servicePath.io.releaseValid, servicePath.io.releaseRid, scalarScReleaseRid))
+    issue.io.secondaryReleaseStid :=
+      Mux(
+        execute.io.liqReleaseValid,
+        execute.io.liqReleaseStid,
+        Mux(servicePath.io.releaseValid, servicePath.io.releaseStid, scalarScReleaseStid))
+    issue.io.tertiaryReleaseValid := execute.io.earlyReleaseValid
+    issue.io.tertiaryReleaseBid := execute.io.earlyReleaseBid
+    issue.io.tertiaryReleaseRid := execute.io.earlyReleaseRid
+    issue.io.tertiaryReleaseStid := execute.io.earlyReleaseStid
     controlFence.io.captureValid := execute.io.redirectValid
     controlFence.io.captureBid := execute.io.releaseBid
     controlFence.io.captureRid := execute.io.releaseRid
@@ -10877,11 +11531,449 @@ private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopServicePathWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      issue: ScalarIssueFabric,
+      execute: ReducedScalarAluExecute,
+      servicePath: ReducedServiceRequestPath,
+      serviceEnqueueFire: Bool,
+      serviceIssueCandidate: Bool,
+      serviceStopAdjacent: Bool,
+      latestStopInsn: UInt,
+      latestStopLen: UInt,
+      backendPipeFlush: Bool,
+      serviceHigherPriorityRobCompleteIdle: Bool,
+      serviceHigherPriorityWritebackIdle: Bool): Unit = {
+    servicePath.io.enqueueValid := serviceEnqueueFire
+    servicePath.io.enqueueIdentity.stid := issue.io.inputAcceptUop.threadId
+    servicePath.io.enqueueIdentity.bid := issue.io.inputAcceptUop.bid
+    servicePath.io.enqueueIdentity.gid := issue.io.inputAcceptUop.gid
+    servicePath.io.enqueueIdentity.rid := issue.io.inputAcceptUop.rid
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A0Index) := path.io.templateSmapSnapshot(2)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A1Index) := path.io.templateSmapSnapshot(3)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A2Index) := path.io.templateSmapSnapshot(4)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A3Index) := path.io.templateSmapSnapshot(5)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A4Index) := path.io.templateSmapSnapshot(6)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A5Index) := path.io.templateSmapSnapshot(7)
+    servicePath.io.enqueuePhysTags(ReducedServiceRequestPath.A7Index) := path.io.templateSmapSnapshot(9)
+    servicePath.io.issueValid := serviceIssueCandidate
+    servicePath.io.issue.pc := issue.io.issueUop.pc
+    servicePath.io.issue.insnLen := issue.io.issueUop.insnLen
+    servicePath.io.issue.insnRaw := issue.io.issueUop.insnRaw
+    servicePath.io.issue.nextInsnLen := Mux(serviceStopAdjacent, latestStopLen, 0.U)
+    servicePath.io.issue.nextHalfword := Mux(serviceStopAdjacent, latestStopInsn(15, 0), 0.U)
+    servicePath.io.issue.nextInsnRaw := Mux(serviceStopAdjacent, latestStopInsn, 0.U)
+    servicePath.io.issue.identity.stid := issue.io.issueUop.threadId
+    servicePath.io.issue.identity.bid := issue.io.issueUop.bid
+    servicePath.io.issue.identity.gid := issue.io.issueUop.gid
+    servicePath.io.issue.identity.rid := issue.io.issueUop.rid
+    servicePath.io.atCommitHead :=
+      path.io.commitHeadValid && serviceIssueCandidate &&
+        path.io.commitHeadStid === issue.io.issueUop.threadId &&
+        issue.io.issueUop.bid.valid && issue.io.issueUop.gid.valid && issue.io.issueUop.rid.valid &&
+        path.io.commitHeadBid.valid && path.io.commitHeadGid.valid && path.io.commitHeadRid.valid &&
+        ROBID.equal(path.io.commitHeadBid, issue.io.issueUop.bid) &&
+        ROBID.equal(path.io.commitHeadGid, issue.io.issueUop.gid) &&
+        ROBID.equal(path.io.commitHeadRid, issue.io.issueUop.rid)
+    servicePath.io.serviceRequest <> io.reducedServiceRequest
+    servicePath.io.serviceResponse <> io.reducedServiceResponse
+    servicePath.io.flush := backendPipeFlush || io.startValid || io.restartValid || io.frontendFlushValid
+    servicePath.io.completeReady := serviceHigherPriorityRobCompleteIdle
+    servicePath.io.releaseReady := !execute.io.liqReleaseValid
+    servicePath.io.writebackReady := serviceHigherPriorityWritebackIdle
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopServiceRfReadWiring {
+  def connect(
+      rf: ScalarGPRFile,
+      servicePath: ReducedServiceRequestPath,
+      serviceRfReadPort: Int): Unit = {
+    rf.io.readValid(serviceRfReadPort) := servicePath.io.rfReadValid
+    rf.io.readTag(serviceRfReadPort) := servicePath.io.rfReadTag
+    servicePath.io.rfReadReady := rf.io.readReady(serviceRfReadPort)
+    servicePath.io.rfReadData := rf.io.readData(serviceRfReadPort)
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopRfReadWiring {
+  def connect(
+      rf: ScalarGPRFile,
+      issue: ScalarIssueFabric,
+      path: DecodeRenameROBPath,
+      storeStaAddressExecBridge: ReducedStoreStaAddressExecBridge,
+      scalarSpOrder: ScalarSpOrderOwner,
+      localTData: Vec[UInt],
+      localUData: Vec[UInt],
+      localTReady: Vec[Bool],
+      localUReady: Vec[Bool],
+      gprReadPorts: Int,
+      storeDispatchReadEnable: Bool,
+      scalarStidCount: Int): Unit = {
+    def stidIndex(stid: UInt): UInt = {
+      val width = math.max(1, log2Ceil(scalarStidCount))
+      if (scalarStidCount == 1) 0.U(width.W) else stid(width - 1, 0)
+    }
+
+    val staReadScalarSpAccess = ScalarSpAccess.classify(path.io.storeStaQueue.uop)
+    val staReadScalarSpStid = stidIndex(path.io.storeStaQueue.uop.threadId)
+    val staReadScalarSpGrant =
+      !staReadScalarSpAccess.valid ||
+        (scalarSpOrder.io.issueHeadValidByStid(staReadScalarSpStid) &&
+          ROBID.equal(path.io.storeStaQueue.uop.bid, scalarSpOrder.io.issueHeadBidByStid(staReadScalarSpStid)) &&
+          ROBID.equal(path.io.storeStaQueue.uop.rid, scalarSpOrder.io.issueHeadRidByStid(staReadScalarSpStid)))
+
+    for (idx <- 0 until 3) {
+      val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
+      val readIsU = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.U)
+      val readIsLocal = readIsT || readIsU
+      val readIsScalarSp =
+        issue.io.readValid(idx) &&
+          (issue.io.readOperandClass(idx) === OperandClass.P) &&
+          (issue.io.readRelTag(idx) === 1.U)
+      val rel = issue.io.readRelTag(idx)(1, 0)
+      val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
+      val scalarReadData = Mux(readIsScalarSp, issue.io.scalarSpReadSnapshot, rf.io.readData(idx))
+      val staSrc = path.io.storeStaQueue.uop.src(idx)
+      val staReadValid =
+        storeDispatchReadEnable && path.io.storeStaQueueValid && path.io.storeStaQueue.valid && staSrc.valid
+      val staReadIsT = staReadValid && (staSrc.operandClass === OperandClass.T)
+      val staReadIsU = staReadValid && (staSrc.operandClass === OperandClass.U)
+      val staReadIsLocal = staReadIsT || staReadIsU
+      val staReadIsScalarSp =
+        staReadValid &&
+          (staSrc.operandClass === OperandClass.P) &&
+          (staSrc.relTag === 1.U)
+      val staReadIsRf =
+        staReadValid &&
+          (staSrc.operandClass === OperandClass.P) &&
+          !staReadIsScalarSp
+      val staRel = staSrc.relTag(1, 0)
+      val staLocalReadReady = Mux(staReadIsT, localTReady(staRel), Mux(staReadIsU, localUReady(staRel), false.B))
+      val staLocalReadData = Mux(staReadIsT, localTData(staRel), localUData(staRel))
+      val staScalarSpSnapshot = scalarSpOrder.io.issueSnapshotByStid(staReadScalarSpStid)
+
+      rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
+      rf.io.readTag(idx) := issue.io.readTags(idx)
+      rf.io.readValid(idx + gprReadPorts) := staReadIsRf
+      rf.io.readTag(idx + gprReadPorts) := staSrc.physTag
+      issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
+      storeStaAddressExecBridge.io.srcReadReady(idx) :=
+        Mux(staReadIsLocal, staLocalReadReady,
+          Mux(staReadIsScalarSp, staReadScalarSpGrant, rf.io.readReady(idx + gprReadPorts)))
+      storeStaAddressExecBridge.io.srcReadData(idx) :=
+        Mux(staReadIsLocal, staLocalReadData,
+          Mux(staReadIsScalarSp, staScalarSpSnapshot, rf.io.readData(idx + gprReadPorts)))
+    }
+    for (idx <- 3 until gprReadPorts) {
+      rf.io.readValid(idx) := false.B
+      rf.io.readTag(idx) := 0.U
+    }
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopServiceDiagnosticsWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      servicePath: ReducedServiceRequestPath): Unit = {
+    io.reducedServiceRenameFence := servicePath.io.renameFence
+    io.reducedServiceControlFence := servicePath.io.controlFence
+    io.reducedServiceGatherBusy := servicePath.io.gatherBusy
+    io.reducedServiceOwnerBusy := servicePath.io.ownerBusy
+    io.reducedServiceSnapshotLookupMatch := servicePath.io.snapshotLookupMatch
+    io.reducedServiceTrappedInvalidRequestType := servicePath.io.trappedInvalidRequestType
+    io.reducedServiceTrappedIllegalSequence := servicePath.io.trappedIllegalSequence
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopScalarSpOrderWiring {
+  def connect(
+      top: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      owner: ScalarSpOrderOwner,
+      backendPipeFlush: Bool,
+      recoveryRestoreValid: Bool,
+      recoveryRestoreStid: UInt,
+      recoveryRestoreData: UInt): Unit = {
+    owner.io.flushValid := backendPipeFlush || top.startValid || top.restartValid
+    owner.io.initValid := top.rfInitValid && top.rfInitArchTag === 1.U
+    owner.io.initData := top.rfInitData
+    owner.io.recoveryRestoreValid := recoveryRestoreValid
+    owner.io.recoveryRestoreStid := recoveryRestoreStid
+    owner.io.recoveryRestoreData := recoveryRestoreData
+    owner.io.reserveValid := path.io.scalarSpReserveFire
+    owner.io.reserve := path.io.scalarSpReserve
+    owner.io.commit := path.io.commit
+    owner.io.commitValidMask := path.io.commitValidMask
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopMarkerRedirectRecoveryWiring {
+  def connect(
+      top: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      execute: ReducedScalarAluExecute,
+      recovery: ScalarRedirectRecoverySource,
+      markerOnlyRedirectFire: Bool,
+      executeReducedLsId: ROBID,
+      p: InterfaceParams): Unit = {
+    val markerIdentityValid =
+      path.io.blockMarkerActiveValid && path.io.commitHeadValid &&
+        path.io.commitHeadBid.valid && path.io.commitHeadRid.valid &&
+        ROBID.equal(
+          FullBidRecoveryBridge.fullBidToRobId(
+            path.io.blockMarkerActiveBid,
+            path.io.blockMarkerActiveValid,
+            p.robEntries,
+            p.blockBidWidth),
+          path.io.commitHeadBid)
+    val commitHeadOH = UIntToOH(path.io.commitHeadRid.value, p.robEntries)
+    val markerHasYoungerRobRow = (path.io.occupiedMask & ~commitHeadOH).orR
+
+    recovery.io.event.valid :=
+      execute.io.redirectValid ||
+        (markerOnlyRedirectFire && markerIdentityValid && markerHasYoungerRobRow)
+    recovery.io.event.blockBidValid :=
+      Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveValid, execute.io.completeRow.blockBidValid)
+    recovery.io.event.blockBid :=
+      Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveBid, execute.io.completeRow.blockBid)
+    recovery.io.event.bid :=
+      Mux(markerOnlyRedirectFire, path.io.commitHeadBid, execute.io.releaseBid)
+    recovery.io.event.rid :=
+      Mux(markerOnlyRedirectFire, path.io.commitHeadRid, execute.io.releaseRid)
+    recovery.io.event.lsId :=
+      Mux(markerOnlyRedirectFire, ROBID.disabled(p.robEntries), executeReducedLsId)
+    recovery.io.event.lsIdFull :=
+      Mux(markerOnlyRedirectFire, 0.U, execute.io.completeLsId)
+    recovery.io.event.resolveLsIdValid := execute.io.redirectValid
+    recovery.io.event.stid :=
+      Mux(markerOnlyRedirectFire, path.io.commitHeadStid, execute.io.releaseStid)
+    recovery.io.event.peId := top.peId
+    recovery.io.event.tid := top.threadId
+    recovery.io.event.orderValid := execute.io.redirectValid
+    recovery.io.event.order := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
+    recovery.io.sourceReady := path.io.recoveryNonLsuSourceReady(0)
+    recovery.io.sourceResolved := path.io.recoverySourceResolvedMask(0)
+    recovery.io.payloadIntentConsumed := path.io.recoveryConsumedPayloadSourceMask(0)
+    recovery.io.cancel := top.frontendFlushValid || top.restartValid || top.startValid
+
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopRedirectIssueCutWiring {
+  def cutsIssue(
+      top: LinxCoreFrontendFetchRfAluTraceTopIO,
+      issue: ScalarIssueFabric,
+      recovery: ScalarRedirectRecoverySource,
+      backendPipeFlush: Bool,
+      p: InterfaceParams): Bool = {
+    val cutValid = RegInit(false.B)
+    val cutRid = RegInit(ROBID.disabled(p.robEntries))
+    when(backendPipeFlush || top.startValid || top.restartValid || recovery.io.sourceResolved) {
+      cutValid := false.B
+      cutRid := ROBID.disabled(p.robEntries)
+    }.elsewhen(recovery.io.eventAccepted) {
+      cutValid := recovery.io.event.rid.valid
+      cutRid := recovery.io.event.rid
+    }
+
+    val acceptedCut =
+      recovery.io.eventAccepted && issue.io.issueValid && issue.io.issueUop.rid.valid &&
+        recovery.io.event.rid.valid &&
+        !ROBID.equal(issue.io.issueUop.rid, recovery.io.event.rid)
+    val retainedCut =
+      recovery.io.pending && cutValid && issue.io.issueValid && issue.io.issueUop.rid.valid &&
+        !ROBID.equal(issue.io.issueUop.rid, cutRid)
+    acceptedCut || retainedCut
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopStaScalarSpWiring {
+  def connect(
+      path: DecodeRenameROBPath,
+      execute: ReducedScalarAluExecute,
+      staBridge: ReducedStoreStaAddressExecBridge,
+      execBridge: ReducedStoreExecResultBridge,
+      owner: ScalarSpOrderOwner,
+      storeDispatchEnabled: Bool,
+      p: InterfaceParams,
+      scalarStidCount: Int): Unit = {
+    val stidIndexWidth = math.max(1, log2Ceil(scalarStidCount))
+    def stidIndex(stid: UInt): UInt =
+      if (scalarStidCount == 1) 0.U(stidIndexWidth.W) else stid(stidIndexWidth - 1, 0)
+
+    val zeroStoreExec = 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
+    val access = ScalarSpAccess.classify(path.io.storeStaQueue.uop)
+    val stid = stidIndex(path.io.storeStaQueue.uop.threadId)
+    val headMatch =
+      !access.valid ||
+        (owner.io.issueHeadValidByStid(stid) &&
+          ROBID.equal(path.io.storeStaQueue.uop.bid, owner.io.issueHeadBidByStid(stid)) &&
+          ROBID.equal(path.io.storeStaQueue.uop.rid, owner.io.issueHeadRidByStid(stid)))
+    val spDirectCandidate = staBridge.io.candidate && staBridge.io.supportedOpcode && access.valid
+    val grant = !spDirectCandidate || headMatch
+    val directExec = Wire(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
+    directExec := staBridge.io.exec
+    when(!grant) {
+      directExec.valid := false.B
+    }
+
+    val selectedStaExec =
+      Mux(staBridge.io.candidate && staBridge.io.supportedOpcode, directExec, execBridge.io.staExec)
+    path.io.storeStaExec := Mux(storeDispatchEnabled, selectedStaExec, zeroStoreExec)
+    path.io.storeStdExec := Mux(storeDispatchEnabled, execBridge.io.stdExec, zeroStoreExec)
+
+    val staTerminalValid =
+      path.io.storeSelectedSta && staBridge.io.candidate && staBridge.io.supportedOpcode && access.valid
+    val staTerminal = Wire(new ScalarSpTransaction(p))
+    staTerminal := 0.U.asTypeOf(staTerminal)
+    staTerminal.access := access
+    staTerminal.stid := path.io.storeStaQueue.uop.threadId
+    staTerminal.bid := path.io.storeStaQueue.uop.bid
+    staTerminal.rid := path.io.storeStaQueue.uop.rid
+    staTerminal.epoch := 0.U
+
+    owner.io.terminalValid := execute.io.scalarSpTerminalValid || staTerminalValid
+    owner.io.terminal := Mux(execute.io.scalarSpTerminalValid, execute.io.scalarSpTerminal, staTerminal)
+    owner.io.terminalProducedValid :=
+      Mux(execute.io.scalarSpTerminalValid, execute.io.scalarSpProducedValid, staTerminalValid && access.write)
+    owner.io.terminalProducedData :=
+      Mux(execute.io.scalarSpTerminalValid, execute.io.scalarSpProducedData, directExec.addr)
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopStoreCommitIngressWiring {
+  def connect(
+      top: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      execute: ReducedScalarAluExecute,
+      storeExecBridge: ReducedStoreExecResultBridge,
+      storeStaAddressExecBridge: ReducedStoreStaAddressExecBridge,
+      storeCommitOwner: ReducedStoreCommitFreeOwner,
+      reducedStoreCommitDrain: STQCommitDrain,
+      reducedStoreScb: SCBRowBank,
+      reducedStoreFlush: Bool,
+      useReducedStoreDispatchStq: Bool,
+      useReducedStoreStaAddressExecBridge: Bool,
+      scalarStidCount: Int,
+      coreParams: CoreParams): Bool = {
+    storeExecBridge.io.flushValid := reducedStoreFlush
+    storeExecBridge.io.completeValid := execute.io.completeFire && useReducedStoreDispatchStq
+    storeExecBridge.io.completeRow := execute.io.completeRow
+    storeExecBridge.io.completeBid := execute.io.releaseBid
+    storeExecBridge.io.completeRid := execute.io.releaseRid
+    storeExecBridge.io.completeStid := execute.io.releaseStid
+    storeExecBridge.io.staQueueValid := path.io.storeStaQueueValid
+    storeExecBridge.io.staQueue := path.io.storeStaQueue
+    storeExecBridge.io.stdQueueValid := path.io.storeStdQueueValid
+    storeExecBridge.io.stdQueue := path.io.storeStdQueue
+    storeExecBridge.io.staConsumed := path.io.storeSelectedSta
+    storeExecBridge.io.stdConsumed := path.io.storeSelectedStd
+    storeStaAddressExecBridge.io.enable := useReducedStoreStaAddressExecBridge && useReducedStoreDispatchStq
+    storeStaAddressExecBridge.io.queueValid := path.io.storeStaQueueValid
+    storeStaAddressExecBridge.io.queue := path.io.storeStaQueue
+    storeCommitOwner.io.enable := useReducedStoreDispatchStq
+    storeCommitOwner.io.directFreeEnable := false.B
+    storeCommitOwner.io.flushValid := reducedStoreFlush
+    storeCommitOwner.io.activeStid := top.threadId
+    val storeCommitStidMatch = VecInit((0 until scalarStidCount).map { stid =>
+      top.threadId === stid.U(top.threadId.getWidth.W)
+    })
+    val storeCommitStidInRange = storeCommitStidMatch.asUInt.orR
+    storeCommitOwner.io.nonFlushValid := storeCommitStidInRange &&
+      Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid)
+    storeCommitOwner.io.nonFlushHeadBid := Mux(
+      storeCommitStidInRange,
+      Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
+      0.U)
+    storeCommitOwner.io.nonFlushPrefixCount := Mux(
+      storeCommitStidInRange,
+      Mux1H(storeCommitStidMatch, path.io.blockNonFlushPrefixCount),
+      0.U)
+    storeCommitOwner.io.oldestBlockValid := storeCommitStidInRange &&
+      (Mux1H(storeCommitStidMatch, path.io.blockNonFlushValid) ||
+        Mux1H(storeCommitStidMatch, path.io.blockNonFlushBlockedValid))
+    storeCommitOwner.io.oldestBlockBid := Mux(
+      storeCommitStidInRange,
+      Mux1H(storeCommitStidMatch, path.io.blockNonFlushHeadBid),
+      0.U)
+    storeCommitOwner.io.oldestRobValid := path.io.commitHeadValid
+    storeCommitOwner.io.oldestRobBid := path.io.commitHeadBid
+    storeCommitOwner.io.oldestRobLsId := path.io.commitHeadLsId
+    storeCommitOwner.io.oldestRobStid := path.io.commitHeadStid
+    storeCommitOwner.io.commit := path.io.commit
+    storeCommitOwner.io.commitValidMask := path.io.commitValidMask
+    storeCommitOwner.io.commitMemoryOrder := path.io.commitMemoryOrder
+    storeCommitOwner.io.stqRows := path.io.storeStqRows
+    storeCommitOwner.io.markCommitAccepted := path.io.storeMarkCommitAccepted
+    storeCommitOwner.io.markCommitIgnored := path.io.storeMarkCommitIgnored
+    storeCommitOwner.io.commitFreeAccepted := path.io.storeCommitFreeAccepted
+    storeCommitOwner.io.commitFreeIgnored := path.io.storeCommitFreeIgnored
+    storeCommitOwner.io.commitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
+    storeCommitOwner.io.commitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
+
+    val reducedStoreScbReadyForDrain = useReducedStoreDispatchStq && reducedStoreScb.io.modelBatchReady && !reducedStoreFlush
+    reducedStoreCommitDrain.io.enqueueValid := useReducedStoreDispatchStq && path.io.storeMarkCommitAccepted
+    reducedStoreCommitDrain.io.enqueueIndex := storeCommitOwner.io.markCommitIndex
+    reducedStoreCommitDrain.io.enqueueBid := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).bid
+    reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsIdFull
+    reducedStoreCommitDrain.io.flushValid := reducedStoreFlush
+    reducedStoreCommitDrain.io.issueEnable := reducedStoreScbReadyForDrain
+    reducedStoreCommitDrain.io.primaryReadyMask :=
+      Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
+    reducedStoreCommitDrain.io.secondaryReadyMask :=
+      Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
+    reducedStoreCommitDrain.io.rows := path.io.storeStqRows
+
+    reducedStoreScbReadyForDrain
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring {
-  def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, issue: ScalarIssueFabric): Unit = {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      issue: ScalarIssueFabric,
+      scalarSpOrder: ScalarSpOrderOwner,
+      executeAccepted: Bool): Unit = {
+    val inputValid = issue.io.inValid
+    val outputValid = issue.io.issueValid
+    val accepted = executeAccepted
+
     io.issueQueueEnqueueFire := issue.io.inputAcceptFire
+    io.issueQueueInputValid := inputValid
+    io.issueQueueInputPc := Mux(inputValid, issue.io.in.pc, 0.U)
+    io.issueQueueInputOpcode := Mux(inputValid, issue.io.in.opcode, 0.U)
+    io.issueQueueInputBidValid := inputValid && issue.io.in.bid.valid
+    io.issueQueueInputBidWrap := inputValid && issue.io.in.bid.wrap
+    io.issueQueueInputBidValue := Mux(inputValid, issue.io.in.bid.value, 0.U)
+    io.issueQueueInputRidValid := inputValid && issue.io.in.rid.valid
+    io.issueQueueInputRidWrap := inputValid && issue.io.in.rid.wrap
+    io.issueQueueInputRidValue := Mux(inputValid, issue.io.in.rid.value, 0.U)
+    io.issueQueueInputStid := Mux(inputValid, issue.io.in.threadId, 0.U)
     io.issueQueuePickFire := issue.io.pickFire
     io.issueQueueIssueFire := issue.io.issueFire
+    io.issueQueueOutputValid := outputValid
+    io.issueQueueOutputPc := Mux(outputValid, issue.io.issueUop.pc, 0.U)
+    io.issueQueueOutputOpcode := Mux(outputValid, issue.io.issueUop.opcode, 0.U)
+    io.issueQueueOutputBidValid := outputValid && issue.io.issueUop.bid.valid
+    io.issueQueueOutputBidWrap := outputValid && issue.io.issueUop.bid.wrap
+    io.issueQueueOutputBidValue := Mux(outputValid, issue.io.issueUop.bid.value, 0.U)
+    io.issueQueueOutputRidValid := outputValid && issue.io.issueUop.rid.valid
+    io.issueQueueOutputRidWrap := outputValid && issue.io.issueUop.rid.wrap
+    io.issueQueueOutputRidValue := Mux(outputValid, issue.io.issueUop.rid.value, 0.U)
+    io.issueQueueOutputStid := Mux(outputValid, issue.io.issueUop.threadId, 0.U)
+    io.executeAcceptedIdentityValid := accepted
+    io.executeAcceptedPc := Mux(accepted, issue.io.issueUop.pc, 0.U)
+    io.executeAcceptedOpcode := Mux(accepted, issue.io.issueUop.opcode, 0.U)
+    io.executeAcceptedBidValid := accepted && issue.io.issueUop.bid.valid
+    io.executeAcceptedBidWrap := accepted && issue.io.issueUop.bid.wrap
+    io.executeAcceptedBidValue := Mux(accepted, issue.io.issueUop.bid.value, 0.U)
+    io.executeAcceptedRidValid := accepted && issue.io.issueUop.rid.valid
+    io.executeAcceptedRidWrap := accepted && issue.io.issueUop.rid.wrap
+    io.executeAcceptedRidValue := Mux(accepted, issue.io.issueUop.rid.value, 0.U)
+    io.executeAcceptedStid := Mux(accepted, issue.io.issueUop.threadId, 0.U)
     io.issueQueueCancelFire := issue.io.cancelFire
     io.issueQueueReleaseFire := issue.io.releaseFire
     io.issueQueueCount := issue.io.count
@@ -10891,6 +11983,13 @@ private object LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring {
     io.issueQueueHeadIssued := issue.io.headIssued
     io.issueQueueHeadPc := issue.io.headPc
     io.issueQueueHeadOpcode := issue.io.headOpcode
+    io.issueQueueHeadStid := issue.io.headStid
+    io.issueQueueHeadBidValid := issue.io.headValid && issue.io.headBid.valid
+    io.issueQueueHeadBidWrap := issue.io.headValid && issue.io.headBid.wrap
+    io.issueQueueHeadBidValue := Mux(issue.io.headValid, issue.io.headBid.value, 0.U)
+    io.issueQueueHeadRidValid := issue.io.headValid && issue.io.headRid.valid
+    io.issueQueueHeadRidWrap := issue.io.headValid && issue.io.headRid.wrap
+    io.issueQueueHeadRidValue := Mux(issue.io.headValid, issue.io.headRid.value, 0.U)
     io.issueQueueHeadSrcValidMask := issue.io.headSrcValidMask
     io.issueQueueHeadSrcClass := issue.io.headSrcOperandClass
     io.issueQueueHeadSrcPhysTag := issue.io.headSrcPhysTag
@@ -10922,7 +12021,26 @@ private object LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring {
     io.issueQueueBankControlBlockedMask := issue.io.bankControlBlockedMask
     io.issueQueueStoreOrderBlocked := issue.io.storeOrderBlocked
     io.issueQueueBankStoreOrderBlockedMask := issue.io.bankStoreOrderBlockedMask
+    io.issueQueueScalarSpOrderBlocked := issue.io.scalarSpOrderBlocked
+    io.issueQueueBankScalarSpOrderBlockedMask := issue.io.bankScalarSpOrderBlockedMask
     io.issueQueueProtocolError := issue.io.protocolError
+    io.scalarSpStid0IssueHeadValid := scalarSpOrder.io.issueHeadValidByStid(0)
+    io.scalarSpStid0IssueHeadBidValid := scalarSpOrder.io.issueHeadValidByStid(0) &&
+      scalarSpOrder.io.issueHeadBidByStid(0).valid
+    io.scalarSpStid0IssueHeadBidWrap := scalarSpOrder.io.issueHeadValidByStid(0) &&
+      scalarSpOrder.io.issueHeadBidByStid(0).wrap
+    io.scalarSpStid0IssueHeadBidValue := Mux(
+      scalarSpOrder.io.issueHeadValidByStid(0),
+      scalarSpOrder.io.issueHeadBidByStid(0).value,
+      0.U)
+    io.scalarSpStid0IssueHeadRidValid := scalarSpOrder.io.issueHeadValidByStid(0) &&
+      scalarSpOrder.io.issueHeadRidByStid(0).valid
+    io.scalarSpStid0IssueHeadRidWrap := scalarSpOrder.io.issueHeadValidByStid(0) &&
+      scalarSpOrder.io.issueHeadRidByStid(0).wrap
+    io.scalarSpStid0IssueHeadRidValue := Mux(
+      scalarSpOrder.io.issueHeadValidByStid(0),
+      scalarSpOrder.io.issueHeadRidByStid(0).value,
+      0.U)
   }
 }
 
@@ -11089,6 +12207,126 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AdvanceControlWiring {
       advanceControl.io.blockedByLivePromotionDisabled
     io.reducedLoadReplayLiqLretPipeW2AdvanceControlInvalidFutureWriteWithoutAdvance :=
       advanceControl.io.invalidFutureWriteWithoutAdvance
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopTemplateContextWiring {
+  def connect(
+      top: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      issue: ScalarIssueFabric,
+      execute: ReducedScalarAluExecute,
+      rf: ScalarGPRFile,
+      context: ReducedTemplateContextStack,
+      snapshots: ReducedTemplateSnapshotTable,
+      localReset: Bool,
+      conditionalFretWaiting: Bool,
+      liveConditionValid: Bool,
+      liveConditionTaken: Bool,
+      templateRfReadPort: Int,
+      p: InterfaceParams): Bool = {
+    snapshots.io.flush := top.startValid || top.restartValid || top.frontendFlushValid
+    snapshots.io.writeValid := path.io.templateSnapshotValid && path.io.templateSnapshotRid.valid
+    snapshots.io.writeRid := path.io.templateSnapshotRid.value
+    snapshots.io.writeMap := path.io.templateSmapSnapshot
+    snapshots.io.captureRid := execute.io.completeRobValue
+    snapshots.io.restoreRid := issue.io.issueUop.rid.value
+
+    rf.io.readValid(templateRfReadPort) := context.io.captureReadValid
+    rf.io.readTag(templateRfReadPort) := context.io.captureReadTag
+    context.io.captureReadReady := rf.io.readReady(templateRfReadPort)
+    context.io.captureReadData := rf.io.readData(templateRfReadPort)
+
+    val executeCompleteIsFentry =
+      execute.io.completeFire &&
+        ((execute.io.completeRow.insn & "h707f".U) === "h0041".U)
+    context.io.flush := top.startValid || top.restartValid || top.frontendFlushValid
+    context.io.captureStart := executeCompleteIsFentry && snapshots.io.captureValid
+    context.io.captureStartArch := execute.io.completeRow.insn(19, 15)
+    context.io.captureEndArch := execute.io.completeRow.insn(24, 20)
+    context.io.captureMap := snapshots.io.captureMap
+
+    val issueIsFentry =
+      issue.io.issueValid &&
+        issue.io.issueUop.opcode === FrontendOpcodeDecodeTable.OP_FENTRY.U(p.opcodeWidth.W)
+    val issueIsFretStk =
+      issue.io.issueValid &&
+        issue.io.issueUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+    val issueFretFallbackValid = issueIsFretStk && issue.io.issueUop.fretStkFallbackTargetValid
+    val issueFretWillReturn =
+      issueIsFretStk &&
+        ((liveConditionValid && !liveConditionTaken) ||
+          (!liveConditionValid && !issueFretFallbackValid))
+
+    val restoreDoneValid = RegInit(false.B)
+    val restoreDoneRid = RegInit(ROBID.disabled(p.robEntries))
+    val restoreActiveRid = RegInit(ROBID.disabled(p.robEntries))
+    val restoreDoneMatch =
+      restoreDoneValid && issue.io.issueUop.rid.valid &&
+        ROBID.equal(restoreDoneRid, issue.io.issueUop.rid)
+    val restoreSnapshotValid = issue.io.issueUop.rid.valid && snapshots.io.restoreValid
+    val restoreRequired =
+      issueFretWillReturn && context.io.frameCount =/= 0.U &&
+        restoreSnapshotValid && !restoreDoneMatch
+    val restoreStart =
+      restoreRequired && !conditionalFretWaiting &&
+        !context.io.captureBusy && !context.io.restoreBusy && !restoreActiveRid.valid
+
+    context.io.restoreStart := restoreStart
+    context.io.restoreMap := snapshots.io.restoreMap
+
+    when(localReset) {
+      restoreDoneValid := false.B
+      restoreDoneRid := ROBID.disabled(p.robEntries)
+      restoreActiveRid := ROBID.disabled(p.robEntries)
+    }.otherwise {
+      when(restoreStart) {
+        restoreActiveRid := issue.io.issueUop.rid
+      }
+      when(context.io.restoreDone) {
+        restoreDoneValid := true.B
+        restoreDoneRid := restoreActiveRid
+        restoreActiveRid := ROBID.disabled(p.robEntries)
+      }.elsewhen(issue.io.issueFire && restoreDoneMatch) {
+        restoreDoneValid := false.B
+        restoreDoneRid := ROBID.disabled(p.robEntries)
+      }
+    }
+
+    (issueIsFentry && (context.io.captureBusy || executeCompleteIsFentry)) ||
+      (issueFretWillReturn && context.io.captureBusy) ||
+      restoreRequired
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopWritebackPrimaryWiring {
+  def connect(
+      arbiter: ReducedScalarWritebackArbiter,
+      execute: ReducedScalarAluExecute,
+      servicePath: ReducedServiceRequestPath,
+      scalarScWritebackValid: Bool,
+      scalarScWritebackTag: UInt,
+      scalarScWritebackData: UInt,
+      templateContext: ReducedTemplateContextStack,
+      physRegWidth: Int,
+      dataWidth: Int): Unit = {
+    arbiter.io.executeValid := execute.io.completeDstPhysValid
+    arbiter.io.executeTag := execute.io.completeDstPhysTag
+    arbiter.io.executeData := execute.io.completeDstData
+
+    arbiter.io.serviceEnable := true.B
+    val selectedServicePathWriteback = servicePath.io.writebackValid
+    arbiter.io.serviceValid := selectedServicePathWriteback || scalarScWritebackValid
+    arbiter.io.serviceTag :=
+      Mux(selectedServicePathWriteback, servicePath.io.writeback.physTag, scalarScWritebackTag)
+    arbiter.io.serviceData :=
+      Mux(selectedServicePathWriteback, servicePath.io.writeback.data, scalarScWritebackData)
+
+    arbiter.io.templateEnable := true.B
+    arbiter.io.templateValid := templateContext.io.restoreWriteValid
+    arbiter.io.templateTag := templateContext.io.restoreWriteTag
+    arbiter.io.templateData := templateContext.io.restoreWriteData
+    templateContext.io.restoreWriteReady := arbiter.io.selectedTemplate
   }
 }
 

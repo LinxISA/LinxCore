@@ -3,13 +3,14 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
-import linxcore.common.{DestinationKind, DispatchTarget, InterfaceParams, OperandClass, RenamedOperand, RenamedUop}
+import linxcore.common.{DestinationKind, DispatchTarget, InterfaceParams, OperandClass, RenamedOperand, RenamedUop, ScalarSpAccess}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.{ROBID}
 
 class ReducedScalarIssueQueueIO(
     val p: InterfaceParams = InterfaceParams(),
-    val depth: Int = 4)
+    val depth: Int = 4,
+    val stidCount: Int = 1)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
   private val indexWidth = log2Ceil(depth)
@@ -27,6 +28,13 @@ class ReducedScalarIssueQueueIO(
   val secondaryReleaseBid = Input(new ROBID(p.robEntries))
   val secondaryReleaseRid = Input(new ROBID(p.robEntries))
   val secondaryReleaseStid = Input(UInt(p.threadIdWidth.W))
+  val tertiaryReleaseValid = Input(Bool())
+  val tertiaryReleaseBid = Input(new ROBID(p.robEntries))
+  val tertiaryReleaseRid = Input(new ROBID(p.robEntries))
+  val tertiaryReleaseStid = Input(UInt(p.threadIdWidth.W))
+  val scalarSpHeadValidByStid = Input(Vec(stidCount, Bool()))
+  val scalarSpHeadBidByStid = Input(Vec(stidCount, new ROBID(p.robEntries)))
+  val scalarSpHeadRidByStid = Input(Vec(stidCount, new ROBID(p.robEntries)))
 
   val readyMask = Input(UInt((1 << p.physRegWidth).W))
   val pWakeupValid = Input(Bool())
@@ -65,6 +73,9 @@ class ReducedScalarIssueQueueIO(
   val headIssued = Output(Bool())
   val headPc = Output(UInt(p.pcWidth.W))
   val headOpcode = Output(UInt(p.opcodeWidth.W))
+  val headStid = Output(UInt(p.threadIdWidth.W))
+  val headBid = Output(new ROBID(p.robEntries))
+  val headRid = Output(new ROBID(p.robEntries))
   val headSrcValidMask = Output(UInt(3.W))
   val headSrcOperandClass = Output(Vec(3, OperandClass()))
   val headSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
@@ -91,17 +102,32 @@ class ReducedScalarIssueQueueIO(
 
 class ReducedScalarIssueQueue(
     val p: InterfaceParams = InterfaceParams(),
-    val depth: Int = 4)
+    val depth: Int = 4,
+    val stidCount: Int = 1)
     extends Module {
   require(depth > 1, "reduced scalar issue queue needs at least two entries")
   require((depth & (depth - 1)) == 0, "reduced scalar issue queue depth must be a power of two")
+  require(stidCount > 0, "reduced scalar issue queue must expose at least one STID")
 
   private val countWidth = log2Ceil(depth + 1)
+  private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
+  private def stidIndex(stid: UInt): UInt =
+    if (stidCount == 1) 0.U(stidIndexWidth.W) else stid(stidIndexWidth - 1, 0)
 
-  val io = IO(new ReducedScalarIssueQueueIO(p, depth))
+  val io = IO(new ReducedScalarIssueQueueIO(p, depth, stidCount))
 
   private def sameRobId(lhs: ROBID, rhs: ROBID): Bool =
     ROBID.equal(lhs, rhs)
+
+  private def scalarSpHeadMatch(uop: RenamedUop): Bool = {
+    val entryStid = stidIndex(uop.threadId)
+    io.scalarSpHeadValidByStid(entryStid) &&
+      ROBID.equal(uop.bid, io.scalarSpHeadBidByStid(entryStid)) &&
+      ROBID.equal(uop.rid, io.scalarSpHeadRidByStid(entryStid))
+  }
+
+  private def explicitScalarSpSource(src: RenamedOperand): Bool =
+    src.valid && (src.operandClass === OperandClass.P) && (src.archTag === 1.U)
 
   val entries = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new RenamedUop(p)))))
   val valid = RegInit(VecInit(Seq.fill(depth)(false.B)))
@@ -125,13 +151,13 @@ class ReducedScalarIssueQueue(
   private def laneReadyFromMask(uop: RenamedUop, lane: Int): Bool = {
     val src = uop.src(lane)
     val isLocal = src.operandClass === OperandClass.T || src.operandClass === OperandClass.U
-    val isScalarSp = src.operandClass === OperandClass.P && src.relTag === 1.U
+    val isScalarSp = explicitScalarSpSource(src)
     val pWakeup = io.pWakeupValid && (src.operandClass === OperandClass.P) &&
       (src.physTag === io.pWakeupTag)
     !src.valid || Mux(
       isLocal,
       localSourceReady(src),
-      Mux(isScalarSp, true.B, io.readyMask(src.physTag) || pWakeup)
+      Mux(isScalarSp, scalarSpHeadMatch(uop), io.readyMask(src.physTag) || pWakeup)
     )
   }
 
@@ -147,6 +173,8 @@ class ReducedScalarIssueQueue(
   val primaryReleaseMatches = Wire(Vec(depth, Bool()))
   val rawSecondaryReleaseMatches = Wire(Vec(depth, Bool()))
   val secondaryReleaseMatches = Wire(Vec(depth, Bool()))
+  val rawTertiaryReleaseMatches = Wire(Vec(depth, Bool()))
+  val tertiaryReleaseMatches = Wire(Vec(depth, Bool()))
   val releaseMatches = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
     rawReleaseMatches(idx) := valid(idx) && issued(idx) &&
@@ -166,28 +194,46 @@ class ReducedScalarIssueQueue(
       if (idx == 0) false.B else VecInit((0 until idx).map(rawSecondaryReleaseMatches(_))).asUInt.orR
     secondaryReleaseMatches(idx) :=
       io.secondaryReleaseValid && rawSecondaryReleaseMatches(idx) && !earlierSecondaryMatch
-    releaseMatches(idx) := primaryReleaseMatches(idx) || secondaryReleaseMatches(idx)
+
+    rawTertiaryReleaseMatches(idx) := valid(idx) && issued(idx) &&
+      sameRobId(entries(idx).bid, io.tertiaryReleaseBid) &&
+      sameRobId(entries(idx).rid, io.tertiaryReleaseRid) &&
+      (entries(idx).threadId === io.tertiaryReleaseStid) &&
+      !primaryReleaseMatches(idx) &&
+      !secondaryReleaseMatches(idx)
+    val earlierTertiaryMatch =
+      if (idx == 0) false.B else VecInit((0 until idx).map(rawTertiaryReleaseMatches(_))).asUInt.orR
+    tertiaryReleaseMatches(idx) :=
+      io.tertiaryReleaseValid && rawTertiaryReleaseMatches(idx) && !earlierTertiaryMatch
+
+    releaseMatches(idx) := primaryReleaseMatches(idx) || secondaryReleaseMatches(idx) || tertiaryReleaseMatches(idx)
   }
   val releaseCount = PopCount(releaseMatches.asUInt)
   val releaseFire = releaseMatches.asUInt.orR
 
   val entrySourceReady = Wire(Vec(depth, Vec(3, Bool())))
   val entryAllSourcesReady = Wire(Vec(depth, Bool()))
+  val entryScalarSpHeadEligible = Wire(Vec(depth, Bool()))
   val entrySelectable = Wire(Vec(depth, Bool()))
   for (entryIdx <- 0 until depth) {
+    val access = ScalarSpAccess.classify(entries(entryIdx))
     for (lane <- 0 until 3) {
       entrySourceReady(entryIdx)(lane) :=
         !valid(entryIdx) || issued(entryIdx) || srcReady(entryIdx)(lane)
     }
     entryAllSourcesReady(entryIdx) := entrySourceReady(entryIdx).reduce(_ && _)
-    entrySelectable(entryIdx) := valid(entryIdx) && !issued(entryIdx) && entryAllSourcesReady(entryIdx)
+    entryScalarSpHeadEligible(entryIdx) :=
+      !access.valid || scalarSpHeadMatch(entries(entryIdx))
+    entrySelectable(entryIdx) :=
+      valid(entryIdx) && !issued(entryIdx) && entryAllSourcesReady(entryIdx) &&
+        entryScalarSpHeadEligible(entryIdx)
   }
 
+  val issuedVec = VecInit((0 until depth).map(idx => valid(idx) && issued(idx)))
+  val issuedCount = PopCount(issuedVec.asUInt)
   val headSourceReady = entrySourceReady(0)
   val headAllSourcesReady = headSourceReady.reduce(_ && _)
   val enqueueFire = io.inValid && io.inReady
-  val issuedVec = VecInit((0 until depth).map(idx => valid(idx) && issued(idx)))
-  val issuedCount = PopCount(issuedVec.asUInt)
   val notIssuedCount = count - issuedCount
 
   val pick = Module(new ReducedScalarIssuePick(p, depth))
@@ -234,6 +280,9 @@ class ReducedScalarIssueQueue(
   io.headIssued := headIssued
   io.headPc := Mux(headValid, headUop.pc, 0.U)
   io.headOpcode := Mux(headValid, headUop.opcode, 0.U)
+  io.headStid := Mux(headValid, headUop.threadId, 0.U)
+  io.headBid := Mux(headValid, headUop.bid, ROBID.disabled(p.robEntries))
+  io.headRid := Mux(headValid, headUop.rid, ROBID.disabled(p.robEntries))
   io.headSrcValidMask := VecInit((0 until 3).map(lane => headValid && headUop.src(lane).valid)).asUInt
   for (idx <- 0 until 3) {
     io.headSrcOperandClass(idx) := headUop.src(idx).operandClass
@@ -264,11 +313,22 @@ class ReducedScalarIssueQueue(
     io.residentStoreUop(idx) := entries(idx)
   }
 
+  val rawCancelIdentityMatches = Wire(Vec(depth, Bool()))
+  for (idx <- 0 until depth) {
+    rawCancelIdentityMatches(idx) := cancelFire && valid(idx) && issued(idx) &&
+      (entries(idx).threadId === pick.io.readUop.threadId) &&
+      (entries(idx).bid.valid === pick.io.readUop.bid.valid) &&
+      sameRobId(entries(idx).bid, pick.io.readUop.bid) &&
+      (entries(idx).rid.valid === pick.io.readUop.rid.valid) &&
+      sameRobId(entries(idx).rid, pick.io.readUop.rid)
+  }
+  val cancelIdentityIsUnique = PopCount(rawCancelIdentityMatches.asUInt) === 1.U
+
   val preIssued = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
     preIssued(idx) :=
       (issued(idx) || (pickFire && pick.io.selectedIndex === idx.U)) &&
-        !(cancelFire && pick.io.cancelIndex === idx.U)
+        !(cancelIdentityIsUnique && rawCancelIdentityMatches(idx))
   }
 
   val preSrcReady = Wire(Vec(depth, Vec(3, Bool())))

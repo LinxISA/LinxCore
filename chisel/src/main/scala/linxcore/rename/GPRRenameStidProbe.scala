@@ -103,6 +103,9 @@ class GPRRenameStidProbe extends Module {
   rename.io.srcArchTags := VecInit(Seq.fill(3)(io.queryArch))
   rename.io.renameValid := io.renameValid
   rename.io.renameArchTag := io.renameArch
+  rename.io.renameSecondRequired := false.B
+  rename.io.renameSecondValid := false.B
+  rename.io.renameSecondArchTag := 0.U
   rename.io.renameBid := robId(io.renameFullBid(2, 0))
   rename.io.renameBlockBid := io.renameFullBid
   rename.io.renameStid := io.renameStid
@@ -147,11 +150,13 @@ class GPRRenameStidProbe extends Module {
   reservations.io.flush := io.reservationFlush
   reservations.io.pushValid := io.reservationPushValid
   reservations.io.pushStid := io.reservationPushStid
+  reservations.io.pushCount := io.reservationPushValid.asUInt
   reservations.io.popValid := io.reservationPopValid
   reservations.io.popStid := io.reservationPopStid
+  reservations.io.popCount := io.reservationPopValid.asUInt
   reservations.io.selectedValid := io.reservationSelectedValid
   reservations.io.selectedStid := io.reservationSelectedStid
-  reservations.io.selectedNeedsGpr := io.reservationSelectedNeedsGpr
+  reservations.io.selectedCount := io.reservationSelectedNeedsGpr.asUInt
   reservations.io.freePhysCount := io.reservationFreePhys
   reservations.io.selectedMapQFreeCount := io.reservationSelectedMapQFree
   io.reservationReady := reservations.io.ready

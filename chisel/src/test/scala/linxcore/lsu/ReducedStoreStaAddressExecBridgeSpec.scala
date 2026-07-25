@@ -54,12 +54,14 @@ object ReducedStoreStaAddressExecBridgeReference {
           (true, 0x2, head.sources(1).data + scaled(head.imm, 3), 8)
         case FrontendOpcodeDecodeTable.OP_SWI =>
           (true, 0x2, head.sources(1).data + scaled(head.imm, 2), 4)
+        case FrontendOpcodeDecodeTable.OP_SHI =>
+          (true, 0x2, head.sources(1).data + scaled(head.imm, 1), 2)
         case FrontendOpcodeDecodeTable.OP_SBI =>
           (true, 0x2, head.sources(1).data + head.imm, 1)
-        case FrontendOpcodeDecodeTable.OP_SC_W =>
-          (true, 0x3, head.sources(1).data, 4)
         case FrontendOpcodeDecodeTable.OP_SD =>
           (true, 0x6, head.sources(1).data + scaled(head.sources(2).data, 3), 8)
+        case FrontendOpcodeDecodeTable.OP_SC_W =>
+          (true, 0x3, head.sources(1).data, 4)
         case FrontendOpcodeDecodeTable.OP_C_SDI =>
           (true, 0x1, head.sources(0).data + scaled(head.imm, 3), 8)
         case FrontendOpcodeDecodeTable.OP_C_SWI =>
@@ -116,19 +118,130 @@ class ReducedStoreStaAddressExecBridgeSpec extends AnyFunSuite with ChiselSim {
     assert(!result.execValid)
   }
 
-  test("reference lets PCR-store STA compute address without RF source readiness") {
-    val result = decide(QueueHead(
-      opcode = FrontendOpcodeDecodeTable.OP_HL_SW_PCR,
-      pc = 0x4000,
-      imm = 0x24,
-      sources = Vector(source(0xaaaa, ready = false), source(0, valid = false), source(0, valid = false))))
+  test("reference emits OP_SHI STA addresses from sign-extended SIMM12 scaled by two") {
+    val positive = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 7,
+      sources = Vector(source(0xdead), source(0x1000), source(0xbeef, ready = false))))
+    val zero = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 0,
+      sources = Vector(source(0, ready = false), source(0x2200), source(0, valid = false))))
+    val negative = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = -4,
+      sources = Vector(source(0), source(0x2000), source(0, valid = false, ready = false))))
 
-    assert(result.supported)
-    assert(result.sourceMask == 0)
-    assert(result.sourceReady)
-    assert(result.execValid)
-    assert(result.addr == 0x4024)
-    assert(result.size == 4)
+    assert(positive.supported)
+    assert(positive.sourceMask == 0x2)
+    assert(positive.sourceReady)
+    assert(positive.execValid)
+    assert(positive.addr == 0x100e)
+    assert(positive.size == 2)
+
+    assert(zero.sourceMask == 0x2)
+    assert(zero.sourceReady)
+    assert(zero.execValid)
+    assert(zero.addr == 0x2200)
+    assert(zero.size == 2)
+
+    assert(negative.sourceMask == 0x2)
+    assert(negative.sourceReady)
+    assert(negative.execValid)
+    assert(negative.addr == 0x1ff8)
+    assert(negative.size == 2)
+  }
+
+  test("reference blocks OP_SHI only on the base source and leaves store data independent") {
+    val baseNotReady = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 5,
+      sources = Vector(source(0xaaaa), source(0x1000, ready = false), source(0xbbbb))))
+    val dataNotReady = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 5,
+      sources = Vector(source(0xaaaa, ready = false), source(0x1000), source(0xbbbb, valid = false, ready = false))))
+
+    assert(baseNotReady.candidate)
+    assert(baseNotReady.supported)
+    assert(baseNotReady.sourceMask == 0x2)
+    assert(!baseNotReady.sourceReady)
+    assert(!baseNotReady.execValid)
+
+    assert(dataNotReady.candidate)
+    assert(dataNotReady.supported)
+    assert(dataNotReady.sourceMask == 0x2)
+    assert(dataNotReady.sourceReady)
+    assert(dataNotReady.execValid)
+    assert(dataNotReady.addr == 0x100a)
+    assert(dataNotReady.size == 2)
+  }
+
+  test("reference gates OP_SHI candidates exactly and does not support OP_SHI_U") {
+    val notQueueValid = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 1,
+      queueValid = false,
+      sources = Vector(source(0), source(0x1000), source(0))))
+    val notPayloadValid = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 1,
+      valid = false,
+      sources = Vector(source(0), source(0x1000), source(0))))
+    val notAddrHalf = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 1,
+      addrHalf = false,
+      sources = Vector(source(0), source(0x1000), source(0))))
+    val disabled = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI,
+      imm = 1,
+      sources = Vector(source(0), source(0x1000), source(0))),
+      enable = false)
+    val unsignedSibling = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SHI_U,
+      imm = 1,
+      sources = Vector(source(0), source(0x1000), source(0))))
+
+    assert(!notQueueValid.candidate)
+    assert(notQueueValid.supported)
+    assert(!notQueueValid.execValid)
+    assert(!notPayloadValid.candidate)
+    assert(notPayloadValid.supported)
+    assert(!notPayloadValid.execValid)
+    assert(!notAddrHalf.candidate)
+    assert(notAddrHalf.supported)
+    assert(!notAddrHalf.execValid)
+    assert(!disabled.candidate)
+    assert(disabled.supported)
+    assert(!disabled.execValid)
+    assert(unsignedSibling.candidate)
+    assert(!unsignedSibling.supported)
+    assert(unsignedSibling.sourceMask == 0)
+    assert(!unsignedSibling.execValid)
+  }
+
+  test("reference keeps adjacent byte and word immediate-store STA behavior unchanged") {
+    val byteStore = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SBI,
+      imm = 7,
+      sources = Vector(source(0), source(0x3000), source(0, valid = false))))
+    val wordStore = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_SWI,
+      imm = 7,
+      sources = Vector(source(0), source(0x3000), source(0, valid = false))))
+
+    assert(byteStore.supported)
+    assert(byteStore.sourceMask == 0x2)
+    assert(byteStore.execValid)
+    assert(byteStore.addr == 0x3007)
+    assert(byteStore.size == 1)
+
+    assert(wordStore.supported)
+    assert(wordStore.sourceMask == 0x2)
+    assert(wordStore.execValid)
+    assert(wordStore.addr == 0x301c)
+    assert(wordStore.size == 4)
   }
 
   test("reference emits OP_SC_W address from SrcR, data from SrcL, and size four") {
@@ -249,6 +362,21 @@ class ReducedStoreStaAddressExecBridgeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("reference lets PCR-store STA compute address without RF source readiness") {
+    val result = decide(QueueHead(
+      opcode = FrontendOpcodeDecodeTable.OP_HL_SW_PCR,
+      pc = 0x4000,
+      imm = 0x24,
+      sources = Vector(source(0xaaaa, ready = false), source(0, valid = false), source(0, valid = false))))
+
+    assert(result.supported)
+    assert(result.sourceMask == 0)
+    assert(result.sourceReady)
+    assert(result.execValid)
+    assert(result.addr == 0x4024)
+    assert(result.size == 4)
+  }
+
   test("reference exposes compressed-store STA source loss after payload source-zeroing") {
     val result = decide(QueueHead(
       opcode = FrontendOpcodeDecodeTable.OP_C_SDI,
@@ -271,5 +399,8 @@ class ReducedStoreStaAddressExecBridgeSpec extends AnyFunSuite with ChiselSim {
       tidWidth = p.threadIdWidth
     ))
     assert(sv.contains("module ReducedStoreStaAddressExecBridge"))
+    assert(sv.contains("12'h193"))
+    assert(sv.contains("io_srcReadData_1 + {io_queue_uop_imm[62:0], 1'h0}"))
+    assert(sv.contains("4'h2"))
   }
 }

@@ -14,14 +14,15 @@ object ROBEntryStatusReference {
   case object Retired extends Status(5)
   case object Fault extends Status(6)
   case object NeedFlush extends Status(7)
+  case object ReservedUnfilled extends Status(8)
 
   val all: Seq[Status] =
-    Seq(Free, Allocated, Renamed, Issued, Completed, Retired, Fault, NeedFlush)
+    Seq(Free, Allocated, Renamed, Issued, Completed, Retired, Fault, NeedFlush, ReservedUnfilled)
 
   def occupiesRob(status: Status): Boolean = status != Free
 
   def osdActive(status: Status): Boolean =
-    Set[Status](Allocated, Renamed, Issued, Completed, NeedFlush).contains(status)
+    Set[Status](Allocated, Renamed, Issued, Completed, NeedFlush, ReservedUnfilled).contains(status)
 
   def canCommit(status: Status): Boolean = status == Completed
 
@@ -32,7 +33,7 @@ object ROBEntryStatusReference {
 
 class ROBEntryStatusProbeIO extends Bundle {
   val status = Input(ROBEntryStatus())
-  val values = Output(Vec(8, UInt(3.W)))
+  val values = Output(Vec(9, UInt(4.W)))
   val occupiesRob = Output(Bool())
   val osdActive = Output(Bool())
   val canCommit = Output(Bool())
@@ -51,6 +52,7 @@ class ROBEntryStatusProbe extends Module {
   io.values(5) := ROBEntryStatus.Retired.asUInt
   io.values(6) := ROBEntryStatus.Fault.asUInt
   io.values(7) := ROBEntryStatus.NeedFlush.asUInt
+  io.values(8) := ROBEntryStatus.ReservedUnfilled.asUInt
 
   io.occupiesRob := ROBEntryStatus.occupiesRob(io.status)
   io.osdActive := ROBEntryStatus.osdActive(io.status)
@@ -63,12 +65,12 @@ class ROBEntryStatusSpec extends AnyFunSuite {
   import ROBEntryStatusReference._
 
   test("reference preserves LinxCoreModel PROBStatus numeric order") {
-    assert(all.map(_.value) == Seq(0, 1, 2, 3, 4, 5, 6, 7))
+    assert(all.map(_.value) == Seq(0, 1, 2, 3, 4, 5, 6, 7, 8))
   }
 
   test("reference separates ROB residency from outstanding commit work") {
-    assert(all.filter(occupiesRob).map(_.value) == Seq(1, 2, 3, 4, 5, 6, 7))
-    assert(all.filter(osdActive).map(_.value) == Seq(1, 2, 3, 4, 7))
+    assert(all.filter(occupiesRob).map(_.value) == Seq(1, 2, 3, 4, 5, 6, 7, 8))
+    assert(all.filter(osdActive).map(_.value) == Seq(1, 2, 3, 4, 7, 8))
   }
 
   test("reference keeps commit and dealloc as separate status predicates") {
@@ -77,14 +79,14 @@ class ROBEntryStatusSpec extends AnyFunSuite {
   }
 
   test("reference flush-clears only outstanding non-retired work") {
-    assert(all.filter(flushClears).map(_.value) == Seq(1, 2, 3, 4, 7))
+    assert(all.filter(flushClears).map(_.value) == Seq(1, 2, 3, 4, 7, 8))
   }
 
   test("ROBEntryStatus probe IO widths cover all model statuses") {
     val io = new ROBEntryStatusProbeIO
 
-    assert(io.status.getWidth == 3)
-    assert(io.values.head.getWidth == 3)
+    assert(io.status.getWidth == 4)
+    assert(io.values.head.getWidth == 4)
   }
 
   test("ROBEntryStatus elaborates helper predicates through Chisel") {
@@ -92,6 +94,7 @@ class ROBEntryStatusSpec extends AnyFunSuite {
 
     assert(sv.contains("module ROBEntryStatusProbe"))
     assert(sv.contains("io_values_0"))
+    assert(sv.contains("io_values_8"))
     assert(sv.contains("io_osdActive"))
     assert(sv.contains("io_canCommit"))
     assert(sv.contains("io_canDealloc"))

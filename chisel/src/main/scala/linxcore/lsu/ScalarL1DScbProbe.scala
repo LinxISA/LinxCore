@@ -54,6 +54,7 @@ class ScalarL1DScbProbe extends Module {
 
   scb.io.reqs := 0.U.asTypeOf(scb.io.reqs)
   scb.io.reqs(0).valid := io.requestValid
+  scb.io.reqs(0).ownsStqRow := true.B
   scb.io.reqs(0).addr := io.requestAddr
   scb.io.reqs(0).data := io.requestData
   scb.io.reqs(0).size := io.requestSize

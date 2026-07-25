@@ -161,6 +161,7 @@ class LinxCoreFrontendAluTraceTop(
   execute.io.in := executeIngress.io.deq.bits.uop
   execute.io.srcData := executeIngress.io.deq.bits.srcData
   execute.io.loadLookupData := 0.U
+  execute.io.loadPairFirstLookupData := 0.U
   execute.io.loadLookupWaitBlocked := false.B
   execute.io.loadLiqEnable := false.B
   execute.io.loadLiqAccepted := false.B

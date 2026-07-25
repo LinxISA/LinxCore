@@ -152,6 +152,10 @@ class DecodedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val uopType = UInt(p.uopKindWidth.W)
   val src = Vec(3, new DecodedOperand(p))
   val dst = Vec(1, new DecodedDestination(p))
+  // Reduced scalar load-pair sideband.  The ordinary destination remains the
+  // architecturally second lane represented by the scalar commit row; this
+  // sideband preserves the first lane so rename and writeback can mutate both
+  // mappings atomically without pretending the instruction has one result.
   val pairFirstDst = new DecodedDestination(p)
   val imm = UInt(p.immWidth.W)
   val immType = UInt(p.immTypeWidth.W)
@@ -173,6 +177,11 @@ class DecodedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val boundaryKind = BoundaryKind()
   val boundaryTarget = UInt(p.pcWidth.W)
   val predTaken = Bool()
+  val fretStkContextValid = Bool()
+  val fretStkConditionValid = Bool()
+  val fretStkConditionTaken = Bool()
+  val fretStkFallbackTargetValid = Bool()
+  val fretStkFallbackTarget = UInt(p.pcWidth.W)
   val insnLen = UInt(p.lenWidth.W)
   val insnRaw = UInt(p.insnWidth.W)
   val checkpointId = UInt(p.checkpointWidth.W)
@@ -214,7 +223,9 @@ class RenamedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val predTaken = Bool()
   val fretStkContextValid = Bool()
   val fretStkConditionValid = Bool()
+  val fretStkConditionTaken = Bool()
   val fretStkFallbackTargetValid = Bool()
+  val fretStkFallbackTarget = UInt(p.pcWidth.W)
   val resolvedD2 = Bool()
   val insnLen = UInt(p.lenWidth.W)
   val insnRaw = UInt(p.insnWidth.W)

@@ -125,7 +125,11 @@ class DispatchROBAllocatorIO(
   val blockEngineDoneStid = Input(UInt(stidWidth.W))
   val blockEngineTrapValid = Input(Bool())
   val blockEngineTrapCause = Input(UInt(trapCauseWidth.W))
+  val blockScalarDrainValid = Input(Bool())
+  val blockScalarDrainBid = Input(UInt(bidWidth.W))
+  val blockScalarDrainStid = Input(UInt(stidWidth.W))
   val blockRetireReady = Input(Bool())
+  val blockRetireHold = Input(Bool())
   val blockRetireValid = Output(Bool())
   val blockRetireFire = Output(Bool())
   val blockRetireBid = Output(UInt(bidWidth.W))
@@ -147,6 +151,12 @@ class DispatchROBAllocatorIO(
   val blockFlushLegacyPointerMismatch = Output(Bool())
   val blockFlushWindowValid = Output(Bool())
   val blockFlushRetainedCount = Output(UInt(sizeWidth.W))
+  val recoveryEmptyBlockCloseValid = Output(Bool())
+  val recoveryEmptyBlockCloseBid = Output(UInt(bidWidth.W))
+  val recoveryEmptyBlockCloseStid = Output(UInt(stidWidth.W))
+  val scalarEmptyBlockCloseValid = Output(Bool())
+  val scalarEmptyBlockCloseBid = Output(UInt(bidWidth.W))
+  val scalarEmptyBlockCloseStid = Output(UInt(stidWidth.W))
   val blockAllocCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
   val blockCommitCursor = Output(Vec(stidCount, UInt(bidWidth.W)))
   val blockLiveCount = Output(Vec(stidCount, UInt(sizeWidth.W)))
@@ -236,6 +246,8 @@ class DispatchROBAllocatorIO(
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
   val commitHeadBid = Output(new ROBID(entries))
+  val commitHeadGid = Output(new ROBID(entries))
+  val commitHeadRid = Output(new ROBID(entries))
   val commitHeadLsId = Output(UInt(lsidWidth.W))
   val commitHeadStid = Output(UInt(stidWidth.W))
   val deallocHeadValid = Output(Bool())
@@ -412,6 +424,30 @@ class DispatchROBAllocator(
   rob.io.allocMarkerStop := io.allocMarkerStop
   rob.io.allocMarkerBoundaryKind := io.allocMarkerBoundaryKind
   rob.io.allocMarkerBoundaryTarget := io.allocMarkerBoundaryTarget
+  val recoveryRetainedClosePending = RegInit(false.B)
+  val recoveryRetainedCloseBid = RegInit(0.U(bidWidth.W))
+  val recoveryRetainedCloseStid = RegInit(0.U(stidWidth.W))
+  val recoveryRetainedCloseCapture = blockOrder.io.recoveryApplied && !io.blockFlushInclusive
+  val recoveryRetainedCloseFire = recoveryRetainedClosePending && !brob.io.scalarRowCloseValid
+  when(recoveryRetainedCloseCapture) {
+    recoveryRetainedClosePending := true.B
+    recoveryRetainedCloseBid := blockOrder.io.recoveryResolvedPivotBid
+    recoveryRetainedCloseStid := io.blockFlushStid
+  }.elsewhen(recoveryRetainedCloseFire) {
+    recoveryRetainedClosePending := false.B
+  }
+  assert(!(recoveryRetainedCloseCapture && recoveryRetainedClosePending),
+    "a retained-block recovery close must be consumed before another recovery is captured")
+
+  rob.io.blockCloseValid := brob.io.scalarRowCloseValid || recoveryRetainedCloseFire
+  rob.io.blockCloseBid := Mux(
+    brob.io.scalarRowCloseValid,
+    brob.io.scalarRowCloseBid(traceParams.blockBidWidth - 1, 0),
+    recoveryRetainedCloseBid(traceParams.blockBidWidth - 1, 0))
+  rob.io.blockCloseStid := Mux(
+    brob.io.scalarRowCloseValid,
+    brob.io.scalarRowCloseStid,
+    recoveryRetainedCloseStid)
   rob.io.renameUpdateValid := io.renameUpdateValid
   rob.io.renameUpdateRid := io.renameUpdateRid
   rob.io.renameUpdateRow := io.renameUpdateRow
@@ -439,6 +475,10 @@ class DispatchROBAllocator(
   brob.io.allocPeId := io.allocPeId
   brob.io.allocBlockType := io.allocBlockType
   brob.io.allocNeedsEngine := io.allocNeedsEngine
+  brob.io.allocHasScalarRow := scalarBrobAllocFire
+  brob.io.scalarRowObservedValid := scalarAdmission.io.allocFire
+  brob.io.scalarRowObservedBid := rowBlockBid
+  brob.io.scalarRowObservedStid := io.allocStid
   brob.io.scalarDoneValid := io.blockScalarDoneValid
   brob.io.scalarDoneBid := io.blockScalarDoneBid
   brob.io.scalarDoneStid := io.blockScalarDoneStid
@@ -449,6 +489,9 @@ class DispatchROBAllocator(
   brob.io.engineDoneStid := io.blockEngineDoneStid
   brob.io.engineTrapValid := io.blockEngineTrapValid
   brob.io.engineTrapCause := io.blockEngineTrapCause
+  brob.io.scalarDrainValid := io.blockScalarDrainValid
+  brob.io.scalarDrainBid := io.blockScalarDrainBid
+  brob.io.scalarDrainStid := io.blockScalarDrainStid
   brob.io.retireValid := blockOrder.io.retireFire
   brob.io.retireBid := blockOrder.io.retireBid
   brob.io.retireStid := blockOrder.io.retireStid
@@ -488,6 +531,7 @@ class DispatchROBAllocator(
   blockOrder.io.headComplete := VecInit((0 until stidCount).map { stid =>
     brob.io.oldestComplete(stid) && storeRanges.io.headCountKnown(stid)
   })
+  blockOrder.io.retireHold := io.blockRetireHold
   blockOrder.io.retireReady := io.blockRetireReady
   storeRanges.io.allocValid := blockOrder.io.allocApplied
   storeRanges.io.allocBid := Mux(storeRangeBlockOnlyCandidate, blockOnlyNextBlockBid, allocNextBlockBid)
@@ -540,6 +584,29 @@ class DispatchROBAllocator(
   io.blockFlushLegacyPointerMismatch := blockOrder.io.recoveryLegacyPointerMismatch
   io.blockFlushWindowValid := blockOrder.io.recoveryWindowValid
   io.blockFlushRetainedCount := blockOrder.io.recoveryRetainedCount
+  io.recoveryEmptyBlockCloseValid := recoveryRetainedCloseFire && !rob.io.blockCloseMatched
+  io.recoveryEmptyBlockCloseBid := Mux(
+    io.recoveryEmptyBlockCloseValid,
+    recoveryRetainedCloseBid,
+    0.U)
+  io.recoveryEmptyBlockCloseStid := Mux(
+    io.recoveryEmptyBlockCloseValid,
+    recoveryRetainedCloseStid,
+    0.U)
+  // A decode-side marker may close a block after its final ROB row has already
+  // deallocated.  The ROB cannot retroactively tag that row as block-last, so
+  // publish an explicit empty close for the T/U local-commit path.  A repeated
+  // scalar-done observation is filtered by BrobMetaTracker and cannot create a
+  // duplicate close here.
+  io.scalarEmptyBlockCloseValid := brob.io.scalarRowCloseValid && !rob.io.blockCloseMatched
+  io.scalarEmptyBlockCloseBid := Mux(
+    io.scalarEmptyBlockCloseValid,
+    brob.io.scalarRowCloseBid,
+    0.U)
+  io.scalarEmptyBlockCloseStid := Mux(
+    io.scalarEmptyBlockCloseValid,
+    brob.io.scalarRowCloseStid,
+    0.U)
   io.blockAllocCursor := blockOrder.io.allocCursor
   io.blockCommitCursor := blockOrder.io.commitCursor
   io.blockLiveCount := blockOrder.io.liveCount
@@ -650,6 +717,8 @@ class DispatchROBAllocator(
   io.commitHeadStatus := rob.io.commitHeadStatus
   io.commitHeadRobValue := rob.io.commitHeadRobValue
   io.commitHeadBid := rob.io.commitHeadBid
+  io.commitHeadGid := rob.io.commitHeadGid
+  io.commitHeadRid := rob.io.commitHeadRid
   io.commitHeadLsId := rob.io.commitHeadLsId
   io.commitHeadStid := rob.io.commitHeadStid
   io.deallocHeadValid := rob.io.deallocHeadValid

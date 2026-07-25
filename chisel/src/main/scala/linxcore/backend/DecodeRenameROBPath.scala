@@ -1,7 +1,7 @@
 package linxcore.backend
 
 import chisel3._
-import chisel3.util.{log2Ceil, PriorityEncoder, Queue}
+import chisel3.util.{Fill, log2Ceil, PriorityEncoder, Queue, RegEnable}
 
 import linxcore.bctrl.{
   BID,
@@ -17,6 +17,7 @@ import linxcore.recovery.{
   FullBidFlushReq,
   FullBidRecoveryBridge,
   BccMispredictRecoveryEvent,
+  ExecEngineType,
   IexRecoveryEvent,
   IexIqStallRecoveryIdentity,
   RecoveryBackendControl,
@@ -133,7 +134,7 @@ class DecodeRenameROBPathIO(
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
-  private val gprReservationCountWidth = decRenCountWidth
+  private val gprReservationCountWidth = log2Ceil(decRenQueueDepth * 2 + 1)
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(physicalStoreStqEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
@@ -275,6 +276,7 @@ class DecodeRenameROBPathIO(
   val storeMask = Output(UInt(p.decodeWidth.W))
   val selectedValid = Output(Bool())
   val selectedSlot = Output(UInt(slotWidth.W))
+  val selectedIsLastInBlock = Output(Bool())
   val selectedRobValue = Output(UInt(ptrWidth.W))
   val selectedBlockBid = Output(UInt(bidWidth.W))
   val blockMarkerSkipValid = Output(Bool())
@@ -300,11 +302,18 @@ class DecodeRenameROBPathIO(
   val decodeGprReservationReady = Output(Bool())
   val decodeSelectedClosesActiveRedirect = Output(Bool())
   val decodeSelectedNeedsGprReservation = Output(Bool())
+  val scalarContinuationOwnershipCutFire = Output(Bool())
+  val scalarContinuationGprCutFire = Output(Bool())
+  val scalarContinuationTCutFire = Output(Bool())
+  val scalarContinuationUCutFire = Output(Bool())
   val gprReservationCount = Output(UInt(gprReservationCountWidth.W))
   val gprReservationNeed = Output(UInt(gprReservationCountWidth.W))
   val decRenPushReady = Output(Bool())
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
+  val scalarSpReserveValid = Output(Bool())
+  val scalarSpReserveFire = Output(Bool())
+  val scalarSpReserve = Output(new ScalarSpTransaction(p))
   val decRenValid = Output(Bool())
   val decRenHead = Output(UInt(decRenPtrWidth.W))
   val decRenTail = Output(UInt(decRenPtrWidth.W))
@@ -312,6 +321,7 @@ class DecodeRenameROBPathIO(
   val decRenEmpty = Output(Bool())
   val decRenFull = Output(Bool())
   val decRenHeadPc = Output(UInt(p.pcWidth.W))
+  val decRenHeadOpcode = Output(UInt(p.opcodeWidth.W))
   val decRenHeadUsesLocal = Output(Bool())
   val decRenHeadRidValid = Output(Bool())
   val decRenHeadRidValue = Output(UInt(p.robIndexWidth.W))
@@ -334,6 +344,9 @@ class DecodeRenameROBPathIO(
 
   val renamedOutValid = Output(Bool())
   val renamedOut = Output(new RenamedUop(p))
+  val templateSnapshotValid = Output(Bool())
+  val templateSnapshotRid = Output(new ROBID(p.robEntries))
+  val templateSmapSnapshot = Output(Vec(24, UInt(p.physRegWidth.W)))
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -569,6 +582,12 @@ class DecodeRenameROBPathIO(
   val tuRetireCommandPeId = Output(UInt(peIdWidth.W))
   val tuRetireCommandStid = Output(UInt(stidWidth.W))
   val tuRetireCommandFire = Output(Bool())
+  val tuRetireSelectedTDeallocSeq = Output(new ROBID(mapQDepth))
+  val tuRetireSelectedUDeallocSeq = Output(new ROBID(mapQDepth))
+  val tuRetireSelectedTValidMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedUValidMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedTRetiredMask = Output(UInt(mapQDepth.W))
+  val tuRetireSelectedURetiredMask = Output(UInt(mapQDepth.W))
   val tuRetireAutoCleanBlockPending = Output(Bool())
   val tuRetireAutoCleanBlockValid = Output(Bool())
   val tuRetireAutoCleanBlockBid = Output(new ROBID(p.robEntries))
@@ -576,6 +595,7 @@ class DecodeRenameROBPathIO(
   val tuRetireLocalBlockCommitValid = Output(Bool())
   val tuRetireLocalBlockCommitReady = Output(Bool())
   val tuRetireLocalBlockCommitBid = Output(new ROBID(p.robEntries))
+  val tuRetireLocalBlockCommitFullBid = Output(UInt(bidWidth.W))
   val tuRetireLocalBlockCommitStid = Output(UInt(stidWidth.W))
   val tuRetireLocalBlockCommitFire = Output(Bool())
   val tuRetireLocalBlockCommitAccepted = Output(Bool())
@@ -640,6 +660,8 @@ class DecodeRenameROBPathIO(
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
   val commitHeadBid = Output(new ROBID(p.robEntries))
+  val commitHeadGid = Output(new ROBID(p.robEntries))
+  val commitHeadRid = Output(new ROBID(p.robEntries))
   val commitHeadLsId = Output(UInt(p.lsidWidth.W))
   val commitHeadStid = Output(UInt(stidWidth.W))
   val robStatusLookupValid = Input(Bool())
@@ -686,6 +708,7 @@ class DecodeRenameROBPath(
     val tuRetireReleaseThreshold: Int = 4,
     val blockRenameCommitQueueDepth: Int = 16,
     val scalarContinuationGprCutThreshold: Int = 32,
+    val scalarContinuationTuCutThreshold: Int = -1,
     val useMarkerDecodeContext: Boolean = false,
     val skipBlockMarkers: Boolean = false,
     val reducedStoreDispatchBypass: Boolean = false)
@@ -718,12 +741,18 @@ class DecodeRenameROBPath(
     "block rename commit queue depth must be a power of two")
   require(scalarContinuationGprCutThreshold > 1,
     "scalar continuation GPR cut threshold must be greater than one")
+  private val effectiveScalarContinuationTuCutThreshold =
+    if (scalarContinuationTuCutThreshold < 0) mapQDepth else scalarContinuationTuCutThreshold
+  require(effectiveScalarContinuationTuCutThreshold > 1,
+    "scalar continuation T/U cut threshold must be greater than one")
+  require(effectiveScalarContinuationTuCutThreshold <= mapQDepth,
+    "scalar continuation T/U cut threshold must not exceed T/U mapQ depth")
   require(scalarStidCount > 0, "DecodeRenameROBPath must expose at least one scalar STID lane")
   require(BigInt(scalarStidCount) <= (BigInt(1) << stidWidth), "scalar STID count must fit stidWidth")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
-  private val gprReservationCountWidth = log2Ceil(decRenQueueDepth + 1)
+  private val gprReservationCountWidth = log2Ceil(decRenQueueDepth * 2 + 1)
   private def fitReg(tag: UInt): UInt =
     tag.pad(traceParams.regWidth)(traceParams.regWidth - 1, 0)
 
@@ -781,7 +810,6 @@ class DecodeRenameROBPath(
   decode.io.slots := io.slots
   decode.io.validMask := io.validMask
   decode.io.flushValid := io.flushValid
-
   io.decodedValidMask := decode.io.outValidMask
   io.invalidOpcodeMask := decode.io.invalidOpcodeMask
   io.blockBoundaryMask := decode.io.blockBoundaryMask
@@ -818,13 +846,22 @@ class DecodeRenameROBPath(
 
   val selectedIsLoad = selectedAny && VecInit(decode.io.loadMask.asBools)(selectedSlot)
   val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
-  val selectedNeedsGprReservation =
+  val selectedPrimaryGprReservation =
     selectedAny && selected.dst(0).valid && (selected.dst(0).kind === DestinationKind.Gpr) &&
       (selected.dst(0).archTag < scalarArchRegs.U)
+  val selectedPairFirstGprReservation =
+    selectedAny && selected.pairFirstDst.valid &&
+      (selected.pairFirstDst.kind === DestinationKind.Gpr) &&
+      (selected.pairFirstDst.archTag < scalarArchRegs.U)
+  val selectedGprReservationCount =
+    selectedPrimaryGprReservation.asUInt +& selectedPairFirstGprReservation.asUInt
+  val selectedNeedsGprReservation = selectedGprReservationCount =/= 0.U
   val markerBoundary = markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
   val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
   val selectedStid = selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
   val markerStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val markerDecodeQueryStid = dontTouch(Wire(UInt(stidWidth.W)))
+  markerDecodeQueryStid := Mux(markerOnlyPacket, markerStid, selectedStid)
   val localScalarRedirectValid = Wire(Bool())
   val localScalarRedirectStid = Wire(UInt(stidWidth.W))
 
@@ -954,6 +991,15 @@ class DecodeRenameROBPath(
 
   val blockLifecycleFlush = canonicalCleanup.valid &&
     (canonicalCleanup.backendFlushValid || canonicalCleanup.blockFlushValid)
+  val robBlockLastLifecycleValid = RegNext(allocator.io.deallocBlockLastValid && !blockLifecycleFlush, false.B)
+  val robBlockLastLifecycleBid = RegEnable(
+    allocator.io.deallocBlockLastBlockBid,
+    0.U(bidWidth.W),
+    allocator.io.deallocBlockLastValid)
+  val robBlockLastLifecycleStid = RegEnable(
+    allocator.io.deallocBlockLastStid,
+    0.U(stidWidth.W),
+    allocator.io.deallocBlockLastValid)
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
     bidWidth = bidWidth,
@@ -964,8 +1010,8 @@ class DecodeRenameROBPath(
     stidWidth = stidWidth,
     stidCount = scalarStidCount
   ))
-  val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
-  val markerLifecycleConflict = robBlockLastScalarDoneFire
+  val robBlockLastScalarDoneFire = robBlockLastLifecycleValid
+  val robBlockLastRawMarkerLifecycleConflict = robBlockLastScalarDoneFire
   markerLifecycle.io.flushValid := false.B
   markerLifecycle.io.flushStidValid := blockLifecycleFlush
   markerLifecycle.io.flushStid := canonicalCleanup.flush.req.stid
@@ -980,22 +1026,30 @@ class DecodeRenameROBPath(
   markerLifecycle.io.markerAllocBid := allocator.io.blockAllocOnlyBid
   markerLifecycle.io.branchTakenValid := io.blockBranchTakenValid
   markerLifecycle.io.branchTaken := io.blockBranchTaken
-  markerLifecycle.io.scalarWorkPending := !allocator.io.empty
-  markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
+  val scalarWorkPending = Wire(Bool())
+  markerLifecycle.io.scalarWorkPending := scalarWorkPending
   markerLifecycle.io.retirePending := allocator.io.blockRetireValid
   markerLifecycle.io.scalarRedirectValid := localScalarRedirectValid
   markerLifecycle.io.scalarRedirectStid := localScalarRedirectStid
+  markerLifecycle.io.scalarContinuationOwnershipCutFire := false.B
+  markerLifecycle.io.scalarContinuationOwnershipCutStid := selectedStid
   markerLifecycle.io.scalarBlockStartFire :=
     allocator.io.allocFire && selectedAny && !markerLifecycle.io.activeValid
   markerLifecycle.io.scalarBlockStartStid := selectedStid
   markerLifecycle.io.scalarBlockStartBid := allocator.io.allocBlockBid
   markerLifecycle.io.robBlockLastValid := robBlockLastScalarDoneFire
-  markerLifecycle.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
-  markerLifecycle.io.robBlockLastStid := allocator.io.deallocBlockLastStid
-  markerLifecycle.io.activeQueryStid := selectedStid
+  markerLifecycle.io.robBlockLastBid := robBlockLastLifecycleBid
+  markerLifecycle.io.robBlockLastStid := robBlockLastLifecycleStid
+  markerLifecycle.io.activeQueryStid := markerDecodeQueryStid
 
   val scalarContinuationGprCut = Wire(Bool())
+  val scalarContinuationTCut = Wire(Bool())
+  val scalarContinuationUCut = Wire(Bool())
+  val scalarContinuationOwnershipCut = Wire(Bool())
   scalarContinuationGprCut := false.B
+  scalarContinuationTCut := false.B
+  scalarContinuationUCut := false.B
+  scalarContinuationOwnershipCut := false.B
   val decRenFlush = io.flushValid || (canonicalCleanup.valid && canonicalCleanup.backendFlushValid)
   val markerDecodeContextOpt =
     if (useMarkerDecodeContext) {
@@ -1012,7 +1066,7 @@ class DecodeRenameROBPath(
       ctx.io.decodeFire := allocator.io.allocFire
       ctx.io.decodeBoundary := selected.sob
       ctx.io.decodeStop := selected.eob
-      ctx.io.decodeLast := selected.isLastInBlock || scalarContinuationGprCut
+      ctx.io.decodeLast := selected.isLastInBlock || scalarContinuationOwnershipCut
       ctx.io.decodeStid := selectedStid
       ctx.io.decodeAllocBid := allocator.io.allocBlockBid
       ctx.io.decodeTarget := selected.boundaryTarget
@@ -1020,9 +1074,9 @@ class DecodeRenameROBPath(
       ctx.io.scalarRedirectValid := localScalarRedirectValid
       ctx.io.scalarRedirectStid := localScalarRedirectStid
       ctx.io.robBlockLastValid := robBlockLastScalarDoneFire
-      ctx.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
-      ctx.io.robBlockLastStid := allocator.io.deallocBlockLastStid
-      ctx.io.queryStid := selectedStid
+      ctx.io.robBlockLastBid := robBlockLastLifecycleBid
+      ctx.io.robBlockLastStid := robBlockLastLifecycleStid
+      ctx.io.queryStid := markerDecodeQueryStid
       Some(ctx)
     } else {
       None
@@ -1055,10 +1109,33 @@ class DecodeRenameROBPath(
   val activeBlockCond = markerDecodeContextOpt.map(_.io.activeCond).getOrElse(markerLifecycle.io.activeCond)
   val activeBlockUnconditionalRedirect =
     markerDecodeContextOpt.map(_.io.activeUnconditionalRedirect).getOrElse(markerLifecycle.io.activeUnconditionalRedirect)
+  val robBlockLastOwnsMarkerDecode = dontTouch(Wire(Bool()))
+  robBlockLastOwnsMarkerDecode := markerOnlyPacket && activeBlockValid &&
+    robBlockLastLifecycleStid === markerDecodeQueryStid &&
+    robBlockLastLifecycleBid === activeBlockBid
+  val markerLifecycleConflict = robBlockLastRawMarkerLifecycleConflict && !robBlockLastOwnsMarkerDecode
+  markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
+  val selectedTemplateBoundary =
+    selectedAny &&
+      Seq(
+        FrontendOpcodeDecodeTable.OP_FENTRY,
+        FrontendOpcodeDecodeTable.OP_FEXIT,
+        FrontendOpcodeDecodeTable.OP_FRET_RA,
+        FrontendOpcodeDecodeTable.OP_FRET_STK
+      ).map(opcode => selected.opcode === opcode.U(p.opcodeWidth.W)).reduce(_ || _)
+  val activeBlockRedirectReady =
+    activeBlockUnconditionalRedirect ||
+      (activeBlockCond && io.blockBranchTakenValid && io.blockBranchTaken)
   val selectedClosesActiveRedirectIntent =
     selectedAny && !selected.sob && !selected.eob && activeBlockValid && activeBlockTarget =/= 0.U &&
-      selected.pc === activeBlockTarget &&
-      (activeBlockUnconditionalRedirect || (activeBlockCond && io.blockBranchTakenValid && io.blockBranchTaken))
+      activeBlockRedirectReady &&
+      (selected.pc === activeBlockTarget || selectedTemplateBoundary)
+  // FENTRY/FEXIT/FRET are executable macro templates, so they must not be
+  // projected onto the SOB/EOB marker path. They are nevertheless
+  // architectural block boundaries: when sequential decode reaches one while
+  // an older redirect boundary is waiting for its scalar body to drain, close
+  // that body before admitting the template. The marker lifecycle then emits
+  // the saved redirect target on the following cycle.
   val selectedClosesActiveRedirect = Wire(Bool())
   selectedClosesActiveRedirect := false.B
   val selectedBlockBid =
@@ -1075,19 +1152,37 @@ class DecodeRenameROBPath(
     ).getOrElse(false.B)
   val decodeContextCloseIntent = decodeContextMarkerCloseIntent || selectedClosesActiveRedirectIntent
   val decodeContextClosingBlockBid =
-    markerDecodeContextOpt.map(_.io.decodeActiveBid).getOrElse(0.U(bidWidth.W))
+    markerDecodeContextOpt.map(_.io.decodeActiveBid).getOrElse(activeBlockBid)
   val scalarContinuationGprCutCountWidth = log2Ceil(scalarContinuationGprCutThreshold + 1)
+  val scalarContinuationTuCutCountWidth = log2Ceil(effectiveScalarContinuationTuCutThreshold + 1)
   val scalarContinuationGprCutCount = RegInit(0.U(scalarContinuationGprCutCountWidth.W))
+  val scalarContinuationTCutCount = RegInit(0.U(scalarContinuationTuCutCountWidth.W))
+  val scalarContinuationUCutCount = RegInit(0.U(scalarContinuationTuCutCountWidth.W))
   val selectedScalarBody = selectedAny && !selected.sob && !selected.eob
   val selectedContinuationGprWrite =
     selectedScalarBody && selectedUsesExistingBlock && selectedNeedsGprReservation
+  val selectedContinuationTWrite =
+    selectedScalarBody && selectedUsesExistingBlock && selected.dst(0).valid &&
+      (selected.dst(0).kind === DestinationKind.T)
+  val selectedContinuationUWrite =
+    selectedScalarBody && selectedUsesExistingBlock && selected.dst(0).valid &&
+      (selected.dst(0).kind === DestinationKind.U)
   scalarContinuationGprCut :=
     selectedContinuationGprWrite &&
       scalarContinuationGprCutCount === (scalarContinuationGprCutThreshold - 1).U(scalarContinuationGprCutCountWidth.W)
+  scalarContinuationTCut :=
+    selectedContinuationTWrite &&
+      scalarContinuationTCutCount === (effectiveScalarContinuationTuCutThreshold - 1).U(scalarContinuationTuCutCountWidth.W)
+  scalarContinuationUCut :=
+    selectedContinuationUWrite &&
+      scalarContinuationUCutCount === (effectiveScalarContinuationTuCutThreshold - 1).U(scalarContinuationTuCutCountWidth.W)
+  scalarContinuationOwnershipCut := scalarContinuationGprCut || scalarContinuationTCut || scalarContinuationUCut
+  markerLifecycle.io.scalarContinuationOwnershipCutFire :=
+    !useMarkerDecodeContext.B && allocator.io.allocFire && selectedAny && scalarContinuationOwnershipCut
 
   val selectedForQueue = Wire(new DecodedUop(p))
   selectedForQueue := memIds.io.out
-  selectedForQueue.isLastInBlock := memIds.io.out.isLastInBlock || scalarContinuationGprCut
+  selectedForQueue.isLastInBlock := memIds.io.out.isLastInBlock || scalarContinuationOwnershipCut
   selectedForQueue.valid := selectedAny
   selectedForQueue.bid :=
     FullBidRecoveryBridge.fullBidToRobId(selectedBlockBid, selectedAny, p.robEntries, bidWidth)
@@ -1098,6 +1193,23 @@ class DecodeRenameROBPath(
   selectedForQueue.rid.value := allocator.io.allocRobValue
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
+  val selectedFretStk = selectedAny && selected.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+  // Decode does not own the causal SETC-to-FRET handoff.  FRET.STK commonly
+  // sits in the following STD block, so a decode-time snapshot can capture an
+  // unrelated earlier block's global condition.  The issue boundary waits for
+  // and atomically snapshots the live condition into the renamed uop instead.
+  selectedForQueue.fretStkContextValid := false.B
+  selectedForQueue.fretStkConditionValid := false.B
+  selectedForQueue.fretStkConditionTaken := false.B
+  // Only a conditional marker owns the SETC-to-FRET fallback contract.
+  // Direct/call markers also carry a non-zero target, but that target is the
+  // control transfer which entered the callee, not a condition for the
+  // callee's eventual return.  Treating it as a FRET fallback makes an
+  // ordinary nested return wait forever for a SETC that does not exist.
+  selectedForQueue.fretStkFallbackTargetValid :=
+    selectedFretStk && activeBlockValid && activeBlockCond && activeBlockTarget =/= 0.U
+  selectedForQueue.fretStkFallbackTarget := activeBlockTarget
+  selectedForQueue.spAccess := ScalarSpAccess.classify(selectedForQueue)
 
   val serviceAdjacentStopClassifier =
     Module(new DecodeRenameServiceAdjacentStopClassifier(p, bidWidth, stidWidth))
@@ -1116,7 +1228,7 @@ class DecodeRenameROBPath(
   gprReservations.io.flush := decRenFlush
   gprReservations.io.selectedValid := selectedAny
   gprReservations.io.selectedStid := selectedStid
-  gprReservations.io.selectedNeedsGpr := selectedNeedsGprReservation
+  gprReservations.io.selectedCount := selectedGprReservationCount
   gprReservations.io.freePhysCount := gprFreeBudget
   gprReservations.io.selectedMapQFreeCount := gprMapQFreeBudget
   val gprReservationReady = gprReservations.io.ready
@@ -1149,11 +1261,21 @@ class DecodeRenameROBPath(
   selectedClosesActiveRedirect := selectedClosesActiveRedirectIntent && decodeContextCloseSafe
   localScalarRedirectValid := io.scalarRedirectValid || selectedClosesActiveRedirect
   localScalarRedirectStid := Mux(selectedClosesActiveRedirect, selectedStid, io.scalarRedirectStid)
-  when(decRenFlush || blockLifecycleFlush) {
+  val markerResetsScalarContinuationCounts =
+    (markerOnlyPacket && markerLifecycle.io.markerReady) ||
+      markerLifecycle.io.markerAllocFire ||
+      markerLifecycle.io.markerRedirectBoundaryFire ||
+      markerLifecycle.io.markerStopFire ||
+      markerLifecycle.io.retiredMarkerFire
+  when(decRenFlush || blockLifecycleFlush || markerResetsScalarContinuationCounts) {
     scalarContinuationGprCutCount := 0.U
+    scalarContinuationTCutCount := 0.U
+    scalarContinuationUCutCount := 0.U
   }.elsewhen(allocator.io.allocFire && selectedAny) {
-    when(selected.sob || selected.eob || scalarContinuationGprCut) {
+    when(selected.sob || selected.eob || scalarContinuationOwnershipCut) {
       scalarContinuationGprCutCount := 0.U
+      scalarContinuationTCutCount := 0.U
+      scalarContinuationUCutCount := 0.U
     }.elsewhen(selectedNeedsGprReservation) {
       when(selectedUsesExistingBlock) {
         scalarContinuationGprCutCount := scalarContinuationGprCutCount + 1.U
@@ -1163,14 +1285,42 @@ class DecodeRenameROBPath(
     }.elsewhen(!selectedUsesExistingBlock) {
       scalarContinuationGprCutCount := 0.U
     }
+    when(!(selected.sob || selected.eob || scalarContinuationOwnershipCut)) {
+      when(selected.dst(0).valid && selected.dst(0).kind === DestinationKind.T) {
+        when(selectedUsesExistingBlock) {
+          scalarContinuationTCutCount := scalarContinuationTCutCount + 1.U
+        }.otherwise {
+          scalarContinuationTCutCount := 1.U
+        }
+      }.elsewhen(!selectedUsesExistingBlock) {
+        scalarContinuationTCutCount := 0.U
+      }
+      when(selected.dst(0).valid && selected.dst(0).kind === DestinationKind.U) {
+        when(selectedUsesExistingBlock) {
+          scalarContinuationUCutCount := scalarContinuationUCutCount + 1.U
+        }.otherwise {
+          scalarContinuationUCutCount := 1.U
+        }
+      }.elsewhen(!selectedUsesExistingBlock) {
+        scalarContinuationUCutCount := 0.U
+      }
+    }
   }
 
   val queuedForRename = Wire(new DecodedUop(p))
   queuedForRename := decRenQ.io.out
+  // A marker closes the current block only after every older scalar row has
+  // entered the ROB.  ROB emptiness alone misses rows stalled in dec-ren.
+  scalarWorkPending := !allocator.io.empty || decRenQ.io.out.valid
   val queuedMarkerForRename = queuedForRename.valid && (queuedForRename.sob || queuedForRename.eob)
-  val queuedNeedsGprReservation =
-    queuedForRename.valid && queuedForRename.dst(0).valid && (queuedForRename.dst(0).kind === DestinationKind.Gpr) &&
-      (queuedForRename.dst(0).archTag < scalarArchRegs.U)
+  val queuedGprReservation = withReset(reset.asBool || decRenFlush) {
+    Module(new Queue(UInt(2.W), decRenQueueDepth))
+  }
+  queuedGprReservation.io.enq.valid := decRenQ.io.pushFire
+  queuedGprReservation.io.enq.bits := selectedGprReservationCount
+  queuedGprReservation.io.deq.ready := decRenQ.io.popFire
+  assert(!decRenQ.io.popFire || queuedGprReservation.io.deq.valid,
+    "GPR reservation sideband must track decode-to-rename queue occupancy")
 
   val rename = Module(new ScalarTURenameBridge(
     p = p,
@@ -1271,9 +1421,11 @@ class DecodeRenameROBPath(
 
   val storeSplit = Module(new StoreSplitPayload(p, mapQDepth))
   val renamedOutIsMarker = rename.io.outValid && (rename.io.out.sob || rename.io.out.eob)
+  val renamedOutAccepted = rename.io.outValid && rename.io.outReady
   val storeSplitIn = Wire(new RenamedUop(p))
   storeSplitIn := rename.io.out
-  when(renamedOutIsMarker) {
+  storeSplitIn.valid := rename.io.out.valid && renamedOutAccepted
+  when(renamedOutIsMarker || !renamedOutAccepted) {
     storeSplitIn.valid := false.B
   }
   storeSplit.io.in := storeSplitIn
@@ -1336,11 +1488,35 @@ class DecodeRenameROBPath(
   allocator.io.completeRobValue := Mux(io.completeValid, io.completeRobValue, markerCompletionRobValue)
   allocator.io.completeRowValid := Mux(io.completeValid, io.completeRowValid, true.B)
   allocator.io.completeRow := Mux(io.completeValid, io.completeRow, markerCompletionRow)
+  val emptyBlockClosePending = RegInit(false.B)
+  val emptyBlockCloseBid = RegInit(0.U(bidWidth.W))
+  val emptyBlockCloseStid = RegInit(0.U(stidWidth.W))
+  val emptyBlockCloseValid =
+    allocator.io.scalarEmptyBlockCloseValid || allocator.io.recoveryEmptyBlockCloseValid
+  val emptyBlockCloseEnqueue =
+    emptyBlockClosePending && tuRetirePath.io.sourceWindowReady
+  when(emptyBlockCloseValid) {
+    emptyBlockClosePending := true.B
+    emptyBlockCloseBid := Mux(
+      allocator.io.scalarEmptyBlockCloseValid,
+      allocator.io.scalarEmptyBlockCloseBid,
+      allocator.io.recoveryEmptyBlockCloseBid)
+    emptyBlockCloseStid := Mux(
+      allocator.io.scalarEmptyBlockCloseValid,
+      allocator.io.scalarEmptyBlockCloseStid,
+      allocator.io.recoveryEmptyBlockCloseStid)
+  }.elsewhen(emptyBlockCloseEnqueue) {
+    emptyBlockClosePending := false.B
+  }
+  assert(!(emptyBlockCloseValid && emptyBlockClosePending),
+    "an empty block close must enter the retire path before another is captured")
   allocator.io.deallocReady :=
     io.deallocReady &&
       tuRetirePath.io.sourceWindowReady &&
       markerRetireSerializer.io.sourceWindowReady &&
-      !tuRetirePath.io.cleanupActive
+      !tuRetirePath.io.cleanupActive &&
+      !emptyBlockClosePending &&
+      !emptyBlockCloseValid
   allocator.io.deallocHoldMask := io.deallocHoldMask
   allocator.io.statusLookupValid := io.robStatusLookupValid
   allocator.io.statusLookupRid := io.robStatusLookupRid
@@ -1368,6 +1544,9 @@ class DecodeRenameROBPath(
   allocator.io.blockEngineDoneStid := 0.U
   allocator.io.blockEngineTrapValid := false.B
   allocator.io.blockEngineTrapCause := 0.U
+  allocator.io.blockScalarDrainValid := false.B
+  allocator.io.blockScalarDrainBid := 0.U
+  allocator.io.blockScalarDrainStid := 0.U
   allocator.io.blockFlushValid := cleanup.valid && cleanup.blockFlushValid
   allocator.io.blockFlushBid := cleanup.blockFlushBid
   allocator.io.blockFlushPointerValid := cleanup.blockFlushPointerValid
@@ -1376,52 +1555,78 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushInclusive := cleanup.blockFlushInclusive
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   allocator.io.blockQueryStid := selectedStid
-  val blockRenameCommitQ = withReset(reset.asBool || (io.flushValid && !canonicalCleanup.valid)) {
-    Module(new Queue(new BlockRenameCommitIdentity(bidWidth, stidWidth), blockRenameCommitQueueDepth))
-  }
-  allocator.io.blockRetireReady := blockRenameCommitQ.io.enq.ready
-  blockRenameCommitQ.io.enq.valid := allocator.io.blockRetireValid
-  blockRenameCommitQ.io.enq.bits.fullBid := allocator.io.blockRetireBid
-  blockRenameCommitQ.io.enq.bits.stid := allocator.io.blockRetireStid
+  allocator.io.blockRetireReady := true.B
+  allocator.io.blockRetireHold :=
+    localScalarRedirectValid || recovery.io.sourceSelectedValid || recovery.io.sourcePendingMask.orR ||
+      recovery.io.pending || recovery.io.intent.valid || recovery.io.intentConsumed || cleanup.valid || canonicalCleanup.valid
   assert(!allocator.io.blockRetireFire || allocator.io.blockRetireMetadataAccepted,
     "BROB ordered retire must remove the selected resident metadata head")
-  val internalBlockCommitValid = blockRenameCommitQ.io.deq.valid
-  val internalBlockCommitFullBid = blockRenameCommitQ.io.deq.bits.fullBid
-  val internalBlockCommitStid = blockRenameCommitQ.io.deq.bits.stid
-  val internalBlockCommitBid =
+  val tuLocalCommitCanDriveRename =
+    tuRetirePath.io.localBlockCommitValid && !io.commitValid
+  val tuLocalCommitBid =
     FullBidRecoveryBridge.fullBidToRobId(
-      internalBlockCommitFullBid,
-      internalBlockCommitValid,
+      tuRetirePath.io.localBlockCommitFullBid,
+      tuLocalCommitCanDriveRename,
       p.robEntries,
       bidWidth)
-  renameCommitValid := io.commitValid || internalBlockCommitValid
-  renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
-  renameCommitBlockBid := Mux(io.commitValid, io.commitBlockBid, internalBlockCommitFullBid)
-  renameCommitStid := Mux(io.commitValid, io.commitStid, internalBlockCommitStid)
-  blockRenameCommitQ.io.deq.ready := !io.commitValid && rename.io.commitAccepted
+  renameCommitValid := io.commitValid || tuLocalCommitCanDriveRename
+  renameCommitBid := Mux(io.commitValid, io.commitBid, tuLocalCommitBid)
+  renameCommitBlockBid := Mux(io.commitValid, io.commitBlockBid, tuRetirePath.io.localBlockCommitFullBid)
+  renameCommitStid := Mux(io.commitValid, io.commitStid, tuRetirePath.io.localBlockCommitStid)
 
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
-  tuRetirePath.io.sources := allocator.io.deallocTURetireSource
+  val tuRetireSources = Wire(chiselTypeOf(allocator.io.deallocTURetireSource))
+  tuRetireSources := allocator.io.deallocTURetireSource
+  when(emptyBlockClosePending) {
+    tuRetireSources := 0.U.asTypeOf(tuRetireSources)
+    val emptyBlockLast = Wire(chiselTypeOf(tuRetireSources(0)))
+    emptyBlockLast := 0.U.asTypeOf(emptyBlockLast)
+    emptyBlockLast.valid := true.B
+    emptyBlockLast.isLast := true.B
+    emptyBlockLast.bid := FullBidRecoveryBridge.fullBidToRobId(
+      emptyBlockCloseBid,
+      true.B,
+      p.robEntries,
+      bidWidth)
+    emptyBlockLast.blockBidValid := true.B
+    emptyBlockLast.blockBid := emptyBlockCloseBid
+    emptyBlockLast.stid := emptyBlockCloseStid
+    emptyBlockLast.dstKind := DestinationKind.None
+    tuRetireSources(0) := emptyBlockLast
+  }
+  tuRetirePath.io.sources := tuRetireSources
   tuRetirePath.io.clear := false.B
-  tuRetirePath.io.flush := canonicalCleanup.flush
+  // The retire relation tracks block-local T/U ownership.  Keep it aligned
+  // with ScalarTURenameBridge's block-scoped cleanup on scalar redirects;
+  // GPR rename continues to consume the RID-precise canonical cleanup.
+  val tuRetireCleanupFlush = Wire(chiselTypeOf(canonicalCleanup.flush))
+  tuRetireCleanupFlush := canonicalCleanup.flush
+  when(canonicalCleanup.valid && canonicalCleanup.backendFlushValid &&
+      (canonicalCleanup.flush.req.execEngine === ExecEngineType.Scalar)) {
+    tuRetireCleanupFlush.baseOnBid := true.B
+  }
+  tuRetirePath.io.flush := tuRetireCleanupFlush
   tuRetirePath.io.cleanBlockValid := false.B
   tuRetirePath.io.cleanBlockBid := zeroRobId
   tuRetirePath.io.cleanGroupValid := false.B
   tuRetirePath.io.cleanGroupBid := zeroRobId
   tuRetirePath.io.cleanGroupGid := zeroRobId
-  val tuRetireCommandTerminal =
-    rename.io.tuRetireAccepted || rename.io.tuRetireMiss ||
-      rename.io.tuRetireReleaseMismatch || rename.io.tuRetireUnsupported
-  tuRetirePath.io.commandReady := tuRetireCommandTerminal
-  tuRetirePath.io.localBlockCommitReady := rename.io.tuLocalBlockCommitReady
+  tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
+  tuRetirePath.io.localBlockCommitReady :=
+    tuLocalCommitCanDriveRename && rename.io.commitAccepted && rename.io.tuLocalBlockCommitReady
+  val tuLocalCommitAtomicAccepted =
+    tuLocalCommitCanDriveRename && rename.io.commitAccepted && rename.io.tuLocalBlockCommitAccepted
+  allocator.io.blockScalarDrainValid := tuRetirePath.io.localBlockCommitFire && tuLocalCommitAtomicAccepted
+  allocator.io.blockScalarDrainBid := tuRetirePath.io.localBlockCommitFullBid
+  allocator.io.blockScalarDrainStid := tuRetirePath.io.localBlockCommitStid
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
   rename.io.tuRetireSeq := tuRetirePath.io.command.seq
   rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
   rename.io.tuRetirePeId := tuRetirePath.io.command.peId
   rename.io.tuRetireStid := tuRetirePath.io.command.stid
-  rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
+  rename.io.tuLocalBlockCommitValid := tuLocalCommitCanDriveRename
   rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
   rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
 
@@ -1445,6 +1650,7 @@ class DecodeRenameROBPath(
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
+  io.selectedIsLastInBlock := selectedForQueue.isLastInBlock
   io.selectedRobValue := allocator.io.allocRobValue
   io.selectedBlockBid := selectedBlockBid
   io.blockMarkerSkipValid := markerOnlyPacket && !mixedMarkerPacket
@@ -1462,8 +1668,12 @@ class DecodeRenameROBPath(
   io.blockMarkerActiveValid := activeBlockValid
   io.blockMarkerActiveBid := activeBlockBid
   io.blockMarkerActiveTarget := activeBlockTarget
-  io.blockMarkerStopRedirectValid := markerLifecycle.io.stopRedirectValid
-  io.blockMarkerStopRedirectPc := markerLifecycle.io.stopRedirectPc
+  val selectedBoundaryRedirectValid =
+    selectedClosesActiveRedirect && selected.pc =/= activeBlockTarget
+  io.blockMarkerStopRedirectValid :=
+    markerLifecycle.io.stopRedirectValid || selectedBoundaryRedirectValid
+  io.blockMarkerStopRedirectPc :=
+    Mux(selectedBoundaryRedirectValid, activeBlockTarget, markerLifecycle.io.stopRedirectPc)
   io.decodeReady := !mixedMarkerPacket &&
     Mux(
       markerOnlyPacket,
@@ -1475,6 +1685,10 @@ class DecodeRenameROBPath(
   io.decodeGprReservationReady := gprReservationReady
   io.decodeSelectedClosesActiveRedirect := selectedClosesActiveRedirect
   io.decodeSelectedNeedsGprReservation := selectedNeedsGprReservation
+  io.scalarContinuationOwnershipCutFire := allocator.io.allocFire && selectedAny && scalarContinuationOwnershipCut
+  io.scalarContinuationGprCutFire := allocator.io.allocFire && selectedAny && scalarContinuationGprCut
+  io.scalarContinuationTCutFire := allocator.io.allocFire && selectedAny && scalarContinuationTCut
+  io.scalarContinuationUCutFire := allocator.io.allocFire && selectedAny && scalarContinuationUCut
   io.gprReservationCount := gprReservations.io.physReservationCount
   io.gprReservationNeed := gprReservations.io.physReservationNeed
   io.decRenPushReady :=
@@ -1482,6 +1696,14 @@ class DecodeRenameROBPath(
       !selectedClosesActiveRedirect
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
+  io.scalarSpReserveValid := selectedAny && selectedForQueue.spAccess.valid
+  io.scalarSpReserveFire := allocator.io.allocFire && selectedForQueue.spAccess.valid
+  io.scalarSpReserve := 0.U.asTypeOf(new ScalarSpTransaction(p))
+  io.scalarSpReserve.access := selectedForQueue.spAccess
+  io.scalarSpReserve.stid := selectedForQueue.threadId
+  io.scalarSpReserve.bid := selectedForQueue.bid
+  io.scalarSpReserve.rid := selectedForQueue.rid
+  io.scalarSpReserve.epoch := 0.U
   io.decRenValid := decRenQ.io.out.valid
   io.decRenHead := decRenQ.io.head
   io.decRenTail := decRenQ.io.tail
@@ -1489,6 +1711,7 @@ class DecodeRenameROBPath(
   io.decRenEmpty := decRenQ.io.empty
   io.decRenFull := decRenQ.io.full
   io.decRenHeadPc := queuedForRename.pc
+  io.decRenHeadOpcode := queuedForRename.opcode
   io.decRenHeadUsesLocal := queuedForRename.valid &&
     (VecInit((0 until 3).map { idx =>
       queuedForRename.src(idx).valid &&
@@ -1520,6 +1743,9 @@ class DecodeRenameROBPath(
 
   io.renamedOutValid := rename.io.outValid && !renamedOutIsMarker
   io.renamedOut := rename.io.out
+  io.templateSnapshotValid := rename.io.templateSnapshotValid
+  io.templateSnapshotRid := rename.io.out.rid
+  io.templateSmapSnapshot := rename.io.templateSmapSnapshot
   io.storeDispatchReady := storeDispatchReadyForHead
   io.storeDispatchFire := storeSplit.io.fire
   io.storeDispatchSplit := storeSplit.io.split
@@ -1599,12 +1825,17 @@ class DecodeRenameROBPath(
   io.storeStqEmpty := storeDispatch.io.stqEmpty
   io.storeStqFull := storeDispatch.io.stqFull
   io.storeStqStall := storeDispatch.io.stqStall
-  val gprReservationPush = decRenQ.io.pushFire && selectedNeedsGprReservation
-  val gprReservationPop = decRenQ.io.popFire && queuedNeedsGprReservation
+  val gprReservationPush =
+    decRenQ.io.pushFire && selectedGprReservationCount =/= 0.U
+  val gprReservationPop =
+    decRenQ.io.popFire && queuedGprReservation.io.deq.valid &&
+      queuedGprReservation.io.deq.bits =/= 0.U
   gprReservations.io.pushValid := gprReservationPush
   gprReservations.io.pushStid := selectedStid
+  gprReservations.io.pushCount := selectedGprReservationCount
   gprReservations.io.popValid := gprReservationPop
-  gprReservations.io.popStid := activeTURenameStid
+  gprReservations.io.popStid := Mux(gprReservationPop, activeTURenameStid, Fill(stidWidth, 1.U))
+  gprReservations.io.popCount := queuedGprReservation.io.deq.bits
   assert(!gprReservations.io.stateError, "GPR reservation tracker identity or count mismatch")
   io.accepted := rename.io.accepted
   io.robAllocAttemptValid := allocator.io.allocValid
@@ -1739,20 +1970,27 @@ class DecodeRenameROBPath(
   io.tuRetireSourcePruneCount := tuRetirePath.io.sourcePruneCount
   io.tuRetireRelationPruneTCount := tuRetirePath.io.relationPruneTCount
   io.tuRetireRelationPruneUCount := tuRetirePath.io.relationPruneUCount
-  io.tuRetireCommandValid := tuRetirePath.io.command.valid
-  io.tuRetireCommandKind := tuRetirePath.io.command.kind
-  io.tuRetireCommandSeq := tuRetirePath.io.command.seq
-  io.tuRetireCommandDealloc := tuRetirePath.io.command.dealloc
-  io.tuRetireCommandPeId := tuRetirePath.io.command.peId
-  io.tuRetireCommandStid := tuRetirePath.io.command.stid
+  io.tuRetireCommandValid := rename.io.tuRetireCommandValid
+  io.tuRetireCommandKind := rename.io.tuRetireCommandKind
+  io.tuRetireCommandSeq := rename.io.tuRetireCommandSeq
+  io.tuRetireCommandDealloc := rename.io.tuRetireCommandDealloc
+  io.tuRetireCommandPeId := rename.io.tuRetireCommandPeId
+  io.tuRetireCommandStid := rename.io.tuRetireCommandStid
   io.tuRetireCommandFire := tuRetirePath.io.commandFire
+  io.tuRetireSelectedTDeallocSeq := rename.io.tuRetireSelectedTDeallocSeq
+  io.tuRetireSelectedUDeallocSeq := rename.io.tuRetireSelectedUDeallocSeq
+  io.tuRetireSelectedTValidMask := rename.io.tuRetireSelectedTValidMask
+  io.tuRetireSelectedUValidMask := rename.io.tuRetireSelectedUValidMask
+  io.tuRetireSelectedTRetiredMask := rename.io.tuRetireSelectedTRetiredMask
+  io.tuRetireSelectedURetiredMask := rename.io.tuRetireSelectedURetiredMask
   io.tuRetireAutoCleanBlockPending := tuRetirePath.io.autoCleanBlockPending
   io.tuRetireAutoCleanBlockValid := tuRetirePath.io.autoCleanBlockValid
   io.tuRetireAutoCleanBlockBid := tuRetirePath.io.autoCleanBlockBid
   io.tuRetireLocalBlockCommitPending := tuRetirePath.io.localBlockCommitPending
   io.tuRetireLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
-  io.tuRetireLocalBlockCommitReady := rename.io.tuLocalBlockCommitReady
+  io.tuRetireLocalBlockCommitReady := tuRetirePath.io.localBlockCommitReady
   io.tuRetireLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
+  io.tuRetireLocalBlockCommitFullBid := tuRetirePath.io.localBlockCommitFullBid
   io.tuRetireLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
   io.tuRetireLocalBlockCommitFire := tuRetirePath.io.localBlockCommitFire
   io.tuRetireLocalBlockCommitAccepted := rename.io.tuLocalBlockCommitAccepted
@@ -1816,6 +2054,8 @@ class DecodeRenameROBPath(
   io.commitHeadStatus := allocator.io.commitHeadStatus
   io.commitHeadRobValue := allocator.io.commitHeadRobValue
   io.commitHeadBid := allocator.io.commitHeadBid
+  io.commitHeadGid := allocator.io.commitHeadGid
+  io.commitHeadRid := allocator.io.commitHeadRid
   io.commitHeadLsId := allocator.io.commitHeadLsId
   io.commitHeadStid := allocator.io.commitHeadStid
   io.robStatusLookup := allocator.io.statusLookup

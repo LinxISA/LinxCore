@@ -73,7 +73,11 @@ class SCBCommitBridge(
   for (idx <- 0 until stqEntries) {
     commitFreeVec(idx) :=
       (0 until requestCount)
-        .map(lane => ingress.io.acceptedMask(lane) && io.reqs(lane).last && (io.reqs(lane).stqIndex === idx.U))
+        .map(lane =>
+          ingress.io.acceptedMask(lane) &&
+            io.reqs(lane).ownsStqRow &&
+            io.reqs(lane).last &&
+            (io.reqs(lane).stqIndex === idx.U))
         .reduce(_ || _)
   }
 

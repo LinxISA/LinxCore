@@ -1,5 +1,7 @@
 package linxcore.lsu
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -175,8 +177,77 @@ object SCBRowBankReference {
   }
 }
 
-class SCBRowBankSpec extends AnyFunSuite {
+class SCBRowBankSpec extends AnyFunSuite with ChiselSim {
   import SCBRowBankReference._
+
+  private def clearReq(req: STQCommitDrainRequest): Unit = {
+    req.valid.poke(false.B)
+    req.ownsStqRow.poke(false.B)
+    req.stqIndex.poke(0.U)
+    req.split.poke(false.B)
+    req.segment.poke(0.U)
+    req.last.poke(false.B)
+    req.addr.poke(0.U)
+    req.data.poke(0.U)
+    req.size.poke(0.U)
+    req.stid.poke(0.U)
+    req.bid.valid.poke(false.B)
+    req.bid.wrap.poke(false.B)
+    req.bid.value.poke(0.U)
+    req.gid.valid.poke(false.B)
+    req.gid.wrap.poke(false.B)
+    req.gid.value.poke(0.U)
+    req.rid.valid.poke(false.B)
+    req.rid.wrap.poke(false.B)
+    req.rid.value.poke(0.U)
+    req.lsId.poke(0.U)
+  }
+
+  private def pokeReq(
+      req: STQCommitDrainRequest,
+      addr: BigInt,
+      stqIndex: Int,
+      segment: Int,
+      last: Boolean,
+      bid: Int,
+      gid: Int,
+      rid: Int,
+      lsId: BigInt): Unit = {
+    clearReq(req)
+    req.valid.poke(true.B)
+    req.ownsStqRow.poke(true.B)
+    req.stqIndex.poke(stqIndex.U)
+    req.split.poke(true.B)
+    req.segment.poke(segment.U)
+    req.last.poke(last.B)
+    req.addr.poke(addr.U)
+    req.data.poke(BigInt("1122334455667788", 16).U)
+    req.size.poke(4.U)
+    req.stid.poke(7.U)
+    req.bid.valid.poke(true.B)
+    req.bid.wrap.poke(((bid & 0x8) != 0).B)
+    req.bid.value.poke((bid & 0x7).U)
+    req.gid.valid.poke(true.B)
+    req.gid.wrap.poke(((gid & 0x8) != 0).B)
+    req.gid.value.poke((gid & 0x7).U)
+    req.rid.valid.poke(true.B)
+    req.rid.wrap.poke(((rid & 0x8) != 0).B)
+    req.rid.value.poke((rid & 0x7).U)
+    req.lsId.poke(lsId.U)
+  }
+
+  private def idleRowBank(dut: SCBRowBank): Unit = {
+    dut.io.reqs.foreach(clearReq)
+    dut.io.evictEnable.poke(false.B)
+    dut.io.dcacheReady.poke(true.B)
+    dut.io.dcacheWriteHit.poke(true.B)
+    dut.io.dcacheTagHit.poke(true.B)
+    dut.io.l2RequestReady.poke(true.B)
+    dut.io.rawRespValid.poke(false.B)
+    dut.io.rawRespTxnId.poke(0.U)
+    dut.io.rawRespWrite.poke(false.B)
+    dut.io.rawRespUpgrade.poke(false.B)
+  }
 
   test("ingress admission uses model batch gate and frees STQ rows only for accepted last fragments") {
     val bank = new Model(entries = 4, requestCount = 2)
@@ -343,6 +414,66 @@ class SCBRowBankSpec extends AnyFunSuite {
     assert(bank.snapshot.head.state == Valid)
   }
 
+  test("Chisel acceptedReqs are zero on stall and preserve split-store identity on accept") {
+    simulate(new SCBRowBank(stqEntries = 8, scbEntries = 2, requestCount = 2, robEntries = 8, lsidWidth = 40)) { dut =>
+      idleRowBank(dut)
+
+      pokeReq(dut.io.reqs(0), addr = 0x1000, stqIndex = 3, segment = 0, last = false, bid = 0xb, gid = 0xc, rid = 0xd, lsId = BigInt("100000001", 16))
+      pokeReq(dut.io.reqs(1), addr = 0x1040, stqIndex = 3, segment = 1, last = true, bid = 0xb, gid = 0xc, rid = 0xd, lsId = BigInt("100000001", 16))
+
+      dut.io.modelBatchReady.expect(true.B)
+      dut.io.acceptedMask.expect("b11".U)
+      dut.io.acceptedReqs(0).valid.expect(true.B)
+      dut.io.acceptedReqs(0).ownsStqRow.expect(true.B)
+      dut.io.acceptedReqs(0).stqIndex.expect(3.U)
+      dut.io.acceptedReqs(0).split.expect(true.B)
+      dut.io.acceptedReqs(0).segment.expect(0.U)
+      dut.io.acceptedReqs(0).last.expect(false.B)
+      dut.io.acceptedReqs(0).bid.valid.expect(true.B)
+      dut.io.acceptedReqs(0).bid.wrap.expect(true.B)
+      dut.io.acceptedReqs(0).bid.value.expect(3.U)
+      dut.io.acceptedReqs(0).gid.valid.expect(true.B)
+      dut.io.acceptedReqs(0).gid.wrap.expect(true.B)
+      dut.io.acceptedReqs(0).gid.value.expect(4.U)
+      dut.io.acceptedReqs(0).rid.valid.expect(true.B)
+      dut.io.acceptedReqs(0).rid.wrap.expect(true.B)
+      dut.io.acceptedReqs(0).rid.value.expect(5.U)
+      dut.io.acceptedReqs(0).lsId.expect(BigInt("100000001", 16).U)
+      dut.io.acceptedReqs(1).valid.expect(true.B)
+      dut.io.acceptedReqs(1).stqIndex.expect(3.U)
+      dut.io.acceptedReqs(1).split.expect(true.B)
+      dut.io.acceptedReqs(1).segment.expect(1.U)
+      dut.io.acceptedReqs(1).last.expect(true.B)
+      dut.io.acceptedReqs(1).bid.wrap.expect(true.B)
+      dut.io.acceptedReqs(1).bid.value.expect(3.U)
+      dut.io.acceptedReqs(1).gid.wrap.expect(true.B)
+      dut.io.acceptedReqs(1).gid.value.expect(4.U)
+      dut.io.acceptedReqs(1).rid.wrap.expect(true.B)
+      dut.io.acceptedReqs(1).rid.value.expect(5.U)
+      dut.io.acceptedReqs(1).lsId.expect(BigInt("100000001", 16).U)
+      dut.clock.step()
+
+      idleRowBank(dut)
+      pokeReq(dut.io.reqs(0), addr = 0x2000, stqIndex = 4, segment = 0, last = true, bid = 1, gid = 2, rid = 3, lsId = 9)
+
+      dut.io.modelBatchReady.expect(false.B)
+      dut.io.acceptedMask.expect(0.U)
+      dut.io.stalledMask.expect(1.U)
+      for (lane <- 0 until 2) {
+        dut.io.acceptedReqs(lane).valid.expect(false.B)
+        dut.io.acceptedReqs(lane).ownsStqRow.expect(false.B)
+        dut.io.acceptedReqs(lane).stqIndex.expect(0.U)
+        dut.io.acceptedReqs(lane).split.expect(false.B)
+        dut.io.acceptedReqs(lane).segment.expect(0.U)
+        dut.io.acceptedReqs(lane).last.expect(false.B)
+        dut.io.acceptedReqs(lane).bid.valid.expect(false.B)
+        dut.io.acceptedReqs(lane).gid.valid.expect(false.B)
+        dut.io.acceptedReqs(lane).rid.valid.expect(false.B)
+        dut.io.acceptedReqs(lane).lsId.expect(0.U)
+      }
+    }
+  }
+
   test("Chisel SCBRowBank elaborates with egress, lookup, and state-update children") {
     val sv = ChiselStage.emitSystemVerilog(new SCBRowBank(stqEntries = 8, scbEntries = 4, requestCount = 2))
 
@@ -355,6 +486,9 @@ class SCBRowBankSpec extends AnyFunSuite {
     assert(sv.contains("SCBResponseDecode"))
     assert(sv.contains("SCBStateUpdate"))
     assert(sv.contains("io_commitFreeMask"))
+    assert(sv.contains("io_acceptedReqs_0_valid"))
+    assert(sv.contains("io_acceptedReqs_0_gid_value"))
+    assert(sv.contains("io_acceptedReqs_0_rid_value"))
     assert(sv.contains("io_responseRetryMask"))
     assert(sv.contains("io_responseRetryHeadEntryIndex"))
     assert(sv.contains("io_rawRespTxnId"))
@@ -375,9 +509,9 @@ class SCBRowBankSpec extends AnyFunSuite {
 
     assert(io.commitFreeMask.getWidth == 16)
     assert(io.reqs.head.stqIndex.getWidth == 4)
-    assert(io.acceptedReqs.head.stqIndex.getWidth == 4)
-    assert(io.acceptedReqs.head.stid.getWidth == 8)
     assert(io.reqs.head.bid.value.getWidth == 3)
+    assert(io.acceptedReqs.head.stqIndex.getWidth == 4)
+    assert(io.acceptedReqs.head.bid.value.getWidth == 3)
     assert(io.acceptedReqs.head.gid.value.getWidth == 3)
     assert(io.acceptedReqs.head.rid.value.getWidth == 3)
     assert(io.reqs.head.lsId.getWidth == 40)
@@ -387,9 +521,7 @@ class SCBRowBankSpec extends AnyFunSuite {
       new SCBRowBank(
         stqEntries = 16, scbEntries = 4, requestCount = 2, robEntries = 8, lsidWidth = 40))
     assert(sv.contains("module SCBRowBank"))
-    assert(sv.contains("io_acceptedReqs_0_stid"))
-    assert(sv.contains("io_acceptedReqs_0_gid_value"))
-    assert(sv.contains("io_acceptedReqs_0_rid_value"))
     assert(sv.contains("io_reqs_0_bid_value"))
+    assert(sv.contains("io_acceptedReqs_0_bid_value"))
   }
 }

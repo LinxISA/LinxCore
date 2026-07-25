@@ -50,6 +50,7 @@ class BrobOrderStateIO(
 
   val headResident = Input(Vec(stidCount, Bool()))
   val headComplete = Input(Vec(stidCount, Bool()))
+  val retireHold = Input(Bool())
   val retireReady = Input(Bool())
 
   val allocInRange = Output(Bool())
@@ -145,7 +146,8 @@ class BrobOrderState(
   val retireArb = Module(new RRArbiter(UInt(stidWidth.W), stidCount))
   for (lane <- 0 until stidCount) {
     val headValid = liveCount(lane) =/= 0.U
-    retireArb.io.in(lane).valid := !io.recoveryValid && headValid && io.headResident(lane) && io.headComplete(lane)
+    retireArb.io.in(lane).valid :=
+      !io.recoveryValid && !io.retireHold && headValid && io.headResident(lane) && io.headComplete(lane)
     retireArb.io.in(lane).bits := lane.U
     io.empty(lane) := !headValid
     io.full(lane) := liveCount(lane) === entries.U
@@ -155,11 +157,11 @@ class BrobOrderState(
   val retireSlot = withReset(reset.asBool || recoveryApplied) {
     Module(new Queue(new BrobRetireIdentity(bidWidth, stidWidth), entries = 1, pipe = false, flow = true))
   }
-  retireSlot.io.enq.valid := retireArb.io.out.valid && !io.recoveryValid
+  retireSlot.io.enq.valid := retireArb.io.out.valid && !io.recoveryValid && !io.retireHold
   retireSlot.io.enq.bits.stid := retireArb.io.out.bits
   retireSlot.io.enq.bits.bid := commitCursor(retireArb.io.chosen)
-  retireArb.io.out.ready := retireSlot.io.enq.ready && !io.recoveryValid
-  retireSlot.io.deq.ready := io.retireReady && !io.recoveryValid
+  retireArb.io.out.ready := retireSlot.io.enq.ready && !io.recoveryValid && !io.retireHold
+  retireSlot.io.deq.ready := io.retireReady && !io.recoveryValid && !io.retireHold
 
   io.allocInRange := allocInRange
   io.allocIdentityMatch := allocIdentityMatch
@@ -177,7 +179,7 @@ class BrobOrderState(
   io.allocCursor := allocCursor
   io.commitCursor := commitCursor
   io.liveCount := liveCount
-  io.retireValid := retireSlot.io.deq.valid && !io.recoveryValid
+  io.retireValid := retireSlot.io.deq.valid && !io.recoveryValid && !io.retireHold
   io.retireStid := Mux(io.retireValid, retireSlot.io.deq.bits.stid, 0.U)
   io.retireBid := Mux(io.retireValid, retireSlot.io.deq.bits.bid, 0.U)
   io.retireFire := retireSlot.io.deq.fire

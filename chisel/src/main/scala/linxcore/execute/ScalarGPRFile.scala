@@ -32,6 +32,8 @@ class ScalarGPRFileIO(
   val initData = Input(UInt(dataWidth.W))
   val clearValid = Input(Bool())
   val clearTag = Input(UInt(tagWidth.W))
+  val clearSecondValid = Input(Bool())
+  val clearSecondTag = Input(UInt(tagWidth.W))
 
   val write = Vec(writePorts, new ScalarGPRWritePort(tagWidth, dataWidth))
 
@@ -82,8 +84,13 @@ class ScalarGPRFile(
   }
 
   val anyWriteFire = writeFire.asUInt.orR
-  val clearWriteCollision = io.clearValid && VecInit((0 until writePorts).map(port =>
-    writeFire(port) && (io.write(port).tag === io.clearTag))).asUInt.orR
+  val clearWriteCollision =
+    (io.clearValid && VecInit((0 until writePorts).map(port =>
+      writeFire(port) && (io.write(port).tag === io.clearTag))).asUInt.orR) ||
+      (io.clearSecondValid && VecInit((0 until writePorts).map(port =>
+        writeFire(port) && (io.write(port).tag === io.clearSecondTag))).asUInt.orR)
+  val duplicateClear =
+    io.clearValid && io.clearSecondValid && (io.clearTag === io.clearSecondTag)
   val duplicateWriteCommit =
     if (writePorts == 1) false.B
     else VecInit((0 until writePorts).flatMap(lhs =>
@@ -99,6 +106,9 @@ class ScalarGPRFile(
   when(io.clearValid) {
     ready(io.clearTag) := false.B
   }
+  when(io.clearSecondValid) {
+    ready(io.clearSecondTag) := false.B
+  }
   for (port <- 0 until writePorts) {
     when(writeFire(port)) {
       data(io.write(port).tag) := io.write(port).data
@@ -109,7 +119,7 @@ class ScalarGPRFile(
   io.readyMask := ready.asUInt
   io.clearWriteCollision := clearWriteCollision
   io.duplicateWriteCommit := duplicateWriteCommit
-  io.protocolError := clearWriteCollision || duplicateWriteCommit || commitWithoutRequest ||
+  io.protocolError := clearWriteCollision || duplicateClear || duplicateWriteCommit || commitWithoutRequest ||
     (io.initValid && anyWriteFire)
 
   assert(!io.protocolError,

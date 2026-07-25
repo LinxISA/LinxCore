@@ -13,8 +13,7 @@ class SCBRowBankIO(
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32,
-    val stidWidth: Int = 8)
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   private val scbCountWidth = log2Ceil(scbEntries + 1)
@@ -25,7 +24,7 @@ class SCBRowBankIO(
   private val responseRetryCountWidth = log2Ceil(scbEntries + 1)
 
   val reqs = Input(Vec(requestCount,
-    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth)))
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val evictEnable = Input(Bool())
   val dcacheReady = Input(Bool())
   val dcacheWriteHit = Input(Bool())
@@ -41,7 +40,7 @@ class SCBRowBankIO(
   val modelFull = Output(Bool())
   val acceptedMask = Output(UInt(requestCount.W))
   val acceptedReqs = Output(Vec(requestCount,
-    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth)))
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val stalledMask = Output(UInt(requestCount.W))
   val structuralBlockedMask = Output(UInt(requestCount.W))
 
@@ -121,8 +120,7 @@ class SCBRowBank(
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32,
-    val stidWidth: Int = 8)
+    val lsidWidth: Int = 32)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   require(stqEntries > 1, "STQ entries must be greater than one")
@@ -150,8 +148,7 @@ class SCBRowBank(
     sizeWidth,
     lineBytes,
     identityEntries,
-    lsidWidth,
-    stidWidth))
+    lsidWidth))
 
   private def zeroEntry: SCBLineEntry = {
     val entry = Wire(new SCBLineEntry(addrWidth, lineBytes))
@@ -205,6 +202,8 @@ class SCBRowBank(
   ingressStages.head := entries
 
   val acceptedVec = Wire(Vec(requestCount, Bool()))
+  val acceptedReqs = Wire(Vec(requestCount,
+    new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val blockedVec = Wire(Vec(requestCount, Bool()))
   val wakeups = Wire(Vec(requestCount, new SCBCommitWakeup(addrWidth, lineBytes)))
 
@@ -239,6 +238,7 @@ class SCBRowBank(
     nextEntry.state := SCBEntryState.Valid
 
     acceptedVec(lane) := accept
+    acceptedReqs(lane) := Mux(accept, req, 0.U.asTypeOf(req))
     blockedVec(lane) := req.valid && modelBatchReady && !accept
     wakeups(lane) := zeroWakeup
     wakeups(lane).valid := accept
@@ -305,7 +305,11 @@ class SCBRowBank(
   for (idx <- 0 until stqEntries) {
     commitFreeVec(idx) :=
       (0 until requestCount)
-        .map(lane => acceptedVec(lane) && io.reqs(lane).last && (io.reqs(lane).stqIndex === idx.U))
+        .map(lane =>
+          acceptedVec(lane) &&
+            io.reqs(lane).ownsStqRow &&
+            io.reqs(lane).last &&
+            (io.reqs(lane).stqIndex === idx.U))
         .reduce(_ || _)
   }
   val validReqMask = VecInit(io.reqs.map(_.valid)).asUInt
@@ -314,9 +318,7 @@ class SCBRowBank(
   io.modelFull := !modelBatchReady
   io.rawRespReady := responseBuffer.io.rawReady
   io.acceptedMask := acceptedVec.asUInt
-  for (lane <- 0 until requestCount) {
-    io.acceptedReqs(lane) := Mux(acceptedVec(lane), io.reqs(lane), 0.U.asTypeOf(io.acceptedReqs(lane)))
-  }
+  io.acceptedReqs := acceptedReqs
   io.structuralBlockedMask := blockedVec.asUInt
   io.stalledMask := validReqMask & ~acceptedVec.asUInt
   io.commitFreeMask := commitFreeVec.asUInt

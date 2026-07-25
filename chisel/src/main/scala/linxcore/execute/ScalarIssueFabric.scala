@@ -3,13 +3,14 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{Mux1H, PopCount, PriorityEncoder, log2Ceil}
 
-import linxcore.common.{InterfaceParams, OperandClass, RenamedUop}
+import linxcore.common.{InterfaceParams, OperandClass, RenamedUop, ScalarSpAccess}
 import linxcore.rob.ROBID
 
 class ScalarIssueFabricIO(
     val p: InterfaceParams = InterfaceParams(),
     val depth: Int = 8,
-    val bankCount: Int = 2)
+    val bankCount: Int = 2,
+    val stidCount: Int = 1)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
   private val indexWidth = log2Ceil(depth)
@@ -28,10 +29,18 @@ class ScalarIssueFabricIO(
   val secondaryReleaseBid = Input(new ROBID(p.robEntries))
   val secondaryReleaseRid = Input(new ROBID(p.robEntries))
   val secondaryReleaseStid = Input(UInt(p.threadIdWidth.W))
+  val tertiaryReleaseValid = Input(Bool())
+  val tertiaryReleaseBid = Input(new ROBID(p.robEntries))
+  val tertiaryReleaseRid = Input(new ROBID(p.robEntries))
+  val tertiaryReleaseStid = Input(UInt(p.threadIdWidth.W))
   val externalControlFenceValid = Input(Bool())
   val externalControlFenceBid = Input(new ROBID(p.robEntries))
   val externalControlFenceRid = Input(new ROBID(p.robEntries))
   val externalControlFenceStid = Input(UInt(p.threadIdWidth.W))
+  val scalarSpHeadValidByStid = Input(Vec(stidCount, Bool()))
+  val scalarSpHeadBidByStid = Input(Vec(stidCount, new ROBID(p.robEntries)))
+  val scalarSpHeadRidByStid = Input(Vec(stidCount, new ROBID(p.robEntries)))
+  val scalarSpSnapshotByStid = Input(Vec(stidCount, UInt(p.immWidth.W)))
 
   val readyMask = Input(UInt((1 << p.physRegWidth).W))
   val pWakeupValid = Input(Bool())
@@ -48,6 +57,8 @@ class ScalarIssueFabricIO(
   val issueReady = Input(Bool())
   val issueUop = Output(new RenamedUop(p))
   val issueSrcData = Output(Vec(3, UInt(p.immWidth.W)))
+  val scalarSpReadSnapshot = Output(UInt(p.immWidth.W))
+  val scalarSpIssueSnapshot = Output(UInt(p.immWidth.W))
 
   val inputAcceptFire = Output(Bool())
   val inputAcceptUop = Output(new RenamedUop(p))
@@ -73,6 +84,9 @@ class ScalarIssueFabricIO(
   val headIssued = Output(Bool())
   val headPc = Output(UInt(p.pcWidth.W))
   val headOpcode = Output(UInt(p.opcodeWidth.W))
+  val headStid = Output(UInt(p.threadIdWidth.W))
+  val headBid = Output(new ROBID(p.robEntries))
+  val headRid = Output(new ROBID(p.robEntries))
   val headSrcValidMask = Output(UInt(3.W))
   val headSrcOperandClass = Output(Vec(3, OperandClass()))
   val headSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
@@ -110,13 +124,16 @@ class ScalarIssueFabricIO(
   val bankControlBlockedMask = Output(UInt(bankCount.W))
   val storeOrderBlocked = Output(Bool())
   val bankStoreOrderBlockedMask = Output(UInt(bankCount.W))
+  val scalarSpOrderBlocked = Output(Bool())
+  val bankScalarSpOrderBlockedMask = Output(UInt(bankCount.W))
   val protocolError = Output(Bool())
 }
 
 class ScalarIssueFabric(
     val p: InterfaceParams = InterfaceParams(),
     val depth: Int = 8,
-    val bankCount: Int = 2)
+    val bankCount: Int = 2,
+    val stidCount: Int = 1)
     extends Module {
   require(depth >= bankCount * 2, "each scalar issue bank needs at least two entries")
   require((depth & (depth - 1)) == 0, "scalar issue fabric depth must be a power of two")
@@ -124,14 +141,19 @@ class ScalarIssueFabric(
     "scalar issue bank count must be a power of two greater than one")
   require(bankCount == 2, "scalar issue ingress skid currently supports exactly two banks")
   require(depth % bankCount == 0, "scalar issue depth must divide evenly across banks")
+  require(stidCount > 0, "scalar issue fabric must expose at least one STID")
 
   private val bankDepth = depth / bankCount
   private val bankWidth = log2Ceil(bankCount)
   private val countWidth = log2Ceil(depth + 1)
   private val indexWidth = log2Ceil(depth)
-  val io = IO(new ScalarIssueFabricIO(p, depth, bankCount))
+  private val stidIndexWidth = math.max(1, log2Ceil(stidCount))
+  private def stidIndex(stid: UInt): UInt =
+    if (stidCount == 1) 0.U(stidIndexWidth.W) else stid(stidIndexWidth - 1, 0)
 
-  val banks = Seq.fill(bankCount)(Module(new ReducedScalarIssueQueue(p, bankDepth)))
+  val io = IO(new ScalarIssueFabricIO(p, depth, bankCount, stidCount))
+
+  val banks = Seq.fill(bankCount)(Module(new ReducedScalarIssueQueue(p, bankDepth, stidCount)))
   val ingress = Module(new ScalarIssueIngressSkid2(p))
   for (bank <- banks) {
     bank.io.flushValid := io.flushValid
@@ -143,6 +165,13 @@ class ScalarIssueFabric(
     bank.io.secondaryReleaseBid := io.secondaryReleaseBid
     bank.io.secondaryReleaseRid := io.secondaryReleaseRid
     bank.io.secondaryReleaseStid := io.secondaryReleaseStid
+    bank.io.tertiaryReleaseValid := io.tertiaryReleaseValid
+    bank.io.tertiaryReleaseBid := io.tertiaryReleaseBid
+    bank.io.tertiaryReleaseRid := io.tertiaryReleaseRid
+    bank.io.tertiaryReleaseStid := io.tertiaryReleaseStid
+    bank.io.scalarSpHeadValidByStid := io.scalarSpHeadValidByStid
+    bank.io.scalarSpHeadBidByStid := io.scalarSpHeadBidByStid
+    bank.io.scalarSpHeadRidByStid := io.scalarSpHeadRidByStid
     bank.io.readyMask := io.readyMask
     bank.io.pWakeupValid := io.pWakeupValid
     bank.io.pWakeupTag := io.pWakeupTag
@@ -181,8 +210,19 @@ class ScalarIssueFabric(
   val issueArbiter = Module(new ScalarIssueCandidateArbiter(p, bankCount))
   val controlBlocked = Wire(Vec(bankCount, Bool()))
   val storeOrderBlocked = Wire(Vec(bankCount, Bool()))
+  val scalarSpOrderBlocked = Wire(Vec(bankCount, Bool()))
   for (idx <- 0 until bankCount) {
     val candidate = banks(idx).io.readUop
+    val candidateRedirectsControl =
+      candidate.dispatchTarget === linxcore.common.DispatchTarget.Bru ||
+        candidate.opcode === linxcore.frontend.FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+    val candidateSpAccess = ScalarSpAccess.classify(candidate)
+    val candidateStid = stidIndex(candidate.threadId)
+    val candidateMatchesScalarSpHead =
+      !candidateSpAccess.valid ||
+        (io.scalarSpHeadValidByStid(candidateStid) &&
+          ROBID.equal(candidate.bid, io.scalarSpHeadBidByStid(candidateStid)) &&
+          ROBID.equal(candidate.rid, io.scalarSpHeadRidByStid(candidateStid)))
     val blockedByOlderControl = VecInit(banks.flatMap { bank =>
       (0 until bankDepth).map { row =>
         val control = bank.io.residentControlUop(row)
@@ -194,7 +234,24 @@ class ScalarIssueFabric(
       (io.externalControlFenceValid &&
         (io.externalControlFenceStid === candidate.threadId) &&
         ROBID.greater(candidate.rid, io.externalControlFenceRid))
-    controlBlocked(idx) := banks(idx).io.readAttemptValid && blockedByOlderControl
+    // A redirecting uop is also the tail of its own recovery boundary.  It
+    // must not bypass an older resident row in another bank: otherwise the
+    // redirect flush can discard that already-issued older row before it
+    // reaches writeback.  RID is the global order within one STID, so this
+    // comparison remains valid across BID changes and RID wrap-around.
+    //
+    // This reduced guard intentionally observes only each physical FIFO head.
+    // That is complete for the current single-STID natural top because every
+    // bank head is the oldest resident row in that bank.  With multiple STIDs,
+    // an older same-STID row can sit behind another STID's head; full multi-STID
+    // closure therefore needs a per-STID oldest-resident export from each bank.
+    val redirectBlockedByOlderResident = candidateRedirectsControl && VecInit(banks.map { bank =>
+      bank.io.headValid &&
+        (bank.io.headStid === candidate.threadId) &&
+        ROBID.greater(candidate.rid, bank.io.headRid)
+    }).asUInt.orR
+    controlBlocked(idx) :=
+      banks(idx).io.readAttemptValid && (blockedByOlderControl || redirectBlockedByOlderResident)
     val blockedByOlderStore = candidate.isStore && VecInit(banks.flatMap { bank =>
       (0 until bankDepth).map { row =>
         val store = bank.io.residentStoreUop(row)
@@ -204,8 +261,10 @@ class ScalarIssueFabric(
       }
     }).asUInt.orR
     storeOrderBlocked(idx) := banks(idx).io.readAttemptValid && blockedByOlderStore
+    scalarSpOrderBlocked(idx) := banks(idx).io.readAttemptValid && candidateSpAccess.valid && !candidateMatchesScalarSpHead
     readArbiter.io.valid(idx) := banks(idx).io.readAttemptValid &&
-      !blockedByOlderControl && !blockedByOlderStore
+      !blockedByOlderControl && !redirectBlockedByOlderResident &&
+        !blockedByOlderStore && !scalarSpOrderBlocked(idx)
     readArbiter.io.stid(idx) := banks(idx).io.readUop.threadId
     readArbiter.io.rid(idx) := banks(idx).io.readUop.rid
     banks(idx).io.readGrant := readArbiter.io.grant(idx)
@@ -231,6 +290,12 @@ class ScalarIssueFabric(
     }
     io.issueSrcData(lane) := Mux1H(issueArbiter.io.grant, banks.map(_.io.issueSrcData(lane)))
   }
+  io.scalarSpReadSnapshot := Mux1H((0 until bankCount).map { idx =>
+    readArbiter.io.grant(idx) -> io.scalarSpSnapshotByStid(stidIndex(banks(idx).io.readUop.threadId))
+  })
+  io.scalarSpIssueSnapshot := Mux1H((0 until bankCount).map { idx =>
+    issueArbiter.io.grant(idx) -> io.scalarSpSnapshotByStid(stidIndex(banks(idx).io.issueUop.threadId))
+  })
   io.issueValid := issueArbiter.io.selectedValid
   io.issueUop := 0.U.asTypeOf(new RenamedUop(p))
   for (idx <- 0 until bankCount) {
@@ -281,6 +346,9 @@ class ScalarIssueFabric(
   io.headIssued := Mux1H(headSelect, banks.map(_.io.headIssued))
   io.headPc := Mux1H(headSelect, banks.map(_.io.headPc))
   io.headOpcode := Mux1H(headSelect, banks.map(_.io.headOpcode))
+  io.headStid := Mux1H(headSelect, banks.map(_.io.headStid))
+  io.headBid := Mux1H(headSelect, banks.map(_.io.headBid))
+  io.headRid := Mux1H(headSelect, banks.map(_.io.headRid))
   io.headSrcValidMask := Mux1H(headSelect, banks.map(_.io.headSrcValidMask))
   for (lane <- 0 until 3) {
     io.headSrcOperandClass(lane) := OperandClass.P
@@ -331,6 +399,8 @@ class ScalarIssueFabric(
   io.bankControlBlockedMask := controlBlocked.asUInt
   io.storeOrderBlocked := storeOrderBlocked.asUInt.orR
   io.bankStoreOrderBlockedMask := storeOrderBlocked.asUInt
+  io.scalarSpOrderBlocked := scalarSpOrderBlocked.asUInt.orR
+  io.bankScalarSpOrderBlockedMask := scalarSpOrderBlocked.asUInt
   io.protocolError := readArbiter.io.invalidRid || issueArbiter.io.invalidRid ||
     (io.externalControlFenceValid &&
       (!io.externalControlFenceBid.valid || !io.externalControlFenceRid.valid))

@@ -63,6 +63,7 @@ class BrobOrderStateProbe extends Module {
   order.io.recoveryInclusive := io.recoveryInclusive
   order.io.headResident := meta.io.oldestValid
   order.io.headComplete := meta.io.oldestComplete
+  order.io.retireHold := false.B
   order.io.retireReady := io.retireReady
 
   meta.io.allocValid := order.io.allocApplied
@@ -72,6 +73,10 @@ class BrobOrderStateProbe extends Module {
   meta.io.allocPeId := 0.U
   meta.io.allocBlockType := 0.U
   meta.io.allocNeedsEngine := false.B
+  meta.io.allocHasScalarRow := false.B
+  meta.io.scalarRowObservedValid := false.B
+  meta.io.scalarRowObservedBid := 0.U
+  meta.io.scalarRowObservedStid := 0.U
   meta.io.scalarDoneValid := io.scalarDoneValid
   meta.io.scalarDoneBid := io.scalarDoneBid
   meta.io.scalarDoneStid := io.scalarDoneStid
@@ -82,6 +87,9 @@ class BrobOrderStateProbe extends Module {
   meta.io.engineDoneStid := 0.U
   meta.io.engineTrapValid := false.B
   meta.io.engineTrapCause := 0.U
+  meta.io.scalarDrainValid := false.B
+  meta.io.scalarDrainBid := 0.U
+  meta.io.scalarDrainStid := 0.U
   meta.io.retireValid := order.io.retireFire
   meta.io.retireBid := order.io.retireBid
   meta.io.retireStid := order.io.retireStid
