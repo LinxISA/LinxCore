@@ -31,6 +31,7 @@ class IfuFetchIdentity(val p: InterfaceParams = InterfaceParams()) extends Bundl
   val peId = UInt(p.peIdWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
   val fetchPacketUid = UInt(p.uopUidWidth.W)
+  val fetchSeq = UInt(p.uopUidWidth.W)
   val fetchSlot = UInt(p.fetchSlotWidth.W)
   val checkpointId = UInt(p.checkpointWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)

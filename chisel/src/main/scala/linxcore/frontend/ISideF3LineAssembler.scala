@@ -1,0 +1,158 @@
+package linxcore.frontend
+
+import chisel3._
+import chisel3.util.{Cat, Decoupled, PopCount, log2Ceil}
+import linxcore.common.InterfaceParams
+
+class ISideF3LineAssemblerIO(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val in = Flipped(Decoupled(new ISideF2Result(p, lineBytes)))
+  val nextLineRequest = Decoupled(new ISideFetchRequest(p, lineBytes))
+  val nextLineResponse = Flipped(Decoupled(new ISideLineResponse(p, lineBytes)))
+  val out = Decoupled(new ISideAssembledGroup(p))
+  val flush = Input(new IfuInnerFlush(p))
+
+  val waitingForNextLine = Output(Bool())
+  val staleNextLineResponse = Output(Bool())
+}
+
+class ISideF3LineAssembler(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Module {
+  require(p.fetchWidth == 4)
+  require(p.insnWidth == 64)
+  require(lineBytes >= 8 && (lineBytes & (lineBytes - 1)) == 0)
+
+  private val lineOffsetBits = log2Ceil(lineBytes)
+  private val byteOffsetWidth = log2Ceil(lineBytes * 2 + 1)
+
+  val io = IO(new ISideF3LineAssemblerIO(p, lineBytes))
+
+  val residentValid = RegInit(false.B)
+  val resident = RegInit(0.U.asTypeOf(new ISideF2Result(p, lineBytes)))
+  val secondLineValid = RegInit(false.B)
+  val secondLine = RegInit(0.U.asTypeOf(new ISideLineResponse(p, lineBytes)))
+  val nextRequestIssued = RegInit(false.B)
+
+  val killResident =
+    io.flush.valid &&
+      residentValid &&
+      resident.request.identity.threadId === io.flush.threadId
+
+  io.in.ready := !residentValid || killResident
+
+  val combinedData = Cat(
+    Mux(secondLineValid, secondLine.lineData, 0.U((lineBytes * 8).W)),
+    resident.lineData)
+  val offsets = Wire(Vec(p.fetchWidth, UInt(byteOffsetWidth.W)))
+  val lengths = Wire(Vec(p.fetchWidth, UInt(p.lenWidth.W)))
+  val laneValid = Wire(Vec(p.fetchWidth, Bool()))
+  val laneNeedsSecond = Wire(Vec(p.fetchWidth, Bool()))
+  val rawInsns = Wire(Vec(p.fetchWidth, UInt(p.insnWidth.W)))
+
+  offsets(0) := resident.request.pc(lineOffsetBits - 1, 0)
+
+  for (lane <- 0 until p.fetchWidth) {
+    val shifted = combinedData >> (offsets(lane) << 3)
+    lengths(lane) := F4DecodeWindow.instructionLengthBytes(shifted)
+    val startsInFirstLine = offsets(lane) < lineBytes.U
+    val endOffset = offsets(lane) + lengths(lane)
+    val crossesFirstLine = startsInFirstLine && endOffset > lineBytes.U
+    val availableBytes = Mux(secondLineValid, (lineBytes * 2).U, lineBytes.U)
+    val fitsAvailable = offsets(lane) < availableBytes && endOffset <= availableBytes
+    val priorContinues = if (lane == 0) true.B else laneValid(lane - 1)
+
+    laneNeedsSecond(lane) :=
+      residentValid &&
+        priorContinues &&
+        crossesFirstLine &&
+        !secondLineValid
+    laneValid(lane) :=
+      residentValid &&
+        resident.status === ISideF2Status.Hit &&
+        priorContinues &&
+        fitsAvailable
+    rawInsns(lane) :=
+      shifted(p.insnWidth - 1, 0) &
+        F4DecodeWindow.lowBytesMask(lengths(lane))
+
+    if (lane + 1 < p.fetchWidth) {
+      offsets(lane + 1) :=
+        offsets(lane) + Mux(laneValid(lane), lengths(lane), 0.U)
+    }
+  }
+
+  val needsSecondLine = laneNeedsSecond.reduce(_ || _)
+  val nextLineIdentityMatch =
+    io.nextLineResponse.bits.transactionId === resident.request.transactionId &&
+      io.nextLineResponse.bits.threadId === resident.request.identity.threadId &&
+      io.nextLineResponse.bits.epoch === resident.request.identity.epoch
+
+  io.nextLineRequest.valid :=
+    residentValid &&
+      needsSecondLine &&
+      !nextRequestIssued &&
+      !killResident
+  io.nextLineRequest.bits := resident.request
+  io.nextLineRequest.bits.pc := resident.request.lineVa + lineBytes.U
+  io.nextLineRequest.bits.lineVa := resident.request.lineVa + lineBytes.U
+
+  io.nextLineResponse.ready :=
+    residentValid &&
+      nextRequestIssued &&
+      !secondLineValid &&
+      nextLineIdentityMatch &&
+      !killResident
+
+  io.out.valid :=
+    residentValid &&
+      resident.status === ISideF2Status.Hit &&
+      !needsSecondLine &&
+      laneValid.asUInt.orR &&
+      !killResident
+  io.out.bits := 0.U.asTypeOf(io.out.bits)
+  io.out.bits.validMask := laneValid.asUInt
+  for (lane <- 0 until p.fetchWidth) {
+    io.out.bits.entries(lane).pc := resident.request.lineVa + offsets(lane)
+    io.out.bits.entries(lane).insn := Mux(laneValid(lane), rawInsns(lane), 0.U)
+    io.out.bits.entries(lane).lenBytes := Mux(laneValid(lane), lengths(lane), 0.U)
+    io.out.bits.entries(lane).crossesLine :=
+      laneValid(lane) && offsets(lane) + lengths(lane) > lineBytes.U
+    io.out.bits.entries(lane).identity := resident.request.identity
+    io.out.bits.entries(lane).identity.fetchSlot := lane.U
+    io.out.bits.entries(lane).prediction := resident.request.prediction
+  }
+
+  io.waitingForNextLine := residentValid && needsSecondLine
+  io.staleNextLineResponse :=
+    io.nextLineResponse.valid &&
+      residentValid &&
+      nextRequestIssued &&
+      !nextLineIdentityMatch
+
+  when(killResident || io.out.fire) {
+    residentValid := false.B
+    secondLineValid := false.B
+    nextRequestIssued := false.B
+  }
+  when(io.in.fire) {
+    residentValid := true.B
+    resident := io.in.bits
+    secondLineValid := false.B
+    nextRequestIssued := false.B
+  }
+  when(io.nextLineRequest.fire) {
+    nextRequestIssued := true.B
+  }
+  when(io.nextLineResponse.fire) {
+    secondLineValid := true.B
+    secondLine := io.nextLineResponse.bits
+  }
+
+  when(io.out.fire) {
+    assert(PopCount(io.out.bits.validMask) =/= 0.U)
+  }
+}
