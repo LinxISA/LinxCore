@@ -115,11 +115,15 @@ expanded prediction tag, fallthrough, confidence, provider, stage, checkpoint,
 and epoch remain intact through four-wide transport.
 
 The exact full Chisel suite was also attempted but is not green in the current
-dirty tree. The pre-existing `LinxCoreFrontendFetchTraceTop` work does not
-initialize the newly added `DecodeRenameROBPath` same-packet and store-SC
-inputs, so that top fails elaboration. Three other concurrently running suites
-were interrupted after the failure and are not classified as B-SIDE failures.
-R680 does not modify or hide that unrelated in-progress top integration.
+dirty tree. Its first observed failure is `LinxCoreFrontendFetchTraceTop`,
+which does not initialize the newly added `DecodeRenameROBPath` same-packet and
+store-SC inputs. Static connection audit finds the same missing inputs in
+`LinxCoreFrontendTraceTop`, `LinxCoreFrontendAluTraceTop`, and
+`LinxCoreFrontendRfAluTraceTop`; production-shaped
+`LinxCoreFrontendFetchRfAluTraceTop` connects all six groups. Three concurrently
+running suites were interrupted after the observed elaboration failure and are
+not classified as B-SIDE failures. R680 does not modify or hide that unrelated
+in-progress wrapper integration.
 
 ## Remaining B-SIDE Work
 
