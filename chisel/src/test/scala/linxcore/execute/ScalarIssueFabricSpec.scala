@@ -10,6 +10,11 @@ class ScalarIssueFabricSpec extends AnyFunSuite {
 
     assert(io.count.getWidth == 4)
     assert(io.selectedIndex.getWidth == 3)
+    assert(io.inputAcceptUop.pc.getWidth == InterfaceParams().pcWidth)
+    assert(io.inputAcceptDstTag.getWidth == InterfaceParams().physRegWidth)
+    assert(io.enqueueCount.getWidth == 2)
+    assert(io.bankEnqueueFireMask.getWidth == 2)
+    assert(io.bankEnqueueUop.length == 2)
     assert(io.bankOccupancy.length == 2)
     assert(io.bankOccupancy.head.getWidth == 3)
     assert(io.bankPickMask.getWidth == 2)
@@ -28,6 +33,7 @@ class ScalarIssueFabricSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarIssueFabric"))
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ScalarIssueCandidateArbiter"))
+    assert(sv.contains("module ScalarIssueIngressSkid2"))
     assert(sv.contains("io_bankOccupancy_0"))
     assert(sv.contains("io_readContention"))
     assert(sv.contains("io_readArbitrationLoss"))
@@ -35,5 +41,9 @@ class ScalarIssueFabricSpec extends AnyFunSuite {
     assert(sv.contains("io_controlFenceActive"))
     assert(sv.contains("io_controlFenceBlocked"))
     assert(sv.contains("io_storeOrderBlocked"))
+    assert(sv.contains("io_inputAcceptFire"))
+    assert(sv.contains("io_inputAcceptDstValid"))
+    assert(sv.contains("io_enqueueCount"))
+    assert(sv.contains("io_bankEnqueueFireMask"))
   }
 }

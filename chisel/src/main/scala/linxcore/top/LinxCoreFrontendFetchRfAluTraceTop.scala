@@ -3780,7 +3780,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.scalarRedirectStid := execute.io.releaseStid
   path.io.deallocReady := io.deallocReady
 
-  issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
+  issue.io.inValid := path.io.renamedOutValid && path.io.renamedOutReady
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := backendPipeFlush
   LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring.connect(
@@ -3844,8 +3844,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     rf.io.readValid(idx) := false.B
     rf.io.readTag(idx) := 0.U
   }
-  rf.io.clearValid := issue.io.enqueueDstValid
-  rf.io.clearTag := issue.io.enqueueDstTag
+  rf.io.clearValid := issue.io.inputAcceptDstValid
+  rf.io.clearTag := issue.io.inputAcceptDstTag
   rfWritebackArbiter.io.executeValid := execute.io.completeDstPhysValid
   rfWritebackArbiter.io.executeTag := execute.io.completeDstPhysTag
   rfWritebackArbiter.io.executeData := execute.io.completeDstData
@@ -4712,9 +4712,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val localReset = backendPipeFlush || io.startValid || io.restartValid
   val localDstAllocT =
-    issue.io.enqueueFire && path.io.renamedOut.dst(0).valid && (path.io.renamedOut.dst(0).kind === DestinationKind.T)
+    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid && (issue.io.inputAcceptUop.dst(0).kind === DestinationKind.T)
   val localDstAllocU =
-    issue.io.enqueueFire && path.io.renamedOut.dst(0).valid && (path.io.renamedOut.dst(0).kind === DestinationKind.U)
+    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid && (issue.io.inputAcceptUop.dst(0).kind === DestinationKind.U)
   val localCompleteT =
     execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)
   val localCompleteU =
@@ -10865,7 +10865,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopIssueReleaseWiring {
 
 private object LinxCoreFrontendFetchRfAluTraceTopIssueDiagnosticsWiring {
   def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, issue: ScalarIssueFabric): Unit = {
-    io.issueQueueEnqueueFire := issue.io.enqueueFire
+    io.issueQueueEnqueueFire := issue.io.inputAcceptFire
     io.issueQueuePickFire := issue.io.pickFire
     io.issueQueueIssueFire := issue.io.issueFire
     io.issueQueueCancelFire := issue.io.cancelFire

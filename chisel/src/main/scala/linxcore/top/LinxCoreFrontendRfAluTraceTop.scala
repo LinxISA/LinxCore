@@ -216,7 +216,7 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
 
-  issue.io.inValid := path.io.renamedOutValid
+  issue.io.inValid := path.io.renamedOutValid && path.io.renamedOutReady
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := io.frontendFlushValid
   issue.io.releaseValid := execute.io.releaseValid
@@ -253,8 +253,8 @@ class LinxCoreFrontendRfAluTraceTop(
     rf.io.readValid(idx) := false.B
     rf.io.readTag(idx) := 0.U
   }
-  rf.io.clearValid := issue.io.enqueueDstValid
-  rf.io.clearTag := issue.io.enqueueDstTag
+  rf.io.clearValid := issue.io.inputAcceptDstValid
+  rf.io.clearTag := issue.io.inputAcceptDstTag
   rf.io.write(0).requestValid := execute.io.completeDstPhysValid
   rf.io.write(0).commit := execute.io.completeDstPhysValid
   rf.io.write(0).tag := execute.io.completeDstPhysTag
@@ -307,7 +307,7 @@ class LinxCoreFrontendRfAluTraceTop(
   io.rfWriteTag := execute.io.completeDstPhysTag
   io.rfWriteData := execute.io.completeDstData
   io.rfStateError := (io.rfInitValid && !rfInitTagInRange) || rf.io.protocolError || issue.io.protocolError
-  io.issueQueueEnqueueFire := issue.io.enqueueFire
+  io.issueQueueEnqueueFire := issue.io.inputAcceptFire
   io.issueQueuePickFire := issue.io.pickFire
   io.issueQueueIssueFire := issue.io.issueFire
   io.issueQueueCancelFire := issue.io.cancelFire

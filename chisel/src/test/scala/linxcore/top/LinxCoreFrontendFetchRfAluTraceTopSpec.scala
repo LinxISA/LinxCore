@@ -1,10 +1,19 @@
 package linxcore.top
 
 import circt.stage.ChiselStage
+import java.nio.file.{Files, Paths}
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
+  private def topSourceText: String = {
+    val candidates = Seq(
+      Paths.get("src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"),
+      Paths.get("chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"))
+    val path = candidates.find(Files.exists(_)).getOrElse(candidates.head)
+    Files.readString(path)
+  }
+
   test("interface combines live fetch source with RF-backed issue and ALU diagnostics") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -2091,5 +2100,18 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_executeCompleteValid"))
     assert(sv.contains("io_blockMarkerSkipValid"))
     assert(sv.contains("io_admittedMarkerDrainBarrier"))
+  }
+
+  test("Fetch/RF top accepts issue ingress only on ready-valid fire") {
+    val source = topSourceText
+
+    assert(source.contains("issue.io.inValid := path.io.renamedOutValid && path.io.renamedOutReady"))
+    assert(source.contains("rf.io.clearValid := issue.io.inputAcceptDstValid"))
+    assert(source.contains("rf.io.clearTag := issue.io.inputAcceptDstTag"))
+    assert(source.contains("val localDstAllocT =\n    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid"))
+    assert(source.contains("val localDstAllocU =\n    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid"))
+    assert(source.contains("io.issueQueueEnqueueFire := issue.io.inputAcceptFire"))
+    assert(!source.contains("rf.io.clearValid := issue.io.enqueueDstValid"))
+    assert(!source.contains("io.issueQueueEnqueueFire := issue.io.enqueueFire"))
   }
 }
