@@ -39,12 +39,15 @@ class IfuFetchIdentity(val p: InterfaceParams = InterfaceParams()) extends Bundl
 
 class BranchPredictionRecord(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val predictionTag = UInt(p.uopUidWidth.W)
   val taken = Bool()
   val branchPc = UInt(p.pcWidth.W)
   val target = UInt(p.pcWidth.W)
+  val fallthroughPc = UInt(p.pcWidth.W)
   val kind = BoundaryKind()
   val provider = PredictionProvider()
   val stage = BSideStage()
+  val confidence = UInt(2.W)
   val checkpointId = UInt(p.checkpointWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
 }
@@ -71,7 +74,11 @@ class D1InstructionGroup(val p: InterfaceParams = InterfaceParams()) extends Bun
 
 class IfuInnerFlush(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
+  val transactionId = UInt(p.uopUidWidth.W)
+  val fetchSeq = UInt(p.uopUidWidth.W)
+  val oldEpoch = UInt(p.blockEpochWidth.W)
   val restartPc = UInt(p.pcWidth.W)
   val checkpointId = UInt(p.checkpointWidth.W)
   val newEpoch = UInt(p.blockEpochWidth.W)

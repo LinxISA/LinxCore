@@ -92,7 +92,11 @@ class ISideF2Resolve(
   io.innerFlush.valid := requiresInnerFlush && io.result.ready
   io.innerFlush.bits := 0.U.asTypeOf(io.innerFlush.bits)
   io.innerFlush.bits.valid := requiresInnerFlush
+  io.innerFlush.bits.peId := translation.request.identity.peId
   io.innerFlush.bits.threadId := translation.request.identity.threadId
+  io.innerFlush.bits.transactionId := translation.request.transactionId
+  io.innerFlush.bits.fetchSeq := translation.request.identity.fetchSeq
+  io.innerFlush.bits.oldEpoch := translation.request.identity.epoch
   io.innerFlush.bits.restartPc := translation.request.pc
   io.innerFlush.bits.checkpointId := translation.request.identity.checkpointId
   io.innerFlush.bits.newEpoch := translation.request.identity.epoch + 1.U

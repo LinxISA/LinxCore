@@ -3,8 +3,7 @@
 ## Status
 
 R678 introduces independent production-shaped Chisel owners for every I-SIDE
-stage. They are intentionally separate from the migration-only
-`FrontendFetchPacketSource`, `F4DecodeWindow`, and `FrontendDecodeIngress`.
+stage. Only the owners listed below define production I-SIDE stage behavior.
 
 The current owners are:
 
@@ -62,9 +61,10 @@ transaction ID, STID, fetch sequence, and epoch equality before classifying
 them. The translated PPN plus page offset supplies the physical line tag used
 to validate the L1I candidate.
 
-An ITLB miss emits a retained typed IFU inner flush with the original restart
-PC and `epoch + 1`. It does not emit backend recovery. Access faults and L1I
-misses remain distinct results.
+An ITLB miss emits a retained typed IFU inner flush with PE, STID, transaction,
+fetch sequence, old epoch, checkpoint, original restart PC, and `epoch + 1`.
+It does not emit backend recovery. Access faults and L1I misses remain distinct
+results.
 
 The miss table distinguishes speculative request lifetime from physical refill
 lifetime:
