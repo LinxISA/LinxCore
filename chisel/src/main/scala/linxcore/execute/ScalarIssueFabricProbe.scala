@@ -23,7 +23,14 @@ class ScalarIssueFabricProbeIO(val p: InterfaceParams, val depth: Int, val banks
   val releaseRid = Input(UInt(log2Ceil(p.robEntries).W))
 
   val count = Output(UInt(log2Ceil(depth + 1).W))
+  val inputAcceptFire = Output(Bool())
+  val inputAcceptRid = Output(UInt(log2Ceil(p.robEntries).W))
+  val inputAcceptDstValid = Output(Bool())
+  val inputAcceptDstTag = Output(UInt(p.physRegWidth.W))
   val enqueueBank = Output(UInt(log2Ceil(banks).W))
+  val enqueueCount = Output(UInt(log2Ceil(banks + 1).W))
+  val bankEnqueueFireMask = Output(UInt(banks.W))
+  val bankEnqueueRid = Output(Vec(banks, UInt(log2Ceil(p.robEntries).W)))
   val bankOccupancy = Output(Vec(banks, UInt(log2Ceil(depth / banks + 1).W)))
   val bankPickMask = Output(UInt(banks.W))
   val bankReadAttemptMask = Output(UInt(banks.W))
@@ -125,7 +132,16 @@ class ScalarIssueFabricProbe(
 
   io.enqueueReady := fabric.io.inReady
   io.count := fabric.io.count
+  io.inputAcceptFire := fabric.io.inputAcceptFire
+  io.inputAcceptRid := fabric.io.inputAcceptUop.rid.value
+  io.inputAcceptDstValid := fabric.io.inputAcceptDstValid
+  io.inputAcceptDstTag := fabric.io.inputAcceptDstTag
   io.enqueueBank := fabric.io.enqueueBank
+  io.enqueueCount := fabric.io.enqueueCount
+  io.bankEnqueueFireMask := fabric.io.bankEnqueueFireMask
+  for (idx <- 0 until banks) {
+    io.bankEnqueueRid(idx) := fabric.io.bankEnqueueUop(idx).rid.value
+  }
   io.bankOccupancy := fabric.io.bankOccupancy
   io.bankPickMask := fabric.io.bankPickMask
   io.bankReadAttemptMask := fabric.io.bankReadAttemptMask

@@ -49,7 +49,14 @@ class ScalarIssueFabricIO(
   val issueUop = Output(new RenamedUop(p))
   val issueSrcData = Output(Vec(3, UInt(p.immWidth.W)))
 
+  val inputAcceptFire = Output(Bool())
+  val inputAcceptUop = Output(new RenamedUop(p))
+  val inputAcceptDstValid = Output(Bool())
+  val inputAcceptDstTag = Output(UInt(p.physRegWidth.W))
   val enqueueFire = Output(Bool())
+  val enqueueCount = Output(UInt(log2Ceil(bankCount + 1).W))
+  val bankEnqueueFireMask = Output(UInt(bankCount.W))
+  val bankEnqueueUop = Output(Vec(bankCount, new RenamedUop(p)))
   val pickFire = Output(Bool())
   val issueFire = Output(Bool())
   val cancelFire = Output(Bool())
@@ -115,6 +122,7 @@ class ScalarIssueFabric(
   require((depth & (depth - 1)) == 0, "scalar issue fabric depth must be a power of two")
   require(bankCount > 1 && (bankCount & (bankCount - 1)) == 0,
     "scalar issue bank count must be a power of two greater than one")
+  require(bankCount == 2, "scalar issue ingress skid currently supports exactly two banks")
   require(depth % bankCount == 0, "scalar issue depth must divide evenly across banks")
 
   private val bankDepth = depth / bankCount
@@ -124,8 +132,8 @@ class ScalarIssueFabric(
   val io = IO(new ScalarIssueFabricIO(p, depth, bankCount))
 
   val banks = Seq.fill(bankCount)(Module(new ReducedScalarIssueQueue(p, bankDepth)))
+  val ingress = Module(new ScalarIssueIngressSkid2(p))
   for (bank <- banks) {
-    bank.io.in := io.in
     bank.io.flushValid := io.flushValid
     bank.io.releaseValid := io.releaseValid
     bank.io.releaseBid := io.releaseBid
@@ -144,23 +152,30 @@ class ScalarIssueFabric(
 
   val routeValidStages = Wire(Vec(bankCount + 1, Bool()))
   val routeBankStages = Wire(Vec(bankCount + 1, UInt(bankWidth.W)))
-  val routeCountStages = Wire(Vec(bankCount + 1, UInt(log2Ceil(bankDepth + 1).W)))
+  val routeCountStages = Wire(Vec(bankCount + 1, UInt(log2Ceil(depth + 1).W)))
   routeValidStages(0) := false.B
   routeBankStages(0) := 0.U
-  routeCountStages(0) := bankDepth.U
+  routeCountStages(0) := depth.U
   for (idx <- 0 until bankCount) {
-    val take = banks(idx).io.inReady &&
-      (!routeValidStages(idx) || banks(idx).io.count < routeCountStages(idx))
-    routeValidStages(idx + 1) := routeValidStages(idx) || banks(idx).io.inReady
+    val effectiveCount =
+      (banks(idx).io.count.pad(countWidth) + ingress.io.bankOccupancy(idx).pad(countWidth))(countWidth - 1, 0)
+    val take = !routeValidStages(idx) || effectiveCount < routeCountStages(idx)
+    routeValidStages(idx + 1) := true.B
     routeBankStages(idx + 1) := Mux(take, idx.U, routeBankStages(idx))
-    routeCountStages(idx + 1) := Mux(take, banks(idx).io.count, routeCountStages(idx))
+    routeCountStages(idx + 1) := Mux(take, effectiveCount, routeCountStages(idx))
   }
-  val routeValid = routeValidStages(bankCount)
   val routeBank = routeBankStages(bankCount)
+
+  ingress.io.inValid := io.inValid
+  ingress.io.in := io.in
+  ingress.io.inBank := routeBank
+  ingress.io.flushValid := io.flushValid
   for (idx <- 0 until bankCount) {
-    banks(idx).io.inValid := io.inValid && routeValid && routeBank === idx.U
+    ingress.io.drainCanConsume(idx) := banks(idx).io.inReady
+    banks(idx).io.inValid := ingress.io.drainFire(idx)
+    banks(idx).io.in := ingress.io.drainPreview(idx)
   }
-  io.inReady := routeValid
+  io.inReady := ingress.io.inReady
 
   val readArbiter = Module(new ScalarIssueCandidateArbiter(p, bankCount))
   val issueArbiter = Module(new ScalarIssueCandidateArbiter(p, bankCount))
@@ -239,16 +254,27 @@ class ScalarIssueFabric(
   val readAttemptMask = VecInit(banks.map(_.io.readAttemptValid)).asUInt
   val issueValidMask = VecInit(banks.map(_.io.issueValid)).asUInt
 
-  io.enqueueFire := VecInit(banks.map(_.io.enqueueFire)).asUInt.orR
+  val bankEnqueueMask = VecInit(banks.map(_.io.enqueueFire)).asUInt
+  val inputAcceptFire = io.inValid && io.inReady
+  io.inputAcceptFire := inputAcceptFire
+  io.inputAcceptUop := io.in
+  io.inputAcceptDstValid := inputAcceptFire && io.in.dst(0).valid && (io.in.dst(0).kind === linxcore.common.DestinationKind.Gpr)
+  io.inputAcceptDstTag := io.in.dst(0).physTag
+  io.enqueueFire := io.inputAcceptFire
+  io.enqueueCount := PopCount(bankEnqueueMask)
+  io.bankEnqueueFireMask := bankEnqueueMask
+  for (idx <- 0 until bankCount) {
+    io.bankEnqueueUop(idx) := Mux(banks(idx).io.enqueueFire, banks(idx).io.in, 0.U.asTypeOf(new RenamedUop(p)))
+  }
   io.pickFire := pickMask.orR
   io.issueFire := VecInit(banks.map(_.io.issueFire)).asUInt.orR
   io.cancelFire := VecInit(banks.map(_.io.cancelFire)).asUInt.orR
   io.releaseFire := VecInit(banks.map(_.io.releaseFire)).asUInt.orR
-  io.enqueueDstValid := VecInit(banks.map(_.io.enqueueDstValid)).asUInt.orR
-  io.enqueueDstTag := io.in.dst(0).physTag
-  io.empty := totalCount === 0.U
-  io.full := !routeValid
-  io.count := totalCount
+  io.enqueueDstValid := io.inputAcceptDstValid
+  io.enqueueDstTag := io.inputAcceptDstTag
+  io.empty := totalCount === 0.U && ingress.io.empty
+  io.full := ingress.io.full
+  io.count := totalCount + ingress.io.count.pad(countWidth)
   io.issuedCount := totalIssued
   io.notIssuedCount := totalNotIssued
   io.headValid := headBankValid.asUInt.orR
