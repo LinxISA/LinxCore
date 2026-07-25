@@ -864,7 +864,7 @@ BROB 可在 block resolve 时唤醒 dst Tile/GPR consumer，但只有当该 bloc
 | Stage / Structure | Flush Action |
 | --- | --- |
 | I-SIDE I-F0..I-F4 / Instruction Buffer | 按 STID/epoch 取消错误路径 fetch 和 buffer entry，装载 recovery PC |
-| B-SIDE | 取消 prediction request/response，恢复 GHR/GHRQ/RAS checkpoint |
+| B-SIDE | 取消 prediction request/response；canonical prune 恢复 request-owned GHR/GHRQ checkpoint、追加 actual/corrected conditional delta 并清除年轻项；RAS/path history 复用同一恢复顺序 |
 | D1 | 丢弃尚未 rename 的错误路径指令 |
 | Rename/MAPQ | 恢复 speculative map，回收错误路径 ptag 和分配资源 |
 | Scalar ISQ | 按 TID/ROB age 清除 younger uop |

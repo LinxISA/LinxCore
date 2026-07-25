@@ -21,8 +21,10 @@ Architectural redirect is resolved at block boundary commit.
 Frontend prediction refinement and backend resolution are distinct:
 
 - a B-F4 correction of an earlier B-SIDE provider generates the final
-  prediction-driven identity-qualified frontend inner flush, restores
-  GHR/GHRQ/RAS, and restarts I-F0 without pruning ROB state;
+  prediction-driven identity-qualified frontend inner flush and marks predictor
+  recovery pending; the returned canonical prune restores the request-owned
+  snapshot, appends the corrected conditional direction once, removes younger
+  checkpoints, and restarts I-F0 without pruning ROB state;
 - B-F4 then seals the record carried by every valid D1 lane; Dispatch validates
   direct/call properties and BRU E1 validates conditional direction plus
   indirect/return targets;

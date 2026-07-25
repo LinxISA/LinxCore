@@ -4,8 +4,9 @@
 
 `BSidePredictionPipeline` implements the five-stage B-SIDE Chisel pipeline with
 independent resident stage state, retained prediction responses, retained
-training, exact I-F4 boundary matching, and one final B-F4 response per fetch
-request. `LinxCoreIfu` composes it with I-SIDE, the canonical redirect arbiter,
+training, a request-owned speculative GHR checkpoint queue, exact I-F4 boundary
+matching, and one final B-F4 response per fetch request. `LinxCoreIfu` composes
+it with I-SIDE, the canonical redirect arbiter,
 final-prediction join, Instruction Buffer, and D1. Dispatch/BRU consume and
 validate the carried prediction record at their architectural boundaries.
 
@@ -13,7 +14,7 @@ validate the carried prediction record at their architectural boundaries.
 
 | Stage | Implemented predictor work | Published result |
 |---|---|---|
-| B-F0 | Allocate monotonic prediction tag; query NanoBTB/L0 entry | Earliest target/type/direction candidate |
+| B-F0 | Allocate a monotonic prediction tag and exact GHRQ row; freeze `ghrBefore`; query NanoBTB/L0 entry | Earliest target/type/direction candidate plus immutable history snapshot |
 | B-F1 | Query uBTB | Higher-ranked early candidate |
 | B-F2 | Query PBTB and use BIM for conditional direction | Main BTB/BIM candidate |
 | B-F3 | Query the short-history tagged table for conditional branches only | Short-TAGE correction |
@@ -44,15 +45,22 @@ The effective prediction record carries:
 
 If a candidate changes the accepted exact tuple, the response is marked as a
 correction. Its typed IFU redirect proposal carries PE, STID, trigger
-transaction, fetch sequence, producer epoch, checkpoint,
+transaction, packet UID, fetch sequence, producer epoch, prediction tag,
+checkpoint, the GHR recovery action and corrected conditional delta,
 `PreserveTriggerKillYounger`, and the exact restart PC. The canonical
 `IfuRedirectArbiter` assigns `newEpoch`; a predictor-local increment is not an
 epoch authority. Taken correction restarts at `target`; not-taken correction
 restarts at `fallthroughPc`.
 
-The response and correction flush are atomic: a correction cannot dequeue
+The response and redirect proposal are atomic: a correction cannot dequeue
 unless both sinks accept the same event. The response queue holds every field
 stable under backpressure.
+
+Accepting that proposal does not mutate speculative history. It marks the STID
+history redirect pending. `BSideHistoryQueue` restores `ghrBefore`, appends the
+corrected conditional direction exactly once, and prunes younger rows only
+after the redirect arbiter returns the same event as the canonical prune. This
+is the single history/state ordering point shared with I-SIDE.
 
 ## I-F4 Boundary Join
 
@@ -77,15 +85,28 @@ two engines.
 ## Predictor and Training State
 
 Resolved training enters a retained queue. Duplicate updates are detected by
-prediction tag, STID, and epoch. An accepted nonduplicate update trains:
+prediction tag, STID, and epoch. A nonduplicate update must also match the exact
+request-owned GHRQ row across PE, transaction, STID, packet UID, fetch sequence,
+epoch, checkpoint, request PC, and prediction tag. A stale update is drained and
+reported without mutating predictor tables. An accepted update trains:
 
 - NanoBTB, uBTB, and PBTB type/target plus last conditional direction;
 - BIM two-bit counter;
 - short- and long-history tagged two-bit counters;
 - IBTB for indirect branches and indirect calls;
 - conditional-only loop direction/confidence;
-- RAS push/pop with explicit nonempty/full tracking;
-- conditional-only resolved GHR.
+- RAS push/pop with explicit nonempty/full tracking.
+
+B-F3/B-F4 lookup and TAGE training use the row's immutable `ghrBefore`; they
+never resample the live per-STID GHR. Resolve records the same snapshot for a
+possible backend recovery. A correct resolve releases the row; a resolve marked
+`mispredict` retains it until keyed BRU canonical recovery restores the snapshot
+and appends the actual conditional direction. ITLB recovery with no B-SIDE
+trigger row restores the oldest killed row's snapshot; start/reset explicitly
+clears the selected STID's GHR and rows. Any prune that would remove an
+`appliedValid` conditional row while carrying `GhrRecoveryAction.None` is a
+protocol error and fires a hardware assertion; backend integration cannot
+silently drop speculative history repair.
 
 TAGE and loop overrides are legal only for conditional branches. RAS is used
 only for a return with a nonempty stack. With no boundary, B-F4 preserves the
@@ -101,8 +122,9 @@ Every prediction update enters `IfuPredictionJoin`. A tuple-changing update
 also proposes a redirect to `IfuRedirectArbiter`; the response and proposal
 are accepted atomically. The join cannot expose the transaction until the
 canonical redirect has rebased the producer epoch. The accepted redirect is
-then broadcast back to B-SIDE as a selective prune; learned tables are never
-cleared by ordinary inner flush.
+then broadcast back to B-SIDE as a selective prune and is the only point that
+repairs speculative GHR; learned tables are never cleared by ordinary inner
+flush.
 
 The final response also supplies I-F0's resolved next PC. For no-boundary
 cachelines, B-F4 uses I-F4's exact fallthrough rather than assuming the aligned
@@ -127,12 +149,20 @@ elaboration check:
 5. direct/call/return/indirect training cannot pollute BIM/TAGE direction
    state;
 6. response stability and atomic correction/flush under backpressure;
-7. exact not-taken correction restart at instruction fallthrough;
-8. nonempty RAS final return-target authority;
-9. trained IBTB final indirect-target authority;
-10. four fetch-line requests accepted in consecutive cycles and four final
+7. canonical prune stalls a surviving correction response for the whole cycle;
+8. exact not-taken correction restart at instruction fallthrough;
+9. nonempty RAS final return-target authority;
+10. trained IBTB final indirect-target authority;
+11. four fetch-line requests accepted in consecutive cycles and four final
    responses returned in consecutive cycles;
-11. duplicate retained training detection by prediction identity.
+12. duplicate retained training detection by prediction identity;
+13. stale training rejection without predictor mutation;
+14. correction history fields and canonical-only GHR mutation.
+
+The independent `BSideHistoryQueueSpec` covers canonical correction ordering,
+late re-correction rollback, immutable training history, backend actual
+direction recovery, ITLB recovery without a resident trigger, and full-queue
+capacity recovery, plus multi-STID isolation and one-entry row reuse.
 
 The elaboration check requires all five-stage occupancy, retained response,
 typed inner-flush, and boundary-collision ports in generated SystemVerilog.
@@ -141,8 +171,9 @@ The shared Instruction Buffer and D1 suites additionally prove that the
 expanded prediction tag, fallthrough, confidence, provider, stage, checkpoint,
 and epoch remain intact through four-wide transport.
 
-The focused predictor suite contains 13 passing tests. The current frontend
-regression contains 26 suites and 135 passing tests. The `LinxCoreIfuSpec`
+The focused predictor suite contains 15 passing tests, the focused GHRQ suite
+contains eight, and the R684 frontend regression contains 28 suites and 152
+passing tests. The `LinxCoreIfuSpec`
 end-to-end scenarios additionally prove final B-F4
 metadata on every D1 lane, canonical prediction correction ordering,
 cross-line fallthrough, and backend redirect priority. These simulations are
@@ -150,12 +181,14 @@ not yet generated-RTL or production benchmark-promotion evidence.
 
 ## Remaining B-SIDE Work
 
-- Add speculative GHR/GHRQ checkpoint update and rollback; current GHR changes
-  only on resolved training.
 - Add medium and additional long-history TAGE tables with provider/alternate,
   usefulness, allocation, aging, and deterministic training-port policy.
-- Split speculative GHR mutation from resolved training and restore it from the
-  matching checkpoint on correction/recovery.
+- Move RAS/path-history/loop speculative state onto the same request-owned
+  checkpoint and canonical recovery framework; the current RAS remains
+  resolved-training state.
+- Require every production branch resolve producer to classify `mispredict` and
+  every matching backend BRU recovery producer to populate the typed history
+  key and actual conditional delta now carried by `IfuInnerFlush`.
 - Add generated-RTL predictor stimulus and full I-SIDE/B-SIDE asynchronous
   throughput/recovery gates.
 

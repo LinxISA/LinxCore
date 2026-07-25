@@ -31,6 +31,10 @@ object IfuPruneScope extends ChiselEnum {
   val KillAllThreadState, KillTriggerAndYounger, PreserveTriggerKillYounger = Value
 }
 
+object GhrRecoveryAction extends ChiselEnum {
+  val None, Reset, RestoreTrigger = Value
+}
+
 class IfuEpochSeed(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val threadId = UInt(p.threadIdWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
@@ -94,6 +98,12 @@ class IfuInnerFlush(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val newEpoch = UInt(p.blockEpochWidth.W)
   val reason = IfuInnerFlushReason()
   val scope = IfuPruneScope()
+  val historyKeyValid = Bool()
+  val predictionTag = UInt(p.uopUidWidth.W)
+  val fetchPacketUid = UInt(p.uopUidWidth.W)
+  val ghrAction = GhrRecoveryAction()
+  val ghrAppendValid = Bool()
+  val ghrAppendTaken = Bool()
 }
 
 object IfuFlushContract {

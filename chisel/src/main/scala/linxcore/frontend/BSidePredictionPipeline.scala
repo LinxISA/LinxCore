@@ -1,12 +1,14 @@
 package linxcore.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Queue, log2Ceil}
+import chisel3.util.{Decoupled, Queue, log2Ceil}
 import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class BSidePredictionPipelineIO(
   val p: InterfaceParams = InterfaceParams(),
-  val lineBytes: Int = 64)
+  val lineBytes: Int = 64,
+  val threadCount: Int = 1,
+  val historyEntries: Int = 16)
     extends Bundle {
   val request = Flipped(Decoupled(new ISideFetchRequest(p, lineBytes)))
   val boundary = Flipped(Decoupled(new BSideBoundaryMetadata(p)))
@@ -19,8 +21,12 @@ class BSidePredictionPipelineIO(
   val stageValid = Output(UInt(5.W))
   val responseQueueCount = Output(UInt(5.W))
   val trainingQueueCount = Output(UInt(4.W))
+  val historyCount = Output(UInt(log2Ceil(historyEntries + 1).W))
+  val historyValidMask = Output(UInt(historyEntries.W))
+  val speculativeGhr = Output(Vec(threadCount, UInt(BSideHistoryContract.GhrWidth.W)))
   val boundaryCollision = Output(Bool())
   val duplicateTraining = Output(Bool())
+  val staleTraining = Output(Bool())
 }
 
 class BSidePredictionPipeline(
@@ -30,6 +36,7 @@ class BSidePredictionPipeline(
     val boundaryEntries: Int = 16,
     val responseEntries: Int = 16,
     val trainingEntries: Int = 8,
+    val historyEntries: Int = 16,
     val nanoEntries: Int = 8,
     val ubtbEntries: Int = 16,
     val pbtbEntries: Int = 32,
@@ -40,17 +47,17 @@ class BSidePredictionPipeline(
     val rasDepth: Int = 8)
     extends Module {
   require(threadCount > 0 && (threadCount & (threadCount - 1)) == 0)
+  require(threadCount <= (1 << p.threadIdWidth))
   require(boundaryEntries > 0 && (boundaryEntries & (boundaryEntries - 1)) == 0)
   require(responseEntries > 0 && (responseEntries & (responseEntries - 1)) == 0)
   require(trainingEntries > 0 && (trainingEntries & (trainingEntries - 1)) == 0)
+  require(historyEntries > 0 && (historyEntries & (historyEntries - 1)) == 0)
   Seq(nanoEntries, ubtbEntries, pbtbEntries, bimEntries, tageEntries, ibtbEntries, loopEntries, rasDepth)
     .foreach(entries => require(entries > 0 && (entries & (entries - 1)) == 0))
 
   private val boundaryIndexWidth = math.max(1, log2Ceil(boundaryEntries))
   private val threadIndexWidth = math.max(1, log2Ceil(threadCount))
-  private val ghrWidth = 16
-
-  val io = IO(new BSidePredictionPipelineIO(p, lineBytes))
+  val io = IO(new BSidePredictionPipelineIO(p, lineBytes, threadCount, historyEntries))
 
   def tableIndex(pc: UInt, entries: Int): UInt = {
     val width = math.max(1, log2Ceil(entries))
@@ -128,7 +135,8 @@ class BSidePredictionPipeline(
   val loopTags = RegInit(VecInit(Seq.fill(loopEntries)(0.U(p.pcWidth.W))))
   val loopDirection = RegInit(VecInit(Seq.fill(loopEntries)(false.B)))
   val loopConfidence = RegInit(VecInit(Seq.fill(loopEntries)(0.U(2.W))))
-  val ghr = RegInit(VecInit(Seq.fill(threadCount)(0.U(ghrWidth.W))))
+  val history = Module(new BSideHistoryQueue(p, lineBytes, threadCount, historyEntries))
+  history.io.prune := io.prune
   val ras = RegInit(
     VecInit(
       Seq.fill(threadCount)(
@@ -178,7 +186,6 @@ class BSidePredictionPipeline(
   val trainingQueue =
     Module(new Queue(new BSideResolveUpdate(p), trainingEntries, pipe = true, flow = false))
   trainingQueue.io.enq <> io.resolve
-  trainingQueue.io.deq.ready := true.B
   io.trainingQueueCount := trainingQueue.io.count
 
   val lastTrainingValid = RegInit(false.B)
@@ -193,7 +200,19 @@ class BSidePredictionPipeline(
       trainingQueue.io.deq.bits.epoch === lastTrainingEpoch
   io.duplicateTraining := duplicateTraining
 
-  when(trainingQueue.io.deq.fire && !duplicateTraining) {
+  val trainingThread = threadIndex(trainingQueue.io.deq.bits.threadId)
+  val trainingHistoryReady =
+    !history.io.redirectPending(trainingThread) && !io.prune.valid
+  trainingQueue.io.deq.ready := duplicateTraining || trainingHistoryReady
+  history.io.resolve.valid :=
+    trainingQueue.io.deq.valid && !duplicateTraining && trainingHistoryReady
+  history.io.resolve.bits := trainingQueue.io.deq.bits
+  val staleTraining =
+    trainingQueue.io.deq.valid && !duplicateTraining && trainingHistoryReady &&
+      !history.io.resolveMatch
+  io.staleTraining := staleTraining
+
+  when(trainingQueue.io.deq.fire && !duplicateTraining && history.io.resolveMatch) {
     val update = trainingQueue.io.deq.bits
     val btbRow = Wire(new BSideBtbEntry(p))
     btbRow.valid := true.B
@@ -211,14 +230,14 @@ class BSidePredictionPipeline(
     }
 
     val thread = threadIndex(update.threadId)
-    val history = ghr(thread)
+    val predictionHistory = history.io.resolveHistory
     when(update.kind === BoundaryKind.Cond) {
       val shortIndex =
-        tableIndex(update.requestPc ^ history(3, 0), tageEntries)
+        tableIndex(update.requestPc ^ predictionHistory(3, 0), tageEntries)
       val longIndex =
-        tableIndex(update.requestPc ^ history, tageEntries)
-      val shortTag = (update.requestPc(13, 2) ^ history(11, 0))(11, 0)
-      val longTag = (update.requestPc(13, 2) ^ history(15, 4))(11, 0)
+        tableIndex(update.requestPc ^ predictionHistory, tageEntries)
+      val shortTag = (update.requestPc(13, 2) ^ predictionHistory(11, 0))(11, 0)
+      val longTag = (update.requestPc(13, 2) ^ predictionHistory(15, 4))(11, 0)
       shortValid(shortIndex) := true.B
       shortTags(shortIndex) := shortTag
       shortCounters(shortIndex) :=
@@ -264,10 +283,6 @@ class BSidePredictionPipeline(
         rasCount(thread) := rasCount(thread) - 1.U
       }
     }
-    when(update.kind === BoundaryKind.Cond) {
-      ghr(thread) := Cat(history(ghrWidth - 2, 0), update.taken)
-    }
-
     lastTrainingValid := true.B
     lastTrainingTransaction := update.predictionTag
     lastTrainingThread := update.threadId
@@ -294,9 +309,16 @@ class BSidePredictionPipeline(
   initialPayload.effective.confidence := 0.U
   initialPayload.effective.checkpointId := io.request.bits.identity.checkpointId
   initialPayload.effective.epoch := io.request.bits.identity.epoch
-  stages.head.io.enq.valid := io.request.valid && !io.prune.valid
+  initialPayload.ghrBefore := history.io.allocateHistory
+  stages.head.io.enq.valid :=
+    io.request.valid && history.io.allocate.ready && !io.prune.valid
   stages.head.io.enq.bits := initialPayload
-  io.request.ready := stages.head.io.enq.ready && !io.prune.valid
+  history.io.allocate.valid :=
+    io.request.valid && stages.head.io.enq.ready && !io.prune.valid
+  history.io.allocate.bits.request := io.request.bits
+  history.io.allocate.bits.predictionTag := nextPredictionTag
+  io.request.ready :=
+    stages.head.io.enq.ready && history.io.allocate.ready && !io.prune.valid
   when(io.request.fire) {
     nextPredictionTag := nextPredictionTag + 1.U
   }
@@ -325,8 +347,7 @@ class BSidePredictionPipeline(
 
   val stage3 = Wire(new BSidePredictionCandidate(p))
   stage3 := 0.U.asTypeOf(stage3)
-  val stage3Thread = threadIndex(payloads(3).request.identity.threadId)
-  val stage3History = ghr(stage3Thread)
+  val stage3History = payloads(3).ghrBefore
   val stage3Index = tableIndex(payloads(3).request.pc ^ stage3History(3, 0), tageEntries)
   val stage3Tag = (payloads(3).request.pc(13, 2) ^ stage3History(11, 0))(11, 0)
   val stage3Hit =
@@ -362,7 +383,7 @@ class BSidePredictionPipeline(
       boundary.epoch === stage4Payload.request.identity.epoch
   val boundaryHit = boundaryPresent && boundary.valid
   val stage4Thread = threadIndex(stage4Payload.request.identity.threadId)
-  val stage4History = ghr(stage4Thread)
+  val stage4History = stage4Payload.ghrBefore
   val longIndex = tableIndex(stage4Payload.request.pc ^ stage4History, tageEntries)
   val longTag = (stage4Payload.request.pc(13, 2) ^ stage4History(15, 4))(11, 0)
   val longHit = longValid(longIndex) && longTags(longIndex) === longTag
@@ -524,9 +545,10 @@ class BSidePredictionPipeline(
   io.response.valid :=
     responseQueue.io.deq.valid &&
       !responseHeadKilled &&
+      !io.prune.valid &&
       (!responseNeedsFlush || io.innerFlush.ready)
   io.response.bits := responseHead
-  io.innerFlush.valid := responseNeedsFlush && io.response.ready
+  io.innerFlush.valid := responseNeedsFlush && io.response.ready && !io.prune.valid
   io.innerFlush.bits := 0.U.asTypeOf(io.innerFlush.bits)
   io.innerFlush.bits.valid := responseNeedsFlush
   io.innerFlush.bits.peId := responseHead.request.identity.peId
@@ -540,9 +562,25 @@ class BSidePredictionPipeline(
   io.innerFlush.bits.newEpoch := responseHead.prediction.epoch
   io.innerFlush.bits.reason := IfuInnerFlushReason.PredictionCorrection
   io.innerFlush.bits.scope := IfuPruneScope.PreserveTriggerKillYounger
+  io.innerFlush.bits.historyKeyValid := true.B
+  io.innerFlush.bits.predictionTag := responseHead.prediction.predictionTag
+  io.innerFlush.bits.fetchPacketUid := responseHead.request.identity.fetchPacketUid
+  io.innerFlush.bits.ghrAction := GhrRecoveryAction.RestoreTrigger
+  io.innerFlush.bits.ghrAppendValid :=
+    responseHead.prediction.kind === BoundaryKind.Cond
+  io.innerFlush.bits.ghrAppendTaken := responseHead.prediction.taken
   responseQueue.io.deq.ready :=
     responseHeadKilled ||
-      (io.response.ready && (!responseNeedsFlush || io.innerFlush.ready))
+      (!io.prune.valid &&
+        io.response.ready && (!responseNeedsFlush || io.innerFlush.ready))
+
+  history.io.correction.valid := io.innerFlush.fire
+  history.io.correction.bits := responseHead
+  history.io.release.valid :=
+    io.response.fire &&
+      responseHead.finalResponse &&
+      responseHead.prediction.kind === BoundaryKind.Fall
+  history.io.release.bits := responseHead
 
   when(stages(4).io.deq.fire && !stageKilled(4)) {
     when(io.boundary.fire && boundaryIndex === stage4BoundaryIndex) {
@@ -554,7 +592,17 @@ class BSidePredictionPipeline(
 
   io.stageValid := VecInit(stages.map(_.io.deq.valid)).asUInt
   io.responseQueueCount := responseQueue.io.count
+  io.historyCount := history.io.count
+  io.historyValidMask := history.io.validMask
+  io.speculativeGhr := history.io.speculativeGhr
   io.boundaryCollision :=
     boundaryCollision &&
       !(stages(4).io.deq.fire && !stageKilled(4) && boundaryIndex === stage4BoundaryIndex)
+
+  when(io.request.fire) {
+    assert(history.io.allocate.fire, "B-F0 stage and history checkpoint allocation must be atomic")
+  }
+  when(history.io.allocate.fire) {
+    assert(io.request.fire, "history checkpoint allocation must have a matching B-F0 request")
+  }
 }

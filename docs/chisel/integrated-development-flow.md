@@ -24,6 +24,18 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
+Latest IFU packet: R684 adds the first Model-aligned B-SIDE speculative-state
+owner. B-F0 atomically allocates a prediction tag and exact GHRQ row, and
+B-F3/B-F4 plus resolved TAGE training use the immutable request-owned
+`ghrBefore` snapshot. A prediction correction only marks history redirect
+pending when its response/redirect proposal fires; GHR rollback and corrected
+conditional append occur only when `IfuRedirectArbiter` returns the canonical
+prune. Correct resolves release their row; mispredict resolves retain it for
+exact keyed backend recovery with the actual direction. ITLB recovery falls back to the oldest killed snapshot when
+its trigger never reached B-SIDE. Stale training cannot mutate tables. RAS,
+path history, full TAGE provider/alternate policy, generated RTL, and natural
+benchmark promotion remain later packets.
+
 Latest IFU packet: R683 removes the one-sequential-transaction I-SIDE gate.
 `ISideLineContextQueue` allocates ordered line contexts with I-F0, accepts exact
 I-F2 completions out of order, and exposes only the oldest completed context to

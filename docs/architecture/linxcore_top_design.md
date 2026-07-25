@@ -85,9 +85,10 @@ B-SIDE composition:
 - `B-F4`: static prediction from matched I-F4 boundary metadata, long TAGE,
   final IBTB/loop result, final arbitration, retained response, and the last
   prediction-driven correction
-- B-F4 correction inner flush restores GHR/RAS and restarts I-F0; after the
-  final record is sealed, Dispatch/BRU mismatch uses BRU flush/recover and
-  I-F0 restart
+- B-F4 correction inner flush marks predictor recovery pending; its returned
+  canonical prune restores request-owned history, applies the corrected
+  conditional delta, and restarts I-F0. After the final record is sealed,
+  Dispatch/BRU mismatch uses BRU flush/recover and I-F0 restart
 
 In the export/bring-up path, the native IFU source may be replaced by a
 host-fed Instruction Buffer writer. That substitution must preserve fixed

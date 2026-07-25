@@ -1,6 +1,7 @@
 package linxcore.frontend
 
 import chisel3._
+import chisel3.util.Cat
 import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class BSideBoundaryMetadata(val p: InterfaceParams = InterfaceParams()) extends Bundle {
@@ -42,9 +43,12 @@ class BSidePredictionUpdate(
 }
 
 class BSideResolveUpdate(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
   val transactionId = UInt(p.uopUidWidth.W)
   val predictionTag = UInt(p.uopUidWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
+  val fetchPacketUid = UInt(p.uopUidWidth.W)
+  val fetchSeq = UInt(p.uopUidWidth.W)
   val epoch = UInt(p.blockEpochWidth.W)
   val checkpointId = UInt(p.checkpointWidth.W)
   val requestPc = UInt(p.pcWidth.W)
@@ -53,6 +57,7 @@ class BSideResolveUpdate(val p: InterfaceParams = InterfaceParams()) extends Bun
   val taken = Bool()
   val target = UInt(p.pcWidth.W)
   val kind = BoundaryKind()
+  val mispredict = Bool()
 }
 
 class BSidePipePayload(
@@ -61,6 +66,27 @@ class BSidePipePayload(
     extends Bundle {
   val request = new ISideFetchRequest(p, lineBytes)
   val effective = new BranchPredictionRecord(p)
+  val ghrBefore = UInt(BSideHistoryContract.GhrWidth.W)
+}
+
+class BSideHistoryAllocate(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val request = new ISideFetchRequest(p, lineBytes)
+  val predictionTag = UInt(p.uopUidWidth.W)
+}
+
+class BSideHistoryCheckpoint(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val valid = Bool()
+  val request = new ISideFetchRequest(p, lineBytes)
+  val predictionTag = UInt(p.uopUidWidth.W)
+  val ghrBefore = UInt(BSideHistoryContract.GhrWidth.W)
+  val appliedValid = Bool()
+  val appliedTaken = Bool()
 }
 
 class BSideBtbEntry(val p: InterfaceParams = InterfaceParams()) extends Bundle {
@@ -79,4 +105,13 @@ object BSidePredictionContract {
       lhs.branchPc === rhs.branchPc &&
       lhs.target === rhs.target &&
       lhs.kind === rhs.kind
+}
+
+object BSideHistoryContract {
+  val GhrWidth = 16
+
+  def appendConditional(history: UInt, taken: Bool): UInt = {
+    require(history.getWidth == GhrWidth)
+    Cat(history(GhrWidth - 2, 0), taken)
+  }
 }

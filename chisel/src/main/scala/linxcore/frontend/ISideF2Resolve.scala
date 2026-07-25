@@ -108,6 +108,9 @@ class ISideF2Resolve(
   io.innerFlush.bits.newEpoch := translation.request.identity.epoch + 1.U
   io.innerFlush.bits.reason := IfuInnerFlushReason.ItlbMiss
   io.innerFlush.bits.scope := IfuPruneScope.KillTriggerAndYounger
+  io.innerFlush.bits.historyKeyValid := false.B
+  io.innerFlush.bits.fetchPacketUid := translation.request.identity.fetchPacketUid
+  io.innerFlush.bits.ghrAction := GhrRecoveryAction.RestoreTrigger
 
   io.joined := joined
   io.identityMatch := identityMatch

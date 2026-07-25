@@ -13,11 +13,12 @@ history.
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative
 current handoff is the top `Current Handoff` section in
-`docs/chisel/integrated-development-flow.md`; R683 adds ordered multi-line
-I-SIDE contexts, exact cross-line prefix/carry, and a sustained hot-cache
-four-wide composition proof on top of the R682 identity/provider-rank closure.
-The IFU still needs benchmark-top promotion, generated-RTL throughput evidence,
-speculative GHRQ/RAS recovery, and post-B-F4 BRU validation. New agents must
+`docs/chisel/integrated-development-flow.md`; R684 adds request-owned B-F0 GHRQ
+snapshots, canonical-only speculative conditional-GHR repair, exact resolved
+training history, and backend/ITLB recovery on top of R683 ordered multi-line
+I-SIDE composition. The IFU still needs benchmark-top promotion, generated-RTL
+throughput evidence, RAS/path-history checkpoint recovery, complete TAGE
+policy, and post-B-F4 BRU validation. New agents must
 start from that combined handoff and the latest rows in
 `docs/chisel/agent-loop.md`, then use the older R571-R632 replay-LIQ material
 below only as historical evidence for replay-search tooling and claim-boundary

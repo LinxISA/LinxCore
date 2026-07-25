@@ -102,12 +102,16 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       target: BigInt,
       fallthroughPc: BigInt,
       kind: BoundaryKind.Type,
-      taken: Boolean): Unit = {
+      taken: Boolean,
+      mispredict: Boolean = false): Unit = {
     dut.io.resolve.bits.poke(0.U.asTypeOf(dut.io.resolve.bits))
     dut.io.resolve.valid.poke(true.B)
+    dut.io.resolve.bits.peId.poke(1.U)
     dut.io.resolve.bits.transactionId.poke(transactionId.U)
     dut.io.resolve.bits.predictionTag.poke(predictionTag.U)
     dut.io.resolve.bits.threadId.poke(0.U)
+    dut.io.resolve.bits.fetchPacketUid.poke(transactionId.U)
+    dut.io.resolve.bits.fetchSeq.poke(transactionId.U)
     dut.io.resolve.bits.epoch.poke(0.U)
     dut.io.resolve.bits.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.resolve.bits.requestPc.poke(requestPc.U)
@@ -116,6 +120,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.resolve.bits.fallthroughPc.poke(fallthroughPc.U)
     dut.io.resolve.bits.kind.poke(kind)
     dut.io.resolve.bits.taken.poke(taken.B)
+    dut.io.resolve.bits.mispredict.poke(mispredict.B)
     dut.io.resolve.ready.expect(true.B)
     dut.clock.step()
     dut.io.resolve.valid.poke(false.B)
@@ -144,6 +149,73 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       }
     }
     assert(finalSeen, s"final prediction response missing after $cycles cycles")
+  }
+
+  private def applyCanonicalCorrection(
+      dut: BSidePredictionPipeline,
+      transactionId: Int,
+      predictionTag: Int,
+      taken: Boolean,
+      kind: BoundaryKind.Type): Unit = {
+    dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
+    dut.io.prune.valid.poke(true.B)
+    dut.io.prune.peId.poke(1.U)
+    dut.io.prune.threadId.poke(0.U)
+    dut.io.prune.transactionId.poke(transactionId.U)
+    dut.io.prune.fetchPacketUid.poke(transactionId.U)
+    dut.io.prune.fetchSeq.poke(transactionId.U)
+    dut.io.prune.oldEpoch.poke(0.U)
+    dut.io.prune.newEpoch.poke(1.U)
+    dut.io.prune.checkpointId.poke((transactionId & 0x3f).U)
+    dut.io.prune.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+    dut.io.prune.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+    dut.io.prune.historyKeyValid.poke(true.B)
+    dut.io.prune.predictionTag.poke(predictionTag.U)
+    dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
+    dut.io.prune.ghrAppendValid.poke((kind == BoundaryKind.Cond).B)
+    dut.io.prune.ghrAppendTaken.poke(taken.B)
+    dut.clock.step()
+    dut.io.prune.valid.poke(false.B)
+  }
+
+  private def trainPrediction(
+      dut: BSidePredictionPipeline,
+      transactionId: Int,
+      requestPc: BigInt,
+      branchPc: BigInt,
+      target: BigInt,
+      fallthroughPc: BigInt,
+      kind: BoundaryKind.Type,
+      taken: Boolean): Int = {
+    sendBoundary(
+      dut = dut,
+      transactionId = transactionId,
+      requestPc = requestPc,
+      hasBoundary = true,
+      branchPc = branchPc,
+      target = target,
+      fallthroughPc = fallthroughPc,
+      kind = kind,
+      staticTaken = taken)
+    sendRequest(dut, transactionId, requestPc)
+    waitForFinal(dut)
+    dut.io.response.bits.correction.expect(true.B)
+    val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+    dut.clock.step()
+    dut.io.response.ready.poke(false.B)
+    applyCanonicalCorrection(dut, transactionId, predictionTag, taken, kind)
+    pokeResolve(
+      dut,
+      transactionId,
+      predictionTag,
+      requestPc,
+      branchPc,
+      target,
+      fallthroughPc,
+      kind,
+      taken)
+    dut.clock.step()
+    predictionTag
   }
 
   test("B-F4 static prediction is the final correction and restarts at the exact target") {
@@ -183,7 +255,21 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.innerFlush.bits.newEpoch.expect(1.U)
       dut.io.innerFlush.bits.scope.expect(IfuPruneScope.PreserveTriggerKillYounger)
       dut.io.innerFlush.bits.restartPc.expect(0x800.U)
+      dut.io.innerFlush.bits.historyKeyValid.expect(true.B)
+      dut.io.innerFlush.bits.predictionTag.expect(0.U)
+      dut.io.innerFlush.bits.fetchPacketUid.expect(1.U)
+      dut.io.innerFlush.bits.ghrAction.expect(GhrRecoveryAction.RestoreTrigger)
+      dut.io.innerFlush.bits.ghrAppendValid.expect(true.B)
+      dut.io.innerFlush.bits.ghrAppendTaken.expect(true.B)
       dut.clock.step()
+      dut.io.speculativeGhr(0).expect(0.U)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        kind = BoundaryKind.Cond)
+      dut.io.speculativeGhr(0).expect(1.U)
     }
   }
 
@@ -213,18 +299,15 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("trained B-F0 correction is followed by a non-correcting B-F4 confirmation") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      trainPrediction(
         dut,
         transactionId = 40,
-        predictionTag = 40,
         requestPc = 0x3000,
         branchPc = 0x3004,
         target = 0x900,
         fallthroughPc = 0x3006,
         kind = BoundaryKind.Cond,
         taken = true)
-      dut.clock.step()
-
       sendBoundary(
         dut,
         transactionId = 3,
@@ -262,18 +345,15 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("B-F4 long TAGE direction outranks a conflicting static fallback") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      trainPrediction(
         dut,
         transactionId = 41,
-        predictionTag = 41,
         requestPc = 0x3400,
         branchPc = 0x3404,
         target = 0x3800,
         fallthroughPc = 0x3406,
         kind = BoundaryKind.Cond,
         taken = false)
-      dut.clock.step()
-
       sendBoundary(
         dut,
         transactionId = 8,
@@ -296,18 +376,15 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("non-conditional resolution never pollutes BIM or TAGE direction tables") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      trainPrediction(
         dut,
         transactionId = 42,
-        predictionTag = 42,
         requestPc = 0x3600,
         branchPc = 0x3604,
         target = 0x3a00,
         fallthroughPc = 0x3606,
         kind = BoundaryKind.Direct,
         taken = true)
-      dut.clock.step()
-
       sendBoundary(
         dut,
         transactionId = 9,
@@ -357,6 +434,39 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("canonical prune stalls a surviving correction response for the whole cycle") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(
+        dut,
+        transactionId = 12,
+        requestPc = 0x4200,
+        hasBoundary = true,
+        branchPc = 0x4204,
+        target = 0xa80,
+        fallthroughPc = 0x4206,
+        kind = BoundaryKind.Cond,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 12, pc = 0x4200)
+      waitForResponse(dut)
+
+      dut.io.response.ready.poke(true.B)
+      dut.io.prune.valid.poke(true.B)
+      dut.io.prune.threadId.poke(0.U)
+      dut.io.prune.transactionId.poke(12.U)
+      dut.io.prune.fetchSeq.poke(12.U)
+      dut.io.prune.oldEpoch.poke(0.U)
+      dut.io.prune.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.response.valid.expect(false.B)
+      dut.io.innerFlush.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.prune.valid.poke(false.B)
+
+      dut.io.response.valid.expect(true.B)
+      dut.io.innerFlush.valid.expect(true.B)
+    }
+  }
+
   test("not-taken correction restarts at the instruction fallthrough rather than the next cache line") {
     simulate(module) { dut =>
       clear(dut)
@@ -383,18 +493,15 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("B-F4 uses a nonempty RAS as the final return target authority") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      trainPrediction(
         dut,
         transactionId = 60,
-        predictionTag = 60,
         requestPc = 0x7000,
         branchPc = 0x7002,
         target = 0x7100,
         fallthroughPc = 0x7004,
         kind = BoundaryKind.Call,
         taken = true)
-      dut.clock.step()
-
       sendBoundary(
         dut,
         transactionId = 6,
@@ -416,18 +523,15 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("B-F4 gives the trained IBTB final authority for an indirect branch") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      trainPrediction(
         dut,
         transactionId = 70,
-        predictionTag = 70,
         requestPc = 0x8000,
         branchPc = 0x8004,
         target = 0xd00,
         fallthroughPc = 0x8006,
         kind = BoundaryKind.Ind,
         taken = true)
-      dut.clock.step()
-
       sendBoundary(
         dut,
         transactionId = 7,
@@ -533,22 +637,19 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
   test("duplicate retained training is detected by prediction identity") {
     simulate(module) { dut =>
       clear(dut)
-      pokeResolve(
+      val predictionTag = trainPrediction(
         dut,
         transactionId = 50,
-        predictionTag = 7,
         requestPc = 0x6000,
         branchPc = 0x6004,
         target = 0xb00,
         fallthroughPc = 0x6006,
         kind = BoundaryKind.Cond,
         taken = true)
-      dut.clock.step()
-
       pokeResolve(
         dut,
         transactionId = 50,
-        predictionTag = 7,
+        predictionTag = predictionTag,
         requestPc = 0x6000,
         branchPc = 0x6004,
         target = 0xb00,
@@ -558,6 +659,26 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.duplicateTraining.expect(true.B)
       dut.clock.step()
       dut.io.duplicateTraining.expect(false.B)
+    }
+  }
+
+  test("training without an exact request-owned checkpoint is rejected as stale") {
+    simulate(module) { dut =>
+      clear(dut)
+      pokeResolve(
+        dut,
+        transactionId = 90,
+        predictionTag = 3,
+        requestPc = 0xa000,
+        branchPc = 0xa004,
+        target = 0xe00,
+        fallthroughPc = 0xa006,
+        kind = BoundaryKind.Cond,
+        taken = true)
+      dut.io.staleTraining.expect(true.B)
+      dut.io.historyCount.expect(0.U)
+      dut.clock.step()
+      dut.io.staleTraining.expect(false.B)
     }
   }
 

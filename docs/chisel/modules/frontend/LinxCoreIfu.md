@@ -87,6 +87,15 @@ seeds the selected STID epoch and applies `KillAllThreadState` to old frontend
 state. Redirects never invalidate physical ITLB/L1I contents or learned
 predictor tables.
 
+The same broadcast is the sole speculative-history ordering point. A B-SIDE
+correction proposal carries an exact prediction tag plus corrected conditional
+delta and only marks its STID recovery pending when accepted. The returned
+canonical prune restores the request-owned B-F0 GHR snapshot and appends that
+delta once. ITLB miss carries an unkeyed restore action so B-SIDE can use the
+trigger row or oldest killed snapshot; start carries an explicit history reset.
+Backend BRU recovery must carry the retained mispredict row key and actual
+conditional delta.
+
 ## External Interface
 
 - `start`: activate or replace one STID fetch context;

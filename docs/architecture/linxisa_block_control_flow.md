@@ -15,7 +15,10 @@ This note records the block-structured control-flow contract used for lockstep p
 - I-SIDE predecode supplies only instruction length and BSTART/BSTOP boundary
   hints; it does not perform branch prediction.
 - A later B-SIDE prediction correction generates an identity-qualified inner
-  flush, restores GHR/RAS, and restarts I-F0; B-F4 is the final such point.
+  flush and marks predictor recovery pending. The returned canonical prune
+  restores the request-owned history snapshot, applies the corrected
+  conditional delta, prunes younger checkpoints, and restarts I-F0; B-F4 is
+  the final such point.
 - The complete B-F4 prediction record is carried on every valid D1 lane.
 - Post-B-F4 direct/call validation belongs to Dispatch; conditional direction
   and indirect/return target validation belong to BRU E1. Mismatch uses BRU

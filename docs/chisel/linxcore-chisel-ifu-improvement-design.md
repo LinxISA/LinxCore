@@ -502,12 +502,12 @@ B-F4：
 - 与 I-F0 已接受的 B-F0/B-F1/B-F2/B-F3 结果按 exact
   `{taken, branchPc, target, kind}` tuple 比较；
 - 必要时产生 `PredictionCorrection`；
-- 若没有 accepted earlier response，在 final response 被 I-F0 接受时执行
-  一次 speculative GHR/RAS/loop update；
-- 若 earlier response 已更新 speculative state 且 final 相同，只确认
-  checkpoint，不重复更新；
-- 若 earlier response 已更新而 final 不同，先从 checkpoint rollback，再
-  在 correction 被 I-F0 接受时应用 final update。
+- final tuple 相对 accepted result 发生变化时，随 correction proposal 携带
+  exact predictionTag、history recovery action 和 conditional delta；
+- correction proposal fire 时只设置 `historyRedirectPending`，不能更新 live
+  GHR/RAS/loop；
+- arbiter 返回 canonical prune 时从同一 B-F0 checkpoint rollback，再应用
+  final conditional delta；若 final 与 earlier result 相同，不重复更新。
 
 所有 B-F0–B-F4 stage 都允许发布 prediction。若顺序路径已经被 I-F0
 采用，B-F0 与该路径不同也构成 correction；任何 later-stage prediction
@@ -548,14 +548,17 @@ sequential PC。
 
 任一 B-F1/B-F2/B-F3/B-F4 later correction 都产生 typed inner flush，
 目标为 corrected target 或 sequential PC；**B-F4 correction 是最后一次
-prediction-driven inner flush**。I-F0 接受 correction 后：
+prediction-driven inner flush**。correction 被 arbiter 接受并返回 canonical
+prune 后：
 
 1. 切换对应 STID 的 I-SIDE fetch epoch；
 2. 保留 correction producer，只清除其 younger I-F0–I-F4 transient work；
 3. 保留 Instruction Buffer 中 correction producer 和 older rows，只压紧删除
    younger 错误路径 entries；
 4. 从 corrected PC restart I-F0；
-5. 通知 B-SIDE 按 checkpoint 恢复 speculative GHR/RAS/loop state。
+5. B-SIDE 按 exact predictionTag/checkpoint 恢复 speculative GHR，追加一次
+   corrected conditional direction；RAS/path/loop state 在后续实现中必须复用
+   同一 canonical ordering。
 
 B-F4 final response 被接受后，effective prediction 封存为不可变
 `predictionRecord`，随 instruction bundle 写入 Instruction Buffer，并在 D1
@@ -629,13 +632,27 @@ ready[n]   = !valid[n] || ready[n+1]
 ### GHR、GHRQ、RAS 和 epoch
 
 - GHR 是 per-STID speculative state；
-- GHRQ 保存 predictionTag、pre-update history、RAS pointer、loop state 和
-  fetch epoch；
-- speculative update 只在 accepted prediction event 上执行一次；
-- correction/restart 从 matching checkpoint 恢复并剪除年轻 GHRQ rows；
+- B-F0 原子分配 predictionTag/GHRQ row，保存完整 request identity 和不可变
+  `ghrBefore`；B-F3/B-F4 以及 resolved TAGE training 只能使用该 snapshot，
+  禁止重新采样 live GHR；
+- correction response 与 redirect proposal 原子接受时只设置该 STID 的
+  `historyRedirectPending`，不能提前修改 GHR；
+- redirect arbiter 返回 canonical prune 后，B-SIDE 才从 exact matching row
+  恢复 `ghrBefore`、对 conditional corrected direction 追加一次，并按 scope
+  剪除年轻 GHRQ rows；同一 request 的再次 correction 仍从原 snapshot 重建，
+  禁止重复追加；
+- resolve 显式携带 `mispredict`；正确预测训练后释放 row，mispredict row 保留到
+  backend BRU canonical recovery。该 recovery 携带 predictionTag 和 actual
+  conditional delta，并 exact 命中仍 resident 的 row；
+- ITLB miss 的 trigger 尚未到达 B-SIDE 时，从将被清除的最老 row 恢复；start
+  使用显式 Reset action 清所选 STID 的 GHRQ/GHR；
 - resolved training 使用 checkpoint 保存的 pre-branch history；
-- stale epoch response/training 静默丢弃并计数；
+- stale identity/epoch response/training 丢弃并计数，不得修改 predictor table；
 - epoch wrap 必须结合 outstanding tag/sequence，不能仅比较低位 epoch。
+
+当前 Chisel 包已经实现上述 conditional GHR/GHRQ 合同。RAS pointer、path
+history 和 loop speculative state 将在后续包复用同一 request-owned snapshot
+与 canonical recovery 时序，不能另建第二套 flush ordering。
 
 ### Training pipeline
 
@@ -849,7 +866,9 @@ Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，�
 - 为目标 STID 安装 restart PC；
 - 切换 fetch epoch；
 - 清理匹配的 I-F0–I-F4、B-F0–B-F4 和 Instruction Buffer transient rows；
-- 通知 B-SIDE 恢复 GHR/GHRQ/RAS speculative state；
+- 通过 typed history action 通知 B-SIDE 从 mispredict-retained exact
+  checkpoint 恢复 GHR/GHRQ，并追加 actual conditional delta；RAS/path state
+  必须复用同一 canonical recovery ordering；
 - 保留 predictor learned state 和 cache/TLB physical state；
 - 通过 age/epoch 丢弃迟到 response。
 
@@ -1058,6 +1077,9 @@ predictor tables 不因普通 redirect 清零。
   20 周期输出四条。
 - [ ] B-SIDE 完整实现 BTB family、speculative GHRQ、TAGE、BIM、RAS、IBTB
   和 loop units。
+- [x] conditional GHR/GHRQ 已实现 request-owned B-F0 snapshot、B-F3/B-F4
+  lookup/training history、canonical correction rollback、backend actual repair、
+  ITLB fallback recovery 和 stale training rejection。
 - [x] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
   I-F0 restart。
 - [ ] B-F4 provider rank 与 direction override 有独立 assertion 和覆盖率。

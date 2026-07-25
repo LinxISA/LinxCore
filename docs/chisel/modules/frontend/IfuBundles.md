@@ -43,20 +43,26 @@ global state.
 
 - PE and STID;
 - trigger transaction ID and fetch sequence;
+- trigger packet UID and optional prediction tag;
 - old epoch;
 - restart PC;
 - checkpoint ID;
 - new fetch epoch;
-- typed reason.
+- typed reason and prune scope;
+- typed GHR recovery action (`None`, `Reset`, or `RestoreTrigger`);
+- optional corrected/actual conditional direction to append after restore.
 
 The current reasons cover ITLB miss, prediction correction, fetch replay, and
-stale response. This transport is scoped to I-SIDE/B-SIDE speculative state.
+stale response. A correction proposal carries an exact history key, but GHR is
+not changed until the proposal returns from `IfuRedirectArbiter` as the
+canonical prune. ITLB may request unkeyed oldest-killed recovery, and start uses
+explicit reset. This transport is scoped to I-SIDE/B-SIDE speculative state.
 It must not be connected to ROB, rename, LSU, or other backend cleanup owners.
 
 ## Verification
 
 The bundles are exercised through the real Chisel simulations in
-`BSidePredictionPipelineSpec`, `InstructionBufferSpec`, and
+`BSideHistoryQueueSpec`, `BSidePredictionPipelineSpec`, `InstructionBufferSpec`, and
 `D1DecodeGroupGatherSpec`. Those tests prove that prediction tag, exact tuple,
 fallthrough, confidence, provider, stage, checkpoint, and epoch survive
 B-SIDE response retention plus four-wide queueing and D1 backpressure.

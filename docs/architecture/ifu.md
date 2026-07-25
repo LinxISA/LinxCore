@@ -134,8 +134,11 @@ banking, and exact internal latency remain parameters.
 
 - Accepts a decoupled `(STID, PC, request ID, epoch, checkpoint)` request.
 - Looks up the L0/NLP predictor for a zero-distance next-line decision.
-- Snapshots per-STID GHR, GHRQ, and RAS state for this request.
-- Allocates prediction-response and history-checkpoint identity.
+- Atomically allocates a prediction tag and exact GHRQ row containing the full
+  request identity and immutable pre-request `ghrBefore` snapshot.
+- Carries that same snapshot to every later direction lookup; later stages do
+  not resample live GHR. RAS/path-history checkpointing follows the same owner
+  contract when implemented.
 
 ### B-F1 — uBTB and RAS
 
@@ -167,7 +170,9 @@ banking, and exact internal latency remain parameters.
 - Selects the final provider using type, history length, confidence, and target
   availability.
 - Publishes a decoupled final prediction response to fetch steering.
-- Appends accepted speculative history to GHRQ and updates speculative GHR/RAS.
+- Publishes the history recovery key and corrected conditional delta with a
+  tuple-changing redirect proposal; it does not mutate GHR before that proposal
+  returns from the redirect arbiter as the canonical prune.
 - Retains the response until accepted or cancelled by matching inner flush,
   backend recovery, or epoch change.
 - Sends prediction metadata toward the matching Instruction Buffer entry.
@@ -190,10 +195,11 @@ identity-qualified prediction correction. B-F4 is the final correction point.
 If the accepted earlier result has already driven fetch, the correction:
 
 - produces a frontend inner flush for the matching STID/request/epoch;
-- restores GHR/GHRQ/RAS from the request checkpoint;
-- changes the matching fetch epoch and cancels matching and younger I-SIDE and
-  B-SIDE work;
-- applies the corrected prediction to speculative history;
+- marks the STID history redirect pending without immediately changing GHR;
+- changes the matching fetch epoch, preserves the correction producer, and
+  cancels younger I-SIDE and B-SIDE work;
+- on canonical prune, restores the exact request-owned `ghrBefore`, appends the
+  corrected conditional direction exactly once, and prunes younger GHRQ rows;
 - restarts the corrected PC at I-F0;
 - does not flush ROB/backend architectural state.
 
@@ -211,7 +217,13 @@ I-F0. It must not be reported as a frontend-only inner flush.
 
 Resolved branch and block-control events train the relevant BTB, TAGE, BIM,
 IBTB, RAS, and loop structures. Training is keyed by full STID/request/
-checkpoint identity. A stale event may update no speculative state.
+checkpoint identity. TAGE training uses the request-owned pre-branch history,
+not live GHR. A stale event may update neither learned tables nor speculative
+state. Correct resolves release their history row; mispredict resolves retain
+it until a keyed backend BRU recovery restores that exact checkpoint and
+appends the actual conditional direction. ITLB recovery whose
+trigger never reached B-SIDE restores the oldest killed snapshot; start/reset
+clears the selected STID history explicitly.
 
 ## Decoupled-engine interface contract
 
@@ -223,7 +235,7 @@ The minimum logical channels are:
 | `pred_req` | I-F0 | B-F0 | matching fetch identity and PC |
 | `pred_rsp` | B-F0..B-F4 | fetch steering/final metadata join | direction, target, confidence, provider, checkpoint, final bit |
 | `boundary_event` | I-F4 | B-F4 | BSTART/BSTOP location and accepted identity |
-| `inner_flush` | I-F2 or accepted B-F0..B-F4 correction | I-SIDE/B-SIDE | STID, request, epoch, replay PC, cause |
+| `inner_flush` | I-F2 or accepted B-F0..B-F4 correction | I-SIDE/B-SIDE | STID, request/packet/prediction tag, epoch, replay PC, cause, history recovery action, conditional delta |
 | `resolve_train` | Dispatch/BRU/recovery | B-SIDE | actual direction/target/kind and full prediction/recovery identity |
 
 All channels use explicit `valid/ready` or queue semantics. No interface may

@@ -77,8 +77,9 @@ or move predictor ownership into I-SIDE.
 - I-F2 generates an inner flush on ITLB miss.
 - I-F4 writes complete 64-bit instructions into Instruction Buffer.
 - B-F1..B-F4 correction of an accepted lower-ranked prediction generates an
-  identity-qualified inner flush, restores
-  GHR/RAS, and restarts I-F0; B-F4 is the final such point.
+  identity-qualified inner flush and marks predictor recovery pending. The
+  returned canonical prune restores request-owned history, applies the
+  corrected conditional delta, and restarts I-F0; B-F4 is the final such point.
 - B-F4 runs static/final arbitration and seals the complete prediction record
   carried by every valid D1 lane.
 - Post-B-F4 mismatch is validated by Dispatch/BRU and uses BRU flush/recover.
