@@ -110,7 +110,9 @@ entry contains:
 - PC and encoded byte length;
 - STID, request ID, fetch epoch, and checkpoint identity;
 - `is_bstart` and `is_bstop`;
-- matched B-SIDE prediction metadata, if available;
+- the complete effective B-SIDE `PredictionRecord`
+  (`predictionTag`, `branchPc`, `taken`, `target`, `kind`, `provider`,
+  `checkpointId`), if available;
 - fetch fault metadata.
 
 ## B-SIDE
@@ -156,10 +158,11 @@ banking, and exact internal latency remain parameters.
 - Forms the current direction/target candidate and confidence.
 - Retains the checkpoint needed to restore GHR/GHRQ/RAS.
 
-### B-F4 — long TAGE, IBTB/loop, and final arbitration
+### B-F4 — static prediction, long TAGE, IBTB/loop, and final arbitration
 
-- Collects long-history TAGE, final IBTB, loop predictor, and loop-buffer
-  candidates.
+- Runs the static predictor from identity-matched I-F4 boundary metadata and
+  collects long-history TAGE, final IBTB, loop predictor, and loop-buffer
+  candidates. Static prediction belongs to B-F4, not I-F4.
 - Performs the final exact-kind RAS check.
 - Selects the final provider using type, history length, confidence, and target
   availability.
@@ -178,7 +181,7 @@ The prediction arbitration contract is:
 - within B-F4, an exact RAS return target and a high-confidence IBTB indirect
   target are same-rank target authorities selected by decoded control type;
 - direction override order is
-  `loop > long-TAGE > short-TAGE > BIM`;
+  `loop > long-TAGE > short-TAGE > BIM > static`;
 - BTB/PBTB supplies direct targets; a direction provider does not invent one.
 
 If any later B-SIDE stage differs from an already accepted lower-ranked
@@ -194,10 +197,17 @@ If the accepted earlier result has already driven fetch, the correction:
 - restarts the corrected PC at I-F0;
 - does not flush ROB/backend architectural state.
 
-A backend-resolved misprediction is different: it enters the typed precise
-recovery fabric, restores predictor checkpoints through the accepted recovery
-event, and publishes the architectural restart PC to I-F0. It must not be
-reported as a frontend-only inner flush.
+B-F4 is the last stage allowed to issue a prediction-driven inner flush. After
+its final result is accepted, the immutable `PredictionRecord` follows the
+instruction bundle through the Instruction Buffer and is associated with every
+valid D1 lane.
+
+Post-B-F4 validation is type-specific. Dispatch checks direct/call properties
+that require no runtime operand. BRU E1 checks conditional `setc.*` direction
+and indirect/return `setc.tgt` targets after their operands are available. Any
+mismatch enters `BRU flush + recover`, restores predictor checkpoints through
+the accepted recovery event, and publishes the architectural restart PC to
+I-F0. It must not be reported as a frontend-only inner flush.
 
 Resolved branch and block-control events train the relevant BTB, TAGE, BIM,
 IBTB, RAS, and loop structures. Training is keyed by full STID/request/
@@ -214,7 +224,7 @@ The minimum logical channels are:
 | `pred_rsp` | B-F4 | fetch steering/I-SIDE metadata join | direction, target, confidence, provider, checkpoint |
 | `boundary_event` | I-F4/D1 | B-SIDE | BSTART/BSTOP location and accepted identity |
 | `inner_flush` | I-F2 or B-F1..B-F4 correction | I-SIDE/B-SIDE | STID, request, epoch, replay PC, cause |
-| `resolve_train` | backend control | B-SIDE | actual direction/target and full recovery identity |
+| `resolve_train` | Dispatch/BRU/recovery | B-SIDE | actual direction/target/kind and full prediction/recovery identity |
 
 All channels use explicit `valid/ready` or queue semantics. No interface may
 assume a fixed cycle relationship between I-F stage state and B-F stage state.
@@ -227,6 +237,9 @@ assume a fixed cycle relationship between I-F stage state and B-F stage state.
 - D1 performs the first full opcode decode, operand and immediate extraction,
   illegal-instruction checks, and uop-shape formation.
 - D1 consumes the `BSTART`/`BSTOP` hints but validates them against full decode.
+- D1 associates the complete effective `PredictionRecord` with every valid
+  lane; sharing immutable backing storage is permitted, but a global current
+  prediction register is not.
 - D1 does not reconstruct a variable-length byte window and does not
   concatenate neighboring Instruction Buffer entries.
 - From D1 onward, all instruction payloads are fixed-width `inst[63:0]`.
@@ -240,17 +253,20 @@ past an invalid, cancelled, faulting, or different-STID entry.
 1. I-F0 through I-F4 and B-F0 through B-F4 are two independent five-stage
    engines; Instruction Buffer is a queue after I-F4.
 2. ITLB and L1I launch in parallel in I-F1.
-3. ITLB miss at I-F2 and any later B-SIDE prediction correction produce
-   identity-qualified frontend inner flushes.
+3. ITLB miss at I-F2 and B-F1..B-F4 prediction corrections produce
+   identity-qualified frontend inner flushes; B-F4 is the final such point.
 4. I-F4 determines 2/4/6/8-byte length, completes assembly, and predecodes only
    `BSTART`/`BSTOP` boundary metadata.
 5. Every Instruction Buffer instruction payload is 64 bits.
 6. D1 reads at most four fixed 64-bit instructions and performs the first full
    decode.
-7. B-SIDE owns prediction; I-SIDE owns instruction bytes and predecode.
-8. I-SIDE and B-SIDE advance independently and communicate only through
+7. Every valid D1 lane carries the complete effective prediction record.
+8. Every prediction mismatch detected after B-F4 uses BRU flush/recover, never
+   another prediction-driven inner flush.
+9. B-SIDE owns prediction; I-SIDE owns instruction bytes and predecode.
+10. I-SIDE and B-SIDE advance independently and communicate only through
    decoupled, identity-qualified channels.
-9. Backend-resolved misprediction uses typed recovery and restarts I-F0.
+11. Backend-resolved misprediction uses typed recovery and restarts I-F0.
 
 ## Non-normative superscalarNPU comparison
 
@@ -261,6 +277,13 @@ not override the LinxCore contract above.
 Common mechanisms include B-side/I-side decoupling through an FTQ, per-thread
 PC/GHR/RAS state, MBTB/TAGE/IBTB prediction, an Instruction Buffer, and
 variable-length instruction-boundary scanning.
+
+At `origin/main@1fae7d0`, the reference interface exposes prediction
+taken/target independently for D1 slots 0..3, carries prediction metadata to
+BRU, and reports target/address mispredict at E1. Linx generalizes that
+per-lane contract to the complete `PredictionRecord`, retains data-dependent
+validation in BRU E1, and additionally validates operand-independent
+direct/call properties in Dispatch.
 
 The reference design differs materially:
 

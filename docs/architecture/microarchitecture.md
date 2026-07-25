@@ -245,18 +245,23 @@ alignment is never assumed.
 
 #### B-F4
 
-- Collects long-history TAGE, final IBTB, loop predictor, and loop-buffer
-  results and performs final arbitration.
+- Runs static prediction from matched I-F4 boundary metadata, collects
+  long-history TAGE, final IBTB, loop predictor, and loop-buffer results, and
+  performs final arbitration.
 - Accepted provider rank is `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 >
   sequential`. Backend typed restart is not a provider and has higher priority
   than every prediction.
 - Within B-F4, exact RAS return and high-confidence IBTB indirect target are
   same-rank target authorities. Direction override order is
-  `loop > long-TAGE > short-TAGE > BIM`; BTB supplies direct targets.
-- Any B-F1..B-F4 correction of an accepted lower-ranked prediction emits an identity-qualified
-  inner flush, restores GHR/GHRQ/RAS, and restarts I-F0.
-- A backend-resolved misprediction uses typed precise recovery and publishes
-  its accepted restart to I-F0; it is not a frontend inner flush.
+  `loop > long-TAGE > short-TAGE > BIM > static`; BTB supplies direct
+  targets.
+- Any B-F1..B-F4 correction of an accepted lower-ranked prediction emits an
+  identity-qualified inner flush, restores GHR/GHRQ/RAS, and restarts I-F0;
+  B-F4 is the final such point.
+- The B-F4 final record follows every valid D1 lane. Dispatch validates
+  direct/call properties; BRU E1 validates conditional direction and
+  indirect/return targets. Mismatch uses BRU flush/recover and is not a
+  frontend inner flush.
 
 ### Decode and renamed-uop contract (`D1` to `D3`)
 

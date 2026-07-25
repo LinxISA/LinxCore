@@ -72,7 +72,8 @@ I-SIDE composition:
 - `I-F4`: 2/4/6/8-byte instruction assembly, BSTART/BSTOP-only predecode,
   64-bit expansion, and Instruction Buffer write
 - `Instruction Buffer`: per-STID queue after I-F4
-- `D1`: reads up to four fixed 64-bit entries and performs the first full
+- `D1`: reads up to four fixed 64-bit entries, carries the complete prediction
+  record on every valid lane, and performs the first full
   opcode/operand/immediate decode
 
 B-SIDE composition:
@@ -81,11 +82,12 @@ B-SIDE composition:
 - `B-F1`: uBTB and RAS
 - `B-F2`: PBTB/BTB and BIM
 - `B-F3`: short/medium TAGE and IBTB lookup
-- `B-F4`: long TAGE, final IBTB/loop result, final arbitration, retained
-  response, and prediction correction
-- later-stage correction inner flush restores GHR/RAS and restarts I-F0;
-  backend resolved
-  mispredict uses typed recovery and I-F0 restart
+- `B-F4`: static prediction from matched I-F4 boundary metadata, long TAGE,
+  final IBTB/loop result, final arbitration, retained response, and the last
+  prediction-driven correction
+- B-F4 correction inner flush restores GHR/RAS and restarts I-F0; after the
+  final record is sealed, Dispatch/BRU mismatch uses BRU flush/recover and
+  I-F0 restart
 
 In the export/bring-up path, the native IFU source may be replaced by a
 host-fed Instruction Buffer writer. That substitution must preserve fixed

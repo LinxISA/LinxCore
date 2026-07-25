@@ -181,9 +181,10 @@ Stage lineup in this pass:
 - `B-F1`: uBTB plus RAS.
 - `B-F2`: PBTB/BTB plus BIM.
 - `B-F3`: short/medium TAGE plus IBTB lookup.
-- `B-F4`: long TAGE, final IBTB/loop results, and final arbitration.
-- `D1`: reads up to four fixed 64-bit instructions and performs the first full
-  decode.
+- `B-F4`: static prediction, long TAGE, final IBTB/loop results, and final
+  arbitration; this is the final prediction-driven inner-flush point.
+- `D1`: reads up to four fixed 64-bit instructions, carries the complete B-F4
+  prediction record on every valid lane, and performs the first full decode.
 - `D2`: operand extraction, boundary resolution, and resource-demand
   preparation.
 - `D3`: atomic resource admission, physical rename, ordering-ID acceptance,

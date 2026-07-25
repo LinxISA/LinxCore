@@ -576,12 +576,13 @@ IFU 由 I-SIDE 和 B-SIDE 两个 decoupled engine 组成。I-SIDE 负责取指�
 - I-F3 捕获 cacheline、对齐字节流并处理跨 line carry。
 - I-F4 判定 2/4/6/8-byte 长度，完成指令组装，只识别 BSTART/BSTOP，
   zero-extend 为 64-bit 后写 Instruction Buffer。
-- D1 从 Instruction Buffer 顺序读取最多 4 条 64-bit 指令并完成 full decode。
+- D1 从 Instruction Buffer 顺序读取最多 4 条 64-bit 指令，每个 valid lane
+  携带完整 prediction record，并完成 full decode。
 - B-F0 负责 L0/NLP+history snapshot，B-F1 负责 uBTB/RAS，B-F2 负责
-  PBTB/BTB+BIM，B-F3 负责 short/medium TAGE+IBTB，B-F4 负责 long
-  TAGE+IBTB/loop/final arbitration。prediction correction 产生 inner
-  flush、恢复 GHR/RAS 并重启 I-F0；backend resolved mispredict 走 typed
-  recovery。
+  PBTB/BTB+BIM，B-F3 负责 short/medium TAGE+IBTB，B-F4 负责
+  static+long-TAGE/IBTB/loop/final arbitration。B-F4 correction 是最后一个
+  prediction-driven inner flush；final record 封存后，Dispatch/BRU
+  mismatch 使用 BRU flush/recover 并重启 I-F0。
 - 新增 BROB。
 
 线程 PC 来源:

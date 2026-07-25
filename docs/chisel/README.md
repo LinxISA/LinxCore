@@ -52,8 +52,10 @@ to 64 bit. LinxCoreModel BFU F0–F4 supplies the predictor behavior and timing
 reference for B-F0–B-F4. Model BHC/fetch-cache behavior maps to the I-SIDE L1I
 owner. B-SIDE resolves providers with stage rank
 `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`; any later stage may correct
-an accepted earlier prediction through a typed inner flush to I-F0, with B-F4
-as the final correction point. Backend restart remains the highest control
+an accepted earlier prediction through a typed inner flush to I-F0. B-F4 runs
+static/final arbitration and is the last prediction-driven inner-flush point.
+Its complete record follows every valid D1 lane; post-B-F4 Dispatch/BRU
+mismatch uses BRU flush/recover. Backend restart remains the highest control
 priority and is not a predictor provider.
 
 The first implementation packets are ROBID, commit identity, the initial

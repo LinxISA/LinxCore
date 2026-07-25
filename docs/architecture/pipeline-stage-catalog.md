@@ -136,20 +136,24 @@ pipelines are not lockstep.
 
 ### B-F4
 
-- Owns long-history TAGE, final IBTB/loop predictor/loop-buffer results, and
-  final provider arbitration.
+- Runs static prediction from matched I-F4 boundary metadata, owns
+  long-history TAGE, final IBTB/loop predictor/loop-buffer results, and final
+  provider arbitration.
 - Provider rank is `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`.
 - Exact RAS return and high-confidence IBTB indirect target are same-rank B-F4
   target authorities. Direction override order is
-  `loop > long-TAGE > short-TAGE > BIM`; BTB supplies direct targets.
+  `loop > long-TAGE > short-TAGE > BIM > static`; BTB supplies direct
+  targets.
 - Backend typed restart is not a provider and has highest restart priority.
 - Publishes the retained final prediction response and speculative GHR/GHRQ/
   RAS update.
 - Any B-F1..B-F4 result that corrects an accepted lower-ranked prediction emits an
   identity-qualified inner flush, restores predictor history, and restarts
-  I-F0 at the corrected PC.
-- Backend-resolved misprediction instead enters typed precise recovery and
-  publishes its accepted restart to I-F0.
+  I-F0 at the corrected PC; B-F4 is the final such point.
+- B-F4 seals the record carried by every valid D1 lane. Dispatch validates
+  direct/call properties, while BRU E1 validates conditional direction and
+  indirect/return targets; mismatch enters BRU flush/recover and publishes its
+  restart to I-F0.
 
 ## Decode, rename, and dispatch stages
 

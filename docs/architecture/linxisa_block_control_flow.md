@@ -10,15 +10,17 @@ This note records the block-structured control-flow contract used for lockstep p
 
 - B-SIDE is the sole IFU prediction owner and is decoupled from I-SIDE.
 - B-F0 performs L0/NLP and history snapshot; B-F1 uBTB/RAS; B-F2 PBTB/BTB
-  plus BIM; B-F3 short/medium TAGE plus IBTB; B-F4 long TAGE, final
-  IBTB/loop results, and final arbitration.
+  plus BIM; B-F3 short/medium TAGE plus IBTB; B-F4 static prediction,
+  long TAGE, final IBTB/loop results, and final arbitration.
 - I-SIDE predecode supplies only instruction length and BSTART/BSTOP boundary
   hints; it does not perform branch prediction.
 - A later B-SIDE prediction correction generates an identity-qualified inner
-  flush, restores GHR/RAS, and restarts I-F0.
-- A backend-resolved misprediction uses typed precise recovery and I-F0
-  restart; it is not a frontend correction.
-- `BSTART` metadata (`kind/target/pred_take`) is carried into ROB context.
+  flush, restores GHR/RAS, and restarts I-F0; B-F4 is the final such point.
+- The complete B-F4 prediction record is carried on every valid D1 lane.
+- Post-B-F4 direct/call validation belongs to Dispatch; conditional direction
+  and indirect/return target validation belong to BRU E1. Mismatch uses BRU
+  flush/recover and I-F0 restart.
+- `BSTART` metadata and its prediction record are carried into ROB context.
 - Prediction is advisory; architectural PC is committed by boundary authority.
 
 ## 2) BRU validation contract

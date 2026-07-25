@@ -72,10 +72,13 @@ DOT source: [diagrams/vector_core_top.dot](diagrams/vector_core_top.dot)
 BCC BlockISQ
     |
     v
-Block Buffer -> Loop Ctrl -> Group Buffer -> VIFU / TileOp Generator
-                                      |              |
-                                      v              v
-                                  Vector OOO Decode/Rename/Dispatch
+Block Buffer -> Loop Ctrl -> Group Buffer
+                                      |
+                                      v
+        Unified IFU D1 -> D3-admitted Template/TileOp Expansion
+                                      |
+                                      v
+                         Vector OOO Rename/Dispatch
                                       |
              +------------------------+-----------------------+
              |                        |                       |
@@ -243,74 +246,59 @@ Dealloc:
 
 ### 5.1 Overview
 
-Vector Instruction Fetch Unit (VIFU) 负责为 Vector Core 获取 TileOp 或 block 的微指令。入口为 N-entry Origin Buffer，用于接收 Block Dispatch 请求。
+Vector Core 复用统一 LinxCore IFU 入口，不定义独立的 legacy VIFU 取指或
+TileOp Generator 旁路。I-SIDE 取得指令并写入 Instruction Buffer，B-SIDE
+完成跳转预测；TileOp/template 扩展位于 D3 admission 之后的 backend，不得
+绕过 D1。
 
-VIFU 从上游 Block Dispatch 获取两类指令:
-
-| Request | Flow |
-|---------|------|
-| TileOp | 送入 TileOp Generator，根据指令类型拆解成若干 Vector 指令，再进入 TileOp Inst Buffer |
-| 指令块 PC | 访问 Vector L1 ICache 取指；miss 进入 Miss Buffer 并向下游发送 fill 请求；hit 后读 Data Array，完成预解码与对齐，进入 Inst Buffer |
-
-VIFU 支持四线程 SMT RR 调度取指:
-
-- 线程 PC 在 ICache miss 时不参与仲裁。
-- 线程流水阻塞时，例如 Inst Buffer 反压，不参与仲裁。
-- 四线程模式可一定程度掩盖跳转时延。
-- VIFU 当前不实现跳转预测，只采用默认顺延的固定预测策略。
+每个 STID 独立调度。L1I miss、Instruction Buffer backpressure 和 predictor
+backpressure 只阻塞受影响的 transaction；I-SIDE 与 B-SIDE 不锁步。
 
 分支约束:
 
-- 软件层面不支持 SIMT 下的分支分叉执行，即不同 lane 执行不同分支路径。
-- 此类场景由软件 Stack 替代实现分支逻辑。
-- 当所有 lane 跳转方向一致时，例如 loop 或 direct jump，硬件支持。
-- B-F4 完成最终预测仲裁；后级 prediction correction 通过 identity-qualified
-  inner flush 清除错误 fetch、恢复 GHR/RAS 并重启 I-F0。
+- 软件层面不支持 SIMT 下不同 lane 的控制流分叉；
+- B-F4 运行 static+long-TAGE/IBTB/loop/final arbitration，并产生最后一次
+  prediction-driven inner flush；
+- B-F4 final record 随每条指令进入 D1；Dispatch 校验 direct/call，BRU E1
+  校验 conditional direction 与 indirect/return target，mismatch 使用 BRU
+  flush/recover。
 
 ### 5.2 VIFU Blocks
 
 | Block | Description |
 |-------|-------------|
-| ITLB | fully-associative cache，将 VA 转换为 PA |
-| Tag Array | 存储 ICache 四个 way 的 physical tag |
-| Data Array | 存储 ICache instruction data，四个 way |
-| Miss Buffer | 存储 ICache miss 请求，顺序向 L2 发送 |
-| Alignment & Predecode | 指令拼接对齐、变长指令对齐、跳转识别 |
-| SP Predictor | 识别 direct branch，若非顺延则产生 intra flush |
-| TileOp Generator | 接收 TileOp block 指令并实时生成微指令 |
-| Inst Buffer | 存储 ICache 或 TileOp Generator 产生的指令，四个独立 buffer 对应四线程 |
+| I-SIDE I-F0..I-F4 | PC、并行 ITLB/L1I、cacheline capture、跨 line assembly、BSTART/BSTOP-only predecode |
+| B-SIDE B-F0..B-F4 | BTB/GHR/TAGE/BIM/RAS/IBTB/loop/static prediction、checkpoint 与 final arbitration |
+| L1I miss/refill | 保留 request/STID/epoch 身份的 cacheline miss transaction |
+| Instruction Buffer | I-F4 之后的 per-STID 64-bit instruction-entry queue |
+| D1 | 每周期读取最多四条 64-bit 指令并逐 lane 携带完整 prediction record |
 
 ### 5.3 Pipeline Flow
 
 WaveDrom source: [diagrams/vector_ifu_pipeline.wavedrom.json](diagrams/vector_ifu_pipeline.wavedrom.json)
 
-1. 仲裁器按优先级选择 PC 写入 Origin Buffer:
-   - BRU misprediction flush，根据计算内容更新 PC。
+1. I-F0 按优先级选择 PC:
+   - accepted backend restart；
    - B-SIDE B-F0..B-F4 prediction response 提供 indirect/direct branch 的
      预测方向和 target；I-F4 不识别这些 branch opcode。
    - I-F2 在 ITLB miss 时产生 inner flush；B-F4 prediction correction
-     也可产生 identity-qualified inner flush；后端 recovery 使用独立
-     precise recovery channel。
+     是最后一个 prediction-driven identity-qualified inner flush。
    - I-F4 只完成长度判定、64-bit 扩展和 BSTART/BSTOP boundary hint。
-   - 若指令为 TileOp，更新 Origin Buffer 为 GROB 下一个 entry 起始 PC。
-   - 若以上都未发生，Origin Buffer + 32，顺延获取下一个 Fetch Bundle。
+   - 若以上都未发生，使用 sequential PC。
 2. 后级 RR 调度器选取有效线程进入 I-F1 stage。
 3. PC 同时进入:
    - TLB 做 VA -> PA 翻译。
    - Tag Array 查询 cacheline tag。
    - Data Array 根据 PC index 读数据。
-   - 若为 TileOp，则直接送入 TileOp_Gen 触发状态机生成指令。
 4. PA tag 与 Tag Array 四个 way 比较:
    - hit: 只使能命中 way 的 Data Array。
    - miss: 将 PA 送入 Miss Buffer，并发 cacheline 读请求到 L2，同时拉低该线程 Thread_en，直到 cacheline fill。
-5. Data Array 读出 256-bit Fetch Bundle，送入 Alignment Buffer 并预解码。
-   - Vector block 指令为 32-bit scalar 与 64-bit SIMT 指令。
-   - Alignment Buffer 按 32-bit 分界顺序识别，抽出四条指令传给下游。
-   - Alignment Buffer 满时反压前端对应线程。
-   - Predecode 识别跳转信息。
-6. 本地 VIFU buffer-write 逻辑根据 BID 选取进入 Instruction Buffer 的源头。
-7. B-F4 完成最终 prediction arbitration；B-SIDE 与 I-SIDE 不锁步。
-8. D1 从选中的线程读取最多四条固定 64-bit 指令并完成 full decode。
+5. I-F3 捕获 cacheline 并维护跨 line raw-byte carry；I-F4 识别
+   2/4/6/8-byte 长度和 BSTART/BSTOP，扩展为 64 bit 后写 Instruction
+   Buffer。
+6. B-F4 完成 static/final prediction arbitration；B-SIDE 与 I-SIDE 不锁步。
+7. D1 从选中的 STID 读取最多四条固定 64-bit 指令，每个 valid lane 携带
+   完整 final prediction record，并完成 full decode。
 
 ---
 

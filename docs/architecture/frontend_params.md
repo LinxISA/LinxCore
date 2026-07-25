@@ -78,5 +78,8 @@ or move predictor ownership into I-SIDE.
 - I-F4 writes complete 64-bit instructions into Instruction Buffer.
 - B-F1..B-F4 correction of an accepted lower-ranked prediction generates an
   identity-qualified inner flush, restores
-  GHR/RAS, and restarts I-F0.
+  GHR/RAS, and restarts I-F0; B-F4 is the final such point.
+- B-F4 runs static/final arbitration and seals the complete prediction record
+  carried by every valid D1 lane.
+- Post-B-F4 mismatch is validated by Dispatch/BRU and uses BRU flush/recover.
 - B-SIDE predictor queues advance independently from I-SIDE.
