@@ -74,6 +74,7 @@ class InstructionBufferEntry(val p: InterfaceParams = InterfaceParams()) extends
 class InstructionBufferEnqueueGroup(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val validMask = UInt(p.fetchWidth.W)
   val entries = Vec(p.fetchWidth, new InstructionBufferEntry(p))
+  val transactionComplete = Bool()
 }
 
 class D1InstructionGroup(val p: InterfaceParams = InterfaceParams()) extends Bundle {

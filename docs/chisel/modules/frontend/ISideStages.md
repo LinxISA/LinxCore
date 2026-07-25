@@ -111,7 +111,15 @@ For each valid candidate it writes:
 - the instruction-owned prediction record.
 
 A BSTOP row remains valid and terminates the dense enqueue mask after that row.
-The result is an `InstructionBufferEnqueueGroup`.
+I-F4 retains BSTART kind/target context across cachelines until BSTOP. A
+terminal group atomically publishes both its `InstructionBufferEnqueueGroup`
+and an exact-identity Decoupled boundary completion; a no-boundary terminal
+still emits an explicit event with `bits.valid = false`.
+
+`IfuPredictionJoin` retains all groups for an allocated fetch transaction and
+accepts B-SIDE updates in either arrival order. It releases groups only after
+the B-F4 final response and any canonical correction have arrived, stamping the
+same final prediction and canonical epoch into every valid lane.
 
 ## Verification
 

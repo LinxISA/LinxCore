@@ -104,4 +104,5 @@ class ISideInstructionCandidate(val p: InterfaceParams = InterfaceParams()) exte
 class ISideAssembledGroup(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val validMask = UInt(p.fetchWidth.W)
   val entries = Vec(p.fetchWidth, new ISideInstructionCandidate(p))
+  val lineComplete = Bool()
 }

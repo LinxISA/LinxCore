@@ -143,6 +143,7 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
       dut.io.in.bits.validMask.poke("b1111".U)
       dut.io.out.ready.poke(true.B)
+      dut.io.boundary.ready.poke(true.B)
       dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
 
       val rows = Seq(0x80, 0x10, 0x0, 0x10)
@@ -160,8 +161,56 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(2).isBlockStop.expect(true.B)
       dut.io.out.bits.entries(3).isBlockStop.expect(false.B)
       dut.io.out.bits.entries(0).insn.expect(0x80.U)
+      dut.io.out.bits.transactionComplete.expect(true.B)
+      dut.io.boundary.valid.expect(true.B)
+      dut.io.boundary.bits.valid.expect(true.B)
+      dut.io.boundary.bits.branchPc.expect(0x1004.U)
+      dut.io.boundary.bits.fallthroughPc.expect(0x1006.U)
       dut.io.acceptedStop.expect(true.B)
       assert(dut.io.out.bits.entries(0).insn.getWidth == 64)
+    }
+  }
+
+  test("I-F4 carries BSTART context across cachelines and backpressures terminal boundary completion") {
+    simulate(new ISideF4Predecode(p)) { dut =>
+      def present(raw: BigInt, pc: BigInt, transactionId: Int): Unit = {
+        dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
+        dut.io.in.valid.poke(true.B)
+        dut.io.in.bits.validMask.poke("b0001".U)
+        dut.io.in.bits.lineComplete.poke(true.B)
+        dut.io.in.bits.entries(0).pc.poke(pc.U)
+        dut.io.in.bits.entries(0).insn.poke(raw.U)
+        dut.io.in.bits.entries(0).lenBytes.poke(2.U)
+        dut.io.in.bits.entries(0).identity.peId.poke(1.U)
+        dut.io.in.bits.entries(0).identity.threadId.poke(0.U)
+        dut.io.in.bits.entries(0).identity.fetchPacketUid.poke(transactionId.U)
+        dut.io.in.bits.entries(0).identity.fetchSeq.poke(transactionId.U)
+        dut.io.in.bits.entries(0).identity.checkpointId.poke(transactionId.U)
+        dut.io.in.bits.entries(0).identity.epoch.poke(0.U)
+      }
+
+      dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+      dut.io.out.ready.poke(true.B)
+      dut.io.boundary.ready.poke(true.B)
+      present(raw = 0x80, pc = 0x1000, transactionId = 1)
+      dut.io.boundary.valid.expect(true.B)
+      dut.io.boundary.bits.valid.expect(false.B)
+      dut.clock.step()
+
+      present(raw = 0, pc = 0x2000, transactionId = 2)
+      dut.io.boundary.ready.poke(false.B)
+      dut.io.boundary.valid.expect(true.B)
+      dut.io.boundary.bits.valid.expect(true.B)
+      dut.io.boundary.bits.transactionId.expect(2.U)
+      dut.io.boundary.bits.branchPc.expect(0x2000.U)
+      dut.io.out.valid.expect(false.B)
+      dut.io.in.ready.expect(false.B)
+
+      dut.io.boundary.ready.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.acceptedStop.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
     }
   }
 }

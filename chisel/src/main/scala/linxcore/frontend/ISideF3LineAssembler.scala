@@ -125,6 +125,7 @@ class ISideF3LineAssembler(
       (io.out.fire && !residentContinuesAfterOut)
   io.out.bits := 0.U.asTypeOf(io.out.bits)
   io.out.bits.validMask := laneValid.asUInt
+  io.out.bits.lineComplete := !laneValid(finalLane) || nextCursor >= lineBytes.U
   for (lane <- 0 until p.fetchWidth) {
     io.out.bits.entries(lane).pc := resident.request.lineVa + offsets(lane)
     io.out.bits.entries(lane).insn := Mux(laneValid(lane), rawInsns(lane), 0.U)

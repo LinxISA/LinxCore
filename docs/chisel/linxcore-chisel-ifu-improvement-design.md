@@ -267,13 +267,15 @@ I-F4 对 I-F3 已完成长度判定和跨 line 拼接的每条 instruction candi
 1. 接收并保留 I-F3 已确定的 `instLenBytes`；
 2. 将指令 bit pattern 零扩展到 64 bit；
 3. 只识别 `BSTART` 和 `BSTOP`；
-4. 生成 block-boundary sideband；
+4. 保留跨 cacheline 的 BSTART boundary context，并在 BSTOP 或 line
+   terminal 生成 exact-identity Decoupled completion；
 5. 形成 Instruction Buffer enqueue entry。
 
 I-F4 predecode 明确不执行：
 
 - 通用 opcode decode；
-- operand 或 immediate decode；
+- 通用 operand 或 immediate decode（BSTART 自身编码的 boundary
+  displacement 提取属于 boundary sideband，不形成 D1 immediate）；
 - register alias 分类；
 - load/store 分类；
 - FU 或 issue-queue 分类；
@@ -546,15 +548,29 @@ sequential PC。
 prediction-driven inner flush**。I-F0 接受 correction 后：
 
 1. 切换对应 STID 的 I-SIDE fetch epoch；
-2. 从 correction request 之后清除 I-F0–I-F4 transient work；
-3. 清除匹配 correction 年龄及其更年轻的错误路径 Instruction Buffer
-   entries；
+2. 保留 correction producer，只清除其 younger I-F0–I-F4 transient work；
+3. 保留 Instruction Buffer 中 correction producer 和 older rows，只压紧删除
+   younger 错误路径 entries；
 4. 从 corrected PC restart I-F0；
 5. 通知 B-SIDE 按 checkpoint 恢复 speculative GHR/RAS/loop state。
 
 B-F4 final response 被接受后，effective prediction 封存为不可变
 `predictionRecord`，随 instruction bundle 写入 Instruction Buffer，并在 D1
 附着到每个 valid lane。此后不再允许 predictor stage 产生 inner flush：
+
+`IfuPredictionJoin` 在 I-F0 request fire 时按程序顺序分配 transaction row。
+同一 cacheline 的多个 I-F4 四宽 group、B-SIDE early/final response 和
+canonical redirect 可以任意顺序到达。只有当：
+
+- I-F4 terminal group 已接受；
+- B-F4 final response 已接受；
+- 若存在 correction，其 canonical redirect 已广播；
+
+三项同时成立时，join 才按原顺序逐 group 写 Instruction Buffer。写出时把
+final `predictionRecord` 和 canonical epoch 覆盖到每个 valid lane；任何
+younger-pruned row 不得复活。terminal I-F4 group 与 boundary completion
+必须原子 fire，boundary table collision 必须 backpressure，禁止覆盖 resident
+event。
 
 - direct branch/call 的无需运行时 operand 的 direction/target/kind 在
   Dispatch 校验；
