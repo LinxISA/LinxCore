@@ -67,7 +67,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         )
         self.assertEqual(
             report["cross_stack_aligned_support"]["covered"],
-            190,
+            197,
         )
         self.assertEqual(report["cross_stack_aligned_support"]["known_divergences"], {})
         self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 218)
@@ -354,7 +354,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         _assert_report_matches_detected_contract(self, report)
         self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 237)
         self.assertEqual(report["reduced_scalar_alu_support"]["covered"], 197)
-        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 190)
+        self.assertEqual(report["cross_stack_aligned_support"]["covered"], 197)
 
     def test_legacy_contract_fixture_uses_legacy_expected_values(self) -> None:
         legacy_symbols = [

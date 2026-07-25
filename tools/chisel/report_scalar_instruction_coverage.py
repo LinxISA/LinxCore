@@ -141,15 +141,7 @@ RTL_SEMANTIC_PENDING_SYMBOLS = {
     "OP_UCVTF",
 }
 
-QEMU_EXECUTABLE_OBSERVATION_PENDING_SYMBOLS = {
-    "OP_HL_CMP_EQI",
-    "OP_HL_CMP_GEI",
-    "OP_HL_CMP_GEUI",
-    "OP_HL_CMP_LTI",
-    "OP_HL_CMP_LTUI",
-    "OP_HL_CMP_NEI",
-    "OP_HL_CMP_ORI",
-}
+QEMU_EXECUTABLE_OBSERVATION_PENDING_SYMBOLS: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -343,7 +335,7 @@ SOURCE_SHAPE_CONTRACTS = {
             "expected": {
                 "frontend_strict_decode": {"covered": 547, "denominator": 547},
                 "reduced_scalar_alu_support": {"covered": 197, "denominator": 547},
-                "cross_stack_aligned_support": {"covered": 190, "denominator": 547},
+                "cross_stack_aligned_support": {"covered": 197, "denominator": 547},
             },
         },
         "legacy_clean_head": {
