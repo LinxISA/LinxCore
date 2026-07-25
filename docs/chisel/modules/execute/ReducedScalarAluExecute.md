@@ -586,9 +586,9 @@ number. Against that denominator:
 - strict frontend decode covers 547/547 forms (100.00%); `XB ACR-ID,C-ID` is
   explicit decode-only because it requires the platform CAC/XBINFO table and
   exception contract before executable semantics;
-- the parser-supported scalar subset is 218/547 forms (39.85%);
-- active dirty candidate RTL semantics cover 197/547 forms (36.01%);
-- 197/547 forms (36.01%) are cross-stack aligned; `CSEL` matches
+- the parser-supported scalar subset is 208/547 forms (38.0256%);
+- active dirty candidate RTL semantics cover 207/547 forms (37.8428%);
+- 207/547 forms (37.8428%) are cross-stack aligned; `CSEL` matches
   Sail, LinxCoreModel, QEMU, LLVM MC lowering, and this Chisel module on
   `SrcP, SrcL, SrcR` ordering and true-to-`SrcL` selection.
 
@@ -599,25 +599,52 @@ Sail/LinxCoreModel 64-bit ring semantics. QEMU
 currently rejects ring-wrapping fields for these bitfield operations and is
 therefore not used as the semantic oracle for wrap encodings.
 
-The final clean QEMU scoped ledger promotes seven `HL.CMP` forms into the
-aligned numerator: L2=7, L3=7, rejected=0, QEMU SHA
-`b4df5c31d06eaee04b602b4b6fd8b6f2c2592b4c`, manifest
-`/Users/zhoubot/linx-isa/avs/qemu/qemu_executable_hl_cmp_manifest.json`, and
-ledger
-`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/qemu-executable-hl-cmp-ledger.json`.
-The reporter now has zero QEMU executable observation pending items.
+The final clean QEMU scoped ledger promotes SETC immediate forms into the
+aligned numerator: L2=10, L3=10, rejected=0, aggregate parent commit
+`960946c8`. The reporter now has zero QEMU executable observation pending
+items for that bucket.
 
 The next uncovered groups are not all ALU-local. Nineteen HL long-offset memory
 forms remain pending and are not counted in the aligned numerator until the
 general LSU/memory owner can carry them. Atomic forms require an LR/SC/AMO
-memory owner; dual-destination HL multiply/divide/remainder forms need an
-explicit result/commit-argument owner; `SETC` commit-argument forms need their
-commit-condition argument owner; XB CAC/XBINFO forms require the platform table
-and exception contract; system/cache/TLB/BCTRL forms require CSR, trap,
-maintenance, or block-control owners; FP forms require rounding, NaN/denormal,
-exception flag, and pipeline ownership. `REV` cannot be copied from QEMU
-because its current translator is explicitly simplified to a whole-register
-byte swap, whereas Sail specifies byte reversal inside a ring-selected field.
+memory owner. The unsupported dual-destination bucket contains 10 exact
+`HL.MUL`, `HL.MULU`, `HL.DIV*`, and `HL.REM*` forms that fail closed until an
+explicit result/commit-argument owner exists. `SETC` commit-argument forms
+need their commit-condition argument owner; XB CAC/XBINFO forms require the
+platform table and exception contract; system/cache/TLB/BCTRL forms require
+CSR, trap, maintenance, or block-control owners. `OP_UCVTF` remains
+semantic-pending because full ISA coverage needs FRM input, FFLAGS update,
+illegal type traps, and `u32/u64 -> f32/f64`; the reduced `ud2fs`/RNE
+prototype must not count as aligned. `REV` cannot be copied from QEMU because
+its current translator is explicitly simplified to a whole-register byte swap,
+whereas Sail specifies byte reversal inside a ring-selected field.
+
+The completion-backpressure checkpoint at commit `35d2f9c5` validated 48/48
+plus build. Its reusable design rule is that retainer ingress readiness must
+come from registered resident occupancy, not from downstream completion-ready
+signals, ROB acceptance, or same-cycle dequeue-created capacity; terminal
+completion, RF writeback, wakeup, redirect, and release side effects remain
+owned by the final `completeFire` boundary.
+
+## Safe commitWidth=2 benchmark boundary
+
+The final APPROVE performance closeout for safe `commitWidth=2` does not change
+`ReducedScalarAluExecute` semantics. It closes the ROB/top/testbench
+side-effect and terminal contract around a wider commit window: ROB stop-after
+covers committed stores, traps, block-last rows, and marker rows; the top has
+no `sideEffectQueue`; and the benchmark testbench observes both commit lanes.
+The required gates were ROB 22/22, top 15/15, and unit test 14/14.
+
+The approved FishToucher evidence is CoreMark 9,917 cycles / 1,426 commits /
+IPC 0.143793485933 with 12 dual-lane commit cycles at
+`/Users/zhoubot/linx-isa/runs/linxcore-commitw2-safe-20260725/compare9920-coremark-100k/report/natural_manifest.json`
+and Dhrystone 7,916 cycles / 1,150 commits / IPC 0.145275391612 with 12
+dual-lane commit cycles at
+`/Users/zhoubot/linx-isa/runs/linxcore-commitw2-safe-20260725/compare7919-dhrystone-100k/report/natural_manifest.json`.
+Do not cite prototype manifests from
+`/Users/zhoubot/linx-isa/runs/linxcore-commitw2-natural-20260725/` as best
+evidence; the 9,917/1,402 and 7,916/1,126 rows are invalid/untrusted because
+they predate the final side-effect, terminal, and all-lane harness contract.
 
 ## Verification
 

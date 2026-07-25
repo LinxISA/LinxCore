@@ -206,8 +206,9 @@ LinxCoreModel already describes a 4-wide scalar performance direction:
 | `configs/bctrl.toml:bctrl_bandwidth` | 4 |
 
 Chisel defaults also expose 4-wide intent in `CoreParams` and
-`InterfaceParams`, but the natural autonomous top currently forces
-`commitWidth = 1` and requires it:
+`InterfaceParams`. The original Phase 1 natural autonomous top forced
+`commitWidth = 1` while store side effects were serialized through the commit
+observation path:
 
 ```scala
 CoreParams(robEntries = LinxCoreBenchmarkAutonomousTop.BenchmarkRobEntries, commitWidth = 1)
@@ -215,11 +216,13 @@ require(coreParams.commitWidth == 1,
   "Phase 1 autonomous benchmark top serializes committed stores through commitWidth == 1")
 ```
 
-The live path also has one scalar issue output and one
-`ReducedScalarAluExecute` instance. Therefore the current autonomous path has
-a hard IPC ceiling at or below one committed instruction per cycle, before
-ordinary stalls. IPC near 2.0 is infeasible until the width bottlenecks are
-removed.
+The final approved exception is safe `commitWidth=2`. It is valid only after
+the ROB stop-after contract covers committed stores, traps, block-last rows,
+and marker rows; the top removes `sideEffectQueue`; and the testbench observes
+both commit lanes. The closeout gates are ROB 22/22, top 15/15, and unit test
+14/14. The live path still has one scalar issue output and one
+`ReducedScalarAluExecute` instance, so IPC near 2.0 remains infeasible until
+the upstream and execute bottlenecks are removed.
 
 ## Microarchitecture Plan
 
@@ -266,12 +269,11 @@ The core SHALL retire up to four completed ROB rows per cycle when the rows are
 oldest-contiguous and side-effect ordering permits it. Store side effects MUST
 remain committed and ordered.
 
-The preferred hardware shape is not to keep `commitWidth == 1` globally.
-Instead, commit lanes SHALL retire rows wide, while store effects enqueue into
-an ordered committed-store side-effect queue. The existing scalar LSU already
-has independent store-commit capacities such as `commitIssueWidth = 2`; the
-autonomous top needs a vectorized or serialized side-effect observation
-adapter that does not serialize all non-store retire.
+The preferred hardware shape is not to keep `commitWidth == 1` globally. Safe
+`commitWidth=2` is the approved first step. Any future 4-wide step must retain
+the same side-effect and terminal stop-after contract across all lanes rather
+than reintroducing a top-level `sideEffectQueue` or serializing all non-store
+retire.
 
 Acceptance:
 
@@ -341,14 +343,15 @@ unless the exact implementation and tests are committed at that revision.
 
 | Metric | Count | Coverage | Meaning |
 | --- | ---: | ---: | --- |
-| Non-vector/tile operational ISA denominator | 547 | 100% denominator | Scalar/control/system/FP surface after excluding vector/tile |
+| Non-vector/tile operational ISA denominator | 547 | 100% denominator | Scalar/control/system/FP surface after excluding 184 vector forms, 30 tile/PTO descriptors, and eight vector-mode block descriptors |
 | Frontend effective decode | 547 / 547 | 100.00% | Frontend/parser can classify every scalar/control/system/FP form; `XB` is explicit decode-only |
-| Parser-supported scalar subset | 218 / 547 | 39.85% | Forms accepted by the reduced scalar parser/reporting path |
-| Active dirty candidate RTL semantic contract | 197 / 547 | 36.01% | Forms with a Chisel RTL semantic owner in the active dirty candidate; not a clean committed claim |
-| Active dirty candidate cross-stack aligned contract | 197 / 547 | 36.01% | Forms aligned across Sail, LinxCoreModel, QEMU/LLVM where executable evidence exists; QEMU executable provenance is clean for the seven HL.CMP promotions |
+| Parser-supported scalar subset | 208 / 547 | 38.0256% | Forms accepted by the reduced scalar parser/reporting path |
+| Active dirty candidate RTL semantic contract | 207 / 547 | 37.8428% | Forms with a Chisel RTL semantic owner in the active dirty candidate; not a clean committed claim |
+| Active dirty candidate cross-stack aligned contract | 207 / 547 | 37.8428% | Forms aligned across Sail, LinxCoreModel, QEMU/LLVM where executable evidence exists; QEMU executable provenance is clean for the SETC immediate promotions |
 
-The 197/547 RTL semantic and cross-stack aligned numbers depend on uncommitted
-mixed ALU implementation state in the active worktree. They are not evidence
+The 207/547 RTL semantic and cross-stack aligned numbers depend on uncommitted
+mixed ALU implementation state in the active worktree and aggregate parent
+commit `960946c8`. They are not evidence
 that commit `e648` or any clean committed HEAD implements that surface.
 Promotion language MUST identify the exact implementation revision and rerun
 `python3 tools/chisel/report_scalar_instruction_coverage.py --check` before
@@ -361,14 +364,10 @@ the ISA/QEMU/model contract. Unknown, ambiguous, or divergent source-shape
 metadata MUST fail closed and stay out of the aligned coverage numerator until
 the owner is audited and tested.
 
-The final QEMU scoped ledger promotes seven HL.CMP forms into the aligned
-numerator with clean provenance: L2=7, L3=7, rejected=0, QEMU SHA
-`b4df5c31d06eaee04b602b4b6fd8b6f2c2592b4c`. The manifest of record is
-`/Users/zhoubot/linx-isa/avs/qemu/qemu_executable_hl_cmp_manifest.json`; the
-ledger is
-`/Users/zhoubot/linx-isa/docs/bringup/gates/evidence/qemu-executable/executable-hl-cmp-b4df5c31-clean-20260725-r1/qemu-executable-hl-cmp-ledger.json`;
-runtime evidence is in the same directory's `run-evidence.json`. The reporter
-therefore has no remaining QEMU executable observation pending items.
+The final QEMU scoped ledger promotes SETC immediate forms into the aligned
+numerator with clean provenance: L2=10, L3=10, rejected=0, aggregate parent
+commit `960946c8`. The reporter therefore has no remaining QEMU executable
+observation pending items for the SETC immediate bucket.
 
 Open red items and accounting exclusions:
 
@@ -380,8 +379,10 @@ Open red items and accounting exclusions:
   fix the cross-stack contract before RTL promotion.
 - Atomics: `LR`, `SC`, `CAS`, and AMO forms require atomicity, ordering, and
   memory-system ownership.
-- Dual-destination HL multiply/divide/remainder forms require a commit
-  argument/result owner rather than a single scalar writeback shortcut.
+- Dual-destination HL multiply/divide/remainder forms are an unsupported
+  bucket of 10 exact `HL.MUL`, `HL.MULU`, `HL.DIV*`, and `HL.REM*` forms.
+  They fail closed until a commit argument/result owner exists rather than a
+  single scalar writeback shortcut.
 - `SETC` commit-argument forms require the commit-condition argument owner, not
   only no-writeback branch sidebands.
 - System, CSR, TLB, cache-maintenance, trap, and protection forms require
@@ -389,7 +390,9 @@ Open red items and accounting exclusions:
 - XB CAC/XBINFO and BCTRL forms require their platform/control owners before
   executable semantic credit.
 - FP forms require rounding mode, NaN, denormal, exception flag, and pipeline
-  ownership.
+  ownership. `OP_UCVTF` remains semantic-pending: the full ISA contract needs
+  FRM input, FFLAGS update, illegal type traps, and `u32/u64 -> f32/f64`
+  coverage, so the reduced `ud2fs`/RNE prototype must not count as aligned.
 - `ACRC` opcode `0x222` is the current workload-blocking non-vector/tile audit
   item; its semantic owner is not yet settled.
 
@@ -408,10 +411,26 @@ or de-risk a change, but they MUST NOT occupy a matrix cell. A loop result is
 promotable only after mailbox-style assignment, result, and verdict records
 tie the exact artifacts to the four-cell outcome.
 
+### Final safe commitWidth=2 closeout
+
+The 2026-07-25 APPROVE closeout for safe `commitWidth=2` uses the frozen
+FishToucher workloads and final all-lane terminal harness:
+
+| Workload | Safe manifest | Terminal | Cycles | Commits | IPC | Dual-lane commit cycles | Previous best cycles | Delta |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CoreMark | `/Users/zhoubot/linx-isa/runs/linxcore-commitw2-safe-20260725/compare9920-coremark-100k/report/natural_manifest.json` | `finisher_pass`, `finisher_code=0x5555` | 9,917 | 1,426 | 0.143793485933 | 12 | 9,920 | -3 |
+| Dhrystone | `/Users/zhoubot/linx-isa/runs/linxcore-commitw2-safe-20260725/compare7919-dhrystone-100k/report/natural_manifest.json` | `finisher_pass`, `finisher_code=0x5555` | 7,916 | 1,150 | 0.145275391612 | 12 | 7,919 | -3 |
+
+The old prototype manifests under
+`/Users/zhoubot/linx-isa/runs/linxcore-commitw2-natural-20260725/` are
+invalid/untrusted and must never be quoted as best performance evidence. Their
+CoreMark 9,917 cycles / 1,402 commits and Dhrystone 7,916 cycles / 1,126
+commits predate the final ROB stop-after, no-`sideEffectQueue`, and all-lane
+testbench contract.
+
 ## Non-Goals
 
 - This spec does not include vector or tile implementation.
-- This spec does not claim CoreMark or Dhrystone currently pass end to end.
 - This spec does not claim IPC2 until the dual natural gate passes at
   `target_ipc = 1.90`.
 - This spec does not claim hardware-wide `OP_HL_SDI_PO` completion. The
