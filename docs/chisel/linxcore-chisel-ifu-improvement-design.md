@@ -57,16 +57,19 @@ flowchart LR
     IF1["I-F1: ITLB + L1I parallel lookup"]
     IF2["I-F2: translation/cache resolve"]
     IF3["I-F3: line extraction / byte assembly"]
-    IF4["I-F4: predecode / 64-bit expansion"]
+    IF4["I-F4: boundary predecode / 64-bit expansion"]
+    PJ["Final prediction join"]
     IB["Instruction Buffer"]
     D1["D1: 4-wide full decode"]
-    IF0 --> IF1 --> IF2 --> IF3 --> IF4 --> IB --> D1
+    IF0 --> IF1 --> IF2 --> IF3 --> IF4 --> PJ --> IB --> D1
   end
 
   IF0 -- "prediction request" --> BF0
-  BF1 -- "early prediction" --> IF0
+  BF0 -- "early prediction/correction" --> IF0
+  BF1 -- "later prediction/correction" --> IF0
   BF4 -- "final prediction/correction" --> IF0
-  BF4 -- "prediction metadata" --> IF3
+  IF4 -- "identity-qualified boundary metadata" --> BF4
+  BF4 -- "final prediction record" --> PJ
   D1 -- "per-lane prediction record" --> DP
   D1 -- "per-lane prediction record" --> EX
   DP["Dispatch: direct/call validation"] -- "resolved metadata + training" --> TR
@@ -81,7 +84,7 @@ flowchart LR
 |---|---|
 | Fetch line | I-SIDE 以一个 PC 为起点请求的 I-cache cache line |
 | Instruction entry | 一条已确定长度、已扩展为 64 bit 的指令及其 PC/身份/预解码信息 |
-| Predecode | 只识别指令长度和 `BSTART`/`BSTOP` block boundary |
+| Predecode | 只识别 `BSTART`/`BSTOP` block boundary；指令长度判定属于 I-F3 assembly |
 | Full decode | opcode、operand、destination、immediate、alias、执行类别和资源提示的完整解码 |
 | Inner flush | IFU 内部发现取指路径无效后，取消较年轻 IFU work 并回到正确 PC；不清理 OOO/LSU architectural state |
 | Restart | 后端 recovery/exception/redirect 驱动的前端重新启动 |
@@ -250,9 +253,9 @@ D1 都不得重新拼接 variable-length bytes。
 
 I-F4 是 I-SIDE 的第四个 stage。I-F4 不等于 Instruction Buffer。
 
-I-F4 对每条完整 instruction candidate 执行：
+I-F4 对 I-F3 已完成长度判定和跨 line 拼接的每条 instruction candidate 执行：
 
-1. 按原始长度截取 2/4/6/8 bytes；
+1. 接收并保留 I-F3 已确定的 `instLenBytes`；
 2. 将指令 bit pattern 零扩展到 64 bit；
 3. 只识别 `BSTART` 和 `BSTOP`；
 4. 生成 block-boundary sideband；
@@ -492,12 +495,14 @@ B-F4：
 - 若 earlier response 已更新而 final 不同，先从 checkpoint rollback，再
   在 correction 被 I-F0 接受时应用 final update。
 
-所有 B-F0–B-F4 stage 都允许发布 prediction。任何 later-stage prediction
+所有 B-F0–B-F4 stage 都允许发布 prediction。若顺序路径已经被 I-F0
+采用，B-F0 与该路径不同也构成 correction；任何 later-stage prediction
 只要 exact identity/epoch/checkpoint 有效，就可以纠正已经接受的 earlier
 result。每一级 correction 都比较 exact
-`{taken, branchPc, target, kind}` tuple。若 earlier result 已驱动 I-F0，
-B-F1/B-F2/B-F3/B-F4 correction
-都通过 typed inner flush 返回 I-F0；B-F4 是最晚、最终的 correction 点。
+`{taken, branchPc, target, kind}` tuple。若被替代的结果已经驱动 I-F0，
+B-F0/B-F1/B-F2/B-F3/B-F4 correction 都通过 typed inner flush 返回 I-F0；
+B-F4 是最晚、最终的 correction 点。若该 stage 的结果在任何路径被采用前
+到达，则它只是首次 steering selection，不需要 flush。
 
 跨 stage prediction rank 固定为：
 
@@ -515,7 +520,7 @@ predictor 是最终 fallback；它消费 I-F4 提供的 boundary metadata，但�
 仲裁均归 B-F4，不得回迁到 I-F4。
 
 backend restart 不属于任何 provider。它是 I-F0 控制仲裁的最高优先级，
-高于全部 B-F1–B-F4 correction、全部 B-SIDE stage response 和
+高于全部 B-F0–B-F4 correction、全部 B-SIDE stage response 和
 sequential PC。
 
 需要 correction 的情况包括：
@@ -726,7 +731,7 @@ I-F0 的控制优先级固定为：
 
 ```text
 backend restart
-> accepted B-F4/B-F3/B-F2/B-F1 correction, by stage rank
+> accepted B-F4/B-F3/B-F2/B-F1/B-F0 correction, by stage rank
 > accepted earlier-stage B-SIDE prediction
 > sequential PC
 ```
@@ -780,31 +785,9 @@ Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，�
 禁止用无 transaction ID 的“等待一次 response 再 discard”作为 production
 stale-response 处理。
 
-## 10. 当前 Chisel 实现的迁移定位
+## 10. 实施模块划分
 
-当前 `linxcore.frontend` 下的模块是 bring-up vertical slice，不是目标 IFU
-架构。它们只作为行为回归和迁移输入保留。
-
-| 当前模块 | 当前能力 | 目标处置 |
-|---|---|---|
-| `FrontendFetchPacketSource` | 单 outstanding PC/window 请求源 | 拆分并迁移到 I-SIDE I-F0/I-F1/I-F2；最终退出 production graph |
-| `F4DecodeWindow` | 对 8-byte window 做组合变长切片 | 重命名/迁移为 I-F3 assembly 验证 helper；不得继续代表 I-F4 |
-| `F4DenseSlotQueue` | 将多 slot 串行为单 lane | 退出 production graph；由四宽 Instruction Buffer/D1 替代 |
-| `FrontendInstructionBuffer` | packet FIFO | 改为独立的 64-bit instruction-entry FIFO |
-| `FrontendDecodeIngress` | packet FIFO 与 window slicer wrapper | 由 `InstructionBuffer -> D1` 四宽边界替代 |
-| `FrontendDecodeStage` | opcode/operand decode | 收敛为 D1 四 lane full-decode owner |
-| `FrontendOperandDecode` | scalar operand helper | 保留为 D1 leaf，扩展非 scalar 类别 |
-| `FrontendRegAliasClassify` | GPR/T/U alias helper | 保留为 D1 leaf，完成全部寄存器类别 |
-| `ReducedBfu*` | reduced body-cut geometry/oracle helpers | 只保留为迁移测试；由 B-SIDE predictor engine 替代 |
-| `LinxCoreFrontend*TraceTop` | reduced verification top | 只作为 migration fixture，不定义 production stage 或 owner |
-
-文档中出现这些名字时，只表示当前代码身份和迁移对象。它们不能用于推导
-目标 stage 数量、I-F4 语义、Instruction Buffer 位置或 branch predictor
-ownership。
-
-## 11. 实施模块划分
-
-### 11.1 I-SIDE
+### 10.1 I-SIDE
 
 - `ISideF0PcSelect`
 - `ISideF1Lookup`
@@ -818,7 +801,7 @@ ownership。
 - `D1DecodeGroupGather`
 - `D1DecodeStage`
 
-### 11.2 B-SIDE
+### 10.2 B-SIDE
 
 - `BSidePredictionRequestQueue`
 - `BSideBF0NanoPredictCheckpoint`
@@ -842,7 +825,7 @@ ownership。
 - `BSidePredictionResponseQueue`
 - `BSideCorrectionQueue`
 
-### 11.3 Shared protocol
+### 10.3 Shared protocol
 
 - `FetchIdentity`
 - `PredRequest`
@@ -852,7 +835,7 @@ ownership。
 - `InstBufferEntry`
 - `D1DecodeGroup`
 
-## 12. 分阶段迁移
+## 11. 分阶段实施
 
 ### IFU-0：冻结协议和命名
 
@@ -860,7 +843,8 @@ ownership。
 - 删除所有把 I-F4 与 Instruction Buffer 合并、或把 packet window 称为
   architectural I-F4 的规范性表述；
 - 定义 fetch identity、epoch、inner flush 和 prediction 接口；
-- 将 current modules 标记为 migration objects。
+- 从 production graph 和规范 stage 命名中排除 test-only packet/window
+  components。
 
 ### IFU-1：64-bit Instruction Buffer 和四宽 D1
 
@@ -900,16 +884,16 @@ ownership。
 - generated RTL 证明双引擎异步运行；
 - 与 LinxCoreModel 对比 prediction、block boundary 和 committed trace。
 
-## 13. 验证要求
+## 12. 验证要求
 
-### 13.1 I-SIDE stage
+### 12.1 I-SIDE stage
 
 - 每个 `I-F0..I-F4` 都有独立 valid/payload/ready residency assertion；
 - stall 时 payload 稳定；
 - flush 后旧 epoch 不得写 Instruction Buffer；
 - PC、line offset、instruction PC 连续性可追踪。
 
-### 13.2 ITLB/L1I 并行
+### 12.2 ITLB/L1I 并行
 
 - 证明同一个 I-F1 request 同周期启动两个 lookup；
 - ITLB hit + I-cache hit；
@@ -919,7 +903,7 @@ ownership。
 - refill 与 restart 同周期；
 - stale translation/cache response。
 
-### 13.3 I-F3/I-F4 与 Instruction Buffer
+### 12.3 I-F3/I-F4 与 Instruction Buffer
 
 - 2/4/6/8-byte 指令；
 - cache-line 尾部的全部跨 line 组合；
@@ -928,7 +912,7 @@ ownership。
 - 各长度都正确零扩展到 64 bit；
 - 多 enqueue、四 dequeue、wrap、full 和 simultaneous enqueue/dequeue。
 
-### 13.4 D1
+### 12.4 D1
 
 - 1/2/3/4 lane 连续前缀；
 - stall payload stability；
@@ -936,7 +920,7 @@ ownership。
 - full opcode/operand/immediate/alias parity；
 - D1 之后所有 instruction field 均为 64 bit。
 
-### 13.5 B-SIDE
+### 12.5 B-SIDE
 
 - B-F0–B-F4 各级 stall/replace/flush 和 payload stability；
 - 每一级均可发布 identity-tagged prediction；
@@ -971,7 +955,7 @@ ownership。
 - prediction response 迟到和 epoch stale；
 - I-SIDE/B-SIDE 独立 stall，不形成组合环。
 
-## 14. 架构验收清单
+## 13. 架构验收清单
 
 - [ ] IFU 明确由 I-SIDE 和 B-SIDE 两个 decoupled engines 组成。
 - [ ] I-F0–I-F4 和 B-F0–B-F4 是两套真实且不锁步的五级 pipelines。
@@ -979,7 +963,8 @@ ownership。
 - [ ] ITLB 与 L1I 在 I-F1 并行访问。
 - [ ] ITLB miss 产生 typed inner flush。
 - [ ] I-F3 唯一拥有跨 cache-line instruction assembly。
-- [ ] I-F4 predecode 只识别长度、`BSTART` 和 `BSTOP`。
+- [ ] I-F3 完成长度判定与跨 line 拼接；I-F4 predecode 只识别
+  `BSTART` 和 `BSTOP`。
 - [ ] 2/4/6/8-byte instruction 全部扩展为 64 bit 后写入 Instruction Buffer。
 - [ ] Instruction Buffer 是 I-F4 与 D1 之间的独立 queue。
 - [ ] D1 每周期读取最多四条 64-bit instruction 并执行 full decode。
@@ -994,9 +979,10 @@ ownership。
 - [ ] Dispatch 校验 direct/call，BRU E1 校验 conditional direction 与
   indirect/return target；mismatch 产生 `BRU flush + recover`。
 - [ ] prediction、training、redirect 接口全部带 exact identity 和 epoch。
-- [ ] 当前 reduced frontend/BFU 模块只作为迁移对象，不定义目标架构。
+- [ ] production graph 只实例化本设计列出的 I-SIDE、B-SIDE、
+  Instruction Buffer 和 D1 owners。
 
-## 15. 不在本设计内
+## 14. 不在本设计内
 
 - D2/D3 resource reservation 和 rename；
 - ROB/BROB allocation、commit 和 recovery arbitration；
