@@ -11,7 +11,8 @@ class STQCommitDrainRequest(
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val stidWidth: Int = 8)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   val valid = Bool()
@@ -22,7 +23,10 @@ class STQCommitDrainRequest(
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
+  val stid = UInt(stidWidth.W)
   val bid = new ROBID(identityEntries)
+  val gid = new ROBID(identityEntries)
+  val rid = new ROBID(identityEntries)
   val lsId = UInt(lsidWidth.W)
 }
 
@@ -68,7 +72,7 @@ class STQCommitDrainIO(
   val issue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
   val issueValidMask = Output(UInt(issueWidth.W))
   val issueCount = Output(UInt(freeCountWidth.W))
-  val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
+  val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth)))
 
   val commitFreeMaskValid = Output(Bool())
   val commitFreeMask = Output(UInt(entries.W))
@@ -130,7 +134,7 @@ class STQCommitDrain(
   val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
 
   private def zeroReq: STQCommitDrainRequest = {
-    val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
+    val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth))
     req := 0.U.asTypeOf(req)
     req
   }
@@ -213,7 +217,7 @@ class STQCommitDrain(
     val firstData = row.data & (allDataBits >> secondShiftBits)
     val secondData = row.data >> firstShiftBits
 
-    val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
+    val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth))
     firstReq := zeroReq
     firstReq.valid := issue.valid
     firstReq.stqIndex := issue.stqIndex
@@ -223,10 +227,13 @@ class STQCommitDrain(
     firstReq.addr := row.addr
     firstReq.data := firstData
     firstReq.size := firstSizeWide(sizeWidth - 1, 0)
+    firstReq.stid := row.stid
     firstReq.bid := issue.bid
+    firstReq.gid := row.gid
+    firstReq.rid := row.rid
     firstReq.lsId := issue.lsId
 
-    val secondReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
+    val secondReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth))
     secondReq := zeroReq
     secondReq.valid := issue.valid && crosses
     secondReq.stqIndex := issue.stqIndex
@@ -236,7 +243,10 @@ class STQCommitDrain(
     secondReq.addr := secondAddr
     secondReq.data := secondData
     secondReq.size := secondSizeWide(sizeWidth - 1, 0)
+    secondReq.stid := row.stid
     secondReq.bid := issue.bid
+    secondReq.gid := row.gid
+    secondReq.rid := row.rid
     secondReq.lsId := issue.lsId
 
     io.memReqs(lane * 2) := firstReq

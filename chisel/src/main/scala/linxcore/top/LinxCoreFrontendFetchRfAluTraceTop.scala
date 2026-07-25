@@ -2361,7 +2361,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     requestCount = reducedStoreScbRequestCount,
     responseBufferDepth = coreParams.scalarLsu.scbResponseBufferDepth,
     robEntries = p.robEntries,
-    lsidWidth = p.lsidWidth
+    lsidWidth = p.lsidWidth,
+    stidWidth = p.threadIdWidth
   ))
   val reducedStoreMemoryOverlay = Module(new ReducedStoreMemoryOverlay(
     stqEntries = coreParams.scalarLsu.stqEntries,

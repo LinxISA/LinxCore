@@ -97,7 +97,7 @@ class STQSCBCommitPathIO(
   val drainIssue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
   val drainIssueValidMask = Output(UInt(issueWidth.W))
   val drainIssueCount = Output(UInt(issueCountWidth.W))
-  val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
+  val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth)))
   val drainEarlyFreeMaskValid = Output(Bool())
   val drainEarlyFreeMask = Output(UInt(entries.W))
   val drainEarlyFreeCount = Output(UInt(issueCountWidth.W))
@@ -111,6 +111,7 @@ class STQSCBCommitPathIO(
   val scbModelBatchReady = Output(Bool())
   val scbModelFull = Output(Bool())
   val scbAcceptedMask = Output(UInt(requestCount.W))
+  val scbAcceptedReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth, stidWidth)))
   val scbStalledMask = Output(UInt(requestCount.W))
   val scbStructuralBlockedMask = Output(UInt(requestCount.W))
   val scbCommitFreeMaskValid = Output(Bool())
@@ -219,7 +220,8 @@ class STQSCBCommitPath(
     sizeWidth = sizeWidth,
     lineBytes = lineBytes,
     robEntries = identityEntries,
-    lsidWidth = lsidWidth))
+    lsidWidth = lsidWidth,
+    stidWidth = stidWidth))
 
   stq.io.flush := io.flush
   stq.io.insertValid := io.insertValid
@@ -310,6 +312,7 @@ class STQSCBCommitPath(
   io.scbModelFull := scb.io.modelFull
   io.rawRespReady := scb.io.rawRespReady
   io.scbAcceptedMask := scb.io.acceptedMask
+  io.scbAcceptedReqs := scb.io.acceptedReqs
   io.scbStalledMask := scb.io.stalledMask
   io.scbStructuralBlockedMask := scb.io.structuralBlockedMask
   io.scbCommitFreeMaskValid := scb.io.commitFreeMaskValid

@@ -375,13 +375,21 @@ class SCBRowBankSpec extends AnyFunSuite {
 
     assert(io.commitFreeMask.getWidth == 16)
     assert(io.reqs.head.stqIndex.getWidth == 4)
+    assert(io.acceptedReqs.head.stqIndex.getWidth == 4)
+    assert(io.acceptedReqs.head.stid.getWidth == 8)
     assert(io.reqs.head.bid.value.getWidth == 3)
+    assert(io.acceptedReqs.head.gid.value.getWidth == 3)
+    assert(io.acceptedReqs.head.rid.value.getWidth == 3)
     assert(io.reqs.head.lsId.getWidth == 40)
+    assert(io.acceptedReqs.head.lsId.getWidth == 40)
 
     val sv = ChiselStage.emitSystemVerilog(
       new SCBRowBank(
         stqEntries = 16, scbEntries = 4, requestCount = 2, robEntries = 8, lsidWidth = 40))
     assert(sv.contains("module SCBRowBank"))
+    assert(sv.contains("io_acceptedReqs_0_stid"))
+    assert(sv.contains("io_acceptedReqs_0_gid_value"))
+    assert(sv.contains("io_acceptedReqs_0_rid_value"))
     assert(sv.contains("io_reqs_0_bid_value"))
   }
 }
