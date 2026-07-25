@@ -38,11 +38,17 @@ class IfuRedirectArbiter(
   def threadIndex(threadId: UInt): UInt =
     if (threadCount == 1) 0.U(threadIndexWidth.W) else threadId(threadIndexWidth - 1, 0)
 
-  val canAccept = !pendingValid && !io.epochSeed.valid
+  val canAccept = !pendingValid
   val backendSelected = canAccept && io.backend.valid
   val itlbSelected = canAccept && !io.backend.valid && io.itlb.valid
   val predictionSelected =
     canAccept && !io.backend.valid && !io.itlb.valid && io.prediction.valid
+  val epochSeedSelected =
+    canAccept &&
+      !io.backend.valid &&
+      !io.itlb.valid &&
+      !io.prediction.valid &&
+      io.epochSeed.valid
 
   io.backend.ready := backendSelected
   io.itlb.ready := itlbSelected
@@ -77,9 +83,7 @@ class IfuRedirectArbiter(
     pendingValid := false.B
   }
 
-  when(io.epochSeed.valid && io.epochSeed.bits.threadId < threadCount.U) {
-    epochs(threadIndex(io.epochSeed.bits.threadId)) := io.epochSeed.bits.epoch
-  }.elsewhen(selectedFire) {
+  when(selectedFire) {
     assert(selected.valid, "accepted redirect proposal must carry valid intent")
     assert(selectedThreadSupported, "accepted redirect proposal must target a supported STID")
     pendingValid := true.B
@@ -87,5 +91,7 @@ class IfuRedirectArbiter(
     pending.valid := true.B
     pending.newEpoch := nextEpoch
     epochs(selectedThread) := nextEpoch
+  }.elsewhen(epochSeedSelected && io.epochSeed.bits.threadId < threadCount.U) {
+    epochs(threadIndex(io.epochSeed.bits.threadId)) := io.epochSeed.bits.epoch
   }
 }

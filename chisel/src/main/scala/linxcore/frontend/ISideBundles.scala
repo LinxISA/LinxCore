@@ -71,6 +71,35 @@ class ISideL1IRefill(
   val lineData = UInt((lineBytes * 8).W)
 }
 
+class ISidePtwRequest(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64,
+    val pageBytes: Int = 4096)
+    extends Bundle {
+  require(pageBytes > lineBytes && (pageBytes & (pageBytes - 1)) == 0)
+
+  private val pageOffsetBits = log2Ceil(pageBytes)
+
+  val request = new ISideFetchRequest(p, lineBytes)
+  val vpn = UInt((p.pcWidth - pageOffsetBits).W)
+}
+
+class ISideLineReadRequest(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val request = new ISideFetchRequest(p, lineBytes)
+  val linePa = UInt(p.pcWidth.W)
+}
+
+class ISideFetchFault(
+    val p: InterfaceParams = InterfaceParams(),
+    val lineBytes: Int = 64)
+    extends Bundle {
+  val request = new ISideFetchRequest(p, lineBytes)
+  val linePa = UInt(p.pcWidth.W)
+}
+
 class ISideF2Result(
     val p: InterfaceParams = InterfaceParams(),
     val lineBytes: Int = 64)

@@ -285,8 +285,8 @@ class BSidePredictionPipeline(
   initialPayload.effective.predictionTag := nextPredictionTag
   initialPayload.effective.taken := false.B
   initialPayload.effective.branchPc := io.request.bits.pc
-  initialPayload.effective.target := io.request.bits.pc + lineBytes.U
-  initialPayload.effective.fallthroughPc := io.request.bits.pc + lineBytes.U
+  initialPayload.effective.target := io.request.bits.lineVa + lineBytes.U
+  initialPayload.effective.fallthroughPc := io.request.bits.lineVa + lineBytes.U
   initialPayload.effective.kind := BoundaryKind.Fall
   initialPayload.effective.provider := PredictionProvider.Sequential
   initialPayload.effective.stage := BSideStage.Sequential
@@ -398,7 +398,7 @@ class BSidePredictionPipeline(
       indirectEntry.target,
       Mux(boundaryHit, boundary.target, stage4Payload.effective.target)))
   stage4.fallthroughPc :=
-    Mux(boundaryHit, boundary.fallthroughPc, stage4Payload.effective.fallthroughPc)
+    Mux(boundaryPresent, boundary.fallthroughPc, stage4Payload.effective.fallthroughPc)
   stage4.provider := Mux(
     rasHit,
     PredictionProvider.FinalRas,

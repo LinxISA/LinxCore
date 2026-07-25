@@ -1,7 +1,7 @@
 package linxcore.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Fill, PriorityEncoder, log2Ceil}
+import chisel3.util.{Cat, Decoupled, Fill, PriorityEncoder, Reverse, log2Ceil}
 import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class ISideF4PredecodeIO(
@@ -122,6 +122,8 @@ class ISideF4Predecode(
   val startMeta = laneMeta(startIndex)
   val startCandidate = io.in.bits.entries(startIndex)
   val stopCandidate = io.in.bits.entries(stopIndex)
+  val lastLane = PriorityEncoder(Reverse(outputValid.asUInt))
+  val lastCandidate = io.in.bits.entries((p.fetchWidth - 1).U - lastLane)
   val decodedStartTarget =
     startCandidate.pc +
       Mux(
@@ -159,7 +161,10 @@ class ISideF4Predecode(
   io.boundary.bits.branchPc := Mux(stopPresent, stopCandidate.pc, 0.U)
   io.boundary.bits.target := effectiveBoundaryTarget
   io.boundary.bits.fallthroughPc :=
-    Mux(stopPresent, stopCandidate.pc + stopCandidate.lenBytes, 0.U)
+    Mux(
+      stopPresent,
+      stopCandidate.pc + stopCandidate.lenBytes,
+      lastCandidate.pc + lastCandidate.lenBytes)
   io.boundary.bits.kind := effectiveBoundaryKind
   io.boundary.bits.staticTaken :=
     Mux(

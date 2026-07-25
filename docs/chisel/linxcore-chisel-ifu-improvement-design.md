@@ -1,11 +1,11 @@
 # LinxCore Chisel IFU 微架构设计
 
-- 状态：Architecture Draft
-- 日期：2026-07-25
+- 状态：Architecture Baseline + Production Composition Baseline
+- 日期：2026-07-26
 - 适用范围：LinxCore Chisel production IFU
 - 目标读者：架构、RTL、性能、验证、编译器和 LinxCoreModel 团队
 
-## 1. 架构决议
+## 架构决议
 
 IFU 由两个彼此解耦的引擎组成：
 
@@ -15,8 +15,10 @@ IFU 由两个彼此解耦的引擎组成：
 2. **B-SIDE（Branch Side）**：维护跳转预测状态，独立接收预测请求并返回
    prediction，接收执行反馈完成训练。
 
-两个引擎不共享流水寄存器，不用组合 ready/valid 互相阻塞。它们通过带
-`stid`、PC、fetch sequence 和 epoch 的 Decoupled 消息交换信息。
+两个引擎不共享流水寄存器，也不形成跨引擎组合 ready 环。它们通过带
+`stid`、PC、fetch sequence 和 epoch 的 Decoupled 消息交换信息；合法
+backpressure 由 request queue、boundary completion 和 prediction join
+吸收。
 
 I-SIDE 和 B-SIDE 各有五个真实 stage：
 
@@ -35,7 +37,7 @@ D1 每周期从 Instruction Buffer 读取最多四条指令。每条 entry 的�
 已经扩展为 64 bit；从 D1 开始，流水中的 instruction representation 固定为
 64 bit。D1 执行完整 opcode、operand、immediate 和 register-alias decode。
 
-## 2. 总体结构
+## 总体结构
 
 ```mermaid
 flowchart LR
@@ -65,20 +67,21 @@ flowchart LR
   end
 
   IF0 -- "prediction request" --> BF0
-  BF0 -- "early prediction/correction" --> IF0
-  BF1 -- "later prediction/correction" --> IF0
-  BF4 -- "final prediction/correction" --> IF0
+  BF0 -- "early prediction/correction" --> RA
+  BF1 -- "later prediction/correction" --> RA
+  BF4 -- "final prediction/correction" --> RA
   IF4 -- "identity-qualified boundary metadata" --> BF4
   BF4 -- "final prediction record" --> PJ
+  RA["Canonical redirect / epoch arbiter"] --> IF0
   D1 -- "per-lane prediction record" --> DP
   D1 -- "per-lane prediction record" --> EX
   DP["Dispatch: direct/call validation"] -- "resolved metadata + training" --> TR
-  IS -- "resolved inner redirect" --> IF0
+  IS -- "ITLB inner redirect" --> RA
   EX["BRU / recovery"] -- "resolved redirect + training" --> TR
-  EX -- "restart" --> IF0
+  EX -- "restart" --> RA
 ```
 
-## 3. 术语和边界
+## 术语和边界
 
 | 术语 | 定义 |
 |---|---|
@@ -113,9 +116,9 @@ B-SIDE 拥有：
 Instruction Buffer 是 I-SIDE 与 D1 之间的独立 queue boundary。D1 属于
 IFU decode 端，但不属于 I-SIDE 的 I-F0–I-F4 fetch pipeline。
 
-## 4. I-SIDE 流水
+## I-SIDE 流水
 
-### 4.1 I-F0：PC 选择和请求分配
+### I-F0：PC 选择和请求分配
 
 I-F0 是唯一的 fetch-PC 消费和分配 owner。
 
@@ -153,7 +156,7 @@ IF0FetchRequest {
 }
 ```
 
-### 4.2 I-F1：ITLB 和 L1I 并行访问
+### I-F1：ITLB 和 L1I 并行访问
 
 I-F1 必须在同一周期并行发起：
 
@@ -174,7 +177,7 @@ I-F1 驻留状态必须携带：
 如果 I-F1 因下游阻塞不能前进，ITLB/L1I 请求和所有身份字段保持稳定，不得
 重复分配 fetch sequence。
 
-### 4.3 I-F2：翻译与 cache 结果汇合
+### I-F2：翻译与 cache 结果汇合
 
 I-F2 是 ITLB 和 L1I 并行访问的汇合级。
 
@@ -223,7 +226,7 @@ InnerFlushRequest {
 所有异步 ITLB/I-cache response 必须携带 transaction identity。仅通过
 `waitingResponse` 或无 ID response drain 不能作为 production 方案。
 
-### 4.4 I-F3：cache-line 提取和跨 line 拼接
+### I-F3：cache-line 提取和跨 line 拼接
 
 I-F3 从 I-F2 的 line data 中提取从请求 PC 开始的字节流，并维护每 STID 的
 instruction carry。
@@ -258,7 +261,7 @@ D1 都不得重新拼接 variable-length bytes。I-F3 不识别 block boundary�
 candidate。最后一个 group fire 的同周期，I-F3 必须允许下一条 line
 consume-and-replace。
 
-### 4.5 I-F4：预解码和 64-bit 定长化
+### I-F4：预解码和 64-bit 定长化
 
 I-F4 是 I-SIDE 的第四个 stage。I-F4 不等于 Instruction Buffer。
 
@@ -312,7 +315,7 @@ InstBufferEntry {
 `inst64` 只承载原始 instruction bits 的零扩展值。预解码不得重编码 opcode，
 不得把 2/4/6-byte 指令转换成另一套 ISA encoding。
 
-## 5. Instruction Buffer
+## Instruction Buffer
 
 Instruction Buffer 位于：
 
@@ -344,7 +347,7 @@ Instruction Buffer entry 一旦写入，`pc`、`inst64`、`instLenBytes`、
 boundary、epoch 和完整 effective `predictionRecord` 必须作为 row-owned
 state 保存。不得依赖一个全局“当前预测”寄存器为后续 lane 补写预测。
 
-## 6. D1：四宽完整解码
+## D1：四宽完整解码
 
 D1 每周期从一个选定 STID 的 Instruction Buffer head 读取最多四条连续
 instruction entries：
@@ -409,7 +412,7 @@ D1DecodeGroup {
 - D1 不分配 ROB、physical register、LSID、IQ 或 LSU row；
 - D1 之后所有指令通路都使用 64-bit instruction representation。
 
-## 7. B-SIDE 架构
+## B-SIDE 架构
 
 B-SIDE 是独立的五级 branch-prediction engine：`B-F0`、`B-F1`、`B-F2`、
 `B-F3`、`B-F4`。其 predictor 布局、数据依赖和 correction 时序以
@@ -417,7 +420,7 @@ LinxCoreModel BFU F0–F4 为主要参考，但接口改为显式的 resident
 ready/valid pipeline。B-SIDE 不访问 BHC、ITLB 或 L1I；Model BHC 及其
 fetch-cache hit/miss/refill 行为只映射到 I-SIDE L1I。
 
-### 7.1 B-F0：L0/Nano-BTB、checkpoint 和最早预测
+### B-F0：L0/Nano-BTB、checkpoint 和最早预测
 
 B-F0 从 Prediction Request Queue 接受 I-F0 请求。请求至少包含
 `peId/stid/pc/fetchSeq/fetchEpoch/sequentialPc`。
@@ -436,7 +439,7 @@ checkpoint 没有容量时 `B-F0.ready=0`，但不得组合拉低 I-SIDE I-F1/I-
 的 ready。B-F0 prediction 被 I-F0 接受后，必须记录 accepted result，
 供 B-F1–B-F4 比较和 correction。
 
-### 7.2 B-F1：uBTB、fast RAS 和大表启动
+### B-F1：uBTB、fast RAS 和大表启动
 
 B-F1：
 
@@ -450,7 +453,7 @@ B-F1 可发布新的 identity-tagged prediction。若它与已被 I-F0 接受的
 B-F0 prediction 不同，B-F1 发布 correction；若较早结果尚未被接受，
 B-F1 直接以自己的更高 stage rank 覆盖 pending result。
 
-### 7.3 B-F2：PBTB/main BTB 和 BIM
+### B-F2：PBTB/main BTB 和 BIM
 
 B-F2 接收：
 
@@ -463,7 +466,7 @@ identity-tagged prediction。B-F2 不能用 BTB target 冒充 indirect target
 或 return target。它同时把 GHR、BTB kind、provider metadata 和
 checkpoint 送入 B-F3。
 
-### 7.4 B-F3：short/medium TAGE 和 tagged IBTB 启动
+### B-F3：short/medium TAGE 和 tagged IBTB 启动
 
 B-F3：
 
@@ -477,7 +480,7 @@ B-F3：
 B-F3 不执行最终 loop、long-history TAGE、IBTB 或 RAS 仲裁；这些属于
 B-F4。
 
-### 7.5 B-F4：static predictor、long TAGE、final target 和统一仲裁
+### B-F4：static predictor、long TAGE、final target 和统一仲裁
 
 B-F4 同周期汇合：
 
@@ -572,6 +575,25 @@ younger-pruned row 不得复活。terminal I-F4 group 与 boundary completion
 必须原子 fire，boundary table collision 必须 backpressure，禁止覆盖 resident
 event。
 
+`LinxCoreIfu` 是上述 owner 的 production composition baseline。它原子接受 I-F0
+lookup 与 join allocation，按 `miss replay > cross-line continuation >
+new F0 request` 仲裁唯一 I-F1 入口，并把 I-F2 结果明确分流到：
+
+- hit：I-F3 resident line 或 matching cross-line response；
+- ITLB miss：retained PTW-pending row 与 ITLB redirect proposal，refill 前
+  禁止同一 unresolved transaction 重复发起 page walk；
+- L1I miss：miss-table allocation 与 external line-read request，二者原子；
+- access fault：retained fetch-fault output；
+- stale：只消费并报告，不进入后续流水。
+
+跨 line continuation 不旁路翻译或 cache；它重新走 I-F1 并行 ITLB/L1I、
+I-F2 和同一 miss/refill owner。当前 correctness baseline 在前一 fetch
+transaction 的 final prediction 与所有 I-F4 groups 完成前，不分配下一
+sequential transaction。B-F4 final response 给 I-F0 安装真实 next PC；
+因此跨线指令已经消费的第二行 prefix 不会再次从 cacheline 起点解码。未来
+若加入多 cacheline 并发，必须引入等价的 prefix/carry context queue，不得
+删除该顺序正确性约束。
+
 - direct branch/call 的无需运行时 operand 的 direction/target/kind 在
   Dispatch 校验；
 - conditional `setc.*` 的实际 direction 在 BRU E1 校验；
@@ -581,7 +603,7 @@ event。
 predictor/rename/block checkpoint，并向 I-F0 发布 architectural restart；
 不得重新分类为 inner flush。
 
-### 7.6 B-SIDE ready/valid 和独立推进
+### B-SIDE ready/valid 和独立推进
 
 每个 `B-F0..B-F4` 都是独立 resident stage：
 
@@ -600,7 +622,7 @@ ready[n]   = !valid[n] || ready[n+1]
 - flush 按 `stid + epoch + predictionTag/checkpoint` 精确失效；
 - physical predictor table learned state 不因普通 inner flush 清零。
 
-### 7.7 GHR、GHRQ、RAS 和 epoch
+### GHR、GHRQ、RAS 和 epoch
 
 - GHR 是 per-STID speculative state；
 - GHRQ 保存 predictionTag、pre-update history、RAS pointer、loop state 和
@@ -611,7 +633,7 @@ ready[n]   = !valid[n] || ready[n+1]
 - stale epoch response/training 静默丢弃并计数；
 - epoch wrap 必须结合 outstanding tag/sequence，不能仅比较低位 epoch。
 
-### 7.8 Training pipeline
+### Training pipeline
 
 Dispatch/BRU/recovery 通过 retained `PredTraining` queue 向 B-SIDE 提交
 反馈。
@@ -637,13 +659,13 @@ training queue backpressure 不能让 BRU feedback 丢失。相同
 B-F1/B-F2 读端口冲突时，采用确定的 read-old/write-new 或 bypass 规则并
 由 assertion 固定。
 
-### 7.9 Loop Buffer 边界
+### Loop Buffer 边界
 
 Loop Buffer 可缓存已确认的小循环 instruction-entry 序列，但它必须通过
 I-SIDE 定义的独立 refill/replay 接口向 Instruction Buffer 提供同构 64-bit
 entry。它不能直接绕过 D1，也不能访问 BHC/L1I physical state。
 
-### 7.10 superscalarNPU 对比
+### superscalarNPU 对比
 
 参考基线：`superscalarNPU origin/main@1fae7d0`。
 
@@ -681,9 +703,9 @@ ITLB/L1I、B-F4 final prediction/最后一次 prediction-driven inner flush、
 独立 fixed-64-bit Instruction Buffer、四宽 D1 per-lane prediction record，
 以及 post-B-F4 的 Dispatch/BRU typed validation。
 
-## 8. I-SIDE 与 B-SIDE 的解耦接口
+## I-SIDE 与 B-SIDE 的解耦接口
 
-### 8.1 Prediction request
+### Prediction request
 
 ```text
 I-SIDE I-F0 -> B-SIDE B-F0
@@ -696,7 +718,7 @@ PredRequest {
 }
 ```
 
-### 8.2 Prediction response
+### Prediction response
 
 ```text
 B-SIDE -> I-SIDE
@@ -722,7 +744,7 @@ I-SIDE 只接受 exact identity 匹配且 epoch 当前的 response。迟到 resp
 静默丢弃并计数。response 进入 I-F0 前必须经过 retained queue；下游
 `ready=0` 时 payload 保持稳定。
 
-### 8.3 Training
+### Training
 
 ```text
 Dispatch / BRU / recovery -> B-SIDE
@@ -743,12 +765,12 @@ PredTraining {
 训练入口必须有 retained queue。执行端不能因为 predictor table 端口忙而
 丢失 resolved training。
 
-### 8.4 Redirect
+### Redirect
 
 B-SIDE 可以发布 prediction correction，但所有 PC 修改都由 I-SIDE I-F0
 仲裁。B-SIDE 不直接写 I-SIDE pipeline register。
 
-## 9. Flush、epoch 和 stale response
+## Flush、epoch 和 stale response
 
 IFU 定义两类控制：
 
@@ -763,7 +785,7 @@ backend restart
 
 backend restart 不是 predictor provider，不参与 provider rank。
 
-### 9.1 Inner flush
+### Inner flush
 
 来源包括：
 
@@ -797,7 +819,7 @@ transaction。Instruction Buffer 必须压紧 surviving rows，并把 active epo
 切换到 canonical `newEpoch`；B-SIDE 只裁剪 pipeline、response 和 boundary
 transient row，BTB/TAGE/GHR training table 等 learned state 不清零。
 
-### 9.2 Post-B-F4 按类型校验
+### Post-B-F4 按类型校验
 
 `predictionRecord` 随每条 instruction 从 Instruction Buffer 进入 D1，并继续
 传到校验 owner：
@@ -816,7 +838,7 @@ transient row，BTB/TAGE/GHR training table 等 learned state 不清零。
 Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，不是对
 当前 Model 实现位置的描述。
 
-### 9.3 Architectural restart
+### Architectural restart
 
 来自 BRU、exception、interrupt 或 central recovery。它：
 
@@ -830,10 +852,11 @@ Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，�
 禁止用无 transaction ID 的“等待一次 response 再 discard”作为 production
 stale-response 处理。
 
-## 10. 实施模块划分
+## 实施模块划分
 
-### 10.1 I-SIDE
+### I-SIDE
 
+- `LinxCoreIfu`
 - `ISideF0PcSelect`
 - `ISideF1Lookup`
 - `ISideITLB`
@@ -845,32 +868,23 @@ stale-response 处理。
 - `InstructionBuffer`
 - `D1DecodeGroupGather`
 - `D1DecodeStage`
+- `IfuPredictionJoin`
+- `IfuRedirectArbiter`
 
-### 10.2 B-SIDE
+### B-SIDE
 
-- `BSidePredictionRequestQueue`
-- `BSideBF0NanoPredictCheckpoint`
-- `BSideBF1UbtbFastRasLaunch`
-- `BSideBF2BtbBim`
-- `BSideBF3ShortTageIbtbLaunch`
-- `BSideBF4LongTageFinalCorrect`
-- `BSideUBTB`
-- `BSidePBTB`
-- `BSideBTB`
-- `BSideIBTB`
-- `BSideGHR`
-- `BSideGHRQ`
-- `BSideBIM`
-- `BSideTAGE`
-- `BSideRAS`
-- `BSideLoopPredictor`
-- `BSideLoopBuffer`
-- `BSidePredictionArbiter`
-- `BSideTrainingQueue`
-- `BSidePredictionResponseQueue`
-- `BSideCorrectionQueue`
+`BSidePredictionPipeline` 是当前 B-F0–B-F4、boundary table、response
+retention 和 training 的唯一 composition owner。其内部物理单元是：
 
-### 10.3 Shared protocol
+- NanoBTB、uBTB、PBTB 和 IBTB；
+- BIM、short/long TAGE、loop predictor；
+- per-STID GHR 和 guarded RAS；
+- boundary table、training queue 和 prediction response queue。
+
+未来可在不改变现有 Decoupled contract 的前提下拆分物理子模块，但不得
+增加第二套 prediction/epoch owner。
+
+### Shared protocol
 
 - `FetchIdentity`
 - `PredRequest`
@@ -880,7 +894,26 @@ stale-response 处理。
 - `InstBufferEntry`
 - `D1DecodeGroup`
 
-## 11. 分阶段实施
+### Production composition
+
+`LinxCoreIfu` 只组合本章列出的 I-SIDE、B-SIDE、redirect/join、Instruction
+Buffer 和 D1 owners。对外只暴露：
+
+- start、backend redirect 和 resolved branch training；
+- PTW request/refill；
+- L1I line-read/refill；
+- fetch fault；
+- ITLB/L1I explicit invalidation；
+- per-STID D1 dequeue selection 和四宽 D1 group。
+
+start 为目标 STID 生成 `KillAllThreadState` 状态广播并 seed canonical
+epoch；backend、ITLB 和 prediction proposal 统一由
+`IfuRedirectArbiter` 按 `backend > ITLB > prediction` 选择。accepted
+redirect 在一个广播周期内同时到达 F0、I-SIDE transient owners、B-SIDE、
+prediction join、Instruction Buffer 和 D1；cache、TLB 与 learned
+predictor tables 不因普通 redirect 清零。
+
+## 分阶段实施
 
 ### IFU-0：冻结协议和命名
 
@@ -929,16 +962,16 @@ stale-response 处理。
 - generated RTL 证明双引擎异步运行；
 - 与 LinxCoreModel 对比 prediction、block boundary 和 committed trace。
 
-## 12. 验证要求
+## 验证要求
 
-### 12.1 I-SIDE stage
+### I-SIDE stage
 
 - 每个 `I-F0..I-F4` 都有独立 valid/payload/ready residency assertion；
 - stall 时 payload 稳定；
 - flush 后旧 epoch 不得写 Instruction Buffer；
 - PC、line offset、instruction PC 连续性可追踪。
 
-### 12.2 ITLB/L1I 并行
+### ITLB/L1I 并行
 
 - 证明同一个 I-F1 request 同周期启动两个 lookup；
 - ITLB hit + I-cache hit；
@@ -948,7 +981,7 @@ stale-response 处理。
 - refill 与 restart 同周期；
 - stale translation/cache response。
 
-### 12.3 I-F3/I-F4 与 Instruction Buffer
+### I-F3/I-F4 与 Instruction Buffer
 
 - 2/4/6/8-byte 指令；
 - cache-line 尾部的全部跨 line 组合；
@@ -957,7 +990,7 @@ stale-response 处理。
 - 各长度都正确零扩展到 64 bit；
 - 多 enqueue、四 dequeue、wrap、full 和 simultaneous enqueue/dequeue。
 
-### 12.4 D1
+### D1
 
 - 1/2/3/4 lane 连续前缀；
 - stall payload stability；
@@ -965,7 +998,7 @@ stale-response 处理。
 - full opcode/operand/immediate/alias parity；
 - D1 之后所有 instruction field 均为 64 bit。
 
-### 12.5 B-SIDE
+### B-SIDE
 
 - B-F0–B-F4 各级 stall/replace/flush 和 payload stability；
 - 每一级均可发布 identity-tagged prediction；
@@ -1000,34 +1033,35 @@ stale-response 处理。
 - prediction response 迟到和 epoch stale；
 - I-SIDE/B-SIDE 独立 stall，不形成组合环。
 
-## 13. 架构验收清单
+## 架构验收清单
 
-- [ ] IFU 明确由 I-SIDE 和 B-SIDE 两个 decoupled engines 组成。
-- [ ] I-F0–I-F4 和 B-F0–B-F4 是两套真实且不锁步的五级 pipelines。
-- [ ] I-F4 不再与 Instruction Buffer 合并。
-- [ ] ITLB 与 L1I 在 I-F1 并行访问。
-- [ ] ITLB miss 产生 typed inner flush。
-- [ ] I-F3 唯一拥有跨 cache-line instruction assembly。
-- [ ] I-F3 完成长度判定与跨 line 拼接；I-F4 predecode 只识别
+- [x] IFU 明确由 I-SIDE 和 B-SIDE 两个 decoupled engines 组成。
+- [x] I-F0–I-F4 和 B-F0–B-F4 是两套真实且不锁步的五级 pipelines。
+- [x] I-F4 不再与 Instruction Buffer 合并。
+- [x] ITLB 与 L1I 在 I-F1 并行访问。
+- [x] ITLB miss 产生 typed inner flush。
+- [x] I-F3 唯一拥有跨 cache-line instruction assembly。
+- [x] I-F3 完成长度判定与跨 line 拼接；I-F4 predecode 只识别
   `BSTART` 和 `BSTOP`。
-- [ ] 2/4/6/8-byte instruction 全部扩展为 64 bit 后写入 Instruction Buffer。
-- [ ] Instruction Buffer 是 I-F4 与 D1 之间的独立 queue。
-- [ ] D1 每周期读取最多四条 64-bit instruction 并执行 full decode。
-- [ ] D1 之后不再传播 variable-width instruction representation。
-- [ ] B-SIDE 包含 BTB family、GHR/GHRQ、TAGE、BIM、RAS、IBTB 和 loop units。
-- [ ] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
+- [x] 2/4/6/8-byte instruction 全部扩展为 64 bit 后写入 Instruction Buffer。
+- [x] Instruction Buffer 是 I-F4 与 D1 之间的独立 queue。
+- [x] D1 每周期读取最多四条 64-bit instruction 并执行 full decode。
+- [x] D1 之后不再传播 variable-width instruction representation。
+- [ ] B-SIDE 完整实现 BTB family、speculative GHRQ、TAGE、BIM、RAS、IBTB
+  和 loop units。
+- [x] B-SIDE 实现 B-F0–B-F4 stage rank、B-F4 static/final correction 和
   I-F0 restart。
 - [ ] B-F4 provider rank 与 direction override 有独立 assertion 和覆盖率。
-- [ ] B-F4 correction 是最后一次 prediction-driven inner flush。
-- [ ] B-F4 final `predictionRecord` 随 bundle 进入 IB，并附着到每个 D1
+- [x] B-F4 correction 是最后一次 prediction-driven inner flush。
+- [x] B-F4 final `predictionRecord` 随 bundle 进入 IB，并附着到每个 D1
   valid lane。
 - [ ] Dispatch 校验 direct/call，BRU E1 校验 conditional direction 与
   indirect/return target；mismatch 产生 `BRU flush + recover`。
-- [ ] prediction、training、redirect 接口全部带 exact identity 和 epoch。
-- [ ] production graph 只实例化本设计列出的 I-SIDE、B-SIDE、
+- [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
+- [x] production graph 只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。
 
-## 14. 不在本设计内
+## 不在本设计内
 
 - D2/D3 resource reservation 和 rename；
 - ROB/BROB allocation、commit 和 recovery arbitration；

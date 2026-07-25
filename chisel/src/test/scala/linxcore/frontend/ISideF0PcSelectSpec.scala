@@ -14,6 +14,8 @@ class ISideF0PcSelectSpec extends AnyFunSuite with ChiselSim {
     dut.io.backendRestart.valid.poke(false.B)
     dut.io.backendRestart.bits.poke(0.U.asTypeOf(dut.io.backendRestart.bits))
     dut.io.predictionCorrection.poke(0.U.asTypeOf(dut.io.predictionCorrection))
+    dut.io.resolvedNextPc.valid.poke(false.B)
+    dut.io.resolvedNextPc.bits.poke(0.U.asTypeOf(dut.io.resolvedNextPc.bits))
     dut.io.fetch.ready.poke(false.B)
     dut.io.predictionRequest.ready.poke(false.B)
   }

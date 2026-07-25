@@ -2,8 +2,8 @@
 
 ## Status
 
-R678 introduces independent production-shaped Chisel owners for every I-SIDE
-stage. Only the owners listed below define production I-SIDE stage behavior.
+The production I-SIDE is composed by `LinxCoreIfu`. Only the owners listed
+below define I-SIDE stage behavior.
 
 The current owners are:
 
@@ -19,9 +19,8 @@ The current owners are:
 on an exact refill, retries a live request, and drains an orphaned refill
 without reviving a stale frontend request.
 
-These modules and tests establish the stage behavior but are not yet composed
-into the production top. Therefore R678 is not CoreMark/Dhrystone or end-to-end
-IFU closure.
+`LinxCoreIfu` connects these stages to the canonical redirect arbiter,
+B-SIDE, final-prediction join, Instruction Buffer, and D1.
 
 ## I-F0 PC and Identity
 
@@ -36,9 +35,12 @@ epoch. Accepted requests are copied into a small B-SIDE request queue, so
 B-F0 backpressure does not directly pull down I-F1. A queued request whose
 epoch no longer matches its STID is discarded and counted after restart.
 
-Sequential allocation advances to the next aligned cache line. Later B-SIDE
-integration will feed accepted prediction/correction records into the same PC
-owner; no predictor may write the PC directly.
+An accepted request advances provisionally to the next aligned cache line.
+The B-F4 final response installs the exact next PC before the next sequential
+transaction is admitted. This matters when the final instruction crosses the
+line: the continuation bytes consumed from the second line are skipped rather
+than decoded again. No predictor writes the PC directly; every correction
+passes through the canonical redirect arbiter.
 
 ## I-F1 Parallel Lookup
 
@@ -90,6 +92,10 @@ instruction. It does not emit instructions that start in the second line.
 Only a second-line response with matching transaction ID, STID, and epoch is
 accepted.
 
+The second-line request goes through the same I-F1 parallel ITLB/L1I launch,
+I-F2 classification, and miss/refill table as a normal line. There is no
+translation/cache bypass for cross-line assembly.
+
 The completed candidate is zero-extended to 64 bits and carries a
 `crossesLine` diagnostic. Downstream I-F4 and D1 never reconstruct raw bytes
 across cache lines. Boundary recognition remains exclusively in I-F4:
@@ -114,12 +120,37 @@ A BSTOP row remains valid and terminates the dense enqueue mask after that row.
 I-F4 retains BSTART kind/target context across cachelines until BSTOP. A
 terminal group atomically publishes both its `InstructionBufferEnqueueGroup`
 and an exact-identity Decoupled boundary completion; a no-boundary terminal
-still emits an explicit event with `bits.valid = false`.
+still emits an explicit event with `bits.valid = false` and the exact
+post-assembly fallthrough PC.
 
 `IfuPredictionJoin` retains all groups for an allocated fetch transaction and
 accepts B-SIDE updates in either arrival order. It releases groups only after
 the B-F4 final response and any canonical correction have arrived, stamping the
 same final prediction and canonical epoch into every valid lane.
+
+## Production Composition
+
+`LinxCoreIfu` owns the complete route:
+
+```text
+F0 -> F1 -> ITLB + L1I -> F2 -> F3 -> F4
+                                      |      \
+                                      |       -> B-F4 boundary completion
+                                      -> final prediction join -> IB -> D1
+```
+
+The F1 input priority is miss retry, cross-line continuation, then a new F0
+transaction. A new F0 request and prediction-join row allocate atomically.
+Likewise, an L1I miss-table row and its external line-read request allocate
+atomically. The first ITLB miss creates a retained PTW-pending row and a
+canonical redirect proposal; F0 cannot repeat the same miss before refill.
+Access faults leave through a retained fault port.
+
+The accepted redirect broadcasts to all transient owners in one cycle.
+Prediction correction preserves its producer and prunes younger work; ITLB
+miss removes the trigger and younger work; backend restart removes all
+thread-local transient state. Physical cache/TLB contents and learned predictor
+tables remain resident.
 
 ## Verification
 
@@ -129,7 +160,7 @@ Run:
 bash tools/chisel/run_chisel_tests.sh --only ISide
 ```
 
-R678 passes 11 real Chisel simulation tests:
+The focused leaf and composition suites cover:
 
 - I-F0 sequential allocation with independent B-SIDE backpressure;
 - backend restart priority;
@@ -142,19 +173,24 @@ R678 passes 11 real Chisel simulation tests:
 - four-candidate variable-length extraction;
 - cross-line assembly and mismatched-response rejection;
 - BSTART/BSTOP recognition and post-BSTOP truncation.
+- L1I miss allocation, refill, retry, final B-F4 join, and four-wide D1 output;
+- ITLB miss PTW request plus canonical epoch redirect;
+- cross-line continuation through the normal lookup/miss path and exact
+  post-prefix next PC;
+- backend redirect priority and thread-local state clearing.
 
 The R677 Instruction Buffer and D1 suites are rerun after the fetch identity
 gains `fetchSeq`.
 
-## Remaining I-SIDE Integration Work
+## Remaining I-SIDE Work
 
-- Compose all five owners, miss retry, second-line request, I-F4, Instruction
-  Buffer, and D1 into one production top.
-- Add a real page-walk request/response transport for ITLB misses.
+- Connect the exposed page-walk and line-read ports to the selected SoC memory
+  hierarchy.
 - Replace the direct-mapped L1I leaf with the selected production
   associativity/replacement policy without changing I-F1/I-F2 contracts.
-- Join the final B-F4 prediction record before an I-F4 group enters the
-  Instruction Buffer.
+- Replace the correctness-first one-unresolved-transaction admission gate with
+  a prefix/carry context queue before enabling multiple sequential cachelines
+  in flight.
 - Add generated-RTL and sustained one-group-per-cycle performance gates.
 
 `skill-evolve: no-update` — transaction identity, parallel ITLB/L1I, orphan

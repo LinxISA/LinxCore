@@ -18,6 +18,11 @@ class ISideBackendRestart(val p: InterfaceParams = InterfaceParams()) extends Bu
   val newEpoch = UInt(p.blockEpochWidth.W)
 }
 
+class ISideResolvedNextPc(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val threadId = UInt(p.threadIdWidth.W)
+  val pc = UInt(p.pcWidth.W)
+}
+
 class ISideF0PcSelectIO(
     val p: InterfaceParams = InterfaceParams(),
     val threadCount: Int = 1,
@@ -26,6 +31,7 @@ class ISideF0PcSelectIO(
   val start = Flipped(Valid(new ISideStartRequest(p)))
   val backendRestart = Flipped(Valid(new ISideBackendRestart(p)))
   val predictionCorrection = Input(new IfuInnerFlush(p))
+  val resolvedNextPc = Flipped(Valid(new ISideResolvedNextPc(p)))
 
   val fetch = Decoupled(new ISideFetchRequest(p, lineBytes))
   val predictionRequest = Decoupled(new ISideFetchRequest(p, lineBytes))
@@ -33,6 +39,8 @@ class ISideF0PcSelectIO(
   val active = Output(Vec(threadCount, Bool()))
   val currentPc = Output(Vec(threadCount, UInt(p.pcWidth.W)))
   val epochs = Output(Vec(threadCount, UInt(p.blockEpochWidth.W)))
+  val startAccepted = Output(Bool())
+  val startEpoch = Output(UInt(p.blockEpochWidth.W))
   val predictionDroppedStale = Output(Bool())
 }
 
@@ -97,7 +105,20 @@ class ISideF0PcSelect(
   val controlValid =
     io.backendRestart.valid ||
       io.predictionCorrection.valid ||
-      io.start.valid
+      io.start.valid ||
+      io.resolvedNextPc.valid
+  val startThreadSupported = io.start.bits.threadId < threadCount.U
+  val startThread =
+    if (threadCount == 1) 0.U(threadIndexWidth.W)
+    else io.start.bits.threadId(threadIndexWidth - 1, 0)
+  val startWasActive =
+    if (threadCount == 1) active(0)
+    else Mux1H((0 until threadCount).map(thread => (startThread === thread.U) -> active(thread)))
+  val acceptedStart =
+    io.start.valid &&
+      startThreadSupported &&
+      !io.backendRestart.valid &&
+      !io.predictionCorrection.valid
   val canAllocate = selectedValid && predictionQueue.io.enq.ready && !controlValid
 
   val request = Wire(new ISideFetchRequest(p, lineBytes))
@@ -115,7 +136,8 @@ class ISideF0PcSelect(
   request.prediction.valid := false.B
   request.prediction.taken := false.B
   request.prediction.branchPc := selectedPc
-  request.prediction.target := selectedPc + lineBytes.U
+  request.prediction.target := request.lineVa + lineBytes.U
+  request.prediction.fallthroughPc := request.lineVa + lineBytes.U
   request.prediction.kind := linxcore.common.BoundaryKind.Fall
   request.prediction.provider := PredictionProvider.Sequential
   request.prediction.stage := BSideStage.Sequential
@@ -178,6 +200,13 @@ class ISideF0PcSelect(
         rr := thread.U
       }
     }
+  }.elsewhen(io.resolvedNextPc.valid) {
+    for (thread <- 0 until threadCount) {
+      when(io.resolvedNextPc.bits.threadId === thread.U) {
+        pcs(thread) := io.resolvedNextPc.bits.pc
+        rr := thread.U
+      }
+    }
   }.elsewhen(io.fetch.fire) {
     for (thread <- 0 until threadCount) {
       when(selectedThread === thread.U) {
@@ -195,4 +224,6 @@ class ISideF0PcSelect(
   io.active := active
   io.currentPc := pcs
   io.epochs := epochs
+  io.startAccepted := acceptedStart
+  io.startEpoch := Mux(startWasActive, epochs(startThread) + 1.U, 0.U)
 }

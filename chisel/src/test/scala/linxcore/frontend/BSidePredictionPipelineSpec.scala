@@ -61,7 +61,11 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.boundary.bits.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.boundary.bits.branchPc.poke(branchPc.U)
     dut.io.boundary.bits.target.poke(target.U)
-    dut.io.boundary.bits.fallthroughPc.poke(fallthroughPc.U)
+    val completedFallthrough =
+      if (!hasBoundary && fallthroughPc == 0)
+        (requestPc & ~BigInt(lineBytes - 1)) + lineBytes
+      else fallthroughPc
+    dut.io.boundary.bits.fallthroughPc.poke(completedFallthrough.U)
     dut.io.boundary.bits.kind.poke(kind)
     dut.io.boundary.bits.staticTaken.poke(staticTaken.B)
     dut.io.boundary.ready.expect(true.B)

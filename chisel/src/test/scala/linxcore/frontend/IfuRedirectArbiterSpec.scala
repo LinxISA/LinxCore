@@ -120,4 +120,33 @@ class IfuRedirectArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.acceptedBackend.expect(false.B)
     }
   }
+
+  test("redirect proposals take priority over a simultaneous epoch seed") {
+    simulate(new IfuRedirectArbiter(p, threadCount = 1)) { dut =>
+      clear(dut)
+      dut.io.out.ready.poke(true.B)
+      dut.io.epochSeed.valid.poke(true.B)
+      dut.io.epochSeed.bits.threadId.poke(0.U)
+      dut.io.epochSeed.bits.epoch.poke(7.U)
+      pokeProposal(
+        dut.io.backend,
+        transactionId = 3,
+        fetchSeq = 3,
+        oldEpoch = 0,
+        reason = IfuInnerFlushReason.FetchReplay,
+        scope = IfuPruneScope.KillAllThreadState)
+      dut.io.backend.bits.restartPc.poke(0x900.U)
+
+      dut.io.backend.ready.expect(true.B)
+      dut.io.acceptedBackend.expect(true.B)
+      dut.clock.step()
+      dut.io.backend.valid.poke(false.B)
+      dut.io.epochSeed.valid.poke(false.B)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.restartPc.expect(0x900.U)
+      dut.io.out.bits.newEpoch.expect(1.U)
+      dut.io.epochs(0).expect(1.U)
+    }
+  }
 }
