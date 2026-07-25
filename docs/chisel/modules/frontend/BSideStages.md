@@ -2,11 +2,12 @@
 
 ## Status
 
-R680 implements the first complete five-stage B-SIDE Chisel pipeline with
+`BSidePredictionPipeline` implements the five-stage B-SIDE Chisel pipeline with
 independent resident stage state, retained prediction responses, retained
 training, exact I-F4 boundary matching, and one final B-F4 response per fetch
-request. It is production-shaped but is not yet composed with I-SIDE,
-Instruction Buffer, D1, Dispatch, or BRU.
+request. `LinxCoreIfu` composes it with I-SIDE, the canonical redirect arbiter,
+final-prediction join, Instruction Buffer, and D1. Dispatch/BRU consume and
+validate the carried prediction record at their architectural boundaries.
 
 ## Stage Ownership
 
@@ -42,10 +43,12 @@ The effective prediction record carries:
 - checkpoint and effective epoch.
 
 If a candidate changes the accepted exact tuple, the response is marked as a
-correction and increments the effective epoch. Its typed IFU inner flush carries
-PE, STID, trigger transaction, fetch sequence, old/new epochs, checkpoint, and
-the exact restart PC. Taken correction restarts at `target`; not-taken
-correction restarts at `fallthroughPc`.
+correction. Its typed IFU redirect proposal carries PE, STID, trigger
+transaction, fetch sequence, producer epoch, checkpoint,
+`PreserveTriggerKillYounger`, and the exact restart PC. The canonical
+`IfuRedirectArbiter` assigns `newEpoch`; a predictor-local increment is not an
+epoch authority. Taken correction restarts at `target`; not-taken correction
+restarts at `fallthroughPc`.
 
 The response and correction flush are atomic: a correction cannot dequeue
 unless both sinks accept the same event. The response queue holds every field
@@ -53,16 +56,19 @@ stable under backpressure.
 
 ## I-F4 Boundary Join
 
-The outer `boundary.valid` signal means that I-F4 delivered an event.
+The Decoupled `boundary.valid` signal means that I-F4 delivered an event.
 `boundary.bits.valid` says whether that fetch group actually contains a
 BSTART/BSTOP control boundary. This distinction is required:
 
 - B-F4 stalls until an event with exact transaction, STID, fetch sequence,
   checkpoint, and epoch arrives;
 - an exact event with `bits.valid = false` explicitly confirms that the group
-  has no boundary;
+  has no boundary and carries its exact post-assembly fallthrough PC;
 - a boundary event from another identity cannot release B-F4;
-- an accepted B-F4 request clears only its matching boundary-table row.
+- an accepted B-F4 request clears only its matching boundary-table row;
+- an index collision applies backpressure and never overwrites a resident row;
+- PE, packet UID, transaction, STID, fetch sequence, checkpoint, and epoch all
+  participate in the exact match.
 
 This makes the final prediction join a retained boundary between I-F4 and
 Instruction Buffer admission rather than a fixed-cycle assumption between the
@@ -85,6 +91,24 @@ TAGE and loop overrides are legal only for conditional branches. RAS is used
 only for a return with a nonempty stack. With no boundary, B-F4 preserves the
 effective earlier provider and prediction instead of relabeling it as static.
 
+## Production Composition
+
+I-F0 request traffic enters B-F0 through its own retained request queue.
+I-F4 boundary completion enters the boundary table independently. B-F4 cannot
+retire a transaction until the exact completion is resident.
+
+Every prediction update enters `IfuPredictionJoin`. A tuple-changing update
+also proposes a redirect to `IfuRedirectArbiter`; the response and proposal
+are accepted atomically. The join cannot expose the transaction until the
+canonical redirect has rebased the producer epoch. The accepted redirect is
+then broadcast back to B-SIDE as a selective prune; learned tables are never
+cleared by ordinary inner flush.
+
+The final response also supplies I-F0's resolved next PC. For no-boundary
+cachelines, B-F4 uses I-F4's exact fallthrough rather than assuming the aligned
+next-line address, preserving correctness for a 2/4/6/8-byte instruction that
+crosses the cacheline boundary.
+
 ## Verification
 
 Run:
@@ -93,7 +117,7 @@ Run:
 bash tools/chisel/run_chisel_tests.sh --only BSidePredictionPipeline
 ```
 
-R680 passes nine real Chisel simulation scenarios plus one SystemVerilog
+The focused suite covers the following simulation scenarios plus SystemVerilog
 elaboration check:
 
 1. cold B-F4 static final correction and exact target restart;
@@ -114,16 +138,10 @@ The shared Instruction Buffer and D1 suites additionally prove that the
 expanded prediction tag, fallthrough, confidence, provider, stage, checkpoint,
 and epoch remain intact through four-wide transport.
 
-The exact full Chisel suite was also attempted but is not green in the current
-dirty tree. Its first observed failure is `LinxCoreFrontendFetchTraceTop`,
-which does not initialize the newly added `DecodeRenameROBPath` same-packet and
-store-SC inputs. Static connection audit finds the same missing inputs in
-`LinxCoreFrontendTraceTop`, `LinxCoreFrontendAluTraceTop`, and
-`LinxCoreFrontendRfAluTraceTop`; production-shaped
-`LinxCoreFrontendFetchRfAluTraceTop` connects all six groups. Three concurrently
-running suites were interrupted after the observed elaboration failure and are
-not classified as B-SIDE failures. R680 does not modify or hide that unrelated
-in-progress wrapper integration.
+The `LinxCoreIfuSpec` end-to-end scenarios additionally prove final B-F4
+metadata on every D1 lane, canonical prediction correction ordering,
+cross-line fallthrough, and backend redirect priority. The current frontend
+regression passes 26 suites and 126 tests.
 
 ## Remaining B-SIDE Work
 
@@ -131,10 +149,8 @@ in-progress wrapper integration.
   only on resolved training.
 - Add medium and additional long-history TAGE tables with provider/alternate,
   usefulness, allocation, aging, and deterministic training-port policy.
-- Add explicit cancellation/recovery input for younger resident stages,
-  boundary rows, and response rows while preserving learned table state.
-- Compose the final B-F4 record with every matching I-F4 instruction before
-  Instruction Buffer admission.
+- Split speculative GHR mutation from resolved training and restore it from the
+  matching checkpoint on correction/recovery.
 - Add generated-RTL predictor stimulus and full I-SIDE/B-SIDE asynchronous
   throughput/recovery gates.
 
