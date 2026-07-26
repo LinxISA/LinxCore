@@ -64,9 +64,14 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
       lineData: BigInt,
       epoch: Int = 0): Unit = {
     dut.io.lineRefill.valid.poke(true.B)
+    dut.io.lineRefill.bits.peId.poke(1.U)
     dut.io.lineRefill.bits.transactionId.poke(transactionId.U)
     dut.io.lineRefill.bits.threadId.poke(0.U)
+    dut.io.lineRefill.bits.fetchPacketUid.poke(transactionId.U)
+    dut.io.lineRefill.bits.fetchSeq.poke(transactionId.U)
+    dut.io.lineRefill.bits.checkpointId.poke(transactionId.U)
     dut.io.lineRefill.bits.epoch.poke(epoch.U)
+    dut.io.lineRefill.bits.lineVa.poke((linePa - 0x100).U)
     dut.io.lineRefill.bits.linePa.poke(linePa.U)
     dut.io.lineRefill.bits.lineData.poke(lineData.U)
     waitUntil(8)(dut.io.lineRefill.ready.peek().litToBoolean) {

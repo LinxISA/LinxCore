@@ -1091,6 +1091,9 @@ predictor tables 不因普通 redirect 清零。
 - [x] I-SIDE 支持多 cacheline 在途、I-F2 乱序完成/I-F3 顺序消费，以及
   exact successor prefix/carry；hot-L1I composition 跨过 context 深度并连续
   20 周期输出四条。
+- [x] `IfuLineMemoryBridge` 支持多 outstanding 64-byte tagged request、
+  out-of-order tag+PA response、完整 IFU identity retention、same-PA alias、
+  response backpressure 和 stale/duplicate drain；flush 周期不会丢失 refill。
 - [ ] B-SIDE 完整实现 BTB family、speculative GHRQ、TAGE、BIM、RAS、IBTB
   和 loop units。
 - [x] conditional GHR/GHRQ 已实现 request-owned B-F0 snapshot、B-F3/B-F4
@@ -1110,6 +1113,8 @@ predictor tables 不因普通 redirect 清零。
   predictor recovery transport。
 - [ ] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
   composition，并将 accepted recovery 接回 `LinxCoreIfu`。
+- [ ] `LinxCoreProductionComposition` 已实例化 IFU line-memory bridge，且 bridge
+  capacity 不小于 IFU miss-table capacity。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。

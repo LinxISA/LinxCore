@@ -82,6 +82,12 @@ ROB, or become an architectural recovery event. It cancels only matching and
 younger speculative fetch transactions. B-SIDE receives the cancellation
 identity so a late prediction cannot redirect the replayed stream.
 
+The Chisel production line-memory adapter retains each complete I-F2 miss
+request behind an opaque monotonic tag. External 64-byte responses may return
+out of order but must match both tag and physical line. The adapter restores
+transaction ID, packet UID, fetch sequence, virtual line, epoch, and checkpoint
+from the retained row; it never derives them from PC or physical address.
+
 ### I-F3 — cache-line capture and byte-stream alignment
 
 - Captures one complete cache line plus its PC/offset/fault context.

@@ -45,9 +45,14 @@ class ISideFetchMissTableSpec extends AnyFunSuite with ChiselSim {
       linePa: BigInt,
       lineData: BigInt): Unit = {
     dut.io.refill.valid.poke(true.B)
+    dut.io.refill.bits.peId.poke(0.U)
     dut.io.refill.bits.transactionId.poke(transactionId.U)
     dut.io.refill.bits.threadId.poke(0.U)
+    dut.io.refill.bits.fetchPacketUid.poke(0.U)
+    dut.io.refill.bits.fetchSeq.poke(transactionId.U)
+    dut.io.refill.bits.checkpointId.poke(0.U)
     dut.io.refill.bits.epoch.poke(epoch.U)
+    dut.io.refill.bits.lineVa.poke(0x1000.U)
     dut.io.refill.bits.linePa.poke(linePa.U)
     dut.io.refill.bits.lineData.poke(lineData.U)
   }
@@ -88,6 +93,7 @@ class ISideFetchMissTableSpec extends AnyFunSuite with ChiselSim {
       dut.io.refill.ready.expect(false.B)
       dut.io.staleRefill.expect(true.B)
       dut.io.refill.bits.transactionId.poke(9.U)
+      dut.io.refill.bits.fetchSeq.poke(9.U)
       dut.io.refill.bits.epoch.poke(1.U)
       dut.io.refill.ready.expect(false.B)
       dut.io.staleRefill.expect(true.B)
@@ -99,6 +105,57 @@ class ISideFetchMissTableSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.retry.valid.expect(false.B)
       dut.io.validMask.expect(0.U)
+    }
+  }
+
+  test("inner flush backpressures a coincident refill until orphan state is recorded") {
+    simulate(new ISideFetchMissTable(p, entries = 4, lineBytes = lineBytes)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 11, epoch = 0, linePa = 0x440)
+      refill(dut, transactionId = 11, epoch = 0, linePa = 0x440, lineData = 0xbb)
+      dut.io.innerFlush.valid.poke(true.B)
+      dut.io.innerFlush.threadId.poke(0.U)
+      dut.io.innerFlush.scope.poke(IfuPruneScope.KillAllThreadState)
+      dut.io.refill.ready.expect(false.B)
+      dut.io.l1iRefill.valid.expect(false.B)
+      dut.clock.step()
+
+      dut.io.innerFlush.valid.poke(false.B)
+      dut.io.orphanMask.expect(1.U)
+      dut.io.refill.ready.expect(true.B)
+      dut.io.l1iRefill.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.refill.valid.poke(false.B)
+      dut.io.validMask.expect(0.U)
+      dut.io.retry.valid.expect(false.B)
+    }
+  }
+
+  test("refill matching rejects every independent request identity mismatch") {
+    simulate(new ISideFetchMissTable(p, entries = 4, lineBytes = lineBytes)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 13, epoch = 2, linePa = 0x550)
+      refill(dut, transactionId = 13, epoch = 2, linePa = 0x550, lineData = 0xcc)
+      dut.io.refill.ready.expect(true.B)
+
+      val mismatches = Seq[(UInt, BigInt)](
+        dut.io.refill.bits.peId -> 1,
+        dut.io.refill.bits.fetchPacketUid -> 1,
+        dut.io.refill.bits.fetchSeq -> 14,
+        dut.io.refill.bits.checkpointId -> 1,
+        dut.io.refill.bits.lineVa -> 0x2000)
+      mismatches.foreach { case (field, wrong) =>
+        val original = field.peek().litValue
+        field.poke(wrong.U)
+        dut.io.refill.ready.expect(false.B)
+        dut.io.staleRefill.expect(true.B)
+        field.poke(original.U)
+        dut.io.refill.ready.expect(true.B)
+      }
+
+      dut.clock.step()
+      dut.io.refill.valid.poke(false.B)
+      dut.io.retry.valid.expect(true.B)
     }
   }
 }

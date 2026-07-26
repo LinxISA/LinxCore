@@ -115,6 +115,13 @@ The feedback bridge connects its `resolve` and `backendRecovery` outputs to
 `branchResolve` and `backendRedirect`. Dispatch/BRU event-producer wiring
 belongs to the production backend composition, not to `LinxCoreIfu` itself.
 
+`IfuLineMemoryBridge` is the production adapter for `lineRead/lineRefill`. It
+retains the complete IFU request behind a monotonic external tag, checks tag
+plus physical line on out-of-order responses, and reconstructs every refill
+identity without address or UID inference. The standalone IFU keeps the typed
+request/refill interface so cache/memory transport remains outside I-SIDE stage
+ownership.
+
 ## Verification
 
 `LinxCoreIfuSpec` proves:
@@ -151,4 +158,5 @@ SBT_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' \
   bash tools/chisel/run_chisel_tests.sh --only frontend
 
 bash tools/chisel/run_chisel_ifu_throughput_gate.sh
+bash tools/chisel/run_chisel_ifu_line_memory_bridge_probe.sh
 ```

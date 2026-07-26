@@ -50,16 +50,21 @@ class ISideFetchMissTable(
     refillMatch(entry) :=
       valid(entry) &&
         !refilled(entry) &&
+        requests(entry).identity.peId === io.refill.bits.peId &&
         requests(entry).transactionId === io.refill.bits.transactionId &&
         requests(entry).identity.threadId === io.refill.bits.threadId &&
+        requests(entry).identity.fetchPacketUid === io.refill.bits.fetchPacketUid &&
+        requests(entry).identity.fetchSeq === io.refill.bits.fetchSeq &&
+        requests(entry).identity.checkpointId === io.refill.bits.checkpointId &&
         requests(entry).identity.epoch === io.refill.bits.epoch &&
+        requests(entry).lineVa === io.refill.bits.lineVa &&
         linePas(entry) === io.refill.bits.linePa
   }
   val refillMatchMask = refillMatch.asUInt
   val refillMatchValid = refillMatchMask.orR
   val refillIndex = PriorityEncoder(refillMatchMask)
 
-  io.refill.ready := refillMatchValid
+  io.refill.ready := refillMatchValid && !io.innerFlush.valid
   val refillFire = io.refill.valid && io.refill.ready
   io.l1iRefill.valid := refillFire
   io.l1iRefill.bits.linePa := io.refill.bits.linePa
