@@ -101,6 +101,10 @@ object BranchPredictionSidecar {
 class BranchPredictionSidecar(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
   val predictionTag = UInt(p.uopUidWidth.W)
+  val transactionId = UInt(p.uopUidWidth.W)
+  val fetchPacketUid = UInt(p.uopUidWidth.W)
+  val fetchSeq = UInt(p.uopUidWidth.W)
+  val requestPc = UInt(p.pcWidth.W)
   val taken = Bool()
   val branchPc = UInt(p.pcWidth.W)
   val target = UInt(p.pcWidth.W)

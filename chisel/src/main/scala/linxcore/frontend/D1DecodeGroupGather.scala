@@ -22,14 +22,14 @@ class D1DecodeGroupGather(val p: InterfaceParams = InterfaceParams()) extends Mo
   val storedIdentity = group.entries(0).identity
   val killStored =
     occupied &&
-      IfuFlushContract.kills(storedIdentity, storedIdentity.fetchPacketUid, io.flush)
+      IfuFlushContract.kills(storedIdentity, group.entries(0).transactionId, io.flush)
 
   io.out.valid := occupied && !killStored
   io.out.bits := group
 
   val incomingIdentity = io.in.bits.entries(0).identity
   val killIncoming =
-    IfuFlushContract.kills(incomingIdentity, incomingIdentity.fetchPacketUid, io.flush)
+    IfuFlushContract.kills(incomingIdentity, io.in.bits.entries(0).transactionId, io.flush)
   io.in.ready := !killIncoming && (!occupied || io.out.ready || killStored)
 
   val outFire = io.out.valid && io.out.ready

@@ -218,6 +218,13 @@ mismatch enters `BRU flush + recover`, restores predictor checkpoints through
 the accepted recovery event, and publishes the architectural restart PC to
 I-F0. It must not be reported as a frontend-only inner flush.
 
+The Chisel `IfuBackendFeedbackBridge` implements this comparison and IFU
+feedback boundary. It retains transaction ID, packet UID, fetch sequence,
+request PC, prediction tag, epoch, and checkpoint independently. Correct
+validation emits only actual-result training; mismatch training and the keyed
+backend restart advance atomically. Dispatch/BRU event production and full-BID
+ROB/BROB cleanup remain backend-composition responsibilities.
+
 Resolved branch and block-control events train the relevant BTB, TAGE, BIM,
 IBTB, and loop structures. Training is keyed by full STID/request/
 checkpoint identity. TAGE training uses the request-owned pre-branch history,

@@ -20,7 +20,12 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
     dut.io.out.ready.poke(false.B)
   }
 
-  private def allocate(dut: IfuPredictionJoin, transactionId: Int, epoch: Int): Unit = {
+  private def allocate(
+      dut: IfuPredictionJoin,
+      transactionId: Int,
+      epoch: Int,
+      packetUid: Int = -1): Unit = {
+    val effectivePacketUid = if (packetUid >= 0) packetUid else transactionId
     dut.io.allocate.bits.poke(0.U.asTypeOf(dut.io.allocate.bits))
     dut.io.allocate.valid.poke(true.B)
     dut.io.allocate.bits.pc.poke((0x1000 + transactionId * lineBytes).U)
@@ -28,7 +33,7 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
     dut.io.allocate.bits.transactionId.poke(transactionId.U)
     dut.io.allocate.bits.identity.peId.poke(1.U)
     dut.io.allocate.bits.identity.threadId.poke(0.U)
-    dut.io.allocate.bits.identity.fetchPacketUid.poke(transactionId.U)
+    dut.io.allocate.bits.identity.fetchPacketUid.poke(effectivePacketUid.U)
     dut.io.allocate.bits.identity.fetchSeq.poke(transactionId.U)
     dut.io.allocate.bits.identity.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.allocate.bits.identity.epoch.poke(epoch.U)
@@ -42,7 +47,9 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       transactionId: Int,
       epoch: Int,
       basePc: BigInt,
-      complete: Boolean): Unit = {
+      complete: Boolean,
+      packetUid: Int = -1): Unit = {
+    val effectivePacketUid = if (packetUid >= 0) packetUid else transactionId
     dut.io.iSide.bits.poke(0.U.asTypeOf(dut.io.iSide.bits))
     dut.io.iSide.valid.poke(true.B)
     dut.io.iSide.bits.validMask.poke("b1111".U)
@@ -50,11 +57,12 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
     for (lane <- 0 until p.fetchWidth) {
       val entry = dut.io.iSide.bits.entries(lane)
       entry.pc.poke((basePc + lane * 2).U)
+      entry.transactionId.poke(transactionId.U)
       entry.insn.poke((0x10 + lane).U)
       entry.lenBytes.poke(2.U)
       entry.identity.peId.poke(1.U)
       entry.identity.threadId.poke(0.U)
-      entry.identity.fetchPacketUid.poke(transactionId.U)
+      entry.identity.fetchPacketUid.poke(effectivePacketUid.U)
       entry.identity.fetchSeq.poke(transactionId.U)
       entry.identity.fetchSlot.poke(lane.U)
       entry.identity.checkpointId.poke((transactionId & 0x3f).U)
@@ -71,13 +79,15 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       epoch: Int,
       correction: Boolean,
       finalResponse: Boolean,
-      target: BigInt): Unit = {
+      target: BigInt,
+      packetUid: Int = -1): Unit = {
+    val effectivePacketUid = if (packetUid >= 0) packetUid else transactionId
     dut.io.prediction.bits.poke(0.U.asTypeOf(dut.io.prediction.bits))
     dut.io.prediction.valid.poke(true.B)
     dut.io.prediction.bits.request.transactionId.poke(transactionId.U)
     dut.io.prediction.bits.request.identity.peId.poke(1.U)
     dut.io.prediction.bits.request.identity.threadId.poke(0.U)
-    dut.io.prediction.bits.request.identity.fetchPacketUid.poke(transactionId.U)
+    dut.io.prediction.bits.request.identity.fetchPacketUid.poke(effectivePacketUid.U)
     dut.io.prediction.bits.request.identity.fetchSeq.poke(transactionId.U)
     dut.io.prediction.bits.request.identity.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.prediction.bits.request.identity.epoch.poke(epoch.U)
@@ -176,6 +186,34 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.count.expect(0.U)
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("matches transaction ID independently of fetch packet UID") {
+    simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 4)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 5, epoch = 0, packetUid = 0x55)
+      sendGroup(
+        dut,
+        transactionId = 5,
+        epoch = 0,
+        basePc = 0x1500,
+        complete = true,
+        packetUid = 0x55)
+      sendPrediction(
+        dut,
+        transactionId = 5,
+        epoch = 0,
+        correction = false,
+        finalResponse = true,
+        target = 0x1800,
+        packetUid = 0x55)
+
+      dut.io.iSideUnmatched.expect(false.B)
+      dut.io.predictionUnmatched.expect(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.entries(0).transactionId.expect(5.U)
+      dut.io.out.bits.entries(0).identity.fetchPacketUid.expect(0x55.U)
     }
   }
 

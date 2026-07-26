@@ -613,6 +613,13 @@ response 不再改写 I-F0 speculative line frontier；只有 canonical correcti
 predictor/rename/block checkpoint，并向 I-F0 发布 architectural restart；
 不得重新分类为 inner flush。
 
+当前 `IfuBackendFeedbackBridge` 已实现这张类型表的 IFU feedback 边界：
+合法 resolve 总是提交 actual tuple 训练；mismatch 的训练与 exact-keyed
+backend restart 原子发布，任一 sink backpressure 时两者都保持。D1 sidecar
+显式保留 transactionId、fetchPacketUid、fetchSeq 和 requestPc，不从 packet UID
+猜测其他 request identity。Dispatch/BRU event producer 与 full-BID backend
+cleanup 仍由 production composition 接线。
+
 ### B-SIDE ready/valid 和独立推进
 
 每个 `B-F0..B-F4` 都是独立 resident stage：
@@ -1098,8 +1105,11 @@ predictor tables 不因普通 redirect 清零。
 - [x] B-F4 correction 是最后一次 prediction-driven inner flush。
 - [x] B-F4 final `predictionRecord` 随 bundle 进入 IB，并附着到每个 D1
   valid lane。
-- [ ] Dispatch 校验 direct/call，BRU E1 校验 conditional direction 与
-  indirect/return target；mismatch 产生 `BRU flush + recover`。
+- [x] `IfuBackendFeedbackBridge` 实现 Dispatch direct/call 与 BRU E1
+  conditional/indirect/return 的分类型比较、actual-result training 和 exact
+  predictor recovery transport。
+- [ ] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
+  composition，并将 accepted recovery 接回 `LinxCoreIfu`。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。

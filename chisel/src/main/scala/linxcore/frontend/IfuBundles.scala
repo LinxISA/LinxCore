@@ -24,7 +24,7 @@ object PredictionProvider extends ChiselEnum {
 }
 
 object IfuInnerFlushReason extends ChiselEnum {
-  val ItlbMiss, PredictionCorrection, FetchReplay, StaleResponse = Value
+  val ItlbMiss, PredictionCorrection, FetchReplay, StaleResponse, BruRecovery = Value
 }
 
 object IfuPruneScope extends ChiselEnum {
@@ -61,6 +61,7 @@ class IfuFetchIdentity(val p: InterfaceParams = InterfaceParams()) extends Bundl
 class BranchPredictionRecord(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
   val predictionTag = UInt(p.uopUidWidth.W)
+  val requestPc = UInt(p.pcWidth.W)
   val taken = Bool()
   val branchPc = UInt(p.pcWidth.W)
   val target = UInt(p.pcWidth.W)
@@ -76,6 +77,7 @@ class BranchPredictionRecord(val p: InterfaceParams = InterfaceParams()) extends
 class InstructionBufferEntry(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pc = UInt(p.pcWidth.W)
   val instructionUid = UInt(p.uopUidWidth.W)
+  val transactionId = UInt(p.uopUidWidth.W)
   val insn = UInt(p.insnWidth.W)
   val lenBytes = UInt(p.lenWidth.W)
   val isBlockStart = Bool()

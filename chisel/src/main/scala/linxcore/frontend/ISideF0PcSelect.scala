@@ -134,6 +134,7 @@ class ISideF0PcSelect(
   request.identity.checkpointId := selectedCheckpoint
   request.identity.epoch := selectedEpoch
   request.prediction.valid := false.B
+  request.prediction.requestPc := selectedPc
   request.prediction.taken := false.B
   request.prediction.branchPc := selectedPc
   request.prediction.target := request.lineVa + lineBytes.U

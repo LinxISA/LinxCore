@@ -281,6 +281,7 @@ class BSidePredictionPipeline(
   initialPayload.effective := io.request.bits.prediction
   initialPayload.effective.valid := true.B
   initialPayload.effective.predictionTag := nextPredictionTag
+  initialPayload.effective.requestPc := io.request.bits.pc
   initialPayload.effective.taken := false.B
   initialPayload.effective.branchPc := io.request.bits.pc
   initialPayload.effective.target := io.request.bits.lineVa + lineBytes.U

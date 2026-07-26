@@ -20,9 +20,10 @@ The output is one atomic `D1DecodedInstructionGroup` containing:
 - invalid-opcode, block-boundary, block-stop, load, and store masks;
 - a backend-safe prediction sidecar on every valid uop.
 
-The common sidecar preserves prediction validity/tag, direction, branch PC,
-target, fallthrough, kind, provider, B-SIDE stage, confidence, checkpoint, and
-epoch. Provider and stage use fixed-width UInt encodings in the common bundle
+The common sidecar preserves prediction validity/tag, transaction ID, packet
+UID, fetch sequence, request PC, direction, branch PC, target, fallthrough,
+kind, provider, B-SIDE stage, confidence, checkpoint, and epoch. Provider and
+stage use fixed-width UInt encodings in the common bundle
 so backend types do not depend on frontend enum declarations. Static width
 requirements guarantee that all current enum values fit.
 
@@ -73,7 +74,8 @@ blocking stability, UID preservation, prediction sidecars, and partial flush.
 
 ## Remaining boundary
 
-`DecodedUop` and `RenamedUop` now carry the complete sidecar, and scalar rename
-copies it unchanged. Atomic four-lane rename/dispatch, Dispatch direct/call
-validation, BRU direction/target validation, and canonical BRU recovery remain
-open and are not implied by this module.
+`DecodedUop` and `RenamedUop` carry the complete sidecar, scalar rename copies
+it unchanged, and `IfuBackendFeedbackBridge` implements type-specific
+Dispatch/BRU comparison plus exact IFU training/restart transport. Atomic
+four-lane rename/dispatch, event-producer wiring, and backend full-BID cleanup
+remain open and are not implied by this module.

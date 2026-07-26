@@ -15,8 +15,8 @@ The production contract uses instruction-owned state throughout:
 - fetch identity contains PE, STID, packet UID, monotonic fetch sequence, slot,
   checkpoint, and epoch;
 - every instruction owns an immutable `BranchPredictionRecord`;
-- IFU-local correction uses `IfuInnerFlush` and is separate from backend
-  architectural recovery.
+- IFU-local correction and accepted backend recovery share the typed restart
+  envelope but use distinct reasons and ownership.
 
 ## Prediction Record
 
@@ -26,8 +26,10 @@ The production contract uses instruction-owned state throughout:
 {taken, branchPc, target, kind}
 ```
 
-It also carries a monotonic prediction tag, fallthrough PC, provider, B-SIDE
-stage, confidence, checkpoint, and effective epoch. The stage enum is
+It also carries request PC, a monotonic prediction tag, fallthrough PC,
+provider, B-SIDE stage, confidence, checkpoint, and effective epoch. D1's
+backend-safe sidecar additionally retains transaction ID, packet UID, and fetch
+sequence instead of inferring one identity from another. The stage enum is
 `Sequential, BF0, BF1, BF2, BF3, BF4`; the provider enum distinguishes
 NanoBTB, uBTB, fast/final RAS, PBTB, BIM, short/medium/long TAGE, static,
 indirect BTB, and loop sources.
@@ -56,8 +58,8 @@ state.
 - typed RAS recovery action (`None`, `Reset`, or `RestoreTrigger`);
 - typed RAS delta (`None`, `Push`, or `Pop`) and Call return address.
 
-The current reasons cover ITLB miss, prediction correction, fetch replay, and
-stale response. A correction proposal carries an exact history key, but GHR is
+The reasons cover ITLB miss, prediction correction, BRU recovery, fetch replay,
+and stale response. A correction proposal carries an exact history key, but GHR is
 not changed until the proposal returns from `IfuRedirectArbiter` as the
 canonical prune. The same event restores the request-owned RAS image and applies
 its Call/Return delta. ITLB may request unkeyed oldest-killed recovery, and start
@@ -71,14 +73,15 @@ It must not be connected to ROB, rename, LSU, or other backend cleanup owners.
 The bundles are exercised through the real Chisel simulations in
 `BSideHistoryQueueSpec`, `BSidePredictionPipelineSpec`,
 `InstructionBufferSpec`, `D1DecodeGroupGatherSpec`, and
-`D1InstructionDecodeStageSpec`. Those tests prove that prediction tag, exact
+`D1InstructionDecodeStageSpec`. `IfuBackendFeedbackBridgeSpec` proves the
+backend consumption contract. Together they prove that prediction tag, exact
 tuple, fallthrough, confidence, provider, stage, checkpoint, and epoch survive
 B-SIDE response retention plus four-wide queueing and D1 backpressure.
 
 ## Open Work
 
-- Carry the same record atomically through four-lane dispatch, issue/ROB, and
-  BRU resolution; `DecodedUop` and `RenamedUop` transport is already present.
+- Compose the existing decoded/renamed transport and feedback bridge into
+  four-lane dispatch, issue/ROB, and BRU execution.
 - Add resolved provider/alternate indices and usefulness metadata to the
   training-only payload; they do not belong in the immutable forward record.
 

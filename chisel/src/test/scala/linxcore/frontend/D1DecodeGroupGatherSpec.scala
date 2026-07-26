@@ -23,6 +23,7 @@ class D1DecodeGroupGatherSpec extends AnyFunSuite with ChiselSim {
       val entry = dut.io.in.bits.entries(lane)
       val pc = basePc + lane * 2
       entry.pc.poke(pc.U)
+      entry.transactionId.poke(0x30.U)
       entry.insn.poke((0x10 + lane).U)
       entry.lenBytes.poke(2.U)
       entry.identity.threadId.poke(threadId.U)

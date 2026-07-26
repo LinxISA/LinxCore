@@ -94,9 +94,11 @@ delta, and typed Call/Return RAS delta, and only marks its STID recovery pending
 when accepted. The returned canonical prune restores the request-owned B-F0
 GHR and complete RAS snapshots, then applies each delta once. ITLB miss carries
 unkeyed GHR/RAS restore actions so B-SIDE can use the trigger row or oldest
-killed snapshot; start carries explicit GHR/RAS reset. Backend BRU recovery
-must carry the retained mispredict row key plus actual conditional and RAS
-deltas.
+killed snapshot; start carries explicit GHR/RAS reset.
+`IfuBackendFeedbackBridge` constructs backend BRU recovery with the retained
+mispredict row key plus actual conditional and RAS deltas. The accepted event
+still enters through `backendRedirect`; the bridge never bypasses canonical
+epoch allocation.
 
 ## External Interface
 
@@ -108,6 +110,10 @@ deltas.
 - `fetchFault`: execute-permission/access fault;
 - `invalidateItlb` / `invalidateL1I`: explicit physical-state invalidation;
 - `d1ThreadId` / `d1`: selected STID and four-wide fixed-64-bit D1 group.
+
+The feedback bridge connects its `resolve` and `backendRecovery` outputs to
+`branchResolve` and `backendRedirect`. Dispatch/BRU event-producer wiring
+belongs to the production backend composition, not to `LinxCoreIfu` itself.
 
 ## Verification
 

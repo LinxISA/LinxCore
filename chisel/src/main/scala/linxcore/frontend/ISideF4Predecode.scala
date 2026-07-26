@@ -79,7 +79,7 @@ class ISideF4Predecode(
     RegInit(VecInit(Seq.fill(threadCount)(0.U(p.uopUidWidth.W))))
 
   val inputIdentity = io.in.bits.entries(0).identity
-  val inputTransaction = inputIdentity.fetchPacketUid
+  val inputTransaction = io.in.bits.entries(0).transactionId
   val inputThreadSupported = inputIdentity.threadId < threadCount.U
   val inputThread = threadIndex(inputIdentity.threadId)
   val killed =
@@ -104,6 +104,7 @@ class ISideF4Predecode(
 
     io.out.bits.entries(lane).pc := candidate.pc
     io.out.bits.entries(lane).instructionUid := candidate.instructionUid
+    io.out.bits.entries(lane).transactionId := candidate.transactionId
     io.out.bits.entries(lane).insn := candidate.insn
     io.out.bits.entries(lane).lenBytes := candidate.lenBytes
     io.out.bits.entries(lane).isBlockStart := startLane(lane)

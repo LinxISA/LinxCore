@@ -46,12 +46,16 @@ class D1InstructionDecodeStage(val p: InterfaceParams = InterfaceParams()) exten
   val store = Wire(Vec(p.decodeWidth, Bool()))
   for (lane <- 0 until p.decodeWidth) {
     val entry = io.in.bits.entries(lane)
-    val killed = IfuFlushContract.kills(entry.identity, entry.identity.fetchPacketUid, io.flush)
+    val killed = IfuFlushContract.kills(entry.identity, entry.transactionId, io.flush)
     surviving(lane) := io.in.bits.validMask(lane) && !killed
 
     val prediction = Wire(new BranchPredictionSidecar(p))
     prediction.valid := entry.prediction.valid
     prediction.predictionTag := entry.prediction.predictionTag
+    prediction.transactionId := entry.transactionId
+    prediction.fetchPacketUid := entry.identity.fetchPacketUid
+    prediction.fetchSeq := entry.identity.fetchSeq
+    prediction.requestPc := entry.prediction.requestPc
     prediction.taken := entry.prediction.taken
     prediction.branchPc := entry.prediction.branchPc
     prediction.target := entry.prediction.target

@@ -86,9 +86,12 @@ class IfuPredictionJoin(
       lhs.identity.checkpointId === rhs.identity.checkpointId &&
       lhs.identity.epoch === rhs.identity.epoch
 
-  def exactIdentity(row: IfuPredictionJoinRow, identity: IfuFetchIdentity): Bool =
+  def exactIdentity(
+      row: IfuPredictionJoinRow,
+      identity: IfuFetchIdentity,
+      transactionId: UInt): Bool =
     row.request.identity.peId === identity.peId &&
-      row.request.transactionId === identity.fetchPacketUid &&
+      row.request.transactionId === transactionId &&
       row.request.identity.threadId === identity.threadId &&
       row.request.identity.fetchPacketUid === identity.fetchPacketUid &&
       row.request.identity.fetchSeq === identity.fetchSeq &&
@@ -106,7 +109,7 @@ class IfuPredictionJoin(
     iSideMatches(entry) :=
       rows(entry).valid &&
         iSideHasRows &&
-        exactIdentity(rows(entry), iSideIdentity)
+        exactIdentity(rows(entry), iSideIdentity, io.iSide.bits.entries(0).transactionId)
     predictionMatches(entry) :=
       rows(entry).valid &&
         exactRequest(rows(entry).request, io.prediction.bits.request)

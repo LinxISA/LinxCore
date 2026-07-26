@@ -23,6 +23,7 @@ retained training.
 | `verilator-lint` | `tools/chisel/run_chisel_verilator_lint.sh` | Emit the Chisel top and run Verilator lint over every top-level emitted SystemVerilog file. |
 | `ifu-throughput` | `tools/chisel/run_chisel_ifu_throughput_gate.sh` | Emit canonical `LinxCoreIfu` with 64-byte cachelines, build its Verilator harness, and require thirty-two consecutive full four-wide D1 groups with final B-F4 metadata and multiple joins/line contexts in flight. |
 | `d1-instruction-decode` | `tools/chisel/run_chisel_d1_instruction_decode_probe.sh` | Emit the production D1 decoder and prove atomic four-wide decode, instruction-UID preservation, complete final-prediction sidecars, blocked-output stability, and precise older-prefix survival. |
+| `ifu-backend-feedback` | `tools/chisel/run_chisel_ifu_backend_feedback_bridge_probe.sh` | Emit the production post-B-F4 feedback bridge and prove type-specific Dispatch/BRU comparison, atomic training plus recovery, actual restart PC, and typed GHR/RAS repair. |
 | `robid-xcheck` | `tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` | Run Packet A ROBID semantic gate. |
 | `flushcontrol-xcheck` | `tools/chisel/run_chisel_tests.sh --only FlushControl` | Run Packet B FlushControl classification and older-signal tests. |
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |

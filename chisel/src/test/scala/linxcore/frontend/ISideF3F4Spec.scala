@@ -55,6 +55,8 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(3).pc.expect(6.U)
       dut.io.out.bits.entries(0).instructionUid.expect(0.U)
       dut.io.out.bits.entries(3).instructionUid.expect(3.U)
+      dut.io.out.bits.entries(0).transactionId.expect(1.U)
+      dut.io.out.bits.entries(3).transactionId.expect(1.U)
       dut.io.out.bits.entries(0).lenBytes.expect(2.U)
       dut.io.out.bits.entries(3).insn.expect(0x40.U)
       dut.io.waitingForNextLine.expect(false.B)
@@ -235,6 +237,7 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
         dut.io.in.bits.entries(0).identity.fetchSeq.poke(transactionId.U)
         dut.io.in.bits.entries(0).identity.checkpointId.poke(transactionId.U)
         dut.io.in.bits.entries(0).identity.epoch.poke(0.U)
+        dut.io.in.bits.entries(0).transactionId.poke(transactionId.U)
       }
 
       dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
@@ -259,6 +262,46 @@ class ISideF3F4Spec extends AnyFunSuite with ChiselSim {
       dut.io.acceptedStop.expect(true.B)
       dut.clock.step()
       dut.io.in.valid.poke(false.B)
+    }
+  }
+
+  test("I-F4 preserves independent transaction packet and sequence identities") {
+    simulate(new ISideF4Predecode(p)) { dut =>
+      dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
+      dut.io.in.valid.poke(true.B)
+      dut.io.in.bits.validMask.poke("b0011".U)
+      dut.io.in.bits.lineComplete.poke(true.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.boundary.ready.poke(true.B)
+      dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+
+      for (lane <- 0 until 2) {
+        dut.io.in.bits.entries(lane).pc.poke((0x3000 + lane * 2).U)
+        dut.io.in.bits.entries(lane).insn.poke((if (lane == 0) 0x80 else 0).U)
+        dut.io.in.bits.entries(lane).lenBytes.poke(2.U)
+        dut.io.in.bits.entries(lane).transactionId.poke(0x11.U)
+        dut.io.in.bits.entries(lane).identity.peId.poke(1.U)
+        dut.io.in.bits.entries(lane).identity.threadId.poke(0.U)
+        dut.io.in.bits.entries(lane).identity.fetchPacketUid.poke(0x22.U)
+        dut.io.in.bits.entries(lane).identity.fetchSeq.poke(0x33.U)
+        dut.io.in.bits.entries(lane).identity.epoch.poke(4.U)
+      }
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.boundary.valid.expect(true.B)
+      dut.io.boundary.bits.transactionId.expect(0x11.U)
+      dut.io.boundary.bits.fetchPacketUid.expect(0x22.U)
+      dut.io.boundary.bits.fetchSeq.expect(0x33.U)
+
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.transactionId.poke(0x11.U)
+      dut.io.flush.fetchSeq.poke(0x33.U)
+      dut.io.flush.oldEpoch.poke(4.U)
+      dut.io.flush.scope.poke(IfuPruneScope.KillTriggerAndYounger)
+      dut.io.out.valid.expect(false.B)
+      dut.io.boundary.valid.expect(false.B)
+      dut.io.in.ready.expect(true.B)
     }
   }
 }

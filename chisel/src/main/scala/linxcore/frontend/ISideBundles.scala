@@ -139,6 +139,7 @@ class ISidePrefixCarry(
 class ISideInstructionCandidate(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pc = UInt(p.pcWidth.W)
   val instructionUid = UInt(p.uopUidWidth.W)
+  val transactionId = UInt(p.uopUidWidth.W)
   val insn = UInt(p.insnWidth.W)
   val lenBytes = UInt(p.lenWidth.W)
   val crossesLine = Bool()

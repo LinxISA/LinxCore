@@ -145,6 +145,7 @@ class ISideF3LineAssembler(
     io.out.bits.entries(lane).pc := resident.request.lineVa + offsets(lane)
     io.out.bits.entries(lane).instructionUid :=
       Mux(laneValid(lane), nextInstructionUid + laneOrdinal, 0.U)
+    io.out.bits.entries(lane).transactionId := resident.request.transactionId
     io.out.bits.entries(lane).insn := Mux(laneValid(lane), rawInsns(lane), 0.U)
     io.out.bits.entries(lane).lenBytes := Mux(laneValid(lane), lengths(lane), 0.U)
     io.out.bits.entries(lane).crossesLine :=

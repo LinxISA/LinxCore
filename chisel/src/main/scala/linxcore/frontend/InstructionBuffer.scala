@@ -148,7 +148,7 @@ class InstructionBuffer(
               offset.U < counts(thread) &&
                 !IfuFlushContract.kills(
                   candidate.identity,
-                  candidate.identity.fetchPacketUid,
+                  candidate.transactionId,
                   io.flush)
           }
           val keepPrefix = Wire(Vec(depthPerThread + 1, UInt(countWidth.W)))

@@ -31,6 +31,7 @@ class InstructionBufferSpec extends AnyFunSuite with ChiselSim {
     pcs.zipWithIndex.foreach { case (pc, lane) =>
       val entry = dut.io.enq.bits.entries(lane)
       entry.pc.poke(pc.U)
+      entry.transactionId.poke(transactionId.U)
       entry.insn.poke((BigInt("100000000000000f", 16) + lane).U)
       entry.lenBytes.poke(8.U)
       entry.isBlockStart.poke((lane == 0).B)
