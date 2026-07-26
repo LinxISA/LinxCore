@@ -104,7 +104,9 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
       scope: IfuPruneScope.Type = IfuPruneScope.PreserveTriggerKillYounger,
       rasUpdate: RasUpdateAction.Type = RasUpdateAction.None,
       rasPushAddress: BigInt = 0,
-      reason: IfuInnerFlushReason.Type = IfuInnerFlushReason.PredictionCorrection): Unit = {
+      reason: IfuInnerFlushReason.Type = IfuInnerFlushReason.PredictionCorrection,
+      oldEpoch: Int = 0,
+      newEpoch: Int = 0): Unit = {
     val sequence = if (fetchSeq < 0) transactionId else fetchSeq
     dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
     dut.io.prune.valid.poke(true.B)
@@ -113,7 +115,8 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     dut.io.prune.transactionId.poke(transactionId.U)
     dut.io.prune.fetchPacketUid.poke(transactionId.U)
     dut.io.prune.fetchSeq.poke(sequence.U)
-    dut.io.prune.oldEpoch.poke(0.U)
+    dut.io.prune.oldEpoch.poke(oldEpoch.U)
+    dut.io.prune.newEpoch.poke(newEpoch.U)
     dut.io.prune.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.prune.reason.poke(reason)
     dut.io.prune.scope.poke(scope)
@@ -136,7 +139,8 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
       taken: Boolean,
       mispredict: Boolean = false,
       threadId: Int = 0,
-      fetchSeq: Int = -1): Unit = {
+      fetchSeq: Int = -1,
+      epoch: Int = 0): Unit = {
     val sequence = if (fetchSeq < 0) transactionId else fetchSeq
     dut.io.resolve.bits.poke(0.U.asTypeOf(dut.io.resolve.bits))
     dut.io.resolve.valid.poke(true.B)
@@ -146,7 +150,7 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     dut.io.resolve.bits.threadId.poke(threadId.U)
     dut.io.resolve.bits.fetchPacketUid.poke(transactionId.U)
     dut.io.resolve.bits.fetchSeq.poke(sequence.U)
-    dut.io.resolve.bits.epoch.poke(0.U)
+    dut.io.resolve.bits.epoch.poke(epoch.U)
     dut.io.resolve.bits.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.resolve.bits.requestPc.poke((0x1000 + transactionId * 0x10).U)
     dut.io.resolve.bits.kind.poke(BoundaryKind.Cond)
@@ -390,6 +394,41 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
         predictionTag = 0,
         taken = false,
         scope = IfuPruneScope.KillAllThreadState)
+      dut.io.speculativeGhr(0).expect(0.U)
+    }
+  }
+
+  test("frontend correction rebases a surviving checkpoint for later backend recovery") {
+    simulate(module) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 1, predictionTag = 0)
+      correctionIntent(dut, transactionId = 1, predictionTag = 0, taken = true)
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = true,
+        newEpoch = 1)
+
+      resolve(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        mispredict = true,
+        epoch = 1)
+      dut.io.validMask.expect("b0001".U)
+
+      canonicalPrune(
+        dut,
+        transactionId = 1,
+        predictionTag = 0,
+        taken = false,
+        scope = IfuPruneScope.KillAllThreadState,
+        reason = IfuInnerFlushReason.BruRecovery,
+        oldEpoch = 1,
+        newEpoch = 2)
+      dut.io.validMask.expect(0.U)
       dut.io.speculativeGhr(0).expect(0.U)
     }
   }

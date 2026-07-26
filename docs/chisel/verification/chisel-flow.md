@@ -25,6 +25,7 @@ retained training.
 | `d1-instruction-decode` | `tools/chisel/run_chisel_d1_instruction_decode_probe.sh` | Emit the production D1 decoder and prove atomic four-wide decode, instruction-UID preservation, complete final-prediction sidecars, blocked-output stability, and precise older-prefix survival. |
 | `ifu-backend-feedback` | `tools/chisel/run_chisel_ifu_backend_feedback_bridge_probe.sh` | Emit the production post-B-F4 feedback bridge and prove type-specific Dispatch/BRU comparison, atomic training plus recovery, actual restart PC, and typed GHR/RAS repair. |
 | `ifu-line-memory` | `tools/chisel/run_chisel_ifu_line_memory_bridge_probe.sh` | Emit the production tagged 64-byte line-memory adapter and prove multiple outstanding tags, request stability, out-of-order exact identity reconstruction, stale/wrong response drain, and retained IFU refill backpressure. |
+| `production-ifu-composition` | `tools/chisel/run_chisel_linxcore_production_composition_probe.sh` | Emit the promoted composition of canonical IFU, tagged line bridge, fixed-width four-wide D1 decoder, and backend feedback; prove translated fetch-to-decode plus exact new-epoch BRU training/recovery. |
 | `robid-xcheck` | `tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` | Run Packet A ROBID semantic gate. |
 | `flushcontrol-xcheck` | `tools/chisel/run_chisel_tests.sh --only FlushControl` | Run Packet B FlushControl classification and older-signal tests. |
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |

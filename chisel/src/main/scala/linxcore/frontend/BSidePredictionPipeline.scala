@@ -197,8 +197,22 @@ class BSidePredictionPipeline(
   io.duplicateTraining := duplicateTraining
 
   val trainingThread = threadIndex(trainingQueue.io.deq.bits.threadId)
+  val pairedBackendRecovery =
+    trainingQueue.io.deq.valid &&
+      trainingQueue.io.deq.bits.mispredict &&
+      io.prune.valid &&
+      io.prune.reason === IfuInnerFlushReason.BruRecovery &&
+      io.prune.historyKeyValid &&
+      trainingQueue.io.deq.bits.peId === io.prune.peId &&
+      trainingQueue.io.deq.bits.transactionId === io.prune.transactionId &&
+      trainingQueue.io.deq.bits.predictionTag === io.prune.predictionTag &&
+      trainingQueue.io.deq.bits.threadId === io.prune.threadId &&
+      trainingQueue.io.deq.bits.fetchPacketUid === io.prune.fetchPacketUid &&
+      trainingQueue.io.deq.bits.fetchSeq === io.prune.fetchSeq &&
+      trainingQueue.io.deq.bits.epoch === io.prune.oldEpoch &&
+      trainingQueue.io.deq.bits.checkpointId === io.prune.checkpointId
   val trainingHistoryReady =
-    !history.io.redirectPending(trainingThread) && !io.prune.valid
+    !history.io.redirectPending(trainingThread) && (!io.prune.valid || pairedBackendRecovery)
   trainingQueue.io.deq.ready := duplicateTraining || trainingHistoryReady
   history.io.resolve.valid :=
     trainingQueue.io.deq.valid && !duplicateTraining && trainingHistoryReady

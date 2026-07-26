@@ -88,10 +88,10 @@ credit recovery. The emitted-RTL probe repeats blocked request stability,
 out-of-order identity reconstruction, stale response drain, and retained
 refill behavior through Verilator.
 
-## Remaining composition boundary
+## Production composition
 
-`LinxCoreProductionComposition` must instantiate this bridge with capacity at
-least equal to the IFU miss-table capacity and connect it directly to
+`LinxCoreProductionComposition` instantiates this bridge with capacity at least
+equal to the IFU miss-table capacity and connects it directly to
 `LinxCoreIfu.lineRead/lineRefill`. Lower-memory denied/corrupt completion is not
 yet represented by `ISideLineResponse`; production fabrics that can fail a
 read require an explicit terminal fetch-fault extension rather than a zero-data

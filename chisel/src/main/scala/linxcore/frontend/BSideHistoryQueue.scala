@@ -302,6 +302,15 @@ class BSideHistoryQueue(
         io.prune.scope === IfuPruneScope.PreserveTriggerKillYounger) {
       rowAt(pruneLiveIndex).rasAppliedValid := io.prune.rasUpdate =/= RasUpdateAction.None
     }
+    when(
+      io.prune.historyKeyValid && pruneLiveMatch &&
+        io.prune.scope === IfuPruneScope.PreserveTriggerKillYounger) {
+      // The producer survives a frontend correction and is transported to D1
+      // in the newly allocated epoch. Keep its request-owned history key in
+      // the same canonical epoch domain so a later backend resolve/recovery
+      // can still identify this exact checkpoint.
+      rowAt(pruneLiveIndex).request.identity.epoch := io.prune.newEpoch
+    }
     redirectPending(pruneThread) := false.B
   }.otherwise {
     when(io.allocate.fire) {

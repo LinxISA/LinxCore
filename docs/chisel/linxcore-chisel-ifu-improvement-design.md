@@ -1111,9 +1111,13 @@ predictor tables 不因普通 redirect 清零。
 - [x] `IfuBackendFeedbackBridge` 实现 Dispatch direct/call 与 BRU E1
   conditional/indirect/return 的分类型比较、actual-result training 和 exact
   predictor recovery transport。
+- [x] `LinxCoreProductionComposition` 已将 external Dispatch/BRU validation
+  接到 actual-result training 和 canonical `LinxCoreIfu` BRU recovery；
+  prediction-correction survivor 的 history key 随 canonical new epoch 重基准，
+  exact mispredict training 在 matching prune 删除 checkpoint 前完成。
 - [ ] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
-  composition，并将 accepted recovery 接回 `LinxCoreIfu`。
-- [ ] `LinxCoreProductionComposition` 已实例化 IFU line-memory bridge，且 bridge
+  backend；当前 composition 保留明确的 `BackendBranchValidation` 外部边界。
+- [x] `LinxCoreProductionComposition` 已实例化 IFU line-memory bridge，且 bridge
   capacity 不小于 IFU miss-table capacity。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、

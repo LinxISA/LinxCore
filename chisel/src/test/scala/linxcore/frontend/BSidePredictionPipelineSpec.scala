@@ -103,7 +103,8 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       fallthroughPc: BigInt,
       kind: BoundaryKind.Type,
       taken: Boolean,
-      mispredict: Boolean = false): Unit = {
+      mispredict: Boolean = false,
+      epoch: Int = 0): Unit = {
     dut.io.resolve.bits.poke(0.U.asTypeOf(dut.io.resolve.bits))
     dut.io.resolve.valid.poke(true.B)
     dut.io.resolve.bits.peId.poke(1.U)
@@ -112,7 +113,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.resolve.bits.threadId.poke(0.U)
     dut.io.resolve.bits.fetchPacketUid.poke(transactionId.U)
     dut.io.resolve.bits.fetchSeq.poke(transactionId.U)
-    dut.io.resolve.bits.epoch.poke(0.U)
+    dut.io.resolve.bits.epoch.poke(epoch.U)
     dut.io.resolve.bits.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.resolve.bits.requestPc.poke(requestPc.U)
     dut.io.resolve.bits.branchPc.poke(branchPc.U)
@@ -227,7 +228,8 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       target,
       fallthroughPc,
       kind,
-      taken)
+      taken,
+      epoch = 1)
     dut.clock.step()
     predictionTag
   }
@@ -737,10 +739,86 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
         target = 0xb00,
         fallthroughPc = 0x6006,
         kind = BoundaryKind.Cond,
-        taken = true)
+        taken = true,
+        epoch = 1)
       dut.io.duplicateTraining.expect(true.B)
       dut.clock.step()
       dut.io.duplicateTraining.expect(false.B)
+    }
+  }
+
+  test("exact backend recovery trains the retained checkpoint before pruning it") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(
+        dut,
+        transactionId = 14,
+        requestPc = 0x6400,
+        hasBoundary = true,
+        branchPc = 0x6404,
+        target = 0xb40,
+        fallthroughPc = 0x6406,
+        kind = BoundaryKind.Direct,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 14, pc = 0x6400)
+      waitForFinal(dut)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 14,
+        predictionTag = predictionTag,
+        taken = true,
+        kind = BoundaryKind.Direct)
+
+      pokeResolve(
+        dut,
+        transactionId = 14,
+        predictionTag = predictionTag,
+        requestPc = 0x6400,
+        branchPc = 0x6404,
+        target = 0xb80,
+        fallthroughPc = 0x6406,
+        kind = BoundaryKind.Direct,
+        taken = true,
+        mispredict = true,
+        epoch = 1)
+
+      dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
+      dut.io.prune.valid.poke(true.B)
+      dut.io.prune.peId.poke(1.U)
+      dut.io.prune.threadId.poke(0.U)
+      dut.io.prune.transactionId.poke(14.U)
+      dut.io.prune.fetchPacketUid.poke(14.U)
+      dut.io.prune.fetchSeq.poke(14.U)
+      dut.io.prune.oldEpoch.poke(1.U)
+      dut.io.prune.newEpoch.poke(2.U)
+      dut.io.prune.checkpointId.poke(14.U)
+      dut.io.prune.reason.poke(IfuInnerFlushReason.BruRecovery)
+      dut.io.prune.scope.poke(IfuPruneScope.KillAllThreadState)
+      dut.io.prune.historyKeyValid.poke(true.B)
+      dut.io.prune.predictionTag.poke(predictionTag.U)
+      dut.io.prune.ghrAction.poke(GhrRecoveryAction.RestoreTrigger)
+      dut.io.prune.rasAction.poke(RasRecoveryAction.RestoreTrigger)
+      dut.io.staleTraining.expect(false.B)
+      dut.clock.step()
+      dut.io.prune.valid.poke(false.B)
+      dut.io.historyCount.expect(0.U)
+
+      pokeResolve(
+        dut,
+        transactionId = 14,
+        predictionTag = predictionTag,
+        requestPc = 0x6400,
+        branchPc = 0x6404,
+        target = 0xb80,
+        fallthroughPc = 0x6406,
+        kind = BoundaryKind.Direct,
+        taken = true,
+        mispredict = true,
+        epoch = 1)
+      dut.io.duplicateTraining.expect(true.B)
     }
   }
 

@@ -231,6 +231,16 @@ validation emits only actual-result training; mismatch training and the keyed
 backend restart advance atomically. Dispatch/BRU event production and full-BID
 ROB/BROB cleanup remain backend-composition responsibilities.
 
+`LinxCoreProductionComposition` is the promoted owner that connects this
+feedback wrapper, the tagged 64-byte line-memory bridge, the canonical IFU, and
+the direct four-wide D1 full decoder. A B-F4 correction preserves its producer
+checkpoint and rebases that request-owned key into the canonical new epoch that
+is carried to D1. If Dispatch/BRU later reports a mismatch, the exact queued
+training event consumes the immutable checkpoint before the matching
+`BruRecovery` prune removes it. The composition exposes validation-event
+production as an explicit backend port; it does not claim full-BID ROB/BROB
+cleanup or four-lane rename/dispatch/issue closure.
+
 Resolved branch and block-control events train the relevant BTB, TAGE, BIM,
 IBTB, and loop structures. Training is keyed by full STID/request/
 checkpoint identity. TAGE training uses the request-owned pre-branch history,
@@ -298,6 +308,9 @@ past an invalid, cancelled, faulting, or different-STID entry.
 10. I-SIDE and B-SIDE advance independently and communicate only through
    decoupled, identity-qualified channels.
 11. Backend-resolved misprediction uses typed recovery and restarts I-F0.
+12. The production composition connects tagged line transport, final-prediction
+    D1 decode, and exact backend feedback without address- or packet-derived
+    identity reconstruction.
 
 The production D1 implementation is `D1InstructionDecodeStage`. It consumes a
 four-entry `D1InstructionGroup` directly, performs full decode without an
@@ -321,6 +334,18 @@ lane, and multiple prediction joins plus ordered line contexts in flight. This
 gate proves eligible dense sequential IFU supply. It does not prove mixed
 instruction lengths, prediction-recovery stress, production decode/dispatch
 acceptance, or CoreMark/Dhrystone throughput.
+
+The promoted composition gate is:
+
+```bash
+bash tools/chisel/run_chisel_linxcore_production_composition_probe.sh
+```
+
+It emits `LinxCoreProductionComposition` and proves translated tagged fetch
+through four-wide full D1 decode, plus a real direct block whose target
+mismatch trains the retained new-epoch checkpoint before canonical BRU
+recovery. It does not supply Dispatch/BRU event producers, full-BID cleanup, or
+natural benchmark execution.
 
 ## Non-normative superscalarNPU comparison
 

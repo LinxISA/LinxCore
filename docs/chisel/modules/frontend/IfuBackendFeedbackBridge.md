@@ -53,8 +53,10 @@ produces both:
   proposal with exact history key and actual next PC.
 
 The two mismatch outputs are atomic. If either sink is blocked, neither output
-fires and the queued validation remains stable. This ensures B-SIDE retains the
-mispredict checkpoint before canonical recovery restores it.
+fires and the queued validation remains stable. In the production composition,
+the exact queued training entry is allowed to consume its immutable checkpoint
+in the same cycle that the matching canonical `BruRecovery` prune removes the
+row; unrelated training remains blocked by an active prune.
 
 ## Predictor recovery
 
@@ -82,10 +84,12 @@ validation, actual next-PC selection, and typed GHR/RAS recovery. The emitted
 RTL probe repeats conditional-correct, conditional-mispredict, Call-target, and
 Return-target scenarios through Verilator.
 
-## Remaining composition boundary
+## Production composition boundary
 
-Dispatch and BRU must still instantiate the event producers, and the mismatch
-must also enter the backend full-BID recovery fabric using the `RenamedUop`
-RID/GID/BID/block-BID identity. This module closes the IFU feedback wrapper; it
-does not by itself prove four-lane dispatch/issue integration or natural
-CoreMark/Dhrystone execution.
+`LinxCoreProductionComposition` now connects this wrapper directly to
+`LinxCoreIfu.branchResolve/backendRedirect`. Dispatch and BRU must still
+instantiate the validation-event producers, and the mismatch must also enter
+the backend full-BID recovery fabric using the `RenamedUop`
+RID/GID/BID/block-BID identity. This frontend composition does not by itself
+prove four-lane dispatch/issue integration or natural CoreMark/Dhrystone
+execution.
