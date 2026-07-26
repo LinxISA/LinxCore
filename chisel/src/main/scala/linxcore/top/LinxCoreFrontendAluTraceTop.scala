@@ -100,6 +100,7 @@ class LinxCoreFrontendAluTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     mapQDepth = mapQDepth
   ))
+  DecodeRenameROBPath.tieOffPredecoded(path)
 
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   execute.io.completeReady := true.B

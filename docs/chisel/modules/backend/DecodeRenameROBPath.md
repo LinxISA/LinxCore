@@ -30,6 +30,12 @@
 
 ## Purpose
 
+The production entry is `predecodedD1`: it accepts a fixed-width
+`D1DecodedInstructionGroup` lane without decoding a packet/window again and
+preserves the complete B-F4 prediction sidecar into rename. The optional
+packet adapter remains only for reduced verification shells and can be removed
+at elaboration with `enablePacketDecodeAdapter = false`.
+
 `DecodeRenameROBPath` is the first reduced frontend/backend composition point.
 It connects `FrontendDecodeStage`, `DecodeRenameQueue`,
 `ScalarTURenameBridge`, and `DispatchROBAllocator` so one decoded scalar/T/U
@@ -299,14 +305,16 @@ evidence. When `skipBlockMarkers=true`, a packet containing only legal
 PC/instruction/length diagnostics, and reports `decodeReady` without allocating
 BROB/ROB or pushing `dec_ren_q`. Packets that mix marker and scalar slots raise
 `blockMarkerMixedPacket` and are not consumed until the dense multi-slot owner
-exists. The default constructor keeps the old behavior for non-reduced users.
+exists. This packet fixture is verification-only; production composition uses
+the fixed-width `predecodedD1` boundary with the adapter disabled.
 
 ## Interface
 
 Inputs:
 
-- `d1`, `slots`, `validMask`, `flushValid`: legacy packet-window fixture inputs consumed by
-  `FrontendDecodeStage`.
+- `d1`, `slots`, `validMask`, `flushValid`: verification-only packet-window
+  fixture inputs consumed by `FrontendDecodeStage` when
+  `enablePacketDecodeAdapter=true`.
 - `robStatusLookupValid`, `robStatusLookupRid`: read-only native RID status
   query forwarded to the ROB row owner.
 - `robFullBidLookupRequest`: exact native row and Linx scope identity forwarded

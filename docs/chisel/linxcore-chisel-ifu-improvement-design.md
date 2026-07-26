@@ -1117,6 +1117,11 @@ predictor tables 不因普通 redirect 清零。
   exact mispredict training 在 matching prune 删除 checkpoint 前完成。
 - [ ] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
   backend；当前 composition 保留明确的 `BackendBranchValidation` 外部边界。
+- [x] `D1DecodeRenameROBIngress` 已将固定宽四 lane D1 group 原子写入
+  `D1DecodedLaneQueue`，按程序序直接进入真实 rename/ROB；production elaboration
+  禁用 packet/window decoder，prediction sidecar、precise prune 和 correction
+  epoch rebase 均有 UT 与 generated-RTL gate。
+- [ ] D2/D3 已从当前逐 lane admission 提升为四 row 原子资源预留与 dispatch。
 - [x] `LinxCoreProductionComposition` 已实例化 IFU line-memory bridge，且 bridge
   capacity 不小于 IFU miss-table capacity。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。

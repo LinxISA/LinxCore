@@ -319,7 +319,7 @@ bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 bash tools/chisel/run_chisel_top_xcheck.sh
-bash tools/chisel/run_chisel_tests.sh
+SBT_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' bash tools/chisel/run_chisel_tests.sh --all
 bash tools/chisel/emit_verilog.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 ```
@@ -328,3 +328,6 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 JDK plus `sbt`. The wrappers prefer Homebrew `openjdk@17` when `JAVA_HOME` is
 not set. The ROBID-only gate always runs the model-derived semantic checks and
 runs the Scala test when the toolchain exists.
+
+Use `--all` for an exact release gate. The no-argument form permits SBT task
+caching and is suitable only as an incremental developer check.

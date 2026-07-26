@@ -12,6 +12,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class DecodeRenameROBPathIdentityProbeIO extends Bundle {
   val decodeValid = Input(Bool())
+  val usePredecoded = Input(Bool())
   val decodeInsn = Input(UInt(64.W))
   val decodeLenBytes = Input(UInt(4.W))
   val decodePc = Input(UInt(64.W))
@@ -20,9 +21,13 @@ class DecodeRenameROBPathIdentityProbeIO extends Bundle {
   val renamedOutReady = Input(Bool())
   val decodeReady = Output(Bool())
   val selectedValid = Output(Bool())
+  val selectedSlot = Output(UInt(2.W))
+  val decodedValidMask = Output(UInt(4.W))
   val selectedRobValue = Output(UInt(4.W))
   val selectedBlockBid = Output(UInt(64.W))
   val renamedAccepted = Output(Bool())
+  val renamedPc = Output(UInt(64.W))
+  val renamedPredictionTag = Output(UInt(64.W))
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
   val storeStaEnqueueFire = Output(Bool())
@@ -94,6 +99,27 @@ class DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass: Boolean = tru
     useMarkerDecodeContext = false,
     skipBlockMarkers = true,
     reducedStoreDispatchBypass = reducedStoreDispatchBypass))
+  path.io.predecodedD1Valid := io.usePredecoded && io.decodeValid
+  path.io.predecodedD1 := 0.U.asTypeOf(path.io.predecodedD1)
+  path.io.predecodedD1.validMask := "b0100".U
+  path.io.predecodedD1.entries(2).valid := true.B
+  path.io.predecodedD1.entries(2).pc := io.decodePc
+  path.io.predecodedD1.entries(2).opcode := FrontendOpcodeDecodeTable.OP_ADDI.U
+  path.io.predecodedD1.entries(2).insnRaw := io.decodeInsn
+  path.io.predecodedD1.entries(2).insnLen := io.decodeLenBytes
+  path.io.predecodedD1.entries(2).isLastInBlock := io.decodeLast
+  path.io.predecodedD1.entries(2).threadId := 0.U
+  path.io.predecodedD1.entries(2).uid.uid := 0x55.U
+  path.io.predecodedD1.entries(2).uid.fetchSlot := 2.U
+  path.io.predecodedD1.entries(2).prediction.valid := true.B
+  path.io.predecodedD1.entries(2).prediction.predictionTag := 0xabc.U
+  path.io.predecodedD1.entries(2).prediction.fetchSeq := 7.U
+  path.io.predecodedD1.entries(2).prediction.transactionId := 9.U
+  path.io.predecodedD1.entries(2).prediction.epoch := 2.U
+  path.io.predecodedD1.meta(2).valid := true.B
+  path.io.predecodedD1.meta(2).opcode := FrontendOpcodeDecodeTable.OP_ADDI.U
+  path.io.predecodedNextValid := false.B
+  path.io.predecodedNext := 0.U.asTypeOf(path.io.predecodedNext)
 
   path.io.d1 := 0.U.asTypeOf(path.io.d1)
   path.io.d1.valid := io.decodeValid
@@ -180,9 +206,13 @@ class DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass: Boolean = tru
 
   io.decodeReady := path.io.decodeReady
   io.selectedValid := path.io.selectedValid
+  io.selectedSlot := path.io.selectedSlot
+  io.decodedValidMask := path.io.decodedValidMask
   io.selectedRobValue := path.io.selectedRobValue
   io.selectedBlockBid := path.io.selectedBlockBid
   io.renamedAccepted := path.io.accepted
+  io.renamedPc := path.io.renamedOut.pc
+  io.renamedPredictionTag := path.io.renamedOut.prediction.predictionTag
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit
   io.storeStaEnqueueFire := path.io.storeStaEnqueueFire
@@ -1651,6 +1681,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
 
       def idle(): Unit = {
         dut.io.decodeValid.poke(false.B)
+        dut.io.usePredecoded.poke(false.B)
         dut.io.decodeInsn.poke(0.U)
         dut.io.decodeLenBytes.poke(2.U)
         dut.io.decodePc.poke(0.U)
@@ -1829,6 +1860,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     simulate(new DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass = false)) { dut =>
       def idle(): Unit = {
         dut.io.decodeValid.poke(false.B)
+        dut.io.usePredecoded.poke(false.B)
         dut.io.decodeInsn.poke(0.U)
         dut.io.decodeLenBytes.poke(2.U)
         dut.io.decodePc.poke(0.U)
@@ -1983,6 +2015,41 @@ class DecodeRenameROBPathSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_recoveryOldestBid_1_value"))
     assert(sv.contains("io_recoveryOldestRid_1_wrap"))
     assert(sv.contains("io_recoveryOldestBlockComplete_1"))
+  }
+
+  test("predecoded D1 ingress bypasses packet decode and preserves the final prediction sidecar") {
+    simulate(new DecodeRenameROBPathIdentityProbe) { dut =>
+      dut.io.decodeValid.poke(true.B)
+      dut.io.usePredecoded.poke(true.B)
+      dut.io.decodeInsn.poke("hffffffffffffffff".U)
+      dut.io.decodeLenBytes.poke(4.U)
+      dut.io.decodePc.poke(0x4800.U)
+      dut.io.decodeLast.poke(false.B)
+      dut.io.flushValid.poke(false.B)
+      dut.io.renamedOutReady.poke(true.B)
+      dut.io.completeValid.poke(false.B)
+      dut.io.completeRobValue.poke(0.U)
+      dut.io.completeBlockBid.poke(0.U)
+      dut.io.completePc.poke(0.U)
+
+      dut.io.decodeReady.expect(true.B)
+      dut.io.decodedValidMask.expect("b0100".U)
+      dut.io.selectedValid.expect(true.B)
+      dut.io.selectedSlot.expect(2.U)
+      dut.clock.step()
+      dut.io.decodeValid.poke(false.B)
+
+      var sawRename = false
+      for (_ <- 0 until 8) {
+        if (dut.io.renamedAccepted.peek().litToBoolean) {
+          dut.io.renamedPc.expect(0x4800.U)
+          dut.io.renamedPredictionTag.expect(0xabc.U)
+          sawRename = true
+        }
+        dut.clock.step()
+      }
+      assert(sawRename, "predecoded row must reach rename without a packet/window reconstruction")
+    }
   }
 
   test("service-adjacent stop classifier accepts only an exact ACRC plus same-packet C.BSTOP pair") {

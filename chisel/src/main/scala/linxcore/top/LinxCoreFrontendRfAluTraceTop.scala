@@ -159,6 +159,7 @@ class LinxCoreFrontendRfAluTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     mapQDepth = mapQDepth
   ))
+  DecodeRenameROBPath.tieOffPredecoded(path)
 
   val rf = Module(new ScalarGPRFile(
     archRegs = archRegs,

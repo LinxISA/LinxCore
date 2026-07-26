@@ -86,6 +86,7 @@ class ScalarContinuationBlockIdentityProbe extends Module {
     useMarkerDecodeContext = false,
     skipBlockMarkers = true,
     reducedStoreDispatchBypass = true))
+  DecodeRenameROBPath.tieOffPredecoded(path)
 
   path.io.d1 := 0.U.asTypeOf(path.io.d1)
   path.io.d1.valid := io.decodeValid

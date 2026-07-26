@@ -2368,6 +2368,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     skipBlockMarkers = skipBlockMarkers,
     reducedStoreDispatchBypass = !useReducedStoreDispatchStq
   ))
+  DecodeRenameROBPath.tieOffPredecoded(path)
   val robCompleteArbiter = Module(new ReducedRobCompletionArbiter(
     ptrWidth = log2Ceil(p.robEntries),
     traceParams = traceParams

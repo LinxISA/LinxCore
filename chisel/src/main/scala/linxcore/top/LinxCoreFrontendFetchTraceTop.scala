@@ -111,6 +111,7 @@ class LinxCoreFrontendFetchTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     mapQDepth = mapQDepth
   ))
+  DecodeRenameROBPath.tieOffPredecoded(path)
 
   source.io.startValid := io.startValid
   source.io.startPc := io.startPc

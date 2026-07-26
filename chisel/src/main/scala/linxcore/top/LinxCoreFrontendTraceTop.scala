@@ -88,6 +88,7 @@ class LinxCoreFrontendTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     mapQDepth = mapQDepth
   ))
+  DecodeRenameROBPath.tieOffPredecoded(path)
 
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots

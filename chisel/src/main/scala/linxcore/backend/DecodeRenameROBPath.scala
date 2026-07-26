@@ -11,7 +11,7 @@ import linxcore.bctrl.{
 }
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
-import linxcore.frontend.{F4Slot, FrontendDecodeStage, FrontendOpcodeDecodeTable}
+import linxcore.frontend.{D1DecodedInstructionGroup, F4Slot, FrontendDecodeStage, FrontendOpcodeDecodeTable}
 import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchScIdentity, StoreDispatchSTQPath}
 import linxcore.recovery.{
   FullBidFlushReq,
@@ -149,6 +149,14 @@ class DecodeRenameROBPathIO(
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
   val validMask = Input(UInt(p.decodeWidth.W))
+  /** Production fixed-width D1 input. When valid, this bypasses the
+    * verification-only packet/window decode adapter without reconstructing
+    * F4 slots.
+    */
+  val predecodedD1Valid = Input(Bool())
+  val predecodedD1 = Input(new D1DecodedInstructionGroup(p))
+  val predecodedNextValid = Input(Bool())
+  val predecodedNext = Input(new DecodedUop(p))
   val samePacketNextSlotValid = Input(Bool())
   val samePacketNextSlot = Input(new F4Slot(p))
   val flushValid = Input(Bool())
@@ -711,7 +719,8 @@ class DecodeRenameROBPath(
     val scalarContinuationTuCutThreshold: Int = -1,
     val useMarkerDecodeContext: Boolean = false,
     val skipBlockMarkers: Boolean = false,
-    val reducedStoreDispatchBypass: Boolean = false)
+    val reducedStoreDispatchBypass: Boolean = false,
+    val enablePacketDecodeAdapter: Boolean = true)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
@@ -805,23 +814,78 @@ class DecodeRenameROBPath(
     directRecoveryStallThreshold = directRecoveryStallThreshold
   ))
 
-  val decode = Module(new FrontendDecodeStage(p))
-  decode.io.d1 := io.d1
-  decode.io.slots := io.slots
-  decode.io.validMask := io.validMask
-  decode.io.flushValid := io.flushValid
-  io.decodedValidMask := decode.io.outValidMask
-  io.invalidOpcodeMask := decode.io.invalidOpcodeMask
-  io.blockBoundaryMask := decode.io.blockBoundaryMask
-  io.blockStopMask := decode.io.blockStopMask
-  io.loadMask := decode.io.loadMask
-  io.storeMask := decode.io.storeMask
+  val packetDecoded = Wire(Vec(p.decodeWidth, new DecodedUop(p)))
+  val packetDecodedValidMask = Wire(UInt(p.decodeWidth.W))
+  val packetInvalidOpcodeMask = Wire(UInt(p.decodeWidth.W))
+  val packetBlockBoundaryMask = Wire(UInt(p.decodeWidth.W))
+  val packetBlockStopMask = Wire(UInt(p.decodeWidth.W))
+  val packetLoadMask = Wire(UInt(p.decodeWidth.W))
+  val packetStoreMask = Wire(UInt(p.decodeWidth.W))
+  packetDecoded := 0.U.asTypeOf(packetDecoded)
+  packetDecodedValidMask := 0.U
+  packetInvalidOpcodeMask := 0.U
+  packetBlockBoundaryMask := 0.U
+  packetBlockStopMask := 0.U
+  packetLoadMask := 0.U
+  packetStoreMask := 0.U
+  if (enablePacketDecodeAdapter) {
+    val decode = Module(new FrontendDecodeStage(p))
+    decode.io.d1 := io.d1
+    decode.io.slots := io.slots
+    decode.io.validMask := io.validMask
+    decode.io.flushValid := io.flushValid
+    packetDecoded := decode.io.out
+    packetDecodedValidMask := decode.io.outValidMask
+    packetInvalidOpcodeMask := decode.io.invalidOpcodeMask
+    packetBlockBoundaryMask := decode.io.blockBoundaryMask
+    packetBlockStopMask := decode.io.blockStopMask
+    packetLoadMask := decode.io.loadMask
+    packetStoreMask := decode.io.storeMask
+  }
+  val predecodedActive = io.predecodedD1Valid && !io.flushValid
+  val predecodedEntryValidMask = VecInit(io.predecodedD1.entries.map(_.valid)).asUInt
+  val effectiveDecodedValidMask = Mux(
+    predecodedActive,
+    io.predecodedD1.validMask & predecodedEntryValidMask,
+    packetDecodedValidMask)
+  val effectiveInvalidOpcodeMask = Mux(
+    predecodedActive,
+    io.predecodedD1.invalidOpcodeMask & io.predecodedD1.validMask,
+    packetInvalidOpcodeMask)
+  val effectiveBlockBoundaryMask = Mux(
+    predecodedActive,
+    io.predecodedD1.blockBoundaryMask & io.predecodedD1.validMask,
+    packetBlockBoundaryMask)
+  val effectiveBlockStopMask = Mux(
+    predecodedActive,
+    io.predecodedD1.blockStopMask & io.predecodedD1.validMask,
+    packetBlockStopMask)
+  val effectiveLoadMask = Mux(
+    predecodedActive,
+    io.predecodedD1.loadMask & io.predecodedD1.validMask,
+    packetLoadMask)
+  val effectiveStoreMask = Mux(
+    predecodedActive,
+    io.predecodedD1.storeMask & io.predecodedD1.validMask,
+    packetStoreMask)
+  val effectiveDecoded = Wire(Vec(p.decodeWidth, new DecodedUop(p)))
+  effectiveDecoded := packetDecoded
+  when(predecodedActive) {
+    effectiveDecoded := io.predecodedD1.entries
+  }
 
-  val markerMask = decode.io.blockBoundaryMask | decode.io.blockStopMask
-  val markerValidMask = decode.io.outValidMask & markerMask
-  val nonMarkerValidMask = decode.io.outValidMask & ~markerMask
+  io.decodedValidMask := effectiveDecodedValidMask
+  io.invalidOpcodeMask := effectiveInvalidOpcodeMask
+  io.blockBoundaryMask := effectiveBlockBoundaryMask
+  io.blockStopMask := effectiveBlockStopMask
+  io.loadMask := effectiveLoadMask
+  io.storeMask := effectiveStoreMask
+
+  val markerMask = effectiveBlockBoundaryMask | effectiveBlockStopMask
+  val markerValidMask = effectiveDecodedValidMask & markerMask
+  val nonMarkerValidMask = effectiveDecodedValidMask & ~markerMask
   val skipMarkers = skipBlockMarkers.B
-  val selectedMask = Mux(skipMarkers, nonMarkerValidMask, decode.io.outValidMask)
+  val selectedMask = Mux(skipMarkers, nonMarkerValidMask, effectiveDecodedValidMask)
   val markerOnlyPacket = skipMarkers && markerValidMask.orR && !nonMarkerValidMask.orR
   val mixedMarkerPacket = skipMarkers && markerValidMask.orR && nonMarkerValidMask.orR
 
@@ -831,7 +895,7 @@ class DecodeRenameROBPath(
   selected := 0.U.asTypeOf(selected)
   for (slot <- 0 until p.decodeWidth) {
     when(selectedAny && selectedSlot === slot.U) {
-      selected := decode.io.out(slot)
+      selected := effectiveDecoded(slot)
     }
   }
 
@@ -840,12 +904,12 @@ class DecodeRenameROBPath(
   marker := 0.U.asTypeOf(marker)
   for (slot <- 0 until p.decodeWidth) {
     when(markerValidMask.orR && markerSlot === slot.U) {
-      marker := decode.io.out(slot)
+      marker := effectiveDecoded(slot)
     }
   }
 
-  val selectedIsLoad = selectedAny && VecInit(decode.io.loadMask.asBools)(selectedSlot)
-  val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
+  val selectedIsLoad = selectedAny && VecInit(effectiveLoadMask.asBools)(selectedSlot)
+  val selectedIsStore = selectedAny && VecInit(effectiveStoreMask.asBools)(selectedSlot)
   val selectedPrimaryGprReservation =
     selectedAny && selected.dst(0).valid && (selected.dst(0).kind === DestinationKind.Gpr) &&
       (selected.dst(0).archTag < scalarArchRegs.U)
@@ -856,8 +920,8 @@ class DecodeRenameROBPath(
   val selectedGprReservationCount =
     selectedPrimaryGprReservation.asUInt +& selectedPairFirstGprReservation.asUInt
   val selectedNeedsGprReservation = selectedGprReservationCount =/= 0.U
-  val markerBoundary = markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
-  val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
+  val markerBoundary = markerOnlyPacket && VecInit(effectiveBlockBoundaryMask.asBools)(markerSlot)
+  val markerStop = markerOnlyPacket && VecInit(effectiveBlockStopMask.asBools)(markerSlot)
   val selectedStid = selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
   val markerStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
   val markerDecodeQueryStid = dontTouch(Wire(UInt(stidWidth.W)))
@@ -1216,6 +1280,24 @@ class DecodeRenameROBPath(
   serviceAdjacentStopClassifier.io.selected := selectedForQueue
   serviceAdjacentStopClassifier.io.nextSlotValid := io.samePacketNextSlotValid
   serviceAdjacentStopClassifier.io.nextSlot := io.samePacketNextSlot
+  val predecodedServiceAdjacentStop = Wire(new DecodeRenameServiceAdjacentStop(p, bidWidth, stidWidth))
+  predecodedServiceAdjacentStop := 0.U.asTypeOf(predecodedServiceAdjacentStop)
+  predecodedServiceAdjacentStop.valid :=
+    selectedForQueue.valid &&
+      selectedForQueue.opcode === FrontendOpcodeDecodeTable.OP_ACRC.U(p.opcodeWidth.W) &&
+      io.predecodedNextValid &&
+      io.predecodedNext.valid &&
+      io.predecodedNext.opcode === FrontendOpcodeDecodeTable.OP_C_BSTOP.U(p.opcodeWidth.W) &&
+      io.predecodedNext.pc === (selectedForQueue.pc + selectedForQueue.insnLen)
+  predecodedServiceAdjacentStop.pc := io.predecodedNext.pc
+  predecodedServiceAdjacentStop.insn := io.predecodedNext.insnRaw
+  predecodedServiceAdjacentStop.len := io.predecodedNext.insnLen
+  predecodedServiceAdjacentStop.stid := selectedForQueue.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  predecodedServiceAdjacentStop.bid := selectedForQueue.bid
+  predecodedServiceAdjacentStop.gid := selectedForQueue.gid
+  predecodedServiceAdjacentStop.rid := selectedForQueue.rid
+  predecodedServiceAdjacentStop.blockBidValid := selectedForQueue.blockBidValid
+  predecodedServiceAdjacentStop.blockBid := selectedForQueue.blockBid
 
   val gprFreeBudget = Wire(UInt(log2Ceil(physRegs + 1).W))
   val gprMapQFreeBudget = Wire(UInt(log2Ceil(gprMapQDepth + 1).W))
@@ -1248,7 +1330,8 @@ class DecodeRenameROBPath(
     Module(new Queue(new DecodeRenameServiceAdjacentStop(p, bidWidth, stidWidth), decRenQueueDepth))
   }
   serviceAdjacentStopQ.io.enq.valid := decRenQ.io.pushFire
-  serviceAdjacentStopQ.io.enq.bits := serviceAdjacentStopClassifier.io.out
+  serviceAdjacentStopQ.io.enq.bits :=
+    Mux(predecodedActive, predecodedServiceAdjacentStop, serviceAdjacentStopClassifier.io.out)
   serviceAdjacentStopQ.io.deq.ready := decRenQ.io.popFire
   assert(
     !decRenQ.io.pushFire || serviceAdjacentStopQ.io.enq.ready,
@@ -2069,6 +2152,16 @@ class DecodeRenameROBPath(
 }
 
 object DecodeRenameROBPath {
+  /** Tie off the production fixed-width D1 path in verification wrappers that
+    * still deliberately exercise the packet/window adapter.
+    */
+  def tieOffPredecoded(path: DecodeRenameROBPath): Unit = {
+    path.io.predecodedD1Valid := false.B
+    path.io.predecodedD1 := 0.U.asTypeOf(path.io.predecodedD1)
+    path.io.predecodedNextValid := false.B
+    path.io.predecodedNext := 0.U.asTypeOf(path.io.predecodedNext)
+  }
+
   /** Tie off recovery only in reduced trace shells that expose no producer.
     * Canonical backend compositions must connect authoritative sources instead.
     */
