@@ -146,10 +146,7 @@ class InstructionBuffer(
             val candidate = entries(thread)(readPtr)
             keep(offset) :=
               offset.U < counts(thread) &&
-                !IfuFlushContract.kills(
-                  candidate.identity,
-                  candidate.transactionId,
-                  io.flush)
+                !IfuFlushContract.killsInstruction(candidate, io.flush)
           }
           val keepPrefix = Wire(Vec(depthPerThread + 1, UInt(countWidth.W)))
           keepPrefix(0) := 0.U
@@ -159,7 +156,13 @@ class InstructionBuffer(
             val candidate = entries(thread)(readPtr)
             val writePtr = keepPrefix(offset)(ptrWidth - 1, 0)
             when(keep(offset)) {
-              entries(thread)(writePtr) := candidate
+              val retained = Wire(new InstructionBufferEntry(p))
+              retained := candidate
+              when(io.flush.terminalSteer) {
+                retained.identity.epoch := io.flush.newEpoch
+                retained.prediction.epoch := io.flush.newEpoch
+              }
+              entries(thread)(writePtr) := retained
             }
           }
           val keptCount = keepPrefix(depthPerThread)

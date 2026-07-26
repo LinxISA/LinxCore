@@ -9,7 +9,7 @@ class LinxCoreIfuIO(
     val threadCount: Int = 1,
     val lineBytes: Int = 64,
     val pageBytes: Int = 4096,
-    val missEntries: Int = 4,
+    val missEntries: Int = 8,
     val joinEntries: Int = 8,
     val instructionBufferDepth: Int = 16)
     extends Bundle {
@@ -63,7 +63,7 @@ class LinxCoreIfu(
     val pageBytes: Int = 4096,
     val itlbEntries: Int = 16,
     val l1iSets: Int = 64,
-    val missEntries: Int = 4,
+    val missEntries: Int = 8,
     val joinEntries: Int = 8,
     val maxGroupsPerTransaction: Int = 8,
     val instructionBufferDepth: Int = 16)
@@ -71,6 +71,9 @@ class LinxCoreIfu(
   require(p.fetchWidth == 4)
   require(p.decodeWidth == 4)
   require(p.insnWidth == 64)
+  require(
+    missEntries >= joinEntries,
+    "each live IFU transaction needs one miss credit to keep refill retry deadlock-free")
 
   val io = IO(
     new LinxCoreIfuIO(
@@ -113,6 +116,16 @@ class LinxCoreIfu(
   f0.io.backendRestart.valid := false.B
   f0.io.backendRestart.bits := 0.U.asTypeOf(f0.io.backendRestart.bits)
   f0.io.predictionCorrection := acceptedRedirect
+  // Every final BF4 record owns the prediction sidecar for its block body,
+  // including the common case where it agrees with the current F0 path and
+  // therefore emits no correction.  Earlier stages only enter this context
+  // path when they actually redirect, so ISideF0 can invalidate an older BF4
+  // record without mistaking an ordinary provisional response for ownership.
+  f0.io.predictionContext.valid :=
+    bSide.io.response.fire && (
+      bSide.io.response.bits.prediction.stage === BSideStage.BF4 ||
+        bSide.io.innerFlush.valid)
+  f0.io.predictionContext.bits := bSide.io.response.bits
   // F0 advances the speculative sequential frontier on every accepted line.
   // A delayed non-correcting B-F4 final must never move that frontier backward;
   // only the canonical correction/recovery path may replace it.
@@ -276,7 +289,19 @@ class LinxCoreIfu(
       !f2CrossLine
   lineContexts.io.complete.bits := f2.io.result.bits
 
-  f3.io.in <> lineContexts.io.out
+  // A control BSTART can reach I-F4 several cycles before its initial BF4
+  // record.  Hold the next ordered line at the F2/F3 seam during that bounded
+  // interval so prefetched sequential tail bytes cannot overtake the
+  // correction that restarts the block body.  I-SIDE storage and B-SIDE
+  // prediction remain independent; this is only their transaction rendezvous.
+  val controlPredictionFenceValid = RegInit(false.B)
+  val controlPredictionFence =
+    RegInit(0.U.asTypeOf(new BSideBoundaryMetadata(p)))
+
+  val holdYoungerLine = controlPredictionFenceValid || f4.io.acceptedStart
+  f3.io.in.valid := lineContexts.io.out.valid && !holdYoungerLine
+  f3.io.in.bits := lineContexts.io.out.bits
+  lineContexts.io.out.ready := f3.io.in.ready && !holdYoungerLine
   lineContexts.io.carry := f3.io.prefixCarry
 
   val f2NextLineResponse = Wire(new ISideLineResponse(p, lineBytes))
@@ -393,7 +418,7 @@ class LinxCoreIfu(
     crossLineRequestValid := false.B
   }
 
-  f3.io.terminateResident := f4.io.acceptedStop
+  f3.io.terminateResident := f4.io.terminateResident
   f4.io.in <> f3.io.out
   join.io.iSide <> f4.io.out
   bSide.io.boundary <> f4.io.boundary
@@ -404,13 +429,57 @@ class LinxCoreIfu(
   io.branchResolve.ready := bSide.io.resolve.ready
   join.io.prediction <> bSide.io.response
 
+  val fenceResponseMatch =
+    bSide.io.response.bits.prediction.stage === BSideStage.BF4 &&
+      bSide.io.response.bits.request.identity.peId === controlPredictionFence.peId &&
+      bSide.io.response.bits.request.transactionId === controlPredictionFence.transactionId &&
+      bSide.io.response.bits.request.identity.threadId === controlPredictionFence.threadId &&
+      bSide.io.response.bits.request.identity.fetchPacketUid ===
+        controlPredictionFence.fetchPacketUid &&
+      bSide.io.response.bits.request.identity.fetchSeq === controlPredictionFence.fetchSeq &&
+      bSide.io.response.bits.request.identity.checkpointId ===
+        controlPredictionFence.checkpointId &&
+      bSide.io.response.bits.request.identity.epoch === controlPredictionFence.epoch
+
+  val stateFlushKillsFence =
+    controlPredictionFenceValid &&
+      IfuFlushContract.kills(
+        controlPredictionFence.threadId,
+        controlPredictionFence.epoch,
+        controlPredictionFence.fetchSeq,
+        controlPredictionFence.transactionId,
+        stateFlush)
+
+  when(f4.io.acceptedStart) {
+    // A redirect for an older transaction may be published in the same cycle
+    // as this surviving BSTART.  The new fence must win that overlap.
+    controlPredictionFenceValid := true.B
+    controlPredictionFence := f4.io.boundary.bits
+  }.elsewhen(
+    controlPredictionFenceValid &&
+      bSide.io.response.fire &&
+      fenceResponseMatch) {
+    controlPredictionFenceValid := false.B
+  }.elsewhen(stateFlushKillsFence) {
+    controlPredictionFenceValid := false.B
+  }
+
+  when(controlPredictionFenceValid) {
+    assert(!lineContexts.io.out.fire, "control prediction fence must hold younger lines before BF4")
+  }
+
   instructionBuffer.io.enq <> join.io.out
   instructionBuffer.io.deqThreadId := io.d1ThreadId
   d1.io.in <> instructionBuffer.io.deq
   io.d1 <> d1.io.out
 
-  io.canonicalFlush.valid := acceptedRedirect.valid
-  io.canonicalFlush.bits := acceptedRedirect
+  // A start/restart is the same state-destroying event at every IFU seam as
+  // an accepted inner redirect. Export the selected state flush so the D1
+  // decode/lane queues cannot retain work that the IFU itself just killed.
+  // Hiding startFlush here allowed an already-buffered target block to survive
+  // a backend restart and then be decoded again after F0 refetched it.
+  io.canonicalFlush.valid := stateFlush.valid
+  io.canonicalFlush.bits := stateFlush
   io.active := f0.io.active
   io.currentPc := f0.io.currentPc
   io.epochs := redirects.io.epochs

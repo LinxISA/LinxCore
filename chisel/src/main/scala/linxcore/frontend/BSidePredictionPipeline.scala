@@ -1,7 +1,7 @@
 package linxcore.frontend
 
 import chisel3._
-import chisel3.util.{Decoupled, Queue, log2Ceil}
+import chisel3.util.{Decoupled, PriorityEncoder, Queue, log2Ceil}
 import linxcore.common.{BoundaryKind, InterfaceParams}
 
 class BSidePredictionPipelineIO(
@@ -288,13 +288,25 @@ class BSidePredictionPipeline(
   val stages =
     Seq.fill(5)(Module(new Queue(new BSidePipePayload(p, lineBytes), 1, pipe = true, flow = false)))
   val nextPredictionTag = RegInit(0.U(p.uopUidWidth.W))
+  private val historyIndexWidth = math.max(1, log2Ceil(historyEntries))
+  val historySlotFree = Wire(Vec(historyEntries, Bool()))
+  for (offset <- 0 until historyEntries) {
+    val candidateTag = nextPredictionTag + offset.U
+    val candidateIndex =
+      if (historyEntries == 1) 0.U(historyIndexWidth.W)
+      else candidateTag(historyIndexWidth - 1, 0)
+    historySlotFree(offset) := !history.io.validMask(candidateIndex)
+  }
+  val historySlotAvailable = historySlotFree.asUInt.orR
+  val selectedPredictionTag =
+    nextPredictionTag + PriorityEncoder(historySlotFree.asUInt)
 
   val initialPayload = Wire(new BSidePipePayload(p, lineBytes))
   initialPayload := 0.U.asTypeOf(initialPayload)
   initialPayload.request := io.request.bits
   initialPayload.effective := io.request.bits.prediction
   initialPayload.effective.valid := true.B
-  initialPayload.effective.predictionTag := nextPredictionTag
+  initialPayload.effective.predictionTag := selectedPredictionTag
   initialPayload.effective.requestPc := io.request.bits.pc
   initialPayload.effective.taken := false.B
   initialPayload.effective.branchPc := io.request.bits.pc
@@ -310,16 +322,16 @@ class BSidePredictionPipeline(
   initialPayload.rasTopValidBefore := history.io.allocateRasTopValid
   initialPayload.rasTopBefore := history.io.allocateRasTop
   stages.head.io.enq.valid :=
-    io.request.valid && history.io.allocate.ready && !io.prune.valid
+    io.request.valid && historySlotAvailable && history.io.allocate.ready && !io.prune.valid
   stages.head.io.enq.bits := initialPayload
   history.io.allocate.valid :=
-    io.request.valid && stages.head.io.enq.ready && !io.prune.valid
+    io.request.valid && historySlotAvailable && stages.head.io.enq.ready && !io.prune.valid
   history.io.allocate.bits.request := io.request.bits
-  history.io.allocate.bits.predictionTag := nextPredictionTag
+  history.io.allocate.bits.predictionTag := selectedPredictionTag
   io.request.ready :=
-    stages.head.io.enq.ready && history.io.allocate.ready && !io.prune.valid
+    historySlotAvailable && stages.head.io.enq.ready && history.io.allocate.ready && !io.prune.valid
   when(io.request.fire) {
-    nextPredictionTag := nextPredictionTag + 1.U
+    nextPredictionTag := selectedPredictionTag + 1.U
   }
 
   val payloads = stages.map(_.io.deq.bits)
@@ -479,14 +491,32 @@ class BSidePredictionPipeline(
   val publishNeeded = Wire(Vec(5, Bool()))
   for (stage <- 0 until 5) {
     nextPredictions(stage) := nextPrediction(payloads(stage), candidates(stage))
+    // The request-side prediction is only authoritative after BF4 matches the
+    // exact I-F4 boundary.  This lets a body transaction inherit its block
+    // tuple and refine SETRET/fallthrough metadata without an inner flush,
+    // while BF0-BF3 and unrelated BF4 requests still start sequentially.
+    val inheritedBoundaryTuple =
+      (stage == 4).B &&
+        boundaryPresent &&
+        payloads(stage).request.prediction.valid &&
+        (candidates(stage).kind === BoundaryKind.Call ||
+          candidates(stage).kind === BoundaryKind.ICall) &&
+        BSidePredictionContract.exactTupleMatch(
+          payloads(stage).request.prediction,
+          candidates(stage))
     tupleMismatch(stage) :=
       candidates(stage).valid &&
-        !BSidePredictionContract.exactTupleMatch(payloads(stage).effective, candidates(stage))
+        !BSidePredictionContract.exactTupleMatch(payloads(stage).effective, candidates(stage)) &&
+        !inheritedBoundaryTuple
     publishNeeded(stage) := tupleMismatch(stage) || (stage == 4).B
   }
 
   val responseQueue =
     Module(new Queue(new BSidePredictionUpdate(p, lineBytes), responseEntries, pipe = true, flow = false))
+  private val responseCountWidth = log2Ceil(responseEntries + 1)
+  val retainedResponsePruneValid = RegInit(false.B)
+  val retainedResponsePrune = RegInit(0.U.asTypeOf(new IfuInnerFlush(p)))
+  val retainedResponsePruneRemaining = RegInit(0.U(responseCountWidth.W))
 
   val downstreamReady = Wire(Vec(5, Bool()))
   for (stage <- 0 until 4) {
@@ -520,7 +550,33 @@ class BSidePredictionPipeline(
     updates(stage).prediction := nextPredictions(stage)
     updates(stage).prediction.epoch :=
       Mux(tupleMismatch(stage), payloads(stage).effective.epoch + 1.U, payloads(stage).effective.epoch)
+    val predictedNextPc =
+      Mux(nextPredictions(stage).taken, nextPredictions(stage).target, nextPredictions(stage).fallthroughPc)
+    // A BSTART prediction describes the continuation after the block, but
+    // I-F0 must first fetch the block body.  The same rule applies to an
+    // earlier trained-table hit; B-F4 may select the continuation only after
+    // I-F4 has observed BSTOP for this transaction.
+    val restartPc =
+      if (stage == 4) {
+        Mux(
+          boundaryPresent && !boundary.continuationReady,
+          boundary.fallthroughPc,
+          predictedNextPc)
+      } else {
+        Mux(
+          nextPredictions(stage).kind === BoundaryKind.Fall,
+          predictedNextPc,
+          nextPredictions(stage).fallthroughPc)
+      }
+    updates(stage).restartPc := restartPc
     updates(stage).correction := tupleMismatch(stage)
+    updates(stage).finalSteer :=
+      (stage == 4).B && boundaryHit && boundary.continuationReady
+    val dispatchResolvableBoundary =
+      resolvedKind === BoundaryKind.Direct || resolvedKind === BoundaryKind.Call
+    updates(stage).retireHistory :=
+      (stage == 4).B && boundaryPresent && !boundary.continuationReady &&
+        !dispatchResolvableBoundary
     updates(stage).finalResponse := (stage == 4).B
   }
 
@@ -548,16 +604,22 @@ class BSidePredictionPipeline(
   stages(4).io.deq.ready := stageKilled(4) || grants(4)
 
   val responseHead = responseQueue.io.deq.bits
+  val activeResponsePrune = Wire(new IfuInnerFlush(p))
+  activeResponsePrune := retainedResponsePrune
+  when(io.prune.valid) {
+    activeResponsePrune := io.prune
+  }
+  activeResponsePrune.valid := io.prune.valid || retainedResponsePruneValid
   val responseHeadKilled =
     responseQueue.io.deq.valid &&
       IfuFlushContract.kills(
         responseHead.request.identity,
         responseHead.request.transactionId,
-        io.prune)
+        activeResponsePrune)
   val responseNeedsFlush =
     responseQueue.io.deq.valid &&
       !responseHeadKilled &&
-      responseHead.correction
+      (responseHead.correction || responseHead.finalSteer)
   io.response.valid :=
     responseQueue.io.deq.valid &&
       !responseHeadKilled &&
@@ -572,12 +634,15 @@ class BSidePredictionPipeline(
   io.innerFlush.bits.transactionId := responseHead.request.transactionId
   io.innerFlush.bits.fetchSeq := responseHead.request.identity.fetchSeq
   io.innerFlush.bits.oldEpoch := responseHead.request.identity.epoch
-  io.innerFlush.bits.restartPc :=
-    Mux(responseHead.prediction.taken, responseHead.prediction.target, responseHead.prediction.fallthroughPc)
+  io.innerFlush.bits.restartPc := responseHead.restartPc
   io.innerFlush.bits.checkpointId := responseHead.prediction.checkpointId
   io.innerFlush.bits.newEpoch := responseHead.prediction.epoch
   io.innerFlush.bits.reason := IfuInnerFlushReason.PredictionCorrection
   io.innerFlush.bits.scope := IfuPruneScope.PreserveTriggerKillYounger
+  io.innerFlush.bits.terminalSteer := responseHead.finalSteer
+  io.innerFlush.bits.terminalTaken := responseHead.prediction.taken
+  io.innerFlush.bits.boundaryPc := responseHead.prediction.branchPc
+  io.innerFlush.bits.boundaryFallthroughPc := responseHead.prediction.fallthroughPc
   io.innerFlush.bits.historyKeyValid := true.B
   io.innerFlush.bits.predictionTag := responseHead.prediction.predictionTag
   io.innerFlush.bits.fetchPacketUid := responseHead.request.identity.fetchPacketUid
@@ -603,12 +668,36 @@ class BSidePredictionPipeline(
       (!io.prune.valid &&
         io.response.ready && (!responseNeedsFlush || io.innerFlush.ready))
 
+  // A canonical redirect is a one-cycle event, while the response queue can
+  // contain many old-epoch records.  Remember exactly how many records were
+  // resident when the redirect arrived so killed rows behind a surviving
+  // trigger cannot surface later as permanently unmatched join responses.
+  // New responses enqueued after the snapshot are outside this retained
+  // window and therefore cannot be consumed by an older prune descriptor.
+  when(io.prune.valid) {
+    retainedResponsePrune := io.prune
+    when(responseQueue.io.deq.fire) {
+      retainedResponsePruneRemaining := responseQueue.io.count - 1.U
+      retainedResponsePruneValid := responseQueue.io.count > 1.U
+    }.otherwise {
+      retainedResponsePruneRemaining := responseQueue.io.count
+      retainedResponsePruneValid := responseQueue.io.count =/= 0.U
+    }
+  }.elsewhen(retainedResponsePruneValid && responseQueue.io.deq.fire) {
+    retainedResponsePruneRemaining := retainedResponsePruneRemaining - 1.U
+    when(retainedResponsePruneRemaining === 1.U) {
+      retainedResponsePruneValid := false.B
+    }
+  }
+
   history.io.correction.valid := io.innerFlush.fire
   history.io.correction.bits := responseHead
   history.io.release.valid :=
     io.response.fire &&
       responseHead.finalResponse &&
-      responseHead.prediction.kind === BoundaryKind.Fall
+      (responseHead.retireHistory ||
+        (!responseHead.correction &&
+          responseHead.prediction.kind === BoundaryKind.Fall))
   history.io.release.bits := responseHead
 
   when(stages(4).io.deq.fire && !stageKilled(4)) {

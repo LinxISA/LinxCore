@@ -123,8 +123,8 @@ int main(int argc, char **argv) {
   const auto boundaryTag = issueFirstLine(dut);
   returnFirstLine(dut, boundaryTag);
   waitForDecoded(dut);
-  expect(dut.io_decodedValidMask == 0x7,
-         "BSTOP must terminate the decoded block at the third instruction");
+  expect(dut.io_decodedValidMask == 0x1,
+         "a direct BSTART must publish alone before its final-path body refetch");
   expect(dut.io_decodedPredictionKind == 4,
          "BSTART direct block must reach D1 as a direct final prediction");
   const std::uint64_t correctedTarget = dut.io_decodedPredictionTarget + 0x40;

@@ -1,13 +1,13 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Fill, Mux1H, PriorityEncoder, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Decoupled, Fill, Mux1H, PriorityEncoder, Queue, UIntToOH, Valid, ValidIO, log2Ceil}
 
 import linxcore.backend.{DecodeRenameROBPath, ExecuteCompletionRetainer, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass, ScalarLsuParams, ScalarSpAccess, ScalarSpTransaction}
+import linxcore.common.{BoundaryKind, CoreParams, DestinationKind, InterfaceParams, OperandClass, RenamedUop, ScalarLsuParams, ScalarSpAccess, ScalarSpTransaction}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ReducedTemplateContextStack, ReducedTemplateSnapshotTable, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric, ScalarSpOrderOwner}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, FrontendOpcodeDecodeTable, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{BackendBranchValidation, BackendBranchValidationContract, BranchValidationPoint, D1DecodedInstructionGroup, D1DecodedLaneQueue, F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, FrontendOpcodeDecodeTable, IfuInnerFlush, IfuInnerFlushReason, IfuPruneScope, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer, SetcBranchValidationOwnership, SetcValidationKind}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, ScalarLrScReservationOwner, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.ScalarLSULoadReturnQueueBank
@@ -119,6 +119,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val fetchReqReady = Input(Bool())
   val fetchRespValid = Input(Bool())
   val fetchRespWindow = Input(UInt(p.windowWidth.W))
+
+  val productionD1 = Flipped(Decoupled(new D1DecodedInstructionGroup(p)))
+  val productionIfuFlush = Input(new IfuInnerFlush(p))
+  val backendValidation = Decoupled(new BackendBranchValidation(p))
 
   val rfInitValid = Input(Bool())
   val rfInitArchTag = Input(UInt(p.archRegWidth.W))
@@ -2283,6 +2287,96 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val idle = Output(Bool())
 }
 
+class FullBidBlockConditionOwnerIO(blockBidWidth: Int) extends Bundle {
+  val captureValid = Input(Bool())
+  val captureTaken = Input(Bool())
+  val captureBlockBidValid = Input(Bool())
+  val captureBlockBid = Input(UInt(blockBidWidth.W))
+
+  val activeBlockValid = Input(Bool())
+  val activeBlockBid = Input(UInt(blockBidWidth.W))
+  val activeConditionValid = Output(Bool())
+  val activeConditionTaken = Output(Bool())
+
+  val fretValid = Input(Bool())
+  val fretBlockBidValid = Input(Bool())
+  val fretBlockBid = Input(UInt(blockBidWidth.W))
+  val fretConsume = Input(Bool())
+  val fretConditionValid = Output(Bool())
+  val fretConditionTaken = Output(Bool())
+}
+
+/** Exact-full-BID SETC condition owner shared by marker and conditional FRET. */
+class FullBidBlockConditionOwner(blockBidWidth: Int) extends Module {
+  val io = IO(new FullBidBlockConditionOwnerIO(blockBidWidth))
+
+  val retainedValid = RegInit(false.B)
+  val retainedTaken = RegInit(false.B)
+  val retainedBlockBidValid = RegInit(false.B)
+  val retainedBlockBid = RegInit(0.U(blockBidWidth.W))
+
+  val captureMatchesActive =
+    io.captureValid && io.captureBlockBidValid && io.activeBlockValid &&
+      io.captureBlockBid === io.activeBlockBid
+  val retainedMatchesActive =
+    retainedValid && retainedBlockBidValid && io.activeBlockValid &&
+      retainedBlockBid === io.activeBlockBid
+  io.activeConditionValid := captureMatchesActive || retainedMatchesActive
+  io.activeConditionTaken := Mux(captureMatchesActive, io.captureTaken, retainedTaken)
+
+  val captureMatchesFret =
+    io.captureValid && io.captureBlockBidValid && io.fretValid && io.fretBlockBidValid &&
+      io.captureBlockBid === io.fretBlockBid
+  val retainedMatchesFret =
+    retainedValid && retainedBlockBidValid && io.fretValid && io.fretBlockBidValid &&
+      retainedBlockBid === io.fretBlockBid
+  io.fretConditionValid := captureMatchesFret || retainedMatchesFret
+  io.fretConditionTaken := Mux(captureMatchesFret, io.captureTaken, retainedTaken)
+
+  when(io.captureValid) {
+    retainedValid := io.captureBlockBidValid
+    retainedTaken := io.captureTaken
+    retainedBlockBidValid := io.captureBlockBidValid
+    retainedBlockBid := io.captureBlockBid
+  }.elsewhen(io.fretConsume && retainedMatchesFret) {
+    retainedValid := false.B
+    retainedTaken := false.B
+    retainedBlockBidValid := false.B
+    retainedBlockBid := 0.U
+  }
+}
+
+private object FullBidBlockConditionWiring {
+  def connect(
+      clear: Bool,
+      captureValid: Bool,
+      captureTaken: Bool,
+      captureBlockBidValid: Bool,
+      captureBlockBid: UInt,
+      activeBlockValid: Bool,
+      activeBlockBid: UInt,
+      fretValid: Bool,
+      fretBlockBidValid: Bool,
+      fretBlockBid: UInt,
+      fretConsume: Bool,
+      blockBidWidth: Int): FullBidBlockConditionOwnerIO = {
+    val owner = withReset(clear) {
+      Module(new FullBidBlockConditionOwner(blockBidWidth))
+    }
+    owner.io.captureValid := captureValid
+    owner.io.captureTaken := captureTaken
+    owner.io.captureBlockBidValid := captureBlockBidValid
+    owner.io.captureBlockBid := captureBlockBid
+    owner.io.activeBlockValid := activeBlockValid
+    owner.io.activeBlockBid := activeBlockBid
+    owner.io.fretValid := fretValid
+    owner.io.fretBlockBidValid := fretBlockBidValid
+    owner.io.fretBlockBid := fretBlockBid
+    owner.io.fretConsume := fretConsume
+    owner.io
+  }
+}
+
 class LinxCoreFrontendFetchRfAluTraceTop(
     val coreParams: CoreParams = CoreParams(),
     val decRenQueueDepth: Int = 4,
@@ -2309,7 +2403,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val reducedReplayLiqRetainedOwnerFallbackLiveProbe: Boolean = false,
     val reducedReplayLiqRetainedOwnerPhysicalSuppressProbe: Boolean = false,
     val reducedReplayLiqRetainedOwnerPhysicalSuppressPromote: Boolean = false,
-    val reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask: Boolean = false)
+    val reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask: Boolean = false,
+    val useProductionD1Ingress: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   require(scalarStidCount > 0, "reduced top must expose at least one scalar STID")
@@ -2354,6 +2449,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val source = Module(new FrontendFetchPacketSource(p))
   val f4 = Module(new F4DecodeWindow(p))
   val denseSlots = Module(new F4DenseSlotQueue(p, depth = denseSlotQueueDepth))
+  val productionD1 = Module(new D1DecodedLaneQueue(p, depth = denseSlotQueueDepth))
   val path = Module(new DecodeRenameROBPath(
     p = p,
     traceParams = traceParams,
@@ -2368,7 +2464,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     skipBlockMarkers = skipBlockMarkers,
     reducedStoreDispatchBypass = !useReducedStoreDispatchStq
   ))
-  DecodeRenameROBPath.tieOffPredecoded(path)
+  if (!useProductionD1Ingress) {
+    DecodeRenameROBPath.tieOffPredecoded(path)
+  }
   val robCompleteArbiter = Module(new ReducedRobCompletionArbiter(
     ptrWidth = log2Ceil(p.robEntries),
     traceParams = traceParams
@@ -2786,17 +2884,35 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val bodyCutRestartPcReg = RegInit(0.U(p.pcWidth.W))
   val reducedLoadReplayResolveClearPending = RegInit(false.B)
   val reducedLoadReplayResolveClearIndex = RegInit(0.U(log2Ceil(p.robEntries).W))
-  val blockBranchTakenValid = RegInit(false.B)
-  val blockBranchTaken = RegInit(false.B)
-  val markerOnlyRedirectFire = path.io.blockMarkerStopRedirectValid && !execute.io.redirectValid
+  // Production IFU steering is owned by B-F4 and exact backend validation.
+  // A marker-only redirect belongs only to the packet-source verification
+  // configuration; replaying it in production after B-F4 moved F0 can
+  // re-execute an older target block.
+  val markerOnlyRedirectFire =
+    !useProductionD1Ingress.B &&
+      path.io.blockMarkerStopRedirectValid &&
+      !execute.io.redirectValid
   val markerRedirectFire = markerOnlyRedirectFire || execute.io.redirectValid
   val admittedMarkerDrainBarrier = RegInit(false.B)
   val selectedSlotOH = UIntToOH(path.io.selectedSlot, p.decodeWidth)
   val selectedMarkerMask = path.io.blockBoundaryMask | path.io.blockStopMask
+  val frontendIngressFire =
+    if (useProductionD1Ingress) productionD1.io.out.fire else denseSlots.io.outFire
   val admittedMarkerDrainFire =
-    (!skipBlockMarkers).B && denseSlots.io.outFire && path.io.selectedValid && (selectedMarkerMask & selectedSlotOH).orR
+    (!skipBlockMarkers).B && frontendIngressFire && path.io.selectedValid && (selectedMarkerMask & selectedSlotOH).orR
   val skippedMarkerLifecycleFire =
-    skipBlockMarkers.B && denseSlots.io.outFire && path.io.blockMarkerSkipValid
+    skipBlockMarkers.B && frontendIngressFire && path.io.blockMarkerSkipValid
+  val backendPipeFlush = Wire(Bool())
+  val (productionBruRecoveryUop, productionDispatchValidationReady) =
+    LinxCoreFrontendFetchRfAluTraceTopBranchValidationWiring.connect(
+      io,
+      path,
+      execute,
+      productionD1,
+      reset.asBool,
+      backendPipeFlush,
+      useProductionD1Ingress,
+      p)
   val scalarRedirectRecovery = Module(new ScalarRedirectRecoverySource(
     entries = p.robEntries,
     bidWidth = p.blockBidWidth,
@@ -2811,16 +2927,44 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     path,
     execute,
     scalarRedirectRecovery,
+    productionBruRecoveryUop,
     markerOnlyRedirectFire,
     lsidToReducedStoreId(execute.io.completeLsId),
     p)
-  val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
+  val productionIfuPipeFlush =
+    LinxCoreFrontendFetchRfAluTraceTopPipeFlushWiring.productionIfuCanonical(
+      io.productionIfuFlush,
+      useProductionD1Ingress)
+  val frontendPipeFlush =
+    LinxCoreFrontendFetchRfAluTraceTopPipeFlushWiring.frontend(
+      io.frontendFlushValid,
+      markerRedirectPending,
+      productionIfuPipeFlush)
+  // Once the exact recovery block is closed and all of its resident rows have
+  // completed, cut younger backend ingress immediately.  Waiting for the
+  // validation to traverse the IFU feedback bridge leaves a multi-cycle hole
+  // in which a previously non-resident wrong-path row can allocate after the
+  // ROB suffix query.  Keep the fence asserted until the exact IFU recovery
+  // acknowledgement retires the query: a pulse only clears the rows already
+  // present and still permits a stale D1 response to refill the backend on the
+  // following cycle.  Delaying assertion until recoveryReady preserves a
+  // non-terminal SETC's same-block tail through completion.
+  val recoveryIngressFenceFlush =
+    LinxCoreFrontendFetchRfAluTraceTopPipeFlushWiring.recoveryIngressFence(
+      path.io.recoveryBlockQueryValid,
+      path.io.recoveryBlockReady,
+      reset.asBool,
+      useProductionD1Ingress)
   // Every marker redirect invalidates decoded/queued old-path work, even when
   // the ROB is already empty and no architectural recovery intent is needed.
   // Keep ROB/GPR recovery qualified separately; this pulse only clears the
   // backend pipeline queues that sit in front of ROB allocation.
-  val backendPipeFlush =
-    io.frontendFlushValid || markerRedirectPending || path.io.recoveryIntentConsumed
+  backendPipeFlush :=
+    LinxCoreFrontendFetchRfAluTraceTopPipeFlushWiring.backend(
+      io.frontendFlushValid,
+      markerRedirectPending,
+      path.io.recoveryIntentConsumed,
+      productionIfuPipeFlush) || recoveryIngressFenceFlush
   val externalBfuGeometryValid = io.reducedBfuBodyValid
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
   val localBfuCutFeedbackPending = Module(new ReducedBfuResolvedBodyEndPending(p))
@@ -3000,34 +3144,40 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     bodyCutRestartPcReg := 0.U
   }
 
-  source.io.startValid := io.startValid
+  source.io.startValid := io.startValid && (!useProductionD1Ingress).B
   source.io.startPc := io.startPc
-  source.io.restartValid := io.restartValid || markerRedirectPending || bodyCutRestartPending
+  source.io.restartValid :=
+    (io.restartValid || markerRedirectPending || bodyCutRestartPending) && (!useProductionD1Ingress).B
   source.io.restartPc := Mux(markerRedirectPending, markerRedirectPcReg, Mux(bodyCutRestartPending, bodyCutRestartPcReg, io.restartPc))
   source.io.flushValid := io.frontendFlushValid
   source.io.peId := io.peId
   source.io.threadId := io.threadId
-  source.io.reqReady := io.fetchReqReady
-  source.io.respValid := io.fetchRespValid
+  source.io.reqReady := io.fetchReqReady && (!useProductionD1Ingress).B
+  source.io.respValid := io.fetchRespValid && (!useProductionD1Ingress).B
   source.io.respWindow := io.fetchRespWindow
-  source.io.outReady := denseSlots.io.inReady
+  source.io.outReady := denseSlots.io.inReady && (!useProductionD1Ingress).B
   source.io.advanceBytes := effectiveSourceAdvanceBytes
 
   f4.io.in := source.io.out
   f4.io.flushValid := frontendPipeFlush
 
   denseSlots.io.inD1 := f4.io.d1
+  denseSlots.io.inD1.valid := f4.io.d1.valid && (!useProductionD1Ingress).B
   denseSlots.io.inSlots := frontendSlots
-  denseSlots.io.inValidMask := frontendValidMask
-  denseSlots.io.outReady := path.io.decodeReady && !admittedMarkerDrainBarrier
+  denseSlots.io.inValidMask := Mux(useProductionD1Ingress.B, 0.U, frontendValidMask)
+  denseSlots.io.outReady :=
+    path.io.decodeReady && !admittedMarkerDrainBarrier && (!useProductionD1Ingress).B
   denseSlots.io.flushValid := frontendPipeFlush
 
-  path.io.d1 := denseSlots.io.outD1
-  path.io.d1.valid := denseSlots.io.outD1.valid && !admittedMarkerDrainBarrier
-  path.io.slots := denseSlots.io.outSlots
-  path.io.validMask := Mux(admittedMarkerDrainBarrier, 0.U, denseSlots.io.outValidMask)
-  path.io.samePacketNextSlotValid := denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier
-  path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot
+  LinxCoreFrontendFetchRfAluTraceTopProductionD1Wiring.connect(
+    io,
+    path,
+    denseSlots,
+    productionD1,
+    admittedMarkerDrainBarrier,
+    productionDispatchValidationReady,
+    useProductionD1Ingress,
+    p)
   path.io.flushValid := backendPipeFlush
   LinxCoreFrontendFetchRfAluTraceTopScalarSpOrderWiring.connect(
     io,
@@ -3914,13 +4064,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.storeScResultSuccess := scalarScHandshake.io.storeScResultSuccess
   path.io.storeScResultIdentity := scalarScHandshake.io.storeScResultIdentity
   path.io.storeScStoreData := scalarScHandshake.io.storeScStoreData
-  // SETC completes in W2 and may coincide with the decode-side marker that
-  // closes the block.  Bypass the W2 result into the marker lifecycle so the
-  // decision is visible in that cycle; retain the register for later FRET.
-  val liveBlockBranchTakenValid = blockBranchTakenValid || execute.io.branchConditionValid
-  val liveBlockBranchTaken = Mux(execute.io.branchConditionValid, execute.io.branchConditionTaken, blockBranchTaken)
-  path.io.blockBranchTakenValid := liveBlockBranchTakenValid
-  path.io.blockBranchTaken := liveBlockBranchTaken
   path.io.scalarRedirectValid := execute.io.redirectValid
   path.io.scalarRedirectStid := execute.io.releaseStid
   path.io.deallocReady := io.deallocReady
@@ -4885,6 +5028,29 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.write(0).tag := rfWritebackArbiter.io.writeTag
   rf.io.write(0).data := rfWritebackArbiter.io.writeData
   val localReset = backendPipeFlush || io.startValid || io.restartValid
+  val issueIsFretStk =
+    issue.io.issueValid &&
+      issue.io.issueUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
+  val issueFretStkFallbackValid =
+    issueIsFretStk && issue.io.issueUop.fretStkFallbackTargetValid
+  val conditionalFretIssueFire = issue.io.issueFire && issueFretStkFallbackValid
+  val blockCondition = FullBidBlockConditionWiring.connect(
+    reset.asBool || io.startValid || io.restartValid,
+    execute.io.branchConditionValid,
+    execute.io.branchConditionTaken,
+    execute.io.branchConditionUop.blockBidValid,
+    execute.io.branchConditionUop.blockBid,
+    path.io.blockMarkerActiveValid,
+    path.io.blockMarkerActiveBid,
+    issueIsFretStk,
+    issue.io.issueUop.blockBidValid,
+    issue.io.issueUop.blockBid,
+    conditionalFretIssueFire,
+    p.blockBidWidth)
+  path.io.blockBranchTakenValid := blockCondition.activeConditionValid
+  path.io.blockBranchTaken := blockCondition.activeConditionTaken
+  val liveFretConditionValid = blockCondition.fretConditionValid
+  val liveFretConditionTaken = blockCondition.fretConditionTaken
   val localDstAllocT =
     issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid && (issue.io.inputAcceptUop.dst(0).kind === DestinationKind.T)
   val localDstAllocU =
@@ -4944,25 +5110,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   // Preserve normal ROB/rename allocation order, but hold the issue handshake
   // until the block-condition latch is valid so execute cannot consume an
   // invalid condition snapshot and return instead of taking the loop edge.
-  val issueIsFretStk =
-    issue.io.issueValid &&
-      issue.io.issueUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
-  val issueFretStkFallbackValid =
-    issueIsFretStk && issue.io.issueUop.fretStkFallbackTargetValid
-  val conditionalFretEnqueueFire =
-    issue.io.inputAcceptFire &&
-      issue.io.inputAcceptUop.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W) &&
-      issue.io.inputAcceptUop.fretStkFallbackTargetValid
-  val conditionalFretIssueFire = issue.io.issueFire && issueFretStkFallbackValid
-  val conditionalFretPending = RegInit(false.B)
-  when(localReset) {
-    conditionalFretPending := false.B
-  }.elsewhen(conditionalFretEnqueueFire =/= conditionalFretIssueFire) {
-    conditionalFretPending := conditionalFretEnqueueFire
-  }
-  val conditionalFretOwnsCondition = conditionalFretPending || conditionalFretEnqueueFire
   val conditionalFretStkWaiting =
-    issueFretStkFallbackValid && !liveBlockBranchTakenValid
+    issueFretStkFallbackValid && !liveFretConditionValid
   val templateContextBlocksIssue = LinxCoreFrontendFetchRfAluTraceTopTemplateContextWiring.connect(
     top = io,
     path = path,
@@ -4973,8 +5122,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     snapshots = templateSnapshotTable,
     localReset = localReset,
     conditionalFretWaiting = conditionalFretStkWaiting,
-    liveConditionValid = liveBlockBranchTakenValid,
-    liveConditionTaken = liveBlockBranchTaken,
+    liveConditionValid = liveFretConditionValid,
+    liveConditionTaken = liveFretConditionTaken,
     templateRfReadPort = coreParams.scalarBackend.gprReadPorts + 3,
     p = p)
   val redirectCleanupCutsIssue = LinxCoreFrontendFetchRfAluTraceTopRedirectIssueCutWiring.cutsIssue(
@@ -4993,8 +5142,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     // an older return.  A FRET that owns a fallback still waits above until
     // its causal SETC condition is live.
     executeInputUop.fretStkContextValid := true.B
-    executeInputUop.fretStkConditionValid := liveBlockBranchTakenValid
-    executeInputUop.fretStkConditionTaken := liveBlockBranchTaken
+    executeInputUop.fretStkConditionValid := liveFretConditionValid
+    executeInputUop.fretStkConditionTaken := liveFretConditionTaken
   }
   issue.io.issueReady :=
     Mux(
@@ -5021,49 +5170,32 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   // issue and turn an unconditional return into a conditional redirect.
   execute.io.fretStkFallbackTargetValid := issueFretStkFallbackValid
   execute.io.fretStkFallbackTarget := issue.io.issueUop.fretStkFallbackTarget
-  execute.io.fretStkConditionValid := liveBlockBranchTakenValid
-  execute.io.fretStkConditionTaken := liveBlockBranchTaken
+  execute.io.fretStkConditionValid := liveFretConditionValid
+  execute.io.fretStkConditionTaken := liveFretConditionTaken
 
-  when(localReset) {
-    blockBranchTakenValid := false.B
-    blockBranchTaken := false.B
-  }.elsewhen(markerRedirectFire || (skippedMarkerLifecycleFire && !conditionalFretOwnsCondition)) {
-    // A marker consumes the condition even when it falls through.  A
-    // same-cycle W2 result already reaches marker/FRET through the live bypass,
-    // so clearing the retained copy here prevents the next block boundary from
-    // reusing a stale decision.  A program-order older conditional FRET owns
-    // the condition from issue enqueue through issue fire; a younger marker
-    // must not clear that lease while the FRET is still waiting in the fabric.
-    blockBranchTakenValid := false.B
-    blockBranchTaken := false.B
-  }.elsewhen(execute.io.branchConditionValid) {
-    blockBranchTakenValid := true.B
-    blockBranchTaken := execute.io.branchConditionTaken
-  }
-
-  io.fetchReqValid := source.io.reqValid
-  io.fetchReqPc := source.io.reqPc
-  io.fetchRespReady := source.io.respReady
-  io.sourceActive := source.io.active
-  io.sourceWaitingResponse := source.io.waitingResponse
-  io.sourcePacketValid := source.io.packetValid
-  io.sourceReqFire := source.io.reqFire
-  io.sourceRespFire := source.io.respFire
-  io.sourceOutFire := source.io.outFire
-  io.sourceAdvanceZero := source.io.advanceZero
-  io.sourceAdvanceBytes := effectiveSourceAdvanceBytes
+  io.fetchReqValid := source.io.reqValid && (!useProductionD1Ingress).B
+  io.fetchReqPc := Mux(useProductionD1Ingress.B, 0.U, source.io.reqPc)
+  io.fetchRespReady := source.io.respReady && (!useProductionD1Ingress).B
+  io.sourceActive := Mux(useProductionD1Ingress.B, productionD1.io.count =/= 0.U, source.io.active)
+  io.sourceWaitingResponse := source.io.waitingResponse && (!useProductionD1Ingress).B
+  io.sourcePacketValid := Mux(useProductionD1Ingress.B, productionD1.io.out.valid, source.io.packetValid)
+  io.sourceReqFire := source.io.reqFire && (!useProductionD1Ingress).B
+  io.sourceRespFire := source.io.respFire && (!useProductionD1Ingress).B
+  io.sourceOutFire := Mux(useProductionD1Ingress.B, productionD1.io.in.fire, source.io.outFire)
+  io.sourceAdvanceZero := source.io.advanceZero && (!useProductionD1Ingress).B
+  io.sourceAdvanceBytes := Mux(useProductionD1Ingress.B, 0.U, effectiveSourceAdvanceBytes)
   io.sourceRestartValid := io.restartValid || markerRedirectPending || bodyCutRestartPending
   io.sourceRestartPc := Mux(markerRedirectPending, markerRedirectPcReg, Mux(bodyCutRestartPending, bodyCutRestartPcReg, io.restartPc))
-  io.sourceCurrentPc := source.io.currentPc
-  io.sourceIssuedPc := source.io.issuedPc
-  io.sourceNextPktUid := source.io.nextPktUid
+  io.sourceCurrentPc := Mux(useProductionD1Ingress.B, 0.U, source.io.currentPc)
+  io.sourceIssuedPc := Mux(useProductionD1Ingress.B, 0.U, source.io.issuedPc)
+  io.sourceNextPktUid := Mux(useProductionD1Ingress.B, 0.U, source.io.nextPktUid)
   io.debugBlockMarkerStopRedirectValid := path.io.blockMarkerStopRedirectValid
   io.debugBlockMarkerStopRedirectPc := path.io.blockMarkerStopRedirectPc
   io.debugMarkerRedirectFire := markerRedirectFire
   io.debugMarkerRedirectPending := markerRedirectPending
   io.debugMarkerRedirectPc := markerRedirectPcReg
-  io.debugBodyCutAdvanceBytes := effectiveSourceAdvanceBytes
-  io.debugF4TotalLenBytes := f4.io.totalLenBytes
+  io.debugBodyCutAdvanceBytes := Mux(useProductionD1Ingress.B, 0.U, effectiveSourceAdvanceBytes)
+  io.debugF4TotalLenBytes := Mux(useProductionD1Ingress.B, 0.U, f4.io.totalLenBytes)
   io.debugReadinessBits := Cat(
     path.io.robMarkerRetireSourceLifecycleFire,
     localIncomingBlocked,
@@ -5079,9 +5211,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     conditionalFretStkWaiting,
     execute.io.branchConditionValid,
     execute.io.branchConditionTaken,
-    blockBranchTakenValid,
-    blockBranchTaken,
-    liveBlockBranchTakenValid)
+    blockCondition.activeConditionValid,
+    blockCondition.activeConditionTaken,
+    liveFretConditionValid)
   io.debugContinuationBits := Cat(
     path.io.scalarContinuationOwnershipCutFire,
     path.io.scalarContinuationGprCutFire,
@@ -5165,15 +5297,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuLocalBodyWindowArmFire := localBfuBodyWindow.io.armFire
   io.reducedBfuLocalBodyWindowReleaseFire := localBfuBodyWindow.io.releaseFire
   io.reducedBfuLocalBodyWindowArmSlot := localBfuBodyWindow.io.armSlot
-  io.f4ValidMask := frontendValidMask
-  io.f4SlotCount := frontendSlotCount
-  io.denseSlotQueueInFire := denseSlots.io.inFire
-  io.denseSlotQueueOutFire := denseSlots.io.outFire
-  io.denseSlotQueueInSlotCount := denseSlots.io.inSlotCount
-  io.denseSlotQueueCount := denseSlots.io.count
-  io.denseSlotQueueHeadSlot := denseSlots.io.headSlotIndex
-  io.denseSlotQueueFull := denseSlots.io.full
-  io.denseSlotQueueEmpty := denseSlots.io.empty
+  io.f4ValidMask := Mux(useProductionD1Ingress.B, productionD1.io.out.bits.validMask, frontendValidMask)
+  io.f4SlotCount := Mux(useProductionD1Ingress.B, productionD1.io.inLaneCount, frontendSlotCount)
+  io.denseSlotQueueInFire := Mux(useProductionD1Ingress.B, productionD1.io.in.fire, denseSlots.io.inFire)
+  io.denseSlotQueueOutFire := frontendIngressFire
+  io.denseSlotQueueInSlotCount :=
+    Mux(useProductionD1Ingress.B, productionD1.io.inLaneCount, denseSlots.io.inSlotCount)
+  io.denseSlotQueueCount := Mux(useProductionD1Ingress.B, productionD1.io.count, denseSlots.io.count)
+  io.denseSlotQueueHeadSlot :=
+    Mux(useProductionD1Ingress.B, productionD1.io.headLane, denseSlots.io.headSlotIndex)
+  io.denseSlotQueueFull :=
+    Mux(useProductionD1Ingress.B, productionD1.io.count === denseSlotQueueDepth.U, denseSlots.io.full)
+  io.denseSlotQueueEmpty :=
+    Mux(useProductionD1Ingress.B, productionD1.io.count === 0.U, denseSlots.io.empty)
   io.admittedMarkerDrainBarrier := admittedMarkerDrainBarrier
   io.decodeReady := path.io.decodeReady
   io.decodeQueuePushReady := path.io.decodeQueuePushReady
@@ -11711,12 +11847,49 @@ private object LinxCoreFrontendFetchRfAluTraceTopScalarSpOrderWiring {
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopPipeFlushWiring {
+  def recoveryIngressFence(
+      queryValid: Bool,
+      recoveryReady: Bool,
+      localReset: Bool,
+      useProductionD1Ingress: Boolean): Bool = {
+    // localReset is intentionally part of the combinational qualification.
+    // The fence owns no state: queryValid is the recovery transaction lifetime
+    // and therefore cannot leave a stale latch behind after reset/restart.
+    useProductionD1Ingress.B && !localReset && queryValid && recoveryReady
+  }
+
+  def productionIfuCanonical(
+      flush: IfuInnerFlush,
+      useProductionD1Ingress: Boolean): Bool =
+    useProductionD1Ingress.B &&
+      flush.valid &&
+      flush.reason === IfuInnerFlushReason.BruRecovery
+
+  def frontend(external: Bool, markerRedirectPending: Bool, productionBru: Bool): Bool =
+    external || markerRedirectPending || productionBru
+
+  def backend(
+      external: Bool,
+      markerRedirectPending: Bool,
+      recoveryConsumed: Bool,
+      productionBru: Bool): Bool =
+    // The canonical backend recovery can be consumed before its exact BRU
+    // redirect reaches the production IFU.  Correct-path D1 work may enter the
+    // decode/rename queue during that acknowledgement window, while still
+    // carrying reservations allocated before the IFU publishes the new epoch.
+    // Flush that transient backend ingress state again with the accepted BRU
+    // redirect; the IFU restart will replay it in the canonical epoch.
+    external || markerRedirectPending || recoveryConsumed || productionBru
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopMarkerRedirectRecoveryWiring {
   def connect(
       top: LinxCoreFrontendFetchRfAluTraceTopIO,
       path: DecodeRenameROBPath,
       execute: ReducedScalarAluExecute,
       recovery: ScalarRedirectRecoverySource,
+      productionBruRecoveryUop: ValidIO[RenamedUop],
       markerOnlyRedirectFire: Bool,
       executeReducedLsId: ROBID,
       p: InterfaceParams): Unit = {
@@ -11733,32 +11906,70 @@ private object LinxCoreFrontendFetchRfAluTraceTopMarkerRedirectRecoveryWiring {
     val commitHeadOH = UIntToOH(path.io.commitHeadRid.value, p.robEntries)
     val markerHasYoungerRobRow = (path.io.occupiedMask & ~commitHeadOH).orR
 
+    val productionBruRecovery = productionBruRecoveryUop.valid
     recovery.io.event.valid :=
-      execute.io.redirectValid ||
+      productionBruRecovery || execute.io.redirectValid ||
         (markerOnlyRedirectFire && markerIdentityValid && markerHasYoungerRobRow)
     recovery.io.event.blockBidValid :=
-      Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveValid, execute.io.completeRow.blockBidValid)
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.blockBidValid,
+        Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveValid, execute.io.completeRow.blockBidValid))
     recovery.io.event.blockBid :=
-      Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveBid, execute.io.completeRow.blockBid)
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.blockBid,
+        Mux(markerOnlyRedirectFire, path.io.blockMarkerActiveBid, execute.io.completeRow.blockBid))
     recovery.io.event.bid :=
-      Mux(markerOnlyRedirectFire, path.io.commitHeadBid, execute.io.releaseBid)
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.bid,
+        Mux(markerOnlyRedirectFire, path.io.commitHeadBid, execute.io.releaseBid))
     recovery.io.event.rid :=
-      Mux(markerOnlyRedirectFire, path.io.commitHeadRid, execute.io.releaseRid)
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.rid,
+        Mux(markerOnlyRedirectFire, path.io.commitHeadRid, execute.io.releaseRid))
     recovery.io.event.lsId :=
-      Mux(markerOnlyRedirectFire, ROBID.disabled(p.robEntries), executeReducedLsId)
+      Mux(
+        productionBruRecovery || markerOnlyRedirectFire,
+        ROBID.disabled(p.robEntries),
+        executeReducedLsId)
     recovery.io.event.lsIdFull :=
-      Mux(markerOnlyRedirectFire, 0.U, execute.io.completeLsId)
-    recovery.io.event.resolveLsIdValid := execute.io.redirectValid
+      Mux(productionBruRecovery || markerOnlyRedirectFire, 0.U, execute.io.completeLsId)
+    recovery.io.event.resolveLsIdValid := execute.io.redirectValid && !productionBruRecovery
     recovery.io.event.stid :=
-      Mux(markerOnlyRedirectFire, path.io.commitHeadStid, execute.io.releaseStid)
-    recovery.io.event.peId := top.peId
-    recovery.io.event.tid := top.threadId
-    recovery.io.event.orderValid := execute.io.redirectValid
-    recovery.io.event.order := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.threadId,
+        Mux(markerOnlyRedirectFire, path.io.commitHeadStid, execute.io.releaseStid))
+    recovery.io.event.peId :=
+      Mux(productionBruRecovery, productionBruRecoveryUop.bits.peId, top.peId)
+    recovery.io.event.tid :=
+      Mux(productionBruRecovery, productionBruRecoveryUop.bits.threadId, top.threadId)
+    // A production BRU recovery rebases its RID to the youngest completed row
+    // of the SETC's architectural block.  The SETC's original uid is no longer
+    // the recovery pivot: forwarding that stale order would make GPR cleanup
+    // discard mappings written by the same-block tail that the rebased RID is
+    // explicitly preserving.  Use the exact rebased RID for this transaction;
+    // ordinary execute redirects still carry their native order sidecar.
+    recovery.io.event.orderValid := execute.io.redirectValid && !productionBruRecovery
+    recovery.io.event.order :=
+      Mux(
+        productionBruRecovery,
+        productionBruRecoveryUop.bits.uid.uid,
+        Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U))
     recovery.io.sourceReady := path.io.recoveryNonLsuSourceReady(0)
     recovery.io.sourceResolved := path.io.recoverySourceResolvedMask(0)
     recovery.io.payloadIntentConsumed := path.io.recoveryConsumedPayloadSourceMask(0)
     recovery.io.cancel := top.frontendFlushValid || top.restartValid || top.startValid
+
+    when(productionBruRecovery) {
+      assert(recovery.io.eventReady, "production BRU recovery identity must enter canonical backend recovery")
+      assert(
+        !(execute.io.redirectValid || markerOnlyRedirectFire),
+        "production BRU recovery must not collide with another scalar redirect producer")
+    }
 
   }
 }
@@ -11862,6 +12073,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreCommitIngressWiring {
       coreParams: CoreParams): Bool = {
     storeExecBridge.io.flushValid := reducedStoreFlush
     storeExecBridge.io.completeValid := execute.io.completeFire && useReducedStoreDispatchStq
+    storeExecBridge.io.completeStoreDispatch := execute.io.completeUop.isStore
     storeExecBridge.io.completeRow := execute.io.completeRow
     storeExecBridge.io.completeBid := execute.io.releaseBid
     storeExecBridge.io.completeRid := execute.io.releaseRid
@@ -12226,7 +12438,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopTemplateContextWiring {
       liveConditionTaken: Bool,
       templateRfReadPort: Int,
       p: InterfaceParams): Bool = {
-    snapshots.io.flush := top.startValid || top.restartValid || top.frontendFlushValid
+    val architecturalContextFlush =
+      top.startValid || top.restartValid || top.frontendFlushValid
+    snapshots.io.flush := localReset
     snapshots.io.writeValid := path.io.templateSnapshotValid && path.io.templateSnapshotRid.valid
     snapshots.io.writeRid := path.io.templateSnapshotRid.value
     snapshots.io.writeMap := path.io.templateSmapSnapshot
@@ -12241,7 +12455,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopTemplateContextWiring {
     val executeCompleteIsFentry =
       execute.io.completeFire &&
         ((execute.io.completeRow.insn & "h707f".U) === "h0041".U)
-    context.io.flush := top.startValid || top.restartValid || top.frontendFlushValid
+    context.io.flush := architecturalContextFlush
+    context.io.cancel := localReset && !architecturalContextFlush
     context.io.captureStart := executeCompleteIsFentry && snapshots.io.captureValid
     context.io.captureStartArch := execute.io.completeRow.insn(19, 15)
     context.io.captureEndArch := execute.io.completeRow.insn(24, 20)
@@ -12328,6 +12543,328 @@ private object LinxCoreFrontendFetchRfAluTraceTopWritebackPrimaryWiring {
     arbiter.io.templateTag := templateContext.io.restoreWriteTag
     arbiter.io.templateData := templateContext.io.restoreWriteData
     templateContext.io.restoreWriteReady := arbiter.io.selectedTemplate
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopBranchValidationWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      execute: ReducedScalarAluExecute,
+      productionD1: D1DecodedLaneQueue,
+      localReset: Bool,
+      backendPipeFlush: Bool,
+      useProductionD1Ingress: Boolean,
+      p: InterfaceParams): (ValidIO[RenamedUop], Bool) = {
+    val productionBruRecoveryUop = Wire(Valid(new RenamedUop(p)))
+    val retainMispredictForFeedback = RegInit(false.B)
+    val pendingBackendRecovery = RegInit(false.B)
+    val backendRecoveryPublished = RegInit(false.B)
+    val backendCleanupDone = RegInit(false.B)
+    val ifuRecoverySeen = RegInit(false.B)
+    val pendingBackendRecoveryUop = RegInit(0.U.asTypeOf(new RenamedUop(p)))
+    val queue = withReset(localReset || (backendPipeFlush && !retainMispredictForFeedback)) {
+      Module(new Queue(new BackendBranchValidation(p), 4, pipe = true, flow = false))
+    }
+    val dispatchQueue = withReset(localReset || backendPipeFlush) {
+      Module(new Queue(new BackendBranchValidation(p), 4, pipe = true, flow = false))
+    }
+    val dispatchValidationPending = RegInit(false.B)
+    val dispatchValidationPendingMispredict = RegInit(false.B)
+    val dispatchUop = productionD1.io.out.bits.entries(productionD1.io.headLane)
+    val dispatchOwnsValidation =
+      dispatchUop.sob &&
+        (dispatchUop.boundaryKind === BoundaryKind.Direct ||
+          dispatchUop.boundaryKind === BoundaryKind.Call)
+    dispatchQueue.io.enq.valid :=
+      useProductionD1Ingress.B && productionD1.io.out.fire &&
+        dispatchUop.valid && dispatchUop.prediction.valid && dispatchOwnsValidation
+    dispatchQueue.io.enq.bits := 0.U.asTypeOf(dispatchQueue.io.enq.bits)
+    dispatchQueue.io.enq.bits.uop.valid := dispatchUop.valid
+    dispatchQueue.io.enq.bits.uop.peId := dispatchUop.peId
+    dispatchQueue.io.enq.bits.uop.threadId := dispatchUop.threadId
+    dispatchQueue.io.enq.bits.uop.pc := dispatchUop.pc
+    dispatchQueue.io.enq.bits.uop.checkpointId := dispatchUop.checkpointId
+    dispatchQueue.io.enq.bits.uop.uid := dispatchUop.uid
+    dispatchQueue.io.enq.bits.uop.boundaryKind := dispatchUop.boundaryKind
+    dispatchQueue.io.enq.bits.uop.boundaryTarget := dispatchUop.boundaryTarget
+    dispatchQueue.io.enq.bits.uop.prediction := dispatchUop.prediction
+    dispatchQueue.io.enq.bits.point := BranchValidationPoint.Dispatch
+    dispatchQueue.io.enq.bits.setcKind := SetcValidationKind.None
+    dispatchQueue.io.enq.bits.actualTaken := true.B
+    dispatchQueue.io.enq.bits.actualBranchPc := dispatchUop.pc
+    dispatchQueue.io.enq.bits.actualTarget := dispatchUop.boundaryTarget
+    dispatchQueue.io.enq.bits.actualFallthroughPc := dispatchUop.pc + dispatchUop.insnLen
+    dispatchQueue.io.enq.bits.actualKind := dispatchUop.boundaryKind
+
+    val uop = execute.io.branchConditionUop
+    val prediction = uop.prediction
+    val setcOwnsValidation =
+      SetcBranchValidationOwnership.owns(
+        execute.io.branchConditionIsTarget,
+        prediction.kind)
+    val actualKind =
+      SetcBranchValidationOwnership.actualKind(
+        execute.io.branchConditionIsTarget,
+        prediction.kind)
+    val setcValidationValid =
+      useProductionD1Ingress.B &&
+        execute.io.branchConditionValid &&
+        prediction.valid &&
+        setcOwnsValidation
+    val setcValidation = Wire(new BackendBranchValidation(p))
+    setcValidation := 0.U.asTypeOf(setcValidation)
+    setcValidation.uop := uop
+    setcValidation.point := BranchValidationPoint.BruE1
+    setcValidation.setcKind :=
+      Mux(
+        execute.io.branchConditionIsTarget,
+        SetcValidationKind.Target,
+        SetcValidationKind.Condition)
+    setcValidation.actualTaken :=
+      Mux(execute.io.branchConditionIsTarget, true.B, execute.io.branchConditionTaken)
+    setcValidation.actualBranchPc := prediction.branchPc
+    setcValidation.actualTarget :=
+      Mux(
+        execute.io.branchConditionIsTarget,
+        execute.io.branchConditionTarget,
+        // LinxCoreModel resolves conditional SETC against the target in the
+        // SETC's own BlockCommand.  The renamed uop snapshots that BID-scoped
+        // target at decode; predictor state and the live marker context are
+        // deliberately not architectural truth.
+        uop.boundaryTarget)
+    setcValidation.actualFallthroughPc := prediction.fallthroughPc
+    setcValidation.actualKind := actualKind
+
+    // SETC completion cannot be backpressured after W2. Give it priority over
+    // the independently buffered Dispatch producer; neither event may be
+    // dropped when both owners resolve in the same cycle.
+    queue.io.enq.valid := setcValidationValid || dispatchQueue.io.deq.valid
+    queue.io.enq.bits := Mux(setcValidationValid, setcValidation, dispatchQueue.io.deq.bits)
+    dispatchQueue.io.deq.ready := queue.io.enq.ready && !setcValidationValid
+    val queuedValidationMispredict =
+      queue.io.deq.valid && BackendBranchValidationContract.mispredict(queue.io.deq.bits)
+    val validationCanPublish =
+      !queuedValidationMispredict ||
+        queue.io.deq.bits.point === BranchValidationPoint.Dispatch ||
+        path.io.recoveryBlockReady
+    io.backendValidation.valid := queue.io.deq.valid && validationCanPublish
+    io.backendValidation.bits := queue.io.deq.bits
+    queue.io.deq.ready := io.backendValidation.ready && validationCanPublish
+
+    val completingValidationMispredict =
+      queue.io.enq.fire && BackendBranchValidationContract.mispredict(queue.io.enq.bits)
+    val completingBruValidationMispredict =
+      completingValidationMispredict && queue.io.enq.bits.point === BranchValidationPoint.BruE1
+    val admittedValidationMispredict =
+      io.backendValidation.fire &&
+        BackendBranchValidationContract.mispredict(io.backendValidation.bits)
+
+    val activeRecoveryUop = Wire(new RenamedUop(p))
+    activeRecoveryUop := pendingBackendRecoveryUop
+    val activeRecoveryValid = pendingBackendRecovery
+
+    path.io.recoveryBlockQueryValid := useProductionD1Ingress.B && activeRecoveryValid
+    path.io.recoveryBlockQueryBid := activeRecoveryUop.blockBid
+    path.io.recoveryBlockQueryStid := activeRecoveryUop.threadId
+    // Hold commit in the SETC completion cycle, but start the block query from
+    // the registered recovery owner on the following cycle.  The validation
+    // queue is pipelined, so feeding its dequeue-ready result back into the
+    // same-cycle enqueue identity would otherwise form a ready/valid loop.
+    path.io.commitHold :=
+      useProductionD1Ingress.B && (completingBruValidationMispredict || activeRecoveryValid)
+
+    val recoveryBlockReady =
+      activeRecoveryValid && path.io.recoveryBlockReady &&
+        path.io.recoveryBlockPivotPresent && !backendRecoveryPublished
+    val productionBruFlush =
+      useProductionD1Ingress.B &&
+        io.productionIfuFlush.valid &&
+        io.productionIfuFlush.reason === IfuInnerFlushReason.BruRecovery
+
+    when(localReset) {
+      dispatchValidationPending := false.B
+      dispatchValidationPendingMispredict := false.B
+    }.elsewhen(dispatchQueue.io.enq.fire) {
+      dispatchValidationPending := true.B
+      dispatchValidationPendingMispredict :=
+        BackendBranchValidationContract.mispredict(dispatchQueue.io.enq.bits)
+    }.elsewhen(
+      dispatchValidationPending && !dispatchValidationPendingMispredict &&
+        io.backendValidation.fire &&
+        io.backendValidation.bits.point === BranchValidationPoint.Dispatch) {
+      dispatchValidationPending := false.B
+      dispatchValidationPendingMispredict := false.B
+    }.elsewhen(
+      dispatchValidationPending && dispatchValidationPendingMispredict && productionBruFlush) {
+      dispatchValidationPending := false.B
+      dispatchValidationPendingMispredict := false.B
+    }.elsewhen(backendPipeFlush && !retainMispredictForFeedback) {
+      dispatchValidationPending := false.B
+      dispatchValidationPendingMispredict := false.B
+    }
+
+    when(localReset) {
+      retainMispredictForFeedback := false.B
+    }.elsewhen(completingValidationMispredict) {
+      retainMispredictForFeedback := true.B
+    }.elsewhen(admittedValidationMispredict) {
+      retainMispredictForFeedback := false.B
+    }
+
+    val backendCleanupConsumed =
+      backendRecoveryPublished && backendPipeFlush && !productionBruFlush
+    val noBackendSuffixAfterIfuRecovery =
+      pendingBackendRecovery && ifuRecoverySeen && path.io.recoveryBlockReady &&
+        !path.io.recoveryBlockPivotPresent && !backendRecoveryPublished
+    val recoveryTransactionComplete =
+      pendingBackendRecovery &&
+        (ifuRecoverySeen || productionBruFlush) &&
+        (backendCleanupDone || backendCleanupConsumed || noBackendSuffixAfterIfuRecovery)
+
+    when(localReset) {
+      pendingBackendRecovery := false.B
+      backendRecoveryPublished := false.B
+      backendCleanupDone := false.B
+      ifuRecoverySeen := false.B
+      }.elsewhen(completingBruValidationMispredict) {
+        pendingBackendRecovery := true.B
+      pendingBackendRecoveryUop := queue.io.enq.bits.uop
+      backendRecoveryPublished := false.B
+      backendCleanupDone := false.B
+      ifuRecoverySeen := false.B
+    }.otherwise {
+      when(productionBruFlush) {
+        ifuRecoverySeen := true.B
+      }
+      when(recoveryBlockReady) {
+        backendRecoveryPublished := true.B
+      }
+      when(backendCleanupConsumed || noBackendSuffixAfterIfuRecovery) {
+        backendCleanupDone := true.B
+      }
+      when(recoveryTransactionComplete) {
+        pendingBackendRecovery := false.B
+        backendRecoveryPublished := false.B
+        backendCleanupDone := false.B
+        ifuRecoverySeen := false.B
+      }
+    }
+
+    def matchesRecovery(uop: RenamedUop): Bool = {
+      val candidate = uop.prediction
+      uop.valid && candidate.valid &&
+        uop.peId === io.productionIfuFlush.peId &&
+        uop.threadId === io.productionIfuFlush.threadId &&
+        candidate.transactionId === io.productionIfuFlush.transactionId &&
+        candidate.predictionTag === io.productionIfuFlush.predictionTag &&
+        candidate.fetchPacketUid === io.productionIfuFlush.fetchPacketUid &&
+        candidate.fetchSeq === io.productionIfuFlush.fetchSeq &&
+        candidate.epoch === io.productionIfuFlush.oldEpoch &&
+        candidate.checkpointId === io.productionIfuFlush.checkpointId
+    }
+
+    val expectedBruFlushPending = RegInit(false.B)
+    val expectedBruFlushUop = RegInit(0.U.asTypeOf(new RenamedUop(p)))
+
+    when(completingValidationMispredict) {
+      assert(
+        !expectedBruFlushPending,
+        "production backend must serialize BRU recoveries until the IFU acknowledges the exact key")
+      expectedBruFlushPending := true.B
+      expectedBruFlushUop := queue.io.enq.bits.uop
+    }.elsewhen(productionBruFlush) {
+      expectedBruFlushPending := false.B
+    }
+
+    // SETC may precede ordinary instructions in the same architectural block.
+    // Freeze commit as soon as a mismatch is known, but let the current block
+    // finish execution. Once every resident row with the SETC's exact full BID
+    // is complete, the IFU may remove still-unallocated wrong-path ingress.
+    // Only a resident next RID triggers canonical backend suffix cleanup; when
+    // no suffix has reached the ROB, the exact IFU BRU flush clears D1/dec-ren
+    // and completes the transaction without fabricating a ROB recovery. This
+    // avoids waiting for the successor that the BRU redirect itself must fetch.
+    // The validation queue survives until the IFU acknowledges the exact key.
+    productionBruRecoveryUop.valid :=
+      useProductionD1Ingress.B && recoveryBlockReady
+    productionBruRecoveryUop.bits := activeRecoveryUop
+    productionBruRecoveryUop.bits.rid := path.io.recoveryBlockLastRid
+
+    when(productionBruFlush) {
+      assert(
+        expectedBruFlushPending && matchesRecovery(expectedBruFlushUop),
+        "production IFU BRU flush must acknowledge the exact admitted backend validation identity")
+    }
+
+    when(useProductionD1Ingress.B && execute.io.branchConditionValid && setcOwnsValidation) {
+      assert(prediction.valid, "SETC validation requires the final D1 prediction sidecar")
+      assert(
+        queue.io.enq.ready,
+        "production backend validation queue must accept every completing SETC")
+    }
+    // Do not admit the predicted body until Dispatch either validates the
+    // marker or the exact BRU recovery arrives. This keeps a mismatching
+    // direct/call from orphaning already-allocated body rows in the ROB.
+    (productionBruRecoveryUop, dispatchQueue.io.enq.ready && !dispatchValidationPending)
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopProductionD1Wiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      denseSlots: F4DenseSlotQueue,
+      productionD1: D1DecodedLaneQueue,
+      admittedMarkerDrainBarrier: Bool,
+      branchValidationIngressReady: Bool,
+      useProductionD1Ingress: Boolean,
+      p: InterfaceParams): Unit = {
+    val productionIngressFlush = Wire(new IfuInnerFlush(p))
+    productionIngressFlush := io.productionIfuFlush
+    when(io.startValid || io.restartValid || io.frontendFlushValid) {
+      productionIngressFlush := 0.U.asTypeOf(productionIngressFlush)
+      productionIngressFlush.valid := true.B
+      productionIngressFlush.peId := io.peId
+      productionIngressFlush.threadId := io.threadId
+      productionIngressFlush.restartPc := Mux(io.restartValid, io.restartPc, io.startPc)
+      productionIngressFlush.scope := IfuPruneScope.KillAllThreadState
+    }
+
+    productionD1.io.in.valid := io.productionD1.valid && useProductionD1Ingress.B
+    productionD1.io.in.bits := io.productionD1.bits
+    io.productionD1.ready := productionD1.io.in.ready && useProductionD1Ingress.B
+    productionD1.io.flush := productionIngressFlush
+    val productionHeadIsService =
+      productionD1.io.out.valid &&
+        productionD1.io.out.bits.entries(productionD1.io.headLane).opcode ===
+          FrontendOpcodeDecodeTable.OP_ACRC.U(p.opcodeWidth.W)
+    productionD1.io.out.ready :=
+      path.io.decodeReady && !admittedMarkerDrainBarrier && useProductionD1Ingress.B &&
+        (!productionHeadIsService || productionD1.io.nextValid) &&
+        branchValidationIngressReady
+
+    if (useProductionD1Ingress) {
+      path.io.predecodedD1Valid :=
+        productionD1.io.out.valid && !admittedMarkerDrainBarrier && branchValidationIngressReady
+      path.io.predecodedD1 := productionD1.io.out.bits
+      path.io.predecodedNextValid :=
+        productionD1.io.nextValid && !admittedMarkerDrainBarrier
+      path.io.predecodedNext := productionD1.io.nextUop
+      path.io.d1 := 0.U.asTypeOf(path.io.d1)
+      path.io.slots := 0.U.asTypeOf(path.io.slots)
+      path.io.validMask := 0.U
+      path.io.samePacketNextSlotValid := false.B
+      path.io.samePacketNextSlot := 0.U.asTypeOf(path.io.samePacketNextSlot)
+    } else {
+      path.io.d1 := denseSlots.io.outD1
+      path.io.d1.valid := denseSlots.io.outD1.valid && !admittedMarkerDrainBarrier
+      path.io.slots := denseSlots.io.outSlots
+      path.io.validMask := Mux(admittedMarkerDrainBarrier, 0.U, denseSlots.io.outValidMask)
+      path.io.samePacketNextSlotValid :=
+        denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier
+      path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot
+    }
   }
 }
 

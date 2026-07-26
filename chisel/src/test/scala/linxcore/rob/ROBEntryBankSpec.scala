@@ -457,6 +457,10 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.commitTraceLookupRid.poke(0.U.asTypeOf(dut.io.commitTraceLookupRid))
     dut.io.commitTraceLookupSourceTraceEnable.poke(false.B)
     dut.io.fullBidLookupRequest.poke(0.U.asTypeOf(dut.io.fullBidLookupRequest))
+    dut.io.recoveryBlockQueryValid.poke(false.B)
+    dut.io.recoveryBlockQueryBid.poke(0.U)
+    dut.io.recoveryBlockQueryStid.poke(0.U)
+    dut.io.commitHold.poke(false.B)
   }
 
   private def pokeId(id: ROBID, value: Int, valid: Boolean = true, wrap: Boolean = false): Unit = {
@@ -472,7 +476,9 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
       trap: Boolean = false,
       isLast: Boolean = false,
       markerBoundary: Boolean = false,
-      markerStop: Boolean = false): Unit = {
+      markerStop: Boolean = false,
+      blockBid: Option[BigInt] = None,
+      stid: Int = 0): Unit = {
     clearInputs(dut)
     dut.io.allocValid.poke(true.B)
     dut.io.allocRow.poke(0.U.asTypeOf(dut.io.allocRow))
@@ -484,7 +490,7 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.allocRow.identity.gid.poke(0.U)
     dut.io.allocRow.identity.rid.poke(n.U)
     dut.io.allocRow.blockBidValid.poke(true.B)
-    dut.io.allocRow.blockBid.poke((0x100 + n).U)
+    dut.io.allocRow.blockBid.poke(blockBid.getOrElse(BigInt(0x100 + n)).U)
     dut.io.allocRow.mem.valid.poke(isStore.B)
     dut.io.allocRow.mem.isStore.poke(isStore.B)
     dut.io.allocRow.mem.addr.poke((0x4000 + n * 8).U)
@@ -495,7 +501,7 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     pokeId(dut.io.allocBid, 1)
     pokeId(dut.io.allocGid, 0)
     dut.io.allocPeId.poke(1.U)
-    dut.io.allocStid.poke(0.U)
+    dut.io.allocStid.poke(stid.U)
     dut.io.allocTid.poke(0.U)
     dut.io.allocLsId.poke(n.U)
     dut.io.allocIsStore.poke(isStore.B)
@@ -980,6 +986,149 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("RTL accepts a retained pivot completion while pruning the younger suffix") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocRowOnly(dut, 0)
+      allocRowOnly(dut, 1)
+      completeRow(dut, 1)
+
+      clearInputs(dut)
+      dut.io.completeValid.poke(true.B)
+      dut.io.completeRobValue.poke(0.U)
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.flush.req.stid.poke(0.U)
+      dut.io.flush.baseOnBid.poke(false.B)
+      pokeId(dut.io.flush.req.bid, 1)
+      pokeId(dut.io.flush.req.rid, 1)
+
+      dut.io.flushApplied.expect(true.B)
+      dut.io.flushPruneMask.expect(2.U)
+      dut.io.completeAccepted.expect(true.B)
+      dut.io.completeIgnored.expect(false.B)
+      dut.io.commitValidMask.expect(0.U)
+      dut.clock.step()
+
+      clearInputs(dut)
+      dut.io.commitValidMask.expect(1.U)
+      dut.io.commit.rows(0).identity.rid.expect(0.U)
+      dut.io.occupiedMask.expect(1.U)
+    }
+  }
+
+  test("RTL rejects a completion targeting the suffix pruned in the same cycle") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocRowOnly(dut, 0)
+      allocRowOnly(dut, 1)
+
+      clearInputs(dut)
+      dut.io.completeValid.poke(true.B)
+      dut.io.completeRobValue.poke(1.U)
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.flush.req.stid.poke(0.U)
+      dut.io.flush.baseOnBid.poke(false.B)
+      pokeId(dut.io.flush.req.bid, 1)
+      pokeId(dut.io.flush.req.rid, 1)
+
+      dut.io.flushApplied.expect(true.B)
+      dut.io.completeAccepted.expect(false.B)
+      dut.io.completeIgnored.expect(true.B)
+      dut.clock.step()
+
+      clearInputs(dut)
+      dut.io.occupiedMask.expect(1.U)
+      dut.io.completedMask.expect(0.U)
+    }
+  }
+
+  test("RTL commit hold freezes completed head rows without changing their state") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 1
+    )) { dut =>
+      clearInputs(dut)
+      allocTwoCompletedRows(dut)
+      clearInputs(dut)
+      dut.io.commitHold.poke(true.B)
+
+      dut.io.commitValidMask.expect(0.U)
+      dut.io.completedMask.expect(3.U)
+      dut.clock.step()
+
+      clearInputs(dut)
+      dut.io.commitValidMask.expect(3.U)
+      dut.io.commit.rows(0).identity.rid.expect(0.U)
+      dut.io.commit.rows(1).identity.rid.expect(1.U)
+    }
+  }
+
+  test("RTL recovery block query waits for all matching rows and returns its youngest RID") {
+    simulate(new ROBEntryBank(
+      entries = 8,
+      traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+      mapQDepth = 8,
+      stidWidth = 4,
+      stidCount = 2
+    )) { dut =>
+      clearInputs(dut)
+      allocRowOnly(dut, 0, blockBid = Some(0x155), stid = 1)
+      allocRowOnly(dut, 1, blockBid = Some(0x155), stid = 1)
+      allocRowOnly(dut, 2, isLast = true, blockBid = Some(0x155), stid = 1)
+      completeRow(dut, 0)
+      completeRow(dut, 1)
+
+      clearInputs(dut)
+      dut.io.recoveryBlockQueryValid.poke(true.B)
+      dut.io.recoveryBlockQueryBid.poke(0x155.U)
+      dut.io.recoveryBlockQueryStid.poke(1.U)
+      dut.io.recoveryBlockReady.expect(false.B)
+
+      clearInputs(dut)
+      dut.io.completeValid.poke(true.B)
+      dut.io.completeRobValue.poke(2.U)
+      dut.io.recoveryBlockQueryValid.poke(true.B)
+      dut.io.recoveryBlockQueryBid.poke(0x155.U)
+      dut.io.recoveryBlockQueryStid.poke(1.U)
+      dut.io.completeAccepted.expect(true.B)
+      dut.clock.step()
+
+      clearInputs(dut)
+      dut.io.recoveryBlockQueryValid.poke(true.B)
+      dut.io.recoveryBlockQueryBid.poke(0x155.U)
+      dut.io.recoveryBlockQueryStid.poke(1.U)
+      dut.io.recoveryBlockReady.expect(true.B)
+      dut.io.recoveryBlockLastRid.valid.expect(true.B)
+      dut.io.recoveryBlockLastRid.wrap.expect(false.B)
+      dut.io.recoveryBlockLastRid.value.expect(2.U)
+      dut.io.recoveryBlockPivotPresent.expect(false.B)
+
+      allocRowOnly(dut, 3, blockBid = Some(0x156), stid = 1)
+      clearInputs(dut)
+      dut.io.recoveryBlockQueryValid.poke(true.B)
+      dut.io.recoveryBlockQueryBid.poke(0x155.U)
+      dut.io.recoveryBlockQueryStid.poke(1.U)
+      dut.io.recoveryBlockReady.expect(true.B)
+      dut.io.recoveryBlockLastRid.value.expect(2.U)
+      dut.io.recoveryBlockPivotPresent.expect(true.B)
+    }
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
@@ -1040,6 +1189,11 @@ class ROBEntryBankSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_recoveryOldestValid_1"))
     assert(sv.contains("io_recoveryOldestRid_1_wrap"))
     assert(sv.contains("io_recoveryOldestBlockBid_1"))
+    assert(sv.contains("io_recoveryBlockQueryValid"))
+    assert(sv.contains("io_recoveryBlockReady"))
+    assert(sv.contains("io_recoveryBlockLastRid_value"))
+    assert(sv.contains("io_recoveryBlockPivotPresent"))
+    assert(sv.contains("io_commitHold"))
     assert(sv.contains("CommitTraceMonitor"))
     assert(DestinationKind.T.asUInt.litValue == 2)
     assert(DestinationKind.U.asUInt.litValue == 3)

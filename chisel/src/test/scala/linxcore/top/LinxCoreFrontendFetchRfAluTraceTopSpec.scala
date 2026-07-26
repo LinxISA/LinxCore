@@ -2145,9 +2145,11 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(source.contains("val serviceEnqueueFire = issue.io.inputAcceptFire && issue.io.inputAcceptUop.opcode === serviceOpcode"))
     assert(source.contains("rf.io.clearValid := issue.io.inputAcceptDstValid"))
     assert(source.contains("val localDstAllocT =\n    issue.io.inputAcceptFire && issue.io.inputAcceptUop.dst(0).valid"))
-    assert(source.contains("val conditionalFretEnqueueFire =\n    issue.io.inputAcceptFire &&"))
-    assert(source.contains("path.io.samePacketNextSlotValid := denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier"))
+    assert(source.contains("val conditionalFretIssueFire = issue.io.issueFire && issueFretStkFallbackValid"))
+    assert(source.contains("path.io.samePacketNextSlotValid :=\n        denseSlots.io.outNextSamePacketSlotValid && !admittedMarkerDrainBarrier"))
     assert(source.contains("path.io.samePacketNextSlot := denseSlots.io.outNextSamePacketSlot"))
+    assert(source.contains("!productionHeadIsService || productionD1.io.nextValid"))
+    assert(source.contains("path.io.predecodedNextValid :=\n        productionD1.io.nextValid && !admittedMarkerDrainBarrier"))
   }
 
   test("issue release wiring keeps terminal, LIQ-service-SC, and early-release identities on separate ports") {

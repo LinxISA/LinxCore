@@ -140,6 +140,10 @@ class DecodeRenameROBPathIdentityProbe(reducedStoreDispatchBypass: Boolean = tru
   path.io.samePacketNextSlot := 0.U.asTypeOf(new F4Slot(p))
 
   path.io.flushValid := io.flushValid
+  path.io.recoveryBlockQueryValid := false.B
+  path.io.recoveryBlockQueryBid := 0.U
+  path.io.recoveryBlockQueryStid := 0.U
+  path.io.commitHold := false.B
   path.io.blockExplicitStoreCountValid := false.B
   path.io.blockExplicitStoreCountBid := 0.U
   path.io.blockExplicitStoreCountStid := 0.U

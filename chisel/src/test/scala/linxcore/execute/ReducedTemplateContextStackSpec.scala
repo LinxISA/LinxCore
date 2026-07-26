@@ -7,6 +7,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class ReducedTemplateContextStackSpec extends AnyFunSuite with ChiselSim {
   private def clear(dut: ReducedTemplateContextStack): Unit = {
     dut.io.flush.poke(false.B)
+    dut.io.cancel.poke(false.B)
     dut.io.captureStart.poke(false.B)
     dut.io.captureStartArch.poke(0.U)
     dut.io.captureEndArch.poke(0.U)
@@ -78,6 +79,35 @@ class ReducedTemplateContextStackSpec extends AnyFunSuite with ChiselSim {
       dut.io.frameCount.expect(0.U)
       dut.io.overflow.expect(false.B)
       dut.io.underflow.expect(false.B)
+    }
+  }
+
+  test("suffix recovery cancels an in-flight restore without popping the committed frame") {
+    simulate(new ReducedTemplateContextStack(frameDepth = 4)) { dut =>
+      clear(dut)
+      capture(dut, start = 10, end = 12, dataBase = 1000)
+      dut.io.frameCount.expect(1.U)
+
+      dut.io.restoreStart.poke(true.B)
+      dut.clock.step()
+      dut.io.restoreStart.poke(false.B)
+      dut.io.restoreBusy.expect(true.B)
+      dut.io.restoreWriteReady.poke(true.B)
+      dut.clock.step()
+
+      dut.io.cancel.poke(true.B)
+      dut.clock.step()
+      dut.io.cancel.poke(false.B)
+      dut.io.restoreWriteReady.poke(false.B)
+      dut.io.restoreBusy.expect(false.B)
+      dut.io.restoreDone.expect(false.B)
+      dut.io.frameCount.expect(1.U)
+
+      assert(restore(dut) == Seq(
+        (34, 1010),
+        (35, 1011),
+        (36, 1012)))
+      dut.io.frameCount.expect(0.U)
     }
   }
 }

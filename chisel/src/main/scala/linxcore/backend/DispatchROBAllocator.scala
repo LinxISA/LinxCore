@@ -99,6 +99,13 @@ class DispatchROBAllocatorIO(
   val completeRow = Input(new CommitTraceRow(traceParams))
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
+  val recoveryBlockQueryValid = Input(Bool())
+  val recoveryBlockQueryBid = Input(UInt(bidWidth.W))
+  val recoveryBlockQueryStid = Input(UInt(stidWidth.W))
+  val recoveryBlockReady = Output(Bool())
+  val recoveryBlockLastRid = Output(new ROBID(entries))
+  val recoveryBlockPivotPresent = Output(Bool())
+  val commitHold = Input(Bool())
   val deallocReady = Input(Bool())
   val deallocHoldMask = Input(UInt(entries.W))
 
@@ -428,7 +435,8 @@ class DispatchROBAllocator(
   val recoveryRetainedCloseBid = RegInit(0.U(bidWidth.W))
   val recoveryRetainedCloseStid = RegInit(0.U(stidWidth.W))
   val recoveryRetainedCloseCapture = blockOrder.io.recoveryApplied && !io.blockFlushInclusive
-  val recoveryRetainedCloseFire = recoveryRetainedClosePending && !brob.io.scalarRowCloseValid
+  val recoveryRetainedCloseFire =
+    recoveryRetainedClosePending && !io.blockScalarDoneValid
   when(recoveryRetainedCloseCapture) {
     recoveryRetainedClosePending := true.B
     recoveryRetainedCloseBid := blockOrder.io.recoveryResolvedPivotBid
@@ -459,6 +467,10 @@ class DispatchROBAllocator(
   rob.io.completeRobValue := io.completeRobValue
   rob.io.completeRowValid := io.completeRowValid
   rob.io.completeRow := io.completeRow
+  rob.io.recoveryBlockQueryValid := io.recoveryBlockQueryValid
+  rob.io.recoveryBlockQueryBid := io.recoveryBlockQueryBid
+  rob.io.recoveryBlockQueryStid := io.recoveryBlockQueryStid
+  rob.io.commitHold := io.commitHold
   rob.io.deallocReady := io.deallocReady
   rob.io.deallocHoldMask := io.deallocHoldMask
   rob.io.statusLookupValid := io.statusLookupValid
@@ -479,9 +491,19 @@ class DispatchROBAllocator(
   brob.io.scalarRowObservedValid := scalarAdmission.io.allocFire
   brob.io.scalarRowObservedBid := rowBlockBid
   brob.io.scalarRowObservedStid := io.allocStid
-  brob.io.scalarDoneValid := io.blockScalarDoneValid
-  brob.io.scalarDoneBid := io.blockScalarDoneBid
-  brob.io.scalarDoneStid := io.blockScalarDoneStid
+  // A non-inclusive recovery preserves the pivot block while discarding the
+  // decode-side marker context that would otherwise close it.  Treat the
+  // retained-pivot close as the same architectural scalar-done event as a
+  // normal marker close; publishing only ROB block-close / scalar-drain leaves
+  // BROB permanently Allocated after its rows have drained.
+  val effectiveScalarDoneValid = io.blockScalarDoneValid || recoveryRetainedCloseFire
+  val effectiveScalarDoneBid =
+    Mux(recoveryRetainedCloseFire, recoveryRetainedCloseBid, io.blockScalarDoneBid)
+  val effectiveScalarDoneStid =
+    Mux(recoveryRetainedCloseFire, recoveryRetainedCloseStid, io.blockScalarDoneStid)
+  brob.io.scalarDoneValid := effectiveScalarDoneValid
+  brob.io.scalarDoneBid := effectiveScalarDoneBid
+  brob.io.scalarDoneStid := effectiveScalarDoneStid
   brob.io.scalarTrapValid := io.blockScalarTrapValid
   brob.io.scalarTrapCause := io.blockScalarTrapCause
   brob.io.engineDoneValid := io.blockEngineDoneValid
@@ -539,9 +561,12 @@ class DispatchROBAllocator(
   storeRanges.io.storeObservedValid := scalarAdmission.io.allocFire && io.allocIsStore
   storeRanges.io.storeObservedBid := rowBlockBid
   storeRanges.io.storeObservedStid := io.allocStid
-  storeCountPublisher.io.scalarValid := io.blockScalarDoneValid
-  storeCountPublisher.io.scalarBid := io.blockScalarDoneBid
-  storeCountPublisher.io.scalarStid := io.blockScalarDoneStid
+  storeCountPublisher.io.scalarValid := effectiveScalarDoneValid
+  storeCountPublisher.io.scalarBid := effectiveScalarDoneBid
+  storeCountPublisher.io.scalarStid := effectiveScalarDoneStid
+  storeCountPublisher.io.allocValid := blockOrder.io.allocApplied
+  storeCountPublisher.io.allocBid := blockOrder.io.allocBid
+  storeCountPublisher.io.allocStid := blockOrder.io.allocStid
   storeCountPublisher.io.explicitValid := io.blockExplicitStoreCountValid
   storeCountPublisher.io.explicitBid := io.blockExplicitStoreCountBid
   storeCountPublisher.io.explicitStid := io.blockExplicitStoreCountStid
@@ -598,7 +623,8 @@ class DispatchROBAllocator(
   // publish an explicit empty close for the T/U local-commit path.  A repeated
   // scalar-done observation is filtered by BrobMetaTracker and cannot create a
   // duplicate close here.
-  io.scalarEmptyBlockCloseValid := brob.io.scalarRowCloseValid && !rob.io.blockCloseMatched
+  io.scalarEmptyBlockCloseValid :=
+    brob.io.scalarRowCloseValid && !recoveryRetainedCloseFire && !rob.io.blockCloseMatched
   io.scalarEmptyBlockCloseBid := Mux(
     io.scalarEmptyBlockCloseValid,
     brob.io.scalarRowCloseBid,
@@ -677,6 +703,9 @@ class DispatchROBAllocator(
 
   io.completeAccepted := rob.io.completeAccepted
   io.completeIgnored := rob.io.completeIgnored
+  io.recoveryBlockReady := rob.io.recoveryBlockReady
+  io.recoveryBlockLastRid := rob.io.recoveryBlockLastRid
+  io.recoveryBlockPivotPresent := rob.io.recoveryBlockPivotPresent
   io.commit := rob.io.commit
   io.commitMemoryOrder := rob.io.commitMemoryOrder
   io.commitValidMask := rob.io.commitValidMask

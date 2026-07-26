@@ -10,6 +10,7 @@ class ReducedTemplateContextStackIO(
     val frameDepth: Int)
     extends Bundle {
   val flush = Input(Bool())
+  val cancel = Input(Bool())
 
   val captureStart = Input(Bool())
   val captureStartArch = Input(UInt(log2Ceil(archRegs).W))
@@ -113,6 +114,14 @@ class ReducedTemplateContextStack(
     restoreDoneReg := false.B
     overflowReg := false.B
     underflowReg := false.B
+  }.elsewhen(io.cancel) {
+    // A suffix recovery may kill an in-flight FENTRY/FRET without changing
+    // the committed template stack. Capture publishes a frame only on its
+    // final read and restore pops a frame only on its final write, so aborting
+    // the serialized transaction here preserves the previous frameCount.
+    captureBusyReg := false.B
+    restoreBusyReg := false.B
+    restoreDoneReg := false.B
   }.otherwise {
     restoreDoneReg := false.B
 

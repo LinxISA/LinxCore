@@ -1,7 +1,7 @@
 package linxcore.rob
 
 import chisel3._
-import chisel3.util.{log2Ceil, OHToUInt, PopCount, PriorityEncoderOH}
+import chisel3.util.{log2Ceil, Mux1H, OHToUInt, PopCount, PriorityEncoderOH}
 import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common.{
   BlockMarkerRetireSource,
@@ -87,6 +87,14 @@ class ROBEntryBankIO(
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
 
+  val recoveryBlockQueryValid = Input(Bool())
+  val recoveryBlockQueryBid = Input(UInt(traceParams.blockBidWidth.W))
+  val recoveryBlockQueryStid = Input(UInt(stidWidth.W))
+  val recoveryBlockReady = Output(Bool())
+  val recoveryBlockLastRid = Output(new ROBID(entries))
+  val recoveryBlockPivotPresent = Output(Bool())
+
+  val commitHold = Input(Bool())
   val deallocReady = Input(Bool())
   val deallocHoldMask = Input(UInt(entries.W))
 
@@ -453,9 +461,16 @@ class ROBEntryBank(
 
   val completeStatus = status(io.completeRobValue)
   val completeMayUpdate = mayComplete(completeStatus)
-  val completeAccepted = !flushApplied && io.completeValid && completeMayUpdate
+  // A recovery may prune younger rows while the retained pivot completion is
+  // arriving from the execute retainer. Accept that completion when its exact
+  // physical row survives the prune; only a completion targeting the pruned
+  // suffix is stale. This prevents branch recovery from discarding the SETC
+  // that caused it without allowing wrong-path completion to resurrect state.
+  val completeTargetPruned =
+    flushApplied && flushPrune.io.pruneMask(io.completeRobValue)
+  val completeAccepted = io.completeValid && completeMayUpdate && !completeTargetPruned
   io.completeAccepted := completeAccepted
-  io.completeIgnored := io.completeValid && (!completeMayUpdate || flushApplied)
+  io.completeIgnored := io.completeValid && (!completeMayUpdate || completeTargetPruned)
 
   val blockCloseActive = !flushApplied && io.blockCloseValid
   val blockCloseAllocMatch =
@@ -482,6 +497,57 @@ class ROBEntryBank(
   io.blockCloseMatched := blockCloseStallsDealloc
 
   val deallocMarkerWindowStop = Wire(Bool())
+  val recoveryBlockMatch = Wire(Vec(entries, Bool()))
+  val recoveryBlockIncomplete = Wire(Vec(entries, Bool()))
+  val recoveryBlockLastByScan = Wire(Vec(entries, Bool()))
+  for (idx <- 0 until entries) {
+    recoveryBlockMatch(idx) :=
+      io.recoveryBlockQueryValid && rows(idx).valid &&
+        ROBEntryStatus.occupiesRob(status(idx)) &&
+        rows(idx).blockBidValid &&
+        rows(idx).blockBid === io.recoveryBlockQueryBid &&
+        rowStid(idx) === io.recoveryBlockQueryStid
+    recoveryBlockIncomplete(idx) :=
+      recoveryBlockMatch(idx) &&
+        status(idx) =/= ROBEntryStatus.Completed &&
+        status(idx) =/= ROBEntryStatus.Retired
+  }
+  for (offset <- 0 until entries) {
+    val idx = wrapIndex(deallocValue, offset)
+    val laterMatch =
+      if (offset == entries - 1) false.B
+      else VecInit(((offset + 1) until entries).map { laterOffset =>
+        recoveryBlockMatch(wrapIndex(deallocValue, laterOffset))
+      }).asUInt.orR
+    recoveryBlockLastByScan(offset) := recoveryBlockMatch(idx) && !laterMatch
+  }
+  io.recoveryBlockReady :=
+    io.recoveryBlockQueryValid && recoveryBlockMatch.asUInt.orR &&
+      !recoveryBlockIncomplete.asUInt.orR
+  io.recoveryBlockLastRid :=
+    Mux(
+      recoveryBlockLastByScan.asUInt.orR,
+      Mux1H(
+        recoveryBlockLastByScan,
+        (0 until entries).map(offset => rowRid(wrapIndex(deallocValue, offset)))),
+      ROBID.disabled(entries))
+  // Recovery/rebase can leave physical RID holes between the retained block
+  // and its younger suffix. Presence must therefore follow ROB age order, not
+  // assume that the first younger row has identity lastRid + 1.
+  val recoveryYoungerByScan = Wire(Vec(entries, Bool()))
+  for (offset <- 0 until entries) {
+    val laterResident =
+      if (offset == entries - 1) false.B
+      else VecInit(((offset + 1) until entries).map { laterOffset =>
+        val laterIdx = wrapIndex(deallocValue, laterOffset)
+        rows(laterIdx).valid && ROBEntryStatus.occupiesRob(status(laterIdx)) &&
+          rowStid(laterIdx) === io.recoveryBlockQueryStid
+      }).asUInt.orR
+    recoveryYoungerByScan(offset) := recoveryBlockLastByScan(offset) && laterResident
+  }
+  io.recoveryBlockPivotPresent :=
+    io.recoveryBlockReady && recoveryYoungerByScan.asUInt.orR
+
   val commitFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
   val commitContinueVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
@@ -491,7 +557,7 @@ class ROBEntryBank(
     val commitWindowStop =
       rowIsStore(idx) || rows(idx).trap.valid || rowIsLast(idx) || rowMarkerBoundary(idx) || rowMarkerStop(idx)
     val fires =
-      !flushApplied && !deallocMarkerWindowStop && priorSlotsContinue &&
+      !flushApplied && !io.commitHold && !deallocMarkerWindowStop && priorSlotsContinue &&
         rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
     commitFireVec(slot) := fires
     commitContinueVec(slot) := fires && !commitWindowStop

@@ -31,6 +31,7 @@ class ISideF0PcSelectIO(
   val start = Flipped(Valid(new ISideStartRequest(p)))
   val backendRestart = Flipped(Valid(new ISideBackendRestart(p)))
   val predictionCorrection = Input(new IfuInnerFlush(p))
+  val predictionContext = Flipped(Valid(new BSidePredictionUpdate(p, lineBytes)))
   val resolvedNextPc = Flipped(Valid(new ISideResolvedNextPc(p)))
 
   val fetch = Decoupled(new ISideFetchRequest(p, lineBytes))
@@ -66,6 +67,9 @@ class ISideF0PcSelect(
   val fetchSeqs = RegInit(VecInit(Seq.fill(threadCount)(0.U(p.uopUidWidth.W))))
   val epochs = RegInit(VecInit(Seq.fill(threadCount)(0.U(p.blockEpochWidth.W))))
   val checkpoints = RegInit(VecInit(Seq.fill(threadCount)(0.U(p.checkpointWidth.W))))
+  val predictionContextValid = RegInit(VecInit(Seq.fill(threadCount)(false.B)))
+  val predictionContexts =
+    RegInit(VecInit(Seq.fill(threadCount)(0.U.asTypeOf(new BranchPredictionRecord(p)))))
   val rr = RegInit(0.U(threadIndexWidth.W))
 
   val activeByOffset = Wire(Vec(threadCount, Bool()))
@@ -98,6 +102,18 @@ class ISideF0PcSelect(
   val selectedEpoch =
     if (threadCount == 1) epochs(0)
     else Mux1H((0 until threadCount).map(thread => (selectedThread === thread.U) -> epochs(thread)))
+  val selectedPredictionContextValid =
+    if (threadCount == 1) predictionContextValid(0)
+    else
+      Mux1H(
+        (0 until threadCount).map(thread =>
+          (selectedThread === thread.U) -> predictionContextValid(thread)))
+  val selectedPredictionContext =
+    if (threadCount == 1) predictionContexts(0)
+    else
+      Mux1H(
+        (0 until threadCount).map(thread =>
+          (selectedThread === thread.U) -> predictionContexts(thread)))
 
   val predictionQueue =
     Module(new Queue(new ISideFetchRequest(p, lineBytes), predictionQueueDepth, pipe = true, flow = false))
@@ -117,8 +133,7 @@ class ISideF0PcSelect(
   val acceptedStart =
     io.start.valid &&
       startThreadSupported &&
-      !io.backendRestart.valid &&
-      !io.predictionCorrection.valid
+      !io.backendRestart.valid
   val canAllocate = selectedValid && predictionQueue.io.enq.ready && !controlValid
 
   val request = Wire(new ISideFetchRequest(p, lineBytes))
@@ -144,6 +159,11 @@ class ISideF0PcSelect(
   request.prediction.stage := BSideStage.Sequential
   request.prediction.checkpointId := selectedCheckpoint
   request.prediction.epoch := selectedEpoch
+  when(
+    selectedPredictionContextValid &&
+      selectedPredictionContext.epoch === selectedEpoch) {
+    request.prediction := selectedPredictionContext
+  }
 
   io.fetch.valid := canAllocate
   io.fetch.bits := request
@@ -176,6 +196,20 @@ class ISideF0PcSelect(
         fetchSeqs(thread) := 0.U
         epochs(thread) := io.backendRestart.bits.newEpoch
         checkpoints(thread) := io.backendRestart.bits.checkpointId
+        predictionContextValid(thread) := false.B
+        rr := thread.U
+      }
+    }
+  }.elsewhen(acceptedStart) {
+    for (thread <- 0 until threadCount) {
+      when(io.start.bits.threadId === thread.U) {
+        active(thread) := true.B
+        peIds(thread) := io.start.bits.peId
+        pcs(thread) := io.start.bits.pc
+        fetchSeqs(thread) := 0.U
+        epochs(thread) := Mux(active(thread), epochs(thread) + 1.U, 0.U)
+        checkpoints(thread) := 0.U
+        predictionContextValid(thread) := false.B
         rr := thread.U
       }
     }
@@ -186,18 +220,9 @@ class ISideF0PcSelect(
         pcs(thread) := io.predictionCorrection.restartPc
         epochs(thread) := io.predictionCorrection.newEpoch
         checkpoints(thread) := io.predictionCorrection.checkpointId
-        rr := thread.U
-      }
-    }
-  }.elsewhen(io.start.valid) {
-    for (thread <- 0 until threadCount) {
-      when(io.start.bits.threadId === thread.U) {
-        active(thread) := true.B
-        peIds(thread) := io.start.bits.peId
-        pcs(thread) := io.start.bits.pc
-        fetchSeqs(thread) := 0.U
-        epochs(thread) := Mux(active(thread), epochs(thread) + 1.U, 0.U)
-        checkpoints(thread) := 0.U
+        when(io.predictionCorrection.reason =/= IfuInnerFlushReason.PredictionCorrection) {
+          predictionContextValid(thread) := false.B
+        }
         rr := thread.U
       }
     }
@@ -220,6 +245,28 @@ class ISideF0PcSelect(
       }
     }
     rr := selectedThread + 1.U
+  }
+
+  // The B-SIDE response and inner flush are accepted atomically.  A BF4
+  // correction at BSTART seeds the block-body context.  A final steer has
+  // consumed that block and must clear the context before fetching its target;
+  // the target BSTART will establish the next dynamic block context.
+  // A start/backend restart destroys every older speculative B-SIDE record.
+  // Suppress a response that happens to retire in the same cycle so it cannot
+  // reinstall stale prediction context after the restart cleared it.
+  when(io.predictionContext.valid && !io.backendRestart.valid && !acceptedStart) {
+    for (thread <- 0 until threadCount) {
+      when(io.predictionContext.bits.request.identity.threadId === thread.U) {
+        when(
+          io.predictionContext.bits.finalSteer ||
+            io.predictionContext.bits.prediction.stage =/= BSideStage.BF4) {
+          predictionContextValid(thread) := false.B
+        }.otherwise {
+          predictionContextValid(thread) := true.B
+          predictionContexts(thread) := io.predictionContext.bits.prediction
+        }
+      }
+    }
   }
 
   io.active := active

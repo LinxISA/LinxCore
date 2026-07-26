@@ -109,6 +109,13 @@ class IfuInnerFlush(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val newEpoch = UInt(p.blockEpochWidth.W)
   val reason = IfuInnerFlushReason()
   val scope = IfuPruneScope()
+  // A terminal B-F4 steer closes a block at boundaryPc. Fetch sequence alone
+  // cannot order same-cacheline lanes across that boundary after progressive
+  // predictor corrections have rebased the trigger transaction.
+  val terminalSteer = Bool()
+  val terminalTaken = Bool()
+  val boundaryPc = UInt(p.pcWidth.W)
+  val boundaryFallthroughPc = UInt(p.pcWidth.W)
   val historyKeyValid = Bool()
   val predictionTag = UInt(p.uopUidWidth.W)
   val fetchPacketUid = UInt(p.uopUidWidth.W)
@@ -157,5 +164,59 @@ object IfuFlushContract {
       identity.epoch,
       identity.fetchSeq,
       transactionId,
+      flush)
+
+  /** Instruction-granular pruning for a final B-F4 transfer.
+    *
+    * Progressive B-SIDE corrections can make the terminal trigger's fetchSeq
+    * newer than still-buffered lanes from the cacheline that contains BSTOP.
+    * Those lanes are not all architecturally older: on a taken prediction,
+    * PCs at or after boundaryFallthroughPc are the sequential continuation
+    * and must be removed even when their fetchSeq predates the final trigger.
+    * The complete block body before that cut point is retained.
+    */
+  def killsInstruction(
+      threadId: UInt,
+      epoch: UInt,
+      fetchSeq: UInt,
+      transactionId: UInt,
+      pc: UInt,
+      predictionBranchPc: UInt,
+      flush: IfuInnerFlush): Bool = {
+    val terminalThreadMember =
+      flush.valid &&
+        flush.reason === IfuInnerFlushReason.PredictionCorrection &&
+        flush.terminalSteer &&
+        threadId === flush.threadId
+    val terminalBoundaryMember =
+      terminalThreadMember && predictionBranchPc === flush.boundaryPc
+    val terminalBody =
+      terminalThreadMember &&
+        pc >= flush.boundaryPc &&
+        pc < flush.boundaryFallthroughPc
+    val terminalFallthrough =
+      terminalBoundaryMember &&
+        flush.terminalTaken &&
+        pc >= flush.boundaryFallthroughPc
+    // A terminal BF4 response is commonly owned by the original BSTART
+    // transaction, while body cachelines have later fetchSeq values.  Those
+    // body instructions are architecturally before the transfer and must
+    // survive even though transaction-age pruning classifies them as younger.
+    Mux(
+      terminalBody,
+      false.B,
+      kills(threadId, epoch, fetchSeq, transactionId, flush) || terminalFallthrough)
+  }
+
+  def killsInstruction(
+      entry: InstructionBufferEntry,
+      flush: IfuInnerFlush): Bool =
+    killsInstruction(
+      entry.identity.threadId,
+      entry.identity.epoch,
+      entry.identity.fetchSeq,
+      entry.transactionId,
+      entry.pc,
+      entry.prediction.branchPc,
       flush)
 }

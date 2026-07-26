@@ -87,6 +87,9 @@ class BrobStoreCountPublisherProbe extends Module {
   publisher.io.scalarValid := io.scalarValid
   publisher.io.scalarBid := io.scalarBid
   publisher.io.scalarStid := io.scalarStid
+  publisher.io.allocValid := ranges.io.allocAccepted
+  publisher.io.allocBid := io.allocBid
+  publisher.io.allocStid := io.allocStid
   publisher.io.explicitValid := io.explicitValid
   publisher.io.explicitBid := io.explicitBid
   publisher.io.explicitStid := io.explicitStid

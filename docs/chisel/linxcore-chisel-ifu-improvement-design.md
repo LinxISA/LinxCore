@@ -257,9 +257,10 @@ I-F4 接受；不得在第一个四宽 group 后直接释放 line。第二个 li
 
 I-F3 是跨 line instruction assembly 的唯一 owner。I-F4、Instruction Buffer 和
 D1 都不得重新拼接 variable-length bytes。I-F3 不识别 block boundary；当 I-F4
-接受的 group 含 `BSTOP` 时，通过 `acceptedStop` 反馈终止当前 line 的后续
-candidate。最后一个 group fire 的同周期，I-F3 必须允许下一条 line
-consume-and-replace。
+接受的 group 含有关闭 resident `BSTART` context 的 `BSTOP` 时，通过
+`acceptedStop` 反馈终止该 control stream 的后续 candidate。standalone
+`BSTOP` 不产生此终止反馈。最后一个 group fire 的同周期，I-F3 必须允许
+下一条 line consume-and-replace。
 
 ### I-F4：预解码和 64-bit 定长化
 
@@ -284,6 +285,12 @@ I-F4 predecode 明确不执行：
 - FU 或 issue-queue 分类；
 - ROB/LSID/resource allocation；
 - branch direction/target prediction。
+
+`BSTOP` 必须区分两种语义。若已有 matching `BSTART` boundary context，
+该 stop 关闭 control transaction，并终止其后 speculative entries；若没有
+resident control context，它是 standalone execution-domain marker。后者仍写入
+Instruction Buffer，但不得截断同一 cacheline 中已经形成的后续指令，也不得
+单独宣告该 fetch transaction 完成。
 
 建议 entry：
 
@@ -410,6 +417,9 @@ D1DecodeGroup {
 - group 未被 D2 接受前，全部 payload 保持稳定；
 - dequeue 数量等于 accepted group 的有效 lane 数；
 - D1 不分配 ROB、physical register、LSID、IQ 或 LSU row；
+- group 尾部的 `ACRC` 可以读取 queue 中下一条 fixed-64-bit entry，以确认
+  跨 group 相邻的 `BSTOP`；lookahead 未到达时保留 ACRC，禁止猜测 boundary
+  或丢弃下一组 lane；
 - D1 之后所有指令通路都使用 64-bit instruction representation。
 
 ## B-SIDE 架构
@@ -606,12 +616,29 @@ response 不再改写 I-F0 speculative line frontier；只有 canonical correcti
 
 - direct branch/call 的无需运行时 operand 的 direction/target/kind 在
   Dispatch 校验；
-- conditional `setc.*` 的实际 direction 在 BRU E1 校验；
+- conditional `setc.*` 的实际 direction 和 exact-full-BID 静态 block target
+  一致性在 BRU E1 校验；target 一致性用于拦截误接到其他 conditional block
+  的 prediction record；
 - indirect/return `setc.tgt` 的实际 target 在 BRU E1 校验。
+
+prediction kind 同时限定唯一合法的 SETC validation owner：condition SETC
+只消费 `Cond` record；`setc.tgt` 消费 `Ind/ICall/Ret` record，并把冷启动
+`Fall` record 作为 `Ind` correction 校验，因为 `Fall` 只表示 B-SIDE 未识别
+动态 boundary。与 `Direct/Call` record 同行携带的 `setc.tgt` 不得再次产生
+BRU recovery；这些 target 已由 Dispatch 校验。
 
 任一 post-B-F4 校验 mismatch 都产生 `BRU flush + recover`，恢复
 predictor/rename/block checkpoint，并向 I-F0 发布 architectural restart；
 不得重新分类为 inner flush。
+
+SETC 不要求位于 block 的最后一条 scalar instruction。mismatch 被确认后，
+backend 先冻结 commit 和 younger ingress，等待 exact full-BID 的全部 resident
+ROB rows 完成，再以该 block 的 youngest RID 作为 non-inclusive recovery pivot。
+rename cleanup 必须使用这个 rebased RID，不能继续携带 SETC 自身较早的 uop
+order，否则会错误删除必须保留的 same-block tail GPR mappings。条件
+`FRET.STK` 的 SETC condition 和显式 SETC target 都按 exact full-BID 保存和
+消费；caller block 的 target 不得覆盖后续 callee-return fallback，其他 block
+的 marker 也不得清除或复用 condition。
 
 当前 `IfuBackendFeedbackBridge` 已实现这张类型表的 IFU feedback 边界：
 合法 resolve 总是提交 actual tuple 训练；mismatch 的训练与 exact-keyed
@@ -619,6 +646,18 @@ backend restart 原子发布，任一 sink backpressure 时两者都保持。D1 
 显式保留 transactionId、fetchPacketUid、fetchSeq 和 requestPc，不从 packet UID
 猜测其他 request identity。Dispatch/BRU event producer 与 full-BID backend
 cleanup 仍由 production composition 接线。
+
+production IFU 只承认以下四个 wrapper 边界：
+
+1. `LinxCoreIfu`：I-SIDE/B-SIDE、prediction join 与 canonical redirect；
+2. `IfuLineMemoryBridge`：opaque-tagged 64-byte line request/response；
+3. `D1InstructionDecodeStage`：四路 fixed-64-bit full decode；
+4. `IfuBackendFeedbackBridge`：typed validation、training 与 keyed restart。
+
+`LinxCoreProductionComposition` 组合这四者。benchmark 使用的
+`IfuWindowLineFillAdapter` 仅把 64-byte line 转成测试 memory window，不属于
+production wrapper 集合。任何 composition 都不得恢复 packet-window decoder、
+重新创建 `F4Slot`，或从 PC/地址猜测 transaction identity。
 
 ### B-SIDE ready/valid 和独立推进
 
@@ -862,16 +901,20 @@ transient row，BTB/TAGE/GHR training table 等 learned state 不清零。
 | 控制流类型 | 校验位置 | 校验内容 |
 | --- | --- | --- |
 | direct branch / call | Dispatch | `kind`、必然 taken 属性和静态 direct target |
-| conditional `setc.*` | BRU E1 | 使用运行时 operand 计算的实际 direction |
+| conditional `setc.*` | BRU E1 | 使用运行时 operand 计算的实际 direction，以及后端 exact-full-BID context 保存的静态 block target |
 | indirect / return `setc.tgt` | BRU E1 | 使用运行时 operand/RAS 语义计算的实际 target |
 
 校验比较有效记录中的 `{taken, branchPc, target, kind}` 适用字段。任一 mismatch
 产生 `BRU flush + recover`，并携带 prediction/checkpoint identity 向 B-SIDE
-训练、向 I-F0 发布 restart。
+训练、向 I-F0 发布 restart。SETC 只有在其类型与 prediction kind 的 validation
+owner 匹配时才进入比较；cold `Fall + setc.tgt` 作为 `Ind` correction，而
+`Direct/Call + setc.tgt` 不得重分类为 indirect。
 
-当前 LinxCoreModel 将上述 `setc.*` direction/target 检查集中在 IEX/BRU E1；
-Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，不是对
-当前 Model 实现位置的描述。
+当前 LinxCoreModel 将上述 `setc.*` direction/target 检查集中在 IEX/BRU E1，
+并以当前 `BlockCommand` 提供 conditional target；Chisel 同时显式比较这个
+exact-full-BID target，以验证 per-instruction prediction transport 没有跨 block
+错配。Dispatch direct/call early validation 是目标 Chisel 设计的显式改进，
+不是对当前 Model 实现位置的描述。
 
 ### Architectural restart
 
@@ -1115,8 +1158,8 @@ predictor tables 不因普通 redirect 清零。
   接到 actual-result training 和 canonical `LinxCoreIfu` BRU recovery；
   prediction-correction survivor 的 history key 随 canonical new epoch 重基准，
   exact mispredict training 在 matching prune 删除 checkpoint 前完成。
-- [ ] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
-  backend；当前 composition 保留明确的 `BackendBranchValidation` 外部边界。
+- [x] Dispatch/BRU event producer 和 full-BID backend cleanup 已接入 production
+  backend；composition 仍保留明确的 `BackendBranchValidation` wrapper 边界。
 - [x] `D1DecodeRenameROBIngress` 已将固定宽四 lane D1 group 原子写入
   `D1DecodedLaneQueue`，按程序序直接进入真实 rename/ROB；production elaboration
   禁用 packet/window decoder，prediction sidecar、precise prune 和 correction
@@ -1127,14 +1170,15 @@ predictor tables 不因普通 redirect 清零。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。
-- [ ] CoreMark/Dhrystone 使用的 production benchmark graph 已从
-  verification-only reduced fixture 切换到 `LinxCoreIfu`。
+- [x] CoreMark/Dhrystone 使用的 production benchmark graph 已切换到
+  `LinxCoreIfu`；fresh natural manifests 分别以 1426/1150 commits 到达
+  `finisher=0x5555`。
 - [x] generated RTL IFU probe 使用 64-byte cacheline，证明 eligible dense
   hot-cache window 连续 32 周期输出四宽 D1、每 lane 携带 B-F4 final record，
   并观测到 prediction join/line-context high-watermark 为 8/6。
-- [ ] 用 production benchmark graph 补充真实混合长度指令、预测纠正、
+- [x] production benchmark graph 覆盖真实混合长度指令、预测纠正、
   decode/dispatch backpressure 和 workload starvation 计数；standalone probe
-  不等价于 CoreMark/Dhrystone promotion。
+  继续只作为四宽 mechanism gate。
 
 ## 不在本设计内
 

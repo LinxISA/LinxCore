@@ -470,12 +470,19 @@ class LinxCoreBenchmarkAutonomousTopSpec extends AnyFunSuite {
     assert(observed.distinct == observed)
   }
 
-  test("Chisel top elaborates a live autonomous shell without replay or oracle inputs") {
+  test("Chisel top elaborates the production IFU and live backend without oracle inputs") {
     val sv = LinxCoreBenchmarkAutonomousTopSpecFixtures.defaultTopSystemVerilog
 
     assert(sv.contains("module LinxCoreBenchmarkAutonomousTop"))
     assert(sv.contains("module LinxCoreFrontendFetchRfAluTraceTop"))
-    assert(sv.contains("module FrontendFetchPacketSource"))
+    assert(sv.contains("module LinxCoreIfu"))
+    assert(sv.contains("module BSidePredictionPipeline"))
+    assert(sv.contains("module D1InstructionDecodeStage"))
+    assert(sv.contains("module D1DecodedLaneQueue"))
+    assert(sv.contains("module IfuWindowLineFillAdapter"))
+    assert(!sv.contains("module FrontendFetchPacketSource"))
+    assert(!sv.contains("module F4DecodeWindow"))
+    assert(!sv.contains("module F4DenseSlotQueue"))
     assert(sv.contains("module DecodeRenameROBPath"))
     assert(sv.contains("module ScalarGPRFile"))
     assert(sv.contains("module ReducedScalarAluExecute"))
@@ -501,7 +508,7 @@ class LinxCoreBenchmarkAutonomousTopSpec extends AnyFunSuite {
     assert(!sv.contains("loadRespReady"))
     assert(!sv.contains("loadLookupReady"))
     assert(!sv.contains("expectedPc"))
-    assert(!sv.contains("expected"))
+    assert(!sv.contains("io_expected"))
     assert(!sv.contains("qemu"))
   }
 
@@ -521,6 +528,7 @@ class LinxCoreBenchmarkAutonomousTopSpec extends AnyFunSuite {
 
     assert(source.contains("useReducedStoreDispatchStq = true"))
     assert(source.contains("useReducedStoreStaAddressExecBridge = true"))
+    assert(source.contains("useProductionD1Ingress = true"))
   }
 
   test("autonomous benchmark top keeps reduced SC store issue path live") {

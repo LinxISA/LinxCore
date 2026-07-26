@@ -30,6 +30,13 @@ class BrobStoreCountPublisherIO(
   val explicitPendingCanceled = Output(Bool())
   val explicitBlockedByLiveWindow = Output(Bool())
 
+  // A marker-only block can allocate and close in the same cycle.  The order
+  // state does not expose that block in its live window until the next cycle,
+  // so retain the accepted allocation identity as an admission exception.
+  val allocValid = Input(Bool())
+  val allocBid = Input(UInt(bidWidth.W))
+  val allocStid = Input(UInt(stidWidth.W))
+
   val orderHeadBid = Input(Vec(stidCount, UInt(bidWidth.W)))
   val orderLiveCount = Input(Vec(stidCount, UInt(liveCountWidth.W)))
   val recoveryValid = Input(Bool())
@@ -100,6 +107,9 @@ class BrobStoreCountPublisher(
     matches.asUInt.orR && distance < selectedLiveCount(stid).pad(bidWidth)
   }
 
+  private def isAcceptedAllocation(stid: UInt, bid: UInt): Bool =
+    io.allocValid && io.allocStid === stid && io.allocBid === bid
+
   private def killedByRecovery(stid: UInt, bid: UInt): Bool = {
     val matches = laneMatch(stid)
     val candidateDistance = bid - selectedHead(stid)
@@ -109,8 +119,18 @@ class BrobStoreCountPublisher(
       candidateDistance >= firstKilledDistance
   }
 
-  val scalarPendingKilled = scalarPendingValid && killedByRecovery(scalarPendingStid, scalarPendingBid)
-  val explicitPendingKilled = explicitPendingValid && killedByRecovery(explicitPendingStid, explicitPendingBid)
+  // A block may retire in the same cycle that a redundant close is captured.
+  // On the following cycle its range row is gone, so a pending publication
+  // must be canceled when its BID has left the canonical live window instead
+  // of retrying an impossible sink match forever.
+  val scalarPendingStale =
+    scalarPendingValid && !isLive(scalarPendingStid, scalarPendingBid)
+  val explicitPendingStale =
+    explicitPendingValid && !isLive(explicitPendingStid, explicitPendingBid)
+  val scalarPendingKilled =
+    scalarPendingValid && (killedByRecovery(scalarPendingStid, scalarPendingBid) || scalarPendingStale)
+  val explicitPendingKilled =
+    explicitPendingValid && (killedByRecovery(explicitPendingStid, explicitPendingBid) || explicitPendingStale)
   val pendingSameBlock = scalarPendingValid && explicitPendingValid &&
     scalarPendingStid === explicitPendingStid && scalarPendingBid === explicitPendingBid
   val pendingDifferentBlock = scalarPendingValid && explicitPendingValid && !pendingSameBlock
@@ -125,14 +145,16 @@ class BrobStoreCountPublisher(
   val scalarWillClear = scalarPendingKilled || scalarTerminal || scalarRedundant
   val explicitWillClear = explicitPendingKilled || explicitTerminal
 
-  val incomingScalarLive = isLive(io.scalarStid, io.scalarBid)
+  val incomingScalarLive =
+    isLive(io.scalarStid, io.scalarBid) || isAcceptedAllocation(io.scalarStid, io.scalarBid)
   val incomingScalarKilled = io.scalarValid && killedByRecovery(io.scalarStid, io.scalarBid)
   val scalarCapacity = !scalarPendingValid || scalarWillClear
   val scalarInputAccepted = io.scalarValid && scalarCapacity && (incomingScalarLive || incomingScalarKilled)
   val scalarInputCanceled = scalarInputAccepted && incomingScalarKilled
   val scalarCapture = scalarInputAccepted && !incomingScalarKilled
 
-  val incomingExplicitLive = isLive(io.explicitStid, io.explicitBid)
+  val incomingExplicitLive =
+    isLive(io.explicitStid, io.explicitBid) || isAcceptedAllocation(io.explicitStid, io.explicitBid)
   val incomingExplicitKilled = io.explicitValid && killedByRecovery(io.explicitStid, io.explicitBid)
   val explicitCapacity = !explicitPendingValid || explicitWillClear
   val explicitReady = explicitCapacity && (incomingExplicitLive || incomingExplicitKilled)

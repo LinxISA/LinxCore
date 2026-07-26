@@ -12,6 +12,36 @@ object SetcValidationKind extends ChiselEnum {
   val None, Condition, Target = Value
 }
 
+/** Selects the backend owner for a completed SETC from its final B-F4 record.
+  *
+  * A target SETC paired with a cold `Fall` record still owns a dynamic-target
+  * correction: `Fall` means B-SIDE did not identify the indirect boundary, not
+  * that the computed target may be ignored. Direct and call targets are
+  * validated at Dispatch, so their SETC forms must not fabricate a second BRU
+  * recovery. Indirect, indirect-call, and return records remain BRU-owned.
+  */
+object SetcBranchValidationOwnership {
+  def targetOwner(predictedKind: BoundaryKind.Type): Bool =
+    predictedKind === BoundaryKind.Fall ||
+      predictedKind === BoundaryKind.Ind ||
+      predictedKind === BoundaryKind.ICall ||
+      predictedKind === BoundaryKind.Ret
+
+  def owns(isTarget: Bool, predictedKind: BoundaryKind.Type): Bool =
+    Mux(isTarget, targetOwner(predictedKind), predictedKind === BoundaryKind.Cond)
+
+  def actualKind(isTarget: Bool, predictedKind: BoundaryKind.Type): BoundaryKind.Type =
+    Mux(
+      isTarget,
+      Mux(
+        predictedKind === BoundaryKind.Ind ||
+          predictedKind === BoundaryKind.ICall ||
+          predictedKind === BoundaryKind.Ret,
+        predictedKind,
+        BoundaryKind.Ind),
+      BoundaryKind.Cond)
+}
+
 /** One post-B-F4 validation result.
   *
   * `actualBranchPc` is the block-control PC carried by backend block context;
@@ -26,6 +56,42 @@ class BackendBranchValidation(val p: InterfaceParams = InterfaceParams()) extend
   val actualTarget = UInt(p.pcWidth.W)
   val actualFallthroughPc = UInt(p.pcWidth.W)
   val actualKind = BoundaryKind()
+}
+
+object BackendBranchValidationContract {
+  def dispatchKind(event: BackendBranchValidation): Bool =
+    event.actualKind === BoundaryKind.Fall ||
+      event.actualKind === BoundaryKind.Direct ||
+      event.actualKind === BoundaryKind.Call
+
+  def bruKind(event: BackendBranchValidation): Bool =
+    event.actualKind === BoundaryKind.Cond ||
+      event.actualKind === BoundaryKind.Ind ||
+      event.actualKind === BoundaryKind.ICall ||
+      event.actualKind === BoundaryKind.Ret
+
+  def pointMatchesKind(event: BackendBranchValidation): Bool =
+    Mux(event.point === BranchValidationPoint.Dispatch, dispatchKind(event), bruKind(event))
+
+  def mispredict(event: BackendBranchValidation): Bool = {
+    val prediction = event.uop.prediction
+    val comparesTarget =
+      event.actualKind === BoundaryKind.Cond ||
+        event.actualKind === BoundaryKind.Direct ||
+        event.actualKind === BoundaryKind.Call ||
+        event.actualKind === BoundaryKind.Ind ||
+        event.actualKind === BoundaryKind.ICall ||
+        event.actualKind === BoundaryKind.Ret
+    val directionMismatch = prediction.taken =/= event.actualTaken
+    val kindMismatch = prediction.kind =/= event.actualKind
+    val branchPcMismatch = prediction.branchPc =/= event.actualBranchPc
+    val targetMismatch = comparesTarget && prediction.target =/= event.actualTarget
+    val fallthroughMismatch =
+      event.actualKind === BoundaryKind.Fall &&
+        prediction.fallthroughPc =/= event.actualFallthroughPc
+
+    directionMismatch || kindMismatch || branchPcMismatch || targetMismatch || fallthroughMismatch
+  }
 }
 
 class IfuBackendFeedbackBridgeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
@@ -56,33 +122,10 @@ class IfuBackendFeedbackBridge(
 
   val event = queue.io.deq.bits
   val prediction = event.uop.prediction
-  val dispatchKind =
-    event.actualKind === BoundaryKind.Fall ||
-      event.actualKind === BoundaryKind.Direct ||
-      event.actualKind === BoundaryKind.Call
-  val bruKind =
-    event.actualKind === BoundaryKind.Cond ||
-      event.actualKind === BoundaryKind.Ind ||
-      event.actualKind === BoundaryKind.ICall ||
-      event.actualKind === BoundaryKind.Ret
-  val pointMatchesKind =
-    Mux(event.point === BranchValidationPoint.Dispatch, dispatchKind, bruKind)
-
-  val comparesTarget =
-    event.actualKind === BoundaryKind.Direct ||
-      event.actualKind === BoundaryKind.Call ||
-      event.actualKind === BoundaryKind.Ind ||
-      event.actualKind === BoundaryKind.ICall ||
-      event.actualKind === BoundaryKind.Ret
-  val directionMismatch = prediction.taken =/= event.actualTaken
-  val kindMismatch = prediction.kind =/= event.actualKind
-  val branchPcMismatch = prediction.branchPc =/= event.actualBranchPc
-  val targetMismatch = comparesTarget && prediction.target =/= event.actualTarget
-  val fallthroughMismatch =
-    event.actualKind === BoundaryKind.Fall &&
-      prediction.fallthroughPc =/= event.actualFallthroughPc
-  val mispredict =
-    directionMismatch || kindMismatch || branchPcMismatch || targetMismatch || fallthroughMismatch
+  val dispatchKind = BackendBranchValidationContract.dispatchKind(event)
+  val bruKind = BackendBranchValidationContract.bruKind(event)
+  val pointMatchesKind = BackendBranchValidationContract.pointMatchesKind(event)
+  val mispredict = BackendBranchValidationContract.mispredict(event)
 
   io.resolve.bits := 0.U.asTypeOf(io.resolve.bits)
   io.resolve.bits.peId := event.uop.peId

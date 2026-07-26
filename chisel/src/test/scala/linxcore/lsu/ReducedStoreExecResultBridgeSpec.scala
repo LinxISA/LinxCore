@@ -22,6 +22,7 @@ object ReducedStoreExecResultBridgeReference {
 
     def step(
         complete: Option[Result] = None,
+        completeStoreDispatch: Boolean = true,
         staHead: Option[Head] = None,
         stdHead: Option[Head] = None,
         staConsumed: Boolean = false,
@@ -35,10 +36,11 @@ object ReducedStoreExecResultBridgeReference {
         val stdClears = stdConsumed && stdHead.exists(_.key == result.key)
         staClears || stdClears
       }
-      val duplicate = complete.exists(result => afterConsume.exists(_.key == result.key))
-      val captureFire = complete.nonEmpty && !duplicate && afterConsume.size < depth
-      val captureBlocked = complete.nonEmpty && !duplicate && afterConsume.size >= depth
-      pending = if (captureFire) afterConsume :+ complete.get else afterConsume
+      val dispatchComplete = complete.filter(_ => completeStoreDispatch)
+      val duplicate = dispatchComplete.exists(result => afterConsume.exists(_.key == result.key))
+      val captureFire = dispatchComplete.nonEmpty && !duplicate && afterConsume.size < depth
+      val captureBlocked = dispatchComplete.nonEmpty && !duplicate && afterConsume.size >= depth
+      pending = if (captureFire) afterConsume :+ dispatchComplete.get else afterConsume
       val consumedKeys = pending.map(_.key).toSet
       val decremented = stdDelay.collect {
         case (key, remaining) if consumedKeys.contains(key) && remaining > 1 => key -> (remaining - 1)
@@ -118,6 +120,18 @@ class ReducedStoreExecResultBridgeSpec extends AnyFunSuite {
     assert(consumed.pending.isEmpty)
   }
 
+  test("reference ignores implicit memory effects without store-dispatch ownership") {
+    val model = new Model(depth = 4)
+    val implicitCallStore = Result(Key(bid = 7, rid = 9), addr = 0x4000, data = 0x1234, size = 8)
+
+    val ignored = model.step(
+      complete = Some(implicitCallStore),
+      completeStoreDispatch = false)
+    assert(!ignored.captureFire)
+    assert(!ignored.captureBlocked)
+    assert(ignored.pending.isEmpty)
+  }
+
   test("reference reports overflow when no buffered result slot is free") {
     val model = new Model(depth = 2)
 
@@ -139,6 +153,7 @@ class ReducedStoreExecResultBridgeSpec extends AnyFunSuite {
 
     assert(sv.contains("module ReducedStoreExecResultBridge"))
     assert(sv.contains("io_completeStoreValid"))
+    assert(sv.contains("io_completeStoreDispatch"))
     assert(sv.contains("io_captureFire"))
     assert(sv.contains("io_captureBlocked"))
     assert(sv.contains("io_captureDuplicate"))

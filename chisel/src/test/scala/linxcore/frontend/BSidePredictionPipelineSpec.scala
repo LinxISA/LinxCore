@@ -48,7 +48,8 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       target: BigInt = 0,
       fallthroughPc: BigInt = 0,
       kind: BoundaryKind.Type = BoundaryKind.Fall,
-      staticTaken: Boolean = false): Unit = {
+      staticTaken: Boolean = false,
+      continuationReady: Boolean = true): Unit = {
     dut.io.boundary.bits.poke(0.U.asTypeOf(dut.io.boundary.bits))
     dut.io.boundary.valid.poke(true.B)
     dut.io.boundary.bits.valid.poke(hasBoundary.B)
@@ -68,6 +69,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.boundary.bits.fallthroughPc.poke(completedFallthrough.U)
     dut.io.boundary.bits.kind.poke(kind)
     dut.io.boundary.bits.staticTaken.poke(staticTaken.B)
+    dut.io.boundary.bits.continuationReady.poke(continuationReady.B)
     dut.io.boundary.ready.expect(true.B)
     dut.clock.step()
     dut.io.boundary.valid.poke(false.B)
@@ -88,6 +90,41 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.request.bits.identity.fetchSeq.poke(transactionId.U)
     dut.io.request.bits.identity.checkpointId.poke((transactionId & 0x3f).U)
     dut.io.request.bits.identity.epoch.poke(0.U)
+    dut.io.request.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.request.valid.poke(false.B)
+  }
+
+  private def sendRequestWithPrediction(
+      dut: BSidePredictionPipeline,
+      transactionId: Int,
+      pc: BigInt,
+      branchPc: BigInt,
+      target: BigInt,
+      fallthroughPc: BigInt,
+      kind: BoundaryKind.Type,
+      taken: Boolean): Unit = {
+    dut.io.request.bits.poke(0.U.asTypeOf(dut.io.request.bits))
+    dut.io.request.valid.poke(true.B)
+    dut.io.request.bits.pc.poke(pc.U)
+    dut.io.request.bits.lineVa.poke((pc & ~BigInt(lineBytes - 1)).U)
+    dut.io.request.bits.transactionId.poke(transactionId.U)
+    dut.io.request.bits.identity.peId.poke(1.U)
+    dut.io.request.bits.identity.threadId.poke(0.U)
+    dut.io.request.bits.identity.fetchPacketUid.poke(transactionId.U)
+    dut.io.request.bits.identity.fetchSeq.poke(transactionId.U)
+    dut.io.request.bits.identity.checkpointId.poke((transactionId & 0x3f).U)
+    dut.io.request.bits.identity.epoch.poke(0.U)
+    dut.io.request.bits.prediction.valid.poke(true.B)
+    dut.io.request.bits.prediction.taken.poke(taken.B)
+    dut.io.request.bits.prediction.branchPc.poke(branchPc.U)
+    dut.io.request.bits.prediction.target.poke(target.U)
+    dut.io.request.bits.prediction.fallthroughPc.poke(fallthroughPc.U)
+    dut.io.request.bits.prediction.kind.poke(kind)
+    dut.io.request.bits.prediction.provider.poke(PredictionProvider.Static)
+    dut.io.request.bits.prediction.stage.poke(BSideStage.BF4)
+    dut.io.request.bits.prediction.confidence.poke(1.U)
+    dut.io.request.bits.prediction.epoch.poke(0.U)
     dut.io.request.ready.expect(true.B)
     dut.clock.step()
     dut.io.request.valid.poke(false.B)
@@ -261,6 +298,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.prediction.fallthroughPc.expect(0x1006.U)
       dut.io.response.bits.prediction.confidence.expect(1.U)
       dut.io.response.bits.prediction.epoch.expect(1.U)
+      dut.io.response.bits.retireHistory.expect(false.B)
 
       dut.io.response.ready.poke(true.B)
       dut.io.innerFlush.valid.expect(true.B)
@@ -291,6 +329,112 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("B-F4 publishes a BSTART prediction but steers I-F0 through the block body") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(
+        dut,
+        transactionId = 2,
+        requestPc = 0x2000,
+        hasBoundary = true,
+        branchPc = 0x2004,
+        target = 0x900,
+        fallthroughPc = 0x2006,
+        kind = BoundaryKind.Direct,
+        staticTaken = true,
+        continuationReady = false)
+      sendRequest(dut, transactionId = 2, pc = 0x2000)
+
+      waitForResponse(dut)
+      dut.io.response.bits.finalResponse.expect(true.B)
+      dut.io.response.bits.prediction.taken.expect(true.B)
+      dut.io.response.bits.prediction.target.expect(0x900.U)
+      dut.io.response.bits.restartPc.expect(0x2006.U)
+      dut.io.response.bits.retireHistory.expect(false.B)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.ready.poke(true.B)
+      dut.io.innerFlush.valid.expect(true.B)
+      dut.io.innerFlush.bits.restartPc.expect(0x2006.U)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      dut.io.historyCount.expect(1.U)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 2,
+        predictionTag = predictionTag,
+        taken = true,
+        kind = BoundaryKind.Direct)
+      dut.io.historyCount.expect(1.U)
+      pokeResolve(
+        dut,
+        transactionId = 2,
+        predictionTag = predictionTag,
+        requestPc = 0x2000,
+        branchPc = 0x2004,
+        target = 0x900,
+        fallthroughPc = 0x2006,
+        kind = BoundaryKind.Direct,
+        taken = true,
+        epoch = 1)
+      dut.clock.step()
+      dut.io.historyCount.expect(0.U)
+    }
+  }
+
+  test("B-F4 refines an inherited CALL return cutpoint without a path correction") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(
+        dut,
+        transactionId = 46,
+        requestPc = 0x4000,
+        hasBoundary = true,
+        branchPc = 0x3ff0,
+        target = 0x8000,
+        fallthroughPc = 0x4040,
+        kind = BoundaryKind.Call,
+        staticTaken = true,
+        continuationReady = false)
+      sendRequestWithPrediction(
+        dut,
+        transactionId = 46,
+        pc = 0x4000,
+        branchPc = 0x3ff0,
+        target = 0x8000,
+        fallthroughPc = 0x4008,
+        kind = BoundaryKind.Call,
+        taken = true)
+
+      waitForResponse(dut)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.bits.finalResponse.expect(true.B)
+      dut.io.response.bits.correction.expect(false.B)
+      dut.io.response.bits.finalSteer.expect(false.B)
+      dut.io.response.bits.retireHistory.expect(false.B)
+      dut.io.response.bits.prediction.branchPc.expect(0x3ff0.U)
+      dut.io.response.bits.prediction.target.expect(0x8000.U)
+      dut.io.response.bits.prediction.fallthroughPc.expect(0x4040.U)
+      dut.io.response.bits.prediction.epoch.expect(0.U)
+      dut.io.response.ready.poke(true.B)
+      dut.io.innerFlush.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      dut.io.historyCount.expect(1.U)
+      pokeResolve(
+        dut,
+        transactionId = 46,
+        predictionTag = predictionTag,
+        requestPc = 0x4000,
+        branchPc = 0x3ff0,
+        target = 0x8000,
+        fallthroughPc = 0x4040,
+        kind = BoundaryKind.Call,
+        taken = true)
+      dut.clock.step()
+      dut.io.historyCount.expect(0.U)
+    }
+  }
+
   test("B-F4 waits for an exact no-boundary event and preserves the sequential provider") {
     simulate(module) { dut =>
       clear(dut)
@@ -314,7 +458,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("trained B-F0 correction is followed by a non-correcting B-F4 confirmation") {
+  test("trained B-F0 publishes the continuation prediction while steering through the body") {
     simulate(module) { dut =>
       clear(dut)
       trainPrediction(
@@ -346,7 +490,7 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.prediction.epoch.expect(1.U)
       dut.io.response.ready.poke(true.B)
       dut.io.innerFlush.valid.expect(true.B)
-      dut.io.innerFlush.bits.restartPc.expect(0x900.U)
+      dut.io.innerFlush.bits.restartPc.expect(0x3006.U)
       dut.clock.step()
       dut.io.response.ready.poke(false.B)
 
@@ -356,7 +500,105 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.prediction.stage.expect(BSideStage.BF4)
       dut.io.response.bits.prediction.provider.expect(PredictionProvider.LongTage)
       dut.io.response.bits.prediction.epoch.expect(1.U)
-      dut.io.innerFlush.valid.expect(false.B)
+      dut.io.response.bits.finalSteer.expect(true.B)
+      dut.io.response.ready.poke(true.B)
+      dut.io.innerFlush.valid.expect(true.B)
+      dut.io.innerFlush.bits.restartPc.expect(0x900.U)
+    }
+  }
+
+  test("a trained early correction still retires a non-terminal BF4 history row in the rebased epoch") {
+    simulate(module) { dut =>
+      clear(dut)
+      trainPrediction(
+        dut,
+        transactionId = 43,
+        requestPc = 0x3200,
+        branchPc = 0x3204,
+        target = 0x2f00,
+        fallthroughPc = 0x3206,
+        kind = BoundaryKind.Cond,
+        taken = true)
+      sendBoundary(
+        dut,
+        transactionId = 44,
+        requestPc = 0x3200,
+        hasBoundary = true,
+        branchPc = 0x3204,
+        target = 0x2f00,
+        fallthroughPc = 0x3206,
+        kind = BoundaryKind.Cond,
+        staticTaken = true,
+        continuationReady = false)
+      sendRequest(dut, transactionId = 44, pc = 0x3200)
+
+      waitForResponse(dut)
+      dut.io.response.bits.finalResponse.expect(false.B)
+      dut.io.response.bits.correction.expect(true.B)
+      dut.io.response.bits.prediction.stage.expect(BSideStage.BF0)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 44,
+        predictionTag = predictionTag,
+        taken = true,
+        kind = BoundaryKind.Cond)
+
+      waitForFinal(dut)
+      dut.io.response.bits.correction.expect(false.B)
+      dut.io.response.bits.finalSteer.expect(false.B)
+      dut.io.response.bits.retireHistory.expect(true.B)
+      dut.io.response.bits.prediction.epoch.expect(1.U)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      dut.io.historyCount.expect(0.U)
+    }
+  }
+
+  test("backend resolve releases an exact immutable checkpoint after multiple D1 epoch rebases") {
+    simulate(module) { dut =>
+      clear(dut)
+      sendBoundary(
+        dut,
+        transactionId = 45,
+        requestPc = 0x3300,
+        hasBoundary = true,
+        branchPc = 0x3304,
+        target = 0x3000,
+        fallthroughPc = 0x3306,
+        kind = BoundaryKind.Cond,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 45, pc = 0x3300)
+      waitForFinal(dut)
+      val predictionTag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 45,
+        predictionTag = predictionTag,
+        taken = true,
+        kind = BoundaryKind.Cond)
+      dut.io.historyCount.expect(1.U)
+
+      pokeResolve(
+        dut,
+        transactionId = 45,
+        predictionTag = predictionTag,
+        requestPc = 0x3300,
+        branchPc = 0x3304,
+        target = 0x3000,
+        fallthroughPc = 0x3306,
+        kind = BoundaryKind.Cond,
+        taken = true,
+        epoch = 9)
+      dut.clock.step()
+      dut.io.historyCount.expect(0.U)
+      dut.io.staleTraining.expect(false.B)
     }
   }
 
@@ -482,6 +724,53 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.response.valid.expect(true.B)
       dut.io.innerFlush.valid.expect(true.B)
+    }
+  }
+
+  test("canonical prune drains queued younger responses after the prune cycle") {
+    simulate(module) { dut =>
+      clear(dut)
+      for (transactionId <- 20 to 22) {
+        sendBoundary(
+          dut,
+          transactionId = transactionId,
+          requestPc = 0x4400 + (transactionId - 20) * lineBytes,
+          hasBoundary = false)
+        sendRequest(
+          dut,
+          transactionId = transactionId,
+          pc = 0x4400 + (transactionId - 20) * lineBytes)
+      }
+
+      var cycles = 0
+      while (dut.io.responseQueueCount.peek().litValue < 3 && cycles < 32) {
+        dut.clock.step()
+        cycles += 1
+      }
+      dut.io.responseQueueCount.expect(3.U)
+      dut.io.stageValid.expect(0.U)
+
+      dut.io.response.ready.poke(true.B)
+      dut.io.prune.valid.poke(true.B)
+      dut.io.prune.threadId.poke(0.U)
+      dut.io.prune.transactionId.poke(20.U)
+      dut.io.prune.fetchSeq.poke(20.U)
+      dut.io.prune.oldEpoch.poke(0.U)
+      dut.io.prune.newEpoch.poke(1.U)
+      dut.io.prune.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.response.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.prune.valid.poke(false.B)
+
+      dut.io.response.valid.expect(true.B)
+      dut.io.response.bits.request.transactionId.expect(20.U)
+      dut.clock.step()
+
+      for (_ <- 0 until 4) {
+        dut.io.response.valid.expect(false.B)
+        dut.clock.step()
+      }
+      dut.io.responseQueueCount.expect(0.U)
     }
   }
 
@@ -839,6 +1128,77 @@ class BSidePredictionPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.historyCount.expect(0.U)
       dut.clock.step()
       dut.io.staleTraining.expect(false.B)
+    }
+  }
+
+  test("B-F0 skips a retained history slot instead of blocking younger requests") {
+    def smallHistoryModule =
+      new BSidePredictionPipeline(
+        p = p,
+        lineBytes = lineBytes,
+        threadCount = 1,
+        boundaryEntries = 8,
+        responseEntries = 8,
+        trainingEntries = 4,
+        historyEntries = 4,
+        nanoEntries = 8,
+        ubtbEntries = 8,
+        pbtbEntries = 8,
+        bimEntries = 8,
+        tageEntries = 8,
+        ibtbEntries = 8,
+        loopEntries = 8,
+        rasDepth = 8)
+    simulate(smallHistoryModule) { dut =>
+      clear(dut)
+
+      sendBoundary(
+        dut,
+        transactionId = 0,
+        requestPc = 0x7000,
+        hasBoundary = true,
+        branchPc = 0x7004,
+        target = 0x7400,
+        fallthroughPc = 0x7006,
+        kind = BoundaryKind.Direct,
+        staticTaken = true)
+      sendRequest(dut, transactionId = 0, pc = 0x7000)
+      waitForFinal(dut)
+      dut.io.response.bits.prediction.predictionTag.expect(0.U)
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(
+        dut,
+        transactionId = 0,
+        predictionTag = 0,
+        taken = true,
+        kind = BoundaryKind.Direct)
+
+      for (transactionId <- 1 to 3) {
+        val pc = BigInt(0x7000 + transactionId * lineBytes)
+        sendBoundary(
+          dut,
+          transactionId = transactionId,
+          requestPc = pc,
+          hasBoundary = false)
+        sendRequest(dut, transactionId = transactionId, pc = pc)
+        waitForFinal(dut)
+        dut.io.response.bits.prediction.predictionTag.expect(transactionId.U)
+        dut.io.response.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.response.ready.poke(false.B)
+      }
+
+      dut.io.historyCount.expect(1.U)
+      sendBoundary(
+        dut,
+        transactionId = 4,
+        requestPc = 0x7040,
+        hasBoundary = false)
+      sendRequest(dut, transactionId = 4, pc = 0x7040)
+      waitForFinal(dut)
+      dut.io.response.bits.prediction.predictionTag.expect(5.U)
     }
   }
 

@@ -38,6 +38,7 @@ class ReducedScalarAluExecuteIO(
   val completePeId = Output(UInt(p.peIdWidth.W))
   val completeStid = Output(UInt(p.threadIdWidth.W))
   val completeTid = Output(UInt(p.threadIdWidth.W))
+  val completeUop = Output(new RenamedUop(p))
   val completeRow = Output(new CommitTraceRow(traceParams))
   val completeLsId = Output(UInt(p.lsidWidth.W))
   val completeDstPhysValid = Output(Bool())
@@ -50,6 +51,9 @@ class ReducedScalarAluExecuteIO(
   val completeSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
   val branchConditionValid = Output(Bool())
   val branchConditionTaken = Output(Bool())
+  val branchConditionIsTarget = Output(Bool())
+  val branchConditionTarget = Output(UInt(p.pcWidth.W))
+  val branchConditionUop = Output(new RenamedUop(p))
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val loadPairFirstLookupValid = Output(Bool())
@@ -1583,6 +1587,8 @@ class ReducedScalarAluExecute(
   val w2EarlyReleased = RegInit(false.B)
   val setcTargetValid = RegInit(false.B)
   val setcTarget = RegInit(0.U(p.pcWidth.W))
+  val setcTargetBlockBidValid = RegInit(false.B)
+  val setcTargetBlockBid = RegInit(0.U(p.blockBidWidth.W))
   val earlyReleasePendingValid = RegInit(false.B)
   val earlyReleasePendingBid = RegInit(ROBID.disabled(p.robEntries))
   val earlyReleasePendingGid = RegInit(ROBID.disabled(p.robEntries))
@@ -1704,7 +1710,10 @@ class ReducedScalarAluExecute(
     Mux(eFretStkContextValid, eUop.fretStkFallbackTargetValid, io.fretStkFallbackTargetValid)
   val eFretStkFallbackTarget =
     Mux(eFretStkContextValid, eUop.fretStkFallbackTarget, io.fretStkFallbackTarget)
-  val eFretStkHasRedirectTarget = setcTargetValid || eFretStkFallbackTargetValid
+  val eSetcTargetValid =
+    setcTargetValid && setcTargetBlockBidValid && eUop.blockBidValid &&
+      setcTargetBlockBid === eUop.blockBid
+  val eFretStkHasRedirectTarget = eSetcTargetValid || eFretStkFallbackTargetValid
   val eFretStkConditionAllowsLoad =
     (eFretStkConditionValid && !eFretStkConditionTaken) ||
       (!eFretStkConditionValid && !eFretStkHasRedirectTarget)
@@ -1893,6 +1902,8 @@ class ReducedScalarAluExecute(
     w2EarlyReleased := false.B
     setcTargetValid := false.B
     setcTarget := 0.U
+    setcTargetBlockBidValid := false.B
+    setcTargetBlockBid := 0.U
   }.elsewhen(w2RetainForCompletion) {
     w2Valid := w2Valid
     w2EarlyReleased := w2EarlyReleased
@@ -1971,17 +1982,21 @@ class ReducedScalarAluExecute(
   io.completePeId := Mux(io.completeValid, w2Uop.peId, 0.U)
   io.completeStid := Mux(io.completeValid, w2Uop.threadId, 0.U)
   io.completeTid := Mux(io.completeValid, w2Uop.threadId, 0.U)
+  io.completeUop := w2Uop
   io.completeLsId := Mux(io.completeValid, w2Uop.lsid, 0.U)
   val w2FretStkConditionAllowsTarget = !w2FretStkConditionValid || w2FretStkConditionTaken
+  val w2SetcTargetValid =
+    setcTargetValid && setcTargetBlockBidValid && w2Uop.blockBidValid &&
+      setcTargetBlockBid === w2Uop.blockBid
   val w2FretStkTargetTaken =
-    (setcTargetValid || w2FretStkFallbackTargetValid) && w2FretStkConditionAllowsTarget
-  val w2FretStkTarget = Mux(setcTargetValid, setcTarget, w2FretStkFallbackTarget)
+    (w2SetcTargetValid || w2FretStkFallbackTargetValid) && w2FretStkConditionAllowsTarget
+  val w2FretStkTarget = Mux(w2SetcTargetValid, setcTarget, w2FretStkFallbackTarget)
   io.completeRow := completionRow(
     w2Uop,
     w2SrcData,
     w2Result,
     io.completeValid,
-    setcTargetValid && w2FretStkConditionAllowsTarget,
+    w2SetcTargetValid && w2FretStkConditionAllowsTarget,
     setcTarget,
     w2FretStkFallbackTargetValid && w2FretStkConditionAllowsTarget,
     w2FretStkFallbackTarget,
@@ -2022,17 +2037,27 @@ class ReducedScalarAluExecute(
       w2Uop.pairFirstDst.valid && (w2Uop.pairFirstDst.archTag === 1.U),
       w2PairFirstResult,
       w2Result))
-  io.branchConditionValid := w2BranchConditionValid
+  // A resident W2 row may be held while ROB completion is backpressured.
+  // Branch resolution is an architectural side effect and must publish once,
+  // together with the accepted completion, rather than once per held cycle.
+  io.branchConditionValid := io.completeFire && w2BranchConditionValid
   io.branchConditionTaken := w2BranchConditionTaken
+  io.branchConditionIsTarget := w2BranchConditionValid && branchIsSetcTgt
+  io.branchConditionTarget := branchSrc0(p.pcWidth - 1, 0)
+  io.branchConditionUop := w2Uop
   io.redirectValid := io.completeFire && w2IsFretStk && (w2FretStkLoadReturn || w2FretStkTargetTaken)
   io.redirectPc := Mux(w2FretStkLoadReturn, w2Result(p.pcWidth - 1, 0), w2FretStkTarget)
   io.redirectOrder := w2Uop.uid.uid
   when(io.completeFire && branchIsSetcTgt) {
     setcTargetValid := branchTargetValid
     setcTarget := branchSrc0(p.pcWidth - 1, 0)
+    setcTargetBlockBidValid := w2Uop.blockBidValid
+    setcTargetBlockBid := w2Uop.blockBid
   }.elsewhen(io.completeFire && w2IsFretStk) {
     setcTargetValid := false.B
     setcTarget := 0.U
+    setcTargetBlockBidValid := false.B
+    setcTargetBlockBid := 0.U
   }
   io.releaseValid := (io.completeFire && !w2EarlyReleased) || w2UnsupportedDrain
   io.releaseBid := w2Uop.bid

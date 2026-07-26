@@ -47,6 +47,8 @@ object BlockMarkerLifecycleReference {
 
   final case class Output(
       activeBid: Option[BigInt],
+      activeTarget: BigInt,
+      pendingBoundaryTarget: Option[BigInt],
       blockAllocOnlyValid: Boolean,
       retiredMarkerReady: Boolean,
       retiredMarkerFire: Boolean,
@@ -65,6 +67,9 @@ object BlockMarkerLifecycleReference {
     private val activeCond = Array.fill(stidCount)(false)
     private val activeUnconditionalRedirect = Array.fill(stidCount)(false)
     private val activeClearsOnRobBlockLast = Array.fill(stidCount)(false)
+    private val pendingBoundaryValid = Array.fill(stidCount)(false)
+    private val pendingBoundaryTarget = Array.fill(stidCount)(BigInt(0))
+    private val pendingBoundaryKind = Array.fill(stidCount)(Kind.Fall)
     private var markerOwnedDonePending = false
     private var markerOwnedDoneBid = BigInt(0)
 
@@ -139,6 +144,7 @@ object BlockMarkerLifecycleReference {
         in.markerBoundary && markerActiveValid && laneUnconditionalRedirect(markerLane) && markerActiveTarget != 0
       val markerRedirectBoundary =
         markerUnconditionalRedirect || (markerNeedsBranchDecision && in.branchTakenValid && in.branchTaken)
+      val markerRedirectReusesBoundary = markerRedirectBoundary && markerActiveTarget == in.markerPc
       val markerFallthroughBoundary =
         in.markerBoundary && !markerUnconditionalRedirect &&
           (!markerNeedsBranchDecision || (in.branchTakenValid && !in.branchTaken))
@@ -221,6 +227,8 @@ object BlockMarkerLifecycleReference {
         }
       val out = Output(
         activeBid = if (isActive(queryLane)) Some(laneBid(queryLane)) else None,
+        activeTarget = laneTarget(queryLane),
+        pendingBoundaryTarget = queryLane.filter(pendingBoundaryValid).map(pendingBoundaryTarget),
         blockAllocOnlyValid = blockAllocOnlyValid,
         retiredMarkerReady = retiredMarkerReady,
         retiredMarkerFire = retiredMarkerFire,
@@ -244,14 +252,38 @@ object BlockMarkerLifecycleReference {
 
       if (in.flushValid) {
         activeValid.indices.foreach(clear)
+        activeValid.indices.foreach { idx =>
+          pendingBoundaryValid(idx) = false
+          pendingBoundaryTarget(idx) = 0
+          pendingBoundaryKind(idx) = Kind.Fall
+        }
       } else if (scalarRedirectScalarDoneFire) {
-        scalarRedirectLane.foreach(clear)
+        scalarRedirectLane.foreach { idx =>
+          clear(idx)
+          pendingBoundaryValid(idx) = false
+          pendingBoundaryTarget(idx) = 0
+          pendingBoundaryKind(idx) = Kind.Fall
+        }
       } else if (markerAllocFire) {
-        markerLane.foreach(installBoundary(_, in.markerAllocBid, in.markerTarget, in.markerKind))
+        markerLane.foreach { idx =>
+          installBoundary(idx, in.markerAllocBid, in.markerTarget, in.markerKind)
+          pendingBoundaryValid(idx) = false
+          pendingBoundaryTarget(idx) = 0
+          pendingBoundaryKind(idx) = Kind.Fall
+        }
       } else if (retiredMarkerBoundaryFire) {
         retiredLane.foreach(installBoundary(_, in.retiredMarkerBlockBid, in.retiredMarkerTarget, in.retiredMarkerKind))
       } else if (in.scalarBlockStartFire) {
-        scalarBlockStartLane.foreach(installScalar(_, in.scalarBlockStartBid))
+        scalarBlockStartLane.foreach { idx =>
+          if (pendingBoundaryValid(idx)) {
+            installBoundary(idx, in.scalarBlockStartBid, pendingBoundaryTarget(idx), pendingBoundaryKind(idx))
+          } else {
+            installScalar(idx, in.scalarBlockStartBid)
+          }
+          pendingBoundaryValid(idx) = false
+          pendingBoundaryTarget(idx) = 0
+          pendingBoundaryKind(idx) = Kind.Fall
+        }
       } else if (markerStopFire || markerBoundaryRedirectFire || retiredMarkerStopFire ||
           retiredMarkerRedirectFire || robBlockLastClearsActive) {
         if (markerStopFire || markerBoundaryRedirectFire) {
@@ -267,6 +299,14 @@ object BlockMarkerLifecycleReference {
               clear(idx)
             }
           }
+        }
+      }
+
+      if (markerBoundaryRedirectFire) {
+        markerLane.foreach { idx =>
+          pendingBoundaryValid(idx) = markerRedirectReusesBoundary
+          pendingBoundaryTarget(idx) = if (markerRedirectReusesBoundary) in.markerTarget else 0
+          pendingBoundaryKind(idx) = if (markerRedirectReusesBoundary) in.markerKind else Kind.Fall
         }
       }
 
@@ -292,6 +332,44 @@ class BlockMarkerLifecycleSpec extends AnyFunSuite {
     assert(second.activeBid.contains(10))
     assert(second.markerAllocFire)
     assert(second.scalarDoneBid.contains(10))
+  }
+
+  test("reference leases a resident target boundary to the first retained body row") {
+    val state = new State(entries = 8)
+
+    state.step(Input(
+      markerBoundary = true,
+      markerPc = 0x100,
+      markerTarget = 0x180,
+      markerKind = Kind.Cond,
+      markerAllocReady = true,
+      markerAllocBid = 10))
+
+    val targetBoundary = state.step(Input(
+      markerBoundary = true,
+      markerPc = 0x180,
+      markerTarget = 0x240,
+      markerKind = Kind.Cond,
+      markerAllocReady = true,
+      markerAllocBid = 11,
+      branchTakenValid = true,
+      branchTaken = true,
+      scalarWorkPending = false))
+    assert(targetBoundary.activeBid.contains(10))
+    assert(!targetBoundary.blockAllocOnlyValid)
+    assert(!targetBoundary.markerAllocFire)
+    assert(targetBoundary.scalarDoneBid.contains(10))
+    assert(targetBoundary.stopRedirectPc.contains(0x180))
+
+    val bodyStart = state.step(Input(
+      scalarBlockStartFire = true,
+      scalarBlockStartBid = 11))
+    assert(bodyStart.activeBid.isEmpty)
+    assert(bodyStart.pendingBoundaryTarget.contains(0x240))
+
+    val body = state.step(Input())
+    assert(body.activeBid.contains(11))
+    assert(body.activeTarget == 0x240)
   }
 
   test("reference consumes retired marker sources using row-owned block BID") {

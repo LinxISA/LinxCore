@@ -398,7 +398,7 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
     }
   }
 
-  test("frontend correction rebases a surviving checkpoint for later backend recovery") {
+  test("immutable history keys survive multiple frontend epoch rebases before backend recovery") {
     simulate(module) { dut =>
       clear(dut)
       allocate(dut, transactionId = 1, predictionTag = 0)
@@ -416,7 +416,7 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
         predictionTag = 0,
         taken = false,
         mispredict = true,
-        epoch = 1)
+        epoch = 9)
       dut.io.validMask.expect("b0001".U)
 
       canonicalPrune(
@@ -426,8 +426,8 @@ class BSideHistoryQueueSpec extends AnyFunSuite with ChiselSim with Matchers {
         taken = false,
         scope = IfuPruneScope.KillAllThreadState,
         reason = IfuInnerFlushReason.BruRecovery,
-        oldEpoch = 1,
-        newEpoch = 2)
+        oldEpoch = 9,
+        newEpoch = 10)
       dut.io.validMask.expect(0.U)
       dut.io.speculativeGhr(0).expect(0.U)
     }

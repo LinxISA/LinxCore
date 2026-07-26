@@ -38,7 +38,15 @@ class IfuRedirectArbiter(
   def threadIndex(threadId: UInt): UInt =
     if (threadCount == 1) 0.U(threadIndexWidth.W) else threadId(threadIndexWidth - 1, 0)
 
-  val canAccept = !pendingValid
+  // An exact backend BRU recovery is newer architectural information than a
+  // queued BF4 prediction correction. Replace that not-yet-published proposal
+  // in place; publishing it first would briefly restart F0 down the path that
+  // the backend has just proven wrong.
+  val backendSupersedesPrediction =
+    pendingValid &&
+      pending.reason === IfuInnerFlushReason.PredictionCorrection &&
+      io.backend.valid
+  val canAccept = !pendingValid || backendSupersedesPrediction
   val backendSelected = canAccept && io.backend.valid
   val itlbSelected = canAccept && !io.backend.valid && io.itlb.valid
   val predictionSelected =
@@ -50,9 +58,13 @@ class IfuRedirectArbiter(
       !io.prediction.valid &&
       io.epochSeed.valid
 
-  io.backend.ready := backendSelected
-  io.itlb.ready := itlbSelected
-  io.prediction.ready := predictionSelected
+  // Ready expresses capacity and priority only; it must not depend on the
+  // corresponding producer's valid.  B-SIDE intentionally makes a correcting
+  // response visible only when the redirect sink is ready, so valid-dependent
+  // ready here would create a combinational ready/valid deadlock.
+  io.backend.ready := canAccept
+  io.itlb.ready := canAccept && !io.backend.valid
+  io.prediction.ready := canAccept && !io.backend.valid && !io.itlb.valid
 
   val selected = Wire(new IfuInnerFlush(p))
   selected := 0.U.asTypeOf(selected)
@@ -72,7 +84,7 @@ class IfuRedirectArbiter(
   val selectedThread = threadIndex(selected.threadId)
   val nextEpoch = epochs(selectedThread) + 1.U
 
-  io.out.valid := pendingValid
+  io.out.valid := pendingValid && !backendSupersedesPrediction
   io.out.bits := pending
   io.epochs := epochs
   io.acceptedBackend := io.backend.fire
@@ -81,6 +93,7 @@ class IfuRedirectArbiter(
 
   when(io.out.fire) {
     pendingValid := false.B
+    epochs(threadIndex(pending.threadId)) := pending.newEpoch
   }
 
   when(selectedFire) {
@@ -90,7 +103,6 @@ class IfuRedirectArbiter(
     pending := selected
     pending.valid := true.B
     pending.newEpoch := nextEpoch
-    epochs(selectedThread) := nextEpoch
   }.elsewhen(epochSeedSelected && io.epochSeed.bits.threadId < threadCount.U) {
     epochs(threadIndex(io.epochSeed.bits.threadId)) := io.epochSeed.bits.epoch
   }

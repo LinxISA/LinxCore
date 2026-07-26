@@ -425,6 +425,22 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(FrontendDecodeStage.BoundaryTargetOpcodes.contains(FrontendOpcodeDecodeTable.OP_BSTART_STD_DIRECT))
   }
 
+  test("indirect block-boundary opcodes preserve IND and ICALL ownership") {
+    val expectedBoundaryCodes = Seq(
+      FrontendOpcodeDecodeTable.OP_BSTART_FP_ICALL -> 6,
+      FrontendOpcodeDecodeTable.OP_BSTART_FP_IND -> 5,
+      FrontendOpcodeDecodeTable.OP_BSTART_ICALL -> 6,
+      FrontendOpcodeDecodeTable.OP_BSTART_IND -> 5,
+      FrontendOpcodeDecodeTable.OP_C_BSTART_STD_ICALL -> 6,
+      FrontendOpcodeDecodeTable.OP_C_BSTART_STD_IND -> 5)
+
+    expectedBoundaryCodes.foreach { case (opcode, boundaryCode) =>
+      val rule = FrontendOpcodeDecodeTable.Rules.find(_.opcode == opcode).get
+      assert(rule.isBlockBoundary)
+      assert(rule.boundary == boundaryCode)
+    }
+  }
+
   test("frontend reg6 alias classifier follows LinxCoreModel scalar operand bounds") {
     import FrontendRegAliasClassifyReference._
 

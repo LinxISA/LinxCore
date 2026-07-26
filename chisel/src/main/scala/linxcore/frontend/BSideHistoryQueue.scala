@@ -105,18 +105,43 @@ class BSideHistoryQueue(
       row.request.identity.checkpointId === checkpointId &&
       row.request.pc === requestPc
 
+  def exactImmutableCheckpoint(
+      row: BSideHistoryCheckpoint,
+      peId: UInt,
+      transactionId: UInt,
+      predictionTag: UInt,
+      threadId: UInt,
+      fetchPacketUid: UInt,
+      fetchSeq: UInt,
+      checkpointId: UInt,
+      requestPc: UInt): Bool =
+    row.valid &&
+      row.request.identity.peId === peId &&
+      row.request.transactionId === transactionId &&
+      row.predictionTag === predictionTag &&
+      row.request.identity.threadId === threadId &&
+      row.request.identity.fetchPacketUid === fetchPacketUid &&
+      row.request.identity.fetchSeq === fetchSeq &&
+      row.request.identity.checkpointId === checkpointId &&
+      row.request.pc === requestPc
+
   def exactFlushRequest(
       request: ISideFetchRequest,
       predictionTag: UInt,
-      flush: IfuInnerFlush): Bool =
-    request.identity.peId === flush.peId &&
+      flush: IfuInnerFlush): Bool = {
+    val immutableIdentityMatch =
+      request.identity.peId === flush.peId &&
       request.identity.threadId === flush.threadId &&
       request.transactionId === flush.transactionId &&
       request.identity.fetchPacketUid === flush.fetchPacketUid &&
       request.identity.fetchSeq === flush.fetchSeq &&
-      request.identity.epoch === flush.oldEpoch &&
-      request.identity.checkpointId === flush.checkpointId &&
-      (!flush.historyKeyValid || predictionTag === flush.predictionTag)
+      request.identity.checkpointId === flush.checkpointId
+    immutableIdentityMatch &&
+      Mux(
+        flush.historyKeyValid,
+        predictionTag === flush.predictionTag,
+        request.identity.epoch === flush.oldEpoch)
+  }
 
   val allocateIndex = rowIndex(io.allocate.bits.predictionTag)
   val allocateThread = threadIndex(io.allocate.bits.request.identity.threadId)
@@ -146,8 +171,14 @@ class BSideHistoryQueue(
 
   val resolveIndex = rowIndex(io.resolve.bits.predictionTag)
   val resolveRow = rowAt(resolveIndex)
+  // Epoch is a transport generation, not part of the request-owned history
+  // key.  A retained D1 instruction can cross several accepted terminal BF4
+  // steers before Dispatch/BRU validates it, while its B-F0 checkpoint keeps
+  // the immutable allocation identity.  The full-width prediction tag plus
+  // the remaining request identity fields makes the match exact without
+  // limiting how many legal epoch rebases may have occurred.
   val resolveMatch =
-    exactCheckpoint(
+    exactImmutableCheckpoint(
       resolveRow,
       io.resolve.bits.peId,
       io.resolve.bits.transactionId,
@@ -155,7 +186,6 @@ class BSideHistoryQueue(
       io.resolve.bits.threadId,
       io.resolve.bits.fetchPacketUid,
       io.resolve.bits.fetchSeq,
-      io.resolve.bits.epoch,
       io.resolve.bits.checkpointId,
       io.resolve.bits.requestPc)
   io.resolveMatch := io.resolve.valid && resolveMatch
@@ -163,7 +193,7 @@ class BSideHistoryQueue(
 
   val releaseIndex = rowIndex(io.release.bits.prediction.predictionTag)
   val releaseRow = rowAt(releaseIndex)
-  val releaseMatch =
+  val releaseMatchAllocationEpoch =
     exactCheckpoint(
       releaseRow,
       io.release.bits.request.identity.peId,
@@ -175,6 +205,24 @@ class BSideHistoryQueue(
       io.release.bits.request.identity.epoch,
       io.release.bits.request.identity.checkpointId,
       io.release.bits.request.pc)
+  val releaseMatchPredictionEpoch =
+    exactCheckpoint(
+      releaseRow,
+      io.release.bits.request.identity.peId,
+      io.release.bits.request.transactionId,
+      io.release.bits.prediction.predictionTag,
+      io.release.bits.request.identity.threadId,
+      io.release.bits.request.identity.fetchPacketUid,
+      io.release.bits.request.identity.fetchSeq,
+      // An earlier predictor stage may already have caused a canonical
+      // correction.  The immutable fetch request retains its allocation
+      // epoch, while the effective prediction and history trigger are rebased
+      // into the accepted epoch.  Release must compare in that canonical
+      // prediction epoch domain.
+      io.release.bits.prediction.epoch,
+      io.release.bits.request.identity.checkpointId,
+      io.release.bits.request.pc)
+  val releaseMatch = releaseMatchAllocationEpoch || releaseMatchPredictionEpoch
 
   val pruneThread = threadIndex(io.prune.threadId)
   val pruneLiveMatches = Wire(Vec(entries, Bool()))
@@ -311,6 +359,13 @@ class BSideHistoryQueue(
       // can still identify this exact checkpoint.
       rowAt(pruneLiveIndex).request.identity.epoch := io.prune.newEpoch
     }
+    // A non-terminal BF4 correction must remain live until the redirect
+    // arbiter returns its keyed canonical prune.  Recover from the exact row,
+    // then retire it at that ordering point because this fetch transaction
+    // cannot contain the backend-resolving SETC.
+    when(pruneLiveMatch && rowAt(pruneLiveIndex).retireOnPrune) {
+      rowAt(pruneLiveIndex).valid := false.B
+    }
     redirectPending(pruneThread) := false.B
   }.otherwise {
     when(io.allocate.fire) {
@@ -332,11 +387,19 @@ class BSideHistoryQueue(
     when(io.resolve.valid && resolveMatch) {
       when(!io.resolve.bits.mispredict) {
         rowAt(resolveIndex).valid := false.B
+      }.otherwise {
+        // The paired BRU recovery arrives through the redirect arbiter on the
+        // following cycle and keys its prune with the D1-visible epoch.
+        rowAt(resolveIndex).request.identity.epoch := io.resolve.bits.epoch
       }
     }
 
     when(io.release.valid && releaseMatch) {
-      rowAt(releaseIndex).valid := false.B
+      when(io.release.bits.correction) {
+        rowAt(releaseIndex).retireOnPrune := true.B
+      }.otherwise {
+        rowAt(releaseIndex).valid := false.B
+      }
     }
   }
 

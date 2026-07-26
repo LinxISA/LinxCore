@@ -20,6 +20,12 @@ object BrobStoreCountPublisherReference {
     val firstDistance = (firstKilled - head) & mask
     distance < live && distance >= firstDistance
   }
+
+  def admitted(head: Int, live: Int, bid: Int, alloc: Option[Event], stid: Int, mask: Int): Boolean =
+    (((bid - head) & mask) < live) || alloc.contains(Event(stid, bid, explicit = false))
+
+  def stale(head: Int, live: Int, bid: Int, mask: Int): Boolean =
+    ((bid - head) & mask) >= live
 }
 
 class BrobStoreCountPublisherSpec extends AnyFunSuite {
@@ -42,6 +48,17 @@ class BrobStoreCountPublisherSpec extends AnyFunSuite {
     assert(killed(head = 14, live = 3, firstKilled = 15, bid = 0, mask = 15))
     assert(!killed(head = 14, live = 3, firstKilled = 15, bid = 14, mask = 15))
     assert(!killed(head = 14, live = 3, firstKilled = 15, bid = 1, mask = 15))
+  }
+
+  test("same-cycle accepted allocation admits marker-only scalar closure") {
+    val allocation = Event(stid = 0, bid = 9, explicit = false)
+    assert(admitted(head = 7, live = 2, bid = 9, Some(allocation), stid = 0, mask = 15))
+    assert(!admitted(head = 7, live = 2, bid = 10, Some(allocation), stid = 0, mask = 15))
+  }
+
+  test("publication is stale after its block retires past the canonical head") {
+    assert(!stale(head = 7, live = 2, bid = 7, mask = 15))
+    assert(stale(head = 8, live = 1, bid = 7, mask = 15))
   }
 
   test("BrobStoreCountPublisher elaborates independent retained sources") {

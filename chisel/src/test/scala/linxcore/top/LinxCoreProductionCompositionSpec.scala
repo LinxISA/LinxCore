@@ -83,6 +83,12 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
     words.zipWithIndex.map { case (word, index) => word << (index * 16) }.sum
   }
 
+  private def mixedWidthBoundaryLineData: BigInt =
+    BigInt(
+      "01cc7f0500001f97000e02000f152086080090a5004100000002000000003507" +
+        "00000391000181950000918710460800000002a53041002c0059f806080002a5",
+      16)
+
   private def returnFirstLine(dut: LinxCoreProductionComposition, lineData: BigInt): Unit = {
     waitUntil(40, "tagged memory request")(dut.io.memoryRequest.valid.peek().litToBoolean) {
       dut.clock.step()
@@ -228,7 +234,10 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
         dut.clock.step()
       }
       val captured = captureFirstPrediction(dut)
-      dut.io.decoded.bits.validMask.expect("b0111".U)
+      // The direct BSTART publishes an early B-F4 steer; its body and BSTOP
+      // are refetched under the final prediction rather than leaking into the
+      // marker's first D1 group.
+      dut.io.decoded.bits.validMask.expect("b0001".U)
       assert(captured.kind == BoundaryKind.Direct.litValue)
       assert(captured.taken)
       dut.io.decoded.ready.poke(true.B)
@@ -250,6 +259,83 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
       dut.io.currentPc(0).expect(correctedTarget.U)
       dut.io.epochs(0).expect(2.U)
       dut.io.feedbackPending.expect(false.B)
+    }
+  }
+
+
+  test("cold ITLB replay and a mixed-width boundary line reach production D1") {
+    simulate(
+      new LinxCoreProductionComposition(
+        p,
+        threadCount = 1,
+        lineBytes = lineBytes,
+        pageBytes = pageBytes,
+        itlbEntries = 4,
+        l1iSets = 4,
+        missEntries = 8,
+        joinEntries = 8,
+        maxGroupsPerTransaction = 8,
+        instructionBufferDepth = 16,
+        lineBridgeEntries = 8)) { dut =>
+      clear(dut)
+
+      dut.io.start.valid.poke(true.B)
+      dut.io.start.bits.peId.poke(1.U)
+      dut.io.start.bits.threadId.poke(0.U)
+      dut.io.start.bits.pc.poke(0x1210.U)
+      dut.clock.step()
+      dut.io.start.valid.poke(false.B)
+
+      waitUntil(40, "cold PTW request")(dut.io.ptwRequest.valid.peek().litToBoolean) {
+        dut.clock.step()
+      }
+      dut.io.ptwRequest.bits.vpn.expect(1.U)
+      dut.clock.step()
+      dut.io.ptwRefill.valid.poke(true.B)
+      dut.io.ptwRefill.bits.vpn.poke(1.U)
+      dut.io.ptwRefill.bits.ppn.poke(1.U)
+      dut.io.ptwRefill.bits.executable.poke(true.B)
+      dut.clock.step()
+      dut.io.ptwRefill.valid.poke(false.B)
+
+      waitUntil(80, "mixed-width line request")(dut.io.memoryRequest.valid.peek().litToBoolean) {
+        dut.clock.step()
+      }
+      dut.io.memoryRequest.bits.linePa.expect(0x1200.U)
+      val tag = dut.io.memoryRequest.bits.tag.peek().litValue
+      dut.io.memoryRequest.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.memoryRequest.ready.poke(false.B)
+
+      dut.io.memoryResponse.valid.poke(true.B)
+      dut.io.memoryResponse.bits.tag.poke(tag.U)
+      dut.io.memoryResponse.bits.linePa.poke(0x1200.U)
+      dut.io.memoryResponse.bits.lineData.poke(mixedWidthBoundaryLineData.U)
+      dut.io.memoryResponse.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.memoryResponse.valid.poke(false.B)
+
+      waitUntil(120, "mixed-width decoded group")(dut.io.decoded.valid.peek().litToBoolean) {
+        dut.clock.step()
+      }
+      // C.BSTART.STD.FALL is an execution-domain boundary marker, not a
+      // control-flow prediction source. Preserve its same-group followers.
+      dut.io.decoded.bits.validMask.expect("b1111".U)
+      Seq(0x1210, 0x1212, 0x1214, 0x1218).zip(Seq(2, 2, 4, 4)).zipWithIndex.foreach {
+        case ((pc, len), lane) =>
+          dut.io.decoded.bits.entries(lane).pc.expect(pc.U)
+          dut.io.decoded.bits.entries(lane).insnLen.expect(len.U)
+          dut.io.decoded.bits.entries(lane).prediction.stage.expect(BSideStage.BF4.asUInt)
+      }
+      dut.io.decoded.ready.poke(true.B)
+      dut.clock.step()
+      waitUntil(120, "post-BSTART mixed-width decoded group")(
+        dut.io.decoded.valid.peek().litToBoolean) {
+        dut.clock.step()
+      }
+      assert(dut.io.decoded.bits.validMask.peek().litValue != 0)
+      dut.io.decoded.bits.entries(0).pc.expect(0x121c.U)
+      dut.io.decoded.bits.entries(0).prediction.stage.expect(BSideStage.BF4.asUInt)
     }
   }
 }

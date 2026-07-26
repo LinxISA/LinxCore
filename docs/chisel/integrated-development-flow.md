@@ -24,62 +24,38 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-Latest IFU packet: R687 adds the production `D1InstructionDecodeStage`. It
-consumes four fixed-64-bit Instruction Buffer entries directly, without a
-packet-window or `F4Slot` conversion, and uses the shared
-`FrontendInstructionDecodeLane` for opcode/operand semantics. Every decoded
-uop receives the complete backend-safe prediction sidecar, scalar rename
-copies it unchanged, and I-F3 now assigns UIDs from an independent monotonic
-allocator that remains stable under backpressure. ChiselSim and generated
-RTL prove atomic four-wide decode, two-cycle backpressure stability, and exact
-partial-flush older-prefix survival. Four-lane rename/dispatch and BRU
-validation/recovery remain open.
+The current IFU handoff is the production I-SIDE/B-SIDE composition. Both
+engines implement real, independently backpressured F0-F4 stages. I-F1 launches
+ITLB and L1I in parallel; I-F3 owns variable-length and cross-line assembly;
+I-F4 recognizes only `BSTART`/`BSTOP`, expands each instruction to 64 bits, and
+writes the independent Instruction Buffer. B-F0 freezes request-owned GHR/RAS
+state, B-F1 through B-F4 refine the provider, and B-F4 is the final static/TAGE/
+IBTB/loop/RAS arbitration and final prediction-driven inner-flush point.
 
-Latest IFU packet: R686 adds a generated-RTL throughput gate around the
-canonical `LinxCoreIfu`, using architectural 64-byte cachelines and a
-synthesizable line responder. After warming four lines, both ChiselSim and
-Verilator require thirty-two consecutive full four-entry D1 groups with final
-B-F4 metadata on every lane. The Verilator run observes eight prediction joins
-and six line contexts in flight. This work also fixes and regression-locks an
-exact-capacity `IfuPredictionJoin` bug: the previous narrow `emitIndex + 1`
-wrapped when retiring group eight and replayed the row. This proves eligible
-dense hot-cache IFU supply, not mixed-length flow, backend four-wide acceptance,
-or CoreMark/Dhrystone promotion.
+The production wrapper set is exactly `LinxCoreIfu`, `IfuLineMemoryBridge`,
+`D1InstructionDecodeStage`, and `IfuBackendFeedbackBridge`, composed by
+`LinxCoreProductionComposition`. `IfuWindowLineFillAdapter` is benchmark-only.
+There is no packet-window decoder or F4-slot reconstruction in this path. D1
+reads up to four fixed-64-bit entries and carries the immutable final prediction
+record on every valid lane; a group-tail ACRC waits for cross-group BSTOP
+lookahead when needed.
 
-Latest IFU packet: R685 extends the Model-aligned B-SIDE speculative-state owner
-from conditional GHR to RAS. B-F0 atomically freezes GHR plus the complete
-per-STID RAS image/pointer/count in the exact prediction-tagged row. B-F1
-`FastRas` and B-F4 `FinalRas` consume the request-owned top rather than live
-state. A correction proposal only marks redirect pending; the returned
-canonical prune restores the producer snapshot, applies one typed conditional
-or Call/Return delta, and removes younger rows. ITLB fallback and start reset
-cover both GHR and RAS. Resolve training mutates learned predictor tables only;
-it no longer owns speculative RAS push/pop. Path history, loop speculative
-state, full TAGE provider/alternate policy, predictor-specific generated-RTL
-recovery stimulus, and natural benchmark promotion remain later packets.
-
-Latest IFU packet: R683 removes the one-sequential-transaction I-SIDE gate.
-`ISideLineContextQueue` allocates ordered line contexts with I-F0, accepts exact
-I-F2 completions out of order, and exposes only the oldest completed context to
-I-F3. An I-F3 instruction crossing a cacheline publishes an exact successor
-prefix/carry record; an already-prefetched successor is adjusted in place, or
-the carry is retained until that successor allocates. A delayed non-correcting
-B-F4 final response no longer rewinds I-F0's speculative line frontier. The
-composition proof recycles an eight-entry context window and supplies twenty
-consecutive four-instruction D1 groups from ten hot cachelines, while the consecutive
-cross-line proof checks that consumed prefixes are never decoded twice.
-
-R682 remains the exact-identity/provider-rank foundation: I-F2 compares PE,
-transaction, STID, packet UID, fetch sequence, checkpoint, epoch, PC, and line
-VA; I-F3 continuation additionally requires the exact next-line VA. BIM/TAGE
-trains only conditional resolutions, and B-F4 preserves
-`long-TAGE > earlier direction > static`. The four reduced wrapper families
-pass 52 tests after the main merge. The remaining P0 boundary is now generated
-RTL and workload integration: CoreMark/Dhrystone natural execution still uses
-the reduced serialized fetch fixture. Do not claim benchmark promotion or
-four-wide end-to-end backend throughput from the ChiselSim hot-cache proof.
-The R683 frontend regression passes 27 suites and 142 tests; the focused
-`LinxCoreIfuSpec` passes all seven composition scenarios.
+Boundary and recovery behavior is identity-qualified. Standalone `BSTOP` does
+not discard same-cacheline followers. A post-B-F4 SETC mismatch freezes younger
+ingress, waits for every resident row of the SETC's exact full BID, preserves
+that complete block through its youngest RID, and removes only the younger
+suffix. GPR cleanup uses the rebased RID rather than the SETC's stale uop order.
+Conditional FRET consumes retained SETC condition and target state only by
+matching full BID, so a caller target cannot override a later return fallback.
+Cold `Fall + setc.tgt` is validated as an indirect correction; `Direct/Call`
+target validation remains Dispatch-owned. Conditional SETC validates both its
+runtime direction and the static target snapshotted from the exact-full-BID
+backend context, so a prediction record joined from a different block cannot
+self-validate merely because its direction agrees.
+The hot-cache generated-RTL gate requires thirty-two consecutive four-entry D1
+groups with final B-F4 metadata. Natural CoreMark and Dhrystone remain the
+workload promotion gates. The fresh production-composition manifests close at
+1426 and 1150 commits respectively, both with `finisher=0x5555`.
 
 Latest packet: R676 makes `ScalarL1D` the canonical scalar cache-array owner.
 Independent set/way parameters size aligned tags, full-line data,

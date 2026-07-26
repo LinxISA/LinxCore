@@ -5,6 +5,20 @@ import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{BoundaryKind, InterfaceParams}
 import org.scalatest.funsuite.AnyFunSuite
 
+class SetcBranchValidationOwnershipProbeIO extends Bundle {
+  val isTarget = Input(Bool())
+  val predictedKind = Input(BoundaryKind())
+  val owns = Output(Bool())
+  val actualKind = Output(BoundaryKind())
+}
+
+class SetcBranchValidationOwnershipProbe extends Module {
+  val io = IO(new SetcBranchValidationOwnershipProbeIO)
+
+  io.owns := SetcBranchValidationOwnership.owns(io.isTarget, io.predictedKind)
+  io.actualKind := SetcBranchValidationOwnership.actualKind(io.isTarget, io.predictedKind)
+}
+
 class IfuBackendFeedbackBridgeSpec extends AnyFunSuite with ChiselSim {
   private val p = InterfaceParams()
 
@@ -64,7 +78,7 @@ class IfuBackendFeedbackBridgeSpec extends AnyFunSuite with ChiselSim {
     dut.io.validation.valid.poke(false.B)
   }
 
-  test("conditional BRU validation compares direction but not target") {
+  test("conditional BRU validation rejects a prediction from a different block target") {
     simulate(new IfuBackendFeedbackBridge(p)) { dut =>
       clear(dut)
       enqueue(
@@ -79,12 +93,13 @@ class IfuBackendFeedbackBridgeSpec extends AnyFunSuite with ChiselSim {
       dut.io.resolve.ready.poke(true.B)
       dut.io.backendRecovery.ready.poke(true.B)
       dut.io.pending.expect(true.B)
-      dut.io.pendingMispredict.expect(false.B)
+      dut.io.pendingMispredict.expect(true.B)
       dut.io.resolve.valid.expect(true.B)
-      dut.io.resolve.bits.mispredict.expect(false.B)
+      dut.io.resolve.bits.mispredict.expect(true.B)
       dut.io.resolve.bits.target.expect(0x4000.U)
       dut.io.resolve.bits.requestPc.expect(0x2000.U)
-      dut.io.backendRecovery.valid.expect(false.B)
+      dut.io.backendRecovery.valid.expect(true.B)
+      dut.io.backendRecovery.bits.restartPc.expect(0x4000.U)
       dut.clock.step()
       dut.io.pending.expect(false.B)
     }
@@ -183,6 +198,34 @@ class IfuBackendFeedbackBridgeSpec extends AnyFunSuite with ChiselSim {
       dut.io.backendRecovery.bits.ghrAppendValid.expect(true.B)
       dut.io.backendRecovery.bits.ghrAppendTaken.expect(false.B)
       dut.clock.step()
+    }
+  }
+
+  test("SETC validation ownership separates cold dynamic targets from Dispatch-owned calls") {
+    simulate(new SetcBranchValidationOwnershipProbe) { dut =>
+      dut.io.isTarget.poke(true.B)
+
+      dut.io.predictedKind.poke(BoundaryKind.Fall)
+      dut.io.owns.expect(true.B)
+      dut.io.actualKind.expect(BoundaryKind.Ind)
+
+      for (kind <- Seq(BoundaryKind.Ind, BoundaryKind.ICall, BoundaryKind.Ret)) {
+        dut.io.predictedKind.poke(kind)
+        dut.io.owns.expect(true.B)
+        dut.io.actualKind.expect(kind)
+      }
+
+      for (kind <- Seq(BoundaryKind.Direct, BoundaryKind.Call)) {
+        dut.io.predictedKind.poke(kind)
+        dut.io.owns.expect(false.B)
+      }
+
+      dut.io.isTarget.poke(false.B)
+      dut.io.predictedKind.poke(BoundaryKind.Cond)
+      dut.io.owns.expect(true.B)
+      dut.io.actualKind.expect(BoundaryKind.Cond)
+      dut.io.predictedKind.poke(BoundaryKind.Fall)
+      dut.io.owns.expect(false.B)
     }
   }
 }

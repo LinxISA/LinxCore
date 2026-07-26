@@ -142,6 +142,10 @@ class ScalarContinuationBlockIdentityProbe extends Module {
   path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
   path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
   path.io.recoveryIntentReady := true.B
+  path.io.recoveryBlockQueryValid := false.B
+  path.io.recoveryBlockQueryBid := 0.U
+  path.io.recoveryBlockQueryStid := 0.U
+  path.io.commitHold := false.B
   path.io.scalarCleanupOrderValid := false.B
   path.io.scalarCleanupOrder := 0.U
   path.io.completeValid := io.completeValid

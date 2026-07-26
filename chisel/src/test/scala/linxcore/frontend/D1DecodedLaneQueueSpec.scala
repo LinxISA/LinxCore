@@ -71,6 +71,7 @@ class D1DecodedLaneQueueSpec extends AnyFunSuite with ChiselSim {
         dut.io.out.bits.entries(lane).uid.uid.expect((10 + lane).U)
         dut.io.out.bits.entries(lane).prediction.transactionId.expect((100 + lane).U)
         dut.io.headLane.expect(lane.U)
+        dut.io.nextValid.expect((lane != p.decodeWidth - 1).B)
         dut.io.nextSameGroupValid.expect((lane != p.decodeWidth - 1).B)
         if (lane != p.decodeWidth - 1) {
           dut.io.nextSameGroupUop.uid.uid.expect((11 + lane).U)
@@ -83,6 +84,28 @@ class D1DecodedLaneQueueSpec extends AnyFunSuite with ChiselSim {
       }
       dut.io.out.valid.expect(false.B)
       dut.io.count.expect(0.U)
+    }
+  }
+
+  test("exposes the next program-order lane across four-wide group boundaries") {
+    simulate(new D1DecodedLaneQueue(p, depth = 8)) { dut =>
+      clear(dut)
+      presentGroup(dut, firstUid = 20, firstFetchSeq = 30, transactionBase = 100)
+      accept(dut)
+
+      dut.io.out.ready.poke(true.B)
+      for (_ <- 0 until 3) {
+        dut.clock.step()
+      }
+      dut.io.out.ready.poke(false.B)
+      dut.io.out.bits.entries(3).uid.uid.expect(23.U)
+      dut.io.nextValid.expect(false.B)
+
+      presentGroup(dut, firstUid = 40, firstFetchSeq = 50, transactionBase = 200)
+      accept(dut)
+      dut.io.nextValid.expect(true.B)
+      dut.io.nextSameGroupValid.expect(false.B)
+      dut.io.nextUop.uid.uid.expect(40.U)
     }
   }
 
@@ -171,6 +194,110 @@ class D1DecodedLaneQueueSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.out.bits.entries(2).uid.uid.expect(122.U)
       dut.io.out.bits.entries(2).prediction.epoch.expect(3.U)
+    }
+  }
+
+  test("terminal BF4 steer cuts an older-epoch cacheline tail after the block boundary") {
+    simulate(new D1DecodedLaneQueue(p, depth = 8)) { dut =>
+      clear(dut)
+      presentGroup(dut, firstUid = 200, firstFetchSeq = 40, transactionBase = 900)
+      val boundaryPc = 0x2000 + 200 * 2 + 2 * 2
+      for (lane <- 0 until p.decodeWidth) {
+        dut.io.in.bits.entries(lane).prediction.branchPc.poke(boundaryPc.U)
+      }
+      accept(dut)
+
+      // Progressive corrections may leave this group on an older fetchSeq
+      // than the terminal BF4 trigger. Fetch-age pruning alone would retain
+      // all four lanes even though lane 3 is past BSTOP.
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.oldEpoch.poke(2.U)
+      dut.io.flush.newEpoch.poke(3.U)
+      dut.io.flush.fetchSeq.poke(99.U)
+      dut.io.flush.transactionId.poke(999.U)
+      dut.io.flush.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.flush.terminalSteer.poke(true.B)
+      dut.io.flush.terminalTaken.poke(true.B)
+      dut.io.flush.boundaryPc.poke(boundaryPc.U)
+      dut.io.flush.boundaryFallthroughPc.poke((boundaryPc + 2).U)
+      dut.clock.step()
+
+      dut.io.flush.valid.poke(false.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.count.expect(3.U)
+      for (lane <- 0 until 3) {
+        dut.io.out.bits.entries(lane).uid.uid.expect((200 + lane).U)
+        dut.io.out.bits.entries(lane).prediction.epoch.expect(3.U)
+        dut.clock.step()
+      }
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("terminal not-taken BF4 steer preserves the block body after BSTART") {
+    simulate(new D1DecodedLaneQueue(p, depth = 8)) { dut =>
+      clear(dut)
+      presentGroup(dut, firstUid = 220, firstFetchSeq = 50, transactionBase = 1000)
+      val boundaryPc = 0x2000 + 220 * 2
+      for (lane <- 0 until p.decodeWidth) {
+        dut.io.in.bits.entries(lane).prediction.branchPc.poke(boundaryPc.U)
+      }
+      accept(dut)
+
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.oldEpoch.poke(2.U)
+      dut.io.flush.newEpoch.poke(3.U)
+      dut.io.flush.fetchSeq.poke(99.U)
+      dut.io.flush.transactionId.poke(999.U)
+      dut.io.flush.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.flush.terminalSteer.poke(true.B)
+      dut.io.flush.terminalTaken.poke(false.B)
+      dut.io.flush.boundaryPc.poke(boundaryPc.U)
+      dut.io.flush.boundaryFallthroughPc.poke((boundaryPc + 8).U)
+      dut.clock.step()
+
+      dut.io.flush.valid.poke(false.B)
+      dut.io.count.expect(4.U)
+    }
+  }
+
+  test("terminal BF4 preserves fetch-younger instructions inside the completed block body") {
+    simulate(new D1DecodedLaneQueue(p, depth = 8)) { dut =>
+      clear(dut)
+      presentGroup(dut, firstUid = 240, firstFetchSeq = 100, transactionBase = 1100)
+      val boundaryPc = 0x2100
+      val fallthroughPc = 0x2200
+      for (lane <- 0 until p.decodeWidth) {
+        dut.io.in.bits.entries(lane).prediction.branchPc.poke(boundaryPc.U)
+      }
+      accept(dut)
+
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.oldEpoch.poke(2.U)
+      dut.io.flush.newEpoch.poke(3.U)
+      dut.io.flush.fetchSeq.poke(99.U)
+      dut.io.flush.transactionId.poke(999.U)
+      dut.io.flush.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.flush.terminalSteer.poke(true.B)
+      dut.io.flush.terminalTaken.poke(true.B)
+      dut.io.flush.boundaryPc.poke(boundaryPc.U)
+      dut.io.flush.boundaryFallthroughPc.poke(fallthroughPc.U)
+      dut.clock.step()
+
+      dut.io.flush.valid.poke(false.B)
+      dut.io.count.expect(4.U)
+      dut.io.out.ready.poke(true.B)
+      for (lane <- 0 until p.decodeWidth) {
+        dut.io.out.bits.entries(lane).uid.uid.expect((240 + lane).U)
+        dut.io.out.bits.entries(lane).prediction.epoch.expect(3.U)
+        dut.clock.step()
+      }
     }
   }
 

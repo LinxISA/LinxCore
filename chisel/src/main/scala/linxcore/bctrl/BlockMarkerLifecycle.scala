@@ -58,6 +58,10 @@ class BlockMarkerLifecycleIO(
   val activeTarget = Output(UInt(pcWidth.W))
   val activeCond = Output(Bool())
   val activeUnconditionalRedirect = Output(Bool())
+  val pendingBoundaryValid = Output(Bool())
+  val pendingBoundaryTarget = Output(UInt(pcWidth.W))
+  val pendingBoundaryCond = Output(Bool())
+  val pendingBoundaryUnconditionalRedirect = Output(Bool())
 
   val blockAllocOnlyValid = Output(Bool())
   val blockAllocOnlyStid = Output(UInt(stidWidth.W))
@@ -100,6 +104,10 @@ class BlockMarkerLifecycle(
   val activeCond = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val activeUnconditionalRedirect = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val activeClearsOnRobBlockLast = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
+  val redirectBoundaryPendingValid = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
+  val redirectBoundaryPendingTarget = RegInit(VecInit(Seq.fill(stidCount)(0.U(pcWidth.W))))
+  val redirectBoundaryPendingKind =
+    RegInit(VecInit(Seq.fill(stidCount)(BoundaryKind.Fall)))
   val markerOwnedDonePending = RegInit(false.B)
   val markerOwnedDoneBid = RegInit(0.U(bidWidth.W))
   val markerOwnedDoneStid = RegInit(0.U(stidWidth.W))
@@ -181,6 +189,11 @@ class BlockMarkerLifecycle(
   val queryActiveCond = queryStidInRange && selectBool(activeCond, queryStidMatch)
   val queryActiveUnconditionalRedirect =
     queryStidInRange && selectBool(activeUnconditionalRedirect, queryStidMatch)
+  val queryPendingBoundaryValid =
+    queryStidInRange && selectBool(redirectBoundaryPendingValid, queryStidMatch)
+  val queryPendingBoundaryTarget = selectUInt(redirectBoundaryPendingTarget, queryStidMatch)
+  val queryPendingBoundaryKind =
+    selectUInt(VecInit(redirectBoundaryPendingKind.map(_.asUInt)), queryStidMatch)
 
   val scalarRedirectActiveValid = scalarRedirectStidInRange && selectBool(activeValid, scalarRedirectStidMatch)
   val scalarRedirectActiveBid = selectUInt(activeBid, scalarRedirectStidMatch)
@@ -195,6 +208,13 @@ class BlockMarkerLifecycle(
   val markerRedirectBoundary =
     markerUnconditionalRedirect ||
       (markerNeedsBranchDecision && io.branchTakenValid && io.branchTaken)
+  // The target BSTART may already be the resident marker that exposed the
+  // predecessor's branch decision. Preserve-trigger recovery keeps that D1
+  // transaction. The marker cannot allocate before the redirect flush because
+  // that would leave its retained body pointing at a reclaimed ROB reservation;
+  // instead, keep only its architectural target lease for the first body row.
+  val markerRedirectReusesBoundary =
+    markerRedirectBoundary && markerActiveTarget === io.markerPc
   val markerFallthroughBoundary =
     io.markerBoundary && !markerUnconditionalRedirect &&
       (!markerNeedsBranchDecision || (io.branchTakenValid && !io.branchTaken))
@@ -279,6 +299,14 @@ class BlockMarkerLifecycle(
   io.activeTarget := queryActiveTarget
   io.activeCond := queryActiveCond
   io.activeUnconditionalRedirect := queryActiveUnconditionalRedirect
+  io.pendingBoundaryValid := queryPendingBoundaryValid
+  io.pendingBoundaryTarget := queryPendingBoundaryTarget
+  io.pendingBoundaryCond :=
+    queryPendingBoundaryValid && queryPendingBoundaryKind === BoundaryKind.Cond.asUInt
+  io.pendingBoundaryUnconditionalRedirect :=
+    queryPendingBoundaryValid &&
+      (queryPendingBoundaryKind === BoundaryKind.Direct.asUInt ||
+        queryPendingBoundaryKind === BoundaryKind.Call.asUInt)
   io.markerAllocFire := markerBoundaryFire
   io.retiredMarkerReady := retiredReady
   io.retiredMarkerFire := retiredMarkerFire
@@ -321,23 +349,35 @@ class BlockMarkerLifecycle(
   when(io.flushValid) {
     for (idx <- 0 until stidCount) {
       clearLane(idx)
+      redirectBoundaryPendingValid(idx) := false.B
+      redirectBoundaryPendingTarget(idx) := 0.U
+      redirectBoundaryPendingKind(idx) := BoundaryKind.Fall
     }
   }.elsewhen(io.flushStidValid) {
     for (idx <- 0 until stidCount) {
       when(flushStidMatch(idx)) {
         clearLane(idx)
+        redirectBoundaryPendingValid(idx) := false.B
+        redirectBoundaryPendingTarget(idx) := 0.U
+        redirectBoundaryPendingKind(idx) := BoundaryKind.Fall
       }
     }
   }.elsewhen(scalarRedirectScalarDoneFire) {
     for (idx <- 0 until stidCount) {
       when(scalarRedirectStidMatch(idx)) {
         clearLane(idx)
+        redirectBoundaryPendingValid(idx) := false.B
+        redirectBoundaryPendingTarget(idx) := 0.U
+        redirectBoundaryPendingKind(idx) := BoundaryKind.Fall
       }
     }
   }.elsewhen(markerBoundaryFire) {
     for (idx <- 0 until stidCount) {
       when(markerStidMatch(idx)) {
         installLane(idx, io.markerAllocBid, io.markerTarget, io.markerBoundaryKind)
+        redirectBoundaryPendingValid(idx) := false.B
+        redirectBoundaryPendingTarget(idx) := 0.U
+        redirectBoundaryPendingKind(idx) := BoundaryKind.Fall
       }
     }
   }.elsewhen(retiredBoundaryFire) {
@@ -355,7 +395,18 @@ class BlockMarkerLifecycle(
   }.elsewhen(io.scalarBlockStartFire && scalarBlockStartStidInRange) {
     for (idx <- 0 until stidCount) {
       when(scalarBlockStartStidMatch(idx)) {
-        installScalarLane(idx, io.scalarBlockStartBid)
+        when(redirectBoundaryPendingValid(idx)) {
+          installLane(
+            idx,
+            io.scalarBlockStartBid,
+            redirectBoundaryPendingTarget(idx),
+            redirectBoundaryPendingKind(idx))
+        }.otherwise {
+          installScalarLane(idx, io.scalarBlockStartBid)
+        }
+        redirectBoundaryPendingValid(idx) := false.B
+        redirectBoundaryPendingTarget(idx) := 0.U
+        redirectBoundaryPendingKind(idx) := BoundaryKind.Fall
       }
     }
   }.elsewhen(
@@ -367,6 +418,17 @@ class BlockMarkerLifecycle(
           (retiredStidMatch(idx) && (retiredStopFire || retiredBoundaryRedirectFire)) ||
           robBlockLastClearsActive(idx)) {
         clearLane(idx)
+      }
+    }
+  }
+
+  when(markerBoundaryRedirectFire && markerStidInRange) {
+    for (idx <- 0 until stidCount) {
+      when(markerStidMatch(idx)) {
+        redirectBoundaryPendingValid(idx) := markerRedirectReusesBoundary
+        redirectBoundaryPendingTarget(idx) := Mux(markerRedirectReusesBoundary, io.markerTarget, 0.U)
+        redirectBoundaryPendingKind(idx) :=
+          Mux(markerRedirectReusesBoundary, io.markerBoundaryKind, BoundaryKind.Fall)
       }
     }
   }

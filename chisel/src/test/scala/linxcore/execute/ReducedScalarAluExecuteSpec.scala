@@ -1164,6 +1164,115 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("SETC publishes one branch resolution only with accepted W2 completion") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    simulate(new ReducedScalarAluExecute(p, trace)) { dut =>
+      initExecute(dut)
+      dut.io.completeReady.poke(false.B)
+      pokeAlu(
+        dut,
+        FrontendOpcodeDecodeTable.OP_C_SETC_EQ,
+        rid = 1,
+        pc = BigInt("40005636", 16),
+        src0 = 0,
+        src1 = 0,
+        dispatchTarget = DispatchTarget.Bru)
+      dut.clock.step()
+      dut.io.inValid.poke(false.B)
+
+      var waited = 0
+      while (!dut.io.completeValid.peek().litToBoolean && waited < 8) {
+        dut.io.branchConditionValid.expect(false.B)
+        dut.clock.step()
+        waited += 1
+      }
+      assert(waited < 8, "SETC did not reach W2")
+
+      for (_ <- 0 until 2) {
+        dut.io.completeValid.expect(true.B)
+        dut.io.completeFire.expect(false.B)
+        dut.io.branchConditionValid.expect(false.B)
+        dut.clock.step()
+      }
+
+      dut.io.completeReady.poke(true.B)
+      dut.io.completeFire.expect(true.B)
+      dut.io.branchConditionValid.expect(true.B)
+      dut.io.branchConditionTaken.expect(true.B)
+      dut.clock.step()
+      dut.io.branchConditionValid.expect(false.B)
+    }
+  }
+
+  test("FRET.STK consumes a SETC target only from the same full BID") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    simulate(new ReducedScalarAluExecute(p, trace)) { dut =>
+      initExecute(dut)
+
+      def completeSetc(blockBid: Int, target: BigInt, rid: Int): Unit = {
+        pokeAlu(
+          dut,
+          FrontendOpcodeDecodeTable.OP_C_SETC_TGT,
+          rid = rid,
+          pc = BigInt("40006000", 16) + rid * 2,
+          src0 = target,
+          src1 = 0,
+          dispatchTarget = DispatchTarget.Bru)
+        dut.io.in.blockBidValid.poke(true.B)
+        dut.io.in.blockBid.poke(blockBid.U)
+        dut.clock.step()
+        dut.io.inValid.poke(false.B)
+        var waited = 0
+        while (!dut.io.branchConditionValid.peek().litToBoolean && waited < 8) {
+          dut.clock.step()
+          waited += 1
+        }
+        assert(waited < 8, "SETC.TGT did not reach W2")
+        dut.io.branchConditionIsTarget.expect(true.B)
+        dut.clock.step()
+      }
+
+      def completeFret(blockBid: Int, fallback: BigInt, rid: Int): BigInt = {
+        pokeAlu(
+          dut,
+          FrontendOpcodeDecodeTable.OP_FRET_STK,
+          rid = rid,
+          pc = BigInt("40006100", 16) + rid * 4,
+          src0 = 0,
+          src1 = 0,
+          dispatchTarget = DispatchTarget.Bru)
+        dut.io.in.blockBidValid.poke(true.B)
+        dut.io.in.blockBid.poke(blockBid.U)
+        dut.io.in.fretStkContextValid.poke(true.B)
+        dut.io.in.fretStkConditionValid.poke(true.B)
+        dut.io.in.fretStkConditionTaken.poke(true.B)
+        dut.io.in.fretStkFallbackTargetValid.poke(true.B)
+        dut.io.in.fretStkFallbackTarget.poke(fallback.U)
+        dut.clock.step()
+        dut.io.inValid.poke(false.B)
+        var waited = 0
+        while (!dut.io.redirectValid.peek().litToBoolean && waited < 8) {
+          dut.clock.step()
+          waited += 1
+        }
+        assert(waited < 8, "FRET.STK did not reach W2")
+        val redirect = dut.io.redirectPc.peek().litValue
+        dut.clock.step()
+        redirect
+      }
+
+      val setcTarget = BigInt("36c6", 16)
+      val fallback = BigInt("621c", 16)
+      completeSetc(blockBid = 0x21, setcTarget, rid = 1)
+      assert(completeFret(blockBid = 0x22, fallback, rid = 2) == fallback)
+
+      completeSetc(blockBid = 0x23, setcTarget, rid = 3)
+      assert(completeFret(blockBid = 0x23, fallback, rid = 4) == setcTarget)
+    }
+  }
+
   test("dense four-entry ALU stream survives a mid-stream W2 stall without dropping or reordering") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)

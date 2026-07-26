@@ -102,13 +102,18 @@ class IfuPredictionJoin(
   io.allocate.ready := count =/= entries.U && !io.flush.valid
 
   val iSideHasRows = io.iSide.bits.validMask.orR
+  // A following control BSTART may close the current transaction without
+  // contributing an instruction lane to it.  F4 still carries the exact
+  // transaction identity in entry 0 and must be able to publish that empty
+  // terminal event so the retained groups can receive their BF4 prediction.
+  val iSideHasIdentity = iSideHasRows || io.iSide.bits.transactionComplete
   val iSideIdentity = io.iSide.bits.entries(0).identity
   val iSideMatches = Wire(Vec(entries, Bool()))
   val predictionMatches = Wire(Vec(entries, Bool()))
   for (entry <- 0 until entries) {
     iSideMatches(entry) :=
       rows(entry).valid &&
-        iSideHasRows &&
+        iSideHasIdentity &&
         exactIdentity(rows(entry), iSideIdentity, io.iSide.bits.entries(0).transactionId)
     predictionMatches(entry) :=
       rows(entry).valid &&
@@ -122,7 +127,7 @@ class IfuPredictionJoin(
   io.iSide.ready :=
     !io.flush.valid &&
       iSideMatchValid &&
-      rowAt(iSideMatchIndex).groupCount < maxGroupsPerTransaction.U
+      (!iSideHasRows || rowAt(iSideMatchIndex).groupCount < maxGroupsPerTransaction.U)
   io.prediction.ready := !io.flush.valid && predictionMatchValid
   io.iSideUnmatched := io.iSide.valid && !iSideMatchValid
   io.predictionUnmatched := io.prediction.valid && !predictionMatchValid
@@ -136,7 +141,9 @@ class IfuPredictionJoin(
       headRow.finalPredictionValid &&
       headCorrectionReady
   val emitGroup = headRow.groups(headRow.emitIndex)
-  io.out.valid := headReady && !io.flush.valid
+  val emitGroupHasRows = emitGroup.validMask.orR
+  io.out.valid :=
+    headReady && headRow.groupCount =/= 0.U && emitGroupHasRows && !io.flush.valid
   io.out.bits := emitGroup
   for (lane <- 0 until p.fetchWidth) {
     when(emitGroup.validMask(lane)) {
@@ -147,9 +154,19 @@ class IfuPredictionJoin(
   }
 
   val outFire = io.out.valid && io.out.ready
-  val emitsLastGroup =
-    outFire &&
+  // A terminal BF4 may prune every lane from one retained group while a
+  // later group in the same transaction still contains architectural body
+  // instructions.  Empty groups are internal join state and must not be sent
+  // to InstructionBuffer, whose enqueue contract requires at least one lane.
+  val skipsEmptyGroup =
+    headReady && headRow.groupCount =/= 0.U && !emitGroupHasRows && !io.flush.valid
+  val advancesGroup = outFire || skipsEmptyGroup
+  val advancesLastGroup =
+    advancesGroup &&
       (headRow.emitIndex.pad(groupCountWidth) +& 1.U) === headRow.groupCount
+  val retiresEmptyHead =
+    headReady && headRow.groupCount === 0.U && !io.flush.valid
+  val retiresHead = advancesLastGroup || retiresEmptyHead
 
   io.count := count
   io.headWaitingForISide := headRow.valid && !headRow.iSideComplete
@@ -168,12 +185,25 @@ class IfuPredictionJoin(
     for (offset <- 0 until entries) {
       val readPtr = advance(head, offset.U)
       val row = rowAt(readPtr)
+      val remainingInstructionSurvives = Wire(Vec(maxGroupsPerTransaction, Bool()))
+      for (group <- 0 until maxGroupsPerTransaction) {
+        val laneSurvives = Wire(Vec(p.fetchWidth, Bool()))
+        for (lane <- 0 until p.fetchWidth) {
+          laneSurvives(lane) :=
+            row.groups(group).validMask(lane) &&
+              !IfuFlushContract.killsInstruction(row.groups(group).entries(lane), io.flush)
+        }
+        remainingInstructionSurvives(group) :=
+          group.U >= row.emitIndex &&
+            group.U < row.groupCount &&
+            laneSurvives.asUInt.orR
+      }
       keep(offset) :=
         offset.U < count &&
-          !IfuFlushContract.kills(
-            row.request.identity,
-            row.request.transactionId,
-            io.flush)
+          (!IfuFlushContract.kills(
+             row.request.identity,
+             row.request.transactionId,
+             io.flush) || remainingInstructionSurvives.asUInt.orR)
     }
     val keepPrefix = Wire(Vec(entries + 1, UInt(countWidth.W)))
     keepPrefix(0) := 0.U
@@ -183,7 +213,18 @@ class IfuPredictionJoin(
       val writePtr = keepPrefix(offset)(ptrWidth - 1, 0)
       val row = rowAt(readPtr)
       when(keep(offset)) {
-        rowAt(writePtr) := row
+        val retained = Wire(new IfuPredictionJoinRow(p, lineBytes, maxGroupsPerTransaction))
+        retained := row
+        for (group <- 0 until maxGroupsPerTransaction) {
+          val retainedMask = Wire(Vec(p.fetchWidth, Bool()))
+          for (lane <- 0 until p.fetchWidth) {
+            retainedMask(lane) :=
+              row.groups(group).validMask(lane) &&
+                !IfuFlushContract.killsInstruction(row.groups(group).entries(lane), io.flush)
+          }
+          retained.groups(group).validMask := retainedMask.asUInt
+        }
+        rowAt(writePtr) := retained
         rowAt(writePtr).finalEpoch := io.flush.newEpoch
         when(
           row.request.transactionId === io.flush.transactionId &&
@@ -207,9 +248,11 @@ class IfuPredictionJoin(
     }
 
     when(io.iSide.fire) {
-      val groupIndex = rowAt(iSideMatchIndex).groupCount
-      rowAt(iSideMatchIndex).groups(groupIndex(groupIndexWidth - 1, 0)) := io.iSide.bits
-      rowAt(iSideMatchIndex).groupCount := groupIndex + 1.U
+      when(iSideHasRows) {
+        val groupIndex = rowAt(iSideMatchIndex).groupCount
+        rowAt(iSideMatchIndex).groups(groupIndex(groupIndexWidth - 1, 0)) := io.iSide.bits
+        rowAt(iSideMatchIndex).groupCount := groupIndex + 1.U
+      }
       when(io.iSide.bits.transactionComplete) {
         rowAt(iSideMatchIndex).iSideComplete := true.B
       }
@@ -225,17 +268,17 @@ class IfuPredictionJoin(
       }
     }
 
-    when(outFire && !emitsLastGroup) {
+    when(advancesGroup && !advancesLastGroup) {
       rowAt(head).emitIndex := headRow.emitIndex + 1.U
     }
-    when(emitsLastGroup) {
+    when(retiresHead) {
       rowAt(head).valid := false.B
       head := advance(head, 1.U)
     }
 
-    when(allocateFire && !emitsLastGroup) {
+    when(allocateFire && !retiresHead) {
       count := count + 1.U
-    }.elsewhen(!allocateFire && emitsLastGroup) {
+    }.elsewhen(!allocateFire && retiresHead) {
       count := count - 1.U
     }
   }

@@ -81,10 +81,26 @@ D1 开始，所有 instruction representation 固定为 64 bit。
 
 ITLB miss 由 I-SIDE 产生 typed inner flush。B-F4 correction 是最后一个
 prediction-driven inner flush；B-F4 final record 封存后，Dispatch 校验
-direct/call，BRU E1 校验 conditional direction 和 indirect/return target，
+direct/call，BRU E1 校验 conditional direction、exact-full-BID static target
+一致性和 indirect/return target，
 mismatch 使用 BRU flush/recover。B-SIDE 与 I-SIDE 只通过带 `stid`、fetch
 sequence、epoch 和 prediction tag 的 Decoupled
 request/response/training/redirect 接口交互。
+condition SETC 只校验 `Cond` record；`setc.tgt` 校验 `Ind/ICall/Ret`，并把
+cold `Fall` record 作为 `Ind` correction。`Direct/Call` record 上的
+target-setting uop 不得重复触发 BRU recovery。
+
+I-F4 只在 `BSTOP` 命中 resident `BSTART` context 时终止 control stream；
+standalone `BSTOP` 不得删除同一 cacheline 的后续 instructions。D1 对 group
+尾 `ACRC` 使用跨 group fixed-64-bit lookahead。SETC mismatch 的 backend
+recovery 等待 exact full-BID block 完成，以 youngest RID 保留整个 same-block
+tail；条件 FRET 按 full-BID 消费 SETC condition 和 target，caller target 不得
+污染后续 callee-return fallback。
+
+production IFU composition 固定为四个 wrapper：`LinxCoreIfu`、
+`IfuLineMemoryBridge`、`D1InstructionDecodeStage` 和
+`IfuBackendFeedbackBridge`。`IfuWindowLineFillAdapter` 只属于 benchmark
+memory harness，不是 production 架构边界。
 
 IFU 不分配 ROB、物理寄存器、LSID、IQ 或 LSU row。IFU 向 OOO 发送
 `D1DecodeGroup`，并在整组 handshake 成功前保持全部 lane 稳定。

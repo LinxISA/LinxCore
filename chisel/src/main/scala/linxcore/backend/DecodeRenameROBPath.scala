@@ -496,6 +496,13 @@ class DecodeRenameROBPathIO(
   val allocRobValue = Output(UInt(ptrWidth.W))
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
+  val recoveryBlockQueryValid = Input(Bool())
+  val recoveryBlockQueryBid = Input(UInt(bidWidth.W))
+  val recoveryBlockQueryStid = Input(UInt(stidWidth.W))
+  val recoveryBlockReady = Output(Bool())
+  val recoveryBlockLastRid = Output(new ROBID(p.robEntries))
+  val recoveryBlockPivotPresent = Output(Bool())
+  val commitHold = Input(Bool())
   val commit = Output(new CommitTracePort(traceParams))
   val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(p.robEntries, p.lsidWidth)))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -1173,6 +1180,10 @@ class DecodeRenameROBPath(
   val activeBlockCond = markerDecodeContextOpt.map(_.io.activeCond).getOrElse(markerLifecycle.io.activeCond)
   val activeBlockUnconditionalRedirect =
     markerDecodeContextOpt.map(_.io.activeUnconditionalRedirect).getOrElse(markerLifecycle.io.activeUnconditionalRedirect)
+  val pendingBoundaryValid =
+    markerDecodeContextOpt.map(_ => false.B).getOrElse(markerLifecycle.io.pendingBoundaryValid)
+  val pendingBoundaryTarget =
+    markerDecodeContextOpt.map(_ => 0.U(p.pcWidth.W)).getOrElse(markerLifecycle.io.pendingBoundaryTarget)
   val robBlockLastOwnsMarkerDecode = dontTouch(Wire(Bool()))
   robBlockLastOwnsMarkerDecode := markerOnlyPacket && activeBlockValid &&
     robBlockLastLifecycleStid === markerDecodeQueryStid &&
@@ -1257,6 +1268,19 @@ class DecodeRenameROBPath(
   selectedForQueue.rid.value := allocator.io.allocRobValue
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
+  // A body SETC resolves the control transfer owned by its enclosing BSTART,
+  // not by whichever block happens to be globally active when SETC reaches
+  // BRU.  Snapshot the block command's architectural target into every body
+  // uop while decode still has the exact BID-scoped marker context.  Preserve
+  // the marker's own decoded target when the selected row is the BSTART.
+  selectedForQueue.boundaryTarget :=
+    Mux(
+      selected.sob,
+      memIds.io.out.boundaryTarget,
+      Mux(
+        selectedUsesExistingBlock,
+        activeBlockTarget,
+        Mux(pendingBoundaryValid, pendingBoundaryTarget, memIds.io.out.boundaryTarget)))
   val selectedFretStk = selectedAny && selected.opcode === FrontendOpcodeDecodeTable.OP_FRET_STK.U(p.opcodeWidth.W)
   // Decode does not own the causal SETC-to-FRET handoff.  FRET.STK commonly
   // sits in the following STD block, so a decode-time snapshot can capture an
@@ -1571,6 +1595,10 @@ class DecodeRenameROBPath(
   allocator.io.completeRobValue := Mux(io.completeValid, io.completeRobValue, markerCompletionRobValue)
   allocator.io.completeRowValid := Mux(io.completeValid, io.completeRowValid, true.B)
   allocator.io.completeRow := Mux(io.completeValid, io.completeRow, markerCompletionRow)
+  allocator.io.recoveryBlockQueryValid := io.recoveryBlockQueryValid
+  allocator.io.recoveryBlockQueryBid := io.recoveryBlockQueryBid
+  allocator.io.recoveryBlockQueryStid := io.recoveryBlockQueryStid
+  allocator.io.commitHold := io.commitHold
   val emptyBlockClosePending = RegInit(false.B)
   val emptyBlockCloseBid = RegInit(0.U(bidWidth.W))
   val emptyBlockCloseStid = RegInit(0.U(stidWidth.W))
@@ -1636,8 +1664,10 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushPointer := cleanup.blockFlushPointer
   allocator.io.blockFlushStid := cleanup.flush.req.stid
   allocator.io.blockFlushInclusive := cleanup.blockFlushInclusive
-  allocator.io.blockQueryBid := allocator.io.allocBlockBid
-  allocator.io.blockQueryStid := selectedStid
+  allocator.io.blockQueryBid :=
+    Mux(io.recoveryBlockQueryValid, io.recoveryBlockQueryBid, allocator.io.allocBlockBid)
+  allocator.io.blockQueryStid :=
+    Mux(io.recoveryBlockQueryValid, io.recoveryBlockQueryStid, selectedStid)
   allocator.io.blockRetireReady := true.B
   allocator.io.blockRetireHold :=
     localScalarRedirectValid || recovery.io.sourceSelectedValid || recovery.io.sourcePendingMask.orR ||
@@ -1982,6 +2012,23 @@ class DecodeRenameROBPath(
   io.allocRobValue := allocator.io.allocRobValue
   io.completeAccepted := io.completeValid && allocator.io.completeAccepted
   io.completeIgnored := io.completeValid && allocator.io.completeIgnored
+  // A SETC is not required to be the final scalar instruction in its block.
+  // The ROB query therefore retains the youngest already-resident row with the
+  // exact full BID, rather than treating SETC's own RID as the pivot.  Do not
+  // wait for BROB scalarDone here: a control block can close only after the
+  // redirect reaches its target, so scalarDone would wait on the recovery it
+  // is supposed to authorize.
+  val recoveryBlockReadyNow = allocator.io.recoveryBlockReady
+  // Register the query response before it participates in the top-level
+  // ingress-fence flush.  `flushValid` feeds the ROB/marker cleanup network;
+  // returning its combinational readiness directly to the flush producer
+  // would create a control loop.  The recovery owner and commit hold keep the
+  // queried BID stable across this response stage.
+  io.recoveryBlockReady :=
+    RegNext(recoveryBlockReadyNow, false.B) && io.recoveryBlockQueryValid
+  io.recoveryBlockLastRid := allocator.io.recoveryBlockLastRid
+  io.recoveryBlockPivotPresent :=
+    io.recoveryBlockReady && allocator.io.recoveryBlockPivotPresent
   io.commit := allocator.io.commit
   io.commitMemoryOrder := allocator.io.commitMemoryOrder
   io.commitValidMask := allocator.io.commitValidMask
@@ -2171,6 +2218,10 @@ object DecodeRenameROBPath {
     path.io.lsuRecoverySource := 0.U.asTypeOf(path.io.lsuRecoverySource)
     path.io.lsuFullBidLookupRequest := 0.U.asTypeOf(path.io.lsuFullBidLookupRequest)
     path.io.recoveryIntentReady := true.B
+    path.io.recoveryBlockQueryValid := false.B
+    path.io.recoveryBlockQueryBid := 0.U
+    path.io.recoveryBlockQueryStid := 0.U
+    path.io.commitHold := false.B
   }
 
   /** Tie off raw BCC/IEX/PE triggers only in shells without those owners. */

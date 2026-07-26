@@ -80,7 +80,7 @@ class IfuRedirectArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.transactionId.expect(10.U)
       dut.io.out.bits.newEpoch.expect(6.U)
-      dut.io.epochs(0).expect(6.U)
+      dut.io.epochs(0).expect(5.U)
     }
   }
 
@@ -121,6 +121,78 @@ class IfuRedirectArbiterSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("advertises redirect readiness without waiting for producer valid") {
+    simulate(new IfuRedirectArbiter(p, threadCount = 1)) { dut =>
+      clear(dut)
+      dut.io.backend.ready.expect(true.B)
+      dut.io.itlb.ready.expect(true.B)
+      dut.io.prediction.ready.expect(true.B)
+
+      pokeProposal(
+        dut.io.itlb,
+        transactionId = 2,
+        fetchSeq = 2,
+        oldEpoch = 0,
+        reason = IfuInnerFlushReason.ItlbMiss,
+        scope = IfuPruneScope.KillTriggerAndYounger)
+      dut.io.backend.ready.expect(true.B)
+      dut.io.itlb.ready.expect(true.B)
+      dut.io.prediction.ready.expect(false.B)
+
+      pokeProposal(
+        dut.io.backend,
+        transactionId = 1,
+        fetchSeq = 1,
+        oldEpoch = 0,
+        reason = IfuInnerFlushReason.BruRecovery,
+        scope = IfuPruneScope.KillAllThreadState)
+      dut.io.backend.ready.expect(true.B)
+      dut.io.itlb.ready.expect(false.B)
+      dut.io.prediction.ready.expect(false.B)
+    }
+  }
+
+  test("backend recovery replaces a queued prediction correction before publication") {
+    simulate(new IfuRedirectArbiter(p, threadCount = 1)) { dut =>
+      clear(dut)
+      pokeProposal(
+        dut.io.prediction,
+        transactionId = 7,
+        fetchSeq = 7,
+        oldEpoch = 0,
+        reason = IfuInnerFlushReason.PredictionCorrection,
+        scope = IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.prediction.bits.restartPc.poke(0x100.U)
+      dut.io.prediction.ready.expect(true.B)
+      dut.clock.step()
+
+      clear(dut)
+      pokeProposal(
+        dut.io.backend,
+        transactionId = 7,
+        fetchSeq = 7,
+        oldEpoch = 0,
+        reason = IfuInnerFlushReason.BruRecovery,
+        scope = IfuPruneScope.KillAllThreadState)
+      dut.io.backend.bits.restartPc.poke(0x200.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.out.valid.expect(false.B)
+      dut.io.backend.ready.expect(true.B)
+      dut.io.acceptedBackend.expect(true.B)
+      dut.clock.step()
+
+      clear(dut)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.reason.expect(IfuInnerFlushReason.BruRecovery)
+      dut.io.out.bits.restartPc.expect(0x200.U)
+      dut.io.out.bits.newEpoch.expect(1.U)
+      dut.io.epochs(0).expect(0.U)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.epochs(0).expect(1.U)
+    }
+  }
+
   test("redirect proposals take priority over a simultaneous epoch seed") {
     simulate(new IfuRedirectArbiter(p, threadCount = 1)) { dut =>
       clear(dut)
@@ -146,7 +218,7 @@ class IfuRedirectArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.restartPc.expect(0x900.U)
       dut.io.out.bits.newEpoch.expect(1.U)
-      dut.io.epochs(0).expect(1.U)
+      dut.io.epochs(0).expect(0.U)
     }
   }
 }

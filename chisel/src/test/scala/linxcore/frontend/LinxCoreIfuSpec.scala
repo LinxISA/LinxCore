@@ -123,6 +123,9 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
       dut.io.d1.bits.entries(3).pc.expect(0x126.U)
       for (lane <- 0 until p.decodeWidth) {
         dut.io.d1.bits.entries(lane).prediction.stage.expect(BSideStage.BF4)
+        // The terminal B-F4 response is final, but C.BSTART.FP at the end of
+        // this line is an execution-domain wrapper rather than a control-flow
+        // correction source.
         dut.io.d1.bits.entries(lane).identity.epoch.expect(0.U)
       }
 
@@ -134,6 +137,9 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
       }
       dut.io.d1.bits.entries(0).pc.expect(0x128.U)
       dut.io.d1.bits.entries(3).pc.expect(0x12e.U)
+      for (lane <- 0 until p.decodeWidth) {
+        dut.io.d1.bits.entries(lane).prediction.stage.expect(BSideStage.BF4)
+      }
     }
   }
 
@@ -168,9 +174,12 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
       dut.io.canonicalFlush.bits.scope.expect(IfuPruneScope.KillTriggerAndYounger)
       dut.io.canonicalFlush.bits.restartPc.expect(0x500.U)
       dut.io.canonicalFlush.bits.newEpoch.expect(1.U)
-      dut.io.epochs(0).expect(1.U)
+      // The proposal exposes its canonical new epoch during publication; the
+      // committed epoch register advances on the accepting edge.
+      dut.io.epochs(0).expect(0.U)
 
       dut.clock.step()
+      dut.io.epochs(0).expect(1.U)
       dut.io.ptwPending.expect(true.B)
       for (_ <- 0 until 8) {
         dut.io.ptwRequest.valid.expect(false.B)
@@ -332,7 +341,7 @@ class LinxCoreIfuSpec extends AnyFunSuite with ChiselSim {
             dut.io.d1.bits.entries(lane).lenBytes.expect(4.U)
             sawSecondCrossing = true
           }
-          if (pc >= 0x140) {
+          if (pc >= 0x140 && !sawPostPrefixInstruction) {
             assert(sawSecondCrossing, "crossing instruction must precede its next sequential PC")
             assert(pc == 0x142, f"next instruction after second crossing was 0x$pc%x")
             sawPostPrefixInstruction = true

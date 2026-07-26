@@ -109,6 +109,28 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
     dut.io.prediction.valid.poke(false.B)
   }
 
+  private def sendEmptyTerminal(
+      dut: IfuPredictionJoin,
+      transactionId: Int,
+      epoch: Int,
+      packetUid: Int = -1): Unit = {
+    val effectivePacketUid = if (packetUid >= 0) packetUid else transactionId
+    dut.io.iSide.bits.poke(0.U.asTypeOf(dut.io.iSide.bits))
+    dut.io.iSide.valid.poke(true.B)
+    dut.io.iSide.bits.validMask.poke(0.U)
+    dut.io.iSide.bits.transactionComplete.poke(true.B)
+    dut.io.iSide.bits.entries(0).transactionId.poke(transactionId.U)
+    dut.io.iSide.bits.entries(0).identity.peId.poke(1.U)
+    dut.io.iSide.bits.entries(0).identity.threadId.poke(0.U)
+    dut.io.iSide.bits.entries(0).identity.fetchPacketUid.poke(effectivePacketUid.U)
+    dut.io.iSide.bits.entries(0).identity.fetchSeq.poke(transactionId.U)
+    dut.io.iSide.bits.entries(0).identity.checkpointId.poke((transactionId & 0x3f).U)
+    dut.io.iSide.bits.entries(0).identity.epoch.poke(epoch.U)
+    dut.io.iSide.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.iSide.valid.poke(false.B)
+  }
+
   test("retains multiple I-F4 groups and stamps the final prediction into every lane") {
     simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 4)) { dut =>
       clear(dut)
@@ -138,6 +160,50 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(0).pc.expect(0x1018.U)
       dut.clock.step()
       dut.io.out.valid.expect(false.B)
+      dut.io.count.expect(0.U)
+    }
+  }
+
+  test("an empty control-boundary terminal completes retained groups without adding an output group") {
+    simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 4)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 3, epoch = 0)
+      sendGroup(dut, transactionId = 3, epoch = 0, basePc = 0x1300, complete = false)
+      sendEmptyTerminal(dut, transactionId = 3, epoch = 0)
+      sendPrediction(
+        dut,
+        transactionId = 3,
+        epoch = 0,
+        correction = false,
+        finalResponse = true,
+        target = 0x1380)
+
+      dut.io.out.ready.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.entries(0).pc.expect(0x1300.U)
+      dut.io.out.bits.entries(0).prediction.target.expect(0x1380.U)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+      dut.io.count.expect(0.U)
+    }
+  }
+
+  test("an instruction-empty terminal transaction retires after its final prediction") {
+    simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 4)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 4, epoch = 0)
+      sendEmptyTerminal(dut, transactionId = 4, epoch = 0)
+      sendPrediction(
+        dut,
+        transactionId = 4,
+        epoch = 0,
+        correction = false,
+        finalResponse = true,
+        target = 0x1480)
+
+      dut.io.out.ready.poke(true.B)
+      dut.io.out.valid.expect(false.B)
+      dut.clock.step()
       dut.io.count.expect(0.U)
     }
   }
@@ -186,6 +252,55 @@ class IfuPredictionJoinSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.count.expect(0.U)
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("terminal BF4 retains younger body lanes and removes the return tail") {
+    simulate(new IfuPredictionJoin(p, lineBytes, entries = 4, maxGroupsPerTransaction = 4)) { dut =>
+      clear(dut)
+      allocate(dut, transactionId = 11, epoch = 0)
+      sendGroup(
+        dut,
+        transactionId = 11,
+        epoch = 0,
+        basePc = 0x100c,
+        complete = true)
+      sendPrediction(
+        dut,
+        transactionId = 11,
+        epoch = 0,
+        correction = false,
+        finalResponse = true,
+        target = 0x1800)
+
+      // The terminal response belongs to the older BSTART transaction 10.
+      // Transaction 11 is fetch-younger, but its first two lanes are still
+      // inside the completed block body [0x1000, 0x1010).
+      dut.io.flush.valid.poke(true.B)
+      dut.io.flush.threadId.poke(0.U)
+      dut.io.flush.transactionId.poke(10.U)
+      dut.io.flush.fetchSeq.poke(10.U)
+      dut.io.flush.oldEpoch.poke(0.U)
+      dut.io.flush.newEpoch.poke(3.U)
+      dut.io.flush.reason.poke(IfuInnerFlushReason.PredictionCorrection)
+      dut.io.flush.scope.poke(IfuPruneScope.PreserveTriggerKillYounger)
+      dut.io.flush.terminalSteer.poke(true.B)
+      dut.io.flush.terminalTaken.poke(true.B)
+      dut.io.flush.boundaryPc.poke(0x1000.U)
+      dut.io.flush.boundaryFallthroughPc.poke(0x1010.U)
+      dut.clock.step()
+      dut.io.flush.valid.poke(false.B)
+
+      dut.io.count.expect(1.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.validMask.expect("b0011".U)
+      dut.io.out.bits.entries(0).pc.expect(0x100c.U)
+      dut.io.out.bits.entries(1).pc.expect(0x100e.U)
+      dut.io.out.bits.entries(0).identity.epoch.expect(3.U)
+      dut.io.out.bits.entries(0).prediction.epoch.expect(3.U)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.count.expect(0.U)
     }
   }
 

@@ -28,6 +28,8 @@ class D1DecodedLaneQueueIO(
 
   val in = Flipped(Decoupled(new D1DecodedInstructionGroup(p)))
   val out = Decoupled(new D1DecodedInstructionGroup(p))
+  val nextValid = Output(Bool())
+  val nextUop = Output(new DecodedUop(p))
   val nextSameGroupValid = Output(Bool())
   val nextSameGroupUop = Output(new DecodedUop(p))
   val flush = Input(new IfuInnerFlush(p))
@@ -43,9 +45,9 @@ class D1DecodedLaneQueueIO(
   *
   * One accepted four-wide D1 group allocates all of its valid lanes atomically.
   * The backend may consume one lane per cycle without converting the decoded
-  * instruction back into a fetch packet or byte window.  A private group ID
-  * keeps the same-group successor relation exact for service-adjacent BSTOP
-  * classification.
+  * instruction back into a fetch packet or byte window.  The flattened queue
+  * exposes the exact next program-order lane across four-wide group boundaries;
+  * a private group ID additionally identifies same-group successors.
   */
 class D1DecodedLaneQueue(
     val p: InterfaceParams = InterfaceParams(),
@@ -99,8 +101,9 @@ class D1DecodedLaneQueue(
   val headEntry = entries(head)
   val nextHead = advance(head, 1.U)
   val nextEntry = entries(nextHead)
+  val nextValid = headValid && count > 1.U && valids(nextHead)
   val nextSameGroup =
-    headValid && count > 1.U && valids(nextHead) && nextEntry.groupId === headEntry.groupId
+    nextValid && nextEntry.groupId === headEntry.groupId
 
   io.out.valid := headValid
   io.out.bits := 0.U.asTypeOf(io.out.bits)
@@ -119,6 +122,8 @@ class D1DecodedLaneQueue(
     io.out.bits.storeMask :=
       Mux(headEntry.store, UIntToOH(headEntry.lane, p.decodeWidth), 0.U(p.decodeWidth.W))
   }
+  io.nextValid := nextValid
+  io.nextUop := Mux(nextValid, nextEntry.uop, 0.U.asTypeOf(new DecodedUop(p)))
   io.nextSameGroupValid := nextSameGroup
   io.nextSameGroupUop := Mux(nextSameGroup, nextEntry.uop, 0.U.asTypeOf(new DecodedUop(p)))
   io.count := count
@@ -149,11 +154,13 @@ class D1DecodedLaneQueue(
       val readPtr = advance(head, offset.U)
       val row = entries(readPtr)
       val resident = offset.U < count && valids(readPtr)
-      val killed = IfuFlushContract.kills(
+      val killed = IfuFlushContract.killsInstruction(
         row.uop.threadId,
         row.uop.prediction.epoch,
         row.uop.prediction.fetchSeq,
         row.uop.prediction.transactionId,
+        row.uop.pc,
+        row.uop.prediction.branchPc,
         io.flush)
       keep(offset) := resident && !killed
       prefix(offset + 1) := prefix(offset) + keep(offset).asUInt
@@ -161,7 +168,9 @@ class D1DecodedLaneQueue(
       when(keep(offset)) {
         val retained = Wire(new D1DecodedLaneQueueEntry(p))
         retained := row
-        when(rebaseHits(offset)) {
+        when(
+          rebaseHits(offset) ||
+            (io.flush.terminalSteer && row.uop.threadId === io.flush.threadId)) {
           retained.uop.prediction.epoch := io.flush.newEpoch
         }
         entries(prefix(offset)(ptrWidth - 1, 0)) := retained

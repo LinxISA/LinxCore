@@ -92,14 +92,15 @@ from the retained row; it never derives them from PC or physical address.
 
 - Captures one complete cache line plus its PC/offset/fault context.
 - Orders bytes from the requested PC and aligns the resulting byte stream.
+- Determines each 2/4/6/8-byte encoded length and forms complete instruction
+  candidates.
 - Preserves cross-line carry bytes and joins them with the next returned line.
-- Presents an ordered byte stream to I-F4; it does not determine instruction
-  length, produce an instruction payload, or perform predecode.
+- Presents completed candidates to I-F4; it does not classify block boundaries
+  or perform general decode.
 
 ### I-F4 — instruction formation, restricted predecode, and buffer write
 
-- Determines the 2/4/6/8-byte encoded instruction length and completes
-  instruction assembly from the ordered I-F3 byte stream.
+- Accepts the completed instruction and length from I-F3.
 - Recognizes `BSTART` and `BSTOP` boundary forms and produces their boundary
   metadata.
 - Zero-extends the complete encoded instruction into `inst[63:0]`.
@@ -108,6 +109,12 @@ from the retained row; it never derives them from PC or physical address.
 - Atomically writes the formed 64-bit instruction records and metadata into
   the per-STID Instruction Buffer when capacity is available.
 - Holds its output stable under Instruction Buffer backpressure.
+
+`BSTOP` has two exact cases. A stop paired with a resident `BSTART` closes that
+control-boundary transaction and terminates the remaining speculative entries
+for it. A standalone execution-domain `BSTOP` is only an architectural marker:
+I-F4 emits it but preserves later instructions already formed from the same
+cache line, and it does not terminate the fetch transaction by itself.
 
 The Instruction Buffer is a queue after I-F4, not a pipeline-stage alias. Each
 entry contains:
@@ -219,10 +226,32 @@ valid D1 lane.
 
 Post-B-F4 validation is type-specific. Dispatch checks direct/call properties
 that require no runtime operand. BRU E1 checks conditional `setc.*` direction
-and indirect/return `setc.tgt` targets after their operands are available. Any
+and the exact-full-BID static block target carried by its backend context; the
+target check rejects a direction-correct prediction record accidentally joined
+from another conditional block. BRU E1 checks indirect/return `setc.tgt`
+targets after their operands are available. Any
 mismatch enters `BRU flush + recover`, restores predictor checkpoints through
 the accepted recovery event, and publishes the architectural restart PC to
 I-F0. It must not be reported as a frontend-only inner flush.
+
+The prediction kind selects the only legal SETC validation owner. A condition
+SETC validates only a `Cond` record. A `setc.tgt` validates
+`Ind`/`ICall`/`Ret`, and also validates a cold `Fall` record as an `Ind`
+correction: `Fall` means B-SIDE did not identify the dynamic boundary, not that
+the computed target may be ignored. In particular, a `setc.tgt` carried beside
+a `Direct` or `Call` record must not manufacture a BRU recovery; those targets
+are already Dispatch-owned.
+
+A SETC may precede ordinary scalar instructions in its architectural block.
+On mismatch, backend recovery first freezes commit and ingress, waits until all
+resident rows with the SETC's exact full BID complete, and selects the youngest
+such RID as the non-inclusive recovery pivot. GPR cleanup uses that rebased RID,
+not the SETC's earlier uop-order sidecar, so same-block tail mappings survive
+while younger blocks are removed. A conditional `FRET.STK` consumes both the
+retained SETC condition and an explicit SETC target only when their full BID
+matches. A target from a caller block therefore cannot override a later
+callee-return fallback; unrelated boundary traffic cannot clear or reuse the
+condition.
 
 The Chisel `IfuBackendFeedbackBridge` implements this comparison and IFU
 feedback boundary. It retains transaction ID, packet UID, fetch sequence,
@@ -231,9 +260,15 @@ validation emits only actual-result training; mismatch training and the keyed
 backend restart advance atomically. Dispatch/BRU event production and full-BID
 ROB/BROB cleanup remain backend-composition responsibilities.
 
-`LinxCoreProductionComposition` is the promoted owner that connects this
-feedback wrapper, the tagged 64-byte line-memory bridge, the canonical IFU, and
-the direct four-wide D1 full decoder. A B-F4 correction preserves its producer
+The production IFU boundary consists of four promoted wrappers:
+
+1. `LinxCoreIfu`, the canonical I-SIDE/B-SIDE composition;
+2. `IfuLineMemoryBridge`, the tagged 64-byte line transport;
+3. `D1InstructionDecodeStage`, the direct four-wide fixed-64-bit decoder;
+4. `IfuBackendFeedbackBridge`, the retained validation/training/restart owner.
+
+`LinxCoreProductionComposition` connects those four wrappers without
+reconstructing packet windows or F4 slots. A B-F4 correction preserves its producer
 checkpoint and rebases that request-owned key into the canonical new epoch that
 is carried to D1. If Dispatch/BRU later reports a mismatch, the exact queued
 training event consumes the immutable checkpoint before the matching
@@ -290,6 +325,9 @@ assume a fixed cycle relationship between I-F stage state and B-F stage state.
   prediction register is not.
 - D1 does not reconstruct a variable-length byte window and does not
   concatenate neighboring Instruction Buffer entries.
+- An `ACRC` at the end of one D1 group may inspect the next queued 64-bit entry
+  for an adjacent `BSTOP`. D1 holds the service row until that cross-group
+  lookahead exists; it neither invents a boundary nor drops the following row.
 - From D1 onward, all instruction payloads are fixed-width `inst[63:0]`.
 
 If fewer than four consecutive entries are available, D1 may issue the
@@ -321,6 +359,11 @@ past an invalid, cancelled, faulting, or different-STID entry.
     identity reconstruction.
 13. The production D1-to-backend ingress consumes decoded lanes directly; it
     may not recreate a fetch packet, byte window, or F4 slot.
+14. Standalone `BSTOP` markers do not discard same-cacheline followers; only a
+    stop that closes resident control-boundary context terminates that stream.
+15. SETC recovery preserves the complete exact-full-BID block and prunes only
+    its younger backend suffix; conditional FRET consumes condition state by
+    the same full BID.
 
 The production D1 implementation is `D1InstructionDecodeStage`. It consumes a
 four-entry `D1InstructionGroup` directly, performs full decode without an

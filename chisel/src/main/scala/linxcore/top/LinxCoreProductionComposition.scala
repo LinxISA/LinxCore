@@ -1,7 +1,7 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid, log2Ceil}
+import chisel3.util.{Decoupled, Queue, Valid, log2Ceil}
 import linxcore.common.InterfaceParams
 import linxcore.frontend._
 
@@ -10,9 +10,9 @@ class LinxCoreProductionCompositionIO(
     val threadCount: Int = 1,
     val lineBytes: Int = 64,
     val pageBytes: Int = 4096,
-    val missEntries: Int = 4,
+    val missEntries: Int = 8,
     val joinEntries: Int = 8,
-    val lineBridgeEntries: Int = 4,
+    val lineBridgeEntries: Int = 8,
     val instructionBufferDepth: Int = 16)
     extends Bundle {
   private val missCountWidth = log2Ceil(lineBridgeEntries + 1)
@@ -82,14 +82,17 @@ class LinxCoreProductionComposition(
     val pageBytes: Int = 4096,
     val itlbEntries: Int = 16,
     val l1iSets: Int = 64,
-    val missEntries: Int = 4,
+    val missEntries: Int = 8,
     val joinEntries: Int = 8,
     val maxGroupsPerTransaction: Int = 8,
     val instructionBufferDepth: Int = 16,
-    val lineBridgeEntries: Int = 4,
+    val lineBridgeEntries: Int = 8,
     val feedbackEntries: Int = 2)
     extends Module {
   require(lineBytes == 64, "production IFU composition uses 64-byte cache lines")
+  require(
+    missEntries >= joinEntries,
+    "production IFU requires one miss credit per live prediction-join transaction")
   require(
     lineBridgeEntries >= missEntries,
     "production line bridge must preserve the IFU miss-table concurrency")
@@ -121,6 +124,7 @@ class LinxCoreProductionComposition(
   val lineBridge = Module(new IfuLineMemoryBridge(p, lineBridgeEntries, lineBytes))
   val d1Decode = Module(new D1InstructionDecodeStage(p))
   val feedback = Module(new IfuBackendFeedbackBridge(p, feedbackEntries))
+  val backendRecoveryQueue = Module(new Queue(new IfuInnerFlush(p), 1))
 
   ifu.io.start := io.start
   io.ptwRequest <> ifu.io.ptwRequest
@@ -143,7 +147,8 @@ class LinxCoreProductionComposition(
   feedback.io.validation.bits := io.backendValidation.bits
   io.backendValidation.ready := feedback.io.validation.ready
   ifu.io.branchResolve <> feedback.io.resolve
-  ifu.io.backendRedirect <> feedback.io.backendRecovery
+  backendRecoveryQueue.io.enq <> feedback.io.backendRecovery
+  ifu.io.backendRedirect <> backendRecoveryQueue.io.deq
 
   io.canonicalFlush := ifu.io.canonicalFlush
   io.active := ifu.io.active

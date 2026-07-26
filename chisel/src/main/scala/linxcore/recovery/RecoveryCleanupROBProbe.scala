@@ -197,6 +197,10 @@ class RecoveryCleanupROBProbe extends Module {
   rob.io.completeRobValue := 0.U
   rob.io.completeRowValid := false.B
   rob.io.completeRow := 0.U.asTypeOf(rob.io.completeRow)
+  rob.io.recoveryBlockQueryValid := false.B
+  rob.io.recoveryBlockQueryBid := 0.U
+  rob.io.recoveryBlockQueryStid := 0.U
+  rob.io.commitHold := false.B
   rob.io.deallocReady := false.B
   rob.io.deallocHoldMask := 0.U
   rob.io.statusLookupValid := false.B

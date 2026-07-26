@@ -41,6 +41,7 @@ class ReducedStoreExecResultBridgeIO(
 
   val flushValid = Input(Bool())
   val completeValid = Input(Bool())
+  val completeStoreDispatch = Input(Bool())
   val completeRow = Input(new CommitTraceRow(traceParams))
   val completeBid = Input(new ROBID(p.robEntries))
   val completeRid = Input(new ROBID(p.robEntries))
@@ -148,8 +149,14 @@ class ReducedStoreExecResultBridge(
 
   val entries = RegInit(VecInit(Seq.fill(bufferEntries)(zeroEntry)))
 
+  // Commit rows also describe implicit architectural memory effects such as
+  // CALL/ICALL return-stack writes.  Those effects never allocate STA/STD
+  // payloads and therefore must not consume this queue-matching result buffer.
+  // The renamed-uop store classification is the ownership bit shared with the
+  // StoreSplitPayload producer; mem.isStore alone is deliberately insufficient.
   val completeStoreValid =
-    !io.flushValid && io.completeValid && io.completeRow.mem.valid && io.completeRow.mem.isStore
+    !io.flushValid && io.completeValid && io.completeStoreDispatch &&
+      io.completeRow.mem.valid && io.completeRow.mem.isStore
   val completeEntry = Wire(new ReducedStoreExecResultEntry(p.robEntries, addrWidth, dataWidth, stidWidth, sizeWidth))
   completeEntry := zeroEntry
   completeEntry.valid := true.B

@@ -82,12 +82,16 @@ class D1DecodeRenameROBIngress(
 
   laneQueue.io.in <> io.in
   laneQueue.io.flush := io.ifuFlush
-  laneQueue.io.out.ready := path.io.decodeReady
+  val headIsService =
+    laneQueue.io.out.valid &&
+      laneQueue.io.out.bits.entries(laneQueue.io.headLane).opcode ===
+        linxcore.frontend.FrontendOpcodeDecodeTable.OP_ACRC.U(p.opcodeWidth.W)
+  laneQueue.io.out.ready := path.io.decodeReady && (!headIsService || laneQueue.io.nextValid)
 
   path.io.predecodedD1Valid := laneQueue.io.out.valid
   path.io.predecodedD1 := laneQueue.io.out.bits
-  path.io.predecodedNextValid := laneQueue.io.nextSameGroupValid
-  path.io.predecodedNext := laneQueue.io.nextSameGroupUop
+  path.io.predecodedNextValid := laneQueue.io.nextValid
+  path.io.predecodedNext := laneQueue.io.nextUop
 
   path.io.d1 := 0.U.asTypeOf(path.io.d1)
   path.io.slots := 0.U.asTypeOf(path.io.slots)

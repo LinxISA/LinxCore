@@ -5,6 +5,7 @@ import chisel3.util.{Cat, Decoupled, Mux1H, PopCount, PriorityEncoder, UIntToOH,
 
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, InterfaceParams}
+import linxcore.frontend.ISideItlbRefill
 import linxcore.system.{ReducedServiceRequestPayload, ReducedServiceRequestResponse}
 
 object LinxCoreBenchmarkAutonomousTop {
@@ -344,8 +345,25 @@ class LinxCoreBenchmarkAutonomousTop(
     gprMapQDepth = coreParams.scalarBackend.gprMapQDepth,
     scalarStidCount = coreParams.scalarLsu.stidCount,
     useReducedStoreDispatchStq = true,
-    useReducedStoreStaAddressExecBridge = true
+    useReducedStoreStaAddressExecBridge = true,
+    useProductionD1Ingress = true
   ))
+
+  private val productionIfu = Module(new LinxCoreProductionComposition(
+    p = p,
+    threadCount = 1,
+    lineBytes = 64,
+    pageBytes = 4096,
+    itlbEntries = 16,
+    l1iSets = 64,
+    missEntries = 8,
+    joinEntries = 8,
+    maxGroupsPerTransaction = 8,
+    instructionBufferDepth = 16,
+    lineBridgeEntries = 8,
+    feedbackEntries = 2
+  ))
+  private val lineFill = Module(new IfuWindowLineFillAdapter(p, lineBytes = 64))
 
   private val bootSpReg = RegInit(0.U(p.immWidth.W))
   private val haltedReg = RegInit(false.B)
@@ -363,6 +381,39 @@ class LinxCoreBenchmarkAutonomousTop(
   private val sourceBlocked = haltedReg || trapReg || finisherSeenReg
   private val hardFlush = io.flushValid || sourceBlocked
 
+  productionIfu.io.start.valid := io.startValid || io.restartValid || live.io.sourceRestartValid
+  productionIfu.io.start.bits.peId := io.peId
+  productionIfu.io.start.bits.threadId := io.threadId
+  productionIfu.io.start.bits.pc := Mux(
+    live.io.sourceRestartValid,
+    live.io.sourceRestartPc,
+    Mux(io.restartValid, io.restartPc, io.resetPc))
+
+  private val ptwRefillValid = RegNext(productionIfu.io.ptwRequest.fire, false.B)
+  private val ptwRefill = RegInit(0.U.asTypeOf(new ISideItlbRefill(p, pageBytes = 4096)))
+  productionIfu.io.ptwRequest.ready := true.B
+  when(productionIfu.io.ptwRequest.fire) {
+    ptwRefill.vpn := productionIfu.io.ptwRequest.bits.vpn
+    ptwRefill.ppn := productionIfu.io.ptwRequest.bits.vpn
+    ptwRefill.executable := true.B
+  }
+  productionIfu.io.ptwRefill.valid := ptwRefillValid
+  productionIfu.io.ptwRefill.bits := ptwRefill
+  productionIfu.io.fetchFault.ready := true.B
+  productionIfu.io.invalidateItlb := false.B
+  productionIfu.io.invalidateL1I := false.B
+  productionIfu.io.d1ThreadId := io.threadId
+  productionIfu.io.backendValidation <> live.io.backendValidation
+
+  lineFill.io.lineRequest <> productionIfu.io.memoryRequest
+  productionIfu.io.memoryResponse <> lineFill.io.lineResponse
+  lineFill.io.fetchReqReady := io.fetchReqReady && !sourceBlocked
+  lineFill.io.fetchRespValid := io.fetchRespValid && !sourceBlocked
+  lineFill.io.fetchRespWindow := io.fetchRespWindow
+
+  live.io.productionD1 <> productionIfu.io.decoded
+  live.io.productionIfuFlush := productionIfu.io.canonicalFlush.bits
+
   live.io.startValid := io.startValid
   live.io.startPc := io.resetPc
   live.io.restartValid := io.restartValid
@@ -374,9 +425,9 @@ class LinxCoreBenchmarkAutonomousTop(
   live.io.frontendFlushValid := hardFlush
   live.io.peId := io.peId
   live.io.threadId := io.threadId
-  live.io.fetchReqReady := io.fetchReqReady && !sourceBlocked
-  live.io.fetchRespValid := io.fetchRespValid && !sourceBlocked
-  live.io.fetchRespWindow := io.fetchRespWindow
+  live.io.fetchReqReady := false.B
+  live.io.fetchRespValid := false.B
+  live.io.fetchRespWindow := 0.U
   live.io.rfInitValid := startOrRestart
   live.io.rfInitArchTag := 1.U
   live.io.rfInitData := selectedSp
@@ -513,27 +564,31 @@ class LinxCoreBenchmarkAutonomousTop(
     statusReg := LinxCoreBenchmarkAutonomousTop.StatusUnsupported.U
   }
 
-  io.fetchReqValid := live.io.fetchReqValid && !sourceBlocked
-  io.fetchReqPc := live.io.fetchReqPc
-  io.fetchReqFire := live.io.sourceReqFire && !sourceBlocked
-  io.fetchRespReady := live.io.fetchRespReady && !sourceBlocked
-  io.fetchRespFire := live.io.sourceRespFire && !sourceBlocked
-  io.fetchCurrentPc := live.io.sourceCurrentPc
+  io.fetchReqValid := lineFill.io.fetchReqValid && !sourceBlocked
+  io.fetchReqPc := lineFill.io.fetchReqPc
+  io.fetchReqFire := lineFill.io.fetchReqFire && !sourceBlocked
+  io.fetchRespReady := lineFill.io.fetchRespReady && !sourceBlocked
+  io.fetchRespFire := lineFill.io.fetchRespFire && !sourceBlocked
+  io.fetchCurrentPc := productionIfu.io.currentPc(0)
   io.sourceOutFire := live.io.sourceOutFire
   io.sourceRestartValid := live.io.sourceRestartValid
   io.sourceRestartPc := live.io.sourceRestartPc
   io.debugSourceBlocked := sourceBlocked
-  io.debugSourceActive := live.io.sourceActive
-  io.debugSourceWaitingResponse := live.io.sourceWaitingResponse
-  io.debugSourcePacketValid := live.io.sourcePacketValid
+  io.debugSourceActive := productionIfu.io.active(0)
+  io.debugSourceWaitingResponse := lineFill.io.active
+  io.debugSourcePacketValid := productionIfu.io.decoded.valid
   io.debugBlockMarkerStopRedirectValid := live.io.debugBlockMarkerStopRedirectValid
   io.debugBlockMarkerStopRedirectPc := live.io.debugBlockMarkerStopRedirectPc
   io.debugMarkerRedirectFire := live.io.debugMarkerRedirectFire
   io.debugMarkerRedirectPending := live.io.debugMarkerRedirectPending
   io.debugMarkerRedirectPc := live.io.debugMarkerRedirectPc
-  io.debugBodyCutAdvanceBytes := live.io.debugBodyCutAdvanceBytes
-  io.debugF4TotalLenBytes := live.io.debugF4TotalLenBytes
-  io.debugReadinessBits := live.io.debugReadinessBits
+  io.debugBodyCutAdvanceBytes := productionIfu.io.lineOutstandingCount
+  io.debugF4TotalLenBytes := productionIfu.io.joinCount
+  io.debugReadinessBits := Cat(
+    productionIfu.io.f3WaitingForNextLine,
+    productionIfu.io.crossLinePending,
+    productionIfu.io.ptwPending,
+    productionIfu.io.bSideStageValid)
   io.debugFretConditionBits := live.io.debugFretConditionBits
   io.debugContinuationBits := live.io.debugContinuationBits
   io.debugLocalPendingCounts := Cat(live.io.localUPendingCount, live.io.localTPendingCount)

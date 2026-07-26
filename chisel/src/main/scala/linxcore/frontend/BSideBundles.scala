@@ -18,6 +18,9 @@ class BSideBoundaryMetadata(val p: InterfaceParams = InterfaceParams()) extends 
   val fallthroughPc = UInt(p.pcWidth.W)
   val kind = BoundaryKind()
   val staticTaken = Bool()
+  // BSTART may seed the final prediction before the block body is fetched.
+  // Only BSTOP makes the predicted continuation eligible to steer I-F0.
+  val continuationReady = Bool()
 }
 
 class BSidePredictionCandidate(val p: InterfaceParams = InterfaceParams()) extends Bundle {
@@ -38,7 +41,17 @@ class BSidePredictionUpdate(
     extends Bundle {
   val request = new ISideFetchRequest(p, lineBytes)
   val prediction = new BranchPredictionRecord(p)
+  val restartPc = UInt(p.pcWidth.W)
   val correction = Bool()
+  // B-F4 also owns the predicted transfer when I-F4 reaches the end of the
+  // block.  This is distinct from a tuple correction: a correct retained
+  // prediction still has to redirect I-F0 after the body has been fetched.
+  val finalSteer = Bool()
+  // This BF4 result carries a block prediction forward, but its request-owned
+  // checkpoint cannot be resolved by a SETC in this transaction.  Retire it
+  // after the result/canonical correction is accepted; the terminal
+  // transaction allocates the backend-resolvable checkpoint.
+  val retireHistory = Bool()
   val finalResponse = Bool()
 }
 
@@ -97,6 +110,7 @@ class BSideHistoryCheckpoint(
   val rasSpBefore = UInt(rasPointerWidth.W)
   val rasCountBefore = UInt(rasCountWidth.W)
   val rasAppliedValid = Bool()
+  val retireOnPrune = Bool()
 }
 
 class BSideBtbEntry(val p: InterfaceParams = InterfaceParams()) extends Bundle {
