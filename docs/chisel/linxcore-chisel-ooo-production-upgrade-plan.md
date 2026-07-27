@@ -1230,6 +1230,13 @@ four-thread recovery-history tests pass.
 Deliver D2 virtual group planner, D3 provisional/S1 publisher, member resolve
 tracking, native BID/BROB integration, 64-entry PC buffer, and grouped commit.
 
+Implementation status: the virtual planner, retained D2 row, D3 provisional
+allocator, S1 atomic grouped-ROB publication, exact member completion, and
+retained grouped commit are implemented. The S1 request already makes BROB and
+PC bindings explicit so those physical owners can join the same all-or-none
+handshake; production BROB allocation/retirement and the 64-entry PC-base
+buffer remain the active O3 gap.
+
 Exit: no ROB hole on stale plans; group/BID/PC wrap and exact-completion suites
 pass; no group crosses a BID or PC-release boundary.
 

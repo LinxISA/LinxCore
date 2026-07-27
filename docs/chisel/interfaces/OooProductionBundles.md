@@ -154,6 +154,36 @@ tracks head PE/STID/slot/generation/epoch; stale, duplicate, wrong-generation,
 over-published, or over-bandwidth release requests report a reject and mutate
 nothing. Exact release alone advances the head and returns capacity.
 
+## S1 grouped ROB publication and completion
+
+`OooS1GroupedPublicationRequest` is the atomic S1 envelope. It combines one
+retained `OooD3GroupedReservation` with a valid-vector of physical group
+bindings. Each binding carries the exact BROB pointer, optional PC-base token,
+ROB resident generation, and any member bits that a later fast-resolve owner
+has already completed. BROB, PC, rename, and IEX owners may prepare their
+resources independently, but no binding is architecturally visible before the
+single S1 publication handshake.
+
+`OooS1GroupedRob` revalidates the dense group mask, plan/decoded PE/STID/epoch,
+first RID, every consecutive slot/generation, member/parent bounds, binding
+valid-vector shape, initial completion mask, and vacancy of every target row.
+It writes all groups or none. A rejected or blocked request does not create a
+partial ROB row.
+
+Every physical row records its exact `RobGroupKey`, transaction/claim epoch,
+BROB pointer, PC-base token, resident generation, group summary, and a dense
+physical-member completion bitmap. Completion is a Decoupled terminal request
+carrying `RobMemberKey`; PE/STID/RID generation, native BID, BROB generation,
+resident generation, and member index must all match. Stale, duplicate, or
+out-of-range completion is consumed into a typed reject and mutates nothing.
+
+Commit scans only the exact per-STID physical head and captures an older-prefix
+batch bounded by independent `retireGroupWidth`. The batch remains stable under
+backpressure. Only `commit.fire` clears rows, advances the physical head and
+epoch, and supplies the exact `OooRobGroupRelease` token that the D3 allocator
+will accept. BROB/PC commit authorization is not bypassed: the eventual S1
+coordinator may hold `commit.ready` until those owners can retire atomically.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -189,6 +219,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
 bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
 bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
+bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
+bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -212,3 +244,9 @@ The D3 tests cover fresh provisional claim, stable S1 publication handoff,
 stale/malformed plan zero-mutation rejection, provisional-only rollback,
 published-capacity preservation, exact release, wrong-generation release,
 over-retire-width release, and decode-width/retire-width independence.
+The S1 grouped-ROB tests cover atomic multi-group publication, target
+collision with no partial write, exact/stale/duplicate member completion,
+retained older-prefix commit, RID generation wrap, four-STID isolation, and
+2/4/6 decode widths with an independently configured retire width.
+The D3/S1 integration test feeds the exact S1 commit release back to D3 and
+proves both owners advance published/used occupancy and head epoch together.

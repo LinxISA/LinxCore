@@ -259,6 +259,67 @@ class OooD3GroupedReservation(val p: OooParams = OooParams()) extends Bundle {
   val tailAfter = new RobGroupKey(p)
 }
 
+/** Physical resources bound to one D2 group at the S1 publication boundary.
+  *
+  * This sidecar is intentionally outside the D3 allocator: BROB and PC-base
+  * owners may reserve independently, but their bindings become architectural
+  * only in the same handshake that publishes the grouped ROB rows.
+  */
+class OooS1GroupBinding(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val brob = new BrobPointer(p)
+  val pcBase = new PcBufferToken(p)
+  val residentGeneration = UInt(p.residentGenerationWidth.W)
+  val initiallyCompletedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
+}
+
+class OooS1GroupedPublicationRequest(val p: OooParams = OooParams()) extends Bundle {
+  val reservation = new OooD3GroupedReservation(p)
+  val bindings = Vec(p.instructionDecodeWidth, new OooS1GroupBinding(p))
+}
+
+/** Physical grouped-ROB row. A row owns one exact RID generation and a dense
+  * member-completion bitmap; slot-only completion is never authoritative.
+  */
+class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val key = new RobGroupKey(p)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val claimEpoch = UInt(p.reservationEpochWidth.W)
+  val brob = new BrobPointer(p)
+  val pcBase = new PcBufferToken(p)
+  val residentGeneration = UInt(p.residentGenerationWidth.W)
+  val logicalUopMask = UInt(p.decodedUopWidth.W)
+  val physicalMemberCount = UInt(p.robMemberCountWidth.W)
+  val completedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
+  val architecturalParentCount = UInt(p.robGroupParentDemandWidth.W)
+  val boundaryStart = Bool()
+  val boundaryStop = Bool()
+  val releasePcBase = Bool()
+  val preciseTrap = Bool()
+}
+
+class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {
+  val key = new RobMemberKey(p)
+}
+
+class OooRobMemberCompletionReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new RobMemberKey(p)
+  val occupied = Bool()
+  val live = new OooRobPhysicalGroupRecord(p)
+}
+
+class OooS1PublicationReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val groupMask = UInt(p.instructionDecodeWidth.W)
+}
+
+class OooRobCommitBatch(val p: OooParams = OooParams()) extends Bundle {
+  val release = new OooRobGroupRelease(p)
+  val groups = Vec(p.retireGroupWidth, new OooRobPhysicalGroupRecord(p))
+}
+
 class OooRobGroupRelease(val p: OooParams = OooParams()) extends Bundle {
   val firstGroup = new RobGroupKey(p)
   val headEpoch = UInt(p.reservationEpochWidth.W)
