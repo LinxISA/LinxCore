@@ -16,6 +16,9 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val publishFire = Output(Bool())
 
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
+  val nonFlushEvidence = Flipped(Decoupled(new OooRobNonFlushEvidence(p)))
+  val interruptPending = Input(Vec(p.stidCount, Bool()))
+  val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
 
   val pcReadTokens = Input(Vec(p.pcReadPorts, new PcBufferToken(p)))
@@ -27,6 +30,7 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val d3ReleaseRejected = Valid(new OooD3ReleaseReject(p))
   val robPublicationRejected = Valid(new OooS1PublicationReject(p))
   val completionRejected = Valid(new OooRobMemberCompletionReject(p))
+  val nonFlushEvidenceRejected = Valid(new OooRobNonFlushEvidenceReject(p))
   val brobPrepareRejected = Valid(new OooBrobPrepareReject(p))
   val brobCommitRejected = Valid(new OooBrobCommitReject(p))
   val pcPrepareRejected = Valid(new OooPcPrepareReject(p))
@@ -123,6 +127,9 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   }
 
   rob.io.completion <> io.completion
+  rob.io.nonFlushEvidence <> io.nonFlushEvidence
+  rob.io.interruptPending := io.interruptPending
+  io.nonFlushWindows := rob.io.nonFlushWindows
 
   // The ROB is the retained commit source. All other owners see the same valid
   // batch while computing readiness; external visibility is gated until every
@@ -156,6 +163,7 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   io.d3ReleaseRejected := d3.io.releaseRejected
   io.robPublicationRejected := rob.io.publicationRejected
   io.completionRejected := rob.io.completionRejected
+  io.nonFlushEvidenceRejected := rob.io.nonFlushEvidenceRejected
   io.brobPrepareRejected := brob.io.prepareRejected
   io.brobCommitRejected := brob.io.commitRejected
   io.pcPrepareRejected := pc.io.prepareRejected

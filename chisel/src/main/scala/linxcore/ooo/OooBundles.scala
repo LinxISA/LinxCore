@@ -11,6 +11,22 @@ object OooRecoveryCause extends ChiselEnum {
   val Branch, Exception, Interrupt, Nuke, Debug, CtuCancel = Value
 }
 
+/** Independent proof obligations used by the ROB-owned non-flush window.
+  * A producer may satisfy several obligations in one exact retained event.
+  */
+object OooNonFlushProof {
+  val ExceptionSafe = 0
+  val MemorySafe = 1
+  val ControlSafe = 2
+  val SerializationSafe = 3
+  val Count = 4
+
+  val ExceptionSafeMask = 1 << ExceptionSafe
+  val MemorySafeMask = 1 << MemorySafe
+  val ControlSafeMask = 1 << ControlSafe
+  val SerializationSafeMask = 1 << SerializationSafe
+}
+
 class NativeBid(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val value = UInt(p.nativeBidWidth.W)
@@ -949,6 +965,9 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val boundaryStop = Bool()
   val releasePcBase = Bool()
   val preciseTrap = Bool()
+  val nonFlushRequiredProofs = UInt(OooNonFlushProof.Count.W)
+  val nonFlushObservedProofs = UInt(OooNonFlushProof.Count.W)
+  val nonFlushNever = Bool()
 }
 
 class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {
@@ -957,6 +976,21 @@ class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {
 
 class OooRobMemberCompletionReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new RobMemberKey(p)
+  val occupied = Bool()
+  val live = new OooRobPhysicalGroupRecord(p)
+}
+
+/** Exact, typed proof that one live ROB group has crossed a non-flush safety
+  * point. `key` is member-qualified to reject stale or misrouted producers;
+  * the proof updates group state but never completes or retires the member.
+  */
+class OooRobNonFlushEvidence(val p: OooParams = OooParams()) extends Bundle {
+  val key = new RobMemberKey(p)
+  val proofs = UInt(OooNonFlushProof.Count.W)
+}
+
+class OooRobNonFlushEvidenceReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobNonFlushEvidence(p)
   val occupied = Bool()
   val live = new OooRobPhysicalGroupRecord(p)
 }
@@ -1099,7 +1133,7 @@ class NonFlushWindow(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val stid = UInt(p.stidWidth.W)
   val head = new RobGroupKey(p)
-  val prefixCount = UInt(p.robGroupCountWidth.W)
+  val prefixCount = UInt(p.nonFlushPrefixCountWidth.W)
   val epoch = UInt(p.epochWidth.W)
 }
 

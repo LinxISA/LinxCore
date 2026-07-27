@@ -24,6 +24,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val fastS1Rejected = Valid(new OooFastResolveS1Reject(p))
 
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
+  val nonFlushEvidence = Flipped(Decoupled(new OooRobNonFlushEvidence(p)))
+  val interruptPending = Input(Vec(p.stidCount, Bool()))
+  val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
   val ptagReturn = Flipped(Decoupled(new OooPTagReturnBatch(p)))
   val dispatchRelease = Flipped(Decoupled(new OooDispatchRelease(p)))
@@ -76,6 +79,7 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val tuCommitRejected = Valid(new OooTURetireCommitReject(p))
   val tuReserveRejected = Valid(new OooTURenamePrepareReject(p))
   val tuPublicationRejected = Valid(new OooTURenamePublishReject(p))
+  val nonFlushEvidenceRejected = Valid(new OooRobNonFlushEvidenceReject(p))
 }
 
 /** Atomic D3/S1 seam through ROB/BROB/PC, P/T/U rename, and dispatch.
@@ -152,6 +156,9 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     !o3.io.d3StaleRejected.valid
 
   o3.io.cancel := io.cancel
+  o3.io.nonFlushEvidence <> io.nonFlushEvidence
+  o3.io.interruptPending := io.interruptPending
+  io.nonFlushWindows := o3.io.nonFlushWindows
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
   dispatch.io.cancel := io.cancel
@@ -449,6 +456,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.tuCommitRejected := turetire.io.commitRejected
   io.tuReserveRejected := turename.io.reserveRejected
   io.tuPublicationRejected := turename.io.publicationRejected
+  io.nonFlushEvidenceRejected := o3.io.nonFlushEvidenceRejected
   io.dispatchFreeEntries := dispatch.io.freeEntries
   io.dispatchProvisionalEntries := dispatch.io.provisionalEntries
   io.dispatchPublishedEntries := dispatch.io.publishedEntries

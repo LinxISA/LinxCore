@@ -605,9 +605,38 @@ cancel retained fast rows through the global exact recovery transaction.
 Until that owner lands, the coordinator blocks rename-local recovery for an
 STID with any retained fast member, just as it already blocks an STID with
 published IQ rows; unrelated STIDs remain independent.
-O6.2 must derive a ROB-owned exact safe prefix from published group state and
-typed safety evidence; publication or fast completion alone is not non-flush
+O6.2 derives a ROB-owned exact safe prefix from published group state and typed
+safety evidence; publication or fast completion alone is not non-flush
 authorization.
+
+## O6.2 exact non-flush window
+
+`OooS1GroupedRob` is the only production OOO non-flush owner. Every published
+group stores independent required and observed proof masks:
+
+- `ExceptionSafe` for a potentially trapping group after its defined
+  exception point;
+- `MemorySafe` for address/permission and memory-request safety;
+- `ControlSafe` for direction/target validation;
+- `SerializationSafe` for nonspeculative system/command ordering.
+
+An ordinary non-trapping, non-memory, non-control, non-serializing group has a
+zero required mask and may enter the safe prefix at publication. A precise
+trap, invalid recipe, illegal owner, or malformed logical member is permanently
+ineligible. `OooRobNonFlushEvidence` carries a full `RobMemberKey` plus proof
+bits. Wrong STID, RID generation, native BID, BROB generation, resident
+generation, member index, stale evidence, and duplicate evidence are consumed
+into `OooRobNonFlushEvidenceReject` with zero mutation. Generic ROB completion
+does not imply any of these proofs.
+
+The retained result is one `NonFlushWindow` per STID. `valid` means the exact
+head is live; `prefixCount` may still be zero. Its width covers the complete
+per-STID ROB partition rather than one decode bundle. Pending interrupt blocks
+only prefix growth for that STID; proofs may continue to accumulate. Commit
+subtracts committed groups and moves the exact head, but non-flush evidence
+cannot complete, commit, deallocate, update CMAP, or release a physical tag.
+O7 owns kill-set recomputation and final consumer wiring. The legacy
+`bctrl.BrobNonFlushFrontier` is not this production authority.
 
 ## Verification
 

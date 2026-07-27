@@ -35,6 +35,10 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   coordinator.io.cancel.foreach(_ := false.B)
   coordinator.io.completion.valid := false.B
   coordinator.io.completion.bits := 0.U.asTypeOf(coordinator.io.completion.bits)
+  coordinator.io.nonFlushEvidence.valid := false.B
+  coordinator.io.nonFlushEvidence.bits :=
+    0.U.asTypeOf(coordinator.io.nonFlushEvidence.bits)
+  coordinator.io.interruptPending.foreach(_ := false.B)
   coordinator.io.commit.ready := false.B
   coordinator.io.ptagReturn.valid := false.B
   coordinator.io.ptagReturn.bits :=

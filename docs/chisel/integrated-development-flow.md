@@ -24,9 +24,9 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The active backend handoff is production OOO packet O6.2 ROB-owned exact
-non-flush. O4 P/T/U RENU, O5.1 dispatch reservation, O5.2 IEX residency, and
-O6.1 typed fast resolve are packet-complete. Normative documents
+The active backend handoff is production OOO packet O7 global recovery and
+external CTU reinsertion. O4 P/T/U RENU, O5.1 dispatch reservation, O5.2 IEX
+residency, and O6 fast resolve/non-flush are packet-complete. Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
 instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,
@@ -78,9 +78,12 @@ retained per-STID IEX S1, atomic S2 physical bind, and registered S3 pick
 boundary. O6.1 atomically forks the same common S1 transaction into a typed
 fast owner for boundary, SETRET/START_CALL, precise-trap, and no-effect rows.
 Fast completion still targets the exact grouped ROB member and never retires
-or frees rename state early. O6.2 must now publish an exact ROB-owned
-`{STID, head RobGroupKey, prefixCount, epoch}` safe prefix; a numeric RID/BID
-threshold is forbidden. CTU canonical-child reinsertion remains O7. The
+or frees rename state early. O6.2 publishes an exact ROB-owned
+`{STID, head RobGroupKey, prefixCount, epoch}` safe prefix from independent
+exception, memory, control, and serialization proofs. Exact stale/duplicate
+evidence is rejected with zero mutation; interrupt freeze is per STID; a
+numeric RID/BID threshold remains forbidden. CTU canonical-child reinsertion
+and recovery-time window recomputation remain O7. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

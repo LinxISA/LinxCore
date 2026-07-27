@@ -85,12 +85,12 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
-| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5.1/O5.2 IEX publication integration | O6 fast resolve and O7 global recovery remain |
+| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5/O6 integration | O7 global recovery remains |
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O7 supplies global ROB/BROB/PC/IQ cancellation |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
-| O6.2 non-flush | Not started | `NonFlushWindow` contract and `a.txt`/model behavior are design evidence | ROB-owned exact safe-prefix state, typed safety resolves, interrupt freeze, consumer IT |
+| O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
 | O7–O9 | Not started | current compatibility owners remain migration evidence | global recovery/CTU, physical closure, production top integration, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1453,12 +1453,22 @@ allocated ROB/BROB/PC/rename state. It may omit IQ residency, but it cannot
 retire, release rename state, or become non-flush merely because the result is
 known.
 
-O6.2 must deliver the per-STID ROB-owned exact non-flush frontier and counters.
-The implementation may use the `a.txt` `nfrdy/nfrcnt` idea as physical input,
-but the public authority is `{STID, head RobGroupKey, prefixCount, epoch}`.
-Consumers must prove membership in that retained prefix rather than compare
-RID or BID numerically. Pending interrupt freezes advancement at the next
-architectural boundary, and non-flush never performs commit or deallocation.
+O6.2 delivers the per-STID ROB-owned exact non-flush frontier and counters.
+The grouped ROB derives class-specific proof obligations at publication,
+accumulates only exact member-qualified evidence, and advances a retained
+contiguous safe prefix. Ordinary non-trapping ALU groups require no later
+proof; exception, memory, control, and serialization obligations are
+independent bits. Precise-trap or malformed groups fail closed. Generic member
+completion is deliberately not a safety proof.
+
+The public authority is `{STID, head RobGroupKey, prefixCount, epoch}`; its
+count width covers the full per-STID ROB partition. Consumers must prove
+membership in that retained prefix rather than compare RID or BID numerically.
+Pending interrupt freezes only expansion for the affected STID while exact
+proof state is retained. Commit moves the window head and subtracts only the
+retired prefix; non-flush itself never commits, deallocates, updates CMAP, or
+releases rename state. O7 must recompute this state after its global kill-set
+transaction and connect the permitted consumers.
 
 Exit: full opcode whitelist/blacklist tests pass; non-flush never commits or
 frees rename state; affected STID can advance independently.

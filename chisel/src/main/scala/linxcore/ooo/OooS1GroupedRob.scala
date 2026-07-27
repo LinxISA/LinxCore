@@ -1,15 +1,19 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PriorityEncoder, UIntToOH, Valid}
+import chisel3.util.{Cat, Decoupled, PriorityEncoder, UIntToOH, Valid}
 
 class OooS1GroupedRobIO(val p: OooParams = OooParams()) extends Bundle {
   val publish = Flipped(Decoupled(new OooS1GroupedPublicationRequest(p)))
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
+  val nonFlushEvidence = Flipped(Decoupled(new OooRobNonFlushEvidence(p)))
+  val interruptPending = Input(Vec(p.stidCount, Bool()))
   val commit = Decoupled(new OooRobCommitBatch(p))
 
   val publicationRejected = Valid(new OooS1PublicationReject(p))
   val completionRejected = Valid(new OooRobMemberCompletionReject(p))
+  val nonFlushEvidenceRejected = Valid(new OooRobNonFlushEvidenceReject(p))
+  val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val occupiedGroups = Output(Vec(p.stidCount, UInt(p.countWidth(p.robGroupsPerStid).W)))
   val headSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
   val headGeneration = Output(Vec(p.stidCount, UInt(p.ridGenerationWidth.W)))
@@ -35,6 +39,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   val headGeneration = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.ridGenerationWidth.W))))
   val headEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.reservationEpochWidth.W))))
   val headPeId = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.peIdWidth.W))))
+  val nonFlushAuthorized = RegInit(VecInit(Seq.fill(p.stidCount)(
+    0.U(p.nonFlushPrefixCountWidth.W))))
+  val nonFlushEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.epochWidth.W))))
 
   val publishStid = io.publish.bits.reservation.transaction.plan.stid
   val publishStidInRange = publishStid < p.stidCount.U
@@ -61,6 +68,53 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       publishStid === io.publish.bits.reservation.transaction.decoded.stid &&
       io.publish.bits.reservation.transaction.plan.epoch ===
         io.publish.bits.reservation.transaction.decoded.epoch
+
+  val groupRequiredProofs = Wire(Vec(p.instructionDecodeWidth,
+    UInt(OooNonFlushProof.Count.W)))
+  val groupNonFlushNever = Wire(Vec(p.instructionDecodeWidth, Bool()))
+  for (groupIndex <- 0 until p.instructionDecodeWidth) {
+    val group = io.publish.bits.reservation.transaction.groups(groupIndex)
+    val decoded = io.publish.bits.reservation.transaction.decoded
+    val exceptionRequired = (0 until p.decodedUopWidth).map { uopIndex =>
+      val member = group.logicalUopMask(uopIndex)
+      val uop = decoded.uops(uopIndex)
+      member && uop.valid && (uop.recipe.mayTrap || uop.recipe.mayTrapLate)
+    }.reduce(_ || _)
+    val memoryRequired = (0 until p.decodedUopWidth).map { uopIndex =>
+      val member = group.logicalUopMask(uopIndex)
+      val uop = decoded.uops(uopIndex)
+      member && uop.valid && (uop.recipe.memoryRequestCount.orR ||
+        uop.recipe.mayTrapLate || uop.recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U)
+    }.reduce(_ || _)
+    val controlRequired = group.boundaryStart || group.boundaryStop ||
+      (0 until p.decodedUopWidth).map { uopIndex =>
+        val member = group.logicalUopMask(uopIndex)
+        val uop = decoded.uops(uopIndex)
+        member && uop.valid && (uop.recipe.mayRedirect ||
+          uop.recipe.requiresTargetValidation ||
+          uop.recipe.sideEffectOwner === OooSideEffectOwner.Bctrl.U)
+      }.reduce(_ || _)
+    val serializationRequired = (0 until p.decodedUopWidth).map { uopIndex =>
+      val member = group.logicalUopMask(uopIndex)
+      val uop = decoded.uops(uopIndex)
+      member && uop.valid && (uop.recipe.nonspeculative ||
+        uop.recipe.dispatchClass === OooDispatchClass.Sys.U ||
+        uop.recipe.dispatchClass === OooDispatchClass.Cmd.U ||
+        uop.recipe.sideEffectOwner === OooSideEffectOwner.Commit.U ||
+        uop.recipe.sideEffectOwner === OooSideEffectOwner.Ctu.U)
+    }.reduce(_ || _)
+    groupRequiredProofs(groupIndex) := Cat(
+      serializationRequired, controlRequired, memoryRequired, exceptionRequired)
+    val malformedMember = (0 until p.decodedUopWidth).map { uopIndex =>
+      val member = group.logicalUopMask(uopIndex)
+      val uop = decoded.uops(uopIndex)
+      member && (!decoded.uopMask(uopIndex) || !uop.valid || !uop.recipe.valid ||
+        uop.recipe.disposition === OooOpcodeDisposition.Illegal.U ||
+        uop.recipe.sideEffectOwner === OooSideEffectOwner.Illegal.U)
+    }.reduce(_ || _)
+    groupNonFlushNever(groupIndex) := group.preciseTrap ||
+      !group.logicalUopMask.orR || malformedMember
+  }
 
   val targetExact = Wire(Vec(p.instructionDecodeWidth, Bool()))
   val targetFree = Wire(Vec(p.instructionDecodeWidth, Bool()))
@@ -145,6 +199,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.boundaryStop := group.boundaryStop
       row.releasePcBase := group.releasePcBase
       row.preciseTrap := group.preciseTrap
+      row.nonFlushRequiredProofs := groupRequiredProofs(groupIndex)
+      row.nonFlushObservedProofs := 0.U
+      row.nonFlushNever := groupNonFlushNever(groupIndex)
     }
   }
 
@@ -179,12 +236,72 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.completionRejected.bits.occupied := completionStidInRange && liveCompletionRow.valid
   io.completionRejected.bits.live := liveCompletionRow
 
+  val evidenceStid = io.nonFlushEvidence.bits.key.group.stid
+  val evidenceStidInRange = evidenceStid < p.stidCount.U
+  val safeEvidenceStid = Mux(evidenceStidInRange, evidenceStid, 0.U)
+  val evidenceSlot = io.nonFlushEvidence.bits.key.group.ridSlot
+  val liveEvidenceRow = rows(safeEvidenceStid)(evidenceSlot)
+  val evidenceMemberInRange =
+    io.nonFlushEvidence.bits.key.memberIndex < liveEvidenceRow.physicalMemberCount &&
+      io.nonFlushEvidence.bits.key.memberIndex < p.maxOrdinaryUopsPerGroup.U
+  val newEvidenceProofs = io.nonFlushEvidence.bits.proofs &
+    liveEvidenceRow.nonFlushRequiredProofs &
+    ~liveEvidenceRow.nonFlushObservedProofs
+  val evidenceExact = evidenceStidInRange && liveEvidenceRow.valid &&
+    !liveEvidenceRow.nonFlushNever && liveEvidenceRow.brob.valid &&
+    liveEvidenceRow.brob.bid.valid &&
+    io.nonFlushEvidence.bits.key.group.asUInt === liveEvidenceRow.key.asUInt &&
+    io.nonFlushEvidence.bits.key.bid.asUInt === liveEvidenceRow.brob.bid.asUInt &&
+    io.nonFlushEvidence.bits.key.brobGeneration === liveEvidenceRow.brob.generation &&
+    io.nonFlushEvidence.bits.key.residentGeneration ===
+      liveEvidenceRow.residentGeneration && evidenceMemberInRange &&
+    newEvidenceProofs.orR
+
+  io.nonFlushEvidence.ready := true.B
+  val evidenceFire = io.nonFlushEvidence.valid && io.nonFlushEvidence.ready
+  when(evidenceFire && evidenceExact) {
+    rows(evidenceStid)(evidenceSlot).nonFlushObservedProofs :=
+      liveEvidenceRow.nonFlushObservedProofs | newEvidenceProofs
+  }
+  io.nonFlushEvidenceRejected.valid := evidenceFire && !evidenceExact
+  io.nonFlushEvidenceRejected.bits.requested := io.nonFlushEvidence.bits
+  io.nonFlushEvidenceRejected.bits.occupied :=
+    evidenceStidInRange && liveEvidenceRow.valid
+  io.nonFlushEvidenceRejected.bits.live := liveEvidenceRow
+
   def groupComplete(row: OooRobPhysicalGroupRecord): Bool = {
     val expected =
       ((1.U((p.maxOrdinaryUopsPerGroup + 1).W) << row.physicalMemberCount) - 1.U)(
         p.maxOrdinaryUopsPerGroup - 1, 0)
     row.valid && row.physicalMemberCount.orR &&
       (row.completedMembers & expected) === expected
+  }
+
+  def groupNonFlushSafe(row: OooRobPhysicalGroupRecord): Bool =
+    row.valid && !row.nonFlushNever &&
+      (row.nonFlushObservedProofs & row.nonFlushRequiredProofs) ===
+        row.nonFlushRequiredProofs
+
+  val safePrefixByStid = Wire(Vec(p.stidCount,
+    UInt(p.nonFlushPrefixCountWidth.W)))
+  for (stid <- 0 until p.stidCount) {
+    val prefix = Wire(Vec(p.robGroupsPerStid + 1,
+      UInt(p.nonFlushPrefixCountWidth.W)))
+    prefix(0) := 0.U
+    for (offset <- 0 until p.robGroupsPerStid) {
+      val slotSum = headSlot(stid) +& offset.U
+      val wraps = slotSum >= p.robGroupsPerStid.U
+      val row = rows(stid)(slotSum(p.ridSlotWidth - 1, 0))
+      val expectedGeneration = headGeneration(stid) + wraps.asUInt
+      val exactHead = row.key.valid && row.key.peId === headPeId(stid) &&
+        row.key.stid === stid.U &&
+        row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
+        row.key.ridGeneration === expectedGeneration
+      val canExtend = prefix(offset) === offset.U &&
+        offset.U < occupied(stid) && exactHead && groupNonFlushSafe(row)
+      prefix(offset + 1) := Mux(canExtend, (offset + 1).U, prefix(offset))
+    }
+    safePrefixByStid(stid) := prefix(p.robGroupsPerStid)
   }
 
   val commitCountByStid = Wire(Vec(p.stidCount, UInt(p.robReleaseCountWidth.W)))
@@ -266,6 +383,29 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   }
 
   for (stid <- 0 until p.stidCount) {
+    val commitHere = commitFire &&
+      commitRow.release.firstGroup.stid === stid.U
+    val committedCount = commitRow.release.groupCount
+    val authorizedAfterCommit = Mux(
+      committedCount >= nonFlushAuthorized(stid),
+      0.U,
+      nonFlushAuthorized(stid) - committedCount)
+    when(commitHere) {
+      nonFlushAuthorized(stid) := authorizedAfterCommit
+      nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
+    }.elsewhen(safePrefixByStid(stid) < nonFlushAuthorized(stid)) {
+      // Safety is monotonic for a live row; this branch is a fail-closed guard
+      // for owner reset/recovery integration added in O7.
+      nonFlushAuthorized(stid) := safePrefixByStid(stid)
+      nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
+    }.elsewhen(!io.interruptPending(stid) &&
+      safePrefixByStid(stid) > nonFlushAuthorized(stid)) {
+      nonFlushAuthorized(stid) := safePrefixByStid(stid)
+      nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
+    }
+  }
+
+  for (stid <- 0 until p.stidCount) {
     val publishedHere = publishFire && publishStid === stid.U
     when(publishedHere) {
       when(occupied(stid) === 0.U) {
@@ -288,6 +428,20 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.headSlot := headSlot
   io.headGeneration := headGeneration
   io.headEpoch := headEpoch
+  for (stid <- 0 until p.stidCount) {
+    val window = io.nonFlushWindows(stid)
+    window.valid := occupied(stid).orR
+    window.stid := stid.U
+    window.head.valid := occupied(stid).orR
+    window.head.peId := headPeId(stid)
+    window.head.stid := stid.U
+    window.head.ridSlot := headSlot(stid)
+    window.head.ridGeneration := headGeneration(stid)
+    window.prefixCount := nonFlushAuthorized(stid)
+    window.epoch := nonFlushEpoch(stid)
+    assert(nonFlushAuthorized(stid) <= occupied(stid),
+      "non-flush prefix cannot extend beyond the live ROB window")
+  }
 
   when(publishFire) {
     assert(publishGroupCount <= p.robGroupsPerStid.U)

@@ -17,6 +17,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.fastTrace.ready.poke(true.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
+    dut.io.nonFlushEvidence.valid.poke(false.B)
+    dut.io.nonFlushEvidence.bits.poke(
+      0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
+    dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
     dut.io.ptagReturn.valid.poke(false.B)
     dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))

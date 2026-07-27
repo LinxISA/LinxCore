@@ -13,6 +13,10 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.publishPermit.poke(false.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
+    dut.io.nonFlushEvidence.valid.poke(false.B)
+    dut.io.nonFlushEvidence.bits.poke(
+      0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
+    dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
     dut.io.pcReadTokens.foreach(_.poke(0.U.asTypeOf(dut.io.pcReadTokens.head)))
   }
@@ -69,6 +73,10 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
 
       val uop = transaction.decoded.uops(index)
       uop.valid.poke(true.B)
+      uop.recipe.valid.poke(true.B)
+      uop.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
+      uop.recipe.sideEffectOwner.poke(OooSideEffectOwner.Iex.U)
+      uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
       uop.identity.parentCount.poke(1.U)
       uop.identity.parents(0).key.valid.poke(true.B)
       uop.identity.parents(0).key.peId.poke(peId.U)
@@ -284,6 +292,66 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
         dut.clock.step()
         dut.io.robOccupiedGroups(3).expect(1.U)
       }
+    }
+  }
+
+  test("bridges exact typed non-flush evidence without mutating commit owners") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      robGroupsPerStid = 8,
+      brobEntriesPerStid = 8)
+    simulate(new OooRobBrobPcCoordinator(p)) { dut =>
+      clear(dut)
+      pokeTransaction(dut, stid = 2, transactionId = 0, firstRid = 0,
+        tailEpoch = 0, pcs = Seq(512), starts = Set(0),
+        stops = Set(0), releases = Set(0))
+      val recipe = dut.io.reserve.bits.decoded.uops(0).recipe
+      recipe.mayTrap.poke(true.B)
+      recipe.mayTrapLate.poke(true.B)
+      recipe.memoryRequestCount.poke(1.U)
+      recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+      recipe.dispatchClass.poke(OooDispatchClass.Agu.U)
+      reserve(dut)
+
+      dut.io.preparedValid.expect(true.B)
+      val bid = dut.io.prepared.request.bindings(0).brob.bid.value.peek().litValue
+      val brobGeneration =
+        dut.io.prepared.request.bindings(0).brob.generation.peek().litValue
+      val residentGeneration =
+        dut.io.prepared.request.bindings(0).residentGeneration.peek().litValue
+      dut.io.publishPermit.poke(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      dut.clock.step()
+      dut.io.nonFlushWindows(2).valid.expect(true.B)
+      dut.io.nonFlushWindows(2).prefixCount.expect(0.U)
+
+      val evidence = dut.io.nonFlushEvidence.bits
+      evidence.poke(0.U.asTypeOf(evidence))
+      evidence.key.group.valid.poke(true.B)
+      evidence.key.group.peId.poke(3.U)
+      evidence.key.group.stid.poke(2.U)
+      evidence.key.group.ridSlot.poke(0.U)
+      evidence.key.group.ridGeneration.poke(0.U)
+      evidence.key.bid.valid.poke(true.B)
+      evidence.key.bid.value.poke(bid.U)
+      evidence.key.brobGeneration.poke(brobGeneration.U)
+      evidence.key.memberIndex.poke(0.U)
+      evidence.key.residentGeneration.poke(residentGeneration.U)
+      evidence.proofs.poke((OooNonFlushProof.ExceptionSafeMask |
+        OooNonFlushProof.MemorySafeMask |
+        OooNonFlushProof.ControlSafeMask).U)
+      dut.io.nonFlushEvidence.valid.poke(true.B)
+      dut.io.nonFlushEvidence.ready.expect(true.B)
+      dut.io.nonFlushEvidenceRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.nonFlushEvidence.valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.nonFlushWindows(2).head.ridSlot.expect(0.U)
+      dut.io.nonFlushWindows(2).prefixCount.expect(1.U)
+      dut.io.robOccupiedGroups(2).expect(1.U)
+      dut.io.commit.valid.expect(false.B)
     }
   }
 }

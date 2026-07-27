@@ -43,6 +43,21 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(member.residentGeneration.getWidth == p.residentGenerationWidth)
   }
 
+  test("non-flush authority covers the full ROB partition with exact evidence") {
+    val p = OooParams(instructionDecodeWidth = 2, robGroupsPerStid = 64)
+    val window = new NonFlushWindow(p)
+    val evidence = new OooRobNonFlushEvidence(p)
+    val row = new OooRobPhysicalGroupRecord(p)
+
+    assert(window.prefixCount.getWidth == p.nonFlushPrefixCountWidth)
+    assert(window.prefixCount.getWidth == 7)
+    assert(evidence.key.residentGeneration.getWidth ==
+      p.residentGenerationWidth)
+    assert(evidence.proofs.getWidth == OooNonFlushProof.Count)
+    assert(row.nonFlushRequiredProofs.getWidth == OooNonFlushProof.Count)
+    assert(row.nonFlushObservedProofs.getWidth == OooNonFlushProof.Count)
+  }
+
   test("canonical uop identity preserves three architectural parents and dual boundaries") {
     val p = OooParams()
     val identity = new CanonicalUopIdentity(p)
