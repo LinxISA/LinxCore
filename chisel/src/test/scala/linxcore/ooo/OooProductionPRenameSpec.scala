@@ -17,6 +17,14 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.ptagReturn.ready.poke(false.B)
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(0.U)
+    dut.io.recoveryAuthorize.valid.poke(false.B)
+    dut.io.recoveryAuthorize.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryAuthorize.bits))
+    dut.io.recoverySource.valid.poke(false.B)
+    dut.io.recoverySource.bits.poke(
+      0.U.asTypeOf(dut.io.recoverySource.bits))
+    dut.io.recoverySourcesDone.poke(false.B)
+    dut.io.recoveryFinish.poke(false.B)
   }
 
   private def pokeTwoUopChain(
@@ -189,6 +197,106 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     first.logicalUopMask.poke(1.U)
     first.physicalMemberCount.poke(1.U)
     first.completedMembers.poke(1.U)
+  }
+
+  private def pokeRecoveryRequest(
+      request: OooRenameRecoveryRequest,
+      dut: OooProductionPRename,
+      stid: Int,
+      transactionId: Int,
+      uopIndex: Int,
+      killTrigger: Boolean,
+      epoch: Int = 5): Unit = {
+    request.poke(0.U.asTypeOf(request))
+    request.key.member.group.valid.poke(true.B)
+    request.key.member.group.peId.poke(3.U)
+    request.key.member.group.stid.poke(stid.U)
+    request.key.member.group.ridSlot.poke(4.U)
+    request.key.member.group.ridGeneration.poke(2.U)
+    request.key.member.bid.valid.poke(true.B)
+    request.key.member.bid.value.poke(7.U)
+    request.key.member.brobGeneration.poke(3.U)
+    request.key.member.memberIndex.poke(uopIndex.U)
+    request.key.member.residentGeneration.poke(9.U)
+    request.key.cause.poke(OooRecoveryCause.Branch)
+    request.key.transactionId.poke(transactionId.U)
+    request.key.epoch.poke(epoch.U)
+    request.killTrigger.poke(killTrigger.B)
+  }
+
+  private def startRecovery(
+      dut: OooProductionPRename,
+      stid: Int,
+      transactionId: Int,
+      uopIndex: Int,
+      killTrigger: Boolean): Unit = {
+    pokeRecoveryRequest(dut.io.recoveryAuthorize.bits, dut, stid,
+      transactionId, uopIndex, killTrigger)
+    dut.io.recoveryAuthorize.valid.poke(true.B)
+    dut.io.recoveryAuthorize.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.recoveryAuthorize.valid.poke(false.B)
+    dut.io.recoveryBusy.expect(true.B)
+  }
+
+  private def sendKilledSource(
+      dut: OooProductionPRename,
+      triggerStid: Int,
+      triggerTransactionId: Int,
+      triggerUopIndex: Int,
+      killedTransactionId: Int,
+      killedUopIndex: Int,
+      last: Boolean): Unit = {
+    val transfer = dut.io.recoverySource.bits
+    transfer.poke(0.U.asTypeOf(transfer))
+    pokeRecoveryRequest(transfer.request, dut, triggerStid,
+      triggerTransactionId, triggerUopIndex, killTrigger = false)
+    val source = transfer.source
+    source.valid.poke(true.B)
+    source.transactionId.poke(killedTransactionId.U)
+    source.epoch.poke(5.U)
+    source.uopIndex.poke(killedUopIndex.U)
+    source.member.group.valid.poke(true.B)
+    source.member.group.peId.poke(3.U)
+    source.member.group.stid.poke(triggerStid.U)
+    source.member.group.ridSlot.poke(4.U)
+    source.member.group.ridGeneration.poke(2.U)
+    source.member.bid.valid.poke(true.B)
+    source.member.bid.value.poke(7.U)
+    source.member.brobGeneration.poke(3.U)
+    source.member.memberIndex.poke(killedUopIndex.U)
+    source.member.residentGeneration.poke(9.U)
+    source.pDestinationCount.poke(1.U)
+    transfer.last.poke(last.B)
+    dut.io.recoverySource.valid.poke(true.B)
+    dut.io.recoverySource.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.recoverySource.valid.poke(false.B)
+  }
+
+  private def returnKilledTag(
+      dut: OooProductionPRename,
+      expectedPtag: Int): Unit = {
+    dut.io.ptagReturn.valid.expect(true.B)
+    dut.io.ptagReturn.bits.count.expect(1.U)
+    dut.io.ptagReturn.bits.tokens(0).ptag.expect(expectedPtag.U)
+    dut.io.ptagReturn.bits.tokens(0).generation.expect(1.U)
+    dut.io.ptagReturn.ready.poke(true.B)
+    dut.clock.step()
+    dut.io.ptagReturn.ready.poke(false.B)
+  }
+
+  private def finishRecovery(dut: OooProductionPRename): Unit = {
+    var cycles = 0
+    while (!dut.io.recoveryComplete.peek().litToBoolean && cycles < 64) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < 64, "timed out waiting for P recovery replay")
+    dut.io.recoveryFinish.poke(true.B)
+    dut.clock.step()
+    dut.io.recoveryFinish.poke(false.B)
+    dut.io.recoveryBusy.expect(false.B)
   }
 
   test("forwards same-transaction P RAW and WAW while publishing exact MapQ rows") {
@@ -484,6 +592,155 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.mapQUsed(0).expect(0.U)
       dut.io.queryAtag.poke(1.U)
       dut.io.speculativeMapping.ptag.expect(1.U)
+    }
+  }
+
+  test("returns killed current PTags and rebuilds SMAP from surviving MapQ rows") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pMapQDepthPerStid = 8,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 2)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 1, transactionId = 10, atag = 3,
+        firstPtag = 96, secondPtag = 97)
+      publish(dut)
+      pokeTwoUopChain(dut, stid = 1, transactionId = 11, atag = 3,
+        firstPtag = 98, secondPtag = 99)
+      publish(dut)
+      dut.io.mapQUsed(1).expect(4.U)
+      dut.io.queryStid.poke(1.U)
+      dut.io.queryAtag.poke(3.U)
+      dut.io.speculativeMapping.ptag.expect(99.U)
+      dut.io.committedMapping.ptag.expect(27.U)
+
+      startRecovery(dut, stid = 1, transactionId = 10, uopIndex = 1,
+        killTrigger = false)
+
+      // The affected STID is frozen, while an unrelated STID may still rename.
+      pokeTwoUopChain(dut, stid = 1, transactionId = 12, atag = 4,
+        firstPtag = 100, secondPtag = 101)
+      dut.io.prepareReady.expect(false.B)
+      pokeTwoUopChain(dut, stid = 2, transactionId = 13, atag = 4,
+        firstPtag = 100, secondPtag = 101)
+      dut.io.prepareReady.expect(true.B)
+      publish(dut)
+      dut.io.mapQUsed(2).expect(2.U)
+
+      // Scanner order is youngest logical uop first. Current, not previous,
+      // mappings are returned because these rows never became architectural.
+      sendKilledSource(dut, triggerStid = 1, triggerTransactionId = 10,
+        triggerUopIndex = 1, killedTransactionId = 11,
+        killedUopIndex = 1, last = false)
+      returnKilledTag(dut, expectedPtag = 99)
+      sendKilledSource(dut, triggerStid = 1, triggerTransactionId = 10,
+        triggerUopIndex = 1, killedTransactionId = 11,
+        killedUopIndex = 0, last = true)
+      returnKilledTag(dut, expectedPtag = 98)
+      dut.io.mapQUsed(1).expect(2.U)
+
+      dut.io.recoverySourcesDone.poke(true.B)
+      dut.clock.step()
+      dut.io.recoverySourcesDone.poke(false.B)
+      finishRecovery(dut)
+
+      dut.io.queryStid.poke(1.U)
+      dut.io.queryAtag.poke(3.U)
+      dut.io.speculativeMapping.ptag.expect(97.U)
+      dut.io.committedMapping.ptag.expect(27.U)
+      dut.io.mapQUsed(1).expect(2.U)
+
+      // The surviving prefix remains an exact, committable MapQ chain.
+      pokeOneGroupCommit(dut, stid = 1, transactionId = 10, pRows = 2)
+      dut.clock.step()
+      dut.io.ptagReturn.valid.expect(true.B)
+      dut.io.ptagReturn.bits.count.expect(2.U)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(27.U)
+      dut.io.ptagReturn.bits.tokens(1).ptag.expect(96.U)
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitFire.poke(true.B)
+      dut.clock.step()
+      dut.io.commitFire.poke(false.B)
+      dut.io.commitPrepare.valid.poke(false.B)
+      dut.io.committedMapping.ptag.expect(97.U)
+    }
+  }
+
+  test("replays a transaction-zero survivor without fabricating killed rows") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 1)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 0, transactionId = 0, atag = 1,
+        firstPtag = 96, secondPtag = 97)
+      publish(dut)
+      startRecovery(dut, stid = 0, transactionId = 0, uopIndex = 1,
+        killTrigger = false)
+      dut.io.ptagReturn.valid.expect(false.B)
+      dut.io.recoverySourcesDone.poke(true.B)
+      dut.clock.step()
+      dut.io.recoverySourcesDone.poke(false.B)
+      finishRecovery(dut)
+      dut.io.queryStid.poke(0.U)
+      dut.io.queryAtag.poke(1.U)
+      dut.io.speculativeMapping.ptag.expect(97.U)
+      dut.io.committedMapping.ptag.expect(1.U)
+      dut.io.mapQUsed(0).expect(2.U)
+    }
+  }
+
+  test("rejects malformed authority and gives an exact commit capture priority") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 2)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 0, transactionId = 20, atag = 1,
+        firstPtag = 96, secondPtag = 97)
+      publish(dut)
+
+      dut.io.recoveryAuthorize.bits.poke(
+        0.U.asTypeOf(dut.io.recoveryAuthorize.bits))
+      dut.io.recoveryAuthorize.valid.poke(true.B)
+      dut.io.recoveryAuthorize.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryAuthorize.valid.poke(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.mapQCount.expect(2.U)
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.mapQUsed(0).expect(2.U)
+
+      pokeOneGroupCommit(dut, stid = 0, transactionId = 20, pRows = 2)
+      pokeRecoveryRequest(dut.io.recoveryAuthorize.bits, dut, stid = 0,
+        transactionId = 20, uopIndex = 1, killTrigger = true)
+      dut.io.recoveryAuthorize.valid.poke(true.B)
+      dut.io.commitStartReady.expect(true.B)
+      dut.io.recoveryAuthorize.ready.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryAuthorize.valid.poke(false.B)
+      dut.io.commitBusy.expect(true.B)
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitFire.poke(true.B)
+      dut.clock.step()
+      dut.io.commitFire.poke(false.B)
+      dut.io.commitPrepare.valid.poke(false.B)
+      dut.io.commitBusy.expect(false.B)
+      dut.io.recoveryBusy.expect(false.B)
     }
   }
 

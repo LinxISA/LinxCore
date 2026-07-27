@@ -42,6 +42,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.recoveryAuthorize.ready.poke(true.B)
     dut.io.recoverySource.ready.poke(true.B)
     dut.io.recoveryFinish.poke(false.B)
   }
@@ -175,6 +176,18 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       cycles += 1
     }
     assert(cycles < limit, "timed out waiting for a rename recovery source")
+  }
+
+  private def waitForRecoveryAuthorize(
+      dut: OooProductionTURetire,
+      limit: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.recoveryAuthorize.valid.peek().litToBoolean &&
+        cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit, "timed out waiting for rename recovery authority")
   }
 
   private def waitForRecoveryReject(
@@ -376,6 +389,10 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
         brobGeneration = 0, residentGeneration = 2, killTrigger = false)
       startRecovery(dut)
+      waitForRecoveryAuthorize(dut)
+      dut.io.recoveryAuthorize.bits.key.transactionId.expect(1.U)
+      dut.io.recoveryAuthorize.bits.killTrigger.expect(false.B)
+      dut.clock.step()
       waitForRecoverySource(dut)
       dut.io.recoverySource.bits.source.transactionId.expect(2.U)
       dut.io.recoverySource.bits.source.member.group.ridSlot.expect(2.U)

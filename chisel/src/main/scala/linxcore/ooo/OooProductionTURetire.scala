@@ -11,7 +11,7 @@ object OooTURetireState extends ChiselEnum {
 }
 
 object OooTURetireRecoveryState extends ChiselEnum {
-  val Idle, Scan, Emit, AwaitOwners = Value
+  val Idle, Scan, Authorize, Emit, AwaitOwners = Value
 }
 
 class OooTURelationEntry(val p: OooParams) extends Bundle {
@@ -48,6 +48,7 @@ class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
 
   val recoveryRequest = Flipped(Decoupled(
     new OooRenameRecoveryRequest(p)))
+  val recoveryAuthorize = Decoupled(new OooRenameRecoveryRequest(p))
   val recoverySource = Decoupled(new OooRenameRecoverySource(p))
   val recoveryFinish = Input(Bool())
   val recoveryBusy = Output(Bool())
@@ -270,6 +271,9 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
 
   val recoveryEmitIndex = subSourcePtr(sourceTail(recoveryStid), 1.U)
   val recoveryEmitSource = sourceQueue(recoveryStid)(recoveryEmitIndex)
+  io.recoveryAuthorize.valid :=
+    recoveryState === OooTURetireRecoveryState.Authorize
+  io.recoveryAuthorize.bits := recoveryRequest
   io.recoverySource.valid :=
     recoveryState === OooTURetireRecoveryState.Emit
   io.recoverySource.bits := 0.U.asTypeOf(io.recoverySource.bits)
@@ -277,6 +281,7 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   io.recoverySource.bits.source := recoveryEmitSource
   io.recoverySource.bits.last := recoveryEmitRemaining === 1.U
   val recoverySourceFire = io.recoverySource.fire
+  val recoveryAuthorizeFire = io.recoveryAuthorize.fire
 
   switch(recoveryState) {
     is(OooTURetireRecoveryState.Scan) {
@@ -289,9 +294,7 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
       when(recoveryScanRemaining === 1.U) {
         when(recoveryFinalMatchCount === 1.U) {
           recoveryEmitRemaining := recoveryKillCount
-          recoveryState := Mux(recoveryKillCount.orR,
-            OooTURetireRecoveryState.Emit,
-            OooTURetireRecoveryState.AwaitOwners)
+          recoveryState := OooTURetireRecoveryState.Authorize
         }.otherwise {
           recoveryRejectValid := true.B
           recoveryRejectRequest := recoveryRequest
@@ -304,6 +307,13 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
       }.otherwise {
         recoveryScanOffset := recoveryScanOffset + 1.U
         recoveryScanRemaining := recoveryScanRemaining - 1.U
+      }
+    }
+    is(OooTURetireRecoveryState.Authorize) {
+      when(recoveryAuthorizeFire) {
+        recoveryState := Mux(recoveryEmitRemaining.orR,
+          OooTURetireRecoveryState.Emit,
+          OooTURetireRecoveryState.AwaitOwners)
       }
     }
     is(OooTURetireRecoveryState.Emit) {

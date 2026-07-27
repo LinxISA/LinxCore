@@ -86,7 +86,7 @@ promotion.
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact read-only recovery-anchor scan and youngest-to-oldest killed-source stream | P CMAP-to-SMAP replay and killed-PTag return; T/U MapQ/cursor rollback; four-STID recovery integration; randomized sequential-reference closure |
+| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact read-only recovery authorization and youngest-to-oldest killed-source stream; killed-current-PTag return plus CMAP-to-SMAP survivor replay | T/U MapQ/cursor rollback; atomic four-STID recovery integration; randomized sequential-reference closure |
 | O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1339,10 +1339,17 @@ distinguishes branch-style survivor recovery from exception/nuke-style trigger
 removal. Same-STID publication and commit wait for the retained recovery while
 other STIDs remain live; simultaneous commit has capture priority. Transaction
 ID zero is legal, and stale or missing authority leaves the source ring
-unchanged. The O3 recovery seam remains intentionally closed until O4.4.3b/c
-join P CMAP-to-SMAP replay, killed-PTag return, and exact T/U MapQ/cursor
-rollback into the same owner-completion barrier. Randomized sequential-reference
-comparison also remains active O4 work.
+unchanged. A retained authorization handshake prevents P/T/U owners from
+starting until that read-only scan proves a unique anchor, including the
+zero-killed-source case. O4.4.3b makes P recovery consume the authorized stream:
+each source proves its exact P MapQ tail-row count, returns killed `current`
+PTags through the generation-qualified return path, copies CMAP to SMAP, and
+replays the surviving MapQ head-to-tail. Same-STID P prepare/commit remains
+blocked through the rebuild, while another STID can publish. UT also proves the
+surviving prefix can subsequently commit. The O3 recovery seam remains
+intentionally closed until O4.4.3c joins exact T/U MapQ/cursor rollback into the
+same owner-completion barrier. Randomized sequential-reference comparison also
+remains active O4 work.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

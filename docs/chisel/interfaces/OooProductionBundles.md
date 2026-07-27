@@ -348,9 +348,8 @@ row remains immutable and resumes afterward; readiness-aware D3 selection does
 not choose a new row from that STID and may choose another STID when no older
 retained selection is already exposed. Full downstream-readiness-aware per-STID
 arbitration remains an O5 dispatch integration obligation. External PTag return
-stays closed until O6 supplies recovery authority. CMAP-to-SMAP survivor replay
-and recovery are therefore still open, but ordinary P architectural commit is
-no longer a sealed seam.
+stays closed at the O3 seam until all recovery owners join atomically. Ordinary
+P architectural commit is no longer a sealed seam.
 
 ## T/U sequential rename boundary
 
@@ -403,18 +402,37 @@ retains publication epoch and the number of P MapQ destinations owned by that
 logical uop. `OooRenameRecoveryRequest` names one exact `ExactRecoveryKey` and
 states whether the trigger itself is killed. `OooProductionTURetire` scans the
 selected STID's complete source ring read-only, requires exactly one match, and
-then emits `OooRenameRecoverySource` rows youngest-to-oldest. It removes a
-source row only when that Decoupled transfer fires. Missing, stale, malformed,
-or ambiguous authority produces a diagnostic and zero ring mutation.
+first retains `recoveryAuthorize`. Only after every downstream owner accepts
+that authorization does it emit `OooRenameRecoverySource` rows
+youngest-to-oldest. It removes a source row only when that Decoupled transfer
+fires. Missing, stale, malformed, or ambiguous authority produces a diagnostic
+and zero ring mutation.
 
 Commit has priority when commit and recovery are presented together. Once a
 recovery is captured, commit and publication for that STID wait until the
 suffix and all downstream owners finish; unrelated STIDs may still publish.
 Transaction ID zero is legal. Native BID is never ordered numerically: suffix
 membership comes only from exact source-ring position after member, native-BID,
-BROB/resident generation, transaction, and epoch matching. P replay and killed
-PTag return plus T/U MapQ/cursor rollback remain O4.4.3b/c work, so the O3
-recovery input stays sealed until all owners can join one atomic transaction.
+BROB/resident generation, transaction, and epoch matching. The O3 recovery
+input stays sealed until all owners can join one atomic transaction.
+
+O4.4.3b adds the P recovery owner behind that authorization. For every killed
+logical source, `OooProductionPRename` proves that `pDestinationCount` exact
+rows occupy the P MapQ tail and belong to the source's full member,
+transaction, uop, STID, and epoch identity. It then returns each killed row's
+`current` PTag through the existing generation-qualified return channel before
+removing that row. Previous PTags are not returned: they remain the mapping of
+the surviving speculative or committed prefix. Return backpressure holds the
+tail row and token stable.
+
+After the source stream is done, the P owner copies the selected STID's CMAP to
+SMAP and replays every surviving MapQ row head-to-tail. The owner retains
+`recoveryComplete` until the common recovery finish; same-STID prepare,
+publication, and commit wait throughout the transaction, while unrelated STIDs
+continue. Transaction zero and a zero-killed-source recovery are legal. The
+direct P-owner UT proves killed current-tag order, survivor replay, unchanged
+CMAP, unrelated-STID rename, and that the surviving MapQ prefix remains
+committable. O4.4.3c still owns T/U MapQ and sequence-cursor rollback.
 
 D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
 plan is consumed even if its obsolete local source underflows, but the stale

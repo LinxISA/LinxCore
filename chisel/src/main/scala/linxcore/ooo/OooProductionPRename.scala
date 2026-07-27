@@ -1,13 +1,19 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H, PopCount, PriorityEncoder, Valid}
+import chisel3.util.{Decoupled, Mux1H, PopCount, PriorityEncoder, Valid, is,
+  switch}
 import linxcore.common.{DestinationKind, OperandClass}
 
 import scala.collection.mutable.ArrayBuffer
 
 object OooPCommitState extends ChiselEnum {
   val Idle, DrainMapQ, AwaitDeallocation = Value
+}
+
+object OooPRecoveryState extends ChiselEnum {
+  val Idle, WaitSources, DrainRows, CopyCmap, ReplaySurvivors,
+    Complete = Value
 }
 
 class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
@@ -33,6 +39,16 @@ class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   val mapQUsed = Output(Vec(p.stidCount, UInt(p.pMapQCountWidth.W)))
   val prepareRejected = Valid(new OooPRenamePrepareReject(p))
   val commitRejected = Valid(new OooPRenameCommitReject(p))
+
+  val recoveryAuthorize = Flipped(Decoupled(
+    new OooRenameRecoveryRequest(p)))
+  val recoverySource = Flipped(Decoupled(new OooRenameRecoverySource(p)))
+  val recoverySourcesDone = Input(Bool())
+  val recoveryComplete = Output(Bool())
+  val recoveryFinish = Input(Bool())
+  val recoveryBusy = Output(Bool())
+  val recoveryStid = Output(UInt(p.stidWidth.W))
+  val recoveryRejected = Valid(new OooPRenameRecoveryReject(p))
 }
 
 /** Production P-register rename prepare and publication owner.
@@ -50,6 +66,11 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   private val destinationIndexWidth = math.max(1,
     chisel3.util.log2Ceil(p.maxDestinationOperands))
   private val archIndexWidth = math.max(1, chisel3.util.log2Ceil(p.pArchRegs))
+
+  private def subMapQPtr(ptr: UInt, amount: UInt): UInt = {
+    val difference = ptr - amount
+    difference(p.pMapQIndexWidth - 1, 0)
+  }
 
   private def identityMapping(stid: Int, atag: Int): PMapPayload = {
     val mapping = Wire(new PMapPayload(p))
@@ -83,6 +104,23 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   val commitActiveStid = commitBatch.release.firstGroup.stid
   io.commitBusy := commitState =/= OooPCommitState.Idle
   io.commitStid := Mux(io.commitBusy, commitActiveStid, 0.U)
+  val recoveryState = RegInit(OooPRecoveryState.Idle)
+  val recoveryRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryCurrentSource = RegInit(
+    0.U.asTypeOf(new OooTURetireSource(p)))
+  val recoveryRowsRemaining = RegInit(
+    0.U(p.destinationCountWidth.W))
+  val recoveryReplayOffset = RegInit(0.U(p.pMapQCountWidth.W))
+  val recoveryReplayRemaining = RegInit(0.U(p.pMapQCountWidth.W))
+  val recoveryRejectValid = RegInit(false.B)
+  val recoveryRejectRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryRejectTail = RegInit(0.U(p.pMapQIndexWidth.W))
+  val recoveryRejectCount = RegInit(0.U(p.pMapQCountWidth.W))
+  val recoveryActiveStid = recoveryRequest.key.member.group.stid
+  io.recoveryBusy := recoveryState =/= OooPRecoveryState.Idle
+  io.recoveryStid := Mux(io.recoveryBusy, recoveryActiveStid, 0.U)
 
   val reservation = io.prepare.bits.request.reservation
   val transaction = reservation.transaction
@@ -192,7 +230,10 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
     leaseRowsExact && leaseTagsUnique && groupShapeExact && memberBindingsExact
 
   val commitBlocksPrepare = io.commitBusy && plan.stid === commitActiveStid
-  io.prepareReady := prepareExact && mapQAvailable && !commitBlocksPrepare
+  val recoveryBlocksPrepare = io.recoveryBusy &&
+    plan.stid === recoveryActiveStid
+  io.prepareReady := prepareExact && mapQAvailable && !commitBlocksPrepare &&
+    !recoveryBlocksPrepare
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.valid := io.prepare.valid && io.prepareReady
   io.prepared.peId := plan.peId
@@ -449,8 +490,10 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   val commitBatchRetained = io.commitPrepare.valid &&
     io.commitPrepare.bits.asUInt === commitBatch.asUInt
   io.commitStartReady := commitState === OooPCommitState.Idle &&
+    recoveryState === OooPRecoveryState.Idle &&
     incomingCommitExact
   val commitStart = commitState === OooPCommitState.Idle &&
+    recoveryState === OooPRecoveryState.Idle &&
     io.commitPrepare.valid && incomingCommitExact
   when(commitStart) {
     commitBatch := incomingBatch
@@ -590,6 +633,178 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   when(publishExact && io.commitBusy) {
     assert(safeStid =/= commitActiveStid,
       "same-STID P rename publication must wait for commit deallocation")
+  }
+
+  when(publishExact && io.recoveryBusy) {
+    assert(safeStid =/= recoveryActiveStid,
+      "same-STID P rename publication must wait for recovery rebuild")
+  }
+
+  recoveryRejectValid := false.B
+  val incomingRecovery = io.recoveryAuthorize.bits
+  val incomingRecoveryStid = incomingRecovery.key.member.group.stid
+  val incomingRecoveryStidInRange = incomingRecoveryStid < p.stidCount.U
+  val safeIncomingRecoveryStid = Mux(incomingRecoveryStidInRange,
+    incomingRecoveryStid, 0.U)
+  val incomingRecoveryShapeExact = incomingRecoveryStidInRange &&
+    incomingRecovery.key.member.group.valid &&
+    incomingRecovery.key.member.bid.valid
+  val recoveryConflictsPrepare = io.prepare.valid && io.prepareReady &&
+    plan.stid === incomingRecoveryStid
+  io.recoveryAuthorize.ready := recoveryState === OooPRecoveryState.Idle &&
+    commitState === OooPCommitState.Idle && !io.commitPrepare.valid &&
+    !recoveryConflictsPrepare
+  val recoveryAuthorizeFire = io.recoveryAuthorize.fire
+  when(recoveryAuthorizeFire) {
+    when(incomingRecoveryShapeExact) {
+      recoveryRequest := incomingRecovery
+      recoveryRowsRemaining := 0.U
+      recoveryReplayOffset := 0.U
+      recoveryReplayRemaining := 0.U
+      recoveryState := OooPRecoveryState.WaitSources
+    }.otherwise {
+      recoveryRejectValid := true.B
+      recoveryRejectRequest := incomingRecovery
+      recoveryRejectTail := mapQTail(safeIncomingRecoveryStid)
+      recoveryRejectCount := mapQCount(safeIncomingRecoveryStid)
+    }
+  }
+
+  val killed = io.recoverySource.bits.source
+  val killedCountInRange = killed.pDestinationCount <=
+    p.maxDestinationOperands.U &&
+    killed.pDestinationCount <= mapQCount(recoveryActiveStid)
+  val killedRowsExact = (0 until p.maxDestinationOperands).map { offset =>
+    val active = offset.U < killed.pDestinationCount
+    val rowIndex = subMapQPtr(mapQTail(recoveryActiveStid), offset.U + 1.U)
+    val row = mapQ(recoveryActiveStid)(rowIndex)
+    val atagInRange = row.atag < p.pArchRegs.U
+    !active || (row.valid && row.mapQIndex === rowIndex && atagInRange &&
+      row.transactionId === killed.transactionId &&
+      row.uopIndex === killed.uopIndex &&
+      row.destinationIndex < p.maxDestinationOperands.U &&
+      row.member.asUInt === killed.member.asUInt && row.current.valid &&
+      row.current.ptag < p.pPhysRegs.U &&
+      row.current.stid === recoveryActiveStid &&
+      row.current.epoch === killed.epoch &&
+      row.current.producerToken === killed.transactionId)
+  }.reduce(_ && _)
+  val nextOlderIndex = subMapQPtr(mapQTail(recoveryActiveStid),
+    killed.pDestinationCount + 1.U)
+  val nextOlderRow = mapQ(recoveryActiveStid)(nextOlderIndex)
+  val nextOlderMatchesKilled = mapQCount(recoveryActiveStid) >
+    killed.pDestinationCount && nextOlderRow.valid &&
+    nextOlderRow.transactionId === killed.transactionId &&
+    nextOlderRow.uopIndex === killed.uopIndex &&
+    nextOlderRow.member.asUInt === killed.member.asUInt
+  val killedSourceExact = io.recoverySource.bits.request.asUInt ===
+    recoveryRequest.asUInt && killed.valid &&
+    killed.member.group.stid === recoveryActiveStid &&
+    killedCountInRange && killedRowsExact && !nextOlderMatchesKilled
+  io.recoverySource.ready :=
+    recoveryState === OooPRecoveryState.WaitSources && killedSourceExact
+  val recoverySourceFire = io.recoverySource.fire
+  when(recoveryState === OooPRecoveryState.WaitSources &&
+      io.recoverySource.valid) {
+    assert(killedSourceExact,
+      "P recovery source must own the exact MapQ tail rows")
+  }
+
+  val recoveryDrainIndex = subMapQPtr(mapQTail(recoveryActiveStid), 1.U)
+  val recoveryDrainRow = mapQ(recoveryActiveStid)(recoveryDrainIndex)
+  val recoveryDrainExact = recoveryDrainRow.valid &&
+    recoveryDrainRow.mapQIndex === recoveryDrainIndex &&
+    recoveryDrainRow.transactionId === recoveryCurrentSource.transactionId &&
+    recoveryDrainRow.uopIndex === recoveryCurrentSource.uopIndex &&
+    recoveryDrainRow.member.asUInt === recoveryCurrentSource.member.asUInt &&
+    recoveryDrainRow.current.valid &&
+    recoveryDrainRow.current.ptag < p.pPhysRegs.U &&
+    recoveryDrainRow.current.stid === recoveryActiveStid &&
+    recoveryDrainRow.current.epoch === recoveryCurrentSource.epoch
+  when(recoveryState === OooPRecoveryState.DrainRows) {
+    assert(recoveryRowsRemaining.orR && recoveryDrainExact,
+      "P recovery must retain the exact killed MapQ tail row")
+    io.ptagReturn.valid := recoveryDrainExact
+    io.ptagReturn.bits := 0.U.asTypeOf(io.ptagReturn.bits)
+    io.ptagReturn.bits.count := 1.U
+    io.ptagReturn.bits.tokens(0).valid := true.B
+    io.ptagReturn.bits.tokens(0).ptag := recoveryDrainRow.current.ptag
+    io.ptagReturn.bits.tokens(0).generation :=
+      recoveryDrainRow.current.ptagGeneration
+    io.ptagReturn.bits.tokens(0).bank := (if (p.pTagBanks == 1) 0.U else
+      recoveryDrainRow.current.ptag(p.pTagBankWidth - 1, 0))
+  }
+  val recoveryDrainFire = recoveryState === OooPRecoveryState.DrainRows &&
+    io.ptagReturn.fire
+
+  val replayIndexSum = mapQHead(recoveryActiveStid) +& recoveryReplayOffset
+  val replayIndex = replayIndexSum(p.pMapQIndexWidth - 1, 0)
+  val replayRow = mapQ(recoveryActiveStid)(replayIndex)
+  val replayRowExact = replayRow.valid && replayRow.mapQIndex === replayIndex &&
+    replayRow.atag < p.pArchRegs.U && replayRow.current.valid &&
+    replayRow.current.stid === recoveryActiveStid &&
+    replayRow.current.ptag < p.pPhysRegs.U
+
+  switch(recoveryState) {
+    is(OooPRecoveryState.WaitSources) {
+      when(recoverySourceFire) {
+        recoveryCurrentSource := killed
+        recoveryRowsRemaining := killed.pDestinationCount
+        when(killed.pDestinationCount.orR) {
+          recoveryState := OooPRecoveryState.DrainRows
+        }
+      }.elsewhen(io.recoverySourcesDone) {
+        recoveryState := OooPRecoveryState.CopyCmap
+      }
+    }
+    is(OooPRecoveryState.DrainRows) {
+      when(recoveryDrainFire) {
+        mapQ(recoveryActiveStid)(recoveryDrainIndex) :=
+          0.U.asTypeOf(new OooPMapQEntry(p))
+        mapQTail(recoveryActiveStid) := recoveryDrainIndex
+        mapQCount(recoveryActiveStid) :=
+          mapQCount(recoveryActiveStid) - 1.U
+        recoveryRowsRemaining := recoveryRowsRemaining - 1.U
+        when(recoveryRowsRemaining === 1.U) {
+          recoveryState := OooPRecoveryState.WaitSources
+        }
+      }
+    }
+    is(OooPRecoveryState.CopyCmap) {
+      for (atag <- 0 until p.pArchRegs) {
+        smap(recoveryActiveStid)(atag) := cmap(recoveryActiveStid)(atag)
+      }
+      recoveryReplayOffset := 0.U
+      recoveryReplayRemaining := mapQCount(recoveryActiveStid)
+      recoveryState := Mux(mapQCount(recoveryActiveStid).orR,
+        OooPRecoveryState.ReplaySurvivors, OooPRecoveryState.Complete)
+    }
+    is(OooPRecoveryState.ReplaySurvivors) {
+      assert(recoveryReplayRemaining.orR && replayRowExact,
+        "P recovery replay must walk the exact surviving MapQ prefix")
+      smap(recoveryActiveStid)(replayRow.atag(archIndexWidth - 1, 0)) :=
+        replayRow.current
+      recoveryReplayOffset := recoveryReplayOffset + 1.U
+      recoveryReplayRemaining := recoveryReplayRemaining - 1.U
+      when(recoveryReplayRemaining === 1.U) {
+        recoveryState := OooPRecoveryState.Complete
+      }
+    }
+    is(OooPRecoveryState.Complete) {
+      when(io.recoveryFinish) {
+        recoveryState := OooPRecoveryState.Idle
+      }
+    }
+  }
+
+  io.recoveryComplete := recoveryState === OooPRecoveryState.Complete
+  io.recoveryRejected.valid := recoveryRejectValid
+  io.recoveryRejected.bits.requested := recoveryRejectRequest
+  io.recoveryRejected.bits.mapQTail := recoveryRejectTail
+  io.recoveryRejected.bits.mapQCount := recoveryRejectCount
+  when(io.recoveryFinish) {
+    assert(io.recoveryComplete,
+      "P recovery may finish only after CMAP copy and survivor replay")
   }
 
   val queryStidInRange = io.queryStid < p.stidCount.U

@@ -203,8 +203,17 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turetire.io.recoveryRequest.valid := false.B
   turetire.io.recoveryRequest.bits :=
     0.U.asTypeOf(turetire.io.recoveryRequest.bits)
+  turetire.io.recoveryAuthorize.ready := false.B
   turetire.io.recoverySource.ready := false.B
   turetire.io.recoveryFinish := false.B
+  prename.io.recoveryAuthorize.valid := false.B
+  prename.io.recoveryAuthorize.bits :=
+    0.U.asTypeOf(prename.io.recoveryAuthorize.bits)
+  prename.io.recoverySource.valid := false.B
+  prename.io.recoverySource.bits :=
+    0.U.asTypeOf(prename.io.recoverySource.bits)
+  prename.io.recoverySourcesDone := false.B
+  prename.io.recoveryFinish := false.B
 
   io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
     turename.io.publicationReady && turetire.io.publicationReady
