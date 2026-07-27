@@ -107,6 +107,29 @@ authority to reconstruct identity. CTU canonical-child reinsertion and its
 retained expansion lease remain an O7 owner; CTU may not allocate RID/BID/PTag
 or mutate ROB, RF, IQ, LSU, or memory directly.
 
+## O3 virtual ROB grouping
+
+`OooD2GroupPlanner` converts one canonical D1 packet into an
+`OooD2GroupedTransaction`. It is combinational and receives only snapshot
+copies of the selected STID's RID tail slot, RID generation, tail epoch, and
+next transaction ID. It cannot set a ROB/BROB/PC valid bit or advance an
+allocator pointer.
+
+Grouping is older-first. `uopGroupIndex` and `uopMemberBase` assign every
+logical uop to a virtual RID and to the base member used by its late-split
+children. A group starts before a new block and after a prior block stop,
+precise trap, or predicted-taken PC-release boundary. The independent limits
+are four trace-owning architectural parents and 12 planned physical members by
+default. Fused parents count individually; non-trace internal children do not
+consume another architectural-parent slot.
+
+Each `OooRobGroupPreview` carries the wrap-aware exact `RobGroupKey`, logical
+uop mask, physical member count, architectural parent count, boundary summary,
+precise-trap summary, and ordered PC-base release obligation. The plan records
+the input tail epoch; D3 must reject it if any later allocator event changes
+that epoch. CTU/complex diversion packets are rejected at this owner because
+they must first return as validated canonical children.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -139,6 +162,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooD1Decode
 bash tools/chisel/run_chisel_tests.sh --only OooD1FusionHistory
 bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
+bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -152,3 +176,6 @@ The IFU ingress tests additionally cover exact metadata transport, four-to-two
 split, four-to-six gather, partial 2/4/6 prefixes, same-STID ordering,
 four-STID hard-flush isolation, trigger-and-younger pruning, and exact CTU
 parent delivery through decode/fusion.
+The D2 tests cover one-group packing, explicit block splits, planned-member
+overflow, PC-release closure, RID slot/generation wrap, member-base assignment,
+and 2/4/6-width elaboration without physical state mutation.

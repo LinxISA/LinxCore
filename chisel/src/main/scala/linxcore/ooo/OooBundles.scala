@@ -222,8 +222,35 @@ class OooD2VirtualPlan(val p: OooParams = OooParams()) extends Bundle {
   val instructionMask = UInt(p.instructionDecodeWidth.W)
   val uopMask = UInt(p.decodedUopWidth.W)
   val firstVirtualGroup = new RobGroupKey(p)
+  val groupCount = UInt(p.robGroupCountWidth.W)
   val virtualTailEpoch = UInt(p.reservationEpochWidth.W)
   val demand = new InstructionDemand(p)
+}
+
+class OooRobGroupPreview(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val key = new RobGroupKey(p)
+  val logicalUopMask = UInt(p.decodedUopWidth.W)
+  val firstLogicalUop = UInt(p.decodedUopIndexWidth.W)
+  val logicalUopCount = UInt(p.decodedUopCountWidth.W)
+  val physicalMemberCount = UInt(p.robMemberCountWidth.W)
+  val architecturalParentCount = UInt(p.robGroupParentDemandWidth.W)
+  val boundaryStart = Bool()
+  val boundaryStop = Bool()
+  val releasePcBase = Bool()
+  val preciseTrap = Bool()
+}
+
+/** Complete D2 preview transaction. No field in this bundle is a physical
+  * allocation until a later D3/S1 owner validates the tail epoch and publishes.
+  */
+class OooD2GroupedTransaction(val p: OooParams = OooParams()) extends Bundle {
+  val plan = new OooD2VirtualPlan(p)
+  val decoded = new OooD1DecodedPacket(p)
+  val groupMask = UInt(p.instructionDecodeWidth.W)
+  val groups = Vec(p.instructionDecodeWidth, new OooRobGroupPreview(p))
+  val uopGroupIndex = Vec(p.decodedUopWidth, UInt(p.robGroupIndexWidth.W))
+  val uopMemberBase = Vec(p.decodedUopWidth, UInt(p.robMemberIndexWidth.W))
 }
 
 class OooD3Reservation(val p: OooParams = OooParams()) extends Bundle {
