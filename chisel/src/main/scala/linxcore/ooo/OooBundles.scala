@@ -313,6 +313,7 @@ class OooTUReservedMember(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val group = new RobGroupKey(p)
   val memberIndex = UInt(p.robMemberIndexWidth.W)
+  val blockLast = Bool()
 }
 
 /** Exact T/U resources claimed at D3 and retained until S1 publication. */
@@ -359,6 +360,9 @@ class OooTUPublicationDestination(val p: OooParams = OooParams())
 class OooTUPublicationUop(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val member = new RobMemberKey(p)
+  val blockLast = Bool()
+  val closeBeforeValid = Bool()
+  val closeBefore = new BrobPointer(p)
   val sources = Vec(p.maxSourceOperands, new OooTUPublicationSource(p))
   val destinations = Vec(p.maxDestinationOperands,
     new OooTUPublicationDestination(p))
@@ -376,6 +380,9 @@ class OooTUPublicationRequest(val p: OooParams = OooParams()) extends Bundle {
 class OooTURenamedUop(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val member = new RobMemberKey(p)
+  val blockLast = Bool()
+  val closeBeforeValid = Bool()
+  val closeBefore = new BrobPointer(p)
   val tSeqBefore = new OooLocalSeq(p)
   val uSeqBefore = new OooLocalSeq(p)
   val sources = Vec(p.maxSourceOperands, new OooLocalMapping(p))
@@ -423,6 +430,64 @@ class OooTURenamePublishReject(val p: OooParams = OooParams()) extends Bundle {
   val requestedStid = UInt(p.stidWidth.W)
   val requestedTransactionId = UInt(p.transactionIdWidth.W)
   val live = new OooTUReservation(p)
+}
+
+/** Exact retirement sidecar retained for every published logical uop.
+  *
+  * Rows without a local destination remain present because a block-last row
+  * still drains relation state and authorizes local block release.  An
+  * implicit BROB close is attached to the first uop of its exact close-owner
+  * group through `closeBefore`.
+  */
+class OooTURetireSource(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val member = new RobMemberKey(p)
+  val blockLast = Bool()
+  val closeBeforeValid = Bool()
+  val closeBefore = new BrobPointer(p)
+  val tSeqBefore = new OooLocalSeq(p)
+  val uSeqBefore = new OooLocalSeq(p)
+  val destinations = Vec(p.maxDestinationOperands, new OooLocalMapping(p))
+}
+
+class OooTURetirePublication(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val sources = Vec(p.decodedUopWidth, new OooTURetireSource(p))
+}
+
+/** Ordered ReportRetired command issued by the production relation owner. */
+class OooTURetireCommand(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val member = new RobMemberKey(p)
+  val kind = DestinationKind()
+  val sequence = new OooLocalSeq(p)
+  val dealloc = Bool()
+}
+
+/** Post-CleanCMAP local block release. */
+class OooTULocalBlockCommit(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val block = new BrobPointer(p)
+}
+
+class OooTURetireCommitPrepared(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val sourceCount = UInt(p.commitTURetireSourceCountWidth.W)
+}
+
+class OooTURetireCommitReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobCommitBatch(p)
+  val sourceHead = UInt(p.tuRetireSourceIndexWidth.W)
+  val sourceCount = UInt(p.tuRetireSourceCountWidth.W)
 }
 
 class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
@@ -561,6 +626,9 @@ class OooO3PreparedPublication(val p: OooParams = OooParams()) extends Bundle {
   val request = new OooS1GroupedPublicationRequest(p)
   val parentPcTokens = Vec(p.decodedUopWidth,
     Vec(p.maxArchitecturalParentRefs, new PcBufferToken(p)))
+  val brobImplicitCloseMask = UInt(p.instructionDecodeWidth.W)
+  val brobImplicitClosePointers = Vec(p.instructionDecodeWidth,
+    new BrobPointer(p))
 }
 
 /** Physical grouped-ROB row. A row owns one exact RID generation and a dense

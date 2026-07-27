@@ -98,6 +98,9 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   io.preparedValid := d3.io.out.valid && ownerPrepareReady
   io.prepared.request := publishRequest
   io.prepared.parentPcTokens := pc.io.prepared.parentTokens
+  io.prepared.brobImplicitCloseMask := brob.io.prepared.implicitCloseMask
+  io.prepared.brobImplicitClosePointers :=
+    brob.io.prepared.implicitClosePointers
 
   rob.io.publish.valid := d3.io.out.valid && brob.io.prepareReady &&
     pc.io.prepareReady && io.publishPermit

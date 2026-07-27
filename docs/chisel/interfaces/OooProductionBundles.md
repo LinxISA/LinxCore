@@ -379,9 +379,24 @@ mappings, and exact MapQ rows used by later dispatch/recovery owners.
 `OooO3RenameCoordinator` gates D3 admission on both PTag and T/U preparation,
 cancels both leases by STID, and requires both P and T/U publication views
 before asserting the shared permit. One terminal fire therefore publishes all
-ROB/BROB/PC/P/T/U owners. O4.4.1 intentionally does not free published local
-rows: relation-CMAP retirement, block-qualified release, and recovery are the
-next packets and must not be inferred from P architectural commit.
+ROB/BROB/PC/P/T/U owners.
+
+O4.4.2 adds `OooProductionTURetire` as the separate retire-source and relation-
+CMAP owner. `OooTURetirePublication` retains one exact source per logical uop,
+including no-destination rows, plus its pre-destination T/U sequences, local
+destinations, block-last bit, and optional implicit `closeBefore` pointer. A
+retained `OooRobCommitBatch` is accepted only when each group and each logical-
+uop bit matches exactly at the per-STID source head.
+
+The owner emits serialized `OooTURetireCommand` operations in T-before-U
+pre-release, mark, and pressure-release order. `OooProductionTURename` validates
+the full local sequence generation, exact ROB member, namespace, and physical
+deallocation head before mutating its MapQ. After exact-block relation cleanup,
+`OooTULocalBlockCommit` releases only the retired MapQ head prefix whose native
+BID and BROB generation match. P and T/U commit owners first expose
+side-effect-free `commitStartReady` probes; the coordinator starts both
+atomically and withholds common ROB/BROB/PC deallocation until both are ready.
+Recovery remains sealed until O4.4.3 supplies exact killed-suffix authority.
 
 D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
 plan is consumed even if its obsolete local source underflows, but the stale
@@ -415,6 +430,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
+bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```
 
@@ -469,9 +485,10 @@ MapQ publication, per-STID capacity, retained CMAP/old-PTag commit walks,
 wrapped two-group commit validation, and 2/4/6 elaboration. The T/U tests cover
 same-bundle relative bypass, source underflow, exact cancel/publication,
 D2-known member/uop-mask mismatch, same-cycle publish/reserve replacement with
-outgoing-lease bypass, and four-STID isolation. The O3 rename integration also
-proves stale-plus-T/U-underflow consumption with zero lease mutation and common
-P/T/U/ROB publication. The complete `linxcore.ooo` regression currently passes
-22 suites and 110 tests. Sequence-index reuse after block-qualified T/U release
-remains an O4.4.2 wrap-generation test because O4.4.1 intentionally exposes no
-release mutation.
+outgoing-lease bypass, four-STID isolation, exact wrap-generation rejection,
+physical-tag reclamation, and post-clean block-prefix release. The retire-owner
+tests cover no-destination block-last retention, T-before-U draining, oldest-
+relation pressure release, malformed STID/BROB-generation rejection, and exact
+source-head conservation. The O3 rename integration also proves stale-plus-
+T/U-underflow consumption with zero lease mutation, common P/T/U/ROB
+publication, and shared P/T/U commit completion before physical deallocation.

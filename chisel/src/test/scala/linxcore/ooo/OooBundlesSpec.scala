@@ -72,6 +72,26 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(mapping.producerBindingValid.getWidth == 1)
   }
 
+  test("T U retirement sidecars preserve exact local and block generations") {
+    val p = OooParams()
+    val source = new OooTURetireSource(p)
+    val publication = new OooTURetirePublication(p)
+    val command = new OooTURetireCommand(p)
+    val blockCommit = new OooTULocalBlockCommit(p)
+
+    assert(publication.sources.length == p.decodedUopWidth)
+    assert(source.member.brobGeneration.getWidth == p.brobGenerationWidth)
+    assert(source.tSeqBefore.generation.getWidth ==
+      p.localSeqGenerationWidth)
+    assert(source.uSeqBefore.generation.getWidth ==
+      p.localSeqGenerationWidth)
+    assert(source.closeBefore.generation.getWidth == p.brobGenerationWidth)
+    assert(command.sequence.index.getWidth == p.tuMapQIndexWidth)
+    assert(command.sequence.generation.getWidth == p.localSeqGenerationWidth)
+    assert(blockCommit.block.bid.value.getWidth == p.nativeBidWidth)
+    assert(blockCommit.block.generation.getWidth == p.brobGenerationWidth)
+  }
+
   test("D2 D3 and S1 packets expose distinct preview reserve and publish transactions") {
     val p = OooParams()
     val plan = new OooD2VirtualPlan(p)

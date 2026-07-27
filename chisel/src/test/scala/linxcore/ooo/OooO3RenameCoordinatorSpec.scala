@@ -122,6 +122,18 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  private def waitForCommit(
+      dut: OooO3RenameCoordinator,
+      limit: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.commit.valid.peek().litToBoolean && cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit,
+      "timed out waiting for the shared P/T/U commit owners")
+  }
+
   private def pokeLocalRenameChain(
       dut: OooO3RenameCoordinator,
       tailEpoch: Int = 0,
@@ -154,6 +166,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 4,
       pTagStagingDepthPerBank = 2,
@@ -227,7 +240,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.pCommitBusy.expect(true.B)
       dut.io.commit.valid.expect(false.B)
       dut.clock.step() // return the replaced reset mapping and advance CMAP
-      dut.io.commit.valid.expect(true.B)
+      waitForCommit(dut)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()
       dut.io.commit.ready.poke(false.B)
@@ -243,6 +256,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 4,
       pTagStagingDepthPerBank = 2,
@@ -279,6 +293,19 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.uMapQUsed(1).expect(1.U)
       dut.io.tMapQUsed(0).expect(0.U)
       dut.io.robOccupiedGroups(1).expect(1.U)
+
+      completeMembers(dut, stid = 1, rid = 0, memberCount = 2)
+      waitForCommit(dut)
+      dut.io.tuCommitBusy.expect(true.B)
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      dut.io.tMapQUsed(1).expect(0.U)
+      dut.io.uMapQUsed(1).expect(0.U)
+      dut.io.tuRetireSourceUsed(1).expect(0.U)
+      dut.io.tRelationUsed(1).expect(0.U)
+      dut.io.uRelationUsed(1).expect(0.U)
+      dut.io.robOccupiedGroups(1).expect(0.U)
     }
   }
 
@@ -287,6 +314,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 4,
       pTagStagingDepthPerBank = 2,
@@ -322,6 +350,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 4,
       pTagStagingDepthPerBank = 2,
@@ -376,7 +405,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.committedMapping.ptag.expect(97.U)
       dut.io.mapQUsed(0).expect(0.U)
       dut.io.ptagPublishedCount.expect(1.U)
-      dut.io.commit.valid.expect(true.B)
+      waitForCommit(dut)
       dut.io.robOccupiedGroups(0).expect(1.U)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()
@@ -391,6 +420,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 2,
       pTagStagingDepthPerBank = 2,
@@ -422,7 +452,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.pCommitBusy.expect(true.B)
       dut.io.preparedValid.expect(false.B)
       dut.clock.step(2) // width-one return of identity PTag 1, then PTag 96
-      dut.io.commit.valid.expect(true.B)
+      waitForCommit(dut)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()
       dut.io.commit.ready.poke(false.B)
@@ -444,6 +474,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
       pMapQDepthPerStid = 4,
       pTagStagingDepthPerBank = 2,
@@ -487,7 +518,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step() // now the older retained ROB batch may lock
       dut.io.pCommitBusy.expect(true.B)
       dut.clock.step() // return reset PTag 1 and commit the first MapQ row
-      dut.io.commit.valid.expect(true.B)
+      waitForCommit(dut)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()
       dut.io.commit.ready.poke(false.B)

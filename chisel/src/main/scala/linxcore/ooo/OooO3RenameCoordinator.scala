@@ -25,6 +25,12 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val mapQUsed = Output(Vec(p.stidCount, UInt(p.pMapQCountWidth.W)))
   val tMapQUsed = Output(Vec(p.stidCount, UInt(p.tuMapQCountWidth.W)))
   val uMapQUsed = Output(Vec(p.stidCount, UInt(p.tuMapQCountWidth.W)))
+  val tuRetireSourceUsed = Output(Vec(p.stidCount,
+    UInt(p.tuRetireSourceCountWidth.W)))
+  val tRelationUsed = Output(Vec(p.stidCount,
+    UInt(p.tuRelationCountWidth.W)))
+  val uRelationUsed = Output(Vec(p.stidCount,
+    UInt(p.tuRelationCountWidth.W)))
 
   val pcReadTokens = Input(Vec(p.pcReadPorts, new PcBufferToken(p)))
   val pcReadValid = Output(Vec(p.pcReadPorts, Bool()))
@@ -36,7 +42,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val robOccupiedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
   val pCommitBusy = Output(Bool())
+  val tuCommitBusy = Output(Bool())
   val pCommitRejected = Valid(new OooPRenameCommitReject(p))
+  val tuCommitRejected = Valid(new OooTURetireCommitReject(p))
   val tuReserveRejected = Valid(new OooTURenamePrepareReject(p))
   val tuPublicationRejected = Valid(new OooTURenamePublishReject(p))
 }
@@ -55,6 +63,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val ptag = Module(new OooPTagStagingPool(p))
   val prename = Module(new OooProductionPRename(p))
   val turename = Module(new OooProductionTURename(p))
+  val turetire = Module(new OooProductionTURetire(p))
 
   ptag.io.prepare.valid := io.reserve.valid
   ptag.io.prepare.bits := io.reserve.bits
@@ -81,6 +90,9 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   for (stid <- 0 until p.stidCount) {
     o3.io.publishEligible(stid) := !prename.io.commitBusy ||
       prename.io.commitStid =/= stid.U
+    when(turetire.io.commitBusy && turetire.io.commitStid === stid.U) {
+      o3.io.publishEligible(stid) := false.B
+    }
   }
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
@@ -119,6 +131,15 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     publicationUop.member.memberIndex :=
       preparedTransaction.uopMemberBase(uopIndex)
     publicationUop.member.residentGeneration := binding.residentGeneration
+    val memberEnd = preparedTransaction.uopMemberBase(uopIndex) +&
+      decodedUop.plannedChildCount
+    publicationUop.blockLast := activeUop && group.boundaryStop &&
+      memberEnd === group.physicalMemberCount
+    publicationUop.closeBeforeValid := activeUop &&
+      uopIndex.U === group.firstLogicalUop &&
+      o3.io.prepared.brobImplicitCloseMask(safeGroupIndex)
+    publicationUop.closeBefore :=
+      o3.io.prepared.brobImplicitClosePointers(safeGroupIndex)
     for (sourceIndex <- 0 until p.maxSourceOperands) {
       val decodedSource = decodedUop.sources(sourceIndex)
       val source = publicationUop.sources(sourceIndex)
@@ -143,14 +164,42 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turename.io.publicationPrepare.valid := o3.io.preparedValid
   turename.io.publicationPrepare.bits := tuPublication
 
-  io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
+  val tuRetirePublication = Wire(new OooTURetirePublication(p))
+  tuRetirePublication := 0.U.asTypeOf(tuRetirePublication)
+  tuRetirePublication.peId := preparedPlan.peId
+  tuRetirePublication.stid := preparedPlan.stid
+  tuRetirePublication.epoch := preparedPlan.epoch
+  tuRetirePublication.transactionId := preparedPlan.transactionId
+  tuRetirePublication.uopMask := preparedDecoded.uopMask
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    val renamed = turename.io.prepared.uops(uopIndex)
+    val source = tuRetirePublication.sources(uopIndex)
+    source.valid := renamed.valid
+    source.transactionId := preparedPlan.transactionId
+    source.uopIndex := uopIndex.U
+    source.member := renamed.member
+    source.blockLast := renamed.blockLast
+    source.closeBeforeValid := renamed.closeBeforeValid
+    source.closeBefore := renamed.closeBefore
+    source.tSeqBefore := renamed.tSeqBefore
+    source.uSeqBefore := renamed.uSeqBefore
+    source.destinations := renamed.destinations
+  }
+  turetire.io.publicationPrepare.valid := o3.io.preparedValid &&
     turename.io.publicationReady
+  turetire.io.publicationPrepare.bits := tuRetirePublication
+  turename.io.retireCommand <> turetire.io.retireCommand
+  turename.io.blockCommit <> turetire.io.blockCommit
+
+  io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
+    turename.io.publicationReady && turetire.io.publicationReady
   io.prepared := prename.io.prepared
   io.tuPrepared := turename.io.prepared
   o3.io.publishPermit := io.publishPermit && prename.io.prepareReady &&
-    turename.io.publicationReady
+    turename.io.publicationReady && turetire.io.publicationReady
   prename.io.publishFire := o3.io.publishFire
   turename.io.publishFire := o3.io.publishFire
+  turetire.io.publishFire := o3.io.publishFire
   io.publishFire := o3.io.publishFire
 
   val exposedPrepareValid = RegInit(false.B)
@@ -185,15 +234,31 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   // Merely provisional, unprepared rows do not block older commit.
   val commitConflictsExposedPrepare = exposedPrepareValid &&
     commitStidInRange && exposedPrepareStid === commitStid
-  prename.io.commitPrepare.valid := o3.io.commit.valid &&
+  val commitProbeValid = o3.io.commit.valid &&
     !commitConflictsExposedPrepare
   prename.io.commitPrepare.bits := o3.io.commit.bits
+  turetire.io.commitPrepare.bits := o3.io.commit.bits
+  val commitOwnersStarted = RegInit(false.B)
+  val commitOwnersStart = commitProbeValid && !commitOwnersStarted &&
+    prename.io.commitStartReady && turetire.io.commitStartReady
+  val ownerCommitPrepareValid = commitOwnersStarted || commitOwnersStart
+  prename.io.commitPrepare.valid := ownerCommitPrepareValid
+  turetire.io.commitPrepare.valid := ownerCommitPrepareValid
+  when(commitOwnersStart) {
+    commitOwnersStarted := true.B
+  }
   prename.io.ptagReturn <> ptag.io.release
-  io.commit.valid := o3.io.commit.valid && prename.io.commitReady
+  io.commit.valid := o3.io.commit.valid && commitOwnersStarted &&
+    prename.io.commitReady && turetire.io.commitReady
   io.commit.bits := o3.io.commit.bits
-  o3.io.commit.ready := io.commit.ready && prename.io.commitReady
+  o3.io.commit.ready := io.commit.ready && commitOwnersStarted &&
+    prename.io.commitReady && turetire.io.commitReady
   val sharedCommitFire = io.commit.valid && io.commit.ready
   prename.io.commitFire := sharedCommitFire
+  turetire.io.commitFire := sharedCommitFire
+  when(sharedCommitFire) {
+    commitOwnersStarted := false.B
+  }
 
   // External recovery return remains sealed until O6 supplies exact killed-row
   // authority. Architectural commit return is wired privately above.
@@ -206,6 +271,9 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.mapQUsed := prename.io.mapQUsed
   io.tMapQUsed := turename.io.tMapQUsed
   io.uMapQUsed := turename.io.uMapQUsed
+  io.tuRetireSourceUsed := turetire.io.sourceQueueUsed
+  io.tRelationUsed := turetire.io.tRelationUsed
+  io.uRelationUsed := turetire.io.uRelationUsed
 
   o3.io.pcReadTokens := io.pcReadTokens
   io.pcReadValid := o3.io.pcReadValid
@@ -216,7 +284,9 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.ptagPublishedCount := ptag.io.publishedCount
   io.robOccupiedGroups := o3.io.robOccupiedGroups
   io.pCommitBusy := prename.io.commitBusy
+  io.tuCommitBusy := turetire.io.commitBusy
   io.pCommitRejected := prename.io.commitRejected
+  io.tuCommitRejected := turetire.io.commitRejected
   io.tuReserveRejected := turename.io.reserveRejected
   io.tuPublicationRejected := turename.io.publicationRejected
 }

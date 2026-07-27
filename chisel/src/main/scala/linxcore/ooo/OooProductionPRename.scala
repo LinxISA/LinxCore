@@ -18,6 +18,7 @@ class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   val publishFire = Input(Bool())
 
   val commitPrepare = Flipped(Valid(new OooRobCommitBatch(p)))
+  val commitStartReady = Output(Bool())
   val commitReady = Output(Bool())
   val commitPrepared = Output(new OooPRenameCommitPrepared(p))
   val commitFire = Input(Bool())
@@ -447,6 +448,8 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
 
   val commitBatchRetained = io.commitPrepare.valid &&
     io.commitPrepare.bits.asUInt === commitBatch.asUInt
+  io.commitStartReady := commitState === OooPCommitState.Idle &&
+    incomingCommitExact
   val commitStart = commitState === OooPCommitState.Idle &&
     io.commitPrepare.valid && incomingCommitExact
   when(commitStart) {

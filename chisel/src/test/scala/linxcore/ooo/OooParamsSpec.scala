@@ -21,6 +21,11 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pTagStagingDepthPerBank == 8)
     assert(p.pTagAllocationWidth == 16)
     assert(p.pTagReturnWidth == 8)
+    assert(p.tuRetireSourceDepthPerStid == 512)
+    assert(p.tuRetireSourceIndexWidth == 9)
+    assert(p.tuRelationDepthPerStid == 8)
+    assert(p.tuRelationReleaseThreshold == 4)
+    assert(p.maxCommitTURetireSources == 32)
     assert(p.pcBufferEntries == 64)
     assert(p.pcBufferIndexWidth == 6)
     assert(p.pcEntriesPerStid == 16)
@@ -49,6 +54,12 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(pPhysRegs = 64))
     assertThrows[IllegalArgumentException](OooParams(pTagStagingDepthPerBank = 7))
     assertThrows[IllegalArgumentException](OooParams(pTagBanks = 64))
+    assertThrows[IllegalArgumentException](OooParams(
+      tuRetireSourceDepthPerStid = 256))
+    assertThrows[IllegalArgumentException](OooParams(
+      tuRelationDepthPerStid = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      tuRelationReleaseThreshold = 8))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }

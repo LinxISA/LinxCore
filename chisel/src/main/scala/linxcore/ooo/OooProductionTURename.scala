@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Cat, PopCount, Valid}
+import chisel3.util.{Cat, Decoupled, PopCount, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 
 class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
@@ -15,6 +15,9 @@ class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   val publicationReady = Output(Bool())
   val prepared = Output(new OooTURenamePreparedTransaction(p))
   val publishFire = Input(Bool())
+
+  val retireCommand = Flipped(Decoupled(new OooTURetireCommand(p)))
+  val blockCommit = Flipped(Decoupled(new OooTULocalBlockCommit(p)))
 
   val provisional = Output(Vec(p.stidCount, new OooTUReservation(p)))
   val tMapQUsed = Output(Vec(p.stidCount, UInt(p.tuMapQCountWidth.W)))
@@ -36,9 +39,9 @@ class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   * at D3 reserve, retained as one provisional lease, and becomes visible only
   * on the common S1 publication fire.
   *
-  * Retirement/relation-CMAP and recovery are added by the following O4.4
-  * packets. Until those owners are connected, published entries remain live;
-  * this module never guesses that P commit or ROB slot reuse releases them.
+  * A sibling relation owner drives exact mark/deallocation and post-clean
+  * block commands. This module remains the sole MapQ/physical-tag owner and
+  * never guesses that P commit or ROB slot reuse releases local state.
   */
 class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooProductionTURenameIO(p))
@@ -83,6 +86,10 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
   val tTail = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(seqPackedWidth.W))))
   val uTail = RegInit(VecInit(Seq.fill(p.stidCount)(
+    0.U(seqPackedWidth.W))))
+  val tHead = RegInit(VecInit(Seq.fill(p.stidCount)(
+    0.U(seqPackedWidth.W))))
+  val uHead = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(seqPackedWidth.W))))
   val tNextPhysical = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(p.localTagWidth.W))))
@@ -185,9 +192,13 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     val safeGroupIndex = Mux(groupIndexInRange, groupIndex, 0.U)
     val group = io.reservePrepare.bits.groups(safeGroupIndex)
     val member = io.reservation.members(uopIndex)
+    val memberEnd = io.reservePrepare.bits.uopMemberBase(uopIndex) +&
+      uop.plannedChildCount
     member.valid := activeUop
     member.group := group.key
     member.memberIndex := io.reservePrepare.bits.uopMemberBase(uopIndex)
+    member.blockLast := activeUop && groupIndexInRange &&
+      group.boundaryStop && memberEnd === group.physicalMemberCount
     driveSeq(io.reservation.tSeqBefore(uopIndex), virtualTSeq, activeUop)
     driveSeq(io.reservation.uSeqBefore(uopIndex), virtualUSeq, activeUop)
 
@@ -433,11 +444,21 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
       (reservedMember.valid && member.group.asUInt ===
         reservedMember.group.asUInt &&
         member.memberIndex === reservedMember.memberIndex &&
+        publicationUop.blockLast === reservedMember.blockLast &&
         member.group.valid && member.group.peId === publication.peId &&
-        member.group.stid === publication.stid && member.bid.valid)
+        member.group.stid === publication.stid && member.bid.valid &&
+        (!publicationUop.closeBeforeValid ||
+          (publicationUop.closeBefore.valid &&
+            publicationUop.closeBefore.bid.valid &&
+            !(publicationUop.closeBefore.bid.value === member.bid.value &&
+              publicationUop.closeBefore.generation ===
+                member.brobGeneration))))
 
     renamedUop.valid := activeUop
     renamedUop.member := member
+    renamedUop.blockLast := publicationUop.blockLast
+    renamedUop.closeBeforeValid := publicationUop.closeBeforeValid
+    renamedUop.closeBefore := publicationUop.closeBefore
     renamedUop.tSeqBefore := live.tSeqBefore(uopIndex)
     renamedUop.uSeqBefore := live.uSeqBefore(uopIndex)
     renamedUop.sources := live.sourceMappings(uopIndex)
@@ -506,6 +527,124 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     when(!(reserveFire && reserveStid === safePublicationStid)) {
       provisional(safePublicationStid) := 0.U.asTypeOf(live)
     }
+  }
+
+  val retire = io.retireCommand.bits
+  val retireStid = retire.member.group.stid
+  val retireStidInRange = retireStid < p.stidCount.U
+  val safeRetireStid = Mux(retireStidInRange, retireStid, 0.U)
+  val retireIsT = retire.kind === DestinationKind.T
+  val retireIsU = retire.kind === DestinationKind.U
+  val retireRow = Mux(retireIsT,
+    tMapQ(safeRetireStid)(retire.sequence.index),
+    uMapQ(safeRetireStid)(retire.sequence.index))
+  val retireSequenceExact = retire.sequence.valid &&
+    retireRow.mapping.sequence.valid &&
+    packSeq(retireRow.mapping.sequence) === packSeq(retire.sequence)
+  val retireMemberExact = retireRow.member.asUInt === retire.member.asUInt
+  val retireHeadExact = Mux(retireIsT,
+    packSeq(retire.sequence) === tHead(safeRetireStid),
+    packSeq(retire.sequence) === uHead(safeRetireStid))
+  val retireExact = retire.valid && retireStidInRange &&
+    (retireIsT || retireIsU) && retireRow.valid && retireSequenceExact &&
+    retireMemberExact && Mux(retire.dealloc,
+      retireRow.retired && retireHeadExact, !retireRow.retired)
+  io.retireCommand.ready := retireExact
+  val retireFire = io.retireCommand.fire
+
+  when(retireFire && !retire.dealloc) {
+    when(retireIsT) {
+      tMapQ(safeRetireStid)(retire.sequence.index).retired := true.B
+    }.otherwise {
+      uMapQ(safeRetireStid)(retire.sequence.index).retired := true.B
+    }
+  }
+  when(retireFire && retire.dealloc) {
+    when(retireIsT) {
+      tMapQ(safeRetireStid)(retire.sequence.index) := zeroRow
+      tHead(safeRetireStid) := tHead(safeRetireStid) + 1.U
+      tCount(safeRetireStid) := tCount(safeRetireStid) - 1.U
+      tPhysicalCount(safeRetireStid) :=
+        tPhysicalCount(safeRetireStid) - 1.U
+    }.otherwise {
+      uMapQ(safeRetireStid)(retire.sequence.index) := zeroRow
+      uHead(safeRetireStid) := uHead(safeRetireStid) + 1.U
+      uCount(safeRetireStid) := uCount(safeRetireStid) - 1.U
+      uPhysicalCount(safeRetireStid) :=
+        uPhysicalCount(safeRetireStid) - 1.U
+    }
+  }
+
+  val blockCommit = io.blockCommit.bits
+  val blockCommitStidInRange = blockCommit.stid < p.stidCount.U
+  val safeBlockCommitStid = Mux(blockCommitStidInRange,
+    blockCommit.stid, 0.U)
+  val blockCommitExact = blockCommit.valid && blockCommitStidInRange &&
+    blockCommit.block.valid && blockCommit.block.bid.valid
+  io.blockCommit.ready := blockCommitExact
+
+  def blockReleaseMask(
+      mapQ: Vec[OooTUMapQEntry],
+      head: UInt,
+      block: BrobPointer): UInt = {
+    val release = Wire(Vec(p.tuMapQDepthPerStid, Bool()))
+    release := VecInit(Seq.fill(p.tuMapQDepthPerStid)(false.B))
+    var prefix = true.B
+    for (offset <- 0 until p.tuMapQDepthPerStid) {
+      val sequence = (head + offset.U)(seqPackedWidth - 1, 0)
+      val index = sequence(p.tuMapQIndexWidth - 1, 0)
+      val row = mapQ(index)
+      val exact = row.valid && row.retired && row.member.bid.valid &&
+        row.mapping.sequence.valid &&
+        packSeq(row.mapping.sequence) === sequence &&
+        row.member.bid.value === block.bid.value &&
+        row.member.brobGeneration === block.generation
+      release(index) := prefix && exact
+      prefix = prefix && exact
+    }
+    release.asUInt
+  }
+
+  val tBlockReleaseMask = blockReleaseMask(
+    tMapQ(safeBlockCommitStid), tHead(safeBlockCommitStid),
+    blockCommit.block)
+  val uBlockReleaseMask = blockReleaseMask(
+    uMapQ(safeBlockCommitStid), uHead(safeBlockCommitStid),
+    blockCommit.block)
+  val tBlockReleaseCount = PopCount(tBlockReleaseMask)
+  val uBlockReleaseCount = PopCount(uBlockReleaseMask)
+  val blockCommitFire = io.blockCommit.fire
+  when(blockCommitFire) {
+    for (index <- 0 until p.tuMapQDepthPerStid) {
+      when(tBlockReleaseMask(index)) {
+        tMapQ(safeBlockCommitStid)(index) := zeroRow
+      }
+      when(uBlockReleaseMask(index)) {
+        uMapQ(safeBlockCommitStid)(index) := zeroRow
+      }
+    }
+    tHead(safeBlockCommitStid) :=
+      tHead(safeBlockCommitStid) + tBlockReleaseCount
+    uHead(safeBlockCommitStid) :=
+      uHead(safeBlockCommitStid) + uBlockReleaseCount
+    tCount(safeBlockCommitStid) :=
+      tCount(safeBlockCommitStid) - tBlockReleaseCount
+    uCount(safeBlockCommitStid) :=
+      uCount(safeBlockCommitStid) - uBlockReleaseCount
+    tPhysicalCount(safeBlockCommitStid) :=
+      tPhysicalCount(safeBlockCommitStid) - tBlockReleaseCount
+    uPhysicalCount(safeBlockCommitStid) :=
+      uPhysicalCount(safeBlockCommitStid) - uBlockReleaseCount
+  }
+
+  when(retireFire && blockCommitFire) {
+    assert(false.B,
+      "T/U retire mark/deallocation and block commit are serialized")
+  }
+  when(publishExact && (retireFire || blockCommitFire)) {
+    assert(safePublicationStid =/= Mux(retireFire,
+      safeRetireStid, safeBlockCommitStid),
+      "same-STID T/U publication must wait for retirement maintenance")
   }
 
   io.provisional := provisional

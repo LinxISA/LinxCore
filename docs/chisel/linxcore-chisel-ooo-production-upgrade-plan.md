@@ -86,7 +86,7 @@ promotion.
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; one O3/PTag/ROB/BROB/PC/P/T/U common fire | P recovery replay; T/U relation-CMAP retirement, block release, and recovery; randomized sequential-reference closure |
+| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start | P recovery replay; T/U exact suffix recovery/checkpoint; randomized sequential-reference closure |
 | O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -713,6 +713,27 @@ The renamed uop preserves `atag`/relative index and adds `ttag` or `utag`.
 Same-cycle source relations use oldest-to-youngest sequential bypass. Block
 completion/recovery, not P CMAP commit, releases T/U lifetime.
 
+Architectural ROB commit is nevertheless the ordered trigger for local
+retirement. `OooProductionTURetire` retains one exact sidecar for every
+published logical uop, including rows with no local destination. It matches a
+retained grouped-ROB commit by STID, RID generation, native BID plus BROB
+generation, resident generation, transaction, logical-uop mask, and member
+range. It then serializes the model order:
+
+1. drain prior T relations, then prior U relations, on group/block transition
+   or block-last;
+2. mark each exact T/U MapQ destination retired;
+3. pressure-release the oldest relation only after the new mark;
+4. remove relations for the exact block;
+5. issue the post-clean local block commit to release the retired MapQ head
+   prefix.
+
+An implicit BROB close is represented as a `closeBefore` event on the first
+logical uop of the close-owner group. It therefore drains and commits the old
+block before processing that uop's real block. P and T/U commit owners perform
+side-effect-free exact probes and start atomically; ROB/BROB/PC deallocation is
+not visible until both owners report ready on the same retained batch.
+
 ### 12.3 No FP/CC/Tile rename
 
 OOO contains no FP SMAP, CC map, predicate map, or their PTag banks. Opcodes
@@ -1077,7 +1098,8 @@ without inspecting waveforms.
 | `BROB` | 256-entry rollover for all four STIDs, fused/standalone starts, in-body reentry reuse, no unsigned BID age |
 | `PTagStagingFifo` | refill/consume/hold, preferred-bank exhaustion with availability fallback, skewed identity returns, simultaneous return/refill, no D3 direct free-list select |
 | `PRename` | 24-to-128 mapping, RAW/WAW inlining, pending-S1 bypass, IQID/ready payload, banked MapQ, commit and recovery |
-| `TuRename` | independent T/U sequential allocation, relative lookup, wrap, block release, four-STID isolation |
+| `TuRename` | independent T/U sequential allocation, relative lookup, wrap-qualified exact mark/deallocation, post-clean block release, four-STID isolation |
+| `TuRetire` | every-uop source retention, exact grouped-commit match, T-before-U pre-release, pressure release, no-destination block-last, implicit close, relation cleanup |
 | `PcBuffer` | variable 2/4/6/8-byte offsets, overflow base allocation, 3W/6R conflicts, four partitions, commit/recovery release |
 | `DispatchSteering` | bank/port/entry credits, oldest prefix, split atomicity, stable target, LFSR/RR tie break, quota |
 | `IexSpecSlotBoundary` | S1 retained slot, S2 reserved bind, S3 pick enable, recovery at every stage, IQID stability |
@@ -1298,9 +1320,19 @@ and T/U MapQ rows together. No published T/U row is released by P commit.
 Stale D2 plans bypass rename resource gating only to reach D3's zero-mutation
 reject path. Same-cycle same-STID publish/reserve is supported by previewing the
 outgoing local lease in capacity, sequence, physical-tag, and source lookup.
-O4.4.2 must add relation-CMAP mark/release and block-qualified cleanup;
-O4.4.3 must add exact suffix recovery/checkpoint restoration. P recovery replay
-and randomized sequential-reference comparison also remain active O4 work.
+O4.4.2 adds an independent `OooProductionTURetire` owner rather than mixing
+retire-source and relation state into sequential allocation. Every logical uop
+is published into a per-STID source ring, including no-destination block-last
+rows. Retained ROB batches are matched exactly before ordered T pre-release, U
+pre-release, destination mark, pressure release, exact-block relation cleanup,
+and local block commit. `OooProductionTURename` alone continues to own T/U
+MapQ rows and physical tags; it accepts only exact wrap-qualified mark/dealloc
+commands and releases only a retired native-BID/BROB-generation head prefix.
+Explicit boundary-stop and implicit BROB close both drive the same exact block
+protocol. P and T/U owners begin only after both side-effect-free probes pass,
+and common ROB/BROB/PC deallocation waits for both walks. O4.4.3 must add exact
+suffix recovery/checkpoint restoration. P recovery replay and randomized
+sequential-reference comparison also remain active O4 work.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

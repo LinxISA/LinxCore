@@ -30,6 +30,9 @@ final case class OooParams(
     tPhysRegs: Int = 32,
     uPhysRegs: Int = 32,
     tuMapQDepthPerStid: Int = 32,
+    tuRetireSourceDepthPerStid: Int = 512,
+    tuRelationDepthPerStid: Int = 8,
+    tuRelationReleaseThreshold: Int = 4,
     localSeqGenerationWidth: Int = 8,
     pcBufferEntries: Int = 64,
     pcOffsetWidth: Int = 7,
@@ -114,6 +117,15 @@ final case class OooParams(
     "T/U MapQ depth per STID must be a power of two")
   require(tuMapQDepthPerStid >= decodedUopWidth * maxDestinationOperands,
     "T/U MapQ must retain one worst-case D3 destination bundle")
+  require(isPowerOfTwo(tuRetireSourceDepthPerStid) &&
+    tuRetireSourceDepthPerStid >= robGroupsPerStid * decodedUopWidth,
+    "T/U retire source storage must cover every live logical ROB row")
+  require(isPowerOfTwo(tuRelationDepthPerStid) &&
+    tuRelationDepthPerStid > 1,
+    "T/U relation CMAP depth must be a power of two greater than one")
+  require(tuRelationReleaseThreshold >= 0 &&
+    tuRelationReleaseThreshold < tuRelationDepthPerStid,
+    "T/U relation pressure threshold must fit the relation CMAP")
   require(localTagWidth >= log2Ceil(math.max(tPhysRegs, uPhysRegs)),
     "localTagWidth must address both T and U physical namespaces")
   require(localSeqGenerationWidth > 0,
@@ -158,6 +170,12 @@ final case class OooParams(
   def tuMapQIndexWidth: Int = log2Ceil(tuMapQDepthPerStid)
   def tuMapQCountWidth: Int = countWidth(tuMapQDepthPerStid)
   def tuAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
+  def tuRetireSourceIndexWidth: Int = log2Ceil(tuRetireSourceDepthPerStid)
+  def tuRetireSourceCountWidth: Int = countWidth(tuRetireSourceDepthPerStid)
+  def tuRelationIndexWidth: Int = log2Ceil(tuRelationDepthPerStid)
+  def tuRelationCountWidth: Int = countWidth(tuRelationDepthPerStid)
+  def maxCommitTURetireSources: Int = retireGroupWidth * decodedUopWidth
+  def commitTURetireSourceCountWidth: Int = countWidth(maxCommitTURetireSources)
   def maxCommitMapQRows: Int =
     retireGroupWidth * maxOrdinaryUopsPerGroup * maxDestinationOperands
   def commitMapQRowCountWidth: Int = countWidth(maxCommitMapQRows)

@@ -23,6 +23,12 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.publicationPrepare.bits.poke(
       0.U.asTypeOf(dut.io.publicationPrepare.bits))
     dut.io.publishFire.poke(false.B)
+    dut.io.retireCommand.valid.poke(false.B)
+    dut.io.retireCommand.bits.poke(
+      0.U.asTypeOf(dut.io.retireCommand.bits))
+    dut.io.blockCommit.valid.poke(false.B)
+    dut.io.blockCommit.bits.poke(
+      0.U.asTypeOf(dut.io.blockCommit.bits))
   }
 
   private def pokeTransaction(
@@ -153,6 +159,37 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.clock.step()
     dut.io.publishFire.poke(false.B)
     dut.io.publicationPrepare.valid.poke(false.B)
+  }
+
+  private def retireLocal(
+      dut: OooProductionTURename,
+      kind: DestinationKind.Type,
+      sequenceIndex: Int,
+      sequenceGeneration: Int,
+      memberIndex: Int = 0,
+      dealloc: Boolean): Unit = {
+    val command = dut.io.retireCommand.bits
+    command.poke(0.U.asTypeOf(command))
+    command.valid.poke(true.B)
+    command.member.group.valid.poke(true.B)
+    command.member.group.peId.poke(2.U)
+    command.member.group.stid.poke(0.U)
+    command.member.group.ridSlot.poke(5.U)
+    command.member.group.ridGeneration.poke(3.U)
+    command.member.bid.valid.poke(true.B)
+    command.member.bid.value.poke(9.U)
+    command.member.brobGeneration.poke(4.U)
+    command.member.memberIndex.poke(memberIndex.U)
+    command.member.residentGeneration.poke(11.U)
+    command.kind.poke(kind)
+    command.sequence.valid.poke(true.B)
+    command.sequence.index.poke(sequenceIndex.U)
+    command.sequence.generation.poke(sequenceGeneration.U)
+    command.dealloc.poke(dealloc.B)
+    dut.io.retireCommand.valid.poke(true.B)
+    dut.io.retireCommand.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.retireCommand.valid.poke(false.B)
   }
 
   test("resolves T and U relative sources across one retained bundle") {
@@ -406,6 +443,116 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.reservation.sourceMappings(0)(0).physicalTag.expect(1.U)
       pokeReserve(dut, stid = 1, transactionId = 82, lookup)
       dut.io.reservation.sourceMappings(0)(0).physicalTag.expect(0.U)
+    }
+  }
+
+  test("requires exact wrap-qualified retire commands and reclaims physical tags") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      tPhysRegs = 4,
+      uPhysRegs = 4,
+      tuMapQDepthPerStid = 4)
+    simulate(new OooProductionTURename(p)) { dut =>
+      clear(dut)
+      val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
+
+      for (transactionId <- 90 until 94) {
+        val sequenceIndex = transactionId - 90
+        pokeReserve(dut, stid = 0, transactionId, oneT)
+        dut.io.reservation.allocations(0).mapping.sequence.index.expect(
+          sequenceIndex.U)
+        dut.io.reservation.allocations(0).mapping.sequence.generation.expect(0.U)
+        reserve(dut)
+        pokePublication(dut, stid = 0, transactionId, oneT)
+        publish(dut)
+        retireLocal(dut, DestinationKind.T, sequenceIndex,
+          sequenceGeneration = 0, dealloc = false)
+        retireLocal(dut, DestinationKind.T, sequenceIndex,
+          sequenceGeneration = 0, dealloc = true)
+      }
+      dut.io.tMapQUsed(0).expect(0.U)
+      dut.io.tPhysicalUsed(0).expect(0.U)
+
+      pokeReserve(dut, stid = 0, transactionId = 94, oneT)
+      dut.io.reservation.allocations(0).mapping.sequence.index.expect(0.U)
+      dut.io.reservation.allocations(0).mapping.sequence.generation.expect(1.U)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 94, oneT)
+      publish(dut)
+
+      val stale = dut.io.retireCommand.bits
+      stale.poke(0.U.asTypeOf(stale))
+      stale.valid.poke(true.B)
+      stale.member.group.valid.poke(true.B)
+      stale.member.group.peId.poke(2.U)
+      stale.member.group.stid.poke(0.U)
+      stale.member.group.ridSlot.poke(5.U)
+      stale.member.group.ridGeneration.poke(3.U)
+      stale.member.bid.valid.poke(true.B)
+      stale.member.bid.value.poke(9.U)
+      stale.member.brobGeneration.poke(4.U)
+      stale.member.residentGeneration.poke(11.U)
+      stale.kind.poke(DestinationKind.T)
+      stale.sequence.valid.poke(true.B)
+      stale.sequence.index.poke(0.U)
+      stale.sequence.generation.poke(0.U)
+      dut.io.retireCommand.valid.poke(true.B)
+      dut.io.retireCommand.ready.expect(false.B)
+      dut.clock.step()
+      dut.io.retireCommand.valid.poke(false.B)
+      dut.io.tMapQUsed(0).expect(1.U)
+
+      retireLocal(dut, DestinationKind.T, sequenceIndex = 0,
+        sequenceGeneration = 1, dealloc = false)
+      retireLocal(dut, DestinationKind.T, sequenceIndex = 0,
+        sequenceGeneration = 1, dealloc = true)
+      dut.io.tMapQUsed(0).expect(0.U)
+      dut.io.tPhysicalUsed(0).expect(0.U)
+    }
+  }
+
+  test("releases the exact retired block prefix after relation cleanup") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      tPhysRegs = 4,
+      uPhysRegs = 4,
+      tuMapQDepthPerStid = 4)
+    simulate(new OooProductionTURename(p)) { dut =>
+      clear(dut)
+      val twoT = Seq(
+        UopShape(destinations = Seq(DestinationKind.T -> 0)),
+        UopShape(destinations = Seq(DestinationKind.T -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 100, twoT)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 100, twoT)
+      publish(dut)
+      retireLocal(dut, DestinationKind.T, sequenceIndex = 0,
+        sequenceGeneration = 0, memberIndex = 0, dealloc = false)
+      retireLocal(dut, DestinationKind.T, sequenceIndex = 1,
+        sequenceGeneration = 0, memberIndex = 1, dealloc = false)
+      dut.io.tMapQUsed(0).expect(2.U)
+
+      val commit = dut.io.blockCommit.bits
+      commit.poke(0.U.asTypeOf(commit))
+      commit.valid.poke(true.B)
+      commit.peId.poke(2.U)
+      commit.stid.poke(0.U)
+      commit.block.valid.poke(true.B)
+      commit.block.bid.valid.poke(true.B)
+      commit.block.bid.value.poke(9.U)
+      commit.block.generation.poke(4.U)
+      dut.io.blockCommit.valid.poke(true.B)
+      dut.io.blockCommit.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.blockCommit.valid.poke(false.B)
+      dut.io.tMapQUsed(0).expect(0.U)
+      dut.io.tPhysicalUsed(0).expect(0.U)
     }
   }
 }
