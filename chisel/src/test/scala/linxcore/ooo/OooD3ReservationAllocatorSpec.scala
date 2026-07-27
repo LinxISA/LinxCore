@@ -191,6 +191,7 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.bits.firstGroup.ridGeneration.poke(1.U)
       dut.io.release.bits.headEpoch.poke(0.U)
       dut.io.release.bits.groupCount.poke(4.U)
+      dut.io.release.ready.expect(false.B)
       dut.io.releaseRejected.valid.expect(true.B)
       dut.clock.step()
       dut.io.usedGroups(0).expect(6.U)
@@ -199,12 +200,14 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.release.bits.firstGroup.ridGeneration.poke(0.U)
       dut.io.release.bits.groupCount.poke(5.U)
+      dut.io.release.ready.expect(false.B)
       dut.io.releaseRejected.valid.expect(true.B)
       dut.clock.step()
       dut.io.usedGroups(0).expect(6.U)
       dut.io.publishedGroups(0).expect(6.U)
 
       dut.io.release.bits.groupCount.poke(4.U)
+      dut.io.release.ready.expect(true.B)
       dut.io.releaseRejected.valid.expect(false.B)
       dut.clock.step()
       dut.io.release.valid.poke(false.B)

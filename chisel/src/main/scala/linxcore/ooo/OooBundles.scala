@@ -278,6 +278,17 @@ class OooS1GroupedPublicationRequest(val p: OooParams = OooParams()) extends Bun
   val bindings = Vec(p.instructionDecodeWidth, new OooS1GroupBinding(p))
 }
 
+/** Side-effect-free O3 publication view presented to later D3/S1 owners.
+  * `request` is the exact grouped ROB publication packet; `parentPcTokens`
+  * attaches compressed PC identity to every architectural parent before the
+  * common publication fire.
+  */
+class OooO3PreparedPublication(val p: OooParams = OooParams()) extends Bundle {
+  val request = new OooS1GroupedPublicationRequest(p)
+  val parentPcTokens = Vec(p.decodedUopWidth,
+    Vec(p.maxArchitecturalParentRefs, new PcBufferToken(p)))
+}
+
 /** Physical grouped-ROB row. A row owns one exact RID generation and a dense
   * member-completion bitmap; slot-only completion is never authoritative.
   */

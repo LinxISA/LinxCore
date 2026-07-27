@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 
 class OooD3ReservationAllocatorIO(val p: OooParams = OooParams()) extends Bundle {
   val in = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
-  val release = Flipped(Valid(new OooRobGroupRelease(p)))
+  val release = Flipped(Decoupled(new OooRobGroupRelease(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val out = Decoupled(new OooD3GroupedReservation(p))
 
@@ -104,16 +104,19 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
       !planIdentityExact || !allGroupKeysExact)
   val releaseStid = io.release.bits.firstGroup.stid
   val releaseInRange = releaseStid < p.stidCount.U
-  val releaseExact = io.release.valid && releaseInRange &&
+  val safeReleaseStid = Mux(releaseInRange, releaseStid, 0.U)
+  val releaseExact = releaseInRange &&
     io.release.bits.firstGroup.valid &&
-    io.release.bits.firstGroup.peId === headPeId(releaseStid) &&
-    io.release.bits.firstGroup.ridSlot === headSlot(releaseStid) &&
-    io.release.bits.firstGroup.ridGeneration === headGeneration(releaseStid) &&
-    io.release.bits.headEpoch === headEpoch(releaseStid) &&
+    io.release.bits.firstGroup.peId === headPeId(safeReleaseStid) &&
+    io.release.bits.firstGroup.ridSlot === headSlot(safeReleaseStid) &&
+    io.release.bits.firstGroup.ridGeneration === headGeneration(safeReleaseStid) &&
+    io.release.bits.headEpoch === headEpoch(safeReleaseStid) &&
     io.release.bits.groupCount.orR &&
     io.release.bits.groupCount <= p.retireGroupWidth.U &&
-    publishedGroups(releaseStid) >= io.release.bits.groupCount
-  val releaseHitsInput = releaseExact && releaseStid === inStid
+    publishedGroups(safeReleaseStid) >= io.release.bits.groupCount
+  io.release.ready := releaseExact
+  val releaseFire = io.release.valid && io.release.ready
+  val releaseHitsInput = releaseFire && releaseStid === inStid
   val releasedForInput = Mux(releaseHitsInput, io.release.bits.groupCount, 0.U)
   val freeAfterRelease =
     p.robGroupsPerStid.U((usedWidth + 1).W) - usedGroups(inStid).pad(usedWidth + 1) +
@@ -136,15 +139,15 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   io.staleRejected.bits.transactionId := io.in.bits.plan.transactionId
   io.staleRejected.bits.plannedTailEpoch := io.in.bits.plan.virtualTailEpoch
   io.staleRejected.bits.liveTailEpoch := liveEpoch
-  io.releaseRejected.valid := io.release.valid && !releaseExact
+  io.releaseRejected.valid := io.release.valid && !io.release.ready
   io.releaseRejected.bits.requested := io.release.bits
-  io.releaseRejected.bits.liveHead.valid := releaseInRange && publishedGroups(releaseStid).orR
-  io.releaseRejected.bits.liveHead.peId := Mux(releaseInRange, headPeId(releaseStid), 0.U)
+  io.releaseRejected.bits.liveHead.valid := releaseInRange && publishedGroups(safeReleaseStid).orR
+  io.releaseRejected.bits.liveHead.peId := Mux(releaseInRange, headPeId(safeReleaseStid), 0.U)
   io.releaseRejected.bits.liveHead.stid := releaseStid
-  io.releaseRejected.bits.liveHead.ridSlot := Mux(releaseInRange, headSlot(releaseStid), 0.U)
+  io.releaseRejected.bits.liveHead.ridSlot := Mux(releaseInRange, headSlot(safeReleaseStid), 0.U)
   io.releaseRejected.bits.liveHead.ridGeneration :=
-    Mux(releaseInRange, headGeneration(releaseStid), 0.U)
-  io.releaseRejected.bits.liveHeadEpoch := Mux(releaseInRange, headEpoch(releaseStid), 0.U)
+    Mux(releaseInRange, headGeneration(safeReleaseStid), 0.U)
+  io.releaseRejected.bits.liveHeadEpoch := Mux(releaseInRange, headEpoch(safeReleaseStid), 0.U)
   io.capacityBlocked := io.in.valid && inRange && !stale && !hasCapacity
 
   val tailSum = liveSlot +& groupCount
@@ -161,7 +164,7 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
 
   for (stid <- 0 until p.stidCount) {
     val cancelClaim = io.cancel(stid) && valid(stid)
-    val releaseHit = releaseExact && releaseStid === stid.U
+    val releaseHit = releaseFire && releaseStid === stid.U
     val reserveHit = reserveFire && inStid === stid.U
     val publishHit = io.out.fire && selected === stid.U
     val releaseCount = Mux(releaseHit, io.release.bits.groupCount, 0.U)

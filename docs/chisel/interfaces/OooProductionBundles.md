@@ -181,8 +181,9 @@ Commit scans only the exact per-STID physical head and captures an older-prefix
 batch bounded by independent `retireGroupWidth`. The batch remains stable under
 backpressure. Only `commit.fire` clears rows, advances the physical head and
 epoch, and supplies the exact `OooRobGroupRelease` token that the D3 allocator
-will accept. BROB/PC commit authorization is not bypassed: the eventual S1
-coordinator may hold `commit.ready` until those owners can retire atomically.
+will accept. BROB/PC commit authorization is not bypassed:
+`OooRobBrobPcCoordinator` holds external `commit.valid` until every owner has
+validated the retained batch, then lets all four owners fire atomically.
 
 ## Production BROB
 
@@ -251,6 +252,24 @@ close owner have committed. Six combinational read ports validate the complete
 token before returning `base + byteOffset`; stale epochs and cross-partition
 tokens return invalid with no data owner mutation.
 
+## O3 ROB/BROB/PC coordinator
+
+`OooRobBrobPcCoordinator` is the terminal O3 owner composition. It retains D3
+reservations, asks BROB and PC for side-effect-free bindings, adds the next
+per-ROB-slot resident generation, and presents the fully bound grouped-ROB
+publication to later RENU/dispatch owners. `preparedValid` is an immutable
+view; `publishPermit` may be asserted only after those later owners can join.
+The single `publishFire` publishes D3, ROB, BROB, and PC state together. A
+malformed owner preparation or blocked grouped ROB produces no partial state.
+
+The grouped ROB is the retained commit source. D3 release, BROB commit, and PC
+commit readiness are exact, side-effect-free checks against that same batch.
+External backpressure leaves the ROB batch and every other owner unchanged.
+Only the terminal external handshake asserts the three internal valids, so
+ROB row removal, D3 capacity release, BROB retirement, and PC retirement occur
+on one common fire. Same-STID publish/commit is serialized when both would
+write the same ring state; a different STID may publish while another commits.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -291,6 +310,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionBrob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
+bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -331,3 +351,7 @@ instructions, offset overflow, predicted-taken close, implicit close ownership,
 three-write admission, malformed uop/group inverse mapping, skipped/duplicate
 ROB-group rejection, four fixed STID partitions, allocation-epoch wrap, stale
 read rejection, and 2/4/6 decode widths.
+The O3 coordinator tests cover retained prepare views, publication backpressure,
+one common publication/commit fire, exact resident-generation binding, PC read
+tokens, malformed-PC zero-mutation rejection, commit retention, different-STID
+commit-plus-publish concurrency, and 2/4/6 decode widths.

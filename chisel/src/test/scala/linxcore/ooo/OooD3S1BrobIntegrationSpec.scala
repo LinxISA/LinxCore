@@ -44,17 +44,19 @@ private class OooD3S1BrobHarness(val p: OooParams) extends Module {
 
   s1.io.completion.valid := false.B
   s1.io.completion.bits := 0.U.asTypeOf(s1.io.completion.bits)
-  brob.io.commit.valid := s1.io.commit.valid
   brob.io.commit.bits := s1.io.commit.bits
-  s1.io.commit.ready := io.commitReady && brob.io.commit.ready
-  d3.io.release.valid := s1.io.commit.fire
   d3.io.release.bits := s1.io.commit.bits.release
+  val allCommitReady = brob.io.commit.ready && d3.io.release.ready
+  io.commitValid := s1.io.commit.valid && allCommitReady
+  s1.io.commit.ready := io.commitReady && allCommitReady
+  val sharedCommitFire = io.commitValid && io.commitReady
+  brob.io.commit.valid := sharedCommitFire
+  d3.io.release.valid := sharedCommitFire
 
   io.d3Used := d3.io.usedGroups(1)
   io.d3Published := d3.io.publishedGroups(1)
   io.s1Occupied := s1.io.occupiedGroups(1)
   io.brobUsed := brob.io.usedBlocks(1)
-  io.commitValid := s1.io.commit.valid
 }
 
 class OooD3S1BrobIntegrationSpec extends AnyFunSuite with ChiselSim {
@@ -116,6 +118,12 @@ class OooD3S1BrobIntegrationSpec extends AnyFunSuite with ChiselSim {
 
       dut.clock.step()
       dut.io.commitValid.expect(true.B)
+      dut.clock.step(2)
+      dut.io.commitValid.expect(true.B)
+      dut.io.d3Used.expect(2.U)
+      dut.io.d3Published.expect(2.U)
+      dut.io.s1Occupied.expect(2.U)
+      dut.io.brobUsed.expect(1.U)
       dut.io.commitReady.poke(true.B)
       dut.clock.step()
       dut.io.commitReady.poke(false.B)

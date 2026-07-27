@@ -32,9 +32,12 @@ private class OooD3S1GroupedRobHarness(val p: OooParams) extends Module {
 
   s1.io.completion.valid := false.B
   s1.io.completion.bits := 0.U.asTypeOf(s1.io.completion.bits)
-  io.commit <> s1.io.commit
-  d3.io.release.valid := s1.io.commit.fire
   d3.io.release.bits := s1.io.commit.bits.release
+  io.commit.valid := s1.io.commit.valid && d3.io.release.ready
+  io.commit.bits := s1.io.commit.bits
+  s1.io.commit.ready := io.commit.ready && d3.io.release.ready
+  val sharedCommitFire = io.commit.valid && io.commit.ready
+  d3.io.release.valid := sharedCommitFire
 
   io.d3Used := d3.io.usedGroups
   io.d3Published := d3.io.publishedGroups
@@ -112,6 +115,11 @@ class OooD3S1GroupedRobIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.bits.release.firstGroup.ridSlot.expect(0.U)
       dut.io.commit.bits.release.headEpoch.expect(0.U)
       dut.io.commit.bits.release.groupCount.expect(2.U)
+      dut.clock.step(2)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.d3Used(2).expect(2.U)
+      dut.io.d3Published(2).expect(2.U)
+      dut.io.s1Occupied(2).expect(2.U)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()
       dut.io.commit.ready.poke(false.B)
