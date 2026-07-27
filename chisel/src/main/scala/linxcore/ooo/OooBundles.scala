@@ -1,6 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
+import linxcore.common.{BoundaryKind, BranchPredictionSidecar, DestinationKind, OperandClass}
 
 object OooUopClass extends ChiselEnum {
   val Alu, Bru, Agu, Std, Fsu, Sys, Cmd, Boundary = Value
@@ -49,10 +50,18 @@ class CanonicalParentKey(val p: OooParams = OooParams()) extends Bundle {
 class OooPredictionRecord(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val predictionTag = UInt(p.predictionTagWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val fetchPacketUid = UInt(p.instructionIdWidth.W)
+  val fetchSeq = UInt(p.instructionIdWidth.W)
   val requestPc = UInt(p.pcWidth.W)
   val taken = Bool()
+  val branchPc = UInt(p.pcWidth.W)
   val target = UInt(p.pcWidth.W)
   val fallthroughPc = UInt(p.pcWidth.W)
+  val kind = BoundaryKind()
+  val provider = UInt(BranchPredictionSidecar.ProviderWidth.W)
+  val stage = UInt(BranchPredictionSidecar.StageWidth.W)
+  val confidence = UInt(2.W)
   val checkpointId = UInt(p.checkpointWidth.W)
   val epoch = UInt(p.epochWidth.W)
 }
@@ -65,6 +74,75 @@ class ArchitecturalParentRef(val p: OooParams = OooParams()) extends Bundle {
   val prediction = new OooPredictionRecord(p)
   val traceOwner = Bool()
   val preciseExceptionOwner = Bool()
+}
+
+/** One fixed-64-bit IFU or CTU parent presented to production OOO D1. */
+class OooRawInstruction(val p: OooParams = OooParams()) extends Bundle {
+  val parent = new ArchitecturalParentRef(p)
+  val fetchFaultValid = Bool()
+  val fetchFaultCause = UInt(p.trapCauseWidth.W)
+}
+
+/** Dense, same-STID architectural instruction prefix accepted by D1. */
+class OooRawInstructionGroup(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val validMask = UInt(p.instructionDecodeWidth.W)
+  val entries = Vec(p.instructionDecodeWidth, new OooRawInstruction(p))
+  val endOfStream = Bool()
+}
+
+class OooDecodedOperand(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val operandClass = OperandClass()
+  val atag = UInt(p.archRegWidth.W)
+  val relativeIndex = UInt(p.archRegWidth.W)
+}
+
+class OooDecodedDestination(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val atag = UInt(p.archRegWidth.W)
+  val relativeIndex = UInt(p.archRegWidth.W)
+}
+
+/** Canonical logical uop before D2 grouping and D3 rename.
+  *
+  * `plannedChildCount` includes D3/S1 late-split children.  The row itself is
+  * still one logical uop until the owning split transaction reserves every
+  * child atomically.
+  */
+class OooDecodedUop(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val identity = new CanonicalUopIdentity(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val recipe = new OooOpcodeRecipeMeta(p)
+  val plannedChildCount = UInt(p.recipeUopCountWidth.W)
+  val sources = Vec(p.maxSourceOperands, new OooDecodedOperand(p))
+  val destinations = Vec(p.maxDestinationOperands, new OooDecodedDestination(p))
+  val immediateValid = Bool()
+  val immediate = UInt(p.pcWidth.W)
+  val boundaryTargetValid = Bool()
+  val boundaryTarget = UInt(p.pcWidth.W)
+  val preciseTrap = Bool()
+  val trapCause = UInt(p.trapCauseWidth.W)
+}
+
+class OooD1DecodedPacket(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val endOfStream = Bool()
+  val acceptedInstructionMask = UInt(p.instructionDecodeWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val uops = Vec(p.decodedUopWidth, new OooDecodedUop(p))
+  val ctuParentMask = UInt(p.instructionDecodeWidth.W)
+  val complexParentMask = UInt(p.instructionDecodeWidth.W)
+  val illegalParentMask = UInt(p.instructionDecodeWidth.W)
+  val fusedStartMask = UInt(p.instructionDecodeWidth.W)
+  val fusedStopMask = UInt(p.instructionDecodeWidth.W)
+  val demand = new InstructionDemand(p)
 }
 
 class CanonicalUopKey(val p: OooParams = OooParams()) extends Bundle {
@@ -96,15 +174,15 @@ class InstructionDemand(val p: OooParams = OooParams()) extends Bundle {
   val decodedUops = UInt(p.decodedUopCountWidth.W)
   val robGroups = UInt(p.robGroupCountWidth.W)
   val brobSlots = UInt(p.robGroupCountWidth.W)
-  val pcBaseWrites = UInt(p.countWidth(p.pcWritePorts).W)
-  val pDestinations = UInt(p.renameCountWidth.W)
-  val tAllocations = UInt(p.renameCountWidth.W)
-  val uAllocations = UInt(p.renameCountWidth.W)
-  val mapQRows = UInt(p.renameCountWidth.W)
-  val dispatchWritesByClass = Vec(p.iqClassCount, UInt(p.dispatchCountWidth.W))
-  val dispatchWritesByBank = Vec(p.iqBankCount, UInt(p.dispatchCountWidth.W))
-  val loadIds = UInt(p.decodedUopCountWidth.W)
-  val storeIds = UInt(p.decodedUopCountWidth.W)
+  val pcBaseWrites = UInt(p.instructionCountWidth.W)
+  val pDestinations = UInt(p.destinationDemandWidth.W)
+  val tAllocations = UInt(p.destinationDemandWidth.W)
+  val uAllocations = UInt(p.destinationDemandWidth.W)
+  val mapQRows = UInt(p.destinationDemandWidth.W)
+  val dispatchWritesByClass = Vec(p.iqClassCount, UInt(p.dispatchDemandWidth.W))
+  val dispatchWritesByBank = Vec(p.iqBankCount, UInt(p.dispatchDemandWidth.W))
+  val loadIds = UInt(p.memoryDemandWidth.W)
+  val storeIds = UInt(p.memoryDemandWidth.W)
 }
 
 class PcBufferToken(val p: OooParams = OooParams()) extends Bundle {

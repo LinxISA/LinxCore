@@ -28,6 +28,9 @@ class OooParamsSpec extends AnyFunSuite {
       assert(p.instructionDecodeWidth == width)
       assert(p.decodedUopWidth >= width)
       assert(p.maxInstPerRobGroup == 4)
+      assert((BigInt(1) << p.destinationDemandWidth) - 1 >= width * p.maxDestinationOperands)
+      assert((BigInt(1) << p.dispatchDemandWidth) - 1 >= width * p.maxDispatchWritesPerInstruction)
+      assert((BigInt(1) << p.memoryDemandWidth) - 1 >= width * p.maxMemoryRequestsPerInstruction)
     }
   }
 

@@ -17,6 +17,7 @@ final case class OooParams(
     retireGroupWidth: Int = 4,
     maxInstPerRobGroup: Int = 4,
     maxOrdinaryUopsPerGroup: Int = 12,
+    maxRecipeUops: Int = 32,
     robGroupsPerStid: Int = 64,
     brobEntriesPerStid: Int = 256,
     pArchRegs: Int = 24,
@@ -33,12 +34,17 @@ final case class OooParams(
     iqEntriesPerBank: Int = 32,
     iqWritePortsPerBank: Int = 3,
     maxArchitecturalParentRefs: Int = 3,
+    maxSourceOperands: Int = 4,
+    maxDestinationOperands: Int = 2,
+    maxDispatchWritesPerInstruction: Int = 2,
+    maxMemoryRequestsPerInstruction: Int = 2,
     peIdWidth: Int = 8,
     pcWidth: Int = 64,
     instructionWidth: Int = 64,
     instructionLengthWidth: Int = 4,
     opcodeWidth: Int = 12,
     archRegWidth: Int = 6,
+    trapCauseWidth: Int = 32,
     localTagWidth: Int = 8,
     lsidWidth: Int = 32,
     transactionIdWidth: Int = 64,
@@ -65,6 +71,8 @@ final case class OooParams(
     "ROB group instruction cap must be positive")
   require(maxOrdinaryUopsPerGroup >= maxInstPerRobGroup,
     "ROB group member cap must cover its architectural parents")
+  require(maxRecipeUops >= maxOrdinaryUopsPerGroup,
+    "recipe count must cover ordinary and multi-group CTU expansion")
   require(isPowerOfTwo(robGroupsPerStid),
     "ROB groups per STID must be a power of two")
   require(isPowerOfTwo(brobEntriesPerStid),
@@ -83,18 +91,23 @@ final case class OooParams(
   require(isPowerOfTwo(pcBufferEntries), "PC buffer entries must be a power of two")
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
-  require(iqClassCount > 0 && isPowerOfTwo(iqBankCount),
-    "IQ class count must be positive and bank count must be a power of two")
+  require(iqClassCount == 8 && isPowerOfTwo(iqBankCount),
+    "production IQ class vector has eight classes and bank count must be a power of two")
   require(isPowerOfTwo(iqEntriesPerBank),
     "IQ entries per bank must be a power of two")
   require(iqWritePortsPerBank > 0, "every IQ bank needs a write port")
   require(maxArchitecturalParentRefs >= 3,
     "BSTART + carrier + BSTOP fusion needs three parent references")
+  require(maxSourceOperands >= 4 && maxDestinationOperands >= 2,
+    "pair stores need four sources and pair loads need two destinations")
+  require(maxDispatchWritesPerInstruction >= 2 && maxMemoryRequestsPerInstruction >= 2,
+    "pair/store recipes need two dispatch writes and two memory requests")
   require(pcWidth == 64 && instructionWidth == 64,
     "production OOO consumes 64-bit PC and fixed 64-bit instruction containers")
   require(instructionLengthWidth >= 4, "instruction length must encode 2/4/6/8 bytes")
   require(opcodeWidth == 12, "generated Linx opcode IDs are 12 bits")
   require(archRegWidth == 6, "architectural register IDs use the reg6 namespace")
+  require(trapCauseWidth >= 32, "precise OOO trap causes must preserve 32 bits")
   require(lsidWidth >= 32, "full LSID must preserve at least 32 bits")
 
   def countWidth(maximum: Int): Int = math.max(1, log2Ceil(maximum + 1))
@@ -115,5 +128,14 @@ final case class OooParams(
   def robGroupCountWidth: Int = countWidth(instructionDecodeWidth)
   def robMemberIndexWidth: Int = math.max(1, log2Ceil(maxOrdinaryUopsPerGroup))
   def robMemberCountWidth: Int = countWidth(maxOrdinaryUopsPerGroup)
+  def recipeUopCountWidth: Int = countWidth(maxRecipeUops)
   def architecturalParentCountWidth: Int = countWidth(maxArchitecturalParentRefs)
+  def sourceCountWidth: Int = countWidth(maxSourceOperands)
+  def destinationCountWidth: Int = countWidth(maxDestinationOperands)
+  def destinationDemandWidth: Int =
+    countWidth(instructionDecodeWidth * maxDestinationOperands)
+  def dispatchDemandWidth: Int =
+    countWidth(instructionDecodeWidth * maxDispatchWritesPerInstruction)
+  def memoryDemandWidth: Int =
+    countWidth(instructionDecodeWidth * maxMemoryRequestsPerInstruction)
 }

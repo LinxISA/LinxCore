@@ -81,10 +81,10 @@ promotion.
 
 | Packet | Status | Evidence | Remaining exit work |
 |---|---|---|---|
-| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages updated | generated opcode recipe/fusion/fast-resolve audit table and exact S1/S2/S3 integration contract |
+| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages and generated 689-record opcode recipe audit updated | exact S1/S2/S3 integration contract |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
-| O2 decode/expand/fuse | Not started | compatibility D1 remains semantic oracle | raw IFU/CTU ingress, generated recipes, complex break, boundary fusion |
+| O2 decode/expand/fuse | In progress | schema-v2 generated recipes; parameterized canonical D1; exact P/T/U and pair operands; precise traps; same/cross-cycle three-parent boundary fusion; 2/4/6-width UT | IFU/CTU ingress adapter, retained ordinary complex-break owner (current catalog has zero dispatch-owned complex forms), integration/coverage closure |
 | O3–O9 | Not started | current reduced owners remain compatibility evidence | grouped ROB/BROB through benchmark promotion |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -343,6 +343,13 @@ mayTrap / mayRedirect / nonspeculative
 The generated table, not hand-written switch statements in multiple modules,
 is the classification authority.
 
+The checked-in schema-v2 catalog currently contains 689 encoded records and
+658 unique opcode IDs.  The Chisel decode table has 687 encoded rules because
+it excludes internal-only rows and adds the architectural 16-bit `C.SETRET`
+alias.  A deterministic generator gate compares both the Scala table and the
+human-readable audit.  Every generated rule is exercised through the hardware
+priority decoder, not only inspected as Scala data.
+
 ### 6.2 Break locations
 
 Expansion follows the ARM-style division of labor:
@@ -392,6 +399,14 @@ The O0 catalog audit must turn these policy rows into exact per-opcode recipes:
 | `START_CALL_32/48` | one combined control/value child with start metadata and RA result | D1 decode, typed S1 resolve or BRU fallback |
 | `FENTRY/FEXIT/FRET.*` | ordered ALU/LOAD/STORE/SETC_TGT child stream | external CTU |
 | `ERCOV/ESAVE/MCOPY/MSET` | unspecified | fail closed until a normative expansion recipe exists |
+
+For pair-memory encodings, QEMU decodetree field positions are normative for
+D1 operand extraction.  Pair loads carry `RegDst0[27:23]`, `RegDst1[15:11]`,
+and either one immediate-form base or base-plus-index sources.  Immediate
+pair stores (`*IP`) carry three register sources (`SrcD`, `SrcD1`, base) plus
+an immediate; register-indexed `*P` forms carry four register sources
+(`SrcD[47:43]`, `SrcD1`, base, index).  Pair-load destinations must both be P
+GPRs or D1 emits one precise trap member.
 
 The exact ARM-like recipes are selected because Linx opcode shapes are close to
 their ARM counterparts, but Linx source/destination classes, BID effects, full
@@ -538,6 +553,19 @@ D1 backpressure includes D2 per-STID staging, expansion FIFO/lease capacity,
 and static maximums such as decoded-uop lanes, destinations, boundary count,
 late-split count, and per-class dispatch writes. It accepts only a contiguous
 instruction prefix; a suffix is retained unchanged.
+
+Production D1 is split into a combinational canonical decoder and a retained
+per-STID fusion-history owner.  The history holds the last fusion-eligible
+canonical uop until its architectural successor or an explicit end-of-stream
+is known.  It never patches a published member.  Matching recovery cancels
+only the selected STID.  A terminal full-width packet that cannot represent
+the retained parent plus all new parents drains the retained marker/carrier as
+a legal standalone fallback before retrying the unchanged packet.
+
+Demand counter widths encode the maximum input demand, not the corresponding
+physical capacity.  In particular a six-instruction window can represent 12
+pair destinations, 12 dispatch writes, and 12 memory requests so D2 can detect
+and stall over-capacity prefixes without truncated counters.
 
 ## 10. D2 stage: virtual RID/group and resource preview
 

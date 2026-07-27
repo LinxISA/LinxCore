@@ -24,7 +24,7 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The active backend handoff is production OOO packet O0/O1. Normative documents
+The active backend handoff is production OOO packet O2. Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
 instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,
@@ -35,14 +35,24 @@ identity. `LinxCoreOooShell` proves private per-STID D2/D3/S1 retained rows,
 one shared grant per stage, stable backpressure, and different-STID stage
 concurrency.
 
-This is an executable shell, not production decode/ROB/rename/dispatch closure.
-The next packet is O2: raw fixed-64-bit IFU/CTU ingress, generated instruction
-expansion metadata, 1-to-N canonical uops, and forward-BSTART/backward-BSTOP
-fusion with up to three architectural parent references. The existing
-four-wide `D1InstructionDecodeStage` remains a compatibility decode oracle and
-must not be widened in place. Do not reconnect the benchmark top until grouped
-ROB/BROB, P/T/U RENU, S1 speculative slots, exact recovery, and external CTU
-all have focused UT/IT evidence.
+The first O2 slice is implemented.  The schema-v2 opcode catalog generates a
+689-record recipe audit and a 687-rule hardware priority decoder.  Parameterized
+`OooD1Decode` normalizes 16/32/48/64-bit instructions into canonical P/T/U
+uops, preserves two pair-load destinations and all four register-indexed
+pair-store sources, diverts CTU parents, and converts illegal/fetch-fault rows
+into one precise trap. `OooD1FusionHistory` retains one eligible tail per STID,
+supports same/cross-cycle forward-BSTART and backward-BSTOP fusion with up to
+three ordered parent references, and cancels only the recovered STID.
+
+O2 remains active until the fixed-width IFU/CTU ingress adapter and retained
+ordinary complex-break owner are closed; the current catalog deliberately has
+zero dispatch-owned complex forms, with CTU forms diverted and unresolved
+macro/atomic forms failing closed.  After those gates, move to O3 grouped
+ROB/BROB/PC publication.  The existing four-wide `D1InstructionDecodeStage`
+remains a compatibility operand/immediate oracle and must not become the
+production OOO packet contract. Do not reconnect the benchmark top until
+grouped ROB/BROB, P/T/U RENU, S1 speculative slots, exact recovery, and external
+CTU all have focused UT/IT evidence.
 
 The current IFU handoff is the production I-SIDE/B-SIDE composition. Both
 engines implement real, independently backpressured F0-F4 stages. I-F1 launches

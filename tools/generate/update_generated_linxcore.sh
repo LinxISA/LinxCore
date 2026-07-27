@@ -56,6 +56,10 @@ python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --linxcore-common "${ROOT_DIR}/src/common" \
   --qemu-linx-dir "${QEMU_LINX_DIR}"
+python3 "${ROOT_DIR}/tools/chisel/gen_ooo_recipe_table.py" \
+  --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
+  --scala-out "${ROOT_DIR}/chisel/src/main/scala/linxcore/ooo/OooOpcodeRecipeTable.scala" \
+  --audit-out "${ROOT_DIR}/docs/chisel/ooo-opcode-recipe-audit.md"
 python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" "${parity_args[@]}"
 
 if [[ -f "${PYC_ROOT}/scripts/lib.sh" ]]; then

@@ -304,6 +304,314 @@ def block_kind_for_mnemonic(mnemonic: str) -> str:
     return "NONE"
 
 
+OOO_PAIR_LOAD_SYMBOLS = {
+    "OP_HL_LBP", "OP_HL_LHP", "OP_HL_LWP", "OP_HL_LDP",
+    "OP_HL_LBUP", "OP_HL_LHUP", "OP_HL_LWUP", "OP_HL_LBIP",
+    "OP_HL_LHIP", "OP_HL_LWIP", "OP_HL_LDIP", "OP_HL_LBUIP",
+    "OP_HL_LHUIP", "OP_HL_LWUIP", "OP_HL_LHIP_U", "OP_HL_LWIP_U",
+    "OP_HL_LDIP_U", "OP_HL_LHUIP_U", "OP_HL_LWUIP_U",
+}
+
+OOO_PAIR_STORE_SYMBOLS = {
+    "OP_HL_SBP", "OP_HL_SHP", "OP_HL_SWP", "OP_HL_SDP",
+    "OP_HL_SHP_U", "OP_HL_SWP_U", "OP_HL_SDP_U", "OP_HL_SBIP",
+    "OP_HL_SHIP", "OP_HL_SWIP", "OP_HL_SDIP", "OP_HL_SHIP_U",
+    "OP_HL_SWIP_U", "OP_HL_SDIP_U",
+}
+
+OOO_CTU_SYMBOLS = {"OP_FENTRY", "OP_FEXIT", "OP_FRET_RA", "OP_FRET_STK"}
+OOO_UNRESOLVED_TEMPLATE_SYMBOLS = {"OP_ERCOV", "OP_ESAVE", "OP_MCOPY", "OP_MSET"}
+OOO_START_CALL_SYMBOLS = {"OP_START_CALL_32", "OP_START_CALL_48"}
+OOO_SETRET_SYMBOLS = {"OP_SETRET", "OP_C_SETRET", "OP_HL_SETRET"}
+OOO_ATOMIC_PREFIXES = ("OP_LR_", "OP_SC_", "OP_CAS", "OP_HL_CAS", "OP_AMO")
+OOO_ENGINE_BOUNDARY_SYMBOLS = {
+    "OP_BSTART_CUBE", "OP_BSTART_FIXP", "OP_BSTART_MPAR", "OP_BSTART_MSEQ",
+    "OP_BSTART_TEPL", "OP_BSTART_TMA", "OP_BSTART_VPAR", "OP_BSTART_VSEQ",
+    "OP_BSTART_SYS", "OP_HL_BSTART_SYS", "OP_L_BSTART_SYS",
+    "OP_C_BSTART_MPAR", "OP_C_BSTART_MSEQ", "OP_C_BSTART_SYS",
+    "OP_C_BSTART_VPAR", "OP_C_BSTART_VSEQ",
+}
+OOO_DISPATCH_CLASSES = ("ALU", "BRU", "AGU", "STD", "FSU", "SYS", "CMD", "BOUNDARY")
+
+
+def _is_ooo_atomic_symbol(symbol: str) -> bool:
+    if symbol.startswith(OOO_ATOMIC_PREFIXES) or symbol == "OP_DMA":
+        return True
+    if symbol.startswith("OP_SWAP"):
+        return True
+    return bool(re.match(r"^OP_(?:LW|LD|SW|SD)_(?:ADD|AND|OR|XOR|SMAX|SMIN|UMAX|UMIN)$", symbol))
+
+
+def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
+    """Derive the production OOO recipe contract for one catalog form.
+
+    The contract deliberately fails closed where the ISA/model evidence does
+    not yet define an exact child stream.  This metadata is consumed by the
+    Chisel OOO generator; it is not an execution-semantics substitute.
+    """
+    symbol = str(record["symbol"])
+    major = str(record["major_cat"])
+    minor = str(record["minor_cat"])
+    block_kind = str(record["block_kind"])
+    source_file = str(record["source_file"])
+    is_internal = source_file == "internal"
+
+    metadata: Dict[str, object] = {
+        "disposition": "ILLEGAL",
+        "recipe_kind": "ILLEGAL",
+        "uop_count_min": 0,
+        "uop_count_max": 0,
+        "complex_break": False,
+        "late_split_kind": "NONE",
+        "fusion_head_class": "NONE",
+        "fusion_tail_class": "NONE",
+        "fast_resolve_class": "NONE",
+        "implicit_source_mask": 0,
+        "implicit_destination": "NONE",
+        "side_effect_owner": "ILLEGAL",
+        "requires_target_validation": False,
+        "may_trap": False,
+        "may_trap_late": False,
+        "may_redirect": False,
+        "nonspeculative": False,
+        "dispatch_class": "NONE",
+        "dispatch_writes": 0,
+        "dispatch_demand": {name: 0 for name in OOO_DISPATCH_CLASSES},
+        "memory_request_count": 0,
+        "p_source_count": int(record["rs1_kind"] == "REG") + int(record["rs2_kind"] == "REG"),
+        "p_destination_count": int(record["rd_kind"] == "REG"),
+        "t_allocation_count": 0,
+        "u_allocation_count": 0,
+        "reason": "unclassified opcode must trap before dispatch",
+    }
+
+    def dispatch(
+        recipe: str,
+        dispatch_class: str,
+        owner: str,
+        *,
+        children: int = 1,
+        demand: Dict[str, int] | None = None,
+    ) -> None:
+        dispatch_demand = {name: 0 for name in OOO_DISPATCH_CLASSES}
+        if demand is None:
+            dispatch_demand[dispatch_class] = children
+        else:
+            dispatch_demand.update(demand)
+        metadata.update({
+            "disposition": "DISPATCH",
+            "recipe_kind": recipe,
+            "uop_count_min": children,
+            "uop_count_max": children,
+            "side_effect_owner": owner,
+            "dispatch_class": dispatch_class,
+            "dispatch_writes": children,
+            "dispatch_demand": dispatch_demand,
+            "reason": "generated dispatch recipe",
+        })
+
+    def fast(recipe: str, fast_class: str, owner: str) -> None:
+        metadata.update({
+            "disposition": "FAST_RESOLVE",
+            "recipe_kind": recipe,
+            "uop_count_min": 1,
+            "uop_count_max": 1,
+            "fast_resolve_class": fast_class,
+            "side_effect_owner": owner,
+            "reason": "generated ordered fast-resolve recipe",
+        })
+
+    if symbol == "OP_INVALID" or (is_internal and symbol not in {"OP_C_SETRET", "OP_C_BSTART_STD"}):
+        metadata["reason"] = "internal or invalid opcode"
+        return metadata
+
+    if symbol in OOO_CTU_SYMBOLS:
+        is_return = symbol in {"OP_FRET_RA", "OP_FRET_STK"}
+        metadata.update({
+            "disposition": "CTU",
+            "recipe_kind": "CTU_TEMPLATE",
+            "uop_count_min": 3 if is_return else 2,
+            "uop_count_max": 24 if is_return else 23,
+            "complex_break": True,
+            "side_effect_owner": "CTU",
+            "may_trap": True,
+            "may_trap_late": True,
+            "reason": "external CTU owns the canonical child stream",
+        })
+        return metadata
+
+    if symbol in OOO_UNRESOLVED_TEMPLATE_SYMBOLS:
+        metadata.update({
+            "complex_break": True,
+            "may_trap": True,
+            "reason": "template child recipe is not yet architecturally frozen",
+        })
+        return metadata
+
+    if _is_ooo_atomic_symbol(symbol):
+        metadata.update({
+            "recipe_kind": "ATOMIC_UNRESOLVED",
+            "may_trap": True,
+            "may_trap_late": True,
+            "nonspeculative": True,
+            "side_effect_owner": "LSU",
+            "reason": "atomic child and terminal-result ownership must be explicit",
+        })
+        return metadata
+
+    if symbol in OOO_PAIR_LOAD_SYMBOLS:
+        dispatch("PAIR_LOAD", "AGU", "LSU")
+        metadata.update({
+            "uop_count_min": 1,
+            "uop_count_max": 1,
+            "may_trap": True,
+            "may_trap_late": True,
+            "memory_request_count": 2,
+            "p_destination_count": 2,
+            "reason": "one LDA_PAIR owner publishes two atomic LSU results",
+        })
+        return metadata
+
+    if symbol in OOO_PAIR_STORE_SYMBOLS:
+        dispatch(
+            "PAIR_STORE",
+            "STD",
+            "LSU",
+            children=2,
+            demand={"AGU": 1, "STD": 1},
+        )
+        metadata.update({
+            "late_split_kind": "PAIR_STORE_ADDRESS_DATA",
+            "may_trap": True,
+            "may_trap_late": True,
+            "nonspeculative": True,
+            "memory_request_count": 2,
+            # The IP forms carry an immediate and therefore use data0, data1,
+            # and base.  The register-indexed P forms add SrcR as a fourth
+            # source; QEMU insn48.decode is the encoding authority here.
+            "p_source_count": 3 if "IP" in symbol else 4,
+            "reason": "atomic STA_PAIR plus STD_PAIR publication with two LSU stores",
+        })
+        return metadata
+
+    if symbol in OOO_START_CALL_SYMBOLS:
+        fast("START_CALL", "CONTROL_VALUE_PRODUCER", "BCTRL")
+        metadata.update({
+            "implicit_destination": "RA",
+            "p_destination_count": 1,
+            "requires_target_validation": True,
+            "may_redirect": True,
+        })
+        return metadata
+
+    if symbol in OOO_SETRET_SYMBOLS:
+        fast("SETRET", "IMMEDIATE_PRODUCER", "IEX")
+        metadata.update({
+            "implicit_destination": "RA",
+            "p_destination_count": 1,
+            "may_trap": True,
+            "reason": "IQ-bypass RA producer with CALL/ICALL sequence validation",
+        })
+        return metadata
+
+    if symbol in OOO_ENGINE_BOUNDARY_SYMBOLS:
+        dispatch("ENGINE_CMD", "CMD", "BCTRL")
+        metadata.update({
+            "may_trap": True,
+            "may_redirect": True,
+            "nonspeculative": True,
+            "reason": "engine header requires a command child plus BROB metadata",
+        })
+        return metadata
+
+    if block_kind != "NONE" or symbol in {"OP_BSTOP", "OP_C_BSTART_STD"}:
+        metadata.update({
+            "disposition": "FAST_RESOLVE",
+            "recipe_kind": "BOUNDARY",
+            "uop_count_min": 0,
+            "uop_count_max": 1,
+            "fusion_head_class": "START_MARKER" if block_kind != "STOP" else "NONE",
+            "fusion_tail_class": "STOP_MARKER" if block_kind == "STOP" or symbol == "OP_BSTOP" else "NONE",
+            "fast_resolve_class": "BOUNDARY_METADATA",
+            "side_effect_owner": "BCTRL",
+            "requires_target_validation": block_kind in {"CALL", "COND", "DIRECT", "RET"},
+            "may_trap": True,
+            "may_redirect": True,
+            "nonspeculative": True,
+            "reason": "pure boundary may fuse or publish one ordered metadata member",
+        })
+        return metadata
+
+    if symbol == "OP_EBREAK":
+        fast("PRECISE_TRAP", "PRECISE_TRAP_RECORD", "COMMIT")
+        metadata.update({"may_trap": True, "nonspeculative": True})
+        return metadata
+
+    if major == "LOAD":
+        dispatch("SCALAR_LOAD", "AGU", "LSU")
+        metadata.update({"may_trap": True, "may_trap_late": True, "memory_request_count": 1})
+        return metadata
+
+    if major == "STORE":
+        dispatch(
+            "SCALAR_STORE",
+            "STD",
+            "LSU",
+            children=2,
+            demand={"AGU": 1, "STD": 1},
+        )
+        metadata.update({
+            "late_split_kind": "STORE_ADDRESS_DATA",
+            "may_trap": True,
+            "may_trap_late": True,
+            "memory_request_count": 1,
+        })
+        return metadata
+
+    if major == "BRU_SETC_CMP":
+        dispatch("SINGLE", "BRU", "BCTRL")
+        metadata["may_redirect"] = symbol.startswith(("OP_B_", "OP_J"))
+        return metadata
+
+    if major in {"ALU_INT", "COMPRESSED", "HL_PCR"}:
+        dispatch("SINGLE", "ALU", "IEX")
+        return metadata
+
+    if major == "VECTOR":
+        dispatch("SINGLE", "FSU", "IEX")
+        return metadata
+
+    if major == "FP_SYS" and minor == "fp":
+        dispatch("SINGLE", "FSU", "IEX")
+        return metadata
+
+    if major == "FP_SYS" and minor == "sys":
+        dispatch("SINGLE", "SYS", "COMMIT")
+        metadata.update({"may_trap": True, "nonspeculative": True})
+        return metadata
+
+    if major in {"BLOCK_ARGS_DESC", "CMD_PIPE"}:
+        dispatch("SINGLE", "CMD", "BCTRL")
+        return metadata
+
+    if major == "MISC":
+        if symbol.startswith(("OP_F", "OP_SCVTF", "OP_UCVTF")):
+            dispatch("SINGLE", "FSU", "IEX")
+        elif symbol.startswith(("OP_BC_", "OP_DC_", "OP_IC_", "OP_TLB_", "OP_FENCE_", "OP_LSR")) or symbol == "OP_ASSERT":
+            dispatch("SINGLE", "SYS", "COMMIT")
+            metadata.update({"may_trap": True, "nonspeculative": True})
+        elif symbol in {"OP_J", "OP_JR"}:
+            dispatch("SINGLE", "BRU", "BCTRL")
+            metadata["may_redirect"] = True
+        elif symbol in {"OP_MADD", "OP_MADDW", "OP_MAX", "OP_MAXU", "OP_MIN", "OP_MINU", "OP_REV", "OP_BSE", "OP_BWE", "OP_BWI", "OP_BWT"}:
+            dispatch("SINGLE", "ALU", "IEX")
+        elif symbol in {"OP_PRF", "OP_PRFI_U"}:
+            dispatch("SINGLE", "AGU", "LSU")
+        return metadata
+
+    return metadata
+
+
 def _camel_to_decode_name(name: str) -> str:
     return name.lower().replace(".", "_")
 
@@ -463,9 +771,10 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
 
     for r in records:
         r["op_id"] = sym_to_id[r["symbol"]]
+        r["ooo"] = derive_ooo_metadata(r)
 
     return {
-        "version": 1,
+        "version": 2,
         "category_order": CATEGORY_ORDER,
         "records": records,
     }
