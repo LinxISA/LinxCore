@@ -23,6 +23,7 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val pcRead = Output(Vec(p.pcReadPorts, UInt(p.pcWidth.W)))
 
   val d3StaleRejected = Valid(new OooD3StalePlanReject(p))
+  val d3PlanStale = Output(Bool())
   val d3ReleaseRejected = Valid(new OooD3ReleaseReject(p))
   val robPublicationRejected = Valid(new OooS1PublicationReject(p))
   val completionRejected = Valid(new OooRobMemberCompletionReject(p))
@@ -148,6 +149,7 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   io.pcRead := pc.io.readPc
 
   io.d3StaleRejected := d3.io.staleRejected
+  io.d3PlanStale := d3.io.planStale
   io.d3ReleaseRejected := d3.io.releaseRejected
   io.robPublicationRejected := rob.io.publicationRejected
   io.completionRejected := rob.io.completionRejected

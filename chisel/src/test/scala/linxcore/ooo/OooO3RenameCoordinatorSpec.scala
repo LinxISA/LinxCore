@@ -122,6 +122,33 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  private def pokeLocalRenameChain(
+      dut: OooO3RenameCoordinator,
+      tailEpoch: Int = 0,
+      stid: Int = 0,
+      transactionId: Int = 0,
+      firstRid: Int = 0): Unit = {
+    pokeOneDestination(dut, tailEpoch = tailEpoch, uopCount = 2,
+      stid = stid, transactionId = transactionId, firstRid = firstRid)
+    val transaction = dut.io.reserve.bits
+    transaction.plan.demand.pDestinations.poke(0.U)
+    transaction.plan.demand.mapQRows.poke(0.U)
+    transaction.plan.demand.tAllocations.poke(1.U)
+    transaction.plan.demand.uAllocations.poke(1.U)
+    transaction.groups(0).pMapQRows.poke(0.U)
+
+    val producer = transaction.decoded.uops(0)
+    producer.sources(0).valid.poke(false.B)
+    producer.destinations(0).kind.poke(DestinationKind.T)
+    producer.destinations(0).relativeIndex.poke(0.U)
+
+    val consumer = transaction.decoded.uops(1)
+    consumer.sources(0).operandClass.poke(OperandClass.T)
+    consumer.sources(0).relativeIndex.poke(0.U)
+    consumer.destinations(0).kind.poke(DestinationKind.U)
+    consumer.destinations(0).relativeIndex.poke(0.U)
+  }
+
   test("joins D3 PTag ROB BROB PC SMAP and MapQ publication on one fire") {
     val p = OooParams(
       instructionDecodeWidth = 2,
@@ -139,6 +166,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
 
+      dut.io.tuPublicationRejected.valid.expect(false.B)
+      dut.io.tuPrepared.valid.expect(true.B)
+      dut.io.prepared.valid.expect(true.B)
       dut.io.preparedValid.expect(true.B)
       dut.io.prepared.uops(0).sources(0).pMapping.ptag.expect(1.U)
       dut.io.prepared.uops(0).destinations(0)
@@ -208,7 +238,51 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("consumes a stale D2 plan without orphaning a PTag lease") {
+  test("publishes T and U sequential rename on the same O3 terminal fire") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      robGroupsPerStid = 8,
+      brobEntriesPerStid = 8,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 4,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8)
+    simulate(new OooO3RenameCoordinator(p)) { dut =>
+      clear(dut)
+      dut.clock.step()
+      pokeLocalRenameChain(dut, stid = 1, transactionId = 0)
+      dut.io.reserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.reserve.valid.poke(false.B)
+
+      dut.io.tuPublicationRejected.valid.expect(false.B)
+      dut.io.tuPrepared.valid.expect(true.B)
+      dut.io.prepared.valid.expect(true.B)
+      dut.io.preparedValid.expect(true.B)
+      dut.io.tuPrepared.uops(1).sources(0).valid.expect(true.B)
+      dut.io.tuPrepared.uops(1).sources(0).physicalTag.expect(0.U)
+      dut.io.tuPrepared.uops(0).destinations(0).physicalTag.expect(0.U)
+      dut.io.tuPrepared.uops(1).destinations(0).physicalTag.expect(0.U)
+      dut.io.tuPrepared.rows(0).member.memberIndex.expect(0.U)
+      dut.io.tuPrepared.rows(2).member.memberIndex.expect(1.U)
+      dut.io.tMapQUsed(1).expect(0.U)
+      dut.io.uMapQUsed(1).expect(0.U)
+
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      dut.io.tMapQUsed(1).expect(1.U)
+      dut.io.uMapQUsed(1).expect(1.U)
+      dut.io.tMapQUsed(0).expect(0.U)
+      dut.io.robOccupiedGroups(1).expect(1.U)
+    }
+  }
+
+  test("consumes stale T/U-underflow plans without orphaning rename leases") {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
@@ -221,6 +295,11 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.clock.step()
       pokeOneDestination(dut, tailEpoch = 1)
+      dut.io.reserve.bits.decoded.uops(0).sources(0)
+        .operandClass.poke(OperandClass.T)
+      dut.io.reserve.bits.decoded.uops(0).sources(0)
+        .relativeIndex.poke(0.U)
+      dut.io.tuReserveRejected.valid.expect(true.B)
       dut.io.reserve.ready.expect(true.B)
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
@@ -228,7 +307,13 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.ptagProvisionalCount.expect(0.U)
       dut.io.ptagPublishedCount.expect(0.U)
       dut.io.mapQUsed(0).expect(0.U)
+      dut.io.tMapQUsed(0).expect(0.U)
+      dut.io.uMapQUsed(0).expect(0.U)
       dut.io.robOccupiedGroups(0).expect(0.U)
+
+      // Stale consumption changes no D3 transaction/tail or rename lease.
+      pokeOneDestination(dut, tailEpoch = 0, transactionId = 0)
+      dut.io.reserve.ready.expect(true.B)
     }
   }
 

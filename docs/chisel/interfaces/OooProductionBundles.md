@@ -352,6 +352,45 @@ stays closed until O6 supplies recovery authority. CMAP-to-SMAP survivor replay
 and recovery are therefore still open, but ordinary P architectural commit is
 no longer a sealed seam.
 
+## T/U sequential rename boundary
+
+`OooProductionTURename` is the O4.4 local-register owner. T and U have separate
+per-STID sequence tails, physical-tag cursors, capacity counters, MapQ rings,
+and provisional leases. A relative source resolves `tail - (relativeIndex+1)`
+in its own namespace. The D3 preview walks expanded uops oldest-to-youngest, so
+a younger source can resolve an earlier destination from the same bundle before
+either has changed persistent state. Source underflow, demand mismatch, local
+MapQ/physical capacity pressure, or an existing same-STID lease rejects the
+whole reserve.
+
+The O3 seam uses `OooTUPublicationRequest`, not the complete
+`OooO3PreparedPublication`. It contains exact PE/STID/epoch/transaction
+identity and, per active uop, only `RobMemberKey` plus local source/destination
+shape. This keeps T/U ownership independent of P decode payload, CTU parents,
+prediction, and PC tokens while still proving that every published row belongs
+to the retained ROB member. The lease retains the D2-known uop mask, exact
+group key, and first member index; publication must match those fields. Native
+BID/BROB and resident generation are S1-assigned fields and therefore come only
+from the coordinator's immutable O3 prepared binding, rather than from an
+independent T/U input. `OooTURenamePreparedTransaction` returns the
+pre-destination T/U sequence snapshots, resolved local sources, destination
+mappings, and exact MapQ rows used by later dispatch/recovery owners.
+
+`OooO3RenameCoordinator` gates D3 admission on both PTag and T/U preparation,
+cancels both leases by STID, and requires both P and T/U publication views
+before asserting the shared permit. One terminal fire therefore publishes all
+ROB/BROB/PC/P/T/U owners. O4.4.1 intentionally does not free published local
+rows: relation-CMAP retirement, block-qualified release, and recovery are the
+next packets and must not be inferred from P architectural commit.
+
+D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
+plan is consumed even if its obsolete local source underflows, but the stale
+fire suppresses both PTag and T/U claims. Conversely, a valid same-STID reserve
+may replace the lease being published in the same cycle. Its preview includes
+the outgoing lease's T/U counts, sequence advance, physical-tag advance, and
+source bypass, so capacity is never borrowed twice and the new lease observes
+the just-published local destinations.
+
 ## Verification
 
 ```bash
@@ -375,6 +414,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
+bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```
 
@@ -424,3 +464,14 @@ The PTag staging tests cover reset ownership, balanced bank refill, exact D3
 lease retention/cancel, per-STID isolation, malformed demand, publish/return,
 duplicate and stale-generation rejection, complete speculative exhaustion with
 zero-mutation backpressure, lifecycle conservation, and 2/4/6 decode widths.
+The P-rename tests cover bundle-wide RAW/WAW, exact lease rejection, ordered
+MapQ publication, per-STID capacity, retained CMAP/old-PTag commit walks,
+wrapped two-group commit validation, and 2/4/6 elaboration. The T/U tests cover
+same-bundle relative bypass, source underflow, exact cancel/publication,
+D2-known member/uop-mask mismatch, same-cycle publish/reserve replacement with
+outgoing-lease bypass, and four-STID isolation. The O3 rename integration also
+proves stale-plus-T/U-underflow consumption with zero lease mutation and common
+P/T/U/ROB publication. The complete `linxcore.ooo` regression currently passes
+22 suites and 110 tests. Sequence-index reuse after block-qualified T/U release
+remains an O4.4.2 wrap-generation test because O4.4.1 intentionally exposes no
+release mutation.

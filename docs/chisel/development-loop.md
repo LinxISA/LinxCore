@@ -34,8 +34,11 @@ per-group MapQ counts, drains CMAP/old-PTag work at the independent return
 width, recycles replaced reset mappings into the ordinary PTag lifecycle, and
 only then permits common physical deallocation. PTag D3 allocation rotates a
 preferred bank but falls forward to another bank with staged credit, preventing
-skewed identity returns from stranding free tags. Add P recovery replay next,
-then the independent relative T/U owners. The current
+skewed identity returns from stranding free tags. Independent T/U sequential
+owners now join the same D3 reserve and S1 publication transaction, including
+same-bundle relative-source bypass and exact ROB-member-owned local MapQ rows.
+Complete relation-CMAP retirement/block release and recovery next, then add P
+recovery replay. The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production

@@ -65,9 +65,13 @@ ordered exact MapQ rows, and bundle-wide RAW/WAW forwarding. D3/PTag reserve
 and ROB/BROB/PC/PTag/SMAP/MapQ publication are coordinated atomic events. P
 CMAP/MapQ commit is a retained bounded-width walk that completes before common
 ROB/BROB/PC/D3 deallocation. Availability-aware staged-bank fallback preserves
-transaction rotation without deadlocking after skewed identity-tag returns. P
-recovery and T/U sequential rename remain
-active. CTU
+transaction rotation without deadlocking after skewed identity-tag returns.
+O4.4.1 now adds independent per-STID T and U sequential owners: D3 resolves
+relative sources with same-bundle bypass, claims exact wrap-qualified sequence
+and physical-tag leases, and publishes T/U MapQ rows on the same O3 terminal
+fire. A compact publication sidecar carries only exact ROB member bindings and
+local operand shapes; it does not duplicate the full decoded/CTU/PC packet.
+T/U retirement/relation-CMAP and recovery, plus P recovery, remain active. CTU
 canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

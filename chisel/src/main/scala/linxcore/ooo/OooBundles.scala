@@ -276,6 +276,155 @@ class OooPRenameCommitReject(val p: OooParams = OooParams()) extends Bundle {
   val mapQCount = UInt(p.pMapQCountWidth.W)
 }
 
+/** Wrap-qualified sequence in one per-STID T or U mapping queue. */
+class OooLocalSeq(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val index = UInt(p.tuMapQIndexWidth.W)
+  val generation = UInt(p.localSeqGenerationWidth.W)
+}
+
+/** Resolved relative-register mapping. T and U have independent namespaces. */
+class OooLocalMapping(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val relativeIndex = UInt(p.archRegWidth.W)
+  val sequence = new OooLocalSeq(p)
+  val physicalTag = UInt(p.localTagWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+}
+
+class OooTUAllocation(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val destinationIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDestinationOperands)).W)
+  val relativeIndex = UInt(p.archRegWidth.W)
+  val mapping = new OooLocalMapping(p)
+}
+
+/** D2-known part of one later ROB member binding.
+  *
+  * Native BID and resident generation are assigned only at S1, but the group
+  * key and first member index are already immutable in the D2 plan.
+  */
+class OooTUReservedMember(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val group = new RobGroupKey(p)
+  val memberIndex = UInt(p.robMemberIndexWidth.W)
+}
+
+/** Exact T/U resources claimed at D3 and retained until S1 publication. */
+class OooTUReservation(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val members = Vec(p.decodedUopWidth, new OooTUReservedMember(p))
+  val tAllocationCount = UInt(p.destinationDemandWidth.W)
+  val uAllocationCount = UInt(p.destinationDemandWidth.W)
+  val allocationMask = UInt(p.tuAllocationWidth.W)
+  val allocations = Vec(p.tuAllocationWidth, new OooTUAllocation(p))
+  val tSeqBefore = Vec(p.decodedUopWidth, new OooLocalSeq(p))
+  val uSeqBefore = Vec(p.decodedUopWidth, new OooLocalSeq(p))
+  val sourceMappings = Vec(p.decodedUopWidth,
+    Vec(p.maxSourceOperands, new OooLocalMapping(p)))
+}
+
+/** Local-register source shape carried across the O3 publication seam. */
+class OooTUPublicationSource(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val relativeIndex = UInt(p.archRegWidth.W)
+}
+
+/** Local-register destination shape carried across the O3 publication seam. */
+class OooTUPublicationDestination(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val relativeIndex = UInt(p.archRegWidth.W)
+}
+
+/** Exact ROB binding and T/U operand shape for one logical uop.
+  *
+  * The T/U owner deliberately does not consume a complete decoded uop. P
+  * rename and later dispatch retain that payload; this sidecar contains only
+  * the fields needed to prove the retained sequential-rename lease still
+  * belongs to the O3 publication being committed.
+  */
+class OooTUPublicationUop(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val member = new RobMemberKey(p)
+  val sources = Vec(p.maxSourceOperands, new OooTUPublicationSource(p))
+  val destinations = Vec(p.maxDestinationOperands,
+    new OooTUPublicationDestination(p))
+}
+
+class OooTUPublicationRequest(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val uops = Vec(p.decodedUopWidth, new OooTUPublicationUop(p))
+}
+
+class OooTURenamedUop(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val member = new RobMemberKey(p)
+  val tSeqBefore = new OooLocalSeq(p)
+  val uSeqBefore = new OooLocalSeq(p)
+  val sources = Vec(p.maxSourceOperands, new OooLocalMapping(p))
+  val destinations = Vec(p.maxDestinationOperands, new OooLocalMapping(p))
+}
+
+/** One published T/U destination in local-allocation order. */
+class OooTUMapQEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val retired = Bool()
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val destinationIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDestinationOperands)).W)
+  val member = new RobMemberKey(p)
+  val mapping = new OooLocalMapping(p)
+}
+
+/** Side-effect-free T/U publication view with exact ROB member ownership. */
+class OooTURenamePreparedTransaction(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val uops = Vec(p.decodedUopWidth, new OooTURenamedUop(p))
+  val allocationMask = UInt(p.tuAllocationWidth.W)
+  val rows = Vec(p.tuAllocationWidth, new OooTUMapQEntry(p))
+}
+
+class OooTURenamePrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val requestedT = UInt(p.destinationDemandWidth.W)
+  val requestedU = UInt(p.destinationDemandWidth.W)
+  val freeTEntries = UInt(p.tuMapQCountWidth.W)
+  val freeUEntries = UInt(p.tuMapQCountWidth.W)
+  val freeTPhysical = UInt(p.countWidth(p.tPhysRegs).W)
+  val freeUPhysical = UInt(p.countWidth(p.uPhysRegs).W)
+  val sourceUnderflowMask = UInt((p.decodedUopWidth * p.maxSourceOperands).W)
+}
+
+class OooTURenamePublishReject(val p: OooParams = OooParams()) extends Bundle {
+  val requestedStid = UInt(p.stidWidth.W)
+  val requestedTransactionId = UInt(p.transactionIdWidth.W)
+  val live = new OooTUReservation(p)
+}
+
 class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val bank = UInt(p.pTagBankWidth.W)

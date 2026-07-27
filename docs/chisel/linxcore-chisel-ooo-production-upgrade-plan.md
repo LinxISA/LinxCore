@@ -86,7 +86,7 @@ promotion.
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact MapQ rows; serialized CMAP/old-PTag commit walk; O3/PTag/ROB/BROB/PC/SMAP common fire and post-walk deallocation | P recovery replay; independent T/U sequential owners; randomized sequential-reference closure |
+| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; one O3/PTag/ROB/BROB/PC/P/T/U common fire | P recovery replay; T/U relation-CMAP retirement, block release, and recovery; randomized sequential-reference closure |
 | O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1286,9 +1286,21 @@ publish under the retained ready/valid contract. While active, D3 eligibility
 prevents newly selecting that STID and can select another STID when no earlier
 retained selection is already exposed. O5 must complete fully downstream-
 readiness-aware per-STID arbitration.
-IQ binding is explicitly invalid until O5; recovery replay, randomized
-reference comparison, and the independent T/U sequential owners remain active
-O4 work.
+IQ binding is explicitly invalid until O5. O4.4.1 adds independent T and U
+sequential owners per STID. They preview every active local source and
+destination oldest-to-youngest, resolve same-bundle relative dependencies,
+capture pre-destination T/U sequences per uop, and retain one exact provisional
+lease per STID. Publication uses a compact O3-derived sidecar containing only
+transaction identity, local operand shapes, and exact `RobMemberKey` bindings.
+The shared coordinator admits D3 only when PTag and T/U resources are both
+available, and the S1 terminal fire publishes ROB/BROB/PC, P SMAP/MapQ, PTags,
+and T/U MapQ rows together. No published T/U row is released by P commit.
+Stale D2 plans bypass rename resource gating only to reach D3's zero-mutation
+reject path. Same-cycle same-STID publish/reserve is supported by previewing the
+outgoing local lease in capacity, sequence, physical-tag, and source lookup.
+O4.4.2 must add relation-CMAP mark/release and block-qualified cleanup;
+O4.4.3 must add exact suffix recovery/checkpoint restoration. P recovery replay
+and randomized sequential-reference comparison also remain active O4 work.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

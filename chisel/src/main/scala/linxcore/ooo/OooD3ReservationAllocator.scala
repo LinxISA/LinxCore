@@ -20,6 +20,7 @@ class OooD3ReservationAllocatorIO(val p: OooParams = OooParams()) extends Bundle
   val usedGroups = Output(Vec(p.stidCount, UInt(p.countWidth(p.robGroupsPerStid).W)))
   val publishedGroups = Output(Vec(p.stidCount, UInt(p.countWidth(p.robGroupsPerStid).W)))
   val provisionalMask = Output(UInt(p.stidCount.W))
+  val planStale = Output(Bool())
   val staleRejected = Valid(new OooD3StalePlanReject(p))
   val releaseRejected = Valid(new OooD3ReleaseReject(p))
   val capacityBlocked = Output(Bool())
@@ -111,6 +112,10 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
       firstKey.peId =/= io.in.bits.plan.peId || firstKey.stid =/= inStid ||
       !groupCountInRange || io.in.bits.groupMask =/= expectedGroupMask ||
       !planIdentityExact || !allGroupKeysExact)
+  // Combinational preview is deliberately independent of `in.valid`. The
+  // composition layer uses it to consume stale plans even when another D3
+  // resource owner would reject their obsolete demand or operand shape.
+  io.planStale := stale
   val releaseStid = io.release.bits.firstGroup.stid
   val releaseInRange = releaseStid < p.stidCount.U
   val safeReleaseStid = Mux(releaseInRange, releaseStid, 0.U)

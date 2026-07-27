@@ -27,6 +27,10 @@ final case class OooParams(
     pTagReturnWidth: Int = 8,
     pTagMinimumSpeculativePerStid: Int = 8,
     pMapQDepthPerStid: Int = 256,
+    tPhysRegs: Int = 32,
+    uPhysRegs: Int = 32,
+    tuMapQDepthPerStid: Int = 32,
+    localSeqGenerationWidth: Int = 8,
     pcBufferEntries: Int = 64,
     pcOffsetWidth: Int = 7,
     pcWritePorts: Int = 3,
@@ -104,6 +108,16 @@ final case class OooParams(
     "PTag allocation generation width must be positive")
   require(isPowerOfTwo(pMapQDepthPerStid),
     "P MapQ depth per STID must be a power of two")
+  require(isPowerOfTwo(tPhysRegs) && isPowerOfTwo(uPhysRegs),
+    "T and U physical namespaces must be positive powers of two")
+  require(isPowerOfTwo(tuMapQDepthPerStid),
+    "T/U MapQ depth per STID must be a power of two")
+  require(tuMapQDepthPerStid >= decodedUopWidth * maxDestinationOperands,
+    "T/U MapQ must retain one worst-case D3 destination bundle")
+  require(localTagWidth >= log2Ceil(math.max(tPhysRegs, uPhysRegs)),
+    "localTagWidth must address both T and U physical namespaces")
+  require(localSeqGenerationWidth > 0,
+    "local sequence generation width must be positive")
   require(isPowerOfTwo(pcBufferEntries), "PC buffer entries must be a power of two")
   require(pcBufferEntries % stidCount == 0 &&
     isPowerOfTwo(pcBufferEntries / stidCount) && pcBufferEntries / stidCount >= 2,
@@ -141,6 +155,9 @@ final case class OooParams(
   def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
   def pMapQCountWidth: Int = countWidth(pMapQDepthPerStid)
+  def tuMapQIndexWidth: Int = log2Ceil(tuMapQDepthPerStid)
+  def tuMapQCountWidth: Int = countWidth(tuMapQDepthPerStid)
+  def tuAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
   def maxCommitMapQRows: Int =
     retireGroupWidth * maxOrdinaryUopsPerGroup * maxDestinationOperands
   def commitMapQRowCountWidth: Int = countWidth(maxCommitMapQRows)
