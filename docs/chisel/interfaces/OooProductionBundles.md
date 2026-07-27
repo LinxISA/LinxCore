@@ -290,20 +290,27 @@ per STID. This is the minimum contract and a deliberate pressure point, not a
 performance recommendation. Scale configurations should test 192/256 tags,
 per-STID guarantees, and shared borrowing.
 
-`OooPTagStagingPool` is the first O4 owner. The 96 reset identity mappings never
-enter allocation state. Every remaining PTag is in exactly one of the shared
-banked free list, one compact staging row, one per-STID provisional D3 lease,
-or the published-live set. D2 refill may select from the free list, but D3 can
-claim only the already-staged prefix required by each bank. A multi-destination
-claim is all-or-none and carries exact `{ptag, bank, allocationGeneration}`
-tokens; a stale generation cannot return a reissued tag.
+`OooPTagStagingPool` is the first O4 owner. At reset, 96 tags are owned by the
+per-STID identity CMAP mappings and 32 tags are initially free. All 128 tags are
+in exactly one of the initial-committed set, shared banked free list, compact
+staging rows, per-STID provisional D3 leases, or published-live set. Replacing
+an identity mapping returns that exact generation-zero tag into the ordinary
+free/staged lifecycle; identity is an initialization state, not a permanently
+reserved tag class. D2 refill may select from the free list, but D3 can claim
+only already-staged tags. Transaction ID rotates the preferred starting bank,
+but each destination falls forward to the first bank with remaining staging
+credit after older destinations in the same bundle. Therefore skewed committed
+identity returns cannot permanently strand free tags behind one exhausted
+preferred bank. A multi-destination claim is all-or-none and carries exact
+`{ptag, bank, allocationGeneration}` tokens; a stale generation cannot return a
+reissued tag.
 
 Claim moves the complete selected transaction into a stable per-STID lease.
 Exact cancellation returns only that lease, while the common S1 publication
 event moves it to published-live ownership. Exact batched return is Decoupled
 and validates count, range, uniqueness, bank, generation, and current live
-ownership before changing any bit. A cycle-by-cycle checker proves all 32
-default speculative tags remain in exactly one lifecycle location.
+ownership before changing any bit. A cycle-by-cycle checker proves the entire
+128-tag namespace remains in exactly one lifecycle location.
 
 `OooProductionPRename` is the O4.2 P-map owner. It consumes the immutable O3
 prepared publication together with the matching retained PTag lease. For every
@@ -319,13 +326,31 @@ transaction/uop/destination order, old mapping, and new mapping. The per-STID
 MapQ is an ordered ring, not a search-allocated collection. SMAP and MapQ mutate
 only on the common O3 publication fire. `OooO3RenameCoordinator` joins D3 and
 PTag claim on one reserve handshake, then joins ROB/BROB/PC publication, PTag
-publication, SMAP update, and MapQ insertion on one terminal fire. CMAP commit,
-survivor replay/recovery, and returned-tag arbitration remain later O4/O6
-owners; the reset CMAP query is present but is not yet advanced.
-Until that commit owner exists, `OooO3RenameCoordinator` deliberately holds
-both ROB commit and external PTag return closed. This prevents a partially
-integrated wrapper from retiring ROB/BROB/PC state without MapQ/CMAP or from
-recycling a PTag still referenced by SMAP.
+publication, SMAP update, and MapQ insertion on one terminal fire.
+
+O4.3 adds the P architectural commit walk. Every physical ROB group carries its
+exact `pMapQRows` obligation. `OooProductionPRename` validates the retained ROB
+batch against the dense MapQ-head prefix using RID/native-BID/BROB/resident
+generations, transaction ID, member index, uop membership, queue index, and
+old/new mapping chain. It then drains at most `pTagReturnWidth` rows per cycle.
+Each row advances CMAP oldest-to-youngest and returns its exact previous PTag,
+including a replaced reset identity tag. Return backpressure holds the row,
+CMAP, MapQ head, and token stable.
+
+ROB/BROB/PC/D3 deallocation remains retained until every MapQ row and old-PTag
+return has completed. The final common commit fire only releases those physical
+owners; it cannot repeat the commit walk. A younger provisional row that has
+not reached a complete prepared view never blocks older commit, because it may
+need capacity released by the walk. If its prepared valid was already exposed,
+ready/valid retention requires that exact row to publish before same-STID commit
+starts. During an active walk, a previously retained but unprepared same-STID
+row remains immutable and resumes afterward; readiness-aware D3 selection does
+not choose a new row from that STID and may choose another STID when no older
+retained selection is already exposed. Full downstream-readiness-aware per-STID
+arbitration remains an O5 dispatch integration obligation. External PTag return
+stays closed until O6 supplies recovery authority. CMAP-to-SMAP survivor replay
+and recovery are therefore still open, but ordinary P architectural commit is
+no longer a sealed seam.
 
 ## Verification
 

@@ -20,6 +20,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       firstSlot: Int,
       firstGeneration: Int,
       groupMembers: Seq[Int],
+      groupPMapRows: Seq[Int] = Seq.empty,
       initiallyComplete: Set[Int] = Set.empty,
       peId: Int = 2,
       claimEpoch: Int = 0,
@@ -66,6 +67,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       group.key.ridGeneration.poke(generation.U)
       group.logicalUopMask.poke((1 << groupIndex).U)
       group.physicalMemberCount.poke(memberCount.U)
+      group.pMapQRows.poke(groupPMapRows.lift(groupIndex).getOrElse(0).U)
       group.architecturalParentCount.poke(1.U)
 
       val binding = dut.io.publish.bits.bindings(groupIndex)
@@ -118,7 +120,8 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     simulate(new OooS1GroupedRob(p)) { dut =>
       clear(dut)
       pokePublication(dut, stid = 1, transactionId = 0, firstSlot = 0,
-        firstGeneration = 0, groupMembers = Seq(2, 1))
+        firstGeneration = 0, groupMembers = Seq(2, 1),
+        groupPMapRows = Seq(2, 1))
       dut.io.publish.ready.expect(true.B)
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
@@ -138,6 +141,8 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.firstGroup.stid.expect(1.U)
       dut.io.commit.bits.release.firstGroup.ridSlot.expect(0.U)
+      dut.io.commit.bits.groups(0).pMapQRows.expect(2.U)
+      dut.io.commit.bits.groups(1).pMapQRows.expect(1.U)
       dut.io.commit.bits.release.groupCount.expect(2.U)
       dut.io.commit.bits.groups(0).physicalMemberCount.expect(2.U)
       dut.io.commit.bits.groups(1).physicalMemberCount.expect(1.U)

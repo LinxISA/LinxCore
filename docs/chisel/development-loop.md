@@ -29,8 +29,13 @@ fire. O4 now owns the banked PTag free list, D2 staging refill,
 generation-qualified per-STID leases, the 24-entry per-STID P SMAP, ordered
 exact MapQ publication, and bundle-wide RAW/WAW forwarding. D3/PTag claim is
 one reserve transaction; ROB/BROB/PC/PTag/SMAP/MapQ share one S1 terminal fire.
-Add P CMAP commit/tag return and recovery replay next, then the independent
-relative T/U owners. The current
+P architectural commit now validates the retained ROB batch against exact
+per-group MapQ counts, drains CMAP/old-PTag work at the independent return
+width, recycles replaced reset mappings into the ordinary PTag lifecycle, and
+only then permits common physical deallocation. PTag D3 allocation rotates a
+preferred bank but falls forward to another bank with staged credit, preventing
+skewed identity returns from stranding free tags. Add P recovery replay next,
+then the independent relative T/U owners. The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production

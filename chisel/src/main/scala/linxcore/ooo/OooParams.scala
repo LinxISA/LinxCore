@@ -141,6 +141,9 @@ final case class OooParams(
   def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
   def pMapQCountWidth: Int = countWidth(pMapQDepthPerStid)
+  def maxCommitMapQRows: Int =
+    retireGroupWidth * maxOrdinaryUopsPerGroup * maxDestinationOperands
+  def commitMapQRowCountWidth: Int = countWidth(maxCommitMapQRows)
   def pcBufferIndexWidth: Int = log2Ceil(pcBufferEntries)
   def pcEntriesPerStid: Int = pcBufferEntries / stidCount
   def pcPartitionIndexWidth: Int = log2Ceil(pcEntriesPerStid)

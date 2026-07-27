@@ -138,6 +138,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.residentGeneration := binding.residentGeneration
       row.logicalUopMask := group.logicalUopMask
       row.physicalMemberCount := group.physicalMemberCount
+      row.pMapQRows := group.pMapQRows
       row.completedMembers := binding.initiallyCompletedMembers
       row.architecturalParentCount := group.architecturalParentCount
       row.boundaryStart := group.boundaryStart

@@ -65,6 +65,14 @@ class OooD2GroupPlannerSpec extends AnyFunSuite with ChiselSim {
     simulate(new OooD2GroupPlanner(p)) { dut =>
       clear(dut)
       for (index <- 0 until 4) driveUop(dut, index, 10 + index)
+      dut.io.in.bits.uops(0).destinations(0).valid.poke(true.B)
+      dut.io.in.bits.uops(0).destinations(0).kind
+        .poke(linxcore.common.DestinationKind.Gpr)
+      for (destinationIndex <- 0 until 2) {
+        dut.io.in.bits.uops(1).destinations(destinationIndex).valid.poke(true.B)
+        dut.io.in.bits.uops(1).destinations(destinationIndex).kind
+          .poke(linxcore.common.DestinationKind.Gpr)
+      }
       drivePacket(dut, 4)
       dut.io.tailSlot(1).poke(5.U)
       dut.io.tailGeneration(1).poke(3.U)
@@ -82,6 +90,7 @@ class OooD2GroupPlannerSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.groups(0).logicalUopMask.expect("b00001111".U)
       dut.io.out.bits.groups(0).architecturalParentCount.expect(4.U)
       dut.io.out.bits.groups(0).physicalMemberCount.expect(4.U)
+      dut.io.out.bits.groups(0).pMapQRows.expect(3.U)
       for (index <- 0 until 4) {
         dut.io.out.bits.uopGroupIndex(index).expect(0.U)
         dut.io.out.bits.uopMemberBase(index).expect(index.U)

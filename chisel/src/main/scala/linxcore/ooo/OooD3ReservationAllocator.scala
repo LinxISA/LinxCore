@@ -7,6 +7,7 @@ class OooD3ReservationAllocatorIO(val p: OooParams = OooParams()) extends Bundle
   val in = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
   val release = Flipped(Decoupled(new OooRobGroupRelease(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
+  val publishEligible = Input(Vec(p.stidCount, Bool()))
   val out = Decoupled(new OooD3GroupedReservation(p))
 
   val tailSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
@@ -54,7 +55,8 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   val rotated = Wire(Vec(p.stidCount, Bool()))
   for (offset <- 0 until p.stidCount) {
     val index = if (p.stidCount == 1) 0.U else (rrStart + offset.U)(p.stidWidth - 1, 0)
-    rotated(offset) := valid(index) && !io.cancel(index)
+    rotated(offset) := valid(index) && !io.cancel(index) &&
+      io.publishEligible(index)
   }
   val rrValid = rotated.asUInt.orR
   val rrOffset = if (p.stidCount == 1) 0.U else PriorityEncoder(rotated.asUInt)
@@ -62,9 +64,15 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
     if (p.stidCount == 1) 0.U(p.stidWidth.W)
     else (rrStart + rrOffset)(p.stidWidth - 1, 0)
   val selected = Mux(heldGrantValid, heldGrantStid, rrSelected)
-  val selectedLive =
-    if (p.stidCount == 1) valid(0) && !io.cancel(0)
-    else valid(selected) && !io.cancel(selected)
+  // Eligibility filters only a new grant. Once valid has been exposed and the
+  // grant is held, ready/valid requires it to remain asserted until fire or an
+  // explicit matching cancel, even if downstream eligibility later changes.
+  val selectedLive = if (p.stidCount == 1) {
+    valid(0) && !io.cancel(0) && (heldGrantValid || io.publishEligible(0))
+  } else {
+    valid(selected) && !io.cancel(selected) &&
+      (heldGrantValid || io.publishEligible(selected))
+  }
   io.out.valid := Mux(heldGrantValid, selectedLive, rrValid)
   io.out.bits := (if (p.stidCount == 1) rows(0) else rows(selected))
 

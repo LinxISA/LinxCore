@@ -60,10 +60,14 @@ binding the immutable D3/BROB/PC view and driving one common publication and
 commit fire across every owner. O4 must add independent absolute P rename and
 relative T/U rename preparation without weakening that common-fire contract.
 Its first slices now implement banked D2 PTag staging, exact per-STID D3 leases,
-generation-qualified returns, full speculative-tag conservation, P SMAP,
+generation-qualified returns, full physical-tag conservation, P SMAP,
 ordered exact MapQ rows, and bundle-wide RAW/WAW forwarding. D3/PTag reserve
 and ROB/BROB/PC/PTag/SMAP/MapQ publication are coordinated atomic events. P
-CMAP commit/recovery and T/U sequential rename remain active. CTU
+CMAP/MapQ commit is a retained bounded-width walk that completes before common
+ROB/BROB/PC/D3 deallocation. Availability-aware staged-bank fallback preserves
+transaction rotation without deadlocking after skewed identity-tag returns. P
+recovery and T/U sequential rename remain
+active. CTU
 canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

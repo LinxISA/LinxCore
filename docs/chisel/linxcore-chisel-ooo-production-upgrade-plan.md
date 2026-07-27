@@ -86,7 +86,7 @@ promotion.
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact MapQ rows; O3/PTag/ROB/BROB/PC/SMAP common fire | P CMAP commit/tag-return and recovery replay; independent T/U sequential owners; randomized sequential-reference closure |
+| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact MapQ rows; serialized CMAP/old-PTag commit walk; O3/PTag/ROB/BROB/PC/SMAP common fire and post-walk deallocation | P recovery replay; independent T/U sequential owners; randomized sequential-reference closure |
 | O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -602,7 +602,12 @@ Each PTag bank owns a small staging FIFO. A D2-side background refill engine:
 
 D3 can allocate only from these FIFOs. Unconsumed tags remain in the FIFO;
 recovery does not blindly return them. Refill and commit/recovery return paths
-use one arbiter and conservation checker.
+use one arbiter and conservation checker. Transaction ID rotates the preferred
+bank, while an availability-aware oldest-to-youngest selector falls forward to
+another staged bank when that preference is empty. The selector accounts for
+earlier destinations in the same bundle before assigning younger ones, so it
+cannot overbook staging credit and cannot deadlock on skewed physical-bank
+returns while another bank remains allocatable.
 
 ### 10.2 Maximum-prefix rule
 
@@ -1070,7 +1075,7 @@ without inspecting waveforms.
 | `RobPhysicalPublisher` | D3 provisional/S1 publish, bank conflicts, prefix publication, recovery between D3 and S1 |
 | `ROBPartition` | member resolve counts, grouped commit, exact stale rejection, non-flush, commit/deallocation separation, even/odd bank timing state |
 | `BROB` | 256-entry rollover for all four STIDs, fused/standalone starts, in-body reentry reuse, no unsigned BID age |
-| `PTagStagingFifo` | refill/consume/hold, bank imbalance, simultaneous return/refill, no D3 direct free-list select |
+| `PTagStagingFifo` | refill/consume/hold, preferred-bank exhaustion with availability fallback, skewed identity returns, simultaneous return/refill, no D3 direct free-list select |
 | `PRename` | 24-to-128 mapping, RAW/WAW inlining, pending-S1 bypass, IQID/ready payload, banked MapQ, commit and recovery |
 | `TuRename` | independent T/U sequential allocation, relative lookup, wrap, block release, four-STID isolation |
 | `PcBuffer` | variable 2/4/6/8-byte offsets, overflow base allocation, 3W/6R conflicts, four partitions, commit/recovery release |
@@ -1114,8 +1119,9 @@ Directed scenarios include:
 7. A lane-3 resource failure accepts only the older complete prefix; a split
    store never publishes one child alone.
 8. D2 virtual plan becomes stale before D3 and is recomputed without a ROB hole.
-9. PTag FIFO bank shortage stalls despite free tags in the wrong bank; commit
-   refill later makes progress.
+9. Skewed PTag identity returns exhaust the rotating preferred bank while
+   another bank remains live; D3 falls forward without direct free-list select.
+   True all-bank exhaustion still stalls atomically until a commit return.
 10. Same-cycle P RAW/WAW plus pending-S1 bypass produces exact tags/IQIDs.
 11. PC offsets cross 2/4/6/8-byte instructions and allocate a new base exactly
     at overflow.
@@ -1258,15 +1264,31 @@ RAW/WAW inlining, banked MapQ/CMAP recovery, and independent T/U owners.
 Implementation status: O4.1 implements the shared banked PTag free list and
 staging owner. D3 claims only staged tags into one exact provisional lease per
 STID; publication, cancel, and return are generation-qualified terminal events.
-The default 96 committed identity tags plus 32 speculative tags are checked
-cycle by cycle for exactly-one-location conservation. O4.2 implements the
+The default namespace starts with 96 committed identity tags plus 32 free tags;
+all 128 tags are checked cycle by cycle for exactly-one-location conservation,
+and a replaced identity tag becomes normally allocatable. D3 rotates a preferred
+bank by transaction ID, then falls forward to a bank with staged credit while
+accounting older destinations first; adversarial skew therefore cannot strand
+live tags in another bank. O4.2 implements the
 per-STID 24-entry P SMAP, reset CMAP, ordered MapQ publication, exact ROB-member
 keys, and oldest-to-youngest RAW/WAW forwarding across every expanded uop and
 destination in the transaction. `OooO3RenameCoordinator` makes PTag claim
 atomic with D3 reserve and joins PTag/SMAP/MapQ publication to the existing
-ROB/BROB/PC terminal fire. IQ binding is explicitly invalid until O5; CMAP
-commit/tag return, recovery replay, randomized reference comparison, and the
-independent T/U sequential owners remain active O4 work.
+ROB/BROB/PC terminal fire. O4.3 carries exact per-group MapQ-row obligations
+through the ROB and locks one retained commit batch while walking the ordered
+MapQ head at `pTagReturnWidth`. Each step advances CMAP and returns the row's
+generation-qualified previous PTag, including reset identity tags after their
+CMAP mappings are replaced. Only after the walk completes may the common
+ROB/BROB/PC/D3 deallocation fire. A younger same-STID provisional row that has
+not exposed a complete prepared valid never blocks the older walk; it is held
+immutable until the walk finishes. An already exposed prepared valid must first
+publish under the retained ready/valid contract. While active, D3 eligibility
+prevents newly selecting that STID and can select another STID when no earlier
+retained selection is already exposed. O5 must complete fully downstream-
+readiness-aware per-STID arbitration.
+IQ binding is explicitly invalid until O5; recovery replay, randomized
+reference comparison, and the independent T/U sequential owners remain active
+O4 work.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

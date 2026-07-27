@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.Decoupled
+import chisel3.util.{Decoupled, Valid}
 
 class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
@@ -31,6 +31,8 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val ptagPublishedCount = Output(UInt(p.countWidth(p.pPhysRegs).W))
   val robOccupiedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val pCommitBusy = Output(Bool())
+  val pCommitRejected = Valid(new OooPRenameCommitReject(p))
 }
 
 /** Atomic D3/S1 seam extended through PTag allocation and P rename.
@@ -59,6 +61,10 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
 
   o3.io.cancel := io.cancel
   ptag.io.cancel := io.cancel
+  for (stid <- 0 until p.stidCount) {
+    o3.io.publishEligible(stid) := !prename.io.commitBusy ||
+      prename.io.commitStid =/= stid.U
+  }
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val preparedStidInRange = preparedStid < p.stidCount.U
@@ -73,6 +79,17 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   prename.io.publishFire := o3.io.publishFire
   io.publishFire := o3.io.publishFire
 
+  val exposedPrepareValid = RegInit(false.B)
+  val exposedPrepareStid = RegInit(0.U(p.stidWidth.W))
+  val exposedPrepareCanceled = exposedPrepareValid &&
+    io.cancel(exposedPrepareStid)
+  when(io.publishFire || exposedPrepareCanceled) {
+    exposedPrepareValid := false.B
+  }.elsewhen(io.preparedValid) {
+    exposedPrepareValid := true.B
+    exposedPrepareStid := preparedStid
+  }
+
   ptag.io.publish.valid := o3.io.publishFire
   ptag.io.publish.bits.stid := preparedStid
   ptag.io.publish.bits.transactionId :=
@@ -86,14 +103,26 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
 
   o3.io.completion <> io.completion
 
-  // O4.2 does not yet own CMAP/MapQ retirement. Seal both terminal interfaces
-  // instead of allowing ROB state or a still-referenced PTag to retire early.
-  // O4.3 replaces these constants with one retained exact commit transaction.
-  io.commit.valid := false.B
+  val commitStid = o3.io.commit.bits.release.firstGroup.stid
+  val commitStidInRange = commitStid < p.stidCount.U
+  // A fully prepared row that was exposed in a prior cycle cannot be withdrawn.
+  // Let that exact row publish first. The O3 coordinator also prevents a raw
+  // same-STID ROB commit from exposing a new D3 grant in the first place.
+  // Merely provisional, unprepared rows do not block older commit.
+  val commitConflictsExposedPrepare = exposedPrepareValid &&
+    commitStidInRange && exposedPrepareStid === commitStid
+  prename.io.commitPrepare.valid := o3.io.commit.valid &&
+    !commitConflictsExposedPrepare
+  prename.io.commitPrepare.bits := o3.io.commit.bits
+  prename.io.ptagReturn <> ptag.io.release
+  io.commit.valid := o3.io.commit.valid && prename.io.commitReady
   io.commit.bits := o3.io.commit.bits
-  o3.io.commit.ready := false.B
-  ptag.io.release.valid := false.B
-  ptag.io.release.bits := 0.U.asTypeOf(ptag.io.release.bits)
+  o3.io.commit.ready := io.commit.ready && prename.io.commitReady
+  val sharedCommitFire = io.commit.valid && io.commit.ready
+  prename.io.commitFire := sharedCommitFire
+
+  // External recovery return remains sealed until O6 supplies exact killed-row
+  // authority. Architectural commit return is wired privately above.
   io.ptagReturn.ready := false.B
 
   prename.io.queryStid := io.queryStid
@@ -110,4 +139,6 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.ptagProvisionalCount := ptag.io.provisionalCount
   io.ptagPublishedCount := ptag.io.publishedCount
   io.robOccupiedGroups := o3.io.robOccupiedGroups
+  io.pCommitBusy := prename.io.commitBusy
+  io.pCommitRejected := prename.io.commitRejected
 }

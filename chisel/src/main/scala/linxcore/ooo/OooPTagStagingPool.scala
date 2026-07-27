@@ -38,11 +38,14 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooPTagStagingPoolIO(p))
 
   private val committedTagCount = p.stidCount * p.pArchRegs
-  private val allocatableMaskValue =
-    ((BigInt(1) << p.pPhysRegs) - 1) ^ ((BigInt(1) << committedTagCount) - 1)
-  private val allocatableMask = allocatableMaskValue.U(p.pPhysRegs.W)
+  private val allTagMaskValue = (BigInt(1) << p.pPhysRegs) - 1
+  private val allTagMask = allTagMaskValue.U(p.pPhysRegs.W)
+  private val initialCommittedMaskValue =
+    (BigInt(1) << committedTagCount) - 1
+  private val initialFreeMaskValue =
+    allTagMaskValue ^ initialCommittedMaskValue
   private val bankMasks = (0 until p.pTagBanks).map { bank =>
-    (committedTagCount until p.pPhysRegs)
+    (0 until p.pPhysRegs)
       .filter(tag => tag % p.pTagBanks == bank)
       .foldLeft(BigInt(0))((mask, tag) => mask | (BigInt(1) << tag))
       .U(p.pPhysRegs.W)
@@ -52,7 +55,12 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   private val stagingIndexWidth = math.max(1,
     chisel3.util.log2Ceil(p.pTagStagingDepthPerBank))
 
-  val freeList = RegInit(allocatableMask)
+  val freeList = RegInit(initialFreeMaskValue.U(p.pPhysRegs.W))
+  // Reset identity mappings are architectural-live, not permanently reserved.
+  // Once CMAP replaces one, the exact commit return moves that tag into the
+  // ordinary free/staged/provisional/published lifecycle.
+  val initialCommittedMask = RegInit(
+    initialCommittedMaskValue.U(p.pPhysRegs.W))
   val stagedTags = RegInit(VecInit(Seq.fill(p.pTagBanks)(
     VecInit(Seq.fill(p.pTagStagingDepthPerBank)(0.U(p.pTagWidth.W))))))
   val stagedCounts = RegInit(VecInit(Seq.fill(p.pTagBanks)(
@@ -113,25 +121,49 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   } else {
     io.prepare.bits.plan.transactionId(p.pTagBankWidth - 1, 0)
   }
+  val destinationAssignmentAvailable = Wire(Vec(p.pTagAllocationWidth, Bool()))
+  var assignedByBank = Seq.fill(p.pTagBanks)(
+    0.U(p.countWidth(p.pTagStagingDepthPerBank).W))
   for (flatIndex <- 0 until p.pTagAllocationWidth) {
     val olderCount = if (flatIndex == 0) 0.U else
       PopCount(destinationActive.take(flatIndex))
-    destinationBank(flatIndex) :=
+    val preferredBank =
       (startBank + olderCount)(p.pTagBankWidth - 1, 0)
-    val olderInBank = if (flatIndex == 0) 0.U else PopCount(
-      (0 until flatIndex).map { olderIndex =>
-        destinationActive(olderIndex) &&
-          destinationBank(olderIndex) === destinationBank(flatIndex)
-      })
-    destinationBankOrdinal(flatIndex) := olderInBank
+    val candidateAvailable = Wire(Vec(p.pTagBanks, Bool()))
+    for (offset <- 0 until p.pTagBanks) {
+      val candidateBank = if (p.pTagBanks == 1) {
+        0.U(p.pTagBankWidth.W)
+      } else {
+        (preferredBank + offset.U)(p.pTagBankWidth - 1, 0)
+      }
+      candidateAvailable(offset) := destinationActive(flatIndex) &&
+        VecInit(assignedByBank)(candidateBank) < stagedCounts(candidateBank)
+    }
+    val selectedOffset = if (p.pTagBanks == 1) {
+      0.U(p.pTagBankWidth.W)
+    } else {
+      PriorityEncoder(candidateAvailable.asUInt)
+    }
+    val selectedBank = if (p.pTagBanks == 1) {
+      0.U(p.pTagBankWidth.W)
+    } else {
+      (preferredBank + selectedOffset)(p.pTagBankWidth - 1, 0)
+    }
+    val assignmentAvailable = candidateAvailable.asUInt.orR
+    destinationAssignmentAvailable(flatIndex) :=
+      !destinationActive(flatIndex) || assignmentAvailable
+    destinationBank(flatIndex) := selectedBank
+    destinationBankOrdinal(flatIndex) := VecInit(assignedByBank)(selectedBank)
+    assignedByBank = assignedByBank.zipWithIndex.map { case (assigned, bank) =>
+      assigned + (destinationActive(flatIndex) && assignmentAvailable &&
+        selectedBank === bank.U).asUInt
+    }
   }
 
   val bankDemand = Wire(Vec(p.pTagBanks,
     UInt(p.countWidth(p.pTagStagingDepthPerBank).W)))
   for (bank <- 0 until p.pTagBanks) {
-    bankDemand(bank) := PopCount((0 until p.pTagAllocationWidth).map { index =>
-      destinationActive(index) && destinationBank(index) === bank.U
-    })
+    bankDemand(bank) := assignedByBank(bank)
   }
 
   val destinationCount = PopCount(destinationActive)
@@ -150,11 +182,13 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   val stagingAvailable = (0 until p.pTagBanks).map { bank =>
     bankDemand(bank) <= stagedCounts(bank)
   }.reduce(_ && _)
+  val allAssignmentsAvailable = destinationAssignmentAvailable.reduce(_ && _)
   val provisionalRowAvailable = !provisional(safePrepareStid).valid ||
     io.cancel(safePrepareStid) ||
     (publishExact && publishStid === prepareStid)
 
-  io.prepareReady := prepareExact && stagingAvailable && provisionalRowAvailable
+  io.prepareReady := prepareExact && allAssignmentsAvailable &&
+    stagingAvailable && provisionalRowAvailable
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.valid := io.prepare.valid && io.prepareReady
   io.prepared.peId := io.prepare.bits.plan.peId
@@ -194,7 +228,7 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
     val active = index.U < returnCount
     val token = io.release.bits.tokens(index)
     val tag = token.ptag
-    val tagInRange = tag < p.pPhysRegs.U && tag >= committedTagCount.U
+    val tagInRange = tag < p.pPhysRegs.U
     val safeTag = Mux(tagInRange, tag, 0.U)
     Mux(active && tagInRange,
       UIntToOH(safeTag, p.pPhysRegs), 0.U(p.pPhysRegs.W))
@@ -203,7 +237,7 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
     val active = index.U < returnCount
     val token = io.release.bits.tokens(index)
     val tag = token.ptag
-    val tagInRange = tag < p.pPhysRegs.U && tag >= committedTagCount.U
+    val tagInRange = tag < p.pPhysRegs.U
     val safeTag = Mux(tagInRange, tag, 0.U)
     val unique = (0 until index).map { older =>
       older.U >= returnCount || io.release.bits.tokens(older).ptag =/= tag
@@ -215,7 +249,8 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
     }
     Mux(active,
       token.valid && tagInRange && unique && bankExact &&
-        token.generation === tagGeneration(safeTag) && publishedMask(safeTag),
+        token.generation === tagGeneration(safeTag) &&
+          (publishedMask(safeTag) || initialCommittedMask(safeTag)),
       true.B)
   }.reduce(_ && _)
   val returnExact = returnCountInRange && returnTagsExact &&
@@ -305,6 +340,8 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   }
   publishedMask := (publishedMask | publishTagMask) &
     ~Mux(returnFire, returnTagMask, 0.U(p.pPhysRegs.W))
+  initialCommittedMask := initialCommittedMask &
+    ~Mux(returnFire, returnTagMask, 0.U(p.pPhysRegs.W))
 
   val stagedLocationMask = (0 until p.pTagBanks).flatMap { bank =>
     (0 until p.pTagStagingDepthPerBank).map { slot =>
@@ -316,19 +353,29 @@ class OooPTagStagingPool(val p: OooParams = OooParams()) extends Module {
   val freeStagedDisjoint = (freeList & stagedLocationMask) === 0.U
   val freeProvisionalDisjoint = (freeList & provisionalLocationMask) === 0.U
   val freePublishedDisjoint = (freeList & publishedMask) === 0.U
+  val freeInitialCommittedDisjoint =
+    (freeList & initialCommittedMask) === 0.U
   val stagedProvisionalDisjoint =
     (stagedLocationMask & provisionalLocationMask) === 0.U
   val stagedPublishedDisjoint = (stagedLocationMask & publishedMask) === 0.U
   val provisionalPublishedDisjoint =
     (provisionalLocationMask & publishedMask) === 0.U
+  val stagedInitialCommittedDisjoint =
+    (stagedLocationMask & initialCommittedMask) === 0.U
+  val provisionalInitialCommittedDisjoint =
+    (provisionalLocationMask & initialCommittedMask) === 0.U
+  val publishedInitialCommittedDisjoint =
+    (publishedMask & initialCommittedMask) === 0.U
   val locationUnion = freeList | stagedLocationMask |
-    provisionalLocationMask | publishedMask
+    provisionalLocationMask | publishedMask | initialCommittedMask
   io.conservationValid := freeStagedDisjoint && freeProvisionalDisjoint &&
-    freePublishedDisjoint && stagedProvisionalDisjoint &&
-    stagedPublishedDisjoint && provisionalPublishedDisjoint &&
-    locationUnion === allocatableMask
+    freePublishedDisjoint && freeInitialCommittedDisjoint &&
+    stagedProvisionalDisjoint && stagedPublishedDisjoint &&
+    stagedInitialCommittedDisjoint && provisionalPublishedDisjoint &&
+    provisionalInitialCommittedDisjoint && publishedInitialCommittedDisjoint &&
+    locationUnion === allTagMask
   assert(io.conservationValid,
-    "every allocatable PTag must occupy exactly one lifecycle location")
+    "every PTag must occupy exactly one lifecycle location")
 
   io.provisional := provisional
   io.freeCount := PopCount(freeList)

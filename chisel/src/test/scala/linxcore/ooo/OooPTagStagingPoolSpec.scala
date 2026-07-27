@@ -186,6 +186,53 @@ class OooPTagStagingPoolSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("recycles a replaced reset mapping into the ordinary allocation pool") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 4)
+    simulate(new OooPTagStagingPool(p)) { dut =>
+      clear(dut)
+      dut.clock.step() // stage the initial speculative tags 96..99
+
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.tokens(0).valid.poke(true.B)
+      dut.io.release.bits.tokens(0).ptag.poke(1.U)
+      dut.io.release.bits.tokens(0).bank.poke(1.U)
+      dut.io.release.bits.tokens(0).generation.poke(0.U)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+      dut.io.freeCount.expect(29.U)
+      dut.io.conservationValid.expect(true.B)
+
+      pokeDestinations(dut, stid = 0, transactionId = 0,
+        destinations = Seq((0, 0, 1), (0, 1, 2)))
+      claim(dut)
+      dut.io.cancel(0).poke(true.B)
+      dut.clock.step()
+      dut.io.cancel(0).poke(false.B)
+
+      pokeDestinations(dut, stid = 0, transactionId = 2,
+        destinations = Seq((0, 0, 1), (0, 1, 2), (1, 0, 3), (1, 1, 4)))
+      val recycled = claim(dut)
+      assert(recycled.exists(tag => tag.ptag == 1 && tag.generation == 1),
+        "a replaced reset identity tag must become allocatable")
+      dut.io.conservationValid.expect(true.B)
+
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.tokens(0).valid.poke(true.B)
+      dut.io.release.bits.tokens(0).ptag.poke(1.U)
+      dut.io.release.bits.tokens(0).bank.poke(1.U)
+      dut.io.release.bits.tokens(0).generation.poke(0.U)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.ready.expect(false.B)
+      dut.io.returnRejected.valid.expect(true.B)
+    }
+  }
+
   test("isolates provisional rows by STID and rejects malformed P demand") {
     val p = OooParams(
       instructionDecodeWidth = 2,
@@ -247,6 +294,140 @@ class OooPTagStagingPoolSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step(2)
       dut.io.publishedCount.expect(32.U)
       dut.io.provisionalCount.expect(0.U)
+      dut.io.conservationValid.expect(true.B)
+
+      // Four first architectural commits replace reset mappings 0..3. Their
+      // old identity tags must reopen allocation even while all original 32
+      // speculative tags remain published-live.
+      dut.io.release.bits.count.poke(4.U)
+      for (index <- 0 until 4) {
+        val token = dut.io.release.bits.tokens(index)
+        token.valid.poke(true.B)
+        token.ptag.poke(index.U)
+        token.bank.poke((index % p.pTagBanks).U)
+        token.generation.poke(0.U)
+      }
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+      dut.clock.step() // refill the empty staging rows from recycled identities
+
+      pokeDestinations(dut, stid = 0, transactionId = 8,
+        destinations = destinations)
+      dut.io.prepareReady.expect(true.B)
+      val recycled = claim(dut)
+      assert(recycled.map(_.ptag).toSet == Set[BigInt](0, 1, 2, 3))
+      assert(recycled.forall(_.generation == 1))
+      dut.io.publishedCount.expect(32.U)
+      dut.io.provisionalCount.expect(4.U)
+      dut.io.conservationValid.expect(true.B)
+    }
+  }
+
+  test("falls back from an exhausted preferred bank after skewed identity returns") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pTagBanks = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 1)
+    simulate(new OooPTagStagingPool(p)) { dut =>
+      clear(dut)
+      dut.clock.step()
+
+      def claimAndPublish(stid: Int, transactionId: Int, atag: Int): ObservedPTag = {
+        pokeDestinations(dut, stid, transactionId,
+          destinations = Seq((0, 0, atag)))
+        val allocated = claim(dut).head
+        dut.io.publish.bits.stid.poke(stid.U)
+        dut.io.publish.bits.transactionId.poke(transactionId.U)
+        dut.io.publish.valid.poke(true.B)
+        dut.clock.step()
+        dut.io.publish.valid.poke(false.B)
+        allocated
+      }
+
+      def returnResetIdentity(stid: Int, atag: Int): Unit = {
+        val ptag = stid * p.pArchRegs + atag
+        dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+        dut.io.release.bits.count.poke(1.U)
+        dut.io.release.bits.tokens(0).valid.poke(true.B)
+        dut.io.release.bits.tokens(0).ptag.poke(ptag.U)
+        dut.io.release.bits.tokens(0).bank.poke((ptag % p.pTagBanks).U)
+        dut.io.release.bits.tokens(0).generation.poke(0.U)
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+      }
+
+      val bankZeroAtags = Seq(0, 4, 8, 12, 16, 20)
+      for (stid <- 0 until p.stidCount; transactionId <- bankZeroAtags.indices) {
+        val atag = bankZeroAtags(transactionId)
+        claimAndPublish(stid, transactionId, atag)
+        returnResetIdentity(stid, atag)
+      }
+
+      // Consume the remaining initial speculative rows in banks 2 and 3 and
+      // one recycled row in bank 0. Bank 1 has no resident or free tag left,
+      // while bank 0 still owns the deliberately skewed identity returns.
+      for (stid <- 0 until p.stidCount; transactionId <- 6 to 8) {
+        claimAndPublish(stid, transactionId, atag = 0)
+      }
+      dut.io.stagedCount(1).expect(0.U)
+      dut.io.conservationValid.expect(true.B)
+
+      pokeDestinations(dut, stid = 0, transactionId = 9,
+        destinations = Seq((0, 0, 1)))
+      dut.io.prepareReady.expect(true.B)
+      val fallback = claim(dut).head
+      assert(fallback.bank != 1,
+        "an exhausted rotating preference must fall back to another live bank")
+      dut.io.conservationValid.expect(true.B)
+    }
+  }
+
+  test("rejects an overfull fallback bundle without truncating bank demand") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 3,
+      pTagBanks = 2,
+      pTagStagingDepthPerBank = 3,
+      pTagReturnWidth = 4)
+    simulate(new OooPTagStagingPool(p)) { dut =>
+      clear(dut)
+      dut.clock.step()
+
+      // Odd transaction IDs consume only bank 1. Fourteen published claims
+      // exhaust its thirteen free-list refills and leave two staged tags,
+      // while the untouched bank 0 still has three staged tags.
+      for (claimIndex <- 0 until 14) {
+        val transactionId = claimIndex * 2 + 1
+        val stid = claimIndex % p.stidCount
+        pokeDestinations(dut, stid, transactionId,
+          destinations = Seq((0, 0, 0)))
+        claim(dut)
+        dut.io.publish.bits.stid.poke(stid.U)
+        dut.io.publish.bits.transactionId.poke(transactionId.U)
+        dut.io.publish.valid.poke(true.B)
+        dut.clock.step()
+        dut.io.publish.valid.poke(false.B)
+      }
+      dut.io.stagedCount(0).expect(3.U)
+      dut.io.stagedCount(1).expect(2.U)
+
+      val sixDestinations = for {
+        uop <- 0 until 3
+        destination <- 0 until 2
+      } yield (uop, destination, uop * 2 + destination)
+      pokeDestinations(dut, stid = 0, transactionId = 29,
+        destinations = sixDestinations)
+      dut.io.prepareReady.expect(false.B)
+      dut.io.reserveFire.poke(false.B)
+      dut.clock.step()
+      dut.io.provisionalCount.expect(0.U)
+      dut.io.publishedCount.expect(14.U)
       dut.io.conservationValid.expect(true.B)
     }
   }

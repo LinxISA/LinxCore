@@ -132,6 +132,13 @@ class OooD2GroupPlanner(val p: OooParams = OooParams()) extends Module {
     group.physicalMemberCount := (0 until p.decodedUopWidth).map { uopIndex =>
       Mux(group.logicalUopMask(uopIndex), io.in.bits.uops(uopIndex).plannedChildCount, 0.U)
     }.reduce(_ +& _)
+    group.pMapQRows := (0 until p.decodedUopWidth).flatMap { uopIndex =>
+      (0 until p.maxDestinationOperands).map { destinationIndex =>
+        val destination = io.in.bits.uops(uopIndex).destinations(destinationIndex)
+        Mux(group.logicalUopMask(uopIndex) && destination.valid &&
+          destination.kind === linxcore.common.DestinationKind.Gpr, 1.U, 0.U)
+      }
+    }.reduce(_ +& _)
     group.architecturalParentCount := (0 until p.decodedUopWidth).map { uopIndex =>
       val uop = io.in.bits.uops(uopIndex)
       val traceParents = PopCount(uop.identity.parents.zipWithIndex.map {

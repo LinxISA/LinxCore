@@ -11,6 +11,7 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.cancel.foreach(_.poke(false.B))
+    dut.io.publishEligible.foreach(_.poke(true.B))
     dut.io.out.ready.poke(false.B)
   }
 
@@ -134,6 +135,58 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.in.valid.poke(false.B)
       dut.io.usedGroups(0).expect(0.U)
+    }
+  }
+
+  test("skips an ineligible STID and publishes another provisional row") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooD3ReservationAllocator(p)) { dut =>
+      clear(dut)
+      pokePlan(dut, 0, transactionId = 0, groupCount = 1, 0, 0, 0)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.publishEligible(0).poke(false.B)
+      dut.io.out.valid.expect(false.B)
+
+      pokePlan(dut, 1, transactionId = 0, groupCount = 1, 0, 0, 0)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.provisionalMask.expect("b0011".U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.stid.expect(1.U)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.out.ready.poke(false.B)
+      dut.io.provisionalMask.expect("b0001".U)
+
+      dut.io.publishEligible(0).poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.stid.expect(0.U)
+    }
+  }
+
+  test("never withdraws an exposed grant when eligibility changes") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooD3ReservationAllocator(p)) { dut =>
+      clear(dut)
+      pokePlan(dut, 0, transactionId = 0, groupCount = 1, 0, 0, 0)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.transactionId.expect(0.U)
+      dut.clock.step() // capture the exposed blocked grant
+
+      dut.io.publishEligible(0).poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.transactionId.expect(0.U)
+      dut.clock.step(3)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.transactionId.expect(0.U)
+
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.provisionalMask.expect(0.U)
     }
   }
 

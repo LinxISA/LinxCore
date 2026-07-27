@@ -263,6 +263,19 @@ class OooPRenamePrepareReject(val p: OooParams = OooParams()) extends Bundle {
   val lease = new OooPTagReservation(p)
 }
 
+/** Side-effect-free P-map retirement view for one retained ROB commit batch. */
+class OooPRenameCommitPrepared(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val mapQRowCount = UInt(p.commitMapQRowCountWidth.W)
+}
+
+class OooPRenameCommitReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobCommitBatch(p)
+  val mapQHead = UInt(p.pMapQIndexWidth.W)
+  val mapQCount = UInt(p.pMapQCountWidth.W)
+}
+
 class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val bank = UInt(p.pTagBankWidth.W)
@@ -345,6 +358,7 @@ class OooRobGroupPreview(val p: OooParams = OooParams()) extends Bundle {
   val firstLogicalUop = UInt(p.decodedUopIndexWidth.W)
   val logicalUopCount = UInt(p.decodedUopCountWidth.W)
   val physicalMemberCount = UInt(p.robMemberCountWidth.W)
+  val pMapQRows = UInt(p.destinationDemandWidth.W)
   val architecturalParentCount = UInt(p.robGroupParentDemandWidth.W)
   val boundaryStart = Bool()
   val boundaryStop = Bool()
@@ -413,6 +427,7 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val residentGeneration = UInt(p.residentGenerationWidth.W)
   val logicalUopMask = UInt(p.decodedUopWidth.W)
   val physicalMemberCount = UInt(p.robMemberCountWidth.W)
+  val pMapQRows = UInt(p.destinationDemandWidth.W)
   val completedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
   val architecturalParentCount = UInt(p.robGroupParentDemandWidth.W)
   val boundaryStart = Bool()

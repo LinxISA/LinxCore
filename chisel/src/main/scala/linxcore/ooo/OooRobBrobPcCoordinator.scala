@@ -6,6 +6,7 @@ import chisel3.util.{Decoupled, Valid}
 class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
+  val publishEligible = Input(Vec(p.stidCount, Bool()))
 
   // Later RENU/dispatch owners inspect this immutable D3 view and assert the
   // permit only when their own reservations can join the same publication.
@@ -59,6 +60,14 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
 
   d3.io.in <> io.reserve
   d3.io.cancel := io.cancel
+  val rawCommitStid = rob.io.commit.bits.release.firstGroup.stid
+  val rawCommitStidInRange = rawCommitStid < p.stidCount.U
+  for (stid <- 0 until p.stidCount) {
+    // An older raw ROB head gets same-STID priority before D3 exposes a new
+    // grant. Different STIDs remain independently eligible.
+    d3.io.publishEligible(stid) := io.publishEligible(stid) &&
+      !(rob.io.commit.valid && rawCommitStidInRange && rawCommitStid === stid.U)
+  }
 
   brob.io.prepare.valid := d3.io.out.valid
   brob.io.prepare.bits := d3.io.out.bits

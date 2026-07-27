@@ -9,6 +9,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.valid.poke(false.B)
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
     dut.io.cancel.foreach(_.poke(false.B))
+    dut.io.publishEligible.foreach(_.poke(true.B))
     dut.io.publishPermit.poke(false.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))

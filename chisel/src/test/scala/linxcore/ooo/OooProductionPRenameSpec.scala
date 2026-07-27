@@ -11,6 +11,10 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.ptagLease.poke(0.U.asTypeOf(dut.io.ptagLease))
     dut.io.publishFire.poke(false.B)
+    dut.io.commitPrepare.valid.poke(false.B)
+    dut.io.commitPrepare.bits.poke(0.U.asTypeOf(dut.io.commitPrepare.bits))
+    dut.io.commitFire.poke(false.B)
+    dut.io.ptagReturn.ready.poke(false.B)
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(0.U)
   }
@@ -21,7 +25,10 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       transactionId: Int,
       atag: Int,
       firstPtag: Int,
-      secondPtag: Int): Unit = {
+      secondPtag: Int,
+      splitAcrossGroups: Boolean = false,
+      firstRidSlot: Int = 4,
+      firstRidGeneration: Int = 2): Unit = {
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.ptagLease.poke(0.U.asTypeOf(dut.io.ptagLease))
 
@@ -33,29 +40,38 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     transaction.plan.epoch.poke(5.U)
     transaction.plan.transactionId.poke(transactionId.U)
     transaction.plan.uopMask.poke(3.U)
-    transaction.plan.groupCount.poke(1.U)
+    val groupCount = if (splitAcrossGroups) 2 else 1
+    transaction.plan.groupCount.poke(groupCount.U)
     transaction.plan.demand.pDestinations.poke(2.U)
     transaction.plan.demand.mapQRows.poke(2.U)
     transaction.decoded.peId.poke(3.U)
     transaction.decoded.stid.poke(stid.U)
     transaction.decoded.epoch.poke(5.U)
     transaction.decoded.uopMask.poke(3.U)
-    transaction.groupMask.poke(1.U)
-    transaction.groups(0).valid.poke(true.B)
-    transaction.groups(0).key.valid.poke(true.B)
-    transaction.groups(0).key.peId.poke(3.U)
-    transaction.groups(0).key.stid.poke(stid.U)
-    transaction.groups(0).key.ridSlot.poke(4.U)
-    transaction.groups(0).key.ridGeneration.poke(2.U)
-    transaction.groups(0).logicalUopMask.poke(3.U)
-    transaction.groups(0).physicalMemberCount.poke(2.U)
-    request.bindings(0).valid.poke(true.B)
-    request.bindings(0).brob.valid.poke(true.B)
-    request.bindings(0).brob.bid.valid.poke(true.B)
-    request.bindings(0).brob.bid.value.poke(7.U)
-    request.bindings(0).brob.generation.poke(3.U)
-    request.bindings(0).pcBase.valid.poke(true.B)
-    request.bindings(0).residentGeneration.poke(9.U)
+    transaction.groupMask.poke(((1 << groupCount) - 1).U)
+    for (groupIndex <- 0 until groupCount) {
+      val group = transaction.groups(groupIndex)
+      group.valid.poke(true.B)
+      group.key.valid.poke(true.B)
+      group.key.peId.poke(3.U)
+      group.key.stid.poke(stid.U)
+      val absoluteSlot = firstRidSlot + groupIndex
+      group.key.ridSlot.poke((absoluteSlot % dut.p.robGroupsPerStid).U)
+      group.key.ridGeneration.poke(
+        (firstRidGeneration + absoluteSlot / dut.p.robGroupsPerStid).U)
+      group.logicalUopMask.poke(
+        (if (splitAcrossGroups) 1 << groupIndex else 3).U)
+      group.physicalMemberCount.poke(
+        (if (splitAcrossGroups) 1 else 2).U)
+      group.pMapQRows.poke((if (splitAcrossGroups) 1 else 2).U)
+      request.bindings(groupIndex).valid.poke(true.B)
+      request.bindings(groupIndex).brob.valid.poke(true.B)
+      request.bindings(groupIndex).brob.bid.valid.poke(true.B)
+      request.bindings(groupIndex).brob.bid.value.poke(7.U)
+      request.bindings(groupIndex).brob.generation.poke(3.U)
+      request.bindings(groupIndex).pcBase.valid.poke(true.B)
+      request.bindings(groupIndex).residentGeneration.poke(9.U)
+    }
 
     for (uopIndex <- 0 until 2) {
       val uop = transaction.decoded.uops(uopIndex)
@@ -67,8 +83,10 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       uop.destinations(0).valid.poke(true.B)
       uop.destinations(0).kind.poke(DestinationKind.Gpr)
       uop.destinations(0).atag.poke(atag.U)
-      transaction.uopGroupIndex(uopIndex).poke(0.U)
-      transaction.uopMemberBase(uopIndex).poke(uopIndex.U)
+      transaction.uopGroupIndex(uopIndex).poke(
+        (if (splitAcrossGroups) uopIndex else 0).U)
+      transaction.uopMemberBase(uopIndex).poke(
+        (if (splitAcrossGroups) 0 else uopIndex).U)
     }
 
     dut.io.ptagLease.valid.poke(true.B)
@@ -98,6 +116,79 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     dut.clock.step()
     dut.io.publishFire.poke(false.B)
     dut.io.prepare.valid.poke(false.B)
+  }
+
+  private def pokeOneGroupCommit(
+      dut: OooProductionPRename,
+      stid: Int,
+      transactionId: Int,
+      pRows: Int,
+      firstRidSlot: Int = 4,
+      firstRidGeneration: Int = 2): Unit = {
+    dut.io.commitPrepare.bits.poke(0.U.asTypeOf(dut.io.commitPrepare.bits))
+    val batch = dut.io.commitPrepare.bits
+    batch.release.firstGroup.valid.poke(true.B)
+    batch.release.firstGroup.peId.poke(3.U)
+    batch.release.firstGroup.stid.poke(stid.U)
+    batch.release.firstGroup.ridSlot.poke(firstRidSlot.U)
+    batch.release.firstGroup.ridGeneration.poke(firstRidGeneration.U)
+    batch.release.groupCount.poke(1.U)
+    val group = batch.groups(0)
+    group.valid.poke(true.B)
+    group.key.valid.poke(true.B)
+    group.key.peId.poke(3.U)
+    group.key.stid.poke(stid.U)
+    group.key.ridSlot.poke(firstRidSlot.U)
+    group.key.ridGeneration.poke(firstRidGeneration.U)
+    group.transactionId.poke(transactionId.U)
+    group.brob.valid.poke(true.B)
+    group.brob.bid.valid.poke(true.B)
+    group.brob.bid.value.poke(7.U)
+    group.brob.generation.poke(3.U)
+    group.pcBase.valid.poke(true.B)
+    group.residentGeneration.poke(9.U)
+    group.logicalUopMask.poke(3.U)
+    group.physicalMemberCount.poke(2.U)
+    group.completedMembers.poke(3.U)
+    group.pMapQRows.poke(pRows.U)
+    dut.io.commitPrepare.valid.poke(true.B)
+  }
+
+  private def pokeTwoGroupCommit(
+      dut: OooProductionPRename,
+      stid: Int,
+      transactionId: Int,
+      firstRidSlot: Int = 4,
+      firstRidGeneration: Int = 2): Unit = {
+    pokeOneGroupCommit(dut, stid, transactionId, pRows = 1,
+      firstRidSlot = firstRidSlot, firstRidGeneration = firstRidGeneration)
+    val batch = dut.io.commitPrepare.bits
+    batch.release.groupCount.poke(2.U)
+    val second = batch.groups(1)
+    second.valid.poke(true.B)
+    second.key.valid.poke(true.B)
+    second.key.peId.poke(3.U)
+    second.key.stid.poke(stid.U)
+    val secondAbsoluteSlot = firstRidSlot + 1
+    second.key.ridSlot.poke(
+      (secondAbsoluteSlot % dut.p.robGroupsPerStid).U)
+    second.key.ridGeneration.poke(
+      (firstRidGeneration + secondAbsoluteSlot / dut.p.robGroupsPerStid).U)
+    second.transactionId.poke(transactionId.U)
+    second.brob.valid.poke(true.B)
+    second.brob.bid.valid.poke(true.B)
+    second.brob.bid.value.poke(7.U)
+    second.brob.generation.poke(3.U)
+    second.pcBase.valid.poke(true.B)
+    second.residentGeneration.poke(9.U)
+    second.logicalUopMask.poke(2.U)
+    second.physicalMemberCount.poke(1.U)
+    second.completedMembers.poke(1.U)
+    second.pMapQRows.poke(1.U)
+    val first = batch.groups(0)
+    first.logicalUopMask.poke(1.U)
+    first.physicalMemberCount.poke(1.U)
+    first.completedMembers.poke(1.U)
   }
 
   test("forwards same-transaction P RAW and WAW while publishing exact MapQ rows") {
@@ -143,6 +234,32 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.speculativeMapping.ptag.expect(97.U)
       dut.io.committedMapping.ptag.expect(27.U)
       dut.io.mapQUsed(0).expect(0.U)
+
+      pokeOneGroupCommit(dut, stid = 1, transactionId = 10, pRows = 2)
+      dut.io.commitReady.expect(false.B)
+      dut.clock.step() // lock the retained batch
+      dut.io.commitBusy.expect(true.B)
+      dut.io.ptagReturn.valid.expect(true.B)
+      dut.io.ptagReturn.bits.count.expect(2.U)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(27.U)
+      dut.io.ptagReturn.bits.tokens(0).generation.expect(0.U)
+      dut.io.ptagReturn.bits.tokens(1).ptag.expect(96.U)
+      dut.io.ptagReturn.bits.tokens(1).generation.expect(1.U)
+      dut.clock.step(2)
+      dut.io.mapQUsed(1).expect(2.U)
+      dut.io.committedMapping.ptag.expect(27.U)
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitPrepared.mapQRowCount.expect(2.U)
+      dut.io.mapQUsed(1).expect(0.U)
+      dut.io.committedMapping.ptag.expect(97.U)
+      dut.io.commitFire.poke(true.B)
+      dut.clock.step()
+      dut.io.commitFire.poke(false.B)
+      dut.io.commitPrepare.valid.poke(false.B)
+      dut.io.commitBusy.expect(false.B)
     }
   }
 
@@ -181,6 +298,140 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.prepareReady.expect(false.B)
       dut.clock.step()
       dut.io.mapQUsed(2).expect(0.U)
+    }
+  }
+
+  test("serializes CMAP and old-PTag retirement at return width one") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 1)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 0, transactionId = 0, atag = 1,
+        firstPtag = 96, secondPtag = 97)
+      publish(dut)
+      dut.io.queryAtag.poke(1.U)
+      pokeOneGroupCommit(dut, stid = 0, transactionId = 0, pRows = 2)
+      dut.clock.step() // lock batch
+      dut.io.commitBusy.expect(true.B)
+      dut.io.ptagReturn.valid.expect(true.B)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(1.U)
+      dut.io.ptagReturn.bits.tokens(0).generation.expect(0.U)
+      dut.clock.step(2)
+      dut.io.mapQUsed(0).expect(2.U)
+      dut.io.committedMapping.ptag.expect(1.U)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(1.U)
+
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step() // return reset mapping and commit first row
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.mapQUsed(0).expect(1.U)
+      dut.io.committedMapping.ptag.expect(96.U)
+      dut.io.ptagReturn.valid.expect(true.B)
+      dut.io.ptagReturn.bits.count.expect(1.U)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(96.U)
+      dut.io.ptagReturn.bits.tokens(0).generation.expect(1.U)
+      dut.clock.step(2)
+      dut.io.mapQUsed(0).expect(1.U)
+      dut.io.committedMapping.ptag.expect(96.U)
+      dut.io.ptagReturn.bits.tokens(0).ptag.expect(96.U)
+
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.mapQUsed(0).expect(0.U)
+      dut.io.committedMapping.ptag.expect(97.U)
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitFire.poke(true.B)
+      dut.clock.step()
+      dut.io.commitFire.poke(false.B)
+      dut.io.commitPrepare.valid.poke(false.B)
+      dut.io.commitBusy.expect(false.B)
+    }
+  }
+
+  test("rejects underreported or stale commit identity with zero mutation") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 1)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 1, transactionId = 10, atag = 3,
+        firstPtag = 96, secondPtag = 97)
+      publish(dut)
+      dut.io.queryStid.poke(1.U)
+      dut.io.queryAtag.poke(3.U)
+
+      pokeOneGroupCommit(dut, stid = 1, transactionId = 10, pRows = 1)
+      dut.io.commitRejected.valid.expect(true.B)
+      dut.clock.step(2)
+      dut.io.commitBusy.expect(false.B)
+      dut.io.mapQUsed(1).expect(2.U)
+      dut.io.committedMapping.ptag.expect(27.U)
+
+      pokeOneGroupCommit(dut, stid = 1, transactionId = 11, pRows = 2)
+      dut.io.commitRejected.valid.expect(true.B)
+      dut.clock.step(2)
+      dut.io.commitBusy.expect(false.B)
+      dut.io.mapQUsed(1).expect(2.U)
+      dut.io.committedMapping.ptag.expect(27.U)
+      dut.io.ptagReturn.valid.expect(false.B)
+    }
+  }
+
+  test("validates a wrapped two-group commit before draining either group") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      retireGroupWidth = 2,
+      robGroupsPerStid = 4,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 2)
+    simulate(new OooProductionPRename(p)) { dut =>
+      clear(dut)
+      pokeTwoUopChain(dut, stid = 2, transactionId = 12, atag = 4,
+        firstPtag = 96, secondPtag = 97, splitAcrossGroups = true,
+        firstRidSlot = 3, firstRidGeneration = 2)
+      dut.io.prepared.mapQRows(0).member.group.ridSlot.expect(3.U)
+      dut.io.prepared.mapQRows(2).member.group.ridSlot.expect(0.U)
+      dut.io.prepared.mapQRows(2).member.group.ridGeneration.expect(3.U)
+      publish(dut)
+      dut.io.queryStid.poke(2.U)
+      dut.io.queryAtag.poke(4.U)
+
+      pokeTwoGroupCommit(dut, stid = 2, transactionId = 12,
+        firstRidSlot = 3, firstRidGeneration = 2)
+      dut.io.commitPrepare.bits.groups(1).residentGeneration.poke(10.U)
+      dut.io.commitRejected.valid.expect(true.B)
+      dut.clock.step(2)
+      dut.io.commitBusy.expect(false.B)
+      dut.io.mapQUsed(2).expect(2.U)
+      dut.io.committedMapping.ptag.expect(52.U)
+
+      pokeTwoGroupCommit(dut, stid = 2, transactionId = 12,
+        firstRidSlot = 3, firstRidGeneration = 2)
+      dut.clock.step() // retain the exact wrapped batch
+      dut.io.commitBusy.expect(true.B)
+      dut.io.ptagReturn.valid.expect(true.B)
+      dut.io.ptagReturn.bits.count.expect(2.U)
+      dut.io.ptagReturn.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.ptagReturn.ready.poke(false.B)
+      dut.io.mapQUsed(2).expect(0.U)
+      dut.io.committedMapping.ptag.expect(97.U)
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitFire.poke(true.B)
+      dut.clock.step()
+      dut.io.commitFire.poke(false.B)
+      dut.io.commitPrepare.valid.poke(false.B)
+      dut.io.commitBusy.expect(false.B)
     }
   }
 
