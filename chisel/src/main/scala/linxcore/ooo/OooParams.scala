@@ -126,6 +126,7 @@ final case class OooParams(
   def renameCountWidth: Int = countWidth(renameWidth)
   def dispatchCountWidth: Int = countWidth(dispatchWidth)
   def robGroupCountWidth: Int = countWidth(instructionDecodeWidth)
+  def robReleaseCountWidth: Int = countWidth(retireGroupWidth)
   def robGroupIndexWidth: Int = math.max(1, log2Ceil(instructionDecodeWidth))
   def robGroupParentDemandWidth: Int =
     countWidth(maxInstPerRobGroup + maxArchitecturalParentRefs)

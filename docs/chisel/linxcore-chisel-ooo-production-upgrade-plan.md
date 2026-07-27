@@ -85,7 +85,7 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
-| O3 grouped ROB/BROB/PC | In progress | combinational D2 virtual group planner; exact wrap-aware RID keys; parent/member caps; block/PC-release splits; typed private per-STID D2 transactions with retained fair grant | D3 reservation, atomic S1 publication, grouped completion, BROB, and PC-buffer storage |
+| O3 grouped ROB/BROB/PC | In progress | D2 virtual grouping and typed retention; D3 per-STID provisional tail/capacity claims; fail-closed stale/malformed plan rejection; exact head-key/epoch release; independent decode/retire widths | atomic S1 ROB-row publication, grouped member completion, BROB, and PC-buffer storage |
 | O4–O9 | Not started | current compatibility owners remain migration evidence | RENU through benchmark promotion |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current

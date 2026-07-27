@@ -138,6 +138,22 @@ blocked; targeted cancellation removes only the matching row. Live allocator
 snapshots are not reread into a retained transaction, so D3 sees the original
 tail epoch and can reject it if the physical tail advanced later.
 
+`OooD3ReservationAllocator` owns provisional grouped-ROB capacity and the
+reserved tail for each STID. It accepts a D2 transaction only when the captured
+tail epoch, transaction identity, dense group mask, every group-valid bit, and
+every sequential PE/STID/slot/generation key match live state. Stale or
+malformed plans are consumed into a typed reject event with zero allocator
+mutation. One provisional claim per STID may be canceled and rolled back
+exactly; an S1 output handshake removes only the provisional marker while
+retaining published capacity usage.
+
+Claimed `usedGroups` and S1-visible `publishedGroups` are separate counters.
+Release is authorized by exact `{first RobGroupKey, headEpoch, groupCount}` and
+is bounded by independent `retireGroupWidth`, not decode width. The allocator
+tracks head PE/STID/slot/generation/epoch; stale, duplicate, wrong-generation,
+over-published, or over-bandwidth release requests report a reject and mutate
+nothing. Exact release alone advances the head and returns capacity.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -172,6 +188,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
 bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
+bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -191,3 +208,7 @@ and 2/4/6-width elaboration without physical state mutation.
 The retained-stage tests cover concurrent private STID rows, stable shared
 grant backpressure, selected-STID cancellation, and immutable tail-epoch
 retention after the live allocator snapshot advances.
+The D3 tests cover fresh provisional claim, stable S1 publication handoff,
+stale/malformed plan zero-mutation rejection, provisional-only rollback,
+published-capacity preservation, exact release, wrong-generation release,
+over-retire-width release, and decode-width/retire-width independence.

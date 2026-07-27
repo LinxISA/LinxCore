@@ -253,6 +253,31 @@ class OooD2GroupedTransaction(val p: OooParams = OooParams()) extends Bundle {
   val uopMemberBase = Vec(p.decodedUopWidth, UInt(p.robMemberIndexWidth.W))
 }
 
+class OooD3GroupedReservation(val p: OooParams = OooParams()) extends Bundle {
+  val transaction = new OooD2GroupedTransaction(p)
+  val claimEpoch = UInt(p.reservationEpochWidth.W)
+  val tailAfter = new RobGroupKey(p)
+}
+
+class OooRobGroupRelease(val p: OooParams = OooParams()) extends Bundle {
+  val firstGroup = new RobGroupKey(p)
+  val headEpoch = UInt(p.reservationEpochWidth.W)
+  val groupCount = UInt(p.robReleaseCountWidth.W)
+}
+
+class OooD3StalePlanReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val plannedTailEpoch = UInt(p.reservationEpochWidth.W)
+  val liveTailEpoch = UInt(p.reservationEpochWidth.W)
+}
+
+class OooD3ReleaseReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobGroupRelease(p)
+  val liveHead = new RobGroupKey(p)
+  val liveHeadEpoch = UInt(p.reservationEpochWidth.W)
+}
+
 class OooD3Reservation(val p: OooParams = OooParams()) extends Bundle {
   val plan = new OooD2VirtualPlan(p)
   val groupValidMask = UInt(p.instructionDecodeWidth.W)
