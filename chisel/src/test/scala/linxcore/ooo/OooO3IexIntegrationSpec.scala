@@ -66,6 +66,10 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   issue.io.release.bits := io.release.bits
   io.release.ready := issue.io.release.ready
   issue.io.query := io.query
+  issue.io.recoveryPrepare.valid := false.B
+  issue.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(issue.io.recoveryPrepare.bits)
+  issue.io.recoveryFire := false.B
 
   io.publishFire := coordinator.io.publishFire
   io.s2Bind := issue.io.s2Bind

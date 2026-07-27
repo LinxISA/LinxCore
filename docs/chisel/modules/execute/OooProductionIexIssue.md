@@ -12,6 +12,7 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooProductionIexIssue.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooBundles.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooProductionIexIssueSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooProductionIexRecoverySpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
 
 ## Stage ownership
@@ -60,6 +61,21 @@ Release is fail-closed. It requires the exact member and complete dispatch
 reservation, including class-local entry, write port, and reservation epoch.
 The IQ row and dispatch allocation return on one Decoupled fire.
 
+## Recovery
+
+The owner consumes a compact `OooResidencyRecoveryPlan` projected from the
+complete grouped-ROB plan. Prepare freezes only the target STID, validates
+every retained S1/S2/S3 member against the exact wrapped ROB window, and
+reports killed residency without mutation. Apply prunes killed lanes from the
+retained S1 claim and pending S3 mask, frees exact killed `BoundS2` and
+`ResidentS3` rows, and clears matching generation-qualified P/T/U readiness
+records. A surviving partial pivot remains resident and pickable; unrelated
+STIDs continue. Because wakeup is a non-backpressured `Valid` input, target
+STID wakeup during prepare is an assertion failure rather than a silently
+dropped readiness event; global R0-R4 must quiesce those producers before
+prepare. The port is deliberately tied off above this module until that
+coordinator can fire all recovery owners atomically.
+
 ## Remaining production gaps
 
 - P1/I1/I2 retained execution-pipe stages and cross-pipe arbitration.
@@ -68,9 +84,11 @@ The IQ row and dispatch allocation return on one Decoupled fire.
 - Speculative issue inflight state, cancel/retry, and the rule that only a
   non-cancellable I2 terminal event releases the physical row.
 - RF read-port arbitration, operand bypass, and result/wakeup buses.
-- O7 global recovery joining IQ claims/rows with ROB, BROB, PC, and rename.
+- O7 global recovery composition joining this direct owner with ROB, D3,
+  BROB, PC, rename, dispatch, fast resolve, frontend, and CTU.
 - O8 hierarchical/FIFO free selection, bank/port cost steering, safe-mode
-  thresholds, and default-geometry timing/area closure.
+  thresholds, compact scheduling-row/recipe-sidecar separation, and
+  default-geometry timing/area closure.
 - Per-class multi-pick liveness counters and coverage closure.
 
 The legacy `ReducedScalarIssue*` modules remain compatibility evidence until a
@@ -81,6 +99,7 @@ used as the semantic authority for this module.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooProductionIexIssue
+bash tools/chisel/run_chisel_tests.sh --only OooProductionIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```
@@ -88,6 +107,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 The focused UT covers retained-stage timing, fair STID arbitration, target
 claim collisions, split atomicity, compact row payload, registered wakeup,
 same-edge wakeup plus S2 bind, exact release/backpressure, malformed requests,
-and widths 2/4/6. The IT
+and widths 2/4/6. The compact recovery UT covers partial-pivot S1/S2/S3 pruning,
+survivor residency, complete cancellation, and cross-STID isolation. The IT
 connects the real O3/RENU/dispatch coordinator and proves publication,
 residency, and dispatch-slot return share the exact transactions.

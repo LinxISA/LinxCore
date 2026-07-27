@@ -11,6 +11,7 @@ private object OooProductionDispatchSpec {
       port: Int,
       slot: Int,
       epoch: Int,
+      lane: Int,
       uopIndex: Int,
       childIndex: Int)
 }
@@ -27,6 +28,10 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.publish.bits.poke(0.U.asTypeOf(dut.io.publish.bits))
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
   }
 
   private def pokeTransaction(
@@ -81,6 +86,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
           port = allocation.reservation.writePort.peek().litValue.toInt,
           slot = allocation.reservation.speculativeSlot.peek().litValue.toInt,
           epoch = allocation.reservation.reservationEpoch.peek().litValue.toInt,
+          lane = lane,
           uopIndex = allocation.uopIndex.peek().litValue.toInt,
           childIndex = allocation.childIndex.peek().litValue.toInt))
       } else {
@@ -111,6 +117,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     request.stid.poke(stid.U)
     request.epoch.poke(5.U)
     request.transactionId.poke(transactionId.U)
+    pokeMember(request.member, stid, transactionId, token.lane)
     request.reservation.valid.poke(true.B)
     pokeClass(request.reservation.uopClass, token.uopClass)
     request.reservation.bank.poke(token.bank.U)
@@ -142,15 +149,64 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
   private def publish(
       dut: OooProductionDispatch,
       stid: Int,
-      transactionId: Int): Unit = {
+      transactionId: Int,
+      tokens: Vector[Token]): Unit = {
     dut.io.publish.bits.peId.poke(3.U)
     dut.io.publish.bits.stid.poke(stid.U)
     dut.io.publish.bits.epoch.poke(5.U)
     dut.io.publish.bits.transactionId.poke(transactionId.U)
+    dut.io.publish.bits.memberMask.poke(
+      tokens.map(token => 1 << token.lane).sum.U)
+    tokens.foreach { token =>
+      pokeMember(dut.io.publish.bits.members(token.lane),
+        stid, transactionId, token.lane)
+    }
     dut.io.publish.valid.poke(true.B)
     dut.io.publishRejected.valid.expect(false.B)
     dut.clock.step()
     dut.io.publish.valid.poke(false.B)
+  }
+
+  private def pokeMember(
+      member: RobMemberKey,
+      stid: Int,
+      transactionId: Int,
+      memberIndex: Int): Unit = {
+    member.poke(0.U.asTypeOf(member))
+    member.group.valid.poke(true.B)
+    member.group.peId.poke(3.U)
+    member.group.stid.poke(stid.U)
+    member.group.ridSlot.poke((transactionId & 7).U)
+    member.group.ridGeneration.poke(0.U)
+    member.bid.valid.poke(true.B)
+    member.bid.value.poke((stid + 1).U)
+    member.brobGeneration.poke(0.U)
+    member.memberIndex.poke(memberIndex.U)
+    member.residentGeneration.poke(1.U)
+  }
+
+  private def pokeRecoveryPlan(
+      dut: OooProductionDispatch,
+      stid: Int,
+      pivotPhysicalMembers: Int,
+      survivingPhysicalMembers: Int): Unit = {
+    val plan = dut.io.recoveryPrepare.bits
+    plan.poke(0.U.asTypeOf(plan))
+    plan.valid.poke(true.B)
+    plan.oldHead.valid.poke(true.B)
+    plan.oldHead.peId.poke(3.U)
+    plan.oldHead.stid.poke(stid.U)
+    plan.oldHead.ridSlot.poke(0.U)
+    plan.oldHead.ridGeneration.poke(0.U)
+    plan.oldOccupied.poke(1.U)
+    plan.newOccupied.poke(1.U)
+    plan.pivotOffset.poke(0.U)
+    pokeMember(plan.pivot, stid, transactionId = 0, memberIndex = 0)
+    plan.pivotPhysicalMemberCount.poke(pivotPhysicalMembers.U)
+    plan.survivingPivotValid.poke(true.B)
+    plan.survivingPivotPhysicalMemberCount
+      .poke(survivingPhysicalMembers.U)
+    dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
   test("reserves publishes releases and generation-qualifies a split bundle") {
@@ -181,7 +237,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.provisionalEntries(2)(1).expect(1.U)
       dut.io.provisionalEntries(3)(0).expect(1.U)
 
-      publish(dut, stid = 1, transactionId = 0)
+      publish(dut, stid = 1, transactionId = 0, first)
       dut.io.provisional(1).valid.expect(false.B)
       dut.io.publishedEntries(0)(0).expect(1.U)
       dut.io.publishedEntries(2)(1).expect(1.U)
@@ -235,7 +291,8 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       val zero = Vector.fill(p.iqClassCount)(0)
       val alu = zero.updated(0, 1)
       reserve(dut, stid = 0, transactionId = 0, demands = Vector(alu))
-      reserve(dut, stid = 2, transactionId = 0, demands = Vector(alu))
+      val stid2 = reserve(dut, stid = 2, transactionId = 0,
+        demands = Vector(alu))
       dut.io.provisional(0).valid.expect(true.B)
       dut.io.provisional(2).valid.expect(true.B)
       dut.io.cancel(0).poke(true.B)
@@ -243,7 +300,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.cancel(0).poke(false.B)
       dut.io.provisional(0).valid.expect(false.B)
       dut.io.provisional(2).valid.expect(true.B)
-      publish(dut, stid = 2, transactionId = 0)
+      publish(dut, stid = 2, transactionId = 0, stid2)
 
       val twoAlu = zero.updated(0, 2)
       pokeTransaction(dut, stid = 1, transactionId = 0,
@@ -281,7 +338,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       val alu = Vector.fill(p.iqClassCount)(0).updated(0, 1)
       val token = reserve(dut, stid = 0, transactionId = 0,
         demands = Vector(alu)).head
-      publish(dut, stid = 0, transactionId = 0)
+      publish(dut, stid = 0, transactionId = 0, Vector(token))
 
       val stale = token.copy(epoch = token.epoch + 1)
       val request = dut.io.release.bits
@@ -290,6 +347,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       request.stid.poke(0.U)
       request.epoch.poke(5.U)
       request.transactionId.poke(0.U)
+      pokeMember(request.member, 0, 0, token.lane)
       request.reservation.valid.poke(true.B)
       pokeClass(request.reservation.uopClass, stale.uopClass)
       request.reservation.bank.poke(stale.bank.U)
@@ -312,6 +370,69 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.valid.poke(false.B)
       dut.io.publishedEntries(token.uopClass)(token.bank).expect(1.U)
       release(dut, 0, 0, token)
+    }
+  }
+
+  test("recovers provisional state and an exact published member suffix") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 4,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooProductionDispatch(p)) { dut =>
+      clear(dut)
+      val zero = Vector.fill(p.iqClassCount)(0)
+      val twoAlu = zero.updated(0, 2)
+      val oneAlu = zero.updated(0, 1)
+      val published = reserve(dut, stid = 1, transactionId = 0,
+        demands = Vector(twoAlu, oneAlu))
+      publish(dut, stid = 1, transactionId = 0, published)
+      val provisional = reserve(dut, stid = 1, transactionId = 2,
+        demands = Vector(zero.updated(1, 1)))
+      val unrelated = reserve(dut, stid = 2, transactionId = 4,
+        demands = Vector(zero.updated(2, 1)))
+
+      pokeRecoveryPlan(dut, stid = 1, pivotPhysicalMembers = 3,
+        survivingPhysicalMembers = 1)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.provisionalKilled.expect(1.U)
+      dut.io.recoveryPrepared.publishedKilled.expect(2.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.provisional(1).valid.expect(false.B)
+      dut.io.provisional(2).valid.expect(true.B)
+      dut.io.publishedByStid(1).expect(1.U)
+      assert(provisional.nonEmpty && unrelated.nonEmpty)
+
+      release(dut, 1, 0, published.head)
+      dut.io.publishedByStid(1).expect(0.U)
+      val killed = published(1)
+      val request = dut.io.release.bits
+      request.poke(0.U.asTypeOf(request))
+      request.peId.poke(3.U)
+      request.stid.poke(1.U)
+      request.epoch.poke(5.U)
+      request.transactionId.poke(0.U)
+      pokeMember(request.member, 1, 0, killed.lane)
+      request.reservation.valid.poke(true.B)
+      pokeClass(request.reservation.uopClass, killed.uopClass)
+      request.reservation.bank.poke(killed.bank.U)
+      request.reservation.writePort.poke(killed.port.U)
+      request.reservation.speculativeSlot.poke(killed.slot.U)
+      request.reservation.reservationEpoch.poke(killed.epoch.U)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.ready.expect(false.B)
+      dut.io.releaseRejected.valid.expect(true.B)
     }
   }
 

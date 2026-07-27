@@ -553,6 +553,26 @@ class OooRobRecoveryPlan(val p: OooParams = OooParams()) extends Bundle {
   val newTail = new RobGroupKey(p)
 }
 
+/** Compact ROB-authorized window consumed by physical residency owners.
+  *
+  * The global R0-R4 coordinator projects this view once from the complete ROB
+  * plan. Dispatch, IEX, and fast resolve need neither the killed-group record
+  * vector nor the ROB/BROB/PC repair payload; exposing those fields on every
+  * physical queue owner would create wide unused public ports and duplicate
+  * recovery CAM structure.
+  */
+class OooResidencyRecoveryPlan(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val oldHead = new RobGroupKey(p)
+  val oldOccupied = UInt(p.nonFlushPrefixCountWidth.W)
+  val newOccupied = UInt(p.nonFlushPrefixCountWidth.W)
+  val pivotOffset = UInt(p.nonFlushPrefixCountWidth.W)
+  val pivot = new RobMemberKey(p)
+  val pivotPhysicalMemberCount = UInt(p.robMemberCountWidth.W)
+  val survivingPivotValid = Bool()
+  val survivingPivotPhysicalMemberCount = UInt(p.robMemberCountWidth.W)
+}
+
 class OooRobRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new OooGlobalRecoveryRequest(p)
   val occupied = UInt(p.nonFlushPrefixCountWidth.W)
@@ -686,6 +706,8 @@ class OooDispatchPublish(val p: OooParams = OooParams()) extends Bundle {
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
   val transactionId = UInt(p.transactionIdWidth.W)
+  val memberMask = UInt(p.dispatchWidth.W)
+  val members = Vec(p.dispatchWidth, new RobMemberKey(p))
 }
 
 class OooDispatchRelease(val p: OooParams = OooParams()) extends Bundle {
@@ -693,6 +715,7 @@ class OooDispatchRelease(val p: OooParams = OooParams()) extends Bundle {
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
   val transactionId = UInt(p.transactionIdWidth.W)
+  val member = new RobMemberKey(p)
   val reservation = new DispatchReservation(p)
 }
 
@@ -711,6 +734,22 @@ class OooDispatchPublishReject(val p: OooParams = OooParams()) extends Bundle {
 
 class OooDispatchReleaseReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new OooDispatchRelease(p)
+}
+
+class OooDispatchRecoveryPrepared(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val provisionalKilled = UInt(p.dispatchCountWidth.W)
+  val publishedKilled = UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+    p.iqEntriesPerBank).W)
+}
+
+class OooDispatchRecoveryReject(val p: OooParams = OooParams())
+    extends Bundle {
+  val requested = new OooResidencyRecoveryPlan(p)
+  val stidInRange = Bool()
+  val publishedMembersExact = Bool()
 }
 
 /** Atomic OOO S1 payload accepted by the production IEX boundary.
@@ -774,6 +813,8 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
   val transactionId = UInt(p.transactionIdWidth.W)
+  val dispatchLane = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.dispatchWidth)).W)
   val uopIndex = UInt(p.decodedUopIndexWidth.W)
   val childIndex = UInt(math.max(1,
     chisel3.util.log2Ceil(p.maxDispatchWritesPerInstruction)).W)
@@ -849,6 +890,23 @@ class OooIexReleaseReject(val p: OooParams = OooParams()) extends Bundle {
   val reservation = new DispatchReservation(p)
 }
 
+class OooIexRecoveryPrepared(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val s1Killed = UInt(p.dispatchCountWidth.W)
+  val boundKilled = UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+    p.iqEntriesPerBank).W)
+  val residentKilled = UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+    p.iqEntriesPerBank).W)
+}
+
+class OooIexRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooResidencyRecoveryPlan(p)
+  val stidInRange = Bool()
+  val residentRowsExact = Bool()
+  val s1RowsExact = Bool()
+}
+
 /** One retained typed fast-resolve member after the common OOO S1 fire. */
 class OooFastResolveEntry(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
@@ -913,6 +971,20 @@ class OooFastResolveS1Reject(val p: OooParams = OooParams()) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val fastMask = UInt(p.decodedUopWidth.W)
   val shapeExact = Bool()
+}
+
+class OooFastResolveRecoveryPrepared(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val pendingKilled = UInt(p.decodedUopCountWidth.W)
+}
+
+class OooFastResolveRecoveryReject(val p: OooParams = OooParams())
+    extends Bundle {
+  val requested = new OooResidencyRecoveryPlan(p)
+  val stidInRange = Bool()
+  val pendingRowsExact = Bool()
 }
 
 class OooD2VirtualPlan(val p: OooParams = OooParams()) extends Bundle {

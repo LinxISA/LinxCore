@@ -91,7 +91,7 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC tail-resource/live-count/current/implicit-close prepare/apply; formal O3 seam remains tied off | dispatch/IEX/fast/global R0-R4 composition and O7.3 external CTU lease/child reinsertion remain |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds exact dispatch, IEX S1/S2/S3, and fast-resolve prepare/apply owners from one compact ROB-authorized residency window; formal O3 seam remains tied off | retained global R0-R4 composition, recovery-ready PTag invalidation, and O7.3 external CTU lease/child reinsertion remain |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1499,12 +1499,27 @@ allocated tail-block suffix, decrements per-block live groups, restores current
 from the surviving tail, and reopens an older block whose close owner was
 killed. O7.2b2 now adds the analogous PC-base prepare/apply, including exact
 partition token/allocation epoch, current base-value restoration, close-owner
-undo, and immediate invalidation of freed reads. The next slice must add the retained global R0 request, compute
+undo, and immediate invalidation of freed reads. O7.2c projects the complete
+ROB plan into one compact `OooResidencyRecoveryPlan`; this retains exact
+wrapped-RID pivot/member authority without fanning the full killed-group and
+BROB/PC repair vectors into every queue owner. Dispatch records exact ROB
+membership at publication, cancels all target-STID provisional leases, and
+removes only killed published rows. IEX prunes retained S1 and pending S3
+masks, frees killed `BoundS2`/`ResidentS3` rows, and invalidates matching
+generation-qualified P/T/U ready records. Fast resolve freezes only the target
+STID and removes its exact killed pending entries while unrelated STIDs may
+complete. Each direct owner independently prepares and rejects malformed or
+out-of-window state without mutation.
+
+The next slice must add the retained global R0 request, compute
 one R1 kill set, freeze and prepare D1/D2/D3/S1, ROB/BROB/PC, P/T/U rename,
 dispatch/IEX/fast completion, and CTU in R2, issue one all-owner R3 apply, then
 wait for P survivor replay, local-cursor rebuild, non-flush rebuild, and
 frontend restart acknowledgements in R4. Until every owner joins, no composed
-module may expose a ROB-only recovery fire. O7.3 then adds the external CTU
+module may expose a ROB-only recovery fire. In particular, a killed fast
+producer may already have set P-ready state before recovery; global R0-R4 must
+invalidate it from the P-rename killed-tag return set rather than assuming it
+has a resident IEX row. O7.3 then adds the external CTU
 lease, exact child order/count, canonical reinsertion ahead of the instruction
 buffer, multi-RID expansion, final-parent retirement, and recovery cancel/reuse.
 
@@ -1516,6 +1531,17 @@ mutation; CTU has no direct RF/ROB/LSU architectural-effect port.
 Bring up instruction width 2, then product width 4, then scale width 6;
 independently tune uop/rename/dispatch/retire widths, ROB banking, even/odd
 subbanks, PTag FIFO depth, PC ports, and IQ steering.
+
+The current IEX row is still a functional proof payload, not a closed physical
+payload. Even a focused 2-bank x 2-entry recovery elaboration carries the full
+decoded recipe and parent sidecars in every row; the existing larger IEX suite
+produces roughly 473k SystemVerilog lines and its first Verilator frontend
+compile exceeded twelve minutes. The production implementation must split a
+compact scheduling row from transaction/recipe sidecars addressed by stable
+indices, then bank or time the recovery scan. This is the most concrete area
+and compile-time gap against the physically staged queue design in
+`Documents/a.txt`; copying that design's ARM register classes or RID/BID age
+shortcuts remains forbidden.
 
 Exit: timing reports contain no unbounded free-list encoder, group prefix, or
 ready-loop path; all functional coverage remains closed after banking changes.

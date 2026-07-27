@@ -16,6 +16,11 @@ class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
   val dispatchRelease = Decoupled(new OooDispatchRelease(p))
 
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
+  val recoveryFire = Input(Bool())
+
   val query = Input(new OooIexSlotQuery(p))
   val queryState = Output(OooIexIssueSlotState())
   val queryRow = Output(new OooIexIssueRow(p))
@@ -31,6 +36,7 @@ class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
 
   val s1Rejected = Valid(new OooIexS1Reject(p))
   val releaseRejected = Valid(new OooIexReleaseReject(p))
+  val recoveryRejected = Valid(new OooIexRecoveryReject(p))
 }
 
 /** Production OOO-S1 to IEX-S3 residency owner.
@@ -69,6 +75,13 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   val s1Valid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
   val s1Rows = Reg(Vec(p.stidCount, new OooIexS1Transaction(p)))
   val s2RoundRobin = RegInit(0.U(p.stidWidth.W))
+
+  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryStid = recoveryPlan.oldHead.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryFreeze = io.recoveryPrepare.valid && recoveryPlan.valid &&
+    recoveryStidInRange
 
   // A wakeup must remain visible to consumers dispatched after that producer
   // completed.  These generation-qualified scoreboards complement per-row
@@ -176,7 +189,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     allocationShapeExact && allocationDense && laneExact.reduce(_ && _) &&
     noDuplicateTargets
   val s1TargetsExact = laneTargetFree.reduce(_ && _)
-  io.s1.ready := !s1Valid(safeRequestStid) && s1ShapeExact && s1TargetsExact
+  io.s1.ready := !s1Valid(safeRequestStid) && s1ShapeExact && s1TargetsExact &&
+    !(recoveryFreeze && requestStid === recoveryStid)
   io.s1Rejected.valid := io.s1.valid && (!s1ShapeExact || !s1TargetsExact)
   io.s1Rejected.bits.peId := plan.peId
   io.s1Rejected.bits.stid := plan.stid
@@ -199,9 +213,14 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   }
 
   val s2OffsetCandidates = Wire(Vec(p.stidCount, Bool()))
+  val s3PendingValid = RegInit(false.B)
+  val s3Pending = Reg(new OooIexS3Enable(p))
+  val s3PendingFrozen = recoveryFreeze && s3PendingValid &&
+    s3Pending.bind.stid === recoveryStid
   for (offset <- 0 until p.stidCount) {
     val candidate = (s2RoundRobin + offset.U)(p.stidWidth - 1, 0)
-    s2OffsetCandidates(offset) := s1Valid(candidate)
+    s2OffsetCandidates(offset) := s1Valid(candidate) && !s3PendingFrozen &&
+      !(recoveryFreeze && candidate === recoveryStid)
   }
   val s2OffsetSelect = PriorityEncoderOH(s2OffsetCandidates.asUInt)
   val s2Valid = s2OffsetCandidates.asUInt.orR
@@ -221,9 +240,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   io.s2Bind.valid := s2Valid
   io.s2Bind.bits := s2Ack
 
-  val s3PendingValid = RegInit(false.B)
-  val s3Pending = Reg(new OooIexS3Enable(p))
-  io.s3Enable.valid := s3PendingValid
+  io.s3Enable.valid := s3PendingValid && !s3PendingFrozen
   io.s3Enable.bits := s3Pending
 
   for (port <- 0 until p.iexWakeupPorts) {
@@ -238,14 +255,21 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     val utagInRange = wakeup.bits.localTag < p.uPhysRegs.U
     val safeUtag = Mux(utagInRange, wakeup.bits.localTag, 0.U)(
       utagIndexWidth - 1, 0)
-    when(wakeup.valid && wakeup.bits.operandClass === OperandClass.P &&
+    val wakeupFrozen = recoveryFreeze && wakeup.bits.stid === recoveryStid
+    when(wakeup.valid && wakeupFrozen) {
+      assert(false.B,
+        "global recovery must quiesce target-STID wakeups before IEX prepare")
+    }
+    when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.operandClass === OperandClass.P &&
         ptagInRange) {
       pReadyValid(safePtag) := true.B
       pReadyGeneration(safePtag) := wakeup.bits.ptagGeneration
       pReadyStid(safePtag) := wakeup.bits.stid
       pReadyEpoch(safePtag) := wakeup.bits.epoch
     }
-    when(wakeup.valid && wakeup.bits.operandClass === OperandClass.T &&
+    when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.operandClass === OperandClass.T &&
         wakeStidInRange && ttagInRange &&
         wakeup.bits.localSequence.valid) {
       tReadyValid(safeWakeStid)(safeTtag) := true.B
@@ -253,7 +277,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         wakeup.bits.localSequence
       tReadyEpoch(safeWakeStid)(safeTtag) := wakeup.bits.epoch
     }
-    when(wakeup.valid && wakeup.bits.operandClass === OperandClass.U &&
+    when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.operandClass === OperandClass.U &&
         wakeStidInRange && utagInRange &&
         wakeup.bits.localSequence.valid) {
       uReadyValid(safeWakeStid)(safeUtag) := true.B
@@ -268,7 +293,9 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   for (uopClass <- 0 until p.iqClassCount;
        bank <- 0 until p.iqBankCount;
        entry <- 0 until p.iqEntriesPerBank) {
-    when(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.BoundS2) {
+    when(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.BoundS2 &&
+        !(recoveryFreeze &&
+          rows(uopClass)(bank)(entry).stid === recoveryStid)) {
       slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.ResidentS3
     }
   }
@@ -300,6 +327,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         row.stid := s2Dispatch.stid
         row.epoch := s2Dispatch.epoch
         row.transactionId := s2Dispatch.transactionId
+        row.dispatchLane := lane.U
         row.uopIndex := allocation.uopIndex
         row.childIndex := allocation.childIndex
         row.member := pUop.member
@@ -444,7 +472,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.BoundS2
       }
     }
-  }.otherwise {
+  }.elsewhen(!s3PendingFrozen) {
     s3PendingValid := false.B
   }
 
@@ -473,6 +501,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         (pMatch || tMatch || uMatch)
     }.reduce(_ || _)
     when(slotState(uopClass)(bank)(entry) =/= OooIexIssueSlotState.Free &&
+        !(recoveryFreeze &&
+          rows(uopClass)(bank)(entry).stid === recoveryStid) &&
         source.valid && !source.ready && wakeMatch) {
       source.ready := true.B
     }
@@ -499,7 +529,9 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     release.dispatch.stid === releaseRow.stid &&
     release.dispatch.epoch === releaseRow.epoch &&
     release.dispatch.transactionId === releaseRow.transactionId &&
-    release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt
+    release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt &&
+    sameMember(release.dispatch.member, release.member) &&
+    !(recoveryFreeze && release.dispatch.stid === recoveryStid)
   io.dispatchRelease.valid := io.release.valid && releaseExact
   io.dispatchRelease.bits := release.dispatch
   io.release.ready := releaseExact && io.dispatchRelease.ready
@@ -518,6 +550,240 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
       0.U.asTypeOf(new OooIexIssueRow(p))
   }
 
+  val recoveryS1 = s1Rows(safeRecoveryStid)
+  val recoveryS1Live = recoveryStidInRange && s1Valid(safeRecoveryStid)
+  val recoveryS1Kill = Wire(Vec(p.dispatchWidth, Bool()))
+  val recoveryS1LaneExact = Wire(Vec(p.dispatchWidth, Bool()))
+  for (lane <- 0 until p.dispatchWidth) {
+    val allocation = recoveryS1.dispatch.allocations(lane)
+    val reservation = allocation.reservation
+    val uopIndexInRange = allocation.uopIndex < p.decodedUopWidth.U
+    val safeUopIndex = Mux(uopIndexInRange, allocation.uopIndex, 0.U)
+    val pUop = recoveryS1.pRename.uops(safeUopIndex)
+    val decodedUop = recoveryS1.o3.request.reservation.transaction.decoded
+      .uops(safeUopIndex)
+    val classIndex = reservation.uopClass.asUInt
+    val classInRange = classIndex < p.iqClassCount.U
+    val bankInRange = reservation.bank < p.iqBankCount.U
+    val entryInRange = reservation.speculativeSlot < p.iqEntriesPerBank.U
+    val safeClass = Mux(classInRange, classIndex, 0.U)
+    val safeBank = Mux(bankInRange, reservation.bank, 0.U)
+    val safeEntry = Mux(entryInRange, reservation.speculativeSlot, 0.U)
+    val member = Wire(new RobMemberKey(p))
+    member := pUop.member
+    member.memberIndex := pUop.member.memberIndex + allocation.childIndex
+    recoveryS1LaneExact(lane) := !allocation.valid || (
+      recoveryS1.dispatch.allocationMask(lane) && reservation.valid &&
+        uopIndexInRange && pUop.valid && decodedUop.valid &&
+        allocation.childIndex < decodedUop.plannedChildCount &&
+        classInRange && bankInRange && entryInRange &&
+        slotState(safeClass)(safeBank)(safeEntry) ===
+          OooIexIssueSlotState.Free &&
+        s1Claimed(safeClass)(safeBank)(safeEntry) &&
+        member.group.peId === recoveryS1.dispatch.peId &&
+        member.group.stid === recoveryS1.dispatch.stid &&
+        OooRecoveryMembership.memberInOldWindow(p, recoveryPlan, member))
+    recoveryS1Kill(lane) := recoveryS1Live && allocation.valid &&
+      OooRecoveryMembership.memberKilled(p, recoveryPlan, member)
+  }
+  val recoveryS1IdentityExact = !recoveryS1Live || (
+    recoveryS1.dispatch.valid && recoveryS1.pRename.valid &&
+      recoveryS1.dispatch.stid === recoveryStid &&
+      recoveryS1.pRename.stid === recoveryStid &&
+      recoveryS1.dispatch.peId === recoveryPlan.oldHead.peId &&
+      recoveryS1.pRename.peId === recoveryPlan.oldHead.peId &&
+      recoveryS1.dispatch.transactionId ===
+        recoveryS1.pRename.transactionId &&
+      recoveryS1.dispatch.allocationMask === VecInit(
+        recoveryS1.dispatch.allocations.map(_.valid)).asUInt)
+  val recoveryS1RowsExact = !recoveryS1Live ||
+    (recoveryS1IdentityExact && recoveryS1LaneExact.reduce(_ && _))
+
+  val recoveryResidentExact = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
+  val recoveryRowKill = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    val occupied = slotState(uopClass)(bank)(entry) =/=
+      OooIexIssueSlotState.Free
+    val selected = occupied && rows(uopClass)(bank)(entry).stid === recoveryStid
+    val row = rows(uopClass)(bank)(entry)
+    recoveryResidentExact(uopClass)(bank)(entry) := !selected || (
+      row.valid && row.peId === recoveryPlan.oldHead.peId &&
+        row.member.group.peId === row.peId &&
+        row.member.group.stid === row.stid &&
+        row.reservation.valid &&
+        row.reservation.uopClass.asUInt === uopClass.U &&
+        row.reservation.bank === bank.U &&
+        row.reservation.speculativeSlot === entry.U &&
+        row.dispatchLane < p.dispatchWidth.U &&
+        OooRecoveryMembership.memberInOldWindow(
+          p, recoveryPlan, row.member))
+    recoveryRowKill(uopClass)(bank)(entry) := selected &&
+      recoveryResidentExact(uopClass)(bank)(entry) &&
+      OooRecoveryMembership.memberKilled(p, recoveryPlan, row.member)
+  }
+  val recoveryResidentRowsExact = (0 until p.iqClassCount).flatMap {
+    uopClass => (0 until p.iqBankCount).flatMap { bank =>
+      (0 until p.iqEntriesPerBank).map { entry =>
+        recoveryResidentExact(uopClass)(bank)(entry)
+      }
+    }
+  }.reduce(_ && _)
+
+  val recoveryBoundKilled = PopCount(VecInit(
+    (0 until p.iqClassCount).flatMap { uopClass =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          recoveryRowKill(uopClass)(bank)(entry) &&
+            slotState(uopClass)(bank)(entry) ===
+              OooIexIssueSlotState.BoundS2
+        }
+      }
+    }).asUInt)
+  val recoveryResidentKilled = PopCount(VecInit(
+    (0 until p.iqClassCount).flatMap { uopClass =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          recoveryRowKill(uopClass)(bank)(entry) &&
+            slotState(uopClass)(bank)(entry) ===
+              OooIexIssueSlotState.ResidentS3
+        }
+      }
+    }).asUInt)
+
+  val recoveryS3KillMask = Wire(UInt(p.dispatchWidth.W))
+  recoveryS3KillMask := VecInit((0 until p.dispatchWidth).map { lane =>
+    (0 until p.iqClassCount).flatMap { uopClass =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          val row = rows(uopClass)(bank)(entry)
+          recoveryRowKill(uopClass)(bank)(entry) &&
+            row.dispatchLane === lane.U &&
+            row.peId === s3Pending.bind.peId &&
+            row.stid === s3Pending.bind.stid &&
+            row.epoch === s3Pending.bind.epoch &&
+            row.transactionId === s3Pending.bind.transactionId
+        }
+      }
+    }.reduce(_ || _)
+  }).asUInt
+  val recoveryS3Exact = !s3PendingValid ||
+    s3Pending.bind.stid =/= recoveryStid ||
+    (0 until p.dispatchWidth).map { lane =>
+      !s3Pending.bind.allocationMask(lane) ||
+        (0 until p.iqClassCount).flatMap { uopClass =>
+          (0 until p.iqBankCount).flatMap { bank =>
+            (0 until p.iqEntriesPerBank).map { entry =>
+              val row = rows(uopClass)(bank)(entry)
+              slotState(uopClass)(bank)(entry) =/=
+                OooIexIssueSlotState.Free &&
+                row.valid && row.dispatchLane === lane.U &&
+                row.peId === s3Pending.bind.peId &&
+                row.stid === s3Pending.bind.stid &&
+                row.epoch === s3Pending.bind.epoch &&
+                row.transactionId === s3Pending.bind.transactionId
+            }
+          }
+        }.reduce(_ || _)
+    }.reduce(_ && _)
+
+  val recoveryPrepareExact = recoveryPlan.valid && recoveryStidInRange &&
+    recoveryS1RowsExact && recoveryResidentRowsExact && recoveryS3Exact
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryPrepareExact
+  io.recoveryPrepared := 0.U.asTypeOf(io.recoveryPrepared)
+  io.recoveryPrepared.valid := io.recoveryPrepareReady
+  io.recoveryPrepared.stid := recoveryStid
+  io.recoveryPrepared.s1Killed := PopCount(recoveryS1Kill)
+  io.recoveryPrepared.boundKilled := recoveryBoundKilled
+  io.recoveryPrepared.residentKilled := recoveryResidentKilled
+  io.recoveryRejected.valid := io.recoveryPrepare.valid &&
+    !recoveryPrepareExact
+  io.recoveryRejected.bits.requested := recoveryPlan
+  io.recoveryRejected.bits.stidInRange := recoveryStidInRange
+  io.recoveryRejected.bits.residentRowsExact := recoveryResidentRowsExact &&
+    recoveryS3Exact
+  io.recoveryRejected.bits.s1RowsExact := recoveryS1RowsExact
+
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepareReady,
+      "IEX recovery may apply only one exact prepared ROB suffix")
+
+    val survivingS1Mask = recoveryS1.dispatch.allocationMask &
+      ~recoveryS1Kill.asUInt
+    when(recoveryS1Live) {
+      s1Rows(safeRecoveryStid).dispatch.allocationMask := survivingS1Mask
+      for (lane <- 0 until p.dispatchWidth) {
+        val allocation = recoveryS1.dispatch.allocations(lane)
+        when(recoveryS1Kill(lane)) {
+          s1Claimed(allocation.reservation.uopClass.asUInt)(
+            allocation.reservation.bank)(
+            allocation.reservation.speculativeSlot) := false.B
+          s1Rows(safeRecoveryStid).dispatch.allocations(lane).valid := false.B
+          s1Rows(safeRecoveryStid).dispatch.allocations(lane)
+            .reservation.valid := false.B
+        }
+      }
+      when(!survivingS1Mask.orR) {
+        s1Valid(safeRecoveryStid) := false.B
+      }
+    }
+
+    for (uopClass <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount;
+         entry <- 0 until p.iqEntriesPerBank) {
+      val row = rows(uopClass)(bank)(entry)
+      when(recoveryRowKill(uopClass)(bank)(entry)) {
+        for (destinationIndex <- 0 until p.maxDestinationOperands) {
+          val destination = row.destinations(destinationIndex)
+          when(destination.valid && destination.kind === DestinationKind.Gpr &&
+              destination.ptag < p.pPhysRegs.U &&
+              pReadyValid(destination.ptag) &&
+              pReadyGeneration(destination.ptag) ===
+                destination.ptagGeneration &&
+              pReadyStid(destination.ptag) === row.stid &&
+              pReadyEpoch(destination.ptag) === row.epoch) {
+            pReadyValid(destination.ptag) := false.B
+          }
+          when(destination.valid && destination.kind === DestinationKind.T &&
+              destination.localTag < p.tPhysRegs.U) {
+            val ttag = destination.localTag(ttagIndexWidth - 1, 0)
+            when(tReadyValid(safeRecoveryStid)(ttag) &&
+                tReadySequence(safeRecoveryStid)(ttag).asUInt ===
+                  destination.localSequence.asUInt &&
+                tReadyEpoch(safeRecoveryStid)(ttag) === row.epoch) {
+              tReadyValid(safeRecoveryStid)(ttag) := false.B
+            }
+          }
+          when(destination.valid && destination.kind === DestinationKind.U &&
+              destination.localTag < p.uPhysRegs.U) {
+            val utag = destination.localTag(utagIndexWidth - 1, 0)
+            when(uReadyValid(safeRecoveryStid)(utag) &&
+                uReadySequence(safeRecoveryStid)(utag).asUInt ===
+                  destination.localSequence.asUInt &&
+                uReadyEpoch(safeRecoveryStid)(utag) === row.epoch) {
+              uReadyValid(safeRecoveryStid)(utag) := false.B
+            }
+          }
+        }
+        slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.Free
+        rows(uopClass)(bank)(entry) :=
+          0.U.asTypeOf(new OooIexIssueRow(p))
+      }
+    }
+
+    when(s3PendingValid && s3Pending.bind.stid === recoveryStid) {
+      val survivingS3Mask = s3Pending.bind.allocationMask &
+        ~recoveryS3KillMask
+      s3Pending.bind.allocationMask := survivingS3Mask
+      when(!survivingS3Mask.orR) {
+        s3PendingValid := false.B
+      }
+    }
+  }
+
   val queryClass = io.query.uopClass.asUInt
   val queryClassInRange = queryClass < p.iqClassCount.U
   val queryBankInRange = io.query.bank < p.iqBankCount.U
@@ -532,7 +798,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   }.reduce(_ && _)
   io.queryPickable := queryClassInRange && queryBankInRange &&
     queryEntryInRange && io.queryState === OooIexIssueSlotState.ResidentS3 &&
-    io.queryRow.valid && querySourcesReady
+    io.queryRow.valid && querySourcesReady &&
+    !(recoveryFreeze && io.queryRow.stid === recoveryStid)
 
   io.s1Occupied := s1Valid
   for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {
@@ -548,6 +815,9 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
       assert((slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free) ===
         !rows(uopClass)(bank)(entry).valid,
         "a physical IEX row must agree with its lifecycle state")
+      assert(!s1Claimed(uopClass)(bank)(entry) ||
+        slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free,
+        "an S1 claim may reserve only an otherwise free physical IEX row")
     }
   }
 }

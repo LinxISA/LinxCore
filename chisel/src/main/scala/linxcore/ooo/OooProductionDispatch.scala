@@ -18,6 +18,11 @@ class OooProductionDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   val publish = Flipped(Valid(new OooDispatchPublish(p)))
   val release = Flipped(Decoupled(new OooDispatchRelease(p)))
 
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooDispatchRecoveryPrepared(p))
+  val recoveryFire = Input(Bool())
+
   val provisional = Output(Vec(p.stidCount,
     new OooDispatchReservationLease(p)))
   val freeEntries = Output(Vec(p.iqClassCount,
@@ -33,6 +38,7 @@ class OooProductionDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   val prepareRejected = Valid(new OooDispatchPrepareReject(p))
   val publishRejected = Valid(new OooDispatchPublishReject(p))
   val releaseRejected = Valid(new OooDispatchReleaseReject(p))
+  val recoveryRejected = Valid(new OooDispatchRecoveryReject(p))
 }
 
 /** Production D3 owner for exact speculative issue-queue reservations.
@@ -84,8 +90,21 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(
         0.U(p.transactionIdWidth.W))))))))
+  val slotMemberValid = RegInit(VecInit(Seq.fill(p.iqClassCount)(
+    VecInit(Seq.fill(p.iqBankCount)(
+      VecInit(Seq.fill(p.iqEntriesPerBank)(false.B)))))))
+  val slotMember = Reg(Vec(p.iqClassCount,
+    Vec(p.iqBankCount,
+      Vec(p.iqEntriesPerBank, new RobMemberKey(p)))))
   val provisional = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U.asTypeOf(new OooDispatchReservationLease(p)))))
+
+  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryStid = recoveryPlan.oldHead.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryFreeze = io.recoveryPrepare.valid && recoveryPlan.valid &&
+    recoveryStidInRange
 
   val freeMask = Wire(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqEntriesPerBank.W))))
@@ -261,7 +280,9 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
   }.reduce(_ && _)
   val noLiveLease = !provisional(safePrepareStid).valid
   io.prepareReady := prepareStidInRange && requestShapeExact &&
-    !io.cancel(safePrepareStid) && noLiveLease && allSelected
+    !io.cancel(safePrepareStid) &&
+    !(recoveryFreeze && prepareStid === recoveryStid) &&
+    noLiveLease && allSelected
 
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.valid := io.prepare.valid && io.prepareReady
@@ -300,6 +321,8 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
           val reservation = allocation.reservation
           slotState(reservation.uopClass.asUInt)(reservation.bank)(
             reservation.speculativeSlot) := OooDispatchSlotState.Free
+          slotMemberValid(reservation.uopClass.asUInt)(reservation.bank)(
+            reservation.speculativeSlot) := false.B
         }
       }
       provisional(stid) :=
@@ -328,6 +351,7 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
         slotStid(uopClass)(bank)(slot) := prepareStid
         slotEpoch(uopClass)(bank)(slot) := plan.epoch
         slotTransaction(uopClass)(bank)(slot) := plan.transactionId
+        slotMemberValid(uopClass)(bank)(slot) := false.B
       }
     }
   }
@@ -337,11 +361,21 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
   val safePublishStid = Mux(publishStidInRange, publishStid, 0.U)
   val publishLease = provisional(safePublishStid)
   val publishExact = publishStidInRange && !io.cancel(safePublishStid) &&
+    !(recoveryFreeze && publishStid === recoveryStid) &&
     publishLease.valid &&
     publishLease.peId === io.publish.bits.peId &&
     publishLease.stid === publishStid &&
     publishLease.epoch === io.publish.bits.epoch &&
-    publishLease.transactionId === io.publish.bits.transactionId
+    publishLease.transactionId === io.publish.bits.transactionId &&
+    io.publish.bits.memberMask === publishLease.allocationMask &&
+    (0 until p.dispatchWidth).map { lane =>
+      val allocation = publishLease.allocations(lane)
+      val member = io.publish.bits.members(lane)
+      !allocation.valid || (member.group.valid && member.bid.valid &&
+        member.group.peId === publishLease.peId &&
+        member.group.stid === publishLease.stid &&
+        member.memberIndex < p.maxOrdinaryUopsPerGroup.U)
+    }.reduce(_ && _)
   io.publishRejected.valid := io.publish.valid && !publishExact
   io.publishRejected.bits.requested := io.publish.bits
   io.publishRejected.bits.live := publishLease
@@ -365,6 +399,8 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
             io.publish.bits.transactionId,
           "dispatch publish must match every exact provisional IQ slot")
         slotState(uopClass)(bank)(slot) := OooDispatchSlotState.Published
+        slotMemberValid(uopClass)(bank)(slot) := true.B
+        slotMember(uopClass)(bank)(slot) := io.publish.bits.members(lane)
       }
     }
     provisional(safePublishStid) :=
@@ -397,13 +433,99 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
     slotEpoch(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
       release.epoch &&
     slotTransaction(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.transactionId
+      release.transactionId &&
+    slotMemberValid(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) &&
+    slotMember(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot).asUInt ===
+      release.member.asUInt &&
+    !(recoveryFreeze && release.stid === recoveryStid)
   io.release.ready := releaseExact
   io.releaseRejected.valid := io.release.valid && !releaseExact
   io.releaseRejected.bits.requested := release
   when(io.release.fire) {
     slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) :=
       OooDispatchSlotState.Free
+    slotMemberValid(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) :=
+      false.B
+  }
+
+  val recoveryPublishedExact = (0 until p.iqClassCount).flatMap { uopClass =>
+    (0 until p.iqBankCount).flatMap { bank =>
+      (0 until p.iqEntriesPerBank).map { entry =>
+        val selected = slotState(uopClass)(bank)(entry) ===
+          OooDispatchSlotState.Published &&
+          slotStid(uopClass)(bank)(entry) === recoveryStid
+        !selected || (slotMemberValid(uopClass)(bank)(entry) &&
+          slotMember(uopClass)(bank)(entry).group.valid &&
+          slotMember(uopClass)(bank)(entry).bid.valid &&
+          slotMember(uopClass)(bank)(entry).group.peId ===
+            slotPeId(uopClass)(bank)(entry) &&
+          slotMember(uopClass)(bank)(entry).group.stid ===
+            slotStid(uopClass)(bank)(entry) &&
+          OooRecoveryMembership.memberInOldWindow(
+            p, recoveryPlan, slotMember(uopClass)(bank)(entry)))
+      }
+    }
+  }.reduce(_ && _)
+  val recoveryProvisionalKilled = PopCount(VecInit(
+    (0 until p.iqClassCount).flatMap { uopClass =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          slotState(uopClass)(bank)(entry) ===
+            OooDispatchSlotState.Provisional &&
+            slotStid(uopClass)(bank)(entry) === recoveryStid
+        }
+      }
+    }).asUInt)
+  val recoveryPublishedKill = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    recoveryPublishedKill(uopClass)(bank)(entry) :=
+      slotState(uopClass)(bank)(entry) === OooDispatchSlotState.Published &&
+      slotStid(uopClass)(bank)(entry) === recoveryStid &&
+      slotMemberValid(uopClass)(bank)(entry) &&
+      OooRecoveryMembership.memberKilled(
+        p, recoveryPlan, slotMember(uopClass)(bank)(entry))
+  }
+  val recoveryPublishedKilled = PopCount(VecInit(
+    (0 until p.iqClassCount).flatMap { uopClass =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          recoveryPublishedKill(uopClass)(bank)(entry)
+        }
+      }
+    }).asUInt)
+  val recoveryPrepareExact = recoveryPlan.valid && recoveryStidInRange &&
+    recoveryPublishedExact
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryPrepareExact
+  io.recoveryPrepared := 0.U.asTypeOf(io.recoveryPrepared)
+  io.recoveryPrepared.valid := io.recoveryPrepareReady
+  io.recoveryPrepared.stid := recoveryStid
+  io.recoveryPrepared.provisionalKilled := recoveryProvisionalKilled
+  io.recoveryPrepared.publishedKilled := recoveryPublishedKilled
+  io.recoveryRejected.valid := io.recoveryPrepare.valid &&
+    !recoveryPrepareExact
+  io.recoveryRejected.bits.requested := recoveryPlan
+  io.recoveryRejected.bits.stidInRange := recoveryStidInRange
+  io.recoveryRejected.bits.publishedMembersExact := recoveryPublishedExact
+
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepareReady,
+      "dispatch recovery may apply only one exact prepared ROB suffix")
+    provisional(safeRecoveryStid) :=
+      0.U.asTypeOf(new OooDispatchReservationLease(p))
+    for (uopClass <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount;
+         entry <- 0 until p.iqEntriesPerBank) {
+      val provisionalTarget = slotState(uopClass)(bank)(entry) ===
+        OooDispatchSlotState.Provisional &&
+        slotStid(uopClass)(bank)(entry) === recoveryStid
+      when(provisionalTarget || recoveryPublishedKill(uopClass)(bank)(entry)) {
+        slotState(uopClass)(bank)(entry) := OooDispatchSlotState.Free
+        slotMemberValid(uopClass)(bank)(entry) := false.B
+      }
+    }
   }
 
   for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {
@@ -411,5 +533,11 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
       io.provisionalEntries(uopClass)(bank) +
       io.publishedEntries(uopClass)(bank) === p.iqEntriesPerBank.U,
       "every dispatch IQ slot must have exactly one lifecycle owner")
+    for (entry <- 0 until p.iqEntriesPerBank) {
+      assert(slotMemberValid(uopClass)(bank)(entry) ===
+        (slotState(uopClass)(bank)(entry) ===
+          OooDispatchSlotState.Published),
+        "only a published dispatch slot may retain exact ROB membership")
+    }
   }
 }

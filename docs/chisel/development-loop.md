@@ -19,14 +19,19 @@ formal O3 seam intentionally ties that fire off until O7.2 joins D3, BROB, PC,
 P/T/U rename, dispatch, IEX, fast resolve, and CTU in one retained R0-R4
 transaction. O7.2a now supplies the ordered physical kill-set records and exact
 BROB/PC allocation/implicit-close evidence, and gives D3 an independently
-validated tail/count/provisional prepare/apply owner. The immediate handoff is
-O7.2b1 BROB recovery is now complete at the direct owner boundary, including
+validated tail/count/provisional prepare/apply owner. O7.2b1 BROB recovery is
+now complete at the direct owner boundary, including
 tail-block release, retained live-count repair, current-pointer restoration,
 and implicit-close undo. O7.2b2 PC recovery is also complete at the direct
 owner boundary, including exact allocation-epoch tail release, current
 token/base restoration, close-owner undo, and freed-read invalidation. The
-immediate handoff is dispatch/IEX/fast and retained global R0-R4 composition;
-the formal ROB/D3/BROB/PC inputs remain tied off in composition.
+O7.2c dispatch/IEX/fast direct owners are now complete: exact published member
+identity, target-STID provisional cancellation, S1/S2/S3 pruning, local
+generation-qualified ready cleanup, and retained-fast cancellation all consume
+one compact ROB-authorized recovery window. Their inputs and the formal
+ROB/D3/BROB/PC inputs remain tied off until retained global R0-R4 composition
+can fire every owner together. That composition must also invalidate P-ready
+state created by a killed fast producer through P-rename recovery evidence.
 O7.3 external CTU reinsertion follows the global coordinator.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact

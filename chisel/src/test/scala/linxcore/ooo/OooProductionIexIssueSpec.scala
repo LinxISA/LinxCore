@@ -43,6 +43,10 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.dispatchRelease.ready.poke(false.B)
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
   }
 
   private def pokeMember(

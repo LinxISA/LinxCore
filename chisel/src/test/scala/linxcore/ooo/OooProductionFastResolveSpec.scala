@@ -29,6 +29,12 @@ class OooProductionFastResolveHarnessIO(val p: OooParams) extends Bundle {
   val ptag = Input(UInt(p.pTagWidth.W))
   val ptagGeneration = Input(UInt(p.pTagGenerationWidth.W))
 
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooFastResolveRecoveryPrepared(p))
+  val recoveryFire = Input(Bool())
+  val recoveryRejected = Valid(new OooFastResolveRecoveryReject(p))
+
   val boundary = Decoupled(new OooFastResolveBoundaryRequest(p))
   val writeback = Decoupled(new OooFastResolveWriteback(p))
   val wakeup = Decoupled(new OooIexWakeup(p))
@@ -143,6 +149,11 @@ class OooProductionFastResolveHarness(val p: OooParams) extends Module {
 
   owner.io.s1.valid := io.inValid
   owner.io.s1.bits := request
+  owner.io.recoveryPrepare := io.recoveryPrepare
+  io.recoveryPrepareReady := owner.io.recoveryPrepareReady
+  io.recoveryPrepared := owner.io.recoveryPrepared
+  owner.io.recoveryFire := io.recoveryFire
+  io.recoveryRejected := owner.io.recoveryRejected
   io.inReady := owner.io.s1.ready
   io.boundary <> owner.io.boundary
   io.writeback <> owner.io.writeback
@@ -181,6 +192,38 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
     dut.io.wakeup.ready.poke(true.B)
     dut.io.trace.ready.poke(true.B)
     dut.io.completion.ready.poke(true.B)
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
+  }
+
+  private def pokeRecovery(
+      dut: OooProductionFastResolveHarness,
+      stid: Int): Unit = {
+    val plan = dut.io.recoveryPrepare.bits
+    plan.poke(0.U.asTypeOf(plan))
+    plan.valid.poke(true.B)
+    plan.oldHead.valid.poke(true.B)
+    plan.oldHead.peId.poke(3.U)
+    plan.oldHead.stid.poke(stid.U)
+    plan.oldHead.ridSlot.poke(5.U)
+    plan.oldHead.ridGeneration.poke(2.U)
+    plan.oldOccupied.poke(1.U)
+    plan.newOccupied.poke(0.U)
+    plan.pivotOffset.poke(0.U)
+    plan.pivot.group.valid.poke(true.B)
+    plan.pivot.group.peId.poke(3.U)
+    plan.pivot.group.stid.poke(stid.U)
+    plan.pivot.group.ridSlot.poke(5.U)
+    plan.pivot.group.ridGeneration.poke(2.U)
+    plan.pivot.bid.valid.poke(true.B)
+    plan.pivot.bid.value.poke(9.U)
+    plan.pivot.brobGeneration.poke(4.U)
+    plan.pivot.memberIndex.poke(1.U)
+    plan.pivot.residentGeneration.poke(6.U)
+    plan.pivotPhysicalMemberCount.poke(2.U)
+    dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
   private def accept(dut: OooProductionFastResolveHarness): Unit = {
@@ -323,6 +366,51 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
       dut.io.completion.bits.key.group.stid.expect(1.U)
       dut.clock.step()
       dut.io.pendingByStid.foreach(_.expect(0.U))
+    }
+  }
+
+  test("cancels exact pending fast state while another STID completes") {
+    val p = OooParams(
+      stidCount = 2,
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 1,
+      iqEntriesPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooProductionFastResolveHarness(p)) { dut =>
+      clear(dut)
+      dut.io.boundaryStart.poke(true.B)
+      dut.io.completion.ready.poke(false.B)
+      dut.io.ptagGeneration.poke(1.U)
+      dut.io.stid.poke(1.U)
+      dut.io.transactionId.poke(1.U)
+      accept(dut)
+      dut.io.stid.poke(0.U)
+      dut.io.transactionId.poke(2.U)
+      accept(dut)
+      dut.io.pendingByStid(0).expect(1.U)
+      dut.io.pendingByStid(1).expect(1.U)
+
+      pokeRecovery(dut, stid = 1)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.pendingKilled.expect(1.U)
+      dut.io.completion.ready.poke(true.B)
+      dut.io.terminalFire.expect(true.B)
+      dut.io.completion.bits.key.group.stid.expect(0.U)
+      dut.clock.step()
+      dut.io.pendingByStid(0).expect(0.U)
+      dut.io.pendingByStid(1).expect(1.U)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.pendingByStid(1).expect(0.U)
+      dut.io.terminalFire.expect(false.B)
     }
   }
 

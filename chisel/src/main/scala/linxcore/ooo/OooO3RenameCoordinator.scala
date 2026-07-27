@@ -162,6 +162,16 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
   dispatch.io.cancel := io.cancel
+  // O7 direct-owner recovery is intentionally kept private until the global
+  // R0-R4 coordinator can prepare and fire every physical owner together.
+  dispatch.io.recoveryPrepare.valid := false.B
+  dispatch.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(dispatch.io.recoveryPrepare.bits)
+  dispatch.io.recoveryFire := false.B
+  fast.io.recoveryPrepare.valid := false.B
+  fast.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(fast.io.recoveryPrepare.bits)
+  fast.io.recoveryFire := false.B
   for (stid <- 0 until p.stidCount) {
     o3.io.publishEligible(stid) := !prename.io.commitBusy ||
       prename.io.commitStid =/= stid.U
@@ -373,6 +383,15 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     o3.io.prepared.request.reservation.transaction.plan.epoch
   dispatch.io.publish.bits.transactionId :=
     o3.io.prepared.request.reservation.transaction.plan.transactionId
+  dispatch.io.publish.bits.memberMask :=
+    dispatch.io.provisional(safePreparedStid).allocationMask
+  for (lane <- 0 until p.dispatchWidth) {
+    val allocation = dispatch.io.provisional(safePreparedStid).allocations(lane)
+    val pUop = prename.io.prepared.uops(allocation.uopIndex)
+    dispatch.io.publish.bits.members(lane) := pUop.member
+    dispatch.io.publish.bits.members(lane).memberIndex :=
+      pUop.member.memberIndex + allocation.childIndex
+  }
   when(o3.io.publishFire) {
     assert(!dispatch.io.publishRejected.valid,
       "O3 publication must publish the retained exact dispatch lease")

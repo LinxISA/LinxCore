@@ -15,10 +15,16 @@ class OooProductionFastResolveIO(val p: OooParams = OooParams())
   val trace = Decoupled(new OooFastResolveTrace(p))
   val completion = Decoupled(new OooRobMemberCompletion(p))
 
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooFastResolveRecoveryPrepared(p))
+  val recoveryFire = Input(Bool())
+
   val pendingByStid = Output(Vec(p.stidCount,
     UInt(p.decodedUopCountWidth.W)))
   val terminalFire = Output(Bool())
   val s1Rejected = Valid(new OooFastResolveS1Reject(p))
+  val recoveryRejected = Valid(new OooFastResolveRecoveryReject(p))
 }
 
 /** Retained typed OOO fast-resolve terminal owner.
@@ -36,6 +42,13 @@ class OooProductionFastResolve(val p: OooParams = OooParams()) extends Module {
   val entries = Reg(Vec(p.stidCount,
     Vec(p.decodedUopWidth, new OooFastResolveEntry(p))))
   val rrStart = RegInit(0.U(p.stidWidth.W))
+
+  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryStid = recoveryPlan.oldHead.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryFreeze = io.recoveryPrepare.valid && recoveryPlan.valid &&
+    recoveryStidInRange
 
   val request = io.s1.bits
   val transaction = request.o3.request.reservation.transaction
@@ -130,7 +143,8 @@ class OooProductionFastResolve(val p: OooParams = OooParams()) extends Module {
     laneExact.reduce(_ && _)
   val hasFast = fastMask.orR
   val targetFree = !hasFast || !pendingMask(safeRequestStid).orR
-  io.s1.ready := shapeExact && targetFree
+  io.s1.ready := shapeExact && targetFree &&
+    !(recoveryFreeze && plan.stid === recoveryStid)
   io.s1Rejected.valid := io.s1.valid && !shapeExact
   io.s1Rejected.bits.peId := plan.peId
   io.s1Rejected.bits.stid := plan.stid
@@ -191,7 +205,8 @@ class OooProductionFastResolve(val p: OooParams = OooParams()) extends Module {
   val rotatedEligible = Wire(Vec(p.stidCount, Bool()))
   for (offset <- 0 until p.stidCount) {
     val candidate = (rrStart + offset.U)(p.stidWidth - 1, 0)
-    rotatedEligible(offset) := pendingMask(candidate).orR
+    rotatedEligible(offset) := pendingMask(candidate).orR &&
+      !(recoveryFreeze && candidate === recoveryStid)
   }
   val selectedStidValid = rotatedEligible.asUInt.orR
   val selectedStidOh = PriorityEncoderOH(rotatedEligible.asUInt)
@@ -279,8 +294,56 @@ class OooProductionFastResolve(val p: OooParams = OooParams()) extends Module {
     rrStart := selectedStid + 1.U
   }
 
+  val recoveryPendingExact = (0 until p.decodedUopWidth).map { uopIndex =>
+    val pending = pendingMask(safeRecoveryStid)(uopIndex)
+    val entry = entries(safeRecoveryStid)(uopIndex)
+    !pending || (entry.valid && entry.stid === recoveryStid &&
+      entry.peId === recoveryPlan.oldHead.peId &&
+      entry.member.group.peId === entry.peId &&
+      entry.member.group.stid === entry.stid &&
+      OooRecoveryMembership.memberInOldWindow(
+        p, recoveryPlan, entry.member))
+  }.reduce(_ && _)
+  val recoveryPendingKill = Wire(Vec(p.decodedUopWidth, Bool()))
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    recoveryPendingKill(uopIndex) :=
+      pendingMask(safeRecoveryStid)(uopIndex) &&
+      OooRecoveryMembership.memberKilled(
+        p, recoveryPlan, entries(safeRecoveryStid)(uopIndex).member)
+  }
+  val recoveryPrepareExact = recoveryPlan.valid && recoveryStidInRange &&
+    recoveryPendingExact
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryPrepareExact
+  io.recoveryPrepared := 0.U.asTypeOf(io.recoveryPrepared)
+  io.recoveryPrepared.valid := io.recoveryPrepareReady
+  io.recoveryPrepared.stid := recoveryStid
+  io.recoveryPrepared.pendingKilled := PopCount(recoveryPendingKill)
+  io.recoveryRejected.valid := io.recoveryPrepare.valid &&
+    !recoveryPrepareExact
+  io.recoveryRejected.bits.requested := recoveryPlan
+  io.recoveryRejected.bits.stidInRange := recoveryStidInRange
+  io.recoveryRejected.bits.pendingRowsExact := recoveryPendingExact
+
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepareReady,
+      "fast-resolve recovery may apply only one exact prepared ROB suffix")
+    pendingMask(safeRecoveryStid) := pendingMask(safeRecoveryStid) &
+      ~recoveryPendingKill.asUInt
+    for (uopIndex <- 0 until p.decodedUopWidth) {
+      when(recoveryPendingKill(uopIndex)) {
+        entries(safeRecoveryStid)(uopIndex) :=
+          0.U.asTypeOf(new OooFastResolveEntry(p))
+      }
+    }
+  }
+
   for (stid <- 0 until p.stidCount) {
     io.pendingByStid(stid) :=
       chisel3.util.PopCount(pendingMask(stid))
+    for (uopIndex <- 0 until p.decodedUopWidth) {
+      assert(!pendingMask(stid)(uopIndex) ||
+        entries(stid)(uopIndex).valid,
+        "every pending fast-resolve owner bit must retain a valid payload")
+    }
   }
 }

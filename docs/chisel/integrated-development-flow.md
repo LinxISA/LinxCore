@@ -98,8 +98,15 @@ O7.2b1 now adds exact BROB tail-block, live-count, current-pointer, and
 implicit-close rollback. Its direct owner tests prove two killed blocks reopen
 the surviving block before BID reuse. O7.2b2 now adds exact PC-base tail,
 live-count, current token/base-value, close-owner, and freed-read rollback. The
-immediate handoff is dispatch/IEX/fast plus retained global R0-R4 composition,
-followed by O7.3 CTU canonical-child reinsertion. The
+O7.2c direct residency owners now consume a compact ROB-authorized window:
+dispatch cancels target provisional and exact killed published reservations,
+IEX prunes S1/S3 and frees killed S2/S3 rows with generation-qualified ready
+cleanup, and fast resolve cancels exact killed pending entries while unrelated
+STIDs continue. These owner inputs remain tied off until one retained global
+R0-R4 transaction also joins ROB, D3, BROB, PC, P/T/U rename, frontend, and
+CTU. The immediate handoff is that global composition, including P-ready
+invalidation for killed fast producers, followed by O7.3 CTU canonical-child
+reinsertion. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

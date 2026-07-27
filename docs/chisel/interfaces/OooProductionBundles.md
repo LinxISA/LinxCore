@@ -722,6 +722,24 @@ zero mutation. Like ROB, D3, and BROB, the PC recovery interface remains tied
 off in the composed coordinator until the upper owners and retained global
 state machine join one apply.
 
+O7.2c adds `OooResidencyRecoveryPlan`, the compact projection consumed by
+dispatch, IEX, and fast resolve. It carries the exact old wrapped ROB window,
+pivot member/count, and surviving physical-child count, but intentionally
+omits the full killed-group/BROB/PC repair vectors. `OooRecoveryMembership`
+performs generation-qualified window and partial-pivot membership tests; RID
+or BID numeric magnitude is never used as age.
+
+`OooDispatchPublish` now binds each allocated lane to one exact
+`RobMemberKey`, and release must reproduce that member. Dispatch recovery
+cancels every target-STID provisional lease because it has not entered the
+published ROB window, then removes only exact killed published members. IEX
+retains the source dispatch lane so it can prune S1 and pending-S3 masks,
+removes exact killed `BoundS2`/`ResidentS3` rows, and clears their matching
+P/T/U ready records. Fast resolve removes exact killed retained entries and
+excludes only the recovering STID from terminal arbitration. Each owner exposes
+a typed prepared count and a typed fail-closed reject. These direct ports remain
+tied off until global R0-R4 joins every owner on one common fire.
+
 ## Verification
 
 ```bash
