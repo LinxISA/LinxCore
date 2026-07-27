@@ -11,6 +11,10 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
     dut.io.publishFire.poke(false.B)
     dut.io.commit.valid.poke(false.B)
     dut.io.commit.bits.poke(0.U.asTypeOf(dut.io.commit.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
   }
 
   private def pokePrepare(
@@ -96,6 +100,61 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.valid.poke(false.B)
   }
 
+  private def pokeRecoveryPlan(
+      dut: OooProductionBrob,
+      stid: Int,
+      staleGeneration: Boolean = false): Unit = {
+    val plan = dut.io.recoveryPrepare.bits
+    plan.poke(0.U.asTypeOf(plan))
+    plan.valid.poke(true.B)
+    plan.request.rename.key.member.group.valid.poke(true.B)
+    plan.request.rename.key.member.group.peId.poke(2.U)
+    plan.request.rename.key.member.group.stid.poke(stid.U)
+    plan.request.rename.key.member.bid.valid.poke(true.B)
+    plan.oldOccupied.poke(5.U)
+    plan.newOccupied.poke(2.U)
+    plan.killedGroupCount.poke(3.U)
+    plan.killedGroupMask.poke(7.U)
+    plan.survivingTailValid.poke(true.B)
+    plan.survivingTail.valid.poke(true.B)
+    plan.survivingTail.key.valid.poke(true.B)
+    plan.survivingTail.key.peId.poke(2.U)
+    plan.survivingTail.key.stid.poke(stid.U)
+    plan.survivingTail.key.ridSlot.poke(1.U)
+    plan.survivingTail.brob.valid.poke(true.B)
+    plan.survivingTail.brob.bid.valid.poke(true.B)
+    plan.survivingTail.brob.bid.value.poke(0.U)
+    plan.survivingTail.brob.generation.poke(0.U)
+
+    val groups = Seq(
+      (2, 1, true, true, 0),
+      (3, 1, false, false, 0),
+      (4, 2, true, true, 1))
+    groups.zipWithIndex.foreach {
+      case ((rid, bid, allocated, implicitClose, priorBid), index) =>
+        val group = plan.killedGroups(index)
+        group.valid.poke(true.B)
+        group.key.valid.poke(true.B)
+        group.key.peId.poke(2.U)
+        group.key.stid.poke(stid.U)
+        group.key.ridSlot.poke(rid.U)
+        group.key.ridGeneration.poke(0.U)
+        group.boundaryStart.poke(allocated.B)
+        group.brob.valid.poke(true.B)
+        group.brob.bid.valid.poke(true.B)
+        group.brob.bid.value.poke(bid.U)
+        group.brob.generation.poke(
+          (if (staleGeneration && index == 1) 1 else 0).U)
+        group.brobAllocated.poke(allocated.B)
+        group.brobImplicitCloseValid.poke(implicitClose.B)
+        group.brobImplicitClose.valid.poke(implicitClose.B)
+        group.brobImplicitClose.bid.valid.poke(implicitClose.B)
+        group.brobImplicitClose.bid.value.poke(priorBid.U)
+        group.brobImplicitClose.generation.poke(0.U)
+    }
+    dut.io.recoveryPrepare.valid.poke(true.B)
+  }
+
   test("requires an opening boundary before assigning the first native BID") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
     simulate(new OooProductionBrob(p)) { dut =>
@@ -107,6 +166,77 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
       dut.io.usedBlocks(0).expect(0.U)
       dut.clock.step()
       dut.io.usedBlocks(0).expect(0.U)
+    }
+  }
+
+  test("rolls back exact tail blocks and reopens an implicitly closed survivor") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, brobEntriesPerStid = 8)
+    simulate(new OooProductionBrob(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        boundaries = Seq(true -> false, false -> false, true -> false))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        boundaries = Seq(false -> false, true -> false))
+      publish(dut)
+      dut.io.usedBlocks(1).expect(3.U)
+      dut.io.tail(1).bid.value.expect(3.U)
+      dut.io.currentValid(1).expect(true.B)
+      dut.io.current(1).bid.value.expect(2.U)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.freedBlocks.expect(2.U)
+      dut.io.recoveryPrepared.tailAfter.bid.value.expect(1.U)
+      dut.io.recoveryPrepared.currentAfterValid.expect(true.B)
+      dut.io.recoveryPrepared.currentAfter.bid.value.expect(0.U)
+      dut.clock.step()
+      dut.io.usedBlocks(1).expect(3.U)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedBlocks(1).expect(1.U)
+      dut.io.tail(1).bid.value.expect(1.U)
+      dut.io.currentValid(1).expect(true.B)
+      dut.io.current(1).bid.value.expect(0.U)
+
+      pokePrepare(dut, stid = 1, transactionId = 2, firstRid = 2,
+        boundaries = Seq(true -> false))
+      dut.io.prepareReady.expect(true.B)
+      dut.io.prepared.pointers(0).bid.value.expect(1.U)
+      dut.io.prepared.implicitCloseMask.expect(1.U)
+      dut.io.prepared.implicitClosePointers(0).bid.value.expect(0.U)
+      publish(dut)
+      dut.io.usedBlocks(1).expect(2.U)
+      dut.io.current(1).bid.value.expect(1.U)
+    }
+  }
+
+  test("rejects a stale killed-block generation without BROB mutation") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, brobEntriesPerStid = 8)
+    simulate(new OooProductionBrob(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        boundaries = Seq(true -> false, false -> false, true -> false))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        boundaries = Seq(false -> false, true -> false))
+      publish(dut)
+
+      pokeRecoveryPlan(dut, stid = 1, staleGeneration = true)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.killedRowsExact.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedBlocks(1).expect(3.U)
+      dut.io.tail(1).bid.value.expect(3.U)
+      dut.io.current(1).bid.value.expect(2.U)
     }
   }
 

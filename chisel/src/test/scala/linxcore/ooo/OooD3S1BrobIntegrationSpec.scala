@@ -29,6 +29,10 @@ private class OooD3S1BrobHarness(val p: OooParams) extends Module {
   d3.io.recoveryFire := false.B
   brob.io.prepare.valid := d3.io.out.valid
   brob.io.prepare.bits := d3.io.out.bits
+  brob.io.recoveryPrepare.valid := false.B
+  brob.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(brob.io.recoveryPrepare.bits)
+  brob.io.recoveryFire := false.B
 
   s1.io.publish.valid := d3.io.out.valid && brob.io.prepareReady
   s1.io.publish.bits := 0.U.asTypeOf(s1.io.publish.bits)

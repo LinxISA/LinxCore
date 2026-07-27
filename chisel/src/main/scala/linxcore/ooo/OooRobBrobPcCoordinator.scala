@@ -150,6 +150,10 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   d3.io.recoveryPrepare.valid := false.B
   d3.io.recoveryPrepare.bits := 0.U.asTypeOf(d3.io.recoveryPrepare.bits)
   d3.io.recoveryFire := false.B
+  brob.io.recoveryPrepare.valid := false.B
+  brob.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(brob.io.recoveryPrepare.bits)
+  brob.io.recoveryFire := false.B
 
   // The ROB is the retained commit source. All other owners see the same valid
   // batch while computing readiness; external visibility is gated until every

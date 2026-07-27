@@ -542,6 +542,8 @@ class OooRobRecoveryPlan(val p: OooParams = OooParams()) extends Bundle {
   val survivingPivotValid = Bool()
   val survivingPivot = new OooRobPhysicalGroupRecord(p)
   val newOccupied = UInt(p.nonFlushPrefixCountWidth.W)
+  val survivingTailValid = Bool()
+  val survivingTail = new OooRobPhysicalGroupRecord(p)
   val firstKilledGroup = new RobGroupKey(p)
   val killedGroupCount = UInt(p.nonFlushPrefixCountWidth.W)
   val killedGroupMask = UInt(p.robGroupsPerStid.W)
@@ -1117,6 +1119,24 @@ class OooBrobPrepareReject(val p: OooParams = OooParams()) extends Bundle {
 class OooBrobCommitReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new OooRobCommitBatch(p)
   val head = new BrobPointer(p)
+}
+
+class OooBrobRecoveryPrepared(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val freedBlocks = UInt(p.brobCountWidth.W)
+  val tailAfter = new BrobPointer(p)
+  val currentAfterValid = Bool()
+  val currentAfter = new BrobPointer(p)
+}
+
+class OooBrobRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobRecoveryPlan(p)
+  val liveTail = new BrobPointer(p)
+  val usedBlocks = UInt(p.brobCountWidth.W)
+  val killedRowsExact = Bool()
+  val tailSuffixExact = Bool()
+  val currentAfterExact = Bool()
 }
 
 class OooPcBaseEntry(val p: OooParams = OooParams()) extends Bundle {

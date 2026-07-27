@@ -9,9 +9,14 @@ class OooProductionBrobIO(val p: OooParams = OooParams()) extends Bundle {
   val prepareReady = Output(Bool())
   val publishFire = Input(Bool())
   val commit = Flipped(Decoupled(new OooRobCommitBatch(p)))
+  val recoveryPrepare = Flipped(Valid(new OooRobRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooBrobRecoveryPrepared(p))
+  val recoveryFire = Input(Bool())
 
   val prepareRejected = Valid(new OooBrobPrepareReject(p))
   val commitRejected = Valid(new OooBrobCommitReject(p))
+  val recoveryRejected = Valid(new OooBrobRecoveryReject(p))
   val usedBlocks = Output(Vec(p.stidCount, UInt(p.brobCountWidth.W)))
   val head = Output(Vec(p.stidCount, new BrobPointer(p)))
   val tail = Output(Vec(p.stidCount, new BrobPointer(p)))
@@ -40,6 +45,13 @@ class OooProductionBrob(val p: OooParams = OooParams()) extends Module {
   val currentValid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
   val currentPointer = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U.asTypeOf(new BrobPointer(p)))))
+
+  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryStid = recoveryPlan.request.rename.key.member.group.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryTargetsStid = io.recoveryPrepare.valid &&
+    recoveryPlan.valid && recoveryStidInRange
 
   val prepareStid = io.prepare.bits.transaction.plan.stid
   val prepareStidInRange = prepareStid < p.stidCount.U
@@ -135,7 +147,10 @@ class OooProductionBrob(val p: OooParams = OooParams()) extends Module {
   io.prepared.tailAfter.generation := tailGeneration(safePrepareStid) + tailAfterWrap.asUInt
   io.prepared.currentAfterValid := scanCurrentValid(p.instructionDecodeWidth)
   io.prepared.currentAfter := scanCurrent(p.instructionDecodeWidth)
-  io.prepareReady := prepareExact && !exactCommitConflict
+  val recoveryBlocksPrepare = recoveryTargetsStid &&
+    prepareStid === recoveryStid
+  io.prepareReady := prepareExact && !exactCommitConflict &&
+    !recoveryBlocksPrepare
   io.prepareRejected.valid := io.prepare.valid && !io.prepareReady
   io.prepareRejected.bits.stid := prepareStid
   io.prepareRejected.bits.transactionId := io.prepare.bits.transaction.plan.transactionId
@@ -245,11 +260,148 @@ class OooProductionBrob(val p: OooParams = OooParams()) extends Module {
   val commitExact = commitStidInRange && commitCountInRange &&
     usedBlocks(safeCommitStid).orR && commitGroupExact.reduce(_ && _) &&
     retireCountsLegal && releaseHeaderExact
+  val recoveryKilledActive = Wire(Vec(p.robGroupsPerStid, Bool()))
+  val recoveryKilledRowsExact = Wire(Vec(p.robGroupsPerStid, Bool()))
+  val recoveryAllocatedMask = Wire(Vec(p.robGroupsPerStid, Bool()))
+  for (killedIndex <- 0 until p.robGroupsPerStid) {
+    val group = recoveryPlan.killedGroups(killedIndex)
+    val active = killedIndex.U < recoveryPlan.killedGroupCount
+    val row = table(safeRecoveryStid)(group.brob.bid.value)
+    recoveryKilledActive(killedIndex) := active
+    recoveryAllocatedMask(killedIndex) := active && group.brobAllocated
+    recoveryKilledRowsExact(killedIndex) :=
+      recoveryPlan.killedGroupMask(killedIndex) === active && (!active || (
+        group.valid && group.key.valid && group.key.stid === recoveryStid &&
+          group.brob.valid && group.brob.bid.valid && row.valid &&
+          row.stid === recoveryStid && row.peId === group.key.peId &&
+          row.pointer.asUInt === group.brob.asUInt &&
+          (!group.brobAllocated ||
+            (group.boundaryStart &&
+              row.firstRobGroup.asUInt === group.key.asUInt)) &&
+          (!group.brobImplicitCloseValid ||
+            (group.brobAllocated &&
+              table(safeRecoveryStid)(group.brobImplicitClose.bid.value)
+                .valid &&
+              table(safeRecoveryStid)(group.brobImplicitClose.bid.value)
+                .pointer.asUInt === group.brobImplicitClose.asUInt))))
+  }
+  val recoveryFreedBlocks = PopCount(recoveryAllocatedMask)
+  val recoveryFirstAllocatedIndex = PriorityEncoder(
+    recoveryAllocatedMask.asUInt)
+  val recoveryFirstAllocated = recoveryPlan.killedGroups(
+    recoveryFirstAllocatedIndex).brob
+  val recoveryAllocationPrefix = Wire(Vec(p.robGroupsPerStid + 1,
+    UInt(p.brobCountWidth.W)))
+  recoveryAllocationPrefix(0) := 0.U
+  val recoveryAllocatedOrderExact = Wire(Vec(p.robGroupsPerStid, Bool()))
+  for (killedIndex <- 0 until p.robGroupsPerStid) {
+    val group = recoveryPlan.killedGroups(killedIndex)
+    val expectedSum = recoveryFirstAllocated.bid.value +&
+      recoveryAllocationPrefix(killedIndex)
+    val expectedWrap = expectedSum >= p.brobEntriesPerStid.U
+    recoveryAllocatedOrderExact(killedIndex) :=
+      !recoveryAllocatedMask(killedIndex) || (
+        group.brob.bid.value ===
+          expectedSum(p.nativeBidWidth - 1, 0) &&
+        group.brob.generation ===
+          recoveryFirstAllocated.generation + expectedWrap.asUInt)
+    recoveryAllocationPrefix(killedIndex + 1) :=
+      recoveryAllocationPrefix(killedIndex) +
+        recoveryAllocatedMask(killedIndex).asUInt
+  }
+  val recoveryLiveTail = Wire(new BrobPointer(p))
+  recoveryLiveTail.valid := true.B
+  recoveryLiveTail.bid.valid := true.B
+  recoveryLiveTail.bid.value := tailSlot(safeRecoveryStid)
+  recoveryLiveTail.generation := tailGeneration(safeRecoveryStid)
+  val recoveryTailEndSum = recoveryFirstAllocated.bid.value +&
+    recoveryFreedBlocks
+  val recoveryTailEndWrap =
+    recoveryTailEndSum >= p.brobEntriesPerStid.U
+  val recoveryTailSuffixExact = Mux(
+    recoveryFreedBlocks.orR,
+    recoveryFirstAllocated.valid && recoveryFirstAllocated.bid.valid &&
+      recoveryAllocatedOrderExact.reduce(_ && _) &&
+      recoveryLiveTail.bid.value ===
+        recoveryTailEndSum(p.nativeBidWidth - 1, 0) &&
+      recoveryLiveTail.generation ===
+        recoveryFirstAllocated.generation + recoveryTailEndWrap.asUInt &&
+      usedBlocks(safeRecoveryStid) >= recoveryFreedBlocks,
+    true.B)
+  val recoveryTailAfter = Mux(recoveryFreedBlocks.orR,
+    recoveryFirstAllocated, recoveryLiveTail)
+  val recoveryFirstKilled = recoveryPlan.killedGroups(0)
+  val recoveryCurrentAfterValid = Mux(
+    recoveryPlan.survivingTailValid,
+    !recoveryPlan.survivingTail.boundaryStop,
+    Mux(recoveryFirstKilled.brobAllocated,
+      recoveryFirstKilled.brobImplicitCloseValid,
+      true.B))
+  val recoveryCurrentAfter = Mux(
+    recoveryPlan.survivingTailValid,
+    recoveryPlan.survivingTail.brob,
+    Mux(recoveryFirstKilled.brobAllocated,
+      recoveryFirstKilled.brobImplicitClose,
+      recoveryFirstKilled.brob))
+  val recoveryCurrentRow = table(safeRecoveryStid)(
+    recoveryCurrentAfter.bid.value)
+  val recoveryCurrentAfterExact = !recoveryCurrentAfterValid || (
+    recoveryCurrentAfter.valid && recoveryCurrentAfter.bid.valid &&
+      recoveryCurrentRow.valid &&
+      recoveryCurrentRow.stid === recoveryStid &&
+      recoveryCurrentRow.pointer.asUInt === recoveryCurrentAfter.asUInt)
+  val recoveryHitsBySlot = Wire(Vec(p.brobEntriesPerStid,
+    UInt(p.nonFlushPrefixCountWidth.W)))
+  val recoveryHitCountsLegal = Wire(Vec(p.brobEntriesPerStid, Bool()))
+  for (slot <- 0 until p.brobEntriesPerStid) {
+    recoveryHitsBySlot(slot) := PopCount((0 until p.robGroupsPerStid).map {
+      killedIndex => recoveryKilledActive(killedIndex) &&
+        recoveryPlan.killedGroups(killedIndex).brob.bid.value === slot.U &&
+        recoveryPlan.killedGroups(killedIndex).brob.generation ===
+          table(safeRecoveryStid)(slot).pointer.generation
+    })
+    recoveryHitCountsLegal(slot) :=
+      recoveryHitsBySlot(slot) <=
+        table(safeRecoveryStid)(slot).liveRobGroups
+  }
+  val recoveryShapeExact = recoveryPlan.valid && recoveryStidInRange &&
+    recoveryPlan.oldOccupied.orR &&
+    recoveryPlan.killedGroupCount ===
+      recoveryPlan.oldOccupied - recoveryPlan.newOccupied &&
+    recoveryPlan.survivingTailValid === recoveryPlan.newOccupied.orR &&
+    (!recoveryPlan.survivingTailValid ||
+      (recoveryPlan.survivingTail.valid &&
+        recoveryPlan.survivingTail.key.stid === recoveryStid &&
+        recoveryPlan.survivingTail.brob.valid &&
+        recoveryPlan.survivingTail.brob.bid.valid))
+  val recoveryExact = recoveryShapeExact &&
+    recoveryKilledRowsExact.reduce(_ && _) &&
+    recoveryTailSuffixExact && recoveryCurrentAfterExact &&
+    recoveryHitCountsLegal.reduce(_ && _)
+  val recoveryCommitConflict = io.commit.valid && commitExact &&
+    commitStid === recoveryStid
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryExact &&
+    !recoveryCommitConflict
+  io.recoveryPrepared.valid := io.recoveryPrepareReady
+  io.recoveryPrepared.stid := recoveryStid
+  io.recoveryPrepared.freedBlocks := recoveryFreedBlocks
+  io.recoveryPrepared.tailAfter := recoveryTailAfter
+  io.recoveryPrepared.currentAfterValid := recoveryCurrentAfterValid
+  io.recoveryPrepared.currentAfter := recoveryCurrentAfter
+  io.recoveryRejected.valid := io.recoveryPrepare.valid && !recoveryExact
+  io.recoveryRejected.bits.requested := recoveryPlan
+  io.recoveryRejected.bits.liveTail := recoveryLiveTail
+  io.recoveryRejected.bits.usedBlocks := usedBlocks(safeRecoveryStid)
+  io.recoveryRejected.bits.killedRowsExact :=
+    recoveryKilledRowsExact.reduce(_ && _)
+  io.recoveryRejected.bits.tailSuffixExact := recoveryTailSuffixExact
+  io.recoveryRejected.bits.currentAfterExact := recoveryCurrentAfterExact
   // One exact same-STID commit wins this cycle. Invalid retained commits report
   // rejection but cannot starve a prepare; different STIDs remain concurrent.
   exactCommitConflict := io.commit.valid && commitExact && prepareStidInRange &&
     commitStid === prepareStid
-  io.commit.ready := commitExact
+  io.commit.ready := commitExact &&
+    !(recoveryTargetsStid && commitStid === recoveryStid)
   val commitFire = io.commit.valid && io.commit.ready
   io.commitRejected.valid := io.commit.valid && !io.commit.ready
   io.commitRejected.bits.requested := io.commit.bits
@@ -386,6 +538,80 @@ class OooProductionBrob(val p: OooParams = OooParams()) extends Module {
     }
     when(commitHere && freedHere) {
       table(stid)(slot) := 0.U.asTypeOf(new OooBrobEntry(p))
+    }
+  }
+
+  val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepare.valid && io.recoveryPrepareReady &&
+      io.recoveryPrepared.valid,
+      "BROB recovery fire requires the same exact prepared suffix")
+  }
+  when(recoveryApply) {
+    usedBlocks(safeRecoveryStid) :=
+      usedBlocks(safeRecoveryStid) - recoveryFreedBlocks
+    tailSlot(safeRecoveryStid) := recoveryTailAfter.bid.value
+    tailGeneration(safeRecoveryStid) := recoveryTailAfter.generation
+    currentValid(safeRecoveryStid) := recoveryCurrentAfterValid
+    currentPointer(safeRecoveryStid) := Mux(
+      recoveryCurrentAfterValid,
+      recoveryCurrentAfter,
+      0.U.asTypeOf(new BrobPointer(p)))
+  }
+  for (slot <- 0 until p.brobEntriesPerStid) {
+    val killedInSlot = VecInit((0 until p.robGroupsPerStid).map {
+      killedIndex => recoveryKilledActive(killedIndex) &&
+        recoveryPlan.killedGroups(killedIndex).brob.bid.value === slot.U &&
+        recoveryPlan.killedGroups(killedIndex).brob.generation ===
+          table(safeRecoveryStid)(slot).pointer.generation
+    })
+    val firstKilledIndex = PriorityEncoder(killedInSlot.asUInt)
+    val firstKilledKey = recoveryPlan.killedGroups(firstKilledIndex).key
+    val priorSlot = Mux(firstKilledKey.ridSlot === 0.U,
+      (p.robGroupsPerStid - 1).U,
+      firstKilledKey.ridSlot - 1.U)
+    val priorGeneration = Mux(firstKilledKey.ridSlot === 0.U,
+      firstKilledKey.ridGeneration - 1.U,
+      firstKilledKey.ridGeneration)
+    val priorKey = Wire(new RobGroupKey(p))
+    priorKey.valid := killedInSlot.asUInt.orR
+    priorKey.peId := firstKilledKey.peId
+    priorKey.stid := firstKilledKey.stid
+    priorKey.ridSlot := priorSlot
+    priorKey.ridGeneration := priorGeneration
+    val closeOwnerKilled = table(safeRecoveryStid)(slot).closeOwnerValid &&
+      ((0 until p.robGroupsPerStid).map { killedIndex =>
+        recoveryKilledActive(killedIndex) &&
+          recoveryPlan.killedGroups(killedIndex).key.asUInt ===
+            table(safeRecoveryStid)(slot).closeOwner.asUInt
+      }.reduce(_ || _) ||
+        (recoveryPlan.survivingPivotValid &&
+          recoveryPlan.pivot.boundaryStop &&
+          !recoveryPlan.survivingPivot.boundaryStop &&
+          recoveryPlan.pivot.key.asUInt ===
+            table(safeRecoveryStid)(slot).closeOwner.asUInt))
+    val freedHere = (0 until p.robGroupsPerStid).map { killedIndex =>
+      recoveryAllocatedMask(killedIndex) &&
+        recoveryPlan.killedGroups(killedIndex).brob.bid.value === slot.U &&
+        recoveryPlan.killedGroups(killedIndex).brob.generation ===
+          table(safeRecoveryStid)(slot).pointer.generation
+    }.reduce(_ || _)
+    when(recoveryApply && recoveryHitsBySlot(slot).orR) {
+      table(safeRecoveryStid)(slot).liveRobGroups :=
+        table(safeRecoveryStid)(slot).liveRobGroups -
+          recoveryHitsBySlot(slot)
+      table(safeRecoveryStid)(slot).lastRobGroup := priorKey
+    }
+    when(recoveryApply && closeOwnerKilled && !freedHere) {
+      table(safeRecoveryStid)(slot).closed := false.B
+      table(safeRecoveryStid)(slot).closeOwnerValid := false.B
+      table(safeRecoveryStid)(slot).closeOwner :=
+        0.U.asTypeOf(new RobGroupKey(p))
+      table(safeRecoveryStid)(slot).closeCommitted := false.B
+    }
+    when(recoveryApply && freedHere) {
+      table(safeRecoveryStid)(slot) :=
+        0.U.asTypeOf(new OooBrobEntry(p))
     }
   }
 

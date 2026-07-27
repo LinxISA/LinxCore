@@ -421,6 +421,16 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   recoveryPlan.survivingPivotValid := recoverySurvivingPivotValid
   recoveryPlan.survivingPivot := recoverySurvivingPivot
   recoveryPlan.newOccupied := recoveryNewOccupied
+  val recoverySurvivingTailOffset = Mux(recoveryNewOccupied.orR,
+    recoveryNewOccupied - 1.U, 0.U)
+  val recoverySurvivingTailSlotSum = headSlot(safeRecoveryStid) +&
+    recoverySurvivingTailOffset
+  recoveryPlan.survivingTailValid := recoveryNewOccupied.orR
+  recoveryPlan.survivingTail := Mux(
+    recoverySurvivingPivotValid,
+    recoverySurvivingPivot,
+    rows(safeRecoveryStid)(
+      recoverySurvivingTailSlotSum(p.ridSlotWidth - 1, 0)))
   recoveryPlan.firstKilledGroup.valid := recoveryKilledGroupCount.orR
   recoveryPlan.firstKilledGroup.peId := headPeId(safeRecoveryStid)
   recoveryPlan.firstKilledGroup.stid := recoveryStid

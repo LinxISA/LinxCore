@@ -693,6 +693,23 @@ prepare is held, while other STIDs continue. The composed O3 coordinator still
 ties both ROB and D3 recovery inputs off until BROB, PC, rename, dispatch, IEX,
 fast resolve, and CTU join the same apply.
 
+O7.2b1 adds `OooProductionBrob` as the next independent owner. Prepare proves
+that every killed row names an exact live native-BID/BROB-generation entry,
+that every killed block allocation is a contiguous suffix ending at the live
+BROB tail, and that per-block killed counts do not exceed live ROB-group counts.
+It derives the post-recovery tail and current block from the exact first killed
+allocation and `survivingTail`, never from unsigned BID age.
+
+Apply frees only the exact allocated tail blocks, decrements retained blocks'
+live counts, restores their last live ROB key, and reopens an older block when
+the killed boundary key was its explicit or implicit close owner. Head and
+commit cursor state do not move. A killed generation or noncontiguous tail
+rejects with zero mutation. Direct tests remove two successively allocated
+blocks, undo two implicit closes, restore the surviving current block, and then
+reallocate the first killed BID to prove the close relation was actually
+reopened. BROB recovery remains tied off in `OooRobBrobPcCoordinator`; PC and
+all upper owners must still join before the composed seam opens.
+
 ## Verification
 
 ```bash
