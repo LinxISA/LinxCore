@@ -81,6 +81,8 @@ class OooBundlesSpec extends AnyFunSuite {
 
     assert(publication.sources.length == p.decodedUopWidth)
     assert(source.member.brobGeneration.getWidth == p.brobGenerationWidth)
+    assert(source.epoch.getWidth == p.epochWidth)
+    assert(source.pDestinationCount.getWidth == p.destinationCountWidth)
     assert(source.tSeqBefore.generation.getWidth ==
       p.localSeqGenerationWidth)
     assert(source.uSeqBefore.generation.getWidth ==

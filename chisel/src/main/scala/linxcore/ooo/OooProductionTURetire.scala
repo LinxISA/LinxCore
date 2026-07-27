@@ -10,6 +10,10 @@ object OooTURetireState extends ChiselEnum {
     AwaitDeallocation = Value
 }
 
+object OooTURetireRecoveryState extends ChiselEnum {
+  val Idle, Scan, Emit, AwaitOwners = Value
+}
+
 class OooTURelationEntry(val p: OooParams) extends Bundle {
   val valid = Bool()
   val block = new BrobPointer(p)
@@ -41,6 +45,15 @@ class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
   val uRelationUsed = Output(Vec(p.stidCount,
     UInt(p.tuRelationCountWidth.W)))
   val commitRejected = Valid(new OooTURetireCommitReject(p))
+
+  val recoveryRequest = Flipped(Decoupled(
+    new OooRenameRecoveryRequest(p)))
+  val recoverySource = Decoupled(new OooRenameRecoverySource(p))
+  val recoveryFinish = Input(Bool())
+  val recoveryBusy = Output(Bool())
+  val recoveryStid = Output(UInt(p.stidWidth.W))
+  val recoverySourcesDone = Output(Bool())
+  val recoveryRejected = Valid(new OooRenameRecoveryReject(p))
 }
 
 /** Production owner for T/U relation retirement and local block release.
@@ -71,6 +84,11 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   private def addSourcePtr(ptr: UInt, amount: UInt): UInt = {
     val sum = ptr +& amount
     sum(p.tuRetireSourceIndexWidth - 1, 0)
+  }
+
+  private def subSourcePtr(ptr: UInt, amount: UInt): UInt = {
+    val difference = ptr - amount
+    difference(p.tuRetireSourceIndexWidth - 1, 0)
   }
 
   private def addRelationPtr(ptr: UInt, amount: UInt): UInt = {
@@ -116,6 +134,29 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   val uRelationCount = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(p.tuRelationCountWidth.W))))
 
+  val recoveryState = RegInit(OooTURetireRecoveryState.Idle)
+  val recoveryRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryScanOffset = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+  val recoveryScanRemaining = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+  val recoveryMatchCount = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+  val recoveryMatchedOffset = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+  val recoveryEmitRemaining = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+  val recoveryRejectValid = RegInit(false.B)
+  val recoveryRejectRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryRejectHead = RegInit(
+    0.U(p.tuRetireSourceIndexWidth.W))
+  val recoveryRejectTail = RegInit(
+    0.U(p.tuRetireSourceIndexWidth.W))
+  val recoveryRejectCount = RegInit(
+    0.U(p.tuRetireSourceCountWidth.W))
+
   val publication = io.publicationPrepare.bits
   val publicationStid = publication.stid
   val publicationStidInRange = publicationStid < p.stidCount.U
@@ -136,7 +177,9 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
           destination.epoch === publication.epoch)
     }.reduce(_ && _)
     !active || (source.valid && source.transactionId ===
-      publication.transactionId && source.uopIndex === uopIndex.U &&
+      publication.transactionId && source.epoch === publication.epoch &&
+      source.uopIndex === uopIndex.U &&
+      source.pDestinationCount <= p.maxDestinationOperands.U &&
       source.member.group.valid &&
       source.member.group.peId === publication.peId &&
       source.member.group.stid === publicationStid &&
@@ -151,8 +194,13 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   val publicationSourceCount = PopCount(publication.uopMask)
   val publicationFree = p.tuRetireSourceDepthPerStid.U -
     sourceCount(safePublicationStid)
+  val recoveryActiveStid = recoveryRequest.key.member.group.stid
+  val publicationBlockedByRecovery =
+    recoveryState =/= OooTURetireRecoveryState.Idle &&
+      publicationStid === recoveryActiveStid
   io.publicationReady := publicationStidInRange && publicationMaskExact &&
-    publicationRowsExact && publicationSourceCount <= publicationFree
+    publicationRowsExact && publicationSourceCount <= publicationFree &&
+    !publicationBlockedByRecovery
   val publicationFire = io.publishFire && io.publicationPrepare.valid &&
     io.publicationReady
   when(io.publishFire) {
@@ -170,6 +218,132 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   val processingCloseBefore = RegInit(false.B)
   val destinationCursor = RegInit(0.U(destinationCursorWidth.W))
   val postReleaseKind = RegInit(DestinationKind.None)
+
+  recoveryRejectValid := false.B
+  val incomingRecovery = io.recoveryRequest.bits
+  val incomingRecoveryStid = incomingRecovery.key.member.group.stid
+  val incomingRecoveryStidInRange = incomingRecoveryStid < p.stidCount.U
+  val safeIncomingRecoveryStid = Mux(incomingRecoveryStidInRange,
+    incomingRecoveryStid, 0.U)
+  val incomingRecoveryShapeExact = incomingRecoveryStidInRange &&
+    incomingRecovery.key.member.group.valid &&
+    incomingRecovery.key.member.bid.valid &&
+    sourceCount(safeIncomingRecoveryStid).orR
+  val recoveryConflictsPublication = publicationFire &&
+    publicationStid === incomingRecoveryStid
+  io.recoveryRequest.ready :=
+    recoveryState === OooTURetireRecoveryState.Idle &&
+      state === OooTURetireState.Idle && !io.commitPrepare.valid &&
+      !recoveryConflictsPublication
+  val recoveryRequestFire = io.recoveryRequest.fire
+  when(recoveryRequestFire) {
+    when(incomingRecoveryShapeExact) {
+      recoveryRequest := incomingRecovery
+      recoveryScanOffset := 0.U
+      recoveryScanRemaining := sourceCount(safeIncomingRecoveryStid)
+      recoveryMatchCount := 0.U
+      recoveryMatchedOffset := 0.U
+      recoveryState := OooTURetireRecoveryState.Scan
+    }.otherwise {
+      recoveryRejectValid := true.B
+      recoveryRejectRequest := incomingRecovery
+      recoveryRejectHead := sourceHead(safeIncomingRecoveryStid)
+      recoveryRejectTail := sourceTail(safeIncomingRecoveryStid)
+      recoveryRejectCount := sourceCount(safeIncomingRecoveryStid)
+    }
+  }
+
+  val recoveryStid = recoveryRequest.key.member.group.stid
+  val recoveryScanIndex = subSourcePtr(sourceTail(recoveryStid),
+    recoveryScanOffset + 1.U)
+  val recoveryScanSource = sourceQueue(recoveryStid)(recoveryScanIndex)
+  val recoveryScanMatch = recoveryScanSource.valid &&
+    recoveryScanSource.member.asUInt === recoveryRequest.key.member.asUInt &&
+    recoveryScanSource.transactionId === recoveryRequest.key.transactionId &&
+    recoveryScanSource.epoch === recoveryRequest.key.epoch
+  val recoveryFinalMatchCount = recoveryMatchCount +
+    recoveryScanMatch.asUInt
+  val recoveryFinalMatchedOffset = Mux(recoveryScanMatch &&
+    !recoveryMatchCount.orR, recoveryScanOffset, recoveryMatchedOffset)
+  val recoveryKillCount = recoveryFinalMatchedOffset +
+    recoveryRequest.killTrigger.asUInt
+
+  val recoveryEmitIndex = subSourcePtr(sourceTail(recoveryStid), 1.U)
+  val recoveryEmitSource = sourceQueue(recoveryStid)(recoveryEmitIndex)
+  io.recoverySource.valid :=
+    recoveryState === OooTURetireRecoveryState.Emit
+  io.recoverySource.bits := 0.U.asTypeOf(io.recoverySource.bits)
+  io.recoverySource.bits.request := recoveryRequest
+  io.recoverySource.bits.source := recoveryEmitSource
+  io.recoverySource.bits.last := recoveryEmitRemaining === 1.U
+  val recoverySourceFire = io.recoverySource.fire
+
+  switch(recoveryState) {
+    is(OooTURetireRecoveryState.Scan) {
+      when(recoveryScanMatch) {
+        recoveryMatchCount := recoveryMatchCount + 1.U
+        when(!recoveryMatchCount.orR) {
+          recoveryMatchedOffset := recoveryScanOffset
+        }
+      }
+      when(recoveryScanRemaining === 1.U) {
+        when(recoveryFinalMatchCount === 1.U) {
+          recoveryEmitRemaining := recoveryKillCount
+          recoveryState := Mux(recoveryKillCount.orR,
+            OooTURetireRecoveryState.Emit,
+            OooTURetireRecoveryState.AwaitOwners)
+        }.otherwise {
+          recoveryRejectValid := true.B
+          recoveryRejectRequest := recoveryRequest
+          recoveryRejectHead := sourceHead(recoveryStid)
+          recoveryRejectTail := sourceTail(recoveryStid)
+          recoveryRejectCount := sourceCount(recoveryStid)
+          recoveryState := OooTURetireRecoveryState.Idle
+        }
+        recoveryScanRemaining := 0.U
+      }.otherwise {
+        recoveryScanOffset := recoveryScanOffset + 1.U
+        recoveryScanRemaining := recoveryScanRemaining - 1.U
+      }
+    }
+    is(OooTURetireRecoveryState.Emit) {
+      when(recoverySourceFire) {
+        assert(recoveryEmitSource.valid,
+          "rename recovery suffix must contain only live source rows")
+        assert(!(publicationFire && publicationStid === recoveryStid),
+          "same-STID publication must wait for rename recovery suffix drain")
+        sourceQueue(recoveryStid)(recoveryEmitIndex) := zeroSource
+        sourceTail(recoveryStid) := subSourcePtr(
+          sourceTail(recoveryStid), 1.U)
+        sourceCount(recoveryStid) := sourceCount(recoveryStid) - 1.U
+        recoveryEmitRemaining := recoveryEmitRemaining - 1.U
+        when(recoveryEmitRemaining === 1.U) {
+          recoveryState := OooTURetireRecoveryState.AwaitOwners
+        }
+      }
+    }
+    is(OooTURetireRecoveryState.AwaitOwners) {
+      when(io.recoveryFinish) {
+        recoveryState := OooTURetireRecoveryState.Idle
+      }
+    }
+  }
+
+  io.recoveryBusy :=
+    recoveryState =/= OooTURetireRecoveryState.Idle
+  io.recoveryStid := Mux(io.recoveryBusy, recoveryStid, 0.U)
+  io.recoverySourcesDone :=
+    recoveryState === OooTURetireRecoveryState.AwaitOwners
+  io.recoveryRejected.valid := recoveryRejectValid
+  io.recoveryRejected.bits.requested := recoveryRejectRequest
+  io.recoveryRejected.bits.sourceHead := recoveryRejectHead
+  io.recoveryRejected.bits.sourceTail := recoveryRejectTail
+  io.recoveryRejected.bits.sourceCount := recoveryRejectCount
+
+  when(io.recoveryFinish) {
+    assert(io.recoverySourcesDone,
+      "rename recovery may finish only after the exact source suffix drains")
+  }
 
   val incomingBatch = io.commitPrepare.bits
   val incomingGroupCount = incomingBatch.release.groupCount
@@ -281,8 +455,10 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
   val commitBatchRetained = io.commitPrepare.valid &&
     io.commitPrepare.bits.asUInt === commitBatch.asUInt
   io.commitStartReady := state === OooTURetireState.Idle &&
+    recoveryState === OooTURetireRecoveryState.Idle &&
     incomingCommitExact
   val commitStart = state === OooTURetireState.Idle &&
+    recoveryState === OooTURetireRecoveryState.Idle &&
     io.commitPrepare.valid && incomingCommitExact
   when(commitStart) {
     commitBatch := incomingBatch

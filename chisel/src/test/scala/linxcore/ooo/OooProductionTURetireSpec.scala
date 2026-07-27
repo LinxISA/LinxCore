@@ -39,6 +39,11 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     dut.io.commitFire.poke(false.B)
     dut.io.retireCommand.ready.poke(true.B)
     dut.io.blockCommit.ready.poke(true.B)
+    dut.io.recoveryRequest.valid.poke(false.B)
+    dut.io.recoveryRequest.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.recoverySource.ready.poke(true.B)
+    dut.io.recoveryFinish.poke(false.B)
   }
 
   private def pokeGroupKey(
@@ -54,7 +59,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     key.ridGeneration.poke((rid / p.robGroupsPerStid).U)
   }
 
-  private def publish(
+  private def pokePublication(
       dut: OooProductionTURetire,
       stid: Int,
       transactionId: Int,
@@ -75,6 +80,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       val source = request.sources(uopIndex)
       source.valid.poke(true.B)
       source.transactionId.poke(transactionId.U)
+      source.epoch.poke(7.U)
       source.uopIndex.poke(uopIndex.U)
       pokeGroupKey(source.member.group, peId = 2, stid, rid, dut.p)
       source.member.bid.valid.poke(true.B)
@@ -108,12 +114,87 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
           destination.epoch.poke(7.U)
       }
     }
+  }
+
+  private def publish(
+      dut: OooProductionTURetire,
+      stid: Int,
+      transactionId: Int,
+      rid: Int,
+      bid: Int,
+      brobGeneration: Int,
+      residentGeneration: Int,
+      shapes: Seq[SourceShape]): Unit = {
+    pokePublication(dut, stid, transactionId, rid, bid,
+      brobGeneration, residentGeneration, shapes)
     dut.io.publicationPrepare.valid.poke(true.B)
     dut.io.publicationReady.expect(true.B)
     dut.io.publishFire.poke(true.B)
     dut.clock.step()
     dut.io.publishFire.poke(false.B)
     dut.io.publicationPrepare.valid.poke(false.B)
+  }
+
+  private def pokeRecovery(
+      dut: OooProductionTURetire,
+      stid: Int,
+      transactionId: Int,
+      rid: Int,
+      bid: Int,
+      brobGeneration: Int,
+      residentGeneration: Int,
+      epoch: Int = 7,
+      killTrigger: Boolean): Unit = {
+    val request = dut.io.recoveryRequest.bits
+    request.poke(0.U.asTypeOf(request))
+    pokeGroupKey(request.key.member.group, peId = 2, stid, rid, dut.p)
+    request.key.member.bid.valid.poke(true.B)
+    request.key.member.bid.value.poke(bid.U)
+    request.key.member.brobGeneration.poke(brobGeneration.U)
+    request.key.member.memberIndex.poke(0.U)
+    request.key.member.residentGeneration.poke(residentGeneration.U)
+    request.key.cause.poke(OooRecoveryCause.Branch)
+    request.key.transactionId.poke(transactionId.U)
+    request.key.epoch.poke(epoch.U)
+    request.killTrigger.poke(killTrigger.B)
+  }
+
+  private def startRecovery(dut: OooProductionTURetire): Unit = {
+    dut.io.recoveryRequest.valid.poke(true.B)
+    dut.io.recoveryRequest.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.recoveryRequest.valid.poke(false.B)
+  }
+
+  private def waitForRecoverySource(
+      dut: OooProductionTURetire,
+      limit: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.recoverySource.valid.peek().litToBoolean && cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit, "timed out waiting for a rename recovery source")
+  }
+
+  private def waitForRecoveryReject(
+      dut: OooProductionTURetire,
+      limit: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit, "timed out waiting for a rename recovery reject")
+  }
+
+  private def finishRecovery(dut: OooProductionTURetire): Unit = {
+    dut.io.recoverySourcesDone.expect(true.B)
+    dut.io.recoveryFinish.poke(true.B)
+    dut.clock.step()
+    dut.io.recoveryFinish.poke(false.B)
+    dut.io.recoveryBusy.expect(false.B)
   }
 
   private def pokeCommit(
@@ -277,6 +358,106 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       dut.io.commitStartReady.expect(true.B)
       finishCommit(dut)
       dut.io.sourceQueueUsed(2).expect(0.U)
+    }
+  }
+
+  test("derives an exact youngest suffix and isolates the recovering STID") {
+    simulate(new OooProductionTURetire(params())) { dut =>
+      clear(dut)
+      publish(dut, stid = 1, transactionId = 0, rid = 0, bid = 1,
+        brobGeneration = 0, residentGeneration = 1, Seq(SourceShape()))
+      publish(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
+        brobGeneration = 0, residentGeneration = 2, Seq(SourceShape()))
+      publish(dut, stid = 1, transactionId = 2, rid = 2, bid = 3,
+        brobGeneration = 0, residentGeneration = 3, Seq(SourceShape()))
+      dut.io.sourceQueueUsed(1).expect(3.U)
+
+      // Preserve the exact middle trigger: only the younger transaction exits.
+      pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
+        brobGeneration = 0, residentGeneration = 2, killTrigger = false)
+      startRecovery(dut)
+      waitForRecoverySource(dut)
+      dut.io.recoverySource.bits.source.transactionId.expect(2.U)
+      dut.io.recoverySource.bits.source.member.group.ridSlot.expect(2.U)
+      dut.io.recoverySource.bits.last.expect(true.B)
+      dut.clock.step()
+      dut.io.sourceQueueUsed(1).expect(2.U)
+      dut.io.recoverySourcesDone.expect(true.B)
+
+      // Same-STID publication waits, while an unrelated STID remains live.
+      pokePublication(dut, stid = 1, transactionId = 3, rid = 3, bid = 4,
+        brobGeneration = 0, residentGeneration = 4, Seq(SourceShape()))
+      dut.io.publicationPrepare.valid.poke(true.B)
+      dut.io.publicationReady.expect(false.B)
+      dut.io.publicationPrepare.valid.poke(false.B)
+
+      pokePublication(dut, stid = 2, transactionId = 4, rid = 0, bid = 5,
+        brobGeneration = 0, residentGeneration = 1, Seq(SourceShape()))
+      dut.io.publicationPrepare.valid.poke(true.B)
+      dut.io.publicationReady.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.publishFire.poke(false.B)
+      dut.io.publicationPrepare.valid.poke(false.B)
+      dut.io.sourceQueueUsed(2).expect(1.U)
+      finishRecovery(dut)
+
+      // A stale epoch must reject after a read-only scan and preserve the ring.
+      pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
+        brobGeneration = 0, residentGeneration = 2, epoch = 8,
+        killTrigger = true)
+      startRecovery(dut)
+      waitForRecoveryReject(dut)
+      dut.io.recoveryRejected.bits.requested.key.epoch.expect(8.U)
+      dut.io.recoveryRejected.bits.sourceCount.expect(2.U)
+      dut.io.sourceQueueUsed(1).expect(2.U)
+      dut.io.recoveryBusy.expect(false.B)
+
+      // Killing the trigger removes that exact tail row, leaving transaction 0.
+      pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
+        brobGeneration = 0, residentGeneration = 2, killTrigger = true)
+      startRecovery(dut)
+      waitForRecoverySource(dut)
+      dut.io.recoverySource.bits.source.transactionId.expect(1.U)
+      dut.io.recoverySource.bits.last.expect(true.B)
+      dut.clock.step()
+      dut.io.sourceQueueUsed(1).expect(1.U)
+      finishRecovery(dut)
+
+      // Transaction ID zero is legal. Preserving the youngest trigger emits
+      // no killed row but still reaches the owner-completion barrier.
+      pokeRecovery(dut, stid = 1, transactionId = 0, rid = 0, bid = 1,
+        brobGeneration = 0, residentGeneration = 1, killTrigger = false)
+      startRecovery(dut)
+      var cycles = 0
+      while (!dut.io.recoverySourcesDone.peek().litToBoolean && cycles < 16) {
+        dut.io.recoverySource.valid.expect(false.B)
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 16, "transaction-zero recovery did not finish its scan")
+      dut.io.sourceQueueUsed(1).expect(1.U)
+      finishRecovery(dut)
+    }
+  }
+
+  test("gives a simultaneous exact commit priority over recovery capture") {
+    simulate(new OooProductionTURetire(params())) { dut =>
+      clear(dut)
+      publish(dut, stid = 0, transactionId = 6, rid = 0, bid = 1,
+        brobGeneration = 0, residentGeneration = 1, Seq(SourceShape()))
+      pokeCommit(dut, stid = 0, transactionId = 6, rid = 0, bid = 1,
+        brobGeneration = 0, residentGeneration = 1, logicalUopCount = 1)
+      pokeRecovery(dut, stid = 0, transactionId = 6, rid = 0, bid = 1,
+        brobGeneration = 0, residentGeneration = 1, killTrigger = true)
+      dut.io.recoveryRequest.valid.poke(true.B)
+      dut.io.commitStartReady.expect(true.B)
+      dut.io.recoveryRequest.ready.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      dut.io.commitBusy.expect(true.B)
+      finishCommit(dut)
+      dut.io.sourceQueueUsed(0).expect(0.U)
     }
   }
 }

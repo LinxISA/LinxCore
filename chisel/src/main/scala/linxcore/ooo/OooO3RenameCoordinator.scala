@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.{Decoupled, PopCount, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 
 class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
@@ -176,6 +176,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     val source = tuRetirePublication.sources(uopIndex)
     source.valid := renamed.valid
     source.transactionId := preparedPlan.transactionId
+    source.epoch := preparedPlan.epoch
     source.uopIndex := uopIndex.U
     source.member := renamed.member
     source.blockLast := renamed.blockLast
@@ -183,6 +184,11 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     source.closeBefore := renamed.closeBefore
     source.tSeqBefore := renamed.tSeqBefore
     source.uSeqBefore := renamed.uSeqBefore
+    source.pDestinationCount := PopCount((0 until p.maxDestinationOperands)
+      .map { destinationIndex =>
+        prename.io.prepared.mapQRows(
+          uopIndex * p.maxDestinationOperands + destinationIndex).valid
+      })
     source.destinations := renamed.destinations
   }
   turetire.io.publicationPrepare.valid := o3.io.preparedValid &&
@@ -190,6 +196,15 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turetire.io.publicationPrepare.bits := tuRetirePublication
   turename.io.retireCommand <> turetire.io.retireCommand
   turename.io.blockCommit <> turetire.io.blockCommit
+
+  // O4.4.3a establishes the exact suffix authority inside the retire owner.
+  // The production coordinator ports are exposed when the P/T/U rollback
+  // owners join in O4.4.3b/c; until then no partial recovery may mutate state.
+  turetire.io.recoveryRequest.valid := false.B
+  turetire.io.recoveryRequest.bits :=
+    0.U.asTypeOf(turetire.io.recoveryRequest.bits)
+  turetire.io.recoverySource.ready := false.B
+  turetire.io.recoveryFinish := false.B
 
   io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
     turename.io.publicationReady && turetire.io.publicationReady

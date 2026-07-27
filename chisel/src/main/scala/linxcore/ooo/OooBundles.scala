@@ -442,6 +442,7 @@ class OooTURenamePublishReject(val p: OooParams = OooParams()) extends Bundle {
 class OooTURetireSource(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val transactionId = UInt(p.transactionIdWidth.W)
+  val epoch = UInt(p.epochWidth.W)
   val uopIndex = UInt(p.decodedUopIndexWidth.W)
   val member = new RobMemberKey(p)
   val blockLast = Bool()
@@ -449,6 +450,7 @@ class OooTURetireSource(val p: OooParams = OooParams()) extends Bundle {
   val closeBefore = new BrobPointer(p)
   val tSeqBefore = new OooLocalSeq(p)
   val uSeqBefore = new OooLocalSeq(p)
+  val pDestinationCount = UInt(p.destinationCountWidth.W)
   val destinations = Vec(p.maxDestinationOperands, new OooLocalMapping(p))
 }
 
@@ -487,6 +489,31 @@ class OooTURetireCommitPrepared(val p: OooParams = OooParams()) extends Bundle {
 class OooTURetireCommitReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new OooRobCommitBatch(p)
   val sourceHead = UInt(p.tuRetireSourceIndexWidth.W)
+  val sourceCount = UInt(p.tuRetireSourceCountWidth.W)
+}
+
+/** Exact ROB/BROB-authorized rename recovery anchor.
+  *
+  * The recovery coordinator decides whether the trigger itself is killed.
+  * Rename owners derive only their own ordered suffix from this exact member;
+  * they never compare native BID values as unsigned ages.
+  */
+class OooRenameRecoveryRequest(val p: OooParams = OooParams()) extends Bundle {
+  val key = new ExactRecoveryKey(p)
+  val killTrigger = Bool()
+}
+
+/** One youngest-to-oldest logical-uop suffix item during rename recovery. */
+class OooRenameRecoverySource(val p: OooParams = OooParams()) extends Bundle {
+  val request = new OooRenameRecoveryRequest(p)
+  val source = new OooTURetireSource(p)
+  val last = Bool()
+}
+
+class OooRenameRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRenameRecoveryRequest(p)
+  val sourceHead = UInt(p.tuRetireSourceIndexWidth.W)
+  val sourceTail = UInt(p.tuRetireSourceIndexWidth.W)
   val sourceCount = UInt(p.tuRetireSourceCountWidth.W)
 }
 

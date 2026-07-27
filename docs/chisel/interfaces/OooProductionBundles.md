@@ -396,7 +396,25 @@ deallocation head before mutating its MapQ. After exact-block relation cleanup,
 BID and BROB generation match. P and T/U commit owners first expose
 side-effect-free `commitStartReady` probes; the coordinator starts both
 atomically and withholds common ROB/BROB/PC deallocation until both are ready.
-Recovery remains sealed until O4.4.3 supplies exact killed-suffix authority.
+
+O4.4.3a establishes the common killed-suffix authority without yet exposing a
+partial recovery through the O3 coordinator. Every retire source now also
+retains publication epoch and the number of P MapQ destinations owned by that
+logical uop. `OooRenameRecoveryRequest` names one exact `ExactRecoveryKey` and
+states whether the trigger itself is killed. `OooProductionTURetire` scans the
+selected STID's complete source ring read-only, requires exactly one match, and
+then emits `OooRenameRecoverySource` rows youngest-to-oldest. It removes a
+source row only when that Decoupled transfer fires. Missing, stale, malformed,
+or ambiguous authority produces a diagnostic and zero ring mutation.
+
+Commit has priority when commit and recovery are presented together. Once a
+recovery is captured, commit and publication for that STID wait until the
+suffix and all downstream owners finish; unrelated STIDs may still publish.
+Transaction ID zero is legal. Native BID is never ordered numerically: suffix
+membership comes only from exact source-ring position after member, native-BID,
+BROB/resident generation, transaction, and epoch matching. P replay and killed
+PTag return plus T/U MapQ/cursor rollback remain O4.4.3b/c work, so the O3
+recovery input stays sealed until all owners can join one atomic transaction.
 
 D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
 plan is consumed even if its obsolete local source underflows, but the stale
