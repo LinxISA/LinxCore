@@ -16,6 +16,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.ready.poke(false.B)
     dut.io.ptagReturn.valid.poke(false.B)
     dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.dispatchRelease.valid.poke(false.B)
+    dut.io.dispatchRelease.bits.poke(
+      0.U.asTypeOf(dut.io.dispatchRelease.bits))
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
@@ -78,6 +81,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       transaction.uopMemberBase(uopIndex).poke(uopIndex.U)
       val uop = transaction.decoded.uops(uopIndex)
       uop.valid.poke(true.B)
+      uop.recipe.valid.poke(true.B)
       uop.plannedChildCount.poke(1.U)
       uop.identity.parentCount.poke(1.U)
       uop.identity.parents(0).key.valid.poke(true.B)
@@ -227,6 +231,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -237,6 +244,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.clock.step() // refill the PTag staging rows
       pokeOneDestination(dut)
+      dut.io.reserve.bits.decoded.uops(0).recipe.valid.poke(true.B)
+      dut.io.reserve.bits.decoded.uops(0).recipe.dispatchWrites.poke(1.U)
+      dut.io.reserve.bits.decoded.uops(0).recipe.dispatchDemand(0).poke(1.U)
+      dut.io.reserve.bits.plan.demand.dispatchWritesByClass(0).poke(1.U)
       dut.io.reserve.ready.expect(true.B)
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
@@ -248,6 +259,19 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.prepared.uops(0).sources(0).pMapping.ptag.expect(1.U)
       dut.io.prepared.uops(0).destinations(0)
         .currentPMapping.ptag.expect(96.U)
+      dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.producerBindingValid.expect(true.B)
+      dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.producerIqClass.expect(OooUopClass.Alu)
+      dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.producerIqBank.expect(0.U)
+      dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.producerIqEntry.expect(0.U)
+      dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.producerIqEpoch.expect(1.U)
+      dut.io.dispatchPrepared.valid.expect(true.B)
+      dut.io.dispatchPrepared.allocations(0).reservation
+        .uopClass.expect(OooUopClass.Alu)
       dut.io.ptagProvisionalCount.expect(1.U)
       dut.io.ptagPublishedCount.expect(0.U)
       dut.io.mapQUsed(0).expect(0.U)
@@ -264,9 +288,28 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.ptagPublishedCount.expect(1.U)
       dut.io.mapQUsed(0).expect(1.U)
       dut.io.robOccupiedGroups(0).expect(1.U)
+      dut.io.dispatchPublishedEntries(0)(0).expect(1.U)
       dut.io.queryAtag.poke(1.U)
       dut.io.speculativeMapping.ptag.expect(96.U)
       dut.io.committedMapping.ptag.expect(1.U)
+
+      val dispatchRelease = dut.io.dispatchRelease.bits
+      dispatchRelease.poke(0.U.asTypeOf(dispatchRelease))
+      dispatchRelease.peId.poke(3.U)
+      dispatchRelease.stid.poke(0.U)
+      dispatchRelease.epoch.poke(5.U)
+      dispatchRelease.transactionId.poke(0.U)
+      dispatchRelease.reservation.valid.poke(true.B)
+      dispatchRelease.reservation.uopClass.poke(OooUopClass.Alu)
+      dispatchRelease.reservation.bank.poke(0.U)
+      dispatchRelease.reservation.writePort.poke(0.U)
+      dispatchRelease.reservation.speculativeSlot.poke(0.U)
+      dispatchRelease.reservation.reservationEpoch.poke(1.U)
+      dut.io.dispatchRelease.valid.poke(true.B)
+      dut.io.dispatchRelease.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.dispatchRelease.valid.poke(false.B)
+      dut.io.dispatchPublishedEntries(0)(0).expect(0.U)
 
       // Recovery return remains sealed; commit uses the exact MapQ/CMAP owner.
       dut.io.ptagReturn.bits.count.poke(1.U)
@@ -317,6 +360,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -375,6 +421,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -411,6 +460,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -481,6 +533,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -535,6 +590,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,
@@ -594,6 +652,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 8,
       tuRetireSourceDepthPerStid = 16,
       brobEntriesPerStid = 8,

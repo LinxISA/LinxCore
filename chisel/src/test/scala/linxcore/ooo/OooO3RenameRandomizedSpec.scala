@@ -16,6 +16,7 @@ private object OooO3RenameRandomizedSpec {
       ptag: BigInt,
       generation: BigInt,
       producerToken: BigInt,
+      producerIqEpoch: BigInt,
       ready: Boolean,
       stid: Int,
       epoch: Int)
@@ -50,7 +51,8 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
 
   private def identityMapping(p: OooParams, stid: Int, atag: Int): Mapping =
     Mapping(valid = true, ptag = stid * p.pArchRegs + atag,
-      generation = 0, producerToken = 0, ready = true, stid = stid,
+      generation = 0, producerToken = 0, producerIqEpoch = 0,
+      ready = true, stid = stid,
       epoch = 0)
 
   private def clear(dut: OooO3RenameCoordinator): Unit = {
@@ -63,6 +65,9 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.ready.poke(false.B)
     dut.io.ptagReturn.valid.poke(false.B)
     dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.dispatchRelease.valid.poke(false.B)
+    dut.io.dispatchRelease.bits.poke(
+      0.U.asTypeOf(dut.io.dispatchRelease.bits))
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
@@ -126,6 +131,7 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
 
     val uop = transaction.decoded.uops(0)
     uop.valid.poke(true.B)
+    uop.recipe.valid.poke(true.B)
     uop.plannedChildCount.poke(1.U)
     uop.identity.parentCount.poke(1.U)
     uop.identity.parents(0).key.valid.poke(true.B)
@@ -174,6 +180,7 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       ptag = mapping.ptag.peek().litValue,
       generation = mapping.ptagGeneration.peek().litValue,
       producerToken = mapping.producerToken.peek().litValue,
+      producerIqEpoch = mapping.producerIqEpoch.peek().litValue,
       ready = mapping.ready.peek().litToBoolean,
       stid = mapping.stid.peek().litValue.toInt,
       epoch = mapping.epoch.peek().litValue.toInt)
@@ -306,6 +313,7 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     actual.ptag.expect(expected.ptag.U)
     actual.ptagGeneration.expect(expected.generation.U)
     actual.producerToken.expect(expected.producerToken.U)
+    actual.producerIqEpoch.expect(expected.producerIqEpoch.U)
     actual.ready.expect(expected.ready.B)
     actual.stid.expect(expected.stid.U)
     actual.epoch.expect(expected.epoch.U)
@@ -348,6 +356,9 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
       robGroupsPerStid = 16,
       tuRetireSourceDepthPerStid = 32,
       brobEntriesPerStid = 16,

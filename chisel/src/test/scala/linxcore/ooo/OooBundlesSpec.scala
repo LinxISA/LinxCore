@@ -70,6 +70,8 @@ class OooBundlesSpec extends AnyFunSuite {
     val mapping = new PMapPayload(p)
     assert(mapping.ptagGeneration.getWidth == p.pTagGenerationWidth)
     assert(mapping.producerBindingValid.getWidth == 1)
+    assert(mapping.producerIqClass.getWidth == 3)
+    assert(mapping.producerIqEpoch.getWidth == p.reservationEpochWidth)
   }
 
   test("T U retirement sidecars preserve exact local and block generations") {

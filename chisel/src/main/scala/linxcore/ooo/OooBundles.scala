@@ -200,8 +200,10 @@ class PMapPayload(val p: OooParams = OooParams()) extends Bundle {
   val ptagGeneration = UInt(p.pTagGenerationWidth.W)
   val producerToken = UInt(p.transactionIdWidth.W)
   val producerBindingValid = Bool()
+  val producerIqClass = OooUopClass()
   val producerIqBank = UInt(p.iqBankWidth.W)
   val producerIqEntry = UInt(p.iqEntryWidth.W)
+  val producerIqEpoch = UInt(p.reservationEpochWidth.W)
   val ready = Bool()
   val size = UInt(4.W)
   val stid = UInt(p.stidWidth.W)
@@ -591,6 +593,59 @@ class DispatchReservation(val p: OooParams = OooParams()) extends Bundle {
   val writePort = UInt(p.iqWritePortWidth.W)
   val speculativeSlot = UInt(p.iqEntryWidth.W)
   val reservationEpoch = UInt(p.reservationEpochWidth.W)
+}
+
+/** One generated dispatch child bound to an exact speculative IQ slot. */
+class OooDispatchAllocation(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val childIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDispatchWritesPerInstruction)).W)
+  val reservation = new DispatchReservation(p)
+}
+
+/** Exact all-or-none D3 dispatch lease retained until S1 or cancellation. */
+class OooDispatchReservationLease(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val allocationMask = UInt(p.dispatchWidth.W)
+  val allocations = Vec(p.dispatchWidth, new OooDispatchAllocation(p))
+}
+
+class OooDispatchPublish(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+}
+
+class OooDispatchRelease(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val reservation = new DispatchReservation(p)
+}
+
+class OooDispatchPrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val requestedWrites = UInt(p.dispatchCountWidth.W)
+  val plannedWrites = UInt(p.dispatchDemandWidth.W)
+  val liveLease = new OooDispatchReservationLease(p)
+}
+
+class OooDispatchPublishReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooDispatchPublish(p)
+  val live = new OooDispatchReservationLease(p)
+}
+
+class OooDispatchReleaseReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooDispatchRelease(p)
 }
 
 class OooD2VirtualPlan(val p: OooParams = OooParams()) extends Bundle {

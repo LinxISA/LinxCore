@@ -19,6 +19,7 @@ object OooPRecoveryState extends ChiselEnum {
 class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooO3PreparedPublication(p)))
   val ptagLease = Input(new OooPTagReservation(p))
+  val dispatchLease = Input(new OooDispatchReservationLease(p))
   val prepareReady = Output(Bool())
   val prepared = Output(new OooPRenamePreparedTransaction(p))
   val publishFire = Input(Bool())
@@ -179,6 +180,40 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
     }.reduceOption(_ && _).getOrElse(true.B)
   }.reduce(_ && _)
 
+  val dispatchDemandPresent = (0 until p.decodedUopWidth).map { uopIndex =>
+    decoded.uopMask(uopIndex) && decoded.uops(uopIndex).valid &&
+      decoded.uops(uopIndex).recipe.dispatchWrites.orR
+  }.reduce(_ || _)
+  val dispatchLeasePresent = !dispatchDemandPresent || io.dispatchLease.valid
+  val dispatchLeaseIdentityExact = !io.dispatchLease.valid || (
+    io.dispatchLease.peId === plan.peId &&
+    io.dispatchLease.stid === plan.stid &&
+    io.dispatchLease.epoch === plan.epoch &&
+    io.dispatchLease.transactionId === plan.transactionId)
+  val dispatchLeaseRowsExact = (0 until p.dispatchWidth).map { lane =>
+    val allocation = io.dispatchLease.allocations(lane)
+    val active = io.dispatchLease.allocationMask(lane)
+    val uopIndexInRange = allocation.uopIndex < p.decodedUopWidth.U
+    val safeUopIndex = Mux(uopIndexInRange, allocation.uopIndex, 0.U)
+    !io.dispatchLease.valid || (allocation.valid === active && (!active || (
+      uopIndexInRange && decoded.uopMask(safeUopIndex) &&
+      decoded.uops(safeUopIndex).valid && allocation.reservation.valid &&
+      allocation.reservation.uopClass.asUInt < p.iqClassCount.U &&
+      allocation.reservation.bank < p.iqBankCount.U &&
+      allocation.reservation.writePort < p.iqWritePortsPerBank.U &&
+      allocation.reservation.speculativeSlot < p.iqEntriesPerBank.U)))
+  }.reduce(_ && _)
+  val dispatchedUopsBound = (0 until p.decodedUopWidth).map { uopIndex =>
+    val uop = decoded.uops(uopIndex)
+    val active = decoded.uopMask(uopIndex) && uop.valid &&
+      uop.recipe.dispatchWrites.orR
+    val allocationCount = PopCount(io.dispatchLease.allocations.map {
+      allocation => allocation.valid && allocation.uopIndex === uopIndex.U
+    })
+    !active || (io.dispatchLease.valid &&
+      allocationCount === uop.recipe.dispatchWrites)
+  }.reduce(_ && _)
+
   val groupShapeExact = (0 until p.instructionDecodeWidth).map { groupIndex =>
     val group = transaction.groups(groupIndex)
     val membership = VecInit((0 until p.decodedUopWidth).map { uopIndex =>
@@ -227,7 +262,9 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   val freeRows = p.pMapQDepthPerStid.U - mapQCount(safeStid)
   val mapQAvailable = destinationCount <= freeRows
   val prepareExact = stidInRange && identityExact && leaseIdentityExact &&
-    leaseRowsExact && leaseTagsUnique && groupShapeExact && memberBindingsExact
+    leaseRowsExact && leaseTagsUnique && dispatchLeasePresent &&
+    dispatchLeaseIdentityExact && dispatchLeaseRowsExact &&
+    dispatchedUopsBound && groupShapeExact && memberBindingsExact
 
   val commitBlocksPrepare = io.commitBusy && plan.stid === commitActiveStid
   val recoveryBlocksPrepare = io.recoveryBusy &&
@@ -306,8 +343,19 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
       current.ptag := allocation.token.ptag
       current.ptagGeneration := allocation.token.generation
       current.producerToken := plan.transactionId
-      // O5 supplies the exact IQ binding at dispatch publication.
-      current.producerBindingValid := false.B
+      val producerMatches = VecInit(io.dispatchLease.allocations.map {
+        dispatchAllocation => dispatchAllocation.valid &&
+          dispatchAllocation.uopIndex === uopIndex.U &&
+          dispatchAllocation.childIndex === 0.U
+      })
+      val producerReservation = Mux1H(producerMatches,
+        io.dispatchLease.allocations.map(_.reservation))
+      current.producerBindingValid := destinationActive(flatIndex) &&
+        io.dispatchLease.valid && producerMatches.asUInt.orR
+      current.producerIqClass := producerReservation.uopClass
+      current.producerIqBank := producerReservation.bank
+      current.producerIqEntry := producerReservation.speculativeSlot
+      current.producerIqEpoch := producerReservation.reservationEpoch
       current.ready := false.B
       current.stid := plan.stid
       current.epoch := plan.epoch
@@ -592,8 +640,10 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
         committedMapping := row.current
         committedMapping.ready := true.B
         committedMapping.producerBindingValid := false.B
+        committedMapping.producerIqClass := OooUopClass.Alu
         committedMapping.producerIqBank := 0.U
         committedMapping.producerIqEntry := 0.U
+        committedMapping.producerIqEpoch := 0.U
         cmap(commitActiveStid)(row.atag(archIndexWidth - 1, 0)) :=
           committedMapping
         val queueIndex = mapQHead(commitActiveStid) + lane.U

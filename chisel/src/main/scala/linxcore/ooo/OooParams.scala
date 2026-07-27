@@ -185,6 +185,7 @@ final case class OooParams(
   def pcPartitionCountWidth: Int = countWidth(pcEntriesPerStid)
   def iqBankWidth: Int = log2Ceil(iqBankCount)
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
+  def iqBankEntryCountWidth: Int = countWidth(iqEntriesPerBank)
   def iqWritePortWidth: Int = math.max(1, log2Ceil(iqWritePortsPerBank))
   def instructionCountWidth: Int = countWidth(instructionDecodeWidth)
   def decodedUopCountWidth: Int = countWidth(decodedUopWidth)

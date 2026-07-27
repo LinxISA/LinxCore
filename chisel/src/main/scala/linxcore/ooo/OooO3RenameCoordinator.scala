@@ -17,6 +17,7 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
   val ptagReturn = Flipped(Decoupled(new OooPTagReturnBatch(p)))
+  val dispatchRelease = Flipped(Decoupled(new OooDispatchRelease(p)))
 
   val recoveryRequest = Flipped(Decoupled(
     new OooRenameRecoveryRequest(p)))
@@ -26,6 +27,16 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryRejected = Valid(new OooRenameRecoveryReject(p))
   val pRecoveryRejected = Valid(new OooPRenameRecoveryReject(p))
   val tuRecoveryRejected = Valid(new OooTURenameRecoveryReject(p))
+  val dispatchPrepared = Output(new OooDispatchReservationLease(p))
+  val dispatchFreeEntries = Output(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val dispatchProvisionalEntries = Output(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val dispatchPublishedEntries = Output(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val dispatchPrepareRejected = Valid(new OooDispatchPrepareReject(p))
+  val dispatchPublishRejected = Valid(new OooDispatchPublishReject(p))
+  val dispatchReleaseRejected = Valid(new OooDispatchReleaseReject(p))
 
   val queryStid = Input(UInt(p.stidWidth.W))
   val queryAtag = Input(UInt(p.archRegWidth.W))
@@ -58,12 +69,12 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val tuPublicationRejected = Valid(new OooTURenamePublishReject(p))
 }
 
-/** Atomic D3/S1 seam extended through PTag allocation and P rename.
+/** Atomic D3/S1 seam through ROB/BROB/PC, P/T/U rename, and dispatch.
   *
   * D3 and the PTag staging pool claim on the same reserve handshake. Later,
   * ROB/BROB/PC publication, PTag publication, SMAP update, and MapQ insertion
-  * occur on the same terminal fire. Dispatch remains the external permit owner
-  * until O5 adds exact IQ reservations.
+  * and exact IQ reservations occur on the same terminal fire. The external
+  * permit represents the later IEX S1 sink, not unreserved IQ capacity.
   */
 class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooO3RenameCoordinatorIO(p))
@@ -73,18 +84,25 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val prename = Module(new OooProductionPRename(p))
   val turename = Module(new OooProductionTURename(p))
   val turetire = Module(new OooProductionTURetire(p))
+  val dispatch = Module(new OooProductionDispatch(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val recoveryRequestStid = io.recoveryRequest.bits.key.member.group.stid
   val recoveryRequestStidInRange = recoveryRequestStid < p.stidCount.U
+  val safeRecoveryRequestStid = Mux(recoveryRequestStidInRange,
+    recoveryRequestStid, 0.U)
   val recoveryRequestConflictsPrepared = o3.io.preparedValid &&
     recoveryRequestStidInRange && preparedStid === recoveryRequestStid
+  // O4 owns rename-local rollback only. Once S1 has published an IQ entry,
+  // O7 must join IQ/ROB/BROB/PC cancellation before this request can proceed.
+  val recoveryRequestNeedsGlobalCancel = recoveryRequestStidInRange &&
+    dispatch.io.publishedByStid(safeRecoveryRequestStid).orR
 
   turetire.io.recoveryRequest.valid := io.recoveryRequest.valid &&
-    !recoveryRequestConflictsPrepared
+    !recoveryRequestConflictsPrepared && !recoveryRequestNeedsGlobalCancel
   turetire.io.recoveryRequest.bits := io.recoveryRequest.bits
   io.recoveryRequest.ready := turetire.io.recoveryRequest.ready &&
-    !recoveryRequestConflictsPrepared
+    !recoveryRequestConflictsPrepared && !recoveryRequestNeedsGlobalCancel
 
   val reserveStid = io.reserve.bits.plan.stid
   val reserveBlockedByRecovery = io.reserve.valid && (
@@ -98,7 +116,10 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   ptag.io.prepare.bits := io.reserve.bits
   turename.io.reservePrepare.valid := reserveOffer
   turename.io.reservePrepare.bits := io.reserve.bits
-  val renameResourcesReady = ptag.io.prepareReady && turename.io.reserveReady
+  dispatch.io.prepare.valid := reserveOffer
+  dispatch.io.prepare.bits := io.reserve.bits
+  val renameResourcesReady = ptag.io.prepareReady && turename.io.reserveReady &&
+    dispatch.io.prepareReady
   // Stale virtual plans are terminally consumed by D3 even when their obsolete
   // P/T/U shape would fail current resource checks. The stale pulse suppresses
   // both physical lease fires below, so this bypass cannot mutate rename state.
@@ -113,10 +134,13 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   ptag.io.reserveFire := io.reserve.fire && !o3.io.d3StaleRejected.valid
   turename.io.reserveFire := io.reserve.fire &&
     !o3.io.d3StaleRejected.valid
+  dispatch.io.reserveFire := io.reserve.fire &&
+    !o3.io.d3StaleRejected.valid
 
   o3.io.cancel := io.cancel
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
+  dispatch.io.cancel := io.cancel
   for (stid <- 0 until p.stidCount) {
     o3.io.publishEligible(stid) := !prename.io.commitBusy ||
       prename.io.commitStid =/= stid.U
@@ -133,6 +157,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   prename.io.prepare.valid := o3.io.preparedValid
   prename.io.prepare.bits := o3.io.prepared
   prename.io.ptagLease := ptag.io.provisional(safePreparedStid)
+  prename.io.dispatchLease := dispatch.io.provisional(safePreparedStid)
+  io.dispatchPrepared := dispatch.io.provisional(safePreparedStid)
 
   val tuPublication = Wire(new OooTUPublicationRequest(p))
   tuPublication := 0.U.asTypeOf(tuPublication)
@@ -302,6 +328,18 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     assert(!ptag.io.publishRejected.valid,
       "O3 P rename publication must publish the retained exact PTag lease")
   }
+  dispatch.io.publish.valid := o3.io.publishFire
+  dispatch.io.publish.bits.peId :=
+    o3.io.prepared.request.reservation.transaction.plan.peId
+  dispatch.io.publish.bits.stid := preparedStid
+  dispatch.io.publish.bits.epoch :=
+    o3.io.prepared.request.reservation.transaction.plan.epoch
+  dispatch.io.publish.bits.transactionId :=
+    o3.io.prepared.request.reservation.transaction.plan.transactionId
+  when(o3.io.publishFire) {
+    assert(!dispatch.io.publishRejected.valid,
+      "O3 publication must publish the retained exact dispatch lease")
+  }
 
   o3.io.completion <> io.completion
 
@@ -342,6 +380,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   // P recovery and architectural commit share the exact internal return owner.
   // The legacy external return seam remains closed until its O6 removal.
   io.ptagReturn.ready := false.B
+  dispatch.io.release <> io.dispatchRelease
 
   prename.io.queryStid := io.queryStid
   prename.io.queryAtag := io.queryAtag
@@ -368,6 +407,12 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.tuCommitRejected := turetire.io.commitRejected
   io.tuReserveRejected := turename.io.reserveRejected
   io.tuPublicationRejected := turename.io.publicationRejected
+  io.dispatchFreeEntries := dispatch.io.freeEntries
+  io.dispatchProvisionalEntries := dispatch.io.provisionalEntries
+  io.dispatchPublishedEntries := dispatch.io.publishedEntries
+  io.dispatchPrepareRejected := dispatch.io.prepareRejected
+  io.dispatchPublishRejected := dispatch.io.publishRejected
+  io.dispatchReleaseRejected := dispatch.io.releaseRejected
   io.recoveryBusy := turetire.io.recoveryBusy || prename.io.recoveryBusy ||
     turename.io.recoveryBusy
   io.recoveryStid := Mux(turetire.io.recoveryBusy,

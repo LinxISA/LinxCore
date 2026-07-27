@@ -481,6 +481,47 @@ the outgoing lease's T/U counts, sequence advance, physical-tag advance, and
 source bypass, so capacity is never borrowed twice and the new lease observes
 the just-published local destinations.
 
+## O5.1 exact dispatch reservations
+
+`OooProductionDispatch` compacts generated dispatch demand in architectural
+uop, generated-child, and class order. It reserves every requested destination
+or none and retains the exact
+`{PE, STID, epoch, transaction, class, bank, writePort, slot,
+reservationEpoch}` tuple in one per-STID lease. A slot moves through exactly
+three states: free, provisional, and published. Publication is all-or-none on
+the O3/O4 common terminal fire; cancellation is legal only while provisional;
+release must reproduce the full owner identity and original write-port
+assignment. Typed rejection diagnostics report stale or malformed requests
+without changing occupancy; an invalid Decoupled release remains unaccepted.
+
+A zero-dispatch lease is legal for a generated fast-resolve recipe. An active
+logical uop nevertheless requires a valid generated recipe; missing recipe
+authority cannot silently become a no-IQ operation, and any nonzero dispatch
+demand requires a matching valid lease. For a P-producing uop, the
+P SMAP/MapQ payload retains the producer class, bank, entry, and reservation
+epoch selected for generated child zero. Uops without a dispatch producer keep
+that binding invalid. Class is part of the identity because bank/entry numbers
+are class-local.
+
+`OooO3RenameCoordinator` now joins dispatch prepare, reserve, and publication
+with D3, ROB, BROB, PC, and P/T/U rename. No owner publishes unless every owner
+accepts the same transaction. The existing external permit therefore denotes
+only the future IEX S1 sink. Rename-local recovery deliberately refuses a STID
+that still owns published dispatch rows; O7 must add one global
+ROB/BROB/PC/IQ cancellation transaction before that fence can be removed.
+
+The current owner is a functional contract model. Its complete per-class,
+per-bank free bitmap proves lifecycle conservation and exact publication, but
+is not the product physical implementation at the default depth. O8 must adopt
+the useful physical-closure ideas from `Documents/a.txt`: occupancy plus
+in-flight admission cost, hierarchical or small-FIFO free selection, bounded
+write-port arbitration, one-cycle-ahead steering, and configurable safe-mode
+thresholds. Destination-PTag bank coupling remains an O8 steering input. The
+ARM reference's register classes, FP/CC state, and RID/BID age shortcuts are
+not imported; Linx exact identity, native BID/BROB generation, P/T/U rename,
+and CTU ownership remain authoritative. `model/iex/iex_dispatch.cpp` remains
+the execution-side behavioral reference for the later S1-to-S3 handoff.
+
 ## Verification
 
 ```bash
@@ -506,6 +547,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
+bash tools/chisel/run_chisel_tests.sh --only OooProductionDispatch
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 ```
@@ -519,6 +561,10 @@ after every operation. It checks all 24 P mappings per STID, P/T/U MapQ and
 source-ring occupancy, unchanged CMAP, ROB occupancy, provisional and published
 PTag ownership, all operand-shape combinations, and at least one recovery on
 every STID.
+The O5.1 tests additionally cover exact multi-class reservation and common
+publication, retained wrong-epoch publication rejection, stale-generation and
+wrong-write-port release, producer class/bank/entry binding, zero-dispatch
+recipes, all-or-none pressure rejection, and slot-state conservation.
 The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,

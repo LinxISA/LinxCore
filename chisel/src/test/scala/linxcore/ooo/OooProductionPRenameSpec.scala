@@ -10,6 +10,7 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.ptagLease.poke(0.U.asTypeOf(dut.io.ptagLease))
+    dut.io.dispatchLease.poke(0.U.asTypeOf(dut.io.dispatchLease))
     dut.io.publishFire.poke(false.B)
     dut.io.commitPrepare.valid.poke(false.B)
     dut.io.commitPrepare.bits.poke(0.U.asTypeOf(dut.io.commitPrepare.bits))
@@ -404,6 +405,19 @@ class OooProductionPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.prepare.bits.request.reservation.transaction
         .uopMemberBase(1).poke(0.U)
       dut.io.prepareReady.expect(false.B)
+      dut.clock.step()
+      dut.io.mapQUsed(2).expect(0.U)
+
+      pokeTwoUopChain(dut, stid = 2, transactionId = 12, atag = 4,
+        firstPtag = 96, secondPtag = 97)
+      val transaction = dut.io.prepare.bits.request.reservation.transaction
+      for (uopIndex <- 0 until 2) {
+        transaction.decoded.uops(uopIndex).recipe.dispatchWrites.poke(1.U)
+        transaction.decoded.uops(uopIndex).recipe.dispatchDemand(0).poke(1.U)
+      }
+      transaction.plan.demand.dispatchWritesByClass(0).poke(2.U)
+      dut.io.prepareReady.expect(false.B)
+      dut.io.prepareRejected.valid.expect(true.B)
       dut.clock.step()
       dut.io.mapQUsed(2).expect(0.U)
     }
