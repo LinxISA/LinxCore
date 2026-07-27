@@ -320,6 +320,44 @@ class OooRobCommitBatch(val p: OooParams = OooParams()) extends Bundle {
   val groups = Vec(p.retireGroupWidth, new OooRobPhysicalGroupRecord(p))
 }
 
+class OooBrobEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val pointer = new BrobPointer(p)
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val firstRobGroup = new RobGroupKey(p)
+  val lastRobGroup = new RobGroupKey(p)
+  val nextCommitRobGroup = new RobGroupKey(p)
+  val liveRobGroups = UInt(p.brobLiveGroupCountWidth.W)
+  val closed = Bool()
+  val closeOwnerValid = Bool()
+  val closeOwner = new RobGroupKey(p)
+  val closeCommitted = Bool()
+}
+
+class OooBrobPreparedBindings(val p: OooParams = OooParams()) extends Bundle {
+  val validMask = UInt(p.instructionDecodeWidth.W)
+  val pointers = Vec(p.instructionDecodeWidth, new BrobPointer(p))
+  val newBlockMask = UInt(p.instructionDecodeWidth.W)
+  val implicitCloseMask = UInt(p.instructionDecodeWidth.W)
+  val implicitClosePointers = Vec(p.instructionDecodeWidth, new BrobPointer(p))
+  val allocatedBlocks = UInt(p.robGroupCountWidth.W)
+  val tailAfter = new BrobPointer(p)
+  val currentAfterValid = Bool()
+  val currentAfter = new BrobPointer(p)
+}
+
+class OooBrobPrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val groupMask = UInt(p.instructionDecodeWidth.W)
+}
+
+class OooBrobCommitReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobCommitBatch(p)
+  val head = new BrobPointer(p)
+}
+
 class OooRobGroupRelease(val p: OooParams = OooParams()) extends Bundle {
   val firstGroup = new RobGroupKey(p)
   val headEpoch = UInt(p.reservationEpochWidth.W)

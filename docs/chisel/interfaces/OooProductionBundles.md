@@ -184,6 +184,41 @@ epoch, and supplies the exact `OooRobGroupRelease` token that the D3 allocator
 will accept. BROB/PC commit authorization is not bypassed: the eventual S1
 coordinator may hold `commit.ready` until those owners can retire atomically.
 
+## Production BROB
+
+`OooProductionBrob` is the sole native block-order owner for production OOO.
+Each STID has an independent 256-entry default ring. The architectural BID is
+only the ring slot; `BrobPointer.generation` is separate wrap state and neither
+allocation nor commit uses unsigned BID magnitude as age.
+
+The module views the retained D3 reservation without mutating state. It assigns
+every active ROB group one valid BROB pointer, allocates a new pointer only for
+`boundaryStart`, keeps body groups on the current pointer, and rejects a group
+after `boundaryStop` unless it opens a new block. `publishFire` is the same
+all-or-none S1 event used by grouped ROB publication. It atomically installs
+new block entries, aggregates all group references, advances the native BID
+tail/generation, and updates the selected STID's current block.
+
+An in-body BSTART opens a new BID and implicitly closes the previous BID. The
+old entry records the new-BID boundary group's exact `RobGroupKey` as its close
+owner. An open block whose own groups have already committed therefore remains
+resident until that close owner commits; a speculative BSTART cannot free the
+old entry early. Explicit BSTOP uses its own group as close owner.
+
+BROB consumes the retained `OooRobCommitBatch`. It validates the release header
+against `groups(0).key`, every group/BROB generation and STID, same/next-block
+ordering, close transitions, and per-entry live-group counts. Every entry owns
+an exact `nextCommitRobGroup` cursor; a retained batch must begin at that cursor
+for each BID it enters and must carry wrap-aware consecutive RID keys. Partial
+retire advances the cursor, so skipped or duplicate groups cannot satisfy a
+later count-only commit. Only `commit.fire` decrements references and frees a
+contiguous exact head prefix.
+Malformed retained commit reports a typed reject but does not starve S1
+prepare. Exact same-STID commit has one-cycle priority over publication;
+different STIDs remain concurrent. Combining non-overlapping same-STID
+head/tail updates is a later port-throughput optimization, not a correctness
+dependency.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -221,6 +256,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
 bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
 bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooProductionBrob
+bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -250,3 +287,9 @@ retained older-prefix commit, RID generation wrap, four-STID isolation, and
 2/4/6 decode widths with an independently configured retire width.
 The D3/S1 integration test feeds the exact S1 commit release back to D3 and
 proves both owners advance published/used occupancy and head epoch together.
+The BROB tests cover first-block admission, same-BID multi-group aggregation,
+explicit and implicit close ownership, empty-open-block retention, malformed
+commit isolation, release-header consistency, 2/4/6 decode versus four-group
+retire, four-STID isolation, and native BID/generation wrap. The three-owner
+integration test proves D3, grouped ROB, and BROB publish and retire on the same
+terminal transactions.

@@ -114,6 +114,8 @@ final case class OooParams(
   def stidWidth: Int = math.max(1, log2Ceil(stidCount))
   def ridSlotWidth: Int = log2Ceil(robGroupsPerStid)
   def nativeBidWidth: Int = log2Ceil(brobEntriesPerStid)
+  def brobCountWidth: Int = countWidth(brobEntriesPerStid)
+  def brobLiveGroupCountWidth: Int = countWidth(robGroupsPerStid)
   def pTagWidth: Int = log2Ceil(pPhysRegs)
   def pTagBankWidth: Int = math.max(1, log2Ceil(pTagBanks))
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)

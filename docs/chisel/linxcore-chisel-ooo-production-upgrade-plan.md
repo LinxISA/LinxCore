@@ -85,7 +85,7 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
-| O3 grouped ROB/BROB/PC | In progress | D2 virtual grouping and typed retention; D3 per-STID provisional tail/capacity claims; fail-closed stale/malformed plan rejection; exact head-key/epoch release; independent decode/retire widths | atomic S1 ROB-row publication, grouped member completion, BROB, and PC-buffer storage |
+| O3 grouped ROB/BROB/PC | In progress | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB with explicit/implicit close owner | 64-entry PC-base storage and final ROB/BROB/PC coordinator |
 | O4–O9 | Not started | current compatibility owners remain migration evidence | RENU through benchmark promotion |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1231,11 +1231,12 @@ Deliver D2 virtual group planner, D3 provisional/S1 publisher, member resolve
 tracking, native BID/BROB integration, 64-entry PC buffer, and grouped commit.
 
 Implementation status: the virtual planner, retained D2 row, D3 provisional
-allocator, S1 atomic grouped-ROB publication, exact member completion, and
-retained grouped commit are implemented. The S1 request already makes BROB and
-PC bindings explicit so those physical owners can join the same all-or-none
-handshake; production BROB allocation/retirement and the 64-entry PC-base
-buffer remain the active O3 gap.
+allocator, S1 atomic grouped-ROB publication, exact member completion, retained
+grouped commit, and the production native BID/generation BROB are implemented.
+BROB publication and retirement share the grouped ROB terminal handshakes and
+preserve an exact cross-BID close-owner for in-body BSTART. The S1 request also
+makes PC bindings explicit; the 64-entry PC-base buffer and final
+ROB/BROB/PC coordinator remain the active O3 gap.
 
 Exit: no ROB hole on stale plans; group/BID/PC wrap and exact-completion suites
 pass; no group crosses a BID or PC-release boundary.
