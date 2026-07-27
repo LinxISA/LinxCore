@@ -191,6 +191,9 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
       dut.io.in.valid.poke(true.B)
 
       dut.io.out.bits.ctuParentMask.expect(1.U)
+      dut.io.out.bits.ctuParents(0).parent.key.instructionId.expect(40.U)
+      dut.io.out.bits.ctuParents(0).parent.rawInstruction.expect(rule("OP_FENTRY").value.U)
+      dut.io.out.bits.ctuParents(0).parent.prediction.epoch.expect(7.U)
       dut.io.out.bits.illegalParentMask.expect(6.U)
       dut.io.out.bits.uopMask.expect(3.U)
       dut.io.out.bits.uops(0).preciseTrap.expect(true.B)

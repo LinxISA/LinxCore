@@ -83,6 +83,30 @@ patching a published ROB member. Recovery cancellation is per STID, and a
 capacity-conflicting terminal window uses the documented standalone-boundary
 fallback while retrying the input unchanged.
 
+## IFU raw ingress and CTU diversion
+
+`OooIfuRawIngress` is the production width adapter. It consumes the existing
+fixed-four-wide `D1InstructionGroup`, keeps a power-of-two raw reservoir per
+STID, and emits the selected STID as a dense 2/4/6-wide
+`OooRawInstructionGroup`. It copies PE/STID/instruction/transaction/fetch,
+checkpoint, key epoch, prediction epoch, PC, raw bits, and length exactly. It
+does not decode instructions or change the IFU cacheline/fetch geometry.
+
+The reservoir supports same-bank enqueue/dequeue, partial prefixes, six-wide
+gather, stable backpressure, targeted exact pruning, and four-STID isolation.
+A canonical flush is a one-cycle publication barrier: only the addressed bank
+is mutated, and every unaffected bank resumes with the same head on the next
+cycle. `OooIfuD1Ingress` composes this reservoir with
+`OooD1ProductionDecode`; its thread hint scans IFU banks while OOO independently
+selects the STID presented to D1.
+
+`OooD1DecodedPacket` carries `ctuParents` and `complexParents` alongside their
+masks. Every diverted lane therefore retains the exact raw parent and complete
+prediction record needed by the external CTU/complex owner. Masks are never an
+authority to reconstruct identity. CTU canonical-child reinsertion and its
+retained expansion lease remain an O7 owner; CTU may not allocate RID/BID/PTag
+or mutate ROB, RF, IQ, LSU, or memory directly.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -113,6 +137,8 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreOooShell
 bash tools/chisel/run_chisel_tests.sh --only OooOpcodeRecipeTable
 bash tools/chisel/run_chisel_tests.sh --only OooD1Decode
 bash tools/chisel/run_chisel_tests.sh --only OooD1FusionHistory
+bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
+bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -122,3 +148,7 @@ The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,
 backpressure, per-STID history cancellation, and full-width fallback.
+The IFU ingress tests additionally cover exact metadata transport, four-to-two
+split, four-to-six gather, partial 2/4/6 prefixes, same-STID ordering,
+four-STID hard-flush isolation, trigger-and-younger pruning, and exact CTU
+parent delivery through decode/fusion.

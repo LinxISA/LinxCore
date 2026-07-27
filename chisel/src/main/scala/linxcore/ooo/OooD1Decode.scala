@@ -326,6 +326,14 @@ class OooD1Decode(val p: OooParams = OooParams()) extends Module {
   packet.illegalParentMask := VecInit(laneResults.map(_.illegalParent)).asUInt
   packet.fusedStartMask := fuseStart.asUInt
   packet.fusedStopMask := fuseStop.asUInt
+  for (lane <- 0 until p.instructionDecodeWidth) {
+    when(laneResults(lane).ctuParent) {
+      packet.ctuParents(lane) := io.in.bits.entries(lane)
+    }
+    when(laneResults(lane).complexParent) {
+      packet.complexParents(lane) := io.in.bits.entries(lane)
+    }
+  }
 
   val uopCount = PopCount(emit)
   packet.uopMask := ((1.U((p.decodedUopWidth + 1).W) << uopCount) - 1.U)(p.decodedUopWidth - 1, 0)

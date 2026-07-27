@@ -84,8 +84,9 @@ promotion.
 | O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages and generated 689-record opcode recipe audit updated | exact S1/S2/S3 integration contract |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
-| O2 decode/expand/fuse | In progress | schema-v2 generated recipes; parameterized canonical D1; exact P/T/U and pair operands; precise traps; same/cross-cycle three-parent boundary fusion; 2/4/6-width UT | IFU/CTU ingress adapter, retained ordinary complex-break owner (current catalog has zero dispatch-owned complex forms), integration/coverage closure |
-| O3–O9 | Not started | current reduced owners remain compatibility evidence | grouped ROB/BROB through benchmark promotion |
+| O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
+| O3 grouped ROB/BROB/PC | In progress | O0/O1 exact keys and retained D2/D3/S1 shell | virtual grouping, physical publication, grouped completion, and PC-buffer storage |
+| O4–O9 | Not started | current compatibility owners remain migration evidence | RENU through benchmark promotion |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.

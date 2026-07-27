@@ -44,11 +44,14 @@ into one precise trap. `OooD1FusionHistory` retains one eligible tail per STID,
 supports same/cross-cycle forward-BSTART and backward-BSTOP fusion with up to
 three ordered parent references, and cancels only the recovered STID.
 
-O2 remains active until the fixed-width IFU/CTU ingress adapter and retained
-ordinary complex-break owner are closed; the current catalog deliberately has
-zero dispatch-owned complex forms, with CTU forms diverted and unresolved
-macro/atomic forms failing closed.  After those gates, move to O3 grouped
-ROB/BROB/PC publication.  The existing four-wide `D1InstructionDecodeStage`
+O2 is packet-complete. `OooIfuRawIngress` keeps the IFU four-wide while
+reservoirs exact raw rows per STID and emits independent 2/4/6-wide prefixes;
+`OooIfuD1Ingress` composes that adapter with canonical decode/fusion. CTU and
+complex parents retain their full raw identity/prediction sideband, rather
+than only a diversion mask. The current catalog deliberately has zero
+dispatch-owned complex forms, with CTU forms diverted and unresolved
+macro/atomic forms failing closed. O3 grouped ROB/BROB/PC publication is now
+active; CTU canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until
 grouped ROB/BROB, P/T/U RENU, S1 speculative slots, exact recovery, and external
