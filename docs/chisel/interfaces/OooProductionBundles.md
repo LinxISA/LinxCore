@@ -61,6 +61,8 @@ Age and kill membership come from the selected STID's ROB/BROB owner.
 | `OooD3Reservation` | Exact provisional ROB/BROB/PTag/PC/IQ claims plus physical rename |
 | `OooS1Publication` | Atomic grouped-ROB, speculative-map, and IEX speculative-slot publication |
 | `ExactRecoveryKey` | Exact member-qualified retained recovery request |
+| `OooGlobalRecoveryRequest` | Exact recovery key plus the trigger logical uop's complete physical-member extent |
+| `OooRobRecoveryPlan` | Side-effect-free grouped-ROB suffix plan for the future all-owner R0-R4 coordinator |
 | `NonFlushWindow` | ROB-owned `{STID, headRobGroupKey, prefixCount, epoch}` safe prefix |
 
 `InstructionDemand` exposes independent counts for instructions, uops, ROB
@@ -635,8 +637,41 @@ per-STID ROB partition rather than one decode bundle. Pending interrupt blocks
 only prefix growth for that STID; proofs may continue to accumulate. Commit
 subtracts committed groups and moves the exact head, but non-flush evidence
 cannot complete, commit, deallocate, update CMAP, or release a physical tag.
-O7 owns kill-set recomputation and final consumer wiring. The legacy
-`bctrl.BrobNonFlushFrontier` is not this production authority.
+O7.1 now recomputes this window fail-closed after direct grouped-ROB recovery;
+the all-owner recovery transaction and final consumer wiring remain O7.2. The
+legacy `bctrl.BrobNonFlushFrontier` is not this production authority.
+
+## O7.1 exact grouped-ROB suffix recovery owner
+
+`OooS1GroupedRob` exposes a direct owner-local prepare/apply interface for the
+future global recovery coordinator. `OooGlobalRecoveryRequest` wraps the
+existing exact rename key with `triggerMemberCount`; the trigger member must be
+the first physical child of exactly one retained logical uop. The ROB scans the
+selected STID's live head-to-tail window and accepts exactly one row matching
+PE/STID, RID slot and generation, native BID, BROB generation, resident
+generation, transaction ID, publication epoch, member base, and member count.
+RID or BID magnitude is never an age test.
+
+Prepare has no state mutation. `OooRobRecoveryPlan` describes the pivot row,
+the optional surviving prefix of that row, the first fully killed row, killed
+group count, and exact old/new tails. If the trigger survives, all of its
+physical children survive; if it is killed, none survive. A pivot truncation
+rebuilds its logical-uop mask, physical completion mask, P MapQ count,
+architectural-parent count, boundary/PC/trap summaries, and non-flush proof
+requirements from retained per-logical-uop metadata. Missing, stale,
+ambiguous, or non-logical trigger shapes produce a typed reject and zero
+mutation.
+
+While prepare is asserted, publication, completion, evidence intake, and new
+commit capture are frozen only for the target STID; unrelated STIDs continue.
+A previously retained same-STID commit drains before prepare can become ready.
+The direct `recoveryFire` clears the exact suffix, optionally rewrites the
+partial pivot, updates occupancy, and resets the affected non-flush window.
+This owner-local fire is tied off inside `OooRobBrobPcCoordinator`: exposing it
+there would mutate ROB without synchronizing D3, BROB, PC, P/T/U rename,
+dispatch, IEX, fast resolve, and CTU. O7.2 must retain one R0 request, collect
+side-effect-free prepare acknowledgements from every owner, and issue one
+common terminal apply before the production O3 seam may open.
 
 ## Verification
 
@@ -701,6 +736,14 @@ same-STID recovery fencing while a fast-only row is retained, followed by
 normal ordered commit after the terminal fast-resolve fire. Recipe coverage
 also proves every generated fast rule has one supported nonzero class and no
 dispatch or memory demand.
+The O7.1 grouped-ROB tests cover a preserved trigger with a partial physical
+pivot, killing the complete trigger logical uop, deleting the complete ROB
+window, RID generation wrap, stable prepare under a held request, same-STID
+completion/commit freeze, stale killed-member rejection, and stale or malformed
+authority with zero mutation. Adjacent D3/S1, BROB/PC, fast-resolve, IEX,
+randomized rename, and complete O3 coordinator regressions prove the formal O3
+seam remains closed and existing common-fire publication/commit behavior is
+unchanged.
 The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,

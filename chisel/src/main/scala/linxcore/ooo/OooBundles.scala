@@ -521,6 +521,37 @@ class OooRenameRecoveryRequest(val p: OooParams = OooParams()) extends Bundle {
   val killTrigger = Bool()
 }
 
+/** Global recovery adds the complete physical extent of the triggering
+  * logical uop. The trigger member must be that uop's first physical member.
+  */
+class OooGlobalRecoveryRequest(val p: OooParams = OooParams()) extends Bundle {
+  val rename = new OooRenameRecoveryRequest(p)
+  val triggerMemberCount = UInt(p.robMemberCountWidth.W)
+}
+
+/** Side-effect-free grouped-ROB suffix plan retained by the future R0-R4
+  * coordinator until every affected owner can apply the same recovery fire.
+  */
+class OooRobRecoveryPlan(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val request = new OooGlobalRecoveryRequest(p)
+  val pivot = new OooRobPhysicalGroupRecord(p)
+  val pivotOffset = UInt(p.nonFlushPrefixCountWidth.W)
+  val survivingPivotValid = Bool()
+  val survivingPivot = new OooRobPhysicalGroupRecord(p)
+  val firstKilledGroup = new RobGroupKey(p)
+  val killedGroupCount = UInt(p.nonFlushPrefixCountWidth.W)
+  val oldTail = new RobGroupKey(p)
+  val newTail = new RobGroupKey(p)
+}
+
+class OooRobRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooGlobalRecoveryRequest(p)
+  val occupied = UInt(p.nonFlushPrefixCountWidth.W)
+  val exactMatchCount = UInt(p.countWidth(p.robGroupsPerStid).W)
+  val triggerShapeMatch = Bool()
+}
+
 /** One youngest-to-oldest logical-uop suffix item during rename recovery. */
 class OooRenameRecoverySource(val p: OooParams = OooParams()) extends Bundle {
   val request = new OooRenameRecoveryRequest(p)
@@ -952,6 +983,7 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val key = new RobGroupKey(p)
   val transactionId = UInt(p.transactionIdWidth.W)
+  val publicationEpoch = UInt(p.epochWidth.W)
   val claimEpoch = UInt(p.reservationEpochWidth.W)
   val brob = new BrobPointer(p)
   val pcBase = new PcBufferToken(p)
@@ -968,6 +1000,21 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val nonFlushRequiredProofs = UInt(OooNonFlushProof.Count.W)
   val nonFlushObservedProofs = UInt(OooNonFlushProof.Count.W)
   val nonFlushNever = Bool()
+  val logicalMemberBase = Vec(p.decodedUopWidth,
+    UInt(p.robMemberIndexWidth.W))
+  val logicalMemberCount = Vec(p.decodedUopWidth,
+    UInt(p.robMemberCountWidth.W))
+  val logicalPMapQRows = Vec(p.decodedUopWidth,
+    UInt(p.destinationCountWidth.W))
+  val logicalArchitecturalParentCount = Vec(p.decodedUopWidth,
+    UInt(p.architecturalParentCountWidth.W))
+  val logicalBoundaryStart = UInt(p.decodedUopWidth.W)
+  val logicalBoundaryStop = UInt(p.decodedUopWidth.W)
+  val logicalReleasePcBase = UInt(p.decodedUopWidth.W)
+  val logicalPreciseTrap = UInt(p.decodedUopWidth.W)
+  val logicalNonFlushRequiredProofs = Vec(p.decodedUopWidth,
+    UInt(OooNonFlushProof.Count.W))
+  val logicalNonFlushNever = UInt(p.decodedUopWidth.W)
 }
 
 class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {

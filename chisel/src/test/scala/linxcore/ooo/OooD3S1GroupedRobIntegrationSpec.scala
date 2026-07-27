@@ -36,6 +36,9 @@ private class OooD3S1GroupedRobHarness(val p: OooParams) extends Module {
   s1.io.nonFlushEvidence.valid := false.B
   s1.io.nonFlushEvidence.bits := 0.U.asTypeOf(s1.io.nonFlushEvidence.bits)
   s1.io.interruptPending.foreach(_ := false.B)
+  s1.io.recoveryPrepare.valid := false.B
+  s1.io.recoveryPrepare.bits := 0.U.asTypeOf(s1.io.recoveryPrepare.bits)
+  s1.io.recoveryFire := false.B
   d3.io.release.bits := s1.io.commit.bits.release
   io.commit.valid := s1.io.commit.valid && d3.io.release.ready
   io.commit.bits := s1.io.commit.bits

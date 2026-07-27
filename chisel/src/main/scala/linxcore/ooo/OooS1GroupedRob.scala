@@ -1,18 +1,23 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, PriorityEncoder, UIntToOH, Valid}
+import chisel3.util.{Cat, Decoupled, PopCount, PriorityEncoder, UIntToOH, Valid}
 
 class OooS1GroupedRobIO(val p: OooParams = OooParams()) extends Bundle {
   val publish = Flipped(Decoupled(new OooS1GroupedPublicationRequest(p)))
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
   val nonFlushEvidence = Flipped(Decoupled(new OooRobNonFlushEvidence(p)))
   val interruptPending = Input(Vec(p.stidCount, Bool()))
+  val recoveryPrepare = Flipped(Valid(new OooGlobalRecoveryRequest(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryPrepared = Output(new OooRobRecoveryPlan(p))
+  val recoveryFire = Input(Bool())
   val commit = Decoupled(new OooRobCommitBatch(p))
 
   val publicationRejected = Valid(new OooS1PublicationReject(p))
   val completionRejected = Valid(new OooRobMemberCompletionReject(p))
   val nonFlushEvidenceRejected = Valid(new OooRobNonFlushEvidenceReject(p))
+  val recoveryRejected = Valid(new OooRobRecoveryReject(p))
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val occupiedGroups = Output(Vec(p.stidCount, UInt(p.countWidth(p.robGroupsPerStid).W)))
   val headSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
@@ -43,6 +48,15 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     0.U(p.nonFlushPrefixCountWidth.W))))
   val nonFlushEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.epochWidth.W))))
 
+  val recoveryRequest = io.recoveryPrepare.bits
+  val recoveryMember = recoveryRequest.rename.key.member
+  val recoveryStid = recoveryMember.group.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryTargetsStid = io.recoveryPrepare.valid &&
+    recoveryStidInRange && recoveryMember.group.valid && recoveryMember.bid.valid
+  val recoveryCommitConflict = WireDefault(false.B)
+
   val publishStid = io.publish.bits.reservation.transaction.plan.stid
   val publishStidInRange = publishStid < p.stidCount.U
   val safePublishStid = Mux(publishStidInRange, publishStid, 0.U)
@@ -72,48 +86,46 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   val groupRequiredProofs = Wire(Vec(p.instructionDecodeWidth,
     UInt(OooNonFlushProof.Count.W)))
   val groupNonFlushNever = Wire(Vec(p.instructionDecodeWidth, Bool()))
+  val groupLogicalRequiredProofs = Wire(Vec(p.instructionDecodeWidth,
+    Vec(p.decodedUopWidth, UInt(OooNonFlushProof.Count.W))))
+  val groupLogicalNonFlushNever = Wire(Vec(p.instructionDecodeWidth,
+    UInt(p.decodedUopWidth.W)))
   for (groupIndex <- 0 until p.instructionDecodeWidth) {
     val group = io.publish.bits.reservation.transaction.groups(groupIndex)
     val decoded = io.publish.bits.reservation.transaction.decoded
-    val exceptionRequired = (0 until p.decodedUopWidth).map { uopIndex =>
+    val logicalNever = Wire(Vec(p.decodedUopWidth, Bool()))
+    for (uopIndex <- 0 until p.decodedUopWidth) {
       val member = group.logicalUopMask(uopIndex)
       val uop = decoded.uops(uopIndex)
-      member && uop.valid && (uop.recipe.mayTrap || uop.recipe.mayTrapLate)
-    }.reduce(_ || _)
-    val memoryRequired = (0 until p.decodedUopWidth).map { uopIndex =>
-      val member = group.logicalUopMask(uopIndex)
-      val uop = decoded.uops(uopIndex)
-      member && uop.valid && (uop.recipe.memoryRequestCount.orR ||
+      val exceptionRequired = member && uop.valid &&
+        (uop.recipe.mayTrap || uop.recipe.mayTrapLate)
+      val memoryRequired = member && uop.valid &&
+        (uop.recipe.memoryRequestCount.orR ||
         uop.recipe.mayTrapLate || uop.recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U)
-    }.reduce(_ || _)
-    val controlRequired = group.boundaryStart || group.boundaryStop ||
-      (0 until p.decodedUopWidth).map { uopIndex =>
-        val member = group.logicalUopMask(uopIndex)
-        val uop = decoded.uops(uopIndex)
-        member && uop.valid && (uop.recipe.mayRedirect ||
+      val controlRequired = member && uop.valid &&
+        (uop.identity.boundary.start || uop.identity.boundary.stop ||
+          uop.recipe.mayRedirect ||
           uop.recipe.requiresTargetValidation ||
           uop.recipe.sideEffectOwner === OooSideEffectOwner.Bctrl.U)
-      }.reduce(_ || _)
-    val serializationRequired = (0 until p.decodedUopWidth).map { uopIndex =>
-      val member = group.logicalUopMask(uopIndex)
-      val uop = decoded.uops(uopIndex)
-      member && uop.valid && (uop.recipe.nonspeculative ||
+      val serializationRequired = member && uop.valid &&
+        (uop.recipe.nonspeculative ||
         uop.recipe.dispatchClass === OooDispatchClass.Sys.U ||
         uop.recipe.dispatchClass === OooDispatchClass.Cmd.U ||
         uop.recipe.sideEffectOwner === OooSideEffectOwner.Commit.U ||
         uop.recipe.sideEffectOwner === OooSideEffectOwner.Ctu.U)
-    }.reduce(_ || _)
-    groupRequiredProofs(groupIndex) := Cat(
-      serializationRequired, controlRequired, memoryRequired, exceptionRequired)
-    val malformedMember = (0 until p.decodedUopWidth).map { uopIndex =>
-      val member = group.logicalUopMask(uopIndex)
-      val uop = decoded.uops(uopIndex)
-      member && (!decoded.uopMask(uopIndex) || !uop.valid || !uop.recipe.valid ||
+      groupLogicalRequiredProofs(groupIndex)(uopIndex) := Cat(
+        serializationRequired, controlRequired, memoryRequired,
+        exceptionRequired)
+      logicalNever(uopIndex) := member &&
+        (!decoded.uopMask(uopIndex) || !uop.valid || !uop.recipe.valid ||
         uop.recipe.disposition === OooOpcodeDisposition.Illegal.U ||
         uop.recipe.sideEffectOwner === OooSideEffectOwner.Illegal.U)
-    }.reduce(_ || _)
+    }
+    groupRequiredProofs(groupIndex) :=
+      groupLogicalRequiredProofs(groupIndex).reduce(_ | _)
+    groupLogicalNonFlushNever(groupIndex) := logicalNever.asUInt
     groupNonFlushNever(groupIndex) := group.preciseTrap ||
-      !group.logicalUopMask.orR || malformedMember
+      !group.logicalUopMask.orR || logicalNever.asUInt.orR
   }
 
   val targetExact = Wire(Vec(p.instructionDecodeWidth, Bool()))
@@ -168,7 +180,10 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     io.publish.bits.reservation.transaction.groupMask === expectedGroupMask &&
     publicationIdentityExact && targetExact.reduce(_ && _)
   val allTargetsFree = targetFree.reduce(_ && _)
-  io.publish.ready := publicationExact && allTargetsFree
+  val recoveryBlocksPublish = recoveryTargetsStid &&
+    publishStid === recoveryStid
+  io.publish.ready := publicationExact && allTargetsFree &&
+    !recoveryBlocksPublish
   val publishFire = io.publish.valid && io.publish.ready
 
   io.publicationRejected.valid := io.publish.valid && !io.publish.ready
@@ -186,6 +201,8 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.valid := true.B
       row.key := group.key
       row.transactionId := io.publish.bits.reservation.transaction.plan.transactionId
+      row.publicationEpoch :=
+        io.publish.bits.reservation.transaction.plan.epoch
       row.claimEpoch := io.publish.bits.reservation.claimEpoch
       row.brob := binding.brob
       row.pcBase := binding.pcBase
@@ -202,8 +219,226 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.nonFlushRequiredProofs := groupRequiredProofs(groupIndex)
       row.nonFlushObservedProofs := 0.U
       row.nonFlushNever := groupNonFlushNever(groupIndex)
+      row.logicalBoundaryStart := VecInit((0 until p.decodedUopWidth).map {
+        uopIndex => group.logicalUopMask(uopIndex) &&
+          io.publish.bits.reservation.transaction.decoded.uops(uopIndex)
+            .identity.boundary.start
+      }).asUInt
+      row.logicalBoundaryStop := VecInit((0 until p.decodedUopWidth).map {
+        uopIndex => group.logicalUopMask(uopIndex) &&
+          io.publish.bits.reservation.transaction.decoded.uops(uopIndex)
+            .identity.boundary.stop
+      }).asUInt
+      row.logicalReleasePcBase := VecInit((0 until p.decodedUopWidth).map {
+        uopIndex =>
+          val uop = io.publish.bits.reservation.transaction.decoded.uops(uopIndex)
+          group.logicalUopMask(uopIndex) &&
+            uop.identity.parents.zipWithIndex.map { case (parent, parentIndex) =>
+              parentIndex.U < uop.identity.parentCount && parent.key.valid &&
+                parent.traceOwner && parent.prediction.valid &&
+                parent.prediction.taken
+            }.reduce(_ || _)
+      }).asUInt
+      row.logicalPreciseTrap := VecInit((0 until p.decodedUopWidth).map {
+        uopIndex => group.logicalUopMask(uopIndex) &&
+          io.publish.bits.reservation.transaction.decoded.uops(uopIndex)
+            .preciseTrap
+      }).asUInt
+      row.logicalNonFlushNever := groupLogicalNonFlushNever(groupIndex)
+      for (uopIndex <- 0 until p.decodedUopWidth) {
+        val decoded = io.publish.bits.reservation.transaction.decoded
+        val uop = decoded.uops(uopIndex)
+        val logicalMember = group.logicalUopMask(uopIndex)
+        val parentCount = PopCount(uop.identity.parents.zipWithIndex.map {
+          case (parent, parentIndex) =>
+            parentIndex.U < uop.identity.parentCount && parent.key.valid &&
+              parent.traceOwner
+        })
+        val pMapQRows = PopCount(uop.destinations.map { destination =>
+          destination.valid &&
+            destination.kind === linxcore.common.DestinationKind.Gpr
+        })
+        row.logicalMemberBase(uopIndex) := Mux(logicalMember,
+          io.publish.bits.reservation.transaction.uopMemberBase(uopIndex), 0.U)
+        row.logicalMemberCount(uopIndex) := Mux(logicalMember,
+          uop.plannedChildCount, 0.U)
+        row.logicalPMapQRows(uopIndex) := Mux(logicalMember, pMapQRows, 0.U)
+        row.logicalArchitecturalParentCount(uopIndex) :=
+          Mux(logicalMember, parentCount, 0.U)
+        row.logicalNonFlushRequiredProofs(uopIndex) :=
+          groupLogicalRequiredProofs(groupIndex)(uopIndex)
+      }
     }
   }
+
+  val recoveryGroupMatches = Wire(Vec(p.robGroupsPerStid, Bool()))
+  for (offset <- 0 until p.robGroupsPerStid) {
+    val slotSum = headSlot(safeRecoveryStid) +& offset.U
+    val wraps = slotSum >= p.robGroupsPerStid.U
+    val row = rows(safeRecoveryStid)(slotSum(p.ridSlotWidth - 1, 0))
+    recoveryGroupMatches(offset) := recoveryTargetsStid &&
+      offset.U < occupied(safeRecoveryStid) && row.valid && row.key.valid &&
+      row.key.peId === headPeId(safeRecoveryStid) &&
+      row.key.stid === recoveryStid &&
+      row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
+      row.key.ridGeneration ===
+        headGeneration(safeRecoveryStid) + wraps.asUInt &&
+      row.key.asUInt === recoveryMember.group.asUInt && row.brob.valid &&
+      row.brob.bid.asUInt === recoveryMember.bid.asUInt &&
+      row.brob.generation === recoveryMember.brobGeneration &&
+      row.residentGeneration === recoveryMember.residentGeneration &&
+      row.transactionId === recoveryRequest.rename.key.transactionId &&
+      row.publicationEpoch === recoveryRequest.rename.key.epoch
+  }
+  val recoveryExactMatchCount = PopCount(recoveryGroupMatches)
+  val recoveryPivotOffsetRaw = PriorityEncoder(recoveryGroupMatches.asUInt)
+  val recoveryPivotOffset = Wire(UInt(p.nonFlushPrefixCountWidth.W))
+  recoveryPivotOffset := recoveryPivotOffsetRaw
+  val recoveryPivotSlotSum = headSlot(safeRecoveryStid) +&
+    recoveryPivotOffset
+  val recoveryPivot = rows(safeRecoveryStid)(
+    recoveryPivotSlotSum(p.ridSlotWidth - 1, 0))
+  val recoveryTriggerEnd = recoveryMember.memberIndex +&
+    recoveryRequest.triggerMemberCount
+  val recoveryTriggerShape = Wire(Vec(p.decodedUopWidth, Bool()))
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    recoveryTriggerShape(uopIndex) := recoveryPivot.logicalUopMask(uopIndex) &&
+      recoveryPivot.logicalMemberCount(uopIndex).orR &&
+      recoveryPivot.logicalMemberBase(uopIndex) === recoveryMember.memberIndex &&
+      recoveryPivot.logicalMemberCount(uopIndex) ===
+        recoveryRequest.triggerMemberCount
+  }
+  val recoveryTriggerShapeCount = PopCount(recoveryTriggerShape)
+  val recoveryTriggerShapeExact = recoveryTriggerShapeCount === 1.U &&
+    recoveryRequest.triggerMemberCount.orR &&
+    recoveryTriggerEnd <= recoveryPivot.physicalMemberCount
+  val recoverySurvivingMemberCountWide = recoveryMember.memberIndex +&
+    Mux(recoveryRequest.rename.killTrigger, 0.U,
+      recoveryRequest.triggerMemberCount)
+  val recoverySurvivingMemberCount =
+    recoverySurvivingMemberCountWide(p.robMemberCountWidth - 1, 0)
+  val recoverySurvivingPivotValid = recoverySurvivingMemberCount.orR
+  val recoverySurvivingLogical = Wire(Vec(p.decodedUopWidth, Bool()))
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    val logicalEnd = recoveryPivot.logicalMemberBase(uopIndex) +&
+      recoveryPivot.logicalMemberCount(uopIndex)
+    recoverySurvivingLogical(uopIndex) :=
+      recoveryPivot.logicalUopMask(uopIndex) &&
+        recoveryPivot.logicalMemberCount(uopIndex).orR &&
+        logicalEnd <= recoverySurvivingMemberCountWide
+  }
+  val recoverySurvivingPivot = Wire(new OooRobPhysicalGroupRecord(p))
+  recoverySurvivingPivot := recoveryPivot
+  recoverySurvivingPivot.valid := recoverySurvivingPivotValid
+  recoverySurvivingPivot.logicalUopMask := recoverySurvivingLogical.asUInt
+  recoverySurvivingPivot.physicalMemberCount := recoverySurvivingMemberCount
+  val recoverySurvivingMemberMask =
+    ((1.U((p.maxOrdinaryUopsPerGroup + 1).W) <<
+      recoverySurvivingMemberCount) - 1.U)(
+      p.maxOrdinaryUopsPerGroup - 1, 0)
+  recoverySurvivingPivot.completedMembers :=
+    recoveryPivot.completedMembers & recoverySurvivingMemberMask
+  recoverySurvivingPivot.pMapQRows := (0 until p.decodedUopWidth).map {
+    uopIndex => Mux(recoverySurvivingLogical(uopIndex),
+      recoveryPivot.logicalPMapQRows(uopIndex), 0.U)
+  }.reduce(_ +& _)
+  recoverySurvivingPivot.architecturalParentCount :=
+    (0 until p.decodedUopWidth).map { uopIndex =>
+      Mux(recoverySurvivingLogical(uopIndex),
+        recoveryPivot.logicalArchitecturalParentCount(uopIndex), 0.U)
+    }.reduce(_ +& _)
+  recoverySurvivingPivot.boundaryStart :=
+    (recoveryPivot.logicalBoundaryStart &
+      recoverySurvivingLogical.asUInt).orR
+  recoverySurvivingPivot.boundaryStop :=
+    (recoveryPivot.logicalBoundaryStop &
+      recoverySurvivingLogical.asUInt).orR
+  recoverySurvivingPivot.releasePcBase :=
+    (recoveryPivot.logicalReleasePcBase &
+      recoverySurvivingLogical.asUInt).orR
+  recoverySurvivingPivot.preciseTrap :=
+    (recoveryPivot.logicalPreciseTrap &
+      recoverySurvivingLogical.asUInt).orR
+  recoverySurvivingPivot.nonFlushRequiredProofs :=
+    (0 until p.decodedUopWidth).map { uopIndex =>
+      Mux(recoverySurvivingLogical(uopIndex),
+        recoveryPivot.logicalNonFlushRequiredProofs(uopIndex), 0.U)
+    }.reduce(_ | _)
+  recoverySurvivingPivot.nonFlushObservedProofs := 0.U
+  recoverySurvivingPivot.nonFlushNever :=
+    (recoveryPivot.logicalNonFlushNever &
+      recoverySurvivingLogical.asUInt).orR
+  recoverySurvivingPivot.logicalBoundaryStart :=
+    recoveryPivot.logicalBoundaryStart & recoverySurvivingLogical.asUInt
+  recoverySurvivingPivot.logicalBoundaryStop :=
+    recoveryPivot.logicalBoundaryStop & recoverySurvivingLogical.asUInt
+  recoverySurvivingPivot.logicalReleasePcBase :=
+    recoveryPivot.logicalReleasePcBase & recoverySurvivingLogical.asUInt
+  recoverySurvivingPivot.logicalPreciseTrap :=
+    recoveryPivot.logicalPreciseTrap & recoverySurvivingLogical.asUInt
+  recoverySurvivingPivot.logicalNonFlushNever :=
+    recoveryPivot.logicalNonFlushNever & recoverySurvivingLogical.asUInt
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    when(!recoverySurvivingLogical(uopIndex)) {
+      recoverySurvivingPivot.logicalMemberBase(uopIndex) := 0.U
+      recoverySurvivingPivot.logicalMemberCount(uopIndex) := 0.U
+      recoverySurvivingPivot.logicalPMapQRows(uopIndex) := 0.U
+      recoverySurvivingPivot.logicalArchitecturalParentCount(uopIndex) := 0.U
+      recoverySurvivingPivot.logicalNonFlushRequiredProofs(uopIndex) := 0.U
+    }
+  }
+  val recoveryNewOccupied = recoveryPivotOffset +
+    recoverySurvivingPivotValid.asUInt
+  val recoveryKilledGroupCount = occupied(safeRecoveryStid) -
+    recoveryNewOccupied
+  val recoveryFirstKilledSlotSum = headSlot(safeRecoveryStid) +&
+    recoveryNewOccupied
+  val recoveryFirstKilledWrap =
+    recoveryFirstKilledSlotSum >= p.robGroupsPerStid.U
+  val recoveryOldTailSlotSum = headSlot(safeRecoveryStid) +&
+    occupied(safeRecoveryStid)
+  val recoveryOldTailWrap = recoveryOldTailSlotSum >= p.robGroupsPerStid.U
+
+  val recoveryPlan = Wire(new OooRobRecoveryPlan(p))
+  recoveryPlan := 0.U.asTypeOf(recoveryPlan)
+  recoveryPlan.valid := recoveryExactMatchCount === 1.U &&
+    recoveryTriggerShapeExact
+  recoveryPlan.request := recoveryRequest
+  recoveryPlan.pivot := recoveryPivot
+  recoveryPlan.pivotOffset := recoveryPivotOffset
+  recoveryPlan.survivingPivotValid := recoverySurvivingPivotValid
+  recoveryPlan.survivingPivot := recoverySurvivingPivot
+  recoveryPlan.firstKilledGroup.valid := recoveryKilledGroupCount.orR
+  recoveryPlan.firstKilledGroup.peId := headPeId(safeRecoveryStid)
+  recoveryPlan.firstKilledGroup.stid := recoveryStid
+  recoveryPlan.firstKilledGroup.ridSlot :=
+    recoveryFirstKilledSlotSum(p.ridSlotWidth - 1, 0)
+  recoveryPlan.firstKilledGroup.ridGeneration :=
+    headGeneration(safeRecoveryStid) + recoveryFirstKilledWrap.asUInt
+  recoveryPlan.killedGroupCount := recoveryKilledGroupCount
+  recoveryPlan.oldTail.valid := recoveryPlan.valid
+  recoveryPlan.oldTail.peId := headPeId(safeRecoveryStid)
+  recoveryPlan.oldTail.stid := recoveryStid
+  recoveryPlan.oldTail.ridSlot :=
+    recoveryOldTailSlotSum(p.ridSlotWidth - 1, 0)
+  recoveryPlan.oldTail.ridGeneration :=
+    headGeneration(safeRecoveryStid) + recoveryOldTailWrap.asUInt
+  recoveryPlan.newTail.valid := recoveryPlan.valid
+  recoveryPlan.newTail.peId := headPeId(safeRecoveryStid)
+  recoveryPlan.newTail.stid := recoveryStid
+  recoveryPlan.newTail.ridSlot :=
+    recoveryFirstKilledSlotSum(p.ridSlotWidth - 1, 0)
+  recoveryPlan.newTail.ridGeneration :=
+    headGeneration(safeRecoveryStid) + recoveryFirstKilledWrap.asUInt
+
+  io.recoveryPrepared := recoveryPlan
+  io.recoveryPrepareReady := recoveryPlan.valid && !recoveryCommitConflict
+  io.recoveryRejected.valid := io.recoveryPrepare.valid &&
+    !recoveryPlan.valid
+  io.recoveryRejected.bits.requested := recoveryRequest
+  io.recoveryRejected.bits.occupied := occupied(safeRecoveryStid)
+  io.recoveryRejected.bits.exactMatchCount := recoveryExactMatchCount
+  io.recoveryRejected.bits.triggerShapeMatch := recoveryTriggerShapeExact
 
   val completionStid = io.completion.bits.key.group.stid
   val completionStidInRange = completionStid < p.stidCount.U
@@ -225,7 +460,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     completionMemberInRange &&
     !(liveCompletionRow.completedMembers & completionBit).orR
 
-  io.completion.ready := true.B
+  val recoveryBlocksCompletion = recoveryTargetsStid &&
+    completionStid === recoveryStid
+  io.completion.ready := !recoveryBlocksCompletion
   val completionFire = io.completion.valid && io.completion.ready
   when(completionFire && completionExact) {
     rows(completionStid)(completionSlot).completedMembers :=
@@ -257,7 +494,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       liveEvidenceRow.residentGeneration && evidenceMemberInRange &&
     newEvidenceProofs.orR
 
-  io.nonFlushEvidence.ready := true.B
+  val recoveryBlocksEvidence = recoveryTargetsStid &&
+    evidenceStid === recoveryStid
+  io.nonFlushEvidence.ready := !recoveryBlocksEvidence
   val evidenceFire = io.nonFlushEvidence.valid && io.nonFlushEvidence.ready
   when(evidenceFire && evidenceExact) {
     rows(evidenceStid)(evidenceSlot).nonFlushObservedProofs :=
@@ -321,7 +560,10 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
         offset.U < occupied(stid) && exactHead && groupComplete(row)
       prefix(offset + 1) := Mux(canExtend, (offset + 1).U, prefix(offset))
     }
-    commitCountByStid(stid) := prefix(p.retireGroupWidth)
+    commitCountByStid(stid) := Mux(
+      recoveryTargetsStid && recoveryStid === stid.U,
+      0.U,
+      prefix(p.retireGroupWidth))
   }
 
   val commitPending = RegInit(false.B)
@@ -361,6 +603,8 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.commit.valid := commitPending
   io.commit.bits := commitRow
   val commitFire = io.commit.valid && io.commit.ready
+  recoveryCommitConflict := commitPending &&
+    commitRow.release.firstGroup.stid === recoveryStid
   when(commitFire) {
     val stid = commitRow.release.firstGroup.stid
     val count = commitRow.release.groupCount
@@ -422,6 +666,32 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
         headPeId(stid) := io.publish.bits.reservation.transaction.plan.peId
       }
     }
+  }
+
+  val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepare.valid && io.recoveryPrepareReady &&
+      io.recoveryPrepared.valid,
+      "ROB recovery fire requires the same exact prepared suffix plan")
+  }
+  when(recoveryApply) {
+    for (offset <- 0 until p.robGroupsPerStid) {
+      val slotSum = headSlot(safeRecoveryStid) +& offset.U
+      when(offset.U >= recoveryNewOccupied &&
+        offset.U < occupied(safeRecoveryStid)) {
+        rows(safeRecoveryStid)(slotSum(p.ridSlotWidth - 1, 0)) :=
+          0.U.asTypeOf(new OooRobPhysicalGroupRecord(p))
+      }
+    }
+    when(recoverySurvivingPivotValid &&
+      recoverySurvivingMemberCount < recoveryPivot.physicalMemberCount) {
+      rows(safeRecoveryStid)(recoveryPivot.key.ridSlot) :=
+        recoverySurvivingPivot
+    }
+    occupied(safeRecoveryStid) := recoveryNewOccupied
+    nonFlushAuthorized(safeRecoveryStid) := 0.U
+    nonFlushEpoch(safeRecoveryStid) :=
+      nonFlushEpoch(safeRecoveryStid) + 1.U
   }
 
   io.occupiedGroups := occupied

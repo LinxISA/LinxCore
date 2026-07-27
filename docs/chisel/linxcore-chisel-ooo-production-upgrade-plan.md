@@ -91,7 +91,8 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7–O9 | Not started | current compatibility owners remain migration evidence | global recovery/CTU, physical closure, production top integration, and benchmark promotion follow |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB retains per-logical recovery metadata, prepares an exact intra-group/whole-group suffix plan, applies owner-local truncation, rejects stale authority, and rebuilds non-flush state; formal O3 seam remains tied off | O7.2 all-owner R0-R4 coordinator and O7.3 external CTU lease/child reinsertion remain |
+| O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -1477,6 +1478,26 @@ frees rename state; affected STID can advance independently.
 
 Deliver R0-R4 coordinator, CMAP-to-SMAP/replay, PC/ROB/BROB/IQ cancellation,
 external CTU lease/children/final-parent protocol, and template multi-RID groups.
+
+Implementation status: O7.1 completes the grouped-ROB owner slice. Every
+physical row now retains publication epoch plus per-logical-uop member
+base/count, P MapQ rows, architectural parents, boundary/PC/trap summaries, and
+non-flush obligations. An exact request can therefore preserve or kill the
+complete trigger logical uop even when several logical uops share one physical
+RID group. The side-effect-free plan describes the partial pivot and complete
+younger suffix across RID wrap; apply truncates only the selected STID and
+restarts its non-flush proof window. Stale identity or malformed logical shape
+is rejected without mutation.
+
+The owner-local prepare/apply interface is deliberately tied off inside
+`OooRobBrobPcCoordinator`. O7.2 must add the retained global R0 request, compute
+one R1 kill set, freeze and prepare D1/D2/D3/S1, ROB/BROB/PC, P/T/U rename,
+dispatch/IEX/fast completion, and CTU in R2, issue one all-owner R3 apply, then
+wait for P survivor replay, local-cursor rebuild, non-flush rebuild, and
+frontend restart acknowledgements in R4. Until every owner joins, no composed
+module may expose a ROB-only recovery fire. O7.3 then adds the external CTU
+lease, exact child order/count, canonical reinsertion ahead of the instruction
+buffer, multi-RID expansion, final-parent retirement, and recovery cancel/reuse.
 
 Exit: recovery at every stage and template phase closes with zero cross-STID
 mutation; CTU has no direct RF/ROB/LSU architectural-effect port.

@@ -82,8 +82,15 @@ or frees rename state early. O6.2 publishes an exact ROB-owned
 `{STID, head RobGroupKey, prefixCount, epoch}` safe prefix from independent
 exception, memory, control, and serialization proofs. Exact stale/duplicate
 evidence is rejected with zero mutation; interrupt freeze is per STID; a
-numeric RID/BID threshold remains forbidden. CTU canonical-child reinsertion
-and recovery-time window recomputation remain O7. The
+numeric RID/BID threshold remains forbidden. O7.1 now gives the grouped ROB an
+exact owner-local suffix prepare/apply path. It matches full RID/member,
+native-BID/BROB, resident-generation, transaction, and publication-epoch
+identity; it can truncate within a physical RID group without splitting the
+trigger logical uop, and it rebuilds group summaries and resets the selected
+STID's non-flush window. Direct ROB recovery remains tied off in the composed
+O3 coordinator because D3, BROB, PC, rename, dispatch, IEX, fast resolve, and
+CTU do not yet share its terminal fire. The active next slice is O7.2 retained
+all-owner R0-R4 recovery, followed by O7.3 CTU canonical-child reinsertion. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

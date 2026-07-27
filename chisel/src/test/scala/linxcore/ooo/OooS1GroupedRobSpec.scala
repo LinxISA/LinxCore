@@ -2,6 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import linxcore.common.DestinationKind
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
@@ -13,6 +14,10 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     dut.io.nonFlushEvidence.valid.poke(false.B)
     dut.io.nonFlushEvidence.bits.poke(0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
     dut.io.commit.ready.poke(false.B)
   }
 
@@ -80,6 +85,15 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       uop.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
       uop.recipe.sideEffectOwner.poke(OooSideEffectOwner.Iex.U)
       uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
+      uop.plannedChildCount.poke(memberCount.U)
+      uop.identity.parentCount.poke(1.U)
+      uop.identity.parents(0).key.valid.poke(true.B)
+      uop.identity.parents(0).key.peId.poke(peId.U)
+      uop.identity.parents(0).key.stid.poke(stid.U)
+      uop.identity.parents(0).key.instructionId.poke(
+        (100 + transactionId * 10 + groupIndex).U)
+      uop.identity.parents(0).key.epoch.poke(11.U)
+      uop.identity.parents(0).traceOwner.poke(true.B)
 
       val binding = dut.io.publish.bits.bindings(groupIndex)
       binding.valid.poke(true.B)
@@ -117,6 +131,126 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     key.memberIndex.poke(member.U)
     key.residentGeneration.poke(residentGeneration.U)
     dut.io.completion.valid.poke(true.B)
+  }
+
+  private def pokeIntraGroupPublication(
+      dut: OooS1GroupedRob,
+      stid: Int = 1,
+      transactionId: Int = 0,
+      firstSlot: Int = 0,
+      firstGeneration: Int = 0,
+      peId: Int = 2): Unit = {
+    val p = dut.p
+    val memberCounts = Seq(1, 2, 1, 1)
+    val groupIndexes = Seq(0, 0, 1, 2)
+    val memberBases = Seq(0, 1, 0, 0)
+    dut.io.publish.bits.poke(0.U.asTypeOf(dut.io.publish.bits))
+    val reservation = dut.io.publish.bits.reservation
+    val transaction = reservation.transaction
+    transaction.plan.peId.poke(peId.U)
+    transaction.plan.stid.poke(stid.U)
+    transaction.plan.epoch.poke(11.U)
+    transaction.plan.transactionId.poke(transactionId.U)
+    transaction.plan.groupCount.poke(3.U)
+    transaction.plan.firstVirtualGroup.valid.poke(true.B)
+    transaction.plan.firstVirtualGroup.peId.poke(peId.U)
+    transaction.plan.firstVirtualGroup.stid.poke(stid.U)
+    transaction.plan.firstVirtualGroup.ridSlot.poke(firstSlot.U)
+    transaction.plan.firstVirtualGroup.ridGeneration.poke(firstGeneration.U)
+    transaction.decoded.peId.poke(peId.U)
+    transaction.decoded.stid.poke(stid.U)
+    transaction.decoded.epoch.poke(11.U)
+    transaction.decoded.uopMask.poke(15.U)
+    transaction.groupMask.poke(7.U)
+    reservation.tailAfter.valid.poke(true.B)
+    reservation.tailAfter.peId.poke(peId.U)
+    reservation.tailAfter.stid.poke(stid.U)
+    reservation.tailAfter.ridSlot.poke(((firstSlot + 3) % p.robGroupsPerStid).U)
+    reservation.tailAfter.ridGeneration.poke(
+      (firstGeneration + (firstSlot + 3) / p.robGroupsPerStid).U)
+
+    val groupMasks = Seq(3, 4, 8)
+    val physicalCounts = Seq(3, 1, 1)
+    val pMapRows = Seq(2, 0, 0)
+    val parentCounts = Seq(2, 1, 1)
+    for (groupIndex <- 0 until 3) {
+      val absoluteSlot = firstSlot + groupIndex
+      val group = transaction.groups(groupIndex)
+      group.valid.poke(true.B)
+      group.key.valid.poke(true.B)
+      group.key.peId.poke(peId.U)
+      group.key.stid.poke(stid.U)
+      group.key.ridSlot.poke((absoluteSlot % p.robGroupsPerStid).U)
+      group.key.ridGeneration.poke(
+        (firstGeneration + absoluteSlot / p.robGroupsPerStid).U)
+      group.logicalUopMask.poke(groupMasks(groupIndex).U)
+      group.physicalMemberCount.poke(physicalCounts(groupIndex).U)
+      group.pMapQRows.poke(pMapRows(groupIndex).U)
+      group.architecturalParentCount.poke(parentCounts(groupIndex).U)
+
+      val binding = dut.io.publish.bits.bindings(groupIndex)
+      binding.valid.poke(true.B)
+      binding.brob.valid.poke(true.B)
+      binding.brob.bid.valid.poke(true.B)
+      binding.brob.bid.value.poke(7.U)
+      binding.brob.generation.poke(3.U)
+      binding.residentGeneration.poke(5.U)
+    }
+
+    for (uopIndex <- 0 until 4) {
+      transaction.uopGroupIndex(uopIndex).poke(groupIndexes(uopIndex).U)
+      transaction.uopMemberBase(uopIndex).poke(memberBases(uopIndex).U)
+      val uop = transaction.decoded.uops(uopIndex)
+      uop.valid.poke(true.B)
+      uop.recipe.valid.poke(true.B)
+      uop.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
+      uop.recipe.sideEffectOwner.poke(OooSideEffectOwner.Iex.U)
+      uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
+      uop.plannedChildCount.poke(memberCounts(uopIndex).U)
+      uop.identity.parentCount.poke(1.U)
+      uop.identity.parents(0).key.valid.poke(true.B)
+      uop.identity.parents(0).key.peId.poke(peId.U)
+      uop.identity.parents(0).key.stid.poke(stid.U)
+      uop.identity.parents(0).key.instructionId.poke((200 + uopIndex).U)
+      uop.identity.parents(0).key.epoch.poke(11.U)
+      uop.identity.parents(0).traceOwner.poke(true.B)
+      if (uopIndex < 2) {
+        uop.destinations(0).valid.poke(true.B)
+        uop.destinations(0).kind.poke(DestinationKind.Gpr)
+        uop.destinations(0).atag.poke((uopIndex + 1).U)
+      }
+    }
+    dut.io.publish.valid.poke(true.B)
+  }
+
+  private def pokeRecovery(
+      dut: OooS1GroupedRob,
+      stid: Int,
+      slot: Int,
+      ridGeneration: Int,
+      member: Int,
+      memberCount: Int,
+      killTrigger: Boolean,
+      transactionId: Int = 0,
+      epoch: Int = 11,
+      peId: Int = 2): Unit = {
+    val request = dut.io.recoveryPrepare.bits
+    request.poke(0.U.asTypeOf(request))
+    request.rename.key.member.group.valid.poke(true.B)
+    request.rename.key.member.group.peId.poke(peId.U)
+    request.rename.key.member.group.stid.poke(stid.U)
+    request.rename.key.member.group.ridSlot.poke(slot.U)
+    request.rename.key.member.group.ridGeneration.poke(ridGeneration.U)
+    request.rename.key.member.bid.valid.poke(true.B)
+    request.rename.key.member.bid.value.poke(7.U)
+    request.rename.key.member.brobGeneration.poke(3.U)
+    request.rename.key.member.memberIndex.poke(member.U)
+    request.rename.key.member.residentGeneration.poke(5.U)
+    request.rename.key.transactionId.poke(transactionId.U)
+    request.rename.key.epoch.poke(epoch.U)
+    request.rename.killTrigger.poke(killTrigger.B)
+    request.triggerMemberCount.poke(memberCount.U)
+    dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
   private def acceptCompletion(dut: OooS1GroupedRob): Unit = {
@@ -511,6 +645,190 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.nonFlushWindows(3).head.ridSlot.expect(1.U)
       dut.io.nonFlushWindows(3).prefixCount.expect(1.U)
       dut.io.occupiedGroups(3).expect(1.U)
+    }
+  }
+
+  test("prepares and applies an exact intra-group survivor suffix recovery") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokeIntraGroupPublication(dut)
+      dut.io.publish.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(3.U)
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.pivotOffset.expect(0.U)
+      dut.io.recoveryPrepared.pivot.physicalMemberCount.expect(3.U)
+      dut.io.recoveryPrepared.pivot.logicalUopMask.expect(3.U)
+      dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
+      dut.io.recoveryPrepared.survivingPivot.physicalMemberCount.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.logicalUopMask.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.pMapQRows.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.architecturalParentCount.expect(1.U)
+      dut.io.recoveryPrepared.killedGroupCount.expect(2.U)
+      dut.io.recoveryPrepared.firstKilledGroup.valid.expect(true.B)
+      dut.io.recoveryPrepared.firstKilledGroup.ridSlot.expect(1.U)
+      dut.io.recoveryPrepared.oldTail.ridSlot.expect(3.U)
+      dut.io.recoveryPrepared.newTail.ridSlot.expect(1.U)
+
+      pokeCompletion(dut, stid = 1, slot = 0, ridGeneration = 0, member = 0)
+      dut.io.completion.ready.expect(false.B)
+      dut.io.commit.valid.expect(false.B)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.completion.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(1.U)
+      dut.io.nonFlushWindows(1).prefixCount.expect(0.U)
+
+      pokeCompletion(dut, stid = 1, slot = 0, ridGeneration = 0, member = 1)
+      dut.io.completion.ready.expect(true.B)
+      dut.io.completionRejected.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
+
+      pokeCompletion(dut, stid = 1, slot = 0, ridGeneration = 0, member = 0)
+      acceptCompletion(dut)
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.release.groupCount.expect(1.U)
+      dut.io.commit.bits.groups(0).physicalMemberCount.expect(1.U)
+      dut.io.commit.bits.groups(0).pMapQRows.expect(1.U)
+    }
+  }
+
+  test("kills an exact logical trigger and can remove the complete ROB window") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokeIntraGroupPublication(dut)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
+        member = 1, memberCount = 2, killTrigger = true)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
+      dut.io.recoveryPrepared.survivingPivot.physicalMemberCount.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.logicalUopMask.expect(1.U)
+      dut.io.recoveryPrepared.killedGroupCount.expect(2.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(1.U)
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = true)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.survivingPivotValid.expect(false.B)
+      dut.io.recoveryPrepared.killedGroupCount.expect(1.U)
+      dut.io.recoveryPrepared.firstKilledGroup.ridSlot.expect(0.U)
+      dut.io.recoveryPrepared.newTail.ridSlot.expect(0.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(0.U)
+      dut.io.commit.valid.expect(false.B)
+    }
+  }
+
+  test("preserves the trigger group and truncates only younger groups across wrap") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(dut, stid = 1, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq.fill(4)(1),
+        initiallyComplete = Set(0, 1, 2, 3))
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+
+      pokePublication(dut, stid = 1, transactionId = 1, firstSlot = 4,
+        firstGeneration = 0, groupMembers = Seq.fill(3)(1),
+        initiallyComplete = Set(0, 1, 2))
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      dut.io.headSlot(1).expect(7.U)
+      dut.io.headGeneration(1).expect(0.U)
+
+      pokeIntraGroupPublication(dut, transactionId = 2, firstSlot = 7)
+      dut.io.publish.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 1,
+        member = 0, memberCount = 1, killTrigger = false,
+        transactionId = 2)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.pivotOffset.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
+      dut.io.recoveryPrepared.killedGroupCount.expect(1.U)
+      dut.io.recoveryPrepared.firstKilledGroup.ridSlot.expect(1.U)
+      dut.io.recoveryPrepared.firstKilledGroup.ridGeneration.expect(1.U)
+      dut.io.recoveryPrepared.oldTail.ridSlot.expect(2.U)
+      dut.io.recoveryPrepared.oldTail.ridGeneration.expect(1.U)
+      dut.io.recoveryPrepared.newTail.ridSlot.expect(1.U)
+      dut.io.recoveryPrepared.newTail.ridGeneration.expect(1.U)
+      dut.io.commit.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.commit.valid.expect(false.B)
+      dut.io.recoveryFire.poke(true.B)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(2.U)
+      dut.io.headSlot(1).expect(7.U)
+      dut.io.headGeneration(1).expect(0.U)
+    }
+  }
+
+  test("rejects stale identity and non-logical trigger shapes with zero mutation") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokeIntraGroupPublication(dut)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 1,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryPrepared.valid.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.exactMatchCount.expect(0.U)
+      dut.clock.step()
+
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
+        member = 1, memberCount = 1, killTrigger = true)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.exactMatchCount.expect(1.U)
+      dut.io.recoveryRejected.bits.triggerShapeMatch.expect(false.B)
+      dut.clock.step()
+
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(3.U)
+      dut.io.recoveryFire.poke(false.B)
     }
   }
 }

@@ -130,6 +130,13 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   rob.io.nonFlushEvidence <> io.nonFlushEvidence
   rob.io.interruptPending := io.interruptPending
   io.nonFlushWindows := rob.io.nonFlushWindows
+  // O7.1 exposes ROB prepare/apply only at the direct owner boundary.  A
+  // coordinator-level fire would desynchronize D3, BROB, PC, rename, dispatch,
+  // and IEX state, so the composed O3 seam remains closed until the global
+  // R0-R4 coordinator joins every owner on one terminal transaction.
+  rob.io.recoveryPrepare.valid := false.B
+  rob.io.recoveryPrepare.bits := 0.U.asTypeOf(rob.io.recoveryPrepare.bits)
+  rob.io.recoveryFire := false.B
 
   // The ROB is the retained commit source. All other owners see the same valid
   // batch while computing readiness; external visibility is gated until every

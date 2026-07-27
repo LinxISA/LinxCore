@@ -12,6 +12,12 @@ history.
 
 The active backend priority is production OOO packet O7 global recovery and
 CTU reinsertion. O6.2 ROB-owned exact non-flush is packet-complete.
+O7.1 grouped-ROB recovery is also packet-complete at the direct owner boundary:
+it prepares an exact logical-uop suffix across intra-group and wrapped-RID
+cases, applies target-STID-only truncation, and rebuilds non-flush state. The
+formal O3 seam intentionally ties that fire off until O7.2 joins D3, BROB, PC,
+P/T/U rename, dispatch, IEX, fast resolve, and CTU in one retained R0-R4
+transaction. O7.3 external CTU reinsertion follows that coordinator.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
