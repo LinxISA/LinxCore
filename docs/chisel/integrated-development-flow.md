@@ -90,7 +90,12 @@ trigger logical uop, and it rebuilds group summaries and resets the selected
 STID's non-flush window. Direct ROB recovery remains tied off in the composed
 O3 coordinator because D3, BROB, PC, rename, dispatch, IEX, fast resolve, and
 CTU do not yet share its terminal fire. The active next slice is O7.2 retained
-all-owner R0-R4 recovery, followed by O7.3 CTU canonical-child reinsertion. The
+all-owner R0-R4 recovery. O7.2a now adds the ordered full physical kill-set
+records with exact BROB/PC allocation and implicit-close evidence, plus a D3
+owner that validates and rolls back published/used counts, tail, provisional
+lease, and tail epoch. ROB and D3 recovery remain tied off at the composed seam;
+BROB/PC prepare/apply is the immediate O7.2b handoff, followed by
+dispatch/IEX/fast/global composition and O7.3 CTU canonical-child reinsertion. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

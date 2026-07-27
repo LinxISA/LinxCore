@@ -535,12 +535,18 @@ class OooGlobalRecoveryRequest(val p: OooParams = OooParams()) extends Bundle {
 class OooRobRecoveryPlan(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val request = new OooGlobalRecoveryRequest(p)
+  val oldHead = new RobGroupKey(p)
+  val oldOccupied = UInt(p.nonFlushPrefixCountWidth.W)
   val pivot = new OooRobPhysicalGroupRecord(p)
   val pivotOffset = UInt(p.nonFlushPrefixCountWidth.W)
   val survivingPivotValid = Bool()
   val survivingPivot = new OooRobPhysicalGroupRecord(p)
+  val newOccupied = UInt(p.nonFlushPrefixCountWidth.W)
   val firstKilledGroup = new RobGroupKey(p)
   val killedGroupCount = UInt(p.nonFlushPrefixCountWidth.W)
+  val killedGroupMask = UInt(p.robGroupsPerStid.W)
+  val killedGroups = Vec(p.robGroupsPerStid,
+    new OooRobPhysicalGroupRecord(p))
   val oldTail = new RobGroupKey(p)
   val newTail = new RobGroupKey(p)
 }
@@ -550,6 +556,16 @@ class OooRobRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
   val occupied = UInt(p.nonFlushPrefixCountWidth.W)
   val exactMatchCount = UInt(p.countWidth(p.robGroupsPerStid).W)
   val triggerShapeMatch = Bool()
+}
+
+class OooD3RecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobRecoveryPlan(p)
+  val liveHead = new RobGroupKey(p)
+  val liveTail = new RobGroupKey(p)
+  val usedGroups = UInt(p.countWidth(p.robGroupsPerStid).W)
+  val publishedGroups = UInt(p.countWidth(p.robGroupsPerStid).W)
+  val provisional = Bool()
+  val exposedConflict = Bool()
 }
 
 /** One youngest-to-oldest logical-uop suffix item during rename recovery. */
@@ -952,7 +968,13 @@ class OooD3GroupedReservation(val p: OooParams = OooParams()) extends Bundle {
 class OooS1GroupBinding(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val brob = new BrobPointer(p)
+  val brobAllocated = Bool()
+  val brobImplicitCloseValid = Bool()
+  val brobImplicitClose = new BrobPointer(p)
   val pcBase = new PcBufferToken(p)
+  val pcBaseAllocated = Bool()
+  val pcImplicitCloseValid = Bool()
+  val pcImplicitClose = new PcBufferToken(p)
   val residentGeneration = UInt(p.residentGenerationWidth.W)
   val initiallyCompletedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
 }
@@ -986,7 +1008,13 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val publicationEpoch = UInt(p.epochWidth.W)
   val claimEpoch = UInt(p.reservationEpochWidth.W)
   val brob = new BrobPointer(p)
+  val brobAllocated = Bool()
+  val brobImplicitCloseValid = Bool()
+  val brobImplicitClose = new BrobPointer(p)
   val pcBase = new PcBufferToken(p)
+  val pcBaseAllocated = Bool()
+  val pcImplicitCloseValid = Bool()
+  val pcImplicitClose = new PcBufferToken(p)
   val residentGeneration = UInt(p.residentGenerationWidth.W)
   val logicalUopMask = UInt(p.decodedUopWidth.W)
   val physicalMemberCount = UInt(p.robMemberCountWidth.W)

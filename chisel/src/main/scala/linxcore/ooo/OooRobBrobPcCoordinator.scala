@@ -90,7 +90,17 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
     val stid = d3.io.out.bits.transaction.plan.stid
     binding.valid := group.valid
     binding.brob := brob.io.prepared.pointers(groupIndex)
+    binding.brobAllocated := brob.io.prepared.newBlockMask(groupIndex)
+    binding.brobImplicitCloseValid :=
+      brob.io.prepared.implicitCloseMask(groupIndex)
+    binding.brobImplicitClose :=
+      brob.io.prepared.implicitClosePointers(groupIndex)
     binding.pcBase := pc.io.prepared.groupTokens(groupIndex)
+    binding.pcBaseAllocated := pc.io.prepared.newBaseMask(groupIndex)
+    binding.pcImplicitCloseValid :=
+      pc.io.prepared.implicitCloseMask(groupIndex)
+    binding.pcImplicitClose :=
+      pc.io.prepared.implicitCloseTokens(groupIndex)
     binding.residentGeneration :=
       residentGeneration(stid)(group.key.ridSlot) + 1.U
     binding.initiallyCompletedMembers := 0.U
@@ -137,6 +147,9 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   rob.io.recoveryPrepare.valid := false.B
   rob.io.recoveryPrepare.bits := 0.U.asTypeOf(rob.io.recoveryPrepare.bits)
   rob.io.recoveryFire := false.B
+  d3.io.recoveryPrepare.valid := false.B
+  d3.io.recoveryPrepare.bits := 0.U.asTypeOf(d3.io.recoveryPrepare.bits)
+  d3.io.recoveryFire := false.B
 
   // The ROB is the retained commit source. All other owners see the same valid
   // batch while computing readiness; external visibility is gated until every

@@ -12,6 +12,10 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.cancel.foreach(_.poke(false.B))
     dut.io.publishEligible.foreach(_.poke(true.B))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
     dut.io.out.ready.poke(false.B)
   }
 
@@ -53,6 +57,46 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.in.valid.poke(true.B)
   }
 
+  private def pokeRecoveryPlan(
+      dut: OooD3ReservationAllocator,
+      stid: Int,
+      oldOccupied: Int,
+      newOccupied: Int,
+      oldTailSlot: Int,
+      oldTailGeneration: Int,
+      newTailSlot: Int,
+      newTailGeneration: Int): Unit = {
+    val plan = dut.io.recoveryPrepare.bits
+    plan.poke(0.U.asTypeOf(plan))
+    plan.valid.poke(true.B)
+    plan.request.rename.key.member.group.valid.poke(true.B)
+    plan.request.rename.key.member.group.peId.poke(2.U)
+    plan.request.rename.key.member.group.stid.poke(stid.U)
+    plan.request.rename.key.member.bid.valid.poke(true.B)
+    plan.oldHead.valid.poke(true.B)
+    plan.oldHead.peId.poke(2.U)
+    plan.oldHead.stid.poke(stid.U)
+    plan.oldHead.ridSlot.poke(0.U)
+    plan.oldHead.ridGeneration.poke(0.U)
+    plan.oldOccupied.poke(oldOccupied.U)
+    plan.pivotOffset.poke(0.U)
+    plan.survivingPivotValid.poke((newOccupied > 0).B)
+    plan.newOccupied.poke(newOccupied.U)
+    plan.killedGroupCount.poke((oldOccupied - newOccupied).U)
+    plan.killedGroupMask.poke(((1 << (oldOccupied - newOccupied)) - 1).U)
+    plan.oldTail.valid.poke(true.B)
+    plan.oldTail.peId.poke(2.U)
+    plan.oldTail.stid.poke(stid.U)
+    plan.oldTail.ridSlot.poke(oldTailSlot.U)
+    plan.oldTail.ridGeneration.poke(oldTailGeneration.U)
+    plan.newTail.valid.poke(true.B)
+    plan.newTail.peId.poke(2.U)
+    plan.newTail.stid.poke(stid.U)
+    plan.newTail.ridSlot.poke(newTailSlot.U)
+    plan.newTail.ridGeneration.poke(newTailGeneration.U)
+    dut.io.recoveryPrepare.valid.poke(true.B)
+  }
+
   test("claims a fresh preview provisionally and publishes only on the S1 handshake") {
     val p = OooParams(robGroupsPerStid = 8)
     simulate(new OooD3ReservationAllocator(p)) { dut =>
@@ -78,6 +122,89 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.provisionalMask.expect(0.U)
       dut.io.usedGroups(1).expect(2.U)
+    }
+  }
+
+  test("prepares exact ROB-tail recovery and cancels an unexposed provisional row") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooD3ReservationAllocator(p)) { dut =>
+      clear(dut)
+
+      pokePlan(dut, 1, transactionId = 0, groupCount = 3, 0, 0, 0)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.out.ready.poke(false.B)
+      dut.io.usedGroups(1).expect(3.U)
+      dut.io.publishedGroups(1).expect(3.U)
+
+      pokePlan(dut, 0, transactionId = 0, groupCount = 1, 0, 0, 0)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.stid.expect(0.U)
+      dut.clock.step()
+
+      pokePlan(dut, 1, transactionId = 1, groupCount = 2, 3, 0, 1)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.usedGroups(1).expect(5.U)
+      dut.io.publishedGroups(1).expect(3.U)
+      dut.io.tailSlot(1).expect(5.U)
+      dut.io.tailEpoch(1).expect(2.U)
+
+      pokeRecoveryPlan(dut, stid = 1, oldOccupied = 3, newOccupied = 1,
+        oldTailSlot = 3, oldTailGeneration = 0,
+        newTailSlot = 1, newTailGeneration = 0)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.usedGroups(1).expect(5.U)
+      dut.io.publishedGroups(1).expect(3.U)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedGroups(1).expect(1.U)
+      dut.io.publishedGroups(1).expect(1.U)
+      dut.io.tailSlot(1).expect(1.U)
+      dut.io.tailGeneration(1).expect(0.U)
+      dut.io.tailEpoch(1).expect(3.U)
+      dut.io.headSlot(1).expect(0.U)
+      dut.io.headGeneration(1).expect(0.U)
+      dut.io.provisionalMask.expect("b0001".U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transaction.plan.stid.expect(0.U)
+    }
+  }
+
+  test("rejects a stale ROB recovery plan without allocator mutation") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooD3ReservationAllocator(p)) { dut =>
+      clear(dut)
+      pokePlan(dut, 1, transactionId = 0, groupCount = 2, 0, 0, 0)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.out.ready.poke(false.B)
+
+      pokeRecoveryPlan(dut, stid = 1, oldOccupied = 2, newOccupied = 1,
+        oldTailSlot = 3, oldTailGeneration = 0,
+        newTailSlot = 1, newTailGeneration = 0)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedGroups(1).expect(2.U)
+      dut.io.publishedGroups(1).expect(2.U)
+      dut.io.tailSlot(1).expect(2.U)
+      dut.io.tailEpoch(1).expect(1.U)
     }
   }
 

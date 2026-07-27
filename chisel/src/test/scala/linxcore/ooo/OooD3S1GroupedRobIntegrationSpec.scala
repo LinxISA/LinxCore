@@ -25,6 +25,9 @@ private class OooD3S1GroupedRobHarness(val p: OooParams) extends Module {
   d3.io.in <> io.reserve
   d3.io.cancel := io.cancel
   d3.io.publishEligible.foreach(_ := true.B)
+  d3.io.recoveryPrepare.valid := false.B
+  d3.io.recoveryPrepare.bits := 0.U.asTypeOf(d3.io.recoveryPrepare.bits)
+  d3.io.recoveryFire := false.B
 
   s1.io.publish.valid := d3.io.out.valid
   s1.io.publish.bits.reservation := d3.io.out.bits

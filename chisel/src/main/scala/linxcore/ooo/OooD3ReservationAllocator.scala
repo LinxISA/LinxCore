@@ -8,6 +8,9 @@ class OooD3ReservationAllocatorIO(val p: OooParams = OooParams()) extends Bundle
   val release = Flipped(Decoupled(new OooRobGroupRelease(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val publishEligible = Input(Vec(p.stidCount, Bool()))
+  val recoveryPrepare = Flipped(Valid(new OooRobRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryFire = Input(Bool())
   val out = Decoupled(new OooD3GroupedReservation(p))
 
   val tailSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
@@ -23,6 +26,7 @@ class OooD3ReservationAllocatorIO(val p: OooParams = OooParams()) extends Bundle
   val planStale = Output(Bool())
   val staleRejected = Valid(new OooD3StalePlanReject(p))
   val releaseRejected = Valid(new OooD3ReleaseReject(p))
+  val recoveryRejected = Valid(new OooD3RecoveryReject(p))
   val capacityBlocked = Output(Bool())
 }
 
@@ -50,6 +54,13 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   val valid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
   val rows = Reg(Vec(p.stidCount, new OooD3GroupedReservation(p)))
 
+  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryStid = recoveryPlan.request.rename.key.member.group.stid
+  val recoveryStidInRange = recoveryStid < p.stidCount.U
+  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
+  val recoveryTargetsStid = io.recoveryPrepare.valid &&
+    recoveryPlan.valid && recoveryStidInRange
+
   val rrStart = RegInit(0.U(p.stidWidth.W))
   val heldGrantValid = RegInit(false.B)
   val heldGrantStid = RegInit(0.U(p.stidWidth.W))
@@ -57,6 +68,7 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   for (offset <- 0 until p.stidCount) {
     val index = if (p.stidCount == 1) 0.U else (rrStart + offset.U)(p.stidWidth - 1, 0)
     rotated(offset) := valid(index) && !io.cancel(index) &&
+      !(recoveryTargetsStid && index === recoveryStid) &&
       io.publishEligible(index)
   }
   val rrValid = rotated.asUInt.orR
@@ -69,10 +81,13 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   // grant is held, ready/valid requires it to remain asserted until fire or an
   // explicit matching cancel, even if downstream eligibility later changes.
   val selectedLive = if (p.stidCount == 1) {
-    valid(0) && !io.cancel(0) && (heldGrantValid || io.publishEligible(0))
+    valid(0) && !io.cancel(0) &&
+      (heldGrantValid || (!recoveryTargetsStid && io.publishEligible(0)))
   } else {
     valid(selected) && !io.cancel(selected) &&
-      (heldGrantValid || io.publishEligible(selected))
+      (heldGrantValid ||
+        (!(recoveryTargetsStid && selected === recoveryStid) &&
+          io.publishEligible(selected)))
   }
   io.out.valid := Mux(heldGrantValid, selectedLive, rrValid)
   io.out.bits := (if (p.stidCount == 1) rows(0) else rows(selected))
@@ -127,7 +142,8 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
     io.release.bits.headEpoch === headEpoch(safeReleaseStid) &&
     io.release.bits.groupCount.orR &&
     io.release.bits.groupCount <= p.retireGroupWidth.U &&
-    publishedGroups(safeReleaseStid) >= io.release.bits.groupCount
+    publishedGroups(safeReleaseStid) >= io.release.bits.groupCount &&
+    !(recoveryTargetsStid && releaseStid === recoveryStid)
   io.release.ready := releaseExact
   val releaseFire = io.release.valid && io.release.ready
   val releaseHitsInput = releaseFire && releaseStid === inStid
@@ -138,12 +154,15 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   val hasCapacity = freeAfterRelease >= groupCount.pad(usedWidth + 1)
   val replacingSelected = io.out.fire && selected === inStid
   val occupied = if (p.stidCount == 1) valid(0) else valid(inStid)
-  val cancelled = if (p.stidCount == 1) io.cancel(0) else io.cancel(inStid)
+  val cancelled = (if (p.stidCount == 1) io.cancel(0) else io.cancel(inStid)) &&
+    !(recoveryTargetsStid && inStid === recoveryStid)
+  val recoveryBlocksInput = recoveryTargetsStid && inStid === recoveryStid
 
   io.in.ready := inRange && Mux(
     stale,
-    true.B,
-    !cancelled && groupCount.orR && hasCapacity && (!occupied || replacingSelected))
+    !recoveryBlocksInput,
+    !recoveryBlocksInput && !cancelled && groupCount.orR && hasCapacity &&
+      (!occupied || replacingSelected))
   val inFire = io.in.valid && io.in.ready
   val staleFire = inFire && stale
   val reserveFire = inFire && !stale
@@ -164,6 +183,82 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   io.releaseRejected.bits.liveHeadEpoch := Mux(releaseInRange, headEpoch(safeReleaseStid), 0.U)
   io.capacityBlocked := io.in.valid && inRange && !stale && !hasCapacity
 
+  val recoveryOldTailSum = recoveryPlan.oldHead.ridSlot +&
+    recoveryPlan.oldOccupied
+  val recoveryOldTailWrap = recoveryOldTailSum >= p.robGroupsPerStid.U
+  val recoveryNewTailSum = recoveryPlan.oldHead.ridSlot +&
+    recoveryPlan.newOccupied
+  val recoveryNewTailWrap = recoveryNewTailSum >= p.robGroupsPerStid.U
+  val recoveryExpectedKilledMask =
+    ((1.U((p.robGroupsPerStid + 1).W) <<
+      recoveryPlan.killedGroupCount) - 1.U)(p.robGroupsPerStid - 1, 0)
+  val recoveryProvisional = valid(safeRecoveryStid)
+  val recoveryProvisionalCount = Mux(recoveryProvisional,
+    rows(safeRecoveryStid).transaction.plan.groupCount, 0.U)
+  val recoveryLiveTail = Wire(new RobGroupKey(p))
+  recoveryLiveTail.valid := true.B
+  recoveryLiveTail.peId := headPeId(safeRecoveryStid)
+  recoveryLiveTail.stid := recoveryStid
+  recoveryLiveTail.ridSlot := tailSlot(safeRecoveryStid)
+  recoveryLiveTail.ridGeneration := tailGeneration(safeRecoveryStid)
+  val recoveryExposedConflict = io.out.valid && selected === recoveryStid
+  val recoveryHeadExact = recoveryPlan.oldHead.valid &&
+    recoveryPlan.oldHead.peId === headPeId(safeRecoveryStid) &&
+    recoveryPlan.oldHead.stid === recoveryStid &&
+    recoveryPlan.oldHead.ridSlot === headSlot(safeRecoveryStid) &&
+    recoveryPlan.oldHead.ridGeneration === headGeneration(safeRecoveryStid)
+  val recoveryOldTailExact = recoveryPlan.oldTail.valid &&
+    recoveryPlan.oldTail.peId === recoveryPlan.oldHead.peId &&
+    recoveryPlan.oldTail.stid === recoveryStid &&
+    recoveryPlan.oldTail.ridSlot ===
+      recoveryOldTailSum(p.ridSlotWidth - 1, 0) &&
+    recoveryPlan.oldTail.ridGeneration ===
+      recoveryPlan.oldHead.ridGeneration + recoveryOldTailWrap.asUInt
+  val recoveryNewTailExact = recoveryPlan.newTail.valid &&
+    recoveryPlan.newTail.peId === recoveryPlan.oldHead.peId &&
+    recoveryPlan.newTail.stid === recoveryStid &&
+    recoveryPlan.newTail.ridSlot ===
+      recoveryNewTailSum(p.ridSlotWidth - 1, 0) &&
+    recoveryPlan.newTail.ridGeneration ===
+      recoveryPlan.oldHead.ridGeneration + recoveryNewTailWrap.asUInt
+  val recoveryCountExact = recoveryPlan.oldOccupied.orR &&
+    recoveryPlan.oldOccupied === publishedGroups(safeRecoveryStid) &&
+    recoveryPlan.newOccupied <= recoveryPlan.oldOccupied &&
+    recoveryPlan.killedGroupCount ===
+      recoveryPlan.oldOccupied - recoveryPlan.newOccupied &&
+    recoveryPlan.killedGroupMask === recoveryExpectedKilledMask &&
+    recoveryPlan.newOccupied === recoveryPlan.pivotOffset +
+      recoveryPlan.survivingPivotValid.asUInt
+  val recoveryProvisionalExact = Mux(
+    recoveryProvisional,
+    rows(safeRecoveryStid).transaction.plan.firstVirtualGroup.asUInt ===
+      recoveryPlan.oldTail.asUInt &&
+      rows(safeRecoveryStid).tailAfter.asUInt === recoveryLiveTail.asUInt &&
+      usedGroups(safeRecoveryStid) ===
+        publishedGroups(safeRecoveryStid) + recoveryProvisionalCount,
+    recoveryLiveTail.asUInt === recoveryPlan.oldTail.asUInt &&
+      usedGroups(safeRecoveryStid) === publishedGroups(safeRecoveryStid))
+  val recoveryExact = recoveryPlan.valid && recoveryStidInRange &&
+    recoveryHeadExact && recoveryOldTailExact && recoveryNewTailExact &&
+    recoveryCountExact && recoveryProvisionalExact
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryExact &&
+    !recoveryExposedConflict
+  io.recoveryRejected.valid := io.recoveryPrepare.valid && !recoveryExact
+  io.recoveryRejected.bits.requested := recoveryPlan
+  io.recoveryRejected.bits.liveHead.valid :=
+    publishedGroups(safeRecoveryStid).orR
+  io.recoveryRejected.bits.liveHead.peId := headPeId(safeRecoveryStid)
+  io.recoveryRejected.bits.liveHead.stid := recoveryStid
+  io.recoveryRejected.bits.liveHead.ridSlot := headSlot(safeRecoveryStid)
+  io.recoveryRejected.bits.liveHead.ridGeneration :=
+    headGeneration(safeRecoveryStid)
+  io.recoveryRejected.bits.liveTail := recoveryLiveTail
+  io.recoveryRejected.bits.usedGroups := usedGroups(safeRecoveryStid)
+  io.recoveryRejected.bits.publishedGroups :=
+    publishedGroups(safeRecoveryStid)
+  io.recoveryRejected.bits.provisional := recoveryProvisional
+  io.recoveryRejected.bits.exposedConflict := recoveryExposedConflict
+
   val tailSum = liveSlot +& groupCount
   val tailWrap = tailSum >= p.robGroupsPerStid.U
   val reservation = Wire(new OooD3GroupedReservation(p))
@@ -177,7 +272,8 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
   reservation.tailAfter.ridGeneration := liveGeneration + tailWrap.asUInt
 
   for (stid <- 0 until p.stidCount) {
-    val cancelClaim = io.cancel(stid) && valid(stid)
+    val cancelClaim = io.cancel(stid) && valid(stid) &&
+      !(recoveryTargetsStid && recoveryStid === stid.U)
     val releaseHit = releaseFire && releaseStid === stid.U
     val reserveHit = reserveFire && inStid === stid.U
     val publishHit = io.out.fire && selected === stid.U
@@ -217,7 +313,8 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
       rows(stid) := reservation
     }
 
-    when(io.cancel(stid)) {
+    when(io.cancel(stid) &&
+      !(recoveryTargetsStid && recoveryStid === stid.U)) {
       valid(stid) := false.B
     }.elsewhen(io.out.fire && selected === stid.U) {
       valid(stid) := false.B
@@ -238,6 +335,22 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
     heldGrantValid := false.B
     rrStart :=
       (if (p.stidCount == 1) 0.U else (selected + 1.U)(p.stidWidth - 1, 0))
+  }
+
+  val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepare.valid && io.recoveryPrepareReady,
+      "D3 recovery fire requires the same exact prepared ROB suffix")
+  }
+  when(recoveryApply) {
+    tailSlot(safeRecoveryStid) := recoveryPlan.newTail.ridSlot
+    tailGeneration(safeRecoveryStid) := recoveryPlan.newTail.ridGeneration
+    tailEpoch(safeRecoveryStid) := tailEpoch(safeRecoveryStid) + 1.U
+    usedGroups(safeRecoveryStid) := recoveryPlan.newOccupied
+    publishedGroups(safeRecoveryStid) := recoveryPlan.newOccupied
+    valid(safeRecoveryStid) := false.B
+    rows(safeRecoveryStid) :=
+      0.U.asTypeOf(new OooD3GroupedReservation(p))
   }
 
   io.tailSlot := tailSlot

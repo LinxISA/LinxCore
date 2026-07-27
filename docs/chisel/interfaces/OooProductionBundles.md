@@ -673,6 +673,26 @@ dispatch, IEX, fast resolve, and CTU. O7.2 must retain one R0 request, collect
 side-effect-free prepare acknowledgements from every owner, and issue one
 common terminal apply before the production O3 seam may open.
 
+O7.2a extends that plan with exact old head/occupancy, new occupancy, and an
+ordered full-width `killedGroups` vector plus dense mask. Each published ROB
+row also retains whether its BROB block or PC base was newly allocated and the
+exact prior owner closed implicitly by that allocation. This is the functional
+reference network that lets later BROB/PC owners roll back exact resource
+ownership without comparing RID or BID magnitude; O8 may bank/time the scan
+only after preserving the same result.
+
+`OooD3ReservationAllocator` is the first additional prepare/apply owner. It
+independently cross-checks the ROB plan against its live head, published count,
+used count, old tail, new tail, and optional unexposed provisional row. Apply
+sets published/used counts to the surviving ROB occupancy, rolls the reserved
+tail to the exact new tail, cancels that STID's provisional lease, and advances
+the tail epoch so stale D2 plans fail. A previously exposed retained grant is a
+temporary prepare conflict and remains valid; stale plans reject with zero
+mutation. Inputs, release, and cancellation for the target STID freeze while
+prepare is held, while other STIDs continue. The composed O3 coordinator still
+ties both ROB and D3 recovery inputs off until BROB, PC, rename, dispatch, IEX,
+fast resolve, and CTU join the same apply.
+
 ## Verification
 
 ```bash

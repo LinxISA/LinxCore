@@ -205,7 +205,13 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
         io.publish.bits.reservation.transaction.plan.epoch
       row.claimEpoch := io.publish.bits.reservation.claimEpoch
       row.brob := binding.brob
+      row.brobAllocated := binding.brobAllocated
+      row.brobImplicitCloseValid := binding.brobImplicitCloseValid
+      row.brobImplicitClose := binding.brobImplicitClose
       row.pcBase := binding.pcBase
+      row.pcBaseAllocated := binding.pcBaseAllocated
+      row.pcImplicitCloseValid := binding.pcImplicitCloseValid
+      row.pcImplicitClose := binding.pcImplicitClose
       row.residentGeneration := binding.residentGeneration
       row.logicalUopMask := group.logicalUopMask
       row.physicalMemberCount := group.physicalMemberCount
@@ -404,10 +410,17 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   recoveryPlan.valid := recoveryExactMatchCount === 1.U &&
     recoveryTriggerShapeExact
   recoveryPlan.request := recoveryRequest
+  recoveryPlan.oldHead.valid := occupied(safeRecoveryStid).orR
+  recoveryPlan.oldHead.peId := headPeId(safeRecoveryStid)
+  recoveryPlan.oldHead.stid := recoveryStid
+  recoveryPlan.oldHead.ridSlot := headSlot(safeRecoveryStid)
+  recoveryPlan.oldHead.ridGeneration := headGeneration(safeRecoveryStid)
+  recoveryPlan.oldOccupied := occupied(safeRecoveryStid)
   recoveryPlan.pivot := recoveryPivot
   recoveryPlan.pivotOffset := recoveryPivotOffset
   recoveryPlan.survivingPivotValid := recoverySurvivingPivotValid
   recoveryPlan.survivingPivot := recoverySurvivingPivot
+  recoveryPlan.newOccupied := recoveryNewOccupied
   recoveryPlan.firstKilledGroup.valid := recoveryKilledGroupCount.orR
   recoveryPlan.firstKilledGroup.peId := headPeId(safeRecoveryStid)
   recoveryPlan.firstKilledGroup.stid := recoveryStid
@@ -416,6 +429,17 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   recoveryPlan.firstKilledGroup.ridGeneration :=
     headGeneration(safeRecoveryStid) + recoveryFirstKilledWrap.asUInt
   recoveryPlan.killedGroupCount := recoveryKilledGroupCount
+  recoveryPlan.killedGroupMask :=
+    ((1.U((p.robGroupsPerStid + 1).W) << recoveryKilledGroupCount) - 1.U)(
+      p.robGroupsPerStid - 1, 0)
+  for (killedIndex <- 0 until p.robGroupsPerStid) {
+    val killedOffset = recoveryNewOccupied +& killedIndex.U
+    val killedSlotSum = headSlot(safeRecoveryStid) +& killedOffset
+    when(killedIndex.U < recoveryKilledGroupCount) {
+      recoveryPlan.killedGroups(killedIndex) := rows(safeRecoveryStid)(
+        killedSlotSum(p.ridSlotWidth - 1, 0))
+    }
+  }
   recoveryPlan.oldTail.valid := recoveryPlan.valid
   recoveryPlan.oldTail.peId := headPeId(safeRecoveryStid)
   recoveryPlan.oldTail.stid := recoveryStid

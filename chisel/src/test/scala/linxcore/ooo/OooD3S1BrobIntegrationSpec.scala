@@ -24,6 +24,9 @@ private class OooD3S1BrobHarness(val p: OooParams) extends Module {
   d3.io.in <> io.reserve
   d3.io.cancel.foreach(_ := false.B)
   d3.io.publishEligible.foreach(_ := true.B)
+  d3.io.recoveryPrepare.valid := false.B
+  d3.io.recoveryPrepare.bits := 0.U.asTypeOf(d3.io.recoveryPrepare.bits)
+  d3.io.recoveryFire := false.B
   brob.io.prepare.valid := d3.io.out.valid
   brob.io.prepare.bits := d3.io.out.bits
 

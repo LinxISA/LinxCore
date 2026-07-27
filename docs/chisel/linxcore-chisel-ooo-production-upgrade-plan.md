@@ -91,7 +91,7 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB retains per-logical recovery metadata, prepares an exact intra-group/whole-group suffix plan, applies owner-local truncation, rejects stale authority, and rebuilds non-flush state; formal O3 seam remains tied off | O7.2 all-owner R0-R4 coordinator and O7.3 external CTU lease/child reinsertion remain |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB retains per-logical recovery metadata and applies exact suffix truncation; O7.2a exports the ordered physical kill set plus BROB/PC allocation/implicit-close evidence and adds exact D3 tail/count/provisional prepare/apply; formal O3 seam remains tied off | O7.2b BROB/PC then dispatch/IEX/fast/global R0-R4 composition, and O7.3 external CTU lease/child reinsertion remain |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1490,7 +1490,11 @@ restarts its non-flush proof window. Stale identity or malformed logical shape
 is rejected without mutation.
 
 The owner-local prepare/apply interface is deliberately tied off inside
-`OooRobBrobPcCoordinator`. O7.2 must add the retained global R0 request, compute
+`OooRobBrobPcCoordinator`. O7.2a now carries the complete ordered physical
+killed-group vector and exact BROB/PC allocation/implicit-close evidence in the
+ROB plan, and `OooD3ReservationAllocator` independently prepares and applies
+exact published/used/tail/provisional rollback. Its composed input remains
+tied off. O7.2b must add BROB and PC prepare/apply, then the retained global R0 request, compute
 one R1 kill set, freeze and prepare D1/D2/D3/S1, ROB/BROB/PC, P/T/U rename,
 dispatch/IEX/fast completion, and CTU in R2, issue one all-owner R3 apply, then
 wait for P survivor replay, local-cursor rebuild, non-flush rebuild, and
