@@ -85,9 +85,9 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
-| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact read-only recovery authorization and youngest-to-oldest killed-source stream; killed-current-PTag return plus CMAP-to-SMAP survivor replay; exact T/U MapQ suffix and sequence/physical-cursor rollback | atomic four-STID recovery integration; randomized sequential-reference closure |
-| O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
+| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU publication/recovery integration | integrate O3/O4 prepared publication with O5 dispatch owners |
+| O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference | O5 supplies exact IQ binding and downstream-readiness-aware arbitration; O7 supplies global ROB/BROB/PC/IQ cancellation |
+| O5–O9 | Not started | current compatibility owners remain migration evidence | O5 dispatch is the active packet; IEX through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -1368,7 +1368,20 @@ waits for all three retained completions. Four-STID integration testing covers
 a transaction-zero survivor, a younger mixed P/T/U suffix, concurrent STID 2
 publication, unchanged STID 0/3 state, and stale-key zero mutation. This closes
 rename-local recovery integration, not O7 global ROB/BROB/PC/IQ cancellation.
-Randomized sequential-reference comparison remains active O4 work.
+O4.4.4 closes the sequential-reference obligation with deterministic seed
+`0x4f344d`. One ChiselSim run interleaves 36 randomized publish/recovery
+operations after seeding every namespace on all four STIDs. The independent
+scoreboard recomputes each STID's P SMAP from identity CMAP plus the surviving
+ordered P rows and compares all 24 architectural mappings after every event.
+It also compares P/T/U MapQ counts, logical source-ring occupancy, unchanged
+CMAP, ROB occupancy, relation emptiness, provisional ownership, and the global
+published-PTag count. Shapes include P, T, U, P+T, P+U, T+U, and
+zero-destination rows; exact anchors include zero-kill and trigger-kill cases.
+Per-STID transaction numbering is deliberately local, and the regression
+retains the D3 stale-plan contract rather than inventing globally unique IDs.
+
+O4 is packet-complete. O5 owns IQ binding and dispatch readiness; O7 owns the
+larger ROB/BROB/PC/IQ/global recovery transaction.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

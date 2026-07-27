@@ -507,11 +507,18 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
 architectural parent references, grant retention under backpressure,
 per-STID cancellation, and simultaneous different-STID D2/D3/S1 residency.
+The O4 closure test uses deterministic seed `0x4f344d` to compare four-STID
+P/T/U publication and exact recovery against a sequential software scoreboard
+after every operation. It checks all 24 P mappings per STID, P/T/U MapQ and
+source-ring occupancy, unchanged CMAP, ROB occupancy, provisional and published
+PTag ownership, all operand-shape combinations, and at least one recovery on
+every STID.
 The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,
