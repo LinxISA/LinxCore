@@ -1354,10 +1354,21 @@ its destinations and restores the sequence and next-physical cursors. A
 zero-destination row still proves both tails, and retired rows cannot be
 rolled back. Focused UT covers mixed T/U rollback, generation wrap, cursor
 reuse, transaction zero, unrelated-STID progress, malformed authorization, and
-retire priority. The O3 recovery seam remains intentionally closed until
-O4.4.3d joins scanner, P, and T/U handshakes and completion in one four-STID
-transaction. Randomized sequential-reference comparison also remains active
-O4 work.
+retire priority. O4.4.3d opens the coordinator's rename-local recovery request
+only after joining scanner, P, and T/U authorization and killed-source
+handshakes atomically. Request capture fences D3 reserve/publication for the
+selected STID from the beginning of the read-only scan, so an already-retained
+target row must publish before capture and no new row can invalidate the
+suffix before owner authorization. Unrelated STIDs remain eligible.
+
+The scanner removes a source only when both MapQ owners accept the identical
+youngest-to-oldest row. P returns killed current PTags and replays its survivor
+prefix while T/U restores exact sequence and physical cursors; common finish
+waits for all three retained completions. Four-STID integration testing covers
+a transaction-zero survivor, a younger mixed P/T/U suffix, concurrent STID 2
+publication, unchanged STID 0/3 state, and stale-key zero mutation. This closes
+rename-local recovery integration, not O7 global ROB/BROB/PC/IQ cancellation.
+Randomized sequential-reference comparison remains active O4 work.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

@@ -414,7 +414,8 @@ suffix and all downstream owners finish; unrelated STIDs may still publish.
 Transaction ID zero is legal. Native BID is never ordered numerically: suffix
 membership comes only from exact source-ring position after member, native-BID,
 BROB/resident generation, transaction, and epoch matching. The O3 recovery
-input stays sealed until all owners can join one atomic transaction.
+input is exposed only by the atomic coordinator described below; no individual
+owner is a legal production recovery entry point.
 
 O4.4.3b adds the P recovery owner behind that authorization. For every killed
 logical source, `OooProductionPRename` proves that `pDestinationCount` exact
@@ -448,8 +449,29 @@ blocks same-STID reserve, publication, retire commands, and block commit until
 common finish. Unrelated STIDs continue. Direct UT covers mixed T/U rollback,
 sequence-generation wrap, physical-tag reuse, transaction-zero and
 zero-destination suffix rows, malformed authorization, and retire priority.
-The O3 seam remains sealed until O4.4.3d atomically joins scanner, P, and T/U
-authorization/source/completion handshakes and proves four-STID isolation.
+O4.4.3d exposes `OooO3RenameCoordinator.recoveryRequest` as the sole production
+rename-recovery entry point. A request cannot enter while the target STID owns
+an already-retained D3 prepared row. From request capture through common finish,
+the retire-source scanner fences new reserve and publication only for that
+STID; other STIDs retain D3/S1 progress.
+
+The coordinator treats authorization and every killed-source row as three-way
+atomic transfers. The scanner sees ready only when both P and T/U owners are
+ready, and each owner sees valid only when its peer can accept in the same
+cycle. The scanner therefore cannot remove a source unless both MapQ owners
+consume the identical row. `recoverySourcesDone` is broadcast to both owners;
+the common one-cycle `recoveryComplete`/finish occurs only after the scanner is
+empty, P has returned every killed current PTag and replayed survivors, and T/U
+has restored both sequence and physical cursors. Scanner, P, and T/U reject
+diagnostics remain separate so a stale authority can be distinguished from an
+owner-state mismatch.
+
+Coordinator IT publishes a survivor plus a younger mixed P/T/U suffix on STID
+1, recovers to a transaction-zero anchor, and publishes STID 2 while the target
+is fenced. It checks exact PTag ownership, survivor SMAP replay, T/U removal,
+source-ring truncation, common completion, unchanged STID 0/3 state, and stale
+key zero-mutation behavior. This closes rename-local recovery integration; the
+ROB/BROB/PC/IQ/global R0-R4 cancellation transaction remains O7 scope.
 
 D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
 plan is consumed even if its obsolete local source underflows, but the stale

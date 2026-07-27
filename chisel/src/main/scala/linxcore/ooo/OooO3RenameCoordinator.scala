@@ -18,6 +18,15 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val commit = Decoupled(new OooRobCommitBatch(p))
   val ptagReturn = Flipped(Decoupled(new OooPTagReturnBatch(p)))
 
+  val recoveryRequest = Flipped(Decoupled(
+    new OooRenameRecoveryRequest(p)))
+  val recoveryBusy = Output(Bool())
+  val recoveryStid = Output(UInt(p.stidWidth.W))
+  val recoveryComplete = Output(Bool())
+  val recoveryRejected = Valid(new OooRenameRecoveryReject(p))
+  val pRecoveryRejected = Valid(new OooPRenameRecoveryReject(p))
+  val tuRecoveryRejected = Valid(new OooTURenameRecoveryReject(p))
+
   val queryStid = Input(UInt(p.stidWidth.W))
   val queryAtag = Input(UInt(p.archRegWidth.W))
   val speculativeMapping = Output(new PMapPayload(p))
@@ -65,18 +74,39 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val turename = Module(new OooProductionTURename(p))
   val turetire = Module(new OooProductionTURetire(p))
 
-  ptag.io.prepare.valid := io.reserve.valid
+  val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
+  val recoveryRequestStid = io.recoveryRequest.bits.key.member.group.stid
+  val recoveryRequestStidInRange = recoveryRequestStid < p.stidCount.U
+  val recoveryRequestConflictsPrepared = o3.io.preparedValid &&
+    recoveryRequestStidInRange && preparedStid === recoveryRequestStid
+
+  turetire.io.recoveryRequest.valid := io.recoveryRequest.valid &&
+    !recoveryRequestConflictsPrepared
+  turetire.io.recoveryRequest.bits := io.recoveryRequest.bits
+  io.recoveryRequest.ready := turetire.io.recoveryRequest.ready &&
+    !recoveryRequestConflictsPrepared
+
+  val reserveStid = io.reserve.bits.plan.stid
+  val reserveBlockedByRecovery = io.reserve.valid && (
+    (turetire.io.recoveryBusy &&
+      reserveStid === turetire.io.recoveryStid) ||
+    (io.recoveryRequest.valid && recoveryRequestStidInRange &&
+      reserveStid === recoveryRequestStid))
+  val reserveOffer = io.reserve.valid && !reserveBlockedByRecovery
+
+  ptag.io.prepare.valid := reserveOffer
   ptag.io.prepare.bits := io.reserve.bits
-  turename.io.reservePrepare.valid := io.reserve.valid
+  turename.io.reservePrepare.valid := reserveOffer
   turename.io.reservePrepare.bits := io.reserve.bits
   val renameResourcesReady = ptag.io.prepareReady && turename.io.reserveReady
   // Stale virtual plans are terminally consumed by D3 even when their obsolete
   // P/T/U shape would fail current resource checks. The stale pulse suppresses
   // both physical lease fires below, so this bypass cannot mutate rename state.
   val reserveCanReachD3 = renameResourcesReady || o3.io.d3PlanStale
-  o3.io.reserve.valid := io.reserve.valid && reserveCanReachD3
+  o3.io.reserve.valid := reserveOffer && reserveCanReachD3
   o3.io.reserve.bits := io.reserve.bits
-  io.reserve.ready := o3.io.reserve.ready && reserveCanReachD3
+  io.reserve.ready := o3.io.reserve.ready && reserveCanReachD3 &&
+    !reserveBlockedByRecovery
   // D3 intentionally consumes stale virtual plans with zero mutation. Do not
   // turn that input handshake into a PTag claim: only a non-stale D3 reserve
   // may acquire the matching lease.
@@ -93,9 +123,11 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     when(turetire.io.commitBusy && turetire.io.commitStid === stid.U) {
       o3.io.publishEligible(stid) := false.B
     }
+    when(turetire.io.recoveryBusy && turetire.io.recoveryStid === stid.U) {
+      o3.io.publishEligible(stid) := false.B
+    }
   }
 
-  val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val preparedStidInRange = preparedStid < p.stidCount.U
   val safePreparedStid = Mux(preparedStidInRange, preparedStid, 0.U)
   prename.io.prepare.valid := o3.io.preparedValid
@@ -197,31 +229,46 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turename.io.retireCommand <> turetire.io.retireCommand
   turename.io.blockCommit <> turetire.io.blockCommit
 
-  // O4.4.3a establishes the exact suffix authority inside the retire owner.
-  // The production coordinator ports are exposed when the P/T/U rollback
-  // owners join in O4.4.3b/c; until then no partial recovery may mutate state.
-  turetire.io.recoveryRequest.valid := false.B
-  turetire.io.recoveryRequest.bits :=
-    0.U.asTypeOf(turetire.io.recoveryRequest.bits)
-  turetire.io.recoveryAuthorize.ready := false.B
-  turetire.io.recoverySource.ready := false.B
-  turetire.io.recoveryFinish := false.B
-  prename.io.recoveryAuthorize.valid := false.B
-  prename.io.recoveryAuthorize.bits :=
-    0.U.asTypeOf(prename.io.recoveryAuthorize.bits)
-  prename.io.recoverySource.valid := false.B
-  prename.io.recoverySource.bits :=
-    0.U.asTypeOf(prename.io.recoverySource.bits)
-  prename.io.recoverySourcesDone := false.B
-  prename.io.recoveryFinish := false.B
-  turename.io.recoveryAuthorize.valid := false.B
-  turename.io.recoveryAuthorize.bits :=
-    0.U.asTypeOf(turename.io.recoveryAuthorize.bits)
-  turename.io.recoverySource.valid := false.B
-  turename.io.recoverySource.bits :=
-    0.U.asTypeOf(turename.io.recoverySource.bits)
-  turename.io.recoverySourcesDone := false.B
-  turename.io.recoveryFinish := false.B
+  // The retire-source owner is the sole suffix authority. Authorization and
+  // every youngest-to-oldest source item fire only when both state owners can
+  // accept in the same cycle; neither owner may observe a partial recovery.
+  val recoveryAuthorizeBothReady = prename.io.recoveryAuthorize.ready &&
+    turename.io.recoveryAuthorize.ready
+  turetire.io.recoveryAuthorize.ready := recoveryAuthorizeBothReady
+  prename.io.recoveryAuthorize.valid :=
+    turetire.io.recoveryAuthorize.valid && turename.io.recoveryAuthorize.ready
+  prename.io.recoveryAuthorize.bits := turetire.io.recoveryAuthorize.bits
+  turename.io.recoveryAuthorize.valid :=
+    turetire.io.recoveryAuthorize.valid && prename.io.recoveryAuthorize.ready
+  turename.io.recoveryAuthorize.bits := turetire.io.recoveryAuthorize.bits
+
+  val recoverySourceBothReady = prename.io.recoverySource.ready &&
+    turename.io.recoverySource.ready
+  turetire.io.recoverySource.ready := recoverySourceBothReady
+  prename.io.recoverySource.valid :=
+    turetire.io.recoverySource.valid && turename.io.recoverySource.ready
+  prename.io.recoverySource.bits := turetire.io.recoverySource.bits
+  turename.io.recoverySource.valid :=
+    turetire.io.recoverySource.valid && prename.io.recoverySource.ready
+  turename.io.recoverySource.bits := turetire.io.recoverySource.bits
+
+  prename.io.recoverySourcesDone := turetire.io.recoverySourcesDone
+  turename.io.recoverySourcesDone := turetire.io.recoverySourcesDone
+  val commonRecoveryComplete = turetire.io.recoverySourcesDone &&
+    prename.io.recoveryComplete && turename.io.recoveryComplete
+  turetire.io.recoveryFinish := commonRecoveryComplete
+  prename.io.recoveryFinish := commonRecoveryComplete
+  turename.io.recoveryFinish := commonRecoveryComplete
+
+  when(turetire.io.recoveryAuthorize.fire) {
+    assert(prename.io.recoveryAuthorize.fire &&
+      turename.io.recoveryAuthorize.fire,
+      "rename recovery authorization must start P and T/U atomically")
+  }
+  when(turetire.io.recoverySource.fire) {
+    assert(prename.io.recoverySource.fire && turename.io.recoverySource.fire,
+      "rename recovery source must mutate P and T/U atomically")
+  }
 
   io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
     turename.io.publicationReady && turetire.io.publicationReady
@@ -292,8 +339,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     commitOwnersStarted := false.B
   }
 
-  // External recovery return remains sealed until O6 supplies exact killed-row
-  // authority. Architectural commit return is wired privately above.
+  // P recovery and architectural commit share the exact internal return owner.
+  // The legacy external return seam remains closed until its O6 removal.
   io.ptagReturn.ready := false.B
 
   prename.io.queryStid := io.queryStid
@@ -321,4 +368,14 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.tuCommitRejected := turetire.io.commitRejected
   io.tuReserveRejected := turename.io.reserveRejected
   io.tuPublicationRejected := turename.io.publicationRejected
+  io.recoveryBusy := turetire.io.recoveryBusy || prename.io.recoveryBusy ||
+    turename.io.recoveryBusy
+  io.recoveryStid := Mux(turetire.io.recoveryBusy,
+    turetire.io.recoveryStid,
+    Mux(prename.io.recoveryBusy, prename.io.recoveryStid,
+      turename.io.recoveryStid))
+  io.recoveryComplete := commonRecoveryComplete
+  io.recoveryRejected := turetire.io.recoveryRejected
+  io.pRecoveryRejected := prename.io.recoveryRejected
+  io.tuRecoveryRejected := turename.io.recoveryRejected
 }

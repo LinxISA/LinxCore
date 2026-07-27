@@ -16,6 +16,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.ready.poke(false.B)
     dut.io.ptagReturn.valid.poke(false.B)
     dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.recoveryRequest.valid.poke(false.B)
+    dut.io.recoveryRequest.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryRequest.bits))
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(0.U)
     dut.io.pcReadTokens.foreach(_.poke(0.U.asTypeOf(dut.io.pcReadTokens.head)))
@@ -159,6 +162,65 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     consumer.sources(0).relativeIndex.poke(0.U)
     consumer.destinations(0).kind.poke(DestinationKind.U)
     consumer.destinations(0).relativeIndex.poke(0.U)
+  }
+
+  private def pokeMixedRenameTransaction(
+      dut: OooO3RenameCoordinator,
+      tailEpoch: Int,
+      stid: Int,
+      transactionId: Int,
+      firstRid: Int,
+      atag: Int = 1,
+      basePc: Int = 512): Unit = {
+    pokeOneDestination(dut, tailEpoch = tailEpoch, uopCount = 2,
+      stid = stid, transactionId = transactionId, firstRid = firstRid,
+      atag = atag, basePc = basePc)
+    val transaction = dut.io.reserve.bits
+    transaction.plan.demand.pDestinations.poke(1.U)
+    transaction.plan.demand.mapQRows.poke(1.U)
+    transaction.plan.demand.tAllocations.poke(1.U)
+    transaction.plan.demand.uAllocations.poke(1.U)
+    transaction.groups(0).pMapQRows.poke(1.U)
+
+    val first = transaction.decoded.uops(0)
+    first.destinations(1).valid.poke(true.B)
+    first.destinations(1).kind.poke(DestinationKind.T)
+    first.destinations(1).relativeIndex.poke(0.U)
+
+    val second = transaction.decoded.uops(1)
+    second.destinations(0).kind.poke(DestinationKind.U)
+    second.destinations(0).relativeIndex.poke(0.U)
+  }
+
+  private def pokeRecoveryRequest(
+      dut: OooO3RenameCoordinator,
+      stid: Int,
+      transactionId: Int,
+      rid: Int,
+      bid: BigInt,
+      brobGeneration: BigInt,
+      memberIndex: BigInt,
+      residentGeneration: BigInt,
+      killTrigger: Boolean,
+      epoch: Int = 5): Unit = {
+    val request = dut.io.recoveryRequest.bits
+    request.poke(0.U.asTypeOf(request))
+    request.key.member.group.valid.poke(true.B)
+    request.key.member.group.peId.poke(3.U)
+    request.key.member.group.stid.poke(stid.U)
+    request.key.member.group.ridSlot.poke(
+      (rid % dut.p.robGroupsPerStid).U)
+    request.key.member.group.ridGeneration.poke(
+      (rid / dut.p.robGroupsPerStid).U)
+    request.key.member.bid.valid.poke(true.B)
+    request.key.member.bid.value.poke(bid.U)
+    request.key.member.brobGeneration.poke(brobGeneration.U)
+    request.key.member.memberIndex.poke(memberIndex.U)
+    request.key.member.residentGeneration.poke(residentGeneration.U)
+    request.key.cause.poke(OooRecoveryCause.Branch)
+    request.key.transactionId.poke(transactionId.U)
+    request.key.epoch.poke(epoch.U)
+    request.killTrigger.poke(killTrigger.B)
   }
 
   test("joins D3 PTag ROB BROB PC SMAP and MapQ publication on one fire") {
@@ -525,6 +587,143 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.pCommitBusy.expect(false.B)
       dut.io.mapQUsed(0).expect(1.U)
       dut.io.robOccupiedGroups(0).expect(1.U)
+    }
+  }
+
+  test("recovers P T and U atomically while unrelated STIDs keep publishing") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      robGroupsPerStid = 8,
+      tuRetireSourceDepthPerStid = 16,
+      brobEntriesPerStid = 8,
+      pMapQDepthPerStid = 8,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 1,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8)
+    simulate(new OooO3RenameCoordinator(p)) { dut =>
+      clear(dut)
+      dut.clock.step()
+
+      // Publish the exact survivor anchor on STID 1, transaction zero.
+      pokeOneDestination(dut, stid = 1, transactionId = 0, firstRid = 0,
+        atag = 1, basePc = 256)
+      dut.io.reserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.reserve.valid.poke(false.B)
+      dut.io.preparedValid.expect(true.B)
+      val survivorPtag = dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.ptag.peek().litValue
+      val anchor = dut.io.tuPrepared.uops(0).member
+      val anchorBid = anchor.bid.value.peek().litValue
+      val anchorBrobGeneration = anchor.brobGeneration.peek().litValue
+      val anchorMemberIndex = anchor.memberIndex.peek().litValue
+      val anchorResidentGeneration = anchor.residentGeneration.peek().litValue
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+
+      // Publish a younger transaction whose suffix owns P, T, and U state.
+      pokeMixedRenameTransaction(dut, tailEpoch = 1, stid = 1,
+        transactionId = 1, firstRid = 1)
+      dut.io.reserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.reserve.valid.poke(false.B)
+      dut.io.preparedValid.expect(true.B)
+      val killedPtag = dut.io.prepared.uops(0).destinations(0)
+        .currentPMapping.ptag.peek().litValue
+      assert(killedPtag != survivorPtag)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      dut.io.mapQUsed(1).expect(2.U)
+      dut.io.tMapQUsed(1).expect(1.U)
+      dut.io.uMapQUsed(1).expect(1.U)
+      dut.io.tuRetireSourceUsed(1).expect(3.U)
+      dut.io.ptagPublishedCount.expect(2.U)
+
+      pokeRecoveryRequest(dut, stid = 1, transactionId = 0, rid = 0,
+        bid = anchorBid, brobGeneration = anchorBrobGeneration,
+        memberIndex = anchorMemberIndex,
+        residentGeneration = anchorResidentGeneration,
+        killTrigger = false)
+      dut.io.recoveryRequest.valid.poke(true.B)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      dut.io.recoveryBusy.expect(true.B)
+      dut.io.recoveryStid.expect(1.U)
+
+      // The target STID is fenced from D3 as soon as scan authority is live.
+      pokeOneDestination(dut, tailEpoch = 2, stid = 1,
+        transactionId = 2, firstRid = 2, atag = 2, basePc = 768)
+      dut.io.reserve.ready.expect(false.B)
+      dut.clock.step()
+
+      // STID 2 remains independent and can reserve and publish during recovery.
+      pokeOneDestination(dut, stid = 2, transactionId = 0, firstRid = 0,
+        atag = 2, basePc = 1024)
+      dut.io.reserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.reserve.valid.poke(false.B)
+      dut.io.preparedValid.expect(true.B)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      dut.io.mapQUsed(2).expect(1.U)
+
+      var cycles = 0
+      var sawCommonComplete = false
+      while (dut.io.recoveryBusy.peek().litToBoolean && cycles < 64) {
+        sawCommonComplete ||= dut.io.recoveryComplete.peek().litToBoolean
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64, "timed out waiting for atomic rename recovery")
+      assert(sawCommonComplete,
+        "coordinator never joined scanner, P, and T/U completion")
+
+      dut.io.mapQUsed(1).expect(1.U)
+      dut.io.tMapQUsed(1).expect(0.U)
+      dut.io.uMapQUsed(1).expect(0.U)
+      dut.io.tuRetireSourceUsed(1).expect(1.U)
+      dut.io.ptagPublishedCount.expect(2.U)
+      dut.io.queryStid.poke(1.U)
+      dut.io.queryAtag.poke(1.U)
+      dut.io.speculativeMapping.ptag.expect(survivorPtag.U)
+      dut.io.mapQUsed(0).expect(0.U)
+      dut.io.mapQUsed(2).expect(1.U)
+      dut.io.mapQUsed(3).expect(0.U)
+      dut.io.tMapQUsed(2).expect(0.U)
+      dut.io.uMapQUsed(2).expect(0.U)
+
+      // A stale exact key is diagnosed by the scanner and mutates no owner.
+      pokeRecoveryRequest(dut, stid = 1, transactionId = 0, rid = 0,
+        bid = anchorBid, brobGeneration = anchorBrobGeneration,
+        memberIndex = anchorMemberIndex,
+        residentGeneration = anchorResidentGeneration + 1,
+        killTrigger = false)
+      dut.io.recoveryRequest.valid.poke(true.B)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      var rejectCycles = 0
+      while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+          rejectCycles < 16) {
+        dut.clock.step()
+        rejectCycles += 1
+      }
+      assert(rejectCycles < 16, "timed out waiting for stale-key diagnostic")
+      dut.io.pRecoveryRejected.valid.expect(false.B)
+      dut.io.tuRecoveryRejected.valid.expect(false.B)
+      dut.io.mapQUsed(1).expect(1.U)
+      dut.io.tuRetireSourceUsed(1).expect(1.U)
+      dut.io.ptagPublishedCount.expect(2.U)
     }
   }
 }
