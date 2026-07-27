@@ -1170,6 +1170,9 @@ predictor tables 不因普通 redirect 清零。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、
   Instruction Buffer 和 D1 owners。
+- [x] 迁移期 `ReducedBfu*` 文件、类型和 trace-top IO 已重命名为中性
+  `Bfu*`；这些 compatibility helpers 仍明确排除在 production owner graph
+  之外，production status 不由名称推断。
 - [x] CoreMark/Dhrystone 使用的 production benchmark graph 已切换到
   `LinxCoreIfu`；fresh natural manifests 分别以 1426/1150 commits 到达
   `finisher=0x5555`。

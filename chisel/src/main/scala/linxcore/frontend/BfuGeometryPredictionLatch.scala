@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuGeometryPredictionLatchIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuGeometryPredictionLatchIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val learnValid = Input(Bool())
   val learnHeaderPc = Input(UInt(p.pcWidth.W))
@@ -16,8 +16,8 @@ class ReducedBfuGeometryPredictionLatchIO(val p: InterfaceParams = InterfacePara
   val bsizeBytes = Output(UInt(p.pcWidth.W))
 }
 
-class ReducedBfuGeometryPredictionLatch(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuGeometryPredictionLatchIO(p))
+class BfuGeometryPredictionLatch(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuGeometryPredictionLatchIO(p))
 
   val validReg = RegInit(false.B)
   val headerPcReg = RegInit(0.U(p.pcWidth.W))

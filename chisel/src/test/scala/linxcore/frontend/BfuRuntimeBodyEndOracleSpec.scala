@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuPromotedRuntimeBodyEndOracleReference {
+object BfuRuntimeBodyEndOracleReference {
   final case class Event(headerPc: BigInt = 0, hsizeBytes: BigInt = 0, bodyEndPc: BigInt = 0)
   final case class Replay(
       valid: Boolean = false,
@@ -65,7 +65,7 @@ object ReducedBfuPromotedRuntimeBodyEndOracleReference {
   }
 }
 
-class ReducedBfuPromotedRuntimeBodyEndOracleProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuRuntimeBodyEndOracleProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val promoteValid = Input(Bool())
   val promoteHeaderPc = Input(UInt(p.pcWidth.W))
@@ -84,9 +84,9 @@ class ReducedBfuPromotedRuntimeBodyEndOracleProbeIO(val p: InterfaceParams = Int
   val replayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuPromotedRuntimeBodyEndOracleProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuPromotedRuntimeBodyEndOracleProbeIO(p))
-  val oracle = Module(new ReducedBfuPromotedRuntimeBodyEndOracle(p))
+class BfuRuntimeBodyEndOracleProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuRuntimeBodyEndOracleProbeIO(p))
+  val oracle = Module(new BfuRuntimeBodyEndOracle(p))
 
   oracle.io.flushValid := io.flushValid
   oracle.io.promoteValid := io.promoteValid
@@ -106,9 +106,9 @@ class ReducedBfuPromotedRuntimeBodyEndOracleProbe(val p: InterfaceParams = Inter
   io.replayBodyEndMismatch := oracle.io.replayBodyEndMismatch
 }
 
-class ReducedBfuPromotedRuntimeBodyEndOracleSpec extends AnyFunSuite {
+class BfuRuntimeBodyEndOracleSpec extends AnyFunSuite {
   test("reference stores a promoted runtime event until replay proves it") {
-    import ReducedBfuPromotedRuntimeBodyEndOracleReference._
+    import BfuRuntimeBodyEndOracleReference._
     val promoted = Event(headerPc = BigInt("4000630c", 16), hsizeBytes = 0, bodyEndPc = BigInt("4000632e", 16))
     val replay = Replay(valid = true, headerPc = promoted.headerPc, hsizeBytes = 0, bsizeBytes = 0x20)
     val captured = step(State(), Inputs(promote = true, promoted = promoted))
@@ -122,7 +122,7 @@ class ReducedBfuPromotedRuntimeBodyEndOracleSpec extends AnyFunSuite {
   }
 
   test("reference compares same-cycle replay without retaining a matched event") {
-    import ReducedBfuPromotedRuntimeBodyEndOracleReference._
+    import BfuRuntimeBodyEndOracleReference._
     val promoted = Event(headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1022)
     val replay = Replay(valid = true, headerPc = 0x1000, hsizeBytes = 0, bsizeBytes = 0x20)
     val result = step(State(), Inputs(promote = true, promoted = promoted, replay = replay))
@@ -134,7 +134,7 @@ class ReducedBfuPromotedRuntimeBodyEndOracleSpec extends AnyFunSuite {
   }
 
   test("reference reports replay mismatch and clears the stale pending event") {
-    import ReducedBfuPromotedRuntimeBodyEndOracleReference._
+    import BfuRuntimeBodyEndOracleReference._
     val promoted = Event(headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1010)
     val replay = Replay(valid = true, headerPc = 0x1000, hsizeBytes = 0, bsizeBytes = 0x20)
     val captured = step(State(), Inputs(promote = true, promoted = promoted))
@@ -147,7 +147,7 @@ class ReducedBfuPromotedRuntimeBodyEndOracleSpec extends AnyFunSuite {
   }
 
   test("reference reports overwrite when a second promotion arrives before replay") {
-    import ReducedBfuPromotedRuntimeBodyEndOracleReference._
+    import BfuRuntimeBodyEndOracleReference._
     val first = Event(headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1022)
     val second = Event(headerPc = 0x2000, hsizeBytes = 0, bodyEndPc = 0x2022)
     val captured = step(State(), Inputs(promote = true, promoted = first))
@@ -159,11 +159,11 @@ class ReducedBfuPromotedRuntimeBodyEndOracleSpec extends AnyFunSuite {
     assert(overwrite.state.event == first)
   }
 
-  test("ReducedBfuPromotedRuntimeBodyEndOracle elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuPromotedRuntimeBodyEndOracleProbe(InterfaceParams()))
+  test("BfuRuntimeBodyEndOracle elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuRuntimeBodyEndOracleProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuPromotedRuntimeBodyEndOracleProbe"))
-    assert(sv.contains("module ReducedBfuPromotedRuntimeBodyEndOracle"))
+    assert(sv.contains("module BfuRuntimeBodyEndOracleProbe"))
+    assert(sv.contains("module BfuRuntimeBodyEndOracle"))
     assert(sv.contains("io_overwritePending"))
     assert(sv.contains("io_replayBodyEndMismatch"))
   }

@@ -1,4 +1,4 @@
-# ReducedBfuGeometryPredictionLatch
+# BfuGeometryPredictionLatch
 
 > **Architecture status — verification-only diagnostic.** Learned geometry is
 > owned by B-SIDE predictor/training state; this latch is not a production
@@ -6,10 +6,10 @@
 
 ## Purpose
 
-`ReducedBfuGeometryPredictionLatch` is the reduced BFU handoff between accepted
+`BfuGeometryPredictionLatch` is the compatibility BFU handoff between accepted
 resolved body-end geometry and local body-window control. The top stores
-`headerPc`/`hsize`/`bsize` after `ReducedBfuResolvedBodyEndOwner` accepts a
-loop body-end event, then `ReducedBfuLocalBodyWindow` uses the remembered row
+`headerPc`/`hsize`/`bsize` after `BfuResolvedBodyEndOwner` accepts a
+loop body-end event, then `BfuLocalBodyWindow` uses the remembered row
 when the predicted header is visible again.
 
 ## Interface
@@ -20,7 +20,7 @@ when the predicted header is visible again.
 | input | `learnValid` | `Bool` | Captures an accepted resolved body-end geometry row. |
 | input | `learnHeaderPc`, `learnHSizeBytes`, `learnBSizeBytes` | `UInt(pcWidth.W)` | Learned geometry payload. |
 | output | `geometryValid` | `Bool` | A remembered geometry row is available for body-cut prediction. |
-| output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Registered geometry consumed by `ReducedBfuBodyCutPredictor`. |
+| output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Registered geometry consumed by `BfuBodyCutPredictor`. |
 
 ## Logic
 
@@ -29,7 +29,7 @@ are the current registered state, so a `learnValid` pulse becomes visible to
 local body-window control on the following cycle. That is intentional: the
 model learns `bsize` from a body-end event and uses it for later BFU prediction.
 R153 handles the cold same-cycle body-end cut through
-`ReducedBfuResolvedBodyEndOwner` directly instead of making this latch
+`BfuResolvedBodyEndOwner` directly instead of making this latch
 feed through combinationally.
 
 `LinxCoreFrontendFetchRfAluTraceTop` clears this latch on external frontend
@@ -53,5 +53,5 @@ The storage boundary follows the LinxCoreModel static predictor split:
 R150 focused tests elaborate this module and document the key timing rule:
 learning does not feed through in the same cycle, and the stored row is visible
 to the next prediction cycle. The R153 top-level replay uses the latch as the
-payload source for `ReducedBfuLocalBodyWindow`; the external loop-reentry oracle
+payload source for `BfuLocalBodyWindow`; the external loop-reentry oracle
 still supplies resolved body-end events until a real branch/BFU resolver exists.

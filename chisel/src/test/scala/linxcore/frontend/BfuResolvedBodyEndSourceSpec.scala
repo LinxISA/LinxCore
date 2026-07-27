@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuResolvedBodyEndSourceReference {
+object BfuResolvedBodyEndSourceReference {
   final case class RuntimeEvent(
       valid: Boolean = false,
       headerPc: BigInt = 0,
@@ -56,7 +56,7 @@ object ReducedBfuResolvedBodyEndSourceReference {
   }
 }
 
-class ReducedBfuResolvedBodyEndSourceProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndSourceProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val runtimeValid = Input(Bool())
   val runtimeHeaderPc = Input(UInt(p.pcWidth.W))
   val runtimeHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -77,9 +77,9 @@ class ReducedBfuResolvedBodyEndSourceProbeIO(val p: InterfaceParams = InterfaceP
   val runtimeReplayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndSourceProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndSourceProbeIO(p))
-  val source = Module(new ReducedBfuResolvedBodyEndSource(p))
+class BfuResolvedBodyEndSourceProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndSourceProbeIO(p))
+  val source = Module(new BfuResolvedBodyEndSource(p))
 
   source.io.runtimeValid := io.runtimeValid
   source.io.runtimeHeaderPc := io.runtimeHeaderPc
@@ -101,10 +101,10 @@ class ReducedBfuResolvedBodyEndSourceProbe(val p: InterfaceParams = InterfacePar
   io.runtimeReplayBodyEndMismatch := source.io.runtimeReplayBodyEndMismatch
 }
 
-class ReducedBfuResolvedBodyEndSourceSpec extends AnyFunSuite {
+class BfuResolvedBodyEndSourceSpec extends AnyFunSuite {
   test("reference converts replay bsize into a resolved body-end event") {
-    val result = ReducedBfuResolvedBodyEndSourceReference.step(
-      replay = ReducedBfuResolvedBodyEndSourceReference.ReplayEvent(
+    val result = BfuResolvedBodyEndSourceReference.step(
+      replay = BfuResolvedBodyEndSourceReference.ReplayEvent(
         valid = true,
         headerPc = BigInt("4000630c", 16),
         hsizeBytes = 0,
@@ -118,17 +118,17 @@ class ReducedBfuResolvedBodyEndSourceSpec extends AnyFunSuite {
   }
 
   test("reference prioritizes runtime feedback and compares it with replay oracle") {
-    val runtime = ReducedBfuResolvedBodyEndSourceReference.RuntimeEvent(
+    val runtime = BfuResolvedBodyEndSourceReference.RuntimeEvent(
       valid = true,
       headerPc = BigInt("4000630c", 16),
       hsizeBytes = 0,
       bodyEndPc = BigInt("4000632e", 16))
-    val replay = ReducedBfuResolvedBodyEndSourceReference.ReplayEvent(
+    val replay = BfuResolvedBodyEndSourceReference.ReplayEvent(
       valid = true,
       headerPc = BigInt("4000630c", 16),
       hsizeBytes = 0,
       bsizeBytes = 0x20)
-    val result = ReducedBfuResolvedBodyEndSourceReference.step(runtime = runtime, replay = replay)
+    val result = BfuResolvedBodyEndSourceReference.step(runtime = runtime, replay = replay)
 
     assert(result.resolvedValid)
     assert(result.selectedRuntime)
@@ -139,17 +139,17 @@ class ReducedBfuResolvedBodyEndSourceSpec extends AnyFunSuite {
   }
 
   test("reference reports runtime/replay body-end mismatches") {
-    val runtime = ReducedBfuResolvedBodyEndSourceReference.RuntimeEvent(
+    val runtime = BfuResolvedBodyEndSourceReference.RuntimeEvent(
       valid = true,
       headerPc = 0x1000,
       hsizeBytes = 0,
       bodyEndPc = 0x1010)
-    val replay = ReducedBfuResolvedBodyEndSourceReference.ReplayEvent(
+    val replay = BfuResolvedBodyEndSourceReference.ReplayEvent(
       valid = true,
       headerPc = 0x1000,
       hsizeBytes = 0,
       bsizeBytes = 0x20)
-    val result = ReducedBfuResolvedBodyEndSourceReference.step(runtime = runtime, replay = replay)
+    val result = BfuResolvedBodyEndSourceReference.step(runtime = runtime, replay = replay)
 
     assert(result.comparable)
     assert(!result.matchAll)
@@ -158,11 +158,11 @@ class ReducedBfuResolvedBodyEndSourceSpec extends AnyFunSuite {
     assert(!result.hsizeMismatch)
   }
 
-  test("ReducedBfuResolvedBodyEndSource elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuResolvedBodyEndSourceProbe(InterfaceParams()))
+  test("BfuResolvedBodyEndSource elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuResolvedBodyEndSourceProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuResolvedBodyEndSourceProbe"))
-    assert(sv.contains("module ReducedBfuResolvedBodyEndSource"))
+    assert(sv.contains("module BfuResolvedBodyEndSourceProbe"))
+    assert(sv.contains("module BfuResolvedBodyEndSource"))
     assert(sv.contains("io_selectedRuntime"))
     assert(sv.contains("io_runtimeReplayBodyEndMismatch"))
   }

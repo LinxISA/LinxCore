@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{PriorityEncoder, log2Ceil}
 import linxcore.common.InterfaceParams
 
-class ReducedBfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val f4UpdateFire = Input(Bool())
   val f4Valid = Input(Bool())
@@ -31,10 +31,10 @@ class ReducedBfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParam
   val eventIsStop = Output(Bool())
 }
 
-class ReducedBfuStaticGeometryProducer(val p: InterfaceParams = InterfaceParams()) extends Module {
-  require(p.decodeWidth == 4, "ReducedBfuStaticGeometryProducer assumes the current 4-slot F4 window")
+class BfuStaticGeometryProducer(val p: InterfaceParams = InterfaceParams()) extends Module {
+  require(p.decodeWidth == 4, "BfuStaticGeometryProducer assumes the current 4-slot F4 window")
 
-  val io = IO(new ReducedBfuStaticGeometryProducerIO(p))
+  val io = IO(new BfuStaticGeometryProducerIO(p))
 
   val headerActiveReg = RegInit(false.B)
   val headerPcReg = RegInit(0.U(p.pcWidth.W))

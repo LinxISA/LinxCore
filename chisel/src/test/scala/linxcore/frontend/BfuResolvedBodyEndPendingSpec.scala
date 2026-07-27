@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuResolvedBodyEndPendingReference {
+object BfuResolvedBodyEndPendingReference {
   final case class Event(headerPc: BigInt = 0, hsizeBytes: BigInt = 0, bodyEndPc: BigInt = 0)
   final case class Candidate(valid: Boolean = false, headerPc: BigInt = 0, hsizeBytes: BigInt = 0, bsizeBytes: BigInt = 0)
   final case class Inputs(
@@ -54,7 +54,7 @@ object ReducedBfuResolvedBodyEndPendingReference {
   }
 }
 
-class ReducedBfuResolvedBodyEndPendingProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndPendingProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val captureValid = Input(Bool())
   val captureHeaderPc = Input(UInt(p.pcWidth.W))
@@ -75,9 +75,9 @@ class ReducedBfuResolvedBodyEndPendingProbeIO(val p: InterfaceParams = Interface
   val candidateMismatch = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndPendingProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndPendingProbeIO(p))
-  val pending = Module(new ReducedBfuResolvedBodyEndPending(p))
+class BfuResolvedBodyEndPendingProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndPendingProbeIO(p))
+  val pending = Module(new BfuResolvedBodyEndPending(p))
 
   pending.io.flushValid := io.flushValid
   pending.io.captureValid := io.captureValid
@@ -99,9 +99,9 @@ class ReducedBfuResolvedBodyEndPendingProbe(val p: InterfaceParams = InterfacePa
   io.candidateMismatch := pending.io.candidateMismatch
 }
 
-class ReducedBfuResolvedBodyEndPendingSpec extends AnyFunSuite {
+class BfuResolvedBodyEndPendingSpec extends AnyFunSuite {
   test("reference holds a runtime event until a matching candidate consumes it") {
-    import ReducedBfuResolvedBodyEndPendingReference._
+    import BfuResolvedBodyEndPendingReference._
     val captured = Event(headerPc = BigInt("4000630c", 16), hsizeBytes = 0, bodyEndPc = BigInt("4000632e", 16))
     val candidate = Candidate(valid = true, headerPc = captured.headerPc, hsizeBytes = 0, bsizeBytes = 0x20)
     val afterCapture = step(State(), Inputs(capture = true, captured = captured))
@@ -116,7 +116,7 @@ class ReducedBfuResolvedBodyEndPendingSpec extends AnyFunSuite {
   }
 
   test("reference drops stale runtime feedback on candidate mismatch") {
-    import ReducedBfuResolvedBodyEndPendingReference._
+    import BfuResolvedBodyEndPendingReference._
     val captured = Event(headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1010)
     val candidate = Candidate(valid = true, headerPc = 0x1000, hsizeBytes = 0, bsizeBytes = 0x20)
     val afterCapture = step(State(), Inputs(capture = true, captured = captured))
@@ -129,11 +129,11 @@ class ReducedBfuResolvedBodyEndPendingSpec extends AnyFunSuite {
     assert(!dropped.state.pending)
   }
 
-  test("ReducedBfuResolvedBodyEndPending elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuResolvedBodyEndPendingProbe(InterfaceParams()))
+  test("BfuResolvedBodyEndPending elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuResolvedBodyEndPendingProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuResolvedBodyEndPendingProbe"))
-    assert(sv.contains("module ReducedBfuResolvedBodyEndPending"))
+    assert(sv.contains("module BfuResolvedBodyEndPendingProbe"))
+    assert(sv.contains("module BfuResolvedBodyEndPending"))
     assert(sv.contains("io_candidateMismatch"))
     assert(sv.contains("io_dropMismatch"))
   }

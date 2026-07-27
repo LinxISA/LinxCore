@@ -7,8 +7,10 @@ and B-SIDE engines. It is the only IFU owner that connects F0 through D1,
 allocates canonical redirect epochs, and routes PTW and L1I memory traffic.
 The composition admits multiple sequential cacheline transactions while
 preserving ordered I-F3 consumption and exact cross-line prefix ownership. It
-has a dedicated generated-RTL hot-cache throughput proof. It does not yet
-claim benchmark-top promotion or four-wide backend throughput.
+has a dedicated generated-RTL hot-cache throughput proof and is instantiated by
+the natural CoreMark/Dhrystone benchmark graph. The remaining width gap is
+downstream: D1 accepts a dense four-lane group, while the current D2/D3 path
+serializes those lanes before rename/dispatch.
 
 ## Pipeline Composition
 
@@ -122,6 +124,54 @@ identity without address or UID inference. The standalone IFU keeps the typed
 request/refill interface so cache/memory transport remains outside I-SIDE stage
 ownership.
 
+## Production Naming Boundary
+
+The canonical production owner graph is deliberately small:
+
+| Boundary | Production owner |
+|---|---|
+| I-SIDE | `ISideF0PcSelect` through `ISideF4Predecode`, `ISideITLB`, `ISideL1I`, `ISideFetchMissTable`, `ISideLineContextQueue` |
+| B-SIDE | `BSidePredictionPipeline`, `BSideHistoryQueue` |
+| Join and queue | `IfuPredictionJoin`, `InstructionBuffer`, `D1DecodeGroupGather` |
+| External transport | `IfuLineMemoryBridge`, `IfuBackendFeedbackBridge` |
+| Production composition | `LinxCoreProductionComposition` |
+
+The historical body-geometry helpers were renamed from migration-era
+`ReducedBfu*` identifiers to the neutral `Bfu*` family. They remain
+compatibility-only components used by `LinxCoreFrontendFetchRfAluTraceTop` and
+are not instantiated by `LinxCoreIfu` or `LinxCoreProductionComposition`.
+Removing the `Reduced` prefix is therefore an API/file-name cleanup, not a
+promotion claim.
+
+| Previous identifier | Current identifier |
+|---|---|
+| `ReducedBfuBodyCutArm` | `BfuBodyCutArm` |
+| `ReducedBfuBodyCutPredictor` | `BfuBodyCutPredictor` |
+| `ReducedBfuGeometryPredictionLatch` | `BfuGeometryPredictionLatch` |
+| `ReducedBfuLocalBodyWindow` | `BfuLocalBodyWindow` |
+| `ReducedBfuPendingRuntimeBodyEndCandidate` | `BfuPendingRuntimeBodyEndCandidate` |
+| `ReducedBfuPromotedRuntimeBodyEndOracle` | `BfuRuntimeBodyEndOracle` |
+| `ReducedBfuResolvedBodyEndOwner` | `BfuResolvedBodyEndOwner` |
+| `ReducedBfuResolvedBodyEndPending` | `BfuResolvedBodyEndPending` |
+| `ReducedBfuResolvedBodyEndSource` | `BfuResolvedBodyEndSource` |
+| `ReducedBfuStaticGeometryProducer` | `BfuStaticGeometryProducer` |
+
+## Remaining Production Gaps
+
+| Priority | Gap | Completion evidence required |
+|---|---|---|
+| P0 | Complete TAGE policy: medium/additional long-history tables, provider/alternate selection, usefulness, allocation, aging, and deterministic training-port arbitration | Focused assertions plus generated-RTL direction/provider conflict stimulus |
+| P0 | Put path history and loop speculative state under request-owned checkpoint and canonical recovery | Late correction, backend recovery, ITLB fallback, and multi-STID rollback tests |
+| P0 | Replace serialized D2/D3 consumption with four-row atomic resource reservation and dispatch | Four-lane all-or-none rename/ROB/issue admission under independent backpressure |
+| P1 | Add independent B-F4 provider-rank and direction-override assertions/coverage | Coverage proving every legal provider pair and final-rank override |
+| P1 | Terminate lower-memory denied/corrupt responses explicitly | Generated-RTL fault/termination tests with no leaked miss or bridge credit |
+| P1 | Bind PTW and line-read interfaces to the selected SoC hierarchy and replace the direct-mapped L1I policy | Integration proof with production associativity, replacement, and refill ownership |
+| P2 | Close synthesis concerns for predictor SRAMs, timing, area, and physical cache structures | Post-synthesis timing/area report and SRAM mapping review |
+
+CoreMark/Dhrystone benchmark-top promotion and the canonical 32-cycle
+four-wide hot-cache gate are closed. They remain workload and mechanism
+evidence respectively; neither closes the P0/P1 gaps above.
+
 ## Verification
 
 `LinxCoreIfuSpec` proves:
@@ -143,8 +193,9 @@ ownership.
 synthesizable line responder. Its Verilator gate checks the same thirty-two
 cycle stream and observes join/context peaks of eight/six. The proof is scoped
 to an eligible dense sequential hot-cache window; it does not substitute for
-mixed-length traffic, predictor-recovery stress, production decode/dispatch,
-or CoreMark/Dhrystone integration.
+predictor-recovery stress, four-wide D2/D3 admission, memory-error termination,
+or physical-design closure. Mixed-length traffic and natural CoreMark/Dhrystone
+integration are covered by the promoted benchmark graph.
 
 The R682 identity/rank packet additionally proves that I-F2 rejects a
 checkpoint collision, I-F3 rejects a continuation collision despite matching

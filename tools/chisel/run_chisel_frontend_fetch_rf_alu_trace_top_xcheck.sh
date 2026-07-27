@@ -191,6 +191,7 @@ fi
 
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
+rm -rf "${SV_DIR}"
 cd "${CHISEL_DIR}"
 sbt --batch --no-colors "runMain ${EMIT_MAIN}"
 

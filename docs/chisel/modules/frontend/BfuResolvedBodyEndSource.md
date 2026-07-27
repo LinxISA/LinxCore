@@ -1,4 +1,4 @@
-# ReducedBfuResolvedBodyEndSource
+# BfuResolvedBodyEndSource
 
 > **Architecture status — verification-only source fixture.** Source arbitration
 > and training are owned by B-F0–B-F4. This helper must not directly mutate
@@ -6,27 +6,27 @@
 
 ## Purpose
 
-`ReducedBfuResolvedBodyEndSource` is the source arbiter in front of
-`ReducedBfuResolvedBodyEndOwner`. It gives the reduced top a single resolved
+`BfuResolvedBodyEndSource` is the source arbiter in front of
+`BfuResolvedBodyEndOwner`. It gives the compatibility trace top a single resolved
 body-end event interface while the implementation transitions away from the
 temporary replay sideband.
 
 R154 kept replay geometry as the cold same-cycle fallback, but added a runtime
 source from local body-cut feedback. R155 moved the feedback lifetime into
-`ReducedBfuResolvedBodyEndPending`. R157 now drives this arbiter from
-`ReducedBfuPendingRuntimeBodyEndCandidate`, so a retained runtime event can be
+`BfuResolvedBodyEndPending`. R157 now drives this arbiter from
+`BfuPendingRuntimeBodyEndCandidate`, so a retained runtime event can be
 selected as soon as it matches the active header. Replay remains the cold
 fallback when no runtime candidate exists and remains the oracle through
 same-cycle comparison here plus delayed comparison in
-`ReducedBfuPromotedRuntimeBodyEndOracle`.
+`BfuRuntimeBodyEndOracle`.
 
 ## Interface
 
 | Direction | Signal | Type | Description |
 |---|---|---|---|
-| input | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | RTL-owned body-end event, currently produced by `ReducedBfuPendingRuntimeBodyEndCandidate` from pending local body-cut feedback and active-header state. |
+| input | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | RTL-owned body-end event, currently produced by `BfuPendingRuntimeBodyEndCandidate` from pending local body-cut feedback and active-header state. |
 | input | `replayValid`, `replayHeaderPc`, `replayHSizeBytes`, `replayBSizeBytes` | mixed | Temporary replay/QEMU geometry sideband. |
-| output | `resolvedValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Selected normalized event forwarded to `ReducedBfuResolvedBodyEndOwner`. |
+| output | `resolvedValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Selected normalized event forwarded to `BfuResolvedBodyEndOwner`. |
 | output | `replayBodyEndPc` | `UInt(pcWidth.W)` | Replay `headerPc + 2 + bsize`, exposed for diagnostics. |
 | output | `selectedRuntime`, `selectedReplay` | `Bool` | Source-selection diagnostics. Runtime has priority when valid. |
 | output | `runtimeReplayComparable`, `runtimeReplayMatch`, mismatch flags | `Bool` | Oracle comparison when both runtime and replay events are present in the same cycle. |
@@ -52,7 +52,7 @@ else if replayValid:
 Runtime priority is now the promoted R157 behavior. The runtime event is
 qualified by active-header state before it reaches this arbiter, so it no
 longer waits for replay timing. Once selected, it consumes the pending event;
-`ReducedBfuPromotedRuntimeBodyEndOracle` retains a diagnostic copy until a
+`BfuRuntimeBodyEndOracle` retains a diagnostic copy until a
 later replay row can prove the selected header, `hsize`, and body-end PC. Replay
 is still the cold fallback because the first CoreMark FALL re-entry body end is
 supplied by QEMU metadata before a local learned window can cut on its own.
@@ -72,10 +72,10 @@ supplied by QEMU metadata before a local learned window can cut on its own.
 Focused reference/elaboration tests:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuResolvedBodyEndSource
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuResolvedBodyEndPending
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuPendingRuntimeBodyEndCandidate
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuPromotedRuntimeBodyEndOracle
+bash tools/chisel/run_chisel_tests.sh --only BfuResolvedBodyEndSource
+bash tools/chisel/run_chisel_tests.sh --only BfuResolvedBodyEndPending
+bash tools/chisel/run_chisel_tests.sh --only BfuPendingRuntimeBodyEndCandidate
+bash tools/chisel/run_chisel_tests.sh --only BfuRuntimeBodyEndOracle
 ```
 
 The integrated top exposes source-selection and runtime-feedback diagnostics so

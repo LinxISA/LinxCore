@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuBodyCutArmIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuBodyCutArmIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val predictionValid = Input(Bool())
   val predictionHeaderPc = Input(UInt(p.pcWidth.W))
   val predictionHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -29,8 +29,8 @@ class ReducedBfuBodyCutArmIO(val p: InterfaceParams = InterfaceParams()) extends
   val bsizeMismatch = Output(Bool())
 }
 
-class ReducedBfuBodyCutArm(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuBodyCutArmIO(p))
+class BfuBodyCutArm(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuBodyCutArmIO(p))
 
   val comparable = io.predictionValid && io.armValid
   val headerMatch = io.predictionHeaderPc === io.armHeaderPc

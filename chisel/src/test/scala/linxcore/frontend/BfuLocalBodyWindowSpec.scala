@@ -6,7 +6,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuLocalBodyWindowReference {
+object BfuLocalBodyWindowReference {
   final case class Prediction(
       valid: Boolean = false,
       headerPc: BigInt = 0,
@@ -62,7 +62,7 @@ object ReducedBfuLocalBodyWindowReference {
   }
 }
 
-class ReducedBfuLocalBodyWindowProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuLocalBodyWindowProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val f4ScanValid = Input(Bool())
   val cutFire = Input(Bool())
@@ -87,9 +87,9 @@ class ReducedBfuLocalBodyWindowProbeIO(val p: InterfaceParams = InterfaceParams(
   val armSlot = Output(UInt(log2Ceil(p.decodeWidth).W))
 }
 
-class ReducedBfuLocalBodyWindowProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuLocalBodyWindowProbeIO(p))
-  val owner = Module(new ReducedBfuLocalBodyWindow(p))
+class BfuLocalBodyWindowProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuLocalBodyWindowProbeIO(p))
+  val owner = Module(new BfuLocalBodyWindow(p))
 
   owner.io.flushValid := io.flushValid
   owner.io.f4ScanValid := io.f4ScanValid
@@ -120,15 +120,15 @@ class ReducedBfuLocalBodyWindowProbe(val p: InterfaceParams = InterfaceParams())
   io.armSlot := owner.io.armSlot
 }
 
-class ReducedBfuLocalBodyWindowSpec extends AnyFunSuite {
+class BfuLocalBodyWindowSpec extends AnyFunSuite {
   test("reference arms on a matching local block header and holds geometry until cut") {
-    val state = new ReducedBfuLocalBodyWindowReference.State
-    val prediction = ReducedBfuLocalBodyWindowReference.Prediction(
+    val state = new BfuLocalBodyWindowReference.State
+    val prediction = BfuLocalBodyWindowReference.Prediction(
       valid = true,
       headerPc = BigInt("4000630c", 16),
       hsizeBytes = 0,
       bsizeBytes = 0x20)
-    val header = ReducedBfuLocalBodyWindowReference.F4Header(
+    val header = BfuLocalBodyWindowReference.F4Header(
       valid = true,
       pc = BigInt("4000630c", 16),
       isBoundary = true)
@@ -153,14 +153,14 @@ class ReducedBfuLocalBodyWindowSpec extends AnyFunSuite {
   }
 
   test("reference rejects nonmatching headers and suppresses flush-cycle arming") {
-    val state = new ReducedBfuLocalBodyWindowReference.State
-    val prediction = ReducedBfuLocalBodyWindowReference.Prediction(
+    val state = new BfuLocalBodyWindowReference.State
+    val prediction = BfuLocalBodyWindowReference.Prediction(
       valid = true,
       headerPc = 0x2000,
       hsizeBytes = 2,
       bsizeBytes = 0x10)
-    val wrongHeader = ReducedBfuLocalBodyWindowReference.F4Header(valid = true, pc = 0x3000, isBoundary = true)
-    val rightHeader = ReducedBfuLocalBodyWindowReference.F4Header(valid = true, pc = 0x2000, isBoundary = true)
+    val wrongHeader = BfuLocalBodyWindowReference.F4Header(valid = true, pc = 0x3000, isBoundary = true)
+    val rightHeader = BfuLocalBodyWindowReference.F4Header(valid = true, pc = 0x2000, isBoundary = true)
 
     val rejected = state.step(f4ScanValid = true, prediction = prediction, headers = Seq(wrongHeader))
     assert(!rejected.geometryValid)
@@ -172,11 +172,11 @@ class ReducedBfuLocalBodyWindowSpec extends AnyFunSuite {
     assert(!state.step().geometryValid)
   }
 
-  test("ReducedBfuLocalBodyWindow elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuLocalBodyWindowProbe(InterfaceParams()))
+  test("BfuLocalBodyWindow elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuLocalBodyWindowProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuLocalBodyWindowProbe"))
-    assert(sv.contains("module ReducedBfuLocalBodyWindow"))
+    assert(sv.contains("module BfuLocalBodyWindowProbe"))
+    assert(sv.contains("module BfuLocalBodyWindow"))
     assert(sv.contains("io_armFire"))
     assert(sv.contains("io_releaseFire"))
   }

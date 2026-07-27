@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuResolvedBodyEndOwnerReference {
+object BfuResolvedBodyEndOwnerReference {
   final case class Inputs(
       flush: Boolean = false,
       headerActive: Boolean = false,
@@ -44,7 +44,7 @@ object ReducedBfuResolvedBodyEndOwnerReference {
   }
 }
 
-class ReducedBfuResolvedBodyEndOwnerProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndOwnerProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val headerActive = Input(Bool())
   val activeHeaderPc = Input(UInt(p.pcWidth.W))
@@ -65,9 +65,9 @@ class ReducedBfuResolvedBodyEndOwnerProbeIO(val p: InterfaceParams = InterfacePa
   val bodyEndUnderflow = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndOwnerProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndOwnerProbeIO(p))
-  val owner = Module(new ReducedBfuResolvedBodyEndOwner(p))
+class BfuResolvedBodyEndOwnerProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndOwnerProbeIO(p))
+  val owner = Module(new BfuResolvedBodyEndOwner(p))
 
   owner.io.flushValid := io.flushValid
   owner.io.headerActive := io.headerActive
@@ -89,10 +89,10 @@ class ReducedBfuResolvedBodyEndOwnerProbe(val p: InterfaceParams = InterfacePara
   io.bodyEndUnderflow := owner.io.bodyEndUnderflow
 }
 
-class ReducedBfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
+class BfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
   test("reference accepts matching resolved body-end geometry and saturates from header body base") {
-    val result = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val result = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         headerActive = true,
         activeHeaderPc = BigInt("4000630c", 16),
         resolvedValid = true,
@@ -112,8 +112,8 @@ class ReducedBfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
   }
 
   test("reference carries resolved hsize only on an accepted geometry event") {
-    val result = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val result = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         headerActive = true,
         activeHeaderPc = 0x4000,
         resolvedValid = true,
@@ -127,22 +127,22 @@ class ReducedBfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
   }
 
   test("reference rejects mismatched, inactive, and flushed resolved events with diagnostics") {
-    val mismatch = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val mismatch = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         headerActive = true,
         activeHeaderPc = 0x5000,
         resolvedValid = true,
         resolvedHeaderPc = 0x6000,
         resolvedBodyEndPc = 0x6010))
-    val inactive = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val inactive = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         headerActive = false,
         activeHeaderPc = 0x5000,
         resolvedValid = true,
         resolvedHeaderPc = 0x5000,
         resolvedBodyEndPc = 0x5010))
-    val flushed = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val flushed = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         flush = true,
         headerActive = true,
         activeHeaderPc = 0x5000,
@@ -159,8 +159,8 @@ class ReducedBfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
   }
 
   test("reference preserves model SetBsize underflow saturation") {
-    val result = ReducedBfuResolvedBodyEndOwnerReference(
-      ReducedBfuResolvedBodyEndOwnerReference.Inputs(
+    val result = BfuResolvedBodyEndOwnerReference(
+      BfuResolvedBodyEndOwnerReference.Inputs(
         headerActive = true,
         activeHeaderPc = 0x7000,
         resolvedValid = true,
@@ -172,11 +172,11 @@ class ReducedBfuResolvedBodyEndOwnerSpec extends AnyFunSuite {
     assert(result.bodyEndUnderflow)
   }
 
-  test("ReducedBfuResolvedBodyEndOwner elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuResolvedBodyEndOwnerProbe(InterfaceParams()))
+  test("BfuResolvedBodyEndOwner elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuResolvedBodyEndOwnerProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuResolvedBodyEndOwnerProbe"))
-    assert(sv.contains("module ReducedBfuResolvedBodyEndOwner"))
+    assert(sv.contains("module BfuResolvedBodyEndOwnerProbe"))
+    assert(sv.contains("module BfuResolvedBodyEndOwner"))
     assert(sv.contains("io_geometryValid"))
     assert(sv.contains("io_geometryHeaderPc"))
     assert(sv.contains("io_bsizeBytes"))

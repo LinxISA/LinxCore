@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{PriorityEncoder, log2Ceil}
 import linxcore.common.InterfaceParams
 
-class ReducedBfuLocalBodyWindowIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuLocalBodyWindowIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val f4ScanValid = Input(Bool())
   val cutFire = Input(Bool())
@@ -29,10 +29,10 @@ class ReducedBfuLocalBodyWindowIO(val p: InterfaceParams = InterfaceParams()) ex
   val armSlot = Output(UInt(log2Ceil(p.decodeWidth).W))
 }
 
-class ReducedBfuLocalBodyWindow(val p: InterfaceParams = InterfaceParams()) extends Module {
-  require(p.decodeWidth == 4, "ReducedBfuLocalBodyWindow assumes the current 4-slot F4 window")
+class BfuLocalBodyWindow(val p: InterfaceParams = InterfaceParams()) extends Module {
+  require(p.decodeWidth == 4, "BfuLocalBodyWindow assumes the current 4-slot F4 window")
 
-  val io = IO(new ReducedBfuLocalBodyWindowIO(p))
+  val io = IO(new BfuLocalBodyWindowIO(p))
 
   val activeReg = RegInit(false.B)
   val headerPcReg = RegInit(0.U(p.pcWidth.W))

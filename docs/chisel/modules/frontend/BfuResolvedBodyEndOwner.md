@@ -1,4 +1,4 @@
-# ReducedBfuResolvedBodyEndOwner
+# BfuResolvedBodyEndOwner
 
 > **Architecture status — verification-only geometry fixture.** Resolved branch feedback
 > is retained and trained through B-F0–B-F4; I-SIDE receives only Decoupled
@@ -6,19 +6,19 @@
 
 ## Purpose
 
-`ReducedBfuResolvedBodyEndOwner` is the reduced frontend boundary that
+`BfuResolvedBodyEndOwner` is the compatibility frontend boundary that
 normalizes a resolved BFU body-end event before
-`ReducedBfuStaticGeometryProducer` consumes it. It represents the model
+`BfuStaticGeometryProducer` consumes it. It represents the model
 `SetBsize(header, bodyBasePc, bodyEndPc)` handoff as a standalone Chisel module
 so a later branch/BFU resolver has a concrete interface to drive.
 
-In R153 this module has two live reduced-top roles. It trains
-`ReducedBfuGeometryPredictionLatch` for later local body-window cuts, and it
+In R153 this module has two live compatibility-trace-top roles. It trains
+`BfuGeometryPredictionLatch` for later local body-window cuts, and it
 also provides the same-cycle cold-cut geometry when the current F4 packet is
 the packet that proves the body end. The external replay row is still temporary;
 a real branch/BFU resolver must eventually drive this interface.
 
-R154 inserts `ReducedBfuResolvedBodyEndSource` in front of this owner. Replay
+R154 inserts `BfuResolvedBodyEndSource` in front of this owner. Replay
 still supplies the cold fallback, but registered local body-cut feedback can now
 drive the same normalized owner path before replay once available.
 
@@ -27,9 +27,9 @@ drive the same normalized owner path before replay once available.
 | Direction | Signal | Type | Description |
 |---|---|---|---|
 | input | `flushValid` | `Bool` | Suppresses a resolved event during frontend flush/start/restart. |
-| input | `headerActive`, `activeHeaderPc` | mixed | Active static-predictor header state from `ReducedBfuStaticGeometryProducer`. |
+| input | `headerActive`, `activeHeaderPc` | mixed | Active static-predictor header state from `BfuStaticGeometryProducer`. |
 | input | `resolvedValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Resolved body-end event payload from the current replay sideband or a future real BFU/branch resolver. |
-| output | `geometryValid`, `geometryHeaderPc`, `hsizeBytes`, `bsizeBytes`, `bodyEndPc` | mixed | Accepted geometry event forwarded to `ReducedBfuStaticGeometryProducer`. |
+| output | `geometryValid`, `geometryHeaderPc`, `hsizeBytes`, `bsizeBytes`, `bodyEndPc` | mixed | Accepted geometry event forwarded to `BfuStaticGeometryProducer`. |
 | output | `accepted`, `headerMismatch`, `inactiveDrop`, `flushDrop`, `bodyEndUnderflow` | `Bool` | Diagnostics for accepted and suppressed resolved events. |
 
 ## Logic

@@ -1,4 +1,4 @@
-# ReducedBfuStaticGeometryProducer
+# BfuStaticGeometryProducer
 
 > **Architecture status — verification-only geometry fixture.** Production I-F4 does not
 > predict body geometry: it only identifies instruction length and
@@ -7,7 +7,7 @@
 
 ## Purpose
 
-`ReducedBfuStaticGeometryProducer` is the first reduced Chisel owner for
+`BfuStaticGeometryProducer` is the first compatibility Chisel owner for
 LinxCoreModel static-predictor block geometry. It watches accepted F4 slots,
 opens a header on a decoded block-boundary instruction, and emits
 `headerPc`/`hsize`/`bsize` geometry when a later block boundary, `BSTOP`, or
@@ -33,7 +33,7 @@ identified.
 | input | `f4Valid`, `f4Slots`, `f4ValidMask` | mixed | Current F4 window and decoded slot shape. |
 | input | `resolvedBodyEndValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Resolved geometry learning hook for the active header. This mirrors the model path that sets `bsize` from an end PC learned outside explicit block-marker decode and carries the resolved `hsize` payload alongside it. |
 | output | `geometryValid` | `Bool` | A block body geometry row was learned this cycle. |
-| output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Geometry consumed by `ReducedBfuBodyCutPredictor`. |
+| output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Geometry consumed by `BfuBodyCutPredictor`. |
 | output | `headerActive`, `learnedFire`, `eventLearnedFire`, `resolvedLearnedFire` | `Bool` | Reduced diagnostics for active header state and whether geometry came from an explicit F4 event or a resolved body end. |
 | output | `eventValid`, `eventSlot`, `eventPc`, `eventIsBoundary`, `eventIsStop` | mixed | First block-boundary or stop event observed in the accepted F4 window. |
 
@@ -61,7 +61,7 @@ The registered `hsizeBytes` is currently zero, matching the reduced compressed
 FALL replay case and the observed model static-predictor path. The resolved
 input lets a future branch-resolution/header-size owner provide a value without
 routing this diagnostic producer into control. R149 factors resolved-event
-normalization into `ReducedBfuResolvedBodyEndOwner`, so this producer now
+normalization into `BfuResolvedBodyEndOwner`, so this producer now
 consumes an already matched active-header event instead of comparing the raw
 replay header itself.
 
@@ -93,10 +93,10 @@ body-end reference case for the CoreMark FALL body ending at `0x4000632e`.
 R147 adds a resolved-`hsize` reference case and keeps the producer diagnostic.
 R148 compares the producer's emitted diagnostic geometry against the external
 replay geometry at `LinxCoreFrontendFetchRfAluTraceTop`, proving the handoff
-contract before the producer is allowed to drive reduced body-cut control.
-R149 inserts `ReducedBfuResolvedBodyEndOwner` in front of the resolved input and
+contract before the producer is allowed to drive compatibility body-cut control.
+R149 inserts `BfuResolvedBodyEndOwner` in front of the resolved input and
 keeps the same replay comparison as the generated-RTL proof. R150 feeds this
-producer's learned geometry into `ReducedBfuGeometryPredictionLatch`, and
-`ReducedBfuBodyCutPredictor` consumes the latched row when the external
+producer's learned geometry into `BfuGeometryPredictionLatch`, and
+`BfuBodyCutPredictor` consumes the latched row when the external
 loop-reentry oracle arms a matching cut. The external replay row remains the
 temporary resolved-event source and oracle.

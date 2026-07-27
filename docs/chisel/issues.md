@@ -299,7 +299,7 @@ Evidence:
   harness. The loop-aware expected replay in
   `generated/r143b-loop-reentry-rtl-replay/report` compares 1330 normalized
   QEMU/DUT rows with zero mismatches.
-- R144 moves the arithmetic into `ReducedBfuBodyCutPredictor`: the reduced
+- R144 moves the arithmetic into `BfuBodyCutPredictor`: the reduced
   harness now supplies `headerPc`/`hsize`/`bsize` geometry, and the top computes
   the cut and restart locally.
 

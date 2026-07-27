@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuBodyCutArmReference {
+object BfuBodyCutArmReference {
   final case class Inputs(
       predictionValid: Boolean = false,
       predictionHeaderPc: BigInt = 0,
@@ -46,7 +46,7 @@ object ReducedBfuBodyCutArmReference {
   }
 }
 
-class ReducedBfuBodyCutArmProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuBodyCutArmProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val predictionValid = Input(Bool())
   val predictionHeaderPc = Input(UInt(p.pcWidth.W))
   val predictionHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -67,9 +67,9 @@ class ReducedBfuBodyCutArmProbeIO(val p: InterfaceParams = InterfaceParams()) ex
   val bsizeMismatch = Output(Bool())
 }
 
-class ReducedBfuBodyCutArmProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuBodyCutArmProbeIO(p))
-  val arm = Module(new ReducedBfuBodyCutArm(p))
+class BfuBodyCutArmProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuBodyCutArmProbeIO(p))
+  val arm = Module(new BfuBodyCutArm(p))
 
   arm.io.predictionValid := io.predictionValid
   arm.io.predictionHeaderPc := io.predictionHeaderPc
@@ -91,10 +91,10 @@ class ReducedBfuBodyCutArmProbe(val p: InterfaceParams = InterfaceParams()) exte
   io.bsizeMismatch := arm.io.bsizeMismatch
 }
 
-class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
+class BfuBodyCutArmSpec extends AnyFunSuite {
   test("reference accepts an external arm only when it matches the latched prediction") {
-    val result = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val result = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = true,
         predictionHeaderPc = BigInt("4000630c", 16),
         predictionHSizeBytes = 0,
@@ -116,8 +116,8 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
   }
 
   test("reference forwards prediction payload rather than candidate arm payload") {
-    val result = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val result = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = true,
         predictionHeaderPc = 0x5000,
         predictionHSizeBytes = 6,
@@ -135,8 +135,8 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
   }
 
   test("reference reports per-field mismatches only when both sides are comparable") {
-    val headerMismatch = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val headerMismatch = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = true,
         predictionHeaderPc = 0x1000,
         predictionHSizeBytes = 2,
@@ -145,8 +145,8 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
         armHeaderPc = 0x2000,
         armHSizeBytes = 2,
         armBSizeBytes = 0x10))
-    val hsizeMismatch = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val hsizeMismatch = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = true,
         predictionHeaderPc = 0x1000,
         predictionHSizeBytes = 4,
@@ -155,8 +155,8 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
         armHeaderPc = 0x1000,
         armHSizeBytes = 2,
         armBSizeBytes = 0x10))
-    val bsizeMismatch = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val bsizeMismatch = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = true,
         predictionHeaderPc = 0x1000,
         predictionHSizeBytes = 2,
@@ -165,8 +165,8 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
         armHeaderPc = 0x1000,
         armHSizeBytes = 2,
         armBSizeBytes = 0x10))
-    val idle = ReducedBfuBodyCutArmReference(
-      ReducedBfuBodyCutArmReference.Inputs(
+    val idle = BfuBodyCutArmReference(
+      BfuBodyCutArmReference.Inputs(
         predictionValid = false,
         predictionHeaderPc = 0x1000,
         predictionHSizeBytes = 2,
@@ -187,11 +187,11 @@ class ReducedBfuBodyCutArmSpec extends AnyFunSuite {
     assert(!idle.bsizeMismatch)
   }
 
-  test("ReducedBfuBodyCutArm elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuBodyCutArmProbe(InterfaceParams()))
+  test("BfuBodyCutArm elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuBodyCutArmProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuBodyCutArmProbe"))
-    assert(sv.contains("module ReducedBfuBodyCutArm"))
+    assert(sv.contains("module BfuBodyCutArmProbe"))
+    assert(sv.contains("module BfuBodyCutArm"))
     assert(sv.contains("io_accepted"))
     assert(sv.contains("io_bsizeMismatch"))
   }

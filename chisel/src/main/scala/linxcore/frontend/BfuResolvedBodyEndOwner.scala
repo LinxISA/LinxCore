@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuResolvedBodyEndOwnerIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndOwnerIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val headerActive = Input(Bool())
   val activeHeaderPc = Input(UInt(p.pcWidth.W))
@@ -25,8 +25,8 @@ class ReducedBfuResolvedBodyEndOwnerIO(val p: InterfaceParams = InterfaceParams(
   val bodyEndUnderflow = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndOwner(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndOwnerIO(p))
+class BfuResolvedBodyEndOwner(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndOwnerIO(p))
 
   val bodyBasePc = (io.activeHeaderPc + 2.U)(p.pcWidth - 1, 0)
   val headerMatch = io.resolvedHeaderPc === io.activeHeaderPc

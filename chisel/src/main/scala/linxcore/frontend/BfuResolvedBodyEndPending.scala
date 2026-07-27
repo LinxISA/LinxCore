@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuResolvedBodyEndPendingIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndPendingIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
 
   val captureValid = Input(Bool())
@@ -35,8 +35,8 @@ class ReducedBfuResolvedBodyEndPendingIO(val p: InterfaceParams = InterfaceParam
   val candidateMismatch = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndPending(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndPendingIO(p))
+class BfuResolvedBodyEndPending(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndPendingIO(p))
 
   val pendingReg = RegInit(false.B)
   val headerPcReg = RegInit(0.U(p.pcWidth.W))

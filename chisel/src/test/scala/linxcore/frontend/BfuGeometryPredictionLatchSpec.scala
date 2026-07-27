@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-class ReducedBfuGeometryPredictionLatchProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuGeometryPredictionLatchProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
   val learnValid = Input(Bool())
   val learnHeaderPc = Input(UInt(p.pcWidth.W))
@@ -18,9 +18,9 @@ class ReducedBfuGeometryPredictionLatchProbeIO(val p: InterfaceParams = Interfac
   val bsizeBytes = Output(UInt(p.pcWidth.W))
 }
 
-class ReducedBfuGeometryPredictionLatchProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuGeometryPredictionLatchProbeIO(p))
-  val latch = Module(new ReducedBfuGeometryPredictionLatch(p))
+class BfuGeometryPredictionLatchProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuGeometryPredictionLatchProbeIO(p))
+  val latch = Module(new BfuGeometryPredictionLatch(p))
 
   latch.io.flushValid := io.flushValid
   latch.io.learnValid := io.learnValid
@@ -34,7 +34,7 @@ class ReducedBfuGeometryPredictionLatchProbe(val p: InterfaceParams = InterfaceP
   io.bsizeBytes := latch.io.bsizeBytes
 }
 
-class ReducedBfuGeometryPredictionLatchSpec extends AnyFunSuite {
+class BfuGeometryPredictionLatchSpec extends AnyFunSuite {
   test("reference stores learned geometry for later prediction without same-cycle feedthrough") {
     var valid = false
     var headerPc = BigInt(0)
@@ -69,11 +69,11 @@ class ReducedBfuGeometryPredictionLatchSpec extends AnyFunSuite {
     assert(step()._1 == false)
   }
 
-  test("ReducedBfuGeometryPredictionLatch elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuGeometryPredictionLatchProbe(InterfaceParams()))
+  test("BfuGeometryPredictionLatch elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuGeometryPredictionLatchProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuGeometryPredictionLatchProbe"))
-    assert(sv.contains("module ReducedBfuGeometryPredictionLatch"))
+    assert(sv.contains("module BfuGeometryPredictionLatchProbe"))
+    assert(sv.contains("module BfuGeometryPredictionLatch"))
     assert(sv.contains("io_geometryValid"))
     assert(sv.contains("io_learnValid"))
     assert(sv.contains("io_bsizeBytes"))

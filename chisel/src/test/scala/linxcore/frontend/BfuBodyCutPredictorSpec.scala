@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuBodyCutPredictorReference {
+object BfuBodyCutPredictorReference {
   final case class Result(cutActive: Boolean, cutPc: BigInt, restartPc: BigInt, advanceBytes: Int, validMask: Int)
 
   private val WindowBytes = 8
@@ -43,7 +43,7 @@ object ReducedBfuBodyCutPredictorReference {
   }
 }
 
-class ReducedBfuBodyCutPredictorProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuBodyCutPredictorProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val geometryValid = Input(Bool())
   val headerPc = Input(UInt(p.pcWidth.W))
   val hsizeBytes = Input(UInt(p.pcWidth.W))
@@ -61,9 +61,9 @@ class ReducedBfuBodyCutPredictorProbeIO(val p: InterfaceParams = InterfaceParams
   val validMask = Output(UInt(p.decodeWidth.W))
 }
 
-class ReducedBfuBodyCutPredictorProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuBodyCutPredictorProbeIO(p))
-  val predictor = Module(new ReducedBfuBodyCutPredictor(p))
+class BfuBodyCutPredictorProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuBodyCutPredictorProbeIO(p))
+  val predictor = Module(new BfuBodyCutPredictor(p))
 
   predictor.io.geometryValid := io.geometryValid
   predictor.io.headerPc := io.headerPc
@@ -82,9 +82,9 @@ class ReducedBfuBodyCutPredictorProbe(val p: InterfaceParams = InterfaceParams()
   io.validMask := predictor.io.validMask
 }
 
-class ReducedBfuBodyCutPredictorSpec extends AnyFunSuite {
+class BfuBodyCutPredictorSpec extends AnyFunSuite {
   test("reference computes CoreMark FALL body boundary from BFU hsize and bsize geometry") {
-    val result = ReducedBfuBodyCutPredictorReference.predict(
+    val result = BfuBodyCutPredictorReference.predict(
       geometryValid = true,
       headerPc = BigInt("4000630c", 16),
       hsizeBytes = 0,
@@ -104,7 +104,7 @@ class ReducedBfuBodyCutPredictorSpec extends AnyFunSuite {
   }
 
   test("reference passes through when the body boundary is outside the current F4 window") {
-    val result = ReducedBfuBodyCutPredictorReference.predict(
+    val result = BfuBodyCutPredictorReference.predict(
       geometryValid = true,
       headerPc = 0x1000,
       hsizeBytes = 0,
@@ -121,11 +121,11 @@ class ReducedBfuBodyCutPredictorSpec extends AnyFunSuite {
     assert(result.validMask == 0xf)
   }
 
-  test("ReducedBfuBodyCutPredictor elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuBodyCutPredictorProbe(InterfaceParams()))
+  test("BfuBodyCutPredictor elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuBodyCutPredictorProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuBodyCutPredictorProbe"))
-    assert(sv.contains("module ReducedBfuBodyCutPredictor"))
+    assert(sv.contains("module BfuBodyCutPredictorProbe"))
+    assert(sv.contains("module BfuBodyCutPredictor"))
     assert(sv.contains("io_cutActive"))
     assert(sv.contains("io_advanceBytes"))
   }

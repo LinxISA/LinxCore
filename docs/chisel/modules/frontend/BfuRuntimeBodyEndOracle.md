@@ -1,4 +1,4 @@
-# ReducedBfuPromotedRuntimeBodyEndOracle
+# BfuRuntimeBodyEndOracle
 
 > **Architecture status — verification-only oracle.** It is not part of the production decoupled
 > I-F0–I-F4/B-F0–B-F4 owner
@@ -6,11 +6,11 @@
 
 ## Purpose
 
-`ReducedBfuPromotedRuntimeBodyEndOracle` is the R157 proof owner for pending
+`BfuRuntimeBodyEndOracle` is the R157 proof owner for pending
 BFU runtime body-end feedback after it drives source selection without waiting
 for replay timing. It keeps the replay comparison surface alive after
-`ReducedBfuResolvedBodyEndSource` consumes the pending event from
-`ReducedBfuResolvedBodyEndPending`.
+`BfuResolvedBodyEndSource` consumes the pending event from
+`BfuResolvedBodyEndPending`.
 
 The module is diagnostic only. It must not gate body-end source selection or
 body-cut control. Its job is to prove that each promoted RTL-owned body-end
@@ -22,7 +22,7 @@ oracle slot was overwritten before replay could check it.
 | Direction | Signal | Type | Description |
 |---|---|---|---|
 | input | `flushValid` | `Bool` | Clears any stored promoted runtime event. |
-| input | `promoteValid`, `promoteHeaderPc`, `promoteHSizeBytes`, `promoteBodyEndPc` | mixed | Runtime body-end event selected by `ReducedBfuResolvedBodyEndSource`. |
+| input | `promoteValid`, `promoteHeaderPc`, `promoteHSizeBytes`, `promoteBodyEndPc` | mixed | Runtime body-end event selected by `BfuResolvedBodyEndSource`. |
 | input | `replayValid`, `replayHeaderPc`, `replayHSizeBytes`, `replayBSizeBytes` | mixed | Temporary QEMU/replay oracle payload. |
 | output | `pending` | `Bool` | A promoted event is waiting for a replay comparison. |
 | output | `captureFire` | `Bool` | A promoted event was retained because replay was not comparable in the same cycle. |
@@ -74,7 +74,7 @@ oracle queue to preserve proof for every promoted event.
 Focused gate:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuPromotedRuntimeBodyEndOracle
+bash tools/chisel/run_chisel_tests.sh --only BfuRuntimeBodyEndOracle
 ```
 
 Affected top gate:
@@ -99,11 +99,11 @@ The R157 replay compared 3280 normalized QEMU/DUT rows with zero mismatches and
 reported:
 
 ```text
-bfu_promoted_runtime_body_end_oracle_pending=2082
-bfu_promoted_runtime_body_end_oracle_replay_comparable=159
-bfu_promoted_runtime_body_end_oracle_replay_matches=159
-bfu_promoted_runtime_body_end_oracle_replay_mismatches=0
-bfu_promoted_runtime_body_end_oracle_overwrites=0
+bfu_runtime_body_end_oracle_pending=2082
+bfu_runtime_body_end_oracle_replay_comparable=159
+bfu_runtime_body_end_oracle_replay_matches=159
+bfu_runtime_body_end_oracle_replay_mismatches=0
+bfu_runtime_body_end_oracle_overwrites=0
 ```
 
 The generated-RTL harness fails on any promoted oracle replay mismatch or

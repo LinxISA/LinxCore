@@ -5368,10 +5368,10 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_startPc = 0;
   dut.io_restartValid = 0;
   dut.io_restartPc = 0;
-  dut.io_reducedBfuBodyValid = 0;
-  dut.io_reducedBfuHeaderPc = 0;
-  dut.io_reducedBfuHSizeBytes = 0;
-  dut.io_reducedBfuBSizeBytes = 0;
+  dut.io_bfuBodyValid = 0;
+  dut.io_bfuHeaderPc = 0;
+  dut.io_bfuHSizeBytes = 0;
+  dut.io_bfuBSizeBytes = 0;
   dut.io_frontendFlushValid = 0;
   dut.io_peId = 0;
   dut.io_threadId = 0;
@@ -6389,12 +6389,12 @@ struct BfuGeometryDiagnostics {
   std::uint64_t pending_runtime_candidate_replay_comparable_count = 0;
   std::uint64_t pending_runtime_candidate_replay_match_count = 0;
   std::uint64_t pending_runtime_candidate_replay_mismatch_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_pending_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_capture_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_replay_comparable_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_replay_match_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_replay_mismatch_count = 0;
-  std::uint64_t promoted_runtime_body_end_oracle_overwrite_count = 0;
+  std::uint64_t runtime_body_end_oracle_pending_count = 0;
+  std::uint64_t runtime_body_end_oracle_capture_count = 0;
+  std::uint64_t runtime_body_end_oracle_replay_comparable_count = 0;
+  std::uint64_t runtime_body_end_oracle_replay_match_count = 0;
+  std::uint64_t runtime_body_end_oracle_replay_mismatch_count = 0;
+  std::uint64_t runtime_body_end_oracle_overwrite_count = 0;
   std::uint64_t resolved_source_runtime_replay_comparable_count = 0;
   std::uint64_t resolved_source_runtime_replay_match_count = 0;
   std::uint64_t resolved_source_runtime_replay_mismatch_count = 0;
@@ -6410,133 +6410,133 @@ void observe_bfu_geometry_diagnostics(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     BfuGeometryDiagnostics &stats,
     const char *context) {
-  if (dut.io_reducedBfuStaticExternalMismatch ||
-      dut.io_reducedBfuStaticExternalHeaderMismatch ||
-      dut.io_reducedBfuStaticExternalHSizeMismatch ||
-      dut.io_reducedBfuStaticExternalBSizeMismatch) {
+  if (dut.io_bfuStaticExternalMismatch ||
+      dut.io_bfuStaticExternalHeaderMismatch ||
+      dut.io_bfuStaticExternalHSizeMismatch ||
+      dut.io_bfuStaticExternalBSizeMismatch) {
     std::cerr << "frontend fetch RF ALU BFU static/external geometry mismatch during "
               << context
-              << " comparable=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalComparable)
-              << " match=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalMatch)
-              << " headerMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalHeaderMismatch)
-              << " hsizeMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalHSizeMismatch)
-              << " bsizeMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalBSizeMismatch)
+              << " comparable=" << static_cast<unsigned>(dut.io_bfuStaticExternalComparable)
+              << " match=" << static_cast<unsigned>(dut.io_bfuStaticExternalMatch)
+              << " headerMismatch=" << static_cast<unsigned>(dut.io_bfuStaticExternalHeaderMismatch)
+              << " hsizeMismatch=" << static_cast<unsigned>(dut.io_bfuStaticExternalHSizeMismatch)
+              << " bsizeMismatch=" << static_cast<unsigned>(dut.io_bfuStaticExternalBSizeMismatch)
               << "\n";
     std::exit(1);
   }
-  if (dut.io_reducedBfuResolvedBodyEndHeaderMismatch ||
-      dut.io_reducedBfuResolvedBodyEndInactiveDrop ||
-      dut.io_reducedBfuResolvedBodyEndFlushDrop ||
-      dut.io_reducedBfuResolvedBodyEndUnderflow) {
+  if (dut.io_bfuResolvedBodyEndHeaderMismatch ||
+      dut.io_bfuResolvedBodyEndInactiveDrop ||
+      dut.io_bfuResolvedBodyEndFlushDrop ||
+      dut.io_bfuResolvedBodyEndUnderflow) {
     std::cerr << "frontend fetch RF ALU BFU resolved body-end owner rejected replay geometry during "
               << context
-              << " accepted=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndAccepted)
-              << " headerMismatch=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndHeaderMismatch)
-              << " inactiveDrop=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndInactiveDrop)
-              << " flushDrop=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndFlushDrop)
-              << " underflow=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndUnderflow)
+              << " accepted=" << static_cast<unsigned>(dut.io_bfuResolvedBodyEndAccepted)
+              << " headerMismatch=" << static_cast<unsigned>(dut.io_bfuResolvedBodyEndHeaderMismatch)
+              << " inactiveDrop=" << static_cast<unsigned>(dut.io_bfuResolvedBodyEndInactiveDrop)
+              << " flushDrop=" << static_cast<unsigned>(dut.io_bfuResolvedBodyEndFlushDrop)
+              << " underflow=" << static_cast<unsigned>(dut.io_bfuResolvedBodyEndUnderflow)
               << "\n";
     std::exit(1);
   }
-  if (dut.io_reducedBfuResolvedBodyEndAccepted) {
+  if (dut.io_bfuResolvedBodyEndAccepted) {
     ++stats.resolved_accept_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeSelected) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimeSelected) {
     ++stats.resolved_source_runtime_selected_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceReplaySelected) {
+  if (dut.io_bfuResolvedBodyEndSourceReplaySelected) {
     ++stats.resolved_source_replay_selected_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeFeedbackFire) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimeFeedbackFire) {
     ++stats.resolved_source_runtime_feedback_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePending) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePending) {
     ++stats.resolved_source_runtime_pending_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingConsumeFire) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePendingConsumeFire) {
     ++stats.resolved_source_runtime_pending_consume_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingDropMismatch) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePendingDropMismatch) {
     ++stats.resolved_source_runtime_pending_drop_mismatch_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateComparable) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePendingCandidateComparable) {
     ++stats.resolved_source_runtime_pending_candidate_comparable_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateMatch) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePendingCandidateMatch) {
     ++stats.resolved_source_runtime_pending_candidate_match_count;
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateMismatch) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimePendingCandidateMismatch) {
     ++stats.resolved_source_runtime_pending_candidate_mismatch_count;
   }
-  if (dut.io_reducedBfuPendingRuntimeCandidateValid) {
+  if (dut.io_bfuPendingRuntimeCandidateValid) {
     ++stats.pending_runtime_candidate_valid_count;
   }
-  if (dut.io_reducedBfuPendingRuntimeCandidatePendingWithoutActiveHeader) {
+  if (dut.io_bfuPendingRuntimeCandidatePendingWithoutActiveHeader) {
     ++stats.pending_runtime_candidate_without_active_header_count;
   }
-  if (dut.io_reducedBfuPendingRuntimeCandidateActiveHeaderMismatch) {
+  if (dut.io_bfuPendingRuntimeCandidateActiveHeaderMismatch) {
     ++stats.pending_runtime_candidate_active_header_mismatch_count;
   }
-  if (dut.io_reducedBfuPendingRuntimeCandidateReplayComparable) {
+  if (dut.io_bfuPendingRuntimeCandidateReplayComparable) {
     ++stats.pending_runtime_candidate_replay_comparable_count;
-    if (dut.io_reducedBfuPendingRuntimeCandidateReplayMismatch) {
+    if (dut.io_bfuPendingRuntimeCandidateReplayMismatch) {
       ++stats.pending_runtime_candidate_replay_mismatch_count;
       std::cerr << "frontend fetch RF ALU pending runtime candidate mismatched replay during "
                 << context << "\n";
       std::exit(1);
     }
-    if (dut.io_reducedBfuPendingRuntimeCandidateReplayMatch) {
+    if (dut.io_bfuPendingRuntimeCandidateReplayMatch) {
       ++stats.pending_runtime_candidate_replay_match_count;
     }
   }
-  if (dut.io_reducedBfuPromotedRuntimeBodyEndOraclePending) {
-    ++stats.promoted_runtime_body_end_oracle_pending_count;
+  if (dut.io_bfuRuntimeBodyEndOraclePending) {
+    ++stats.runtime_body_end_oracle_pending_count;
   }
-  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleCaptureFire) {
-    ++stats.promoted_runtime_body_end_oracle_capture_count;
+  if (dut.io_bfuRuntimeBodyEndOracleCaptureFire) {
+    ++stats.runtime_body_end_oracle_capture_count;
   }
-  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleOverwritePending) {
-    ++stats.promoted_runtime_body_end_oracle_overwrite_count;
+  if (dut.io_bfuRuntimeBodyEndOracleOverwritePending) {
+    ++stats.runtime_body_end_oracle_overwrite_count;
     std::cerr << "frontend fetch RF ALU promoted runtime body-end oracle was overwritten before replay during "
               << context << "\n";
     std::exit(1);
   }
-  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayComparable) {
-    ++stats.promoted_runtime_body_end_oracle_replay_comparable_count;
-    if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayMismatch) {
-      ++stats.promoted_runtime_body_end_oracle_replay_mismatch_count;
+  if (dut.io_bfuRuntimeBodyEndOracleReplayComparable) {
+    ++stats.runtime_body_end_oracle_replay_comparable_count;
+    if (dut.io_bfuRuntimeBodyEndOracleReplayMismatch) {
+      ++stats.runtime_body_end_oracle_replay_mismatch_count;
       std::cerr << "frontend fetch RF ALU promoted runtime body-end oracle mismatched replay during "
                 << context << "\n";
       std::exit(1);
     }
-    if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayMatch) {
-      ++stats.promoted_runtime_body_end_oracle_replay_match_count;
+    if (dut.io_bfuRuntimeBodyEndOracleReplayMatch) {
+      ++stats.runtime_body_end_oracle_replay_match_count;
     }
   }
-  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayComparable) {
+  if (dut.io_bfuResolvedBodyEndSourceRuntimeReplayComparable) {
     ++stats.resolved_source_runtime_replay_comparable_count;
-    if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayMismatch) {
+    if (dut.io_bfuResolvedBodyEndSourceRuntimeReplayMismatch) {
       ++stats.resolved_source_runtime_replay_mismatch_count;
     }
-    if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayMatch) {
+    if (dut.io_bfuResolvedBodyEndSourceRuntimeReplayMatch) {
       ++stats.resolved_source_runtime_replay_match_count;
     }
   }
-  if (dut.io_reducedBfuBodyCutArmComparable) {
+  if (dut.io_bfuBodyCutArmComparable) {
     ++stats.cut_arm_comparable_count;
-    if (dut.io_reducedBfuBodyCutArmMismatch ||
-        dut.io_reducedBfuBodyCutArmHeaderMismatch ||
-        dut.io_reducedBfuBodyCutArmHSizeMismatch ||
-        dut.io_reducedBfuBodyCutArmBSizeMismatch) {
+    if (dut.io_bfuBodyCutArmMismatch ||
+        dut.io_bfuBodyCutArmHeaderMismatch ||
+        dut.io_bfuBodyCutArmHSizeMismatch ||
+        dut.io_bfuBodyCutArmBSizeMismatch) {
       ++stats.cut_arm_mismatch_count;
     }
   }
-  if (dut.io_reducedBfuBodyCutArmAccepted) {
+  if (dut.io_bfuBodyCutArmAccepted) {
     ++stats.cut_arm_accept_count;
   }
-  if (dut.io_reducedBfuStaticExternalComparable) {
+  if (dut.io_bfuStaticExternalComparable) {
     ++stats.comparable_count;
-    if (!dut.io_reducedBfuStaticExternalMatch) {
+    if (!dut.io_bfuStaticExternalMatch) {
       std::cerr << "frontend fetch RF ALU BFU geometry was comparable without a match during "
                 << context << "\n";
       std::exit(1);
@@ -6583,10 +6583,10 @@ void drive_bfu_body_geometry_hint(VLinxCoreFrontendFetchRfAluTraceTop &dut, cons
   if (!hint.valid) {
     return;
   }
-  dut.io_reducedBfuBodyValid = 1;
-  dut.io_reducedBfuHeaderPc = hint.header_pc;
-  dut.io_reducedBfuHSizeBytes = hint.hsize_bytes;
-  dut.io_reducedBfuBSizeBytes = hint.bsize_bytes;
+  dut.io_bfuBodyValid = 1;
+  dut.io_bfuHeaderPc = hint.header_pc;
+  dut.io_bfuHSizeBytes = hint.hsize_bytes;
+  dut.io_bfuBSizeBytes = hint.bsize_bytes;
 }
 
 bool is_suppressed_local_body_cut_marker(const std::vector<ExpectedRow> &rows, std::size_t index) {
@@ -7057,12 +7057,12 @@ DrainDenseRowResult drain_dense_row(
             << " bfuPendingRuntimeCandidateValid=" << bfu_stats.pending_runtime_candidate_valid_count
             << " bfuPendingRuntimeCandidateHeaderMismatch="
             << bfu_stats.pending_runtime_candidate_active_header_mismatch_count
-            << " bfuPromotedRuntimeCaptures="
-            << bfu_stats.promoted_runtime_body_end_oracle_capture_count
-            << " bfuPromotedRuntimeReplayComparable="
-            << bfu_stats.promoted_runtime_body_end_oracle_replay_comparable_count
-            << " bfuPromotedRuntimeReplayMatch="
-            << bfu_stats.promoted_runtime_body_end_oracle_replay_match_count
+            << " bfuRuntimeBodyEndOracleCaptures="
+            << bfu_stats.runtime_body_end_oracle_capture_count
+            << " bfuRuntimeBodyEndOracleReplayComparable="
+            << bfu_stats.runtime_body_end_oracle_replay_comparable_count
+            << " bfuRuntimeBodyEndOracleReplayMatch="
+            << bfu_stats.runtime_body_end_oracle_replay_match_count
             << " bfuRuntimeReplayComparable="
             << bfu_stats.resolved_source_runtime_replay_comparable_count
             << " bfuRuntimeReplayMatch="
@@ -8271,18 +8271,18 @@ int main(int argc, char **argv) {
               << bfu_stats.pending_runtime_candidate_replay_match_count
               << " bfu_pending_runtime_candidate_replay_mismatches="
               << bfu_stats.pending_runtime_candidate_replay_mismatch_count
-              << " bfu_promoted_runtime_body_end_oracle_pending="
-              << bfu_stats.promoted_runtime_body_end_oracle_pending_count
-              << " bfu_promoted_runtime_body_end_oracle_captures="
-              << bfu_stats.promoted_runtime_body_end_oracle_capture_count
-              << " bfu_promoted_runtime_body_end_oracle_replay_comparable="
-              << bfu_stats.promoted_runtime_body_end_oracle_replay_comparable_count
-              << " bfu_promoted_runtime_body_end_oracle_replay_matches="
-              << bfu_stats.promoted_runtime_body_end_oracle_replay_match_count
-              << " bfu_promoted_runtime_body_end_oracle_replay_mismatches="
-              << bfu_stats.promoted_runtime_body_end_oracle_replay_mismatch_count
-              << " bfu_promoted_runtime_body_end_oracle_overwrites="
-              << bfu_stats.promoted_runtime_body_end_oracle_overwrite_count
+              << " bfu_runtime_body_end_oracle_pending="
+              << bfu_stats.runtime_body_end_oracle_pending_count
+              << " bfu_runtime_body_end_oracle_captures="
+              << bfu_stats.runtime_body_end_oracle_capture_count
+              << " bfu_runtime_body_end_oracle_replay_comparable="
+              << bfu_stats.runtime_body_end_oracle_replay_comparable_count
+              << " bfu_runtime_body_end_oracle_replay_matches="
+              << bfu_stats.runtime_body_end_oracle_replay_match_count
+              << " bfu_runtime_body_end_oracle_replay_mismatches="
+              << bfu_stats.runtime_body_end_oracle_replay_mismatch_count
+              << " bfu_runtime_body_end_oracle_overwrites="
+              << bfu_stats.runtime_body_end_oracle_overwrite_count
               << " bfu_resolved_source_runtime_replay_comparable="
               << bfu_stats.resolved_source_runtime_replay_comparable_count
               << " bfu_resolved_source_runtime_replay_matches="

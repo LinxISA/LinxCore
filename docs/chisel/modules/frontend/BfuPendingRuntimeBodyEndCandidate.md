@@ -1,4 +1,4 @@
-# ReducedBfuPendingRuntimeBodyEndCandidate
+# BfuPendingRuntimeBodyEndCandidate
 
 > **Architecture status — verification-only feedback fixture.** Retained resolved
 > feedback belongs to the B-F0–B-F4 training queue and must carry exact
@@ -6,21 +6,21 @@
 
 ## Purpose
 
-`ReducedBfuPendingRuntimeBodyEndCandidate` is the R157 active-header eligibility
+`BfuPendingRuntimeBodyEndCandidate` is the R157 active-header eligibility
 owner for pending BFU runtime body-end feedback. It answers the control
 question that R156 first measured diagnostically: if replay timing is removed,
 is the retained runtime payload acceptable against the current active header?
 
-In R157 this candidate drives `ReducedBfuResolvedBodyEndSource`. Replay remains
+In R157 this candidate drives `BfuResolvedBodyEndSource`. Replay remains
 only as an oracle: same-cycle candidate/replay comparisons are still exposed
 here, and delayed comparisons after promotion are owned by
-`ReducedBfuPromotedRuntimeBodyEndOracle`.
+`BfuRuntimeBodyEndOracle`.
 
 ## Interface
 
 | Direction | Signal | Type | Description |
 |---|---|---|---|
-| input | `pendingValid`, `pendingHeaderPc`, `pendingHSizeBytes`, `pendingBodyEndPc` | mixed | Retained local body-window cut feedback from `ReducedBfuResolvedBodyEndPending`. |
+| input | `pendingValid`, `pendingHeaderPc`, `pendingHSizeBytes`, `pendingBodyEndPc` | mixed | Retained local body-window cut feedback from `BfuResolvedBodyEndPending`. |
 | input | `headerActive`, `activeHeaderPc` | mixed | Current static-predictor active-header state. |
 | input | `replayValid`, `replayHeaderPc`, `replayHSizeBytes`, `replayBSizeBytes` | mixed | Temporary replay/reducer oracle used only for diagnostics. |
 | output | `candidateValid`, `candidateHeaderPc`, `candidateHSizeBytes`, `candidateBodyEndPc` | mixed | Replay-free source candidate when pending feedback matches the active header. |
@@ -48,7 +48,7 @@ replayBodyEndPc = replayHeaderPc + 2 + replayBSizeBytes
 
 R157 promotes this candidate into the source arbiter. Replay comparisons in
 this module are now same-cycle diagnostics only; once source selection consumes
-the pending event before replay arrives, `ReducedBfuPromotedRuntimeBodyEndOracle`
+the pending event before replay arrives, `BfuRuntimeBodyEndOracle`
 retains the promoted payload until replay can check it.
 
 ## Model Evidence
@@ -67,7 +67,7 @@ retains the promoted payload until replay can check it.
 Focused gate:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuPendingRuntimeBodyEndCandidate
+bash tools/chisel/run_chisel_tests.sh --only BfuPendingRuntimeBodyEndCandidate
 ```
 
 Affected top gate:

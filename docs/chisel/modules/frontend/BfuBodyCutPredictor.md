@@ -1,4 +1,4 @@
-# ReducedBfuBodyCutPredictor
+# BfuBodyCutPredictor
 
 > **Architecture status — verification-only fixture.** Production body/branch
 > prediction is a B-F0–B-F4 responsibility communicated to I-SIDE through
@@ -6,10 +6,10 @@
 
 ## Purpose
 
-`ReducedBfuBodyCutPredictor` is the reduced Chisel boundary for the
+`BfuBodyCutPredictor` is the compatibility Chisel boundary for the
 LinxCoreModel BFU block-body geometry contract. It converts model-style
 `headerPc`/`hsize`/`bsize` metadata into the live fetch/F4 actions needed by
-the reduced CoreMark loop replay:
+the compatibility CoreMark loop replay:
 
 - `restartPc = headerPc + hsize`
 - `cutPc = headerPc + 2 + bsize`
@@ -17,8 +17,8 @@ the reduced CoreMark loop replay:
 The `+2` body-base step follows LinxCoreModel `BFUUtils::NextBlockPC`, which
 advances by one 16-bit bundle slot from the header bundle position. The module
 does not predict `hsize` or `bsize`; R153 receives those payload values either
-from `ReducedBfuLocalBodyWindow` after a trained header match or from
-`ReducedBfuResolvedBodyEndOwner` for the cold same-cycle body-end cut. The
+from `BfuLocalBodyWindow` after a trained header match or from
+`BfuResolvedBodyEndOwner` for the cold same-cycle body-end cut. The
 loop-aware harness remains the temporary resolved-event source and oracle.
 
 ## Interface

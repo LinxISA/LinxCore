@@ -1,4 +1,4 @@
-# ReducedBfuResolvedBodyEndPending
+# BfuResolvedBodyEndPending
 
 > **Architecture status — verification-only feedback fixture.** Production uses
 > a retained B-F0–B-F4 training entry with exact STID, prediction tag, fetch
@@ -6,7 +6,7 @@
 
 ## Purpose
 
-`ReducedBfuResolvedBodyEndPending` is the R155 lifetime owner for reduced BFU
+`BfuResolvedBodyEndPending` is the R155 lifetime owner for compatibility BFU
 runtime body-end feedback. R154 captured local body-cut feedback for only one
 cycle, so a valid local cut could be counted without ever becoming the selected
 resolved body-end source. This module keeps that runtime event pending until a
@@ -25,7 +25,7 @@ come from retained RTL runtime state once the next candidate proves the
 | input | `captureValid`, `captureHeaderPc`, `captureHSizeBytes`, `captureBodyEndPc` | mixed | Captures the local body-window cut feedback event. |
 | input | `candidateValid`, `candidateHeaderPc`, `candidateHSizeBytes`, `candidateBSizeBytes` | mixed | Replay-qualified candidate used to decide whether the pending runtime event is eligible this cycle. |
 | input | `consumeValid` | `Bool` | Source-arbiter consume pulse for a selected runtime event. |
-| output | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | Runtime event forwarded to `ReducedBfuResolvedBodyEndSource` only when pending feedback matches the candidate. |
+| output | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | Runtime event forwarded to `BfuResolvedBodyEndSource` only when pending feedback matches the candidate. |
 | output | `pending`, `pendingHeaderPc`, `pendingHSizeBytes`, `pendingBodyEndPc` | mixed | Pending-store state and retained payload for downstream diagnostics. |
 | output | `captureFire`, `consumeFire` | `Bool` | Pending-store lifecycle diagnostics. |
 | output | `dropMismatch`, `candidateComparable`, `candidateMatch`, `candidateMismatch` | `Bool` | Replay-oracle diagnostics for stale or mismatched pending feedback. |
@@ -70,7 +70,7 @@ over consume/drop so back-to-back local cuts do not lose the newest event.
 Focused gate:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only ReducedBfuResolvedBodyEndPending
+bash tools/chisel/run_chisel_tests.sh --only BfuResolvedBodyEndPending
 ```
 
 Affected top gate:

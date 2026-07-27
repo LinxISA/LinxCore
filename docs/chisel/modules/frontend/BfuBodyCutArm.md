@@ -1,4 +1,4 @@
-# ReducedBfuBodyCutArm
+# BfuBodyCutArm
 
 > **Architecture status — verification-only diagnostic.** Production prediction
 > is owned by the decoupled B-SIDE engine. This helper supplies focused evidence
@@ -6,7 +6,7 @@
 
 ## Purpose
 
-`ReducedBfuBodyCutArm` is the reduced BFU diagnostic boundary between a latched
+`BfuBodyCutArm` is the compatibility BFU diagnostic boundary between a latched
 geometry prediction and the temporary external replay oracle. It does not
 compute body geometry and it does not choose a branch target. It reports whether
 the candidate arm row agrees with the latched prediction on `headerPc`,
@@ -15,9 +15,9 @@ the candidate arm row agrees with the latched prediction on `headerPc`,
 This keeps the R150 behavior intact while separating two roles that must become
 different owners later:
 
-- `ReducedBfuGeometryPredictionLatch` owns the remembered resolved body-end
+- `BfuGeometryPredictionLatch` owns the remembered resolved body-end
   payload used by the local body window.
-- The external `reducedBfu*` row is the temporary resolved-event source and
+- The external `bfu*` row is the temporary resolved-event source and
   oracle until a real branch/BFU resolver replaces it.
 
 ## Interface
@@ -25,7 +25,7 @@ different owners later:
 | Direction | Signal | Type | Description |
 |---|---|---|---|
 | input | `predictionValid` | `Bool` | A latched static geometry payload is available. |
-| input | `predictionHeaderPc`, `predictionHSizeBytes`, `predictionBSizeBytes` | `UInt(pcWidth.W)` | Latched static geometry that will feed `ReducedBfuBodyCutPredictor` if accepted. |
+| input | `predictionHeaderPc`, `predictionHSizeBytes`, `predictionBSizeBytes` | `UInt(pcWidth.W)` | Latched static geometry that will feed `BfuBodyCutPredictor` if accepted. |
 | input | `armValid` | `Bool` | A candidate body-cut arm event is available. R152 drives this from the external replay row. |
 | input | `armHeaderPc`, `armHSizeBytes`, `armBSizeBytes` | `UInt(pcWidth.W)` | Candidate geometry used only to validate and arm the latched prediction. |
 | output | `geometryValid` | `Bool` | The prediction row matches the oracle. R153 treats this as diagnostic; top-level body-cut control uses the local body window plus resolved fallback. |
@@ -65,9 +65,9 @@ The owner split follows the LinxCoreModel BFU flow:
 
 ## Verification
 
-R152 focused tests elaborate `ReducedBfuBodyCutArm` and cover exact acceptance,
+R152 focused tests elaborate `BfuBodyCutArm` and cover exact acceptance,
 payload ownership, all mismatch diagnostics, and non-comparable idle cases. The
 top-level generated-RTL replay reports comparable, accepted, and mismatched arm
 counts alongside existing BFU static and resolved body-end diagnostics. R153
 keeps this module as a diagnostic oracle check while body-cut control is driven
-by `ReducedBfuLocalBodyWindow` or the same-cycle resolved body-end fallback.
+by `BfuLocalBodyWindow` or the same-cycle resolved body-end fallback.

@@ -33,7 +33,9 @@ Current phase:
 - Production IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
   B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
   and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide
-  output; production decode/dispatch and benchmark promotion remain open.
+  output; natural CoreMark/Dhrystone run through the promoted production graph.
+  Four-row atomic D2/D3 admission, complete predictor policy, SoC PTW/L1I
+  binding, and lower-memory error termination remain open.
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started

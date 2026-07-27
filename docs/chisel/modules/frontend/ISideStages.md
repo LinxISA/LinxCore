@@ -213,10 +213,11 @@ gains `fetchSeq`.
   hierarchy.
 - Replace the direct-mapped L1I leaf with the selected production
   associativity/replacement policy without changing I-F1/I-F2 contracts.
-- Add a generated-RTL sustained one-group-per-cycle performance gate; the
-  current twenty-cycle result is a ChiselSim composition proof.
-- Promote CoreMark/Dhrystone from the reduced serialized fetch fixture to the
-  production `LinxCoreIfu` graph.
+- Add explicit terminal handling for denied/corrupt lower-memory responses so
+  bridge and miss-table credits cannot leak.
+
+The generated-RTL sustained four-entry D1 gate and natural CoreMark/Dhrystone
+promotion to the production `LinxCoreIfu` graph are complete.
 
 `skill-evolve: no-update` — transaction identity, parallel ITLB/L1I, orphan
 refill, cross-line ownership, and boundary-only I-F4 are already normative in

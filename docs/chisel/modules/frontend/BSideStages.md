@@ -183,9 +183,9 @@ queue suite contains 13. The `LinxCoreIfuSpec`
 end-to-end scenarios additionally prove final B-F4
 metadata on every D1 lane, canonical prediction correction ordering,
 cross-line fallthrough, and backend redirect priority. The canonical IFU now
-also has generated-RTL dense hot-cache throughput evidence; predictor-specific
-generated-RTL recovery stimulus and production benchmark promotion remain
-open.
+also has generated-RTL dense hot-cache throughput evidence and natural
+CoreMark/Dhrystone benchmark promotion. Predictor-specific generated-RTL
+recovery stimulus remains open.
 
 ## Remaining B-SIDE Work
 
@@ -193,9 +193,8 @@ open.
   usefulness, allocation, aging, and deterministic training-port policy.
 - Move path-history and loop speculative state onto the same request-owned
   checkpoint and canonical recovery framework.
-- Require every production branch resolve producer to classify `mispredict` and
-  every matching backend BRU recovery producer to populate the typed history
-  key and actual conditional delta now carried by `IfuInnerFlush`.
+- Add independent assertions and coverage for every B-F4 provider-rank and
+  direction-override pair.
 - Add generated-RTL predictor stimulus and full I-SIDE/B-SIDE asynchronous
   throughput/recovery gates.
 

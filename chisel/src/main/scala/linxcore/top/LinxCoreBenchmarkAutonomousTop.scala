@@ -418,10 +418,10 @@ class LinxCoreBenchmarkAutonomousTop(
   live.io.startPc := io.resetPc
   live.io.restartValid := io.restartValid
   live.io.restartPc := io.restartPc
-  live.io.reducedBfuBodyValid := false.B
-  live.io.reducedBfuHeaderPc := 0.U
-  live.io.reducedBfuHSizeBytes := 0.U
-  live.io.reducedBfuBSizeBytes := 0.U
+  live.io.bfuBodyValid := false.B
+  live.io.bfuHeaderPc := 0.U
+  live.io.bfuHSizeBytes := 0.U
+  live.io.bfuBSizeBytes := 0.U
   live.io.frontendFlushValid := hardFlush
   live.io.peId := io.peId
   live.io.threadId := io.threadId

@@ -120,10 +120,10 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_startPc = 0;
   dut.io_restartValid = 0;
   dut.io_restartPc = 0;
-  dut.io_reducedBfuBodyValid = 0;
-  dut.io_reducedBfuHeaderPc = 0;
-  dut.io_reducedBfuHSizeBytes = 0;
-  dut.io_reducedBfuBSizeBytes = 0;
+  dut.io_bfuBodyValid = 0;
+  dut.io_bfuHeaderPc = 0;
+  dut.io_bfuHSizeBytes = 0;
+  dut.io_bfuBSizeBytes = 0;
   dut.io_frontendFlushValid = 0;
   dut.io_peId = 0;
   dut.io_threadId = 0;

@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuPendingRuntimeBodyEndCandidateIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuPendingRuntimeBodyEndCandidateIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pendingValid = Input(Bool())
   val pendingHeaderPc = Input(UInt(p.pcWidth.W))
   val pendingHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -32,8 +32,8 @@ class ReducedBfuPendingRuntimeBodyEndCandidateIO(val p: InterfaceParams = Interf
   val replayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuPendingRuntimeBodyEndCandidate(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuPendingRuntimeBodyEndCandidateIO(p))
+class BfuPendingRuntimeBodyEndCandidate(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuPendingRuntimeBodyEndCandidateIO(p))
 
   val activeHeaderMatch = io.headerActive && io.pendingHeaderPc === io.activeHeaderPc
   val candidateValid = io.pendingValid && activeHeaderMatch

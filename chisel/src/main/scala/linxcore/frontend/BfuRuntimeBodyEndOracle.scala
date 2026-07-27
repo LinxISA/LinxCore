@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuPromotedRuntimeBodyEndOracleIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuRuntimeBodyEndOracleIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val flushValid = Input(Bool())
 
   val promoteValid = Input(Bool())
@@ -27,8 +27,8 @@ class ReducedBfuPromotedRuntimeBodyEndOracleIO(val p: InterfaceParams = Interfac
   val replayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuPromotedRuntimeBodyEndOracle(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuPromotedRuntimeBodyEndOracleIO(p))
+class BfuRuntimeBodyEndOracle(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuRuntimeBodyEndOracleIO(p))
 
   val pendingReg = RegInit(false.B)
   val headerPcReg = RegInit(0.U(p.pcWidth.W))

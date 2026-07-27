@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{PopCount, log2Ceil}
 import linxcore.common.InterfaceParams
 
-class ReducedBfuBodyCutPredictorIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuBodyCutPredictorIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val geometryValid = Input(Bool())
   val headerPc = Input(UInt(p.pcWidth.W))
   val hsizeBytes = Input(UInt(p.pcWidth.W))
@@ -24,10 +24,10 @@ class ReducedBfuBodyCutPredictorIO(val p: InterfaceParams = InterfaceParams()) e
   val slotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
 }
 
-class ReducedBfuBodyCutPredictor(val p: InterfaceParams = InterfaceParams()) extends Module {
-  require(p.decodeWidth == 4, "ReducedBfuBodyCutPredictor assumes the current 4-slot F4 window")
+class BfuBodyCutPredictor(val p: InterfaceParams = InterfaceParams()) extends Module {
+  require(p.decodeWidth == 4, "BfuBodyCutPredictor assumes the current 4-slot F4 window")
 
-  val io = IO(new ReducedBfuBodyCutPredictorIO(p))
+  val io = IO(new BfuBodyCutPredictorIO(p))
 
   // LinxCoreModel BFUUtils::NextBlockPC advances by one 16-bit bundle slot.
   val bodyBasePc = io.headerPc + 2.U

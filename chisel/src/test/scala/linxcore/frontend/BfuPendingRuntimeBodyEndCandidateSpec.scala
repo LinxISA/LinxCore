@@ -5,7 +5,7 @@ import circt.stage.ChiselStage
 import linxcore.common.InterfaceParams
 import org.scalatest.funsuite.AnyFunSuite
 
-object ReducedBfuPendingRuntimeBodyEndCandidateReference {
+object BfuPendingRuntimeBodyEndCandidateReference {
   final case class Pending(
       valid: Boolean = false,
       headerPc: BigInt = 0,
@@ -51,7 +51,7 @@ object ReducedBfuPendingRuntimeBodyEndCandidateReference {
   }
 }
 
-class ReducedBfuPendingRuntimeBodyEndCandidateProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuPendingRuntimeBodyEndCandidateProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val pendingValid = Input(Bool())
   val pendingHeaderPc = Input(UInt(p.pcWidth.W))
   val pendingHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -71,9 +71,9 @@ class ReducedBfuPendingRuntimeBodyEndCandidateProbeIO(val p: InterfaceParams = I
   val replayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuPendingRuntimeBodyEndCandidateProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuPendingRuntimeBodyEndCandidateProbeIO(p))
-  val candidate = Module(new ReducedBfuPendingRuntimeBodyEndCandidate(p))
+class BfuPendingRuntimeBodyEndCandidateProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuPendingRuntimeBodyEndCandidateProbeIO(p))
+  val candidate = Module(new BfuPendingRuntimeBodyEndCandidate(p))
 
   candidate.io.pendingValid := io.pendingValid
   candidate.io.pendingHeaderPc := io.pendingHeaderPc
@@ -94,9 +94,9 @@ class ReducedBfuPendingRuntimeBodyEndCandidateProbe(val p: InterfaceParams = Int
   io.replayBodyEndMismatch := candidate.io.replayBodyEndMismatch
 }
 
-class ReducedBfuPendingRuntimeBodyEndCandidateSpec extends AnyFunSuite {
+class BfuPendingRuntimeBodyEndCandidateSpec extends AnyFunSuite {
   test("reference admits pending feedback when the active header matches") {
-    import ReducedBfuPendingRuntimeBodyEndCandidateReference._
+    import BfuPendingRuntimeBodyEndCandidateReference._
     val pending = Pending(valid = true, headerPc = BigInt("4000630c", 16), hsizeBytes = 0, bodyEndPc = BigInt("4000632e", 16))
     val replay = Replay(valid = true, headerPc = pending.headerPc, hsizeBytes = 0, bsizeBytes = 0x20)
     val result = step(pending, ActiveHeader(valid = true, pending.headerPc), replay)
@@ -108,7 +108,7 @@ class ReducedBfuPendingRuntimeBodyEndCandidateSpec extends AnyFunSuite {
   }
 
   test("reference separates inactive and mismatched active headers") {
-    import ReducedBfuPendingRuntimeBodyEndCandidateReference._
+    import BfuPendingRuntimeBodyEndCandidateReference._
     val pending = Pending(valid = true, headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1010)
     val inactive = step(pending, ActiveHeader(valid = false, pc = 0))
     val mismatch = step(pending, ActiveHeader(valid = true, pc = 0x2000))
@@ -122,7 +122,7 @@ class ReducedBfuPendingRuntimeBodyEndCandidateSpec extends AnyFunSuite {
   }
 
   test("reference reports replay body-end mismatches without invalidating the candidate") {
-    import ReducedBfuPendingRuntimeBodyEndCandidateReference._
+    import BfuPendingRuntimeBodyEndCandidateReference._
     val pending = Pending(valid = true, headerPc = 0x1000, hsizeBytes = 0, bodyEndPc = 0x1010)
     val replay = Replay(valid = true, headerPc = 0x1000, hsizeBytes = 0, bsizeBytes = 0x20)
     val result = step(pending, ActiveHeader(valid = true, pc = 0x1000), replay)
@@ -133,11 +133,11 @@ class ReducedBfuPendingRuntimeBodyEndCandidateSpec extends AnyFunSuite {
     assert(result.replayBodyEndMismatch)
   }
 
-  test("ReducedBfuPendingRuntimeBodyEndCandidate elaborates through Chisel") {
-    val sv = ChiselStage.emitSystemVerilog(new ReducedBfuPendingRuntimeBodyEndCandidateProbe(InterfaceParams()))
+  test("BfuPendingRuntimeBodyEndCandidate elaborates through Chisel") {
+    val sv = ChiselStage.emitSystemVerilog(new BfuPendingRuntimeBodyEndCandidateProbe(InterfaceParams()))
 
-    assert(sv.contains("module ReducedBfuPendingRuntimeBodyEndCandidateProbe"))
-    assert(sv.contains("module ReducedBfuPendingRuntimeBodyEndCandidate"))
+    assert(sv.contains("module BfuPendingRuntimeBodyEndCandidateProbe"))
+    assert(sv.contains("module BfuPendingRuntimeBodyEndCandidate"))
     assert(sv.contains("io_replayBodyEndMismatch"))
     assert(sv.contains("io_activeHeaderMismatch"))
   }

@@ -12,15 +12,15 @@ after I-F4 and before four-wide D1. B-SIDE final rank is
 `B-F4 > B-F3 > B-F2 > B-F1 > B-F0 > sequential`, with B-F4 correction
 as the final instance of the later-stage correction path returning to I-F0
 through the canonical redirect arbiter. `LinxCoreIfu` is the production IFU
-composition baseline, but the natural benchmark top has not yet been promoted
-from its verification-only reduced fetch fixture to this composition. Rows explicitly
+composition and the natural CoreMark/Dhrystone benchmark graph uses it through
+`LinxCoreProductionComposition`. Rows explicitly
 marked verification-only are excluded from the production owner graph even
 when their source remains available for focused tests.
 
 | Module | Package | Documentation | Status |
 |---|---|---|---|
 | `InterfaceBundles` / `TULinkBundles` / `BlockMarkerBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green shared type packets including R56 T/U cleanup source, R74 retire-source/command PE/STID sidecars, R141 widened physical tag support with all-ones invalid physical tags above reg6, and R169 marker retire-source payloads |
-| `LinxCoreIfu` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Production IFU composition of I-F0–I-F4, B-F0–B-F4, ordered multi-line contexts, canonical redirects, final-prediction join, Instruction Buffer, and four-wide D1; canonical generated-RTL hot-cache throughput is proven, while benchmark-top promotion remains open |
+| `LinxCoreIfu` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfu.md` | Production IFU composition of I-F0–I-F4, B-F0–B-F4, ordered multi-line contexts, canonical redirects, final-prediction join, Instruction Buffer, and four-wide D1; generated-RTL hot-cache throughput and natural benchmark-top promotion are proven |
 | `LinxCoreIfuThroughputProbe` | `linxcore.frontend` | `docs/chisel/modules/frontend/LinxCoreIfuThroughputProbe.md` | Generated-RTL proof shell for canonical 64-byte cachelines, multiple in-flight joins/contexts, final B-F4 metadata, and thirty-two consecutive full four-wide D1 groups |
 | `ISideF0PcSelect` / `ISideF1Lookup` / `ISideF2Resolve` / `ISideF3LineAssembler` / `ISideF4Predecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/ISideStages.md` | Canonical five-stage I-SIDE with parallel ITLB/L1I, exact miss/fault routing, cross-line assembly, boundary-only predecode, and fixed 64-bit output |
 | `ISideLineContextQueue` | `linxcore.frontend` | `docs/chisel/modules/frontend/ISideLineContextQueue.md` | Ordered multi-cacheline context owner with out-of-order exact I-F2 completion and exact successor prefix/carry application before I-F3 |
@@ -32,19 +32,19 @@ when their source remains available for focused tests.
 | `D1DecodedLaneQueue` / `D1DecodeRenameROBIngress` | `linxcore.frontend` / `linxcore.backend` | `docs/chisel/modules/backend/D1DecodeRenameROBIngress.md` | Production fixed-width D1-to-backend handoff: atomic four-lane intake, precise queued recovery, no packet/window/F4Slot reconstruction, direct predecoded rename/ROB admission, and generated-RTL exclusion of verification decoder modules |
 | `IfuBackendFeedbackBridge` | `linxcore.frontend` | `docs/chisel/modules/frontend/IfuBackendFeedbackBridge.md` | Production post-B-F4 adapter for Dispatch direct/call and BRU SETC validation, atomic actual-result training plus exact-keyed BRU recovery, and typed GHR/RAS restore-and-apply |
 | `IfuLineMemoryBridge` | `linxcore.top` | `docs/chisel/modules/top/IfuLineMemoryBridge.md` | Production tagged 64-byte IFU memory adapter with multiple outstanding rows, stable request FIFO, out-of-order tag-plus-PA response matching, exact identity reconstruction, and retained refill backpressure |
-| `LinxCoreProductionComposition` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreProductionComposition.md` | Single promoted frontend composition owner connecting canonical IFU, tagged line memory, fixed-width four-wide D1 full decode, and exact Dispatch/BRU feedback with canonical recovery |
+| `LinxCoreProductionComposition` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreProductionComposition.md` | Single production frontend composition owner connecting canonical IFU, tagged line memory, fixed-width four-wide D1 full decode, and exact Dispatch/BRU feedback with canonical recovery |
 | `F4DecodeWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DecodeWindow.md` | Verification-only 8-byte combinational slicer; excluded from architectural I-F4 |
 | `F4DenseSlotQueue` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DenseSlotQueue.md` | Verification-only serialized-slot fixture; excluded from the production IFU graph |
-| `ReducedBfuBodyCutPredictor` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuBodyCutPredictor.md` | Verification-only predictor fixture; excluded from B-SIDE ownership |
-| `ReducedBfuBodyCutArm` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuBodyCutArm.md` | Diagnostic fixture; not a production predictor owner |
-| `ReducedBfuGeometryPredictionLatch` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuGeometryPredictionLatch.md` | Verification-only geometry diagnostic; excluded from B-SIDE ownership |
-| `ReducedBfuLocalBodyWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuLocalBodyWindow.md` | Verification-only local-window diagnostic; excluded from B-SIDE ownership |
-| `ReducedBfuPendingRuntimeBodyEndCandidate` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPendingRuntimeBodyEndCandidate.md` | Verification-only feedback fixture; excluded from production training |
-| `ReducedBfuPromotedRuntimeBodyEndOracle` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuPromotedRuntimeBodyEndOracle.md` | Verification-only oracle fixture |
-| `ReducedBfuResolvedBodyEndPending` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndPending.md` | Verification-only feedback fixture |
-| `ReducedBfuResolvedBodyEndSource` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndSource.md` | Verification-only source-arbitration fixture |
-| `ReducedBfuResolvedBodyEndOwner` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuResolvedBodyEndOwner.md` | Verification-only geometry fixture |
-| `ReducedBfuStaticGeometryProducer` | `linxcore.frontend` | `docs/chisel/modules/frontend/ReducedBfuStaticGeometryProducer.md` | Verification-only geometry fixture; I-F4 remains boundary-only |
+| `BfuBodyCutPredictor` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuBodyCutPredictor.md` | Verification-only predictor fixture; excluded from B-SIDE ownership |
+| `BfuBodyCutArm` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuBodyCutArm.md` | Diagnostic fixture; not a production predictor owner |
+| `BfuGeometryPredictionLatch` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuGeometryPredictionLatch.md` | Verification-only geometry diagnostic; excluded from B-SIDE ownership |
+| `BfuLocalBodyWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuLocalBodyWindow.md` | Verification-only local-window diagnostic; excluded from B-SIDE ownership |
+| `BfuPendingRuntimeBodyEndCandidate` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuPendingRuntimeBodyEndCandidate.md` | Verification-only feedback fixture; excluded from production training |
+| `BfuRuntimeBodyEndOracle` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuRuntimeBodyEndOracle.md` | Verification-only oracle fixture |
+| `BfuResolvedBodyEndPending` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuResolvedBodyEndPending.md` | Verification-only feedback fixture |
+| `BfuResolvedBodyEndSource` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuResolvedBodyEndSource.md` | Verification-only source-arbitration fixture |
+| `BfuResolvedBodyEndOwner` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuResolvedBodyEndOwner.md` | Verification-only geometry fixture |
+| `BfuStaticGeometryProducer` | `linxcore.frontend` | `docs/chisel/modules/frontend/BfuStaticGeometryProducer.md` | Verification-only geometry fixture; I-F4 remains boundary-only |
 | `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Verification-only packet FIFO; production uses `InstructionBuffer` |
 | `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Verification-only packet/window wrapper; production uses the four-wide IB-to-D1 boundary |
 | `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | Verification packet-window wrapper reusing the shared fixed-width instruction decode leaf; it is not the production D1 transport owner |

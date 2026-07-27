@@ -3,7 +3,7 @@ package linxcore.frontend
 import chisel3._
 import linxcore.common.InterfaceParams
 
-class ReducedBfuResolvedBodyEndSourceIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+class BfuResolvedBodyEndSourceIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val runtimeValid = Input(Bool())
   val runtimeHeaderPc = Input(UInt(p.pcWidth.W))
   val runtimeHSizeBytes = Input(UInt(p.pcWidth.W))
@@ -29,8 +29,8 @@ class ReducedBfuResolvedBodyEndSourceIO(val p: InterfaceParams = InterfaceParams
   val runtimeReplayBodyEndMismatch = Output(Bool())
 }
 
-class ReducedBfuResolvedBodyEndSource(val p: InterfaceParams = InterfaceParams()) extends Module {
-  val io = IO(new ReducedBfuResolvedBodyEndSourceIO(p))
+class BfuResolvedBodyEndSource(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new BfuResolvedBodyEndSourceIO(p))
 
   val replayBodyBasePc = (io.replayHeaderPc + 2.U)(p.pcWidth - 1, 0)
   val replayBodyEndPc = (replayBodyBasePc + io.replayBSizeBytes)(p.pcWidth - 1, 0)

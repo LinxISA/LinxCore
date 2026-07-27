@@ -40,6 +40,12 @@ reads up to four fixed-64-bit entries and carries the immutable final prediction
 record on every valid lane; a group-tail ACRC waits for cross-group BSTOP
 lookahead when needed.
 
+Migration-era `ReducedBfu*` source/type/trace-IO names have been retired in
+favor of the neutral `Bfu*` family. Those body-geometry helpers remain
+compatibility-only and are not members of the production wrapper set above.
+The authoritative current gap table is in
+`docs/chisel/modules/frontend/LinxCoreIfu.md`.
+
 Boundary and recovery behavior is identity-qualified. Standalone `BSTOP` does
 not discard same-cacheline followers. A post-B-F4 SETC mismatch freezes younger
 ingress, waits for every resident row of the SETC's exact full BID, preserves

@@ -13,12 +13,13 @@ history.
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative
 current handoff is the top `Current Handoff` section in
-`docs/chisel/integrated-development-flow.md`; R685 adds request-owned B-F0
-GHR/RAS snapshots, canonical-only conditional and Call/Return repair, exact
-resolved training history, and backend/ITLB recovery on top of R683 ordered
-multi-line I-SIDE composition. The IFU still needs benchmark-top promotion,
-generated-RTL throughput evidence, path-history/loop checkpoint recovery, complete TAGE
-policy, and post-B-F4 BRU validation. New agents must
+`docs/chisel/integrated-development-flow.md`. The production graph now includes
+the canonical `LinxCoreIfu`, tagged line-memory transport, fixed-width
+four-wide D1 decode, exact backend feedback/recovery, direct D1-to-rename/ROB
+ingress, and natural CoreMark/Dhrystone benchmark promotion. The open IFU work
+is complete TAGE provider/alternate/usefulness policy, path-history/loop
+checkpoint recovery, independent B-F4 rank coverage, four-row atomic D2/D3
+admission, lower-memory error termination, and SoC PTW/L1I integration. New agents must
 start from that combined handoff and the latest rows in
 `docs/chisel/agent-loop.md`, then use the older R571-R632 replay-LIQ material
 below only as historical evidence for replay-search tooling and claim-boundary
