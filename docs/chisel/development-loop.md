@@ -25,7 +25,11 @@ BID/generation BROB ownership, a fixed-partition 64-entry byte-offset PC
 buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 must
 join P/T/U rename preparation to the coordinator's immutable prepared view and
 assert `publishPermit` only when all rename mutations can share the same S1
-fire. The current catalog has no dispatch-owned
+fire. The first O4 slice now owns the banked PTag free list, D2 staging refill,
+generation-qualified per-STID leases, and exact cancel/publish/return with a
+full lifecycle conservation checker. Add P SMAP/CMAP/MapQ plus bundle-wide
+RAW/WAW inlining next, then the independent relative T/U owners. The current
+catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production
 packet contract. Read `docs/chisel/interfaces/OooProductionBundles.md` and the

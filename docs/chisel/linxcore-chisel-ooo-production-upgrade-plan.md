@@ -86,7 +86,8 @@ promotion.
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator | integrate O3 prepared publication with O4 RENU and O5 dispatch owners |
-| O4–O9 | Not started | current compatibility owners remain migration evidence | P/T/U RENU is the active packet; dispatch through benchmark promotion follow |
+| O4 P/T/U RENU | In progress | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; exact cancel/publish/return; lifecycle conservation | P SMAP/CMAP/MapQ and RAW/WAW inlining; independent T/U sequential owners; O3 common-fire integration |
+| O5–O9 | Not started | current compatibility owners remain migration evidence | dispatch through benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -1253,6 +1254,14 @@ pass; no group crosses a BID or PC-release boundary.
 
 Deliver banked PTag free list and staging FIFOs, SMAP IQID/ready payload,
 RAW/WAW inlining, banked MapQ/CMAP recovery, and independent T/U owners.
+
+Implementation status: O4.1 implements the shared banked PTag free list and
+staging owner. D3 claims only staged tags into one exact provisional lease per
+STID; publication, cancel, and return are generation-qualified terminal events.
+The default 96 committed identity tags plus 32 speculative tags are checked
+cycle by cycle for exactly-one-location conservation. P SMAP/CMAP/MapQ and
+bundle-wide RAW/WAW inlining remain the next slice, followed by independent
+T/U sequential owners and common-fire integration with O3.
 
 Exit: tag/map conservation and randomized sequential-reference comparisons pass
 for four STIDs; D3 has no direct free-list priority selection.

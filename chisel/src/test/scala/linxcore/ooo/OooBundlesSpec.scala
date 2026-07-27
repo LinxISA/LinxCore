@@ -56,6 +56,19 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(identity.boundary.closing.bid.value.getWidth == 8)
   }
 
+  test("PTag lease and return authority preserve bank and allocation generation") {
+    val p = OooParams()
+    val token = new OooPTagToken(p)
+    val lease = new OooPTagReservation(p)
+    val returned = new OooPTagReturnBatch(p)
+
+    assert(token.ptag.getWidth == p.pTagWidth)
+    assert(token.bank.getWidth == p.pTagBankWidth)
+    assert(token.generation.getWidth == p.pTagGenerationWidth)
+    assert(lease.allocations.length == p.pTagAllocationWidth)
+    assert(returned.tokens.length == p.pTagReturnWidth)
+  }
+
   test("D2 D3 and S1 packets expose distinct preview reserve and publish transactions") {
     val p = OooParams()
     val plan = new OooD2VirtualPlan(p)

@@ -17,6 +17,10 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pArchRegs == 24)
     assert(p.pPhysRegs == 128)
     assert(p.pTagWidth == 7)
+    assert(p.pTagBanks == 2)
+    assert(p.pTagStagingDepthPerBank == 8)
+    assert(p.pTagAllocationWidth == 16)
+    assert(p.pTagReturnWidth == 8)
     assert(p.pcBufferEntries == 64)
     assert(p.pcBufferIndexWidth == 6)
     assert(p.pcEntriesPerStid == 16)
@@ -31,15 +35,20 @@ class OooParamsSpec extends AnyFunSuite {
       assert(p.instructionDecodeWidth == width)
       assert(p.decodedUopWidth >= width)
       assert(p.maxInstPerRobGroup == 4)
-      assert((BigInt(1) << p.destinationDemandWidth) - 1 >= width * p.maxDestinationOperands)
-      assert((BigInt(1) << p.dispatchDemandWidth) - 1 >= width * p.maxDispatchWritesPerInstruction)
-      assert((BigInt(1) << p.memoryDemandWidth) - 1 >= width * p.maxMemoryRequestsPerInstruction)
+      assert((BigInt(1) << p.destinationDemandWidth) - 1 >=
+        p.decodedUopWidth * p.maxDestinationOperands)
+      assert((BigInt(1) << p.dispatchDemandWidth) - 1 >=
+        p.decodedUopWidth * p.maxDispatchWritesPerInstruction)
+      assert((BigInt(1) << p.memoryDemandWidth) - 1 >=
+        p.decodedUopWidth * p.maxMemoryRequestsPerInstruction)
     }
   }
 
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
     assertThrows[IllegalArgumentException](OooParams(instructionDecodeWidth = 3))
     assertThrows[IllegalArgumentException](OooParams(pPhysRegs = 64))
+    assertThrows[IllegalArgumentException](OooParams(pTagStagingDepthPerBank = 7))
+    assertThrows[IllegalArgumentException](OooParams(pTagBanks = 64))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }

@@ -23,6 +23,8 @@ final case class OooParams(
     pArchRegs: Int = 24,
     pPhysRegs: Int = 128,
     pTagBanks: Int = 2,
+    pTagStagingDepthPerBank: Int = 8,
+    pTagReturnWidth: Int = 8,
     pTagMinimumSpeculativePerStid: Int = 8,
     pMapQDepthPerStid: Int = 256,
     pcBufferEntries: Int = 64,
@@ -56,9 +58,12 @@ final case class OooParams(
     ridGenerationWidth: Int = 8,
     brobGenerationWidth: Int = 8,
     residentGenerationWidth: Int = 8,
+    pTagGenerationWidth: Int = 8,
     reservationEpochWidth: Int = 8) {
   private def isPowerOfTwo(value: Int): Boolean =
     value > 0 && (value & (value - 1)) == 0
+  private def allocatableTagsInBank(bank: Int): Int =
+    (stidCount * pArchRegs until pPhysRegs).count(_ % pTagBanks == bank)
 
   require(isPowerOfTwo(stidCount), "stidCount must be a positive power of two")
   require(Set(2, 4, 6).contains(instructionDecodeWidth),
@@ -86,6 +91,17 @@ final case class OooParams(
     "PTag namespace must cover committed mappings and per-STID minimum guarantees")
   require(isPowerOfTwo(pTagBanks) && pPhysRegs % pTagBanks == 0,
     "PTag banks must evenly partition the physical namespace")
+  require((0 until pTagBanks).forall { bank =>
+    allocatableTagsInBank(bank) >=
+      (decodedUopWidth * maxDestinationOperands + pTagBanks - 1) / pTagBanks
+  }, "every PTag bank must cover its worst-case balanced D3 claim")
+  require(pTagStagingDepthPerBank >=
+    (decodedUopWidth * maxDestinationOperands + pTagBanks - 1) / pTagBanks,
+    "each PTag staging bank must cover the worst-case balanced D3 destination demand")
+  require(pTagReturnWidth > 0,
+    "PTag return width must be positive")
+  require(pTagGenerationWidth > 0,
+    "PTag allocation generation width must be positive")
   require(isPowerOfTwo(pMapQDepthPerStid),
     "P MapQ depth per STID must be a power of two")
   require(isPowerOfTwo(pcBufferEntries), "PC buffer entries must be a power of two")
@@ -121,6 +137,8 @@ final case class OooParams(
   def brobLiveGroupCountWidth: Int = countWidth(robGroupsPerStid)
   def pTagWidth: Int = log2Ceil(pPhysRegs)
   def pTagBankWidth: Int = math.max(1, log2Ceil(pTagBanks))
+  def pTagAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
+  def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
   def pcBufferIndexWidth: Int = log2Ceil(pcBufferEntries)
   def pcEntriesPerStid: Int = pcBufferEntries / stidCount
@@ -146,9 +164,9 @@ final case class OooParams(
   def sourceCountWidth: Int = countWidth(maxSourceOperands)
   def destinationCountWidth: Int = countWidth(maxDestinationOperands)
   def destinationDemandWidth: Int =
-    countWidth(instructionDecodeWidth * maxDestinationOperands)
+    countWidth(decodedUopWidth * maxDestinationOperands)
   def dispatchDemandWidth: Int =
-    countWidth(instructionDecodeWidth * maxDispatchWritesPerInstruction)
+    countWidth(decodedUopWidth * maxDispatchWritesPerInstruction)
   def memoryDemandWidth: Int =
-    countWidth(instructionDecodeWidth * maxMemoryRequestsPerInstruction)
+    countWidth(decodedUopWidth * maxMemoryRequestsPerInstruction)
 }

@@ -290,6 +290,21 @@ per STID. This is the minimum contract and a deliberate pressure point, not a
 performance recommendation. Scale configurations should test 192/256 tags,
 per-STID guarantees, and shared borrowing.
 
+`OooPTagStagingPool` is the first O4 owner. The 96 reset identity mappings never
+enter allocation state. Every remaining PTag is in exactly one of the shared
+banked free list, one compact staging row, one per-STID provisional D3 lease,
+or the published-live set. D2 refill may select from the free list, but D3 can
+claim only the already-staged prefix required by each bank. A multi-destination
+claim is all-or-none and carries exact `{ptag, bank, allocationGeneration}`
+tokens; a stale generation cannot return a reissued tag.
+
+Claim moves the complete selected transaction into a stable per-STID lease.
+Exact cancellation returns only that lease, while the common S1 publication
+event moves it to published-live ownership. Exact batched return is Decoupled
+and validates count, range, uniqueness, bank, generation, and current live
+ownership before changing any bit. A cycle-by-cycle checker proves all 32
+default speculative tags remain in exactly one lifecycle location.
+
 ## Verification
 
 ```bash
@@ -311,6 +326,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionBrob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -355,3 +371,7 @@ The O3 coordinator tests cover retained prepare views, publication backpressure,
 one common publication/commit fire, exact resident-generation binding, PC read
 tokens, malformed-PC zero-mutation rejection, commit retention, different-STID
 commit-plus-publish concurrency, and 2/4/6 decode widths.
+The PTag staging tests cover reset ownership, balanced bank refill, exact D3
+lease retention/cancel, per-STID isolation, malformed demand, publish/return,
+duplicate and stale-generation rejection, complete speculative exhaustion with
+zero-mutation backpressure, lifecycle conservation, and 2/4/6 decode widths.

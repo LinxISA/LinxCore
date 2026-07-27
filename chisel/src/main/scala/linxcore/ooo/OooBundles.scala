@@ -205,6 +205,59 @@ class PMapPayload(val p: OooParams = OooParams()) extends Bundle {
   val epoch = UInt(p.epochWidth.W)
 }
 
+class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val bank = UInt(p.pTagBankWidth.W)
+  val ptag = UInt(p.pTagWidth.W)
+  val generation = UInt(p.pTagGenerationWidth.W)
+}
+
+class OooPTagAllocation(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val destinationIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDestinationOperands)).W)
+  val atag = UInt(p.archRegWidth.W)
+  val token = new OooPTagToken(p)
+}
+
+/** Exact PTag claim retained between D3 reservation and S1 publication. */
+class OooPTagReservation(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val allocationMask = UInt(p.pTagAllocationWidth.W)
+  val allocations = Vec(p.pTagAllocationWidth, new OooPTagAllocation(p))
+}
+
+class OooPTagPublish(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+}
+
+class OooPTagReturnBatch(val p: OooParams = OooParams()) extends Bundle {
+  val count = UInt(p.pTagReturnCountWidth.W)
+  val tokens = Vec(p.pTagReturnWidth, new OooPTagToken(p))
+}
+
+class OooPTagPrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val requestedDestinations = UInt(p.destinationDemandWidth.W)
+}
+
+class OooPTagPublishReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooPTagPublish(p)
+  val live = new OooPTagReservation(p)
+}
+
+class OooPTagReturnReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooPTagReturnBatch(p)
+  val publishedMask = UInt(p.pPhysRegs.W)
+}
+
 class DispatchReservation(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val uopClass = OooUopClass()

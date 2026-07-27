@@ -58,7 +58,10 @@ member completion, native BID/generation BROB ownership, a fixed-partition
 wrap-qualified read/commit tokens. `OooRobBrobPcCoordinator` completes O3 by
 binding the immutable D3/BROB/PC view and driving one common publication and
 commit fire across every owner. O4 must add independent absolute P rename and
-relative T/U rename preparation without weakening that common-fire contract. CTU
+relative T/U rename preparation without weakening that common-fire contract.
+Its first slice now implements banked D2 PTag staging, exact per-STID D3 leases,
+generation-qualified returns, and full speculative-tag conservation; P
+SMAP/CMAP/MapQ and T/U sequential rename remain active. CTU
 canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until
