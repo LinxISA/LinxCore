@@ -1179,6 +1179,25 @@ class OooPcCommitReject(val p: OooParams = OooParams()) extends Bundle {
   val head = new PcBufferToken(p)
 }
 
+class OooPcRecoveryPrepared(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val freedBases = UInt(p.pcPartitionCountWidth.W)
+  val tailAfter = new PcBufferToken(p)
+  val currentAfterValid = Bool()
+  val currentAfter = new PcBufferToken(p)
+  val currentBaseAfter = UInt(p.pcWidth.W)
+}
+
+class OooPcRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobRecoveryPlan(p)
+  val liveTail = new PcBufferToken(p)
+  val usedBases = UInt(p.pcPartitionCountWidth.W)
+  val killedRowsExact = Bool()
+  val tailSuffixExact = Bool()
+  val currentAfterExact = Bool()
+}
+
 class OooRobGroupRelease(val p: OooParams = OooParams()) extends Bundle {
   val firstGroup = new RobGroupKey(p)
   val headEpoch = UInt(p.reservationEpochWidth.W)

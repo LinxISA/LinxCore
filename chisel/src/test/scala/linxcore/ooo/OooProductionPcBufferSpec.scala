@@ -11,6 +11,10 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.publishFire.poke(false.B)
     dut.io.commit.valid.poke(false.B)
     dut.io.commit.bits.poke(0.U.asTypeOf(dut.io.commit.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
     dut.io.readTokens.foreach(_.poke(0.U.asTypeOf(dut.io.readTokens.head)))
   }
 
@@ -108,6 +112,58 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.valid.poke(false.B)
   }
 
+  private def pokeRecoveryPlan(
+      dut: OooProductionPcBuffer,
+      stid: Int,
+      staleEpoch: Boolean = false): Unit = {
+    val partitionBase = stid * dut.p.pcEntriesPerStid
+    val plan = dut.io.recoveryPrepare.bits
+    plan.poke(0.U.asTypeOf(plan))
+    plan.valid.poke(true.B)
+    plan.request.rename.key.member.group.valid.poke(true.B)
+    plan.request.rename.key.member.group.peId.poke(3.U)
+    plan.request.rename.key.member.group.stid.poke(stid.U)
+    plan.request.rename.key.member.bid.valid.poke(true.B)
+    plan.oldOccupied.poke(5.U)
+    plan.newOccupied.poke(2.U)
+    plan.killedGroupCount.poke(3.U)
+    plan.killedGroupMask.poke(7.U)
+    plan.survivingTailValid.poke(true.B)
+    plan.survivingTail.valid.poke(true.B)
+    plan.survivingTail.key.valid.poke(true.B)
+    plan.survivingTail.key.peId.poke(3.U)
+    plan.survivingTail.key.stid.poke(stid.U)
+    plan.survivingTail.key.ridSlot.poke(1.U)
+    plan.survivingTail.pcBase.valid.poke(true.B)
+    plan.survivingTail.pcBase.index.poke(partitionBase.U)
+    plan.survivingTail.pcBase.allocationEpoch.poke(0.U)
+
+    val groups = Seq(
+      (2, 1, true, true, 0),
+      (3, 1, false, false, 0),
+      (4, 2, true, true, 1))
+    groups.zipWithIndex.foreach {
+      case ((rid, local, allocated, implicitClose, priorLocal), index) =>
+        val group = plan.killedGroups(index)
+        group.valid.poke(true.B)
+        group.key.valid.poke(true.B)
+        group.key.peId.poke(3.U)
+        group.key.stid.poke(stid.U)
+        group.key.ridSlot.poke(rid.U)
+        group.key.ridGeneration.poke(0.U)
+        group.pcBase.valid.poke(true.B)
+        group.pcBase.index.poke((partitionBase + local).U)
+        group.pcBase.allocationEpoch.poke(
+          (if (staleEpoch && index == 1) 1 else 0).U)
+        group.pcBaseAllocated.poke(allocated.B)
+        group.pcImplicitCloseValid.poke(implicitClose.B)
+        group.pcImplicitClose.valid.poke(implicitClose.B)
+        group.pcImplicitClose.index.poke((partitionBase + priorLocal).U)
+        group.pcImplicitClose.allocationEpoch.poke(0.U)
+    }
+    dut.io.recoveryPrepare.valid.poke(true.B)
+  }
+
   test("reuses one base with byte offsets for 2 4 6 and 8-byte instruction PCs") {
     val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64)
     simulate(new OooProductionPcBuffer(p)) { dut =>
@@ -140,6 +196,79 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
         groups = (0 until 4).map(index => (index, 16, 0)))
       commit(dut)
       dut.io.usedBases(1).expect(0.U)
+    }
+  }
+
+  test("rolls back exact PC-base tail and reopens the surviving base") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, pcBufferEntries = 64)
+    simulate(new OooProductionPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        pcs = Seq(100, 102, 1000))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        pcs = Seq(1002, 2000))
+      publish(dut)
+      dut.io.usedBases(1).expect(3.U)
+      dut.io.currentValid(1).expect(true.B)
+      dut.io.current(1).index.expect(18.U)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.freedBases.expect(2.U)
+      dut.io.recoveryPrepared.tailAfter.index.expect(17.U)
+      dut.io.recoveryPrepared.currentAfterValid.expect(true.B)
+      dut.io.recoveryPrepared.currentAfter.index.expect(16.U)
+      dut.io.recoveryPrepared.currentBaseAfter.expect(100.U)
+      dut.clock.step()
+      dut.io.usedBases(1).expect(3.U)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedBases(1).expect(1.U)
+      dut.io.currentValid(1).expect(true.B)
+      dut.io.current(1).index.expect(16.U)
+      dut.io.readTokens(0).valid.poke(true.B)
+      dut.io.readTokens(0).index.poke(17.U)
+      dut.io.readTokens(0).allocationEpoch.poke(0.U)
+      dut.io.readValid(0).expect(false.B)
+
+      pokePrepare(dut, stid = 1, transactionId = 2, firstRid = 2,
+        pcs = Seq(1000))
+      dut.io.prepareReady.expect(true.B)
+      dut.io.prepared.groupTokens(0).index.expect(17.U)
+      dut.io.prepared.implicitCloseMask.expect(1.U)
+      dut.io.prepared.implicitCloseTokens(0).index.expect(16.U)
+      publish(dut)
+      dut.io.usedBases(1).expect(2.U)
+      dut.io.current(1).index.expect(17.U)
+    }
+  }
+
+  test("rejects a stale killed PC epoch without buffer mutation") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, pcBufferEntries = 64)
+    simulate(new OooProductionPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        pcs = Seq(100, 102, 1000))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        pcs = Seq(1002, 2000))
+      publish(dut)
+
+      pokeRecoveryPlan(dut, stid = 1, staleEpoch = true)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.killedRowsExact.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedBases(1).expect(3.U)
+      dut.io.current(1).index.expect(18.U)
     }
   }
 

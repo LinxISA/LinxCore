@@ -710,6 +710,18 @@ reallocate the first killed BID to prove the close relation was actually
 reopened. BROB recovery remains tied off in `OooRobBrobPcCoordinator`; PC and
 all upper owners must still join before the composed seam opens.
 
+O7.2b2 adds the matching `OooProductionPcBuffer` owner. Prepare validates each
+killed group's exact partition-local token and allocation epoch, proves every
+killed base allocation is the contiguous live-tail suffix, checks per-base
+live-group counts, and derives the post-recovery tail, current token, and
+current base value. Apply clears only those tail bases, repairs retained
+live-count/last-group state, and reopens a base when its explicit release,
+precise-trap close, or implicit replacement owner is killed. Head/commit state
+does not move. Freed tokens fail reads immediately; stale epochs reject with
+zero mutation. Like ROB, D3, and BROB, the PC recovery interface remains tied
+off in the composed coordinator until the upper owners and retained global
+state machine join one apply.
+
 ## Verification
 
 ```bash

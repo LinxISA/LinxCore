@@ -22,8 +22,11 @@ BROB/PC allocation/implicit-close evidence, and gives D3 an independently
 validated tail/count/provisional prepare/apply owner. The immediate handoff is
 O7.2b1 BROB recovery is now complete at the direct owner boundary, including
 tail-block release, retained live-count repair, current-pointer restoration,
-and implicit-close undo. The immediate handoff is O7.2b2 PC recovery; the
-formal ROB/D3/BROB inputs remain tied off in composition.
+and implicit-close undo. O7.2b2 PC recovery is also complete at the direct
+owner boundary, including exact allocation-epoch tail release, current
+token/base restoration, close-owner undo, and freed-read invalidation. The
+immediate handoff is dispatch/IEX/fast and retained global R0-R4 composition;
+the formal ROB/D3/BROB/PC inputs remain tied off in composition.
 O7.3 external CTU reinsertion follows the global coordinator.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact

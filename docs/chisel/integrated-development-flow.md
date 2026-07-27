@@ -96,8 +96,10 @@ owner that validates and rolls back published/used counts, tail, provisional
 lease, and tail epoch. ROB and D3 recovery remain tied off at the composed seam;
 O7.2b1 now adds exact BROB tail-block, live-count, current-pointer, and
 implicit-close rollback. Its direct owner tests prove two killed blocks reopen
-the surviving block before BID reuse. PC prepare/apply is the immediate O7.2b2 handoff, followed by
-dispatch/IEX/fast/global composition and O7.3 CTU canonical-child reinsertion. The
+the surviving block before BID reuse. O7.2b2 now adds exact PC-base tail,
+live-count, current token/base-value, close-owner, and freed-read rollback. The
+immediate handoff is dispatch/IEX/fast plus retained global R0-R4 composition,
+followed by O7.3 CTU canonical-child reinsertion. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until
