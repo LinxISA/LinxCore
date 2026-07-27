@@ -17,6 +17,11 @@ Architecture planning:
   independent Instruction Buffer feeds four-wide D1 full decode.
 - [OOO improvement design](linxcore-chisel-ooo-improvement-design.md)
   covers D2/D3, rename, ROB/BROB, commit, recovery, and Template reservation.
+- [OOO production upgrade plan](linxcore-chisel-ooo-production-upgrade-plan.md)
+  defines the production D1-to-S1 module, ARM-style multi-uop/grouped-RID
+  planning, BSTART/BSTOP fusion, D2 virtual versus D3/S1 physical ROB timing,
+  four-thread RENU/dispatch, a 64-entry PC buffer, non-flush, the external CTU
+  bridge, and explicit UT/IT/coverage exit criteria.
 - [IEX improvement design](linxcore-chisel-iex-improvement-design.md)
   covers issue/read/confirm, RF, execution units, system/service, and
   writeback/completion.
@@ -30,6 +35,11 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
+- Production OOO O0/O1: the normative D2-virtual/D3-reserve/S1-publish
+  contract, independent `OooParams`, exact grouped/member identity bundles,
+  and four-thread retained stage shell are implemented. Decode expansion,
+  fusion, grouped ROB/BROB, RENU, dispatch, recovery, CTU, and benchmark
+  promotion remain subsequent packets.
 - Production IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
   B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
   and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide

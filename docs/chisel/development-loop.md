@@ -10,6 +10,15 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
+The active backend priority is production OOO packet O2. O0/O1 introduced the
+normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
+native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
+retained D2/D3/S1 shell. O2 must add raw fixed-64-bit IFU/CTU ingress,
+generated expansion recipes, one-to-many canonical uops, and boundary fusion
+without reusing the compatibility `InterfaceParams` family as the production
+contract. Read `docs/chisel/interfaces/OooProductionBundles.md` and the OOO
+production upgrade plan before modifying backend code.
+
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative
 current handoff is the top `Current Handoff` section in

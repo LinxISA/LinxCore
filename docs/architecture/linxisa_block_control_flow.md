@@ -39,8 +39,14 @@ This note records the block-structured control-flow contract used for lockstep p
 - Boundary chooser applies, in order:
   1. epoch-matched deferred correction (if pending),
   2. current block state (`br_kind`, `commit_cond`, `commit_tgt`, static target).
-- `BSTART/BSTOP` are D2-classified boundary entries; D3 atomically admits their
-  ROB/BROB/checkpoint resources before they become ROB-visible.
+- `BSTART/BSTOP` remain ordered architectural parents. D1 normally fuses
+  BSTART forward and BSTOP backward into `{stop,start}` bits on a surviving
+  member; legal fusion preserves each marker's original PC/raw/length and
+  prediction context. D2 previews group/BROB demand, D3 provisionally reserves
+  exact resources, and S1 atomically publishes them before they become
+  ROB-visible. A standalone boundary member is the legal fallback.
+- Fusion never mints or rewrites BID. BROB alone supplies opening/closing native
+  BID plus generation, and one ROB group never crosses a BID boundary.
 
 ## 4) BSTART split behavior
 

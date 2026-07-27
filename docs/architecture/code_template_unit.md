@@ -7,9 +7,10 @@ Canonical contract summary:
 ## Purpose
 
 `CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`,
-`FRET_STK`) into a one-uop-per-cycle stream for the owning STID. It is a
-backend template-expansion producer after D3 admission; it is not part of
-I-SIDE, B-SIDE, I-F4, or Instruction Buffer.
+`FRET_STK`) into an ordered canonical-child stream for the owning STID. It is
+external to IFU and OOO. `IfuCtuOooBridge` claims one raw parent exactly once,
+obtains an expansion-space lease, and inserts CTU children into the OOO ingress
+buffer; CTU is not a post-D3 allocator or architectural-effect owner.
 
 Source:
 
@@ -117,24 +118,23 @@ Primary outputs:
 
 Canonical target integration is:
 
-1. D1 full decode classifies the template parent after reading its fixed
-   64-bit Instruction Buffer entry. I-F4 predecode remains limited to
-   BSTART/BSTOP and does not recognize templates.
-2. D3 atomically reserves one `(STID,BID)`, checkpoint/resource credits, N
-   child ROB rows, and a final template completion/trace row. The child count
-   and resource demand are derived from the classified template.
-3. CTU fills the reserved child rows in program order. Children reuse and
-   validate the parent's `(STID,BID)`; they allocate ordinary rename/IQ/LSU
-   resources from the reservation and never allocate a new BROB slot unless a
-   child is itself an architecturally legal new boundary.
+1. The bridge classifies and claims the fixed-64-bit template parent before OOO
+   D1 consumes it. I-F4 predecode remains limited to BSTART/BSTOP.
+2. CTU computes the exact ordered child recipe and resource envelope. The
+   bridge obtains a retained ingress/expansion lease before the first child is
+   visible.
+3. CTU emits children carrying
+   `{PE,STID,parentId,templateGroupId,generation,ordinal,count}`. Children enter
+   normal D1 validation, D2 virtual grouping, D3 rename/reservation, and S1
+   publication; CTU never allocates RID, BID, PTag, IQ, LSID, or PC state.
 4. Children pass through normal execute/LSU, precise trap, commit, and trace
-   ownership. The final template row becomes complete only after expansion and
-   all child rows complete, and therefore retires after all child side effects.
-5. A flush removes filled and unfilled reserved rows, cancels CTU state by STID
-   and checkpoint, and cannot expose partial wrong-path side effects.
-6. No CTU child writes PRF, D-memory, `setc`, or architectural state directly.
-7. Global frontend serialization is legal only in an explicitly single-STID
-   configuration; an SMT implementation must not stall unrelated STIDs.
+   ownership. The final child gates the one architectural parent retirement
+   record, even when children span several RID groups.
+5. Recovery cancels queued/active expansion by exact parent/template identity,
+   returns the lease, and cannot expose partial wrong-path side effects.
+6. No CTU child writes PRF, D-memory, `setc`, ROB, BROB, or architectural state
+   directly.
+7. CTU backpressure is per STID; it must not stall unrelated STIDs.
 
 The current reduced `LinxCoreBackend` integration instead uses CTU outputs to:
 
@@ -144,9 +144,9 @@ The current reduced `LinxCoreBackend` integration instead uses CTU outputs to:
 - drive explicit `setc.tgt` updates for `FRET_STK/FRET_RA`
 - preserve commit/redirect semantics
 
-Those direct-write/global-block paths are implementation evidence only. They
-must converge to the canonical path above before claiming precise multi-STID
-LinxCore behavior.
+Those direct-write/global-block paths and the current Template-D3 reservation
+modules are migration oracles only. They are forbidden from the production
+composition once `IfuCtuOooBridge` is enabled.
 
 Integration point:
 

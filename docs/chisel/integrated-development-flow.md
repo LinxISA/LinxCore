@@ -24,6 +24,26 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
+The active backend handoff is production OOO packet O0/O1. Normative documents
+now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
+reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
+instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,
+MapQ, PC-buffer, and IQ dimensions independent. Decode widths 2/4/6 and STID
+counts 1/2/4 elaborate. `NativeBid`, `BrobPointer`, `RobGroupKey`, and
+`RobMemberKey` separate native BID from BROB generation and grouped RID/member
+identity. `LinxCoreOooShell` proves private per-STID D2/D3/S1 retained rows,
+one shared grant per stage, stable backpressure, and different-STID stage
+concurrency.
+
+This is an executable shell, not production decode/ROB/rename/dispatch closure.
+The next packet is O2: raw fixed-64-bit IFU/CTU ingress, generated instruction
+expansion metadata, 1-to-N canonical uops, and forward-BSTART/backward-BSTOP
+fusion with up to three architectural parent references. The existing
+four-wide `D1InstructionDecodeStage` remains a compatibility decode oracle and
+must not be widened in place. Do not reconnect the benchmark top until grouped
+ROB/BROB, P/T/U RENU, S1 speculative slots, exact recovery, and external CTU
+all have focused UT/IT evidence.
+
 The current IFU handoff is the production I-SIDE/B-SIDE composition. Both
 engines implement real, independently backpressured F0-F4 stages. I-F1 launches
 ITLB and L1I in parallel; I-F3 owns variable-length and cross-line assembly;

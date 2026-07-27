@@ -2,10 +2,17 @@
 
 ## Purpose
 
-`D1InstructionDecodeStage` is the production four-wide D1 full-decode owner.
+`D1InstructionDecodeStage` is the promoted four-wide IFU-to-backend
+compatibility decode owner.
 It consumes `D1InstructionGroup` directly from the canonical IFU. It never
 reconstructs an instruction byte window and never converts entries through
 `F4Slot`.
+
+The production OOO target moves full D1 decode, ordinary multi-uop expansion,
+and boundary fusion behind the raw fixed-64-bit IFU/CTU ingress. The current
+module remains the semantic decode oracle until `D1DecodeExpandFuse` and its
+IFU integration tests replace it; it must not be interpreted as evidence for
+2/4/6 decode width or grouped D2/D3/S1 admission.
 
 ## Input and output contract
 
@@ -76,6 +83,7 @@ blocking stability, UID preservation, prediction sidecars, and partial flush.
 
 `DecodedUop` and `RenamedUop` carry the complete sidecar, scalar rename copies
 it unchanged, and `IfuBackendFeedbackBridge` implements type-specific
-Dispatch/BRU comparison plus exact IFU training/restart transport. Atomic
-four-lane rename/dispatch, event-producer wiring, and backend full-BID cleanup
-remain open and are not implied by this module.
+Dispatch/BRU comparison plus exact IFU training/restart transport. Production
+multi-uop expansion/fusion, grouped ROB publication, four-thread
+rename/dispatch, event-producer wiring, and backend exact BID-generation
+cleanup remain open and are not implied by this module.

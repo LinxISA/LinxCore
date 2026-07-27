@@ -1,5 +1,14 @@
 # LinxCore Chisel OOO 微架构改进设计
 
+> 最新执行计划见
+> [LinxCore Chisel OOO Production Upgrade Plan](linxcore-chisel-ooo-production-upgrade-plan.md)。
+> 该计划采用新的模块边界：OOO 自己完成 D1 full decode 和普通 multi-uop
+> break，D2 计算 virtual RID/group 与全部资源需求，D3/S1 发布 physical
+> grouped ROB 并完成 RENU/dispatch；BSTART/BSTOP 优先融合为 uop 的
+> `start/stop` 位。外置 CTU 在 IFU-to-OOO ingress 展开模板。本文的 D3
+> Template reservation/fill 和 one-row-per-RID 章节保留为旧方案分析与迁移期
+> 对拍依据，不再作为最新 production placement 决策。
+
 ## 1. 文档目的
 
 本文定义 LinxCore Chisel 后端乱序控制域的改进方案，覆盖：

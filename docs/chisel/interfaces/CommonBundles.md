@@ -23,6 +23,12 @@
 
 ## Purpose
 
+Production OOO interfaces now live in
+[`OooProductionBundles.md`](OooProductionBundles.md). `InterfaceParams` and the
+`DecodedUop`/`RenamedUop` family on this page remain compatibility contracts for
+the existing IFU/reduced-backend verification graph; they must not be widened
+in place to define grouped RID, four-thread D2/D3/S1, or 2/4/6 decode.
+
 `InterfaceBundles.scala` is the Phase 1 shared type packet for the Chisel RTL
 lane. It defines passive bundle shapes for frontend-to-decode packets, decoded
 uops, renamed uops, issue queue entries, LSU request/response packets, ROB
@@ -131,9 +137,12 @@ stage owners:
 - the current packet fixture preserves no-slot-compaction behavior; the target
   I-F4 writes 64-bit entries to an independent Instruction Buffer and D1 reads a
   four-entry continuous prefix.
-- D1/D2 own decoded uop construction and boundary metadata.
-- D2/D3 own rename, resource allocation, and source readiness.
-- S1/S2/IQ own issue residency and `inflight` transitions.
+- Production OOO D1 owns decoded-uop construction and fusion metadata.
+- Production OOO D2 previews virtual grouping/resource demand; D3 reserves and
+  renames; S1 publishes atomically.
+- IEX S1/S2/S3 owns speculative-slot retention, physical-IQ binding, and pick
+  visibility. The compatibility packets on this page do not redefine that
+  boundary.
 - LSU owns memory progression and response ordering.
 - ROB/CMT own retirement, trap precision, and commit trace emission.
 
