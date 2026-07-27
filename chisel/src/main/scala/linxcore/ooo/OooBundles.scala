@@ -784,6 +784,72 @@ class OooIexReleaseReject(val p: OooParams = OooParams()) extends Bundle {
   val reservation = new DispatchReservation(p)
 }
 
+/** One retained typed fast-resolve member after the common OOO S1 fire. */
+class OooFastResolveEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val member = new RobMemberKey(p)
+  val uopKey = new CanonicalUopKey(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val fastResolveClass = UInt(3.W)
+  val boundary = new BoundarySidecar(p)
+  val prediction = new OooPredictionRecord(p)
+  val targetValid = Bool()
+  val target = UInt(p.pcWidth.W)
+  val trapValid = Bool()
+  val trapCause = UInt(p.trapCauseWidth.W)
+  val resultValid = Bool()
+  val result = UInt(p.pcWidth.W)
+  val destination = new PMapPayload(p)
+}
+
+/** BCTRL validation obligation for a boundary or control-value fast member. */
+class OooFastResolveBoundaryRequest(val p: OooParams = OooParams())
+    extends Bundle {
+  val member = new RobMemberKey(p)
+  val uopKey = new CanonicalUopKey(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val boundary = new BoundarySidecar(p)
+  val prediction = new OooPredictionRecord(p)
+  val targetValid = Bool()
+  val target = UInt(p.pcWidth.W)
+}
+
+/** Exact PRF result obligation for SETRET and fused start-call producers. */
+class OooFastResolveWriteback(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+  val data = UInt(p.pcWidth.W)
+}
+
+/** Trace-side terminal record emitted before fast member completion. */
+class OooFastResolveTrace(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val uopKey = new CanonicalUopKey(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val fastResolveClass = UInt(3.W)
+  val trapValid = Bool()
+  val trapCause = UInt(p.trapCauseWidth.W)
+  val resultValid = Bool()
+  val result = UInt(p.pcWidth.W)
+}
+
+class OooFastResolveS1Reject(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val fastMask = UInt(p.decodedUopWidth.W)
+  val shapeExact = Bool()
+}
+
 class OooD2VirtualPlan(val p: OooParams = OooParams()) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val peId = UInt(p.peIdWidth.W)

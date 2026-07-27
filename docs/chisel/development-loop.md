@@ -10,8 +10,8 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The active backend priority is production OOO packet O6 fast resolve, followed
-by O7 global recovery/CTU reinsertion.
+The active backend priority is production OOO packet O6.2 ROB-owned exact
+non-flush, followed by O7 global recovery/CTU reinsertion.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
@@ -42,6 +42,13 @@ per-STID retained S1 rows, fair atomic S2 bind, registered S3 pick enable,
 generation-qualified wakeup, compact execution-uop residency, and exact
 dispatch-coupled release. P1/I1/I2 arbitration, speculative cancel/retry, RF
 reads, execution, and global IQ cancellation are intentionally still open.
+O6.1 adds a typed retained fast-resolve owner. Boundary metadata,
+SETRET/START_CALL results, precise traps, and no-effect rows are admitted only
+by generated class-specific rules. The real IEX and fast owners observe the
+same common S1 fire; every required boundary/writeback/wakeup/trace/completion
+sink fires atomically, and completion still enters the ordered grouped ROB.
+O6.2 must now build the exact ROB-owned per-STID non-flush safe prefix. It may
+not use a numeric RID/BID threshold, commit a row, or release rename state.
 The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.

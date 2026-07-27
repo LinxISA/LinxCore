@@ -39,6 +39,10 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   coordinator.io.ptagReturn.valid := false.B
   coordinator.io.ptagReturn.bits :=
     0.U.asTypeOf(coordinator.io.ptagReturn.bits)
+  coordinator.io.fastBoundary.ready := true.B
+  coordinator.io.fastWriteback.ready := true.B
+  coordinator.io.fastWakeup.ready := true.B
+  coordinator.io.fastTrace.ready := true.B
   coordinator.io.recoveryRequest.valid := false.B
   coordinator.io.recoveryRequest.bits :=
     0.U.asTypeOf(coordinator.io.recoveryRequest.bits)

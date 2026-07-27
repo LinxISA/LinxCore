@@ -10,12 +10,18 @@
 - Cross-cycle fusion: `chisel/src/main/scala/linxcore/ooo/OooD1FusionHistory.scala`
 - Production IEX residency owner:
   `chisel/src/main/scala/linxcore/ooo/OooProductionIexIssue.scala`
+- Production typed fast-resolve owner:
+  `chisel/src/main/scala/linxcore/ooo/OooProductionFastResolve.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooParamsSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooBundlesSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooThreadStageBufferSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooProductionIexIssueSpec.scala`
 - Integration tests:
   `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
+- Fast-resolve tests:
+  `chisel/src/test/scala/linxcore/ooo/OooProductionFastResolveSpec.scala`
+- Fast-resolve integration tests:
+  `chisel/src/test/scala/linxcore/ooo/OooO3FastResolveIntegrationSpec.scala`
 - Contract IDs: `LC-IF-CHISEL-OOO-001`, `LC-MA-PIPE-001`,
   `LC-MA-ROB-001`
 
@@ -567,6 +573,42 @@ P1/I1/I2 pipe arbitration, speculative issue cancel/retry, age-matrix pick,
 operand RF arbitration, execution, and O7 global cancellation remain explicit
 later packets; O5.2 does not claim them.
 
+## O6.1 typed fast-resolve boundary
+
+`OooProductionFastResolve` observes the exact common O3/O4/O5 S1 transaction
+and retains generated fast-resolve members in one private row set per STID.
+The coordinator atomically forks the retained S1 transaction to both the real
+IEX residency owner and the fast owner; neither may consume without the same
+`publishFire`. A zero-dispatch fast member therefore still owns an exact
+ROB/BROB/PC/rename identity even though it allocates no physical IQ row.
+
+Admission is class-specific and fail-closed. `BoundaryMetadata` requires a
+real start/stop sidecar and any generated target-validation obligation.
+`ImmediateProducer` requires exactly one current P destination and an
+immediate. `ControlValueProducer` requires the exact P destination, a start
+boundary, and any required target. `PreciseTrapRecord` requires a decoded
+precise trap and no P destination. `NoEffect` is legal only with no destination,
+memory request, dispatch write, target, trap, or side-effect owner. Operand
+count and opcode-shape heuristics are not authority.
+
+SETRET writes `primary-parent PC + immediate`; START_CALL writes the
+architectural return PC `primary-parent PC + instruction length`. The retained
+member fairly competes across STIDs and completes only when every required
+terminal sink fires atomically: BCTRL boundary validation, optional exact
+PTag writeback and wakeup, trace, and exact ROB member completion. Backpressure
+from any required sink leaves the entry and payload unchanged. An internal
+completion port shares the grouped ROB through a retained round-robin arbiter,
+so early completion never means early retirement or rename-state release.
+
+O6.1 deliberately does not own recovery cancellation or non-flush. O7 must
+cancel retained fast rows through the global exact recovery transaction.
+Until that owner lands, the coordinator blocks rename-local recovery for an
+STID with any retained fast member, just as it already blocks an STID with
+published IQ rows; unrelated STIDs remain independent.
+O6.2 must derive a ROB-owned exact safe prefix from published group state and
+typed safety evidence; publication or fast completion alone is not non-flush
+authorization.
+
 ## Verification
 
 ```bash
@@ -595,6 +637,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
 bash tools/chisel/run_chisel_tests.sh --only OooProductionDispatch
 bash tools/chisel/run_chisel_tests.sh --only OooProductionIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooProductionFastResolve
+bash tools/chisel/run_chisel_tests.sh --only OooO3FastResolveIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 ```
@@ -620,6 +664,14 @@ dispatch-coupled release, malformed/stale rejection, and 2/4/6-width
 elaboration. The O3-to-IEX integration test proves real coordinator
 publication, physical residency, and dispatch-slot return on the same exact
 transactions.
+The O6.1 tests cover every typed class, target/writeback/trace/completion
+backpressure, exact SETRET and START_CALL results, malformed destination
+rejection, two simultaneously retained STIDs with fair drain, 2/4/6-width
+elaboration, zero physical-IQ allocation, exact grouped-ROB completion, and
+same-STID recovery fencing while a fast-only row is retained, followed by
+normal ordered commit after the terminal fast-resolve fire. Recipe coverage
+also proves every generated fast rule has one supported nonzero class and no
+dispatch or memory demand.
 The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,

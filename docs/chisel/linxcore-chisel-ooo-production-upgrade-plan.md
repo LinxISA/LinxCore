@@ -89,7 +89,9 @@ promotion.
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O7 supplies global ROB/BROB/PC/IQ cancellation |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
-| O6–O9 | Not started | current compatibility owners remain migration evidence | fast resolve, global recovery/CTU, physical closure, production top integration, and benchmark promotion follow |
+| O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
+| O6.2 non-flush | Not started | `NonFlushWindow` contract and `a.txt`/model behavior are design evidence | ROB-owned exact safe-prefix state, typed safety resolves, interrupt freeze, consumer IT |
+| O7–O9 | Not started | current compatibility owners remain migration evidence | global recovery/CTU, physical closure, production top integration, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -1444,8 +1446,19 @@ residency claims.
 
 ### O6: fast resolve and non-flush
 
-Deliver typed fast-resolve sinks, boundary/direct-call validation, SETRET result
-path, precise trap completion, per-STID non-flush frontier, and counters.
+O6.1 delivers typed retained fast-resolve sinks, boundary/direct-call
+validation, SETRET/START_CALL result paths, precise-trap completion, per-STID
+fairness, and exact O3/grouped-ROB integration. Every fast member has already
+allocated ROB/BROB/PC/rename state. It may omit IQ residency, but it cannot
+retire, release rename state, or become non-flush merely because the result is
+known.
+
+O6.2 must deliver the per-STID ROB-owned exact non-flush frontier and counters.
+The implementation may use the `a.txt` `nfrdy/nfrcnt` idea as physical input,
+but the public authority is `{STID, head RobGroupKey, prefixCount, epoch}`.
+Consumers must prove membership in that retained prefix rather than compare
+RID or BID numerically. Pending interrupt freezes advancement at the next
+architectural boundary, and non-flush never performs commit or deallocation.
 
 Exit: full opcode whitelist/blacklist tests pass; non-flush never commits or
 frees rename state; affected STID can advance independently.

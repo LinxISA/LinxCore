@@ -45,8 +45,33 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_HL_SDIP").dispatchDemand(OooDispatchClass.Agu - 1) == 1)
     assert(rule("OP_HL_SDIP").dispatchDemand(OooDispatchClass.Std - 1) == 1)
     assert(rule("OP_START_CALL_32").fastResolveClass == OooFastResolveClass.ControlValueProducer)
+    assert(rule("OP_START_CALL_48").fastResolveClass == OooFastResolveClass.ControlValueProducer)
+    assert(rule("OP_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
+    assert(rule("OP_C_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
+    assert(rule("OP_HL_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
+    assert(rule("OP_EBREAK").fastResolveClass == OooFastResolveClass.PreciseTrapRecord)
     assert(rule("OP_ACRC").dispatchClass == OooDispatchClass.Sys)
     assert(rule("OP_BSTART_TMA").recipeKind == OooOpcodeRecipeKind.EngineCmd)
+
+    val fastRules = OooOpcodeRecipeTable.Rules.filter(
+      _.disposition == OooOpcodeDisposition.FastResolve)
+    assert(fastRules.nonEmpty)
+    assert(fastRules.forall { entry =>
+      entry.fastResolveClass >= OooFastResolveClass.BoundaryMetadata &&
+      entry.fastResolveClass <= OooFastResolveClass.NoEffect &&
+      entry.dispatchWrites == 0 && entry.memoryRequestCount == 0
+    })
+    assert(OooOpcodeRecipeTable.Rules.forall { entry =>
+      entry.disposition match {
+        case OooOpcodeDisposition.FastResolve =>
+          entry.fastResolveClass != OooFastResolveClass.None
+        case OooOpcodeDisposition.Dispatch |
+            OooOpcodeDisposition.Ctu |
+            OooOpcodeDisposition.Illegal =>
+          entry.fastResolveClass == OooFastResolveClass.None
+        case _ => false
+      }
+    })
   }
 
   test("raw recipe decode covers 16 32 48 and 64 bit containers") {

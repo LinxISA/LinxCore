@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, Valid}
+import chisel3.util.{Decoupled, PopCount, RRArbiter, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 
 class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
@@ -13,6 +13,15 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val tuPrepared = Output(new OooTURenamePreparedTransaction(p))
   val iexS1 = Decoupled(new OooIexS1Transaction(p))
   val publishFire = Output(Bool())
+
+  val fastBoundary = Decoupled(new OooFastResolveBoundaryRequest(p))
+  val fastWriteback = Decoupled(new OooFastResolveWriteback(p))
+  val fastWakeup = Decoupled(new OooIexWakeup(p))
+  val fastTrace = Decoupled(new OooFastResolveTrace(p))
+  val fastPendingByStid = Output(Vec(p.stidCount,
+    UInt(p.decodedUopCountWidth.W)))
+  val fastTerminalFire = Output(Bool())
+  val fastS1Rejected = Valid(new OooFastResolveS1Reject(p))
 
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
@@ -86,6 +95,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val turename = Module(new OooProductionTURename(p))
   val turetire = Module(new OooProductionTURetire(p))
   val dispatch = Module(new OooProductionDispatch(p))
+  val fast = Module(new OooProductionFastResolve(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val recoveryRequestStid = io.recoveryRequest.bits.key.member.group.stid
@@ -94,10 +104,13 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     recoveryRequestStid, 0.U)
   val recoveryRequestConflictsPrepared = o3.io.preparedValid &&
     recoveryRequestStidInRange && preparedStid === recoveryRequestStid
-  // O4 owns rename-local rollback only. Once S1 has published an IQ entry,
-  // O7 must join IQ/ROB/BROB/PC cancellation before this request can proceed.
+  // O4 owns rename-local rollback only. Once S1 has published an IQ entry or
+  // retained a fast terminal row, O7 must join IQ/fast/ROB/BROB/PC
+  // cancellation before this request can proceed. Until that common owner
+  // exists, block the exact STID instead of allowing wrong-path side effects.
   val recoveryRequestNeedsGlobalCancel = recoveryRequestStidInRange &&
-    dispatch.io.publishedByStid(safeRecoveryRequestStid).orR
+    (dispatch.io.publishedByStid(safeRecoveryRequestStid).orR ||
+      fast.io.pendingByStid(safeRecoveryRequestStid).orR)
 
   turetire.io.recoveryRequest.valid := io.recoveryRequest.valid &&
     !recoveryRequestConflictsPrepared && !recoveryRequestNeedsGlobalCancel
@@ -301,20 +314,27 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     turename.io.publicationReady && turetire.io.publicationReady
   io.prepared := prename.io.prepared
   io.tuPrepared := turename.io.prepared
-  io.iexS1.valid := io.preparedValid
+  // The real IEX residency owner and typed fast-resolve owner observe the
+  // identical retained common-S1 transaction.  Neither can consume alone.
+  io.iexS1.valid := io.preparedValid && fast.io.s1.ready
   io.iexS1.bits.o3 := o3.io.prepared
   io.iexS1.bits.pRename := prename.io.prepared
   io.iexS1.bits.tuRename := turename.io.prepared
   io.iexS1.bits.dispatch := dispatch.io.provisional(safePreparedStid)
-  o3.io.publishPermit := io.iexS1.ready && prename.io.prepareReady &&
+  fast.io.s1.valid := io.preparedValid && io.iexS1.ready
+  fast.io.s1.bits := io.iexS1.bits
+  o3.io.publishPermit := io.iexS1.ready && fast.io.s1.ready &&
+    prename.io.prepareReady &&
     turename.io.publicationReady && turetire.io.publicationReady
   prename.io.publishFire := o3.io.publishFire
   turename.io.publishFire := o3.io.publishFire
   turetire.io.publishFire := o3.io.publishFire
   io.publishFire := o3.io.publishFire
-  when(io.iexS1.valid || o3.io.publishFire) {
+  when(io.iexS1.valid || fast.io.s1.valid || o3.io.publishFire) {
     assert(io.iexS1.fire === o3.io.publishFire,
       "OOO publication and the exact IEX S1 transfer must share one fire")
+    assert(fast.io.s1.fire === o3.io.publishFire,
+      "OOO publication and typed fast-resolve observation must share one fire")
   }
 
   val exposedPrepareValid = RegInit(false.B)
@@ -351,7 +371,19 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
       "O3 publication must publish the retained exact dispatch lease")
   }
 
-  o3.io.completion <> io.completion
+  val completionArbiter = Module(new RRArbiter(
+    new OooRobMemberCompletion(p), 2))
+  completionArbiter.io.in(0) <> io.completion
+  completionArbiter.io.in(1) <> fast.io.completion
+  o3.io.completion <> completionArbiter.io.out
+
+  io.fastBoundary <> fast.io.boundary
+  io.fastWriteback <> fast.io.writeback
+  io.fastWakeup <> fast.io.wakeup
+  io.fastTrace <> fast.io.trace
+  io.fastPendingByStid := fast.io.pendingByStid
+  io.fastTerminalFire := fast.io.terminalFire
+  io.fastS1Rejected := fast.io.s1Rejected
 
   val commitStid = o3.io.commit.bits.release.firstGroup.stid
   val commitStidInRange = commitStid < p.stidCount.U
