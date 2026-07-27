@@ -140,6 +140,7 @@ final case class OooParams(
   def pTagAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
   def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
+  def pMapQCountWidth: Int = countWidth(pMapQDepthPerStid)
   def pcBufferIndexWidth: Int = log2Ceil(pcBufferEntries)
   def pcEntriesPerStid: Int = pcBufferEntries / stidCount
   def pcPartitionIndexWidth: Int = log2Ceil(pcEntriesPerStid)

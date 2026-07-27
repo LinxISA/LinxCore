@@ -25,10 +25,12 @@ BID/generation BROB ownership, a fixed-partition 64-entry byte-offset PC
 buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 must
 join P/T/U rename preparation to the coordinator's immutable prepared view and
 assert `publishPermit` only when all rename mutations can share the same S1
-fire. The first O4 slice now owns the banked PTag free list, D2 staging refill,
-generation-qualified per-STID leases, and exact cancel/publish/return with a
-full lifecycle conservation checker. Add P SMAP/CMAP/MapQ plus bundle-wide
-RAW/WAW inlining next, then the independent relative T/U owners. The current
+fire. O4 now owns the banked PTag free list, D2 staging refill,
+generation-qualified per-STID leases, the 24-entry per-STID P SMAP, ordered
+exact MapQ publication, and bundle-wide RAW/WAW forwarding. D3/PTag claim is
+one reserve transaction; ROB/BROB/PC/PTag/SMAP/MapQ share one S1 terminal fire.
+Add P CMAP commit/tag return and recovery replay next, then the independent
+relative T/U owners. The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production

@@ -67,6 +67,9 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(token.generation.getWidth == p.pTagGenerationWidth)
     assert(lease.allocations.length == p.pTagAllocationWidth)
     assert(returned.tokens.length == p.pTagReturnWidth)
+    val mapping = new PMapPayload(p)
+    assert(mapping.ptagGeneration.getWidth == p.pTagGenerationWidth)
+    assert(mapping.producerBindingValid.getWidth == 1)
   }
 
   test("D2 D3 and S1 packets expose distinct preview reserve and publish transactions") {

@@ -96,7 +96,8 @@ class OooD3ReservationAllocator(val p: OooParams = OooParams()) extends Module {
         group.key.ridGeneration === liveGeneration + expectedWrap.asUInt))
   }.reduce(_ && _)
   val stale = inRange && (
-    io.in.bits.plan.virtualTailEpoch =/= liveEpoch ||
+    io.in.bits.plan.transactionId =/= nextTransactionId(inStid) ||
+      io.in.bits.plan.virtualTailEpoch =/= liveEpoch ||
       !firstKey.valid || firstKey.ridSlot =/= liveSlot ||
       firstKey.ridGeneration =/= liveGeneration ||
       firstKey.peId =/= io.in.bits.plan.peId || firstKey.stid =/= inStid ||

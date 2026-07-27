@@ -305,6 +305,28 @@ and validates count, range, uniqueness, bank, generation, and current live
 ownership before changing any bit. A cycle-by-cycle checker proves all 32
 default speculative tags remain in exactly one lifecycle location.
 
+`OooProductionPRename` is the O4.2 P-map owner. It consumes the immutable O3
+prepared publication together with the matching retained PTag lease. For every
+active P source it reads the selected STID's 24-entry SMAP and then applies all
+older destinations in the same transaction from oldest to youngest. A WAW
+destination therefore records the immediately preceding mapping, including an
+older destination in the same bundle. Each new payload preserves PTag
+generation and producer transaction identity; `producerBindingValid` remains
+false until O5 supplies the exact IQ reservation.
+
+Prepare is side-effect free. `OooPMapQEntry` records exact ROB member identity,
+transaction/uop/destination order, old mapping, and new mapping. The per-STID
+MapQ is an ordered ring, not a search-allocated collection. SMAP and MapQ mutate
+only on the common O3 publication fire. `OooO3RenameCoordinator` joins D3 and
+PTag claim on one reserve handshake, then joins ROB/BROB/PC publication, PTag
+publication, SMAP update, and MapQ insertion on one terminal fire. CMAP commit,
+survivor replay/recovery, and returned-tag arbitration remain later O4/O6
+owners; the reset CMAP query is present but is not yet advanced.
+Until that commit owner exists, `OooO3RenameCoordinator` deliberately holds
+both ROB commit and external PTag return closed. This prevents a partially
+integrated wrapper from retiring ROB/BROB/PC state without MapQ/CMAP or from
+recycling a PTag still referenced by SMAP.
+
 ## Verification
 
 ```bash
@@ -327,6 +349,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
+bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
+bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three

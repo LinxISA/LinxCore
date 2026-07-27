@@ -98,6 +98,16 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.usedGroups(0).expect(0.U)
       dut.io.provisionalMask.expect(0.U)
 
+      pokePlan(dut, 0, transactionId = 1, groupCount = 1, 0, 0, tailEpoch = 0)
+      dut.io.in.ready.expect(true.B)
+      dut.io.staleRejected.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.tailSlot(0).expect(0.U)
+      dut.io.tailEpoch(0).expect(0.U)
+      dut.io.nextTransactionId(0).expect(0.U)
+      dut.io.usedGroups(0).expect(0.U)
+
       pokePlan(dut, 0, transactionId = 0, groupCount = 1, 0, 0, tailEpoch = 0)
       dut.io.in.bits.groups(0).key.peId.poke(7.U)
       dut.io.in.ready.expect(true.B)

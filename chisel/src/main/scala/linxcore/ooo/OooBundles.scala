@@ -195,14 +195,72 @@ class PcBufferToken(val p: OooParams = OooParams()) extends Bundle {
 }
 
 class PMapPayload(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
   val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
   val producerToken = UInt(p.transactionIdWidth.W)
+  val producerBindingValid = Bool()
   val producerIqBank = UInt(p.iqBankWidth.W)
   val producerIqEntry = UInt(p.iqEntryWidth.W)
   val ready = Bool()
   val size = UInt(4.W)
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
+}
+
+class OooRenamedOperand(val p: OooParams = OooParams()) extends Bundle {
+  val decoded = new OooDecodedOperand(p)
+  val pMapping = new PMapPayload(p)
+}
+
+class OooRenamedDestination(val p: OooParams = OooParams()) extends Bundle {
+  val decoded = new OooDecodedDestination(p)
+  val previousPMapping = new PMapPayload(p)
+  val currentPMapping = new PMapPayload(p)
+}
+
+class OooPRenamedUop(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val member = new RobMemberKey(p)
+  val decoded = new OooDecodedUop(p)
+  val sources = Vec(p.maxSourceOperands, new OooRenamedOperand(p))
+  val destinations = Vec(p.maxDestinationOperands,
+    new OooRenamedDestination(p))
+}
+
+/** One exact speculative P mapping in program order. */
+class OooPMapQEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val mapQIndex = UInt(p.pMapQIndexWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val destinationIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDestinationOperands)).W)
+  val member = new RobMemberKey(p)
+  val atag = UInt(p.archRegWidth.W)
+  val previous = new PMapPayload(p)
+  val current = new PMapPayload(p)
+}
+
+/** Side-effect-free P rename view retained by the upstream O3 transaction. */
+class OooPRenamePreparedTransaction(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val uops = Vec(p.decodedUopWidth, new OooPRenamedUop(p))
+  val mapQRowMask = UInt(p.pTagAllocationWidth.W)
+  val mapQRows = Vec(p.pTagAllocationWidth, new OooPMapQEntry(p))
+}
+
+class OooPRenamePrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val requestedRows = UInt(p.destinationDemandWidth.W)
+  val freeRows = UInt(p.pMapQCountWidth.W)
+  val lease = new OooPTagReservation(p)
 }
 
 class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
