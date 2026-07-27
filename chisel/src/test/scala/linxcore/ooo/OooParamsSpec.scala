@@ -19,6 +19,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pTagWidth == 7)
     assert(p.pcBufferEntries == 64)
     assert(p.pcBufferIndexWidth == 6)
+    assert(p.pcEntriesPerStid == 16)
+    assert(p.pcPartitionIndexWidth == 4)
+    assert(p.pcPartitionCountWidth == 5)
     assert(p.pcOffsetWidth == 7)
   }
 
@@ -37,5 +40,7 @@ class OooParamsSpec extends AnyFunSuite {
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
     assertThrows[IllegalArgumentException](OooParams(instructionDecodeWidth = 3))
     assertThrows[IllegalArgumentException](OooParams(pPhysRegs = 64))
+    assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }
 }

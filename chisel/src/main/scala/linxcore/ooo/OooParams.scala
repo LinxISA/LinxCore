@@ -89,6 +89,9 @@ final case class OooParams(
   require(isPowerOfTwo(pMapQDepthPerStid),
     "P MapQ depth per STID must be a power of two")
   require(isPowerOfTwo(pcBufferEntries), "PC buffer entries must be a power of two")
+  require(pcBufferEntries % stidCount == 0 &&
+    isPowerOfTwo(pcBufferEntries / stidCount) && pcBufferEntries / stidCount >= 2,
+    "fixed PC-buffer partitions must divide evenly into power-of-two STID slices")
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
   require(iqClassCount == 8 && isPowerOfTwo(iqBankCount),
@@ -120,6 +123,9 @@ final case class OooParams(
   def pTagBankWidth: Int = math.max(1, log2Ceil(pTagBanks))
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
   def pcBufferIndexWidth: Int = log2Ceil(pcBufferEntries)
+  def pcEntriesPerStid: Int = pcBufferEntries / stidCount
+  def pcPartitionIndexWidth: Int = log2Ceil(pcEntriesPerStid)
+  def pcPartitionCountWidth: Int = countWidth(pcEntriesPerStid)
   def iqBankWidth: Int = log2Ceil(iqBankCount)
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
   def iqWritePortWidth: Int = math.max(1, log2Ceil(iqWritePortsPerBank))

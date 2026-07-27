@@ -358,6 +358,46 @@ class OooBrobCommitReject(val p: OooParams = OooParams()) extends Bundle {
   val head = new BrobPointer(p)
 }
 
+class OooPcBaseEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val token = new PcBufferToken(p)
+  val base = UInt(p.pcWidth.W)
+  val firstRobGroup = new RobGroupKey(p)
+  val lastRobGroup = new RobGroupKey(p)
+  val nextCommitRobGroup = new RobGroupKey(p)
+  val liveRobGroups = UInt(p.brobLiveGroupCountWidth.W)
+  val closed = Bool()
+  val closeOwnerValid = Bool()
+  val closeOwner = new RobGroupKey(p)
+  val closeCommitted = Bool()
+}
+
+class OooPcPreparedBindings(val p: OooParams = OooParams()) extends Bundle {
+  val validMask = UInt(p.instructionDecodeWidth.W)
+  val groupTokens = Vec(p.instructionDecodeWidth, new PcBufferToken(p))
+  val parentTokens = Vec(p.decodedUopWidth,
+    Vec(p.maxArchitecturalParentRefs, new PcBufferToken(p)))
+  val newBaseMask = UInt(p.instructionDecodeWidth.W)
+  val newBases = Vec(p.instructionDecodeWidth, UInt(p.pcWidth.W))
+  val implicitCloseMask = UInt(p.instructionDecodeWidth.W)
+  val implicitCloseTokens = Vec(p.instructionDecodeWidth, new PcBufferToken(p))
+  val allocatedBases = UInt(p.robGroupCountWidth.W)
+  val currentAfterValid = Bool()
+  val currentAfter = new PcBufferToken(p)
+}
+
+class OooPcPrepareReject(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val groupMask = UInt(p.instructionDecodeWidth.W)
+}
+
+class OooPcCommitReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRobCommitBatch(p)
+  val head = new PcBufferToken(p)
+}
+
 class OooRobGroupRelease(val p: OooParams = OooParams()) extends Bundle {
   val firstGroup = new RobGroupKey(p)
   val headEpoch = UInt(p.reservationEpochWidth.W)

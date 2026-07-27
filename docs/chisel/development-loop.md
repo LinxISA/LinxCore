@@ -10,7 +10,8 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The active backend priority is production OOO packet O3. O0/O1 introduced the
+The active backend priority is the final production OOO packet O3 coordinator.
+O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
 retained D2/D3/S1 shell. O2 now provides generated recipe
@@ -18,8 +19,11 @@ metadata, canonical 2/4/6-wide D1 decode, exact P/T/U and pair operand
 normalization, precise-trap conversion, same/cross-cycle boundary fusion, and
 the fixed-four-wide IFU to per-STID 2/4/6 raw ingress. CTU and complex rows
 carry exact diverted parents rather than mask-only identity; CTU child
-reinsertion remains the external O7 bridge. Start O3 virtual grouping and
-physical ROB/BROB/PC publication. The current catalog has no dispatch-owned
+reinsertion remains the external O7 bridge. O3 now has virtual grouping,
+retained D2/D3 allocation, atomic grouped ROB publication/completion, native
+BID/generation BROB ownership, and a fixed-partition 64-entry byte-offset PC
+buffer. Complete the shared ROB/BROB/PC reserve/publish/commit coordinator
+before starting P/T/U RENU. The current catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production
 packet contract. Read `docs/chisel/interfaces/OooProductionBundles.md` and the

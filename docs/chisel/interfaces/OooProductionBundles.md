@@ -219,6 +219,38 @@ different STIDs remain concurrent. Combining non-overlapping same-STID
 head/tail updates is a later port-throughput optimization, not a correctness
 dependency.
 
+## Production PC-base buffer
+
+`OooProductionPcBuffer` is the sole production PC-base owner. The default
+64 rows are four fixed 16-row STID partitions. Each partition has independent
+head, tail, allocation epoch, live count, and current-base state; PC-buffer age
+is never inferred by comparing a global index.
+
+The module observes the retained D3 reservation without mutating state. It
+collects every architectural parent PC assigned to each ROB group, proves the
+inverse relation between `logicalUopMask` and `uopGroupIndex`, and emits an
+exact token for every group and every active parent. A token contains the
+global row index, byte offset, and allocation epoch. Byte offsets reconstruct
+2/4/6/8-byte instruction PCs without assuming four-byte instruction length.
+
+A new base is prepared when no current base exists, the group PC range does
+not fit the configured byte-offset width, or the group carries a precise trap.
+Predicted-taken release and precise-trap groups close the selected base. A new
+base allocated while an older base remains current records the new group's
+exact `RobGroupKey` as the older base's implicit close owner. Admission is
+all-or-none and rejects capacity overflow, more than the configured three
+base writes, occupied targets, malformed group/parent mappings, or a stale
+current token. Only the shared S1 `publishFire` installs bases and advances
+partition state.
+
+Commit accepts only an exact, wrap-aware consecutive ROB-group prefix whose
+PC tokens match live row index and allocation epoch. Every row tracks its
+`nextCommitRobGroup`, live group count, and close owner. Partial retirement
+advances the cursor; a base is freed only after all of its groups and exact
+close owner have committed. Six combinational read ports validate the complete
+token before returning `base + byteOffset`; stale epochs and cross-partition
+tokens return invalid with no data owner mutation.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -258,6 +290,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionBrob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -293,3 +326,8 @@ commit isolation, release-header consistency, 2/4/6 decode versus four-group
 retire, four-STID isolation, and native BID/generation wrap. The three-owner
 integration test proves D3, grouped ROB, and BROB publish and retire on the same
 terminal transactions.
+The PC-buffer tests cover byte-granular reconstruction for 2/4/6/8-byte
+instructions, offset overflow, predicted-taken close, implicit close ownership,
+three-write admission, malformed uop/group inverse mapping, skipped/duplicate
+ROB-group rejection, four fixed STID partitions, allocation-epoch wrap, stale
+read rejection, and 2/4/6 decode widths.

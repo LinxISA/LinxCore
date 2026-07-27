@@ -24,7 +24,8 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The active backend handoff is production OOO packet O2. Normative documents
+The active backend handoff is the final production OOO packet O3 coordinator.
+Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
 instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,
@@ -50,8 +51,13 @@ reservoirs exact raw rows per STID and emits independent 2/4/6-wide prefixes;
 complex parents retain their full raw identity/prediction sideband, rather
 than only a diversion mask. The current catalog deliberately has zero
 dispatch-owned complex forms, with CTU forms diverted and unresolved
-macro/atomic forms failing closed. O3 grouped ROB/BROB/PC publication is now
-active; CTU canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
+macro/atomic forms failing closed. O3 now implements D2 virtual grouping,
+retained D3 provisional allocation, atomic S1 grouped ROB publication and exact
+member completion, native BID/generation BROB ownership, and a fixed-partition
+64-entry PC-base buffer with byte-granular offsets, exact close ownership, and
+wrap-qualified read/commit tokens. The remaining O3 work is the one coordinator
+that drives a common publish/commit fire across ROB, BROB, and PC owners. CTU
+canonical-child reinsertion remains O7. The existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until
 grouped ROB/BROB, P/T/U RENU, S1 speculative slots, exact recovery, and external
