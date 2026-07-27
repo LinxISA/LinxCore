@@ -130,6 +130,14 @@ the input tail epoch; D3 must reject it if any later allocator event changes
 that epoch. CTU/complex diversion packets are rejected at this owner because
 they must first return as validated canonical children.
 
+`OooD2ProductionStage` connects the combinational planner to
+`OooD2ThreadStageBuffer`. The buffer holds one complete immutable preview per
+STID and shares one fair D2→D3 grant. A blocked grant retains both selected
+STID and payload. Other STIDs may fill their private rows while that grant is
+blocked; targeted cancellation removes only the matching row. Live allocator
+snapshots are not reread into a retained transaction, so D3 sees the original
+tail epoch and can reject it if the physical tail advanced later.
+
 ## O1 stage shell
 
 `OooThreadStageBuffer` holds one private transaction per STID and uses a fair
@@ -163,6 +171,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooD1FusionHistory
 bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
+bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three
@@ -179,3 +188,6 @@ parent delivery through decode/fusion.
 The D2 tests cover one-group packing, explicit block splits, planned-member
 overflow, PC-release closure, RID slot/generation wrap, member-base assignment,
 and 2/4/6-width elaboration without physical state mutation.
+The retained-stage tests cover concurrent private STID rows, stable shared
+grant backpressure, selected-STID cancellation, and immutable tail-epoch
+retention after the live allocator snapshot advances.
