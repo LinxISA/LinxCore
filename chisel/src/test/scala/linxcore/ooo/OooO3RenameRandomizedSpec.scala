@@ -59,7 +59,7 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.valid.poke(false.B)
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
     dut.io.cancel.foreach(_.poke(false.B))
-    dut.io.publishPermit.poke(false.B)
+    dut.io.iexS1.ready.poke(false.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.commit.ready.poke(false.B)
@@ -228,10 +228,10 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       tDestinations = if (shape.t) 1 else 0,
       uDestinations = if (shape.u) 1 else 0)
 
-    dut.io.publishPermit.poke(true.B)
+    dut.io.iexS1.ready.poke(true.B)
     dut.io.publishFire.expect(true.B)
     dut.clock.step()
-    dut.io.publishPermit.poke(false.B)
+    dut.io.iexS1.ready.poke(false.B)
     model.sources += source
     model.issued += 1
   }

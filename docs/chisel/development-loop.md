@@ -1,6 +1,6 @@
 # LinxCore Chisel Development Loop
 
-Date: 2026-07-07
+Date: 2026-07-28
 
 ## Purpose
 
@@ -10,7 +10,8 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The active backend priority is production OOO packet O4 P/T/U RENU.
+The active backend priority is production OOO packet O6 fast resolve, followed
+by O7 global recovery/CTU reinsertion.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
@@ -22,10 +23,8 @@ carry exact diverted parents rather than mask-only identity; CTU child
 reinsertion remains the external O7 bridge. O3 now has virtual grouping,
 retained D2/D3 allocation, atomic grouped ROB publication/completion, native
 BID/generation BROB ownership, a fixed-partition 64-entry byte-offset PC
-buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 must
-join P/T/U rename preparation to the coordinator's immutable prepared view and
-assert `publishPermit` only when all rename mutations can share the same S1
-fire. O4 now owns the banked PTag free list, D2 staging refill,
+buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 owns
+the banked PTag free list, D2 staging refill,
 generation-qualified per-STID leases, the 24-entry per-STID P SMAP, ordered
 exact MapQ publication, and bundle-wide RAW/WAW forwarding. D3/PTag claim is
 one reserve transaction; ROB/BROB/PC/PTag/SMAP/MapQ share one S1 terminal fire.
@@ -37,8 +36,13 @@ preferred bank but falls forward to another bank with staged credit, preventing
 skewed identity returns from stranding free tags. Independent T/U sequential
 owners now join the same D3 reserve and S1 publication transaction, including
 same-bundle relative-source bypass and exact ROB-member-owned local MapQ rows.
-Complete relation-CMAP retirement/block release and recovery next, then add P
-recovery replay. The current
+O5.1 adds exact dispatch reservation and producer binding. O5.2 replaces the
+temporary publication permit with one exact Decoupled IEX S1 transaction,
+per-STID retained S1 rows, fair atomic S2 bind, registered S3 pick enable,
+generation-qualified wakeup, compact execution-uop residency, and exact
+dispatch-coupled release. P1/I1/I2 arbitration, speculative cancel/retry, RF
+reads, execution, and global IQ cancellation are intentionally still open.
+The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the production

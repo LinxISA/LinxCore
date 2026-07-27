@@ -8,9 +8,14 @@
 - Generated recipe table: `chisel/src/main/scala/linxcore/ooo/OooOpcodeRecipeTable.scala`
 - Canonical D1: `chisel/src/main/scala/linxcore/ooo/OooD1Decode.scala`
 - Cross-cycle fusion: `chisel/src/main/scala/linxcore/ooo/OooD1FusionHistory.scala`
+- Production IEX residency owner:
+  `chisel/src/main/scala/linxcore/ooo/OooProductionIexIssue.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooParamsSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooBundlesSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooThreadStageBufferSpec.scala`
+- Tests: `chisel/src/test/scala/linxcore/ooo/OooProductionIexIssueSpec.scala`
+- Integration tests:
+  `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
 - Contract IDs: `LC-IF-CHISEL-OOO-001`, `LC-MA-PIPE-001`,
   `LC-MA-ROB-001`
 
@@ -258,8 +263,10 @@ tokens return invalid with no data owner mutation.
 reservations, asks BROB and PC for side-effect-free bindings, adds the next
 per-ROB-slot resident generation, and presents the fully bound grouped-ROB
 publication to later RENU/dispatch owners. `preparedValid` is an immutable
-view; `publishPermit` may be asserted only after those later owners can join.
-The single `publishFire` publishes D3, ROB, BROB, and PC state together. A
+view. Its module-local `publishPermit` composition input may be asserted only
+after those later owners can join; in the production wrapper it is driven by
+the exact IEX S1 ready condition plus all rename-owner readiness. The single
+`publishFire` publishes D3, ROB, BROB, and PC state together. A
 malformed owner preparation or blocked grouped ROB produces no partial state.
 
 The grouped ROB is the retained commit source. D3 release, BROB commit, and PC
@@ -505,9 +512,11 @@ are class-local.
 
 `OooO3RenameCoordinator` now joins dispatch prepare, reserve, and publication
 with D3, ROB, BROB, PC, and P/T/U rename. No owner publishes unless every owner
-accepts the same transaction. The existing external permit therefore denotes
-only the future IEX S1 sink. Rename-local recovery deliberately refuses a STID
-that still owns published dispatch rows; O7 must add one global
+accepts the same transaction. Its terminal output is an exact Decoupled
+`OooIexS1Transaction`; the IEX S1 transfer and every O3/O4/O5.1 publication
+owner share one fire. There is no Boolean permission seam that can publish the
+owners without transferring the matching payload. Rename-local recovery
+deliberately refuses a STID that still owns published dispatch rows; O7 must add one global
 ROB/BROB/PC/IQ cancellation transaction before that fence can be removed.
 
 The current owner is a functional contract model. Its complete per-class,
@@ -521,6 +530,42 @@ ARM reference's register classes, FP/CC state, and RID/BID age shortcuts are
 not imported; Linx exact identity, native BID/BROB generation, P/T/U rename,
 and CTU ownership remain authoritative. `model/iex/iex_dispatch.cpp` remains
 the execution-side behavioral reference for the later S1-to-S3 handoff.
+
+## O5.2 production IEX residency boundary
+
+`OooProductionIexIssue` owns one retained S1 transaction per STID and one
+shared round-robin S2 writer. S1 validates the redundant O3, P rename, T/U
+rename, and dispatch identities, exact dense allocation shape, target ranges,
+and all split children before accepting the transaction. A separate pending-S1
+claim bit prevents two STIDs from reserving the same physical target before
+either row reaches S2; this claim is admission state, not physical IQ
+residency.
+
+S2 consumes at most one retained STID per cycle and atomically writes every
+child or none to its reserved `{class, bank, writePort, entry,
+reservationEpoch}`. Rows remain `BoundS2` for a complete cycle. The registered
+S3 event then changes them to `ResidentS3`, which is the only pick-eligible
+state. Registered source-ready bits are the sole pick input: a generation-
+qualified P/T/U wakeup observed in cycle N can affect eligibility only in
+cycle N+1. Generation-qualified P and per-STID T/U ready scoreboards retain
+that event for consumers dispatched after the one-cycle wakeup pulse; a new
+destination allocation invalidates the matching physical-tag entry before it
+can be reused.
+
+The physical row is a unified execution uop. It retains the exact ROB member,
+opcode/recipe, split-child index, primary prediction, PC-buffer tokens,
+boundary/template/trap controls, and physical P/T/U source/destination tags.
+It deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
+state into every IQ entry. This is the first physical application of the
+critical/uncritical separation taken from `Documents/a.txt`; rename and commit
+owners remain authoritative for retirement and recovery state.
+
+The current release seam accepts only a future exact non-cancellable I2
+terminal event. Full member identity and the original dispatch reservation
+must match, and physical-row removal shares one fire with dispatch-slot return.
+P1/I1/I2 pipe arbitration, speculative issue cancel/retry, age-matrix pick,
+operand RF arbitration, execution, and O7 global cancellation remain explicit
+later packets; O5.2 does not claim them.
 
 ## Verification
 
@@ -548,6 +593,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
 bash tools/chisel/run_chisel_tests.sh --only OooProductionDispatch
+bash tools/chisel/run_chisel_tests.sh --only OooProductionIexIssue
+bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 ```
@@ -565,6 +612,14 @@ The O5.1 tests additionally cover exact multi-class reservation and common
 publication, retained wrong-epoch publication rejection, stale-generation and
 wrong-write-port release, producer class/bank/entry binding, zero-dispatch
 recipes, all-or-none pressure rejection, and slot-state conservation.
+The O5.2 tests cover retained per-STID S1 rows, fair S2 selection, an explicit
+S2-to-S3 cycle, compact execution-payload preservation, cross-STID pending
+target exclusion, atomic split bind, registered wakeup visibility including a
+wakeup coincident with consumer S2 bind, exact
+dispatch-coupled release, malformed/stale rejection, and 2/4/6-width
+elaboration. The O3-to-IEX integration test proves real coordinator
+publication, physical residency, and dispatch-slot return on the same exact
+transactions.
 The O2 tests additionally cover every generated hardware rule stimulus,
 16/32/48/64-bit decode, P/T/U aliases, pair-memory operands, precise faults,
 12-count width-six demand, same/cross-cycle three-parent fusion, end-of-stream,

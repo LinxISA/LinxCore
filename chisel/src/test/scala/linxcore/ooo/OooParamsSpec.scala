@@ -32,6 +32,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pcPartitionIndexWidth == 4)
     assert(p.pcPartitionCountWidth == 5)
     assert(p.pcOffsetWidth == 7)
+    assert(p.iexWakeupPorts == 8)
   }
 
   test("instruction decode widths 2 4 and 6 are independent elaboration points") {
@@ -47,6 +48,9 @@ class OooParamsSpec extends AnyFunSuite {
       assert((BigInt(1) << p.memoryDemandWidth) - 1 >=
         p.decodedUopWidth * p.maxMemoryRequestsPerInstruction)
     }
+    val minimumLocalNamespaces = OooParams(tPhysRegs = 2, uPhysRegs = 2)
+    assert(minimumLocalNamespaces.tPhysRegs == 2)
+    assert(minimumLocalNamespaces.uPhysRegs == 2)
   }
 
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
@@ -60,6 +64,9 @@ class OooParamsSpec extends AnyFunSuite {
       tuRelationDepthPerStid = 3))
     assertThrows[IllegalArgumentException](OooParams(
       tuRelationReleaseThreshold = 8))
+    assertThrows[IllegalArgumentException](OooParams(tPhysRegs = 1))
+    assertThrows[IllegalArgumentException](OooParams(uPhysRegs = 1))
+    assertThrows[IllegalArgumentException](OooParams(iexWakeupPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }

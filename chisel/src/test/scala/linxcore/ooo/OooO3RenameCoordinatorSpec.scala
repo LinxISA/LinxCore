@@ -10,7 +10,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.valid.poke(false.B)
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
     dut.io.cancel.foreach(_.poke(false.B))
-    dut.io.publishPermit.poke(false.B)
+    dut.io.iexS1.ready.poke(false.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.commit.ready.poke(false.B)
@@ -276,14 +276,28 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.ptagPublishedCount.expect(0.U)
       dut.io.mapQUsed(0).expect(0.U)
       dut.io.robOccupiedGroups(0).expect(0.U)
+      dut.io.iexS1.valid.expect(true.B)
+      dut.io.iexS1.bits.o3.request.reservation.transaction.plan
+        .transactionId.expect(0.U)
+      dut.io.iexS1.bits.pRename.uops(0).destinations(0)
+        .currentPMapping.ptag.expect(96.U)
+      dut.io.iexS1.bits.dispatch.allocations(0).reservation
+        .reservationEpoch.expect(1.U)
       dut.clock.step(2)
       dut.io.ptagProvisionalCount.expect(1.U)
       dut.io.mapQUsed(0).expect(0.U)
+      dut.io.iexS1.valid.expect(true.B)
+      dut.io.iexS1.bits.o3.request.reservation.transaction.plan
+        .transactionId.expect(0.U)
+      dut.io.iexS1.bits.pRename.uops(0).destinations(0)
+        .currentPMapping.ptag.expect(96.U)
+      dut.io.iexS1.bits.dispatch.allocations(0).reservation
+        .reservationEpoch.expect(1.U)
 
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.ptagProvisionalCount.expect(0.U)
       dut.io.ptagPublishedCount.expect(1.U)
       dut.io.mapQUsed(0).expect(1.U)
@@ -393,10 +407,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.tMapQUsed(1).expect(0.U)
       dut.io.uMapQUsed(1).expect(0.U)
 
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.tMapQUsed(1).expect(1.U)
       dut.io.uMapQUsed(1).expect(1.U)
       dut.io.tMapQUsed(0).expect(0.U)
@@ -481,10 +495,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
         .currentPMapping.ptag.expect(96.U)
       dut.io.prepared.uops(1).destinations(0)
         .currentPMapping.ptag.expect(97.U)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.ptagPublishedCount.expect(2.U)
       dut.io.mapQUsed(0).expect(2.U)
 
@@ -550,10 +564,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.reserve.ready.expect(true.B)
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.mapQUsed(0).expect(2.U)
 
       pokeOneDestination(dut, tailEpoch = 1, uopCount = 2,
@@ -577,10 +591,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.mapQUsed(0).expect(0.U)
 
       dut.io.preparedValid.expect(true.B)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.mapQUsed(0).expect(2.U)
       dut.io.robOccupiedGroups(0).expect(1.U)
     }
@@ -606,10 +620,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       pokeOneDestination(dut)
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
 
       pokeOneDestination(dut, tailEpoch = 1, transactionId = 1,
         firstRid = 1, atag = 2, basePc = 512)
@@ -629,10 +643,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.prepared.uops(0).destinations(0)
         .currentPMapping.ptag.expect(retainedPtag.U)
 
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.mapQUsed(0).expect(2.U)
 
       dut.clock.step() // now the older retained ROB batch may lock
@@ -682,10 +696,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       val anchorBrobGeneration = anchor.brobGeneration.peek().litValue
       val anchorMemberIndex = anchor.memberIndex.peek().litValue
       val anchorResidentGeneration = anchor.residentGeneration.peek().litValue
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
 
       // Publish a younger transaction whose suffix owns P, T, and U state.
       pokeMixedRenameTransaction(dut, tailEpoch = 1, stid = 1,
@@ -697,10 +711,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       val killedPtag = dut.io.prepared.uops(0).destinations(0)
         .currentPMapping.ptag.peek().litValue
       assert(killedPtag != survivorPtag)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.mapQUsed(1).expect(2.U)
       dut.io.tMapQUsed(1).expect(1.U)
       dut.io.uMapQUsed(1).expect(1.U)
@@ -732,10 +746,10 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.reserve.valid.poke(false.B)
       dut.io.preparedValid.expect(true.B)
-      dut.io.publishPermit.poke(true.B)
+      dut.io.iexS1.ready.poke(true.B)
       dut.io.publishFire.expect(true.B)
       dut.clock.step()
-      dut.io.publishPermit.poke(false.B)
+      dut.io.iexS1.ready.poke(false.B)
       dut.io.mapQUsed(2).expect(1.U)
 
       var cycles = 0

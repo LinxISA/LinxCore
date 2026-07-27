@@ -648,6 +648,142 @@ class OooDispatchReleaseReject(val p: OooParams = OooParams()) extends Bundle {
   val requested = new OooDispatchRelease(p)
 }
 
+/** Atomic OOO S1 payload accepted by the production IEX boundary.
+  *
+  * The three prepared views deliberately remain separate.  Their redundant
+  * identities let IEX prove that the exact ROB/PC, P rename, T/U rename, and
+  * dispatch lease which joined the common OOO publication fire also reached
+  * the speculative issue-slot owner.
+  */
+class OooIexS1Transaction(val p: OooParams = OooParams()) extends Bundle {
+  val o3 = new OooO3PreparedPublication(p)
+  val pRename = new OooPRenamePreparedTransaction(p)
+  val tuRename = new OooTURenamePreparedTransaction(p)
+  val dispatch = new OooDispatchReservationLease(p)
+}
+
+/** One generation-qualified producer wakeup observed by resident IQ rows. */
+class OooIexWakeup(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val operandClass = OperandClass()
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+  val localTag = UInt(p.localTagWidth.W)
+  val localSequence = new OooLocalSeq(p)
+}
+
+/** Source identity and registered readiness owned by one physical IQ row. */
+class OooIexSourceState(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val ready = Bool()
+  val operandClass = OperandClass()
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+  val localTag = UInt(p.localTagWidth.W)
+  val localSequence = new OooLocalSeq(p)
+}
+
+/** Destination identity retained by IEX without copying rename-owner state. */
+class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val kind = DestinationKind()
+  val atag = UInt(p.archRegWidth.W)
+  val relativeIndex = UInt(p.archRegWidth.W)
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+  val localTag = UInt(p.localTagWidth.W)
+  val localSequence = new OooLocalSeq(p)
+}
+
+/** Physical IEX row installed from one exact dispatch child.
+  *
+  * The row is an execution payload, not a shadow copy of the rename owners.
+  * ROB, SMAP/CMAP, and MapQ keep their own recovery/retirement state; IEX
+  * retains only the canonical uop controls, prediction, PC references, and
+  * physical source/destination identities needed after S2.
+  */
+class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopIndex = UInt(p.decodedUopIndexWidth.W)
+  val childIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxDispatchWritesPerInstruction)).W)
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+  val uopKey = new CanonicalUopKey(p)
+  val parentCount = UInt(p.architecturalParentCountWidth.W)
+  val parentPcTokens = Vec(p.maxArchitecturalParentRefs,
+    new PcBufferToken(p))
+  val primaryPrediction = new OooPredictionRecord(p)
+  val boundary = new BoundarySidecar(p)
+  val templateValid = Bool()
+  val templateGroupId = UInt(p.templateGroupIdWidth.W)
+  val templateGeneration = UInt(p.residentGenerationWidth.W)
+  val opcode = UInt(p.opcodeWidth.W)
+  val recipe = new OooOpcodeRecipeMeta(p)
+  val plannedChildCount = UInt(p.recipeUopCountWidth.W)
+  val immediateValid = Bool()
+  val immediate = UInt(p.pcWidth.W)
+  val boundaryTargetValid = Bool()
+  val boundaryTarget = UInt(p.pcWidth.W)
+  val preciseTrap = Bool()
+  val trapCause = UInt(p.trapCauseWidth.W)
+  val blockLast = Bool()
+  val closeBeforeValid = Bool()
+  val closeBefore = new BrobPointer(p)
+  val sources = Vec(p.maxSourceOperands, new OooIexSourceState(p))
+  val destinations = Vec(p.maxDestinationOperands,
+    new OooIexDestinationState(p))
+}
+
+/** Exact S2 acknowledgment for the earlier retained S1 transaction. */
+class OooIexS2BindAck(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val allocationMask = UInt(p.dispatchWidth.W)
+}
+
+/** Exact S3 enable event.  It is one registered stage after S2 bind. */
+class OooIexS3Enable(val p: OooParams = OooParams()) extends Bundle {
+  val bind = new OooIexS2BindAck(p)
+}
+
+class OooIexSlotQuery(val p: OooParams = OooParams()) extends Bundle {
+  val uopClass = OooUopClass()
+  val bank = UInt(p.iqBankWidth.W)
+  val entry = UInt(p.iqEntryWidth.W)
+}
+
+/** Future I2 terminal release.  The row and dispatch owner must both match. */
+class OooIexIssueRelease(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val dispatch = new OooDispatchRelease(p)
+}
+
+class OooIexS1Reject(val p: OooParams = OooParams()) extends Bundle {
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val shapeExact = Bool()
+  val targetsExact = Bool()
+}
+
+class OooIexReleaseReject(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val reservation = new DispatchReservation(p)
+}
+
 class OooD2VirtualPlan(val p: OooParams = OooParams()) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val peId = UInt(p.peIdWidth.W)

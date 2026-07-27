@@ -118,6 +118,28 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(publish.publishedUopMask.getWidth == p.dispatchWidth)
   }
 
+  test("IEX rows retain execution state without shadowing rename transactions") {
+    val p = OooParams()
+    val transaction = new OooIexS1Transaction(p)
+    val row = new OooIexIssueRow(p)
+    val wakeup = new OooIexWakeup(p)
+
+    assert(transaction.pRename.uops.length == p.decodedUopWidth)
+    assert(transaction.tuRename.uops.length == p.decodedUopWidth)
+    assert(row.opcode.getWidth == p.opcodeWidth)
+    assert(row.parentPcTokens.length == p.maxArchitecturalParentRefs)
+    assert(row.primaryPrediction.predictionTag.getWidth ==
+      p.predictionTagWidth)
+    assert(row.sources.length == p.maxSourceOperands)
+    assert(row.destinations.length == p.maxDestinationOperands)
+    assert(row.sources.head.ptagGeneration.getWidth ==
+      p.pTagGenerationWidth)
+    assert(row.destinations.head.localSequence.generation.getWidth ==
+      p.localSeqGenerationWidth)
+    assert(wakeup.localSequence.generation.getWidth ==
+      p.localSeqGenerationWidth)
+  }
+
   test("production packet family elaborates at widths 2 4 and 6") {
     Seq(2, 4, 6).foreach { width =>
       val p = OooParams(instructionDecodeWidth = width)

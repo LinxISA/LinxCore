@@ -11,7 +11,7 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val preparedValid = Output(Bool())
   val prepared = Output(new OooPRenamePreparedTransaction(p))
   val tuPrepared = Output(new OooTURenamePreparedTransaction(p))
-  val publishPermit = Input(Bool())
+  val iexS1 = Decoupled(new OooIexS1Transaction(p))
   val publishFire = Output(Bool())
 
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
@@ -73,8 +73,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   *
   * D3 and the PTag staging pool claim on the same reserve handshake. Later,
   * ROB/BROB/PC publication, PTag publication, SMAP update, and MapQ insertion
-  * and exact IQ reservations occur on the same terminal fire. The external
-  * permit represents the later IEX S1 sink, not unreserved IQ capacity.
+  * and exact IQ reservations occur on the same terminal fire.  The terminal
+  * sink is the real retained IEX S1 transaction; no external Boolean permit
+  * can publish the OOO owners without also transferring that exact payload.
   */
 class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooO3RenameCoordinatorIO(p))
@@ -300,12 +301,21 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     turename.io.publicationReady && turetire.io.publicationReady
   io.prepared := prename.io.prepared
   io.tuPrepared := turename.io.prepared
-  o3.io.publishPermit := io.publishPermit && prename.io.prepareReady &&
+  io.iexS1.valid := io.preparedValid
+  io.iexS1.bits.o3 := o3.io.prepared
+  io.iexS1.bits.pRename := prename.io.prepared
+  io.iexS1.bits.tuRename := turename.io.prepared
+  io.iexS1.bits.dispatch := dispatch.io.provisional(safePreparedStid)
+  o3.io.publishPermit := io.iexS1.ready && prename.io.prepareReady &&
     turename.io.publicationReady && turetire.io.publicationReady
   prename.io.publishFire := o3.io.publishFire
   turename.io.publishFire := o3.io.publishFire
   turetire.io.publishFire := o3.io.publishFire
   io.publishFire := o3.io.publishFire
+  when(io.iexS1.valid || o3.io.publishFire) {
+    assert(io.iexS1.fire === o3.io.publishFire,
+      "OOO publication and the exact IEX S1 transfer must share one fire")
+  }
 
   val exposedPrepareValid = RegInit(false.B)
   val exposedPrepareStid = RegInit(0.U(p.stidWidth.W))

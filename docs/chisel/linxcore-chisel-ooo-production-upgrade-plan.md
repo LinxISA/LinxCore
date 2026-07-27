@@ -81,14 +81,15 @@ promotion.
 
 | Packet | Status | Evidence | Remaining exit work |
 |---|---|---|---|
-| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages and generated 689-record opcode recipe audit updated | exact S1/S2/S3 integration contract |
+| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages, generated 689-record opcode recipe audit, and exact S1/S2/S3 residency contract updated | P1/I1/I2 and global-cancel integration contracts |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
-| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5.1 dispatch publication integration | O5.2 adds the retained IEX S1 sink and S2/S3 bind/pick handshake |
-| O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact O5.1 producer IQ class/bank/entry binding | O5.2 supplies downstream-readiness-aware IEX arbitration; O7 supplies global ROB/BROB/PC/IQ cancellation |
-| O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection; bind the retained lease into IEX in O5.2 |
-| O5.2–O9 | Not started | current compatibility owners remain migration evidence | S1-to-IEX bind/pick is the active packet; fast resolve, global recovery/CTU, physical closure, and benchmark promotion follow |
+| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5.1/O5.2 IEX publication integration | O6 fast resolve and O7 global recovery remain |
+| O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O7 supplies global ROB/BROB/PC/IQ cancellation |
+| O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection |
+| O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
+| O6–O9 | Not started | current compatibility owners remain migration evidence | fast resolve, global recovery/CTU, physical closure, production top integration, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -213,6 +214,11 @@ The first production defaults are planning targets, not hard-coded constants.
 | `pcOffsetWidth` | 7 | Byte offset, required by 2/4/6/8-byte instructions |
 | `pcWritePorts` | 3 | Physical closure target |
 | `pcReadPorts` | 6 | Commit, branch validation, trace, and execution |
+| `iqClassCount` | 8 | Generated production dispatch classes |
+| `iqBankCount` | 8 | Class-local physical bank count |
+| `iqEntriesPerBank` | 32 | 2048 total class/bank rows before O8 sizing closure |
+| `iqWritePortsPerBank` | 3 | Exact S2 reservation/write-port identity |
+| `iexWakeupPorts` | 8 | Generation-qualified P/T/U ready-table update ports |
 
 Resource widths must be represented as a vector, not inferred from one decode
 width:
@@ -835,13 +841,35 @@ renamed uop. It cannot be changed while S1 is stalled.
   uncritical payload fields, and acknowledges the `iqid` mapping.
 - IEX S3 marks the entry valid for ready/age-matrix pick.
 
+O5.2 implements this residency contract in `OooProductionIexIssue`. One
+retained S1 row per STID is selected by a shared fair S2 writer. A pending-S1
+claim excludes duplicate cross-STID targets before physical write. S2 installs
+all split children atomically and holds `BoundS2` for one full cycle; only the
+registered transition to `ResidentS3` enables a readiness query. Wakeups write
+registered generation-qualified P/T/U source state, enforcing wakeup N to
+pick-enable N+1.
+
+Generation-qualified P and per-STID T/U ready scoreboards retain completed
+producer state for consumers that reach S2 after the wakeup pulse. Installing
+a new physical destination invalidates the matching scoreboard entry, so tag
+reuse cannot inherit readiness from an older generation or local sequence.
+
+The installed row is a compact unified execution uop rather than a copy of the
+P/T/U rename-owner packets. It keeps exact member/reservation identity,
+opcode/recipe, primary prediction, PC tokens, control sidecars, and physical
+source/destination tags. The real `OooO3RenameCoordinator` now transfers this
+payload over Decoupled and shares that fire with ROB/BROB/PC/RENU/dispatch
+publication. Exact terminal release removes the physical row and returns the
+dispatch slot on one fire.
+
 The S1 reservation guarantees eventual S2 capacity unless matching recovery
 cancels it. Therefore rename may safely publish `producerIqid` at D3/S1 without
 depending on an unreserved future allocation.
 
-Physical IQ valid bits, age matrix, wakeup, pick, speculative issue recovery,
-RF arbitration, and execution are IEX-owned. OOO consumes credits and
-acknowledgments but never mirrors IQ residency.
+Physical IQ valid/readiness now belongs to IEX. Age-matrix pick, speculative
+issue recovery, P1/I1/I2, RF arbitration, and execution remain later IEX
+owners. OOO consumes reservations and acknowledgments but never mirrors IQ
+residency.
 
 ## 15. Fast-resolve plan
 
@@ -1402,12 +1430,17 @@ for four STIDs; D3 has no direct free-list priority selection.
 
 O5.1 delivers generated-class compaction, exact bank/port/entry reservation,
 all-child atomicity, retained per-STID leases, P-map producer binding, and
-common O3/O4 publication. O5.2 delivers the IEX S1 speculative sink, S2
-physical bind acknowledgment, S3 pick enable, and the downstream-readiness
-arbitration that replaces the coordinator's temporary external permit.
+common O3/O4 publication. O5.2 delivers the exact Decoupled IEX S1 sink,
+per-STID retained rows and target claims, fair S2 physical bind, registered S3
+pick enable, registered wakeup readiness, compact execution rows, and exact
+dispatch-coupled release. It removes the coordinator's temporary external
+Boolean permit.
 
-Exit: every class/bank/port contention cross closes; no ready loop; target and
-payload remain stable through arbitrary S1 backpressure.
+Exit: focused class/bank/port, split, target-collision, retained-stage, wakeup,
+release, and real O3-to-IEX integration crosses pass; no ready loop; target and
+payload remain stable through arbitrary S1 backpressure. Multi-pick pipe
+arbitration and speculative issue cancellation are later IEX scope, not O5.2
+residency claims.
 
 ### O6: fast resolve and non-flush
 

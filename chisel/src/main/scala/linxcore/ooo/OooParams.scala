@@ -42,6 +42,7 @@ final case class OooParams(
     iqBankCount: Int = 8,
     iqEntriesPerBank: Int = 32,
     iqWritePortsPerBank: Int = 3,
+    iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
     maxDestinationOperands: Int = 2,
@@ -111,8 +112,9 @@ final case class OooParams(
     "PTag allocation generation width must be positive")
   require(isPowerOfTwo(pMapQDepthPerStid),
     "P MapQ depth per STID must be a power of two")
-  require(isPowerOfTwo(tPhysRegs) && isPowerOfTwo(uPhysRegs),
-    "T and U physical namespaces must be positive powers of two")
+  require(isPowerOfTwo(tPhysRegs) && isPowerOfTwo(uPhysRegs) &&
+    tPhysRegs >= 2 && uPhysRegs >= 2,
+    "T and U physical namespaces must be powers of two with at least two entries")
   require(isPowerOfTwo(tuMapQDepthPerStid),
     "T/U MapQ depth per STID must be a power of two")
   require(tuMapQDepthPerStid >= decodedUopWidth * maxDestinationOperands,
@@ -141,6 +143,8 @@ final case class OooParams(
   require(isPowerOfTwo(iqEntriesPerBank),
     "IQ entries per bank must be a power of two")
   require(iqWritePortsPerBank > 0, "every IQ bank needs a write port")
+  require(iexWakeupPorts > 0,
+    "the production IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,
     "BSTART + carrier + BSTOP fusion needs three parent references")
   require(maxSourceOperands >= 4 && maxDestinationOperands >= 2,
