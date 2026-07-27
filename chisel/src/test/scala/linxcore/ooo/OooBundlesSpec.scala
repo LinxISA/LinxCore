@@ -78,6 +78,7 @@ class OooBundlesSpec extends AnyFunSuite {
     val publication = new OooTURetirePublication(p)
     val command = new OooTURetireCommand(p)
     val blockCommit = new OooTULocalBlockCommit(p)
+    val recoveryReject = new OooTURenameRecoveryReject(p)
 
     assert(publication.sources.length == p.decodedUopWidth)
     assert(source.member.brobGeneration.getWidth == p.brobGenerationWidth)
@@ -92,6 +93,11 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(command.sequence.generation.getWidth == p.localSeqGenerationWidth)
     assert(blockCommit.block.bid.value.getWidth == p.nativeBidWidth)
     assert(blockCommit.block.generation.getWidth == p.brobGenerationWidth)
+    assert(recoveryReject.tTail.index.getWidth == p.tuMapQIndexWidth)
+    assert(recoveryReject.tTail.generation.getWidth ==
+      p.localSeqGenerationWidth)
+    assert(recoveryReject.uTail.generation.getWidth ==
+      p.localSeqGenerationWidth)
   }
 
   test("D2 D3 and S1 packets expose distinct preview reserve and publish transactions") {

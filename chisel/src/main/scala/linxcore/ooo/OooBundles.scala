@@ -523,6 +523,14 @@ class OooPRenameRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
   val mapQCount = UInt(p.pMapQCountWidth.W)
 }
 
+class OooTURenameRecoveryReject(val p: OooParams = OooParams()) extends Bundle {
+  val requested = new OooRenameRecoveryRequest(p)
+  val tTail = new OooLocalSeq(p)
+  val uTail = new OooLocalSeq(p)
+  val tMapQCount = UInt(p.tuMapQCountWidth.W)
+  val uMapQCount = UInt(p.tuMapQCountWidth.W)
+}
+
 class OooPTagToken(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val bank = UInt(p.pTagBankWidth.W)

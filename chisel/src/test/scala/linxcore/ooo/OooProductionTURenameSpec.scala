@@ -29,6 +29,14 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.blockCommit.valid.poke(false.B)
     dut.io.blockCommit.bits.poke(
       0.U.asTypeOf(dut.io.blockCommit.bits))
+    dut.io.recoveryAuthorize.valid.poke(false.B)
+    dut.io.recoveryAuthorize.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryAuthorize.bits))
+    dut.io.recoverySource.valid.poke(false.B)
+    dut.io.recoverySource.bits.poke(
+      0.U.asTypeOf(dut.io.recoverySource.bits))
+    dut.io.recoverySourcesDone.poke(false.B)
+    dut.io.recoveryFinish.poke(false.B)
   }
 
   private def pokeTransaction(
@@ -190,6 +198,113 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.retireCommand.ready.expect(true.B)
     dut.clock.step()
     dut.io.retireCommand.valid.poke(false.B)
+  }
+
+  private def pokeRecoveryRequest(
+      request: OooRenameRecoveryRequest,
+      stid: Int,
+      transactionId: Int,
+      uopIndex: Int,
+      killTrigger: Boolean): Unit = {
+    request.poke(0.U.asTypeOf(request))
+    request.key.member.group.valid.poke(true.B)
+    request.key.member.group.peId.poke(2.U)
+    request.key.member.group.stid.poke(stid.U)
+    request.key.member.group.ridSlot.poke(5.U)
+    request.key.member.group.ridGeneration.poke(3.U)
+    request.key.member.bid.valid.poke(true.B)
+    request.key.member.bid.value.poke(9.U)
+    request.key.member.brobGeneration.poke(4.U)
+    request.key.member.memberIndex.poke(uopIndex.U)
+    request.key.member.residentGeneration.poke(11.U)
+    request.key.cause.poke(OooRecoveryCause.Branch)
+    request.key.transactionId.poke(transactionId.U)
+    request.key.epoch.poke(7.U)
+    request.killTrigger.poke(killTrigger.B)
+  }
+
+  private def startRecovery(
+      dut: OooProductionTURename,
+      stid: Int,
+      transactionId: Int,
+      uopIndex: Int = 0,
+      killTrigger: Boolean = false): Unit = {
+    pokeRecoveryRequest(dut.io.recoveryAuthorize.bits, stid,
+      transactionId, uopIndex, killTrigger)
+    dut.io.recoveryAuthorize.valid.poke(true.B)
+    dut.io.recoveryAuthorize.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.recoveryAuthorize.valid.poke(false.B)
+    dut.io.recoveryBusy.expect(true.B)
+    dut.io.recoveryStid.expect(stid.U)
+  }
+
+  private def sendRecoverySource(
+      dut: OooProductionTURename,
+      triggerTransactionId: Int,
+      killedTransactionId: Int,
+      killedUopIndex: Int,
+      tBeforeIndex: Int,
+      tBeforeGeneration: Int,
+      uBeforeIndex: Int,
+      uBeforeGeneration: Int,
+      destinations: Seq[(DestinationKind.Type, Int, Int, Int)],
+      last: Boolean,
+      stid: Int = 0): Unit = {
+    val transfer = dut.io.recoverySource.bits
+    transfer.poke(0.U.asTypeOf(transfer))
+    pokeRecoveryRequest(transfer.request, stid, triggerTransactionId,
+      uopIndex = 0, killTrigger = false)
+    val source = transfer.source
+    source.valid.poke(true.B)
+    source.transactionId.poke(killedTransactionId.U)
+    source.epoch.poke(7.U)
+    source.uopIndex.poke(killedUopIndex.U)
+    source.member.group.valid.poke(true.B)
+    source.member.group.peId.poke(2.U)
+    source.member.group.stid.poke(stid.U)
+    source.member.group.ridSlot.poke(5.U)
+    source.member.group.ridGeneration.poke(3.U)
+    source.member.bid.valid.poke(true.B)
+    source.member.bid.value.poke(9.U)
+    source.member.brobGeneration.poke(4.U)
+    source.member.memberIndex.poke(killedUopIndex.U)
+    source.member.residentGeneration.poke(11.U)
+    source.tSeqBefore.valid.poke(true.B)
+    source.tSeqBefore.index.poke(tBeforeIndex.U)
+    source.tSeqBefore.generation.poke(tBeforeGeneration.U)
+    source.uSeqBefore.valid.poke(true.B)
+    source.uSeqBefore.index.poke(uBeforeIndex.U)
+    source.uSeqBefore.generation.poke(uBeforeGeneration.U)
+    destinations.zipWithIndex.foreach {
+      case ((kind, sequenceIndex, sequenceGeneration, physicalTag), index) =>
+        val destination = source.destinations(index)
+        destination.valid.poke(true.B)
+        destination.kind.poke(kind)
+        destination.relativeIndex.poke(0.U)
+        destination.sequence.valid.poke(true.B)
+        destination.sequence.index.poke(sequenceIndex.U)
+        destination.sequence.generation.poke(sequenceGeneration.U)
+        destination.physicalTag.poke(physicalTag.U)
+        destination.stid.poke(stid.U)
+        destination.epoch.poke(7.U)
+    }
+    transfer.last.poke(last.B)
+    dut.io.recoverySource.valid.poke(true.B)
+    dut.io.recoverySource.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.recoverySource.valid.poke(false.B)
+  }
+
+  private def finishRecovery(dut: OooProductionTURename): Unit = {
+    dut.io.recoverySourcesDone.poke(true.B)
+    dut.clock.step()
+    dut.io.recoverySourcesDone.poke(false.B)
+    dut.io.recoveryComplete.expect(true.B)
+    dut.io.recoveryFinish.poke(true.B)
+    dut.clock.step()
+    dut.io.recoveryFinish.poke(false.B)
+    dut.io.recoveryBusy.expect(false.B)
   }
 
   test("resolves T and U relative sources across one retained bundle") {
@@ -553,6 +668,205 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.blockCommit.valid.poke(false.B)
       dut.io.tMapQUsed(0).expect(0.U)
       dut.io.tPhysicalUsed(0).expect(0.U)
+    }
+  }
+
+  test("rolls back an exact mixed T/U suffix and restores both cursors") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      stidCount = 4,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8)
+    simulate(new OooProductionTURename(p)) { dut =>
+      clear(dut)
+      val both = Seq(UopShape(destinations = Seq(
+        DestinationKind.T -> 0, DestinationKind.U -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 200, both)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 200, both)
+      publish(dut)
+
+      val killed = Seq(
+        UopShape(destinations = Seq(
+          DestinationKind.T -> 0, DestinationKind.U -> 0)),
+        UopShape(destinations = Seq(DestinationKind.T -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 201, killed)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 201, killed)
+      publish(dut)
+      dut.io.tMapQUsed(0).expect(3.U)
+      dut.io.uMapQUsed(0).expect(2.U)
+
+      startRecovery(dut, stid = 0, transactionId = 200)
+
+      val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 202, oneT)
+      dut.io.reserveReady.expect(false.B)
+      pokeReserve(dut, stid = 1, transactionId = 203, oneT)
+      dut.io.reserveReady.expect(true.B)
+      reserve(dut)
+      pokePublication(dut, stid = 1, transactionId = 203, oneT)
+      publish(dut)
+      dut.io.tMapQUsed(1).expect(1.U)
+
+      sendRecoverySource(dut, triggerTransactionId = 200,
+        killedTransactionId = 201, killedUopIndex = 1,
+        tBeforeIndex = 2, tBeforeGeneration = 0,
+        uBeforeIndex = 2, uBeforeGeneration = 0,
+        destinations = Seq((DestinationKind.T, 2, 0, 2)), last = false)
+      dut.io.tMapQUsed(0).expect(2.U)
+      dut.io.uMapQUsed(0).expect(2.U)
+      sendRecoverySource(dut, triggerTransactionId = 200,
+        killedTransactionId = 201, killedUopIndex = 0,
+        tBeforeIndex = 1, tBeforeGeneration = 0,
+        uBeforeIndex = 1, uBeforeGeneration = 0,
+        destinations = Seq(
+          (DestinationKind.T, 1, 0, 1),
+          (DestinationKind.U, 1, 0, 1)), last = true)
+      dut.io.tMapQUsed(0).expect(1.U)
+      dut.io.uMapQUsed(0).expect(1.U)
+      dut.io.tPhysicalUsed(0).expect(1.U)
+      dut.io.uPhysicalUsed(0).expect(1.U)
+      finishRecovery(dut)
+
+      val lookup = Seq(UopShape(sources = Seq(
+        OperandClass.T -> 0, OperandClass.U -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 204, lookup)
+      dut.io.reserveReady.expect(true.B)
+      dut.io.reservation.sourceMappings(0)(0).physicalTag.expect(0.U)
+      dut.io.reservation.sourceMappings(0)(1).physicalTag.expect(0.U)
+
+      pokeReserve(dut, stid = 0, transactionId = 205, both)
+      dut.io.reserveReady.expect(true.B)
+      dut.io.reservation.allocations(0).mapping.sequence.index.expect(1.U)
+      dut.io.reservation.allocations(0).mapping.physicalTag.expect(1.U)
+      dut.io.reservation.allocations(1).mapping.sequence.index.expect(1.U)
+      dut.io.reservation.allocations(1).mapping.physicalTag.expect(1.U)
+    }
+  }
+
+  test("preserves wrapped survivor state across a zero-destination suffix row") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      tPhysRegs = 4,
+      uPhysRegs = 4,
+      tuMapQDepthPerStid = 4)
+    simulate(new OooProductionTURename(p)) { dut =>
+      clear(dut)
+      val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
+      for (transactionId <- 300 until 304) {
+        pokeReserve(dut, stid = 0, transactionId, oneT)
+        reserve(dut)
+        pokePublication(dut, stid = 0, transactionId, oneT)
+        publish(dut)
+        retireLocal(dut, DestinationKind.T,
+          sequenceIndex = transactionId - 300,
+          sequenceGeneration = 0, dealloc = false)
+        retireLocal(dut, DestinationKind.T,
+          sequenceIndex = transactionId - 300,
+          sequenceGeneration = 0, dealloc = true)
+      }
+
+      pokeReserve(dut, stid = 0, transactionId = 304, oneT)
+      dut.io.reservation.allocations(0).mapping.sequence.index.expect(0.U)
+      dut.io.reservation.allocations(0).mapping.sequence.generation.expect(1.U)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 304, oneT)
+      publish(dut)
+      pokeReserve(dut, stid = 0, transactionId = 305, oneT)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 305, oneT)
+      publish(dut)
+
+      val noDestination = Seq(UopShape())
+      pokeReserve(dut, stid = 0, transactionId = 0, noDestination)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 0, noDestination)
+      publish(dut)
+
+      startRecovery(dut, stid = 0, transactionId = 304)
+      sendRecoverySource(dut, triggerTransactionId = 304,
+        killedTransactionId = 0, killedUopIndex = 0,
+        tBeforeIndex = 2, tBeforeGeneration = 1,
+        uBeforeIndex = 0, uBeforeGeneration = 0,
+        destinations = Seq.empty, last = false)
+      sendRecoverySource(dut, triggerTransactionId = 304,
+        killedTransactionId = 305, killedUopIndex = 0,
+        tBeforeIndex = 1, tBeforeGeneration = 1,
+        uBeforeIndex = 0, uBeforeGeneration = 0,
+        destinations = Seq((DestinationKind.T, 1, 1, 1)), last = true)
+      finishRecovery(dut)
+
+      dut.io.tMapQUsed(0).expect(1.U)
+      pokeReserve(dut, stid = 0, transactionId = 306, oneT)
+      dut.io.reservation.allocations(0).mapping.sequence.index.expect(1.U)
+      dut.io.reservation.allocations(0).mapping.sequence.generation.expect(1.U)
+      dut.io.reservation.allocations(0).mapping.physicalTag.expect(1.U)
+    }
+  }
+
+  test("rejects malformed recovery authority and gives retire exact priority") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      tPhysRegs = 4,
+      uPhysRegs = 4,
+      tuMapQDepthPerStid = 4)
+    simulate(new OooProductionTURename(p)) { dut =>
+      clear(dut)
+      val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
+      pokeReserve(dut, stid = 0, transactionId = 400, oneT)
+      reserve(dut)
+      pokePublication(dut, stid = 0, transactionId = 400, oneT)
+      publish(dut)
+
+      dut.io.recoveryAuthorize.bits.poke(
+        0.U.asTypeOf(dut.io.recoveryAuthorize.bits))
+      dut.io.recoveryAuthorize.valid.poke(true.B)
+      dut.io.recoveryAuthorize.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryAuthorize.valid.poke(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.tMapQCount.expect(1.U)
+      dut.io.recoveryBusy.expect(false.B)
+
+      val command = dut.io.retireCommand.bits
+      command.poke(0.U.asTypeOf(command))
+      command.valid.poke(true.B)
+      command.member.group.valid.poke(true.B)
+      command.member.group.peId.poke(2.U)
+      command.member.group.stid.poke(0.U)
+      command.member.group.ridSlot.poke(5.U)
+      command.member.group.ridGeneration.poke(3.U)
+      command.member.bid.valid.poke(true.B)
+      command.member.bid.value.poke(9.U)
+      command.member.brobGeneration.poke(4.U)
+      command.member.residentGeneration.poke(11.U)
+      command.kind.poke(DestinationKind.T)
+      command.sequence.valid.poke(true.B)
+      command.sequence.index.poke(0.U)
+      command.sequence.generation.poke(0.U)
+      command.dealloc.poke(false.B)
+      dut.io.retireCommand.valid.poke(true.B)
+      pokeRecoveryRequest(dut.io.recoveryAuthorize.bits, stid = 0,
+        transactionId = 400, uopIndex = 0, killTrigger = true)
+      dut.io.recoveryAuthorize.valid.poke(true.B)
+      dut.io.retireCommand.ready.expect(true.B)
+      dut.io.recoveryAuthorize.ready.expect(false.B)
+      dut.clock.step()
+      dut.io.retireCommand.valid.poke(false.B)
+      dut.io.recoveryAuthorize.valid.poke(false.B)
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.tMapQUsed(0).expect(1.U)
     }
   }
 }

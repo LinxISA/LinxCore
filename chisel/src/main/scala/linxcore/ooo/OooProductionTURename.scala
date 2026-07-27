@@ -1,8 +1,12 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, PopCount, Valid}
+import chisel3.util.{Cat, Decoupled, PopCount, Valid, is, switch}
 import linxcore.common.{DestinationKind, OperandClass}
+
+object OooTURecoveryState extends ChiselEnum {
+  val Idle, WaitSources, Complete = Value
+}
 
 class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   val reservePrepare = Flipped(Valid(new OooD2GroupedTransaction(p)))
@@ -18,6 +22,16 @@ class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
 
   val retireCommand = Flipped(Decoupled(new OooTURetireCommand(p)))
   val blockCommit = Flipped(Decoupled(new OooTULocalBlockCommit(p)))
+
+  val recoveryAuthorize = Flipped(Decoupled(
+    new OooRenameRecoveryRequest(p)))
+  val recoverySource = Flipped(Decoupled(new OooRenameRecoverySource(p)))
+  val recoverySourcesDone = Input(Bool())
+  val recoveryComplete = Output(Bool())
+  val recoveryFinish = Input(Bool())
+  val recoveryBusy = Output(Bool())
+  val recoveryStid = Output(UInt(p.stidWidth.W))
+  val recoveryRejected = Valid(new OooTURenameRecoveryReject(p))
 
   val provisional = Output(Vec(p.stidCount, new OooTUReservation(p)))
   val tMapQUsed = Output(Vec(p.stidCount, UInt(p.tuMapQCountWidth.W)))
@@ -79,6 +93,17 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     }
   }
 
+  private def decrementPhysical(ptr: UInt, decrement: UInt, entries: Int): UInt = {
+    val indexWidth = chisel3.util.log2Ceil(entries)
+    val previous = ptr - decrement
+    if (indexWidth == p.localTagWidth) {
+      previous(p.localTagWidth - 1, 0)
+    } else {
+      Cat(0.U((p.localTagWidth - indexWidth).W),
+        previous(indexWidth - 1, 0))
+    }
+  }
+
   val tMapQ = RegInit(VecInit(Seq.fill(p.stidCount)(
     VecInit(Seq.fill(p.tuMapQDepthPerStid)(zeroRow)))))
   val uMapQ = RegInit(VecInit(Seq.fill(p.stidCount)(
@@ -105,6 +130,19 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     0.U(p.countWidth(p.uPhysRegs).W))))
   val provisional = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U.asTypeOf(new OooTUReservation(p)))))
+  val recoveryState = RegInit(OooTURecoveryState.Idle)
+  val recoveryRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryRejectValid = RegInit(false.B)
+  val recoveryRejectRequest = RegInit(
+    0.U.asTypeOf(new OooRenameRecoveryRequest(p)))
+  val recoveryRejectTTail = RegInit(0.U(seqPackedWidth.W))
+  val recoveryRejectUTail = RegInit(0.U(seqPackedWidth.W))
+  val recoveryRejectTCount = RegInit(0.U(p.tuMapQCountWidth.W))
+  val recoveryRejectUCount = RegInit(0.U(p.tuMapQCountWidth.W))
+  val recoveryActiveStid = recoveryRequest.key.member.group.stid
+  io.recoveryBusy := recoveryState =/= OooTURecoveryState.Idle
+  io.recoveryStid := Mux(io.recoveryBusy, recoveryActiveStid, 0.U)
 
   val reservePlan = io.reservePrepare.bits.plan
   val reserveDecoded = io.reservePrepare.bits.decoded
@@ -336,9 +374,11 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
   val sourceExact = !sourceUnderflow.asUInt.orR
   val reserveExact = reserveStidInRange && identityExact && demandExact &&
     memberShapeExact
+  val reserveBlockedByRecovery = io.recoveryBusy &&
+    reserveStid === recoveryActiveStid
 
   io.reserveReady := reserveExact && capacityAvailable &&
-    provisionalAvailable && sourceExact
+    provisionalAvailable && sourceExact && !reserveBlockedByRecovery
   io.reservation.valid := io.reservePrepare.valid && io.reserveReady
   io.reserveRejected.valid := io.reservePrepare.valid && !io.reserveReady
   io.reserveRejected.bits.stid := reserveStid
@@ -480,7 +520,9 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
 
   val publicationExact = publicationIdentityExact &&
     memberBindingsExact.asUInt.andR
-  io.publicationReady := publicationExact
+  val publicationBlockedByRecovery = io.recoveryBusy &&
+    publicationStid === recoveryActiveStid
+  io.publicationReady := publicationExact && !publicationBlockedByRecovery
   io.prepared.valid := io.publicationPrepare.valid && publicationExact
   io.publicationRejected.valid := io.publicationPrepare.valid &&
     !io.publicationReady
@@ -549,7 +591,9 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     (retireIsT || retireIsU) && retireRow.valid && retireSequenceExact &&
     retireMemberExact && Mux(retire.dealloc,
       retireRow.retired && retireHeadExact, !retireRow.retired)
-  io.retireCommand.ready := retireExact
+  val retireBlockedByRecovery = io.recoveryBusy &&
+    retireStid === recoveryActiveStid
+  io.retireCommand.ready := retireExact && !retireBlockedByRecovery
   val retireFire = io.retireCommand.fire
 
   when(retireFire && !retire.dealloc) {
@@ -581,7 +625,9 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     blockCommit.stid, 0.U)
   val blockCommitExact = blockCommit.valid && blockCommitStidInRange &&
     blockCommit.block.valid && blockCommit.block.bid.valid
-  io.blockCommit.ready := blockCommitExact
+  val blockCommitBlockedByRecovery = io.recoveryBusy &&
+    blockCommit.stid === recoveryActiveStid
+  io.blockCommit.ready := blockCommitExact && !blockCommitBlockedByRecovery
 
   def blockReleaseMask(
       mapQ: Vec[OooTUMapQEntry],
@@ -637,6 +683,168 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
       uPhysicalCount(safeBlockCommitStid) - uBlockReleaseCount
   }
 
+  recoveryRejectValid := false.B
+  val incomingRecovery = io.recoveryAuthorize.bits
+  val incomingRecoveryStid = incomingRecovery.key.member.group.stid
+  val incomingRecoveryStidInRange = incomingRecoveryStid < p.stidCount.U
+  val safeIncomingRecoveryStid = Mux(incomingRecoveryStidInRange,
+    incomingRecoveryStid, 0.U)
+  val incomingRecoveryShapeExact = incomingRecoveryStidInRange &&
+    incomingRecovery.key.member.group.valid &&
+    incomingRecovery.key.member.bid.valid
+  val recoveryConflictsReserve = reserveFire &&
+    reserveStid === incomingRecoveryStid
+  val recoveryConflictsPublication = publishExact &&
+    publicationStid === incomingRecoveryStid
+  val recoveryConflictsRetire = retireFire &&
+    retireStid === incomingRecoveryStid
+  val recoveryConflictsBlockCommit = blockCommitFire &&
+    blockCommit.stid === incomingRecoveryStid
+  io.recoveryAuthorize.ready := recoveryState === OooTURecoveryState.Idle &&
+    !recoveryConflictsReserve && !recoveryConflictsPublication &&
+    !recoveryConflictsRetire && !recoveryConflictsBlockCommit
+  val recoveryAuthorizeFire = io.recoveryAuthorize.fire
+
+  val killed = io.recoverySource.bits.source
+  val killedStid = killed.member.group.stid
+  val killedDestinationIsT = Wire(Vec(p.maxDestinationOperands, Bool()))
+  val killedDestinationIsU = Wire(Vec(p.maxDestinationOperands, Bool()))
+  for (destinationIndex <- 0 until p.maxDestinationOperands) {
+    val destination = killed.destinations(destinationIndex)
+    killedDestinationIsT(destinationIndex) := destination.valid &&
+      kindIsT(destination.kind)
+    killedDestinationIsU(destinationIndex) := destination.valid &&
+      kindIsU(destination.kind)
+  }
+  val killedTCount = PopCount(killedDestinationIsT)
+  val killedUCount = PopCount(killedDestinationIsU)
+  val killedCountsInRange = killedTCount <= tCount(recoveryActiveStid) &&
+    killedUCount <= uCount(recoveryActiveStid) &&
+    killedTCount <= tPhysicalCount(recoveryActiveStid) &&
+    killedUCount <= uPhysicalCount(recoveryActiveStid)
+  val killedTBefore = packSeq(killed.tSeqBefore)
+  val killedUBefore = packSeq(killed.uSeqBefore)
+  val killedTAfter = (killedTBefore + killedTCount)(seqPackedWidth - 1, 0)
+  val killedUAfter = (killedUBefore + killedUCount)(seqPackedWidth - 1, 0)
+  val killedTailExact = killed.tSeqBefore.valid && killed.uSeqBefore.valid &&
+    killedTAfter === tTail(recoveryActiveStid) &&
+    killedUAfter === uTail(recoveryActiveStid)
+  val killedTPhysicalBefore = decrementPhysical(
+    tNextPhysical(recoveryActiveStid), killedTCount, p.tPhysRegs)
+  val killedUPhysicalBefore = decrementPhysical(
+    uNextPhysical(recoveryActiveStid), killedUCount, p.uPhysRegs)
+
+  val killedRowsExact = (0 until p.maxDestinationOperands).map {
+    destinationIndex =>
+      val destination = killed.destinations(destinationIndex)
+      val isT = killedDestinationIsT(destinationIndex)
+      val isU = killedDestinationIsU(destinationIndex)
+      val validKind = isT || isU
+      val olderT = if (destinationIndex == 0) 0.U else
+        PopCount(killedDestinationIsT.take(destinationIndex))
+      val olderU = if (destinationIndex == 0) 0.U else
+        PopCount(killedDestinationIsU.take(destinationIndex))
+      val expectedSequence = Mux(isT,
+        killedTBefore + olderT, killedUBefore + olderU)(seqPackedWidth - 1, 0)
+      val expectedPhysical = Mux(isT,
+        incrementPhysical(killedTPhysicalBefore, olderT, p.tPhysRegs),
+        incrementPhysical(killedUPhysicalBefore, olderU, p.uPhysRegs))
+      val row = Mux(isT,
+        tMapQ(recoveryActiveStid)(destination.sequence.index),
+        uMapQ(recoveryActiveStid)(destination.sequence.index))
+      !destination.valid || (validKind && destination.sequence.valid &&
+        destination.stid === recoveryActiveStid &&
+        destination.epoch === killed.epoch &&
+        packSeq(destination.sequence) === expectedSequence &&
+        destination.physicalTag === expectedPhysical && row.valid &&
+        !row.retired && row.transactionId === killed.transactionId &&
+        row.uopIndex === killed.uopIndex &&
+        row.destinationIndex === destinationIndex.U &&
+        row.member.asUInt === killed.member.asUInt &&
+        row.mapping.asUInt === destination.asUInt)
+  }.reduce(_ && _)
+  val killedSourceExact = io.recoverySource.bits.request.asUInt ===
+    recoveryRequest.asUInt && killed.valid &&
+    killedStid === recoveryActiveStid && killed.member.group.valid &&
+    killed.member.bid.valid && killedCountsInRange && killedTailExact &&
+    killedRowsExact
+  io.recoverySource.ready :=
+    recoveryState === OooTURecoveryState.WaitSources && killedSourceExact
+  val recoverySourceFire = io.recoverySource.fire
+
+  when(recoveryAuthorizeFire) {
+    when(incomingRecoveryShapeExact) {
+      recoveryRequest := incomingRecovery
+      provisional(safeIncomingRecoveryStid) :=
+        0.U.asTypeOf(new OooTUReservation(p))
+      recoveryState := OooTURecoveryState.WaitSources
+    }.otherwise {
+      recoveryRejectValid := true.B
+      recoveryRejectRequest := incomingRecovery
+      recoveryRejectTTail := tTail(safeIncomingRecoveryStid)
+      recoveryRejectUTail := uTail(safeIncomingRecoveryStid)
+      recoveryRejectTCount := tCount(safeIncomingRecoveryStid)
+      recoveryRejectUCount := uCount(safeIncomingRecoveryStid)
+    }
+  }
+
+  when(recoveryState === OooTURecoveryState.WaitSources &&
+      io.recoverySource.valid) {
+    assert(killedSourceExact,
+      "T/U recovery source must own the exact local MapQ suffix")
+  }
+
+  switch(recoveryState) {
+    is(OooTURecoveryState.WaitSources) {
+      when(recoverySourceFire) {
+        for (destinationIndex <- 0 until p.maxDestinationOperands) {
+          val destination = killed.destinations(destinationIndex)
+          when(killedDestinationIsT(destinationIndex)) {
+            tMapQ(recoveryActiveStid)(destination.sequence.index) := zeroRow
+          }
+          when(killedDestinationIsU(destinationIndex)) {
+            uMapQ(recoveryActiveStid)(destination.sequence.index) := zeroRow
+          }
+        }
+        tTail(recoveryActiveStid) := killedTBefore
+        uTail(recoveryActiveStid) := killedUBefore
+        when(killedTCount.orR) {
+          tNextPhysical(recoveryActiveStid) := killedTPhysicalBefore
+        }
+        when(killedUCount.orR) {
+          uNextPhysical(recoveryActiveStid) := killedUPhysicalBefore
+        }
+        tCount(recoveryActiveStid) :=
+          tCount(recoveryActiveStid) - killedTCount
+        uCount(recoveryActiveStid) :=
+          uCount(recoveryActiveStid) - killedUCount
+        tPhysicalCount(recoveryActiveStid) :=
+          tPhysicalCount(recoveryActiveStid) - killedTCount
+        uPhysicalCount(recoveryActiveStid) :=
+          uPhysicalCount(recoveryActiveStid) - killedUCount
+      }.elsewhen(io.recoverySourcesDone && !io.recoverySource.valid) {
+        recoveryState := OooTURecoveryState.Complete
+      }
+    }
+    is(OooTURecoveryState.Complete) {
+      when(io.recoveryFinish) {
+        recoveryState := OooTURecoveryState.Idle
+      }
+    }
+  }
+
+  io.recoveryComplete := recoveryState === OooTURecoveryState.Complete
+  io.recoveryRejected.valid := recoveryRejectValid
+  io.recoveryRejected.bits.requested := recoveryRejectRequest
+  driveSeq(io.recoveryRejected.bits.tTail, recoveryRejectTTail, true.B)
+  driveSeq(io.recoveryRejected.bits.uTail, recoveryRejectUTail, true.B)
+  io.recoveryRejected.bits.tMapQCount := recoveryRejectTCount
+  io.recoveryRejected.bits.uMapQCount := recoveryRejectUCount
+  when(io.recoveryFinish) {
+    assert(io.recoveryComplete,
+      "T/U recovery may finish only after the exact suffix rolls back")
+  }
+
   when(retireFire && blockCommitFire) {
     assert(false.B,
       "T/U retire mark/deallocation and block commit are serialized")
@@ -645,6 +853,16 @@ class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
     assert(safePublicationStid =/= Mux(retireFire,
       safeRetireStid, safeBlockCommitStid),
       "same-STID T/U publication must wait for retirement maintenance")
+  }
+  when(io.recoveryBusy) {
+    assert(!(reserveFire && reserveStid === recoveryActiveStid),
+      "same-STID T/U reserve must wait for recovery")
+    assert(!(publishExact && publicationStid === recoveryActiveStid),
+      "same-STID T/U publication must wait for recovery")
+    assert(!(retireFire && retireStid === recoveryActiveStid),
+      "same-STID T/U retirement must wait for recovery")
+    assert(!(blockCommitFire && blockCommit.stid === recoveryActiveStid),
+      "same-STID T/U block commit must wait for recovery")
   }
 
   io.provisional := provisional

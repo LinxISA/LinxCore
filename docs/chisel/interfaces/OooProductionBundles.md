@@ -434,6 +434,23 @@ direct P-owner UT proves killed current-tag order, survivor replay, unchanged
 CMAP, unrelated-STID rename, and that the surviving MapQ prefix remains
 committable. O4.4.3c still owns T/U MapQ and sequence-cursor rollback.
 
+O4.4.3c makes `OooProductionTURename` consume the same authorized source
+stream. A killed logical uop is accepted only when its `tSeqBefore` and
+`uSeqBefore`, destination sequences, wrap generations, physical tags, full ROB
+member, transaction, STID, and epoch describe the exact current T/U MapQ
+suffix. All of that uop's local rows are removed atomically; both sequence
+tails and circular next-physical cursors are restored to the pre-uop snapshot.
+Rows already marked retired cannot be rolled back. A no-local-destination
+source still has to match both current tails before it can advance the stream.
+
+The T/U owner drops an affected provisional lease when authorization fires and
+blocks same-STID reserve, publication, retire commands, and block commit until
+common finish. Unrelated STIDs continue. Direct UT covers mixed T/U rollback,
+sequence-generation wrap, physical-tag reuse, transaction-zero and
+zero-destination suffix rows, malformed authorization, and retire priority.
+The O3 seam remains sealed until O4.4.3d atomically joins scanner, P, and T/U
+authorization/source/completion handshakes and proves four-STID isolation.
+
 D3's `planStale` preview has priority over P/T/U resource readiness. An obsolete
 plan is consumed even if its obsolete local source underflows, but the stale
 fire suppresses both PTag and T/U claims. Conversely, a valid same-STID reserve
