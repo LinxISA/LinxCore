@@ -20,9 +20,10 @@ The first downstream read-stage packet is documented separately in
 does not take ownership of the physical IQ entry.
 Oldest-ready selection and canonical speculative ownership are documented in
 [`OooIexOldestReadyPicker`](OooIexOldestReadyPicker.md).
-The exact selected-payload join and executable one-lane composition are
+The exact selected-payload join and executable one-/multi-domain compositions are
 documented in [`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
-[`OooIexIssueP1Lane`](OooIexIssueP1Lane.md).
+[`OooIexIssueP1Lane`](OooIexIssueP1Lane.md), plus
+[`OooIexIssueP1Fabric`](OooIexIssueP1Fabric.md).
 
 ## Stage ownership
 
@@ -82,6 +83,13 @@ token is retained under P1 backpressure. Its fire sets `inFlight` only in the
 canonical scheduling row. An exact retry clears that bit; stale or malformed
 claims/retries produce typed rejects.
 
+`iexIssueDomainCount` vectorizes only picker/query/retry ports. Every domain
+projects one class plus an arbitrary bank mask from the same `scheduleRows`
+and `payloadRows` owner. Same-class bank masks must be disjoint; a hardware
+assert rejects overlap before parallel claims can alias one row. Retry is
+accepted only by the domain whose current class/bank projection owns the
+reservation. Domain-zero aliases preserve the focused one-lane interface.
+
 Release is fail-closed. It requires an in-flight row, the exact member, and
 complete dispatch reservation, including class-local entry, write port, and
 reservation epoch.
@@ -123,8 +131,8 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- Multi-domain P1 topology and disjoint class/bank-to-pipe mapping around the
-  implemented reusable picker/bridge/P1-I2 composition.
+- Frozen default class/bank-to-pipe mapping and class-specific admission
+  blockers; the N-domain mechanism and overlap enforcement are implemented.
 - Canonical P/T/U RF owners, shared read-port arbitration, operand bypass, and
   result/wakeup buses.
 - The terminal handoff rule that releases the physical row only after a
@@ -147,6 +155,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPicker
 bash tools/chisel/run_chisel_tests.sh --only OooIexPickP1Bridge
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Lane
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Fabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
@@ -170,6 +179,13 @@ I0.3 additionally covers every generated recipe form, D1 propagation, exact
 primary-parent indexing, physical-child PC class selection, bridge
 backpressure/rejection, and an end-to-end S1/S2/S3 → P1/I1 denial → exact
 repick → I2 transaction.
+
+I0.4 adds a two-domain integration case that publishes ALU and BRU rows in one
+S1 transaction, claims both in parallel, grants ALU while denying BRU, proves
+the denial cannot disturb the peer domain, repicks BRU, releases both exact IQ
+rows, and observes aggregate quiescence. It then runs two ALU domains on
+disjoint banks. A negative case proves overlapping same-class bank projections
+trip the topology assertion.
 
 O8.1/O8.1b elaboration evidence uses the same first 2-bank x 4-entry stage
 test. Splitting the wide payload into inferred memory first reduced the main
@@ -197,3 +213,9 @@ checks the readyless joined row supplied by the IQ owner.
 In the directly comparable first IEX stage test, the main owner is now 176,764
 lines, 307 lines above I0.2 and 1.8% above the 173,709-line bounded-recovery
 baseline.
+
+I0.4's focused two-domain composition is 12,129 SystemVerilog lines around one
+163,798-line `OooIexIssue`, two 913-line bridges, and two 2,992-line lanes.
+The fabric contains exactly one `OooIexIssue` instance and no schedule/payload
+storage reference. These are structural elaboration counts, not timing or area
+claims.

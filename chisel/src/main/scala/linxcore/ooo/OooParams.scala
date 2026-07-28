@@ -52,6 +52,7 @@ final case class OooParams(
     iqWritePortsPerBank: Int = 3,
     iqFreeSelectLeafEntries: Int = 4,
     iexRecoveryScanEntriesPerBankPerCycle: Int = 1,
+    iexIssueDomainCount: Int = 1,
     iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
@@ -197,6 +198,9 @@ final case class OooParams(
     iexRecoveryScanEntriesPerBankPerCycle <= iqEntriesPerBank &&
     iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
     "IEX recovery scan width must be a power-of-two divisor of each IQ bank")
+  require(iexIssueDomainCount > 0 &&
+    iexIssueDomainCount <= iqClassCount * iqBankCount,
+    "IEX issue-domain count must fit the physical class/bank topology")
   require(iexWakeupPorts > 0,
     "the IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,

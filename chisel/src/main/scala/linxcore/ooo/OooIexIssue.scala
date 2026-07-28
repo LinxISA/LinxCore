@@ -25,26 +25,55 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
   val recoveryFire = Input(Bool())
   val recoveryApplied = Valid(new OooResidencyRecoveryPlan(p))
+  val recoveryBusy = Output(Bool())
   // Every PTag return must invalidate the generation-qualified ready record
   // before the freelist can recycle that token.
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
 
-  val query = Input(new OooIexSlotQuery(p))
-  val queryState = Output(OooIexIssueSlotState())
-  val queryRow = Output(new OooIexIssueRow(p))
-  val queryPickable = Output(Bool())
+  val queries = Input(Vec(p.iexIssueDomainCount,
+    new OooIexSlotQuery(p)))
+  val queryStates = Output(Vec(p.iexIssueDomainCount,
+    OooIexIssueSlotState()))
+  val queryRows = Output(Vec(p.iexIssueDomainCount,
+    new OooIexIssueRow(p)))
+  val queryPickables = Output(Vec(p.iexIssueDomainCount, Bool()))
 
-  // One topology-neutral issue domain. Later width packets instantiate the
-  // same picker for disjoint class/bank domains rather than copying IQ state.
-  val pickClass = Input(OooUopClass())
-  val pickBankEnable = Input(UInt(p.iqBankCount.W))
-  val pick = Decoupled(new OooIexPickToken(p))
-  val pickRetry = Flipped(Valid(new OooIexReadRepick(p)))
-  val pickMalformed = Valid(new OooIexPickReject(p))
-  val pickRejected = Valid(new OooIexPickClaimReject(p))
-  val pickRetryRejected = Valid(new OooIexPickRetryReject(p))
-  val pickRecoveryCanceled = Valid(new OooIexPickToken(p))
-  val pickRecoveryBlocked = Valid(new OooIexPickToken(p))
+  // Each topology-neutral domain sees the same canonical IQ owner through a
+  // disjoint class/bank projection.  The domain count changes picker width,
+  // never the number of physical row or payload owners.
+  val pickClasses = Input(Vec(p.iexIssueDomainCount, OooUopClass()))
+  val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
+    UInt(p.iqBankCount.W)))
+  val picks = Vec(p.iexIssueDomainCount,
+    Decoupled(new OooIexPickToken(p)))
+  val pickRetries = Flipped(Vec(p.iexIssueDomainCount,
+    Valid(new OooIexReadRepick(p))))
+  val pickMalformedByDomain = Vec(p.iexIssueDomainCount,
+    Valid(new OooIexPickReject(p)))
+  val pickRejectedByDomain = Vec(p.iexIssueDomainCount,
+    Valid(new OooIexPickClaimReject(p)))
+  val pickRetryRejectedByDomain = Vec(p.iexIssueDomainCount,
+    Valid(new OooIexPickRetryReject(p)))
+  val pickRecoveryCanceledByDomain = Vec(p.iexIssueDomainCount,
+    Valid(new OooIexPickToken(p)))
+  val pickRecoveryBlockedByDomain = Vec(p.iexIssueDomainCount,
+    Valid(new OooIexPickToken(p)))
+
+  // Domain-zero aliases keep focused single-domain modules and regression
+  // tests source-compatible while the physical IO is explicitly vectorized.
+  def query = queries(0)
+  def queryState = queryStates(0)
+  def queryRow = queryRows(0)
+  def queryPickable = queryPickables(0)
+  def pickClass = pickClasses(0)
+  def pickBankEnable = pickBankEnables(0)
+  def pick = picks(0)
+  def pickRetry = pickRetries(0)
+  def pickMalformed = pickMalformedByDomain(0)
+  def pickRejected = pickRejectedByDomain(0)
+  def pickRetryRejected = pickRetryRejectedByDomain(0)
+  def pickRecoveryCanceled = pickRecoveryCanceledByDomain(0)
+  def pickRecoveryBlocked = pickRecoveryBlockedByDomain(0)
 
   val s1Occupied = Output(Vec(p.stidCount, Bool()))
   val s2Bind = Valid(new OooIexS2BindAck(p))
@@ -135,6 +164,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       recoveryScanState =/= OooIexRecoveryScanState.Idle)
   io.recoveryApplied.valid := io.recoveryFire && io.recoveryPrepareReady
   io.recoveryApplied.bits := recoveryPlan
+  io.recoveryBusy := recoveryScanState =/= OooIexRecoveryScanState.Idle
 
   // A wakeup must remain visible to consumers dispatched after that producer
   // completed.  These generation-qualified scoreboards complement per-row
@@ -1038,141 +1068,167 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     }
   }
 
-  val picker = Module(new OooIexOldestReadyPicker(p))
-  picker.io.uopClass := io.pickClass
-  picker.io.bankEnable := io.pickBankEnable
-  picker.io.stidBlock := Mux(recoveryFreeze,
-    UIntToOH(safeRecoveryStid, p.stidCount), 0.U)
-  picker.io.recoveryApply.valid := io.recoveryFire && recoveryPlan.valid
-  picker.io.recoveryApply.bits := recoveryPlan
-
-  val pickerClassIndex = io.pickClass.asUInt
-  for (bank <- 0 until p.iqBankCount;
-       entry <- 0 until p.iqEntriesPerBank) {
-    val row = scheduleRows(pickerClassIndex)(bank)(entry)
-    val sourcesReady = row.sources.map(source =>
-      !source.valid || source.ready).reduce(_ && _)
-    val candidate = picker.io.candidates(bank)(entry)
-    candidate.eligible :=
-      slotState(pickerClassIndex)(bank)(entry) ===
-        OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
-      sourcesReady &&
-      !(recoveryFreeze && row.stid === recoveryStid)
-    candidate.peId := row.peId
-    candidate.stid := row.stid
-    candidate.epoch := row.epoch
-    candidate.transactionId := row.transactionId
-    candidate.member := row.member
-    candidate.reservation := row.reservation
+  for (left <- 0 until p.iexIssueDomainCount;
+       right <- left + 1 until p.iexIssueDomainCount) {
+    assert(io.pickClasses(left) =/= io.pickClasses(right) ||
+      !(io.pickBankEnables(left) & io.pickBankEnables(right)).orR,
+      "IEX issue domains must have disjoint class/bank projections")
   }
 
-  val pickToken = picker.io.pick.bits
-  val pickClassIndex = pickToken.query.uopClass.asUInt
-  val pickClassInRange = pickClassIndex < p.iqClassCount.U
-  val pickBankInRange = pickToken.query.bank < p.iqBankCount.U
-  val pickEntryInRange = pickToken.query.entry < p.iqEntriesPerBank.U
-  val safePickClass = Mux(pickClassInRange, pickClassIndex, 0.U)
-  val safePickBank = Mux(pickBankInRange, pickToken.query.bank, 0.U)
-  val safePickEntry = Mux(pickEntryInRange, pickToken.query.entry, 0.U)
-  val pickRow = scheduleRows(safePickClass)(safePickBank)(safePickEntry)
-  val pickResidentExact = pickClassInRange && pickBankInRange &&
-    pickEntryInRange && slotState(safePickClass)(safePickBank)(safePickEntry) ===
-      OooIexIssueSlotState.ResidentS3 && pickRow.valid
-  val pickIdentityExact = pickToken.candidate.peId === pickRow.peId &&
-    pickToken.candidate.stid === pickRow.stid &&
-    pickToken.candidate.epoch === pickRow.epoch &&
-    pickToken.candidate.transactionId === pickRow.transactionId &&
-    sameMember(pickToken.candidate.member, pickRow.member) &&
-    pickToken.candidate.reservation.asUInt === pickRow.reservation.asUInt &&
-    pickToken.query.uopClass === pickRow.reservation.uopClass &&
-    pickToken.query.bank === pickRow.reservation.bank &&
-    pickToken.query.entry === pickRow.reservation.speculativeSlot
-  val pickNotInFlight = !pickRow.inFlight
-  val pickClaimExact = pickResidentExact && pickIdentityExact &&
-    pickNotInFlight &&
-    !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
+  val pickers = Seq.fill(p.iexIssueDomainCount)(
+    Module(new OooIexOldestReadyPicker(p)))
+  for (domain <- 0 until p.iexIssueDomainCount) {
+    val picker = pickers(domain)
+    picker.io.uopClass := io.pickClasses(domain)
+    picker.io.bankEnable := io.pickBankEnables(domain)
+    picker.io.stidBlock := Mux(recoveryFreeze,
+      UIntToOH(safeRecoveryStid, p.stidCount), 0.U)
+    picker.io.recoveryApply.valid := io.recoveryFire && recoveryPlan.valid
+    picker.io.recoveryApply.bits := recoveryPlan
 
-  io.pick.valid := picker.io.pick.valid && pickClaimExact
-  io.pick.bits := pickToken
-  // A stale retained token is consumed as a typed rejection so corruption or
-  // an unexpected lifecycle race cannot wedge the domain indefinitely.
-  picker.io.pick.ready := Mux(pickClaimExact, io.pick.ready, true.B)
-  io.pickRejected.valid := picker.io.pick.valid && !pickClaimExact
-  io.pickRejected.bits.token := pickToken
-  io.pickRejected.bits.residentExact := pickResidentExact
-  io.pickRejected.bits.identityExact := pickIdentityExact
-  io.pickRejected.bits.notInFlight := pickNotInFlight
-  io.pickMalformed := picker.io.malformed
-  io.pickRecoveryCanceled := picker.io.recoveryCanceled
-  io.pickRecoveryBlocked := picker.io.blockedCanceled
+    val pickerClassIndex = io.pickClasses(domain).asUInt
+    for (bank <- 0 until p.iqBankCount;
+         entry <- 0 until p.iqEntriesPerBank) {
+      val row = scheduleRows(pickerClassIndex)(bank)(entry)
+      val sourcesReady = row.sources.map(source =>
+        !source.valid || source.ready).reduce(_ && _)
+      val candidate = picker.io.candidates(bank)(entry)
+      candidate.eligible :=
+        slotState(pickerClassIndex)(bank)(entry) ===
+          OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
+        sourcesReady &&
+        !(recoveryFreeze && row.stid === recoveryStid)
+      candidate.peId := row.peId
+      candidate.stid := row.stid
+      candidate.epoch := row.epoch
+      candidate.transactionId := row.transactionId
+      candidate.member := row.member
+      candidate.reservation := row.reservation
+    }
 
-  when(io.pick.fire) {
-    scheduleRows(safePickClass)(safePickBank)(safePickEntry).inFlight := true.B
+    val pickToken = picker.io.pick.bits
+    val pickClassIndex = pickToken.query.uopClass.asUInt
+    val pickClassInRange = pickClassIndex < p.iqClassCount.U
+    val pickBankInRange = pickToken.query.bank < p.iqBankCount.U
+    val pickEntryInRange = pickToken.query.entry < p.iqEntriesPerBank.U
+    val safePickClass = Mux(pickClassInRange, pickClassIndex, 0.U)
+    val safePickBank = Mux(pickBankInRange, pickToken.query.bank, 0.U)
+    val safePickEntry = Mux(pickEntryInRange, pickToken.query.entry, 0.U)
+    val pickRow = scheduleRows(safePickClass)(safePickBank)(safePickEntry)
+    val pickResidentExact = pickClassInRange && pickBankInRange &&
+      pickEntryInRange &&
+      slotState(safePickClass)(safePickBank)(safePickEntry) ===
+        OooIexIssueSlotState.ResidentS3 && pickRow.valid
+    val pickIdentityExact = pickToken.candidate.peId === pickRow.peId &&
+      pickToken.candidate.stid === pickRow.stid &&
+      pickToken.candidate.epoch === pickRow.epoch &&
+      pickToken.candidate.transactionId === pickRow.transactionId &&
+      sameMember(pickToken.candidate.member, pickRow.member) &&
+      pickToken.candidate.reservation.asUInt === pickRow.reservation.asUInt &&
+      pickToken.query.uopClass === pickRow.reservation.uopClass &&
+      pickToken.query.bank === pickRow.reservation.bank &&
+      pickToken.query.entry === pickRow.reservation.speculativeSlot
+    val pickNotInFlight = !pickRow.inFlight
+    val pickClaimExact = pickResidentExact && pickIdentityExact &&
+      pickNotInFlight &&
+      !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
+
+    io.picks(domain).valid := picker.io.pick.valid && pickClaimExact
+    io.picks(domain).bits := pickToken
+    // A stale retained token is consumed as a typed rejection so corruption
+    // or an unexpected lifecycle race cannot wedge one physical domain.
+    picker.io.pick.ready := Mux(
+      pickClaimExact, io.picks(domain).ready, true.B)
+    io.pickRejectedByDomain(domain).valid :=
+      picker.io.pick.valid && !pickClaimExact
+    io.pickRejectedByDomain(domain).bits.token := pickToken
+    io.pickRejectedByDomain(domain).bits.residentExact := pickResidentExact
+    io.pickRejectedByDomain(domain).bits.identityExact := pickIdentityExact
+    io.pickRejectedByDomain(domain).bits.notInFlight := pickNotInFlight
+    io.pickMalformedByDomain(domain) := picker.io.malformed
+    io.pickRecoveryCanceledByDomain(domain) := picker.io.recoveryCanceled
+    io.pickRecoveryBlockedByDomain(domain) := picker.io.blockedCanceled
+
+    when(io.picks(domain).fire) {
+      scheduleRows(safePickClass)(safePickBank)(safePickEntry).inFlight :=
+        true.B
+    }
+
+    val retry = io.pickRetries(domain).bits
+    val retryClass = retry.reservation.uopClass.asUInt
+    val retryClassInRange = retryClass < p.iqClassCount.U
+    val retryBankInRange = retry.reservation.bank < p.iqBankCount.U
+    val retryEntryInRange =
+      retry.reservation.speculativeSlot < p.iqEntriesPerBank.U
+    val safeRetryClass = Mux(retryClassInRange, retryClass, 0.U)
+    val safeRetryBank = Mux(retryBankInRange, retry.reservation.bank, 0.U)
+    val safeRetryEntry = Mux(
+      retryEntryInRange, retry.reservation.speculativeSlot, 0.U)
+    val retryRow = scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry)
+    val retryResidentExact = retryClassInRange && retryBankInRange &&
+      retryEntryInRange &&
+      slotState(safeRetryClass)(safeRetryBank)(safeRetryEntry) ===
+        OooIexIssueSlotState.ResidentS3 && retryRow.valid
+    val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
+      retry.reservation.asUInt === retryRow.reservation.asUInt
+    val retryDomainExact = retry.reservation.uopClass ===
+      io.pickClasses(domain) &&
+      io.pickBankEnables(domain)(safeRetryBank)
+    val retryClaimsCurrentPick = io.picks(domain).fire &&
+      safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
+      safeRetryEntry === safePickEntry &&
+      sameMember(retry.member, pickToken.candidate.member) &&
+      retry.reservation.asUInt === pickToken.candidate.reservation.asUInt
+    // A fail-closed P1/join rejection can return the exact claim on the same
+    // edge that its picker fires. The later retry assignment wins.
+    val retryWasInFlight = retryRow.inFlight || retryClaimsCurrentPick
+    val retryExact = retryResidentExact && retryIdentityExact &&
+      retryDomainExact && retryWasInFlight &&
+      !(recoveryFreeze && retry.member.group.stid === recoveryStid)
+    io.pickRetryRejectedByDomain(domain).valid :=
+      io.pickRetries(domain).valid && !retryExact
+    io.pickRetryRejectedByDomain(domain).bits.retry := retry
+    io.pickRetryRejectedByDomain(domain).bits.residentExact :=
+      retryResidentExact
+    io.pickRetryRejectedByDomain(domain).bits.identityExact :=
+      retryIdentityExact && retryDomainExact
+    io.pickRetryRejectedByDomain(domain).bits.wasInFlight := retryWasInFlight
+    when(io.pickRetries(domain).valid && retryExact) {
+      scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry).inFlight :=
+        false.B
+    }
+
+    val query = io.queries(domain)
+    val queryClass = query.uopClass.asUInt
+    val queryClassInRange = queryClass < p.iqClassCount.U
+    val queryBankInRange = query.bank < p.iqBankCount.U
+    val queryEntryInRange = query.entry < p.iqEntriesPerBank.U
+    val safeQueryClass = Mux(queryClassInRange, queryClass, 0.U)
+    val safeQueryBank = Mux(queryBankInRange, query.bank, 0.U)
+    val safeQueryEntry = Mux(queryEntryInRange, query.entry, 0.U)
+    io.queryStates(domain) :=
+      slotState(safeQueryClass)(safeQueryBank)(safeQueryEntry)
+    val queryPayloads = Wire(Vec(p.iqClassCount,
+      Vec(p.iqBankCount, new OooIexPayloadSidecar(p))))
+    for (uopClass <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount) {
+      queryPayloads(uopClass)(bank) :=
+        payloadRows(uopClass)(bank).read(safeQueryEntry)
+    }
+    io.queryRows(domain).schedule :=
+      scheduleRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)
+    io.queryRows(domain).payload :=
+      queryPayloads(safeQueryClass)(safeQueryBank)
+    val querySourcesReady = io.queryRows(domain).sources.map { source =>
+      !source.valid || source.ready
+    }.reduce(_ && _)
+    io.queryPickables(domain) := queryClassInRange && queryBankInRange &&
+      queryEntryInRange &&
+      io.queryStates(domain) === OooIexIssueSlotState.ResidentS3 &&
+      io.queryRows(domain).valid &&
+      !io.queryRows(domain).schedule.inFlight && querySourcesReady &&
+      !(recoveryFreeze && io.queryRows(domain).stid === recoveryStid)
   }
-
-  val retry = io.pickRetry.bits
-  val retryClass = retry.reservation.uopClass.asUInt
-  val retryClassInRange = retryClass < p.iqClassCount.U
-  val retryBankInRange = retry.reservation.bank < p.iqBankCount.U
-  val retryEntryInRange =
-    retry.reservation.speculativeSlot < p.iqEntriesPerBank.U
-  val safeRetryClass = Mux(retryClassInRange, retryClass, 0.U)
-  val safeRetryBank = Mux(retryBankInRange, retry.reservation.bank, 0.U)
-  val safeRetryEntry = Mux(
-    retryEntryInRange, retry.reservation.speculativeSlot, 0.U)
-  val retryRow = scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry)
-  val retryResidentExact = retryClassInRange && retryBankInRange &&
-    retryEntryInRange &&
-    slotState(safeRetryClass)(safeRetryBank)(safeRetryEntry) ===
-      OooIexIssueSlotState.ResidentS3 && retryRow.valid
-  val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
-    retry.reservation.asUInt === retryRow.reservation.asUInt
-  val retryClaimsCurrentPick = io.pick.fire &&
-    safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
-    safeRetryEntry === safePickEntry &&
-    sameMember(retry.member, pickToken.candidate.member) &&
-    retry.reservation.asUInt === pickToken.candidate.reservation.asUInt
-  // A fail-closed P1/join rejection can return the exact claim on the same
-  // edge that the picker fires. Treat that edge as in-flight so the later
-  // retry assignment wins and the canonical row remains immediately pickable.
-  val retryWasInFlight = retryRow.inFlight || retryClaimsCurrentPick
-  val retryExact = retryResidentExact && retryIdentityExact &&
-    retryWasInFlight &&
-    !(recoveryFreeze && retry.member.group.stid === recoveryStid)
-  io.pickRetryRejected.valid := io.pickRetry.valid && !retryExact
-  io.pickRetryRejected.bits.retry := retry
-  io.pickRetryRejected.bits.residentExact := retryResidentExact
-  io.pickRetryRejected.bits.identityExact := retryIdentityExact
-  io.pickRetryRejected.bits.wasInFlight := retryWasInFlight
-  when(io.pickRetry.valid && retryExact) {
-    scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry).inFlight :=
-      false.B
-  }
-
-  val queryClass = io.query.uopClass.asUInt
-  val queryClassInRange = queryClass < p.iqClassCount.U
-  val queryBankInRange = io.query.bank < p.iqBankCount.U
-  val queryEntryInRange = io.query.entry < p.iqEntriesPerBank.U
-  val safeQueryClass = Mux(queryClassInRange, queryClass, 0.U)
-  val safeQueryBank = Mux(queryBankInRange, io.query.bank, 0.U)
-  val safeQueryEntry = Mux(queryEntryInRange, io.query.entry, 0.U)
-  io.queryState := slotState(safeQueryClass)(safeQueryBank)(safeQueryEntry)
-  val queryPayloads = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount, new OooIexPayloadSidecar(p))))
-  for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {
-    queryPayloads(uopClass)(bank) :=
-      payloadRows(uopClass)(bank).read(safeQueryEntry)
-  }
-  io.queryRow.schedule :=
-    scheduleRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)
-  io.queryRow.payload := queryPayloads(safeQueryClass)(safeQueryBank)
-  val querySourcesReady = io.queryRow.sources.map { source =>
-    !source.valid || source.ready
-  }.reduce(_ && _)
-  io.queryPickable := queryClassInRange && queryBankInRange &&
-    queryEntryInRange && io.queryState === OooIexIssueSlotState.ResidentS3 &&
-    io.queryRow.valid && !io.queryRow.schedule.inFlight && querySourcesReady &&
-    !(recoveryFreeze && io.queryRow.stid === recoveryStid)
 
   io.s1Occupied := s1Valid
   for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {

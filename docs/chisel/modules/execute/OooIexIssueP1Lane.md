@@ -5,6 +5,9 @@
 `OooIexIssueP1Lane` is the first executable canonical IQ-to-I2 composition. It
 instantiates one `OooIexIssue`, one `OooIexPickP1Bridge`, and one
 `OooIexP1I2Lane` for a topology-neutral class/bank picker domain.
+It is the domain-zero compatibility composition and requires
+`iexIssueDomainCount=1`; parameterized parallel issue uses
+[`OooIexIssueP1Fabric`](OooIexIssueP1Fabric.md).
 
 Source and test owners:
 

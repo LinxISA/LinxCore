@@ -63,6 +63,8 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
   * the exact member back to the IQ so it becomes pickable again.
   */
 class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
+  require(p.iexIssueDomainCount == 1,
+    "OooIexIssueP1Lane is the one-domain compatibility composition")
   val io = IO(new OooIexIssueP1LaneIO(p))
 
   val issue = Module(new OooIexIssue(p))
