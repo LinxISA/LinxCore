@@ -356,7 +356,7 @@ and validates count, range, uniqueness, bank, generation, and current live
 ownership before changing any bit. A cycle-by-cycle checker proves the entire
 128-tag namespace remains in exactly one lifecycle location.
 
-`OooProductionPRename` is the O4.2 P-map owner. It consumes the immutable O3
+`OooPRename` is the O4.2 P-map owner. It consumes the immutable O3
 prepared publication together with the matching retained PTag lease. For every
 active P source it reads the selected STID's 24-entry SMAP and then applies all
 older destinations in the same transaction from oldest to youngest. A WAW
@@ -372,8 +372,19 @@ only on the common O3 publication fire. `OooO3RenameCoordinator` joins D3 and
 PTag claim on one reserve handshake, then joins ROB/BROB/PC publication, PTag
 publication, SMAP update, and MapQ insertion on one terminal fire.
 
+The ordered ring has a parameterized physical subbank layout. For logical
+index `q`, low `log2(pMapQSubbankCount)` bits select the subbank and the
+remaining bits select its row; the default count of two is an even/odd split.
+The logical `mapQIndex`, head, tail, count, and exact row comparisons do not
+change. The same decoder is used by S1 publication, commit validation/drain,
+killed-tail recovery, and survivor replay, including an access that wraps from
+the final logical row to row zero. A power-of-two subbank count must evenly
+divide `pMapQDepthPerStid`. This storage partition is the O8.3b prerequisite
+for a later two-cycle pointer-update loop; it does not itself add a cycle or
+relax commit/recovery exclusion.
+
 O4.3 adds the P architectural commit walk. Every physical ROB group carries its
-exact `pMapQRows` obligation. `OooProductionPRename` validates the retained ROB
+exact `pMapQRows` obligation. `OooPRename` validates the retained ROB
 batch against the dense MapQ-head prefix using RID/native-BID/BROB/resident
 generations, transaction ID, member index, uop membership, queue index, and
 old/new mapping chain. It then drains at most `pTagReturnWidth` rows per cycle.
@@ -462,7 +473,7 @@ input is exposed only by the atomic coordinator described below; no individual
 owner is a legal production recovery entry point.
 
 O4.4.3b adds the P recovery owner behind that authorization. For every killed
-logical source, `OooProductionPRename` proves that `pDestinationCount` exact
+logical source, `OooPRename` proves that `pDestinationCount` exact
 rows occupy the P MapQ tail and belong to the source's full member,
 transaction, uop, STID, and epoch identity. It then returns each killed row's
 `current` PTag through the existing generation-qualified return channel before
@@ -916,7 +927,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooFrontendRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only OooFrontendIfuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooFrontendCtuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
-bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
+bash tools/chisel/run_chisel_tests.sh --only OooPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURetire
 bash tools/chisel/run_chisel_tests.sh --only OooProductionDispatch

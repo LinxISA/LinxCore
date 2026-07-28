@@ -124,7 +124,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
 
   val o3 = Module(new OooRobBrobPcCoordinator(p))
   val ptag = Module(new OooPTagStagingPool(p))
-  val prename = Module(new OooProductionPRename(p))
+  val prename = Module(new OooPRename(p))
   val turename = Module(new OooProductionTURename(p))
   val turetire = Module(new OooProductionTURetire(p))
   val dispatch = Module(new OooProductionDispatch(p))

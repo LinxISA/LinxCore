@@ -16,7 +16,7 @@ object OooPRecoveryState extends ChiselEnum {
     Complete = Value
 }
 
-class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
+class OooPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooO3PreparedPublication(p)))
   val ptagLease = Input(new OooPTagReservation(p))
   val dispatchLease = Input(new OooDispatchReservationLease(p))
@@ -61,8 +61,8 @@ class OooProductionPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   * A retained commit walk later advances CMAP and returns old PTags at the
   * independently parameterized return width before physical deallocation.
   */
-class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionPRenameIO(p))
+class OooPRename(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooPRenameIO(p))
 
   private val destinationIndexWidth = math.max(1,
     chisel3.util.log2Ceil(p.maxDestinationOperands))
@@ -90,8 +90,22 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
     VecInit((0 until p.pArchRegs).map(atag => identityMapping(stid, atag)))
   }))
   val mapQ = RegInit(VecInit(Seq.fill(p.stidCount)(
-    VecInit(Seq.fill(p.pMapQDepthPerStid)(
-      0.U.asTypeOf(new OooPMapQEntry(p)))))))
+    VecInit(Seq.fill(p.pMapQSubbankCount)(
+      VecInit(Seq.fill(p.pMapQRowsPerSubbank)(
+        0.U.asTypeOf(new OooPMapQEntry(p)))))))))
+  private def mapQRow(stid: UInt, index: UInt): OooPMapQEntry = {
+    if (p.pMapQSubbankCount == 1) {
+      mapQ(stid)(0)(index)
+    } else {
+      val subbank = index(p.pMapQSubbankIndexBits - 1, 0)
+      if (p.pMapQRowsPerSubbank == 1) {
+        mapQ(stid)(subbank)(0)
+      } else {
+        val row = index(p.pMapQIndexWidth - 1, p.pMapQSubbankIndexBits)
+        mapQ(stid)(subbank)(row)
+      }
+    }
+  }
   val mapQTail = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(p.pMapQIndexWidth.W))))
   val mapQHead = RegInit(VecInit(Seq.fill(p.stidCount)(
@@ -402,7 +416,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
     for (flatIndex <- 0 until p.pTagAllocationWidth) {
       val row = io.prepared.mapQRows(flatIndex)
       when(row.valid) {
-        mapQ(safeStid)(row.mapQIndex) := row
+        mapQRow(safeStid, row.mapQIndex) := row
         smap(safeStid)(row.atag(archIndexWidth - 1, 0)) := row.current
       }
     }
@@ -450,7 +464,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   for (rowIndex <- 0 until p.maxCommitMapQRows) {
     val queueIndex = mapQHead(safeIncomingStid) + rowIndex.U
     incomingRows(rowIndex) :=
-      mapQ(safeIncomingStid)(queueIndex(p.pMapQIndexWidth - 1, 0))
+      mapQRow(safeIncomingStid, queueIndex(p.pMapQIndexWidth - 1, 0))
     incomingRowActive(rowIndex) := rowIndex.U < incomingExpectedRows
     for (groupIndex <- 0 until p.retireGroupWidth) {
       val group = incomingBatch.groups(groupIndex)
@@ -516,7 +530,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
         PriorityEncoder(incomingRowMatches(rowIndex).asUInt)
   }.reduceOption(_ && _).getOrElse(true.B)
   val lateQueueIndex = mapQHead(safeIncomingStid) + incomingExpectedRows
-  val lateRow = mapQ(safeIncomingStid)(
+  val lateRow = mapQRow(safeIncomingStid,
     lateQueueIndex(p.pMapQIndexWidth - 1, 0))
   val lateRowMatches = (0 until p.retireGroupWidth).map { groupIndex =>
     val group = incomingBatch.groups(groupIndex)
@@ -564,7 +578,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   for (lane <- 0 until p.pTagReturnWidth) {
     val queueIndex = mapQHead(commitActiveStid) + lane.U
     chunkRows(lane) :=
-      mapQ(commitActiveStid)(queueIndex(p.pMapQIndexWidth - 1, 0))
+      mapQRow(commitActiveStid, queueIndex(p.pMapQIndexWidth - 1, 0))
     chunkActive(lane) := lane.U < chunkRowCount
     for (groupIndex <- 0 until p.retireGroupWidth) {
       val group = commitBatch.groups(groupIndex)
@@ -647,7 +661,8 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
         cmap(commitActiveStid)(row.atag(archIndexWidth - 1, 0)) :=
           committedMapping
         val queueIndex = mapQHead(commitActiveStid) + lane.U
-        mapQ(commitActiveStid)(queueIndex(p.pMapQIndexWidth - 1, 0)).valid := false.B
+        mapQRow(commitActiveStid,
+          queueIndex(p.pMapQIndexWidth - 1, 0)).valid := false.B
       }
     }
     mapQHead(commitActiveStid) := mapQHead(commitActiveStid) + chunkRowCount
@@ -727,7 +742,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   val killedRowsExact = (0 until p.maxDestinationOperands).map { offset =>
     val active = offset.U < killed.pDestinationCount
     val rowIndex = subMapQPtr(mapQTail(recoveryActiveStid), offset.U + 1.U)
-    val row = mapQ(recoveryActiveStid)(rowIndex)
+    val row = mapQRow(recoveryActiveStid, rowIndex)
     val atagInRange = row.atag < p.pArchRegs.U
     !active || (row.valid && row.mapQIndex === rowIndex && atagInRange &&
       row.transactionId === killed.transactionId &&
@@ -741,7 +756,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   }.reduce(_ && _)
   val nextOlderIndex = subMapQPtr(mapQTail(recoveryActiveStid),
     killed.pDestinationCount + 1.U)
-  val nextOlderRow = mapQ(recoveryActiveStid)(nextOlderIndex)
+  val nextOlderRow = mapQRow(recoveryActiveStid, nextOlderIndex)
   val nextOlderMatchesKilled = mapQCount(recoveryActiveStid) >
     killed.pDestinationCount && nextOlderRow.valid &&
     nextOlderRow.transactionId === killed.transactionId &&
@@ -761,7 +776,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
   }
 
   val recoveryDrainIndex = subMapQPtr(mapQTail(recoveryActiveStid), 1.U)
-  val recoveryDrainRow = mapQ(recoveryActiveStid)(recoveryDrainIndex)
+  val recoveryDrainRow = mapQRow(recoveryActiveStid, recoveryDrainIndex)
   val recoveryDrainExact = recoveryDrainRow.valid &&
     recoveryDrainRow.mapQIndex === recoveryDrainIndex &&
     recoveryDrainRow.transactionId === recoveryCurrentSource.transactionId &&
@@ -789,7 +804,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
 
   val replayIndexSum = mapQHead(recoveryActiveStid) +& recoveryReplayOffset
   val replayIndex = replayIndexSum(p.pMapQIndexWidth - 1, 0)
-  val replayRow = mapQ(recoveryActiveStid)(replayIndex)
+  val replayRow = mapQRow(recoveryActiveStid, replayIndex)
   val replayRowExact = replayRow.valid && replayRow.mapQIndex === replayIndex &&
     replayRow.atag < p.pArchRegs.U && replayRow.current.valid &&
     replayRow.current.stid === recoveryActiveStid &&
@@ -809,7 +824,7 @@ class OooProductionPRename(val p: OooParams = OooParams()) extends Module {
     }
     is(OooPRecoveryState.DrainRows) {
       when(recoveryDrainFire) {
-        mapQ(recoveryActiveStid)(recoveryDrainIndex) :=
+        mapQRow(recoveryActiveStid, recoveryDrainIndex) :=
           0.U.asTypeOf(new OooPMapQEntry(p))
         mapQTail(recoveryActiveStid) := recoveryDrainIndex
         mapQCount(recoveryActiveStid) :=

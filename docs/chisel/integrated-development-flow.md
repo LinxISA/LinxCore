@@ -33,8 +33,12 @@ bank-wide free-slot priority encoders with bounded hierarchical selection.
 O8.3a now keeps D3 transaction identity, wrap-qualified ROB head/tail, and tail
 epoch independent in both directed and randomized reference models: recovery
 rewinds only the exact tail, advances the epoch, and preserves the next
-transaction ID. ROB/MapQ/PC bank/subbank timing and physical dispatch cost
-steering remain active O8 work. Normative documents
+transaction ID. O8.3b changes the P MapQ physical owner from one monolithic
+per-STID array to parameterized low-index subbanks (two even/odd subbanks by
+default) while retaining the same head/tail/count, exact row identity, commit
+walk, killed-tail drain, and survivor replay. ROB/PC banking, a registered
+MapQ pointer loop, and physical dispatch cost steering remain active O8 work.
+Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
 instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,

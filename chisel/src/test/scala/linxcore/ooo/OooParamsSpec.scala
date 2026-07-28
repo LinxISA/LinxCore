@@ -21,6 +21,10 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pTagStagingDepthPerBank == 8)
     assert(p.pTagAllocationWidth == 16)
     assert(p.pTagReturnWidth == 8)
+    assert(p.pMapQDepthPerStid == 256)
+    assert(p.pMapQSubbankCount == 2)
+    assert(p.pMapQSubbankIndexBits == 1)
+    assert(p.pMapQRowsPerSubbank == 128)
     assert(p.tuRetireSourceDepthPerStid == 512)
     assert(p.tuRetireSourceIndexWidth == 9)
     assert(p.tuRelationDepthPerStid == 8)
@@ -76,6 +80,10 @@ class OooParamsSpec extends AnyFunSuite {
       iqFreeSelectLeafEntries = 16))
     assertThrows[IllegalArgumentException](OooParams(
       iqEntriesPerBank = 128, iqFreeSelectLeafEntries = 8))
+    assertThrows[IllegalArgumentException](OooParams(
+      pMapQSubbankCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      pMapQDepthPerStid = 4, pMapQSubbankCount = 8))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }

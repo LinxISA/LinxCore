@@ -27,6 +27,7 @@ final case class OooParams(
     pTagReturnWidth: Int = 8,
     pTagMinimumSpeculativePerStid: Int = 8,
     pMapQDepthPerStid: Int = 256,
+    pMapQSubbankCount: Int = 2,
     tPhysRegs: Int = 32,
     uPhysRegs: Int = 32,
     tuMapQDepthPerStid: Int = 32,
@@ -114,6 +115,11 @@ final case class OooParams(
     "PTag allocation generation width must be positive")
   require(isPowerOfTwo(pMapQDepthPerStid),
     "P MapQ depth per STID must be a power of two")
+  require(isPowerOfTwo(pMapQSubbankCount) &&
+    pMapQSubbankCount <= pMapQDepthPerStid,
+    "P MapQ subbank count must be a power of two within the per-STID depth")
+  require(pMapQDepthPerStid % pMapQSubbankCount == 0,
+    "P MapQ subbanks must evenly partition the per-STID depth")
   require(isPowerOfTwo(tPhysRegs) && isPowerOfTwo(uPhysRegs) &&
     tPhysRegs >= 2 && uPhysRegs >= 2,
     "T and U physical namespaces must be powers of two with at least two entries")
@@ -184,6 +190,8 @@ final case class OooParams(
   def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
   def pMapQIndexWidth: Int = log2Ceil(pMapQDepthPerStid)
   def pMapQCountWidth: Int = countWidth(pMapQDepthPerStid)
+  def pMapQSubbankIndexBits: Int = log2Ceil(pMapQSubbankCount)
+  def pMapQRowsPerSubbank: Int = pMapQDepthPerStid / pMapQSubbankCount
   def tuMapQIndexWidth: Int = log2Ceil(tuMapQDepthPerStid)
   def tuMapQCountWidth: Int = countWidth(tuMapQDepthPerStid)
   def tuAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
