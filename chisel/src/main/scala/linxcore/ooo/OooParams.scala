@@ -42,6 +42,7 @@ final case class OooParams(
     iqBankCount: Int = 8,
     iqEntriesPerBank: Int = 32,
     iqWritePortsPerBank: Int = 3,
+    iexRecoveryScanEntriesPerBankPerCycle: Int = 1,
     iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
@@ -143,6 +144,10 @@ final case class OooParams(
   require(isPowerOfTwo(iqEntriesPerBank),
     "IQ entries per bank must be a power of two")
   require(iqWritePortsPerBank > 0, "every IQ bank needs a write port")
+  require(isPowerOfTwo(iexRecoveryScanEntriesPerBankPerCycle) &&
+    iexRecoveryScanEntriesPerBankPerCycle <= iqEntriesPerBank &&
+    iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
+    "IEX recovery scan width must be a power-of-two divisor of each IQ bank")
   require(iexWakeupPorts > 0,
     "the production IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,
@@ -191,6 +196,10 @@ final case class OooParams(
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
   def iqBankEntryCountWidth: Int = countWidth(iqEntriesPerBank)
   def iqWritePortWidth: Int = math.max(1, log2Ceil(iqWritePortsPerBank))
+  def iexRecoveryScanCycles: Int =
+    iqEntriesPerBank / iexRecoveryScanEntriesPerBankPerCycle
+  def iexRecoveryScanCursorWidth: Int =
+    math.max(1, log2Ceil(iexRecoveryScanCycles))
   def instructionCountWidth: Int = countWidth(instructionDecodeWidth)
   def decodedUopCountWidth: Int = countWidth(decodedUopWidth)
   def renameCountWidth: Int = countWidth(renameWidth)

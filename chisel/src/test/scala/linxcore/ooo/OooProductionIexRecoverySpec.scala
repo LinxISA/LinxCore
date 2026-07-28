@@ -2,6 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import linxcore.common.{DestinationKind, OperandClass}
 import org.scalatest.funsuite.AnyFunSuite
 
 /** Focused O7 recovery proof with the smallest physical IQ that can retain an
@@ -64,7 +65,9 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
       stid: Int,
       ridSlot: Int,
       transactionId: Int,
-      entries: Vector[Int]): Unit = {
+      entries: Vector[Int],
+      pDestination: Option[(Int, Int)] = None,
+      pSource: Option[(Int, Int)] = None): Unit = {
     val request = dut.io.s1.bits
     request.poke(0.U.asTypeOf(request))
     val transaction = request.o3.request.reservation.transaction
@@ -112,6 +115,36 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
       pokeMember(pUop.member, stid, ridSlot, lane)
       pokeMember(tuUop.member, stid, ridSlot, lane)
 
+      pDestination.foreach { case (ptag, generation) =>
+        Seq(decoded.destinations(0), pUop.decoded.destinations(0))
+          .foreach { destination =>
+            destination.valid.poke(true.B)
+            destination.kind.poke(DestinationKind.Gpr)
+            destination.atag.poke(3.U)
+          }
+        pUop.destinations(0).currentPMapping.valid.poke(true.B)
+        pUop.destinations(0).currentPMapping.ptag.poke(ptag.U)
+        pUop.destinations(0).currentPMapping.ptagGeneration
+          .poke(generation.U)
+      }
+
+      pSource.foreach { case (ptag, generation) =>
+        Seq(decoded.sources(0), pUop.decoded.sources(0)).foreach { source =>
+          source.valid.poke(true.B)
+          source.operandClass.poke(OperandClass.P)
+          source.atag.poke(2.U)
+        }
+        pUop.sources(0).decoded.valid.poke(true.B)
+        pUop.sources(0).decoded.operandClass.poke(OperandClass.P)
+        pUop.sources(0).decoded.atag.poke(2.U)
+        pUop.sources(0).pMapping.valid.poke(true.B)
+        pUop.sources(0).pMapping.ptag.poke(ptag.U)
+        pUop.sources(0).pMapping.ptagGeneration.poke(generation.U)
+        pUop.sources(0).pMapping.ready.poke(false.B)
+        pUop.sources(0).pMapping.stid.poke(stid.U)
+        pUop.sources(0).pMapping.epoch.poke(6.U)
+      }
+
       val allocation = request.dispatch.allocations(lane)
       allocation.valid.poke(true.B)
       allocation.uopIndex.poke(lane.U)
@@ -156,6 +189,35 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.query.entry.poke(entry.U)
   }
 
+  private def waitForPrepared(
+      dut: OooProductionIexIssue,
+      whileScanning: => Unit,
+      scanParams: OooParams = p): Int = {
+    var cycles = 0
+    while (!dut.io.recoveryPrepareReady.peek().litToBoolean &&
+        cycles < scanParams.iexRecoveryScanCycles + 2) {
+      whileScanning
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.recoveryPrepareReady.peek().litToBoolean,
+      "retained IEX recovery scan did not prepare")
+    assert(cycles == scanParams.iexRecoveryScanCycles + 1,
+      s"expected one capture plus ${scanParams.iexRecoveryScanCycles} scan cycles, got $cycles")
+    cycles
+  }
+
+  private def waitForRejected(dut: OooProductionIexIssue): Unit = {
+    var cycles = 0
+    while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        cycles < p.iexRecoveryScanCycles + 2) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.recoveryRejected.valid.peek().litToBoolean,
+      "malformed resident window was not rejected by the timed scan")
+  }
+
   test("prunes exact BoundS2 and ResidentS3 suffixes without stopping peers") {
     simulate(new OooProductionIexIssue(p)) { dut =>
       clear(dut)
@@ -174,7 +236,30 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
 
       pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 2,
         survivingMembers = 1)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+
+      // Capture and then abort one partially completed scan.  Target rows are
+      // frozen but remain physically resident because prepare is read-only.
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      query(dut, 1)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      query(dut, 1)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+
+      pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 2,
+        survivingMembers = 1)
+      waitForPrepared(dut, {
+        query(dut, 0)
+        dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+        query(dut, 1)
+        dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      })
       dut.io.recoveryPrepared.boundKilled.expect(1.U)
       dut.io.recoveryPrepared.residentKilled.expect(0.U)
       dut.io.recoveryFire.poke(true.B)
@@ -204,7 +289,14 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
 
       pokeRecovery(dut, stid = 1, ridSlot = 1, oldMembers = 1,
         survivingMembers = 0)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      waitForPrepared(dut, {
+        query(dut, 0)
+        dut.io.queryPickable.expect(true.B)
+        query(dut, 1)
+        dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+        dut.io.queryPickable.expect(false.B)
+      })
       dut.io.recoveryPrepared.boundKilled.expect(0.U)
       dut.io.recoveryPrepared.residentKilled.expect(1.U)
       query(dut, 0)
@@ -218,6 +310,179 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
       query(dut, 0)
       dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
       query(dut, 1)
+      dut.io.queryState.expect(OooIexIssueSlotState.Free)
+
+      // A plan whose old window does not contain a live target-STID row must
+      // reject after scanning that row and must not prune it.
+      pokeRecovery(dut, stid = 0, ridSlot = 1, oldMembers = 1,
+        survivingMembers = 0)
+      waitForRejected(dut)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.bits.residentRowsExact.expect(false.B)
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryPickable.expect(true.B)
+    }
+  }
+
+  test("rejects plan drift and identity-qualifies P-ready cleanup across reuse") {
+    simulate(new OooProductionIexIssue(p)) { dut =>
+      clear(dut)
+
+      pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 10,
+        entries = Vector(0), pDestination = Some(17 -> 3))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step()
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+
+      val wakeup = dut.io.wakeup(0)
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(3.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+
+      pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 1,
+        survivingMembers = 0)
+      dut.clock.step()
+      dut.io.recoveryPrepare.bits.survivingPivotPhysicalMemberCount.poke(1.U)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+
+      // Capture a fresh exact plan and its old target P-ready identity.
+      pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 1,
+        survivingMembers = 0)
+      dut.clock.step()
+
+      // Recycle that exact old generation while the target row is scanned.
+      dut.io.ptagRecycle.bits.poke(
+        0.U.asTypeOf(dut.io.ptagRecycle.bits))
+      dut.io.ptagRecycle.bits.count.poke(1.U)
+      dut.io.ptagRecycle.bits.tokens(0).valid.poke(true.B)
+      dut.io.ptagRecycle.bits.tokens(0).ptag.poke(17.U)
+      dut.io.ptagRecycle.bits.tokens(0).generation.poke(3.U)
+      dut.io.ptagRecycle.valid.poke(true.B)
+      dut.io.ptagRecycle.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.ptagRecycle.valid.poke(false.B)
+
+      // A peer then owns the same numerical PTag with a new generation.  The
+      // retained target mask must not clear this identity at common apply.
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.stid.poke(1.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(4.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.io.recoveryPrepareReady.expect(true.B)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.Free)
+
+      pokeTransaction(dut, stid = 1, ridSlot = 1, transactionId = 11,
+        entries = Vector(1), pSource = Some(17 -> 4))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step()
+      dut.clock.step()
+      query(dut, 1)
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+      dut.io.queryPickable.expect(true.B)
+
+      // The complementary positive case: when the killed producer still owns
+      // the exact captured identity at apply, its retained ready bit clears.
+      pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 12,
+        entries = Vector(0), pDestination = Some(18 -> 2))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step()
+      dut.clock.step()
+
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(18.U)
+      wakeup.bits.ptagGeneration.poke(2.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+
+      pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 1,
+        survivingMembers = 0)
+      waitForPrepared(dut, {
+        query(dut, 1)
+        dut.io.queryPickable.expect(true.B)
+      })
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      pokeTransaction(dut, stid = 1, ridSlot = 1, transactionId = 13,
+        entries = Vector(0), pSource = Some(18 -> 2))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step()
+      dut.clock.step()
+      query(dut, 0)
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+      dut.io.queryPickable.expect(false.B)
+    }
+  }
+
+  test("scans a non-default two-entry bank slice with exact latency") {
+    val wideScan = p.copy(
+      iqEntriesPerBank = 4,
+      iexRecoveryScanEntriesPerBankPerCycle = 2)
+    simulate(new OooProductionIexIssue(wideScan)) { dut =>
+      clear(dut)
+      pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 20,
+        entries = Vector(2))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step()
+      query(dut, 2)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+
+      pokeRecovery(dut, stid = 0, ridSlot = 0, oldMembers = 1,
+        survivingMembers = 0)
+      waitForPrepared(dut, {
+        query(dut, 2)
+        dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      }, wideScan)
+      dut.io.recoveryPrepared.boundKilled.expect(1.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      query(dut, 2)
       dut.io.queryState.expect(OooIexIssueSlotState.Free)
     }
   }

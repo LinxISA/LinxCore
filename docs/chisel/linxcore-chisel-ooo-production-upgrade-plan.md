@@ -92,7 +92,7 @@ promotion.
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and production-top wiring are O9 integration work |
-| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar while preserving the joined query contract | time/bank the full resident recovery scan, hierarchical dispatch/free selection, ROB/MapQ banking, and 2/4/6 timing closure |
+| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply | hierarchical dispatch/free selection, ROB/MapQ/PC banking, and 2/4/6 timing closure |
 | O9 integration/promotion | Not started | current compatibility owners remain migration evidence | production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -222,6 +222,7 @@ The first production defaults are planning targets, not hard-coded constants.
 | `iqBankCount` | 8 | Class-local physical bank count |
 | `iqEntriesPerBank` | 32 | 2048 total class/bank rows before O8 sizing closure |
 | `iqWritePortsPerBank` | 3 | Exact S2 reservation/write-port identity |
+| `iexRecoveryScanEntriesPerBankPerCycle` | 1 | Power-of-two divisor of bank depth; bounds recovery CAM width independently of IQ capacity |
 | `iexWakeupPorts` | 8 | Generation-qualified P/T/U ready-table update ports |
 
 Resource widths must be represented as a vector, not inferred from one decode
@@ -868,6 +869,20 @@ The real `OooO3RenameCoordinator` transfers this payload over Decoupled and
 shares that fire with ROB/BROB/PC/RENU/dispatch publication. Exact terminal
 release removes the scheduling row and returns the dispatch slot on one fire;
 stale sidecar bits are unreachable while the slot is free.
+
+Recovery capture validates retained S1, then O8.1b scans one configurable
+entry slice from every physical class/bank per cycle. The request, exact
+row-kill mask, S3 lane mask, killed-state counts, and P/T/U ready-scoreboard
+kill masks are retained. Global P-ready identity
+`{valid,generation,stid,epoch}` is snapshotted at capture and must still match
+at apply, so a peer may recycle and reuse the same numerical PTag without a
+stale target mask clearing its ready state. A complete scan takes
+`iexRecoveryScanCycles = iqEntriesPerBank /
+iexRecoveryScanEntriesPerBankPerCycle`; prepared-ready appears after one
+capture cycle plus those scan cycles. Plan drift, malformed live-row identity,
+or incomplete S3 membership rejects without mutation. Prepare deassertion
+aborts only private scan metadata. The target STID remains fenced throughout,
+peers continue, and only the global common apply consumes the stored masks.
 
 The S1 reservation guarantees eventual S2 capacity unless matching recovery
 cancels it. Therefore rename may safely publish `producerIqid` at D3/S1 without
@@ -1614,12 +1629,23 @@ SystemVerilog lines, but the Verilator frontend remains long-running because
 the one-cycle all-entry recovery CAM is still unrolled. This is a prerequisite,
 not O8 exit.
 
-O8.1b must retain the recovery request and time/bank that schedule-only scan,
-then store an exact kill mask for common apply. O8.2 replaces the full-bitmap
-dispatch allocator with hierarchical/FIFO selection, and O8.3 closes ROB/MapQ
-banking and width timing. These are the concrete gaps against the physically
-staged queue design in `Documents/a.txt`; copying that design's ARM register
-classes or RID/BID age shortcuts remains forbidden.
+O8.1b now retains the immutable recovery request and scans
+`iexRecoveryScanEntriesPerBankPerCycle` rows from every class/bank per cycle.
+It stores exact row/S3/P/T/U kill masks and killed-state counts, rejects drift
+or malformed membership without mutation, supports read-only partial-scan
+abort, identity-qualifies P-ready capture/apply across peer PTag reuse, and
+consumes the completed masks only on common apply. On the same
+2-bank x 4-entry stage test the main generated module is 173,709 lines, 63.6%
+below the 477,275-line pre-O8.1 baseline and 59.2% below the 426,274-line O8.1
+result. The directly comparable recovery scenario falls from about three
+minutes to 47.046 seconds; the expanded three-test recovery suite is 232.166
+seconds.
+
+O8.2 replaces the full-bitmap dispatch allocator with hierarchical/FIFO
+selection, and O8.3 closes ROB/MapQ/PC banking and width timing. These are the
+remaining concrete gaps against the physically staged queue design in
+`Documents/a.txt`; copying that design's ARM register classes or RID/BID age
+shortcuts remains forbidden.
 
 Exit: timing reports contain no unbounded free-list encoder, group prefix, or
 ready-loop path; all functional coverage remains closed after banking changes.

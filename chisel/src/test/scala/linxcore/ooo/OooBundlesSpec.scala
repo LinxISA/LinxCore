@@ -161,6 +161,10 @@ class OooBundlesSpec extends AnyFunSuite {
     assert(payload.getWidth < row.getWidth)
     assert(wakeup.localSequence.generation.getWidth ==
       p.localSeqGenerationWidth)
+    assert(p.iexRecoveryScanEntriesPerBankPerCycle == 1)
+    assert(p.iexRecoveryScanCycles == p.iqEntriesPerBank)
+    assert(OooParams(iqEntriesPerBank = 32,
+      iexRecoveryScanEntriesPerBankPerCycle = 4).iexRecoveryScanCycles == 8)
   }
 
   test("production packet family elaborates at widths 2 4 and 6") {

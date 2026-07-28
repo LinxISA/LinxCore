@@ -507,6 +507,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       val release = dut.io.release.bits
       release.poke(0.U.asTypeOf(release))
       pokeMember(release.member, 3, memberIndex = 0)
+      pokeMember(release.dispatch.member, 3, memberIndex = 0)
       release.dispatch.peId.poke(3.U)
       release.dispatch.stid.poke(3.U)
       release.dispatch.epoch.poke(6.U)

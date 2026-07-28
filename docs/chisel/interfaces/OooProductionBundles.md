@@ -603,8 +603,21 @@ The current release seam accepts only a future exact non-cancellable I2
 terminal event. Full member identity and the original dispatch reservation
 must match, and physical-row removal shares one fire with dispatch-slot return.
 P1/I1/I2 pipe arbitration, speculative issue cancel/retry, age-matrix pick,
-operand RF arbitration, execution, and O8 banked/timed recovery scanning remain
-explicit later packets; O5.2 does not claim them.
+operand RF arbitration, and execution remain explicit later packets; O5.2 does
+not claim them.
+
+O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
+`iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical
+class/bank per cycle. The width must be a power-of-two divisor of
+`iqEntriesPerBank`; `iexRecoveryScanCycles` is their quotient. Each complete
+pass overwrites the exact row-kill mask, accumulates pending-S3 and P/T/U
+ready-scoreboard kill masks, then holds them until the one global apply.
+Prepare deassertion aborts only scan metadata, plan drift or malformed rows
+reject without mutation, and target-STID activity remains fenced while peers
+continue. Because P-ready is global, capture also snapshots each candidate's
+`{valid,generation,stid,epoch}` and apply clears a retained PTag mask bit only
+if that complete owner identity still matches; a recycled peer generation is
+preserved. Wide payload sidecars are never read by this scan.
 
 ## O6.1 typed fast-resolve boundary
 

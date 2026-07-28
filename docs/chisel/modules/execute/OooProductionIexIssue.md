@@ -73,17 +73,36 @@ The IQ row and dispatch allocation return on one Decoupled fire.
 ## Recovery
 
 The owner consumes a compact `OooResidencyRecoveryPlan` projected from the
-complete grouped-ROB plan. Prepare freezes only the target STID, validates
-every retained S1/S2/S3 member against the exact wrapped ROB window, and
-reports killed residency without mutation. Apply prunes killed lanes from the
-retained S1 claim and pending S3 mask, frees exact killed `BoundS2` and
-`ResidentS3` rows, and clears matching generation-qualified P/T/U readiness
-records. A surviving partial pivot remains resident and pickable; unrelated
-STIDs continue. Because wakeup is a non-backpressured `Valid` input, target
-STID wakeup during prepare is an assertion failure rather than a silently
-dropped readiness event; global R0-R4 must quiesce those producers before
-prepare. The port is deliberately tied off above this module until that
-coordinator can fire all recovery owners atomically.
+complete grouped-ROB plan. Prepare captures the immutable request, validates
+retained S1 immediately, then scans one parameterized entry slice from every
+physical class/bank per cycle. The default
+`iexRecoveryScanEntriesPerBankPerCycle=1` takes
+`iqEntriesPerBank` scan cycles; larger power-of-two divisors trade read/CAM
+width for latency. Capture plus scan exposes prepared-ready after
+`iexRecoveryScanCycles + 1` cycles.
+
+The scan is side-effect free. It overwrites every stored row-kill bit during a
+complete pass and accumulates exact `BoundS2`/`ResidentS3` counts, pending-S3
+lane membership, and generation-qualified P/T/U ready-scoreboard kill masks.
+Changing the offered plan while it is retained or finding a malformed live
+row rejects the request. Deasserting prepare before `Prepared` aborts only the
+scan metadata. Neither case mutates S1/S2/S3 or readiness state.
+
+P-ready is a global scoreboard, so a numerical PTag can be recycled and
+rewritten by a peer while recovery is retained. Capture snapshots the complete
+`{valid,generation,stid,epoch}` owner identity used by the scan. Common apply
+clears a retained P-ready mask bit only when the live identity still equals
+that snapshot; a new generation/STID/epoch survives unchanged.
+
+Prepare freezes target-STID admission, transition, release, and wakeup while
+unrelated STIDs continue. After every slice validates, the owner holds the
+prepared result and its exact masks until the global common apply. Apply
+prunes killed lanes from retained S1 and pending S3, frees exact killed
+`BoundS2` and `ResidentS3` rows, and clears matching P/T/U readiness records.
+A surviving partial pivot remains resident and pickable. Because wakeup is a
+non-backpressured `Valid` input, target-STID wakeup during prepare is an
+assertion failure rather than a silently dropped readiness event; global R0-R4
+must quiesce those producers before prepare.
 
 ## Remaining production gaps
 
@@ -94,8 +113,7 @@ coordinator can fire all recovery owners atomically.
   non-cancellable I2 terminal event releases the physical row.
 - RF read-port arbitration, operand bypass, and result/wakeup buses.
 - O8 hierarchical/FIFO free selection, bank/port cost steering, safe-mode
-  thresholds, a retained banked/timed recovery scan over scheduling rows, and
-  default-geometry timing/area closure.
+  thresholds, and default-geometry timing/area closure.
 - Per-class multi-pick liveness counters and coverage closure.
 
 The legacy `ReducedScalarIssue*` modules remain compatibility evidence until a
@@ -114,13 +132,21 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 The focused UT covers retained-stage timing, fair STID arbitration, target
 claim collisions, split atomicity, compact row payload, registered wakeup,
 same-edge wakeup plus S2 bind, exact release/backpressure, malformed requests,
-and widths 2/4/6. The compact recovery UT covers partial-pivot S1/S2/S3 pruning,
-survivor residency, complete cancellation, and cross-STID isolation. The IT
-connects the real O3/RENU/dispatch coordinator and proves publication,
-residency, and dispatch-slot return share the exact transactions.
+and widths 2/4/6. The compact recovery UT covers exact scan latency,
+side-effect-free partial-scan abort, partial-pivot S1/S2/S3 pruning, survivor
+residency, complete cancellation, plan-drift/malformed-row rejection,
+cross-STID progress while the target scans, configurable two-entry bank
+slices, and PTag recycle/reuse across retained common apply. The IT connects
+the real O3/RENU/dispatch
+coordinator and proves publication, residency, recovery preparation, common
+apply, and dispatch-slot return share the exact transactions.
 
-O8.1 elaboration evidence uses the first 2-bank x 4-entry stage test. Splitting
-the wide payload into inferred memory reduces the generated main module from
-477,275 to 426,274 SystemVerilog lines. The remaining size is dominated by the
-one-cycle all-entry recovery scan, so this packet is a storage-boundary
-prerequisite rather than timing closure.
+O8.1/O8.1b elaboration evidence uses the same first 2-bank x 4-entry stage
+test. Splitting the wide payload into inferred memory first reduced the main
+module from 477,275 to 426,274 SystemVerilog lines. Retaining and timing the
+compact-row recovery scan reduces it again to 173,709 lines: 63.6% below the
+pre-split baseline and 59.2% below O8.1. The directly comparable recovery
+scenario falls from about three minutes to 47.046 seconds; the expanded
+three-test recovery suite passes in 232.166 seconds. This closes the unbounded
+recovery CAM, but O8 remains open for dispatch free selection and ROB/MapQ/PC
+banking.
