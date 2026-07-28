@@ -436,6 +436,36 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("preserves first-free allocation across hierarchical leaf boundaries") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 4,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 8,
+      iqWritePortsPerBank = 2,
+      iqFreeSelectLeafEntries = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooProductionDispatch(p)) { dut =>
+      clear(dut)
+      val fourAlu = Vector.fill(p.iqClassCount)(0).updated(0, 2)
+      val demands = Vector(fourAlu, fourAlu)
+
+      val first = reserve(dut, stid = 0, transactionId = 0, demands)
+      publish(dut, stid = 0, transactionId = 0, first)
+      val second = reserve(dut, stid = 1, transactionId = 2, demands)
+      publish(dut, stid = 1, transactionId = 2, second)
+      val third = reserve(dut, stid = 2, transactionId = 4, demands)
+
+      assert(first.map(_.slot) == Vector(0, 1, 0, 1))
+      assert(second.map(_.slot) == Vector(2, 3, 2, 3))
+      assert(third.map(_.slot) == Vector(4, 5, 4, 5))
+    }
+  }
+
   test("elaborates production dispatch at instruction widths 2 4 and 6") {
     Seq(2, 4, 6).foreach { width =>
       val p = OooParams(

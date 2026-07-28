@@ -42,6 +42,7 @@ final case class OooParams(
     iqBankCount: Int = 8,
     iqEntriesPerBank: Int = 32,
     iqWritePortsPerBank: Int = 3,
+    iqFreeSelectLeafEntries: Int = 4,
     iexRecoveryScanEntriesPerBankPerCycle: Int = 1,
     iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
@@ -144,6 +145,13 @@ final case class OooParams(
   require(isPowerOfTwo(iqEntriesPerBank),
     "IQ entries per bank must be a power of two")
   require(iqWritePortsPerBank > 0, "every IQ bank needs a write port")
+  require(isPowerOfTwo(iqFreeSelectLeafEntries) &&
+    iqFreeSelectLeafEntries <= 8 &&
+    iqEntriesPerBank % math.min(iqFreeSelectLeafEntries,
+      iqEntriesPerBank) == 0 &&
+    iqEntriesPerBank / math.min(iqFreeSelectLeafEntries,
+      iqEntriesPerBank) <= 8,
+    "IQ free selection must fit a bounded eight-group by eight-entry hierarchy")
   require(isPowerOfTwo(iexRecoveryScanEntriesPerBankPerCycle) &&
     iexRecoveryScanEntriesPerBankPerCycle <= iqEntriesPerBank &&
     iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
@@ -196,6 +204,10 @@ final case class OooParams(
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
   def iqBankEntryCountWidth: Int = countWidth(iqEntriesPerBank)
   def iqWritePortWidth: Int = math.max(1, log2Ceil(iqWritePortsPerBank))
+  def iqFreeSelectLeafEntriesEffective: Int =
+    math.min(iqFreeSelectLeafEntries, iqEntriesPerBank)
+  def iqFreeSelectGroupCount: Int =
+    iqEntriesPerBank / iqFreeSelectLeafEntriesEffective
   def iexRecoveryScanCycles: Int =
     iqEntriesPerBank / iexRecoveryScanEntriesPerBankPerCycle
   def iexRecoveryScanCursorWidth: Int =

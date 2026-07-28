@@ -556,17 +556,18 @@ owners without transferring the matching payload. Rename-local recovery
 deliberately refuses a STID that still owns published dispatch rows; O7 must add one global
 ROB/BROB/PC/IQ cancellation transaction before that fence can be removed.
 
-The current owner is a functional contract model. Its complete per-class,
-per-bank free bitmap proves lifecycle conservation and exact publication, but
-is not the product physical implementation at the default depth. O8 must adopt
-the useful physical-closure ideas from `Documents/a.txt`: occupancy plus
-in-flight admission cost, hierarchical or small-FIFO free selection, bounded
-write-port arbitration, one-cycle-ahead steering, and configurable safe-mode
-thresholds. Destination-PTag bank coupling remains an O8 steering input. The
-ARM reference's register classes, FP/CC state, and RID/BID age shortcuts are
-not imported; Linx exact identity, native BID/BROB generation, P/T/U rename,
-and CTU ownership remain authoritative. `model/iex/iex_dispatch.cpp` remains
-the execution-side behavioral reference for the later S1-to-S3 handoff.
+The complete per-class/per-bank bitmap remains the lifecycle-conservation and
+diagnostic state view, but O8.2 no longer feeds it to a bank-wide first-free
+encoder. `OooHierarchicalFreeSlotSelect` uses bounded leaf-valid and leaf-local
+selection; `iqFreeSelectLeafEntries=4` makes the default 32-entry bank an
+8-by-4 hierarchy. Exact publication and slot identity are unchanged.
+Occupancy plus retained-in-flight admission cost, one-cycle-ahead steering,
+safe-mode thresholds, and destination-PTag bank coupling remain O8 policy
+work. The ARM reference's register classes, FP/CC state, and RID/BID age
+shortcuts are not imported; Linx exact identity, native BID/BROB generation,
+P/T/U rename, and CTU ownership remain authoritative.
+`model/iex/iex_dispatch.cpp` remains the execution-side behavioral reference
+for capacity, reservation, port-budget, and later S1-to-S3 handoff behavior.
 
 ## O5.2 production IEX residency boundary
 

@@ -253,19 +253,23 @@ class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
     val candidateAvailable = Wire(Vec(p.iqBankCount,
       UInt(p.iqEntriesPerBank.W)))
     val candidateValid = Wire(Vec(p.iqBankCount, Bool()))
+    val candidateSlot = Wire(Vec(p.iqBankCount, UInt(p.iqEntryWidth.W)))
     for (offset <- 0 until p.iqBankCount) {
       candidateBank(offset) := (preferredBank + offset.U)(
         p.iqBankWidth - 1, 0)
       candidateAvailable(offset) :=
         freeMask(laneClass(lane))(candidateBank(offset)) &
           ~usedMask(candidateBank(offset))
-      candidateValid(offset) := candidateAvailable(offset).orR &&
+      val freeSelect = Module(new OooHierarchicalFreeSlotSelect(
+        p.iqEntriesPerBank, p.iqFreeSelectLeafEntriesEffective))
+      freeSelect.io.available := candidateAvailable(offset)
+      candidateValid(offset) := freeSelect.io.selectedValid &&
         olderWrites(candidateBank(offset)) < p.iqWritePortsPerBank.U
+      candidateSlot(offset) := freeSelect.io.selectedIndex
     }
     val chosenOffset = PriorityEncoder(candidateValid)
     val chosenBank = candidateBank(chosenOffset)
-    val chosenAvailable = candidateAvailable(chosenOffset)
-    val chosenSlot = PriorityEncoder(chosenAvailable)
+    val chosenSlot = candidateSlot(chosenOffset)
     val canSelect = candidateValid.asUInt.orR
     selectedValid(lane) := laneActive(lane) && olderPrefixReady && canSelect
     selectedBank(lane) := chosenBank

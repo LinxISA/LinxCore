@@ -112,8 +112,9 @@ must quiesce those producers before prepare.
 - Speculative issue inflight state, cancel/retry, and the rule that only a
   non-cancellable I2 terminal event releases the physical row.
 - RF read-port arbitration, operand bypass, and result/wakeup buses.
-- O8 hierarchical/FIFO free selection, bank/port cost steering, safe-mode
-  thresholds, and default-geometry timing/area closure.
+- O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
+  safe-mode thresholds, and default-geometry timing/area closure. The
+  unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.
 - Per-class multi-pick liveness counters and coverage closure.
 
 The legacy `ReducedScalarIssue*` modules remain compatibility evidence until a
@@ -148,5 +149,5 @@ compact-row recovery scan reduces it again to 173,709 lines: 63.6% below the
 pre-split baseline and 59.2% below O8.1. The directly comparable recovery
 scenario falls from about three minutes to 47.046 seconds; the expanded
 three-test recovery suite passes in 232.166 seconds. This closes the unbounded
-recovery CAM, but O8 remains open for dispatch free selection and ROB/MapQ/PC
-banking.
+recovery CAM. O8.2 separately closes the unbounded dispatch slot encoder; O8
+remains open for cost steering and ROB/MapQ/PC banking.

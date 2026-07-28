@@ -32,6 +32,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.pcPartitionIndexWidth == 4)
     assert(p.pcPartitionCountWidth == 5)
     assert(p.pcOffsetWidth == 7)
+    assert(p.iqFreeSelectLeafEntries == 4)
+    assert(p.iqFreeSelectLeafEntriesEffective == 4)
+    assert(p.iqFreeSelectGroupCount == 8)
     assert(p.iexWakeupPorts == 8)
   }
 
@@ -67,6 +70,12 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(tPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(uPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(iexWakeupPorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(
+      iqFreeSelectLeafEntries = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      iqFreeSelectLeafEntries = 16))
+    assertThrows[IllegalArgumentException](OooParams(
+      iqEntriesPerBank = 128, iqFreeSelectLeafEntries = 8))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }
