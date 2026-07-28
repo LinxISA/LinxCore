@@ -39,6 +39,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.tuRelationReleaseThreshold == 4)
     assert(p.maxCommitTURetireSources == 32)
     assert(p.pcBufferEntries == 64)
+    assert(p.pcBankCount == 4)
+    assert(p.pcRowsPerBank == 4)
+    assert(p.pcBankSelectionBits == 2)
     assert(p.pcBufferIndexWidth == 6)
     assert(p.pcEntriesPerStid == 16)
     assert(p.pcPartitionIndexWidth == 4)
@@ -110,5 +113,10 @@ class OooParamsSpec extends AnyFunSuite {
       retireGroupWidth = 8, robBankCount = 4))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
+    assertThrows[IllegalArgumentException](OooParams(pcBankCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(pcBankCount = 32))
+    assertThrows[IllegalArgumentException](OooParams(pcBankCount = 2))
+    assertThrows[IllegalArgumentException](OooParams(
+      pcBankCount = 4, retireGroupWidth = 6))
   }
 }

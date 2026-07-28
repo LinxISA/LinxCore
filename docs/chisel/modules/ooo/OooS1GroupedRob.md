@@ -56,8 +56,9 @@ and payload stages while peer STIDs remain independent.
 
 Commit eligibility and non-flush prefix discovery still inspect live ordered
 rows combinationally. O8.3f separates selection, payload read, and pointer
-mutation; it does not claim closure of that prefix-discovery path. PC-buffer
-banking is also a separate O8 packet.
+mutation; it does not claim closure of that prefix-discovery path. O8.3g has
+separately established the PC-buffer banked address map; its bounded recovery
+and metadata-write timing remain open.
 
 ## Verification
 

@@ -83,17 +83,15 @@ module changes from 30,753 to 30,859 SystemVerilog lines (+0.34%) because the
 physical hierarchy is explicit. The default 32-entry selector is 44 lines of
 generated SystemVerilog and exposes only 8-entry and 4-entry priority levels.
 
-The legacy four-STID randomized O3 test remains a separate O8.3 blocker: its
-software reference uses cumulative issue count as live ROB occupancy after
-suffix recovery, and a causal rerun with the old full-width selector fails at
-the identical `1 != 2` assertion. Its absolute wrap-qualified ROB tail model
-must be repaired together with ROB recovery/banking; O8.2 does not weaken or
-mask that failure.
+The four-STID randomized O3 reference now tracks instruction serial,
+transaction ID, wrap-qualified ROB head/tail, tail epoch, and live occupancy as
+independent domains. It passes suffix recovery and no longer uses cumulative
+issue count as post-recovery occupancy.
 
 ## Remaining gaps
 
 - occupancy plus retained-inflight bank cost and destination-PTag-aware
   steering;
 - one-cycle-ahead steering and configurable safe-mode thresholds;
-- O8.3 ROB/MapQ/PC banking and absolute recovery-tail closure;
+- bounded PC recovery/metadata and grouped-ROB commit/non-flush prefix timing;
 - P1/I1/I2 and execution-side release integration.

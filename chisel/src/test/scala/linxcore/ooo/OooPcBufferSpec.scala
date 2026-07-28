@@ -366,6 +366,9 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     val p = OooParams(
       instructionDecodeWidth = 2,
       pcBufferEntries = 8,
+      pcBankCount = 2,
+      pcWritePorts = 2,
+      retireGroupWidth = 2,
       stidCount = 4)
     simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
@@ -386,17 +389,68 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("elaborates sequential prefixes at 2 4 and 6 decode width") {
-    Seq(2, 4, 6).foreach { width =>
-      val p = OooParams(instructionDecodeWidth = width, pcBufferEntries = 64)
-      simulate(new OooPcBuffer(p)) { dut =>
-        clear(dut)
-        pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
-          pcs = (0 until width).map(index => 64L + index * 8),
-          releases = Set(width - 1))
-        dut.io.prepareReady.expect(true.B)
-        dut.io.prepared.allocatedBases.expect(1.U)
+  test("maps consecutive bases across banks and rows while preserving all six reads") {
+    val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64,
+      pcBankCount = 4)
+    simulate(new OooPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
+        pcs = Seq(0, 256, 512), releases = Set(0, 1, 2))
+      (0 until 3).foreach { index =>
+        dut.io.prepared.groupTokens(index).index.expect(index.U)
       }
+      publish(dut)
+
+      pokePrepare(dut, stid = 0, transactionId = 1, firstRid = 3,
+        pcs = Seq(768), releases = Set(0))
+      dut.io.prepared.groupTokens(0).index.expect(3.U)
+      publish(dut)
+      pokePrepare(dut, stid = 0, transactionId = 2, firstRid = 4,
+        pcs = Seq(1024), releases = Set(0))
+      dut.io.prepared.groupTokens(0).index.expect(4.U)
+      publish(dut)
+      dut.io.usedBases(0).expect(5.U)
+
+      Seq(0, 1, 2, 3, 4, 0).zipWithIndex.foreach {
+        case (tokenIndex, port) =>
+          dut.io.readTokens(port).valid.poke(true.B)
+          dut.io.readTokens(port).index.poke(tokenIndex.U)
+          dut.io.readTokens(port).allocationEpoch.poke(0.U)
+          dut.io.readValid(port).expect(true.B)
+          dut.io.readPc(port).expect((tokenIndex * 256).U)
+      }
+
+      pokeCommit(dut, stid = 0,
+        groups = (0 until 4).map(index => (index, index, 0)))
+      commit(dut)
+      dut.io.usedBases(0).expect(1.U)
+      dut.io.readValid(0).expect(false.B)
+      dut.io.readValid(4).expect(true.B)
+      dut.io.readPc(4).expect(1024.U)
+
+      pokeCommit(dut, stid = 0, groups = Seq((4, 4, 0)))
+      commit(dut)
+      dut.io.usedBases(0).expect(0.U)
+    }
+  }
+
+  test("elaborates 1 2 and 4 PC banks with 2 4 and 6 decode width") {
+    Seq((2, 1, 1, 1), (4, 2, 2, 2), (6, 4, 3, 4)).foreach {
+      case (width, bankCount, writePorts, retireWidth) =>
+        val p = OooParams(
+          instructionDecodeWidth = width,
+          pcBufferEntries = 64,
+          pcBankCount = bankCount,
+          pcWritePorts = writePorts,
+          retireGroupWidth = retireWidth)
+        simulate(new OooPcBuffer(p)) { dut =>
+          clear(dut)
+          pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
+            pcs = (0 until width).map(index => 64L + index * 8),
+            releases = Set(width - 1))
+          dut.io.prepareReady.expect(true.B)
+          dut.io.prepared.allocatedBases.expect(1.U)
+        }
     }
   }
 }

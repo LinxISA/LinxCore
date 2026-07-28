@@ -26,12 +26,14 @@ class OooPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
   val current = Output(Vec(p.stidCount, new PcBufferToken(p)))
 }
 
-/** Fixed-partition PC-base buffer.
+/** Fixed-partition, bank-addressed PC-base buffer.
   *
   * The default 64 rows are four independent 16-row rings. D3 observes a pure
   * prepare result; bases become visible only on the shared S1 publication.
   * Commit consumes exact ROB-group/token prefixes and frees only an ordered
-  * partition-head prefix whose close owners have committed.
+  * partition-head prefix whose close owners have committed. Low local-index
+  * bits select one physical address bank and higher bits select its row; the
+  * token's global index and allocation epoch remain the public identity.
   */
 class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooPcBufferIO(p))
@@ -43,8 +45,20 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     token.index(p.pcPartitionIndexWidth - 1, 0)
 
   val table = RegInit(VecInit(Seq.fill(p.stidCount)(
-    VecInit(Seq.fill(p.pcEntriesPerStid)(
-      0.U.asTypeOf(new OooPcBaseEntry(p)))))))
+    VecInit(Seq.fill(p.pcBankCount)(
+      VecInit(Seq.fill(p.pcRowsPerBank)(
+        0.U.asTypeOf(new OooPcBaseEntry(p)))))))))
+  private def sizedLocal(local: UInt): UInt =
+    local.pad(p.pcPartitionIndexWidth)
+  private def pcBankIndex(local: UInt): UInt =
+    if (p.pcBankCount == 1) 0.U(p.pcBankIndexWidth.W)
+    else sizedLocal(local)(p.pcBankSelectionBits - 1, 0)
+  private def pcBankRowIndex(local: UInt): UInt =
+    if (p.pcRowsPerBank == 1) 0.U(p.pcBankRowIndexWidth.W)
+    else sizedLocal(local)(p.pcPartitionIndexWidth - 1,
+      p.pcBankSelectionBits)
+  private def rowAt(stid: UInt, local: UInt): OooPcBaseEntry =
+    table(stid)(pcBankIndex(local))(pcBankRowIndex(local))
   val usedBases = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.pcPartitionCountWidth.W))))
   val headLocal = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.pcPartitionIndexWidth.W))))
   val headEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.reservationEpochWidth.W))))
@@ -179,10 +193,10 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   val writePortsFit = allocatedBases <= p.pcWritePorts.U
   val newTargetsFree = (0 until p.instructionDecodeWidth).map { groupIndex =>
     !newBase(groupIndex) ||
-      !table(safePrepareStid)(localIndex(groupTokens(groupIndex))).valid
+      !rowAt(safePrepareStid, localIndex(groupTokens(groupIndex))).valid
   }.reduce(_ && _)
   val liveCurrentExact = !currentValid(safePrepareStid) || {
-    val row = table(safePrepareStid)(localIndex(currentToken(safePrepareStid)))
+    val row = rowAt(safePrepareStid, localIndex(currentToken(safePrepareStid)))
     row.valid && row.token.index === currentToken(safePrepareStid).index &&
       row.token.allocationEpoch === currentToken(safePrepareStid).allocationEpoch &&
       row.stid === prepareStid && row.base === currentBase(safePrepareStid)
@@ -269,7 +283,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   for (groupIndex <- 0 until p.retireGroupWidth) {
     val active = groupIndex.U < commitCount
     val group = io.commit.bits.groups(groupIndex)
-    val row = table(safeCommitStid)(localIndex(group.pcBase))
+    val row = rowAt(safeCommitStid, localIndex(group.pcBase))
     val liveExact = group.valid && group.key.valid && group.key.stid === commitStid &&
       group.pcBase.valid && row.valid && row.stid === commitStid &&
       row.token.asUInt === group.pcBase.asUInt
@@ -288,7 +302,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
         group.key.ridGeneration === prior.ridGeneration + wrap.asUInt
     }
     val orderExact = if (groupIndex == 0) {
-      val headRow = table(safeCommitStid)(headLocal(safeCommitStid))
+      val headRow = rowAt(safeCommitStid, headLocal(safeCommitStid))
       val nextSum = headLocal(safeCommitStid) +& 1.U
       val nextWrap = nextSum >= p.pcEntriesPerStid.U
       val closesEmptyHead = headRow.valid && headRow.closed &&
@@ -320,14 +334,15 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
 
   val hitsByLocal = Wire(Vec(p.pcEntriesPerStid, UInt(p.robReleaseCountWidth.W)))
   for (local <- 0 until p.pcEntriesPerStid) {
+    val row = rowAt(safeCommitStid, local.U)
     hitsByLocal(local) := PopCount((0 until p.retireGroupWidth).map { groupIndex =>
       groupIndex.U < commitCount && localIndex(io.commit.bits.groups(groupIndex).pcBase) === local.U &&
         io.commit.bits.groups(groupIndex).pcBase.allocationEpoch ===
-          table(safeCommitStid)(local).token.allocationEpoch
+          row.token.allocationEpoch
     })
   }
   val countsLegal = (0 until p.pcEntriesPerStid).map { local =>
-    hitsByLocal(local) <= table(safeCommitStid)(local).liveRobGroups
+    hitsByLocal(local) <= rowAt(safeCommitStid, local.U).liveRobGroups
   }.reduce(_ && _)
   val freePrefix = Wire(Vec(p.retireGroupWidth + 1, UInt(p.robReleaseCountWidth.W)))
   freePrefix(0) := 0.U
@@ -335,7 +350,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     val sum = headLocal(safeCommitStid) +& offset.U
     val wrap = sum >= p.pcEntriesPerStid.U
     val local = sum(p.pcPartitionIndexWidth - 1, 0)
-    val row = table(safeCommitStid)(local)
+    val row = rowAt(safeCommitStid, local)
     val closeOwnerCommits = (0 until p.retireGroupWidth).map { groupIndex =>
       groupIndex.U < commitCount && row.closeOwnerValid &&
         io.commit.bits.groups(groupIndex).key.asUInt === row.closeOwner.asUInt
@@ -361,7 +376,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   for (killedIndex <- 0 until p.robGroupsPerStid) {
     val group = recoveryPlan.killedGroups(killedIndex)
     val active = killedIndex.U < recoveryPlan.killedGroupCount
-    val row = table(safeRecoveryStid)(localIndex(group.pcBase))
+    val row = rowAt(safeRecoveryStid, localIndex(group.pcBase))
     recoveryKilledActive(killedIndex) := active
     recoveryAllocatedMask(killedIndex) := active && group.pcBaseAllocated
     recoveryKilledRowsExact(killedIndex) :=
@@ -373,9 +388,8 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
             row.firstRobGroup.asUInt === group.key.asUInt) &&
           (!group.pcImplicitCloseValid ||
             (group.pcBaseAllocated &&
-              table(safeRecoveryStid)(localIndex(group.pcImplicitClose))
-                .valid &&
-              table(safeRecoveryStid)(localIndex(group.pcImplicitClose))
+              rowAt(safeRecoveryStid, localIndex(group.pcImplicitClose)).valid &&
+              rowAt(safeRecoveryStid, localIndex(group.pcImplicitClose))
                 .token.asUInt === group.pcImplicitClose.asUInt))))
   }
   val recoveryFreedBases = PopCount(recoveryAllocatedMask)
@@ -441,7 +455,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     Mux(recoveryFirstKilled.pcBaseAllocated,
       recoveryFirstKilled.pcImplicitClose,
       recoveryFirstKilled.pcBase))
-  val recoveryCurrentRow = table(safeRecoveryStid)(
+  val recoveryCurrentRow = rowAt(safeRecoveryStid,
     localIndex(recoveryCurrentAfter))
   val recoveryCurrentAfterExact = !recoveryCurrentAfterValid || (
     recoveryCurrentAfter.valid && recoveryCurrentRow.valid &&
@@ -453,15 +467,15 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     UInt(p.nonFlushPrefixCountWidth.W)))
   val recoveryHitCountsLegal = Wire(Vec(p.pcEntriesPerStid, Bool()))
   for (local <- 0 until p.pcEntriesPerStid) {
+    val row = rowAt(safeRecoveryStid, local.U)
     recoveryHitsByLocal(local) := PopCount((0 until p.robGroupsPerStid).map {
       killedIndex => recoveryKilledActive(killedIndex) &&
         localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
         recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          table(safeRecoveryStid)(local).token.allocationEpoch
+          row.token.allocationEpoch
     })
     recoveryHitCountsLegal(local) :=
-      recoveryHitsByLocal(local) <=
-        table(safeRecoveryStid)(local).liveRobGroups
+      recoveryHitsByLocal(local) <= row.liveRobGroups
   }
   val recoveryShapeExact = recoveryPlan.valid && recoveryStidInRange &&
     recoveryPlan.oldOccupied.orR &&
@@ -533,11 +547,12 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   }
 
   for (stid <- 0 until p.stidCount; local <- 0 until p.pcEntriesPerStid) {
+    val row = rowAt(stid.U, local.U)
     val publishHere = publishFire && prepareStid === stid.U
     val matching = VecInit((0 until p.instructionDecodeWidth).map { groupIndex =>
       groupIndex.U < groupCount && localIndex(groupTokens(groupIndex)) === local.U &&
         (newBase(groupIndex) || groupTokens(groupIndex).allocationEpoch ===
-          table(stid)(local).token.allocationEpoch)
+          row.token.allocationEpoch)
     })
     val groupHits = PopCount(matching)
     val newHit = (0 until p.instructionDecodeWidth).map { groupIndex =>
@@ -550,7 +565,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
         (implicitClose(groupIndex) &&
           localIndex(implicitCloseTokens(groupIndex)) === local.U &&
           implicitCloseTokens(groupIndex).allocationEpoch ===
-            table(stid)(local).token.allocationEpoch)
+            row.token.allocationEpoch)
     }.reduce(_ || _)
     val closeOwner = Wire(new RobGroupKey(p))
     val lastGroup = Wire(new RobGroupKey(p))
@@ -566,7 +581,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
         (implicitClose(groupIndex) &&
           localIndex(implicitCloseTokens(groupIndex)) === local.U &&
           implicitCloseTokens(groupIndex).allocationEpoch ===
-            table(stid)(local).token.allocationEpoch)) {
+            row.token.allocationEpoch)) {
         closeOwner := io.prepare.bits.transaction.groups(groupIndex).key
       }
     }
@@ -574,8 +589,8 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     val retireHits = Mux(commitStid === stid.U, hitsByLocal(local), 0.U)
     val commitHere = commitFire && commitStid === stid.U
     val closeOwnerCommits = (0 until p.retireGroupWidth).map { groupIndex =>
-      groupIndex.U < commitCount && table(stid)(local).closeOwnerValid &&
-        io.commit.bits.groups(groupIndex).key.asUInt === table(stid)(local).closeOwner.asUInt
+      groupIndex.U < commitCount && row.closeOwnerValid &&
+        io.commit.bits.groups(groupIndex).key.asUInt === row.closeOwner.asUInt
     }.reduce(_ || _)
     val lastRetired = Wire(new RobGroupKey(p))
     lastRetired := 0.U.asTypeOf(lastRetired)
@@ -583,7 +598,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
       when(groupIndex.U < commitCount &&
         localIndex(io.commit.bits.groups(groupIndex).pcBase) === local.U &&
         io.commit.bits.groups(groupIndex).pcBase.allocationEpoch ===
-          table(stid)(local).token.allocationEpoch) {
+          row.token.allocationEpoch) {
         lastRetired := io.commit.bits.groups(groupIndex).key
       }
     }
@@ -591,52 +606,52 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
       val sum = headLocal(stid) +& offset.U
       val wrap = sum >= p.pcEntriesPerStid.U
       offset.U < freedBases && sum(p.pcPartitionIndexWidth - 1, 0) === local.U &&
-        table(stid)(local).token.allocationEpoch === headEpoch(stid) + wrap.asUInt
+        row.token.allocationEpoch === headEpoch(stid) + wrap.asUInt
     }.reduce(_ || _)
 
     when(publishHere && groupHits.orR) {
       when(newHit) {
-        table(stid)(local).valid := true.B
-        table(stid)(local).stid := stid.U
-        table(stid)(local).token := groupTokens(firstIndex)
-        table(stid)(local).base := groupBases(firstIndex)
-        table(stid)(local).firstRobGroup :=
+        row.valid := true.B
+        row.stid := stid.U
+        row.token := groupTokens(firstIndex)
+        row.base := groupBases(firstIndex)
+        row.firstRobGroup :=
           io.prepare.bits.transaction.groups(firstIndex).key
-        table(stid)(local).nextCommitRobGroup :=
+        row.nextCommitRobGroup :=
           io.prepare.bits.transaction.groups(firstIndex).key
-        table(stid)(local).liveRobGroups := groupHits
+        row.liveRobGroups := groupHits
       }.otherwise {
-        table(stid)(local).liveRobGroups := table(stid)(local).liveRobGroups + groupHits
+        row.liveRobGroups := row.liveRobGroups + groupHits
       }
-      table(stid)(local).lastRobGroup := lastGroup
-      table(stid)(local).closed := Mux(newHit, closeHit, table(stid)(local).closed || closeHit)
+      row.lastRobGroup := lastGroup
+      row.closed := Mux(newHit, closeHit, row.closed || closeHit)
       when(closeHit) {
-        table(stid)(local).closeOwnerValid := true.B
-        table(stid)(local).closeOwner := closeOwner
-        table(stid)(local).closeCommitted := false.B
+        row.closeOwnerValid := true.B
+        row.closeOwner := closeOwner
+        row.closeCommitted := false.B
       }
     }.elsewhen(publishHere && closeHit) {
-      table(stid)(local).closed := true.B
-      table(stid)(local).closeOwnerValid := true.B
-      table(stid)(local).closeOwner := closeOwner
-      table(stid)(local).closeCommitted := false.B
+      row.closed := true.B
+      row.closeOwnerValid := true.B
+      row.closeOwner := closeOwner
+      row.closeCommitted := false.B
     }
     when(commitHere && retireHits.orR) {
       val sum = lastRetired.ridSlot +& 1.U
       val wrap = sum >= p.robGroupsPerStid.U
-      table(stid)(local).liveRobGroups := table(stid)(local).liveRobGroups - retireHits
-      table(stid)(local).nextCommitRobGroup.valid := true.B
-      table(stid)(local).nextCommitRobGroup.peId := lastRetired.peId
-      table(stid)(local).nextCommitRobGroup.stid := lastRetired.stid
-      table(stid)(local).nextCommitRobGroup.ridSlot := sum(p.ridSlotWidth - 1, 0)
-      table(stid)(local).nextCommitRobGroup.ridGeneration :=
+      row.liveRobGroups := row.liveRobGroups - retireHits
+      row.nextCommitRobGroup.valid := true.B
+      row.nextCommitRobGroup.peId := lastRetired.peId
+      row.nextCommitRobGroup.stid := lastRetired.stid
+      row.nextCommitRobGroup.ridSlot := sum(p.ridSlotWidth - 1, 0)
+      row.nextCommitRobGroup.ridGeneration :=
         lastRetired.ridGeneration + wrap.asUInt
     }
     when(commitHere && closeOwnerCommits) {
-      table(stid)(local).closeCommitted := true.B
+      row.closeCommitted := true.B
     }
     when(commitHere && freedHere) {
-      table(stid)(local) := 0.U.asTypeOf(new OooPcBaseEntry(p))
+      row := 0.U.asTypeOf(new OooPcBaseEntry(p))
     }
   }
 
@@ -659,11 +674,12 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     currentBase(safeRecoveryStid) := recoveryCurrentBaseAfter
   }
   for (local <- 0 until p.pcEntriesPerStid) {
+    val row = rowAt(safeRecoveryStid, local.U)
     val killedInLocal = VecInit((0 until p.robGroupsPerStid).map {
       killedIndex => recoveryKilledActive(killedIndex) &&
         localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
         recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          table(safeRecoveryStid)(local).token.allocationEpoch
+          row.token.allocationEpoch
     })
     val firstKilledIndex = PriorityEncoder(killedInLocal.asUInt)
     val firstKilledKey = recoveryPlan.killedGroups(firstKilledIndex).key
@@ -679,11 +695,11 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     priorKey.stid := firstKilledKey.stid
     priorKey.ridSlot := priorSlot
     priorKey.ridGeneration := priorGeneration
-    val closeOwnerKilled = table(safeRecoveryStid)(local).closeOwnerValid &&
+    val closeOwnerKilled = row.closeOwnerValid &&
       ((0 until p.robGroupsPerStid).map { killedIndex =>
         recoveryKilledActive(killedIndex) &&
           recoveryPlan.killedGroups(killedIndex).key.asUInt ===
-            table(safeRecoveryStid)(local).closeOwner.asUInt
+            row.closeOwner.asUInt
       }.reduce(_ || _) ||
         (recoveryPlan.survivingPivotValid &&
           (recoveryPlan.pivot.releasePcBase ||
@@ -691,29 +707,26 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
           !(recoveryPlan.survivingPivot.releasePcBase ||
             recoveryPlan.survivingPivot.preciseTrap) &&
           recoveryPlan.pivot.key.asUInt ===
-            table(safeRecoveryStid)(local).closeOwner.asUInt))
+            row.closeOwner.asUInt))
     val freedHere = (0 until p.robGroupsPerStid).map { killedIndex =>
       recoveryAllocatedMask(killedIndex) &&
         localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
         recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          table(safeRecoveryStid)(local).token.allocationEpoch
+          row.token.allocationEpoch
     }.reduce(_ || _)
     when(recoveryApply && recoveryHitsByLocal(local).orR) {
-      table(safeRecoveryStid)(local).liveRobGroups :=
-        table(safeRecoveryStid)(local).liveRobGroups -
-          recoveryHitsByLocal(local)
-      table(safeRecoveryStid)(local).lastRobGroup := priorKey
+      row.liveRobGroups := row.liveRobGroups - recoveryHitsByLocal(local)
+      row.lastRobGroup := priorKey
     }
     when(recoveryApply && closeOwnerKilled && !freedHere) {
-      table(safeRecoveryStid)(local).closed := false.B
-      table(safeRecoveryStid)(local).closeOwnerValid := false.B
-      table(safeRecoveryStid)(local).closeOwner :=
+      row.closed := false.B
+      row.closeOwnerValid := false.B
+      row.closeOwner :=
         0.U.asTypeOf(new RobGroupKey(p))
-      table(safeRecoveryStid)(local).closeCommitted := false.B
+      row.closeCommitted := false.B
     }
     when(recoveryApply && freedHere) {
-      table(safeRecoveryStid)(local) :=
-        0.U.asTypeOf(new OooPcBaseEntry(p))
+      row := 0.U.asTypeOf(new OooPcBaseEntry(p))
     }
   }
 
@@ -733,7 +746,7 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     val readStidInRange = readStidRaw < p.stidCount.U
     val readStid = readStidRaw(p.stidWidth - 1, 0)
     val safeReadStid = Mux(readStidInRange, readStid, 0.U)
-    val row = table(safeReadStid)(localIndex(token))
+    val row = rowAt(safeReadStid, localIndex(token))
     io.readValid(port) := token.valid && readStidInRange && row.valid &&
       row.stid === readStid && row.token.index === token.index &&
       row.token.allocationEpoch === token.allocationEpoch

@@ -15,8 +15,10 @@ recovery and CTU reinsertion are packet-complete. O8.3e replaces the grouped
 ROB's full-window combinational recovery view with retained bounded find/build
 passes before the existing common apply. O8.3f now registers the exact selected
 head token, reads its banked payload one stage later, and permits pointer
-mutation only from the retained commit row. PC banking, commit/non-flush prefix
-timing, dispatch cost steering, and default-width timing remain active. O6.2
+mutation only from the retained commit row. O8.3g now maps every PC-base access
+through parameterized low-index banks while preserving all six logical reads.
+Bounded PC recovery/metadata timing, commit/non-flush prefix timing, dispatch
+cost steering, and default-width timing remain active. O6.2
 ROB-owned exact non-flush is packet-complete.
 O7.1 grouped-ROB recovery is packet-complete at the direct owner boundary:
 it prepares an exact logical-uop suffix across intra-group and wrapped-RID

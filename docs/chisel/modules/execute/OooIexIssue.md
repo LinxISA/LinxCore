@@ -150,4 +150,6 @@ pre-split baseline and 59.2% below O8.1. The directly comparable recovery
 scenario falls from about three minutes to 47.046 seconds; the expanded
 three-test recovery suite passes in 232.166 seconds. This closes the unbounded
 recovery CAM. O8.2 separately closes the unbounded dispatch slot encoder; O8
-remains open for cost steering and ROB/MapQ/PC banking.
+remains open for cost steering, bounded PC recovery/metadata timing, and the
+grouped-ROB commit/non-flush prefix path. ROB, MapQ, and PC address banking are
+now established boundaries rather than timing-closure claims.

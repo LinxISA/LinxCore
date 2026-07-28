@@ -39,6 +39,7 @@ final case class OooParams(
     tuRelationReleaseThreshold: Int = 4,
     localSeqGenerationWidth: Int = 8,
     pcBufferEntries: Int = 64,
+    pcBankCount: Int = 4,
     pcOffsetWidth: Int = 7,
     pcWritePorts: Int = 3,
     pcReadPorts: Int = 6,
@@ -157,8 +158,14 @@ final case class OooParams(
   require(pcBufferEntries % stidCount == 0 &&
     isPowerOfTwo(pcBufferEntries / stidCount) && pcBufferEntries / stidCount >= 2,
     "fixed PC-buffer partitions must divide evenly into power-of-two STID slices")
+  require(isPowerOfTwo(pcBankCount) &&
+    pcBankCount <= pcBufferEntries / stidCount &&
+    (pcBufferEntries / stidCount) % pcBankCount == 0,
+    "PC-buffer banks must evenly partition every STID slice")
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
+  require(pcWritePorts <= pcBankCount && retireGroupWidth <= pcBankCount,
+    "PC-buffer banks must cover one allocation and retirement prefix without a bank collision")
   require(iqClassCount == 8 && isPowerOfTwo(iqBankCount),
     "IQ class vector has eight classes and bank count must be a power of two")
   require(isPowerOfTwo(iqEntriesPerBank),
@@ -238,6 +245,10 @@ final case class OooParams(
   def pcEntriesPerStid: Int = pcBufferEntries / stidCount
   def pcPartitionIndexWidth: Int = log2Ceil(pcEntriesPerStid)
   def pcPartitionCountWidth: Int = countWidth(pcEntriesPerStid)
+  def pcBankSelectionBits: Int = log2Ceil(pcBankCount)
+  def pcBankIndexWidth: Int = math.max(1, pcBankSelectionBits)
+  def pcRowsPerBank: Int = pcEntriesPerStid / pcBankCount
+  def pcBankRowIndexWidth: Int = math.max(1, log2Ceil(pcRowsPerBank))
   def iqBankWidth: Int = log2Ceil(iqBankCount)
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
   def iqBankEntryCountWidth: Int = countWidth(iqEntriesPerBank)
