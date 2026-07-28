@@ -53,6 +53,9 @@ final case class OooParams(
     iqFreeSelectLeafEntries: Int = 4,
     iexRecoveryScanEntriesPerBankPerCycle: Int = 1,
     iexIssueDomainCount: Int = 1,
+    iexPReadPorts: Int = 6,
+    iexTReadPorts: Int = 4,
+    iexUReadPorts: Int = 4,
     iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
@@ -199,8 +202,10 @@ final case class OooParams(
     iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
     "IEX recovery scan width must be a power-of-two divisor of each IQ bank")
   require(iexIssueDomainCount > 0 &&
-    iexIssueDomainCount <= iqClassCount * iqBankCount,
-    "IEX issue-domain count must fit the physical class/bank topology")
+    iexIssueDomainCount <= math.min(8, iqClassCount * iqBankCount),
+    "IEX issue-domain count must fit the bounded physical topology")
+  require(iexPReadPorts > 0 && iexTReadPorts > 0 && iexUReadPorts > 0,
+    "IEX P/T/U read-port counts must be positive")
   require(iexWakeupPorts > 0,
     "the IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,
@@ -289,6 +294,10 @@ final case class OooParams(
     iqEntriesPerBank / iexRecoveryScanEntriesPerBankPerCycle
   def iexRecoveryScanCursorWidth: Int =
     math.max(1, log2Ceil(iexRecoveryScanCycles))
+  def iexIssueDomainWidth: Int = math.max(1, log2Ceil(iexIssueDomainCount))
+  def iexPReadPortWidth: Int = math.max(1, log2Ceil(iexPReadPorts))
+  def iexTReadPortWidth: Int = math.max(1, log2Ceil(iexTReadPorts))
+  def iexUReadPortWidth: Int = math.max(1, log2Ceil(iexUReadPorts))
   def instructionCountWidth: Int = countWidth(instructionDecodeWidth)
   def decodedUopCountWidth: Int = countWidth(decodedUopWidth)
   def renameCountWidth: Int = countWidth(renameWidth)

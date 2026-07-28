@@ -93,6 +93,7 @@ promotion.
 | I0.2 oldest-ready pick | Implemented | reusable class/bank-domain selection; modular RID-generation/slot/member age; per-STID oldest plus cross-STID work-conserving RR; retained token; canonical IQ-row in-flight claim; exact retry-to-repick; recovery block/cancel; in-flight terminal-release guard; UT and generated-RTL structure evidence | freeze default pipe map, class-specific blockers, and liveness thresholds |
 | I0.3 picker-to-P1 join | Implemented | catalog-generated PC-read policy for 28 exact opcode forms; primary-parent PC index derived at S2 bind; exact token/sidecar join; typed malformed join; picker-to-P1/I1/I2 composition; denial/partial-response/P1 rejection feedback to canonical `inFlight`; end-to-end retry/repick IT | shared RF/PC arbitration, bypass, and E1 terminal release |
 | I0.4 multi-domain issue fabric | Implemented | parameterized `iexIssueDomainCount`; one canonical IQ with N picker/query/retry ports; N private bridge/P1-I2 lanes; enforced class/bank projection disjointness; domain-qualified retry; aggregate S1/IQ/lane/recovery quiescence; two-domain grant/deny/retry/release IT | freeze default class/bank map, class-specific blockers, shared RF/PC arbitration, bypass, and E1 terminal release |
+| I0.5 atomic I1 read arbiter | Implemented | bounded feasible-subset selection across issue domains; same-STID wrap-qualified age plus cross-STID RR; independent 6P/4T/4U/PC port parameters; complete-group grant/deny; exact source/PC port mapping and readyless response crossbar; malformed-shape denial; focused UT | connect canonical P/T/U data owners and PC buffer, bypass/load generations, and direct issue-fabric composition |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
@@ -1043,6 +1044,33 @@ the Linx implementation keeps reconstruction with the canonical PC owner.
 Replacing the readyless arrays with synchronous macros requires an explicit
 registered response phase and must not turn the request path into hidden
 state.
+
+### 14.5.1 Atomic multi-domain read allocation
+
+I0.5 implements `OooIexAtomicReadArbiter` between the domain-local I1 attempts
+and physical data owners. P, T, U, and PC capacity are independent resources;
+the default formal geometry is 6P/4T/4U plus the existing six PC ports. A
+selected subset is legal only when every source from every selected uop fits.
+No denied group emits even one physical request.
+
+The bounded domain count is at most eight, allowing the arbiter to enumerate
+all subsets and compare only feasible complete groups. Priority is
+lexicographic: modular RID-generation/slot/member age within the same STID,
+then an advancing STID round-robin base across STIDs. This preserves the oldest
+request while packing lower-priority groups whose complete demands still fit;
+it does not use fixed domain priority.
+
+Port requests carry domain/source coordinates, STID/epoch, and the complete
+generation-qualified P or local-sequence source token. The readyless response
+crossbar returns data to the originating source position. A missing response
+does not retroactively alter port allocation: I1 sees `grant=1` with an
+incomplete data-valid mask and uses the existing exact reject/repick path.
+Malformed source masks, operand classes, identities, tags, reservations, or PC
+tokens are decided as whole-group denial with no physical request.
+
+This packet does not create another RF state owner. I0.6 must connect these
+requests to the canonical P data/ready owner, new exact T/U local data owners,
+and `OooPcBuffer`, then drive the multi-domain lane decisions directly.
 
 ## 15. Fast-resolve plan
 

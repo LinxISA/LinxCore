@@ -366,6 +366,12 @@ parent 原子 grant 后进入 I2；denial 产生 cancel，row 留在 IQ。I2 使
 valid/ready 等待 execute。execute accept 目前不删除 IQ，仍等 W2 或 LIQ
 release。
 
+正式 OOO 路径已经增加 `OooIexAtomicReadArbiter`：它接收参数化 issue
+domain 的完整 I1 read group，用同 STID age、跨 STID round-robin 选择可行
+子集，并独立映射 P/T/U/PC 端口。整组 grant/deny 和 readyless partial
+response 到精确 repick 已实现；实际 P/T/U data owner 与 PC buffer 的组合
+连接仍是下一步。
+
 ### 6.2 问题
 
 - parent 只有一组共享 read grant 和一条 I2 issue，未达到 6R/2 issue。
@@ -400,8 +406,9 @@ I1 arbiter按同 STID age、跨 STID RR 分配 6 个 GPR read ports。一个 uop
 
 ### 6.5 迁移与验收
 
-先扩 read group 与 exact token，再扩 I2 双 issue，最后接正式
-bypass/replay validation。验收必须覆盖：
+read group、exact token 和多 domain 原子端口仲裁已经完成。下一步先接
+P/T/U data owner 与 PC buffer，再扩正式 bypass/replay validation 和
+I2-to-E owner transfer。验收必须覆盖：
 
 - 两 bank simultaneous pick；
 - 6R contention、全授予/全拒绝；
