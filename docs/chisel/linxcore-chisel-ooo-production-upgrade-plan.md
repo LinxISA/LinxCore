@@ -85,14 +85,15 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; the external CTU recipe producer is connected at O9 |
-| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5/O6 integration | O7 global recovery remains |
-| O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O7 supplies global ROB/BROB/PC/IQ cancellation |
+| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit/recovery coordinator; O4 RENU and O5/O6 integration | O8 ROB/PC port banking and timing closure remain |
+| O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O8 MapQ even/odd banking and default-width timing closure remain |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection |
-| O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
-| O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
-| O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
+| O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets |
+| O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
+| O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and production-top wiring are O9 integration work |
-| O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
+| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar while preserving the joined query contract | time/bank the full resident recovery scan, hierarchical dispatch/free selection, ROB/MapQ banking, and 2/4/6 timing closure |
+| O9 integration/promotion | Not started | current compatibility owners remain migration evidence | production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
 benchmark hierarchy to production OOO.
@@ -857,13 +858,16 @@ producer state for consumers that reach S2 after the wakeup pulse. Installing
 a new physical destination invalidates the matching scoreboard entry, so tag
 reuse cannot inherit readiness from an older generation or local sequence.
 
-The installed row is a compact unified execution uop rather than a copy of the
-P/T/U rename-owner packets. It keeps exact member/reservation identity,
-opcode/recipe, primary prediction, PC tokens, control sidecars, and physical
-source/destination tags. The real `OooO3RenameCoordinator` now transfers this
-payload over Decoupled and shares that fire with ROB/BROB/PC/RENU/dispatch
-publication. Exact terminal release removes the physical row and returns the
-dispatch slot on one fire.
+The installed row is physically split. `OooIexScheduleRow` retains only the
+state scanned by wakeup, pick, release, and recovery: exact member/reservation
+identity, lifecycle identity, and physical source/destination readiness.
+`OooIexPayloadSidecar` stores opcode/recipe, primary prediction, PC tokens, and
+control/template/trap fields in a stable-slot memory. `OooIexIssueRow` remains
+the joined query/execution view, so no downstream semantic contract changes.
+The real `OooO3RenameCoordinator` transfers this payload over Decoupled and
+shares that fire with ROB/BROB/PC/RENU/dispatch publication. Exact terminal
+release removes the scheduling row and returns the dispatch slot on one fire;
+stale sidecar bits are unreachable while the slot is free.
 
 The S1 reservation guarantees eventual S2 capacity unless matching recovery
 cancels it. Therefore rename may safely publish `producerIqid` at D3/S1 without
@@ -1600,16 +1604,22 @@ Bring up instruction width 2, then product width 4, then scale width 6;
 independently tune uop/rename/dispatch/retire widths, ROB banking, even/odd
 subbanks, PTag FIFO depth, PC ports, and IQ steering.
 
-The current IEX row is still a functional proof payload, not a closed physical
-payload. Even a focused 2-bank x 2-entry recovery elaboration carries the full
-decoded recipe and parent sidecars in every row; the existing larger IEX suite
-produces roughly 473k SystemVerilog lines and its first Verilator frontend
-compile exceeded twelve minutes. The production implementation must split a
-compact scheduling row from transaction/recipe sidecars addressed by stable
-indices, then bank or time the recovery scan. This is the most concrete area
-and compile-time gap against the physically staged queue design in
-`Documents/a.txt`; copying that design's ARM register classes or RID/BID age
-shortcuts remains forbidden.
+O8.1 first splits the IEX row into `OooIexScheduleRow` and
+`OooIexPayloadSidecar`. The schedule row is the only state scanned by wakeup,
+release, and recovery; the wide payload is an inferred memory addressed by the
+stable class/bank/slot reservation and is read only for the selected query.
+The public `OooIexIssueRow` remains their joined view. On the same focused
+2-bank x 4-entry test, the main generated module falls from 477,275 to 426,274
+SystemVerilog lines, but the Verilator frontend remains long-running because
+the one-cycle all-entry recovery CAM is still unrolled. This is a prerequisite,
+not O8 exit.
+
+O8.1b must retain the recovery request and time/bank that schedule-only scan,
+then store an exact kill mask for common apply. O8.2 replaces the full-bitmap
+dispatch allocator with hierarchical/FIFO selection, and O8.3 closes ROB/MapQ
+banking and width timing. These are the concrete gaps against the physically
+staged queue design in `Documents/a.txt`; copying that design's ARM register
+classes or RID/BID age shortcuts remains forbidden.
 
 Exit: timing reports contain no unbounded free-list encoder, group prefix, or
 ready-loop path; all functional coverage remains closed after banking changes.

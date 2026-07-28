@@ -32,20 +32,29 @@ S2 binds at most one STID transaction per cycle. It consumes the earlier
 dispatch reservation rather than selecting a new entry. Newly written rows are
 not pickable until the following S3 transition.
 
-## Execution row
+## Scheduling row and execution sidecar
 
-Each physical row contains one unified execution uop:
+Each physical slot has two storage domains joined as `OooIexIssueRow`:
 
-- exact PE/STID/epoch/transaction and `RobMemberKey`;
-- original class/bank/write-port/entry/reservation generation;
-- canonical uop key, opcode, generated recipe, and split-child index;
-- primary branch prediction and PC-buffer tokens;
-- immediate, boundary, template, trap, and close controls;
-- generation-qualified P/T/U source and destination tags.
+- `OooIexScheduleRow` is resettable, frequently scanned state used by wakeup,
+  pick, exact release, and recovery;
+- `OooIexPayloadSidecar` is a memory-backed execution payload addressed by the
+  stable class/bank/slot reservation and read only for the selected query.
 
-Rename-owner structures are not copied into the IQ. SMAP, CMAP, P/T/U MapQ,
-and retirement relations remain owned by RENU/commit. This keeps the physical
-row synthesizable and prevents IEX from becoming a second recovery authority.
+The scheduling row contains exact PE/STID/epoch/transaction and
+`RobMemberKey`, the class/bank/write-port/entry/reservation generation, and
+generation-qualified P/T/U source/destination tags. The payload sidecar keeps
+the canonical uop key, opcode, generated recipe, split-child index, primary
+prediction, PC-buffer tokens, and immediate/boundary/template/trap/close
+controls.
+
+The joined query view preserves the existing execution contract. Release or
+recovery invalidates only the scheduling row; stale payload memory is
+unreachable until a later exact S2 bind overwrites that slot. Rename-owner
+structures are not copied into the IQ. SMAP, CMAP, P/T/U MapQ, and retirement
+relations remain owned by RENU/commit. The wide sidecar therefore does not
+participate in every wakeup/recovery comparison, and IEX does not become a
+second rename or recovery authority.
 
 ## Wakeup and release
 
@@ -84,10 +93,8 @@ coordinator can fire all recovery owners atomically.
 - Speculative issue inflight state, cancel/retry, and the rule that only a
   non-cancellable I2 terminal event releases the physical row.
 - RF read-port arbitration, operand bypass, and result/wakeup buses.
-- O7 global recovery composition joining this direct owner with ROB, D3,
-  BROB, PC, rename, dispatch, fast resolve, frontend, and CTU.
 - O8 hierarchical/FIFO free selection, bank/port cost steering, safe-mode
-  thresholds, compact scheduling-row/recipe-sidecar separation, and
+  thresholds, a retained banked/timed recovery scan over scheduling rows, and
   default-geometry timing/area closure.
 - Per-class multi-pick liveness counters and coverage closure.
 
@@ -111,3 +118,9 @@ and widths 2/4/6. The compact recovery UT covers partial-pivot S1/S2/S3 pruning,
 survivor residency, complete cancellation, and cross-STID isolation. The IT
 connects the real O3/RENU/dispatch coordinator and proves publication,
 residency, and dispatch-slot return share the exact transactions.
+
+O8.1 elaboration evidence uses the first 2-bank x 4-entry stage test. Splitting
+the wide payload into inferred memory reduces the generated main module from
+477,275 to 426,274 SystemVerilog lines. The remaining size is dominated by the
+one-cycle all-entry recovery scan, so this packet is a storage-boundary
+prerequisite rather than timing closure.

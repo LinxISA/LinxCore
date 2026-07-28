@@ -70,10 +70,13 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   val s1Claimed = RegInit(VecInit(Seq.fill(p.iqClassCount)(
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(false.B)))))))
-  val rows = RegInit(VecInit(Seq.fill(p.iqClassCount)(
+  val scheduleRows = RegInit(VecInit(Seq.fill(p.iqClassCount)(
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(
-        0.U.asTypeOf(new OooIexIssueRow(p)))))))))
+        0.U.asTypeOf(new OooIexScheduleRow(p)))))))))
+  val payloadRows = Seq.tabulate(p.iqClassCount, p.iqBankCount) { (_, _) =>
+    Mem(p.iqEntriesPerBank, new OooIexPayloadSidecar(p))
+  }
 
   val s1Valid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
   val s1Rows = Reg(Vec(p.stidCount, new OooIexS1Transaction(p)))
@@ -306,7 +309,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
        entry <- 0 until p.iqEntriesPerBank) {
     when(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.BoundS2 &&
         !(recoveryFreeze &&
-          rows(uopClass)(bank)(entry).stid === recoveryStid)) {
+          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid)) {
       slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.ResidentS3
     }
   }
@@ -478,7 +481,13 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
             uReadyValid(safeS2OwnerStid)(destinationUtag) := false.B
           }
         }
-        rows(uopClass)(bank)(entry) := row
+        scheduleRows(uopClass)(bank)(entry) := row.schedule
+        for (targetClass <- 0 until p.iqClassCount;
+             targetBank <- 0 until p.iqBankCount) {
+          when(uopClass === targetClass.U && bank === targetBank.U) {
+            payloadRows(targetClass)(targetBank).write(entry, row.payload)
+          }
+        }
         s1Claimed(uopClass)(bank)(entry) := false.B
         slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.BoundS2
       }
@@ -493,7 +502,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
        bank <- 0 until p.iqBankCount;
        entry <- 0 until p.iqEntriesPerBank;
        sourceIndex <- 0 until p.maxSourceOperands) {
-    val source = rows(uopClass)(bank)(entry).sources(sourceIndex)
+    val source = scheduleRows(uopClass)(bank)(entry).sources(sourceIndex)
     val wakeMatch = io.wakeup.map { wake =>
       val pMatch = source.operandClass === OperandClass.P &&
         wake.bits.operandClass === OperandClass.P &&
@@ -507,13 +516,13 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         wake.bits.operandClass === OperandClass.U &&
         source.localTag === wake.bits.localTag &&
         source.localSequence.asUInt === wake.bits.localSequence.asUInt
-      wake.valid && wake.bits.stid === rows(uopClass)(bank)(entry).stid &&
-        wake.bits.epoch === rows(uopClass)(bank)(entry).epoch &&
+      wake.valid && wake.bits.stid === scheduleRows(uopClass)(bank)(entry).stid &&
+        wake.bits.epoch === scheduleRows(uopClass)(bank)(entry).epoch &&
         (pMatch || tMatch || uMatch)
     }.reduce(_ || _)
     when(slotState(uopClass)(bank)(entry) =/= OooIexIssueSlotState.Free &&
         !(recoveryFreeze &&
-          rows(uopClass)(bank)(entry).stid === recoveryStid) &&
+          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
         source.valid && !source.ready && wakeMatch) {
       source.ready := true.B
     }
@@ -530,7 +539,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     release.dispatch.reservation.bank, 0.U)
   val safeReleaseEntry = Mux(releaseEntryInRange,
     release.dispatch.reservation.speculativeSlot, 0.U)
-  val releaseRow = rows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry)
+  val releaseRow = scheduleRows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry)
   val releaseExact = releaseClassInRange && releaseBankInRange &&
     releaseEntryInRange && release.dispatch.reservation.valid &&
     slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) ===
@@ -557,8 +566,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   when(io.release.fire) {
     slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) :=
       OooIexIssueSlotState.Free
-    rows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) :=
-      0.U.asTypeOf(new OooIexIssueRow(p))
+    scheduleRows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) :=
+      0.U.asTypeOf(new OooIexScheduleRow(p))
   }
 
   val recoveryS1 = s1Rows(safeRecoveryStid)
@@ -619,8 +628,9 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
        entry <- 0 until p.iqEntriesPerBank) {
     val occupied = slotState(uopClass)(bank)(entry) =/=
       OooIexIssueSlotState.Free
-    val selected = occupied && rows(uopClass)(bank)(entry).stid === recoveryStid
-    val row = rows(uopClass)(bank)(entry)
+    val selected = occupied &&
+      scheduleRows(uopClass)(bank)(entry).stid === recoveryStid
+    val row = scheduleRows(uopClass)(bank)(entry)
     recoveryResidentExact(uopClass)(bank)(entry) := !selected || (
       row.valid && row.peId === recoveryPlan.oldHead.peId &&
         row.member.group.peId === row.peId &&
@@ -670,7 +680,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     (0 until p.iqClassCount).flatMap { uopClass =>
       (0 until p.iqBankCount).flatMap { bank =>
         (0 until p.iqEntriesPerBank).map { entry =>
-          val row = rows(uopClass)(bank)(entry)
+          val row = scheduleRows(uopClass)(bank)(entry)
           recoveryRowKill(uopClass)(bank)(entry) &&
             row.dispatchLane === lane.U &&
             row.peId === s3Pending.bind.peId &&
@@ -688,7 +698,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
         (0 until p.iqClassCount).flatMap { uopClass =>
           (0 until p.iqBankCount).flatMap { bank =>
             (0 until p.iqEntriesPerBank).map { entry =>
-              val row = rows(uopClass)(bank)(entry)
+              val row = scheduleRows(uopClass)(bank)(entry)
               slotState(uopClass)(bank)(entry) =/=
                 OooIexIssueSlotState.Free &&
                 row.valid && row.dispatchLane === lane.U &&
@@ -745,7 +755,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     for (uopClass <- 0 until p.iqClassCount;
          bank <- 0 until p.iqBankCount;
          entry <- 0 until p.iqEntriesPerBank) {
-      val row = rows(uopClass)(bank)(entry)
+      val row = scheduleRows(uopClass)(bank)(entry)
       when(recoveryRowKill(uopClass)(bank)(entry)) {
         for (destinationIndex <- 0 until p.maxDestinationOperands) {
           val destination = row.destinations(destinationIndex)
@@ -780,8 +790,8 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
           }
         }
         slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.Free
-        rows(uopClass)(bank)(entry) :=
-          0.U.asTypeOf(new OooIexIssueRow(p))
+        scheduleRows(uopClass)(bank)(entry) :=
+          0.U.asTypeOf(new OooIexScheduleRow(p))
       }
     }
 
@@ -817,7 +827,15 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
   val safeQueryBank = Mux(queryBankInRange, io.query.bank, 0.U)
   val safeQueryEntry = Mux(queryEntryInRange, io.query.entry, 0.U)
   io.queryState := slotState(safeQueryClass)(safeQueryBank)(safeQueryEntry)
-  io.queryRow := rows(safeQueryClass)(safeQueryBank)(safeQueryEntry)
+  val queryPayloads = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, new OooIexPayloadSidecar(p))))
+  for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {
+    queryPayloads(uopClass)(bank) :=
+      payloadRows(uopClass)(bank).read(safeQueryEntry)
+  }
+  io.queryRow.schedule :=
+    scheduleRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)
+  io.queryRow.payload := queryPayloads(safeQueryClass)(safeQueryBank)
   val querySourcesReady = io.queryRow.sources.map { source =>
     !source.valid || source.ready
   }.reduce(_ && _)
@@ -838,7 +856,7 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
       }).asUInt)
     for (entry <- 0 until p.iqEntriesPerBank) {
       assert((slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free) ===
-        !rows(uopClass)(bank)(entry).valid,
+        !scheduleRows(uopClass)(bank)(entry).valid,
         "a physical IEX row must agree with its lifecycle state")
       assert(!s1Claimed(uopClass)(bank)(entry) ||
         slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free,

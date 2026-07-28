@@ -800,14 +800,12 @@ class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
   val localSequence = new OooLocalSeq(p)
 }
 
-/** Physical IEX row installed from one exact dispatch child.
+/** Frequently scanned physical scheduling state.
   *
-  * The row is an execution payload, not a shadow copy of the rename owners.
-  * ROB, SMAP/CMAP, and MapQ keep their own recovery/retirement state; IEX
-  * retains only the canonical uop controls, prediction, PC references, and
-  * physical source/destination identities needed after S2.
+  * Recovery, wakeup, release, and pick inspect only this compact row.  Wide
+  * execution controls live in a separately addressed payload memory.
   */
-class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
+class OooIexScheduleRow(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val peId = UInt(p.peIdWidth.W)
   val stid = UInt(p.stidWidth.W)
@@ -820,6 +818,13 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
     chisel3.util.log2Ceil(p.maxDispatchWritesPerInstruction)).W)
   val member = new RobMemberKey(p)
   val reservation = new DispatchReservation(p)
+  val sources = Vec(p.maxSourceOperands, new OooIexSourceState(p))
+  val destinations = Vec(p.maxDestinationOperands,
+    new OooIexDestinationState(p))
+}
+
+/** Wide execution payload read only for the selected physical row. */
+class OooIexPayloadSidecar(val p: OooParams = OooParams()) extends Bundle {
   val uopKey = new CanonicalUopKey(p)
   val parentCount = UInt(p.architecturalParentCountWidth.W)
   val parentPcTokens = Vec(p.maxArchitecturalParentRefs,
@@ -841,9 +846,51 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   val blockLast = Bool()
   val closeBeforeValid = Bool()
   val closeBefore = new BrobPointer(p)
-  val sources = Vec(p.maxSourceOperands, new OooIexSourceState(p))
-  val destinations = Vec(p.maxDestinationOperands,
-    new OooIexDestinationState(p))
+}
+
+/** Physical IEX row installed from one exact dispatch child.
+  *
+  * The public row is the joined view of compact scheduling state and a wide
+  * execution sidecar.  Keeping the join in the bundle preserves the existing
+  * execution/query contract while allowing the physical owner to scan only
+  * `schedule` and infer `payload` as memory.
+  */
+class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
+  val schedule = new OooIexScheduleRow(p)
+  val payload = new OooIexPayloadSidecar(p)
+
+  def valid = schedule.valid
+  def peId = schedule.peId
+  def stid = schedule.stid
+  def epoch = schedule.epoch
+  def transactionId = schedule.transactionId
+  def dispatchLane = schedule.dispatchLane
+  def uopIndex = schedule.uopIndex
+  def childIndex = schedule.childIndex
+  def member = schedule.member
+  def reservation = schedule.reservation
+  def sources = schedule.sources
+  def destinations = schedule.destinations
+  def uopKey = payload.uopKey
+  def parentCount = payload.parentCount
+  def parentPcTokens = payload.parentPcTokens
+  def primaryPrediction = payload.primaryPrediction
+  def boundary = payload.boundary
+  def templateValid = payload.templateValid
+  def templateGroupId = payload.templateGroupId
+  def templateGeneration = payload.templateGeneration
+  def opcode = payload.opcode
+  def recipe = payload.recipe
+  def plannedChildCount = payload.plannedChildCount
+  def immediateValid = payload.immediateValid
+  def immediate = payload.immediate
+  def boundaryTargetValid = payload.boundaryTargetValid
+  def boundaryTarget = payload.boundaryTarget
+  def preciseTrap = payload.preciseTrap
+  def trapCause = payload.trapCause
+  def blockLast = payload.blockLast
+  def closeBeforeValid = payload.closeBeforeValid
+  def closeBefore = payload.closeBefore
 }
 
 /** Exact S2 acknowledgment for the earlier retained S1 transaction. */

@@ -137,6 +137,8 @@ class OooBundlesSpec extends AnyFunSuite {
     val p = OooParams()
     val transaction = new OooIexS1Transaction(p)
     val row = new OooIexIssueRow(p)
+    val schedule = new OooIexScheduleRow(p)
+    val payload = new OooIexPayloadSidecar(p)
     val wakeup = new OooIexWakeup(p)
 
     assert(transaction.pRename.uops.length == p.decodedUopWidth)
@@ -151,6 +153,12 @@ class OooBundlesSpec extends AnyFunSuite {
       p.pTagGenerationWidth)
     assert(row.destinations.head.localSequence.generation.getWidth ==
       p.localSeqGenerationWidth)
+    assert(schedule.sources.length == p.maxSourceOperands)
+    assert(schedule.destinations.length == p.maxDestinationOperands)
+    assert(payload.recipe.fastResolveClass.getWidth ==
+      row.recipe.fastResolveClass.getWidth)
+    assert(schedule.getWidth < row.getWidth)
+    assert(payload.getWidth < row.getWidth)
     assert(wakeup.localSequence.generation.getWidth ==
       p.localSeqGenerationWidth)
   }

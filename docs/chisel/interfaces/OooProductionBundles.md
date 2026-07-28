@@ -589,20 +589,22 @@ that event for consumers dispatched after the one-cycle wakeup pulse; a new
 destination allocation invalidates the matching physical-tag entry before it
 can be reused.
 
-The physical row is a unified execution uop. It retains the exact ROB member,
-opcode/recipe, split-child index, primary prediction, PC-buffer tokens,
-boundary/template/trap controls, and physical P/T/U source/destination tags.
-It deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
-state into every IQ entry. This is the first physical application of the
-critical/uncritical separation taken from `Documents/a.txt`; rename and commit
-owners remain authoritative for retirement and recovery state.
+The public `OooIexIssueRow` joins two physical domains. The resettable
+`OooIexScheduleRow` keeps exact ROB member/reservation identity plus physical
+P/T/U source/destination tags and is the only state scanned by wakeup, pick,
+release, and recovery. `OooIexPayloadSidecar` keeps opcode/recipe, split-child
+index, primary prediction, PC-buffer tokens, and boundary/template/trap
+controls in stable-slot memory and is read only for the selected query. It
+deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
+state into every IQ entry. This applies the critical/uncritical separation
+from `Documents/a.txt`; rename and commit owners remain authoritative.
 
 The current release seam accepts only a future exact non-cancellable I2
 terminal event. Full member identity and the original dispatch reservation
 must match, and physical-row removal shares one fire with dispatch-slot return.
 P1/I1/I2 pipe arbitration, speculative issue cancel/retry, age-matrix pick,
-operand RF arbitration, execution, and O7 global cancellation remain explicit
-later packets; O5.2 does not claim them.
+operand RF arbitration, execution, and O8 banked/timed recovery scanning remain
+explicit later packets; O5.2 does not claim them.
 
 ## O6.1 typed fast-resolve boundary
 
