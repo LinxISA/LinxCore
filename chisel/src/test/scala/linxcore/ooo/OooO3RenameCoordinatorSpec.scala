@@ -22,14 +22,19 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
-    dut.io.ptagReturn.valid.poke(false.B)
-    dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.ptagRecycle.ready.poke(true.B)
     dut.io.dispatchRelease.valid.poke(false.B)
     dut.io.dispatchRelease.bits.poke(
       0.U.asTypeOf(dut.io.dispatchRelease.bits))
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.iexRecoveryPrepareReady.poke(true.B)
+    dut.io.iexRecoveryPrepared.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryPrepared))
+    dut.io.iexRecoveryRejected.valid.poke(false.B)
+    dut.io.iexRecoveryRejected.bits.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryRejected.bits))
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(0.U)
     dut.io.pcReadTokens.foreach(_.poke(0.U.asTypeOf(dut.io.pcReadTokens.head)))
@@ -215,7 +220,8 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       residentGeneration: BigInt,
       killTrigger: Boolean,
       epoch: Int = 5): Unit = {
-    val request = dut.io.recoveryRequest.bits
+    val global = dut.io.recoveryRequest.bits
+    val request = global.rename
     request.poke(0.U.asTypeOf(request))
     request.key.member.group.valid.poke(true.B)
     request.key.member.group.peId.poke(3.U)
@@ -233,6 +239,9 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
     request.key.transactionId.poke(transactionId.U)
     request.key.epoch.poke(epoch.U)
     request.killTrigger.poke(killTrigger.B)
+    global.triggerMemberCount.poke(1.U)
+    dut.io.iexRecoveryPrepared.valid.poke(true.B)
+    dut.io.iexRecoveryPrepared.stid.poke(stid.U)
   }
 
   test("joins D3 PTag ROB BROB PC SMAP and MapQ publication on one fire") {
@@ -342,18 +351,6 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.dispatchRelease.valid.poke(false.B)
       dut.io.dispatchPublishedEntries(0)(0).expect(0.U)
-
-      // Recovery return remains sealed; commit uses the exact MapQ/CMAP owner.
-      dut.io.ptagReturn.bits.count.poke(1.U)
-      dut.io.ptagReturn.bits.tokens(0).valid.poke(true.B)
-      dut.io.ptagReturn.bits.tokens(0).ptag.poke(96.U)
-      dut.io.ptagReturn.bits.tokens(0).bank.poke(0.U)
-      dut.io.ptagReturn.bits.tokens(0).generation.poke(1.U)
-      dut.io.ptagReturn.valid.poke(true.B)
-      dut.io.ptagReturn.ready.expect(false.B)
-      dut.clock.step()
-      dut.io.ptagReturn.valid.poke(false.B)
-      dut.io.ptagPublishedCount.expect(1.U)
 
       val completion = dut.io.completion.bits.key
       completion.group.valid.poke(true.B)

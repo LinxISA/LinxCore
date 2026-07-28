@@ -50,6 +50,7 @@ class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
     new OooRenameRecoveryRequest(p)))
   val recoveryAuthorize = Decoupled(new OooRenameRecoveryRequest(p))
   val recoverySource = Decoupled(new OooRenameRecoverySource(p))
+  val recoveryAbort = Input(Bool())
   val recoveryFinish = Input(Bool())
   val recoveryBusy = Output(Bool())
   val recoveryStid = Output(UInt(p.stidWidth.W))
@@ -337,6 +338,18 @@ class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
         recoveryState := OooTURetireRecoveryState.Idle
       }
     }
+  }
+
+  when(io.recoveryAbort) {
+    assert(recoveryState === OooTURetireRecoveryState.Scan ||
+      recoveryState === OooTURetireRecoveryState.Authorize,
+      "rename recovery abort is legal only before owner authorization")
+    recoveryScanOffset := 0.U
+    recoveryScanRemaining := 0.U
+    recoveryMatchCount := 0.U
+    recoveryMatchedOffset := 0.U
+    recoveryEmitRemaining := 0.U
+    recoveryState := OooTURetireRecoveryState.Idle
   }
 
   io.recoveryBusy :=

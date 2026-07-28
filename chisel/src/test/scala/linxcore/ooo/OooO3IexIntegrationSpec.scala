@@ -9,9 +9,13 @@ import org.scalatest.funsuite.AnyFunSuite
 class OooO3IexIntegrationHarnessIO(val p: OooParams) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
   val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
+  val recoveryRequest = Flipped(Decoupled(new OooGlobalRecoveryRequest(p)))
   val query = Input(new OooIexSlotQuery(p))
 
   val publishFire = Output(Bool())
+  val recoveryBusy = Output(Bool())
+  val recoveryComplete = Output(Bool())
+  val recoveryApplied = Valid(new OooGlobalRecoveryRequest(p))
   val s2Bind = Valid(new OooIexS2BindAck(p))
   val s3Enable = Valid(new OooIexS3Enable(p))
   val queryState = Output(OooIexIssueSlotState())
@@ -20,6 +24,9 @@ class OooO3IexIntegrationHarnessIO(val p: OooParams) extends Bundle {
   val queryReservation = Output(new DispatchReservation(p))
   val dispatchPublishedEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val robOccupiedGroups = Output(Vec(p.stidCount,
+    UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val mapQUsed = Output(Vec(p.stidCount, UInt(p.pMapQCountWidth.W)))
 }
 
 /** Minimal integration shell for the real O3/RENU/dispatch-to-IEX seam. */
@@ -40,16 +47,11 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
     0.U.asTypeOf(coordinator.io.nonFlushEvidence.bits)
   coordinator.io.interruptPending.foreach(_ := false.B)
   coordinator.io.commit.ready := false.B
-  coordinator.io.ptagReturn.valid := false.B
-  coordinator.io.ptagReturn.bits :=
-    0.U.asTypeOf(coordinator.io.ptagReturn.bits)
   coordinator.io.fastBoundary.ready := true.B
   coordinator.io.fastWriteback.ready := true.B
   coordinator.io.fastWakeup.ready := true.B
   coordinator.io.fastTrace.ready := true.B
-  coordinator.io.recoveryRequest.valid := false.B
-  coordinator.io.recoveryRequest.bits :=
-    0.U.asTypeOf(coordinator.io.recoveryRequest.bits)
+  coordinator.io.recoveryRequest <> io.recoveryRequest
   coordinator.io.queryStid := 0.U
   coordinator.io.queryAtag := 0.U
   coordinator.io.pcReadTokens.foreach { token =>
@@ -58,6 +60,7 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
 
   issue.io.s1 <> coordinator.io.iexS1
   coordinator.io.dispatchRelease <> issue.io.dispatchRelease
+  issue.io.ptagRecycle <> coordinator.io.ptagRecycle
   issue.io.wakeup.foreach { wakeup =>
     wakeup.valid := false.B
     wakeup.bits := 0.U.asTypeOf(wakeup.bits)
@@ -66,12 +69,16 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   issue.io.release.bits := io.release.bits
   io.release.ready := issue.io.release.ready
   issue.io.query := io.query
-  issue.io.recoveryPrepare.valid := false.B
-  issue.io.recoveryPrepare.bits :=
-    0.U.asTypeOf(issue.io.recoveryPrepare.bits)
-  issue.io.recoveryFire := false.B
+  issue.io.recoveryPrepare := coordinator.io.iexRecoveryPrepare
+  coordinator.io.iexRecoveryPrepareReady := issue.io.recoveryPrepareReady
+  coordinator.io.iexRecoveryPrepared := issue.io.recoveryPrepared
+  coordinator.io.iexRecoveryRejected := issue.io.recoveryRejected
+  issue.io.recoveryFire := coordinator.io.iexRecoveryFire
 
   io.publishFire := coordinator.io.publishFire
+  io.recoveryBusy := coordinator.io.recoveryBusy
+  io.recoveryComplete := coordinator.io.recoveryComplete
+  io.recoveryApplied := coordinator.io.recoveryApplied
   io.s2Bind := issue.io.s2Bind
   io.s3Enable := issue.io.s3Enable
   io.queryState := issue.io.queryState
@@ -79,6 +86,8 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   io.queryMember := issue.io.queryRow.member
   io.queryReservation := issue.io.queryRow.reservation
   io.dispatchPublishedEntries := coordinator.io.dispatchPublishedEntries
+  io.robOccupiedGroups := coordinator.io.robOccupiedGroups
+  io.mapQUsed := coordinator.io.mapQUsed
 }
 
 class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
@@ -87,6 +96,9 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.recoveryRequest.valid.poke(false.B)
+    dut.io.recoveryRequest.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryRequest.bits))
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
   }
 
@@ -156,46 +168,43 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.valid.poke(true.B)
   }
 
-  private def pokeExactRelease(dut: OooO3IexIntegrationHarness): Unit = {
-    val release = dut.io.release.bits
-    release.poke(0.U.asTypeOf(release))
-    release.member.group.valid.poke(true.B)
-    release.member.group.peId.poke(3.U)
-    release.member.group.stid.poke(0.U)
-    release.member.group.ridSlot.poke(0.U)
-    release.member.group.ridGeneration.poke(0.U)
-    release.member.bid.valid.poke(true.B)
-    release.member.bid.value.poke(0.U)
-    release.member.brobGeneration.poke(0.U)
-    release.member.memberIndex.poke(0.U)
-    release.member.residentGeneration.poke(1.U)
-    release.dispatch.peId.poke(3.U)
-    release.dispatch.stid.poke(0.U)
-    release.dispatch.epoch.poke(5.U)
-    release.dispatch.transactionId.poke(0.U)
-    release.dispatch.reservation.valid.poke(true.B)
-    release.dispatch.reservation.uopClass.poke(OooUopClass.Alu)
-    release.dispatch.reservation.bank.poke(0.U)
-    release.dispatch.reservation.writePort.poke(0.U)
-    release.dispatch.reservation.speculativeSlot.poke(0.U)
-    release.dispatch.reservation.reservationEpoch.poke(1.U)
-    dut.io.release.valid.poke(true.B)
+  private def pokeGlobalRecovery(dut: OooO3IexIntegrationHarness): Unit = {
+    val global = dut.io.recoveryRequest.bits
+    global.poke(0.U.asTypeOf(global))
+    val request = global.rename
+    request.key.member.group.valid.poke(true.B)
+    request.key.member.group.peId.poke(3.U)
+    request.key.member.group.stid.poke(0.U)
+    request.key.member.group.ridSlot.poke(0.U)
+    request.key.member.group.ridGeneration.poke(0.U)
+    request.key.member.bid.valid.poke(true.B)
+    request.key.member.bid.value.poke(0.U)
+    request.key.member.brobGeneration.poke(0.U)
+    request.key.member.memberIndex.poke(0.U)
+    request.key.member.residentGeneration.poke(1.U)
+    request.key.cause.poke(OooRecoveryCause.Branch)
+    request.key.transactionId.poke(0.U)
+    request.key.epoch.poke(5.U)
+    request.killTrigger.poke(true.B)
+    global.triggerMemberCount.poke(1.U)
+    dut.io.recoveryRequest.valid.poke(true.B)
   }
 
-  test("publishes one exact O3 row through S1 S2 S3 and releases both owners") {
+  test("publishes one exact O3 row then globally recovers ROB rename dispatch and IEX") {
     val p = OooParams(
+      stidCount = 2,
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
       dispatchWidth = 2,
       iqBankCount = 2,
-      iqEntriesPerBank = 4,
+      iqEntriesPerBank = 2,
       iqWritePortsPerBank = 2,
-      robGroupsPerStid = 8,
-      brobEntriesPerStid = 8,
+      robGroupsPerStid = 4,
+      brobEntriesPerStid = 4,
       pTagStagingDepthPerBank = 2,
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
-      tuRetireSourceDepthPerStid = 16)
+      tuRetireSourceDepthPerStid = 8)
     simulate(new OooO3IexIntegrationHarness(p)) { dut =>
       clear(dut)
       dut.clock.step() // fill PTag staging
@@ -223,12 +232,31 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryReservation.writePort.expect(0.U)
       dut.io.queryReservation.reservationEpoch.expect(1.U)
 
-      pokeExactRelease(dut)
-      dut.io.release.ready.expect(true.B)
+      dut.io.dispatchPublishedEntries(0)(0).expect(1.U)
+      dut.io.robOccupiedGroups(0).expect(1.U)
+      dut.io.mapQUsed(0).expect(1.U)
+
+      pokeGlobalRecovery(dut)
+      dut.io.recoveryRequest.ready.expect(true.B)
       dut.clock.step()
-      dut.io.release.valid.poke(false.B)
+      dut.io.recoveryRequest.valid.poke(false.B)
+
+      var cycles = 0
+      var sawApplied = false
+      var sawComplete = false
+      while (dut.io.recoveryBusy.peek().litToBoolean && cycles < 64) {
+        sawApplied ||= dut.io.recoveryApplied.valid.peek().litToBoolean
+        sawComplete ||= dut.io.recoveryComplete.peek().litToBoolean
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64, "global O3/IEX recovery did not complete")
+      assert(sawApplied, "global recovery never produced one common apply")
+      assert(sawComplete, "global recovery never reached R4 completion")
       dut.io.queryState.expect(OooIexIssueSlotState.Free)
       dut.io.dispatchPublishedEntries(0)(0).expect(0.U)
+      dut.io.robOccupiedGroups(0).expect(0.U)
+      dut.io.mapQUsed(0).expect(0.U)
     }
   }
 }

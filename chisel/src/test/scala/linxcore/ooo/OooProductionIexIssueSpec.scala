@@ -47,6 +47,8 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryFire.poke(false.B)
+    dut.io.ptagRecycle.valid.poke(false.B)
+    dut.io.ptagRecycle.bits.poke(0.U.asTypeOf(dut.io.ptagRecycle.bits))
   }
 
   private def pokeMember(
@@ -304,6 +306,26 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       query(dut, 0, 0, 2)
       advanceToS3(dut)
       dut.io.queryPickable.expect(true.B)
+
+      // Recycling the exact generation must clear the retained ready record
+      // before that physical tag can be issued again.
+      dut.io.ptagRecycle.bits.poke(
+        0.U.asTypeOf(dut.io.ptagRecycle.bits))
+      dut.io.ptagRecycle.bits.count.poke(1.U)
+      dut.io.ptagRecycle.bits.tokens(0).valid.poke(true.B)
+      dut.io.ptagRecycle.bits.tokens(0).ptag.poke(17.U)
+      dut.io.ptagRecycle.bits.tokens(0).generation.poke(3.U)
+      dut.io.ptagRecycle.valid.poke(true.B)
+      dut.io.ptagRecycle.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.ptagRecycle.valid.poke(false.B)
+
+      pokeTransaction(dut, 0, 7,
+        Vector(Allocation(0, 0, 0, 0, 0, 3)),
+        pSourceReady = Some(false), pSourceGeneration = 3)
+      query(dut, 0, 0, 3)
+      advanceToS3(dut)
+      dut.io.queryPickable.expect(false.B)
 
       // T/U readiness uses the same retained principle but exact local
       // sequence identity rather than PTag allocation generation.

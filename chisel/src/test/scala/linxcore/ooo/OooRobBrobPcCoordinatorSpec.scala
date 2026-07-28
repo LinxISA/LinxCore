@@ -22,6 +22,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
     dut.io.recoveryApply.poke(false.B)
+    dut.io.recoveryAbort.poke(false.B)
     dut.io.pcReadTokens.foreach(_.poke(0.U.asTypeOf(dut.io.pcReadTokens.head)))
   }
 
@@ -477,6 +478,24 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.d3PublishedGroups(1).expect(2.U)
       dut.io.brobUsedBlocks(1).expect(2.U)
       dut.io.pcUsedBases(1).expect(2.U)
+
+      // A composed-owner reject can abort this side-effect-free lower plan.
+      dut.io.recoveryAbort.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryAbort.poke(false.B)
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.robOccupiedGroups(1).expect(2.U)
+      dut.io.d3PublishedGroups(1).expect(2.U)
+      dut.io.brobUsedBlocks(1).expect(2.U)
+      dut.io.pcUsedBases(1).expect(2.U)
+
+      pokeRecovery(dut, stid = 1, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1,
+        transactionId = 0, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      waitRecoveryPrepared(dut)
 
       dut.io.recoveryApply.poke(true.B)
       dut.io.recoveryApplied.valid.expect(true.B)

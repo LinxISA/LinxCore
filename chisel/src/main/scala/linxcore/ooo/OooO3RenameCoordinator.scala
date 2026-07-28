@@ -4,6 +4,10 @@ import chisel3._
 import chisel3.util.{Decoupled, PopCount, RRArbiter, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 
+object OooGlobalRecoveryState extends ChiselEnum {
+  val Idle, CaptureOwners, PrepareOwners, Rebuild, AbortOwners = Value
+}
+
 class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
@@ -28,17 +32,29 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val interruptPending = Input(Vec(p.stidCount, Bool()))
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
-  val ptagReturn = Flipped(Decoupled(new OooPTagReturnBatch(p)))
   val dispatchRelease = Flipped(Decoupled(new OooDispatchRelease(p)))
+  val ptagRecycle = Decoupled(new OooPTagReturnBatch(p))
 
   val recoveryRequest = Flipped(Decoupled(
-    new OooRenameRecoveryRequest(p)))
+    new OooGlobalRecoveryRequest(p)))
   val recoveryBusy = Output(Bool())
   val recoveryStid = Output(UInt(p.stidWidth.W))
   val recoveryComplete = Output(Bool())
+  val recoveryApplied = Valid(new OooGlobalRecoveryRequest(p))
+  val iexRecoveryPrepare = Valid(new OooResidencyRecoveryPlan(p))
+  val iexRecoveryPrepareReady = Input(Bool())
+  val iexRecoveryPrepared = Input(new OooIexRecoveryPrepared(p))
+  val iexRecoveryRejected = Flipped(Valid(new OooIexRecoveryReject(p)))
+  val iexRecoveryFire = Output(Bool())
   val recoveryRejected = Valid(new OooRenameRecoveryReject(p))
   val pRecoveryRejected = Valid(new OooPRenameRecoveryReject(p))
   val tuRecoveryRejected = Valid(new OooTURenameRecoveryReject(p))
+  val robRecoveryRejected = Valid(new OooRobRecoveryReject(p))
+  val d3RecoveryRejected = Valid(new OooD3RecoveryReject(p))
+  val brobRecoveryRejected = Valid(new OooBrobRecoveryReject(p))
+  val pcRecoveryRejected = Valid(new OooPcRecoveryReject(p))
+  val dispatchRecoveryRejected = Valid(new OooDispatchRecoveryReject(p))
+  val fastRecoveryRejected = Valid(new OooFastResolveRecoveryReject(p))
   val dispatchPrepared = Output(new OooDispatchReservationLease(p))
   val dispatchFreeEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
@@ -102,30 +118,32 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val fast = Module(new OooProductionFastResolve(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
-  val recoveryRequestStid = io.recoveryRequest.bits.key.member.group.stid
+  val globalRecoveryState = RegInit(OooGlobalRecoveryState.Idle)
+  val globalRecoveryRequest = RegInit(
+    0.U.asTypeOf(new OooGlobalRecoveryRequest(p)))
+  val lowerRecoveryAccepted = RegInit(false.B)
+  val renameRecoveryAccepted = RegInit(false.B)
+  val globalRecoveryActive =
+    globalRecoveryState =/= OooGlobalRecoveryState.Idle
+  val activeRecoveryStid = globalRecoveryRequest.rename.key.member.group.stid
+
+  val recoveryRequestStid =
+    io.recoveryRequest.bits.rename.key.member.group.stid
   val recoveryRequestStidInRange = recoveryRequestStid < p.stidCount.U
-  val safeRecoveryRequestStid = Mux(recoveryRequestStidInRange,
-    recoveryRequestStid, 0.U)
   val recoveryRequestConflictsPrepared = o3.io.preparedValid &&
     recoveryRequestStidInRange && preparedStid === recoveryRequestStid
-  // O4 owns rename-local rollback only. Once S1 has published an IQ entry or
-  // retained a fast terminal row, O7 must join IQ/fast/ROB/BROB/PC
-  // cancellation before this request can proceed. Until that common owner
-  // exists, block the exact STID instead of allowing wrong-path side effects.
-  val recoveryRequestNeedsGlobalCancel = recoveryRequestStidInRange &&
-    (dispatch.io.publishedByStid(safeRecoveryRequestStid).orR ||
-      fast.io.pendingByStid(safeRecoveryRequestStid).orR)
-
-  turetire.io.recoveryRequest.valid := io.recoveryRequest.valid &&
-    !recoveryRequestConflictsPrepared && !recoveryRequestNeedsGlobalCancel
-  turetire.io.recoveryRequest.bits := io.recoveryRequest.bits
-  io.recoveryRequest.ready := turetire.io.recoveryRequest.ready &&
-    !recoveryRequestConflictsPrepared && !recoveryRequestNeedsGlobalCancel
+  io.recoveryRequest.ready := !globalRecoveryActive &&
+    !recoveryRequestConflictsPrepared
+  when(io.recoveryRequest.fire) {
+    globalRecoveryRequest := io.recoveryRequest.bits
+    lowerRecoveryAccepted := false.B
+    renameRecoveryAccepted := false.B
+    globalRecoveryState := OooGlobalRecoveryState.CaptureOwners
+  }
 
   val reserveStid = io.reserve.bits.plan.stid
   val reserveBlockedByRecovery = io.reserve.valid && (
-    (turetire.io.recoveryBusy &&
-      reserveStid === turetire.io.recoveryStid) ||
+    (globalRecoveryActive && reserveStid === activeRecoveryStid) ||
     (io.recoveryRequest.valid && recoveryRequestStidInRange &&
       reserveStid === recoveryRequestStid))
   val reserveOffer = io.reserve.valid && !reserveBlockedByRecovery
@@ -159,33 +177,115 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   o3.io.nonFlushEvidence <> io.nonFlushEvidence
   o3.io.interruptPending := io.interruptPending
   io.nonFlushWindows := o3.io.nonFlushWindows
-  // O7.2d1 opens only the lower ROB/D3/BROB/PC retained subtransaction.  The
-  // public O3 seam remains rename-local until the upper global coordinator can
-  // join P/T/U, dispatch, IEX, fast, frontend-stage, and CTU owners.
-  o3.io.recoveryRequest.valid := false.B
-  o3.io.recoveryRequest.bits :=
-    0.U.asTypeOf(o3.io.recoveryRequest.bits)
-  o3.io.recoveryApply := false.B
+  val captureRecoveryOwners =
+    globalRecoveryState === OooGlobalRecoveryState.CaptureOwners
+  o3.io.recoveryRequest.valid := captureRecoveryOwners &&
+    !lowerRecoveryAccepted
+  o3.io.recoveryRequest.bits := globalRecoveryRequest
+  turetire.io.recoveryRequest.valid := captureRecoveryOwners &&
+    !renameRecoveryAccepted
+  turetire.io.recoveryRequest.bits := globalRecoveryRequest.rename
+  val lowerRecoveryFire = o3.io.recoveryRequest.fire
+  val renameRecoveryFire = turetire.io.recoveryRequest.fire
+  when(lowerRecoveryFire) {
+    lowerRecoveryAccepted := true.B
+  }
+  when(renameRecoveryFire) {
+    renameRecoveryAccepted := true.B
+  }
+  val recoveryOwnersCaptured =
+    (lowerRecoveryAccepted || lowerRecoveryFire) &&
+      (renameRecoveryAccepted || renameRecoveryFire)
+  when(captureRecoveryOwners && recoveryOwnersCaptured) {
+    globalRecoveryState := OooGlobalRecoveryState.PrepareOwners
+  }
+
+  val residencyRecoveryPlan = Wire(new OooResidencyRecoveryPlan(p))
+  residencyRecoveryPlan := 0.U.asTypeOf(residencyRecoveryPlan)
+  residencyRecoveryPlan.valid := o3.io.recoveryPrepared.valid
+  residencyRecoveryPlan.oldHead := o3.io.recoveryPrepared.oldHead
+  residencyRecoveryPlan.oldOccupied := o3.io.recoveryPrepared.oldOccupied
+  residencyRecoveryPlan.newOccupied := o3.io.recoveryPrepared.newOccupied
+  residencyRecoveryPlan.pivotOffset := o3.io.recoveryPrepared.pivotOffset
+  residencyRecoveryPlan.pivot :=
+    o3.io.recoveryPrepared.request.rename.key.member
+  residencyRecoveryPlan.pivotPhysicalMemberCount :=
+    o3.io.recoveryPrepared.pivot.physicalMemberCount
+  residencyRecoveryPlan.survivingPivotValid :=
+    o3.io.recoveryPrepared.survivingPivotValid
+  residencyRecoveryPlan.survivingPivotPhysicalMemberCount := Mux(
+    o3.io.recoveryPrepared.survivingPivotValid,
+    o3.io.recoveryPrepared.survivingPivot.physicalMemberCount,
+    0.U)
+
+  val prepareGlobalOwners =
+    globalRecoveryState === OooGlobalRecoveryState.PrepareOwners &&
+      o3.io.recoveryPreparedValid && turetire.io.recoveryAuthorize.valid
+  dispatch.io.recoveryPrepare.valid := prepareGlobalOwners
+  dispatch.io.recoveryPrepare.bits := residencyRecoveryPlan
+  fast.io.recoveryPrepare.valid := prepareGlobalOwners
+  fast.io.recoveryPrepare.bits := residencyRecoveryPlan
+  io.iexRecoveryPrepare.valid := prepareGlobalOwners
+  io.iexRecoveryPrepare.bits := residencyRecoveryPlan
+
+  val iexRecoveryPreparedExact = io.iexRecoveryPrepareReady &&
+    io.iexRecoveryPrepared.valid &&
+    io.iexRecoveryPrepared.stid === activeRecoveryStid
+  val renameRecoveryAuthority = turetire.io.recoveryAuthorize.bits
+  val renameRecoveryAuthorityExact =
+    renameRecoveryAuthority.key.member.group.valid &&
+      renameRecoveryAuthority.key.member.bid.valid &&
+      renameRecoveryAuthority.key.member.group.stid < p.stidCount.U &&
+      renameRecoveryAuthority.key.member.group.stid === activeRecoveryStid
+  val renameRecoveryPrepared = prename.io.recoveryAuthorize.ready &&
+    turename.io.recoveryAuthorize.ready
+  val allGlobalOwnersPrepared = prepareGlobalOwners &&
+    dispatch.io.recoveryPrepareReady && fast.io.recoveryPrepareReady &&
+    iexRecoveryPreparedExact && renameRecoveryAuthorityExact &&
+    renameRecoveryPrepared
+  val globalRecoveryApply = allGlobalOwnersPrepared
+  o3.io.recoveryApply := globalRecoveryApply
+  dispatch.io.recoveryFire := globalRecoveryApply
+  fast.io.recoveryFire := globalRecoveryApply
+  io.iexRecoveryFire := globalRecoveryApply
+  io.recoveryApplied.valid := globalRecoveryApply
+  io.recoveryApplied.bits := globalRecoveryRequest
+  when(globalRecoveryApply) {
+    assert(o3.io.recoveryApplied.valid && dispatch.io.recoveryPrepared.valid &&
+      fast.io.recoveryPrepared.valid && io.iexRecoveryPrepared.valid,
+      "all lower and upper physical owners must share one recovery apply")
+    assert(turetire.io.recoveryAuthorize.fire &&
+      prename.io.recoveryAuthorize.fire && turename.io.recoveryAuthorize.fire,
+      "global recovery apply must authorize P/T/U rebuild atomically")
+  }
+  when(turetire.io.recoveryAuthorize.valid) {
+    assert(renameRecoveryAuthorityExact,
+      "rename suffix authority must retain the exact active recovery key")
+  }
+
+  val lowerRecoveryRejected = o3.io.robRecoveryRejected.valid ||
+    o3.io.d3RecoveryRejected.valid || o3.io.brobRecoveryRejected.valid ||
+    o3.io.pcRecoveryRejected.valid
+  val upperRecoveryRejected = turetire.io.recoveryRejected.valid ||
+    dispatch.io.recoveryRejected.valid || fast.io.recoveryRejected.valid ||
+    io.iexRecoveryRejected.valid
+  val anyGlobalRecoveryRejected = globalRecoveryActive &&
+    (lowerRecoveryRejected || upperRecoveryRejected)
+  val abortGlobalOwners =
+    globalRecoveryState === OooGlobalRecoveryState.AbortOwners
+  o3.io.recoveryAbort := abortGlobalOwners && o3.io.recoveryBusy
+  turetire.io.recoveryAbort := abortGlobalOwners && turetire.io.recoveryBusy
+
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
   dispatch.io.cancel := io.cancel
-  // O7 direct-owner recovery is intentionally kept private until the global
-  // R0-R4 coordinator can prepare and fire every physical owner together.
-  dispatch.io.recoveryPrepare.valid := false.B
-  dispatch.io.recoveryPrepare.bits :=
-    0.U.asTypeOf(dispatch.io.recoveryPrepare.bits)
-  dispatch.io.recoveryFire := false.B
-  fast.io.recoveryPrepare.valid := false.B
-  fast.io.recoveryPrepare.bits :=
-    0.U.asTypeOf(fast.io.recoveryPrepare.bits)
-  fast.io.recoveryFire := false.B
   for (stid <- 0 until p.stidCount) {
     o3.io.publishEligible(stid) := !prename.io.commitBusy ||
       prename.io.commitStid =/= stid.U
     when(turetire.io.commitBusy && turetire.io.commitStid === stid.U) {
       o3.io.publishEligible(stid) := false.B
     }
-    when(turetire.io.recoveryBusy && turetire.io.recoveryStid === stid.U) {
+    when(globalRecoveryActive && activeRecoveryStid === stid.U) {
       o3.io.publishEligible(stid) := false.B
     }
   }
@@ -298,12 +398,15 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   // accept in the same cycle; neither owner may observe a partial recovery.
   val recoveryAuthorizeBothReady = prename.io.recoveryAuthorize.ready &&
     turename.io.recoveryAuthorize.ready
-  turetire.io.recoveryAuthorize.ready := recoveryAuthorizeBothReady
+  turetire.io.recoveryAuthorize.ready := recoveryAuthorizeBothReady &&
+    globalRecoveryApply
   prename.io.recoveryAuthorize.valid :=
-    turetire.io.recoveryAuthorize.valid && turename.io.recoveryAuthorize.ready
+    turetire.io.recoveryAuthorize.valid && turename.io.recoveryAuthorize.ready &&
+      globalRecoveryApply
   prename.io.recoveryAuthorize.bits := turetire.io.recoveryAuthorize.bits
   turename.io.recoveryAuthorize.valid :=
-    turetire.io.recoveryAuthorize.valid && prename.io.recoveryAuthorize.ready
+    turetire.io.recoveryAuthorize.valid && prename.io.recoveryAuthorize.ready &&
+      globalRecoveryApply
   turename.io.recoveryAuthorize.bits := turetire.io.recoveryAuthorize.bits
 
   val recoverySourceBothReady = prename.io.recoverySource.ready &&
@@ -324,10 +427,31 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   prename.io.recoveryFinish := commonRecoveryComplete
   turename.io.recoveryFinish := commonRecoveryComplete
 
+  when(globalRecoveryApply) {
+    globalRecoveryState := OooGlobalRecoveryState.Rebuild
+  }.elsewhen(anyGlobalRecoveryRejected) {
+    globalRecoveryState := OooGlobalRecoveryState.AbortOwners
+  }.elsewhen(abortGlobalOwners && !o3.io.recoveryBusy &&
+      !turetire.io.recoveryBusy) {
+    globalRecoveryState := OooGlobalRecoveryState.Idle
+    lowerRecoveryAccepted := false.B
+    renameRecoveryAccepted := false.B
+  }.elsewhen(globalRecoveryState === OooGlobalRecoveryState.Rebuild &&
+      commonRecoveryComplete) {
+    globalRecoveryState := OooGlobalRecoveryState.Idle
+    lowerRecoveryAccepted := false.B
+    renameRecoveryAccepted := false.B
+  }
+
   when(turetire.io.recoveryAuthorize.fire) {
     assert(prename.io.recoveryAuthorize.fire &&
       turename.io.recoveryAuthorize.fire,
       "rename recovery authorization must start P and T/U atomically")
+  }
+  when(globalRecoveryState === OooGlobalRecoveryState.Rebuild) {
+    assert(!prename.io.recoveryRejected.valid &&
+      !turename.io.recoveryRejected.valid,
+      "prevalidated P/T/U recovery authority cannot reject after apply")
   }
   when(turetire.io.recoverySource.fire) {
     assert(prename.io.recoverySource.fire && turename.io.recoverySource.fire,
@@ -439,7 +563,16 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   when(commitOwnersStart) {
     commitOwnersStarted := true.B
   }
-  prename.io.ptagReturn <> ptag.io.release
+  // A returned token is made free only on the same handshake which tells the
+  // external IEX scoreboard to invalidate that exact generation.
+  ptag.io.release.valid := prename.io.ptagReturn.valid &&
+    io.ptagRecycle.ready
+  ptag.io.release.bits := prename.io.ptagReturn.bits
+  io.ptagRecycle.valid := prename.io.ptagReturn.valid &&
+    ptag.io.release.ready
+  io.ptagRecycle.bits := prename.io.ptagReturn.bits
+  prename.io.ptagReturn.ready := ptag.io.release.ready &&
+    io.ptagRecycle.ready
   io.commit.valid := o3.io.commit.valid && commitOwnersStarted &&
     prename.io.commitReady && turetire.io.commitReady
   io.commit.bits := o3.io.commit.bits
@@ -452,9 +585,6 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     commitOwnersStarted := false.B
   }
 
-  // P recovery and architectural commit share the exact internal return owner.
-  // The legacy external return seam remains closed until its O6 removal.
-  io.ptagReturn.ready := false.B
   dispatch.io.release <> io.dispatchRelease
 
   prename.io.queryStid := io.queryStid
@@ -489,14 +619,20 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.dispatchPrepareRejected := dispatch.io.prepareRejected
   io.dispatchPublishRejected := dispatch.io.publishRejected
   io.dispatchReleaseRejected := dispatch.io.releaseRejected
-  io.recoveryBusy := turetire.io.recoveryBusy || prename.io.recoveryBusy ||
-    turename.io.recoveryBusy
-  io.recoveryStid := Mux(turetire.io.recoveryBusy,
-    turetire.io.recoveryStid,
-    Mux(prename.io.recoveryBusy, prename.io.recoveryStid,
-      turename.io.recoveryStid))
+  io.recoveryBusy := globalRecoveryActive || turetire.io.recoveryBusy ||
+    prename.io.recoveryBusy || turename.io.recoveryBusy || o3.io.recoveryBusy
+  io.recoveryStid := Mux(globalRecoveryActive, activeRecoveryStid,
+    Mux(turetire.io.recoveryBusy, turetire.io.recoveryStid,
+      Mux(prename.io.recoveryBusy, prename.io.recoveryStid,
+        turename.io.recoveryStid)))
   io.recoveryComplete := commonRecoveryComplete
   io.recoveryRejected := turetire.io.recoveryRejected
   io.pRecoveryRejected := prename.io.recoveryRejected
   io.tuRecoveryRejected := turename.io.recoveryRejected
+  io.robRecoveryRejected := o3.io.robRecoveryRejected
+  io.d3RecoveryRejected := o3.io.d3RecoveryRejected
+  io.brobRecoveryRejected := o3.io.brobRecoveryRejected
+  io.pcRecoveryRejected := o3.io.pcRecoveryRejected
+  io.dispatchRecoveryRejected := dispatch.io.recoveryRejected
+  io.fastRecoveryRejected := fast.io.recoveryRejected
 }

@@ -37,6 +37,8 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryFire.poke(false.B)
+    dut.io.ptagRecycle.valid.poke(false.B)
+    dut.io.ptagRecycle.bits.poke(0.U.asTypeOf(dut.io.ptagRecycle.bits))
   }
 
   private def pokeMember(

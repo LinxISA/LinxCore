@@ -44,6 +44,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
     dut.io.recoveryAuthorize.ready.poke(true.B)
     dut.io.recoverySource.ready.poke(true.B)
+    dut.io.recoveryAbort.poke(false.B)
     dut.io.recoveryFinish.poke(false.B)
   }
 
@@ -384,6 +385,20 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
       publish(dut, stid = 1, transactionId = 2, rid = 2, bid = 3,
         brobGeneration = 0, residentGeneration = 3, Seq(SourceShape()))
       dut.io.sourceQueueUsed(1).expect(3.U)
+
+      // Global composition may abort after the scanner has prepared but
+      // before P/T/U authorization; the suffix ring must remain unchanged.
+      dut.io.recoveryAuthorize.ready.poke(false.B)
+      pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,
+        brobGeneration = 0, residentGeneration = 2, killTrigger = false)
+      startRecovery(dut)
+      waitForRecoveryAuthorize(dut)
+      dut.io.recoveryAbort.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryAbort.poke(false.B)
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.sourceQueueUsed(1).expect(3.U)
+      dut.io.recoveryAuthorize.ready.poke(true.B)
 
       // Preserve the exact middle trigger: only the younger transaction exits.
       pokeRecovery(dut, stid = 1, transactionId = 1, rid = 1, bid = 2,

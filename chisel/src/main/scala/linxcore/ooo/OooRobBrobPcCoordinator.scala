@@ -29,6 +29,7 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryPreparedValid = Output(Bool())
   val recoveryPrepared = Output(new OooRobRecoveryPlan(p))
   val recoveryApply = Input(Bool())
+  val recoveryAbort = Input(Bool())
   val recoveryApplied = Valid(new OooGlobalRecoveryRequest(p))
 
   val pcReadTokens = Input(Vec(p.pcReadPorts, new PcBufferToken(p)))
@@ -229,7 +230,7 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
       }
     }
     is(recoveryPreparing) {
-      when(anyRecoveryOwnerRejected) {
+      when(io.recoveryAbort || anyRecoveryOwnerRejected) {
         recoveryState := recoveryIdle
       }.elsewhen(allRecoveryOwnersReady) {
         recoveryPlanReg := liveRecoveryPlan
@@ -237,7 +238,7 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
       }
     }
     is(recoveryPrepared) {
-      when(anyRecoveryOwnerRejected) {
+      when(io.recoveryAbort || anyRecoveryOwnerRejected) {
         recoveryState := recoveryIdle
       }.elsewhen(recoveryApplyFire) {
         recoveryState := recoveryIdle
@@ -248,6 +249,10 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   when(io.recoveryApply) {
     assert(io.recoveryPreparedValid,
       "physical recovery apply requires one retained all-owner plan")
+  }
+  when(io.recoveryAbort) {
+    assert(recoveryActive && !recoveryApplyFire,
+      "physical recovery abort requires one unapplied retained transaction")
   }
   when(recoveryState === recoveryPrepared) {
     assert(recoveryPlanStable,

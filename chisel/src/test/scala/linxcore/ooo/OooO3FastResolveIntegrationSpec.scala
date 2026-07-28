@@ -22,14 +22,19 @@ class OooO3FastResolveIntegrationSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
-    dut.io.ptagReturn.valid.poke(false.B)
-    dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.ptagRecycle.ready.poke(true.B)
     dut.io.dispatchRelease.valid.poke(false.B)
     dut.io.dispatchRelease.bits.poke(
       0.U.asTypeOf(dut.io.dispatchRelease.bits))
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.iexRecoveryPrepareReady.poke(true.B)
+    dut.io.iexRecoveryPrepared.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryPrepared))
+    dut.io.iexRecoveryRejected.valid.poke(false.B)
+    dut.io.iexRecoveryRejected.bits.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryRejected.bits))
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(10.U)
     dut.io.pcReadTokens.foreach(_.poke(
@@ -182,20 +187,25 @@ class OooO3FastResolveIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.robOccupiedGroups(0).expect(1.U)
       dut.io.fastPendingByStid(0).expect(1.U)
 
-      // O7 will eventually cancel this row in the common global transaction.
-      // Until then rename-local recovery must not pass a retained fast-only
-      // row and let its old-path writeback/completion escape afterward.
+      // A malformed global request is accepted into the retained coordinator,
+      // then rejected without applying any fast-owner mutation.
       dut.io.recoveryRequest.valid.poke(true.B)
       dut.io.recoveryRequest.bits.poke(
         0.U.asTypeOf(dut.io.recoveryRequest.bits))
-      dut.io.recoveryRequest.bits.key.member.group.stid.poke(0.U)
-      dut.io.recoveryRequest.ready.expect(false.B)
+      dut.io.recoveryRequest.bits.rename.key.member.group.stid.poke(0.U)
+      dut.io.recoveryRequest.ready.expect(true.B)
       dut.io.recoveryBusy.expect(false.B)
       dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      var recoveryCycles = 0
+      while (dut.io.recoveryBusy.peek().litToBoolean && recoveryCycles < 8) {
+        dut.clock.step()
+        recoveryCycles += 1
+      }
+      assert(recoveryCycles < 8, "malformed global recovery did not abort")
       dut.io.fastPendingByStid(0).expect(1.U)
       dut.io.fastWriteback.valid.expect(true.B)
       dut.io.fastTerminalFire.expect(false.B)
-      dut.io.recoveryRequest.valid.poke(false.B)
 
       dut.io.fastWriteback.ready.poke(true.B)
       dut.io.fastTerminalFire.expect(true.B)

@@ -91,7 +91,7 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds exact dispatch, IEX S1/S2/S3, and fast-resolve prepare/apply owners from one compact ROB-authorized residency window; O7.2d1 retains one request and applies ROB/D3/BROB/PC as a lower all-owner subtransaction; the public O3 seam remains tied off | upper global R0-R4 composition across P/T/U, dispatch/IEX/fast, frontend stages, non-flush, and CTU; recovery-ready PTag invalidation; and O7.3 external CTU lease/child reinsertion remain |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds dispatch, IEX, and fast-resolve owners; O7.2d1 retains the lower ROB/D3/BROB/PC transaction; O7.2d2 opens the O3 global request and joins lower apply, P/T/U authorization/rebuild, dispatch, fast, and external IEX, with retained reject abort and atomic PTag-recycle/IEX-ready invalidation | frontend redirect/restart acknowledgement, O7.3 external CTU lease/child reinsertion, and then O8/O9 physical/workload closure remain |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1520,19 +1520,29 @@ BROB, and PC independently validate it, and drives all four owner fires plus
 `recoveryApplied` on one externally authorized apply. The full plan remains
 stable through arbitrary apply backpressure; malformed or stale owner state
 rejects before mutation, and unrelated STIDs remain live. The enclosing
-`OooO3RenameCoordinator` deliberately ties this new request/apply seam off, so
-this packet does not claim global R0-R4 completion.
+O7.2d2 lifts that lower subtransaction into a retained O3 core-physical
+transaction. `CaptureOwners` independently handshakes the lower coordinator
+and the exact T/U retire-source suffix scanner. `PrepareOwners` waits for the
+ROB's retained plan, projects one `OooResidencyRecoveryPlan`, and prepares
+dispatch, fast resolve, external IEX, and both rename state owners. One apply
+cycle fires ROB/D3/BROB/PC, dispatch, fast, IEX, and P/T/U authorization.
+The coordinator independently requires the scanner authorization to retain the
+active STID plus valid group/native-BID identity before apply; P/T/U reject
+after that prevalidated authorization is asserted unreachable.
+`Rebuild` remains busy until the youngest-to-oldest source stream has removed
+killed P/T/U rows, P SMAP has copied CMAP and replayed the survivor prefix, and
+T/U cursors have been restored. A typed reject enters `AbortOwners`; abort is
+held until both retained lower and scanner transactions are idle, closing the
+late-accept/reject race without mutation.
 
-The next slice must lift that lower subtransaction into a retained global R0
-request, compute one R1 kill set, freeze and prepare D1/D2/D3/S1,
-ROB/BROB/PC, P/T/U rename, dispatch/IEX/fast completion, and CTU in R2, issue
-one all-owner R3 apply, then wait for P survivor replay, local-cursor rebuild,
-non-flush rebuild, and frontend restart acknowledgements in R4. Until every
-owner joins, no public composed module may expose the lower apply. In
-particular, a killed fast
-producer may already have set P-ready state before recovery; global R0-R4 must
-invalidate it from the P-rename killed-tag return set rather than assuming it
-has a resident IEX row. O7.3 then adds the external CTU
+Every PTag return now forks atomically to the freelist and external IEX ready
+scoreboard. The exact `{ptag,generation}` ready record is invalidated before
+the token can be recycled, including commit returns and killed fast producers
+which have no resident IEX row. The obsolete public external PTag-return input
+is removed.
+
+The next slice must add frontend D1/D2/S1 history and redirect/restart
+acknowledgements around the now-open O3 transaction. O7.3 then adds the external CTU
 lease, exact child order/count, canonical reinsertion ahead of the instruction
 buffer, multi-RID expansion, final-parent retirement, and recovery cancel/reuse.
 

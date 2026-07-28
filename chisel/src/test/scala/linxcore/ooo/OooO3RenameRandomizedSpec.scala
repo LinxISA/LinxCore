@@ -71,14 +71,19 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
-    dut.io.ptagReturn.valid.poke(false.B)
-    dut.io.ptagReturn.bits.poke(0.U.asTypeOf(dut.io.ptagReturn.bits))
+    dut.io.ptagRecycle.ready.poke(true.B)
     dut.io.dispatchRelease.valid.poke(false.B)
     dut.io.dispatchRelease.bits.poke(
       0.U.asTypeOf(dut.io.dispatchRelease.bits))
     dut.io.recoveryRequest.valid.poke(false.B)
     dut.io.recoveryRequest.bits.poke(
       0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.iexRecoveryPrepareReady.poke(true.B)
+    dut.io.iexRecoveryPrepared.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryPrepared))
+    dut.io.iexRecoveryRejected.valid.poke(false.B)
+    dut.io.iexRecoveryRejected.bits.poke(
+      0.U.asTypeOf(dut.io.iexRecoveryRejected.bits))
     dut.io.queryStid.poke(0.U)
     dut.io.queryAtag.poke(0.U)
     dut.io.pcReadTokens.foreach(_.poke(
@@ -249,7 +254,8 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       stid: Int,
       source: Source,
       killTrigger: Boolean): Unit = {
-    val request = dut.io.recoveryRequest.bits
+    val global = dut.io.recoveryRequest.bits
+    val request = global.rename
     request.poke(0.U.asTypeOf(request))
     request.key.member.group.valid.poke(true.B)
     request.key.member.group.peId.poke(3.U)
@@ -267,6 +273,9 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     request.key.transactionId.poke(source.transactionId.U)
     request.key.epoch.poke(source.epoch.U)
     request.killTrigger.poke(killTrigger.B)
+    global.triggerMemberCount.poke(1.U)
+    dut.io.iexRecoveryPrepared.valid.poke(true.B)
+    dut.io.iexRecoveryPrepared.stid.poke(stid.U)
     dut.io.recoveryRequest.valid.poke(true.B)
   }
 

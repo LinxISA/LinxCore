@@ -691,9 +691,9 @@ the tail epoch so stale D2 plans fail. A previously exposed retained grant is a
 temporary prepare conflict and remains valid; stale plans reject with zero
 mutation. Inputs, release, and cancellation for the target STID freeze while
 prepare is held, while other STIDs continue. O7.2d1 drives ROB and D3 from the
-same retained lower-owner transaction together with BROB and PC; the enclosing
-O3 rename coordinator still ties that subtransaction off until the remaining
-global owners join.
+same retained lower-owner transaction together with BROB and PC; O7.2d2 lets
+the enclosing O3 rename coordinator authorize that lower apply only after its
+core-physical upper owners prepare.
 
 O7.2b1 adds `OooProductionBrob` as the next independent owner. Prepare proves
 that every killed row names an exact live native-BID/BROB-generation entry,
@@ -739,8 +739,9 @@ retains the source dispatch lane so it can prune S1 and pending-S3 masks,
 removes exact killed `BoundS2`/`ResidentS3` rows, and clears their matching
 P/T/U ready records. Fast resolve removes exact killed retained entries and
 excludes only the recovering STID from terminal arbitration. Each owner exposes
-a typed prepared count and a typed fail-closed reject. These upper direct ports
-remain tied off until global R0-R4 joins every owner on one common fire.
+a typed prepared count and a typed fail-closed reject.
+`OooO3RenameCoordinator` consumes these direct ports in O7.2d2; frontend and
+CTU owners still remain outside this core-physical recovery boundary.
 
 ## O7.2d1 retained ROB/D3/BROB/PC recovery subtransaction
 
@@ -761,9 +762,40 @@ visible separately. Unrelated STIDs remain live under each direct owner's
 per-STID freeze rules.
 
 This is a lower physical-owner subtransaction, not global R0-R4 completion.
-`OooO3RenameCoordinator` ties its request/apply inputs off until P/T/U rename,
-dispatch/IEX/fast, D1/D2/S1 history, non-flush completion, frontend restart,
-and CTU have prepared the identical ROB-authorized kill set.
+O7.2d2 composes it with P/T/U rename and dispatch/IEX/fast, while D1/D2/S1
+history, frontend restart, and CTU remain later enclosing owners.
+
+## O7.2d2 retained O3 core-physical recovery transaction
+
+`OooO3RenameCoordinator.recoveryRequest` accepts the complete
+`OooGlobalRecoveryRequest`. The coordinator retains that packet through
+`CaptureOwners`, `PrepareOwners`, `Rebuild`, or `AbortOwners`; the selected
+STID is fenced while unrelated STIDs retain reserve/publication progress.
+The lower coordinator and T/U suffix scanner may handshake independently, but
+no owner mutates during capture or prepare.
+
+Once both retained authorities are ready, the sole ROB plan is projected to
+one `OooResidencyRecoveryPlan` for dispatch, fast resolve, and the external IEX
+interface. The external interface carries typed prepare, prepared, reject, and
+fire signals because IEX is outside the D1-S1 OOO module boundary. One common
+apply fires every lower owner, every residency owner, and P/T/U authorization.
+The suffix scanner's authorization must still name the active STID and carry
+valid group and native-BID identity; the coordinator gates apply on that shape
+and asserts that the prevalidated P/T/U owners cannot reject after apply.
+The public `recoveryApplied` pulse names that exact request. Completion is not
+the apply pulse: `recoveryComplete` waits for all rename sources, killed-tag
+returns, P survivor replay, and T/U rebuild.
+
+Any typed owner reject moves to `AbortOwners`. Abort remains asserted to each
+still-busy retained authority until both are idle, covering the case where one
+owner accepts on the same edge another owner's delayed reject is observed.
+This phase is legal only before common apply and therefore has zero mutation.
+
+`ptagRecycle` is a mandatory `Decoupled` output to external IEX. Each internal
+P return batch fires into the freelist only when IEX accepts the same exact
+batch; IEX clears matching `{ptag,generation}` ready records on that edge.
+This applies to architectural commit and recovery and replaces the removed
+legacy external PTag-return input.
 
 ## Verification
 

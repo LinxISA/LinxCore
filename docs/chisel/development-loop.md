@@ -26,15 +26,17 @@ token/base restoration, close-owner undo, and freed-read invalidation. The
 O7.2c dispatch/IEX/fast direct owners are now complete: exact published member
 identity, target-STID provisional cancellation, S1/S2/S3 pruning, local
 generation-qualified ready cleanup, and retained-fast cancellation all consume
-one compact ROB-authorized recovery window. O7.2d1 now retains a lower physical
-subtransaction in `OooRobBrobPcCoordinator`: exposed D3 and retained commits
-drain before capture, ROB supplies the sole exact plan, and ROB/D3/BROB/PC fire
-together only on externally authorized apply. The enclosing O3 coordinator
-still ties this seam and the upper recovery owners off until retained global
-R0-R4 composition can fire P/T/U, dispatch/IEX/fast, frontend, non-flush, and
-CTU with the same kill set. That composition must also invalidate P-ready state
-created by a killed fast producer through P-rename recovery evidence.
-O7.3 external CTU reinsertion follows the global coordinator.
+one compact ROB-authorized recovery window. O7.2d1 retains the lower physical
+subtransaction in `OooRobBrobPcCoordinator`. O7.2d2 now composes it in
+`OooO3RenameCoordinator` with the exact P/T/U suffix authority, dispatch, fast
+resolve, and an external typed IEX prepare/fire interface. All physical owners
+apply on one cycle; R4 waits for rename-source drain and P/T/U rebuild. A
+retained abort state prevents a late owner acceptance from surviving another
+owner's rejection. PTag return and external IEX ready-generation invalidation
+are one atomic handshake before freelist reuse, covering both killed fast
+producers and normal commit recycle. The obsolete public external PTag-return
+input has been removed. Frontend redirect/restart acknowledgement and O7.3 CTU
+reinsertion remain the next recovery composition slices.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread

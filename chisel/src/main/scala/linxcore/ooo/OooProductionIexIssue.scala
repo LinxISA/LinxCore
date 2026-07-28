@@ -20,6 +20,9 @@ class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryPrepareReady = Output(Bool())
   val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
   val recoveryFire = Input(Bool())
+  // Every PTag return must invalidate the generation-qualified ready record
+  // before the freelist can recycle that token.
+  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
 
   val query = Input(new OooIexSlotQuery(p))
   val queryState = Output(OooIexIssueSlotState())
@@ -104,6 +107,14 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
     Vec(p.uPhysRegs, new OooLocalSeq(p))))
   val uReadyEpoch = Reg(Vec(p.stidCount,
     Vec(p.uPhysRegs, UInt(p.epochWidth.W))))
+
+  val recycleCountInRange = io.ptagRecycle.bits.count <= p.pTagReturnWidth.U
+  val recycleTokensExact = (0 until p.pTagReturnWidth).map { index =>
+    val active = index.U < io.ptagRecycle.bits.count
+    val token = io.ptagRecycle.bits.tokens(index)
+    token.valid === active && (!active || token.ptag < p.pPhysRegs.U)
+  }.reduce(_ && _)
+  io.ptagRecycle.ready := recycleCountInRange && recycleTokensExact
 
   def sameMember(left: RobMemberKey, right: RobMemberKey): Bool =
     left.asUInt === right.asUInt
@@ -780,6 +791,20 @@ class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
       s3Pending.bind.allocationMask := survivingS3Mask
       when(!survivingS3Mask.orR) {
         s3PendingValid := false.B
+      }
+    }
+  }
+
+  // This assignment intentionally follows wakeup and recovery processing:
+  // token recycle wins a same-cycle race so a stale completion can never make
+  // the next generation of the physical register appear ready.
+  when(io.ptagRecycle.fire) {
+    for (index <- 0 until p.pTagReturnWidth) {
+      val token = io.ptagRecycle.bits.tokens(index)
+      when(index.U < io.ptagRecycle.bits.count && token.valid &&
+          pReadyValid(token.ptag) &&
+          pReadyGeneration(token.ptag) === token.generation) {
+        pReadyValid(token.ptag) := false.B
       }
     }
   }

@@ -99,16 +99,22 @@ O7.2c direct residency owners now consume a compact ROB-authorized window:
 dispatch cancels target provisional and exact killed published reservations,
 IEX prunes S1/S3 and frees killed S2/S3 rows with generation-qualified ready
 cleanup, and fast resolve cancels exact killed pending entries while unrelated
-STIDs continue. O7.2d1 retains one request inside
+STIDs continue. O7.2d1 retains one lower request inside
 `OooRobBrobPcCoordinator`, waits out exposed D3 and retained-commit
 obligations, captures the sole ROB plan after lower-owner validation, and
-applies ROB/D3/BROB/PC together. The enclosing O3 coordinator still ties this
-lower subtransaction and the upper residency-owner inputs off until one
-retained global R0-R4 transaction also joins P/T/U rename, dispatch/IEX/fast,
-frontend, non-flush completion, and CTU. The immediate handoff is that upper
-global composition, including P-ready
-invalidation for killed fast producers, followed by O7.3 CTU canonical-child
-reinsertion. The
+applies ROB/D3/BROB/PC together. O7.2d2 now lifts that transaction into
+`OooO3RenameCoordinator`: one retained request captures the lower owner and
+T/U suffix scanner, projects the sole ROB plan to dispatch, fast resolve, and
+the external IEX owner, then fires lower recovery, all residency owners, and
+P/T/U authorization on one apply. R4 completion waits for the complete
+youngest-to-oldest rename-source stream, killed-PTag returns, P survivor replay,
+and T/U cursor rebuild. Every PTag return, including commit and recovery, now
+invalidates the matching IEX ready generation on the same handshake before
+freelist reuse, so a killed fast producer needs no resident IQ row. Any owner
+rejection enters a retained abort phase until both lower and rename authorities
+are idle, with no pre-apply mutation. The immediate handoff is frontend-stage
+and redirect/restart acknowledgement composition, followed by O7.3 CTU
+canonical-child reinsertion. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until
