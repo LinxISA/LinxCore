@@ -62,9 +62,10 @@ cycle, clears the retained stage, and reports the exact member/reservation in
 
 ## Remaining integration work
 
-- oldest-ready/fair multi-class pick and per-pipe P1 steering;
-- speculative in-flight state that prevents duplicate pick while I1/I2 owns a
-  row and clears on repick/reject/recovery;
+- instantiate the implemented oldest-ready picker across the frozen
+  multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
+- bridge lane repick/reject/recovery events into the implemented canonical IQ
+  `inFlight` owner;
 - canonical P/T/U RF implementations and one atomic multi-lane read arbiter;
 - P/T/U bypass matching with tag generation and local-sequence identity;
 - E1/W1 execution, wakeup, completion, and exact terminal IQ release;

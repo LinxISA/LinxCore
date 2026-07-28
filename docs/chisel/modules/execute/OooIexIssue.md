@@ -18,6 +18,8 @@ Source and test owners:
 The first downstream read-stage packet is documented separately in
 [`OooIexP1I2Lane`](OooIexP1I2Lane.md). It consumes a selected joined row but
 does not take ownership of the physical IQ entry.
+Oldest-ready selection and canonical speculative ownership are documented in
+[`OooIexOldestReadyPicker`](OooIexOldestReadyPicker.md).
 
 ## Stage ownership
 
@@ -25,7 +27,7 @@ does not take ownership of the physical IQ entry.
 |---|---|---|
 | OOO S1 | one row per STID plus exact target claims | selected by fair shared S2 writer |
 | IEX S2 | exact physical IQ rows in `BoundS2` | one complete registered cycle |
-| IEX S3 | exact rows in `ResidentS3` | future exact I2 release or O7 recovery |
+| IEX S3 | exact rows in `ResidentS3`, including canonical `inFlight` | exact retry, non-cancellable terminal release, or O7 recovery |
 
 S1 admission revalidates O3, P, T/U, and dispatch identities. Every child of a
 split transaction is accepted or rejected together. Pending S1 claims exclude
@@ -45,7 +47,8 @@ Each physical slot has two storage domains joined as `OooIexIssueRow`:
 - `OooIexPayloadSidecar` is a memory-backed execution payload addressed by the
   stable class/bank/slot reservation and read only for the selected query.
 
-The scheduling row contains exact PE/STID/epoch/transaction and
+The scheduling row contains exact PE/STID/epoch/transaction, canonical
+speculative `inFlight`, and
 `RobMemberKey`, the class/bank/write-port/entry/reservation generation, and
 generation-qualified P/T/U source/destination tags. The payload sidecar keeps
 the canonical uop key, opcode, generated recipe, split-child index, primary
@@ -70,8 +73,15 @@ after the wakeup pulse. Installing a new physical destination clears the
 matching ready entry. A `ResidentS3` row is pickable only when all valid
 sources are registered ready.
 
-Release is fail-closed. It requires the exact member and complete dispatch
-reservation, including class-local entry, write port, and reservation epoch.
+Oldest-ready pick uses modular `{ridGeneration,ridSlot,memberIndex}` order
+inside each STID and work-conserving round-robin across STIDs. The selected
+token is retained under P1 backpressure. Its fire sets `inFlight` only in the
+canonical scheduling row. An exact retry clears that bit; stale or malformed
+claims/retries produce typed rejects.
+
+Release is fail-closed. It requires an in-flight row, the exact member, and
+complete dispatch reservation, including class-local entry, write port, and
+reservation epoch.
 The IQ row and dispatch allocation return on one Decoupled fire.
 
 ## Recovery
@@ -110,14 +120,14 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- Age-matrix or equivalent oldest-ready pick with same-STID exact ROB order
-  and fair cross-STID selection.
-- Multi-lane P1 arbitration and speculative in-flight bookkeeping around the
-  implemented single-lane P1/I1/I2 transaction.
+- Multi-domain P1 topology and disjoint class/bank-to-pipe mapping around the
+  implemented reusable oldest-ready picker and single P1/I1/I2 lane.
+- Selected payload-query to P1 bridge plus generated PC-read metadata.
 - Canonical P/T/U RF owners, shared read-port arbitration, operand bypass, and
   result/wakeup buses.
 - The terminal handoff rule that releases the physical row only after a
-  non-cancellable I2 consumer accepts it.
+  non-cancellable I2/E1 consumer accepts it; the owner-side in-flight release
+  guard is implemented.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
   safe-mode thresholds, and default-geometry timing/area closure. The
   unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.
@@ -132,6 +142,7 @@ as the semantic authority for this module.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
+bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPicker
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
@@ -139,7 +150,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 
 The focused UT covers retained-stage timing, fair STID arbitration, target
 claim collisions, split atomicity, compact row payload, registered wakeup,
-same-edge wakeup plus S2 bind, exact release/backpressure, malformed requests,
+same-edge wakeup plus S2 bind, oldest-ready claim, retry-to-repick, exact
+in-flight release/backpressure, malformed requests,
 and widths 2/4/6. The compact recovery UT covers exact scan latency,
 side-effect-free partial-scan abort, partial-pivot S1/S2/S3 pruning, survivor
 residency, complete cancellation, plan-drift/malformed-row rejection,
@@ -152,7 +164,7 @@ apply, and dispatch-slot return share the exact transactions.
 O8.1/O8.1b elaboration evidence uses the same first 2-bank x 4-entry stage
 test. Splitting the wide payload into inferred memory first reduced the main
 module from 477,275 to 426,274 SystemVerilog lines. Retaining and timing the
-compact-row recovery scan reduces it again to 173,709 lines: 63.6% below the
+compact-row recovery scan reduced it again to 173,709 lines: 63.6% below the
 pre-split baseline and 59.2% below O8.1. The directly comparable recovery
 scenario falls from about three minutes to 47.046 seconds; the expanded
 three-test recovery suite passes in 232.166 seconds. This closes the unbounded
@@ -161,3 +173,8 @@ remains open for cost steering, physical PC metadata/write macro realization,
 and the grouped-ROB commit prefix path. PC recovery compare/read depth is
 bounded by O8.3h; ROB, MapQ, and PC address banking remain established
 boundaries rather than final timing claims.
+
+I0.2 adds a separate 3,718-line picker and canonical in-flight bookkeeping.
+The same 2-bank x 4-entry main IEX owner is now 176,457 lines, a bounded 1.6%
+increase over the 173,709-line recovery-scan baseline. The picker has no
+payload-memory reference.

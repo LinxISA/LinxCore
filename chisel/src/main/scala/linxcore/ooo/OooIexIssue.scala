@@ -33,12 +33,26 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val queryRow = Output(new OooIexIssueRow(p))
   val queryPickable = Output(Bool())
 
+  // One topology-neutral issue domain. Later width packets instantiate the
+  // same picker for disjoint class/bank domains rather than copying IQ state.
+  val pickClass = Input(OooUopClass())
+  val pickBankEnable = Input(UInt(p.iqBankCount.W))
+  val pick = Decoupled(new OooIexPickToken(p))
+  val pickRetry = Flipped(Valid(new OooIexReadRepick(p)))
+  val pickMalformed = Valid(new OooIexPickReject(p))
+  val pickRejected = Valid(new OooIexPickClaimReject(p))
+  val pickRetryRejected = Valid(new OooIexPickRetryReject(p))
+  val pickRecoveryCanceled = Valid(new OooIexPickToken(p))
+  val pickRecoveryBlocked = Valid(new OooIexPickToken(p))
+
   val s1Occupied = Output(Vec(p.stidCount, Bool()))
   val s2Bind = Valid(new OooIexS2BindAck(p))
   val s3Enable = Valid(new OooIexS3Enable(p))
   val boundEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val residentEntries = Output(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val inFlightEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
 
   val s1Rejected = Valid(new OooIexS1Reject(p))
@@ -55,10 +69,11 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   * registered into the row, so a wakeup observed in cycle N cannot affect an
   * S3 eligibility decision in that same cycle.
   *
-  * This module deliberately stops at pick-enable.  P1/I1/I2 arbitration and
-  * inflight/cancel handling remain a later IEX owner.  The release seam models
-  * only a future exact, non-cancellable I2 terminal event and joins physical
-  * row removal to the existing dispatch-reservation release handshake.
+  * One topology-neutral oldest-ready domain now claims canonical in-flight
+  * state before P1. Read denial/rejection returns that exact claim for retry.
+  * The release seam models only a later exact, non-cancellable I2 terminal
+  * event and joins physical row removal to the existing dispatch-reservation
+  * release handshake.
   */
 class OooIexIssue(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooIexIssueIO(p))
@@ -585,6 +600,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     releaseEntryInRange && release.dispatch.reservation.valid &&
     slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) ===
       OooIexIssueSlotState.ResidentS3 && releaseRow.valid &&
+    releaseRow.inFlight &&
     sameMember(release.member, releaseRow.member) &&
     release.dispatch.peId === releaseRow.peId &&
     release.dispatch.stid === releaseRow.stid &&
@@ -1015,6 +1031,109 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     }
   }
 
+  val picker = Module(new OooIexOldestReadyPicker(p))
+  picker.io.uopClass := io.pickClass
+  picker.io.bankEnable := io.pickBankEnable
+  picker.io.stidBlock := Mux(recoveryFreeze,
+    UIntToOH(safeRecoveryStid, p.stidCount), 0.U)
+  picker.io.recoveryApply.valid := io.recoveryFire && recoveryPlan.valid
+  picker.io.recoveryApply.bits := recoveryPlan
+
+  val pickerClassIndex = io.pickClass.asUInt
+  for (bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    val row = scheduleRows(pickerClassIndex)(bank)(entry)
+    val sourcesReady = row.sources.map(source =>
+      !source.valid || source.ready).reduce(_ && _)
+    val candidate = picker.io.candidates(bank)(entry)
+    candidate.eligible :=
+      slotState(pickerClassIndex)(bank)(entry) ===
+        OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
+      sourcesReady &&
+      !(recoveryFreeze && row.stid === recoveryStid)
+    candidate.peId := row.peId
+    candidate.stid := row.stid
+    candidate.epoch := row.epoch
+    candidate.transactionId := row.transactionId
+    candidate.member := row.member
+    candidate.reservation := row.reservation
+  }
+
+  val pickToken = picker.io.pick.bits
+  val pickClassIndex = pickToken.query.uopClass.asUInt
+  val pickClassInRange = pickClassIndex < p.iqClassCount.U
+  val pickBankInRange = pickToken.query.bank < p.iqBankCount.U
+  val pickEntryInRange = pickToken.query.entry < p.iqEntriesPerBank.U
+  val safePickClass = Mux(pickClassInRange, pickClassIndex, 0.U)
+  val safePickBank = Mux(pickBankInRange, pickToken.query.bank, 0.U)
+  val safePickEntry = Mux(pickEntryInRange, pickToken.query.entry, 0.U)
+  val pickRow = scheduleRows(safePickClass)(safePickBank)(safePickEntry)
+  val pickResidentExact = pickClassInRange && pickBankInRange &&
+    pickEntryInRange && slotState(safePickClass)(safePickBank)(safePickEntry) ===
+      OooIexIssueSlotState.ResidentS3 && pickRow.valid
+  val pickIdentityExact = pickToken.candidate.peId === pickRow.peId &&
+    pickToken.candidate.stid === pickRow.stid &&
+    pickToken.candidate.epoch === pickRow.epoch &&
+    pickToken.candidate.transactionId === pickRow.transactionId &&
+    sameMember(pickToken.candidate.member, pickRow.member) &&
+    pickToken.candidate.reservation.asUInt === pickRow.reservation.asUInt &&
+    pickToken.query.uopClass === pickRow.reservation.uopClass &&
+    pickToken.query.bank === pickRow.reservation.bank &&
+    pickToken.query.entry === pickRow.reservation.speculativeSlot
+  val pickNotInFlight = !pickRow.inFlight
+  val pickClaimExact = pickResidentExact && pickIdentityExact &&
+    pickNotInFlight &&
+    !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
+
+  io.pick.valid := picker.io.pick.valid && pickClaimExact
+  io.pick.bits := pickToken
+  // A stale retained token is consumed as a typed rejection so corruption or
+  // an unexpected lifecycle race cannot wedge the domain indefinitely.
+  picker.io.pick.ready := Mux(pickClaimExact, io.pick.ready, true.B)
+  io.pickRejected.valid := picker.io.pick.valid && !pickClaimExact
+  io.pickRejected.bits.token := pickToken
+  io.pickRejected.bits.residentExact := pickResidentExact
+  io.pickRejected.bits.identityExact := pickIdentityExact
+  io.pickRejected.bits.notInFlight := pickNotInFlight
+  io.pickMalformed := picker.io.malformed
+  io.pickRecoveryCanceled := picker.io.recoveryCanceled
+  io.pickRecoveryBlocked := picker.io.blockedCanceled
+
+  when(io.pick.fire) {
+    scheduleRows(safePickClass)(safePickBank)(safePickEntry).inFlight := true.B
+  }
+
+  val retry = io.pickRetry.bits
+  val retryClass = retry.reservation.uopClass.asUInt
+  val retryClassInRange = retryClass < p.iqClassCount.U
+  val retryBankInRange = retry.reservation.bank < p.iqBankCount.U
+  val retryEntryInRange =
+    retry.reservation.speculativeSlot < p.iqEntriesPerBank.U
+  val safeRetryClass = Mux(retryClassInRange, retryClass, 0.U)
+  val safeRetryBank = Mux(retryBankInRange, retry.reservation.bank, 0.U)
+  val safeRetryEntry = Mux(
+    retryEntryInRange, retry.reservation.speculativeSlot, 0.U)
+  val retryRow = scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry)
+  val retryResidentExact = retryClassInRange && retryBankInRange &&
+    retryEntryInRange &&
+    slotState(safeRetryClass)(safeRetryBank)(safeRetryEntry) ===
+      OooIexIssueSlotState.ResidentS3 && retryRow.valid
+  val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
+    retry.reservation.asUInt === retryRow.reservation.asUInt
+  val retryWasInFlight = retryRow.inFlight
+  val retryExact = retryResidentExact && retryIdentityExact &&
+    retryWasInFlight &&
+    !(recoveryFreeze && retry.member.group.stid === recoveryStid)
+  io.pickRetryRejected.valid := io.pickRetry.valid && !retryExact
+  io.pickRetryRejected.bits.retry := retry
+  io.pickRetryRejected.bits.residentExact := retryResidentExact
+  io.pickRetryRejected.bits.identityExact := retryIdentityExact
+  io.pickRetryRejected.bits.wasInFlight := retryWasInFlight
+  when(io.pickRetry.valid && retryExact) {
+    scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry).inFlight :=
+      false.B
+  }
+
   val queryClass = io.query.uopClass.asUInt
   val queryClassInRange = queryClass < p.iqClassCount.U
   val queryBankInRange = io.query.bank < p.iqBankCount.U
@@ -1037,7 +1156,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
   }.reduce(_ && _)
   io.queryPickable := queryClassInRange && queryBankInRange &&
     queryEntryInRange && io.queryState === OooIexIssueSlotState.ResidentS3 &&
-    io.queryRow.valid && querySourcesReady &&
+    io.queryRow.valid && !io.queryRow.schedule.inFlight && querySourcesReady &&
     !(recoveryFreeze && io.queryRow.stid === recoveryStid)
 
   io.s1Occupied := s1Valid
@@ -1050,6 +1169,11 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       (0 until p.iqEntriesPerBank).map { entry =>
         slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.ResidentS3
       }).asUInt)
+    io.inFlightEntries(uopClass)(bank) := PopCount(VecInit(
+      (0 until p.iqEntriesPerBank).map { entry =>
+        scheduleRows(uopClass)(bank)(entry).valid &&
+          scheduleRows(uopClass)(bank)(entry).inFlight
+      }).asUInt)
     for (entry <- 0 until p.iqEntriesPerBank) {
       assert((slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free) ===
         !scheduleRows(uopClass)(bank)(entry).valid,
@@ -1057,6 +1181,11 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       assert(!s1Claimed(uopClass)(bank)(entry) ||
         slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free,
         "an S1 claim may reserve only an otherwise free physical IEX row")
+      assert(!scheduleRows(uopClass)(bank)(entry).inFlight ||
+        (scheduleRows(uopClass)(bank)(entry).valid &&
+          slotState(uopClass)(bank)(entry) ===
+            OooIexIssueSlotState.ResidentS3),
+        "only one resident S3 row may own speculative issue in-flight state")
     }
   }
 }

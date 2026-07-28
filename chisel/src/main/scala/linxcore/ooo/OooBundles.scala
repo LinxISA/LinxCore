@@ -807,6 +807,9 @@ class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
   */
 class OooIexScheduleRow(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
+  // Canonical speculative issue ownership. The row remains resident while a
+  // P1/I1/I2 lane owns it and becomes pickable again only on an exact retry.
+  val inFlight = Bool()
   val peId = UInt(p.peIdWidth.W)
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
@@ -943,6 +946,43 @@ class OooIexP1Reject(val p: OooParams = OooParams()) extends Bundle {
   val identityExact = Bool()
   val sourcesReady = Bool()
   val pcTokenExact = Bool()
+}
+
+/** Minimal combinational projection of one canonical IQ scheduling row. */
+class OooIexPickCandidate(val p: OooParams = OooParams()) extends Bundle {
+  val eligible = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+}
+
+/** Exact retained picker result used to address the canonical IQ payload. */
+class OooIexPickToken(val p: OooParams = OooParams()) extends Bundle {
+  val query = new OooIexSlotQuery(p)
+  val candidate = new OooIexPickCandidate(p)
+}
+
+class OooIexPickReject(val p: OooParams = OooParams()) extends Bundle {
+  val token = new OooIexPickToken(p)
+  val identityExact = Bool()
+  val reservationExact = Bool()
+}
+
+class OooIexPickClaimReject(val p: OooParams = OooParams()) extends Bundle {
+  val token = new OooIexPickToken(p)
+  val residentExact = Bool()
+  val identityExact = Bool()
+  val notInFlight = Bool()
+}
+
+class OooIexPickRetryReject(val p: OooParams = OooParams()) extends Bundle {
+  val retry = new OooIexReadRepick(p)
+  val residentExact = Bool()
+  val identityExact = Bool()
+  val wasInFlight = Bool()
 }
 
 /** Exact S2 acknowledgment for the earlier retained S1 transaction. */

@@ -69,6 +69,11 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   issue.io.release.bits := io.release.bits
   io.release.ready := issue.io.release.ready
   issue.io.query := io.query
+  issue.io.pickClass := OooUopClass.Alu
+  issue.io.pickBankEnable := 0.U
+  issue.io.pick.ready := false.B
+  issue.io.pickRetry.valid := false.B
+  issue.io.pickRetry.bits := 0.U.asTypeOf(issue.io.pickRetry.bits)
   issue.io.recoveryPrepare := coordinator.io.iexRecoveryPrepare
   coordinator.io.iexRecoveryPrepareReady := issue.io.recoveryPrepareReady
   coordinator.io.iexRecoveryPrepared := issue.io.recoveryPrepared

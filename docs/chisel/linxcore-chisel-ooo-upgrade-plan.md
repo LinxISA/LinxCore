@@ -89,7 +89,8 @@ promotion.
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows in parameterized low-index subbanks; registered commit/recovery row selection before PTag return and pointer update; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | close default-width synthesis timing |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; O8.2 bounded hierarchical first-free selection; focused UT/IT | add occupancy/in-flight/PTag bank cost steering and safe-mode policy |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | multi-pick policy remains later IEX scope |
-| I0.1 P1/I1/I2 read lane | Implemented | exact selected-row validation; retained atomic P/T/U plus PC read attempt; explicit grant/deny; denial-to-repick; partial-response rejection; retained I2 data under backpressure; exact recovery cancellation; real PC-buffer IT | multi-lane picker/arbiter, speculative in-flight owner, canonical RF/bypass, and E1 terminal release remain |
+| I0.1 P1/I1/I2 read lane | Implemented | exact selected-row validation; retained atomic P/T/U plus PC read attempt; explicit grant/deny; denial-to-repick; partial-response rejection; retained I2 data under backpressure; exact recovery cancellation; real PC-buffer IT | multi-domain bridge, canonical RF/bypass, and E1 terminal release remain |
+| I0.2 oldest-ready pick | Implemented | reusable class/bank-domain selection; modular RID-generation/slot/member age; per-STID oldest plus cross-STID work-conserving RR; retained token; canonical IQ-row in-flight claim; exact retry-to-repick; recovery block/cancel; in-flight terminal-release guard; UT and generated-RTL structure evidence | freeze multi-domain pipe topology, selected-payload P1 bridge, class-specific blockers, and liveness thresholds |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
@@ -923,13 +924,38 @@ The S1 reservation guarantees eventual S2 capacity unless matching recovery
 cancels it. Therefore rename may safely publish `producerIqid` at D3/S1 without
 depending on an unreserved future allocation.
 
-Physical IQ valid/readiness now belongs to IEX. Age-matrix pick, speculative
-in-flight state, multi-lane RF arbitration, and execution remain later IEX
-owners. I0.1 implements one reusable P1/I1/I2 transaction lane without
+Physical IQ valid/readiness and speculative in-flight state now belong to IEX.
+I0.2 selects exact oldest-ready members and retains only a query token; the
+canonical scheduling row owns `inFlight`, retry, recovery, and terminal-release
+qualification. Multi-domain topology, RF arbitration, and execution remain
+later IEX work. I0.1 implements one reusable P1/I1/I2 transaction lane without
 copying IQ residency into it. OOO consumes reservations and acknowledgments
 but never mirrors IQ residency.
 
-### 14.4 P1, I1, and I2
+### 14.4 Oldest-ready pick and in-flight
+
+I0.2 defines one reusable issue-domain picker. An instance covers one uop class
+and a mask of physical banks. It filters only canonical `ResidentS3`,
+registered-ready, non-in-flight rows. For each STID it selects the oldest
+member by modular `{ridGeneration,ridSlot,memberIndex}` order, then performs
+work-conserving round-robin selection across STIDs. This remains exact across
+RID wrap because the maximum live population is constrained below half of the
+age namespace.
+
+The selected token is retained under downstream backpressure. On fire, the IQ
+row becomes canonically `inFlight`; the picker owns no issued bitmap. Exact
+read denial or rejection clears that row for repick. Recovery prepare drops an
+unclaimed target token and blocks new target selection while peers continue;
+common apply cancels any remaining killed token. Terminal release requires the
+exact row still be in flight.
+
+This differs from the ARM reference's queue-specific ALU next-retire and
+AGU/STD age-matrix rules. Linx uses one member-age baseline; latency,
+memory-order, nonspeculative, load-generation, and safe-mode rules will become
+class-specific eligibility filters. The number of disjoint picker domains and
+their bank-to-pipe mapping remains an explicit topology decision.
+
+### 14.5 P1, I1, and I2
 
 I0.1 establishes the first canonical post-IQ stage contract:
 
@@ -1542,7 +1568,8 @@ payload remain stable through arbitrary S1 backpressure. Multi-pick policy is
 later IEX scope, not an O5.2 residency claim. I0.1 separately closes the
 reusable one-lane P1/I1/I2 transaction, including read denial, partial-response
 rejection, retained output, and recovery cancellation; multi-lane arbitration
-and speculative in-flight bookkeeping remain open.
+remains open. I0.2 separately closes reusable oldest-ready selection,
+canonical in-flight claim, exact retry-to-repick, and release qualification.
 
 ### O6: fast resolve and non-flush
 
