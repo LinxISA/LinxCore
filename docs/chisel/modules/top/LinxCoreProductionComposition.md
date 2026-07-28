@@ -14,6 +14,8 @@ tagged 64-byte memory <-> IfuLineMemoryBridge <-> LinxCoreIfu
 
 backend validation -> IfuBackendFeedbackBridge -> B-SIDE training
                                       `---------> canonical BRU recovery
+
+applied OOO recovery -> recoveryRedirect --------> canonical IFU recovery
 ```
 
 `LinxCoreIfu` remains the owner of I-SIDE, B-SIDE, canonical epoch allocation,
@@ -29,6 +31,7 @@ The production boundary exposes:
   and 512-bit line data;
 - one selected D1 STID and a four-lane `D1DecodedInstructionGroup` output;
 - an exact `BackendBranchValidation` input supplied by Dispatch or BRU E1;
+- a retained `recoveryRedirect` supplied only after the exact OOO common apply;
 - canonical flush, epoch, miss, line-transport, join, line-context, B-SIDE, PTW,
   and feedback residency diagnostics.
 
@@ -63,6 +66,13 @@ cycle as its queued resolve, predictor training consumes the immutable
 checkpoint before the prune removes it. Unrelated training remains blocked by
 an active prune.
 
+An applied production OOO redirect has priority over the compatibility
+feedback redirect. If both proposals are bit-exact apart from the IFU-owned
+`newEpoch`, the composition consumes both on one IFU handshake and emits one
+canonical flush. If they differ, the compatibility event remains queued. The
+OOO recovery bridge waits for `canonicalFlush`; `recoveryRedirect.ready` alone
+does not close R4.
+
 ## Verification
 
 ```bash
@@ -78,12 +88,14 @@ the memory bridge into a full four-wide decoded D1 group, plus a real
 training and canonical `BruRecovery`. The emitted-RTL probe repeats both paths
 and observes consecutive epoch allocation for B-F4 correction followed by
 backend recovery.
+`OooFrontendIfuRecoveryIntegration` additionally connects the production OOO
+R4 bridge to this real composition and proves that the IFU-allocated epoch is
+the terminal frontend acknowledgement.
 
 ## Remaining production boundary
 
-The `backendValidation` port is intentionally explicit. Four-lane
-rename/dispatch/issue event production, full-BID ROB/BROB cleanup, and natural
-CoreMark/Dhrystone benchmark integration are not implemented by this frontend
-composition. Lower-memory denied/corrupt termination also requires a typed
-fetch-fault extension; it must not be represented as a successful zero-data
-refill.
+The `backendValidation` and applied `recoveryRedirect` ports are intentionally
+explicit. The standalone frontend composition does not instantiate the full
+OOO coordinator. Natural CoreMark/Dhrystone benchmark integration remains O9.
+Lower-memory denied/corrupt termination also requires a typed fetch-fault
+extension; it must not be represented as a successful zero-data refill.

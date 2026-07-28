@@ -8,6 +8,7 @@ class OooD2ProductionStageSpec extends AnyFunSuite with ChiselSim {
   private def clearBuffer(dut: OooD2ThreadStageBuffer): Unit = {
     dut.io.in.valid.poke(false.B)
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
+    dut.io.fence.foreach(_.poke(false.B))
     dut.io.cancel.foreach(_.poke(false.B))
     dut.io.out.ready.poke(false.B)
   }
@@ -70,6 +71,7 @@ class OooD2ProductionStageSpec extends AnyFunSuite with ChiselSim {
       dut.io.tailGeneration.foreach(_.poke(0.U))
       dut.io.tailEpoch.foreach(_.poke(0.U))
       dut.io.nextTransactionId.foreach(_.poke(0.U))
+      dut.io.fence.foreach(_.poke(false.B))
       dut.io.cancel.foreach(_.poke(false.B))
       dut.io.out.ready.poke(false.B)
 
@@ -104,6 +106,30 @@ class OooD2ProductionStageSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.plan.virtualTailEpoch.expect(6.U)
       dut.clock.step(2)
       dut.io.out.bits.plan.virtualTailEpoch.expect(6.U)
+    }
+  }
+
+
+  test("fence preserves a retained D2 preview and lets an unrelated STID drain") {
+    val p = OooParams()
+    simulate(new OooD2ThreadStageBuffer(p)) { dut =>
+      clearBuffer(dut)
+      pokeTransaction(dut, stid = 1, transactionId = 31, tailEpoch = 2)
+      dut.clock.step()
+      pokeTransaction(dut, stid = 3, transactionId = 33, tailEpoch = 4)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+
+      dut.io.fence(1).poke(true.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.plan.stid.expect(3.U)
+      dut.clock.step()
+      dut.io.occupancy.expect(1.U)
+
+      dut.io.fence(1).poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.plan.transactionId.expect(31.U)
     }
   }
 }

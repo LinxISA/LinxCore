@@ -769,14 +769,22 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
 
       var cycles = 0
       var sawCommonComplete = false
+      var sawTypedComplete = false
       while (dut.io.recoveryBusy.peek().litToBoolean && cycles < 64) {
         sawCommonComplete ||= dut.io.recoveryComplete.peek().litToBoolean
+        if (dut.io.recoveryCompleted.valid.peek().litToBoolean) {
+          sawTypedComplete = true
+          dut.io.recoveryCompleted.bits.rename.key.member.group.stid.expect(1.U)
+          dut.io.recoveryCompleted.bits.rename.key.transactionId.expect(0.U)
+        }
         dut.clock.step()
         cycles += 1
       }
       assert(cycles < 64, "timed out waiting for atomic rename recovery")
       assert(sawCommonComplete,
         "coordinator never joined scanner, P, and T/U completion")
+      assert(sawTypedComplete,
+        "coordinator never published the exact completed recovery request")
 
       dut.io.mapQUsed(1).expect(1.U)
       dut.io.tMapQUsed(1).expect(0.U)
@@ -814,6 +822,22 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.mapQUsed(1).expect(1.U)
       dut.io.tuRetireSourceUsed(1).expect(1.U)
       dut.io.ptagPublishedCount.expect(2.U)
+
+      var abortCycles = 0
+      var sawTypedAbort = false
+      while (dut.io.recoveryBusy.peek().litToBoolean && abortCycles < 32) {
+        if (dut.io.recoveryAborted.valid.peek().litToBoolean) {
+          sawTypedAbort = true
+          dut.io.recoveryAborted.bits.rename.key.member.group.stid.expect(1.U)
+          dut.io.recoveryAborted.bits.rename.key.member.residentGeneration
+            .expect((anchorResidentGeneration + 1).U)
+        }
+        dut.clock.step()
+        abortCycles += 1
+      }
+      assert(abortCycles < 32, "timed out draining rejected global recovery")
+      assert(sawTypedAbort,
+        "coordinator never published the exact aborted recovery request")
     }
   }
 }

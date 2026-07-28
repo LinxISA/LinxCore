@@ -16,6 +16,8 @@ class OooIfuD1IngressIO(
   val ifuD1 = Flipped(Decoupled(new D1InstructionGroup(ifuP)))
   val selectStid = Input(UInt(oooP.stidWidth.W))
   val flush = Input(new IfuInnerFlush(ifuP))
+  /** Stops new target-STID movement without clearing retained frontend state. */
+  val fence = Input(Vec(oooP.stidCount, Bool()))
   val cancel = Input(Vec(oooP.stidCount, Bool()))
   val out = Decoupled(new OooD1DecodedPacket(oooP))
 
@@ -42,6 +44,7 @@ class OooIfuD1Ingress(
 
   raw.io.ifuD1 <> io.ifuD1
   raw.io.selectStid := io.selectStid
+  raw.io.fence := io.fence
   raw.io.flush := io.flush
   d1.io.in <> raw.io.out
 

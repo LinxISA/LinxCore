@@ -91,7 +91,7 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds dispatch, IEX, and fast-resolve owners; O7.2d1 retains the lower ROB/D3/BROB/PC transaction; O7.2d2 opens the O3 global request and joins lower apply, P/T/U authorization/rebuild, dispatch, fast, and external IEX, with retained reject abort and atomic PTag-recycle/IEX-ready invalidation | frontend redirect/restart acknowledgement, O7.3 external CTU lease/child reinsertion, and then O8/O9 physical/workload closure remain |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds dispatch, IEX, and fast-resolve owners; O7.2d1 retains the lower ROB/D3/BROB/PC transaction; O7.2d2 opens the O3 global request and joins lower apply, P/T/U authorization/rebuild, dispatch, fast, and external IEX; O7.2e adds non-mutating frontend fences, apply-time stage cancellation, retained IFU redirect, and exact canonical-flush/rebuild R4 join | O7.3 external CTU lease/child reinsertion, and then O8/O9 physical/workload closure remain |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1541,10 +1541,22 @@ the token can be recycled, including commit returns and killed fast producers
 which have no resident IEX row. The obsolete public external PTag-return input
 is removed.
 
-The next slice must add frontend D1/D2/S1 history and redirect/restart
-acknowledgements around the now-open O3 transaction. O7.3 then adds the external CTU
-lease, exact child order/count, canonical reinsertion ahead of the instruction
-buffer, multi-RID expansion, final-parent retirement, and recovery cancel/reuse.
+O7.2e encloses the open O3 transaction with `OooFrontendRecoveryBridge`.
+Capture immediately raises a non-mutating fence for the exact STID across IFU
+raw ingress and D2/S1 retained staging. A reject therefore releases the fence
+without clearing a row or sending a redirect. Only the typed exact
+`recoveryApplied` event emits one `stageCancel` pulse and releases the retained
+`IfuInnerFlush`. The bridge does not mistake redirect enqueue for frontend
+completion: R4 waits for both the exact typed O3 rebuild completion and the
+real `LinxCoreIfu.canonicalFlush` echo, including the IFU-allocated new epoch,
+in either order. `OooO3RenameCoordinator` also publishes the exact aborted
+request after every retained lower/scanner owner has drained. The production
+IFU composition gives this applied-recovery redirect priority over the
+compatibility BRU-feedback queue and consumes an identical duplicate once.
+
+O7.3 next adds the external CTU lease, exact child order/count, canonical
+reinsertion ahead of the instruction buffer, multi-RID expansion,
+final-parent retirement, and recovery cancel/reuse.
 
 Exit: recovery at every stage and template phase closes with zero cross-STID
 mutation; CTU has no direct RF/ROB/LSU architectural-effect port.

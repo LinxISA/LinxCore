@@ -17,6 +17,7 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
     dut.io.ifuD1.valid.poke(false.B)
     dut.io.ifuD1.bits.poke(0.U.asTypeOf(dut.io.ifuD1.bits))
     dut.io.selectStid.poke(0.U)
+    dut.io.fence.foreach(_.poke(false.B))
     dut.io.out.ready.poke(false.B)
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
   }
@@ -209,6 +210,35 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.validMask.expect(1.U)
       dut.io.out.bits.entries(0).parent.key.instructionId.expect(60.U)
       dut.io.out.bits.entries(0).parent.key.epoch.expect(5.U)
+    }
+  }
+
+  test("fences one STID without mutating its raw rows while another STID advances") {
+    val oooP = OooParams(instructionDecodeWidth = 4)
+    simulate(new OooIfuRawIngress(ifuP, oooP, depthPerStid = 8)) { dut =>
+      clear(dut)
+      enqueue(dut, stid = 1, firstId = 80, epoch = 4)
+      enqueue(dut, stid = 2, firstId = 90, epoch = 6)
+
+      dut.io.fence(1).poke(true.B)
+      dut.io.selectStid.poke(1.U)
+      dut.io.out.valid.expect(false.B)
+      dut.io.eligibleMask.expect("b0100".U)
+      pokeGroup(dut, stid = 1, firstId = 84, epoch = 4)
+      dut.io.ifuD1.ready.expect(false.B)
+      dut.io.ifuD1.valid.poke(false.B)
+
+      dut.io.selectStid.poke(2.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.counts(2).expect(0.U)
+      dut.io.counts(1).expect(4.U)
+
+      dut.io.fence(1).poke(false.B)
+      dut.io.selectStid.poke(1.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.entries(0).parent.key.instructionId.expect(80.U)
     }
   }
 

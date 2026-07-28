@@ -894,6 +894,13 @@ per-PE lane，cleanup intent 可被下游 backpressure。LSU full-BID lookup
 通过 ROB 路由，但并非所有 source 都统一经过一次 BROB/ROB canonical
 resolve；consumer 也尚无 all-owner prepare/ack。
 
+Production O7.2d2/d2e 已经实现本节核心事务：O3 对 ROB/D3/BROB/PC、
+P/T/U、dispatch、IEX、fast resolve 做一次 exact common apply；外层
+`OooFrontendRecoveryBridge` 在 prepare 期间只 fence STID，apply 后才清
+D1/D2/S1，并等待 typed rebuild completion 与 IFU `canonicalFlush`。
+本节剩余缺口主要是 O7.3 CTU、LSU/global producer 接入及跨 source
+arbitration，而不再是 frontend/O3 原子边界。
+
 ### 问题
 
 - typed request retention 已有，但 canonical resolve 不完整；
@@ -911,6 +918,9 @@ resolve；consumer 也尚无 all-owner prepare/ack。
 3. Prepare：所有 mandatory consumer 返回 ready/qualification；
 4. Commit：广播同一个 resolved transaction；
 5. Ack：收集完成并记录 provenance。
+
+Frontend Ack 必须是 IFU 对同一 redirect proposal 的 canonical echo，
+不能用 `backendRedirect.ready` 代替；`newEpoch` 只由 IFU 分配。
 
 ### 接口与状态
 

@@ -11,6 +11,7 @@ class OooThreadStageBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.in.valid.poke(false.B)
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.out.ready.poke(false.B)
+    dut.io.fence.foreach(_.poke(false.B))
     dut.io.cancel.foreach(_.poke(false.B))
   }
 
@@ -65,6 +66,29 @@ class OooThreadStageBufferSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.transactionId.expect(11.U)
     }
   }
+
+  test("fence suppresses selection and intake without deleting the retained row") {
+    simulate(new OooThreadStageBuffer(p)) { dut =>
+      clear(dut)
+      enqueue(dut, stid = 0, transactionId = 10)
+      enqueue(dut, stid = 2, transactionId = 12)
+
+      dut.io.fence(0).poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.stid.expect(2.U)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.occupancy.expect(1.U)
+
+      dut.io.in.bits.stid.poke(0.U)
+      dut.io.in.valid.poke(true.B)
+      dut.io.in.ready.expect(false.B)
+      dut.io.in.valid.poke(false.B)
+      dut.io.fence(0).poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.transactionId.expect(10.U)
+    }
+  }
 }
 
 class LinxCoreOooShellSpec extends AnyFunSuite with ChiselSim {
@@ -74,6 +98,7 @@ class LinxCoreOooShellSpec extends AnyFunSuite with ChiselSim {
     dut.io.in.valid.poke(false.B)
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.out.ready.poke(false.B)
+    dut.io.fence.foreach(_.poke(false.B))
     dut.io.cancel.foreach(_.poke(false.B))
   }
 

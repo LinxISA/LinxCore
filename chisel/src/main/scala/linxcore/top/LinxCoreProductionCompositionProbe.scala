@@ -111,6 +111,9 @@ class LinxCoreProductionCompositionProbe(val p: InterfaceParams = InterfaceParam
   when(composition.io.backendValidation.fire) {
     capturedValid := false.B
   }
+  composition.io.recoveryRedirect.valid := false.B
+  composition.io.recoveryRedirect.bits :=
+    0.U.asTypeOf(composition.io.recoveryRedirect.bits)
 
   io.memoryRequestValid := composition.io.memoryRequest.valid
   io.memoryRequestTag := composition.io.memoryRequest.bits.tag

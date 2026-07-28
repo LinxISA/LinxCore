@@ -47,6 +47,8 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
     dut.io.decoded.ready.poke(false.B)
     dut.io.backendValidation.valid.poke(false.B)
     dut.io.backendValidation.bits.poke(0.U.asTypeOf(dut.io.backendValidation.bits))
+    dut.io.recoveryRedirect.valid.poke(false.B)
+    dut.io.recoveryRedirect.bits.poke(0.U.asTypeOf(dut.io.recoveryRedirect.bits))
   }
 
   private def waitUntil(limit: Int, clue: String)(condition: => Boolean)(step: => Unit): Unit = {

@@ -12,6 +12,8 @@
   `chisel/src/main/scala/linxcore/ooo/OooProductionIexIssue.scala`
 - Production typed fast-resolve owner:
   `chisel/src/main/scala/linxcore/ooo/OooProductionFastResolve.scala`
+- Frontend recovery R4 bridge:
+  `chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooParamsSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooBundlesSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooThreadStageBufferSpec.scala`
@@ -62,6 +64,7 @@ Age and kill membership come from the selected STID's ROB/BROB owner.
 | `OooS1Publication` | Atomic grouped-ROB, speculative-map, and IEX speculative-slot publication |
 | `ExactRecoveryKey` | Exact member-qualified retained recovery request |
 | `OooGlobalRecoveryRequest` | Exact recovery key plus the trigger logical uop's complete physical-member extent |
+| `OooFrontendRecoveryCommand` | One exact OOO suffix request plus the matching retained IFU restart proposal |
 | `OooRobRecoveryPlan` | Side-effect-free grouped-ROB suffix plan for the future all-owner R0-R4 coordinator |
 | `NonFlushWindow` | ROB-owned `{STID, headRobGroupKey, prefixCount, epoch}` safe prefix |
 
@@ -797,6 +800,33 @@ batch; IEX clears matching `{ptag,generation}` ready records on that edge.
 This applies to architectural commit and recovery and replaces the removed
 legacy external PTag-return input.
 
+## O7.2e frontend fence and canonical restart join
+
+`OooFrontendRecoveryBridge` is the sole join between an applied O3 recovery
+and the production IFU restart. Its input combines `OooGlobalRecoveryRequest`
+with one `IfuInnerFlush`. The bridge rejects a missing group/native BID,
+cross-PE/STID/epoch proposal, zero physical trigger extent, mismatched prune
+scope, or recovery-cause/reason mismatch before requesting O3.
+
+Capture fences the target STID without mutation. `OooIfuRawIngress`,
+`OooD2ThreadStageBuffer`, and the O1 D2/D3/S1 stage buffer exclude a fenced row
+from selection and intake while preserving its payload and occupancy. A
+blocked old grant immediately falls forward to another eligible STID. The
+fence begins on the command-offer cycle and remains through R4.
+
+The exact typed O3 apply emits one target-only `stageCancel` and enables the
+retained IFU redirect. IFU enqueue readiness is not an acknowledgement.
+Completion requires both `OooO3RenameCoordinator.recoveryCompleted` and a
+`LinxCoreIfu.canonicalFlush` whose entire proposal matches except for
+`newEpoch`, which only IFU may allocate. Either terminal event may arrive
+first. An exact pre-apply O3 abort emits no cancel or redirect and releases the
+fence only after all O3 retained owners are idle.
+
+`LinxCoreProductionComposition.recoveryRedirect` is the applied-recovery port.
+It has priority over compatibility feedback. If both inputs carry an identical
+proposal, they are consumed together and IFU canonicalizes one event; a
+different queued feedback event remains retained.
+
 ## Verification
 
 ```bash
@@ -818,6 +848,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionBrob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OooFrontendRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only OooFrontendIfuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename

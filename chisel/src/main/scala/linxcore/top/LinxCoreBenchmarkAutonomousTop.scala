@@ -404,6 +404,9 @@ class LinxCoreBenchmarkAutonomousTop(
   productionIfu.io.invalidateL1I := false.B
   productionIfu.io.d1ThreadId := io.threadId
   productionIfu.io.backendValidation <> live.io.backendValidation
+  productionIfu.io.recoveryRedirect.valid := false.B
+  productionIfu.io.recoveryRedirect.bits :=
+    0.U.asTypeOf(productionIfu.io.recoveryRedirect.bits)
 
   lineFill.io.lineRequest <> productionIfu.io.memoryRequest
   productionIfu.io.memoryResponse <> lineFill.io.lineResponse

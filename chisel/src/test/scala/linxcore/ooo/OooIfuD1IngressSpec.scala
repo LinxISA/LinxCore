@@ -18,6 +18,7 @@ class OooIfuD1IngressSpec extends AnyFunSuite with ChiselSim {
     dut.io.ifuD1.bits.poke(0.U.asTypeOf(dut.io.ifuD1.bits))
     dut.io.selectStid.poke(0.U)
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+    dut.io.fence.foreach(_.poke(false.B))
     dut.io.cancel.foreach(_.poke(false.B))
     dut.io.out.ready.poke(true.B)
   }

@@ -101,6 +101,9 @@ killed snapshot; start carries explicit GHR/RAS reset.
 mispredict row key plus actual conditional and RAS deltas. The accepted event
 still enters through `backendRedirect`; the bridge never bypasses canonical
 epoch allocation.
+Non-branch OOO exception/nuke/debug/CTU recovery uses the typed
+`OooRecovery` reason. It follows the same canonical epoch owner and broadcast
+path; only the proposal source and prune metadata differ.
 
 ## External Interface
 

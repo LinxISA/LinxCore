@@ -40,7 +40,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryBusy = Output(Bool())
   val recoveryStid = Output(UInt(p.stidWidth.W))
   val recoveryComplete = Output(Bool())
+  val recoveryCompleted = Valid(new OooGlobalRecoveryRequest(p))
   val recoveryApplied = Valid(new OooGlobalRecoveryRequest(p))
+  val recoveryAborted = Valid(new OooGlobalRecoveryRequest(p))
   val iexRecoveryPrepare = Valid(new OooResidencyRecoveryPlan(p))
   val iexRecoveryPrepareReady = Input(Bool())
   val iexRecoveryPrepared = Input(new OooIexRecoveryPrepared(p))
@@ -423,6 +425,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turename.io.recoverySourcesDone := turetire.io.recoverySourcesDone
   val commonRecoveryComplete = turetire.io.recoverySourcesDone &&
     prename.io.recoveryComplete && turename.io.recoveryComplete
+  val globalRecoveryAbortComplete = abortGlobalOwners &&
+    !o3.io.recoveryBusy && !turetire.io.recoveryBusy
   turetire.io.recoveryFinish := commonRecoveryComplete
   prename.io.recoveryFinish := commonRecoveryComplete
   turename.io.recoveryFinish := commonRecoveryComplete
@@ -431,8 +435,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     globalRecoveryState := OooGlobalRecoveryState.Rebuild
   }.elsewhen(anyGlobalRecoveryRejected) {
     globalRecoveryState := OooGlobalRecoveryState.AbortOwners
-  }.elsewhen(abortGlobalOwners && !o3.io.recoveryBusy &&
-      !turetire.io.recoveryBusy) {
+  }.elsewhen(globalRecoveryAbortComplete) {
     globalRecoveryState := OooGlobalRecoveryState.Idle
     lowerRecoveryAccepted := false.B
     renameRecoveryAccepted := false.B
@@ -626,6 +629,11 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
       Mux(prename.io.recoveryBusy, prename.io.recoveryStid,
         turename.io.recoveryStid)))
   io.recoveryComplete := commonRecoveryComplete
+  io.recoveryCompleted.valid :=
+    globalRecoveryState === OooGlobalRecoveryState.Rebuild && commonRecoveryComplete
+  io.recoveryCompleted.bits := globalRecoveryRequest
+  io.recoveryAborted.valid := globalRecoveryAbortComplete
+  io.recoveryAborted.bits := globalRecoveryRequest
   io.recoveryRejected := turetire.io.recoveryRejected
   io.pRecoveryRejected := prename.io.recoveryRejected
   io.tuRecoveryRejected := turename.io.recoveryRejected

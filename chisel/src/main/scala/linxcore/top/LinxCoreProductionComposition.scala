@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, Queue, Valid, log2Ceil}
 import linxcore.common.InterfaceParams
 import linxcore.frontend._
+import linxcore.ooo.OooFrontendRecoveryContract
 
 class LinxCoreProductionCompositionIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -35,6 +36,9 @@ class LinxCoreProductionCompositionIO(
     * composition boundary.
     */
   val backendValidation = Flipped(Decoupled(new BackendBranchValidation(p)))
+
+  /** Retained redirect emitted only after the production OOO recovery applies. */
+  val recoveryRedirect = Flipped(Decoupled(new IfuInnerFlush(p)))
 
   val canonicalFlush = Valid(new IfuInnerFlush(p))
   val active = Output(Vec(threadCount, Bool()))
@@ -148,7 +152,24 @@ class LinxCoreProductionComposition(
   io.backendValidation.ready := feedback.io.validation.ready
   ifu.io.branchResolve <> feedback.io.resolve
   backendRecoveryQueue.io.enq <> feedback.io.backendRecovery
-  ifu.io.backendRedirect <> backendRecoveryQueue.io.deq
+
+  // Production OOO recovery has priority over the compatibility BRU-feedback
+  // redirect.  If both describe the same branch event, consume the queued
+  // compatibility copy on the same fire so IFU canonicalizes the event once.
+  val duplicateRecovery = io.recoveryRedirect.valid &&
+    backendRecoveryQueue.io.deq.valid &&
+    OooFrontendRecoveryContract.sameRedirectProposal(
+      io.recoveryRedirect.bits,
+      backendRecoveryQueue.io.deq.bits)
+  ifu.io.backendRedirect.valid :=
+    io.recoveryRedirect.valid || backendRecoveryQueue.io.deq.valid
+  ifu.io.backendRedirect.bits := Mux(
+    io.recoveryRedirect.valid,
+    io.recoveryRedirect.bits,
+    backendRecoveryQueue.io.deq.bits)
+  io.recoveryRedirect.ready := ifu.io.backendRedirect.ready
+  backendRecoveryQueue.io.deq.ready := ifu.io.backendRedirect.ready &&
+    (!io.recoveryRedirect.valid || duplicateRecovery)
 
   io.canonicalFlush := ifu.io.canonicalFlush
   io.active := ifu.io.active

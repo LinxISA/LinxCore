@@ -5,6 +5,7 @@ import chisel3.util.{Decoupled, PopCount, PriorityEncoder}
 
 class OooThreadStageBufferIO(val p: OooParams = OooParams()) extends Bundle {
   val in = Flipped(Decoupled(new OooPipelineToken(p)))
+  val fence = Input(Vec(p.stidCount, Bool()))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val out = Decoupled(new OooPipelineToken(p))
   val occupancy = Output(UInt(p.countWidth(p.stidCount).W))
@@ -25,7 +26,7 @@ class OooThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
   val rotatedCandidates = Wire(Vec(p.stidCount, Bool()))
   for (offset <- 0 until p.stidCount) {
     val index = if (p.stidCount == 1) 0.U else (rrStart + offset.U)(p.stidWidth - 1, 0)
-    rotatedCandidates(offset) := valid(index) && !io.cancel(index)
+    rotatedCandidates(offset) := valid(index) && !io.cancel(index) && !io.fence(index)
   }
   val rotatedValid = rotatedCandidates.asUInt.orR
   val rotatedOffset = if (p.stidCount == 1) 0.U else PriorityEncoder(rotatedCandidates.asUInt)
@@ -33,11 +34,15 @@ class OooThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
     if (p.stidCount == 1) 0.U(p.stidWidth.W)
     else (rrStart + rotatedOffset)(p.stidWidth - 1, 0)
 
-  val selected = Mux(heldGrantValid, heldGrantStid, rrSelected)
+  val heldGrantBlocked =
+    if (p.stidCount == 1) io.cancel(0) || io.fence(0)
+    else io.cancel(heldGrantStid) || io.fence(heldGrantStid)
+  val heldGrantUsable = heldGrantValid && !heldGrantBlocked
+  val selected = Mux(heldGrantUsable, heldGrantStid, rrSelected)
   val selectedLive =
-    if (p.stidCount == 1) valid(0) && !io.cancel(0)
-    else valid(selected) && !io.cancel(selected)
-  io.out.valid := Mux(heldGrantValid, selectedLive, rotatedValid)
+    if (p.stidCount == 1) valid(0) && !io.cancel(0) && !io.fence(0)
+    else valid(selected) && !io.cancel(selected) && !io.fence(selected)
+  io.out.valid := Mux(heldGrantUsable, selectedLive, rotatedValid)
   io.out.bits := (if (p.stidCount == 1) row(0) else row(selected))
   io.selectedValid := io.out.valid
   io.selectedStid := selected
@@ -47,18 +52,24 @@ class OooThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
   val replacingSelected = io.out.fire && selected === io.in.bits.stid
   val incomingCancelled =
     if (p.stidCount == 1) io.cancel(0) else io.cancel(io.in.bits.stid)
+  val incomingFenced =
+    if (p.stidCount == 1) io.fence(0) else io.fence(io.in.bits.stid)
   val incomingOccupied =
     if (p.stidCount == 1) valid(0) else valid(io.in.bits.stid)
-  io.in.ready := incomingInRange && !incomingCancelled &&
+  io.in.ready := incomingInRange && !incomingCancelled && !incomingFenced &&
     (!incomingOccupied || replacingSelected)
 
-  when(io.out.valid && !io.out.ready && !heldGrantValid) {
+  val captureHeldGrant = io.out.valid && !io.out.ready && !heldGrantUsable
+  when(captureHeldGrant) {
     heldGrantValid := true.B
     heldGrantStid := selected
   }
   val heldGrantCancelled =
     if (p.stidCount == 1) io.cancel(0) else io.cancel(heldGrantStid)
-  when(heldGrantValid && heldGrantCancelled) {
+  val heldGrantFenced =
+    if (p.stidCount == 1) io.fence(0) else io.fence(heldGrantStid)
+  when(heldGrantValid && (heldGrantCancelled || heldGrantFenced) &&
+      !captureHeldGrant) {
     heldGrantValid := false.B
   }
   when(io.out.fire) {
@@ -82,7 +93,7 @@ class OooThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
   when(io.in.fire) {
     assert(incomingInRange, "OOO stage input STID must be in range")
   }
-  when(heldGrantValid && io.out.valid && !io.out.ready) {
+  when(heldGrantUsable && io.out.valid && !io.out.ready) {
     assert(io.out.bits.stid === heldGrantStid,
       "OOO stage grant and payload must remain stable under backpressure")
   }
@@ -90,6 +101,7 @@ class OooThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
 
 class LinxCoreOooShellIO(val p: OooParams = OooParams()) extends Bundle {
   val in = Flipped(Decoupled(new OooPipelineToken(p)))
+  val fence = Input(Vec(p.stidCount, Bool()))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val out = Decoupled(new OooPipelineToken(p))
   val d2Occupancy = Output(UInt(p.countWidth(p.stidCount).W))
@@ -112,10 +124,13 @@ class LinxCoreOooShell(val p: OooParams = OooParams()) extends Module {
   val s1 = Module(new OooThreadStageBuffer(p))
 
   d2.io.in <> io.in
+  d2.io.fence := io.fence
   d2.io.cancel := io.cancel
   d3.io.in <> d2.io.out
+  d3.io.fence := io.fence
   d3.io.cancel := io.cancel
   s1.io.in <> d3.io.out
+  s1.io.fence := io.fence
   s1.io.cancel := io.cancel
   io.out <> s1.io.out
 

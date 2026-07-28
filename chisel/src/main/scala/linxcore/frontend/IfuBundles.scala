@@ -24,7 +24,8 @@ object PredictionProvider extends ChiselEnum {
 }
 
 object IfuInnerFlushReason extends ChiselEnum {
-  val ItlbMiss, PredictionCorrection, FetchReplay, StaleResponse, BruRecovery = Value
+  val ItlbMiss, PredictionCorrection, FetchReplay, StaleResponse, BruRecovery,
+      OooRecovery = Value
 }
 
 object IfuPruneScope extends ChiselEnum {

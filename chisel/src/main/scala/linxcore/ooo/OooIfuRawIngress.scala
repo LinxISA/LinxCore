@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, log2Ceil}
+import chisel3.util.{Decoupled, PopCount, PriorityEncoder, log2Ceil}
 import linxcore.common.InterfaceParams
 import linxcore.frontend.{
   D1InstructionGroup,
@@ -24,6 +24,8 @@ class OooIfuRawIngressIO(
 
   /** OOO chooses the STID whose oldest dense prefix is presented. */
   val selectStid = Input(UInt(oooP.stidWidth.W))
+  /** Non-mutating recovery admission fence. Retained rows remain intact. */
+  val fence = Input(Vec(oooP.stidCount, Bool()))
   val out = Decoupled(new OooRawInstructionGroup(oooP))
   val flush = Input(new IfuInnerFlush(ifuP))
 
@@ -112,12 +114,27 @@ class OooIfuRawIngress(
     target.fetchFaultCause := 0.U
   }
 
-  io.ifuThreadId := pullStid.pad(ifuP.threadIdWidth)
+  val pullCandidates = Wire(Vec(oooP.stidCount, Bool()))
+  val pullCandidateStids = Wire(Vec(oooP.stidCount, UInt(oooP.stidWidth.W)))
+  for (offset <- 0 until oooP.stidCount) {
+    val candidate =
+      if (oooP.stidCount == 1) 0.U(oooP.stidWidth.W)
+      else (pullStid + offset.U)(oooP.stidWidth - 1, 0)
+    pullCandidateStids(offset) := candidate
+    pullCandidates(offset) := !io.fence(candidate)
+  }
+  val anyPullCandidate = pullCandidates.asUInt.orR
+  val pullOffset = PriorityEncoder(pullCandidates.asUInt)
+  val selectedPullStid =
+    if (oooP.stidCount == 1) 0.U(oooP.stidWidth.W)
+    else Mux(anyPullCandidate, pullCandidateStids(pullOffset), pullStid)
+
+  io.ifuThreadId := selectedPullStid.pad(ifuP.threadIdWidth)
   when(!io.flush.valid && (!io.ifuD1.valid || io.ifuD1.fire)) {
     pullStid := Mux(
-      pullStid === (oooP.stidCount - 1).U,
+      selectedPullStid === (oooP.stidCount - 1).U,
       0.U,
-      pullStid + 1.U)
+      selectedPullStid + 1.U)
   }
 
   val inMask = io.ifuD1.bits.validMask
@@ -126,6 +143,7 @@ class OooIfuRawIngress(
   val inStid = io.ifuD1.bits.entries(0).identity.threadId
   val inStidSupported = inStid < oooP.stidCount.U
   val inBank = inStid(oooP.stidWidth - 1, 0)
+  val inFenced = inStidSupported && io.fence(inBank)
   val inPeId = io.ifuD1.bits.entries(0).identity.peId
   val inEpoch = io.ifuD1.bits.entries(0).identity.epoch
   val inDense = denseMask(inMask, ifuP.decodeWidth)
@@ -161,7 +179,8 @@ class OooIfuRawIngress(
   // The canonical flush cycle is a global publication barrier. Only the
   // addressed bank is mutated; every unaffected bank resumes on the next
   // cycle without losing or duplicating its head transaction.
-  io.out.valid := selectSupported && selectedCount.orR && !io.flush.valid
+  io.out.valid := selectSupported && selectedCount.orR &&
+    !io.fence(selectedBank) && !io.flush.valid
   io.out.bits := 0.U.asTypeOf(io.out.bits)
   io.out.bits.peId := selectedHead.identity.peId
   io.out.bits.stid := selectedHead.identity.threadId
@@ -186,11 +205,13 @@ class OooIfuRawIngress(
   val inCanFit = freeRows >= inLaneCount.pad(countWidth + 1)
 
   io.ifuD1.ready :=
-    !io.flush.valid && !malformedInput && inCanFit
+    !io.flush.valid && !inFenced && !malformedInput && inCanFit
   val inFire = io.ifuD1.valid && io.ifuD1.ready
 
   io.counts := counts
-  io.eligibleMask := VecInit(counts.map(_.orR)).asUInt
+  io.eligibleMask := VecInit((0 until oooP.stidCount).map { stid =>
+    counts(stid).orR && !io.fence(stid)
+  }).asUInt
   io.acceptedLaneCount := Mux(inFire, inLaneCount, 0.U)
   io.emittedLaneCount := Mux(outFire, emittedLaneCount, 0.U)
   io.malformedInput := io.ifuD1.valid && malformedInput
