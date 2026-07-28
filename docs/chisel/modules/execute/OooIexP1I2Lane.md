@@ -2,8 +2,8 @@
 
 ## Purpose
 
-`OooIexP1I2Lane` is one reusable canonical read lane between a future IQ
-picker and an execution pipe. It makes the P1, I1, and I2 transaction explicit
+`OooIexP1I2Lane` is one reusable canonical read lane between the implemented
+IQ/P1 bridge and an execution pipe. It makes the P1, I1, and I2 transaction explicit
 without becoming a second owner of the IQ, P/T/U register files, PC buffer, or
 recovery state.
 
@@ -29,10 +29,11 @@ the ready/valid boundary.
 
 I1 presents one `OooIexI1ReadAttempt`. The future shared RF/PC arbiter must
 return one explicit `readDecisionValid/readGrant` result for the whole uop.
-Port denial produces `repick` with the original member and reservation. A
+Port denial, an incomplete readyless response, or a typed P1 rejection
+produces `repick` with the original member and reservation. A
 grant advances only if the valid-return mask exactly matches the requested
 source mask and the optional PC return is valid. A partial readyless response
-produces `readRejected` and never publishes a partial I2 transaction. The
+produces `readRejected`, exact repick, and never publishes a partial I2 transaction. The
 physical IQ remains the canonical row owner, so denial or rejection does not
 release its reservation.
 
@@ -62,10 +63,9 @@ cycle, clears the retained stage, and reports the exact member/reservation in
 
 ## Remaining integration work
 
-- instantiate the implemented oldest-ready picker across the frozen
+- instantiate the implemented oldest-ready picker/bridge/lane composition
+  across the frozen
   multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
-- bridge lane repick/reject/recovery events into the implemented canonical IQ
-  `inFlight` owner;
 - canonical P/T/U RF implementations and one atomic multi-lane read arbiter;
 - P/T/U bypass matching with tag generation and local-sequence identity;
 - E1/W1 execution, wakeup, completion, and exact terminal IQ release;
@@ -76,10 +76,11 @@ cycle, clears the retained stage, and reports the exact member/reservation in
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexP1I2LaneSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexP1I2PcIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
 ```
 
 The focused UT covers backpressure stability, P/T source masks, optional PC,
-whole-uop grant, denial-to-repick, partial-response rejection, and exact
+whole-uop grant, denial-to-repick, partial-response rejection-to-repick, and exact
 cross-STID recovery. The IT allocates and publishes a real PC-buffer token,
 reads it through the fixed readyless port, and proves that the full PC and
 source value are retained at I2.

@@ -832,6 +832,12 @@ class OooIexPayloadSidecar(val p: OooParams = OooParams()) extends Bundle {
   val parentCount = UInt(p.architecturalParentCountWidth.W)
   val parentPcTokens = Vec(p.maxArchitecturalParentRefs,
     new PcBufferToken(p))
+  // Derived once from the canonical parent-key array when the IQ row binds.
+  // The opcode recipe says whether execution needs PC; this index says which
+  // architectural parent owns that PC without carrying the full address.
+  val pcParentIndexValid = Bool()
+  val pcParentIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxArchitecturalParentRefs)).W)
   val primaryPrediction = new OooPredictionRecord(p)
   val boundary = new BoundarySidecar(p)
   val templateValid = Bool()
@@ -877,6 +883,8 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def uopKey = payload.uopKey
   def parentCount = payload.parentCount
   def parentPcTokens = payload.parentPcTokens
+  def pcParentIndexValid = payload.pcParentIndexValid
+  def pcParentIndex = payload.pcParentIndex
   def primaryPrediction = payload.primaryPrediction
   def boundary = payload.boundary
   def templateValid = payload.templateValid
@@ -983,6 +991,15 @@ class OooIexPickRetryReject(val p: OooParams = OooParams()) extends Bundle {
   val residentExact = Bool()
   val identityExact = Bool()
   val wasInFlight = Bool()
+}
+
+/** A picked scheduling token failed to join its canonical payload sidecar. */
+class OooIexPickJoinReject(val p: OooParams = OooParams()) extends Bundle {
+  val token = new OooIexPickToken(p)
+  val residentExact = Bool()
+  val identityExact = Bool()
+  val recipeExact = Bool()
+  val pcMetadataExact = Bool()
 }
 
 /** Exact S2 acknowledgment for the earlier retained S1 transaction. */

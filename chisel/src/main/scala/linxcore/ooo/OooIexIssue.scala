@@ -24,6 +24,7 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryPrepareReady = Output(Bool())
   val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
   val recoveryFire = Input(Bool())
+  val recoveryApplied = Valid(new OooResidencyRecoveryPlan(p))
   // Every PTag return must invalidate the generation-qualified ready record
   // before the freelist can recycle that token.
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
@@ -132,6 +133,8 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
   val recoveryFreeze = recoveryPlan.valid && recoveryStidInRange &&
     (io.recoveryPrepare.valid ||
       recoveryScanState =/= OooIexRecoveryScanState.Idle)
+  io.recoveryApplied.valid := io.recoveryFire && io.recoveryPrepareReady
+  io.recoveryApplied.bits := recoveryPlan
 
   // A wakeup must remain visible to consumers dispatched after that producer
   // completed.  These generation-qualified scoreboards complement per-row
@@ -406,11 +409,15 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         row.uopKey := pUop.decoded.identity.key
         row.parentCount := pUop.decoded.identity.parentCount
         row.parentPcTokens := s2Request.o3.parentPcTokens(uopIndex)
+        row.pcParentIndexValid := false.B
+        row.pcParentIndex := 0.U
         row.primaryPrediction := 0.U.asTypeOf(row.primaryPrediction)
         for (parentIndex <- 0 until p.maxArchitecturalParentRefs) {
           val parent = pUop.decoded.identity.parents(parentIndex)
           when(parent.key.valid && parent.key.asUInt ===
               pUop.decoded.identity.key.primaryParent.asUInt) {
+            row.pcParentIndexValid := true.B
+            row.pcParentIndex := parentIndex.U
             row.primaryPrediction := parent.prediction
           }
         }
@@ -1120,7 +1127,15 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       OooIexIssueSlotState.ResidentS3 && retryRow.valid
   val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
     retry.reservation.asUInt === retryRow.reservation.asUInt
-  val retryWasInFlight = retryRow.inFlight
+  val retryClaimsCurrentPick = io.pick.fire &&
+    safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
+    safeRetryEntry === safePickEntry &&
+    sameMember(retry.member, pickToken.candidate.member) &&
+    retry.reservation.asUInt === pickToken.candidate.reservation.asUInt
+  // A fail-closed P1/join rejection can return the exact claim on the same
+  // edge that the picker fires. Treat that edge as in-flight so the later
+  // retry assignment wins and the canonical row remains immediately pickable.
+  val retryWasInFlight = retryRow.inFlight || retryClaimsCurrentPick
   val retryExact = retryResidentExact && retryIdentityExact &&
     retryWasInFlight &&
     !(recoveryFreeze && retry.member.group.stid === recoveryStid)

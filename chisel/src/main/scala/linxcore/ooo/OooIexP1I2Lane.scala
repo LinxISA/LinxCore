@@ -123,7 +123,9 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   val readAccepted = readDecision && io.readGrant && readResponseExact
   val readInvalid = readDecision && io.readGrant && !readResponseExact
   val i1WillClear = i1Killed || readDenied || readAccepted || readInvalid
-  val i1CanAccept = !i1Valid || i1WillClear
+  // Do not replace a denied/invalid attempt on the same edge: the single
+  // exact retry channel must never need to return two different members.
+  val i1CanAccept = !i1Valid || readAccepted || i1Killed
 
   // Invalid P1 payloads are consumed as typed rejects when the lane has room;
   // a malformed producer cannot wedge the ready/valid boundary forever.
@@ -135,8 +137,10 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.p1Rejected.bits.sourcesReady := p1SourcesReady
   io.p1Rejected.bits.pcTokenExact := p1PcTokenExact
 
-  io.repick.valid := readDenied
-  io.repick.bits := repickFrom(i1Request.row)
+  val p1Failed = io.p1.fire && !p1ShapeExact
+  io.repick.valid := readDenied || readInvalid || p1Failed
+  io.repick.bits := Mux(p1Failed,
+    repickFrom(p1Row), repickFrom(i1Request.row))
   io.readRejected.valid := readInvalid
   io.readRejected.bits.member := i1Request.row.member
   io.readRejected.bits.reservation := i1Request.row.reservation

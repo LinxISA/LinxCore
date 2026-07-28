@@ -52,6 +52,17 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_EBREAK").fastResolveClass == OooFastResolveClass.PreciseTrapRecord)
     assert(rule("OP_ACRC").dispatchClass == OooDispatchClass.Sys)
     assert(rule("OP_BSTART_TMA").recipeKind == OooOpcodeRecipeKind.EngineCmd)
+    assert(rule("OP_ADD").pcReadRequired == false)
+    assert(rule("OP_B_Z").pcReadRequired)
+    assert(rule("OP_JR").pcReadRequired)
+    assert(rule("OP_ADDTPC").pcReadRequired)
+    assert(rule("OP_LD_PCR").pcReadRequired)
+    assert(rule("OP_SD_PCR").pcReadRequired)
+    assert(rule("OP_SD_PCR").pcReadClass == OooDispatchClass.Agu)
+    assert(rule("OP_HL_LD_PCR").pcReadRequired)
+    assert(rule("OP_HL_SD_PCR").pcReadClass == OooDispatchClass.Alu)
+    assert(rule("OP_B_Z").pcReadClass == OooDispatchClass.Bru)
+    assert(!rule("OP_LD").pcReadRequired)
 
     val fastRules = OooOpcodeRecipeTable.Rules.filter(
       _.disposition == OooOpcodeDisposition.FastResolve)
@@ -91,6 +102,7 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
         dut.io.meta.opcode.expect(entry.opcode.U)
         dut.io.meta.disposition.expect(entry.disposition.U)
         dut.io.meta.recipeKind.expect(entry.recipeKind.U)
+        dut.io.meta.pcReadRequired.expect(entry.pcReadRequired.B)
       }
 
       dut.io.insn.poke("hffffffffffffffff".U)
@@ -127,6 +139,8 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       assert(sv.contains("module OooOpcodeRecipeProbe"))
       assert(sv.contains("io_meta_disposition"))
       assert(sv.contains("io_meta_sideEffectOwner"))
+      assert(sv.contains("io_meta_pcReadRequired"))
+      assert(sv.contains("io_meta_pcReadClass"))
     }
   }
 }

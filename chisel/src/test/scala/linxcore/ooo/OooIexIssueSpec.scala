@@ -140,6 +140,10 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
           .poke((100 + uopIndex).U)
         logical.identity.key.primaryParent.epoch.poke(6.U)
         logical.identity.parentCount.poke(1.U)
+        logical.recipe.valid.poke(true.B)
+        logical.recipe.opcode.poke((40 + uopIndex).U)
+        logical.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
+        logical.recipe.pcReadRequired.poke(false.B)
         val parent = logical.identity.parents(0)
         parent.key.valid.poke(true.B)
         parent.key.peId.poke(3.U)
@@ -258,6 +262,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRow.primaryPrediction.valid.expect(true.B)
       dut.io.queryRow.primaryPrediction.predictionTag.expect(20.U)
       dut.io.queryRow.parentPcTokens(0).valid.expect(true.B)
+      dut.io.queryRow.pcParentIndexValid.expect(true.B)
+      dut.io.queryRow.pcParentIndex.expect(0.U)
+      dut.io.queryRow.recipe.pcReadRequired.expect(false.B)
       dut.io.queryRow.destinations(0).valid.expect(true.B)
       dut.io.queryRow.destinations(0).ptag.expect(30.U)
     }
@@ -515,11 +522,6 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.pick.valid.expect(true.B)
       dut.io.pick.bits.query.bank.expect(1.U)
       dut.io.pick.bits.query.entry.expect(2.U)
-      dut.io.pick.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.pick.ready.poke(false.B)
-      dut.io.inFlightEntries(0)(1).expect(1.U)
-      dut.io.queryPickable.expect(false.B)
 
       val retry = dut.io.pickRetry.bits
       retry.poke(0.U.asTypeOf(retry))
@@ -530,6 +532,26 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       retry.reservation.writePort.poke(1.U)
       retry.reservation.speculativeSlot.poke(2.U)
       retry.reservation.reservationEpoch.poke(3.U)
+
+      // A bridge/P1 shape failure returns the exact token on the claim edge.
+      // The claim and retry must collapse to a resident, pickable row.
+      dut.io.pick.ready.poke(true.B)
+      dut.io.pickRetry.valid.poke(true.B)
+      dut.io.pickRetryRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.pick.ready.poke(false.B)
+      dut.io.pickRetry.valid.poke(false.B)
+      dut.io.inFlightEntries(0)(1).expect(0.U)
+      dut.io.queryPickable.expect(true.B)
+
+      dut.clock.step()
+      dut.io.pick.valid.expect(true.B)
+      dut.io.pick.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.pick.ready.poke(false.B)
+      dut.io.inFlightEntries(0)(1).expect(1.U)
+      dut.io.queryPickable.expect(false.B)
+
       dut.io.pickRetry.valid.poke(true.B)
       dut.io.pickRetryRejected.valid.expect(false.B)
       dut.clock.step()

@@ -65,6 +65,7 @@ DISPATCH_CLASS = {
     "CMD": 7,
     "BOUNDARY": 8,
 }
+PC_READ_PARENT = {"NONE", "PRIMARY"}
 
 REQUIRED_OOO_FIELDS = {
     "disposition", "recipe_kind", "uop_count_min", "uop_count_max",
@@ -72,6 +73,7 @@ REQUIRED_OOO_FIELDS = {
     "fusion_tail_class", "fast_resolve_class", "implicit_source_mask",
     "implicit_destination", "side_effect_owner", "requires_target_validation",
     "may_trap", "may_trap_late", "may_redirect", "nonspeculative",
+    "pc_read_parent", "pc_read_class",
     "dispatch_class", "dispatch_writes", "dispatch_demand", "memory_request_count", "p_source_count",
     "p_destination_count", "t_allocation_count", "u_allocation_count", "reason",
 }
@@ -107,6 +109,26 @@ def validate_catalog(data: dict) -> list[dict]:
         ):
             if value not in table:
                 raise ValueError(f"{record['symbol']} has unknown {field}={value}")
+        if meta["pc_read_parent"] not in PC_READ_PARENT:
+            raise ValueError(
+                f"{record['symbol']} has unknown pc_read_parent="
+                f"{meta['pc_read_parent']}")
+        if (meta["pc_read_parent"] == "PRIMARY" and
+                meta["disposition"] != "DISPATCH"):
+            raise ValueError(
+                f"{record['symbol']} reads PC outside the dispatch path")
+        if meta["pc_read_class"] not in DISPATCH_CLASS:
+            raise ValueError(
+                f"{record['symbol']} has unknown pc_read_class="
+                f"{meta['pc_read_class']}")
+        pc_read_required = meta["pc_read_parent"] == "PRIMARY"
+        if pc_read_required != (meta["pc_read_class"] != "NONE"):
+            raise ValueError(
+                f"{record['symbol']} has inconsistent PC parent/class policy")
+        if (pc_read_required and
+                int(meta["dispatch_demand"][meta["pc_read_class"]]) <= 0):
+            raise ValueError(
+                f"{record['symbol']} PC-read class has no dispatch child")
         if meta["disposition"] == "DISPATCH" and int(meta["dispatch_writes"]) <= 0:
             raise ValueError(f"{record['symbol']} dispatches without a write demand")
         if meta["disposition"] != "DISPATCH" and int(meta["dispatch_writes"]) != 0:
@@ -146,6 +168,8 @@ def rule_expr(record: dict) -> str:
         f"requiresTargetValidation = {bool_lit(meta['requires_target_validation'])}, "
         f"mayTrap = {bool_lit(meta['may_trap'])}, mayTrapLate = {bool_lit(meta['may_trap_late'])}, "
         f"mayRedirect = {bool_lit(meta['may_redirect'])}, nonspeculative = {bool_lit(meta['nonspeculative'])}, "
+        f"pcReadRequired = {bool_lit(meta['pc_read_parent'] == 'PRIMARY')}, "
+        f"pcReadClass = {DISPATCH_CLASS[meta['pc_read_class']]}, "
         f"dispatchClass = {DISPATCH_CLASS[meta['dispatch_class']]}, dispatchWrites = {meta['dispatch_writes']}, dispatchDemand = Seq({demand}), "
         f"memoryRequestCount = {meta['memory_request_count']}, "
         f"pSourceCount = {meta['p_source_count']}, pDestinationCount = {meta['p_destination_count']}, "
@@ -198,12 +222,13 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         "  val fastResolveClass = UInt(3.W)", "  val implicitSourceMask = UInt(3.W)",
         "  val implicitDestination = UInt(2.W)", "  val sideEffectOwner = UInt(3.W)",
         "  val requiresTargetValidation = Bool()", "  val mayTrap = Bool()", "  val mayTrapLate = Bool()",
-        "  val mayRedirect = Bool()", "  val nonspeculative = Bool()",
+        "  val mayRedirect = Bool()", "  val nonspeculative = Bool()", "  val pcReadRequired = Bool()",
+        "  val pcReadClass = UInt(4.W)",
         "  val dispatchClass = UInt(4.W)", "  val dispatchWrites = UInt(p.dispatchCountWidth.W)",
         "  val dispatchDemand = Vec(p.iqClassCount, UInt(p.dispatchCountWidth.W))", "  val memoryRequestCount = UInt(3.W)",
         "  val pSourceCount = UInt(p.sourceCountWidth.W)", "  val pDestinationCount = UInt(p.destinationCountWidth.W)",
         "  val tAllocationCount = UInt(2.W)", "  val uAllocationCount = UInt(2.W)", "}", "",
-        "final case class OooOpcodeRecipeRule(symbol: String, opcode: Int, lenBytes: Int, mask: BigInt, value: BigInt, disposition: Int, recipeKind: Int, uopCountMin: Int, uopCountMax: Int, complexBreak: Boolean, lateSplitKind: Int, fusionHeadClass: Int, fusionTailClass: Int, fastResolveClass: Int, implicitSourceMask: Int, implicitDestination: Int, sideEffectOwner: Int, requiresTargetValidation: Boolean, mayTrap: Boolean, mayTrapLate: Boolean, mayRedirect: Boolean, nonspeculative: Boolean, dispatchClass: Int, dispatchWrites: Int, dispatchDemand: Seq[Int], memoryRequestCount: Int, pSourceCount: Int, pDestinationCount: Int, tAllocationCount: Int, uAllocationCount: Int)", "",
+        "final case class OooOpcodeRecipeRule(symbol: String, opcode: Int, lenBytes: Int, mask: BigInt, value: BigInt, disposition: Int, recipeKind: Int, uopCountMin: Int, uopCountMax: Int, complexBreak: Boolean, lateSplitKind: Int, fusionHeadClass: Int, fusionTailClass: Int, fastResolveClass: Int, implicitSourceMask: Int, implicitDestination: Int, sideEffectOwner: Int, requiresTargetValidation: Boolean, mayTrap: Boolean, mayTrapLate: Boolean, mayRedirect: Boolean, nonspeculative: Boolean, pcReadRequired: Boolean, pcReadClass: Int, dispatchClass: Int, dispatchWrites: Int, dispatchDemand: Seq[Int], memoryRequestCount: Int, pSourceCount: Int, pDestinationCount: Int, tAllocationCount: Int, uAllocationCount: Int)", "",
     ]
     for chunk_idx, chunk in enumerate(chunks):
         lines.append(f"private object OooOpcodeRecipeRules{chunk_idx} {{")
@@ -225,7 +250,9 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         "    meta.implicitDestination := rule.implicitDestination.U", "    meta.sideEffectOwner := rule.sideEffectOwner.U",
         "    meta.requiresTargetValidation := rule.requiresTargetValidation.B", "    meta.mayTrap := rule.mayTrap.B",
         "    meta.mayTrapLate := rule.mayTrapLate.B", "    meta.mayRedirect := rule.mayRedirect.B",
-        "    meta.nonspeculative := rule.nonspeculative.B", "    meta.dispatchClass := rule.dispatchClass.U",
+        "    meta.nonspeculative := rule.nonspeculative.B", "    meta.pcReadRequired := rule.pcReadRequired.B",
+        "    meta.pcReadClass := rule.pcReadClass.U",
+        "    meta.dispatchClass := rule.dispatchClass.U",
         "    meta.dispatchWrites := rule.dispatchWrites.U", "    rule.dispatchDemand.zipWithIndex.foreach { case (value, idx) => meta.dispatchDemand(idx) := value.U }",
         "    meta.memoryRequestCount := rule.memoryRequestCount.U", "    meta.pSourceCount := rule.pSourceCount.U",
         "    meta.pDestinationCount := rule.pDestinationCount.U", "    meta.tAllocationCount := rule.tAllocationCount.U",
@@ -269,18 +296,23 @@ def emit_audit(path: Path, records: list[dict]) -> None:
     for record in records:
         unique.setdefault(int(record["op_id"]), record)
     counts = Counter(record["ooo"]["disposition"] for record in unique.values())
+    pc_read_count = sum(
+        record["ooo"]["pc_read_parent"] == "PRIMARY"
+        for record in unique.values())
     lines = [
         "# OOO opcode recipe audit", "", "> AUTO-GENERATED by `tools/chisel/gen_ooo_recipe_table.py`.", "",
-        f"Catalog records: **{len(records)}**; unique opcode IDs: **{len(unique)}**.", "",
+        f"Catalog records: **{len(records)}**; unique opcode IDs: **{len(unique)}**; "
+        f"primary-parent PC reads: **{pc_read_count}**.", "",
         "| Disposition | Count |", "|---|---:|",
     ]
     lines.extend(f"| `{name}` | {counts.get(name, 0)} |" for name in DISPOSITION)
-    lines.extend(["", "| Opcode | ID | Recipe | Disposition | Uops | Dispatch | Owner | Reason |", "|---|---:|---|---|---:|---|---|---|"])
+    lines.extend(["", "| Opcode | ID | Recipe | Disposition | Uops | Dispatch | PC read | Owner | Reason |", "|---|---:|---|---|---:|---|---|---|---|"])
     for op_id, record in sorted(unique.items()):
         meta = record["ooo"]
         uops = f"{meta['uop_count_min']}..{meta['uop_count_max']}"
         reason = str(meta["reason"]).replace("|", "\\|")
-        lines.append(f"| `{record['symbol']}` | {op_id} | `{meta['recipe_kind']}` | `{meta['disposition']}` | {uops} | `{meta['dispatch_class']}` | `{meta['side_effect_owner']}` | {reason} |")
+        pc_read = f"{meta['pc_read_parent']}/{meta['pc_read_class']}"
+        lines.append(f"| `{record['symbol']}` | {op_id} | `{meta['recipe_kind']}` | `{meta['disposition']}` | {uops} | `{meta['dispatch_class']}` | `{pc_read}` | `{meta['side_effect_owner']}` | {reason} |")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

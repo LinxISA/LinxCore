@@ -122,6 +122,22 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("carries generated primary-parent PC-read policy into canonical uops") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      drive(dut, 0, "OP_LD_PCR", rule("OP_LD_PCR").value, 23, 0x2300)
+      drive(dut, 1, "OP_LD", rule("OP_LD").value, 24, 0x2304)
+      dut.io.in.bits.validMask.poke(3.U)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.out.bits.uops(0).recipe.pcReadRequired.expect(true.B)
+      dut.io.out.bits.uops(1).recipe.pcReadRequired.expect(false.B)
+      dut.io.out.bits.uops(0).identity.key.primaryParent.instructionId
+        .expect(23.U)
+    }
+  }
+
   test("preserves P T U architectural aliases and counts their rename domains separately") {
     val p = OooParams()
     simulate(new OooD1Decode(p)) { dut =>

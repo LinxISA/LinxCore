@@ -20,6 +20,9 @@ The first downstream read-stage packet is documented separately in
 does not take ownership of the physical IQ entry.
 Oldest-ready selection and canonical speculative ownership are documented in
 [`OooIexOldestReadyPicker`](OooIexOldestReadyPicker.md).
+The exact selected-payload join and executable one-lane composition are
+documented in [`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
+[`OooIexIssueP1Lane`](OooIexIssueP1Lane.md).
 
 ## Stage ownership
 
@@ -52,8 +55,8 @@ speculative `inFlight`, and
 `RobMemberKey`, the class/bank/write-port/entry/reservation generation, and
 generation-qualified P/T/U source/destination tags. The payload sidecar keeps
 the canonical uop key, opcode, generated recipe, split-child index, primary
-prediction, PC-buffer tokens, and immediate/boundary/template/trap/close
-controls.
+prediction, PC-buffer tokens, derived primary-parent index, and
+immediate/boundary/template/trap/close controls.
 
 The joined query view preserves the existing execution contract. Release or
 recovery invalidates only the scheduling row; stale payload memory is
@@ -121,8 +124,7 @@ must quiesce those producers before prepare.
 ## Remaining gaps
 
 - Multi-domain P1 topology and disjoint class/bank-to-pipe mapping around the
-  implemented reusable oldest-ready picker and single P1/I1/I2 lane.
-- Selected payload-query to P1 bridge plus generated PC-read metadata.
+  implemented reusable picker/bridge/P1-I2 composition.
 - Canonical P/T/U RF owners, shared read-port arbitration, operand bypass, and
   result/wakeup buses.
 - The terminal handoff rule that releases the physical row only after a
@@ -143,6 +145,8 @@ as the semantic authority for this module.
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPicker
+bash tools/chisel/run_chisel_tests.sh --only OooIexPickP1Bridge
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Lane
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
@@ -150,7 +154,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 
 The focused UT covers retained-stage timing, fair STID arbitration, target
 claim collisions, split atomicity, compact row payload, registered wakeup,
-same-edge wakeup plus S2 bind, oldest-ready claim, retry-to-repick, exact
+same-edge wakeup plus S2 bind, oldest-ready claim, same-edge claim/retry,
+later retry-to-repick, exact
 in-flight release/backpressure, malformed requests,
 and widths 2/4/6. The compact recovery UT covers exact scan latency,
 side-effect-free partial-scan abort, partial-pivot S1/S2/S3 pruning, survivor
@@ -160,6 +165,11 @@ slices, and PTag recycle/reuse across retained common apply. The IT connects
 the real O3/RENU/dispatch
 coordinator and proves publication, residency, recovery preparation, common
 apply, and dispatch-slot return share the exact transactions.
+
+I0.3 additionally covers every generated recipe form, D1 propagation, exact
+primary-parent indexing, physical-child PC class selection, bridge
+backpressure/rejection, and an end-to-end S1/S2/S3 → P1/I1 denial → exact
+repick → I2 transaction.
 
 O8.1/O8.1b elaboration evidence uses the same first 2-bank x 4-entry stage
 test. Splitting the wide payload into inferred memory first reduced the main
@@ -178,3 +188,12 @@ I0.2 adds a separate 3,718-line picker and canonical in-flight bookkeeping.
 The same 2-bank x 4-entry main IEX owner is now 176,457 lines, a bounded 1.6%
 increase over the 173,709-line recovery-scan baseline. The picker has no
 payload-memory reference.
+
+I0.3 adds an explicit 913-line token-to-payload join. In the focused 2-bank ×
+4-entry composition, `OooIexIssueP1Lane` is 8,244 lines and contains separate
+158,376-line IQ, 913-line bridge, and 2,992-line P1/I1/I2 lane modules. The
+bridge RTL has no `payloadRows` or `scheduleRows` storage reference; it only
+checks the readyless joined row supplied by the IQ owner.
+In the directly comparable first IEX stage test, the main owner is now 176,764
+lines, 307 lines above I0.2 and 1.8% above the 173,709-line bounded-recovery
+baseline.
