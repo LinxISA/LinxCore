@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, log2Ceil}
+import chisel3.util.{Decoupled, Valid, log2Ceil}
 import linxcore.common.InterfaceParams
 import linxcore.frontend.{D1InstructionGroup, IfuInnerFlush}
 
@@ -19,11 +19,27 @@ class OooIfuD1IngressIO(
   /** Stops new target-STID movement without clearing retained frontend state. */
   val fence = Input(Vec(oooP.stidCount, Bool()))
   val cancel = Input(Vec(oooP.stidCount, Bool()))
+
+  val ctuParentClaim = Decoupled(new OooCtuParentClaim(oooP))
+  val ctuExpansionPlan = Flipped(Decoupled(new OooCtuExpansionPlan(oooP)))
+  val ctuChild = Flipped(Decoupled(new OooCtuCanonicalChild(oooP)))
+  val ctuPlanRejected = Valid(new OooCtuPlanReject(oooP))
+  val ctuChildRejected = Valid(new OooCtuChildReject(oooP))
+  val ctuRecoveryPrepare = Flipped(Decoupled(
+    new OooGlobalRecoveryRequest(oooP)))
+  val ctuRecoveryPrepared = Valid(new OooCtuRecoveryPrepared(oooP))
+  val ctuRecoveryRejected = Valid(new OooCtuRecoveryReject(oooP))
+  val ctuRecoveryApply = Input(Bool())
+  val ctuRecoveryAbort = Input(Bool())
+
   val out = Decoupled(new OooD1DecodedPacket(oooP))
 
   val rawCounts = Output(Vec(oooP.stidCount, UInt(countWidth.W)))
   val rawEligibleMask = Output(UInt(oooP.stidCount.W))
   val fusionHeld = Output(Vec(oooP.stidCount, Bool()))
+  val ctuOccupied = Output(Vec(oooP.stidCount, Bool()))
+  val ctuActive = Output(Vec(oooP.stidCount, Bool()))
+  val complexBlocked = Output(Vec(oooP.stidCount, Bool()))
   val malformedInput = Output(Bool())
 }
 
@@ -41,6 +57,7 @@ class OooIfuD1Ingress(
 
   val raw = Module(new OooIfuRawIngress(ifuP, oooP, depthPerStid))
   val d1 = Module(new OooD1ProductionDecode(oooP))
+  val ctu = Module(new OooCtuIngressBridge(oooP))
 
   raw.io.ifuD1 <> io.ifuD1
   raw.io.selectStid := io.selectStid
@@ -51,12 +68,30 @@ class OooIfuD1Ingress(
   for (stid <- 0 until oooP.stidCount) {
     d1.io.cancel(stid) :=
       io.cancel(stid) || (io.flush.valid && io.flush.threadId === stid.U)
+    ctu.io.cancel(stid) := d1.io.cancel(stid)
   }
-  io.out <> d1.io.out
+  ctu.io.fence := io.fence
+  ctu.io.in <> d1.io.out
+  io.out <> ctu.io.out
+
+  io.ctuParentClaim <> ctu.io.parentClaim
+  ctu.io.expansionPlan <> io.ctuExpansionPlan
+  ctu.io.child <> io.ctuChild
+  io.ctuPlanRejected := ctu.io.planRejected
+  io.ctuChildRejected := ctu.io.childRejected
+  ctu.io.recoveryPrepare <> io.ctuRecoveryPrepare
+  io.ctuRecoveryPrepared := ctu.io.recoveryPrepared
+  io.ctuRecoveryRejected := ctu.io.recoveryRejected
+  ctu.io.recoveryApply := io.ctuRecoveryApply
+  ctu.io.recoveryAbort := io.ctuRecoveryAbort
 
   io.ifuThreadId := raw.io.ifuThreadId
   io.rawCounts := raw.io.counts
-  io.rawEligibleMask := raw.io.eligibleMask
+  io.rawEligibleMask := raw.io.eligibleMask &
+    ~ctu.io.occupied.asUInt & ~ctu.io.active.asUInt
   io.fusionHeld := d1.io.held
+  io.ctuOccupied := ctu.io.occupied
+  io.ctuActive := ctu.io.active
+  io.complexBlocked := ctu.io.blockedByComplex
   io.malformedInput := raw.io.malformedInput
 }

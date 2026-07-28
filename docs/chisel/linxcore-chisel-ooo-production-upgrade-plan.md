@@ -84,14 +84,14 @@ promotion.
 | O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages, generated 689-record opcode recipe audit, and exact S1/S2/S3 residency contract updated | P1/I1/I2 and global-cancel integration contracts |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
-| O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; CTU child reinsertion remains O7 |
+| O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; the external CTU recipe producer is connected at O9 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit coordinator; O4 RENU and O5/O6 integration | O7 global recovery remains |
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | O7 supplies global ROB/BROB/PC/IQ cancellation |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; focused UT/IT | replace the functional full-bitmap allocator with O8 hierarchical/FIFO physical selection |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds dispatch, IEX, and fast-resolve owners; O7.2d1 retains the lower ROB/D3/BROB/PC transaction; O7.2d2 opens the O3 global request and joins lower apply, P/T/U authorization/rebuild, dispatch, fast, and external IEX; O7.2e adds non-mutating frontend fences, apply-time stage cancellation, retained IFU redirect, and exact canonical-flush/rebuild R4 join | O7.3 external CTU lease/child reinsertion, and then O8/O9 physical/workload closure remain |
+| O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and production-top wiring are O9 integration work |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -102,10 +102,10 @@ benchmark hierarchy to production OOO.
 The production graph is:
 
 ```text
-IFU fixed-64b Instruction Buffer ----+
-                                     +--> OOO ingress --> D1 decode/fuse/break
-external CTU canonical child rows ---+                    |
-                                                          v
+IFU fixed-64b Instruction Buffer --> D1 decode/fuse/divert --+
+                                                             +--> OOO ingress join
+external CTU <-- claim/plan lease --> canonical child rows ---+       |
+                                                                     v
                                              D2 virtual RID/group plan
                                              resource and PC preview
                                                           |
@@ -1077,23 +1077,39 @@ causes zero mutation.
 
 ## 19. External CTU integration
 
-CTU remains outside IFU and OOO. `IfuCtuOooBridge` arbitrates raw fixed-width
-IFU entries and CTU-produced canonical children into an OOO ingress/expansion
-buffer.
+CTU remains outside IFU and OOO. The production OOO-side
+`OooCtuIngressBridge`, composed by `OooIfuD1Ingress`, retains decoded D1
+packets per STID, claims diverted template parents, and arbitrates ordinary
+prefixes with CTU-produced canonical children before D2. D1 performs only the
+decode needed to identify a template parent; the external CTU still owns the
+recipe algorithm and expansion sequencing.
 
 When a template parent is claimed:
 
 1. the raw parent is consumed exactly once;
 2. CTU computes its exact ordered child recipe and resource envelope;
-3. the bridge obtains a retained group/space lease;
+3. the bridge assigns a retained
+   `{PE, STID, parent, templateGroupId, generation}` ingress lease;
 4. CTU emits canonical children carrying parent/template/ordinal identity;
-5. children enter normal D1 validation, D2 grouping, D3 rename/ROB, S1
-   dispatch, execute, precise trap, and commit paths;
-6. the final child gates the one architectural parent commit record.
+5. children pass exact bridge validation, then enter normal D2 grouping, D3
+   rename/ROB, S1 dispatch, execute, precise trap, and commit paths;
+6. nonfinal children carry zero trace-parent demand and the final child gates
+   the one architectural parent commit record.
+
+The exact plan fixes child count before emission. Stale leases, wrong ordinals,
+count drift, illegal/recursive children, and generation mismatches are consumed
+as typed rejects without advancing the lease. Each accepted child is one
+canonical D1 packet, so a long expansion uses the ordinary D2 grouping rules
+and may span several RIDs. Parentless ROB rows are legal only for exact
+nonfinal template continuations; the final child must own the parent.
 
 CTU never allocates RID/BID/PTag/IQ state, writes PRF or memory directly,
 completes ROB state directly, or globally blocks unrelated STIDs. Recovery
-cancels CTU state with exact `{PE, STID, parent, templateGroup, generation}`.
+prepares CTU before O3 admission, fences without mutation, and cancels retained
+D1/lease state on the same common apply as ROB/D3/BROB/PC/rename/dispatch/IEX.
+Abort only releases the fence. Because same-STID D1 and active expansion are
+in order behind the ROB trigger, the apply discards the complete retained
+target-STID ingress/lease continuation; unrelated STIDs remain live.
 
 The current Template D3 reservation/fill machinery is a migration oracle for
 row recipes and cancellation tests only. It cannot coexist as a production
@@ -1554,9 +1570,26 @@ request after every retained lower/scanner owner has drained. The production
 IFU composition gives this applied-recovery redirect priority over the
 compatibility BRU-feedback queue and consumes an identical duplicate once.
 
-O7.3 next adds the external CTU lease, exact child order/count, canonical
-reinsertion ahead of the instruction buffer, multi-RID expansion,
-final-parent retirement, and recovery cancel/reuse.
+O7.3 is implemented by `OooCtuIngressBridge`. It preserves mixed
+ordinary/template program order, emits the dense ordinary prefix before a
+diverted parent, and retains one exact per-STID lease through claim, plan, and
+ordered child emission. Canonical children re-enter before D2 one at a time,
+so expansions larger than one RID group need no CTU-owned ROB capacity.
+Template ordinal/count widths cover `maxRecipeUops`; only the final child owns
+the architectural parent, while `OooS1GroupedRob` accepts zero-parent rows only
+for exact nonfinal template continuations.
+
+`OooFrontendRecoveryBridge` prepares CTU before offering the request to O3.
+CTU snapshot/fence is side-effect free; exact O3 apply drives CTU cancellation
+and frontend stage cancellation on the same cycle, and exact O3 abort releases
+the CTU transaction without mutation. The bridge rejects stale plans,
+out-of-order/count-drifting children, malformed children, and malformed
+recovery requests without lease advance. Unresolved complex parents remain an
+explicit fail-closed boundary, not a CTU bypass.
+
+The OOO-side O7 contract is therefore closed. O9 must still instantiate the
+external recipe producer, connect it to the claim/plan/child ports in the
+production top, and retire the legacy direct-effect CTU path.
 
 Exit: recovery at every stage and template phase closes with zero cross-STID
 mutation; CTU has no direct RF/ROB/LSU architectural-effect port.

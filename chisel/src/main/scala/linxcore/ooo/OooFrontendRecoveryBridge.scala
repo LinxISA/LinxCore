@@ -10,15 +10,15 @@ import linxcore.frontend.{
 }
 
 object OooFrontendRecoveryState extends ChiselEnum {
-  val Idle, RequestO3, WaitApply, WaitTerminal = Value
+  val Idle, RequestCtu, WaitCtu, RequestO3, WaitApply, WaitTerminal = Value
 }
 
 object OooFrontendRecoveryRejectReason extends ChiselEnum {
-  val MalformedCommand, O3Aborted = Value
+  val MalformedCommand, CtuRejected, O3Aborted = Value
 }
 
-/** One recovery command joins the exact OOO suffix authority with the IFU
-  * restart proposal that describes the same architectural event.
+/** One recovery command joins the exact OOO suffix authority with CTU and the
+  * IFU restart proposal that describes the same architectural event.
   */
 class OooFrontendRecoveryCommand(
     val ifuP: InterfaceParams = InterfaceParams(),
@@ -82,6 +82,12 @@ class OooFrontendRecoveryBridgeIO(
   val o3Applied = Flipped(Valid(new OooGlobalRecoveryRequest(oooP)))
   val o3Completed = Flipped(Valid(new OooGlobalRecoveryRequest(oooP)))
   val o3Aborted = Flipped(Valid(new OooGlobalRecoveryRequest(oooP)))
+
+  val ctuPrepare = Decoupled(new OooGlobalRecoveryRequest(oooP))
+  val ctuPrepared = Flipped(Valid(new OooCtuRecoveryPrepared(oooP)))
+  val ctuRejected = Flipped(Valid(new OooCtuRecoveryReject(oooP)))
+  val ctuApply = Output(Bool())
+  val ctuAbort = Output(Bool())
 
   val ifuRedirect = Decoupled(new IfuInnerFlush(ifuP))
   val canonicalFlush = Flipped(Valid(new IfuInnerFlush(ifuP)))
@@ -148,8 +154,19 @@ class OooFrontendRecoveryBridge(
   val activeStid = command.ooo.rename.key.member.group.stid
 
   io.in.ready := idle
+  io.ctuPrepare.valid := state === OooFrontendRecoveryState.RequestCtu
+  io.ctuPrepare.bits := command.ooo
   io.o3Request.valid := state === OooFrontendRecoveryState.RequestO3
   io.o3Request.bits := command.ooo
+
+  val exactCtuPrepared = state === OooFrontendRecoveryState.WaitCtu &&
+    io.ctuPrepared.valid &&
+    io.ctuPrepared.bits.request.asUInt === command.ooo.asUInt
+  val exactCtuRejected =
+    (state === OooFrontendRecoveryState.RequestCtu ||
+      state === OooFrontendRecoveryState.WaitCtu) &&
+      io.ctuRejected.valid &&
+      io.ctuRejected.bits.request.asUInt === command.ooo.asUInt
 
   val exactO3Applied = state === OooFrontendRecoveryState.WaitApply &&
     io.o3Applied.valid && io.o3Applied.bits.asUInt === command.ooo.asUInt
@@ -175,6 +192,8 @@ class OooFrontendRecoveryBridge(
 
   io.fence.foreach(_ := false.B)
   io.stageCancel.foreach(_ := false.B)
+  io.ctuApply := exactO3Applied
+  io.ctuAbort := exactO3Aborted
   for (stid <- 0 until oooP.stidCount) {
     io.fence(stid) :=
       (state =/= OooFrontendRecoveryState.Idle && activeStid === stid.U) ||
@@ -191,12 +210,15 @@ class OooFrontendRecoveryBridge(
     io.canonicalFlush.bits.newEpoch,
     canonicalEpoch)
 
-  io.rejected.valid := acceptedMalformed || exactO3Aborted
+  io.rejected.valid := acceptedMalformed || exactCtuRejected || exactO3Aborted
   io.rejected.bits.command := Mux(acceptedMalformed, io.in.bits, command)
   io.rejected.bits.reason := Mux(
     acceptedMalformed,
     OooFrontendRecoveryRejectReason.MalformedCommand,
-    OooFrontendRecoveryRejectReason.O3Aborted)
+    Mux(
+      exactCtuRejected,
+      OooFrontendRecoveryRejectReason.CtuRejected,
+      OooFrontendRecoveryRejectReason.O3Aborted))
 
   when(acceptedCommand) {
     command := io.in.bits
@@ -204,7 +226,16 @@ class OooFrontendRecoveryBridge(
     o3CompletedSeen := false.B
     canonicalSeen := false.B
     canonicalEpoch := 0.U
+    state := OooFrontendRecoveryState.RequestCtu
+  }
+
+  when(io.ctuPrepare.fire) {
+    state := OooFrontendRecoveryState.WaitCtu
+  }
+  when(exactCtuPrepared) {
     state := OooFrontendRecoveryState.RequestO3
+  }.elsewhen(exactCtuRejected) {
+    state := OooFrontendRecoveryState.Idle
   }
 
   when(io.o3Request.fire) {
@@ -243,5 +274,9 @@ class OooFrontendRecoveryBridge(
   }
   when(io.o3Aborted.valid && state === OooFrontendRecoveryState.WaitTerminal) {
     assert(false.B, "an applied O3 recovery cannot subsequently abort")
+  }
+  when(io.ctuPrepared.valid && state === OooFrontendRecoveryState.WaitCtu) {
+    assert(io.ctuPrepared.bits.request.asUInt === command.ooo.asUInt,
+      "CTU prepare acknowledgement must retain the exact recovery request")
   }
 }

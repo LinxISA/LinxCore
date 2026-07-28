@@ -112,9 +112,12 @@ and T/U cursor rebuild. Every PTag return, including commit and recovery, now
 invalidates the matching IEX ready generation on the same handshake before
 freelist reuse, so a killed fast producer needs no resident IQ row. Any owner
 rejection enters a retained abort phase until both lower and rename authorities
-are idle, with no pre-apply mutation. The immediate handoff is frontend-stage
-and redirect/restart acknowledgement composition, followed by O7.3 CTU
-canonical-child reinsertion. The
+are idle, with no pre-apply mutation. O7.2e now closes frontend-stage
+fence/cancel and exact redirect/restart acknowledgement. O7.3 adds the
+per-STID external CTU claim/plan/lease ledger, ordered canonical-child
+reinsertion, final-only parent ownership across multiple RID groups, and CTU
+prepare/apply/abort around the same O3 common apply. The external recipe engine
+and production-top connection remain O9 work. The
 existing four-wide `D1InstructionDecodeStage`
 remains a compatibility operand/immediate oracle and must not become the
 production OOO packet contract. Do not reconnect the benchmark top until

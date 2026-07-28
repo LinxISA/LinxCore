@@ -2,7 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.{Decoupled, RegEnable, Valid}
 import linxcore.common.InterfaceParams
 import linxcore.frontend.{IfuInnerFlush, IfuInnerFlushReason, IfuPruneScope}
 import linxcore.top.LinxCoreProductionComposition
@@ -52,6 +52,17 @@ class OooFrontendIfuRecoveryIntegration(
   bridge.io.o3Applied := io.o3Applied
   bridge.io.o3Completed := io.o3Completed
   bridge.io.o3Aborted := io.o3Aborted
+  bridge.io.ctuPrepare.ready := true.B
+  val ctuPreparedValid = RegNext(bridge.io.ctuPrepare.fire, false.B)
+  val ctuPreparedRequest = RegEnable(
+    bridge.io.ctuPrepare.bits,
+    0.U.asTypeOf(bridge.io.ctuPrepare.bits),
+    bridge.io.ctuPrepare.fire)
+  bridge.io.ctuPrepared.valid := ctuPreparedValid
+  bridge.io.ctuPrepared.bits := 0.U.asTypeOf(bridge.io.ctuPrepared.bits)
+  bridge.io.ctuPrepared.bits.request := ctuPreparedRequest
+  bridge.io.ctuRejected.valid := false.B
+  bridge.io.ctuRejected.bits := 0.U.asTypeOf(bridge.io.ctuRejected.bits)
   ifu.io.recoveryRedirect <> bridge.io.ifuRedirect
   bridge.io.canonicalFlush := ifu.io.canonicalFlush
 
@@ -139,7 +150,12 @@ class OooFrontendIfuRecoveryIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.command.valid.poke(false.B)
 
-      dut.io.o3Request.valid.expect(true.B)
+      var requestCycles = 0
+      while (!dut.io.o3Request.valid.peek().litToBoolean && requestCycles < 8) {
+        dut.clock.step()
+        requestCycles += 1
+      }
+      assert(requestCycles < 8, "CTU prepare did not release O3 request")
       dut.io.o3Request.ready.poke(true.B)
       dut.clock.step()
       dut.io.o3Request.ready.poke(false.B)

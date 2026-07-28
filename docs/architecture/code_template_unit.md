@@ -8,9 +8,10 @@ Canonical contract summary:
 
 `CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`,
 `FRET_STK`) into an ordered canonical-child stream for the owning STID. It is
-external to IFU and OOO. `IfuCtuOooBridge` claims one raw parent exactly once,
-obtains an expansion-space lease, and inserts CTU children into the OOO ingress
-buffer; CTU is not a post-D3 allocator or architectural-effect owner.
+external to IFU and OOO. `OooCtuIngressBridge` claims one D1-classified raw
+parent exactly once, retains an expansion lease, and inserts CTU children into
+the OOO ingress before D2; CTU is not a post-D3 allocator or
+architectural-effect owner.
 
 Source:
 
@@ -118,11 +119,14 @@ Primary outputs:
 
 Canonical target integration is:
 
-1. The bridge classifies and claims the fixed-64-bit template parent before OOO
-   D1 consumes it. I-F4 predecode remains limited to BSTART/BSTOP.
+1. OOO D1 decodes only far enough to classify the fixed-64-bit template parent
+   and retains the complete raw parent/prediction sideband. The production
+   `OooCtuIngressBridge` claims it after D1 and before D2. I-F4 predecode
+   remains limited to BSTART/BSTOP.
 2. CTU computes the exact ordered child recipe and resource envelope. The
-   bridge obtains a retained ingress/expansion lease before the first child is
-   visible.
+   bridge assigns a retained
+   `{PE,STID,parent,templateGroupId,generation}` ingress lease before the first
+   child is visible.
 3. CTU emits children carrying
    `{PE,STID,parentId,templateGroupId,generation,ordinal,count}`. Children enter
    normal D1 validation, D2 virtual grouping, D3 rename/reservation, and S1
@@ -130,13 +134,23 @@ Canonical target integration is:
 4. Children pass through normal execute/LSU, precise trap, commit, and trace
    ownership. The final child gates the one architectural parent retirement
    record, even when children span several RID groups.
-5. Recovery cancels queued/active expansion by exact parent/template identity,
-   returns the lease, and cannot expose partial wrong-path side effects.
+5. Recovery prepares/fences CTU before O3 admission, then cancels queued/active
+   expansion on the exact O3 common apply. Abort only releases the fence; a
+   stale post-cancel plan or child cannot advance the lease.
 6. No CTU child writes PRF, D-memory, `setc`, ROB, BROB, or architectural state
    directly.
 7. CTU backpressure is per STID; it must not stall unrelated STIDs.
 
-The current reduced `LinxCoreBackend` integration instead uses CTU outputs to:
+The production OOO-side claim/lease/reinsertion and recovery boundary is now
+implemented in `chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala`
+and composed by `OooIfuD1Ingress`. `OooS1GroupedRob` permits a zero-parent row
+only for an exact nonfinal template continuation and requires the final child
+to own the single parent. Focused UT/IT cover six-child multi-RID expansion,
+stale/order rejects, STID isolation, and common recovery apply.
+
+The external recipe engine and its production-top connection remain O9 work.
+Until that promotion, the legacy `LinxCoreBackend` integration uses CTU outputs
+to:
 
 - gate pipeline run (`can_run = base_can_run & ~block_ifu`)
 - arbitrate template load/store use of the D-memory path
@@ -146,7 +160,7 @@ The current reduced `LinxCoreBackend` integration instead uses CTU outputs to:
 
 Those direct-write/global-block paths and the current Template-D3 reservation
 modules are migration oracles only. They are forbidden from the production
-composition once `IfuCtuOooBridge` is enabled.
+composition once the external producer is connected to `OooCtuIngressBridge`.
 
 Integration point:
 

@@ -20,6 +20,11 @@ class OooFrontendRecoveryBridgeSpec extends AnyFunSuite with ChiselSim {
     dut.io.o3Completed.bits.poke(0.U.asTypeOf(dut.io.o3Completed.bits))
     dut.io.o3Aborted.valid.poke(false.B)
     dut.io.o3Aborted.bits.poke(0.U.asTypeOf(dut.io.o3Aborted.bits))
+    dut.io.ctuPrepare.ready.poke(false.B)
+    dut.io.ctuPrepared.valid.poke(false.B)
+    dut.io.ctuPrepared.bits.poke(0.U.asTypeOf(dut.io.ctuPrepared.bits))
+    dut.io.ctuRejected.valid.poke(false.B)
+    dut.io.ctuRejected.bits.poke(0.U.asTypeOf(dut.io.ctuRejected.bits))
     dut.io.ifuRedirect.ready.poke(false.B)
     dut.io.canonicalFlush.valid.poke(false.B)
     dut.io.canonicalFlush.bits.poke(0.U.asTypeOf(dut.io.canonicalFlush.bits))
@@ -117,6 +122,20 @@ class OooFrontendRecoveryBridgeSpec extends AnyFunSuite with ChiselSim {
     dut.clock.step()
     dut.io.in.valid.poke(false.B)
 
+    dut.io.ctuPrepare.valid.expect(true.B)
+    dut.io.ctuPrepare.bits.rename.key.member.group.stid.expect(1.U)
+    dut.clock.step(2)
+    dut.io.ctuPrepare.valid.expect(true.B)
+    dut.io.ctuPrepare.ready.poke(true.B)
+    dut.clock.step()
+    dut.io.ctuPrepare.ready.poke(false.B)
+
+    dut.io.ctuPrepared.bits.poke(0.U.asTypeOf(dut.io.ctuPrepared.bits))
+    pokeO3Request(dut.io.ctuPrepared.bits.request)
+    dut.io.ctuPrepared.valid.poke(true.B)
+    dut.clock.step()
+    dut.io.ctuPrepared.valid.poke(false.B)
+
     dut.io.o3Request.valid.expect(true.B)
     dut.io.o3Request.bits.rename.key.member.group.stid.expect(1.U)
     dut.clock.step(2)
@@ -138,6 +157,7 @@ class OooFrontendRecoveryBridgeSpec extends AnyFunSuite with ChiselSim {
       copyActiveRequestTo(dut, dut.io.o3Applied.bits)
       dut.io.o3Applied.valid.poke(true.B)
       dut.io.stageCancel(1).expect(true.B)
+      dut.io.ctuApply.expect(true.B)
       dut.clock.step()
       dut.io.o3Applied.valid.poke(false.B)
 
@@ -205,9 +225,38 @@ class OooFrontendRecoveryBridgeSpec extends AnyFunSuite with ChiselSim {
       dut.io.rejected.valid.expect(true.B)
       dut.io.rejected.bits.reason.expect(OooFrontendRecoveryRejectReason.O3Aborted)
       dut.io.stageCancel(1).expect(false.B)
+      dut.io.ctuAbort.expect(true.B)
       dut.io.ifuRedirect.valid.expect(false.B)
       dut.clock.step()
       dut.io.o3Aborted.valid.poke(false.B)
+      dut.io.busy.expect(false.B)
+      dut.io.fence(1).expect(false.B)
+    }
+  }
+
+  test("CTU prepare rejection releases the fence before O3 admission") {
+    simulate(new OooFrontendRecoveryBridge(ifuP, oooP)) { dut =>
+      clear(dut)
+      pokeCommand(dut)
+      dut.io.in.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+
+      dut.io.ctuPrepare.valid.expect(true.B)
+      dut.io.ctuPrepare.ready.poke(true.B)
+      dut.io.ctuRejected.bits.poke(0.U.asTypeOf(dut.io.ctuRejected.bits))
+      pokeO3Request(dut.io.ctuRejected.bits.request)
+      dut.io.ctuRejected.valid.poke(true.B)
+      dut.io.rejected.valid.expect(true.B)
+      dut.io.rejected.bits.reason.expect(
+        OooFrontendRecoveryRejectReason.CtuRejected)
+      dut.io.o3Request.valid.expect(false.B)
+      dut.io.stageCancel(1).expect(false.B)
+      dut.io.ctuApply.expect(false.B)
+      dut.io.ctuAbort.expect(false.B)
+      dut.clock.step()
+      dut.io.ctuRejected.valid.poke(false.B)
+      dut.io.ctuPrepare.ready.poke(false.B)
       dut.io.busy.expect(false.B)
       dut.io.fence(1).expect(false.B)
     }

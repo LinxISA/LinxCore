@@ -35,8 +35,9 @@ retained abort state prevents a late owner acceptance from surviving another
 owner's rejection. PTag return and external IEX ready-generation invalidation
 are one atomic handshake before freelist reuse, covering both killed fast
 producers and normal commit recycle. The obsolete public external PTag-return
-input has been removed. Frontend redirect/restart acknowledgement and O7.3 CTU
-reinsertion remain the next recovery composition slices.
+input has been removed. O7.2e closes frontend redirect/restart acknowledgement;
+O7.3 closes the OOO-side CTU claim/lease/ordered-child and recovery composition.
+The external CTU recipe engine and production-top connection remain O9 work.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact
 native-BID/BROB-generation and grouped-RID/member bundles, and the four-thread
@@ -45,7 +46,7 @@ metadata, canonical 2/4/6-wide D1 decode, exact P/T/U and pair operand
 normalization, precise-trap conversion, same/cross-cycle boundary fusion, and
 the fixed-four-wide IFU to per-STID 2/4/6 raw ingress. CTU and complex rows
 carry exact diverted parents rather than mask-only identity; CTU child
-reinsertion remains the external O7 bridge. O3 now has virtual grouping,
+reinsertion now uses the O7 `OooCtuIngressBridge` before D2. O3 now has virtual grouping,
 retained D2/D3 allocation, atomic grouped ROB publication/completion, native
 BID/generation BROB ownership, a fixed-partition 64-entry byte-offset PC
 buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 owns

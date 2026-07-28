@@ -20,6 +20,17 @@ class OooIfuD1IngressSpec extends AnyFunSuite with ChiselSim {
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
     dut.io.fence.foreach(_.poke(false.B))
     dut.io.cancel.foreach(_.poke(false.B))
+    dut.io.ctuParentClaim.ready.poke(false.B)
+    dut.io.ctuExpansionPlan.valid.poke(false.B)
+    dut.io.ctuExpansionPlan.bits.poke(
+      0.U.asTypeOf(dut.io.ctuExpansionPlan.bits))
+    dut.io.ctuChild.valid.poke(false.B)
+    dut.io.ctuChild.bits.poke(0.U.asTypeOf(dut.io.ctuChild.bits))
+    dut.io.ctuRecoveryPrepare.valid.poke(false.B)
+    dut.io.ctuRecoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.ctuRecoveryPrepare.bits))
+    dut.io.ctuRecoveryApply.poke(false.B)
+    dut.io.ctuRecoveryAbort.poke(false.B)
     dut.io.out.ready.poke(true.B)
   }
 
@@ -74,6 +85,8 @@ class OooIfuD1IngressSpec extends AnyFunSuite with ChiselSim {
     simulate(new OooIfuD1Ingress(ifuP, oooP, depthPerStid = 8)) { dut =>
       clear(dut)
       enqueue(dut, Seq("OP_ADD", "OP_BSTOP"), firstId = 10)
+      dut.io.out.ready.poke(false.B)
+      dut.clock.step()
 
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.uopMask.expect(1.U)
@@ -84,20 +97,21 @@ class OooIfuD1IngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.uops(0).identity.boundary.stop.expect(true.B)
       dut.io.out.bits.uops(0).identity.parents(0).prediction.transactionId
         .expect((0x1000 + 10).U)
+      dut.io.out.ready.poke(true.B)
       dut.clock.step()
       dut.io.rawCounts(0).expect(0.U)
     }
   }
 
-  test("exports an exact CTU parent instead of reconstructing it from the diversion mask") {
+  test("claims an exact CTU parent instead of forwarding a diversion mask to D2") {
     simulate(new OooIfuD1Ingress(ifuP, oooP, depthPerStid = 8)) { dut =>
       clear(dut)
       enqueue(dut, Seq("OP_FENTRY"), firstId = 20)
+      dut.clock.step()
 
-      dut.io.out.valid.expect(true.B)
-      dut.io.out.bits.uopMask.expect(0.U)
-      dut.io.out.bits.ctuParentMask.expect(1.U)
-      val parent = dut.io.out.bits.ctuParents(0).parent
+      dut.io.out.valid.expect(false.B)
+      dut.io.ctuParentClaim.valid.expect(true.B)
+      val parent = dut.io.ctuParentClaim.bits.parent.parent
       parent.key.valid.expect(true.B)
       parent.key.peId.expect(4.U)
       parent.key.stid.expect(0.U)
@@ -107,6 +121,9 @@ class OooIfuD1IngressSpec extends AnyFunSuite with ChiselSim {
       parent.prediction.fetchPacketUid.expect((0x2000 + 20).U)
       parent.prediction.fetchSeq.expect((0x3000 + 20).U)
       parent.prediction.predictionTag.expect((0x4000 + 20).U)
+      dut.io.ctuParentClaim.bits.lease.parent.instructionId.expect(20.U)
+      dut.io.ctuParentClaim.bits.lease.templateGroupId.expect(0.U)
+      dut.io.ctuParentClaim.bits.lease.generation.expect(0.U)
     }
   }
 }

@@ -133,6 +133,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   for (groupIndex <- 0 until p.instructionDecodeWidth) {
     val group = io.publish.bits.reservation.transaction.groups(groupIndex)
     val binding = io.publish.bits.bindings(groupIndex)
+    val decoded = io.publish.bits.reservation.transaction.decoded
     val active = groupIndex.U < publishGroupCount
     val targetRow = rows(safePublishStid)(group.key.ridSlot)
     val expectedSlotSum =
@@ -141,6 +142,14 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     val memberMask =
       ((1.U((p.maxOrdinaryUopsPerGroup + 1).W) << group.physicalMemberCount) - 1.U)(
         p.maxOrdinaryUopsPerGroup - 1, 0)
+    val templateContinuationMask = VecInit((0 until p.decodedUopWidth).map { uopIndex =>
+      val uop = decoded.uops(uopIndex)
+      group.logicalUopMask(uopIndex) && uop.valid &&
+        uop.identity.templateValid && uop.identity.key.uopCount > 1.U &&
+        (uop.identity.key.uopOrdinal +& 1.U) < uop.identity.key.uopCount
+    }).asUInt
+    val internalTemplateContinuation = group.logicalUopMask.orR &&
+      (group.logicalUopMask & ~templateContinuationMask) === 0.U
     targetExact(groupIndex) :=
       group.valid === active && binding.valid === active && (!active || (
         group.key.valid &&
@@ -153,7 +162,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
           binding.brob.valid && binding.brob.bid.valid &&
           group.physicalMemberCount.orR &&
           group.physicalMemberCount <= p.maxOrdinaryUopsPerGroup.U &&
-          group.architecturalParentCount.orR &&
+          (group.architecturalParentCount.orR || internalTemplateContinuation) &&
           group.architecturalParentCount <= p.maxInstPerRobGroup.U &&
           (binding.initiallyCompletedMembers & ~memberMask) === 0.U))
     targetFree(groupIndex) := !active || !targetRow.valid

@@ -295,6 +295,52 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     dut.io.nonFlushEvidence.valid.poke(false.B)
   }
 
+  test("admits parentless template continuations but requires the final parent") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(
+        dut,
+        stid = 1,
+        transactionId = 90,
+        firstSlot = 0,
+        firstGeneration = 0,
+        groupMembers = Seq(1),
+        initiallyComplete = Set(0))
+      val transaction = dut.io.publish.bits.reservation.transaction
+      val group = transaction.groups(0)
+      val uop = transaction.decoded.uops(0)
+      group.architecturalParentCount.poke(0.U)
+      uop.identity.parents(0).traceOwner.poke(false.B)
+      uop.identity.templateValid.poke(true.B)
+      uop.identity.key.uopOrdinal.poke(0.U)
+      uop.identity.key.uopCount.poke(4.U)
+      dut.io.publish.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.groups(0).architecturalParentCount.expect(0.U)
+
+      pokePublication(
+        dut,
+        stid = 2,
+        transactionId = 91,
+        firstSlot = 0,
+        firstGeneration = 0,
+        groupMembers = Seq(1))
+      val finalTransaction = dut.io.publish.bits.reservation.transaction
+      val finalGroup = finalTransaction.groups(0)
+      val finalUop = finalTransaction.decoded.uops(0)
+      finalGroup.architecturalParentCount.poke(0.U)
+      finalUop.identity.parents(0).traceOwner.poke(false.B)
+      finalUop.identity.templateValid.poke(true.B)
+      finalUop.identity.key.uopOrdinal.poke(3.U)
+      finalUop.identity.key.uopCount.poke(4.U)
+      dut.io.publish.ready.expect(false.B)
+    }
+  }
+
   test("publishes every group atomically and retains an older-first commit batch") {
     val p = OooParams(robGroupsPerStid = 8)
     simulate(new OooS1GroupedRob(p)) { dut =>

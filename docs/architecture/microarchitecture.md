@@ -310,6 +310,17 @@ the same cycle.
 - D1 output carries fixed `inst[63:0]`, decoded opcode/uop semantics, operand
   and immediate information, parent vectors, early fault state, and group
   demand.
+- A decoded `FENTRY/FEXIT/FRET.*` parent is diverted to the external CTU through
+  the OOO-side ingress bridge before D2. The bridge retains one exact
+  generation-qualified lease per STID and accepts only an exact child count
+  followed by ordered canonical children. Each child returns through the
+  ordinary D2/D3/S1 path; CTU owns no RID/BID/PTag/IQ/ROB or architectural
+  effect port. Nonfinal children carry no trace-parent demand and only the final
+  child owns the single parent, even when the stream spans multiple RID groups.
+- Global recovery prepares/fences this CTU ingress state before O3 admission
+  and cancels it only on the same common apply as the ROB/rename transaction.
+  Stale leases, wrong ordinals/counts, malformed children, and post-cancel
+  children fail closed without advancing the lease. Unrelated STIDs continue.
 
 #### D2
 

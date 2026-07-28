@@ -119,9 +119,27 @@ selects the STID presented to D1.
 `OooD1DecodedPacket` carries `ctuParents` and `complexParents` alongside their
 masks. Every diverted lane therefore retains the exact raw parent and complete
 prediction record needed by the external CTU/complex owner. Masks are never an
-authority to reconstruct identity. CTU canonical-child reinsertion and its
-retained expansion lease remain an O7 owner; CTU may not allocate RID/BID/PTag
-or mutate ROB, RF, IQ, LSU, or memory directly.
+authority to reconstruct identity. `OooCtuIngressBridge` retains one decoded
+packet and at most one active lease per STID, emits any older ordinary prefix,
+then transfers the exact diverted parent through `OooCtuParentClaim`.
+
+`OooCtuLeaseKey` is the immutable
+`{valid, PE, STID, parent, templateGroupId, generation}` authority reproduced
+by `OooCtuExpansionPlan` and every `OooCtuCanonicalChild`. The plan fixes a
+nonzero child count no larger than `maxRecipeUops`; children must reproduce the
+lease, count, next ordinal, final-child relation, and a valid non-CTU recipe.
+Typed plan/child rejects consume stale or malformed offers without advancing
+the retained lease. Each accepted child becomes one canonical D1 packet before
+D2, with exact template identity and parent prediction. Nonfinal children set
+`traceOwner=false`; only the final child contributes one instruction row.
+Unresolved complex parents stop at their exact ordering boundary.
+
+`OooCtuRecoveryPrepared` snapshots whether the target STID owns a retained D1
+packet, pending claim, or active expansion and echoes the exact global recovery
+request plus current lease. Prepare is non-mutating. `recoveryApply` clears the
+target packet/lease on the same common apply as O3; `recoveryAbort` only releases
+the fence. CTU may not allocate RID/BID/PTag or mutate ROB, RF, IQ, LSU, or
+memory directly.
 
 ## O3 virtual ROB grouping
 
@@ -145,6 +163,14 @@ precise-trap summary, and ordered PC-base release obligation. The plan records
 the input tail epoch; D3 must reject it if any later allocator event changes
 that epoch. CTU/complex diversion packets are rejected at this owner because
 they must first return as validated canonical children.
+
+An S1 group may publish with `architecturalParentCount == 0` only when every
+logical uop in the group carries valid template identity with
+`uopOrdinal + 1 < uopCount`. This is an internal continuation of a template
+whose parent retires later. The final template child must carry exactly the one
+trace-owning parent; arbitrary parentless or malformed groups fail structural
+admission. This prevents both duplicate parent retirement across RIDs and a
+lost parent at the end of expansion.
 
 `OooD2ProductionStage` connects the combinational planner to
 `OooD2ThreadStageBuffer`. The buffer holds one complete immutable preview per
@@ -827,6 +853,27 @@ It has priority over compatibility feedback. If both inputs carry an identical
 proposal, they are consumed together and IFU canonicalizes one event; a
 different queued feedback event remains retained.
 
+## O7.3 CTU prepare and common apply
+
+The frontend bridge admits the retained global request to O3 only after
+`OooCtuIngressBridge` has accepted and echoed the same request through
+`OooCtuRecoveryPrepared`. The CTU snapshot records target packet and lease
+occupancy but does not clear either. A CTU reject returns the composite command
+before O3 can mutate; an O3 abort drives CTU abort. Exact O3 apply drives
+`ctuApply` and `stageCancel` together, so the retained CTU packet/lease cannot
+survive after ROB and rename have rolled back.
+
+The complete phase order is therefore:
+
+```text
+capture/fence -> CTU prepare -> O3 all-owner prepare -> common apply
+              -> P/T/U rebuild + IFU canonical restart -> R4 complete
+```
+
+External CTU recipe computation remains outside this transaction. It may
+retain its own recipe state only under the same lease identity and must treat a
+post-cancel child as stale; the production-top connection is an O9 task.
+
 ## Verification
 
 ```bash
@@ -839,6 +886,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooD1Decode
 bash tools/chisel/run_chisel_tests.sh --only OooD1FusionHistory
 bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
+bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
 bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
 bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
@@ -850,6 +898,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooProductionPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooFrontendRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only OooFrontendIfuRecoveryIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooFrontendCtuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
 bash tools/chisel/run_chisel_tests.sh --only OooProductionPRename
 bash tools/chisel/run_chisel_tests.sh --only OooProductionTURename
