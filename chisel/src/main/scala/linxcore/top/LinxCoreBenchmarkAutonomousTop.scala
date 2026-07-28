@@ -349,7 +349,7 @@ class LinxCoreBenchmarkAutonomousTop(
     useProductionD1Ingress = true
   ))
 
-  private val productionIfu = Module(new LinxCoreProductionComposition(
+  private val productionIfu = Module(new LinxCoreComposition(
     p = p,
     threadCount = 1,
     lineBytes = 64,

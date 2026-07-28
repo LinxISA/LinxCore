@@ -1,9 +1,9 @@
-# LinxCoreProductionComposition
+# LinxCoreComposition
 
 ## Purpose
 
-`LinxCoreProductionComposition` is the single promoted frontend composition
-owner. It connects the four production wrappers without reconstructing request
+`LinxCoreComposition` is the single canonical frontend composition
+owner. It connects the four selected wrappers without reconstructing request
 identity at a seam:
 
 ```text
@@ -24,7 +24,7 @@ the former standalone connection gaps; it does not replace those stage owners.
 
 ## External interfaces
 
-The production boundary exposes:
+The composition boundary exposes:
 
 - `start`, PTW request/refill, ITLB/L1I invalidation, and fetch-fault channels;
 - a tagged lower-memory request/response port carrying only tag, physical line,
@@ -66,7 +66,7 @@ cycle as its queued resolve, predictor training consumes the immutable
 checkpoint before the prune removes it. Unrelated training remains blocked by
 an active prune.
 
-An applied production OOO redirect has priority over the compatibility
+An applied OOO redirect has priority over the compatibility
 feedback redirect. If both proposals are bit-exact apart from the IFU-owned
 `newEpoch`, the composition consumes both on one IFU handshake and emits one
 canonical flush. If they differ, the compatibility event remains queued. The
@@ -76,10 +76,10 @@ does not close R4.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only LinxCoreProductionComposition
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreComposition
 bash tools/chisel/run_chisel_tests.sh --only BSideHistoryQueue
 bash tools/chisel/run_chisel_tests.sh --only BSidePredictionPipeline
-bash tools/chisel/run_chisel_linxcore_production_composition_probe.sh
+bash tools/chisel/run_chisel_linxcore_composition_probe.sh
 ```
 
 The focused composition suite proves a translated tagged line miss through
@@ -88,11 +88,11 @@ the memory bridge into a full four-wide decoded D1 group, plus a real
 training and canonical `BruRecovery`. The emitted-RTL probe repeats both paths
 and observes consecutive epoch allocation for B-F4 correction followed by
 backend recovery.
-`OooFrontendIfuRecoveryIntegration` additionally connects the production OOO
+`OooFrontendIfuRecoveryIntegration` additionally connects the OOO
 R4 bridge to this real composition and proves that the IFU-allocated epoch is
 the terminal frontend acknowledgement.
 
-## Remaining production boundary
+## Remaining integration boundary
 
 The `backendValidation` and applied `recoveryRedirect` ports are intentionally
 explicit. The standalone frontend composition does not instantiate the full

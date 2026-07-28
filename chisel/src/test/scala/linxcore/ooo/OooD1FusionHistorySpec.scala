@@ -9,7 +9,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
     OooOpcodeRecipeTable.Rules.find(_.symbol == symbol).getOrElse(
       fail(s"missing generated recipe for $symbol"))
 
-  private def clear(dut: OooD1ProductionDecode): Unit = {
+  private def clear(dut: OooD1FusionDecode): Unit = {
     dut.io.in.valid.poke(false.B)
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.out.ready.poke(true.B)
@@ -17,7 +17,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def beginPacket(
-      dut: OooD1ProductionDecode,
+      dut: OooD1FusionDecode,
       stid: Int,
       epoch: Int = 9,
       endOfStream: Boolean = false): Unit = {
@@ -29,7 +29,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def driveEntry(
-      dut: OooD1ProductionDecode,
+      dut: OooD1FusionDecode,
       lane: Int,
       symbol: String,
       instructionId: Int,
@@ -60,7 +60,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("fuses a retained BSTART with next-cycle carrier and same-packet BSTOP") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       beginPacket(dut, stid = 1)
       driveEntry(dut, 0, "OP_BSTART_FALL", 10, 0x1000, stid = 1)
@@ -94,7 +94,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("fuses a next-cycle BSTOP backward without patching a published carrier") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       beginPacket(dut, stid = 0)
       driveEntry(dut, 0, "OP_ADD", 20, 0x2000, stid = 0)
@@ -117,7 +117,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("does not fuse a retained BSTART across a prediction epoch boundary") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       beginPacket(dut, stid = 1)
       driveEntry(dut, 0, "OP_BSTART_FALL", 22, 0x2200, stid = 1)
@@ -141,7 +141,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("does not fuse a retained carrier with BSTOP across a prediction epoch boundary") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       beginPacket(dut, stid = 2)
       driveEntry(dut, 0, "OP_ADD", 24, 0x2400, stid = 2)
@@ -165,7 +165,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("cancels history only for the selected STID and drains another STID at end-of-stream") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       for (stid <- Seq(0, 2)) {
         beginPacket(dut, stid = stid)
@@ -197,7 +197,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retains the fused terminal transaction unchanged under backpressure") {
-    simulate(new OooD1ProductionDecode(OooParams())) { dut =>
+    simulate(new OooD1FusionDecode(OooParams())) { dut =>
       clear(dut)
       beginPacket(dut, stid = 3)
       driveEntry(dut, 0, "OP_ADD", 40, 0x4000, stid = 3)
@@ -228,7 +228,7 @@ class OooD1FusionHistorySpec extends AnyFunSuite with ChiselSim {
 
   test("falls back to standalone marker when a full terminal packet cannot retain fusion history") {
     val p = OooParams(instructionDecodeWidth = 2)
-    simulate(new OooD1ProductionDecode(p)) { dut =>
+    simulate(new OooD1FusionDecode(p)) { dut =>
       clear(dut)
       beginPacket(dut, stid = 0)
       driveEntry(dut, 0, "OP_BSTART_FALL", 50, 0x5000, stid = 0)

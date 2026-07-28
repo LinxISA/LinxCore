@@ -6,7 +6,7 @@ import circt.stage.ChiselStage
 import linxcore.common.{BoundaryKind, DecodedUop, InterfaceParams}
 import linxcore.frontend._
 
-class LinxCoreProductionCompositionProbeIO(val p: InterfaceParams = InterfaceParams())
+class LinxCoreCompositionProbeIO(val p: InterfaceParams = InterfaceParams())
     extends Bundle {
   val itlbRefillValid = Input(Bool())
   val startValid = Input(Bool())
@@ -42,11 +42,11 @@ class LinxCoreProductionCompositionProbeIO(val p: InterfaceParams = InterfacePar
 }
 
 /** Generated-RTL shell for the complete promoted IFU composition. */
-class LinxCoreProductionCompositionProbe(val p: InterfaceParams = InterfaceParams())
+class LinxCoreCompositionProbe(val p: InterfaceParams = InterfaceParams())
     extends Module {
-  val io = IO(new LinxCoreProductionCompositionProbeIO(p))
+  val io = IO(new LinxCoreCompositionProbeIO(p))
   val composition = Module(
-    new LinxCoreProductionComposition(
+    new LinxCoreComposition(
       p,
       threadCount = 1,
       lineBytes = 64,
@@ -137,9 +137,9 @@ class LinxCoreProductionCompositionProbe(val p: InterfaceParams = InterfaceParam
   io.staleMemoryResponse := composition.io.staleMemoryResponse
 }
 
-object EmitLinxCoreProductionCompositionProbe extends App {
+object EmitLinxCoreCompositionProbe extends App {
   ChiselStage.emitSystemVerilogFile(
-    new LinxCoreProductionCompositionProbe,
+    new LinxCoreCompositionProbe,
     args,
     firtoolOpts = Array("--disable-all-randomization", "--strip-debug-info"))
 }

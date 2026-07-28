@@ -43,7 +43,7 @@ class OooIfuD1IngressIO(
   val malformedInput = Output(Bool())
 }
 
-/** Production seam from fixed-four-wide IFU D1 to canonical OOO D1.
+/** Canonical seam from fixed-four-wide IFU D1 to OOO D1.
   *
   * CTU and complex parents leave this seam as exact diverted-parent sidebands;
   * they are never reconstructed from a mask or allowed to mutate ROB/RF/LSU.
@@ -56,7 +56,7 @@ class OooIfuD1Ingress(
   val io = IO(new OooIfuD1IngressIO(ifuP, oooP, depthPerStid))
 
   val raw = Module(new OooIfuRawIngress(ifuP, oooP, depthPerStid))
-  val d1 = Module(new OooD1ProductionDecode(oooP))
+  val d1 = Module(new OooD1FusionDecode(oooP))
   val ctu = Module(new OooCtuIngressBridge(oooP))
 
   raw.io.ifuD1 <> io.ifuD1

@@ -13,7 +13,7 @@ after I-F4 and before four-wide D1. B-SIDE final rank is
 as the final instance of the later-stage correction path returning to I-F0
 through the canonical redirect arbiter. `LinxCoreIfu` is the IFU
 composition and the natural CoreMark/Dhrystone benchmark graph uses it through
-`LinxCoreProductionComposition`. Rows explicitly
+`LinxCoreComposition`. Rows explicitly
 marked verification-only are excluded from the owner graph even
 when their source remains available for focused tests.
 
@@ -32,7 +32,7 @@ when their source remains available for focused tests.
 | `D1DecodedLaneQueue` / `D1DecodeRenameROBIngress` | `linxcore.frontend` / `linxcore.backend` | `docs/chisel/modules/backend/D1DecodeRenameROBIngress.md` | fixed-width D1-to-backend handoff: atomic four-lane intake, precise queued recovery, no packet/window/F4Slot reconstruction, direct predecoded rename/ROB admission, and generated-RTL exclusion of verification decoder modules |
 | `IfuBackendFeedbackBridge` | `linxcore.frontend` | `docs/chisel/modules/frontend/IfuBackendFeedbackBridge.md` | post-B-F4 adapter for Dispatch direct/call and BRU SETC validation, atomic actual-result training plus exact-keyed BRU recovery, and typed GHR/RAS restore-and-apply |
 | `IfuLineMemoryBridge` | `linxcore.top` | `docs/chisel/modules/top/IfuLineMemoryBridge.md` | tagged 64-byte IFU memory adapter with multiple outstanding rows, stable request FIFO, out-of-order tag-plus-PA response matching, exact identity reconstruction, and retained refill backpressure |
-| `LinxCoreProductionComposition` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreProductionComposition.md` | Single frontend composition owner connecting canonical IFU, tagged line memory, fixed-width four-wide D1 full decode, and exact Dispatch/BRU feedback with canonical recovery |
+| `LinxCoreComposition` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreComposition.md` | Single frontend composition owner connecting canonical IFU, tagged line memory, fixed-width four-wide D1 full decode, and exact Dispatch/BRU feedback with canonical recovery |
 | `OooPRename` | `linxcore.ooo` | `docs/chisel/modules/ooo/OooPRename.md` | Absolute-index P rename owner with 24-entry SMAP/CMAP per STID, generation-qualified PTag leases, parameterized physically subbanked ordered MapQ, exact bounded commit, and killed-tail/survivor-replay recovery |
 | `OooTURename` | `linxcore.ooo` | `docs/chisel/interfaces/OooBundles.md` | O4.4.1 per-STID T/U sequential rename owner with independent namespaces, same-bundle relative-source bypass, exact provisional leases, wrap-qualified local mappings, and ROB-member-owned MapQ publication |
 | `OooO3RenameCoordinator` | `linxcore.ooo` | `docs/chisel/modules/ooo/OooO3RenameCoordinator.md` | D3/S1 atomic seam joining ROB/BROB/PC, PTag/P/T/U rename, dispatch/IEX/fast-resolve, commit, and recovery; exposes independent live occupancy, absolute tail/generation/epoch, and monotonic transaction identity for verification |

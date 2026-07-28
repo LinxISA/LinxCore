@@ -250,16 +250,16 @@ class OooD1FusionHistory(val p: OooParams = OooParams()) extends Module {
   }
 }
 
-class OooD1ProductionDecodeIO(val p: OooParams = OooParams()) extends Bundle {
+class OooD1FusionDecodeIO(val p: OooParams = OooParams()) extends Bundle {
   val in = Flipped(Decoupled(new OooRawInstructionGroup(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val out = Decoupled(new OooD1DecodedPacket(p))
   val held = Output(Vec(p.stidCount, Bool()))
 }
 
-/** Production D1: canonical decode followed by per-STID cross-cycle fusion. */
-class OooD1ProductionDecode(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooD1ProductionDecodeIO(p))
+/** Canonical D1 decode followed by per-STID cross-cycle fusion. */
+class OooD1FusionDecode(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooD1FusionDecodeIO(p))
   val decode = Module(new OooD1Decode(p))
   val fusion = Module(new OooD1FusionHistory(p))
 

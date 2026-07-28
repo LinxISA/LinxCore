@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
-class OooD2ProductionStageSpec extends AnyFunSuite with ChiselSim {
+class OooD2StageSpec extends AnyFunSuite with ChiselSim {
   private def clearBuffer(dut: OooD2ThreadStageBuffer): Unit = {
     dut.io.in.valid.poke(false.B)
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
@@ -64,7 +64,7 @@ class OooD2ProductionStageSpec extends AnyFunSuite with ChiselSim {
 
   test("retains the planner tail epoch even when the live snapshot advances") {
     val p = OooParams()
-    simulate(new OooD2ProductionStage(p)) { dut =>
+    simulate(new OooD2Stage(p)) { dut =>
       dut.io.in.valid.poke(false.B)
       dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
       dut.io.tailSlot.foreach(_.poke(0.U))

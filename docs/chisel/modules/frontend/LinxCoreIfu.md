@@ -137,12 +137,12 @@ The canonical production owner graph is deliberately small:
 | B-SIDE | `BSidePredictionPipeline`, `BSideHistoryQueue` |
 | Join and queue | `IfuPredictionJoin`, `InstructionBuffer`, `D1DecodeGroupGather` |
 | External transport | `IfuLineMemoryBridge`, `IfuBackendFeedbackBridge` |
-| Production composition | `LinxCoreProductionComposition` |
+| Production composition | `LinxCoreComposition` |
 
 The historical body-geometry helpers were renamed from migration-era
 `ReducedBfu*` identifiers to the neutral `Bfu*` family. They remain
 compatibility-only components used by `LinxCoreFrontendFetchRfAluTraceTop` and
-are not instantiated by `LinxCoreIfu` or `LinxCoreProductionComposition`.
+are not instantiated by `LinxCoreIfu` or `LinxCoreComposition`.
 Removing the `Reduced` prefix is therefore an API/file-name cleanup, not a
 promotion claim.
 

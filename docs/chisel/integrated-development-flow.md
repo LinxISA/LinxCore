@@ -146,7 +146,7 @@ IBTB/loop/RAS arbitration and final prediction-driven inner-flush point.
 
 The production wrapper set is exactly `LinxCoreIfu`, `IfuLineMemoryBridge`,
 `D1InstructionDecodeStage`, and `IfuBackendFeedbackBridge`, composed by
-`LinxCoreProductionComposition`. `IfuWindowLineFillAdapter` is benchmark-only.
+`LinxCoreComposition`. `IfuWindowLineFillAdapter` is benchmark-only.
 There is no packet-window decoder or F4-slot reconstruction in this path. D1
 reads up to four fixed-64-bit entries and carries the immutable final prediction
 record on every valid lane; a group-tail ACRC waits for cross-group BSTOP

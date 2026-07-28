@@ -113,7 +113,7 @@ gather, stable backpressure, targeted exact pruning, and four-STID isolation.
 A canonical flush is a one-cycle publication barrier: only the addressed bank
 is mutated, and every unaffected bank resumes with the same head on the next
 cycle. `OooIfuD1Ingress` composes this reservoir with
-`OooD1ProductionDecode`; its thread hint scans IFU banks while OOO independently
+`OooD1FusionDecode`; its thread hint scans IFU banks while OOO independently
 selects the STID presented to D1.
 
 `OooD1DecodedPacket` carries `ctuParents` and `complexParents` alongside their
@@ -172,7 +172,7 @@ trace-owning parent; arbitrary parentless or malformed groups fail structural
 admission. This prevents both duplicate parent retirement across RIDs and a
 lost parent at the end of expansion.
 
-`OooD2ProductionStage` connects the combinational planner to
+`OooD2Stage` connects the combinational planner to
 `OooD2ThreadStageBuffer`. The buffer holds one complete immutable preview per
 STID and shares one fair D2→D3 grant. A blocked grant retains both selected
 STID and payload. Other STIDs may fill their private rows while that grant is
@@ -875,7 +875,7 @@ Completion requires both `OooO3RenameCoordinator.recoveryCompleted` and a
 first. An exact pre-apply O3 abort emits no cancel or redirect and releases the
 fence only after all O3 retained owners are idle.
 
-`LinxCoreProductionComposition.recoveryRedirect` is the applied-recovery port.
+`LinxCoreComposition.recoveryRedirect` is the applied-recovery port.
 It has priority over compatibility feedback. If both inputs carry an identical
 proposal, they are consumed together and IFU canonicalizes one event; a
 different queued feedback event remains retained.
@@ -915,7 +915,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
 bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
-bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
+bash tools/chisel/run_chisel_tests.sh --only OooD2Stage
 bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
 bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
 bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration

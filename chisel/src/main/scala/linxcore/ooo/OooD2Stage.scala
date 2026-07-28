@@ -96,7 +96,7 @@ class OooD2ThreadStageBuffer(val p: OooParams = OooParams()) extends Module {
   }
 }
 
-class OooD2ProductionStageIO(val p: OooParams = OooParams()) extends Bundle {
+class OooD2StageIO(val p: OooParams = OooParams()) extends Bundle {
   val in = Flipped(Decoupled(new OooD1DecodedPacket(p)))
   val tailSlot = Input(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
   val tailGeneration = Input(Vec(p.stidCount, UInt(p.ridGenerationWidth.W)))
@@ -110,8 +110,8 @@ class OooD2ProductionStageIO(val p: OooParams = OooParams()) extends Bundle {
 }
 
 /** D2 virtual planning plus private per-STID retention. */
-class OooD2ProductionStage(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooD2ProductionStageIO(p))
+class OooD2Stage(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooD2StageIO(p))
   val planner = Module(new OooD2GroupPlanner(p))
   val stage = Module(new OooD2ThreadStageBuffer(p))
 

@@ -6,7 +6,7 @@ import linxcore.common.InterfaceParams
 import linxcore.frontend._
 import linxcore.ooo.OooFrontendRecoveryContract
 
-class LinxCoreProductionCompositionIO(
+class LinxCoreCompositionIO(
     val p: InterfaceParams = InterfaceParams(),
     val threadCount: Int = 1,
     val lineBytes: Int = 64,
@@ -31,13 +31,13 @@ class LinxCoreProductionCompositionIO(
   val d1ThreadId = Input(UInt(p.threadIdWidth.W))
   val decoded = Decoupled(new D1DecodedInstructionGroup(p))
 
-  /** Exact Dispatch/BRU validation event supplied by the production backend.
+  /** Exact Dispatch/BRU validation event supplied by the backend.
     * Full rename/dispatch/issue event generation remains outside this IFU
     * composition boundary.
     */
   val backendValidation = Flipped(Decoupled(new BackendBranchValidation(p)))
 
-  /** Retained redirect emitted only after the production OOO recovery applies. */
+  /** Retained redirect emitted only after the OOO recovery applies. */
   val recoveryRedirect = Flipped(Decoupled(new IfuInnerFlush(p)))
 
   val canonicalFlush = Valid(new IfuInnerFlush(p))
@@ -66,7 +66,7 @@ class LinxCoreProductionCompositionIO(
   val feedbackPendingMispredict = Output(Bool())
 }
 
-/** Production IFU boundary composed from the four promoted wrappers.
+/** Canonical IFU boundary composed from the four selected wrappers.
   *
   * The canonical `LinxCoreIfu` owns I-SIDE, B-SIDE, canonical redirects, the
   * Instruction Buffer, and fixed-width D1 grouping. `IfuLineMemoryBridge`
@@ -79,7 +79,7 @@ class LinxCoreProductionCompositionIO(
   * than claiming that four-lane rename/dispatch/issue and full-BID cleanup are
   * already composed here.
   */
-class LinxCoreProductionComposition(
+class LinxCoreComposition(
     val p: InterfaceParams = InterfaceParams(),
     val threadCount: Int = 1,
     val lineBytes: Int = 64,
@@ -93,17 +93,17 @@ class LinxCoreProductionComposition(
     val lineBridgeEntries: Int = 8,
     val feedbackEntries: Int = 2)
     extends Module {
-  require(lineBytes == 64, "production IFU composition uses 64-byte cache lines")
+  require(lineBytes == 64, "IFU composition uses 64-byte cache lines")
   require(
     missEntries >= joinEntries,
-    "production IFU requires one miss credit per live prediction-join transaction")
+    "IFU requires one miss credit per live prediction-join transaction")
   require(
     lineBridgeEntries >= missEntries,
-    "production line bridge must preserve the IFU miss-table concurrency")
+    "line bridge must preserve the IFU miss-table concurrency")
   require(feedbackEntries > 0)
 
   val io = IO(
-    new LinxCoreProductionCompositionIO(
+    new LinxCoreCompositionIO(
       p,
       threadCount,
       lineBytes,
@@ -153,7 +153,7 @@ class LinxCoreProductionComposition(
   ifu.io.branchResolve <> feedback.io.resolve
   backendRecoveryQueue.io.enq <> feedback.io.backendRecovery
 
-  // Production OOO recovery has priority over the compatibility BRU-feedback
+  // Applied OOO recovery has priority over the compatibility BRU-feedback
   // redirect.  If both describe the same branch event, consume the queued
   // compatibility copy on the same fire so IFU canonicalizes the event once.
   val duplicateRecovery = io.recoveryRedirect.valid &&

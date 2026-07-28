@@ -40,7 +40,7 @@ mutated during this phase. `ctuApply` is asserted only with exact O3 common
 apply; `ctuAbort` is asserted only for the exact pre-apply O3 abort. A CTU
 prepare reject prevents O3 admission and reports `CtuRejected`.
 
-`fence` connects to `OooIfuD1Ingress`, `OooD2ProductionStage`, and every
+`fence` connects to `OooIfuD1Ingress`, `OooD2Stage`, and every
 retained D2/D3/S1 stage owner. `stageCancel` clears fusion history and the
 post-D1 retained stages only after O3 apply. `canonicalFlush` performs exact
 raw-reservoir pruning and epoch rebasing after IFU accepts the redirect.
@@ -57,7 +57,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooFrontendIfuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooFrontendCtuRecoveryIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
 bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
-bash tools/chisel/run_chisel_tests.sh --only OooD2ProductionStage
+bash tools/chisel/run_chisel_tests.sh --only OooD2Stage
 bash tools/chisel/run_chisel_tests.sh --only OooThreadStageBuffer
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```

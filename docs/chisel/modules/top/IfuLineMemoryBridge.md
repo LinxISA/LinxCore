@@ -90,7 +90,7 @@ refill behavior through Verilator.
 
 ## Production composition
 
-`LinxCoreProductionComposition` instantiates this bridge with capacity at least
+`LinxCoreComposition` instantiates this bridge with capacity at least
 equal to the IFU miss-table capacity and connects it directly to
 `LinxCoreIfu.lineRead/lineRefill`. Lower-memory denied/corrupt completion is not
 yet represented by `ISideLineResponse`; production fabrics that can fail a

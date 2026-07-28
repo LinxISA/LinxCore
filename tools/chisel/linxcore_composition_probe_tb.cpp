@@ -1,4 +1,4 @@
-#include "VLinxCoreProductionCompositionProbe.h"
+#include "VLinxCoreCompositionProbe.h"
 #include "verilated.h"
 
 #include <cstdlib>
@@ -8,9 +8,9 @@
 namespace {
 vluint64_t sim_time = 0;
 
-void eval(VLinxCoreProductionCompositionProbe &dut) { dut.eval(); }
+void eval(VLinxCoreCompositionProbe &dut) { dut.eval(); }
 
-void tick(VLinxCoreProductionCompositionProbe &dut) {
+void tick(VLinxCoreCompositionProbe &dut) {
   dut.clock = 0;
   eval(dut);
   ++sim_time;
@@ -30,7 +30,7 @@ void expect(bool condition, const char *message) {
   if (!condition) fail(message);
 }
 
-void driveIdle(VLinxCoreProductionCompositionProbe &dut) {
+void driveIdle(VLinxCoreCompositionProbe &dut) {
   dut.io_itlbRefillValid = 0;
   dut.io_startValid = 0;
   dut.io_startPc = 0x1200;
@@ -44,7 +44,7 @@ void driveIdle(VLinxCoreProductionCompositionProbe &dut) {
   dut.io_correctedTarget = 0;
 }
 
-void resetDut(VLinxCoreProductionCompositionProbe &dut) {
+void resetDut(VLinxCoreCompositionProbe &dut) {
   driveIdle(dut);
   dut.reset = 1;
   tick(dut);
@@ -53,7 +53,7 @@ void resetDut(VLinxCoreProductionCompositionProbe &dut) {
   eval(dut);
 }
 
-void preloadAndStart(VLinxCoreProductionCompositionProbe &dut) {
+void preloadAndStart(VLinxCoreCompositionProbe &dut) {
   dut.io_itlbRefillValid = 1;
   tick(dut);
   dut.io_itlbRefillValid = 0;
@@ -62,7 +62,7 @@ void preloadAndStart(VLinxCoreProductionCompositionProbe &dut) {
   dut.io_startValid = 0;
 }
 
-std::uint64_t issueFirstLine(VLinxCoreProductionCompositionProbe &dut) {
+std::uint64_t issueFirstLine(VLinxCoreCompositionProbe &dut) {
   for (int cycle = 0; cycle < 80 && !dut.io_memoryRequestValid; ++cycle) tick(dut);
   expect(dut.io_memoryRequestValid, "composition must issue a tagged line request");
   expect(dut.io_memoryRequestLinePa == 0x2200,
@@ -80,7 +80,7 @@ std::uint64_t issueFirstLine(VLinxCoreProductionCompositionProbe &dut) {
   return tag;
 }
 
-void returnFirstLine(VLinxCoreProductionCompositionProbe &dut, std::uint64_t tag) {
+void returnFirstLine(VLinxCoreCompositionProbe &dut, std::uint64_t tag) {
   dut.io_memoryResponseValid = 1;
   dut.io_memoryResponseTag = tag;
   dut.io_memoryResponseLinePa = 0x2200;
@@ -91,9 +91,9 @@ void returnFirstLine(VLinxCoreProductionCompositionProbe &dut, std::uint64_t tag
   dut.io_memoryResponseValid = 0;
 }
 
-void waitForDecoded(VLinxCoreProductionCompositionProbe &dut) {
+void waitForDecoded(VLinxCoreCompositionProbe &dut) {
   for (int cycle = 0; cycle < 200 && !dut.io_decodedValid; ++cycle) tick(dut);
-  expect(dut.io_decodedValid, "production D1 output must become valid");
+  expect(dut.io_decodedValid, "D1 output must become valid");
   expect(dut.io_decodedPredictionFinal, "D1 output must carry final B-F4 prediction");
 }
 }  // namespace
@@ -102,7 +102,7 @@ double sc_time_stamp() { return static_cast<double>(sim_time); }
 
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
-  VLinxCoreProductionCompositionProbe dut;
+  VLinxCoreCompositionProbe dut;
 
   resetDut(dut);
   preloadAndStart(dut);
@@ -147,6 +147,6 @@ int main(int argc, char **argv) {
   expect(dut.io_canonicalNewEpoch == 2,
          "B-F4 correction and backend recovery must allocate consecutive epochs");
 
-  std::cout << "ok: production IFU composition closes tagged fetch, D1, and BRU recovery\n";
+  std::cout << "ok: IFU composition closes tagged fetch, D1, and BRU recovery\n";
   return 0;
 }

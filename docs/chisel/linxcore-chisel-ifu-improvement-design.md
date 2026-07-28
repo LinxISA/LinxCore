@@ -654,7 +654,7 @@ production IFU 只承认以下四个 wrapper 边界：
 3. `D1InstructionDecodeStage`：四路 fixed-64-bit full decode；
 4. `IfuBackendFeedbackBridge`：typed validation、training 与 keyed restart。
 
-`LinxCoreProductionComposition` 组合这四者。benchmark 使用的
+`LinxCoreComposition` 组合这四者。benchmark 使用的
 `IfuWindowLineFillAdapter` 仅把 64-byte line 转成测试 memory window，不属于
 production wrapper 集合。任何 composition 都不得恢复 packet-window decoder、
 重新创建 `F4Slot`，或从 PC/地址猜测 transaction identity。
@@ -1154,7 +1154,7 @@ predictor tables 不因普通 redirect 清零。
 - [x] `IfuBackendFeedbackBridge` 实现 Dispatch direct/call 与 BRU E1
   conditional/indirect/return 的分类型比较、actual-result training 和 exact
   predictor recovery transport。
-- [x] `LinxCoreProductionComposition` 已将 external Dispatch/BRU validation
+- [x] `LinxCoreComposition` 已将 external Dispatch/BRU validation
   接到 actual-result training 和 canonical `LinxCoreIfu` BRU recovery；
   prediction-correction survivor 的 history key 随 canonical new epoch 重基准，
   exact mispredict training 在 matching prune 删除 checkpoint 前完成。
@@ -1165,7 +1165,7 @@ predictor tables 不因普通 redirect 清零。
   禁用 packet/window decoder，prediction sidecar、precise prune 和 correction
   epoch rebase 均有 UT 与 generated-RTL gate。
 - [ ] D2/D3 已从当前逐 lane admission 提升为四 row 原子资源预留与 dispatch。
-- [x] `LinxCoreProductionComposition` 已实例化 IFU line-memory bridge，且 bridge
+- [x] `LinxCoreComposition` 已实例化 IFU line-memory bridge，且 bridge
   capacity 不小于 IFU miss-table capacity。
 - [x] prediction、training、redirect 接口全部带 exact identity 和 epoch。
 - [x] `LinxCoreIfu` composition 内只实例化本设计列出的 I-SIDE、B-SIDE、

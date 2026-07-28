@@ -86,7 +86,7 @@ Return-target scenarios through Verilator.
 
 ## Production composition boundary
 
-`LinxCoreProductionComposition` now connects this wrapper directly to
+`LinxCoreComposition` now connects this wrapper directly to
 `LinxCoreIfu.branchResolve/backendRedirect`. Dispatch and BRU must still
 instantiate the validation-event producers, and the mismatch must also enter
 the backend full-BID recovery fabric using the `RenamedUop`

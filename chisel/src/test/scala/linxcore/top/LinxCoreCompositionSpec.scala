@@ -6,7 +6,7 @@ import linxcore.common.{BoundaryKind, InterfaceParams}
 import linxcore.frontend._
 import org.scalatest.funsuite.AnyFunSuite
 
-class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
+class LinxCoreCompositionSpec extends AnyFunSuite with ChiselSim {
   private val p = InterfaceParams()
   private val lineBytes = 64
   private val pageBytes = 4096
@@ -31,7 +31,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
       confidence: BigInt,
       epoch: BigInt)
 
-  private def clear(dut: LinxCoreProductionComposition): Unit = {
+  private def clear(dut: LinxCoreComposition): Unit = {
     dut.io.start.valid.poke(false.B)
     dut.io.start.bits.poke(0.U.asTypeOf(dut.io.start.bits))
     dut.io.ptwRequest.ready.poke(true.B)
@@ -60,7 +60,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
     assert(condition, s"$clue did not become true within $limit cycles")
   }
 
-  private def preloadAndStart(dut: LinxCoreProductionComposition): Unit = {
+  private def preloadAndStart(dut: LinxCoreComposition): Unit = {
     dut.io.ptwRefill.valid.poke(true.B)
     dut.io.ptwRefill.bits.vpn.poke(1.U)
     dut.io.ptwRefill.bits.ppn.poke(2.U)
@@ -91,7 +91,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
         "00000391000181950000918710460800000002a53041002c0059f806080002a5",
       16)
 
-  private def returnFirstLine(dut: LinxCoreProductionComposition, lineData: BigInt): Unit = {
+  private def returnFirstLine(dut: LinxCoreComposition, lineData: BigInt): Unit = {
     waitUntil(40, "tagged memory request")(dut.io.memoryRequest.valid.peek().litToBoolean) {
       dut.clock.step()
     }
@@ -115,7 +115,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
     dut.io.memoryResponse.valid.poke(false.B)
   }
 
-  private def captureFirstPrediction(dut: LinxCoreProductionComposition): CapturedPrediction = {
+  private def captureFirstPrediction(dut: LinxCoreComposition): CapturedPrediction = {
     val lane = dut.io.decoded.bits.entries(0)
     val pred = lane.prediction
     CapturedPrediction(
@@ -140,7 +140,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def validateDirectMispredict(
-      dut: LinxCoreProductionComposition,
+      dut: LinxCoreComposition,
       captured: CapturedPrediction,
       actualTarget: BigInt): Unit = {
     val event = dut.io.backendValidation.bits
@@ -179,9 +179,9 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
     dut.io.backendValidation.valid.poke(false.B)
   }
 
-  test("composes tagged line transport, final B-F4 join, and four-wide production D1") {
+  test("composes tagged line transport, final B-F4 join, and four-wide D1") {
     simulate(
-      new LinxCoreProductionComposition(
+      new LinxCoreComposition(
         p,
         threadCount = 1,
         lineBytes = lineBytes,
@@ -217,7 +217,7 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
 
   test("routes exact backend validation into atomic training and canonical BRU recovery") {
     simulate(
-      new LinxCoreProductionComposition(
+      new LinxCoreComposition(
         p,
         threadCount = 1,
         lineBytes = lineBytes,
@@ -265,9 +265,9 @@ class LinxCoreProductionCompositionSpec extends AnyFunSuite with ChiselSim {
   }
 
 
-  test("cold ITLB replay and a mixed-width boundary line reach production D1") {
+  test("cold ITLB replay and a mixed-width boundary line reach D1") {
     simulate(
-      new LinxCoreProductionComposition(
+      new LinxCoreComposition(
         p,
         threadCount = 1,
         lineBytes = lineBytes,

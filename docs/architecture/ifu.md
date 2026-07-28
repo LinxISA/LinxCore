@@ -267,7 +267,7 @@ The production IFU boundary consists of four promoted wrappers:
 3. `D1InstructionDecodeStage`, the direct four-wide fixed-64-bit decoder;
 4. `IfuBackendFeedbackBridge`, the retained validation/training/restart owner.
 
-`LinxCoreProductionComposition` connects those four wrappers without
+`LinxCoreComposition` connects those four wrappers without
 reconstructing packet windows or F4 slots. A B-F4 correction preserves its producer
 checkpoint and rebases that request-owned key into the canonical new epoch that
 is carried to D1. If Dispatch/BRU later reports a mismatch, the exact queued
@@ -391,10 +391,10 @@ acceptance, or CoreMark/Dhrystone throughput.
 The promoted composition gate is:
 
 ```bash
-bash tools/chisel/run_chisel_linxcore_production_composition_probe.sh
+bash tools/chisel/run_chisel_linxcore_composition_probe.sh
 ```
 
-It emits `LinxCoreProductionComposition` and proves translated tagged fetch
+It emits `LinxCoreComposition` and proves translated tagged fetch
 through four-wide full D1 decode, plus a real direct block whose target
 mismatch trains the retained new-epoch checkpoint before canonical BRU
 recovery. It does not supply Dispatch/BRU event producers, full-BID cleanup, or

@@ -5,7 +5,7 @@ import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.{Decoupled, RegEnable, Valid}
 import linxcore.common.InterfaceParams
 import linxcore.frontend.{IfuInnerFlush, IfuInnerFlushReason, IfuPruneScope}
-import linxcore.top.LinxCoreProductionComposition
+import linxcore.top.LinxCoreComposition
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooFrontendIfuRecoveryIntegrationIO(
@@ -24,7 +24,7 @@ class OooFrontendIfuRecoveryIntegrationIO(
   val ifuEpochs = Output(Vec(oooP.stidCount, UInt(ifuP.blockEpochWidth.W)))
 }
 
-/** Test-only integration of the production R4 bridge with the real IFU
+/** Test-only integration of the canonical R4 bridge with the real IFU
   * redirect arbiter and canonical flush broadcast.
   */
 class OooFrontendIfuRecoveryIntegration(
@@ -33,7 +33,7 @@ class OooFrontendIfuRecoveryIntegration(
     extends Module {
   val io = IO(new OooFrontendIfuRecoveryIntegrationIO(ifuP, oooP))
   val bridge = Module(new OooFrontendRecoveryBridge(ifuP, oooP))
-  val ifu = Module(new LinxCoreProductionComposition(
+  val ifu = Module(new LinxCoreComposition(
     ifuP,
     threadCount = oooP.stidCount,
     lineBytes = 64,

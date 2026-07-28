@@ -191,7 +191,7 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 - Does not own I-F2 miss classification, L1I state, or lower-memory error
   semantics.
 
-### `chisel/src/main/scala/linxcore/top/LinxCoreProductionComposition.scala`
+### `chisel/src/main/scala/linxcore/top/LinxCoreComposition.scala`
 
 - Is the single promoted frontend composition owner for `LinxCoreIfu`,
   `IfuLineMemoryBridge`, `D1InstructionDecodeStage`, and
