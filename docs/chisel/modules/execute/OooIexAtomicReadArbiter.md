@@ -55,7 +55,10 @@ malformed operand class. The tested 2-domain/3P/2T/2U geometry emits a
 
 ## Remaining gaps
 
-- Connect requests to the canonical P/T/U data owners and `OooPcBuffer`.
-- Add generation-qualified P data validation and exact T/U sequence storage.
+- Connect the exposed PC requests to `OooPcBuffer` in the canonical top.
 - Add bypass provenance, speculative load generations, and miss cancel/repick.
-- Feed arbiter decisions directly into `OooIexIssueP1Fabric` lanes.
+- Replace the bounded subset comparator with a physically reviewed hierarchy if
+  default-width timing requires it.
+
+`OooIexIssueReadFabric` now connects P/T/U requests to the exact operand owners
+and feeds every decision/response directly into the issue lanes.

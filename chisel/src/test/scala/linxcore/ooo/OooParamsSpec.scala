@@ -61,6 +61,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexPReadPorts == 6)
     assert(p.iexTReadPorts == 4)
     assert(p.iexUReadPorts == 4)
+    assert(p.iexPWritePorts == 4)
+    assert(p.iexTWritePorts == 4)
+    assert(p.iexUWritePorts == 4)
     assert(p.iexWakeupPorts == 8)
   }
 
@@ -110,6 +113,9 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(iexPReadPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexTReadPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexUReadPorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(iexPWritePorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(iexTWritePorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(iexUWritePorts = 0))
     assertThrows[IllegalArgumentException](OooParams(
       iqFreeSelectLeafEntries = 3))
     assertThrows[IllegalArgumentException](OooParams(

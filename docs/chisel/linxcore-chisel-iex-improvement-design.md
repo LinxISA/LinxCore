@@ -369,13 +369,13 @@ release。
 正式 OOO 路径已经增加 `OooIexAtomicReadArbiter`：它接收参数化 issue
 domain 的完整 I1 read group，用同 STID age、跨 STID round-robin 选择可行
 子集，并独立映射 P/T/U/PC 端口。整组 grant/deny 和 readyless partial
-response 到精确 repick 已实现；实际 P/T/U data owner 与 PC buffer 的组合
-连接仍是下一步。
+response 到精确 repick 已实现。`OooIexOperandFiles` 现在把真实P/T/U数据
+owner接在这些端口后面，`OooIexIssueReadFabric`直接驱动每条lane的
+decision/data；PC端口保留为连接`OooPcBuffer`的显式边界。
 
 ### 6.2 问题
 
 - parent 只有一组共享 read grant 和一条 I2 issue，未达到 6R/2 issue。
-- I1 还依赖 top-level T/U value overlay。
 - 没有正式 bypass select、spec wakeup validation 和 replay poison。
 - I2 accept 与 issue release 没有统一 owner-transfer token。
 - flush 同时清 I1/I2，未区分已经由 FU accept 的 row。
@@ -406,8 +406,8 @@ I1 arbiter按同 STID age、跨 STID RR 分配 6 个 GPR read ports。一个 uop
 
 ### 6.5 迁移与验收
 
-read group、exact token 和多 domain 原子端口仲裁已经完成。下一步先接
-P/T/U data owner 与 PC buffer，再扩正式 bypass/replay validation 和
+read group、exact token、多 domain 原子端口仲裁和P/T/U真实data owner组合
+已经完成。下一步连接正式PC owner，再扩bypass/replay validation和
 I2-to-E owner transfer。验收必须覆盖：
 
 - 两 bank simultaneous pick；
@@ -430,13 +430,19 @@ owner。容量、读口、写口独立参数化。24 个 identity tag reset read
 并行，同 tag 按低端口优先，但 duplicate committed write 和 clear/write
 collision 报错。accepted write 同时驱动 committed P wakeup。
 
+正式 OOO/IEX 路径通过 `OooIexOperandFiles` 保持该模块为唯一data/ready
+owner，并增加每PTag一个精确owner sidecar：
+`{STID,epoch,PTag,generation}`。allocation clear安装新owner并清ready；
+read/write必须匹配完整owner。T/U使用独立的STID-local sequence-qualified
+数据文件，不复用P文件规则。
+
 ### 7.2 问题
 
-- live top 常见配置仍少于目标 6R/4W。
+- canonical top尚未把rename clear和W1 terminal write接到新接口。
 - arbiter 在 RF 外部是 reduced fixed-priority 组合逻辑。
 - readyMask 全量扇出会成为 128-entry/多 bank 的时序热点。
 - recovery/free-list 对 killed destination 的 ready 清理没有统一 packet。
-- 没有 producer ownership generation，same-tag 冲突只能事后报错。
+- 正式路径还没有bypass provenance和speculative-ready owner。
 
 ### 7.3 目标 owner 与接口/状态
 
@@ -465,8 +471,8 @@ write txn 携带。RF 只接受当前 generation。
 
 ### 7.5 迁移与验收
 
-先保持现模块语义，扩到 6R/4W；再引入 read-group arbiter和 phys
-generation；最后分 bank/复制 ready read。验收：
+6R/4W参数、read-group arbiter、phys generation sidecar和真实P/T/U组合
+已经实现；下一步把接口接入canonical top并分bank/复制ready read。验收：
 
 - 1/2/4 write port 和不同 read port参数；
 - 4 个不同 tag 同周期 write；

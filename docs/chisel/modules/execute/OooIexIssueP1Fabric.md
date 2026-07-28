@@ -62,6 +62,9 @@ area or timing claims.
 - Freeze the default ALU/BRU/AGU/STD/FSU/SYS/CMD domain and bank map.
 - Add class-specific control, memory-order, nonspeculative, and load-generation
   eligibility blockers before pick.
-- Connect the implemented atomic read arbiter to canonical P/T/U data owners
-  and `OooPcBuffer`, then drive every domain decision directly.
+- Compose the implemented operand-read fabric with `OooPcBuffer` at the
+  canonical top boundary.
 - Connect bypass/load tracking and the non-cancellable I2-to-E1 release point.
+
+`OooIexIssueReadFabric` is the direct-composition successor for integrations
+that need real P/T/U data rather than manually driven decisions.

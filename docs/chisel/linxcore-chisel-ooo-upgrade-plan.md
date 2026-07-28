@@ -89,11 +89,12 @@ promotion.
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows in parameterized low-index subbanks; registered commit/recovery row selection before PTag return and pointer update; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | close default-width synthesis timing |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; O8.2 bounded hierarchical first-free selection; focused UT/IT | add occupancy/in-flight/PTag bank cost steering and safe-mode policy |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | multi-pick policy remains later IEX scope |
-| I0.1 P1/I1/I2 read lane | Implemented | exact selected-row validation; retained atomic P/T/U plus PC read attempt; explicit grant/deny; denial-to-repick; partial-response rejection; retained I2 data under backpressure; exact recovery cancellation; real PC-buffer IT | canonical RF/bypass and E1 terminal release remain |
+| I0.1 P1/I1/I2 read lane | Implemented | exact selected-row validation; retained atomic P/T/U plus PC read attempt; explicit grant/deny; denial-to-repick; partial-response rejection; retained I2 data under backpressure; exact recovery cancellation; real PC-buffer IT | bypass and E1 terminal release remain |
 | I0.2 oldest-ready pick | Implemented | reusable class/bank-domain selection; modular RID-generation/slot/member age; per-STID oldest plus cross-STID work-conserving RR; retained token; canonical IQ-row in-flight claim; exact retry-to-repick; recovery block/cancel; in-flight terminal-release guard; UT and generated-RTL structure evidence | freeze default pipe map, class-specific blockers, and liveness thresholds |
-| I0.3 picker-to-P1 join | Implemented | catalog-generated PC-read policy for 28 exact opcode forms; primary-parent PC index derived at S2 bind; exact token/sidecar join; typed malformed join; picker-to-P1/I1/I2 composition; denial/partial-response/P1 rejection feedback to canonical `inFlight`; end-to-end retry/repick IT | shared RF/PC arbitration, bypass, and E1 terminal release |
-| I0.4 multi-domain issue fabric | Implemented | parameterized `iexIssueDomainCount`; one canonical IQ with N picker/query/retry ports; N private bridge/P1-I2 lanes; enforced class/bank projection disjointness; domain-qualified retry; aggregate S1/IQ/lane/recovery quiescence; two-domain grant/deny/retry/release IT | freeze default class/bank map, class-specific blockers, shared RF/PC arbitration, bypass, and E1 terminal release |
-| I0.5 atomic I1 read arbiter | Implemented | bounded feasible-subset selection across issue domains; same-STID wrap-qualified age plus cross-STID RR; independent 6P/4T/4U/PC port parameters; complete-group grant/deny; exact source/PC port mapping and readyless response crossbar; malformed-shape denial; focused UT | connect canonical P/T/U data owners and PC buffer, bypass/load generations, and direct issue-fabric composition |
+| I0.3 picker-to-P1 join | Implemented | catalog-generated PC-read policy for 28 exact opcode forms; primary-parent PC index derived at S2 bind; exact token/sidecar join; typed malformed join; picker-to-P1/I1/I2 composition; denial/partial-response/P1 rejection feedback to canonical `inFlight`; end-to-end retry/repick IT | canonical PC top composition, bypass, and E1 terminal release |
+| I0.4 multi-domain issue fabric | Implemented | parameterized `iexIssueDomainCount`; one canonical IQ with N picker/query/retry ports; N private bridge/P1-I2 lanes; enforced class/bank projection disjointness; domain-qualified retry; aggregate S1/IQ/lane/recovery quiescence; two-domain grant/deny/retry/release IT | freeze default class/bank map, class-specific blockers, PC top composition, bypass, and E1 terminal release |
+| I0.5 atomic I1 read arbiter | Implemented | bounded feasible-subset selection across issue domains; same-STID wrap-qualified age plus cross-STID RR; independent 6P/4T/4U/PC port parameters; complete-group grant/deny; exact source/PC port mapping and readyless response crossbar; malformed-shape denial; focused UT | bypass/load generations and canonical PC top composition |
+| I0.6 canonical operand reads | Implemented | existing `ScalarGPRFile` remains sole P data/non-spec-ready owner under an exact `{STID,epoch,PTag,generation}` sidecar; independent exact T/U sequence data owners; parameterized 6P/4T/4U reads and 4P/4T/4U writes; direct IQ/arbiter/operand composition; missing-P-response exact repick then matching-generation I2 IT | connect rename clears/W1 writes/PC owner in canonical top; bypass and speculative load generations remain |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
@@ -1068,9 +1069,39 @@ incomplete data-valid mask and uses the existing exact reject/repick path.
 Malformed source masks, operand classes, identities, tags, reservations, or PC
 tokens are decided as whole-group denial with no physical request.
 
-This packet does not create another RF state owner. I0.6 must connect these
-requests to the canonical P data/ready owner, new exact T/U local data owners,
-and `OooPcBuffer`, then drive the multi-domain lane decisions directly.
+This packet does not create another RF state owner. I0.6 connects the operand
+requests to the canonical P/T/U data owners and drives the multi-domain lane
+decisions directly. PC requests remain an explicit boundary for composition
+with `OooPcBuffer`.
+
+### 14.5.2 Canonical P/T/U data ownership and direct issue composition
+
+I0.6 adds `OooIexOperandFiles` and `OooIexIssueReadFabric`. The former keeps
+the existing `ScalarGPRFile` as the sole P data and non-speculative-ready owner
+while qualifying every physical tag with
+`{STID, epoch, PTag, PTag generation}`. Rename initialization/clear installs
+that exact owner; a committed write or readyless read succeeds only for the
+same owner. Stale generation writes assert without intended mutation, and a
+stale read returns no response.
+
+T and U remain independent STID-local data arrays keyed by
+`{STID, epoch, local tag, local sequence index, local sequence generation}`.
+Allocation clear installs a new not-ready owner. An exact committed write sets
+data and non-speculative ready. Reallocation hides stale physical contents
+without applying P-rename recovery rules to local namespaces.
+
+`OooIexIssueReadFabric` contains one canonical IQ fabric, one atomic read
+arbiter, and one operand-file owner. The arbiter drives every lane decision and
+operand response directly; there is no top-level manual grant/data injection.
+The integration test deliberately publishes a source-ready row whose P file
+has no matching data, observes a complete port grant plus incomplete response,
+returns the exact row for repick, installs the matching P generation, and then
+observes the expected value at retained I2. The physical IQ row remains
+in-flight until a separate exact terminal release.
+
+The next packet adds bypass provenance, speculative-ready/load-generation
+validation, miss poison, and cancel/repick. It must not set the non-speculative
+RF ready owner from a speculative load wakeup.
 
 ## 15. Fast-resolve plan
 

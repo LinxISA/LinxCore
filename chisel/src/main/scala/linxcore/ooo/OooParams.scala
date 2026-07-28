@@ -56,6 +56,9 @@ final case class OooParams(
     iexPReadPorts: Int = 6,
     iexTReadPorts: Int = 4,
     iexUReadPorts: Int = 4,
+    iexPWritePorts: Int = 4,
+    iexTWritePorts: Int = 4,
+    iexUWritePorts: Int = 4,
     iexWakeupPorts: Int = 8,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
@@ -206,6 +209,8 @@ final case class OooParams(
     "IEX issue-domain count must fit the bounded physical topology")
   require(iexPReadPorts > 0 && iexTReadPorts > 0 && iexUReadPorts > 0,
     "IEX P/T/U read-port counts must be positive")
+  require(iexPWritePorts > 0 && iexTWritePorts > 0 && iexUWritePorts > 0,
+    "IEX P/T/U write-port counts must be positive")
   require(iexWakeupPorts > 0,
     "the IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,
