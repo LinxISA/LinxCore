@@ -44,8 +44,11 @@ capture so only a retained commit fire mutates pointers. O8.3g maps PC-base
 storage through four default low-index banks and retains six independent
 logical reads. O8.3h replaces the full killed-window PC recovery CAM with an
 immutable, parameterized scan and retained row-repair masks before the common
-apply. Physical PC metadata writes/reads, commit/non-flush prefix timing, and
-physical dispatch cost steering remain active O8 work.
+apply. O8.3i replaces the four-STID full-window non-flush prefix network with
+one fair retained scanner, immutable per-STID snapshots, fixed bank-width
+slices, owner-event restart, and atomic final publication. Physical PC
+metadata writes/reads, commit-selection timing, and physical dispatch cost
+steering remain active O8 work.
 Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps

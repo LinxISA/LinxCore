@@ -19,8 +19,10 @@ mutation only from the retained commit row. O8.3g now maps every PC-base access
 through parameterized low-index banks while preserving all six logical reads.
 O8.3h now scans a parameterized number of killed groups per cycle, retains all
 PC row-repair masks, and leaves common apply as the only mutation. Physical PC
-metadata realization, commit/non-flush prefix timing, dispatch cost steering,
-and default-width timing remain active. O6.2
+metadata realization remains active. O8.3i now scans one dirty STID at a time
+with a parameterized bank-width non-flush slice, restarts on target-owner
+events, and publishes no partial prefix. Commit-selection timing, dispatch
+cost steering, and default-width timing remain active. O6.2
 ROB-owned exact non-flush is packet-complete.
 O7.1 grouped-ROB recovery is packet-complete at the direct owner boundary:
 it prepares an exact logical-uop suffix across intra-group and wrapped-RID

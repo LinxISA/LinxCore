@@ -54,11 +54,28 @@ retained state, and only a fire of that retained row may clear groups or move
 head/occupancy pointers. A same-STID recovery is fenced during both the token
 and payload stages while peer STIDs remain independent.
 
-Commit eligibility and non-flush prefix discovery still inspect live ordered
-rows combinationally. O8.3f separates selection, payload read, and pointer
-mutation; it does not claim closure of that prefix-discovery path. O8.3g has
-separately established the PC-buffer banked address map; its bounded recovery
-and metadata-write timing remain open.
+O8.3i removes the four-STID full-window non-flush prefix network. One fair
+retained scanner selects a dirty, non-interrupted STID and captures its exact
+`{occupied, head slot/generation/epoch/PE, authorized prefix, window epoch}`.
+It then checks at most `robNonFlushScanGroupsPerCycle` consecutive groups per
+cycle, starting again at the head so an already-authorized prefix is also
+revalidated. The default eight-group slice therefore needs one capture cycle
+plus at most eight scan cycles for a 64-group window, and may stop early at the
+first unsafe or malformed row.
+
+Publication, exact evidence, commit, or recovery apply on the selected STID
+invalidates the private snapshot and leaves that STID dirty for retry. An
+interrupt or active recovery fence aborts only that target scan. The RR start
+advances after completion or restart, so peer STIDs continue. No partial slice
+is public: the ROB changes `prefixCount` only after the complete retained result
+is still exact. Commit still subtracts its retired count immediately, recovery
+still clears only the target window, and both events take priority over scanner
+publication.
+
+Commit eligibility still examines only the bounded retirement prefix
+combinationally. O8.3i closes the unbounded non-flush discovery path, not
+physical macro selection, default-width timing reports, or the remaining
+commit-selection policy work.
 
 ## Verification
 
@@ -68,6 +85,9 @@ and metadata-write timing remain open.
 - separate head-token and payload-read stages, stable retained output, and
   same-STID recovery fencing across both stages;
 - stale completion rejection and exact non-flush evidence;
+- atomic bounded non-flush publication, non-default one/two-group slices,
+  evidence-triggered restart, interrupt freeze, commit rebasing, and recovery
+  reset;
 - wrapped head generation and exact suffix recovery;
 - multi-cycle recovery prepare, private partial-scan abort, request-drift
   rejection, non-default two-group slices, and peer-STID publication;
@@ -80,8 +100,10 @@ The lower ROB/BROB/PC coordinator, D3-to-S1 integration, and upper O3
 coordinator suites verify that the physical layout and added read stage remain
 behind the existing common publish, commit, and recovery fires.
 
-At the current generated-test boundary, the four-wide eight-group module is
-107,407 SystemVerilog lines and the sixteen-group module is 217,635 lines.
-This remains approximately linear with depth. These line counts are not an
-area-reduction claim; O8.3e bounds per-cycle recovery read/compare depth and
-O8.3f breaks the selected-head/payload/pointer path with retained state.
+The O8.3i generated-test boundary is 107,286 SystemVerilog lines at eight
+groups and 216,393 lines at sixteen groups, compared with 107,407 and 217,635
+at O8.3f. The old `safePrefixByStid` structure is absent from generated RTL;
+the retained scanner and snapshot registers are present. O8.3e bounds recovery
+read/compare depth, O8.3f breaks the selected-head/payload/pointer path, and
+O8.3i bounds non-flush prefix discovery. Line counts are structure evidence,
+not an area or synthesis timing claim.

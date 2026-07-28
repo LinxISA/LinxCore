@@ -298,6 +298,22 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     cycles
   }
 
+  private def waitForNonFlushPrefix(
+      dut: OooS1GroupedRob,
+      stid: Int,
+      expected: Int,
+      limit: Int = 64): Int = {
+    var cycles = 0
+    while (dut.io.nonFlushWindows(stid).prefixCount.peek().litValue != expected &&
+        cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.nonFlushWindows(stid).prefixCount.peek().litValue == expected,
+      s"STID $stid non-flush prefix did not reach $expected within $limit cycles")
+    cycles
+  }
+
   private def acceptCommit(dut: OooS1GroupedRob): Unit = {
     waitForCommit(dut)
     dut.io.commit.ready.poke(true.B)
@@ -682,6 +698,61 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("publishes a bounded non-flush scan atomically after all retained slices") {
+    val p = OooParams(
+      instructionDecodeWidth = 4,
+      robGroupsPerStid = 8,
+      robNonFlushScanGroupsPerCycle = 2)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(dut, stid = 0, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq.fill(4)(1))
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
+      dut.clock.step()
+      dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
+      dut.clock.step()
+      dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
+      dut.clock.step()
+      dut.io.nonFlushWindows(0).prefixCount.expect(4.U)
+      dut.io.nonFlushWindows(0).epoch.expect(1.U)
+      dut.io.occupiedGroups(0).expect(4.U)
+    }
+  }
+
+  test("restarts a retained non-flush scan after exact evidence changes its row") {
+    val p = OooParams(
+      instructionDecodeWidth = 4,
+      robGroupsPerStid = 8,
+      robNonFlushScanGroupsPerCycle = 1)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(dut, stid = 0, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq.fill(4)(1))
+      val memory = dut.io.publish.bits.reservation.transaction.decoded.uops(3).recipe
+      memory.mayTrap.poke(true.B)
+      memory.mayTrapLate.poke(true.B)
+      memory.memoryRequestCount.poke(1.U)
+      memory.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+      memory.dispatchClass.poke(OooDispatchClass.Agu.U)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      dut.clock.step(2)
+      dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
+      pokeNonFlushEvidence(dut, stid = 0, slot = 3, ridGeneration = 0,
+        proofs = OooNonFlushProof.ExceptionSafeMask |
+          OooNonFlushProof.MemorySafeMask)
+      acceptNonFlushEvidence(dut)
+      dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
+
+      assert(waitForNonFlushPrefix(dut, stid = 0, expected = 4) >= 5)
+      dut.io.nonFlushWindows(0).epoch.expect(1.U)
+    }
+  }
+
   test("advances only an exact typed safe prefix and never treats evidence as commit") {
     val p = OooParams(
       instructionDecodeWidth = 4,
@@ -708,7 +779,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
 
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 1, expected = 1)
       dut.io.nonFlushWindows(1).valid.expect(true.B)
       dut.io.nonFlushWindows(1).head.ridSlot.expect(0.U)
       dut.io.nonFlushWindows(1).prefixCount.expect(1.U)
@@ -719,7 +790,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         proofs = OooNonFlushProof.ExceptionSafeMask |
           OooNonFlushProof.MemorySafeMask)
       acceptNonFlushEvidence(dut)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 1, expected = 2)
       dut.io.nonFlushWindows(1).prefixCount.expect(2.U)
       dut.io.occupiedGroups(1).expect(3.U)
 
@@ -741,7 +812,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       pokeNonFlushEvidence(dut, stid = 1, slot = 2, ridGeneration = 0,
         proofs = OooNonFlushProof.SerializationSafeMask)
       acceptNonFlushEvidence(dut)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 1, expected = 3)
       dut.io.nonFlushWindows(1).prefixCount.expect(3.U)
       dut.io.occupiedGroups(1).expect(3.U)
       dut.io.commit.valid.expect(false.B)
@@ -764,12 +835,12 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         firstGeneration = 0, groupMembers = Seq(1))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 1, expected = 1)
       dut.io.nonFlushWindows(0).prefixCount.expect(0.U)
       dut.io.nonFlushWindows(1).prefixCount.expect(1.U)
 
       dut.io.interruptPending(0).poke(false.B)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 0, expected = 1)
       dut.io.nonFlushWindows(0).prefixCount.expect(1.U)
 
       pokePublication(dut, stid = 2, transactionId = 0, firstSlot = 0,
@@ -803,7 +874,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         initiallyComplete = Set(0, 1))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 3, expected = 2)
       dut.io.nonFlushWindows(3).head.ridSlot.expect(0.U)
       dut.io.nonFlushWindows(3).prefixCount.expect(2.U)
       dut.io.occupiedGroups(3).expect(2.U)

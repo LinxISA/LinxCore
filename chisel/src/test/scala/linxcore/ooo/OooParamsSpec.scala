@@ -21,6 +21,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.robRecoveryScanGroupsPerCycle == 8)
     assert(p.robRecoveryScanGroupsPerCycleEffective == 8)
     assert(p.robRecoveryScanCycles == 8)
+    assert(p.robNonFlushScanGroupsPerCycle == 8)
+    assert(p.robNonFlushScanGroupsPerCycleEffective == 8)
+    assert(p.robNonFlushScanCycles == 8)
     assert(p.nativeBidWidth == 8)
     assert(p.pArchRegs == 24)
     assert(p.pPhysRegs == 128)
@@ -77,6 +80,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(smallRob.robRowsPerSubbank == 1)
     assert(smallRob.robRecoveryScanGroupsPerCycleEffective == 4)
     assert(smallRob.robRecoveryScanCycles == 1)
+    assert(smallRob.robNonFlushScanGroupsPerCycleEffective == 4)
+    assert(smallRob.robNonFlushScanCycles == 1)
     assert(smallRob.pcRecoveryScanCycles == 1)
   }
 
@@ -110,6 +115,10 @@ class OooParamsSpec extends AnyFunSuite {
       robRecoveryScanGroupsPerCycle = 3))
     assertThrows[IllegalArgumentException](OooParams(
       robRecoveryScanGroupsPerCycle = 16))
+    assertThrows[IllegalArgumentException](OooParams(
+      robNonFlushScanGroupsPerCycle = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      robNonFlushScanGroupsPerCycle = 16))
     assertThrows[IllegalArgumentException](OooParams(
       instructionDecodeWidth = 6, robBankCount = 4))
     assertThrows[IllegalArgumentException](OooParams(

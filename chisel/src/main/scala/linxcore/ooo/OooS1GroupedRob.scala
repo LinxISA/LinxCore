@@ -66,6 +66,23 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   val nonFlushAuthorized = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(p.nonFlushPrefixCountWidth.W))))
   val nonFlushEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.epochWidth.W))))
+  val nonFlushScanDirty = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
+  val nonFlushScanActive = RegInit(false.B)
+  val nonFlushScanStid = RegInit(0.U(p.stidWidth.W))
+  val nonFlushScanRrStart = RegInit(0.U(p.stidWidth.W))
+  val nonFlushScanCursor = RegInit(0.U(p.nonFlushPrefixCountWidth.W))
+  val nonFlushScanCandidate = RegInit(0.U(p.nonFlushPrefixCountWidth.W))
+  val nonFlushScanSnapshotOccupied = RegInit(
+    0.U(p.nonFlushPrefixCountWidth.W))
+  val nonFlushScanSnapshotHeadSlot = RegInit(0.U(p.ridSlotWidth.W))
+  val nonFlushScanSnapshotHeadGeneration = RegInit(
+    0.U(p.ridGenerationWidth.W))
+  val nonFlushScanSnapshotHeadEpoch = RegInit(
+    0.U(p.reservationEpochWidth.W))
+  val nonFlushScanSnapshotHeadPeId = RegInit(0.U(p.peIdWidth.W))
+  val nonFlushScanSnapshotAuthorized = RegInit(
+    0.U(p.nonFlushPrefixCountWidth.W))
+  val nonFlushScanSnapshotEpoch = RegInit(0.U(p.epochWidth.W))
 
   val recoveryScanState = RegInit(OooRobRecoveryScanState.Idle)
   val retainedRecoveryRequest = RegInit(
@@ -737,27 +754,66 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       (row.nonFlushObservedProofs & row.nonFlushRequiredProofs) ===
         row.nonFlushRequiredProofs
 
-  val safePrefixByStid = Wire(Vec(p.stidCount,
-    UInt(p.nonFlushPrefixCountWidth.W)))
-  for (stid <- 0 until p.stidCount) {
-    val prefix = Wire(Vec(p.robGroupsPerStid + 1,
-      UInt(p.nonFlushPrefixCountWidth.W)))
-    prefix(0) := 0.U
-    for (offset <- 0 until p.robGroupsPerStid) {
-      val slotSum = headSlot(stid) +& offset.U
-      val wraps = slotSum >= p.robGroupsPerStid.U
-      val row = rowAt(stid.U, slotSum(p.ridSlotWidth - 1, 0))
-      val expectedGeneration = headGeneration(stid) + wraps.asUInt
-      val exactHead = row.key.valid && row.key.peId === headPeId(stid) &&
-        row.key.stid === stid.U &&
-        row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
-        row.key.ridGeneration === expectedGeneration
-      val canExtend = prefix(offset) === offset.U &&
-        offset.U < occupied(stid) && exactHead && groupNonFlushSafe(row)
-      prefix(offset + 1) := Mux(canExtend, (offset + 1).U, prefix(offset))
-    }
-    safePrefixByStid(stid) := prefix(p.robGroupsPerStid)
+  val rotatedNonFlushDirty = Wire(Vec(p.stidCount, Bool()))
+  for (offset <- 0 until p.stidCount) {
+    val index = if (p.stidCount == 1) 0.U else
+      (nonFlushScanRrStart + offset.U)(p.stidWidth - 1, 0)
+    val recoveryFence = recoveryTargetsStid && recoveryStid === index
+    rotatedNonFlushDirty(offset) := nonFlushScanDirty(index) &&
+      !io.interruptPending(index) && !recoveryFence
   }
+  val anyNonFlushDirty = rotatedNonFlushDirty.asUInt.orR
+  val selectedNonFlushOffset = if (p.stidCount == 1) 0.U else
+    PriorityEncoder(rotatedNonFlushDirty.asUInt)
+  val selectedNonFlushStid = if (p.stidCount == 1) 0.U(p.stidWidth.W) else
+    (nonFlushScanRrStart + selectedNonFlushOffset)(p.stidWidth - 1, 0)
+
+  val nonFlushScanPrefix = Wire(Vec(
+    p.robNonFlushScanGroupsPerCycleEffective + 1,
+    UInt(p.nonFlushPrefixCountWidth.W)))
+  nonFlushScanPrefix(0) := nonFlushScanCandidate
+  for (scanLane <- 0 until p.robNonFlushScanGroupsPerCycleEffective) {
+    val offsetWide = nonFlushScanCursor +& scanLane.U
+    val offset = Wire(UInt(p.nonFlushPrefixCountWidth.W))
+    offset := offsetWide
+    val slotSum = nonFlushScanSnapshotHeadSlot +& offset
+    val wraps = slotSum >= p.robGroupsPerStid.U
+    val row = rowAt(nonFlushScanStid,
+      slotSum(p.ridSlotWidth - 1, 0))
+    val exactRow = row.valid && row.key.valid &&
+      row.key.peId === nonFlushScanSnapshotHeadPeId &&
+      row.key.stid === nonFlushScanStid &&
+      row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
+      row.key.ridGeneration ===
+        nonFlushScanSnapshotHeadGeneration + wraps.asUInt
+    val canExtend = nonFlushScanPrefix(scanLane) === offset &&
+      offset < nonFlushScanSnapshotOccupied && exactRow &&
+      groupNonFlushSafe(row)
+    nonFlushScanPrefix(scanLane + 1) := Mux(
+      canExtend, offset + 1.U, nonFlushScanPrefix(scanLane))
+  }
+  val nonFlushScanNextCandidate =
+    nonFlushScanPrefix(p.robNonFlushScanGroupsPerCycleEffective)
+  val nonFlushScanSliceEndWide = nonFlushScanCursor +&
+    p.robNonFlushScanGroupsPerCycleEffective.U
+  val nonFlushScanSliceEnd = Wire(UInt(p.nonFlushPrefixCountWidth.W))
+  nonFlushScanSliceEnd := Mux(
+    nonFlushScanSliceEndWide >= nonFlushScanSnapshotOccupied,
+    nonFlushScanSnapshotOccupied,
+    nonFlushScanSliceEndWide)
+  val nonFlushScanDone =
+    nonFlushScanNextCandidate =/= nonFlushScanSliceEnd ||
+      nonFlushScanSliceEnd === nonFlushScanSnapshotOccupied
+  val nonFlushScanSnapshotExact =
+    occupied(nonFlushScanStid) === nonFlushScanSnapshotOccupied &&
+      headSlot(nonFlushScanStid) === nonFlushScanSnapshotHeadSlot &&
+      headGeneration(nonFlushScanStid) ===
+        nonFlushScanSnapshotHeadGeneration &&
+      headEpoch(nonFlushScanStid) === nonFlushScanSnapshotHeadEpoch &&
+      headPeId(nonFlushScanStid) === nonFlushScanSnapshotHeadPeId &&
+      nonFlushAuthorized(nonFlushScanStid) ===
+        nonFlushScanSnapshotAuthorized &&
+      nonFlushEpoch(nonFlushScanStid) === nonFlushScanSnapshotEpoch
 
   val commitCountByStid = Wire(Vec(p.stidCount, UInt(p.robReleaseCountWidth.W)))
   for (stid <- 0 until p.stidCount) {
@@ -878,15 +934,6 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     when(commitHere) {
       nonFlushAuthorized(stid) := authorizedAfterCommit
       nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
-    }.elsewhen(safePrefixByStid(stid) < nonFlushAuthorized(stid)) {
-      // Safety is monotonic for a live row; this branch is a fail-closed guard
-      // for owner reset/recovery integration added in O7.
-      nonFlushAuthorized(stid) := safePrefixByStid(stid)
-      nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
-    }.elsewhen(!io.interruptPending(stid) &&
-      safePrefixByStid(stid) > nonFlushAuthorized(stid)) {
-      nonFlushAuthorized(stid) := safePrefixByStid(stid)
-      nonFlushEpoch(stid) := nonFlushEpoch(stid) + 1.U
     }
   }
 
@@ -910,6 +957,61 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   }
 
   val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
+  val nonFlushOwnerEvent = Wire(Vec(p.stidCount, Bool()))
+  for (stid <- 0 until p.stidCount) {
+    nonFlushOwnerEvent(stid) :=
+      (publishFire && publishStid === stid.U) ||
+        (evidenceFire && evidenceExact && evidenceStid === stid.U) ||
+        (commitFire && commitRow.release.firstGroup.stid === stid.U) ||
+        (recoveryApply && safeRecoveryStid === stid.U)
+  }
+  val nonFlushScanRecoveryFence = recoveryTargetsStid &&
+    recoveryStid === nonFlushScanStid
+  val nonFlushScanMustRestart = nonFlushScanActive && (
+    nonFlushOwnerEvent(nonFlushScanStid) ||
+      io.interruptPending(nonFlushScanStid) ||
+      nonFlushScanRecoveryFence || !nonFlushScanSnapshotExact)
+
+  when(!nonFlushScanActive && anyNonFlushDirty) {
+    nonFlushScanActive := true.B
+    nonFlushScanStid := selectedNonFlushStid
+    nonFlushScanCursor := 0.U
+    nonFlushScanCandidate := 0.U
+    nonFlushScanSnapshotOccupied := occupied(selectedNonFlushStid)
+    nonFlushScanSnapshotHeadSlot := headSlot(selectedNonFlushStid)
+    nonFlushScanSnapshotHeadGeneration := headGeneration(selectedNonFlushStid)
+    nonFlushScanSnapshotHeadEpoch := headEpoch(selectedNonFlushStid)
+    nonFlushScanSnapshotHeadPeId := headPeId(selectedNonFlushStid)
+    nonFlushScanSnapshotAuthorized := nonFlushAuthorized(selectedNonFlushStid)
+    nonFlushScanSnapshotEpoch := nonFlushEpoch(selectedNonFlushStid)
+  }.elsewhen(nonFlushScanMustRestart) {
+    nonFlushScanActive := false.B
+    nonFlushScanRrStart :=
+      (if (p.stidCount == 1) 0.U else
+        (nonFlushScanStid + 1.U)(p.stidWidth - 1, 0))
+  }.elsewhen(nonFlushScanActive && nonFlushScanDone) {
+    nonFlushScanActive := false.B
+    nonFlushScanDirty(nonFlushScanStid) := false.B
+    nonFlushScanRrStart :=
+      (if (p.stidCount == 1) 0.U else
+        (nonFlushScanStid + 1.U)(p.stidWidth - 1, 0))
+    when(nonFlushScanNextCandidate =/=
+        nonFlushAuthorized(nonFlushScanStid)) {
+      nonFlushAuthorized(nonFlushScanStid) := nonFlushScanNextCandidate
+      nonFlushEpoch(nonFlushScanStid) :=
+        nonFlushEpoch(nonFlushScanStid) + 1.U
+    }
+  }.elsewhen(nonFlushScanActive) {
+    nonFlushScanCursor := nonFlushScanSliceEnd
+    nonFlushScanCandidate := nonFlushScanNextCandidate
+  }
+
+  for (stid <- 0 until p.stidCount) {
+    when(nonFlushOwnerEvent(stid)) {
+      nonFlushScanDirty(stid) := true.B
+    }
+  }
+
   when(io.recoveryFire) {
     assert(io.recoveryPrepare.valid && io.recoveryPrepareReady &&
       io.recoveryPrepared.valid,

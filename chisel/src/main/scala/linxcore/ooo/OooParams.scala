@@ -22,6 +22,7 @@ final case class OooParams(
     robBankCount: Int = 8,
     robSubbankCount: Int = 2,
     robRecoveryScanGroupsPerCycle: Int = 8,
+    robNonFlushScanGroupsPerCycle: Int = 8,
     brobEntriesPerStid: Int = 256,
     pArchRegs: Int = 24,
     pPhysRegs: Int = 128,
@@ -103,6 +104,9 @@ final case class OooParams(
   require(isPowerOfTwo(robRecoveryScanGroupsPerCycle) &&
     robRecoveryScanGroupsPerCycle <= robBankCount,
     "ROB recovery scan width must be a power of two within the physical bank count")
+  require(isPowerOfTwo(robNonFlushScanGroupsPerCycle) &&
+    robNonFlushScanGroupsPerCycle <= robBankCount,
+    "ROB non-flush scan width must be a power of two within the physical bank count")
   require(instructionDecodeWidth <= robBankCountEffective &&
     retireGroupWidth <= robBankCountEffective,
     "ROB banks must cover one publication and retirement prefix without a bank collision")
@@ -223,6 +227,10 @@ final case class OooParams(
     robGroupsPerStid / robRecoveryScanGroupsPerCycleEffective
   def robRecoveryScanCursorWidth: Int =
     math.max(1, log2Ceil(robRecoveryScanCycles))
+  def robNonFlushScanGroupsPerCycleEffective: Int =
+    math.min(robNonFlushScanGroupsPerCycle, robBankCountEffective)
+  def robNonFlushScanCycles: Int =
+    robGroupsPerStid / robNonFlushScanGroupsPerCycleEffective
   def nativeBidWidth: Int = log2Ceil(brobEntriesPerStid)
   def brobCountWidth: Int = countWidth(brobEntriesPerStid)
   def brobLiveGroupCountWidth: Int = countWidth(robGroupsPerStid)

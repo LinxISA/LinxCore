@@ -199,6 +199,21 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       s"coordinated commit did not become valid within $maxCycles cycles")
   }
 
+  private def waitForNonFlushPrefix(
+      dut: OooRobBrobPcCoordinator,
+      stid: Int,
+      expected: Int,
+      maxCycles: Int = 64): Unit = {
+    var cycles = 0
+    while (dut.io.nonFlushWindows(stid).prefixCount.peek().litValue != expected &&
+        cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.nonFlushWindows(stid).prefixCount.peek().litValue == expected,
+      s"STID $stid non-flush prefix did not reach $expected within $maxCycles cycles")
+  }
+
   test("publishes and retires D3 ROB BROB and PC state on common terminal fires") {
     val p = OooParams(
       instructionDecodeWidth = 2,
@@ -425,7 +440,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.nonFlushEvidenceRejected.valid.expect(false.B)
       dut.clock.step()
       dut.io.nonFlushEvidence.valid.poke(false.B)
-      dut.clock.step()
+      waitForNonFlushPrefix(dut, stid = 2, expected = 1)
 
       dut.io.nonFlushWindows(2).head.ridSlot.expect(0.U)
       dut.io.nonFlushWindows(2).prefixCount.expect(1.U)
