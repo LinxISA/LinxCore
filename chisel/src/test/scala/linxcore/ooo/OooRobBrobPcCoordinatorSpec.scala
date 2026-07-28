@@ -163,7 +163,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
 
   private def waitRecoveryPrepared(
       dut: OooRobBrobPcCoordinator,
-      maxCycles: Int = 8): Unit = {
+      maxCycles: Int = 64): Unit = {
     var cycles = 0
     while (!dut.io.recoveryPreparedValid.peek().litToBoolean &&
       cycles < maxCycles) {
@@ -172,6 +172,19 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
     }
     assert(dut.io.recoveryPreparedValid.peek().litToBoolean,
       s"physical recovery did not prepare within $maxCycles cycles")
+  }
+
+  private def waitRobRecoveryRejected(
+      dut: OooRobBrobPcCoordinator,
+      maxCycles: Int = 64): Unit = {
+    var cycles = 0
+    while (!dut.io.robRecoveryRejected.valid.peek().litToBoolean &&
+      cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.robRecoveryRejected.valid.peek().litToBoolean,
+      s"ROB recovery did not reject within $maxCycles cycles")
   }
 
   test("publishes and retires D3 ROB BROB and PC state on common terminal fires") {
@@ -548,7 +561,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryRequest.ready.expect(true.B)
       dut.clock.step()
       dut.io.recoveryRequest.valid.poke(false.B)
-      dut.io.robRecoveryRejected.valid.expect(true.B)
+      waitRobRecoveryRejected(dut)
       dut.io.d3RecoveryRejected.valid.expect(false.B)
       dut.io.brobRecoveryRejected.valid.expect(false.B)
       dut.io.pcRecoveryRejected.valid.expect(false.B)
@@ -585,7 +598,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryRequest.ready.expect(true.B)
       dut.clock.step()
       dut.io.recoveryRequest.valid.poke(false.B)
-      dut.io.robRecoveryRejected.valid.expect(true.B)
+      waitRobRecoveryRejected(dut)
       dut.io.d3RecoveryRejected.valid.expect(false.B)
       dut.io.brobRecoveryRejected.valid.expect(false.B)
       dut.io.pcRecoveryRejected.valid.expect(false.B)

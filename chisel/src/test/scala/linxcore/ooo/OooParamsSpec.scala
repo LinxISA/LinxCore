@@ -18,6 +18,9 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.robSubbankCount == 2)
     assert(p.robSubbankCountEffective == 2)
     assert(p.robRowsPerSubbank == 4)
+    assert(p.robRecoveryScanGroupsPerCycle == 8)
+    assert(p.robRecoveryScanGroupsPerCycleEffective == 8)
+    assert(p.robRecoveryScanCycles == 8)
     assert(p.nativeBidWidth == 8)
     assert(p.pArchRegs == 24)
     assert(p.pPhysRegs == 128)
@@ -67,6 +70,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(smallRob.robBankCountEffective == 4)
     assert(smallRob.robSubbankCountEffective == 1)
     assert(smallRob.robRowsPerSubbank == 1)
+    assert(smallRob.robRecoveryScanGroupsPerCycleEffective == 4)
+    assert(smallRob.robRecoveryScanCycles == 1)
   }
 
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
@@ -95,6 +100,10 @@ class OooParamsSpec extends AnyFunSuite {
       pMapQDepthPerStid = 4, pMapQSubbankCount = 8))
     assertThrows[IllegalArgumentException](OooParams(robBankCount = 3))
     assertThrows[IllegalArgumentException](OooParams(robSubbankCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      robRecoveryScanGroupsPerCycle = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      robRecoveryScanGroupsPerCycle = 16))
     assertThrows[IllegalArgumentException](OooParams(
       instructionDecodeWidth = 6, robBankCount = 4))
     assertThrows[IllegalArgumentException](OooParams(

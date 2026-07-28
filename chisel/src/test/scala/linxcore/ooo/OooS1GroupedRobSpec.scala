@@ -253,6 +253,38 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
+  private def waitForRecoveryPrepared(
+      dut: OooS1GroupedRob,
+      limit: Int = 64): Int = {
+    var cycles = 0
+    while (!dut.io.recoveryPrepareReady.peek().litToBoolean &&
+        !dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(!dut.io.recoveryRejected.valid.peek().litToBoolean,
+      s"ROB recovery rejected after $cycles scan cycles")
+    assert(dut.io.recoveryPrepareReady.peek().litToBoolean,
+      s"ROB recovery did not prepare within $limit cycles")
+    dut.io.recoveryPrepared.valid.expect(true.B)
+    cycles
+  }
+
+  private def waitForRecoveryRejected(
+      dut: OooS1GroupedRob,
+      limit: Int = 64): Int = {
+    var cycles = 0
+    while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.recoveryRejected.valid.peek().litToBoolean,
+      s"ROB recovery did not reject within $limit cycles")
+    cycles
+  }
+
   private def acceptCompletion(dut: OooS1GroupedRob): Unit = {
     dut.io.completion.ready.expect(true.B)
     dut.io.completionRejected.valid.expect(false.B)
@@ -739,8 +771,8 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
 
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
         member = 0, memberCount = 1, killTrigger = false)
-      dut.io.recoveryPrepareReady.expect(true.B)
-      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      assert(waitForRecoveryPrepared(dut) >= 3)
       dut.io.recoveryPrepared.pivotOffset.expect(0.U)
       dut.io.recoveryPrepared.pivot.physicalMemberCount.expect(3.U)
       dut.io.recoveryPrepared.pivot.logicalUopMask.expect(3.U)
@@ -798,7 +830,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
 
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
         member = 1, memberCount = 2, killTrigger = true)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      waitForRecoveryPrepared(dut)
       dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
       dut.io.recoveryPrepared.survivingPivot.physicalMemberCount.expect(1.U)
       dut.io.recoveryPrepared.survivingPivot.logicalUopMask.expect(1.U)
@@ -812,7 +844,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
 
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
         member = 0, memberCount = 1, killTrigger = true)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      waitForRecoveryPrepared(dut)
       dut.io.recoveryPrepared.survivingPivotValid.expect(false.B)
       dut.io.recoveryPrepared.survivingTailValid.expect(false.B)
       dut.io.recoveryPrepared.killedGroupCount.expect(1.U)
@@ -863,7 +895,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 1,
         member = 0, memberCount = 1, killTrigger = false,
         transactionId = 2)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      waitForRecoveryPrepared(dut)
       dut.io.recoveryPrepared.pivotOffset.expect(1.U)
       dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
       dut.io.recoveryPrepared.survivingTailValid.expect(true.B)
@@ -896,6 +928,63 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("retains a bounded recovery scan, aborts privately, and lets a peer publish") {
+    val p = OooParams(
+      robGroupsPerStid = 8,
+      robRecoveryScanGroupsPerCycle = 2)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(dut, stid = 1, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq.fill(4)(1))
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(4.U)
+
+      pokeRecovery(dut, stid = 1, slot = 2, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.clock.step()
+      dut.clock.step()
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.occupiedGroups(1).expect(4.U)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.occupiedGroups(1).expect(4.U)
+
+      pokeRecovery(dut, stid = 1, slot = 2, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.clock.step()
+      dut.io.recoveryPrepare.bits.rename.key.transactionId.poke(99.U)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.occupiedGroups(1).expect(4.U)
+
+      pokeRecovery(dut, stid = 1, slot = 2, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.clock.step()
+      pokePublication(dut, stid = 2, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq(1))
+      dut.io.publish.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+      dut.io.occupiedGroups(2).expect(1.U)
+      assert(waitForRecoveryPrepared(dut) >= 7)
+      dut.io.recoveryPrepared.pivotOffset.expect(2.U)
+      dut.io.recoveryPrepared.newOccupied.expect(3.U)
+      dut.io.recoveryPrepared.killedGroupCount.expect(1.U)
+      dut.io.recoveryPrepared.killedGroups(0).key.ridSlot.expect(3.U)
+      dut.io.occupiedGroups(1).expect(4.U)
+
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.occupiedGroups(1).expect(3.U)
+      dut.io.occupiedGroups(2).expect(1.U)
+    }
+  }
+
   test("rejects stale identity and non-logical trigger shapes with zero mutation") {
     val p = OooParams(robGroupsPerStid = 8)
     simulate(new OooS1GroupedRob(p)) { dut =>
@@ -907,15 +996,18 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 1,
         member = 0, memberCount = 1, killTrigger = false)
       dut.io.recoveryPrepareReady.expect(false.B)
+      waitForRecoveryRejected(dut)
       dut.io.recoveryPrepared.valid.expect(false.B)
-      dut.io.recoveryRejected.valid.expect(true.B)
       dut.io.recoveryRejected.bits.exactMatchCount.expect(0.U)
+      dut.clock.step()
+
+      dut.io.recoveryPrepare.valid.poke(false.B)
       dut.clock.step()
 
       pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
         member = 1, memberCount = 1, killTrigger = true)
       dut.io.recoveryPrepareReady.expect(false.B)
-      dut.io.recoveryRejected.valid.expect(true.B)
+      waitForRecoveryRejected(dut)
       dut.io.recoveryRejected.bits.exactMatchCount.expect(1.U)
       dut.io.recoveryRejected.bits.triggerShapeMatch.expect(false.B)
       dut.clock.step()

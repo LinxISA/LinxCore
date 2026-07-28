@@ -3,6 +3,10 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Cat, Decoupled, PopCount, PriorityEncoder, UIntToOH, Valid}
 
+object OooRobRecoveryScanState extends ChiselEnum {
+  val Idle, FindPivot, BuildPlan, Prepared, Rejected = Value
+}
+
 class OooS1GroupedRobIO(val p: OooParams = OooParams()) extends Bundle {
   val publish = Flipped(Decoupled(new OooS1GroupedPublicationRequest(p)))
   val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
@@ -63,12 +67,39 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     0.U(p.nonFlushPrefixCountWidth.W))))
   val nonFlushEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.epochWidth.W))))
 
-  val recoveryRequest = io.recoveryPrepare.bits
+  val recoveryScanState = RegInit(OooRobRecoveryScanState.Idle)
+  val retainedRecoveryRequest = RegInit(
+    0.U.asTypeOf(new OooGlobalRecoveryRequest(p)))
+  val retainedRecoveryPlan = RegInit(
+    0.U.asTypeOf(new OooRobRecoveryPlan(p)))
+  val recoveryScanCursor = RegInit(0.U(p.robRecoveryScanCursorWidth.W))
+  val recoveryExactMatchCountReg = RegInit(
+    0.U(p.countWidth(p.robGroupsPerStid).W))
+  val recoveryWindowExactReg = RegInit(true.B)
+  val recoveryPivotReg = RegInit(
+    0.U.asTypeOf(new OooRobPhysicalGroupRecord(p)))
+  val recoveryPivotOffsetReg = RegInit(
+    0.U(p.nonFlushPrefixCountWidth.W))
+  val recoverySnapshotOccupied = RegInit(
+    0.U(p.nonFlushPrefixCountWidth.W))
+  val recoverySnapshotHeadSlot = RegInit(0.U(p.ridSlotWidth.W))
+  val recoverySnapshotHeadGeneration = RegInit(
+    0.U(p.ridGenerationWidth.W))
+  val recoverySnapshotHeadPeId = RegInit(0.U(p.peIdWidth.W))
+
+  val recoveryRequest = Mux(
+    recoveryScanState === OooRobRecoveryScanState.Idle,
+    io.recoveryPrepare.bits,
+    retainedRecoveryRequest)
   val recoveryMember = recoveryRequest.rename.key.member
   val recoveryStid = recoveryMember.group.stid
   val recoveryStidInRange = recoveryStid < p.stidCount.U
   val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
-  val recoveryTargetsStid = io.recoveryPrepare.valid &&
+  val recoveryOfferExact = io.recoveryPrepare.valid &&
+    io.recoveryPrepare.bits.asUInt === recoveryRequest.asUInt
+  val recoveryTargetsStid =
+    (io.recoveryPrepare.valid ||
+      recoveryScanState =/= OooRobRecoveryScanState.Idle) &&
     recoveryStidInRange && recoveryMember.group.valid && recoveryMember.bid.valid
   val recoveryCommitConflict = WireDefault(false.B)
 
@@ -301,18 +332,41 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     }
   }
 
-  val recoveryGroupMatches = Wire(Vec(p.robGroupsPerStid, Bool()))
-  for (offset <- 0 until p.robGroupsPerStid) {
-    val slotSum = headSlot(safeRecoveryStid) +& offset.U
+  // Recovery is a retained two-pass walk over the physical bank slices.  The
+  // first pass validates the complete old window and finds one exact pivot;
+  // the second pass writes the ordered killed-row records into private plan
+  // state.  No ROB row or pointer mutates before the common recovery fire.
+  val recoveryScanOffsets = Wire(Vec(
+    p.robRecoveryScanGroupsPerCycleEffective,
+    UInt(p.nonFlushPrefixCountWidth.W)))
+  val recoveryScanRows = Wire(Vec(
+    p.robRecoveryScanGroupsPerCycleEffective,
+    new OooRobPhysicalGroupRecord(p)))
+  val recoveryScanWindowExact = Wire(Vec(
+    p.robRecoveryScanGroupsPerCycleEffective, Bool()))
+  val recoveryScanMatches = Wire(Vec(
+    p.robRecoveryScanGroupsPerCycleEffective, Bool()))
+  for (scanLane <- 0 until p.robRecoveryScanGroupsPerCycleEffective) {
+    val offsetWide = recoveryScanCursor *
+      p.robRecoveryScanGroupsPerCycleEffective.U + scanLane.U
+    val offset = Wire(UInt(p.nonFlushPrefixCountWidth.W))
+    offset := offsetWide
+    val slotSum = recoverySnapshotHeadSlot +& offset
     val wraps = slotSum >= p.robGroupsPerStid.U
-    val row = rowAt(safeRecoveryStid, slotSum(p.ridSlotWidth - 1, 0))
-    recoveryGroupMatches(offset) := recoveryTargetsStid &&
-      offset.U < occupied(safeRecoveryStid) && row.valid && row.key.valid &&
-      row.key.peId === headPeId(safeRecoveryStid) &&
-      row.key.stid === recoveryStid &&
-      row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
-      row.key.ridGeneration ===
-        headGeneration(safeRecoveryStid) + wraps.asUInt &&
+    val row = rowAt(safeRecoveryStid,
+      slotSum(p.ridSlotWidth - 1, 0))
+    val active = offset < recoverySnapshotOccupied
+    val windowExact = !active || (
+      row.valid && row.key.valid &&
+        row.key.peId === recoverySnapshotHeadPeId &&
+        row.key.stid === recoveryStid &&
+        row.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
+        row.key.ridGeneration ===
+          recoverySnapshotHeadGeneration + wraps.asUInt)
+    recoveryScanOffsets(scanLane) := offset
+    recoveryScanRows(scanLane) := row
+    recoveryScanWindowExact(scanLane) := windowExact
+    recoveryScanMatches(scanLane) := active && windowExact &&
       row.key.asUInt === recoveryMember.group.asUInt && row.brob.valid &&
       row.brob.bid.asUInt === recoveryMember.bid.asUInt &&
       row.brob.generation === recoveryMember.brobGeneration &&
@@ -320,14 +374,29 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.transactionId === recoveryRequest.rename.key.transactionId &&
       row.publicationEpoch === recoveryRequest.rename.key.epoch
   }
-  val recoveryExactMatchCount = PopCount(recoveryGroupMatches)
-  val recoveryPivotOffsetRaw = PriorityEncoder(recoveryGroupMatches.asUInt)
-  val recoveryPivotOffset = Wire(UInt(p.nonFlushPrefixCountWidth.W))
-  recoveryPivotOffset := recoveryPivotOffsetRaw
-  val recoveryPivotSlotSum = headSlot(safeRecoveryStid) +&
-    recoveryPivotOffset
-  val recoveryPivot = rowAt(safeRecoveryStid,
-    recoveryPivotSlotSum(p.ridSlotWidth - 1, 0))
+  val recoverySliceWindowExact = recoveryScanWindowExact.asUInt.andR
+  val recoverySliceMatchCount = PopCount(recoveryScanMatches)
+  val recoveryNextExactMatchCount = recoveryExactMatchCountReg +
+    recoverySliceMatchCount
+  val recoveryNextWindowExact = recoveryWindowExactReg &&
+    recoverySliceWindowExact
+  val recoverySliceHasMatch = recoveryScanMatches.asUInt.orR
+  val recoverySlicePivotIndex =
+    if (p.robRecoveryScanGroupsPerCycleEffective == 1) 0.U
+    else PriorityEncoder(recoveryScanMatches.asUInt)
+  val recoveryCandidatePivot = Mux(
+    recoverySliceHasMatch,
+    recoveryScanRows(recoverySlicePivotIndex),
+    recoveryPivotReg)
+  val recoveryCandidatePivotOffset = Mux(
+    recoverySliceHasMatch,
+    recoveryScanOffsets(recoverySlicePivotIndex),
+    recoveryPivotOffsetReg)
+  val recoveryScanLast = recoveryScanCursor ===
+    (p.robRecoveryScanCycles - 1).U
+
+  val recoveryPivot = recoveryCandidatePivot
+  val recoveryPivotOffset = recoveryCandidatePivotOffset
   val recoveryTriggerEnd = recoveryMember.memberIndex +&
     recoveryRequest.triggerMemberCount
   val recoveryTriggerShape = Wire(Vec(p.decodedUopWidth, Bool()))
@@ -419,84 +488,173 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   }
   val recoveryNewOccupied = recoveryPivotOffset +
     recoverySurvivingPivotValid.asUInt
-  val recoveryKilledGroupCount = occupied(safeRecoveryStid) -
+  val recoveryKilledGroupCount = recoverySnapshotOccupied -
     recoveryNewOccupied
-  val recoveryFirstKilledSlotSum = headSlot(safeRecoveryStid) +&
+  val recoveryFirstKilledSlotSum = recoverySnapshotHeadSlot +&
     recoveryNewOccupied
   val recoveryFirstKilledWrap =
     recoveryFirstKilledSlotSum >= p.robGroupsPerStid.U
-  val recoveryOldTailSlotSum = headSlot(safeRecoveryStid) +&
-    occupied(safeRecoveryStid)
+  val recoveryOldTailSlotSum = recoverySnapshotHeadSlot +&
+    recoverySnapshotOccupied
   val recoveryOldTailWrap = recoveryOldTailSlotSum >= p.robGroupsPerStid.U
 
-  val recoveryPlan = Wire(new OooRobRecoveryPlan(p))
-  recoveryPlan := 0.U.asTypeOf(recoveryPlan)
-  recoveryPlan.valid := recoveryExactMatchCount === 1.U &&
-    recoveryTriggerShapeExact
-  recoveryPlan.request := recoveryRequest
-  recoveryPlan.oldHead.valid := occupied(safeRecoveryStid).orR
-  recoveryPlan.oldHead.peId := headPeId(safeRecoveryStid)
-  recoveryPlan.oldHead.stid := recoveryStid
-  recoveryPlan.oldHead.ridSlot := headSlot(safeRecoveryStid)
-  recoveryPlan.oldHead.ridGeneration := headGeneration(safeRecoveryStid)
-  recoveryPlan.oldOccupied := occupied(safeRecoveryStid)
-  recoveryPlan.pivot := recoveryPivot
-  recoveryPlan.pivotOffset := recoveryPivotOffset
-  recoveryPlan.survivingPivotValid := recoverySurvivingPivotValid
-  recoveryPlan.survivingPivot := recoverySurvivingPivot
-  recoveryPlan.newOccupied := recoveryNewOccupied
-  val recoverySurvivingTailOffset = Mux(recoveryNewOccupied.orR,
-    recoveryNewOccupied - 1.U, 0.U)
-  val recoverySurvivingTailSlotSum = headSlot(safeRecoveryStid) +&
-    recoverySurvivingTailOffset
-  recoveryPlan.survivingTailValid := recoveryNewOccupied.orR
-  recoveryPlan.survivingTail := Mux(
+  val recoveryPlanBase = Wire(new OooRobRecoveryPlan(p))
+  recoveryPlanBase := 0.U.asTypeOf(recoveryPlanBase)
+  recoveryPlanBase.valid := false.B
+  recoveryPlanBase.request := recoveryRequest
+  recoveryPlanBase.oldHead.valid := recoverySnapshotOccupied.orR
+  recoveryPlanBase.oldHead.peId := recoverySnapshotHeadPeId
+  recoveryPlanBase.oldHead.stid := recoveryStid
+  recoveryPlanBase.oldHead.ridSlot := recoverySnapshotHeadSlot
+  recoveryPlanBase.oldHead.ridGeneration := recoverySnapshotHeadGeneration
+  recoveryPlanBase.oldOccupied := recoverySnapshotOccupied
+  recoveryPlanBase.pivot := recoveryPivot
+  recoveryPlanBase.pivotOffset := recoveryPivotOffset
+  recoveryPlanBase.survivingPivotValid := recoverySurvivingPivotValid
+  recoveryPlanBase.survivingPivot := recoverySurvivingPivot
+  recoveryPlanBase.newOccupied := recoveryNewOccupied
+  recoveryPlanBase.survivingTailValid := recoveryNewOccupied.orR
+  recoveryPlanBase.survivingTail := Mux(
     recoverySurvivingPivotValid,
     recoverySurvivingPivot,
-    rowAt(safeRecoveryStid,
-      recoverySurvivingTailSlotSum(p.ridSlotWidth - 1, 0)))
-  recoveryPlan.firstKilledGroup.valid := recoveryKilledGroupCount.orR
-  recoveryPlan.firstKilledGroup.peId := headPeId(safeRecoveryStid)
-  recoveryPlan.firstKilledGroup.stid := recoveryStid
-  recoveryPlan.firstKilledGroup.ridSlot :=
+    0.U.asTypeOf(new OooRobPhysicalGroupRecord(p)))
+  recoveryPlanBase.firstKilledGroup.valid := recoveryKilledGroupCount.orR
+  recoveryPlanBase.firstKilledGroup.peId := recoverySnapshotHeadPeId
+  recoveryPlanBase.firstKilledGroup.stid := recoveryStid
+  recoveryPlanBase.firstKilledGroup.ridSlot :=
     recoveryFirstKilledSlotSum(p.ridSlotWidth - 1, 0)
-  recoveryPlan.firstKilledGroup.ridGeneration :=
-    headGeneration(safeRecoveryStid) + recoveryFirstKilledWrap.asUInt
-  recoveryPlan.killedGroupCount := recoveryKilledGroupCount
-  recoveryPlan.killedGroupMask :=
+  recoveryPlanBase.firstKilledGroup.ridGeneration :=
+    recoverySnapshotHeadGeneration + recoveryFirstKilledWrap.asUInt
+  recoveryPlanBase.killedGroupCount := recoveryKilledGroupCount
+  recoveryPlanBase.killedGroupMask :=
     ((1.U((p.robGroupsPerStid + 1).W) << recoveryKilledGroupCount) - 1.U)(
       p.robGroupsPerStid - 1, 0)
-  for (killedIndex <- 0 until p.robGroupsPerStid) {
-    val killedOffset = recoveryNewOccupied +& killedIndex.U
-    val killedSlotSum = headSlot(safeRecoveryStid) +& killedOffset
-    when(killedIndex.U < recoveryKilledGroupCount) {
-      recoveryPlan.killedGroups(killedIndex) := rowAt(safeRecoveryStid,
-        killedSlotSum(p.ridSlotWidth - 1, 0))
-    }
-  }
-  recoveryPlan.oldTail.valid := recoveryPlan.valid
-  recoveryPlan.oldTail.peId := headPeId(safeRecoveryStid)
-  recoveryPlan.oldTail.stid := recoveryStid
-  recoveryPlan.oldTail.ridSlot :=
+  recoveryPlanBase.oldTail.valid := true.B
+  recoveryPlanBase.oldTail.peId := recoverySnapshotHeadPeId
+  recoveryPlanBase.oldTail.stid := recoveryStid
+  recoveryPlanBase.oldTail.ridSlot :=
     recoveryOldTailSlotSum(p.ridSlotWidth - 1, 0)
-  recoveryPlan.oldTail.ridGeneration :=
-    headGeneration(safeRecoveryStid) + recoveryOldTailWrap.asUInt
-  recoveryPlan.newTail.valid := recoveryPlan.valid
-  recoveryPlan.newTail.peId := headPeId(safeRecoveryStid)
-  recoveryPlan.newTail.stid := recoveryStid
-  recoveryPlan.newTail.ridSlot :=
+  recoveryPlanBase.oldTail.ridGeneration :=
+    recoverySnapshotHeadGeneration + recoveryOldTailWrap.asUInt
+  recoveryPlanBase.newTail.valid := true.B
+  recoveryPlanBase.newTail.peId := recoverySnapshotHeadPeId
+  recoveryPlanBase.newTail.stid := recoveryStid
+  recoveryPlanBase.newTail.ridSlot :=
     recoveryFirstKilledSlotSum(p.ridSlotWidth - 1, 0)
-  recoveryPlan.newTail.ridGeneration :=
-    headGeneration(safeRecoveryStid) + recoveryFirstKilledWrap.asUInt
+  recoveryPlanBase.newTail.ridGeneration :=
+    recoverySnapshotHeadGeneration + recoveryFirstKilledWrap.asUInt
 
-  io.recoveryPrepared := recoveryPlan
-  io.recoveryPrepareReady := recoveryPlan.valid && !recoveryCommitConflict
-  io.recoveryRejected.valid := io.recoveryPrepare.valid &&
-    !recoveryPlan.valid
+  val recoveryCaptureWellFormed = io.recoveryPrepare.valid &&
+    recoveryStidInRange && recoveryMember.group.valid &&
+    recoveryMember.bid.valid
+  val recoveryCaptureMalformed = io.recoveryPrepare.valid &&
+    !recoveryCaptureWellFormed
+  val recoveryOfferChanged =
+    recoveryScanState =/= OooRobRecoveryScanState.Idle &&
+      recoveryScanState =/= OooRobRecoveryScanState.Rejected &&
+      io.recoveryPrepare.valid && !recoveryOfferExact
+  val recoveryFindRejected =
+    recoveryScanState === OooRobRecoveryScanState.FindPivot &&
+      recoveryScanLast && (!recoveryNextWindowExact ||
+        recoveryNextExactMatchCount =/= 1.U ||
+        !recoveryTriggerShapeExact)
+  val recoveryBuildRejected =
+    recoveryScanState === OooRobRecoveryScanState.BuildPlan &&
+      recoveryScanLast && !recoveryNextWindowExact
+
+  io.recoveryPrepared := retainedRecoveryPlan
+  io.recoveryPrepareReady :=
+    recoveryScanState === OooRobRecoveryScanState.Prepared &&
+      recoveryOfferExact && retainedRecoveryPlan.valid &&
+      !recoveryCommitConflict
+  io.recoveryPrepared.valid := io.recoveryPrepareReady
+  io.recoveryRejected.valid := recoveryCaptureMalformed ||
+    recoveryOfferChanged || recoveryFindRejected || recoveryBuildRejected ||
+    (recoveryScanState === OooRobRecoveryScanState.Rejected &&
+      io.recoveryPrepare.valid)
   io.recoveryRejected.bits.requested := recoveryRequest
-  io.recoveryRejected.bits.occupied := occupied(safeRecoveryStid)
-  io.recoveryRejected.bits.exactMatchCount := recoveryExactMatchCount
+  io.recoveryRejected.bits.occupied := recoverySnapshotOccupied
+  io.recoveryRejected.bits.exactMatchCount := Mux(
+    recoveryScanState === OooRobRecoveryScanState.FindPivot,
+    recoveryNextExactMatchCount,
+    recoveryExactMatchCountReg)
   io.recoveryRejected.bits.triggerShapeMatch := recoveryTriggerShapeExact
+
+  when(recoveryScanState === OooRobRecoveryScanState.Idle &&
+      recoveryCaptureWellFormed && !recoveryCommitConflict) {
+    retainedRecoveryRequest := io.recoveryPrepare.bits
+    retainedRecoveryPlan := 0.U.asTypeOf(retainedRecoveryPlan)
+    recoverySnapshotOccupied := occupied(safeRecoveryStid)
+    recoverySnapshotHeadSlot := headSlot(safeRecoveryStid)
+    recoverySnapshotHeadGeneration := headGeneration(safeRecoveryStid)
+    recoverySnapshotHeadPeId := headPeId(safeRecoveryStid)
+    recoveryExactMatchCountReg := 0.U
+    recoveryWindowExactReg := true.B
+    recoveryPivotReg := 0.U.asTypeOf(recoveryPivotReg)
+    recoveryPivotOffsetReg := 0.U
+    recoveryScanCursor := 0.U
+    recoveryScanState := OooRobRecoveryScanState.FindPivot
+  }.elsewhen(recoveryScanState =/= OooRobRecoveryScanState.Idle &&
+      !io.recoveryPrepare.valid) {
+    // Prepare-valid withdrawal is the owner-abort signal.  Both passes have
+    // touched private metadata only, so cancellation needs no physical undo.
+    recoveryScanState := OooRobRecoveryScanState.Idle
+  }.elsewhen(recoveryOfferChanged) {
+    recoveryScanState := OooRobRecoveryScanState.Rejected
+  }.elsewhen(recoveryScanState === OooRobRecoveryScanState.FindPivot) {
+    recoveryExactMatchCountReg := recoveryNextExactMatchCount
+    recoveryWindowExactReg := recoveryNextWindowExact
+    when(recoverySliceHasMatch) {
+      recoveryPivotReg := recoveryCandidatePivot
+      recoveryPivotOffsetReg := recoveryCandidatePivotOffset
+    }
+    when(recoveryScanLast) {
+      when(recoveryNextWindowExact &&
+          recoveryNextExactMatchCount === 1.U &&
+          recoveryTriggerShapeExact) {
+        retainedRecoveryPlan := recoveryPlanBase
+        recoveryWindowExactReg := true.B
+        recoveryScanCursor := 0.U
+        recoveryScanState := OooRobRecoveryScanState.BuildPlan
+      }.otherwise {
+        recoveryScanState := OooRobRecoveryScanState.Rejected
+      }
+    }.otherwise {
+      recoveryScanCursor := recoveryScanCursor + 1.U
+    }
+  }.elsewhen(recoveryScanState === OooRobRecoveryScanState.BuildPlan) {
+    recoveryWindowExactReg := recoveryNextWindowExact
+    for (scanLane <- 0 until p.robRecoveryScanGroupsPerCycleEffective) {
+      val offset = recoveryScanOffsets(scanLane)
+      val killed = offset >= retainedRecoveryPlan.newOccupied &&
+        offset < recoverySnapshotOccupied
+      val killedIndex = offset - retainedRecoveryPlan.newOccupied
+      when(killed && recoveryScanWindowExact(scanLane)) {
+        retainedRecoveryPlan.killedGroups(
+          killedIndex(p.ridSlotWidth - 1, 0)) :=
+          recoveryScanRows(scanLane)
+      }
+      val survivingTail = retainedRecoveryPlan.survivingTailValid &&
+        !retainedRecoveryPlan.survivingPivotValid &&
+        offset === retainedRecoveryPlan.newOccupied - 1.U
+      when(survivingTail && recoveryScanWindowExact(scanLane)) {
+        retainedRecoveryPlan.survivingTail := recoveryScanRows(scanLane)
+      }
+    }
+    when(recoveryScanLast) {
+      when(recoveryNextWindowExact) {
+        retainedRecoveryPlan.valid := true.B
+        recoveryScanState := OooRobRecoveryScanState.Prepared
+      }.otherwise {
+        recoveryScanState := OooRobRecoveryScanState.Rejected
+      }
+    }.otherwise {
+      recoveryScanCursor := recoveryScanCursor + 1.U
+    }
+  }.elsewhen(recoveryScanState === OooRobRecoveryScanState.Prepared &&
+      io.recoveryFire) {
+    recoveryScanState := OooRobRecoveryScanState.Idle
+  }
 
   val completionStid = io.completion.bits.key.group.stid
   val completionStidInRange = completionStid < p.stidCount.U
@@ -734,19 +892,20 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   }
   when(recoveryApply) {
     for (offset <- 0 until p.robGroupsPerStid) {
-      val slotSum = headSlot(safeRecoveryStid) +& offset.U
-      when(offset.U >= recoveryNewOccupied &&
-        offset.U < occupied(safeRecoveryStid)) {
+      val slotSum = retainedRecoveryPlan.oldHead.ridSlot +& offset.U
+      when(offset.U >= retainedRecoveryPlan.newOccupied &&
+        offset.U < retainedRecoveryPlan.oldOccupied) {
         rowAt(safeRecoveryStid, slotSum(p.ridSlotWidth - 1, 0)) :=
           0.U.asTypeOf(new OooRobPhysicalGroupRecord(p))
       }
     }
-    when(recoverySurvivingPivotValid &&
-      recoverySurvivingMemberCount < recoveryPivot.physicalMemberCount) {
-      rowAt(safeRecoveryStid, recoveryPivot.key.ridSlot) :=
-        recoverySurvivingPivot
+    when(retainedRecoveryPlan.survivingPivotValid &&
+      retainedRecoveryPlan.survivingPivot.physicalMemberCount <
+        retainedRecoveryPlan.pivot.physicalMemberCount) {
+      rowAt(safeRecoveryStid, retainedRecoveryPlan.pivot.key.ridSlot) :=
+        retainedRecoveryPlan.survivingPivot
     }
-    occupied(safeRecoveryStid) := recoveryNewOccupied
+    occupied(safeRecoveryStid) := retainedRecoveryPlan.newOccupied
     nonFlushAuthorized(safeRecoveryStid) := 0.U
     nonFlushEpoch(safeRecoveryStid) :=
       nonFlushEpoch(safeRecoveryStid) + 1.U

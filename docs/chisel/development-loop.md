@@ -10,8 +10,12 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The active backend priority is production OOO packet O7 global recovery and
-CTU reinsertion. O6.2 ROB-owned exact non-flush is packet-complete.
+The active backend priority is OOO packet O8.3 physical closure. O7 global
+recovery and CTU reinsertion are packet-complete. O8.3e now replaces the
+grouped ROB's full-window combinational recovery view with retained bounded
+find/build passes before the existing common apply. Registered ROB head
+selection, PC banking, dispatch cost steering, and default-width timing remain
+active. O6.2 ROB-owned exact non-flush is packet-complete.
 O7.1 grouped-ROB recovery is packet-complete at the direct owner boundary:
 it prepares an exact logical-uop suffix across intra-group and wrapped-RID
 cases, applies target-STID-only truncation, and rebuilds non-flush state.
