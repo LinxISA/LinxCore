@@ -13,6 +13,11 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.dispatchWidth == 8)
     assert(p.retireGroupWidth == 4)
     assert(p.ridSlotWidth == 6)
+    assert(p.robBankCount == 8)
+    assert(p.robBankCountEffective == 8)
+    assert(p.robSubbankCount == 2)
+    assert(p.robSubbankCountEffective == 2)
+    assert(p.robRowsPerSubbank == 4)
     assert(p.nativeBidWidth == 8)
     assert(p.pArchRegs == 24)
     assert(p.pPhysRegs == 128)
@@ -58,6 +63,10 @@ class OooParamsSpec extends AnyFunSuite {
     val minimumLocalNamespaces = OooParams(tPhysRegs = 2, uPhysRegs = 2)
     assert(minimumLocalNamespaces.tPhysRegs == 2)
     assert(minimumLocalNamespaces.uPhysRegs == 2)
+    val smallRob = OooParams(robGroupsPerStid = 4)
+    assert(smallRob.robBankCountEffective == 4)
+    assert(smallRob.robSubbankCountEffective == 1)
+    assert(smallRob.robRowsPerSubbank == 1)
   }
 
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
@@ -84,6 +93,12 @@ class OooParamsSpec extends AnyFunSuite {
       pMapQSubbankCount = 3))
     assertThrows[IllegalArgumentException](OooParams(
       pMapQDepthPerStid = 4, pMapQSubbankCount = 8))
+    assertThrows[IllegalArgumentException](OooParams(robBankCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(robSubbankCount = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      instructionDecodeWidth = 6, robBankCount = 4))
+    assertThrows[IllegalArgumentException](OooParams(
+      retireGroupWidth = 8, robBankCount = 4))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
   }

@@ -542,7 +542,9 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       val p = OooParams(
         instructionDecodeWidth = width,
         retireGroupWidth = 4,
-        robGroupsPerStid = 8)
+        robGroupsPerStid = 16,
+        robBankCount = 8,
+        robSubbankCount = 2)
       simulate(new OooS1GroupedRob(p)) { dut =>
         clear(dut)
         pokePublication(dut, stid = 0, transactionId = 0, firstSlot = 0,
@@ -555,6 +557,37 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         dut.io.commit.valid.expect(true.B)
         dut.io.commit.bits.release.groupCount.expect(math.min(width, 4).U)
       }
+    }
+  }
+
+  test("maps sequential groups across ROB bank and even odd subbank boundaries") {
+    val p = OooParams(
+      instructionDecodeWidth = 4,
+      robGroupsPerStid = 16,
+      robBankCount = 8,
+      robSubbankCount = 2)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      Seq(0, 4, 8).zipWithIndex.foreach { case (firstSlot, transactionId) =>
+        pokePublication(dut, stid = 0, transactionId = transactionId,
+          firstSlot = firstSlot, firstGeneration = 0,
+          groupMembers = Seq.fill(4)(1))
+        dut.io.publish.ready.expect(true.B)
+        dut.clock.step()
+      }
+      dut.io.publish.valid.poke(false.B)
+      dut.io.occupiedGroups(0).expect(12.U)
+
+      pokeCompletion(dut, stid = 0, slot = 0, ridGeneration = 0, member = 0)
+      dut.io.completion.ready.expect(true.B)
+      dut.io.completionRejected.valid.expect(false.B)
+      dut.clock.step()
+      pokeCompletion(dut, stid = 0, slot = 8, ridGeneration = 0, member = 0)
+      dut.io.completion.ready.expect(true.B)
+      dut.io.completionRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
+      dut.io.occupiedGroups(0).expect(12.U)
     }
   }
 

@@ -19,6 +19,8 @@ final case class OooParams(
     maxOrdinaryUopsPerGroup: Int = 12,
     maxRecipeUops: Int = 32,
     robGroupsPerStid: Int = 64,
+    robBankCount: Int = 8,
+    robSubbankCount: Int = 2,
     brobEntriesPerStid: Int = 256,
     pArchRegs: Int = 24,
     pPhysRegs: Int = 128,
@@ -91,6 +93,13 @@ final case class OooParams(
     "recipe count must cover ordinary and multi-group CTU expansion")
   require(isPowerOfTwo(robGroupsPerStid),
     "ROB groups per STID must be a power of two")
+  require(isPowerOfTwo(robBankCount),
+    "ROB bank count must be a positive power of two")
+  require(isPowerOfTwo(robSubbankCount),
+    "ROB subbank count must be a positive power of two")
+  require(instructionDecodeWidth <= robBankCountEffective &&
+    retireGroupWidth <= robBankCountEffective,
+    "ROB banks must cover one publication and retirement prefix without a bank collision")
   require(isPowerOfTwo(brobEntriesPerStid),
     "BROB entries per STID must be a power of two")
   require(pArchRegs == 24, "Linx scalar P namespace contains 24 registers")
@@ -181,6 +190,17 @@ final case class OooParams(
   def countWidth(maximum: Int): Int = math.max(1, log2Ceil(maximum + 1))
   def stidWidth: Int = math.max(1, log2Ceil(stidCount))
   def ridSlotWidth: Int = log2Ceil(robGroupsPerStid)
+  def robBankCountEffective: Int = math.min(robBankCount, robGroupsPerStid)
+  def robSubbankCountEffective: Int = math.min(
+    robSubbankCount,
+    robGroupsPerStid / robBankCountEffective)
+  def robRowsPerSubbank: Int =
+    robGroupsPerStid / (robBankCountEffective * robSubbankCountEffective)
+  def robBankSelectionBits: Int = log2Ceil(robBankCountEffective)
+  def robSubbankSelectionBits: Int = log2Ceil(robSubbankCountEffective)
+  def robBankIndexWidth: Int = math.max(1, robBankSelectionBits)
+  def robSubbankIndexWidth: Int = math.max(1, robSubbankSelectionBits)
+  def robSubbankRowIndexWidth: Int = math.max(1, log2Ceil(robRowsPerSubbank))
   def nativeBidWidth: Int = log2Ceil(brobEntriesPerStid)
   def brobCountWidth: Int = countWidth(brobEntriesPerStid)
   def brobLiveGroupCountWidth: Int = countWidth(robGroupsPerStid)

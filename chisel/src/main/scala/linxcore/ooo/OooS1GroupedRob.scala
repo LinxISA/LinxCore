@@ -37,8 +37,23 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   private val occupiedWidth = p.countWidth(p.robGroupsPerStid)
 
   val rows = RegInit(VecInit(Seq.fill(p.stidCount)(
-    VecInit(Seq.fill(p.robGroupsPerStid)(
-      0.U.asTypeOf(new OooRobPhysicalGroupRecord(p)))))))
+    VecInit(Seq.fill(p.robBankCountEffective)(
+      VecInit(Seq.fill(p.robSubbankCountEffective)(
+        VecInit(Seq.fill(p.robRowsPerSubbank)(
+          0.U.asTypeOf(new OooRobPhysicalGroupRecord(p)))))))))))
+  private def robBankIndex(slot: UInt): UInt =
+    if (p.robBankCountEffective == 1) 0.U(p.robBankIndexWidth.W)
+    else slot(p.robBankSelectionBits - 1, 0)
+  private def robSubbankIndex(slot: UInt): UInt =
+    if (p.robSubbankCountEffective == 1) 0.U(p.robSubbankIndexWidth.W)
+    else (slot >> p.robBankSelectionBits)(p.robSubbankSelectionBits - 1, 0)
+  private def robSubbankRowIndex(slot: UInt): UInt =
+    if (p.robRowsPerSubbank == 1) 0.U(p.robSubbankRowIndexWidth.W)
+    else (slot >> (p.robBankSelectionBits + p.robSubbankSelectionBits))(
+      p.robSubbankRowIndexWidth - 1, 0)
+  private def rowAt(stid: UInt, slot: UInt): OooRobPhysicalGroupRecord =
+    rows(stid)(robBankIndex(slot))(robSubbankIndex(slot))(
+      robSubbankRowIndex(slot))
   val occupied = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(occupiedWidth.W))))
   val headSlot = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.ridSlotWidth.W))))
   val headGeneration = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.ridGenerationWidth.W))))
@@ -135,7 +150,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     val binding = io.publish.bits.bindings(groupIndex)
     val decoded = io.publish.bits.reservation.transaction.decoded
     val active = groupIndex.U < publishGroupCount
-    val targetRow = rows(safePublishStid)(group.key.ridSlot)
+    val targetRow = rowAt(safePublishStid, group.key.ridSlot)
     val expectedSlotSum =
       io.publish.bits.reservation.transaction.plan.firstVirtualGroup.ridSlot +& groupIndex.U
     val expectedWrap = expectedSlotSum >= p.robGroupsPerStid.U
@@ -206,7 +221,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     val group = io.publish.bits.reservation.transaction.groups(groupIndex)
     val binding = io.publish.bits.bindings(groupIndex)
     when(publishFire && group.valid) {
-      val row = rows(publishStid)(group.key.ridSlot)
+      val row = rowAt(publishStid, group.key.ridSlot)
       row.valid := true.B
       row.key := group.key
       row.transactionId := io.publish.bits.reservation.transaction.plan.transactionId
@@ -290,7 +305,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   for (offset <- 0 until p.robGroupsPerStid) {
     val slotSum = headSlot(safeRecoveryStid) +& offset.U
     val wraps = slotSum >= p.robGroupsPerStid.U
-    val row = rows(safeRecoveryStid)(slotSum(p.ridSlotWidth - 1, 0))
+    val row = rowAt(safeRecoveryStid, slotSum(p.ridSlotWidth - 1, 0))
     recoveryGroupMatches(offset) := recoveryTargetsStid &&
       offset.U < occupied(safeRecoveryStid) && row.valid && row.key.valid &&
       row.key.peId === headPeId(safeRecoveryStid) &&
@@ -311,7 +326,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   recoveryPivotOffset := recoveryPivotOffsetRaw
   val recoveryPivotSlotSum = headSlot(safeRecoveryStid) +&
     recoveryPivotOffset
-  val recoveryPivot = rows(safeRecoveryStid)(
+  val recoveryPivot = rowAt(safeRecoveryStid,
     recoveryPivotSlotSum(p.ridSlotWidth - 1, 0))
   val recoveryTriggerEnd = recoveryMember.memberIndex +&
     recoveryRequest.triggerMemberCount
@@ -438,7 +453,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   recoveryPlan.survivingTail := Mux(
     recoverySurvivingPivotValid,
     recoverySurvivingPivot,
-    rows(safeRecoveryStid)(
+    rowAt(safeRecoveryStid,
       recoverySurvivingTailSlotSum(p.ridSlotWidth - 1, 0)))
   recoveryPlan.firstKilledGroup.valid := recoveryKilledGroupCount.orR
   recoveryPlan.firstKilledGroup.peId := headPeId(safeRecoveryStid)
@@ -455,7 +470,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     val killedOffset = recoveryNewOccupied +& killedIndex.U
     val killedSlotSum = headSlot(safeRecoveryStid) +& killedOffset
     when(killedIndex.U < recoveryKilledGroupCount) {
-      recoveryPlan.killedGroups(killedIndex) := rows(safeRecoveryStid)(
+      recoveryPlan.killedGroups(killedIndex) := rowAt(safeRecoveryStid,
         killedSlotSum(p.ridSlotWidth - 1, 0))
     }
   }
@@ -487,7 +502,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   val completionStidInRange = completionStid < p.stidCount.U
   val safeCompletionStid = Mux(completionStidInRange, completionStid, 0.U)
   val completionSlot = io.completion.bits.key.group.ridSlot
-  val liveCompletionRow = rows(safeCompletionStid)(completionSlot)
+  val liveCompletionRow = rowAt(safeCompletionStid, completionSlot)
   val completionMemberInRange =
     io.completion.bits.key.memberIndex < liveCompletionRow.physicalMemberCount &&
       io.completion.bits.key.memberIndex < p.maxOrdinaryUopsPerGroup.U
@@ -508,7 +523,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.completion.ready := !recoveryBlocksCompletion
   val completionFire = io.completion.valid && io.completion.ready
   when(completionFire && completionExact) {
-    rows(completionStid)(completionSlot).completedMembers :=
+    rowAt(completionStid, completionSlot).completedMembers :=
       liveCompletionRow.completedMembers | completionBit
   }
   io.completionRejected.valid := completionFire && !completionExact
@@ -520,7 +535,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   val evidenceStidInRange = evidenceStid < p.stidCount.U
   val safeEvidenceStid = Mux(evidenceStidInRange, evidenceStid, 0.U)
   val evidenceSlot = io.nonFlushEvidence.bits.key.group.ridSlot
-  val liveEvidenceRow = rows(safeEvidenceStid)(evidenceSlot)
+  val liveEvidenceRow = rowAt(safeEvidenceStid, evidenceSlot)
   val evidenceMemberInRange =
     io.nonFlushEvidence.bits.key.memberIndex < liveEvidenceRow.physicalMemberCount &&
       io.nonFlushEvidence.bits.key.memberIndex < p.maxOrdinaryUopsPerGroup.U
@@ -542,7 +557,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.nonFlushEvidence.ready := !recoveryBlocksEvidence
   val evidenceFire = io.nonFlushEvidence.valid && io.nonFlushEvidence.ready
   when(evidenceFire && evidenceExact) {
-    rows(evidenceStid)(evidenceSlot).nonFlushObservedProofs :=
+    rowAt(evidenceStid, evidenceSlot).nonFlushObservedProofs :=
       liveEvidenceRow.nonFlushObservedProofs | newEvidenceProofs
   }
   io.nonFlushEvidenceRejected.valid := evidenceFire && !evidenceExact
@@ -573,7 +588,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     for (offset <- 0 until p.robGroupsPerStid) {
       val slotSum = headSlot(stid) +& offset.U
       val wraps = slotSum >= p.robGroupsPerStid.U
-      val row = rows(stid)(slotSum(p.ridSlotWidth - 1, 0))
+      val row = rowAt(stid.U, slotSum(p.ridSlotWidth - 1, 0))
       val expectedGeneration = headGeneration(stid) + wraps.asUInt
       val exactHead = row.key.valid && row.key.peId === headPeId(stid) &&
         row.key.stid === stid.U &&
@@ -593,7 +608,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     for (offset <- 0 until p.retireGroupWidth) {
       val slotSum = headSlot(stid) +& offset.U
       val wraps = slotSum >= p.robGroupsPerStid.U
-      val row = rows(stid)(slotSum(p.ridSlotWidth - 1, 0))
+      val row = rowAt(stid.U, slotSum(p.ridSlotWidth - 1, 0))
       val expectedGeneration = headGeneration(stid) + wraps.asUInt
       val exactHead = row.key.valid && row.key.peId === headPeId(stid) &&
         row.key.stid === stid.U &&
@@ -638,7 +653,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       val slotSum = headSlot(selectedStid) +& offset.U
       when(offset.U < selectedCount) {
         commitRow.groups(offset) :=
-          rows(selectedStid)(slotSum(p.ridSlotWidth - 1, 0))
+          rowAt(selectedStid, slotSum(p.ridSlotWidth - 1, 0))
       }
     }
   }
@@ -654,7 +669,7 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     for (offset <- 0 until p.retireGroupWidth) {
       val slotSum = commitRow.release.firstGroup.ridSlot +& offset.U
       when(offset.U < count) {
-        rows(stid)(slotSum(p.ridSlotWidth - 1, 0)) :=
+        rowAt(stid, slotSum(p.ridSlotWidth - 1, 0)) :=
           0.U.asTypeOf(new OooRobPhysicalGroupRecord(p))
       }
     }
@@ -722,13 +737,13 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       val slotSum = headSlot(safeRecoveryStid) +& offset.U
       when(offset.U >= recoveryNewOccupied &&
         offset.U < occupied(safeRecoveryStid)) {
-        rows(safeRecoveryStid)(slotSum(p.ridSlotWidth - 1, 0)) :=
+        rowAt(safeRecoveryStid, slotSum(p.ridSlotWidth - 1, 0)) :=
           0.U.asTypeOf(new OooRobPhysicalGroupRecord(p))
       }
     }
     when(recoverySurvivingPivotValid &&
       recoverySurvivingMemberCount < recoveryPivot.physicalMemberCount) {
-      rows(safeRecoveryStid)(recoveryPivot.key.ridSlot) :=
+      rowAt(safeRecoveryStid, recoveryPivot.key.ridSlot) :=
         recoverySurvivingPivot
     }
     occupied(safeRecoveryStid) := recoveryNewOccupied

@@ -89,7 +89,8 @@ while comparing all P/T/U and grouped-ROB occupancy state after every event.
 
 ## Remaining O8 work
 
-O8.3a closes absolute recovery-tail/reference-model behavior only. ROB, MapQ,
-and PC-buffer bank/subbank timing, occupancy/in-flight/PTag-aware dispatch
-steering, safe-mode policy, and complete 2/4/6 physical timing closure remain
-separate O8 packets.
+O8.3a closes absolute recovery-tail/reference-model behavior. O8.3b-d establish
+MapQ retained read timing and the ROB physical bank/subbank address boundary.
+Registered ROB head selection, bounded ROB recovery scan, PC-buffer banking,
+occupancy/in-flight/PTag-aware dispatch steering, safe-mode policy, and
+complete 2/4/6 timing closure remain separate O8 packets.
