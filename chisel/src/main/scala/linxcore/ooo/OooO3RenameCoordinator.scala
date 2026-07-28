@@ -91,6 +91,17 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val ptagPublishedCount = Output(UInt(p.countWidth(p.pPhysRegs).W))
   val robOccupiedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val d3UsedGroups = Output(Vec(p.stidCount,
+    UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val d3PublishedGroups = Output(Vec(p.stidCount,
+    UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val d3TailSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
+  val d3TailGeneration = Output(Vec(p.stidCount,
+    UInt(p.ridGenerationWidth.W)))
+  val d3TailEpoch = Output(Vec(p.stidCount,
+    UInt(p.reservationEpochWidth.W)))
+  val d3NextTransactionId = Output(Vec(p.stidCount,
+    UInt(p.transactionIdWidth.W)))
   val pCommitBusy = Output(Bool())
   val tuCommitBusy = Output(Bool())
   val pCommitRejected = Valid(new OooPRenameCommitReject(p))
@@ -609,6 +620,12 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.ptagProvisionalCount := ptag.io.provisionalCount
   io.ptagPublishedCount := ptag.io.publishedCount
   io.robOccupiedGroups := o3.io.robOccupiedGroups
+  io.d3UsedGroups := o3.io.d3UsedGroups
+  io.d3PublishedGroups := o3.io.d3PublishedGroups
+  io.d3TailSlot := o3.io.d3TailSlot
+  io.d3TailGeneration := o3.io.d3TailGeneration
+  io.d3TailEpoch := o3.io.d3TailEpoch
+  io.d3NextTransactionId := o3.io.d3NextTransactionId
   io.pCommitBusy := prename.io.commitBusy
   io.tuCommitBusy := turetire.io.commitBusy
   io.pCommitRejected := prename.io.commitRejected

@@ -24,9 +24,17 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The active backend handoff is production OOO packet O7 global recovery and
-external CTU reinsertion. O4 P/T/U RENU, O5.1 dispatch reservation, O5.2 IEX
-residency, and O6 fast resolve/non-flush are packet-complete. Normative documents
+The active backend handoff is production OOO packet O8.3 physical closure.
+O4 P/T/U RENU, O5 dispatch/IEX residency, O6 fast resolve/non-flush, and O7
+global recovery plus external CTU reinsertion are packet-complete. O8.1 split
+compact scheduling state from the wide execution sidecar, O8.1b replaced the
+all-entry IEX recovery CAM with an immutable timed scan, and O8.2 replaced
+bank-wide free-slot priority encoders with bounded hierarchical selection.
+O8.3a now keeps D3 transaction identity, wrap-qualified ROB head/tail, and tail
+epoch independent in both directed and randomized reference models: recovery
+rewinds only the exact tail, advances the epoch, and preserves the next
+transaction ID. ROB/MapQ/PC bank/subbank timing and physical dispatch cost
+steering remain active O8 work. Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps
 instruction-decode, expanded-uop, rename, dispatch, retire, ROB, BROB, PTag,

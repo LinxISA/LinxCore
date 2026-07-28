@@ -55,6 +55,13 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
     UInt(p.countWidth(p.robGroupsPerStid).W)))
   val d3PublishedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
+  val d3TailSlot = Output(Vec(p.stidCount, UInt(p.ridSlotWidth.W)))
+  val d3TailGeneration = Output(Vec(p.stidCount,
+    UInt(p.ridGenerationWidth.W)))
+  val d3TailEpoch = Output(Vec(p.stidCount,
+    UInt(p.reservationEpochWidth.W)))
+  val d3NextTransactionId = Output(Vec(p.stidCount,
+    UInt(p.transactionIdWidth.W)))
   val robOccupiedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
   val brobUsedBlocks = Output(Vec(p.stidCount, UInt(p.brobCountWidth.W)))
@@ -308,6 +315,10 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
 
   io.d3UsedGroups := d3.io.usedGroups
   io.d3PublishedGroups := d3.io.publishedGroups
+  io.d3TailSlot := d3.io.tailSlot
+  io.d3TailGeneration := d3.io.tailGeneration
+  io.d3TailEpoch := d3.io.tailEpoch
+  io.d3NextTransactionId := d3.io.nextTransactionId
   io.robOccupiedGroups := rob.io.occupiedGroups
   io.brobUsedBlocks := brob.io.usedBlocks
   io.pcUsedBases := pc.io.usedBases

@@ -42,7 +42,13 @@ private object OooO3RenameRandomizedSpec {
   final case class ThreadModel(
       sources: ArrayBuffer[Source],
       initialMappings: Vector[Mapping],
-      var issued: Int,
+      var instructionSerial: Int,
+      var nextTransactionId: BigInt,
+      var headSlot: Int,
+      var headGeneration: BigInt,
+      var tailSlot: Int,
+      var tailGeneration: BigInt,
+      var tailEpoch: BigInt,
       var recoveries: Int)
 }
 
@@ -54,6 +60,21 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       generation = 0, producerToken = 0, producerIqEpoch = 0,
       ready = true, stid = stid,
       epoch = 0)
+
+  private def incrementWrapped(value: BigInt, width: Int): BigInt =
+    (value + 1) & ((BigInt(1) << width) - 1)
+
+  private def advanceRobPointer(
+      p: OooParams,
+      slot: Int,
+      generation: BigInt,
+      count: Int): (Int, BigInt) = {
+    val absolute = slot + count
+    val nextSlot = absolute % p.robGroupsPerStid
+    val nextGeneration = generation + absolute / p.robGroupsPerStid
+    (nextSlot, nextGeneration &
+      ((BigInt(1) << p.ridGenerationWidth) - 1))
+  }
 
   private def clear(dut: OooO3RenameCoordinator): Unit = {
     dut.io.reserve.valid.poke(false.B)
@@ -93,8 +114,11 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
   private def pokeTransaction(
       dut: OooO3RenameCoordinator,
       stid: Int,
-      issued: Int,
+      instructionSerial: Int,
       transactionId: BigInt,
+      tailSlot: Int,
+      tailGeneration: BigInt,
+      tailEpoch: BigInt,
       sourceAtag: Int,
       destinationAtag: Int,
       shape: Shape): Unit = {
@@ -106,14 +130,12 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     transaction.plan.transactionId.poke(transactionId.U)
     transaction.plan.uopMask.poke(1.U)
     transaction.plan.groupCount.poke(1.U)
-    transaction.plan.virtualTailEpoch.poke(issued.U)
+    transaction.plan.virtualTailEpoch.poke(tailEpoch.U)
     transaction.plan.firstVirtualGroup.valid.poke(true.B)
     transaction.plan.firstVirtualGroup.peId.poke(3.U)
     transaction.plan.firstVirtualGroup.stid.poke(stid.U)
-    transaction.plan.firstVirtualGroup.ridSlot.poke(
-      (issued % dut.p.robGroupsPerStid).U)
-    transaction.plan.firstVirtualGroup.ridGeneration.poke(
-      (issued / dut.p.robGroupsPerStid).U)
+    transaction.plan.firstVirtualGroup.ridSlot.poke(tailSlot.U)
+    transaction.plan.firstVirtualGroup.ridGeneration.poke(tailGeneration.U)
     transaction.plan.demand.pDestinations.poke((if (shape.p) 1 else 0).U)
     transaction.plan.demand.mapQRows.poke((if (shape.p) 1 else 0).U)
     transaction.plan.demand.tAllocations.poke((if (shape.t) 1 else 0).U)
@@ -132,8 +154,8 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     group.key.valid.poke(true.B)
     group.key.peId.poke(3.U)
     group.key.stid.poke(stid.U)
-    group.key.ridSlot.poke((issued % dut.p.robGroupsPerStid).U)
-    group.key.ridGeneration.poke((issued / dut.p.robGroupsPerStid).U)
+    group.key.ridSlot.poke(tailSlot.U)
+    group.key.ridGeneration.poke(tailGeneration.U)
     group.logicalUopMask.poke(1.U)
     group.physicalMemberCount.poke(1.U)
     group.pMapQRows.poke((if (shape.p) 1 else 0).U)
@@ -151,10 +173,10 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     uop.identity.parents(0).key.peId.poke(3.U)
     uop.identity.parents(0).key.stid.poke(stid.U)
     uop.identity.parents(0).key.instructionId.poke(
-      (1000 + stid * 100 + issued).U)
+      (1000 + stid * 100 + instructionSerial).U)
     uop.identity.parents(0).key.epoch.poke(5.U)
     uop.identity.parents(0).pc.poke(
-      (0x1000 + stid * 0x400 + issued * 8).U)
+      (0x1000 + stid * 0x400 + instructionSerial * 8).U)
     uop.sources(0).valid.poke(true.B)
     uop.sources(0).operandClass.poke(OperandClass.P)
     uop.sources(0).atag.poke(sourceAtag.U)
@@ -218,14 +240,15 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       destinationAtag: Int,
       shape: Shape): Unit = {
     val model = models(stid)
-    val transactionId = BigInt(model.issued)
-    pokeTransaction(dut, stid, model.issued, transactionId, sourceAtag,
+    val transactionId = model.nextTransactionId
+    pokeTransaction(dut, stid, model.instructionSerial, transactionId,
+      model.tailSlot, model.tailGeneration, model.tailEpoch, sourceAtag,
       destinationAtag, shape)
     dut.io.reserve.ready.expect(true.B)
     dut.clock.step()
     dut.io.reserve.valid.poke(false.B)
     assert(dut.io.preparedValid.peek().litToBoolean,
-      s"STID $stid issued ${model.issued} shape $shape did not prepare; " +
+      s"STID $stid serial ${model.instructionSerial} shape $shape did not prepare; " +
         s"P provisional=${dut.io.ptagProvisionalCount.peek().litValue} " +
         s"T/U reserve reject=${dut.io.tuReserveRejected.valid.peek().litToBoolean} " +
         s"T/U publish reject=${dut.io.tuPublicationRejected.valid.peek().litToBoolean}")
@@ -246,7 +269,15 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     dut.clock.step()
     dut.io.iexS1.ready.poke(false.B)
     model.sources += source
-    model.issued += 1
+    val (nextTailSlot, nextTailGeneration) = advanceRobPointer(
+      dut.p, model.tailSlot, model.tailGeneration, count = 1)
+    model.tailSlot = nextTailSlot
+    model.tailGeneration = nextTailGeneration
+    model.tailEpoch = incrementWrapped(
+      model.tailEpoch, dut.p.reservationEpochWidth)
+    model.nextTransactionId = incrementWrapped(
+      model.nextTransactionId, dut.p.transactionIdWidth)
+    model.instructionSerial += 1
   }
 
   private def pokeRecovery(
@@ -310,6 +341,12 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
     val survivorCount = anchorIndex + (if (killTrigger) 0 else 1)
     model.sources.remove(survivorCount,
       model.sources.length - survivorCount)
+    val (nextTailSlot, nextTailGeneration) = advanceRobPointer(
+      dut.p, model.headSlot, model.headGeneration, survivorCount)
+    model.tailSlot = nextTailSlot
+    model.tailGeneration = nextTailGeneration
+    model.tailEpoch = incrementWrapped(
+      model.tailEpoch, dut.p.reservationEpochWidth)
     model.recoveries += 1
   }
 
@@ -350,7 +387,14 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       dut.io.tMapQUsed(stid).expect(tCount.U)
       dut.io.uMapQUsed(stid).expect(uCount.U)
       dut.io.tuRetireSourceUsed(stid).expect(model.sources.size.U)
-      dut.io.robOccupiedGroups(stid).expect(model.issued.U)
+      dut.io.robOccupiedGroups(stid).expect(model.sources.size.U)
+      dut.io.d3UsedGroups(stid).expect(model.sources.size.U)
+      dut.io.d3PublishedGroups(stid).expect(model.sources.size.U)
+      dut.io.d3TailSlot(stid).expect(model.tailSlot.U)
+      dut.io.d3TailGeneration(stid).expect(model.tailGeneration.U)
+      dut.io.d3TailEpoch(stid).expect(model.tailEpoch.U)
+      dut.io.d3NextTransactionId(stid).expect(
+        model.nextTransactionId.U)
       dut.io.tRelationUsed(stid).expect(0.U)
       dut.io.uRelationUsed(stid).expect(0.U)
 
@@ -400,7 +444,10 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
       val models = Vector.tabulate(p.stidCount) { stid =>
         ThreadModel(ArrayBuffer.empty,
           Vector.tabulate(p.pArchRegs)(atag =>
-            identityMapping(p, stid, atag)), issued = 0, recoveries = 0)
+            identityMapping(p, stid, atag)), instructionSerial = 0,
+          nextTransactionId = 0, headSlot = 0, headGeneration = 0,
+          tailSlot = 0, tailGeneration = 0, tailEpoch = 0,
+          recoveries = 0)
       }
 
       // Seed every namespace and every STID before randomized selection.
@@ -424,7 +471,7 @@ class OooO3RenameRandomizedSpec extends AnyFunSuite with ChiselSim {
         val stid = random.nextInt(p.stidCount)
         val model = models(stid)
         val livePtags = models.map(_.sources.map(_.pDestinations.size).sum).sum
-        val mayPublish = model.issued < 7 && livePtags < 20
+        val mayPublish = model.instructionSerial < 7 && livePtags < 20
         val choosePublish = model.sources.isEmpty ||
           (mayPublish && random.nextInt(100) < 62)
         if (choosePublish) {

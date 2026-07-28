@@ -65,7 +65,9 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       oldTailSlot: Int,
       oldTailGeneration: Int,
       newTailSlot: Int,
-      newTailGeneration: Int): Unit = {
+      newTailGeneration: Int,
+      headSlot: Int = 0,
+      headGeneration: Int = 0): Unit = {
     val plan = dut.io.recoveryPrepare.bits
     plan.poke(0.U.asTypeOf(plan))
     plan.valid.poke(true.B)
@@ -76,10 +78,10 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
     plan.oldHead.valid.poke(true.B)
     plan.oldHead.peId.poke(2.U)
     plan.oldHead.stid.poke(stid.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(0.U)
+    plan.oldHead.ridSlot.poke(headSlot.U)
+    plan.oldHead.ridGeneration.poke(headGeneration.U)
     plan.oldOccupied.poke(oldOccupied.U)
-    plan.pivotOffset.poke(0.U)
+    plan.pivotOffset.poke(math.max(0, newOccupied - 1).U)
     plan.survivingPivotValid.poke((newOccupied > 0).B)
     plan.newOccupied.poke(newOccupied.U)
     plan.killedGroupCount.poke((oldOccupied - newOccupied).U)
@@ -180,6 +182,83 @@ class OooD3ReservationAllocatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.provisionalMask.expect("b0001".U)
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.transaction.plan.stid.expect(0.U)
+    }
+  }
+
+  test("restores a wrapped absolute tail without rewinding transaction identity") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8)
+    simulate(new OooD3ReservationAllocator(p)) { dut =>
+      clear(dut)
+      dut.io.out.ready.poke(true.B)
+
+      pokePlan(dut, 0, transactionId = 0, groupCount = 4,
+        tailSlot = 0, tailGeneration = 0, tailEpoch = 0)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.firstGroup.valid.poke(true.B)
+      dut.io.release.bits.firstGroup.peId.poke(2.U)
+      dut.io.release.bits.firstGroup.stid.poke(0.U)
+      dut.io.release.bits.firstGroup.ridSlot.poke(0.U)
+      dut.io.release.bits.firstGroup.ridGeneration.poke(0.U)
+      dut.io.release.bits.headEpoch.poke(0.U)
+      dut.io.release.bits.groupCount.poke(4.U)
+      dut.io.release.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+
+      pokePlan(dut, 0, transactionId = 1, groupCount = 4,
+        tailSlot = 4, tailGeneration = 0, tailEpoch = 2)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.clock.step()
+      pokePlan(dut, 0, transactionId = 2, groupCount = 2,
+        tailSlot = 0, tailGeneration = 1, tailEpoch = 3)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.headSlot(0).expect(4.U)
+      dut.io.headGeneration(0).expect(0.U)
+      dut.io.tailSlot(0).expect(2.U)
+      dut.io.tailGeneration(0).expect(1.U)
+      dut.io.tailEpoch(0).expect(4.U)
+      dut.io.nextTransactionId(0).expect(3.U)
+      dut.io.publishedGroups(0).expect(6.U)
+
+      pokeRecoveryPlan(dut, stid = 0, oldOccupied = 6,
+        newOccupied = 4, oldTailSlot = 2, oldTailGeneration = 1,
+        newTailSlot = 0, newTailGeneration = 1,
+        headSlot = 4, headGeneration = 0)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.headSlot(0).expect(4.U)
+      dut.io.headGeneration(0).expect(0.U)
+      dut.io.tailSlot(0).expect(0.U)
+      dut.io.tailGeneration(0).expect(1.U)
+      dut.io.tailEpoch(0).expect(5.U)
+      dut.io.nextTransactionId(0).expect(3.U)
+      dut.io.usedGroups(0).expect(4.U)
+      dut.io.publishedGroups(0).expect(4.U)
+
+      pokePlan(dut, 0, transactionId = 3, groupCount = 1,
+        tailSlot = 0, tailGeneration = 1, tailEpoch = 5)
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.tailSlot(0).expect(1.U)
+      dut.io.tailGeneration(0).expect(1.U)
+      dut.io.nextTransactionId(0).expect(4.U)
     }
   }
 

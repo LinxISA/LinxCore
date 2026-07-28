@@ -92,7 +92,7 @@ promotion.
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and production-top wiring are O9 integration work |
-| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply; O8.2 replaces each bank-wide free-entry encoder with a bounded two-level selector | occupancy/in-flight/PTag steering, ROB/MapQ/PC banking, absolute recovery-tail closure, and 2/4/6 timing closure |
+| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply; O8.2 replaces each bank-wide free-entry encoder with a bounded two-level selector; O8.3a closes independent transaction/tail/epoch recovery reference state and exact wrapped-tail reuse | occupancy/in-flight/PTag steering, ROB/MapQ/PC banking, and 2/4/6 timing closure |
 | O9 integration/promotion | Not started | current compatibility owners remain migration evidence | production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1648,11 +1648,23 @@ bits. Exact first-free order, older-prefix atomicity, bank write-port budgets,
 and the retained reservation identity remain unchanged. The 32-entry selector
 emits 44 lines of SystemVerilog with no 32-entry priority chain; the focused
 2-bank x 4-entry dispatch module changes from 30,753 to 30,859 lines (+0.34%)
-because the reusable module boundary is explicit. O8.3 closes ROB/MapQ/PC
-banking, absolute recovery-tail behavior, and width timing. Occupancy/in-flight
-cost steering, PTag-bank coupling, one-cycle-ahead policy, and safe thresholds
-remain physical-policy gaps. Copying the reference design's ARM register
-classes or RID/BID age shortcuts remains forbidden.
+because the reusable module boundary is explicit.
+
+O8.3a closes the absolute recovery-tail/reference-model blocker exposed after
+O8.2. D3 transaction identity, wrap-qualified head/tail, and tail epoch are
+independent state domains: reserve advances transaction identity and tail;
+release advances head; recovery restores only the exact tail, preserves the
+next transaction ID, and advances the epoch to stale pre-recovery D2 plans.
+A directed nonzero-head wrap test restores `{slot=0,generation=1}` and reuses
+it with the unchanged next transaction ID. The four-STID randomized reference
+now compares live ROB/D3 occupancy and every tail/epoch/transaction domain
+after each publication or recovery instead of deriving all of them from a
+cumulative issued counter.
+
+The remaining O8.3 work closes ROB/MapQ/PC banking and width timing.
+Occupancy/in-flight cost steering, PTag-bank coupling, one-cycle-ahead policy,
+and safe thresholds remain physical-policy gaps. Copying the reference
+design's ARM register classes or RID/BID age shortcuts remains forbidden.
 
 Exit: timing reports contain no unbounded free-list encoder, group prefix, or
 ready-loop path; all functional coverage remains closed after banking changes.
