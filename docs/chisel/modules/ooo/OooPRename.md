@@ -29,6 +29,17 @@ commit validation, commit drain, recovery tail drain, and survivor replay all
 use one logical-index decoder and still compare the row's stored index. A
 physical bank choice therefore cannot reinterpret age, ownership, or wrap.
 
+Commit and killed-tail recovery use explicit registered read stages. A commit
+read slice contains at most
+`min(pTagReturnWidth, pMapQSubbankCount)` consecutive logical rows, so one
+slice reads at most one row from each configured low-index subbank. The slice's
+head, count, complete rows, and therefore its even/odd selection are retained
+before `ptagReturn` becomes valid. `CMAP`, row-valid bits, `mapQHead`, and
+`mapQCount` change only when that retained return fires. A following slice
+cannot read until the intervening return state completes, so no subbank is read
+in consecutive cycles. Recovery similarly retains one exact tail row and its
+logical index before returning the killed current PTag and moving `mapQTail`.
+
 ## Commit and recovery invariants
 
 - Commit accepts only the exact dense MapQ-head prefix described by the
@@ -36,17 +47,18 @@ physical bank choice therefore cannot reinterpret age, ownership, or wrap.
 - Commit and recovery are mutually exclusive for the selected STID.
 - Commit returns each previous PTag in logical order before common physical
   deallocation.
+- Neither commit nor recovery mutates MapQ pointers in its entry-read cycle;
+  retained PTag returns remain stable under arbitrary backpressure.
 - Recovery drains killed rows from the exact logical tail, returns each killed
   current PTag, copies CMAP to SMAP, and replays every surviving row from head
   to tail.
 - Wrong generation, member, transaction, row index, or mapping-chain evidence
   rejects or asserts before mutation; unrelated STIDs remain independent.
 
-The O8.3b change is physical storage partitioning only. The reference note's
-next timing step is to register the even/odd identification result so the
-entry-read-to-pointer-update dependency spans two cycles. That pipeline change
-and its retained state are still open; this module does not claim timing
-closure merely because rows are subbanked.
+O8.3b established the physical storage partition. O8.3c adds the registered
+read/return states that split entry read and pointer update across cycles.
+Default-width post-elaboration synthesis timing remains a separate gate; the
+structural split does not by itself claim a target frequency.
 
 ## Reference evidence
 
@@ -67,7 +79,10 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 bash tools/chisel/build_chisel.sh
 ```
 
-Directed coverage advances the logical queue to index three, publishes a
+Directed coverage observes the empty read cycle before every retained commit
+or recovery return, holds a registered return under backpressure, and proves
+that pointer/mapping state changes only on the return handshake. It also
+advances the logical queue to index three, publishes a
 two-row transaction across indices `3 -> 0`, kills the wrapped younger row,
 replays the surviving index-three prefix, and commits it. Elaboration covers
 instruction widths 2/4/6 together with subbank counts 1/2/4. Existing tests
@@ -76,6 +91,5 @@ PTag return widths, multi-group RID wrap, and full recovery behavior.
 
 ## Remaining work
 
-O8 still owns the registered two-cycle MapQ commit/recovery pointer loop,
-default-width synthesis timing, ROB and PC-buffer banking, dispatch
+O8 still owns default-width synthesis timing, ROB and PC-buffer banking, dispatch
 occupancy/in-flight/PTag-aware cost steering, and safe-mode policy.

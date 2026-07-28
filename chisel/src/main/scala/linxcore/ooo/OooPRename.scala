@@ -8,11 +8,11 @@ import linxcore.common.{DestinationKind, OperandClass}
 import scala.collection.mutable.ArrayBuffer
 
 object OooPCommitState extends ChiselEnum {
-  val Idle, DrainMapQ, AwaitDeallocation = Value
+  val Idle, ReadMapQ, ReturnTags, AwaitDeallocation = Value
 }
 
 object OooPRecoveryState extends ChiselEnum {
-  val Idle, WaitSources, DrainRows, CopyCmap, ReplaySurvivors,
+  val Idle, WaitSources, ReadRow, ReturnTag, CopyCmap, ReplaySurvivors,
     Complete = Value
 }
 
@@ -67,6 +67,8 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
   private val destinationIndexWidth = math.max(1,
     chisel3.util.log2Ceil(p.maxDestinationOperands))
   private val archIndexWidth = math.max(1, chisel3.util.log2Ceil(p.pArchRegs))
+  private val mapQReadWidth = math.min(
+    p.pTagReturnWidth, p.pMapQSubbankCount)
 
   private def subMapQPtr(ptr: UInt, amount: UInt): UInt = {
     val difference = ptr - amount
@@ -116,6 +118,10 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
   val commitBatch = RegInit(0.U.asTypeOf(new OooRobCommitBatch(p)))
   val commitRowsRemaining = RegInit(0.U(p.commitMapQRowCountWidth.W))
   val commitRowsTotal = RegInit(0.U(p.commitMapQRowCountWidth.W))
+  val commitReadHead = RegInit(0.U(p.pMapQIndexWidth.W))
+  val commitReadRowCount = RegInit(0.U(p.pTagReturnCountWidth.W))
+  val commitReadRows = RegInit(VecInit(Seq.fill(p.pTagReturnWidth)(
+    0.U.asTypeOf(new OooPMapQEntry(p)))))
   val commitActiveStid = commitBatch.release.firstGroup.stid
   io.commitBusy := commitState =/= OooPCommitState.Idle
   io.commitStid := Mux(io.commitBusy, commitActiveStid, 0.U)
@@ -126,6 +132,8 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
     0.U.asTypeOf(new OooTURetireSource(p)))
   val recoveryRowsRemaining = RegInit(
     0.U(p.destinationCountWidth.W))
+  val recoveryReadIndex = RegInit(0.U(p.pMapQIndexWidth.W))
+  val recoveryReadRow = RegInit(0.U.asTypeOf(new OooPMapQEntry(p)))
   val recoveryReplayOffset = RegInit(0.U(p.pMapQCountWidth.W))
   val recoveryReplayRemaining = RegInit(0.U(p.pMapQCountWidth.W))
   val recoveryRejectValid = RegInit(false.B)
@@ -562,39 +570,48 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
     commitRowsRemaining := incomingExpectedRows
     commitRowsTotal := incomingExpectedRows
     commitState := Mux(incomingExpectedRows.orR,
-      OooPCommitState.DrainMapQ, OooPCommitState.AwaitDeallocation)
+      OooPCommitState.ReadMapQ, OooPCommitState.AwaitDeallocation)
   }
   when(io.commitBusy) {
     assert(commitBatchRetained,
       "ROB must retain the exact P commit batch through MapQ drain")
   }
 
-  val chunkRowCount = Mux(commitRowsRemaining > p.pTagReturnWidth.U,
-    p.pTagReturnWidth.U, commitRowsRemaining)
+  // Read at most one logical row from each physical subbank, then retain the
+  // complete slice before any pointer or CMAP update. This is the registered
+  // boundary that breaks the MapQ entry-read-to-head-update loop.
+  val chunkRowCount = Mux(commitRowsRemaining > mapQReadWidth.U,
+    mapQReadWidth.U, commitRowsRemaining)
   val chunkRows = Wire(Vec(p.pTagReturnWidth, new OooPMapQEntry(p)))
   val chunkActive = Wire(Vec(p.pTagReturnWidth, Bool()))
   val chunkMatches = Wire(Vec(p.pTagReturnWidth,
     Vec(p.retireGroupWidth, Bool())))
   for (lane <- 0 until p.pTagReturnWidth) {
-    val queueIndex = mapQHead(commitActiveStid) + lane.U
-    chunkRows(lane) :=
-      mapQRow(commitActiveStid, queueIndex(p.pMapQIndexWidth - 1, 0))
-    chunkActive(lane) := lane.U < chunkRowCount
-    for (groupIndex <- 0 until p.retireGroupWidth) {
-      val group = commitBatch.groups(groupIndex)
-      val row = chunkRows(lane)
-      val uopIndexInRange = row.uopIndex < p.decodedUopWidth.U
-      val safeUopIndex = Mux(uopIndexInRange, row.uopIndex, 0.U)
-      chunkMatches(lane)(groupIndex) :=
-        groupIndex.U < commitBatch.release.groupCount && group.valid && row.valid &&
-          row.member.group.asUInt === group.key.asUInt &&
-          row.member.bid.asUInt === group.brob.bid.asUInt &&
-          row.member.brobGeneration === group.brob.generation &&
-          row.member.residentGeneration === group.residentGeneration &&
-          row.transactionId === group.transactionId &&
-          row.member.memberIndex < group.physicalMemberCount &&
-          uopIndexInRange && group.logicalUopMask(safeUopIndex) &&
-          row.destinationIndex < p.maxDestinationOperands.U
+    if (lane < mapQReadWidth) {
+      val queueIndex = mapQHead(commitActiveStid) + lane.U
+      chunkRows(lane) :=
+        mapQRow(commitActiveStid, queueIndex(p.pMapQIndexWidth - 1, 0))
+      chunkActive(lane) := lane.U < chunkRowCount
+      for (groupIndex <- 0 until p.retireGroupWidth) {
+        val group = commitBatch.groups(groupIndex)
+        val row = chunkRows(lane)
+        val uopIndexInRange = row.uopIndex < p.decodedUopWidth.U
+        val safeUopIndex = Mux(uopIndexInRange, row.uopIndex, 0.U)
+        chunkMatches(lane)(groupIndex) :=
+          groupIndex.U < commitBatch.release.groupCount && group.valid && row.valid &&
+            row.member.group.asUInt === group.key.asUInt &&
+            row.member.bid.asUInt === group.brob.bid.asUInt &&
+            row.member.brobGeneration === group.brob.generation &&
+            row.member.residentGeneration === group.residentGeneration &&
+            row.transactionId === group.transactionId &&
+            row.member.memberIndex < group.physicalMemberCount &&
+            uopIndexInRange && group.logicalUopMask(safeUopIndex) &&
+            row.destinationIndex < p.maxDestinationOperands.U
+      }
+    } else {
+      chunkRows(lane) := 0.U.asTypeOf(chunkRows(lane))
+      chunkActive(lane) := false.B
+      chunkMatches(lane) := VecInit(Seq.fill(p.retireGroupWidth)(false.B))
     }
   }
   val chunkExact = (0 until p.pTagReturnWidth).map { lane =>
@@ -618,38 +635,64 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
       row.previous.epoch === expectedPrevious.epoch &&
       row.previous.ptag =/= row.current.ptag)
   }.reduce(_ && _)
-  val chunkReturns = Wire(Vec(p.pTagReturnWidth, Bool()))
-  val chunkReturnOrdinal = Wire(Vec(p.pTagReturnWidth,
-    UInt(p.pTagReturnCountWidth.W)))
-  for (lane <- 0 until p.pTagReturnWidth) {
-    chunkReturns(lane) := chunkActive(lane)
-    chunkReturnOrdinal(lane) :=
-      (if (lane == 0) 0.U else PopCount(chunkReturns.take(lane)))
-  }
-  val chunkReturnCount = PopCount(chunkReturns)
-  io.ptagReturn.valid := commitState === OooPCommitState.DrainMapQ &&
+  val chunkReturnCount = PopCount(chunkActive)
+  val commitReadCapture = commitState === OooPCommitState.ReadMapQ &&
     commitBatchRetained && chunkExact && chunkReturnCount.orR
+  when(commitState === OooPCommitState.ReadMapQ) {
+    assert(commitRowsRemaining.orR && chunkExact && chunkReturnCount.orR,
+      "P commit MapQ read stage must identify an exact non-empty slice")
+  }
+  when(commitReadCapture) {
+    commitReadHead := mapQHead(commitActiveStid)
+    commitReadRowCount := chunkReturnCount
+    commitReadRows := chunkRows
+    commitState := OooPCommitState.ReturnTags
+  }
+
+  val commitRegisteredRowsExact =
+    commitReadRowCount.orR &&
+    commitReadRowCount <= mapQReadWidth.U &&
+    commitRowsRemaining >= commitReadRowCount &&
+    (0 until p.pTagReturnWidth).map { lane =>
+      val active = lane.U < commitReadRowCount
+      val queueIndex = commitReadHead + lane.U
+      val row = commitReadRows(lane)
+      !active || (row.valid &&
+        row.mapQIndex === queueIndex(p.pMapQIndexWidth - 1, 0))
+    }.reduce(_ && _)
+  val commitLiveRowsStable = mapQHead(commitActiveStid) === commitReadHead &&
+    (0 until mapQReadWidth).map { lane =>
+      val active = lane.U < commitReadRowCount
+      val queueIndex = commitReadHead + lane.U
+      !active || (mapQRow(commitActiveStid,
+        queueIndex(p.pMapQIndexWidth - 1, 0)).asUInt ===
+          commitReadRows(lane).asUInt)
+    }.reduce(_ && _)
+  when(commitState === OooPCommitState.ReturnTags) {
+    assert(commitBatchRetained && commitRegisteredRowsExact &&
+      commitLiveRowsStable,
+      "P commit retained MapQ slice must remain exact until PTag return")
+  }
+
+  io.ptagReturn.valid := commitState === OooPCommitState.ReturnTags &&
+    commitRegisteredRowsExact
   io.ptagReturn.bits := 0.U.asTypeOf(io.ptagReturn.bits)
-  io.ptagReturn.bits.count := chunkReturnCount
+  io.ptagReturn.bits.count := commitReadRowCount
   for (returnIndex <- 0 until p.pTagReturnWidth) {
-    val select = VecInit((0 until p.pTagReturnWidth).map { lane =>
-      chunkReturns(lane) && chunkReturnOrdinal(lane) === returnIndex.U
-    })
-    val selected = Mux1H(select, chunkRows)
+    val selected = commitReadRows(returnIndex)
     val token = io.ptagReturn.bits.tokens(returnIndex)
-    token.valid := returnIndex.U < chunkReturnCount
+    token.valid := returnIndex.U < commitReadRowCount
     token.ptag := selected.previous.ptag
     token.generation := selected.previous.ptagGeneration
     token.bank := (if (p.pTagBanks == 1) 0.U else
       selected.previous.ptag(p.pTagBankWidth - 1, 0))
   }
-  val chunkAdvance = commitState === OooPCommitState.DrainMapQ &&
-    commitBatchRetained && chunkExact &&
-    (!chunkReturnCount.orR || io.ptagReturn.fire)
+  val chunkAdvance = commitState === OooPCommitState.ReturnTags &&
+    io.ptagReturn.fire
   when(chunkAdvance) {
     for (lane <- 0 until p.pTagReturnWidth) {
-      when(chunkActive(lane)) {
-        val row = chunkRows(lane)
+      when(lane.U < commitReadRowCount) {
+        val row = commitReadRows(lane)
         val committedMapping = Wire(new PMapPayload(p))
         committedMapping := row.current
         committedMapping.ready := true.B
@@ -660,16 +703,20 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
         committedMapping.producerIqEpoch := 0.U
         cmap(commitActiveStid)(row.atag(archIndexWidth - 1, 0)) :=
           committedMapping
-        val queueIndex = mapQHead(commitActiveStid) + lane.U
+        val queueIndex = commitReadHead + lane.U
         mapQRow(commitActiveStid,
           queueIndex(p.pMapQIndexWidth - 1, 0)).valid := false.B
       }
     }
-    mapQHead(commitActiveStid) := mapQHead(commitActiveStid) + chunkRowCount
-    mapQCount(commitActiveStid) := mapQCount(commitActiveStid) - chunkRowCount
-    commitRowsRemaining := commitRowsRemaining - chunkRowCount
-    when(commitRowsRemaining === chunkRowCount) {
+    mapQHead(commitActiveStid) := commitReadHead + commitReadRowCount
+    mapQCount(commitActiveStid) :=
+      mapQCount(commitActiveStid) - commitReadRowCount
+    commitRowsRemaining := commitRowsRemaining - commitReadRowCount
+    commitReadRowCount := 0.U
+    when(commitRowsRemaining === commitReadRowCount) {
       commitState := OooPCommitState.AwaitDeallocation
+    }.otherwise {
+      commitState := OooPCommitState.ReadMapQ
     }
   }
 
@@ -786,20 +833,45 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
     recoveryDrainRow.current.ptag < p.pPhysRegs.U &&
     recoveryDrainRow.current.stid === recoveryActiveStid &&
     recoveryDrainRow.current.epoch === recoveryCurrentSource.epoch
-  when(recoveryState === OooPRecoveryState.DrainRows) {
+  val recoveryReadCapture = recoveryState === OooPRecoveryState.ReadRow &&
+    recoveryRowsRemaining.orR && recoveryDrainExact
+  when(recoveryState === OooPRecoveryState.ReadRow) {
     assert(recoveryRowsRemaining.orR && recoveryDrainExact,
-      "P recovery must retain the exact killed MapQ tail row")
-    io.ptagReturn.valid := recoveryDrainExact
+      "P recovery MapQ read stage must identify the exact killed tail row")
+  }
+  when(recoveryReadCapture) {
+    recoveryReadIndex := recoveryDrainIndex
+    recoveryReadRow := recoveryDrainRow
+    recoveryState := OooPRecoveryState.ReturnTag
+  }
+  val recoveryRegisteredRowExact = recoveryRowsRemaining.orR &&
+    recoveryReadRow.valid &&
+    recoveryReadRow.mapQIndex === recoveryReadIndex &&
+    recoveryReadRow.transactionId === recoveryCurrentSource.transactionId &&
+    recoveryReadRow.uopIndex === recoveryCurrentSource.uopIndex &&
+    recoveryReadRow.member.asUInt === recoveryCurrentSource.member.asUInt &&
+    recoveryReadRow.current.valid &&
+    recoveryReadRow.current.ptag < p.pPhysRegs.U &&
+    recoveryReadRow.current.stid === recoveryActiveStid &&
+    recoveryReadRow.current.epoch === recoveryCurrentSource.epoch
+  val recoveryLiveRowStable =
+    subMapQPtr(mapQTail(recoveryActiveStid), 1.U) === recoveryReadIndex &&
+    mapQRow(recoveryActiveStid, recoveryReadIndex).asUInt ===
+      recoveryReadRow.asUInt
+  when(recoveryState === OooPRecoveryState.ReturnTag) {
+    assert(recoveryRegisteredRowExact && recoveryLiveRowStable,
+      "P recovery retained MapQ row must remain exact until PTag return")
+    io.ptagReturn.valid := recoveryRegisteredRowExact
     io.ptagReturn.bits := 0.U.asTypeOf(io.ptagReturn.bits)
     io.ptagReturn.bits.count := 1.U
     io.ptagReturn.bits.tokens(0).valid := true.B
-    io.ptagReturn.bits.tokens(0).ptag := recoveryDrainRow.current.ptag
+    io.ptagReturn.bits.tokens(0).ptag := recoveryReadRow.current.ptag
     io.ptagReturn.bits.tokens(0).generation :=
-      recoveryDrainRow.current.ptagGeneration
+      recoveryReadRow.current.ptagGeneration
     io.ptagReturn.bits.tokens(0).bank := (if (p.pTagBanks == 1) 0.U else
-      recoveryDrainRow.current.ptag(p.pTagBankWidth - 1, 0))
+      recoveryReadRow.current.ptag(p.pTagBankWidth - 1, 0))
   }
-  val recoveryDrainFire = recoveryState === OooPRecoveryState.DrainRows &&
+  val recoveryDrainFire = recoveryState === OooPRecoveryState.ReturnTag &&
     io.ptagReturn.fire
 
   val replayIndexSum = mapQHead(recoveryActiveStid) +& recoveryReplayOffset
@@ -816,22 +888,24 @@ class OooPRename(val p: OooParams = OooParams()) extends Module {
         recoveryCurrentSource := killed
         recoveryRowsRemaining := killed.pDestinationCount
         when(killed.pDestinationCount.orR) {
-          recoveryState := OooPRecoveryState.DrainRows
+          recoveryState := OooPRecoveryState.ReadRow
         }
       }.elsewhen(io.recoverySourcesDone) {
         recoveryState := OooPRecoveryState.CopyCmap
       }
     }
-    is(OooPRecoveryState.DrainRows) {
+    is(OooPRecoveryState.ReturnTag) {
       when(recoveryDrainFire) {
-        mapQRow(recoveryActiveStid, recoveryDrainIndex) :=
+        mapQRow(recoveryActiveStid, recoveryReadIndex) :=
           0.U.asTypeOf(new OooPMapQEntry(p))
-        mapQTail(recoveryActiveStid) := recoveryDrainIndex
+        mapQTail(recoveryActiveStid) := recoveryReadIndex
         mapQCount(recoveryActiveStid) :=
           mapQCount(recoveryActiveStid) - 1.U
         recoveryRowsRemaining := recoveryRowsRemaining - 1.U
         when(recoveryRowsRemaining === 1.U) {
           recoveryState := OooPRecoveryState.WaitSources
+        }.otherwise {
+          recoveryState := OooPRecoveryState.ReadRow
         }
       }
     }

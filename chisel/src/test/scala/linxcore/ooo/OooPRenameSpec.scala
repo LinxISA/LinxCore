@@ -127,6 +127,20 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(false.B)
   }
 
+  private def captureCommitSlice(dut: OooPRename): Unit = {
+    dut.clock.step() // retain the ROB batch and enter the MapQ read stage
+    dut.io.commitBusy.expect(true.B)
+    dut.io.ptagReturn.valid.expect(false.B)
+    dut.clock.step() // register the selected physical-subbank rows
+    dut.io.ptagReturn.valid.expect(true.B)
+  }
+
+  private def captureNextCommitSlice(dut: OooPRename): Unit = {
+    dut.io.ptagReturn.valid.expect(false.B)
+    dut.clock.step()
+    dut.io.ptagReturn.valid.expect(true.B)
+  }
+
   private def pokeOneUopMapping(
       dut: OooPRename,
       stid: Int,
@@ -304,6 +318,8 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
   private def returnKilledTag(
       dut: OooPRename,
       expectedPtag: Int): Unit = {
+    dut.io.ptagReturn.valid.expect(false.B)
+    dut.clock.step() // register the killed tail row before returning its PTag
     dut.io.ptagReturn.valid.expect(true.B)
     dut.io.ptagReturn.bits.count.expect(1.U)
     dut.io.ptagReturn.bits.tokens(0).ptag.expect(expectedPtag.U)
@@ -372,9 +388,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
 
       pokeOneGroupCommit(dut, stid = 1, transactionId = 10, pRows = 2)
       dut.io.commitReady.expect(false.B)
-      dut.clock.step() // lock the retained batch
-      dut.io.commitBusy.expect(true.B)
-      dut.io.ptagReturn.valid.expect(true.B)
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(2.U)
       dut.io.ptagReturn.bits.tokens(0).ptag.expect(27.U)
       dut.io.ptagReturn.bits.tokens(0).generation.expect(0.U)
@@ -449,7 +463,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("serializes CMAP and old-PTag retirement at return width one") {
+  test("registers MapQ reads before pointer updates at return width one") {
     val p = OooParams(
       instructionDecodeWidth = 2,
       decodedUopWidth = 2,
@@ -463,9 +477,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
       publish(dut)
       dut.io.queryAtag.poke(1.U)
       pokeOneGroupCommit(dut, stid = 0, transactionId = 0, pRows = 2)
-      dut.clock.step() // lock batch
-      dut.io.commitBusy.expect(true.B)
-      dut.io.ptagReturn.valid.expect(true.B)
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.tokens(0).ptag.expect(1.U)
       dut.io.ptagReturn.bits.tokens(0).generation.expect(0.U)
       dut.clock.step(2)
@@ -478,7 +490,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.ptagReturn.ready.poke(false.B)
       dut.io.mapQUsed(0).expect(1.U)
       dut.io.committedMapping.ptag.expect(96.U)
-      dut.io.ptagReturn.valid.expect(true.B)
+      captureNextCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(1.U)
       dut.io.ptagReturn.bits.tokens(0).ptag.expect(96.U)
       dut.io.ptagReturn.bits.tokens(0).generation.expect(1.U)
@@ -565,9 +577,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
 
       pokeTwoGroupCommit(dut, stid = 2, transactionId = 12,
         firstRidSlot = 3, firstRidGeneration = 2)
-      dut.clock.step() // retain the exact wrapped batch
-      dut.io.commitBusy.expect(true.B)
-      dut.io.ptagReturn.valid.expect(true.B)
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(2.U)
       dut.io.ptagReturn.ready.poke(true.B)
       dut.clock.step()
@@ -632,7 +642,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
       publish(dut)
       pokeOneGroupCommit(dut, stid = 0, transactionId = 20, pRows = 1,
         logicalMask = 1, physicalMemberCount = 1)
-      dut.clock.step()
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(1.U)
       dut.io.ptagReturn.ready.poke(true.B)
       dut.clock.step()
@@ -649,7 +659,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.io.prepared.mapQRows(2).mapQIndex.expect(2.U)
       publish(dut)
       pokeOneGroupCommit(dut, stid = 0, transactionId = 22, pRows = 2)
-      dut.clock.step()
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(2.U)
       dut.io.ptagReturn.ready.poke(true.B)
       dut.clock.step()
@@ -685,7 +695,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
 
       pokeOneGroupCommit(dut, stid = 0, transactionId = 24, pRows = 1,
         logicalMask = 1, physicalMemberCount = 1)
-      dut.clock.step()
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(1.U)
       dut.io.ptagReturn.bits.tokens(0).ptag.expect(3.U)
       dut.io.ptagReturn.ready.poke(true.B)
@@ -782,8 +792,7 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
 
       // The surviving prefix remains an exact, committable MapQ chain.
       pokeOneGroupCommit(dut, stid = 1, transactionId = 10, pRows = 2)
-      dut.clock.step()
-      dut.io.ptagReturn.valid.expect(true.B)
+      captureCommitSlice(dut)
       dut.io.ptagReturn.bits.count.expect(2.U)
       dut.io.ptagReturn.bits.tokens(0).ptag.expect(27.U)
       dut.io.ptagReturn.bits.tokens(1).ptag.expect(96.U)
@@ -859,6 +868,9 @@ class OooPRenameSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.recoveryAuthorize.valid.poke(false.B)
       dut.io.commitBusy.expect(true.B)
+      dut.io.ptagReturn.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.ptagReturn.valid.expect(true.B)
       dut.io.ptagReturn.ready.poke(true.B)
       dut.clock.step()
       dut.io.ptagReturn.ready.poke(false.B)

@@ -154,6 +154,21 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       "timed out waiting for the shared P/T/U commit owners")
   }
 
+  private def acceptPtagRecycle(
+      dut: OooO3RenameCoordinator,
+      expectedPtag: Int,
+      limit: Int = 16): Unit = {
+    var cycles = 0
+    while (!dut.io.ptagRecycle.valid.peek().litToBoolean && cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit, "timed out waiting for retained PTag recycle")
+    dut.io.ptagRecycle.bits.count.expect(1.U)
+    dut.io.ptagRecycle.bits.tokens(0).ptag.expect(expectedPtag.U)
+    dut.clock.step()
+  }
+
   private def pokeLocalRenameChain(
       dut: OooO3RenameCoordinator,
       tailEpoch: Int = 0,
@@ -539,12 +554,14 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step() // ROB forms commit batch
       dut.clock.step() // P rename locks it
       dut.io.pCommitBusy.expect(true.B)
-      dut.clock.step() // return reset PTag 1 and commit CMAP 1 -> 96
+      dut.io.ptagRecycle.valid.expect(false.B)
+      acceptPtagRecycle(dut, expectedPtag = 1)
       dut.io.queryAtag.poke(1.U)
       dut.io.committedMapping.ptag.expect(96.U)
       dut.io.mapQUsed(0).expect(1.U)
       dut.io.ptagPublishedCount.expect(2.U)
-      dut.clock.step() // return PTag 96 and commit CMAP 96 -> 97
+      dut.io.ptagRecycle.valid.expect(false.B)
+      acceptPtagRecycle(dut, expectedPtag = 96)
       dut.io.committedMapping.ptag.expect(97.U)
       dut.io.mapQUsed(0).expect(0.U)
       dut.io.ptagPublishedCount.expect(1.U)
