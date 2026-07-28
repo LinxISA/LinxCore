@@ -11,11 +11,13 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 history.
 
 The active backend priority is OOO packet O8.3 physical closure. O7 global
-recovery and CTU reinsertion are packet-complete. O8.3e now replaces the
-grouped ROB's full-window combinational recovery view with retained bounded
-find/build passes before the existing common apply. Registered ROB head
-selection, PC banking, dispatch cost steering, and default-width timing remain
-active. O6.2 ROB-owned exact non-flush is packet-complete.
+recovery and CTU reinsertion are packet-complete. O8.3e replaces the grouped
+ROB's full-window combinational recovery view with retained bounded find/build
+passes before the existing common apply. O8.3f now registers the exact selected
+head token, reads its banked payload one stage later, and permits pointer
+mutation only from the retained commit row. PC banking, commit/non-flush prefix
+timing, dispatch cost steering, and default-width timing remain active. O6.2
+ROB-owned exact non-flush is packet-complete.
 O7.1 grouped-ROB recovery is packet-complete at the direct owner boundary:
 it prepares an exact logical-uop suffix across intra-group and wrapped-RID
 cases, applies target-STID-only truncation, and rebuilds non-flush state.

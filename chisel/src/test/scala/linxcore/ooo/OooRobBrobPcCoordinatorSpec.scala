@@ -187,6 +187,18 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       s"ROB recovery did not reject within $maxCycles cycles")
   }
 
+  private def waitForCommit(
+      dut: OooRobBrobPcCoordinator,
+      maxCycles: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.commit.valid.peek().litToBoolean && cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.commit.valid.peek().litToBoolean,
+      s"coordinated commit did not become valid within $maxCycles cycles")
+  }
+
   test("publishes and retires D3 ROB BROB and PC state on common terminal fires") {
     val p = OooParams(
       instructionDecodeWidth = 2,
@@ -235,7 +247,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
         brobGeneration = 0, residentGeneration = 1)
       complete(dut, stid = 1, absoluteRid = 0, bid = 0,
         brobGeneration = 0, residentGeneration = 1)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       val retainedRid = dut.io.commit.bits.release.firstGroup.ridSlot.peek().litValue
       val retainedEpoch = dut.io.commit.bits.release.headEpoch.peek().litValue
@@ -317,7 +329,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.publishPermit.poke(false.B)
       complete(dut, stid = 0, absoluteRid = 0, bid = 0,
         brobGeneration = 0, residentGeneration = 1)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
 
       pokeTransaction(dut, stid = 1, transactionId = 0, firstRid = 0,
@@ -585,7 +597,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.publishPermit.poke(false.B)
       complete(dut, stid = 0, absoluteRid = 0, bid = 0,
         brobGeneration = 0, residentGeneration = 1)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.firstGroup.stid.expect(0.U)
       pokeRecovery(dut, stid = 0, absoluteRid = 0, bid = 0,
@@ -621,7 +633,7 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
         brobGeneration = 0, residentGeneration = 1)
       complete(dut, stid = 3, absoluteRid = 0, bid = 0,
         brobGeneration = 0, residentGeneration = 1)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.ready.poke(true.B)
       dut.clock.step()

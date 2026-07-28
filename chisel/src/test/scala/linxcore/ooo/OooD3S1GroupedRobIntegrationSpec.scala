@@ -120,6 +120,8 @@ class OooD3S1GroupedRobIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.s1Occupied(2).expect(2.U)
 
       dut.clock.step()
+      dut.io.commit.valid.expect(false.B)
+      dut.clock.step()
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.firstGroup.stid.expect(2.U)
       dut.io.commit.bits.release.firstGroup.ridSlot.expect(0.U)

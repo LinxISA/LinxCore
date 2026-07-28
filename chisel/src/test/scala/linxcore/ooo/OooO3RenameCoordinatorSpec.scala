@@ -154,6 +154,18 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       "timed out waiting for the shared P/T/U commit owners")
   }
 
+  private def waitForPCommitBusy(
+      dut: OooO3RenameCoordinator,
+      limit: Int = 32): Unit = {
+    var cycles = 0
+    while (!dut.io.pCommitBusy.peek().litToBoolean && cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < limit,
+      "timed out waiting for the retained P commit walk")
+  }
+
   private def acceptPtagRecycle(
       dut: OooO3RenameCoordinator,
       expectedPtag: Int,
@@ -382,9 +394,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.completion.ready.expect(true.B)
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
-      dut.clock.step() // ROB forms retained commit batch
-      dut.io.pCommitBusy.expect(false.B)
-      dut.clock.step() // P rename locks retained commit batch
+      waitForPCommitBusy(dut)
       dut.io.pCommitRejected.valid.expect(false.B)
       dut.io.pCommitBusy.expect(true.B)
       dut.io.commit.valid.expect(false.B)
@@ -551,9 +561,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
         dut.io.completion.valid.poke(false.B)
       }
 
-      dut.clock.step() // ROB forms commit batch
-      dut.clock.step() // P rename locks it
-      dut.io.pCommitBusy.expect(true.B)
+      waitForPCommitBusy(dut)
       dut.io.ptagRecycle.valid.expect(false.B)
       acceptPtagRecycle(dut, expectedPtag = 1)
       dut.io.queryAtag.poke(1.U)
@@ -610,9 +618,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.preparedValid.expect(false.B) // MapQ is full; row stays provisional.
 
       completeMembers(dut, stid = 0, rid = 0, memberCount = 2)
-      dut.clock.step() // form retained ROB commit
-      dut.clock.step() // lock the P commit walk despite the younger provisional
-      dut.io.pCommitBusy.expect(true.B)
+      waitForPCommitBusy(dut)
       dut.io.preparedValid.expect(false.B)
       dut.clock.step(2) // width-one return of identity PTag 1, then PTag 96
       waitForCommit(dut)

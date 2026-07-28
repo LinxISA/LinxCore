@@ -37,10 +37,12 @@ transaction ID. O8.3b changes the P MapQ physical owner from one monolithic
 per-STID array to parameterized low-index subbanks (two even/odd subbanks by
 default) while retaining the same head/tail/count, exact row identity, commit
 walk, killed-tail drain, and survivor replay. O8.3c registers the P MapQ
-read-to-pointer loop, O8.3d banks the grouped ROB, and O8.3e replaces its
+read-to-pointer loop, O8.3d banks the grouped ROB, O8.3e replaces its
 full-window combinational recovery view with retained bounded find/build
-passes. Registered ROB head selection, PC banking, and physical dispatch cost
-steering remain active O8 work.
+passes, and O8.3f retains the selected ROB head token before banked payload
+capture so only a retained commit fire mutates pointers. PC banking,
+commit/non-flush prefix timing, and physical dispatch cost steering remain
+active O8 work.
 Normative documents
 now define OOO as one D1-to-S1 module with D2 virtual planning, D3 provisional
 reservation/rename, and S1 atomic publication. `linxcore.ooo.OooParams` keeps

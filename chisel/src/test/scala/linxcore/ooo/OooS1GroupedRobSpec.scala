@@ -285,6 +285,26 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     cycles
   }
 
+  private def waitForCommit(
+      dut: OooS1GroupedRob,
+      limit: Int = 32): Int = {
+    var cycles = 0
+    while (!dut.io.commit.valid.peek().litToBoolean && cycles < limit) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.commit.valid.peek().litToBoolean,
+      s"grouped-ROB commit did not become valid within $limit cycles")
+    cycles
+  }
+
+  private def acceptCommit(dut: OooS1GroupedRob): Unit = {
+    waitForCommit(dut)
+    dut.io.commit.ready.poke(true.B)
+    dut.clock.step()
+    dut.io.commit.ready.poke(false.B)
+  }
+
   private def acceptCompletion(dut: OooS1GroupedRob): Unit = {
     dut.io.completion.ready.expect(true.B)
     dut.io.completionRejected.valid.expect(false.B)
@@ -350,7 +370,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.publish.ready.expect(true.B)
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.groups(0).architecturalParentCount.expect(0.U)
 
@@ -394,8 +414,10 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       acceptCompletion(dut)
       pokeCompletion(dut, stid = 1, slot = 0, ridGeneration = 0, member = 1)
       acceptCompletion(dut)
-      dut.clock.step()
-
+      dut.io.commit.valid.expect(false.B)
+      dut.clock.step() // retain the selected STID, head token, and group count
+      dut.io.commit.valid.expect(false.B)
+      dut.clock.step() // read the banked payload into the retained commit row
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.firstGroup.stid.expect(1.U)
       dut.io.commit.bits.release.firstGroup.ridSlot.expect(0.U)
@@ -417,6 +439,49 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.occupiedGroups(1).expect(0.U)
       dut.io.headSlot(1).expect(2.U)
       dut.io.headEpoch(1).expect(1.U)
+    }
+  }
+
+  test("fences same-STID recovery while the retained head token reads its payload") {
+    val p = OooParams(robGroupsPerStid = 8)
+    simulate(new OooS1GroupedRob(p)) { dut =>
+      clear(dut)
+      pokePublication(dut, stid = 1, transactionId = 0, firstSlot = 0,
+        firstGeneration = 0, groupMembers = Seq(1),
+        initiallyComplete = Set(0))
+      dut.clock.step()
+      dut.io.publish.valid.poke(false.B)
+
+      dut.clock.step() // retain the selected STID/head token
+      dut.io.commit.valid.expect(false.B)
+      pokeRecovery(dut, stid = 1, slot = 0, ridGeneration = 0,
+        member = 0, memberCount = 1, killTrigger = false)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(false.B)
+
+      dut.clock.step() // read the selected bank payload
+      dut.io.commit.valid.expect(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(false.B)
+      val heldTransaction =
+        dut.io.commit.bits.groups(0).transactionId.peek().litValue
+      val heldRid =
+        dut.io.commit.bits.groups(0).key.ridSlot.peek().litValue
+      val heldMembers =
+        dut.io.commit.bits.groups(0).physicalMemberCount.peek().litValue
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.groups(0).transactionId.expect(heldTransaction.U)
+      dut.io.commit.bits.groups(0).key.ridSlot.expect(heldRid.U)
+      dut.io.commit.bits.groups(0).physicalMemberCount.expect(heldMembers.U)
+      dut.io.recoveryPrepareReady.expect(false.B)
+
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      dut.io.occupiedGroups(1).expect(0.U)
+      waitForRecoveryRejected(dut)
+      dut.io.recoveryPrepared.valid.expect(false.B)
     }
   }
 
@@ -456,7 +521,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.valid.expect(false.B)
       pokeCompletion(dut, stid = 0, slot = 0, ridGeneration = 0, member = 1)
       acceptCompletion(dut)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.groupCount.expect(1.U)
     }
@@ -526,20 +591,14 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         initiallyComplete = Set(0, 1, 2, 3))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(false.B)
+      acceptCommit(dut)
 
       pokePublication(dut, stid = 1, transactionId = 1, firstSlot = 4,
         firstGeneration = 0, groupMembers = Seq.fill(3)(1),
         initiallyComplete = Set(0, 1, 2))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(false.B)
+      acceptCommit(dut)
       dut.io.headSlot(1).expect(7.U)
       dut.io.headGeneration(1).expect(0.U)
 
@@ -551,7 +610,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
 
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.firstGroup.stid.expect(1.U)
       dut.io.commit.bits.release.firstGroup.ridSlot.expect(7.U)
@@ -585,7 +644,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         dut.io.publish.ready.expect(true.B)
         dut.clock.step()
         dut.io.publish.valid.poke(false.B)
-        dut.clock.step()
+        waitForCommit(dut)
         dut.io.commit.valid.expect(true.B)
         dut.io.commit.bits.release.groupCount.expect(math.min(width, 4).U)
       }
@@ -748,6 +807,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.nonFlushWindows(3).head.ridSlot.expect(0.U)
       dut.io.nonFlushWindows(3).prefixCount.expect(2.U)
       dut.io.occupiedGroups(3).expect(2.U)
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
 
       dut.io.commit.ready.poke(true.B)
@@ -812,7 +872,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
 
       pokeCompletion(dut, stid = 1, slot = 0, ridGeneration = 0, member = 0)
       acceptCompletion(dut)
-      dut.clock.step()
+      waitForCommit(dut)
       dut.io.commit.valid.expect(true.B)
       dut.io.commit.bits.release.groupCount.expect(1.U)
       dut.io.commit.bits.groups(0).physicalMemberCount.expect(1.U)
@@ -870,20 +930,14 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         initiallyComplete = Set(0, 1, 2, 3))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(false.B)
+      acceptCommit(dut)
 
       pokePublication(dut, stid = 1, transactionId = 1, firstSlot = 4,
         firstGeneration = 0, groupMembers = Seq.fill(3)(1),
         initiallyComplete = Set(0, 1, 2))
       dut.clock.step()
       dut.io.publish.valid.poke(false.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.commit.ready.poke(false.B)
+      acceptCommit(dut)
       dut.io.headSlot(1).expect(7.U)
       dut.io.headGeneration(1).expect(0.U)
 

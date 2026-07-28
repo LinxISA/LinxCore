@@ -782,6 +782,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       prefix(p.retireGroupWidth))
   }
 
+  val commitReadPending = RegInit(false.B)
+  val commitReadRelease = RegInit(
+    0.U.asTypeOf(new OooRobGroupRelease(p)))
   val commitPending = RegInit(false.B)
   val commitRow = Reg(new OooRobCommitBatch(p))
   val rrStart = RegInit(0.U(p.stidWidth.W))
@@ -796,22 +799,43 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     if (p.stidCount == 1) 0.U(p.stidWidth.W)
     else (rrStart + selectedOffset)(p.stidWidth - 1, 0)
 
-  when(!commitPending && anyEligible) {
+  when(!commitReadPending && !commitPending && anyEligible) {
     val selectedCount = commitCountByStid(selectedStid)
+    commitReadPending := true.B
+    commitReadRelease := 0.U.asTypeOf(commitReadRelease)
+    commitReadRelease.firstGroup.valid := true.B
+    commitReadRelease.firstGroup.peId := headPeId(selectedStid)
+    commitReadRelease.firstGroup.stid := selectedStid
+    commitReadRelease.firstGroup.ridSlot := headSlot(selectedStid)
+    commitReadRelease.firstGroup.ridGeneration :=
+      headGeneration(selectedStid)
+    commitReadRelease.headEpoch := headEpoch(selectedStid)
+    commitReadRelease.groupCount := selectedCount
+  }
+
+  val commitReadStid = commitReadRelease.firstGroup.stid
+  val commitReadHeadExact = commitReadRelease.firstGroup.valid &&
+    commitReadStid < p.stidCount.U &&
+    commitReadRelease.firstGroup.peId === headPeId(commitReadStid) &&
+    commitReadRelease.firstGroup.ridSlot === headSlot(commitReadStid) &&
+    commitReadRelease.firstGroup.ridGeneration ===
+      headGeneration(commitReadStid) &&
+    commitReadRelease.headEpoch === headEpoch(commitReadStid) &&
+    commitReadRelease.groupCount.orR &&
+    commitReadRelease.groupCount <= occupied(commitReadStid)
+
+  when(commitReadPending) {
+    assert(commitReadHeadExact,
+      "grouped-ROB commit payload read requires the retained exact head token")
+    commitReadPending := false.B
     commitPending := true.B
     commitRow := 0.U.asTypeOf(commitRow)
-    commitRow.release.firstGroup.valid := true.B
-    commitRow.release.firstGroup.peId := headPeId(selectedStid)
-    commitRow.release.firstGroup.stid := selectedStid
-    commitRow.release.firstGroup.ridSlot := headSlot(selectedStid)
-    commitRow.release.firstGroup.ridGeneration := headGeneration(selectedStid)
-    commitRow.release.headEpoch := headEpoch(selectedStid)
-    commitRow.release.groupCount := selectedCount
+    commitRow.release := commitReadRelease
     for (offset <- 0 until p.retireGroupWidth) {
-      val slotSum = headSlot(selectedStid) +& offset.U
-      when(offset.U < selectedCount) {
+      val slotSum = commitReadRelease.firstGroup.ridSlot +& offset.U
+      when(offset.U < commitReadRelease.groupCount) {
         commitRow.groups(offset) :=
-          rowAt(selectedStid, slotSum(p.ridSlotWidth - 1, 0))
+          rowAt(commitReadStid, slotSum(p.ridSlotWidth - 1, 0))
       }
     }
   }
@@ -819,8 +843,9 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   io.commit.valid := commitPending
   io.commit.bits := commitRow
   val commitFire = io.commit.valid && io.commit.ready
-  recoveryCommitConflict := commitPending &&
-    commitRow.release.firstGroup.stid === recoveryStid
+  recoveryCommitConflict :=
+    (commitReadPending && commitReadStid === recoveryStid) ||
+      (commitPending && commitRow.release.firstGroup.stid === recoveryStid)
   when(commitFire) {
     val stid = commitRow.release.firstGroup.stid
     val count = commitRow.release.groupCount

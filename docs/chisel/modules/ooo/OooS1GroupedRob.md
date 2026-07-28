@@ -45,18 +45,27 @@ surviving tail. The target STID is fenced throughout both passes; peer STIDs
 continue, prepare withdrawal discards private scan state, and only the common
 apply mutates rows or occupancy.
 
-The retained `commitRow` keeps the public commit transaction stable under
-backpressure, but commit eligibility and non-flush prefix discovery still read
-live rows combinationally. A later O8 packet must register the head
-read/selection state and prove that pointer updates depend only on retained
-state. The recovery scan closes one full-window read/CAM path; it does not by
-itself close the two-cycle entry-read-to-pointer retirement loop.
+O8.3f closes the grouped-ROB head-read retirement loop described by the
+reference design. The first commit stage arbitrates an eligible STID and
+retains only the exact head token `{PE, STID, RID slot/generation, head epoch,
+count}`. The following stage validates that immutable token and reads the
+banked group payload into `commitRow`. Backpressure is therefore absorbed by
+retained state, and only a fire of that retained row may clear groups or move
+head/occupancy pointers. A same-STID recovery is fenced during both the token
+and payload stages while peer STIDs remain independent.
+
+Commit eligibility and non-flush prefix discovery still inspect live ordered
+rows combinationally. O8.3f separates selection, payload read, and pointer
+mutation; it does not claim closure of that prefix-discovery path. PC-buffer
+banking is also a separate O8 packet.
 
 ## Verification
 
 `OooS1GroupedRobSpec` covers:
 
 - atomic publication and retained ordered commit;
+- separate head-token and payload-read stages, stable retained output, and
+  same-STID recovery fencing across both stages;
 - stale completion rejection and exact non-flush evidence;
 - wrapped head generation and exact suffix recovery;
 - multi-cycle recovery prepare, private partial-scan abort, request-drift
@@ -66,13 +75,12 @@ itself close the two-cycle entry-read-to-pointer retirement loop.
   then the odd subbank, followed by exact completion reads at RID slots 0 and
   8.
 
-The lower ROB/BROB/PC coordinator and upper O3 coordinator suites verify that
-the physical layout remains behind the existing common publish, commit, and
-recovery fires.
+The lower ROB/BROB/PC coordinator, D3-to-S1 integration, and upper O3
+coordinator suites verify that the physical layout and added read stage remain
+behind the existing common publish, commit, and recovery fires.
 
 At the current generated-test boundary, the four-wide eight-group module is
-107,178 SystemVerilog lines and the sixteen-group module is 217,545 lines.
-This remains approximately linear with depth, but both are larger than O8.3d
-because the exact recovery plan is now retained. These line counts are not an
-area-reduction claim; the closed claim is the bounded per-cycle recovery read
-and compare depth.
+107,407 SystemVerilog lines and the sixteen-group module is 217,635 lines.
+This remains approximately linear with depth. These line counts are not an
+area-reduction claim; O8.3e bounds per-cycle recovery read/compare depth and
+O8.3f breaks the selected-head/payload/pointer path with retained state.
