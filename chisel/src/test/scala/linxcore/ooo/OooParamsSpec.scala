@@ -40,6 +40,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.maxCommitTURetireSources == 32)
     assert(p.pcBufferEntries == 64)
     assert(p.pcBankCount == 4)
+    assert(p.pcRecoveryScanGroupsPerCycle == 4)
+    assert(p.pcRecoveryScanCycles == 16)
     assert(p.pcRowsPerBank == 4)
     assert(p.pcBankSelectionBits == 2)
     assert(p.pcBufferIndexWidth == 6)
@@ -75,6 +77,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(smallRob.robRowsPerSubbank == 1)
     assert(smallRob.robRecoveryScanGroupsPerCycleEffective == 4)
     assert(smallRob.robRecoveryScanCycles == 1)
+    assert(smallRob.pcRecoveryScanCycles == 1)
   }
 
   test("unsupported widths and underprovisioned four-thread PTag files fail closed") {
@@ -115,6 +118,10 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
     assertThrows[IllegalArgumentException](OooParams(pcBankCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBankCount = 32))
+    assertThrows[IllegalArgumentException](OooParams(
+      pcRecoveryScanGroupsPerCycle = 3))
+    assertThrows[IllegalArgumentException](OooParams(
+      pcRecoveryScanGroupsPerCycle = 128))
     assertThrows[IllegalArgumentException](OooParams(pcBankCount = 2))
     assertThrows[IllegalArgumentException](OooParams(
       pcBankCount = 4, retireGroupWidth = 6))

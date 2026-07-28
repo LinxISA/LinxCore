@@ -301,9 +301,11 @@ advances the cursor; a base is freed only after all of its groups and exact
 close owner have committed. Six independent readyless read ports validate the
 complete token before returning `base + byteOffset`; same-bank/different-row
 reads remain legal, while stale epochs and cross-partition tokens return
-invalid with no data owner mutation. The banked address map does not yet bound
-the complete-partition recovery scan or define an SRAM replication strategy;
-those remain explicit timing and macro-realization work.
+invalid with no data owner mutation. Recovery captures the immutable ROB plan
+and scans `pcRecoveryScanGroupsPerCycle` records per cycle, retaining exact
+per-row repair masks for the common apply. The address and timed-scan
+boundaries still do not define the six-read SRAM replication strategy or the
+multirow metadata-write realization; those remain explicit macro work.
 
 ## O3 ROB/BROB/PC coordinator
 

@@ -40,6 +40,7 @@ final case class OooParams(
     localSeqGenerationWidth: Int = 8,
     pcBufferEntries: Int = 64,
     pcBankCount: Int = 4,
+    pcRecoveryScanGroupsPerCycle: Int = 4,
     pcOffsetWidth: Int = 7,
     pcWritePorts: Int = 3,
     pcReadPorts: Int = 6,
@@ -162,6 +163,10 @@ final case class OooParams(
     pcBankCount <= pcBufferEntries / stidCount &&
     (pcBufferEntries / stidCount) % pcBankCount == 0,
     "PC-buffer banks must evenly partition every STID slice")
+  require(isPowerOfTwo(pcRecoveryScanGroupsPerCycle) &&
+    pcRecoveryScanGroupsPerCycle <= robGroupsPerStid &&
+    robGroupsPerStid % pcRecoveryScanGroupsPerCycle == 0,
+    "PC recovery scan width must be a power-of-two divisor of the ROB window")
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
   require(pcWritePorts <= pcBankCount && retireGroupWidth <= pcBankCount,
@@ -249,6 +254,10 @@ final case class OooParams(
   def pcBankIndexWidth: Int = math.max(1, pcBankSelectionBits)
   def pcRowsPerBank: Int = pcEntriesPerStid / pcBankCount
   def pcBankRowIndexWidth: Int = math.max(1, log2Ceil(pcRowsPerBank))
+  def pcRecoveryScanCycles: Int =
+    robGroupsPerStid / pcRecoveryScanGroupsPerCycle
+  def pcRecoveryScanCursorWidth: Int =
+    math.max(1, log2Ceil(pcRecoveryScanCycles))
   def iqBankWidth: Int = log2Ceil(iqBankCount)
   def iqEntryWidth: Int = log2Ceil(iqEntriesPerBank)
   def iqBankEntryCountWidth: Int = countWidth(iqEntriesPerBank)

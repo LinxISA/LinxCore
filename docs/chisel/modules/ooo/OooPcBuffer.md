@@ -56,10 +56,20 @@ Commit validates a wrap-aware ROB-group prefix against the row token,
 prefix, and moves the partition head.
 
 Recovery consumes the grouped ROB's authoritative killed suffix. Prepare
-checks every killed token and implicit-close token, computes the exact restored
-tail/current base, and remains side-effect free. Only the common recovery fire
-decrements surviving row references, reopens a surviving close owner, clears
-allocated suffix rows, and restores tail/current state.
+captures that immutable plan and checks a parameterized
+`pcRecoveryScanGroupsPerCycle` slice on each cycle. The default four-group
+slice takes 16 scan cycles for a 64-group ROB window. The walk accumulates
+per-row killed-reference counts, prior ROB keys, close-owner repair, allocated
+row clears, restored tail, and restored current base entirely in private
+state. A changed plan rejects, and prepare-valid withdrawal discards the
+partial walk without physical undo. The target STID is fenced while other
+STIDs may still publish or commit.
+
+After the complete walk validates, the prepared result and row-repair masks
+remain stable until the common recovery fire. Only that fire decrements
+surviving row references, reopens a surviving close owner, clears allocated
+suffix rows, and restores tail/current state. Apply consumes retained masks;
+it does not rebuild a full killed-group-by-PC-row comparison network.
 
 ## Reference boundary
 
@@ -81,7 +91,10 @@ It is not evidence for a bank count or port realization.
 - 2/4/6/8-byte reconstruction and stale-token rejection;
 - predicted-taken, offset-overflow, explicit close, and implicit close;
 - exact partial commit, skipped/duplicate group rejection, and epoch wrap;
-- exact suffix recovery and stale recovery rejection;
+- exact suffix recovery, fixed scan latency, stale recovery rejection, and
+  stable prepared retention;
+- partial-scan abort, retained-plan drift rejection, target-STID fencing,
+  peer-STID publication, and a non-default two-group scan slice;
 - consecutive bases across banks and rows, including six simultaneous reads
   where two ports target different rows of the same bank;
 - 1/2/4-bank elaboration paired with 2/4/6 decode widths.
@@ -93,10 +106,10 @@ IEX and real-IFU recovery boundaries.
 
 ## Remaining timing work
 
-Bank-addressed storage is an address boundary, not a timing-closure claim.
-Recovery prepare still scans the complete PC partition and killed-group window
-combinationally, and recovery apply may update multiple metadata rows. The next
-PC packet must retain and bound that scan/apply work, define the physical
-metadata write realization, and validate default-width synthesis timing. The
-grouped ROB's separate commit/non-flush prefix discovery and dispatch cost
-steering also remain O8 work.
+The recovery compare/read depth is now bounded by the configured scan slice,
+and apply no longer recreates the killed-window CAM. This is still not a final
+physical timing claim: common apply may fan out to multiple metadata rows, the
+six readyless reads need a concrete replicated-array or SRAM realization, and
+default-width synthesis timing has not yet selected those macros. The grouped
+ROB's separate commit/non-flush prefix discovery and dispatch cost steering
+also remain O8 work.

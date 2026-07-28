@@ -85,14 +85,14 @@ promotion.
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; the external CTU recipe producer is connected at O9 |
-| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit/recovery coordinator; O4 RENU and O5/O6 integration; O8.3d ROB bank/subbank address partition; O8.3e retained two-pass bounded recovery scan; O8.3f registered head token followed by retained payload read; O8.3g four-bank PC address partition with six-read preservation | bounded PC recovery scan/apply and physical read/write macro realization remain |
+| O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit/recovery coordinator; O4 RENU and O5/O6 integration; O8.3d ROB bank/subbank address partition; O8.3e retained two-pass bounded recovery scan; O8.3f registered head token followed by retained payload read; O8.3g four-bank PC address partition with six-read preservation; O8.3h retained bounded PC recovery scan and row-repair masks | physical PC read/write macro realization remains |
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows in parameterized low-index subbanks; registered commit/recovery row selection before PTag return and pointer update; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | close default-width synthesis timing |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; O8.2 bounded hierarchical first-free selection; focused UT/IT | add occupancy/in-flight/PTag bank cost steering and safe-mode policy |
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
-| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply; O8.2 replaces each bank-wide free-entry encoder with a bounded two-level selector; O8.3a closes independent transaction/tail/epoch recovery reference state and exact wrapped-tail reuse; O8.3b physically partitions each per-STID P MapQ by low logical-index bits while preserving one exact ordered ring; O8.3c registers commit/recovery row selection before PTag return and pointer mutation; O8.3d maps every grouped-ROB access through parameterized low-bit banks and following-bit even/odd subbanks while rejecting publication/retirement widths that would collide within one ordered prefix; O8.3e replaces the full-window ROB recovery view with two retained bounded passes and one common apply; O8.3f retains the exact selected head token before banked payload capture and permits pointer mutation only from the retained row; O8.3g maps every PC-base access through parameterized low-bit banks while retaining all six logical reads | bounded PC recovery/metadata timing, occupancy/in-flight/PTag steering, default-width synthesis timing, and 2/4/6 timing closure |
+| O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply; O8.2 replaces each bank-wide free-entry encoder with a bounded two-level selector; O8.3a closes independent transaction/tail/epoch recovery reference state and exact wrapped-tail reuse; O8.3b physically partitions each per-STID P MapQ by low logical-index bits while preserving one exact ordered ring; O8.3c registers commit/recovery row selection before PTag return and pointer mutation; O8.3d maps every grouped-ROB access through parameterized low-bit banks and following-bit even/odd subbanks while rejecting publication/retirement widths that would collide within one ordered prefix; O8.3e replaces the full-window ROB recovery view with two retained bounded passes and one common apply; O8.3f retains the exact selected head token before banked payload capture and permits pointer mutation only from the retained row; O8.3g maps every PC-base access through parameterized low-bit banks while retaining all six logical reads; O8.3h bounds PC recovery compare/read depth and retains apply masks | physical PC metadata/read macro realization, occupancy/in-flight/PTag steering, default-width synthesis timing, and 2/4/6 timing closure |
 | O9 integration/promotion | Not started | current compatibility owners remain migration evidence | canonical top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -219,6 +219,7 @@ The first canonical defaults are planning targets, not hard-coded constants.
 | `pMapQSubbankCount` | 2 | Power-of-two physical partition of each ordered P MapQ; low logical-index bits select the subbank |
 | `pcBufferEntries` | 64 | Shared storage with per-STID quotas |
 | `pcBankCount` | 4 | Low per-STID local-index bits select the address bank; must cover allocation and retirement prefix widths |
+| `pcRecoveryScanGroupsPerCycle` | 4 | Power-of-two divisor of the ROB window; bounds PC recovery token/metadata comparisons per cycle |
 | `pcOffsetWidth` | 7 | Byte offset, required by 2/4/6/8-byte instructions |
 | `pcWritePorts` | 3 | Physical closure target |
 | `pcReadPorts` | 6 | Commit, branch validation, trace, and execution |
@@ -806,9 +807,10 @@ retain its reconstructed exception PC before the execution member is released.
 Commit advances the selected STID's PC-buffer release pointer from the ROB
 release indication. Debug builds may retain a checked full-PC shadow that must
 equal reconstructed PC and is forbidden from becoming an execution owner.
-The banked address map alone does not bound the still-combinational recovery
-scan or define how six logical reads map onto a concrete SRAM/replicated-array
-macro; those are the next PC timing tasks.
+O8.3h separately bounds recovery compare/read depth with a retained scan and
+retained apply masks. The banked address map plus timed scan still do not
+define how six logical reads and multirow metadata writes map onto concrete
+SRAM/replicated-array macros; those are the next PC physical tasks.
 
 ## 14. Dispatch and IEX S1/S2/S3 boundary
 
@@ -1733,9 +1735,18 @@ remain unchanged. This is the address boundary motivated by `Documents/a.txt`
 sections 6.6.3–6.6.8; it is not a claim that a six-read SRAM macro or the PC
 recovery path has closed timing.
 
-The remaining O8.3 work bounds PC recovery/metadata timing and width timing.
-The PC recovery prepare path still scans the complete partition and killed
-window combinationally, and apply may update multiple metadata rows. The
+O8.3h captures the exact grouped-ROB recovery plan and walks
+`pcRecoveryScanGroupsPerCycle` killed-group records per cycle. The default
+four-group slice needs 16 scan cycles for a 64-group window. Each slice checks
+PC tokens and implicit-close ownership while accumulating per-row reference
+counts, prior ROB keys, close-owner repair, and allocated-row clears. Plan
+drift rejects, valid withdrawal aborts private state, the target STID is
+fenced, and peer STIDs continue. A successful final slice retains both the
+public prepared payload and private repair masks until the common apply; apply
+does not recreate the full killed-window CAM.
+
+The remaining O8.3 work realizes the six logical reads and multirow metadata
+write fanout in concrete arrays/macros and closes width timing. The
 grouped-ROB commit/non-flush prefix-discovery path also remains explicit O8
 timing work rather than being hidden behind the registered payload boundary.
 Occupancy/in-flight cost steering, PTag-bank coupling, one-cycle-ahead policy,

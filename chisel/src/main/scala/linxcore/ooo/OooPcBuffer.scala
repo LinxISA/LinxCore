@@ -3,6 +3,10 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 
+object OooPcRecoveryScanState extends ChiselEnum {
+  val Idle, Scan, Prepared, Rejected = Value
+}
+
 class OooPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooD3GroupedReservation(p)))
   val prepared = Output(new OooPcPreparedBindings(p))
@@ -69,12 +73,44 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     0.U.asTypeOf(new PcBufferToken(p)))))
   val currentBase = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.pcWidth.W))))
 
-  val recoveryPlan = io.recoveryPrepare.bits
+  val recoveryScanState = RegInit(OooPcRecoveryScanState.Idle)
+  val retainedRecoveryPlan = RegInit(
+    0.U.asTypeOf(new OooRobRecoveryPlan(p)))
+  val retainedRecoveryPrepared = RegInit(
+    0.U.asTypeOf(new OooPcRecoveryPrepared(p)))
+  val retainedRecoveryReject = RegInit(
+    0.U.asTypeOf(new OooPcRecoveryReject(p)))
+  val recoveryScanCursor = RegInit(0.U(p.pcRecoveryScanCursorWidth.W))
+  val recoveryHitCounts = RegInit(VecInit(Seq.fill(p.pcEntriesPerStid)(
+    0.U(p.nonFlushPrefixCountWidth.W))))
+  val recoveryPriorKeys = RegInit(VecInit(Seq.fill(p.pcEntriesPerStid)(
+    0.U.asTypeOf(new RobGroupKey(p)))))
+  val recoveryCloseOwnerKilledMask = RegInit(0.U(p.pcEntriesPerStid.W))
+  val recoveryFreedRowMask = RegInit(0.U(p.pcEntriesPerStid.W))
+  val recoveryFreedBasesReg = RegInit(0.U(p.nonFlushPrefixCountWidth.W))
+  val recoveryFirstAllocatedValid = RegInit(false.B)
+  val recoveryFirstAllocated = RegInit(
+    0.U.asTypeOf(new PcBufferToken(p)))
+  val recoveryKilledRowsExactReg = RegInit(true.B)
+  val recoveryAllocatedOrderExactReg = RegInit(true.B)
+  val recoverySnapshotUsedBases = RegInit(0.U(p.pcPartitionCountWidth.W))
+  val recoverySnapshotTail = RegInit(
+    0.U.asTypeOf(new PcBufferToken(p)))
+
+  val recoveryPlan = Mux(
+    recoveryScanState === OooPcRecoveryScanState.Idle,
+    io.recoveryPrepare.bits,
+    retainedRecoveryPlan)
   val recoveryStid = recoveryPlan.request.rename.key.member.group.stid
   val recoveryStidInRange = recoveryStid < p.stidCount.U
   val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
-  val recoveryTargetsStid = io.recoveryPrepare.valid &&
-    recoveryPlan.valid && recoveryStidInRange
+  val recoveryOfferExact = io.recoveryPrepare.valid &&
+    io.recoveryPrepare.bits.asUInt === recoveryPlan.asUInt
+  val recoveryTargetsStid =
+    (io.recoveryPrepare.valid ||
+      recoveryScanState =/= OooPcRecoveryScanState.Idle) &&
+      recoveryPlan.valid && recoveryStidInRange
+  val recoveryCommitConflict = WireDefault(false.B)
 
   val prepareStid = io.prepare.bits.transaction.plan.stid
   val prepareStidInRange = prepareStid < p.stidCount.U
@@ -370,77 +406,189 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   val commitExact = commitStidInRange && commitCountInRange &&
     usedBases(safeCommitStid).orR && commitGroupExact.reduce(_ && _) &&
     countsLegal && releaseHeaderExact
-  val recoveryKilledActive = Wire(Vec(p.robGroupsPerStid, Bool()))
-  val recoveryKilledRowsExact = Wire(Vec(p.robGroupsPerStid, Bool()))
-  val recoveryAllocatedMask = Wire(Vec(p.robGroupsPerStid, Bool()))
-  for (killedIndex <- 0 until p.robGroupsPerStid) {
-    val group = recoveryPlan.killedGroups(killedIndex)
-    val active = killedIndex.U < recoveryPlan.killedGroupCount
+  recoveryCommitConflict := io.commit.valid && commitExact &&
+    commitStid === recoveryStid
+
+  // Recovery preparation walks a fixed number of ROB-group records per cycle.
+  // Every result below is private until all slices validate; common recoveryFire
+  // remains the sole event that mutates PC rows or partition pointers.
+  val recoveryExpectedKilledMask =
+    ((1.U((p.robGroupsPerStid + 1).W) << recoveryPlan.killedGroupCount) - 1.U)(
+      p.robGroupsPerStid - 1, 0)
+  val recoveryCaptureShapeExact = recoveryPlan.valid &&
+    recoveryStidInRange && recoveryPlan.oldOccupied.orR &&
+    recoveryPlan.oldOccupied <= p.robGroupsPerStid.U &&
+    recoveryPlan.newOccupied <= recoveryPlan.oldOccupied &&
+    recoveryPlan.killedGroupCount <= p.robGroupsPerStid.U &&
+    recoveryPlan.killedGroupCount ===
+      recoveryPlan.oldOccupied - recoveryPlan.newOccupied &&
+    recoveryPlan.killedGroupMask === recoveryExpectedKilledMask &&
+    recoveryPlan.survivingTailValid === recoveryPlan.newOccupied.orR &&
+    (!recoveryPlan.survivingTailValid ||
+      (recoveryPlan.survivingTail.valid &&
+        recoveryPlan.survivingTail.key.valid &&
+        recoveryPlan.survivingTail.key.stid === recoveryStid &&
+        recoveryPlan.survivingTail.pcBase.valid))
+  val recoveryCaptureMalformed = io.recoveryPrepare.valid &&
+    recoveryScanState === OooPcRecoveryScanState.Idle &&
+    !recoveryCaptureShapeExact
+  val recoveryOfferChanged =
+    recoveryScanState =/= OooPcRecoveryScanState.Idle &&
+      recoveryScanState =/= OooPcRecoveryScanState.Rejected &&
+      io.recoveryPrepare.valid && !recoveryOfferExact
+
+  val recoveryScanGroups = Wire(Vec(p.pcRecoveryScanGroupsPerCycle,
+    new OooRobPhysicalGroupRecord(p)))
+  val recoveryScanActive = Wire(Vec(p.pcRecoveryScanGroupsPerCycle, Bool()))
+  val recoveryScanAllocated = Wire(Vec(p.pcRecoveryScanGroupsPerCycle, Bool()))
+  val recoveryScanRowsExact = Wire(Vec(p.pcRecoveryScanGroupsPerCycle, Bool()))
+  for (scanLane <- 0 until p.pcRecoveryScanGroupsPerCycle) {
+    val offsetWide = recoveryScanCursor *
+      p.pcRecoveryScanGroupsPerCycle.U + scanLane.U
+    val offset = Wire(UInt(p.nonFlushPrefixCountWidth.W))
+    offset := offsetWide
+    val group = recoveryPlan.killedGroups(offset(p.ridSlotWidth - 1, 0))
+    val active = offset < recoveryPlan.killedGroupCount
     val row = rowAt(safeRecoveryStid, localIndex(group.pcBase))
-    recoveryKilledActive(killedIndex) := active
-    recoveryAllocatedMask(killedIndex) := active && group.pcBaseAllocated
-    recoveryKilledRowsExact(killedIndex) :=
-      recoveryPlan.killedGroupMask(killedIndex) === active && (!active || (
-        group.valid && group.key.valid && group.key.stid === recoveryStid &&
-          group.pcBase.valid && row.valid && row.stid === recoveryStid &&
+    val implicitRow = rowAt(safeRecoveryStid,
+      localIndex(group.pcImplicitClose))
+    recoveryScanGroups(scanLane) := group
+    recoveryScanActive(scanLane) := active
+    recoveryScanAllocated(scanLane) := active && group.pcBaseAllocated
+    recoveryScanRowsExact(scanLane) :=
+      recoveryPlan.killedGroupMask(offset(p.ridSlotWidth - 1, 0)) === active &&
+        (!active || (group.valid && group.key.valid &&
+          group.key.stid === recoveryStid && group.pcBase.valid &&
+          row.valid && row.stid === recoveryStid &&
           row.token.asUInt === group.pcBase.asUInt &&
           (!group.pcBaseAllocated ||
             row.firstRobGroup.asUInt === group.key.asUInt) &&
           (!group.pcImplicitCloseValid ||
-            (group.pcBaseAllocated &&
-              rowAt(safeRecoveryStid, localIndex(group.pcImplicitClose)).valid &&
-              rowAt(safeRecoveryStid, localIndex(group.pcImplicitClose))
-                .token.asUInt === group.pcImplicitClose.asUInt))))
+            (group.pcBaseAllocated && implicitRow.valid &&
+              implicitRow.stid === recoveryStid &&
+              implicitRow.token.asUInt === group.pcImplicitClose.asUInt))))
   }
-  val recoveryFreedBases = PopCount(recoveryAllocatedMask)
-  val recoveryFirstAllocatedIndex = PriorityEncoder(
-    recoveryAllocatedMask.asUInt)
-  val recoveryFirstAllocated = recoveryPlan.killedGroups(
-    recoveryFirstAllocatedIndex).pcBase
-  val recoveryFirstAllocatedLocal = localIndex(recoveryFirstAllocated)
-  val recoveryAllocationPrefix = Wire(Vec(p.robGroupsPerStid + 1,
-    UInt(p.pcPartitionCountWidth.W)))
-  recoveryAllocationPrefix(0) := 0.U
-  val recoveryAllocatedOrderExact = Wire(Vec(p.robGroupsPerStid, Bool()))
-  for (killedIndex <- 0 until p.robGroupsPerStid) {
-    val group = recoveryPlan.killedGroups(killedIndex)
-    val expectedSum = recoveryFirstAllocatedLocal +&
-      recoveryAllocationPrefix(killedIndex)
+  val recoverySliceAllocatedCount = PopCount(recoveryScanAllocated)
+  val recoverySliceHasAllocated = recoveryScanAllocated.asUInt.orR
+  val recoverySliceFirstAllocatedIndex =
+    if (p.pcRecoveryScanGroupsPerCycle == 1) 0.U
+    else PriorityEncoder(recoveryScanAllocated.asUInt)
+  val recoveryFirstAllocatedCandidate = Mux(
+    recoveryFirstAllocatedValid,
+    recoveryFirstAllocated,
+    recoveryScanGroups(recoverySliceFirstAllocatedIndex).pcBase)
+  val recoveryFirstAllocatedValidNext = recoveryFirstAllocatedValid ||
+    recoverySliceHasAllocated
+  val recoveryFreedBasesNext = recoveryFreedBasesReg +
+    recoverySliceAllocatedCount
+  val recoverySliceAllocatedOrderExact = Wire(Vec(
+    p.pcRecoveryScanGroupsPerCycle, Bool()))
+  for (scanLane <- 0 until p.pcRecoveryScanGroupsPerCycle) {
+    val priorInSlice = if (scanLane == 0) 0.U else
+      PopCount(recoveryScanAllocated.take(scanLane))
+    val allocationOrdinal = recoveryFreedBasesReg + priorInSlice
+    val expectedSum = localIndex(recoveryFirstAllocatedCandidate) +&
+      allocationOrdinal
     val expectedWrap = expectedSum >= p.pcEntriesPerStid.U
-    recoveryAllocatedOrderExact(killedIndex) :=
-      !recoveryAllocatedMask(killedIndex) || (
-        localIndex(group.pcBase) ===
+    val group = recoveryScanGroups(scanLane)
+    recoverySliceAllocatedOrderExact(scanLane) :=
+      !recoveryScanAllocated(scanLane) ||
+        (localIndex(group.pcBase) ===
           expectedSum(p.pcPartitionIndexWidth - 1, 0) &&
-        group.pcBase.index === partitionBase(safeRecoveryStid) +
-          expectedSum(p.pcPartitionIndexWidth - 1, 0) &&
-        group.pcBase.allocationEpoch ===
-          recoveryFirstAllocated.allocationEpoch + expectedWrap.asUInt)
-    recoveryAllocationPrefix(killedIndex + 1) :=
-      recoveryAllocationPrefix(killedIndex) +
-        recoveryAllocatedMask(killedIndex).asUInt
+          group.pcBase.index === partitionBase(safeRecoveryStid) +
+            expectedSum(p.pcPartitionIndexWidth - 1, 0) &&
+          group.pcBase.allocationEpoch ===
+            recoveryFirstAllocatedCandidate.allocationEpoch +
+              expectedWrap.asUInt)
   }
-  val recoveryLiveTail = Wire(new PcBufferToken(p))
-  recoveryLiveTail.valid := true.B
-  recoveryLiveTail.index := partitionBase(safeRecoveryStid) +
-    tailLocal(safeRecoveryStid)
-  recoveryLiveTail.byteOffset := 0.U
-  recoveryLiveTail.allocationEpoch := tailEpoch(safeRecoveryStid)
-  val recoveryTailEndSum = recoveryFirstAllocatedLocal +&
-    recoveryFreedBases
-  val recoveryTailEndWrap =
-    recoveryTailEndSum >= p.pcEntriesPerStid.U
+  val recoveryAllocatedOrderExactNext =
+    recoveryAllocatedOrderExactReg &&
+      recoverySliceAllocatedOrderExact.asUInt.andR
+  val recoveryKilledRowsExactNext = recoveryKilledRowsExactReg &&
+    recoveryScanRowsExact.asUInt.andR
+
+  val recoveryHitCountsNext = Wire(Vec(p.pcEntriesPerStid,
+    UInt(p.nonFlushPrefixCountWidth.W)))
+  val recoveryPriorKeysNext = Wire(Vec(p.pcEntriesPerStid,
+    new RobGroupKey(p)))
+  val recoverySliceCloseOwnerKilled = Wire(Vec(p.pcEntriesPerStid, Bool()))
+  val recoverySliceFreedRows = Wire(Vec(p.pcEntriesPerStid, Bool()))
+  val recoveryPivotReopens = Wire(Vec(p.pcEntriesPerStid, Bool()))
+  val recoveryHitCountsLegal = Wire(Vec(p.pcEntriesPerStid, Bool()))
+  for (local <- 0 until p.pcEntriesPerStid) {
+    val row = rowAt(safeRecoveryStid, local.U)
+    val laneHits = VecInit((0 until p.pcRecoveryScanGroupsPerCycle).map {
+      scanLane => recoveryScanActive(scanLane) &&
+        localIndex(recoveryScanGroups(scanLane).pcBase) === local.U &&
+        recoveryScanGroups(scanLane).pcBase.allocationEpoch ===
+          row.token.allocationEpoch
+    })
+    val sliceHits = PopCount(laneHits)
+    recoveryHitCountsNext(local) := recoveryHitCounts(local) + sliceHits
+    val firstLane = if (p.pcRecoveryScanGroupsPerCycle == 1) 0.U
+      else PriorityEncoder(laneHits.asUInt)
+    val firstKilledKey = recoveryScanGroups(firstLane).key
+    val priorKey = Wire(new RobGroupKey(p))
+    priorKey.valid := laneHits.asUInt.orR
+    priorKey.peId := firstKilledKey.peId
+    priorKey.stid := firstKilledKey.stid
+    priorKey.ridSlot := Mux(firstKilledKey.ridSlot === 0.U,
+      (p.robGroupsPerStid - 1).U,
+      firstKilledKey.ridSlot - 1.U)
+    priorKey.ridGeneration := Mux(firstKilledKey.ridSlot === 0.U,
+      firstKilledKey.ridGeneration - 1.U,
+      firstKilledKey.ridGeneration)
+    recoveryPriorKeysNext(local) := Mux(
+      recoveryHitCounts(local).orR,
+      recoveryPriorKeys(local),
+      priorKey)
+    recoverySliceCloseOwnerKilled(local) := row.closeOwnerValid &&
+      (0 until p.pcRecoveryScanGroupsPerCycle).map { scanLane =>
+        recoveryScanActive(scanLane) &&
+          recoveryScanGroups(scanLane).key.asUInt === row.closeOwner.asUInt
+      }.reduce(_ || _)
+    recoverySliceFreedRows(local) :=
+      (0 until p.pcRecoveryScanGroupsPerCycle).map { scanLane =>
+        recoveryScanAllocated(scanLane) &&
+          localIndex(recoveryScanGroups(scanLane).pcBase) === local.U &&
+          recoveryScanGroups(scanLane).pcBase.allocationEpoch ===
+            row.token.allocationEpoch
+      }.reduce(_ || _)
+    recoveryPivotReopens(local) := row.closeOwnerValid &&
+      recoveryPlan.survivingPivotValid &&
+      (recoveryPlan.pivot.releasePcBase ||
+        recoveryPlan.pivot.preciseTrap) &&
+      !(recoveryPlan.survivingPivot.releasePcBase ||
+        recoveryPlan.survivingPivot.preciseTrap) &&
+      recoveryPlan.pivot.key.asUInt === row.closeOwner.asUInt
+    recoveryHitCountsLegal(local) :=
+      recoveryHitCountsNext(local) <= row.liveRobGroups
+  }
+  val recoveryCloseOwnerKilledMaskNext =
+    recoveryCloseOwnerKilledMask |
+      recoverySliceCloseOwnerKilled.asUInt | recoveryPivotReopens.asUInt
+  val recoveryFreedRowMaskNext = recoveryFreedRowMask |
+    recoverySliceFreedRows.asUInt
+  val recoveryScanLast = recoveryScanCursor ===
+    (p.pcRecoveryScanCycles - 1).U
+
+  val recoveryTailEndSum = localIndex(recoveryFirstAllocatedCandidate) +&
+    recoveryFreedBasesNext
+  val recoveryTailEndWrap = recoveryTailEndSum >= p.pcEntriesPerStid.U
   val recoveryTailSuffixExact = Mux(
-    recoveryFreedBases.orR,
-    recoveryFirstAllocated.valid &&
-      recoveryAllocatedOrderExact.reduce(_ && _) &&
-      recoveryLiveTail.index === partitionBase(safeRecoveryStid) +
+    recoveryFreedBasesNext.orR,
+    recoveryFirstAllocatedValidNext && recoveryAllocatedOrderExactNext &&
+      recoverySnapshotTail.index === partitionBase(safeRecoveryStid) +
         recoveryTailEndSum(p.pcPartitionIndexWidth - 1, 0) &&
-      recoveryLiveTail.allocationEpoch ===
-        recoveryFirstAllocated.allocationEpoch + recoveryTailEndWrap.asUInt &&
-      usedBases(safeRecoveryStid) >= recoveryFreedBases,
+      recoverySnapshotTail.allocationEpoch ===
+        recoveryFirstAllocatedCandidate.allocationEpoch +
+          recoveryTailEndWrap.asUInt &&
+      recoverySnapshotUsedBases >= recoveryFreedBasesNext,
     true.B)
-  val recoveryTailAfter = Mux(recoveryFreedBases.orR,
-    recoveryFirstAllocated, recoveryLiveTail)
+  val recoveryTailAfter = Mux(
+    recoveryFreedBasesNext.orR,
+    recoveryFirstAllocatedCandidate,
+    recoverySnapshotTail)
   val recoveryFirstKilled = recoveryPlan.killedGroups(0)
   val recoveryCurrentAfterValid = Mux(
     recoveryPlan.survivingTailValid,
@@ -457,58 +605,139 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
       recoveryFirstKilled.pcBase))
   val recoveryCurrentRow = rowAt(safeRecoveryStid,
     localIndex(recoveryCurrentAfter))
-  val recoveryCurrentAfterExact = !recoveryCurrentAfterValid || (
-    recoveryCurrentAfter.valid && recoveryCurrentRow.valid &&
+  val recoveryCurrentAfterExact = !recoveryCurrentAfterValid ||
+    (recoveryCurrentAfter.valid && recoveryCurrentRow.valid &&
       recoveryCurrentRow.stid === recoveryStid &&
       recoveryCurrentRow.token.asUInt === recoveryCurrentAfter.asUInt)
-  val recoveryCurrentBaseAfter = Mux(recoveryCurrentAfterValid,
-    recoveryCurrentRow.base, 0.U)
-  val recoveryHitsByLocal = Wire(Vec(p.pcEntriesPerStid,
-    UInt(p.nonFlushPrefixCountWidth.W)))
-  val recoveryHitCountsLegal = Wire(Vec(p.pcEntriesPerStid, Bool()))
-  for (local <- 0 until p.pcEntriesPerStid) {
-    val row = rowAt(safeRecoveryStid, local.U)
-    recoveryHitsByLocal(local) := PopCount((0 until p.robGroupsPerStid).map {
-      killedIndex => recoveryKilledActive(killedIndex) &&
-        localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
-        recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          row.token.allocationEpoch
-    })
-    recoveryHitCountsLegal(local) :=
-      recoveryHitsByLocal(local) <= row.liveRobGroups
-  }
-  val recoveryShapeExact = recoveryPlan.valid && recoveryStidInRange &&
-    recoveryPlan.oldOccupied.orR &&
-    recoveryPlan.killedGroupCount ===
-      recoveryPlan.oldOccupied - recoveryPlan.newOccupied &&
-    recoveryPlan.survivingTailValid === recoveryPlan.newOccupied.orR &&
-    (!recoveryPlan.survivingTailValid ||
-      (recoveryPlan.survivingTail.valid &&
-        recoveryPlan.survivingTail.key.stid === recoveryStid &&
-        recoveryPlan.survivingTail.pcBase.valid))
-  val recoveryExact = recoveryShapeExact &&
-    recoveryKilledRowsExact.reduce(_ && _) &&
-    recoveryTailSuffixExact && recoveryCurrentAfterExact &&
-    recoveryHitCountsLegal.reduce(_ && _)
-  val recoveryCommitConflict = io.commit.valid && commitExact &&
-    commitStid === recoveryStid
-  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryExact &&
-    !recoveryCommitConflict
+  val recoveryCurrentBaseAfter = Mux(
+    recoveryCurrentAfterValid,
+    recoveryCurrentRow.base,
+    0.U)
+  val recoveryScanExact = recoveryKilledRowsExactNext &&
+    recoveryAllocatedOrderExactNext && recoveryTailSuffixExact &&
+    recoveryCurrentAfterExact && recoveryHitCountsLegal.asUInt.andR
+  val recoveryScanRejected =
+    recoveryScanState === OooPcRecoveryScanState.Scan &&
+      recoveryScanLast && !recoveryScanExact
+
+  io.recoveryPrepareReady :=
+    recoveryScanState === OooPcRecoveryScanState.Prepared &&
+      recoveryOfferExact && retainedRecoveryPrepared.valid &&
+      !recoveryCommitConflict
+  io.recoveryPrepared := retainedRecoveryPrepared
   io.recoveryPrepared.valid := io.recoveryPrepareReady
-  io.recoveryPrepared.stid := recoveryStid
-  io.recoveryPrepared.freedBases := recoveryFreedBases
-  io.recoveryPrepared.tailAfter := recoveryTailAfter
-  io.recoveryPrepared.currentAfterValid := recoveryCurrentAfterValid
-  io.recoveryPrepared.currentAfter := recoveryCurrentAfter
-  io.recoveryPrepared.currentBaseAfter := recoveryCurrentBaseAfter
-  io.recoveryRejected.valid := io.recoveryPrepare.valid && !recoveryExact
-  io.recoveryRejected.bits.requested := recoveryPlan
-  io.recoveryRejected.bits.liveTail := recoveryLiveTail
-  io.recoveryRejected.bits.usedBases := usedBases(safeRecoveryStid)
-  io.recoveryRejected.bits.killedRowsExact :=
-    recoveryKilledRowsExact.reduce(_ && _)
-  io.recoveryRejected.bits.tailSuffixExact := recoveryTailSuffixExact
-  io.recoveryRejected.bits.currentAfterExact := recoveryCurrentAfterExact
+  io.recoveryRejected.valid := recoveryCaptureMalformed ||
+    recoveryOfferChanged || recoveryScanRejected ||
+    (recoveryScanState === OooPcRecoveryScanState.Rejected &&
+      io.recoveryPrepare.valid)
+  io.recoveryRejected.bits := retainedRecoveryReject
+  when(recoveryCaptureMalformed) {
+    io.recoveryRejected.bits.requested := io.recoveryPrepare.bits
+    io.recoveryRejected.bits.liveTail.valid := true.B
+    io.recoveryRejected.bits.liveTail.index :=
+      partitionBase(safeRecoveryStid) + tailLocal(safeRecoveryStid)
+    io.recoveryRejected.bits.liveTail.byteOffset := 0.U
+    io.recoveryRejected.bits.liveTail.allocationEpoch :=
+      tailEpoch(safeRecoveryStid)
+    io.recoveryRejected.bits.usedBases := usedBases(safeRecoveryStid)
+    io.recoveryRejected.bits.killedRowsExact := false.B
+    io.recoveryRejected.bits.tailSuffixExact := false.B
+    io.recoveryRejected.bits.currentAfterExact := false.B
+  }.elsewhen(recoveryOfferChanged) {
+    io.recoveryRejected.bits.requested := recoveryPlan
+    io.recoveryRejected.bits.liveTail := recoverySnapshotTail
+    io.recoveryRejected.bits.usedBases := recoverySnapshotUsedBases
+    io.recoveryRejected.bits.killedRowsExact := false.B
+    io.recoveryRejected.bits.tailSuffixExact := false.B
+    io.recoveryRejected.bits.currentAfterExact := false.B
+  }.elsewhen(recoveryScanRejected) {
+    io.recoveryRejected.bits.requested := recoveryPlan
+    io.recoveryRejected.bits.liveTail := recoverySnapshotTail
+    io.recoveryRejected.bits.usedBases := recoverySnapshotUsedBases
+    io.recoveryRejected.bits.killedRowsExact := recoveryKilledRowsExactNext
+    io.recoveryRejected.bits.tailSuffixExact := recoveryTailSuffixExact
+    io.recoveryRejected.bits.currentAfterExact := recoveryCurrentAfterExact
+  }
+
+  when(recoveryScanState === OooPcRecoveryScanState.Idle &&
+      io.recoveryPrepare.valid && recoveryCaptureShapeExact &&
+      !recoveryCommitConflict) {
+    retainedRecoveryPlan := io.recoveryPrepare.bits
+    retainedRecoveryPrepared :=
+      0.U.asTypeOf(retainedRecoveryPrepared)
+    retainedRecoveryReject := 0.U.asTypeOf(retainedRecoveryReject)
+    recoveryScanCursor := 0.U
+    recoveryHitCounts.foreach(_ := 0.U)
+    recoveryPriorKeys.foreach(_ := 0.U.asTypeOf(new RobGroupKey(p)))
+    recoveryCloseOwnerKilledMask := 0.U
+    recoveryFreedRowMask := 0.U
+    recoveryFreedBasesReg := 0.U
+    recoveryFirstAllocatedValid := false.B
+    recoveryFirstAllocated := 0.U.asTypeOf(recoveryFirstAllocated)
+    recoveryKilledRowsExactReg := true.B
+    recoveryAllocatedOrderExactReg := true.B
+    recoverySnapshotUsedBases := usedBases(safeRecoveryStid)
+    recoverySnapshotTail.valid := true.B
+    recoverySnapshotTail.index := partitionBase(safeRecoveryStid) +
+      tailLocal(safeRecoveryStid)
+    recoverySnapshotTail.byteOffset := 0.U
+    recoverySnapshotTail.allocationEpoch := tailEpoch(safeRecoveryStid)
+    recoveryScanState := OooPcRecoveryScanState.Scan
+  }.elsewhen(recoveryScanState =/= OooPcRecoveryScanState.Idle &&
+      !io.recoveryPrepare.valid) {
+    recoveryScanState := OooPcRecoveryScanState.Idle
+  }.elsewhen(recoveryOfferChanged) {
+    retainedRecoveryReject.requested := recoveryPlan
+    retainedRecoveryReject.liveTail := recoverySnapshotTail
+    retainedRecoveryReject.usedBases := recoverySnapshotUsedBases
+    retainedRecoveryReject.killedRowsExact := false.B
+    retainedRecoveryReject.tailSuffixExact := false.B
+    retainedRecoveryReject.currentAfterExact := false.B
+    recoveryScanState := OooPcRecoveryScanState.Rejected
+  }.elsewhen(recoveryScanState === OooPcRecoveryScanState.Scan) {
+    recoveryHitCounts := recoveryHitCountsNext
+    recoveryPriorKeys := recoveryPriorKeysNext
+    recoveryCloseOwnerKilledMask := recoveryCloseOwnerKilledMaskNext
+    recoveryFreedRowMask := recoveryFreedRowMaskNext
+    recoveryFreedBasesReg := recoveryFreedBasesNext
+    recoveryFirstAllocatedValid := recoveryFirstAllocatedValidNext
+    when(!recoveryFirstAllocatedValid && recoverySliceHasAllocated) {
+      recoveryFirstAllocated := recoveryFirstAllocatedCandidate
+    }
+    recoveryKilledRowsExactReg := recoveryKilledRowsExactNext
+    recoveryAllocatedOrderExactReg := recoveryAllocatedOrderExactNext
+    when(recoveryScanLast) {
+      when(recoveryScanExact) {
+        retainedRecoveryPrepared.valid := true.B
+        retainedRecoveryPrepared.stid := recoveryStid
+        retainedRecoveryPrepared.freedBases := recoveryFreedBasesNext.pad(
+          math.max(p.nonFlushPrefixCountWidth, p.pcPartitionCountWidth))(
+            p.pcPartitionCountWidth - 1, 0)
+        retainedRecoveryPrepared.tailAfter := recoveryTailAfter
+        retainedRecoveryPrepared.currentAfterValid :=
+          recoveryCurrentAfterValid
+        retainedRecoveryPrepared.currentAfter := recoveryCurrentAfter
+        retainedRecoveryPrepared.currentBaseAfter :=
+          recoveryCurrentBaseAfter
+        recoveryScanState := OooPcRecoveryScanState.Prepared
+      }.otherwise {
+        retainedRecoveryReject.requested := recoveryPlan
+        retainedRecoveryReject.liveTail := recoverySnapshotTail
+        retainedRecoveryReject.usedBases := recoverySnapshotUsedBases
+        retainedRecoveryReject.killedRowsExact :=
+          recoveryKilledRowsExactNext
+        retainedRecoveryReject.tailSuffixExact := recoveryTailSuffixExact
+        retainedRecoveryReject.currentAfterExact :=
+          recoveryCurrentAfterExact
+        recoveryScanState := OooPcRecoveryScanState.Rejected
+      }
+    }.otherwise {
+      recoveryScanCursor := recoveryScanCursor + 1.U
+    }
+  }.elsewhen(recoveryScanState === OooPcRecoveryScanState.Prepared &&
+      io.recoveryFire) {
+    recoveryScanState := OooPcRecoveryScanState.Idle
+  }
   io.commit.ready := commitExact &&
     !(recoveryTargetsStid && commitStid === recoveryStid)
   val commitFire = io.commit.valid && io.commit.ready
@@ -663,60 +892,27 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
   }
   when(recoveryApply) {
     usedBases(safeRecoveryStid) :=
-      usedBases(safeRecoveryStid) - recoveryFreedBases
-    tailLocal(safeRecoveryStid) := localIndex(recoveryTailAfter)
-    tailEpoch(safeRecoveryStid) := recoveryTailAfter.allocationEpoch
-    currentValid(safeRecoveryStid) := recoveryCurrentAfterValid
+      usedBases(safeRecoveryStid) - retainedRecoveryPrepared.freedBases
+    tailLocal(safeRecoveryStid) :=
+      localIndex(retainedRecoveryPrepared.tailAfter)
+    tailEpoch(safeRecoveryStid) :=
+      retainedRecoveryPrepared.tailAfter.allocationEpoch
+    currentValid(safeRecoveryStid) :=
+      retainedRecoveryPrepared.currentAfterValid
     currentToken(safeRecoveryStid) := Mux(
-      recoveryCurrentAfterValid,
-      recoveryCurrentAfter,
+      retainedRecoveryPrepared.currentAfterValid,
+      retainedRecoveryPrepared.currentAfter,
       0.U.asTypeOf(new PcBufferToken(p)))
-    currentBase(safeRecoveryStid) := recoveryCurrentBaseAfter
+    currentBase(safeRecoveryStid) :=
+      retainedRecoveryPrepared.currentBaseAfter
   }
   for (local <- 0 until p.pcEntriesPerStid) {
     val row = rowAt(safeRecoveryStid, local.U)
-    val killedInLocal = VecInit((0 until p.robGroupsPerStid).map {
-      killedIndex => recoveryKilledActive(killedIndex) &&
-        localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
-        recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          row.token.allocationEpoch
-    })
-    val firstKilledIndex = PriorityEncoder(killedInLocal.asUInt)
-    val firstKilledKey = recoveryPlan.killedGroups(firstKilledIndex).key
-    val priorSlot = Mux(firstKilledKey.ridSlot === 0.U,
-      (p.robGroupsPerStid - 1).U,
-      firstKilledKey.ridSlot - 1.U)
-    val priorGeneration = Mux(firstKilledKey.ridSlot === 0.U,
-      firstKilledKey.ridGeneration - 1.U,
-      firstKilledKey.ridGeneration)
-    val priorKey = Wire(new RobGroupKey(p))
-    priorKey.valid := killedInLocal.asUInt.orR
-    priorKey.peId := firstKilledKey.peId
-    priorKey.stid := firstKilledKey.stid
-    priorKey.ridSlot := priorSlot
-    priorKey.ridGeneration := priorGeneration
-    val closeOwnerKilled = row.closeOwnerValid &&
-      ((0 until p.robGroupsPerStid).map { killedIndex =>
-        recoveryKilledActive(killedIndex) &&
-          recoveryPlan.killedGroups(killedIndex).key.asUInt ===
-            row.closeOwner.asUInt
-      }.reduce(_ || _) ||
-        (recoveryPlan.survivingPivotValid &&
-          (recoveryPlan.pivot.releasePcBase ||
-            recoveryPlan.pivot.preciseTrap) &&
-          !(recoveryPlan.survivingPivot.releasePcBase ||
-            recoveryPlan.survivingPivot.preciseTrap) &&
-          recoveryPlan.pivot.key.asUInt ===
-            row.closeOwner.asUInt))
-    val freedHere = (0 until p.robGroupsPerStid).map { killedIndex =>
-      recoveryAllocatedMask(killedIndex) &&
-        localIndex(recoveryPlan.killedGroups(killedIndex).pcBase) === local.U &&
-        recoveryPlan.killedGroups(killedIndex).pcBase.allocationEpoch ===
-          row.token.allocationEpoch
-    }.reduce(_ || _)
-    when(recoveryApply && recoveryHitsByLocal(local).orR) {
-      row.liveRobGroups := row.liveRobGroups - recoveryHitsByLocal(local)
-      row.lastRobGroup := priorKey
+    val closeOwnerKilled = recoveryCloseOwnerKilledMask(local)
+    val freedHere = recoveryFreedRowMask(local)
+    when(recoveryApply && recoveryHitCounts(local).orR) {
+      row.liveRobGroups := row.liveRobGroups - recoveryHitCounts(local)
+      row.lastRobGroup := recoveryPriorKeys(local)
     }
     when(recoveryApply && closeOwnerKilled && !freedHere) {
       row.closed := false.B

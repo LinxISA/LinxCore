@@ -164,6 +164,38 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
+  private def waitForRecoveryReady(
+      dut: OooPcBuffer,
+      maxCycles: Int = 32): Int = {
+    var cycles = 0
+    while (!dut.io.recoveryPrepareReady.peek().litToBoolean &&
+        !dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < maxCycles, "PC recovery preparation did not terminate")
+    dut.io.recoveryRejected.valid.expect(false.B)
+    dut.io.recoveryPrepareReady.expect(true.B)
+    cycles
+  }
+
+  private def waitForRecoveryReject(
+      dut: OooPcBuffer,
+      maxCycles: Int = 32): Int = {
+    var cycles = 0
+    while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+        !dut.io.recoveryPrepareReady.peek().litToBoolean &&
+        cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < maxCycles, "PC recovery rejection did not terminate")
+    dut.io.recoveryPrepareReady.expect(false.B)
+    dut.io.recoveryRejected.valid.expect(true.B)
+    cycles
+  }
+
   test("reuses one base with byte offsets for 2 4 6 and 8-byte instruction PCs") {
     val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64)
     simulate(new OooPcBuffer(p)) { dut =>
@@ -215,7 +247,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       dut.io.current(1).index.expect(18.U)
 
       pokeRecoveryPlan(dut, stid = 1)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      assert(waitForRecoveryReady(dut) == 3)
       dut.io.recoveryPrepared.valid.expect(true.B)
       dut.io.recoveryPrepared.freedBases.expect(2.U)
       dut.io.recoveryPrepared.tailAfter.index.expect(17.U)
@@ -262,13 +294,109 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       publish(dut)
 
       pokeRecoveryPlan(dut, stid = 1, staleEpoch = true)
-      dut.io.recoveryPrepareReady.expect(false.B)
-      dut.io.recoveryRejected.valid.expect(true.B)
+      // A reject is observable while the final slice is being evaluated;
+      // unlike prepared success it does not need one more retention edge.
+      assert(waitForRecoveryReject(dut) == 2)
       dut.io.recoveryRejected.bits.killedRowsExact.expect(false.B)
       dut.clock.step()
       dut.io.recoveryPrepare.valid.poke(false.B)
       dut.io.usedBases(1).expect(3.U)
       dut.io.current(1).index.expect(18.U)
+    }
+  }
+
+  test("aborts a private scan while another STID publishes then retries exactly") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, pcBufferEntries = 64)
+    simulate(new OooPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        pcs = Seq(100, 102, 1000))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        pcs = Seq(1002, 2000))
+      publish(dut)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      dut.clock.step()
+      dut.io.recoveryPrepareReady.expect(false.B)
+
+      pokePrepare(dut, stid = 2, transactionId = 2, firstRid = 0,
+        pcs = Seq(400), releases = Set(0))
+      dut.io.prepareReady.expect(true.B)
+      publish(dut)
+      dut.io.usedBases(2).expect(1.U)
+
+      pokePrepare(dut, stid = 1, transactionId = 3, firstRid = 5,
+        pcs = Seq(2002))
+      dut.io.prepareReady.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.prepareReady.expect(true.B)
+      dut.io.usedBases(1).expect(3.U)
+      dut.io.current(1).index.expect(18.U)
+      dut.io.prepare.valid.poke(false.B)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      assert(waitForRecoveryReady(dut) == 3)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.usedBases(1).expect(1.U)
+      dut.io.usedBases(2).expect(1.U)
+    }
+  }
+
+  test("rejects a drifting retained recovery plan without row mutation") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, pcBufferEntries = 64)
+    simulate(new OooPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        pcs = Seq(100, 102, 1000))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        pcs = Seq(1002, 2000))
+      publish(dut)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      dut.clock.step()
+      dut.io.recoveryPrepare.bits.killedGroups(0).key.ridSlot.poke(7.U)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.bits.requested.killedGroups(0).key.ridSlot
+        .expect(2.U)
+      dut.io.recoveryRejected.bits.usedBases.expect(3.U)
+      dut.clock.step()
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.usedBases(1).expect(3.U)
+      dut.io.current(1).index.expect(18.U)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+
+      pokeRecoveryPlan(dut, stid = 1)
+      assert(waitForRecoveryReady(dut) == 3)
+    }
+  }
+
+  test("honors a two-group PC recovery scan slice") {
+    val p = OooParams(instructionDecodeWidth = 4,
+      robGroupsPerStid = 8, pcBufferEntries = 64,
+      pcRecoveryScanGroupsPerCycle = 2)
+    simulate(new OooPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
+        pcs = Seq(100, 102, 1000))
+      publish(dut)
+      pokePrepare(dut, stid = 1, transactionId = 1, firstRid = 3,
+        pcs = Seq(1002, 2000))
+      publish(dut)
+
+      pokeRecoveryPlan(dut, stid = 1)
+      assert(waitForRecoveryReady(dut) == 5)
+      dut.io.recoveryPrepared.freedBases.expect(2.U)
+      dut.io.recoveryPrepared.tailAfter.index.expect(17.U)
     }
   }
 

@@ -94,7 +94,9 @@ MapQ retained read timing and the ROB physical bank/subbank address boundary;
 O8.3e bounds the ROB recovery scan, and O8.3f separates retained head
 selection, banked payload read, and commit-driven pointer mutation. O8.3g adds
 the PC-buffer banked address boundary without changing this coordinator's
-token or common-fire protocol. Bounded PC recovery/metadata timing,
-combinational commit/non-flush prefix discovery, occupancy/in-flight/PTag-aware
-dispatch steering, safe-mode policy, and complete 2/4/6 timing closure remain
-separate O8 packets.
+token or common-fire protocol. O8.3h lets the PC owner join preparation only
+after its bounded retained scan, while the coordinator continues to hold the
+same plan. Physical PC metadata/read realization, combinational
+commit/non-flush prefix discovery, occupancy/in-flight/PTag-aware dispatch
+steering, safe-mode policy, and complete 2/4/6 timing closure remain separate
+O8 packets.

@@ -91,8 +91,9 @@ PTag return widths, multi-group RID wrap, and full recovery behavior.
 
 ## Remaining work
 
-O8 still owns default-width synthesis timing, bounded PC recovery/metadata,
-commit/non-flush prefix timing, dispatch occupancy/in-flight/PTag-aware cost
-steering, and safe-mode policy. O8.3f has closed the separate retained ROB
-head-token and payload-read boundary; O8.3g has closed the PC bank-address
-transform while preserving six logical reads.
+O8 still owns default-width synthesis timing, PC metadata/read macro
+realization, commit/non-flush prefix timing, dispatch
+occupancy/in-flight/PTag-aware cost steering, and safe-mode policy. O8.3f has
+closed the separate retained ROB head-token and payload-read boundary; O8.3g
+has closed the PC bank-address transform while preserving six logical reads;
+O8.3h has bounded PC recovery compare/read depth and retained apply masks.
