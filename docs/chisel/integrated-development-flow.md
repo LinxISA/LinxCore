@@ -87,13 +87,10 @@ exact owner-local suffix prepare/apply path. It matches full RID/member,
 native-BID/BROB, resident-generation, transaction, and publication-epoch
 identity; it can truncate within a physical RID group without splitting the
 trigger logical uop, and it rebuilds group summaries and resets the selected
-STID's non-flush window. Direct ROB recovery remains tied off in the composed
-O3 coordinator because D3, BROB, PC, rename, dispatch, IEX, fast resolve, and
-CTU do not yet share its terminal fire. The active next slice is O7.2 retained
-all-owner R0-R4 recovery. O7.2a now adds the ordered full physical kill-set
+STID's non-flush window. O7.2a adds the ordered full physical kill-set
 records with exact BROB/PC allocation and implicit-close evidence, plus a D3
 owner that validates and rolls back published/used counts, tail, provisional
-lease, and tail epoch. ROB and D3 recovery remain tied off at the composed seam;
+lease, and tail epoch.
 O7.2b1 now adds exact BROB tail-block, live-count, current-pointer, and
 implicit-close rollback. Its direct owner tests prove two killed blocks reopen
 the surviving block before BID reuse. O7.2b2 now adds exact PC-base tail,
@@ -102,9 +99,14 @@ O7.2c direct residency owners now consume a compact ROB-authorized window:
 dispatch cancels target provisional and exact killed published reservations,
 IEX prunes S1/S3 and frees killed S2/S3 rows with generation-qualified ready
 cleanup, and fast resolve cancels exact killed pending entries while unrelated
-STIDs continue. These owner inputs remain tied off until one retained global
-R0-R4 transaction also joins ROB, D3, BROB, PC, P/T/U rename, frontend, and
-CTU. The immediate handoff is that global composition, including P-ready
+STIDs continue. O7.2d1 retains one request inside
+`OooRobBrobPcCoordinator`, waits out exposed D3 and retained-commit
+obligations, captures the sole ROB plan after lower-owner validation, and
+applies ROB/D3/BROB/PC together. The enclosing O3 coordinator still ties this
+lower subtransaction and the upper residency-owner inputs off until one
+retained global R0-R4 transaction also joins P/T/U rename, dispatch/IEX/fast,
+frontend, non-flush completion, and CTU. The immediate handoff is that upper
+global composition, including P-ready
 invalidation for killed fast producers, followed by O7.3 CTU canonical-child
 reinsertion. The
 existing four-wide `D1InstructionDecodeStage`

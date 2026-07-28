@@ -91,7 +91,7 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact unified execution row; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets; O7 adds global cancellation |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration; focused UT/IT | O7 global cancellation of retained fast rows |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; direct ROB UT and coordinator IT | O7 recomputes the window after global recovery and connects final consumers |
-| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds exact dispatch, IEX S1/S2/S3, and fast-resolve prepare/apply owners from one compact ROB-authorized residency window; formal O3 seam remains tied off | retained global R0-R4 composition, recovery-ready PTag invalidation, and O7.3 external CTU lease/child reinsertion remain |
+| O7 recovery and CTU | In progress | O7.1 grouped ROB applies exact suffix truncation; O7.2a adds exact D3 rollback; O7.2b1/B2 add BROB and PC rollback; O7.2c adds exact dispatch, IEX S1/S2/S3, and fast-resolve prepare/apply owners from one compact ROB-authorized residency window; O7.2d1 retains one request and applies ROB/D3/BROB/PC as a lower all-owner subtransaction; the public O3 seam remains tied off | upper global R0-R4 composition across P/T/U, dispatch/IEX/fast, frontend stages, non-flush, and CTU; recovery-ready PTag invalidation; and O7.3 external CTU lease/child reinsertion remain |
 | O8–O9 | Not started | current compatibility owners remain migration evidence | physical closure, production top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
@@ -1489,12 +1489,13 @@ younger suffix across RID wrap; apply truncates only the selected STID and
 restarts its non-flush proof window. Stale identity or malformed logical shape
 is rejected without mutation.
 
-The owner-local prepare/apply interface is deliberately tied off inside
-`OooRobBrobPcCoordinator`. O7.2a now carries the complete ordered physical
+The grouped-ROB owner-local fire is never exposed independently. O7.2a carries
+the complete ordered physical
 killed-group vector and exact BROB/PC allocation/implicit-close evidence in the
 ROB plan, and `OooD3ReservationAllocator` independently prepares and applies
-exact published/used/tail/provisional rollback. Its composed input remains
-tied off. O7.2b1 now adds BROB prepare/apply: it releases only an exact
+exact published/used/tail/provisional rollback. Its composed input stayed
+closed until the lower physical owners could apply together. O7.2b1 adds BROB
+prepare/apply: it releases only an exact
 allocated tail-block suffix, decrements per-block live groups, restores current
 from the surviving tail, and reopens an older block whose close owner was
 killed. O7.2b2 now adds the analogous PC-base prepare/apply, including exact
@@ -1511,12 +1512,24 @@ STID and removes its exact killed pending entries while unrelated STIDs may
 complete. Each direct owner independently prepares and rejects malformed or
 out-of-window state without mutation.
 
-The next slice must add the retained global R0 request, compute
-one R1 kill set, freeze and prepare D1/D2/D3/S1, ROB/BROB/PC, P/T/U rename,
-dispatch/IEX/fast completion, and CTU in R2, issue one all-owner R3 apply, then
-wait for P survivor replay, local-cursor rebuild, non-flush rebuild, and
-frontend restart acknowledgements in R4. Until every owner joins, no composed
-module may expose a ROB-only recovery fire. In particular, a killed fast
+O7.2d1 composes the lower physical subtransaction in
+`OooRobBrobPcCoordinator`. It retains one exact request through
+Idle/Preparing/Prepared, waits for any exposed same-STID D3 publication or
+retained commit to drain, captures the ROB's sole exact plan only after D3,
+BROB, and PC independently validate it, and drives all four owner fires plus
+`recoveryApplied` on one externally authorized apply. The full plan remains
+stable through arbitrary apply backpressure; malformed or stale owner state
+rejects before mutation, and unrelated STIDs remain live. The enclosing
+`OooO3RenameCoordinator` deliberately ties this new request/apply seam off, so
+this packet does not claim global R0-R4 completion.
+
+The next slice must lift that lower subtransaction into a retained global R0
+request, compute one R1 kill set, freeze and prepare D1/D2/D3/S1,
+ROB/BROB/PC, P/T/U rename, dispatch/IEX/fast completion, and CTU in R2, issue
+one all-owner R3 apply, then wait for P survivor replay, local-cursor rebuild,
+non-flush rebuild, and frontend restart acknowledgements in R4. Until every
+owner joins, no public composed module may expose the lower apply. In
+particular, a killed fast
 producer may already have set P-ready state before recovery; global R0-R4 must
 invalidate it from the P-rename killed-tag return set rather than assuming it
 has a resident IEX row. O7.3 then adds the external CTU

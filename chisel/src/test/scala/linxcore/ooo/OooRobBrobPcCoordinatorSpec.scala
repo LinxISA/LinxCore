@@ -18,6 +18,10 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
+    dut.io.recoveryRequest.valid.poke(false.B)
+    dut.io.recoveryRequest.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryRequest.bits))
+    dut.io.recoveryApply.poke(false.B)
     dut.io.pcReadTokens.foreach(_.poke(0.U.asTypeOf(dut.io.pcReadTokens.head)))
   }
 
@@ -70,9 +74,11 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       group.boundaryStop.poke(stops(index).B)
       group.releasePcBase.poke(releases(index).B)
       transaction.uopGroupIndex(index).poke(index.U)
+      transaction.uopMemberBase(index).poke(0.U)
 
       val uop = transaction.decoded.uops(index)
       uop.valid.poke(true.B)
+      uop.plannedChildCount.poke(1.U)
       uop.recipe.valid.poke(true.B)
       uop.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
       uop.recipe.sideEffectOwner.poke(OooSideEffectOwner.Iex.U)
@@ -118,6 +124,53 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
     dut.io.completion.ready.expect(true.B)
     dut.clock.step()
     dut.io.completion.valid.poke(false.B)
+  }
+
+  private def pokeRecovery(
+      dut: OooRobBrobPcCoordinator,
+      stid: Int,
+      absoluteRid: Int,
+      bid: Int,
+      brobGeneration: Int,
+      residentGeneration: Int,
+      transactionId: Int,
+      epoch: Int,
+      killTrigger: Boolean = false,
+      triggerMemberCount: Int = 1,
+      peId: Int = 3): Unit = {
+    val request = dut.io.recoveryRequest.bits
+    request.poke(0.U.asTypeOf(request))
+    request.rename.key.member.group.valid.poke(true.B)
+    request.rename.key.member.group.peId.poke(peId.U)
+    request.rename.key.member.group.stid.poke(stid.U)
+    request.rename.key.member.group.ridSlot.poke(
+      (absoluteRid % dut.p.robGroupsPerStid).U)
+    request.rename.key.member.group.ridGeneration.poke(
+      (absoluteRid / dut.p.robGroupsPerStid).U)
+    request.rename.key.member.bid.valid.poke(true.B)
+    request.rename.key.member.bid.value.poke(bid.U)
+    request.rename.key.member.brobGeneration.poke(brobGeneration.U)
+    request.rename.key.member.memberIndex.poke(0.U)
+    request.rename.key.member.residentGeneration.poke(
+      residentGeneration.U)
+    request.rename.key.transactionId.poke(transactionId.U)
+    request.rename.key.epoch.poke(epoch.U)
+    request.rename.killTrigger.poke(killTrigger.B)
+    request.triggerMemberCount.poke(triggerMemberCount.U)
+    dut.io.recoveryRequest.valid.poke(true.B)
+  }
+
+  private def waitRecoveryPrepared(
+      dut: OooRobBrobPcCoordinator,
+      maxCycles: Int = 8): Unit = {
+    var cycles = 0
+    while (!dut.io.recoveryPreparedValid.peek().litToBoolean &&
+      cycles < maxCycles) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(dut.io.recoveryPreparedValid.peek().litToBoolean,
+      s"physical recovery did not prepare within $maxCycles cycles")
   }
 
   test("publishes and retires D3 ROB BROB and PC state on common terminal fires") {
@@ -352,6 +405,243 @@ class OooRobBrobPcCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.nonFlushWindows(2).prefixCount.expect(1.U)
       dut.io.robOccupiedGroups(2).expect(1.U)
       dut.io.commit.valid.expect(false.B)
+    }
+  }
+
+  test("retains one exact ROB D3 BROB PC recovery plan until common apply") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      robGroupsPerStid = 8,
+      brobEntriesPerStid = 8,
+      pcBufferEntries = 32)
+    simulate(new OooRobBrobPcCoordinator(p)) { dut =>
+      clear(dut)
+
+      // Two independently closed groups force two native blocks and two PC
+      // bases, so the common recovery must mutate every physical owner.
+      pokeTransaction(dut, stid = 1, transactionId = 0, firstRid = 0,
+        tailEpoch = 0, pcs = Seq(100, 300), starts = Set(0, 1),
+        stops = Set(0, 1), releases = Set(0, 1))
+      reserve(dut)
+      dut.io.preparedValid.expect(true.B)
+      val killedPcIndex = dut.io.prepared.request.bindings(1).pcBase.index
+        .peek().litValue
+      val killedPcEpoch = dut.io.prepared.request.bindings(1).pcBase
+        .allocationEpoch.peek().litValue
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+
+      // An unrelated STID remains live through both prepare and apply.
+      pokeTransaction(dut, stid = 2, transactionId = 0, firstRid = 0,
+        tailEpoch = 0, pcs = Seq(700), starts = Set(0), stops = Set(0),
+        releases = Set(0))
+      reserve(dut)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+
+      dut.io.robOccupiedGroups(1).expect(2.U)
+      dut.io.d3PublishedGroups(1).expect(2.U)
+      dut.io.brobUsedBlocks(1).expect(2.U)
+      dut.io.pcUsedBases(1).expect(2.U)
+      dut.io.robOccupiedGroups(2).expect(1.U)
+
+      pokeRecovery(dut, stid = 1, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1,
+        transactionId = 0, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      dut.io.recoveryBusy.expect(true.B)
+      waitRecoveryPrepared(dut)
+
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.oldOccupied.expect(2.U)
+      dut.io.recoveryPrepared.newOccupied.expect(1.U)
+      dut.io.recoveryPrepared.killedGroupCount.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
+
+      dut.io.pcReadTokens(0).valid.poke(true.B)
+      dut.io.pcReadTokens(0).index.poke(killedPcIndex.U)
+      dut.io.pcReadTokens(0).byteOffset.poke(0.U)
+      dut.io.pcReadTokens(0).allocationEpoch.poke(killedPcEpoch.U)
+      dut.io.pcReadValid(0).expect(true.B)
+
+      // Arbitrary global-owner backpressure cannot let any lower owner apply.
+      dut.clock.step(3)
+      dut.io.recoveryPreparedValid.expect(true.B)
+      dut.io.robOccupiedGroups(1).expect(2.U)
+      dut.io.d3PublishedGroups(1).expect(2.U)
+      dut.io.brobUsedBlocks(1).expect(2.U)
+      dut.io.pcUsedBases(1).expect(2.U)
+
+      dut.io.recoveryApply.poke(true.B)
+      dut.io.recoveryApplied.valid.expect(true.B)
+      dut.io.recoveryApplied.bits.rename.key.member.group.stid.expect(1.U)
+      dut.clock.step()
+      dut.io.recoveryApply.poke(false.B)
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.robOccupiedGroups(1).expect(1.U)
+      dut.io.d3PublishedGroups(1).expect(1.U)
+      dut.io.brobUsedBlocks(1).expect(1.U)
+      dut.io.pcUsedBases(1).expect(1.U)
+      dut.io.pcReadValid(0).expect(false.B)
+      dut.io.robOccupiedGroups(2).expect(1.U)
+      dut.io.d3PublishedGroups(2).expect(1.U)
+      dut.io.brobUsedBlocks(2).expect(1.U)
+      dut.io.pcUsedBases(2).expect(1.U)
+
+      // A younger D3 row that has already exposed valid must publish before
+      // recovery capture; the request remains stable and then kills that row.
+      pokeTransaction(dut, stid = 1, transactionId = 1, firstRid = 1,
+        tailEpoch = 2, pcs = Seq(500), starts = Set(0), stops = Set(0),
+        releases = Set(0))
+      reserve(dut)
+      dut.io.preparedValid.expect(true.B)
+      pokeRecovery(dut, stid = 1, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1,
+        transactionId = 0, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(false.B)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      waitRecoveryPrepared(dut)
+      dut.io.recoveryPrepared.newOccupied.expect(1.U)
+      dut.io.recoveryApply.poke(true.B)
+      dut.io.recoveryApplied.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryApply.poke(false.B)
+      dut.io.robOccupiedGroups(1).expect(1.U)
+      dut.io.d3PublishedGroups(1).expect(1.U)
+
+      // A stale exact key is consumed by the ROB authority and cannot create a
+      // partial D3/BROB/PC mutation.
+      pokeRecovery(dut, stid = 1, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 0,
+        transactionId = 0, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      dut.io.robRecoveryRejected.valid.expect(true.B)
+      dut.io.d3RecoveryRejected.valid.expect(false.B)
+      dut.io.brobRecoveryRejected.valid.expect(false.B)
+      dut.io.pcRecoveryRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.robOccupiedGroups(1).expect(1.U)
+      dut.io.d3PublishedGroups(1).expect(1.U)
+      dut.io.brobUsedBlocks(1).expect(1.U)
+      dut.io.pcUsedBases(1).expect(1.U)
+
+      // A retained same-STID commit is another non-retractable Decoupled
+      // obligation. Recovery capture waits for it to fire, then the now-missing
+      // exact key is rejected by the ROB without reaching lower owners.
+      pokeTransaction(dut, stid = 0, transactionId = 0, firstRid = 0,
+        tailEpoch = 0, pcs = Seq(900), starts = Set(0), stops = Set(0),
+        releases = Set(0))
+      reserve(dut)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      complete(dut, stid = 0, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1)
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.release.firstGroup.stid.expect(0.U)
+      pokeRecovery(dut, stid = 0, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1,
+        transactionId = 0, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(false.B)
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      dut.io.robRecoveryRejected.valid.expect(true.B)
+      dut.io.d3RecoveryRejected.valid.expect(false.B)
+      dut.io.brobRecoveryRejected.valid.expect(false.B)
+      dut.io.pcRecoveryRejected.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.recoveryBusy.expect(false.B)
+      dut.io.robOccupiedGroups(0).expect(0.U)
+
+      // Move every physical head forward, fill a complete eight-row window,
+      // then remove the two rows after RID/BID/PC wrap.  The coordinator must
+      // retain the wrap-qualified old/new tails rather than compare slots.
+      pokeTransaction(dut, stid = 3, transactionId = 0, firstRid = 0,
+        tailEpoch = 0, pcs = Seq(1000, 1200), starts = Set(0, 1),
+        stops = Set(0, 1), releases = Set(0, 1))
+      reserve(dut)
+      dut.io.publishPermit.poke(true.B)
+      dut.io.publishFire.expect(true.B)
+      dut.clock.step()
+      dut.io.publishPermit.poke(false.B)
+      complete(dut, stid = 3, absoluteRid = 1, bid = 1,
+        brobGeneration = 0, residentGeneration = 1)
+      complete(dut, stid = 3, absoluteRid = 0, bid = 0,
+        brobGeneration = 0, residentGeneration = 1)
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      dut.io.robOccupiedGroups(3).expect(0.U)
+
+      Seq(
+        (1, 2, 2, Seq(1400L, 1600L)),
+        (2, 4, 3, Seq(1800L, 2000L)),
+        (3, 6, 4, Seq(2200L, 2400L)),
+        (4, 8, 5, Seq(2600L, 2800L))).foreach {
+        case (transactionId, firstRid, tailEpoch, pcs) =>
+          pokeTransaction(dut, stid = 3, transactionId = transactionId,
+            firstRid = firstRid, tailEpoch = tailEpoch, pcs = pcs,
+            starts = Set(0, 1), stops = Set(0, 1), releases = Set(0, 1))
+          reserve(dut)
+          dut.io.publishPermit.poke(true.B)
+          dut.io.publishFire.expect(true.B)
+          dut.clock.step()
+          dut.io.publishPermit.poke(false.B)
+      }
+      dut.io.robOccupiedGroups(3).expect(8.U)
+      dut.io.d3PublishedGroups(3).expect(8.U)
+      dut.io.brobUsedBlocks(3).expect(8.U)
+      dut.io.pcUsedBases(3).expect(8.U)
+
+      pokeRecovery(dut, stid = 3, absoluteRid = 7, bid = 7,
+        brobGeneration = 0, residentGeneration = 1,
+        transactionId = 3, epoch = 5)
+      dut.io.recoveryRequest.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryRequest.valid.poke(false.B)
+      waitRecoveryPrepared(dut)
+      dut.io.recoveryPrepared.oldHead.ridSlot.expect(2.U)
+      dut.io.recoveryPrepared.oldHead.ridGeneration.expect(0.U)
+      dut.io.recoveryPrepared.oldOccupied.expect(8.U)
+      dut.io.recoveryPrepared.newOccupied.expect(6.U)
+      dut.io.recoveryPrepared.killedGroupCount.expect(2.U)
+      dut.io.recoveryPrepared.firstKilledGroup.ridSlot.expect(0.U)
+      dut.io.recoveryPrepared.firstKilledGroup.ridGeneration.expect(1.U)
+      dut.io.recoveryPrepared.newTail.ridSlot.expect(0.U)
+      dut.io.recoveryPrepared.newTail.ridGeneration.expect(1.U)
+      dut.io.recoveryApply.poke(true.B)
+      dut.io.recoveryApplied.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryApply.poke(false.B)
+      dut.io.robOccupiedGroups(3).expect(6.U)
+      dut.io.d3PublishedGroups(3).expect(6.U)
+      dut.io.brobUsedBlocks(3).expect(6.U)
+      dut.io.pcUsedBases(3).expect(6.U)
+      dut.io.robOccupiedGroups(1).expect(1.U)
+      dut.io.robOccupiedGroups(2).expect(1.U)
     }
   }
 }

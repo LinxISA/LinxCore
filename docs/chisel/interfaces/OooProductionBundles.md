@@ -637,8 +637,9 @@ per-STID ROB partition rather than one decode bundle. Pending interrupt blocks
 only prefix growth for that STID; proofs may continue to accumulate. Commit
 subtracts committed groups and moves the exact head, but non-flush evidence
 cannot complete, commit, deallocate, update CMAP, or release a physical tag.
-O7.1 now recomputes this window fail-closed after direct grouped-ROB recovery;
-the all-owner recovery transaction and final consumer wiring remain O7.2. The
+O7.1 now recomputes this window fail-closed after grouped-ROB recovery;
+O7.2d1 composes the lower ROB/D3/BROB/PC apply, while the all-owner recovery
+transaction and final consumer wiring remain open. The
 legacy `bctrl.BrobNonFlushFrontier` is not this production authority.
 
 ## O7.1 exact grouped-ROB suffix recovery owner
@@ -667,11 +668,11 @@ commit capture are frozen only for the target STID; unrelated STIDs continue.
 A previously retained same-STID commit drains before prepare can become ready.
 The direct `recoveryFire` clears the exact suffix, optionally rewrites the
 partial pivot, updates occupancy, and resets the affected non-flush window.
-This owner-local fire is tied off inside `OooRobBrobPcCoordinator`: exposing it
-there would mutate ROB without synchronizing D3, BROB, PC, P/T/U rename,
-dispatch, IEX, fast resolve, and CTU. O7.2 must retain one R0 request, collect
-side-effect-free prepare acknowledgements from every owner, and issue one
-common terminal apply before the production O3 seam may open.
+It is never exposed as an independent composed fire. O7.2d1 lets
+`OooRobBrobPcCoordinator` drive it only as part of one retained common
+ROB/D3/BROB/PC apply. The public O3 seam remains closed until P/T/U rename,
+dispatch, IEX, fast resolve, frontend stages, and CTU join the same global
+transaction.
 
 O7.2a extends that plan with exact old head/occupancy, new occupancy, and an
 ordered full-width `killedGroups` vector plus dense mask. Each published ROB
@@ -689,9 +690,10 @@ tail to the exact new tail, cancels that STID's provisional lease, and advances
 the tail epoch so stale D2 plans fail. A previously exposed retained grant is a
 temporary prepare conflict and remains valid; stale plans reject with zero
 mutation. Inputs, release, and cancellation for the target STID freeze while
-prepare is held, while other STIDs continue. The composed O3 coordinator still
-ties both ROB and D3 recovery inputs off until BROB, PC, rename, dispatch, IEX,
-fast resolve, and CTU join the same apply.
+prepare is held, while other STIDs continue. O7.2d1 drives ROB and D3 from the
+same retained lower-owner transaction together with BROB and PC; the enclosing
+O3 rename coordinator still ties that subtransaction off until the remaining
+global owners join.
 
 O7.2b1 adds `OooProductionBrob` as the next independent owner. Prepare proves
 that every killed row names an exact live native-BID/BROB-generation entry,
@@ -707,8 +709,8 @@ commit cursor state do not move. A killed generation or noncontiguous tail
 rejects with zero mutation. Direct tests remove two successively allocated
 blocks, undo two implicit closes, restore the surviving current block, and then
 reallocate the first killed BID to prove the close relation was actually
-reopened. BROB recovery remains tied off in `OooRobBrobPcCoordinator`; PC and
-all upper owners must still join before the composed seam opens.
+reopened. O7.2d1 joins BROB to the lower common apply; all upper owners must
+still join before the public O3 seam opens.
 
 O7.2b2 adds the matching `OooProductionPcBuffer` owner. Prepare validates each
 killed group's exact partition-local token and allocation epoch, proves every
@@ -718,9 +720,9 @@ current base value. Apply clears only those tail bases, repairs retained
 live-count/last-group state, and reopens a base when its explicit release,
 precise-trap close, or implicit replacement owner is killed. Head/commit state
 does not move. Freed tokens fail reads immediately; stale epochs reject with
-zero mutation. Like ROB, D3, and BROB, the PC recovery interface remains tied
-off in the composed coordinator until the upper owners and retained global
-state machine join one apply.
+zero mutation. O7.2d1 joins PC to the same lower common apply as ROB, D3, and
+BROB. The enclosing O3 coordinator still withholds that apply until the upper
+owners and retained global state machine join.
 
 O7.2c adds `OooResidencyRecoveryPlan`, the compact projection consumed by
 dispatch, IEX, and fast resolve. It carries the exact old wrapped ROB window,
@@ -737,8 +739,31 @@ retains the source dispatch lane so it can prune S1 and pending-S3 masks,
 removes exact killed `BoundS2`/`ResidentS3` rows, and clears their matching
 P/T/U ready records. Fast resolve removes exact killed retained entries and
 excludes only the recovering STID from terminal arbitration. Each owner exposes
-a typed prepared count and a typed fail-closed reject. These direct ports remain
-tied off until global R0-R4 joins every owner on one common fire.
+a typed prepared count and a typed fail-closed reject. These upper direct ports
+remain tied off until global R0-R4 joins every owner on one common fire.
+
+## O7.2d1 retained ROB/D3/BROB/PC recovery subtransaction
+
+`OooRobBrobPcCoordinator` retains one `OooGlobalRecoveryRequest` through
+`Idle`, `Preparing`, and `Prepared`. R0 capture is backpressured when the target
+STID already exposes a D3 `Decoupled` publication or owns a retained ROB commit;
+those obligations must drain because an exposed valid cannot be retracted.
+Hidden provisional D3 state remains legal and is canceled by recovery.
+
+The ROB is the sole kill-set authority. After its side-effect-free plan becomes
+ready, the coordinator offers that exact plan to D3, BROB, and PC. It enters
+`Prepared` only when all four owners validate the same plan, then retains the
+complete ROB plan through arbitrary external apply backpressure. No owner
+mutates before `recoveryApply`; apply drives all four `recoveryFire` inputs and
+`recoveryApplied` on one cycle. Plan drift, stale identity, malformed owner
+state, or generation mismatch fails closed, with every typed owner reject
+visible separately. Unrelated STIDs remain live under each direct owner's
+per-STID freeze rules.
+
+This is a lower physical-owner subtransaction, not global R0-R4 completion.
+`OooO3RenameCoordinator` ties its request/apply inputs off until P/T/U rename,
+dispatch/IEX/fast, D1/D2/S1 history, non-flush completion, frontend restart,
+and CTU have prepared the identical ROB-authorized kill set.
 
 ## Verification
 

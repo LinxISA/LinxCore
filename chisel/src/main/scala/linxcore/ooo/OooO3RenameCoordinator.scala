@@ -159,6 +159,13 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   o3.io.nonFlushEvidence <> io.nonFlushEvidence
   o3.io.interruptPending := io.interruptPending
   io.nonFlushWindows := o3.io.nonFlushWindows
+  // O7.2d1 opens only the lower ROB/D3/BROB/PC retained subtransaction.  The
+  // public O3 seam remains rename-local until the upper global coordinator can
+  // join P/T/U, dispatch, IEX, fast, frontend-stage, and CTU owners.
+  o3.io.recoveryRequest.valid := false.B
+  o3.io.recoveryRequest.bits :=
+    0.U.asTypeOf(o3.io.recoveryRequest.bits)
+  o3.io.recoveryApply := false.B
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
   dispatch.io.cancel := io.cancel

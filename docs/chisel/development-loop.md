@@ -12,12 +12,10 @@ history.
 
 The active backend priority is production OOO packet O7 global recovery and
 CTU reinsertion. O6.2 ROB-owned exact non-flush is packet-complete.
-O7.1 grouped-ROB recovery is also packet-complete at the direct owner boundary:
+O7.1 grouped-ROB recovery is packet-complete at the direct owner boundary:
 it prepares an exact logical-uop suffix across intra-group and wrapped-RID
-cases, applies target-STID-only truncation, and rebuilds non-flush state. The
-formal O3 seam intentionally ties that fire off until O7.2 joins D3, BROB, PC,
-P/T/U rename, dispatch, IEX, fast resolve, and CTU in one retained R0-R4
-transaction. O7.2a now supplies the ordered physical kill-set records and exact
+cases, applies target-STID-only truncation, and rebuilds non-flush state.
+O7.2a supplies the ordered physical kill-set records and exact
 BROB/PC allocation/implicit-close evidence, and gives D3 an independently
 validated tail/count/provisional prepare/apply owner. O7.2b1 BROB recovery is
 now complete at the direct owner boundary, including
@@ -28,10 +26,14 @@ token/base restoration, close-owner undo, and freed-read invalidation. The
 O7.2c dispatch/IEX/fast direct owners are now complete: exact published member
 identity, target-STID provisional cancellation, S1/S2/S3 pruning, local
 generation-qualified ready cleanup, and retained-fast cancellation all consume
-one compact ROB-authorized recovery window. Their inputs and the formal
-ROB/D3/BROB/PC inputs remain tied off until retained global R0-R4 composition
-can fire every owner together. That composition must also invalidate P-ready
-state created by a killed fast producer through P-rename recovery evidence.
+one compact ROB-authorized recovery window. O7.2d1 now retains a lower physical
+subtransaction in `OooRobBrobPcCoordinator`: exposed D3 and retained commits
+drain before capture, ROB supplies the sole exact plan, and ROB/D3/BROB/PC fire
+together only on externally authorized apply. The enclosing O3 coordinator
+still ties this seam and the upper recovery owners off until retained global
+R0-R4 composition can fire P/T/U, dispatch/IEX/fast, frontend, non-flush, and
+CTU with the same kill set. That composition must also invalidate P-ready state
+created by a killed fast producer through P-rename recovery evidence.
 O7.3 external CTU reinsertion follows the global coordinator.
 O0/O1 introduced the
 normative D2-virtual/D3-reserve/S1-publish split, independent `OooParams`, exact

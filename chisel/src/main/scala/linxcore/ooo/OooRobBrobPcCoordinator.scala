@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.{Decoupled, Enum, Valid, is, switch}
 
 class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
@@ -21,6 +21,16 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
 
+  // Retained physical-owner recovery subtransaction.  A future global R0-R4
+  // coordinator joins this prepared view with rename, dispatch, IEX, fast,
+  // frontend-stage, and CTU owners before asserting `recoveryApply`.
+  val recoveryRequest = Flipped(Decoupled(new OooGlobalRecoveryRequest(p)))
+  val recoveryBusy = Output(Bool())
+  val recoveryPreparedValid = Output(Bool())
+  val recoveryPrepared = Output(new OooRobRecoveryPlan(p))
+  val recoveryApply = Input(Bool())
+  val recoveryApplied = Valid(new OooGlobalRecoveryRequest(p))
+
   val pcReadTokens = Input(Vec(p.pcReadPorts, new PcBufferToken(p)))
   val pcReadValid = Output(Vec(p.pcReadPorts, Bool()))
   val pcRead = Output(Vec(p.pcReadPorts, UInt(p.pcWidth.W)))
@@ -35,6 +45,10 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val brobCommitRejected = Valid(new OooBrobCommitReject(p))
   val pcPrepareRejected = Valid(new OooPcPrepareReject(p))
   val pcCommitRejected = Valid(new OooPcCommitReject(p))
+  val robRecoveryRejected = Valid(new OooRobRecoveryReject(p))
+  val d3RecoveryRejected = Valid(new OooD3RecoveryReject(p))
+  val brobRecoveryRejected = Valid(new OooBrobRecoveryReject(p))
+  val pcRecoveryRejected = Valid(new OooPcRecoveryReject(p))
 
   val d3UsedGroups = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.robGroupsPerStid).W)))
@@ -62,6 +76,12 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   val rob = Module(new OooS1GroupedRob(p))
   val brob = Module(new OooProductionBrob(p))
   val pc = Module(new OooProductionPcBuffer(p))
+
+  val recoveryIdle :: recoveryPreparing :: recoveryPrepared :: Nil = Enum(3)
+  val recoveryState = RegInit(recoveryIdle)
+  val recoveryRequestReg = RegInit(
+    0.U.asTypeOf(new OooGlobalRecoveryRequest(p)))
+  val recoveryPlanReg = RegInit(0.U.asTypeOf(new OooRobRecoveryPlan(p)))
 
   d3.io.in <> io.reserve
   d3.io.cancel := io.cancel
@@ -140,23 +160,104 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   rob.io.nonFlushEvidence <> io.nonFlushEvidence
   rob.io.interruptPending := io.interruptPending
   io.nonFlushWindows := rob.io.nonFlushWindows
-  // O7.1 exposes ROB prepare/apply only at the direct owner boundary.  A
-  // coordinator-level fire would desynchronize D3, BROB, PC, rename, dispatch,
-  // and IEX state, so the composed O3 seam remains closed until the global
-  // R0-R4 coordinator joins every owner on one terminal transaction.
-  rob.io.recoveryPrepare.valid := false.B
-  rob.io.recoveryPrepare.bits := 0.U.asTypeOf(rob.io.recoveryPrepare.bits)
-  rob.io.recoveryFire := false.B
-  d3.io.recoveryPrepare.valid := false.B
-  d3.io.recoveryPrepare.bits := 0.U.asTypeOf(d3.io.recoveryPrepare.bits)
-  d3.io.recoveryFire := false.B
-  brob.io.recoveryPrepare.valid := false.B
-  brob.io.recoveryPrepare.bits :=
-    0.U.asTypeOf(brob.io.recoveryPrepare.bits)
-  brob.io.recoveryFire := false.B
-  pc.io.recoveryPrepare.valid := false.B
-  pc.io.recoveryPrepare.bits := 0.U.asTypeOf(pc.io.recoveryPrepare.bits)
-  pc.io.recoveryFire := false.B
+  val incomingRecoveryStid =
+    io.recoveryRequest.bits.rename.key.member.group.stid
+  val incomingRecoveryStidInRange = incomingRecoveryStid < p.stidCount.U
+  val incomingRecoveryHitsExposedD3 = incomingRecoveryStidInRange &&
+    d3.io.out.valid &&
+    d3.io.out.bits.transaction.plan.stid === incomingRecoveryStid
+  val incomingRecoveryHitsRetainedCommit = incomingRecoveryStidInRange &&
+    rob.io.commit.valid && rawCommitStidInRange &&
+    rawCommitStid === incomingRecoveryStid
+
+  // A Decoupled producer cannot retract an exposed D3 publication, and an
+  // already-retained architectural commit cannot be silently canceled.  Both
+  // obligations drain before R0 capture. Hidden provisional reservations are
+  // legal and are canceled by the later common recovery fire.
+  io.recoveryRequest.ready := recoveryState === recoveryIdle &&
+    !incomingRecoveryHitsExposedD3 &&
+    !incomingRecoveryHitsRetainedCommit
+
+  val recoveryActive = recoveryState =/= recoveryIdle
+  rob.io.recoveryPrepare.valid := recoveryActive
+  rob.io.recoveryPrepare.bits := recoveryRequestReg
+
+  val liveRecoveryPlan = rob.io.recoveryPrepared
+  val selectedRecoveryPlan = Wire(new OooRobRecoveryPlan(p))
+  selectedRecoveryPlan := Mux(
+    recoveryState === recoveryPrepared,
+    recoveryPlanReg,
+    liveRecoveryPlan)
+  val downstreamRecoveryOffer = recoveryActive && Mux(
+    recoveryState === recoveryPrepared,
+    true.B,
+    rob.io.recoveryPrepareReady)
+
+  d3.io.recoveryPrepare.valid := downstreamRecoveryOffer
+  d3.io.recoveryPrepare.bits := selectedRecoveryPlan
+  brob.io.recoveryPrepare.valid := downstreamRecoveryOffer
+  brob.io.recoveryPrepare.bits := selectedRecoveryPlan
+  pc.io.recoveryPrepare.valid := downstreamRecoveryOffer
+  pc.io.recoveryPrepare.bits := selectedRecoveryPlan
+
+  val allRecoveryOwnersReady = rob.io.recoveryPrepareReady &&
+    d3.io.recoveryPrepareReady && brob.io.recoveryPrepareReady &&
+    pc.io.recoveryPrepareReady
+  val recoveryPlanStable = liveRecoveryPlan.asUInt === recoveryPlanReg.asUInt
+  io.recoveryPreparedValid := recoveryState === recoveryPrepared &&
+    allRecoveryOwnersReady && recoveryPlanStable
+  io.recoveryPrepared := recoveryPlanReg
+  io.recoveryBusy := recoveryActive
+
+  val recoveryApplyFire = io.recoveryApply && io.recoveryPreparedValid
+  rob.io.recoveryFire := recoveryApplyFire
+  d3.io.recoveryFire := recoveryApplyFire
+  brob.io.recoveryFire := recoveryApplyFire
+  pc.io.recoveryFire := recoveryApplyFire
+  io.recoveryApplied.valid := recoveryApplyFire
+  io.recoveryApplied.bits := recoveryRequestReg
+
+  val anyRecoveryOwnerRejected = rob.io.recoveryRejected.valid ||
+    d3.io.recoveryRejected.valid || brob.io.recoveryRejected.valid ||
+    pc.io.recoveryRejected.valid
+
+  switch(recoveryState) {
+    is(recoveryIdle) {
+      when(io.recoveryRequest.fire) {
+        recoveryRequestReg := io.recoveryRequest.bits
+        recoveryState := recoveryPreparing
+      }
+    }
+    is(recoveryPreparing) {
+      when(anyRecoveryOwnerRejected) {
+        recoveryState := recoveryIdle
+      }.elsewhen(allRecoveryOwnersReady) {
+        recoveryPlanReg := liveRecoveryPlan
+        recoveryState := recoveryPrepared
+      }
+    }
+    is(recoveryPrepared) {
+      when(anyRecoveryOwnerRejected) {
+        recoveryState := recoveryIdle
+      }.elsewhen(recoveryApplyFire) {
+        recoveryState := recoveryIdle
+      }
+    }
+  }
+
+  when(io.recoveryApply) {
+    assert(io.recoveryPreparedValid,
+      "physical recovery apply requires one retained all-owner plan")
+  }
+  when(recoveryState === recoveryPrepared) {
+    assert(recoveryPlanStable,
+      "ROB recovery plan must remain stable through external apply backpressure")
+  }
+  when(recoveryApplyFire) {
+    assert(rob.io.recoveryPrepareReady && d3.io.recoveryPrepareReady &&
+      brob.io.recoveryPrepareReady && pc.io.recoveryPrepareReady,
+      "ROB, D3, BROB, and PC must apply recovery atomically")
+  }
 
   // The ROB is the retained commit source. All other owners see the same valid
   // batch while computing readiness; external visibility is gated until every
@@ -195,6 +296,10 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
   io.brobCommitRejected := brob.io.commitRejected
   io.pcPrepareRejected := pc.io.prepareRejected
   io.pcCommitRejected := pc.io.commitRejected
+  io.robRecoveryRejected := rob.io.recoveryRejected
+  io.d3RecoveryRejected := d3.io.recoveryRejected
+  io.brobRecoveryRejected := brob.io.recoveryRejected
+  io.pcRecoveryRejected := pc.io.recoveryRejected
 
   io.d3UsedGroups := d3.io.usedGroups
   io.d3PublishedGroups := d3.io.publishedGroups
