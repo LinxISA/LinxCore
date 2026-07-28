@@ -81,9 +81,9 @@ expansion, and the proof path cannot commit a row or release rename state.
 The current
 catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
-Do not reuse the compatibility `InterfaceParams` family as the production
-packet contract. Read `docs/chisel/interfaces/OooProductionBundles.md` and the
-OOO production upgrade plan before modifying backend code.
+Do not reuse the compatibility `InterfaceParams` family as the canonical
+packet contract. Read `docs/chisel/interfaces/OooBundles.md` and the
+OOO upgrade plan before modifying backend code.
 
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`OooPRename` is the production absolute-index P-register rename
+`OooPRename` is the absolute-index P-register rename
 owner. Each STID owns a 24-entry speculative map (SMAP), a 24-entry committed
 map (CMAP), and one logically ordered P MapQ. Prepare resolves sources and
 performs oldest-to-youngest same-bundle RAW/WAW forwarding without mutation.
@@ -55,7 +55,7 @@ one-cycle flush/commit pointer loop. The local LinxCoreModel
 `model/bctrl/spe/GPRRename.cpp` provides functional evidence for SMAP/CMAP,
 MapQ capacity, commit, and flush behavior through `Insert2MapQ`, `RetireBlock`,
 and `Flush`. Its search-allocated vector and numeric RID/BID ordering are not
-the production physical contract; Chisel retains the stronger ordered-ring and
+the physical contract; Chisel retains the stronger ordered-ring and
 exact identity rules.
 
 ## Verification

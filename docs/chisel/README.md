@@ -17,8 +17,8 @@ Architecture planning:
   independent Instruction Buffer feeds four-wide D1 full decode.
 - [OOO improvement design](linxcore-chisel-ooo-improvement-design.md)
   covers D2/D3, rename, ROB/BROB, commit, recovery, and Template reservation.
-- [OOO production upgrade plan](linxcore-chisel-ooo-production-upgrade-plan.md)
-  defines the production D1-to-S1 module, ARM-style multi-uop/grouped-RID
+- [OOO upgrade plan](linxcore-chisel-ooo-upgrade-plan.md)
+  defines the D1-to-S1 module, ARM-style multi-uop/grouped-RID
   planning, BSTART/BSTOP fusion, D2 virtual versus D3/S1 physical ROB timing,
   four-thread RENU/dispatch, a 64-entry PC buffer, non-flush, the external CTU
   bridge, and explicit UT/IT/coverage exit criteria.
@@ -35,15 +35,15 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- Production OOO O0/O1: the normative D2-virtual/D3-reserve/S1-publish
+- OOO O0/O1: the normative D2-virtual/D3-reserve/S1-publish
   contract, independent `OooParams`, exact grouped/member identity bundles,
   and four-thread retained stage shell are implemented. Decode expansion,
   fusion, grouped ROB/BROB, RENU, dispatch, recovery, CTU, and benchmark
   promotion remain subsequent packets.
-- Production IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
+- IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
   B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
   and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide
-  output; natural CoreMark/Dhrystone run through the promoted production graph.
+  output; natural CoreMark/Dhrystone run through the promoted owner graph.
   Four-row atomic D2/D3 admission, complete predictor policy, SoC PTW/L1I
   binding, and lower-memory error termination remain open.
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
@@ -56,7 +56,7 @@ Current phase:
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
-The production IFU contract is normative in the IFU design: I-SIDE and B-SIDE
+The IFU contract is normative in the IFU design: I-SIDE and B-SIDE
 are decoupled, non-lockstep five-stage engines named I-F0–I-F4 and
 B-F0–B-F4. I-F4 is followed by an independent Instruction Buffer and
 four-wide D1. ITLB and L1I run in parallel, ITLB miss causes an IFU inner
@@ -79,7 +79,7 @@ common interface bundles. They are derived from
 `model/LinxCoreModel/model/interface/CommitInfo.h`, and
 `model/LinxCoreModel/model/core/FlushControl.*`,
 `model/LinxCoreModel/model/bctrl/BROB.*`, and the C++ model bus headers under
-`model/LinxCoreModel/model/ModelCommon/bus/`. Production frontend ownership is
+`model/LinxCoreModel/model/ModelCommon/bus/`. Frontend ownership is
 defined only by the IFU design and the I-SIDE/B-SIDE module set. Test-only
 packet-window helpers do not define I-F4, Instruction Buffer placement, or
 B-SIDE ownership. `FrontendDecodeStage` consumes those test inputs and uses the

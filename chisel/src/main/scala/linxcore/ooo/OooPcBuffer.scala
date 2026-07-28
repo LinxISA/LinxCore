@@ -3,7 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 
-class OooProductionPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
+class OooPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooD3GroupedReservation(p)))
   val prepared = Output(new OooPcPreparedBindings(p))
   val prepareReady = Output(Bool())
@@ -26,15 +26,15 @@ class OooProductionPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
   val current = Output(Vec(p.stidCount, new PcBufferToken(p)))
 }
 
-/** Fixed-partition production PC-base buffer.
+/** Fixed-partition PC-base buffer.
   *
   * The default 64 rows are four independent 16-row rings. D3 observes a pure
   * prepare result; bases become visible only on the shared S1 publication.
   * Commit consumes exact ROB-group/token prefixes and frees only an ordered
   * partition-head prefix whose close owners have committed.
   */
-class OooProductionPcBuffer(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionPcBufferIO(p))
+class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooPcBufferIO(p))
 
   private val maxOffset = ((BigInt(1) << p.pcOffsetWidth) - 1).U(p.pcWidth.W)
   private def partitionBase(stid: UInt): UInt =

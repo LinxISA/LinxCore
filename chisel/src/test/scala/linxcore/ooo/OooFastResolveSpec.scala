@@ -6,7 +6,7 @@ import chisel3.util.{Decoupled, Valid}
 import linxcore.common.DestinationKind
 import org.scalatest.funsuite.AnyFunSuite
 
-class OooProductionFastResolveHarnessIO(val p: OooParams) extends Bundle {
+class OooFastResolveHarnessIO(val p: OooParams) extends Bundle {
   val inValid = Input(Bool())
   val inReady = Output(Bool())
   val stid = Input(UInt(p.stidWidth.W))
@@ -46,13 +46,13 @@ class OooProductionFastResolveHarnessIO(val p: OooParams) extends Bundle {
   val rejected = Valid(new OooFastResolveS1Reject(p))
 }
 
-/** Compact stimulus shell.  It still feeds the production owner its complete
+/** Compact stimulus shell.  It still feeds the owner its complete
   * exact O3/P/TU/dispatch transaction; the shell only removes repetitive test
   * pokes and deliberately exposes malformed result-destination admission.
   */
-class OooProductionFastResolveHarness(val p: OooParams) extends Module {
-  val io = IO(new OooProductionFastResolveHarnessIO(p))
-  val owner = Module(new OooProductionFastResolve(p))
+class OooFastResolveHarness(val p: OooParams) extends Module {
+  val io = IO(new OooFastResolveHarnessIO(p))
+  val owner = Module(new OooFastResolve(p))
 
   val request = Wire(new OooIexS1Transaction(p))
   request := 0.U.asTypeOf(request)
@@ -165,8 +165,8 @@ class OooProductionFastResolveHarness(val p: OooParams) extends Module {
   io.rejected := owner.io.s1Rejected
 }
 
-class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
-  private def clear(dut: OooProductionFastResolveHarness): Unit = {
+class OooFastResolveSpec extends AnyFunSuite with ChiselSim {
+  private def clear(dut: OooFastResolveHarness): Unit = {
     dut.io.inValid.poke(false.B)
     dut.io.stid.poke(1.U)
     dut.io.epoch.poke(7.U)
@@ -199,7 +199,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeRecovery(
-      dut: OooProductionFastResolveHarness,
+      dut: OooFastResolveHarness,
       stid: Int): Unit = {
     val plan = dut.io.recoveryPrepare.bits
     plan.poke(0.U.asTypeOf(plan))
@@ -226,7 +226,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
-  private def accept(dut: OooProductionFastResolveHarness): Unit = {
+  private def accept(dut: OooFastResolveHarness): Unit = {
     dut.io.inValid.poke(true.B)
     dut.io.inReady.expect(true.B)
     dut.clock.step()
@@ -234,7 +234,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retains each typed fast class and fires all required sinks atomically") {
-    simulate(new OooProductionFastResolveHarness(OooParams())) { dut =>
+    simulate(new OooFastResolveHarness(OooParams())) { dut =>
       clear(dut)
       dut.clock.step()
 
@@ -321,7 +321,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects a result producer without one exact current P destination") {
-    simulate(new OooProductionFastResolveHarness(OooParams())) { dut =>
+    simulate(new OooFastResolveHarness(OooParams())) { dut =>
       clear(dut)
       dut.io.fastResolveClass.poke(OooFastResolveClass.ImmediateProducer.U)
       dut.io.immediateValid.poke(true.B)
@@ -336,7 +336,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retains independent STIDs and drains them fairly without overwrite") {
-    simulate(new OooProductionFastResolveHarness(OooParams())) { dut =>
+    simulate(new OooFastResolveHarness(OooParams())) { dut =>
       clear(dut)
       dut.io.boundaryStart.poke(true.B)
       dut.io.boundary.ready.poke(false.B)
@@ -381,7 +381,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionFastResolveHarness(p)) { dut =>
+    simulate(new OooFastResolveHarness(p)) { dut =>
       clear(dut)
       dut.io.boundaryStart.poke(true.B)
       dut.io.completion.ready.poke(false.B)
@@ -416,7 +416,7 @@ class OooProductionFastResolveSpec extends AnyFunSuite with ChiselSim {
 
   test("elaborates the typed owner at instruction widths 2 4 and 6") {
     Seq(2, 4, 6).foreach { width =>
-      simulate(new OooProductionFastResolveHarness(
+      simulate(new OooFastResolveHarness(
         OooParams(instructionDecodeWidth = width))) { dut =>
         clear(dut)
         dut.clock.step()

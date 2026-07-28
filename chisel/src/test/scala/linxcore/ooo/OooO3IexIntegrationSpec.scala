@@ -34,7 +34,7 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   val io = IO(new OooO3IexIntegrationHarnessIO(p))
 
   val coordinator = Module(new OooO3RenameCoordinator(p))
-  val issue = Module(new OooProductionIexIssue(p))
+  val issue = Module(new OooIexIssue(p))
 
   coordinator.io.reserve.valid := io.reserve.valid
   coordinator.io.reserve.bits := io.reserve.bits

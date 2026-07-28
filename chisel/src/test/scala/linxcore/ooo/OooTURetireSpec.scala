@@ -5,7 +5,7 @@ import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.DestinationKind
 import org.scalatest.funsuite.AnyFunSuite
 
-object OooProductionTURetireSpec {
+object OooTURetireSpec {
   final case class Destination(kind: DestinationKind.Type, sequence: Int)
   final case class SourceShape(
       destinations: Seq[Destination] = Seq.empty,
@@ -13,8 +13,8 @@ object OooProductionTURetireSpec {
       closeBefore: Option[(Int, Int)] = None)
 }
 
-class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
-  import OooProductionTURetireSpec._
+class OooTURetireSpec extends AnyFunSuite with ChiselSim {
+  import OooTURetireSpec._
 
   private def params(releaseThreshold: Int = 2): OooParams = OooParams(
     instructionDecodeWidth = 2,
@@ -29,7 +29,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     tuRelationDepthPerStid = 4,
     tuRelationReleaseThreshold = releaseThreshold)
 
-  private def clear(dut: OooProductionTURetire): Unit = {
+  private def clear(dut: OooTURetire): Unit = {
     dut.io.publicationPrepare.valid.poke(false.B)
     dut.io.publicationPrepare.bits.poke(
       0.U.asTypeOf(dut.io.publicationPrepare.bits))
@@ -62,7 +62,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokePublication(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       stid: Int,
       transactionId: Int,
       rid: Int,
@@ -119,7 +119,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def publish(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       stid: Int,
       transactionId: Int,
       rid: Int,
@@ -138,7 +138,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeRecovery(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       stid: Int,
       transactionId: Int,
       rid: Int,
@@ -161,7 +161,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     request.killTrigger.poke(killTrigger.B)
   }
 
-  private def startRecovery(dut: OooProductionTURetire): Unit = {
+  private def startRecovery(dut: OooTURetire): Unit = {
     dut.io.recoveryRequest.valid.poke(true.B)
     dut.io.recoveryRequest.ready.expect(true.B)
     dut.clock.step()
@@ -169,7 +169,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def waitForRecoverySource(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       limit: Int = 32): Unit = {
     var cycles = 0
     while (!dut.io.recoverySource.valid.peek().litToBoolean && cycles < limit) {
@@ -180,7 +180,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def waitForRecoveryAuthorize(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       limit: Int = 32): Unit = {
     var cycles = 0
     while (!dut.io.recoveryAuthorize.valid.peek().litToBoolean &&
@@ -192,7 +192,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def waitForRecoveryReject(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       limit: Int = 32): Unit = {
     var cycles = 0
     while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
@@ -203,7 +203,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     assert(cycles < limit, "timed out waiting for a rename recovery reject")
   }
 
-  private def finishRecovery(dut: OooProductionTURetire): Unit = {
+  private def finishRecovery(dut: OooTURetire): Unit = {
     dut.io.recoverySourcesDone.expect(true.B)
     dut.io.recoveryFinish.poke(true.B)
     dut.clock.step()
@@ -212,7 +212,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeCommit(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       stid: Int,
       transactionId: Int,
       rid: Int,
@@ -242,7 +242,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def waitForRetireCommand(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       limit: Int = 32): Unit = {
     var cycles = 0
     while (!dut.io.retireCommand.valid.peek().litToBoolean && cycles < limit) {
@@ -253,7 +253,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def waitForBlockCommit(
-      dut: OooProductionTURetire,
+      dut: OooTURetire,
       limit: Int = 32): Unit = {
     var cycles = 0
     while (!dut.io.blockCommit.valid.peek().litToBoolean && cycles < limit) {
@@ -263,7 +263,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
     assert(cycles < limit, "timed out waiting for a local block commit")
   }
 
-  private def finishCommit(dut: OooProductionTURetire): Unit = {
+  private def finishCommit(dut: OooTURetire): Unit = {
     var cycles = 0
     while (!dut.io.commitReady.peek().litToBoolean && cycles < 32) {
       dut.clock.step()
@@ -278,7 +278,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("keeps a no-destination block-last source and drains relations before block commit") {
-    simulate(new OooProductionTURetire(params())) { dut =>
+    simulate(new OooTURetire(params())) { dut =>
       clear(dut)
       publish(dut, stid = 1, transactionId = 10, rid = 0, bid = 3,
         brobGeneration = 2, residentGeneration = 1,
@@ -317,7 +317,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("pressure-releases only the oldest relation after the next mark") {
-    simulate(new OooProductionTURetire(params(releaseThreshold = 1))) { dut =>
+    simulate(new OooTURetire(params(releaseThreshold = 1))) { dut =>
       clear(dut)
       publish(dut, stid = 0, transactionId = 20, rid = 1, bid = 4,
         brobGeneration = 0, residentGeneration = 3,
@@ -347,7 +347,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects wrong STID and BROB generation without consuming the source head") {
-    simulate(new OooProductionTURetire(params())) { dut =>
+    simulate(new OooTURetire(params())) { dut =>
       clear(dut)
       publish(dut, stid = 2, transactionId = 30, rid = 2, bid = 7,
         brobGeneration = 5, residentGeneration = 4,
@@ -376,7 +376,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("derives an exact youngest suffix and isolates the recovering STID") {
-    simulate(new OooProductionTURetire(params())) { dut =>
+    simulate(new OooTURetire(params())) { dut =>
       clear(dut)
       publish(dut, stid = 1, transactionId = 0, rid = 0, bid = 1,
         brobGeneration = 0, residentGeneration = 1, Seq(SourceShape()))
@@ -474,7 +474,7 @@ class OooProductionTURetireSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("gives a simultaneous exact commit priority over recovery capture") {
-    simulate(new OooProductionTURetire(params())) { dut =>
+    simulate(new OooTURetire(params())) { dut =>
       clear(dut)
       publish(dut, stid = 0, transactionId = 6, rid = 0, bid = 1,
         brobGeneration = 0, residentGeneration = 1, Seq(SourceShape()))

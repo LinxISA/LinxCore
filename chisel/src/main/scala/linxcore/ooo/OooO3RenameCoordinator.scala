@@ -125,10 +125,10 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val o3 = Module(new OooRobBrobPcCoordinator(p))
   val ptag = Module(new OooPTagStagingPool(p))
   val prename = Module(new OooPRename(p))
-  val turename = Module(new OooProductionTURename(p))
-  val turetire = Module(new OooProductionTURetire(p))
-  val dispatch = Module(new OooProductionDispatch(p))
-  val fast = Module(new OooProductionFastResolve(p))
+  val turename = Module(new OooTURename(p))
+  val turetire = Module(new OooTURetire(p))
+  val dispatch = Module(new OooDispatch(p))
+  val fast = Module(new OooFastResolve(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val globalRecoveryState = RegInit(OooGlobalRecoveryState.Idle)

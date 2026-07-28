@@ -82,8 +82,8 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
 
   val d3 = Module(new OooD3ReservationAllocator(p))
   val rob = Module(new OooS1GroupedRob(p))
-  val brob = Module(new OooProductionBrob(p))
-  val pc = Module(new OooProductionPcBuffer(p))
+  val brob = Module(new OooBrob(p))
+  val pc = Module(new OooPcBuffer(p))
 
   val recoveryIdle :: recoveryPreparing :: recoveryPrepared :: Nil = Enum(3)
   val recoveryState = RegInit(recoveryIdle)

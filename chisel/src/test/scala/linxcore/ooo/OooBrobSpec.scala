@@ -4,8 +4,8 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
-class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
-  private def clear(dut: OooProductionBrob): Unit = {
+class OooBrobSpec extends AnyFunSuite with ChiselSim {
+  private def clear(dut: OooBrob): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.publishFire.poke(false.B)
@@ -18,7 +18,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokePrepare(
-      dut: OooProductionBrob,
+      dut: OooBrob,
       stid: Int,
       transactionId: Int,
       firstRid: Int,
@@ -52,7 +52,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(true.B)
   }
 
-  private def publish(dut: OooProductionBrob): Unit = {
+  private def publish(dut: OooBrob): Unit = {
     dut.io.prepareReady.expect(true.B)
     dut.io.publishFire.poke(true.B)
     dut.clock.step()
@@ -61,7 +61,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeCommit(
-      dut: OooProductionBrob,
+      dut: OooBrob,
       stid: Int,
       groups: Seq[(Int, Int, Int, Boolean, Boolean)],
       peId: Int = 2): Unit = {
@@ -94,14 +94,14 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.valid.poke(true.B)
   }
 
-  private def commit(dut: OooProductionBrob): Unit = {
+  private def commit(dut: OooBrob): Unit = {
     dut.io.commit.ready.expect(true.B)
     dut.clock.step()
     dut.io.commit.valid.poke(false.B)
   }
 
   private def pokeRecoveryPlan(
-      dut: OooProductionBrob,
+      dut: OooBrob,
       stid: Int,
       staleGeneration: Boolean = false): Unit = {
     val plan = dut.io.recoveryPrepare.bits
@@ -157,7 +157,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("requires an opening boundary before assigning the first native BID") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
         boundaries = Seq(false -> false))
@@ -172,7 +172,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
   test("rolls back exact tail blocks and reopens an implicitly closed survivor") {
     val p = OooParams(instructionDecodeWidth = 4,
       robGroupsPerStid = 8, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> false, false -> false, true -> false))
@@ -219,7 +219,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
   test("rejects a stale killed-block generation without BROB mutation") {
     val p = OooParams(instructionDecodeWidth = 4,
       robGroupsPerStid = 8, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> false, false -> false, true -> false))
@@ -242,7 +242,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("publishes one BID across grouped rows and frees it only at exact close commit") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> false, false -> true))
@@ -265,7 +265,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("holds an empty open block until its in-body BSTART close owner commits") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 2, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> false))
@@ -294,7 +294,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects wrong BROB generation and preserves another STID") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> true))
@@ -325,7 +325,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("does not let an invalid retained commit starve prepare and rejects a mismatched release header") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> true))
@@ -351,7 +351,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects skipped and duplicate ROB groups within one BID") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         boundaries = Seq(true -> false, false -> true))
@@ -382,7 +382,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
 
   test("wraps native BID independently from BROB generation") {
     val p = OooParams(instructionDecodeWidth = 2, brobEntriesPerStid = 4)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       for (block <- 0 until 4) {
         pokePrepare(dut, stid = 0, transactionId = block, firstRid = block,
@@ -410,7 +410,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       robGroupsPerStid = 8,
       brobEntriesPerStid = 8)
-    simulate(new OooProductionBrob(p)) { dut =>
+    simulate(new OooBrob(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 7,
         boundaries = Seq(true -> false, false -> true))
@@ -428,7 +428,7 @@ class OooProductionBrobSpec extends AnyFunSuite with ChiselSim {
         instructionDecodeWidth = width,
         retireGroupWidth = 4,
         brobEntriesPerStid = 8)
-      simulate(new OooProductionBrob(p)) { dut =>
+      simulate(new OooBrob(p)) { dut =>
         clear(dut)
         val boundaries = (0 until width).map { index =>
           (index == 0) -> (index == width - 1)

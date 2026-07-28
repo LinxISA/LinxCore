@@ -22,7 +22,7 @@ class OooTURelationEntry(val p: OooParams) extends Bundle {
   val sequence = new OooLocalSeq(p)
 }
 
-class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
+class OooTURetireIO(val p: OooParams = OooParams()) extends Bundle {
   val publicationPrepare = Flipped(Valid(new OooTURetirePublication(p)))
   val publicationReady = Output(Bool())
   val publishFire = Input(Bool())
@@ -58,7 +58,7 @@ class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryRejected = Valid(new OooRenameRecoveryReject(p))
 }
 
-/** Production owner for T/U relation retirement and local block release.
+/** Owner for T/U relation retirement and local block release.
   *
   * Every published logical uop, including a row with no local destination, is
   * retained until its exact grouped-ROB commit reaches the source head.  The
@@ -68,11 +68,11 @@ class OooProductionTURetireIO(val p: OooParams = OooParams()) extends Bundle {
   *   release -> exact-block relation cleanup -> local block commit.
   *
   * This module owns only retire-source and relation-CMAP state.  The T/U MapQ
-  * and physical tags remain owned by [[OooProductionTURename]], which accepts
+  * and physical tags remain owned by [[OooTURename]], which accepts
   * the generated exact mark/deallocation and post-clean block commands.
   */
-class OooProductionTURetire(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionTURetireIO(p))
+class OooTURetire(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooTURetireIO(p))
 
   private val destinationCursorWidth = math.max(1,
     chisel3.util.log2Ceil(p.maxDestinationOperands + 1))

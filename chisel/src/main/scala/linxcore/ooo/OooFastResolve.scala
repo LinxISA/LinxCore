@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, OHToUInt, PopCount, PriorityEncoder,
   PriorityEncoderOH, UIntToOH, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 
-class OooProductionFastResolveIO(val p: OooParams = OooParams())
+class OooFastResolveIO(val p: OooParams = OooParams())
     extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
 
@@ -34,8 +34,8 @@ class OooProductionFastResolveIO(val p: OooParams = OooParams())
   * wakeup, trace publication, and exact ROB member completion share one
   * terminal fire.  No operand-count heuristic participates in classification.
   */
-class OooProductionFastResolve(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionFastResolveIO(p))
+class OooFastResolve(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooFastResolveIO(p))
 
   val pendingMask = RegInit(VecInit(Seq.fill(p.stidCount)(
     0.U(p.decodedUopWidth.W))))

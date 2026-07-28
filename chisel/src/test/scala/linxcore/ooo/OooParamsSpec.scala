@@ -3,7 +3,7 @@ package linxcore.ooo
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooParamsSpec extends AnyFunSuite {
-  test("production defaults keep fetch-independent OOO widths and native identity domains") {
+  test("defaults keep fetch-independent OOO widths and native identity domains") {
     val p = OooParams()
 
     assert(p.stidCount == 4)

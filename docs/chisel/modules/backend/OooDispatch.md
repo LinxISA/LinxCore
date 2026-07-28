@@ -1,8 +1,8 @@
-# OooProductionDispatch
+# OooDispatch
 
 ## Purpose
 
-`OooProductionDispatch` is the D3 owner of exact speculative physical-IQ
+`OooDispatch` is the D3 owner of exact speculative physical-IQ
 reservations. It compacts generated per-class demand in logical-uop order,
 selects a class-local bank/write-port/entry tuple for every child, and retains
 that tuple as a generation-qualified lease until common publication,
@@ -10,10 +10,10 @@ cancellation, recovery, or exact I2 release.
 
 Source and test owners:
 
-- `chisel/src/main/scala/linxcore/ooo/OooProductionDispatch.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooDispatch.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooHierarchicalFreeSlotSelect.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooParams.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooProductionDispatchSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooDispatchSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooHierarchicalFreeSlotSelectSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
 
@@ -41,11 +41,11 @@ STIDs.
 ## Hierarchical free-entry selection
 
 `iqFreeSelectLeafEntries` is the maximum leaf width. The effective leaf width
-is `min(iqFreeSelectLeafEntries, iqEntriesPerBank)`, so production's default
+is `min(iqFreeSelectLeafEntries, iqEntriesPerBank)`, so the default
 32-entry bank forms eight 4-entry leaves while small 2-entry unit-test banks
 form one 2-entry leaf without configuration churn. Both sizes must be powers
 of two, the configured maximum cannot exceed eight, the effective leaf must
-divide the bank, and a production configuration cannot exceed eight leaves.
+divide the bank, and a configuration cannot exceed eight leaves.
 Every legal `OooParams` selector is therefore at most 8-by-8; parameter
 overrides cannot recreate a bank-wide encoder accidentally.
 
@@ -69,7 +69,7 @@ generation update are unchanged.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooHierarchicalFreeSlotSelect
-bash tools/chisel/run_chisel_tests.sh --only OooProductionDispatch
+bash tools/chisel/run_chisel_tests.sh --only OooDispatch
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
@@ -90,7 +90,7 @@ the identical `1 != 2` assertion. Its absolute wrap-qualified ROB tail model
 must be repaired together with ROB recovery/banking; O8.2 does not weaken or
 mask that failure.
 
-## Remaining production gaps
+## Remaining gaps
 
 - occupancy plus retained-inflight bank cost and destination-PTag-aware
   steering;

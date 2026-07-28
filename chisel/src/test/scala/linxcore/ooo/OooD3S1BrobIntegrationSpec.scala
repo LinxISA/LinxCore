@@ -19,7 +19,7 @@ private class OooD3S1BrobHarness(val p: OooParams) extends Module {
   val io = IO(new OooD3S1BrobHarnessIO(p))
   val d3 = Module(new OooD3ReservationAllocator(p))
   val s1 = Module(new OooS1GroupedRob(p))
-  val brob = Module(new OooProductionBrob(p))
+  val brob = Module(new OooBrob(p))
 
   d3.io.in <> io.reserve
   d3.io.cancel.foreach(_ := false.B)

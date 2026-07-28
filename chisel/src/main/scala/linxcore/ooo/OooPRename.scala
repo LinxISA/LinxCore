@@ -52,7 +52,7 @@ class OooPRenameIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryRejected = Valid(new OooPRenameRecoveryReject(p))
 }
 
-/** Production P-register rename prepare and publication owner.
+/** P-register rename prepare and publication owner.
   *
   * The shared PTag pool owns physical allocation. This module consumes its
   * retained exact lease, resolves all P sources against the per-STID SMAP,

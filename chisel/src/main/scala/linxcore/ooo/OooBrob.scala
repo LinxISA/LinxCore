@@ -3,7 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 
-class OooProductionBrobIO(val p: OooParams = OooParams()) extends Bundle {
+class OooBrobIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooD3GroupedReservation(p)))
   val prepared = Output(new OooBrobPreparedBindings(p))
   val prepareReady = Output(Bool())
@@ -24,15 +24,15 @@ class OooProductionBrobIO(val p: OooParams = OooParams()) extends Bundle {
   val current = Output(Vec(p.stidCount, new BrobPointer(p)))
 }
 
-/** Per-STID production block reorder buffer.
+/** Per-STID block reorder buffer.
   *
   * `prepare` is a side-effect-free view of the retained D3 row. The caller may
   * use `prepared.pointers` to form S1 bindings only while `prepareReady` is
   * true. State changes exactly once on the shared `publishFire`; commit changes
   * BROB state only on the same retained ROB commit handshake.
   */
-class OooProductionBrob(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionBrobIO(p))
+class OooBrob(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooBrobIO(p))
 
   val table = RegInit(VecInit(Seq.fill(p.stidCount)(
     VecInit(Seq.fill(p.brobEntriesPerStid)(

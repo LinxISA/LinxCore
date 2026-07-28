@@ -6,10 +6,10 @@ import linxcore.common.{DestinationKind, OperandClass}
 import org.scalatest.funsuite.AnyFunSuite
 
 /** Focused O7 recovery proof with the smallest physical IQ that can retain an
-  * older member and a killed suffix simultaneously.  The production owner is
+  * older member and a killed suffix simultaneously.  The owner is
   * instantiated directly; this is not a behavioral mock.
   */
-class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
+class OooIexRecoverySpec extends AnyFunSuite with ChiselSim {
   private val p = OooParams(
     stidCount = 2,
     instructionDecodeWidth = 2,
@@ -23,7 +23,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     tuMapQDepthPerStid = 4,
     tuRetireSourceDepthPerStid = 8)
 
-  private def clear(dut: OooProductionIexIssue): Unit = {
+  private def clear(dut: OooIexIssue): Unit = {
     dut.io.s1.valid.poke(false.B)
     dut.io.s1.bits.poke(0.U.asTypeOf(dut.io.s1.bits))
     dut.io.wakeup.foreach { wakeup =>
@@ -61,7 +61,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeTransaction(
-      dut: OooProductionIexIssue,
+      dut: OooIexIssue,
       stid: Int,
       ridSlot: Int,
       transactionId: Int,
@@ -160,7 +160,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeRecovery(
-      dut: OooProductionIexIssue,
+      dut: OooIexIssue,
       stid: Int,
       ridSlot: Int,
       oldMembers: Int,
@@ -183,14 +183,14 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.valid.poke(true.B)
   }
 
-  private def query(dut: OooProductionIexIssue, entry: Int): Unit = {
+  private def query(dut: OooIexIssue, entry: Int): Unit = {
     dut.io.query.uopClass.poke(OooUopClass.Alu)
     dut.io.query.bank.poke(0.U)
     dut.io.query.entry.poke(entry.U)
   }
 
   private def waitForPrepared(
-      dut: OooProductionIexIssue,
+      dut: OooIexIssue,
       whileScanning: => Unit,
       scanParams: OooParams = p): Int = {
     var cycles = 0
@@ -207,7 +207,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     cycles
   }
 
-  private def waitForRejected(dut: OooProductionIexIssue): Unit = {
+  private def waitForRejected(dut: OooIexIssue): Unit = {
     var cycles = 0
     while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
         cycles < p.iexRecoveryScanCycles + 2) {
@@ -219,7 +219,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("prunes exact BoundS2 and ResidentS3 suffixes without stopping peers") {
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
 
       pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 1,
@@ -329,7 +329,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects plan drift and identity-qualifies P-ready cleanup across reuse") {
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
 
       pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 10,
@@ -460,7 +460,7 @@ class OooProductionIexRecoverySpec extends AnyFunSuite with ChiselSim {
     val wideScan = p.copy(
       iqEntriesPerBank = 4,
       iexRecoveryScanEntriesPerBankPerCycle = 2)
-    simulate(new OooProductionIexIssue(wideScan)) { dut =>
+    simulate(new OooIexIssue(wideScan)) { dut =>
       clear(dut)
       pokeTransaction(dut, stid = 0, ridSlot = 0, transactionId = 20,
         entries = Vector(2))

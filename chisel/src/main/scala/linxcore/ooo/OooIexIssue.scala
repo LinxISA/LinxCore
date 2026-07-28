@@ -13,7 +13,7 @@ object OooIexRecoveryScanState extends ChiselEnum {
   val Idle, Scan, Prepared, Rejected = Value
 }
 
-class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
 
@@ -46,7 +46,7 @@ class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryRejected = Valid(new OooIexRecoveryReject(p))
 }
 
-/** Production OOO-S1 to IEX-S3 residency owner.
+/** OOO-S1 to IEX-S3 residency owner.
   *
   * One retained S1 slot exists per STID.  A fair shared S2 writer consumes at
   * most one transaction per cycle, writes every exact dispatch child or none,
@@ -60,8 +60,8 @@ class OooProductionIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   * only a future exact, non-cancellable I2 terminal event and joins physical
   * row removal to the existing dispatch-reservation release handshake.
   */
-class OooProductionIexIssue(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionIexIssueIO(p))
+class OooIexIssue(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooIexIssueIO(p))
   private val ttagIndexWidth = log2Ceil(p.tPhysRegs)
   private val utagIndexWidth = log2Ceil(p.uPhysRegs)
 

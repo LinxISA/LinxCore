@@ -8,7 +8,7 @@ object OooTURecoveryState extends ChiselEnum {
   val Idle, WaitSources, Complete = Value
 }
 
-class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
+class OooTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   val reservePrepare = Flipped(Valid(new OooD2GroupedTransaction(p)))
   val reserveReady = Output(Bool())
   val reservation = Output(new OooTUReservation(p))
@@ -44,7 +44,7 @@ class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   val publicationRejected = Valid(new OooTURenamePublishReject(p))
 }
 
-/** Per-STID production T/U sequential rename owner.
+/** Per-STID T/U sequential rename owner.
   *
   * T and U deliberately share no P SMAP, CMAP, free list, or PTag staging
   * state. A relative source names `tail - (relativeIndex + 1)` in its own
@@ -57,8 +57,8 @@ class OooProductionTURenameIO(val p: OooParams = OooParams()) extends Bundle {
   * block commands. This module remains the sole MapQ/physical-tag owner and
   * never guesses that P commit or ROB slot reuse releases local state.
   */
-class OooProductionTURename(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionTURenameIO(p))
+class OooTURename(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooTURenameIO(p))
 
   private val seqPackedWidth = p.localSeqGenerationWidth + p.tuMapQIndexWidth
   private val destinationIndexWidth = math.max(1,

@@ -23,8 +23,8 @@
 
 ## Purpose
 
-Production OOO interfaces now live in
-[`OooProductionBundles.md`](OooProductionBundles.md). `InterfaceParams` and the
+Canonical OOO interfaces now live in
+[`OooBundles.md`](OooBundles.md). `InterfaceParams` and the
 `DecodedUop`/`RenamedUop` family on this page remain compatibility contracts for
 the existing IFU/reduced-backend verification graph; they must not be widened
 in place to define grouped RID, four-thread D2/D3/S1, or 2/4/6 decode.

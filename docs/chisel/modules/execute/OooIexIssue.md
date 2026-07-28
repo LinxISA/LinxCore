@@ -1,18 +1,18 @@
-# OooProductionIexIssue
+# OooIexIssue
 
 ## Purpose
 
-`OooProductionIexIssue` is the production residency boundary between the OOO
+`OooIexIssue` is the residency boundary between the OOO
 coordinator's terminal S1 publication and later IEX pick/execute logic. It
 owns physical IQ row installation and readiness, but it does not yet implement
 execution pipes.
 
 Source and test owners:
 
-- `chisel/src/main/scala/linxcore/ooo/OooProductionIexIssue.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooBundles.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooProductionIexIssueSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooProductionIexRecoverySpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexRecoverySpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
 
 ## Stage ownership
@@ -104,13 +104,13 @@ non-backpressured `Valid` input, target-STID wakeup during prepare is an
 assertion failure rather than a silently dropped readiness event; global R0-R4
 must quiesce those producers before prepare.
 
-## Remaining production gaps
+## Remaining gaps
 
 - P1/I1/I2 retained execution-pipe stages and cross-pipe arbitration.
 - Age-matrix or equivalent oldest-ready pick with same-STID exact ROB order
   and fair cross-STID selection.
 - Speculative issue inflight state, cancel/retry, and the rule that only a
-  non-cancellable I2 terminal event releases the physical row.
+ non-cancellable I2 terminal event releases the physical row.
 - RF read-port arbitration, operand bypass, and result/wakeup buses.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
   safe-mode thresholds, and default-geometry timing/area closure. The
@@ -124,8 +124,8 @@ used as the semantic authority for this module.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooProductionIexIssue
-bash tools/chisel/run_chisel_tests.sh --only OooProductionIexRecovery
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
+bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 ```

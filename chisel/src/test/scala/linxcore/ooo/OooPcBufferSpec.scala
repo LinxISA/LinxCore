@@ -4,8 +4,8 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
-class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
-  private def clear(dut: OooProductionPcBuffer): Unit = {
+class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
+  private def clear(dut: OooPcBuffer): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.publishFire.poke(false.B)
@@ -19,7 +19,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokePrepare(
-      dut: OooProductionPcBuffer,
+      dut: OooPcBuffer,
       stid: Int,
       transactionId: Int,
       firstRid: Int,
@@ -68,7 +68,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(true.B)
   }
 
-  private def publish(dut: OooProductionPcBuffer): Unit = {
+  private def publish(dut: OooPcBuffer): Unit = {
     dut.io.prepareReady.expect(true.B)
     dut.io.publishFire.poke(true.B)
     dut.clock.step()
@@ -77,7 +77,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeCommit(
-      dut: OooProductionPcBuffer,
+      dut: OooPcBuffer,
       stid: Int,
       groups: Seq[(Int, Int, Int)],
       peId: Int = 3): Unit = {
@@ -106,14 +106,14 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.valid.poke(true.B)
   }
 
-  private def commit(dut: OooProductionPcBuffer): Unit = {
+  private def commit(dut: OooPcBuffer): Unit = {
     dut.io.commit.ready.expect(true.B)
     dut.clock.step()
     dut.io.commit.valid.poke(false.B)
   }
 
   private def pokeRecoveryPlan(
-      dut: OooProductionPcBuffer,
+      dut: OooPcBuffer,
       stid: Int,
       staleEpoch: Boolean = false): Unit = {
     val partitionBase = stid * dut.p.pcEntriesPerStid
@@ -166,7 +166,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("reuses one base with byte offsets for 2 4 6 and 8-byte instruction PCs") {
     val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         pcs = Seq(100, 102, 106, 112), releases = Set(3))
@@ -202,7 +202,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
   test("rolls back exact PC-base tail and reopens the surviving base") {
     val p = OooParams(instructionDecodeWidth = 4,
       robGroupsPerStid = 8, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         pcs = Seq(100, 102, 1000))
@@ -252,7 +252,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
   test("rejects a stale killed PC epoch without buffer mutation") {
     val p = OooParams(instructionDecodeWidth = 4,
       robGroupsPerStid = 8, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         pcs = Seq(100, 102, 1000))
@@ -274,7 +274,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("allocates a new base on offset overflow and retains the old close owner") {
     val p = OooParams(instructionDecodeWidth = 2, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 2, transactionId = 0, firstRid = 0,
         pcs = Seq(100, 300), releases = Set(1))
@@ -293,7 +293,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("closes a predicted-taken base and allocates the following discontinuity") {
     val p = OooParams(instructionDecodeWidth = 2, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
         pcs = Seq(40, 1000), releases = Set(0, 1))
@@ -309,7 +309,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects more than three base writes without partial publication") {
     val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64, pcWritePorts = 3)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 3, transactionId = 0, firstRid = 0,
         pcs = Seq(0, 256, 512, 768), releases = Set(0, 1, 2, 3))
@@ -324,7 +324,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects an inconsistent uop group index and logical mask") {
     val p = OooParams(instructionDecodeWidth = 2, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 1, transactionId = 0, firstRid = 0,
         pcs = Seq(80, 88), releases = Set(1))
@@ -338,7 +338,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects skipped and duplicate ROB groups for one PC base") {
     val p = OooParams(instructionDecodeWidth = 2, pcBufferEntries = 64)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 7,
         pcs = Seq(120, 126), releases = Set(1))
@@ -367,7 +367,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
       instructionDecodeWidth = 2,
       pcBufferEntries = 8,
       stidCount = 4)
-    simulate(new OooProductionPcBuffer(p)) { dut =>
+    simulate(new OooPcBuffer(p)) { dut =>
       clear(dut)
       for (iteration <- 0 until 2) {
         pokePrepare(dut, stid = 3, transactionId = iteration, firstRid = iteration,
@@ -389,7 +389,7 @@ class OooProductionPcBufferSpec extends AnyFunSuite with ChiselSim {
   test("elaborates sequential prefixes at 2 4 and 6 decode width") {
     Seq(2, 4, 6).foreach { width =>
       val p = OooParams(instructionDecodeWidth = width, pcBufferEntries = 64)
-      simulate(new OooProductionPcBuffer(p)) { dut =>
+      simulate(new OooPcBuffer(p)) { dut =>
         clear(dut)
         pokePrepare(dut, stid = 0, transactionId = 0, firstRid = 0,
           pcs = (0 until width).map(index => 64L + index * 8),

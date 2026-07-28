@@ -6,7 +6,7 @@ import circt.stage.ChiselStage
 import linxcore.common.{DestinationKind, OperandClass}
 import org.scalatest.funsuite.AnyFunSuite
 
-private object OooProductionIexIssueSpec {
+private object OooIexIssueSpec {
   final case class Allocation(
       uopIndex: Int,
       childIndex: Int,
@@ -17,8 +17,8 @@ private object OooProductionIexIssueSpec {
       reservationEpoch: Int = 1)
 }
 
-class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
-  import OooProductionIexIssueSpec._
+class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
+  import OooIexIssueSpec._
 
   private def pokeClass(target: OooUopClass.Type, value: Int): Unit =
     value match {
@@ -32,7 +32,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       case 7 => target.poke(OooUopClass.Boundary)
     }
 
-  private def clear(dut: OooProductionIexIssue): Unit = {
+  private def clear(dut: OooIexIssue): Unit = {
     dut.io.s1.valid.poke(false.B)
     dut.io.s1.bits.poke(0.U.asTypeOf(dut.io.s1.bits))
     dut.io.wakeup.foreach { wakeup =>
@@ -69,7 +69,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeTransaction(
-      dut: OooProductionIexIssue,
+      dut: OooIexIssue,
       stid: Int,
       transactionId: Int,
       allocations: Vector[Allocation],
@@ -195,7 +195,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def query(
-      dut: OooProductionIexIssue,
+      dut: OooIexIssue,
       uopClass: Int,
       bank: Int,
       entry: Int): Unit = {
@@ -204,7 +204,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
     dut.io.query.entry.poke(entry.U)
   }
 
-  private def advanceToS3(dut: OooProductionIexIssue): Unit = {
+  private def advanceToS3(dut: OooIexIssue): Unit = {
     dut.io.s1.ready.expect(true.B)
     dut.clock.step() // retained S1
     dut.io.s1.valid.poke(false.B)
@@ -226,7 +226,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       val allocation = Allocation(0, 0, 0, 0, 0, 1)
       pokeTransaction(dut, 1, 9, Vector(allocation))
@@ -270,7 +270,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       pokeTransaction(dut, 0, 2,
         Vector(Allocation(0, 0, 0, 0, 0, 0)),
@@ -415,7 +415,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       pokeTransaction(dut, 0, 7,
         Vector(Allocation(0, 0, 0, 0, 0, 3)),
@@ -456,7 +456,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       pokeTransaction(dut, 0, 1,
         Vector(Allocation(0, 0, 0, 0, 0, 0)))
@@ -497,7 +497,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       val allocation = Allocation(0, 0, 0, 1, 1, 2, reservationEpoch = 3)
       pokeTransaction(dut, 3, 11, Vector(allocation))
@@ -552,7 +552,7 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionIexIssue(p)) { dut =>
+    simulate(new OooIexIssue(p)) { dut =>
       clear(dut)
       val first = Allocation(0, 0, 2, 0, 0, 1)
       pokeTransaction(dut, 1, 4,
@@ -593,8 +593,8 @@ class OooProductionIexIssueSpec extends AnyFunSuite with ChiselSim {
         pMapQDepthPerStid = 16,
         tuMapQDepthPerStid = 16,
         tuRetireSourceDepthPerStid = 64)
-      val sv = ChiselStage.emitSystemVerilog(new OooProductionIexIssue(p))
-      assert(sv.contains("module OooProductionIexIssue"))
+      val sv = ChiselStage.emitSystemVerilog(new OooIexIssue(p))
+      assert(sv.contains("module OooIexIssue"))
     }
   }
 }

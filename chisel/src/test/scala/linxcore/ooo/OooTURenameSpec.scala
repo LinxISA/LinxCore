@@ -5,16 +5,16 @@ import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{DestinationKind, OperandClass}
 import org.scalatest.funsuite.AnyFunSuite
 
-object OooProductionTURenameSpec {
+object OooTURenameSpec {
   final case class UopShape(
       sources: Seq[(OperandClass.Type, Int)] = Seq.empty,
       destinations: Seq[(DestinationKind.Type, Int)] = Seq.empty)
 }
 
-class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
-  import OooProductionTURenameSpec.UopShape
+class OooTURenameSpec extends AnyFunSuite with ChiselSim {
+  import OooTURenameSpec.UopShape
 
-  private def clear(dut: OooProductionTURename): Unit = {
+  private def clear(dut: OooTURename): Unit = {
     dut.io.reservePrepare.valid.poke(false.B)
     dut.io.reservePrepare.bits.poke(0.U.asTypeOf(dut.io.reservePrepare.bits))
     dut.io.reserveFire.poke(false.B)
@@ -96,7 +96,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeReserve(
-      dut: OooProductionTURename,
+      dut: OooTURename,
       stid: Int,
       transactionId: Int,
       shapes: Seq[UopShape]): Unit = {
@@ -106,7 +106,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokePublication(
-      dut: OooProductionTURename,
+      dut: OooTURename,
       stid: Int,
       transactionId: Int,
       shapes: Seq[UopShape]): Unit = {
@@ -153,7 +153,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.publicationPrepare.valid.poke(true.B)
   }
 
-  private def reserve(dut: OooProductionTURename): Unit = {
+  private def reserve(dut: OooTURename): Unit = {
     dut.io.reserveReady.expect(true.B)
     dut.io.reserveFire.poke(true.B)
     dut.clock.step()
@@ -161,7 +161,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.reservePrepare.valid.poke(false.B)
   }
 
-  private def publish(dut: OooProductionTURename): Unit = {
+  private def publish(dut: OooTURename): Unit = {
     dut.io.publicationReady.expect(true.B)
     dut.io.publishFire.poke(true.B)
     dut.clock.step()
@@ -170,7 +170,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def retireLocal(
-      dut: OooProductionTURename,
+      dut: OooTURename,
       kind: DestinationKind.Type,
       sequenceIndex: Int,
       sequenceGeneration: Int,
@@ -224,7 +224,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def startRecovery(
-      dut: OooProductionTURename,
+      dut: OooTURename,
       stid: Int,
       transactionId: Int,
       uopIndex: Int = 0,
@@ -240,7 +240,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def sendRecoverySource(
-      dut: OooProductionTURename,
+      dut: OooTURename,
       triggerTransactionId: Int,
       killedTransactionId: Int,
       killedUopIndex: Int,
@@ -296,7 +296,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoverySource.valid.poke(false.B)
   }
 
-  private def finishRecovery(dut: OooProductionTURename): Unit = {
+  private def finishRecovery(dut: OooTURename): Unit = {
     dut.io.recoverySourcesDone.poke(true.B)
     dut.clock.step()
     dut.io.recoverySourcesDone.poke(false.B)
@@ -316,7 +316,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 8,
       uPhysRegs = 8,
       tuMapQDepthPerStid = 8)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val shapes = Seq(
         UopShape(destinations = Seq(DestinationKind.T -> 0)),
@@ -389,7 +389,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       pokeReserve(dut, stid = 0, transactionId = 30,
         Seq(UopShape(sources = Seq(OperandClass.T -> 0))))
@@ -411,7 +411,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
       pokeReserve(dut, stid = 0, transactionId = 40, oneT)
@@ -446,7 +446,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneU = Seq(UopShape(destinations = Seq(DestinationKind.U -> 0)))
       pokeReserve(dut, stid = 1, transactionId = 50, oneU)
@@ -483,7 +483,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val producer = Seq(UopShape(
         destinations = Seq(DestinationKind.T -> 0)))
@@ -531,7 +531,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 8,
       uPhysRegs = 8,
       tuMapQDepthPerStid = 8)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
       for (stid <- 0 until 4) {
@@ -570,7 +570,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
 
@@ -638,7 +638,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val twoT = Seq(
         UopShape(destinations = Seq(DestinationKind.T -> 0)),
@@ -681,7 +681,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 8,
       uPhysRegs = 8,
       tuMapQDepthPerStid = 8)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val both = Seq(UopShape(destinations = Seq(
         DestinationKind.T -> 0, DestinationKind.U -> 0)))
@@ -758,7 +758,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
       for (transactionId <- 300 until 304) {
@@ -821,7 +821,7 @@ class OooProductionTURenameSpec extends AnyFunSuite with ChiselSim {
       tPhysRegs = 4,
       uPhysRegs = 4,
       tuMapQDepthPerStid = 4)
-    simulate(new OooProductionTURename(p)) { dut =>
+    simulate(new OooTURename(p)) { dut =>
       clear(dut)
       val oneT = Seq(UopShape(destinations = Seq(DestinationKind.T -> 0)))
       pokeReserve(dut, stid = 0, transactionId = 400, oneT)

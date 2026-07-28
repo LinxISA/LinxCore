@@ -8,7 +8,7 @@ object OooDispatchSlotState extends ChiselEnum {
   val Free, Provisional, Published = Value
 }
 
-class OooProductionDispatchIO(val p: OooParams = OooParams()) extends Bundle {
+class OooDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   val prepare = Flipped(Valid(new OooD2GroupedTransaction(p)))
   val prepareReady = Output(Bool())
   val prepared = Output(new OooDispatchReservationLease(p))
@@ -41,15 +41,15 @@ class OooProductionDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryRejected = Valid(new OooDispatchRecoveryReject(p))
 }
 
-/** Production D3 owner for exact speculative issue-queue reservations.
+/** D3 owner for exact speculative issue-queue reservations.
   *
   * Generated dispatch demand is compacted in logical-uop/class/child order.
   * Every child receives an exact class, sub-bank, write port, slot, and reuse
   * generation. The complete bundle reserves or publishes atomically; a later
   * IEX owner may release only the identical published token.
   */
-class OooProductionDispatch(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooProductionDispatchIO(p))
+class OooDispatch(val p: OooParams = OooParams()) extends Module {
+  val io = IO(new OooDispatchIO(p))
 
   private val candidateCount = p.decodedUopWidth * p.iqClassCount *
     p.maxDispatchWritesPerInstruction

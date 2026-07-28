@@ -1,9 +1,9 @@
-# LinxCore Chisel OOO Production Upgrade Plan
+# LinxCore Chisel OOO Upgrade Plan
 
 ## 1. Document status and accepted direction
 
 This document is the review-ready implementation plan for replacing the current
-bring-up OOO path with a production `LinxCoreOoo`. It incorporates the useful
+bring-up OOO path with a canonical `LinxCoreOoo`. It incorporates the useful
 physical-closure techniques from the LinxCore830/930 ARM OOO reference notes,
 but keeps Linx block-ISA identity, recovery, and register semantics normative.
 
@@ -81,7 +81,7 @@ promotion.
 
 | Packet | Status | Evidence | Remaining exit work |
 |---|---|---|---|
-| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/production bundle pages, generated 689-record opcode recipe audit, and exact S1/S2/S3 residency contract updated | P1/I1/I2 and global-cancel integration contracts |
+| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/OOO bundle pages, generated 689-record opcode recipe audit, and exact S1/S2/S3 residency contract updated | P1/I1/I2 and global-cancel integration contracts |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; the external CTU recipe producer is connected at O9 |
@@ -91,16 +91,16 @@ promotion.
 | O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
-| O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and production-top wiring are O9 integration work |
+| O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
 | O8 physical closure | In progress | O8.1 separates frequently scanned IEX scheduling state from a stable-slot memory-backed execution sidecar; O8.1b retains and scans exact recovery state by parameterized slices across all class/banks before one common apply; O8.2 replaces each bank-wide free-entry encoder with a bounded two-level selector; O8.3a closes independent transaction/tail/epoch recovery reference state and exact wrapped-tail reuse; O8.3b physically partitions each per-STID P MapQ by low logical-index bits while preserving one exact ordered ring | occupancy/in-flight/PTag steering, ROB/PC banking, MapQ two-cycle pointer-loop timing, and 2/4/6 timing closure |
-| O9 integration/promotion | Not started | current compatibility owners remain migration evidence | production top integration, legacy removal, and benchmark promotion follow |
+| O9 integration/promotion | Not started | current compatibility owners remain migration evidence | canonical top integration, legacy removal, and benchmark promotion follow |
 
 “Implemented” in this ledger is packet-scoped; it does not promote the current
-benchmark hierarchy to production OOO.
+benchmark hierarchy to canonical OOO.
 
 ## 2. Product outcome
 
-The production graph is:
+The canonical graph is:
 
 ```text
 IFU fixed-64b Instruction Buffer --> D1 decode/fuse/divert --+
@@ -180,7 +180,7 @@ ARM physical techniques may be reused only while these invariants hold.
 ### 3.3 Single state owner
 
 - ROB, BROB, each rename map, each free list, each MapQ, PC-buffer allocation,
-  and every IQ entry have one production owner.
+  and every IQ entry have one canonical owner.
 - Preview, credit, reservation, and trace structures may cache information but
   cannot become a second allocator or a second architectural state machine.
 - D2 virtual IDs do not become valid physical ROB rows until the D3/S1 publish
@@ -196,7 +196,7 @@ ARM physical techniques may be reused only while these invariants hold.
 
 ## 4. Parameter model
 
-The first production defaults are planning targets, not hard-coded constants.
+The first canonical defaults are planning targets, not hard-coded constants.
 
 | Parameter | Default | Contract |
 |---|---:|---|
@@ -219,7 +219,7 @@ The first production defaults are planning targets, not hard-coded constants.
 | `pcOffsetWidth` | 7 | Byte offset, required by 2/4/6/8-byte instructions |
 | `pcWritePorts` | 3 | Physical closure target |
 | `pcReadPorts` | 6 | Commit, branch validation, trace, and execution |
-| `iqClassCount` | 8 | Generated production dispatch classes |
+| `iqClassCount` | 8 | Generated canonical dispatch classes |
 | `iqBankCount` | 8 | Class-local physical bank count |
 | `iqEntriesPerBank` | 32 | 2048 total class/bank rows before O8 sizing closure |
 | `iqWritePortsPerBank` | 3 | Exact S2 reservation/write-port identity |
@@ -298,7 +298,7 @@ RobMemberKey = { RobGroupKey, BID, brobGeneration, memberIndex,
 ```
 
 During migration, existing GID fields remain an adapter-visible group ordinal.
-They must not become a competing age domain. The production specification must
+They must not become a competing age domain. The canonical specification must
 either alias GID to the wrap-qualified ROB group key or remove it from internal
 interfaces after every consumer is migrated.
 
@@ -336,7 +336,7 @@ configuration.
 
 ### 6.1 Generated expansion metadata
 
-The opcode catalog must gain production metadata generated into pyCircuit,
+The opcode catalog must gain canonical metadata generated into pyCircuit,
 Chisel, model, and audit artifacts:
 
 ```text
@@ -569,7 +569,7 @@ and static maximums such as decoded-uop lanes, destinations, boundary count,
 late-split count, and per-class dispatch writes. It accepts only a contiguous
 instruction prefix; a suffix is retained unchanged.
 
-Production D1 is split into a combinational canonical decoder and a retained
+Canonical D1 is split into a combinational canonical decoder and a retained
 per-STID fusion-history owner.  The history holds the last fusion-eligible
 canonical uop until its architectural successor or an explicit end-of-stream
 is known.  It never patches a published member.  Matching recovery cancels
@@ -739,7 +739,7 @@ Same-cycle source relations use oldest-to-youngest sequential bypass. Block
 completion/recovery, not P CMAP commit, releases T/U lifetime.
 
 Architectural ROB commit is nevertheless the ordered trigger for local
-retirement. `OooProductionTURetire` retains one exact sidecar for every
+retirement. `OooTURetire` retains one exact sidecar for every
 published logical uop, including rows with no local destination. It matches a
 retained grouped-ROB commit by STID, RID generation, native BID plus BROB
 generation, resident generation, transaction, logical-uop mask, and member
@@ -859,7 +859,7 @@ renamed uop. It cannot be changed while S1 is stalled.
   uncritical payload fields, and acknowledges the `iqid` mapping.
 - IEX S3 marks the entry valid for ready/age-matrix pick.
 
-O5.2 implements this residency contract in `OooProductionIexIssue`. One
+O5.2 implements this residency contract in `OooIexIssue`. One
 retained S1 row per STID is selected by a shared fair S2 writer. A pending-S1
 claim excludes duplicate cross-STID targets before physical write. S2 installs
 all split children atomically and holds `BoundS2` for one full cycle; only the
@@ -956,7 +956,7 @@ an unclassified opcode is an elaboration/test failure.
 
 ### 15.1 Initial opcode decision matrix
 
-| Current catalog family | Initial production decision |
+| Current catalog family | Initial canonical decision |
 |---|---|
 | scalar/compressed/HL BSTART with only boundary semantics | fuse to `start`; otherwise `BoundaryMetadata` fast resolve |
 | `BSTOP` and `C.BSTOP` | fuse to `stop`; otherwise `BoundaryMetadata` fast resolve |
@@ -1109,7 +1109,7 @@ causes zero mutation.
 
 ## 19. External CTU integration
 
-CTU remains outside IFU and OOO. The production OOO-side
+CTU remains outside IFU and OOO. The canonical OOO-side
 `OooCtuIngressBridge`, composed by `OooIfuD1Ingress`, retains decoded D1
 packets per STID, claims diverted template parents, and arbitrates ordinary
 prefixes with CTU-produced canonical children before D2. D1 performs only the
@@ -1144,7 +1144,7 @@ in order behind the ROB trigger, the apply discards the complete retained
 target-STID ingress/lease continuation; unrelated STIDs remain live.
 
 The current Template D3 reservation/fill machinery is a migration oracle for
-row recipes and cancellation tests only. It cannot coexist as a production
+row recipes and cancellation tests only. It cannot coexist as a canonical
 allocator after the bridge is enabled.
 
 ## 20. Stall and observability model
@@ -1289,7 +1289,7 @@ Release targets:
 
 ## 24. Migration from the current Chisel tree
 
-| Current component/assumption | Production action |
+| Current component/assumption | Canonical action |
 |---|---|
 | `D1InstructionDecodeStage` | Generalize to multi-instruction/multi-uop D1 and generated recipe metadata |
 | `D1DecodedLaneQueue` | Replace one-row drain with per-STID dense ingress and expansion buffering |
@@ -1297,13 +1297,13 @@ Release targets:
 | `DecodeRenameROBPath` | Decompose into D1, D2 planner, D3 publisher/RENU, and S1 retained output |
 | `DispatchROBAllocator` | Replace cursor allocation with virtual-tail token plus D3/S1 banked publisher |
 | `ROBEntryBank` | Promote to grouped/member-count ROB with provisional/published states and non-flush |
-| `ReducedCommitROB` | Legacy oracle only, then remove from production elaboration |
+| `ReducedCommitROB` | Legacy oracle only, then remove from canonical elaboration |
 | `GPRRenameCheckpoint` | Promote after staging FIFO, IQID/ready SMAP, banked MapQ, and four-STID API |
-| `ScalarTURenameBridge` | Move state into independent per-STID T/U production owners |
+| `ScalarTURenameBridge` | Move state into independent per-STID T/U canonical owners |
 | `StoreSplitPayload` | Retain pure transform; move atomic S1/S2 reservations to dispatch/IEX owners |
 | `BlockMarker*` standalone row path | Replace normal case with boundary-bit fusion; retain fallback and differential tests |
 | `ScalarIssueFabric` / reduced IQs | Replace OOO boundary with IEX S1 speculative-slot credits and S2/S3 protocol |
-| Template D3/shadow modules | Keep row-plan oracle temporarily; production templates use external CTU bridge |
+| Template D3/shadow modules | Keep row-plan oracle temporarily; canonical templates use external CTU bridge |
 | full-PC uop payload | Replace with checked PC base index + byte offset after PC-buffer parity closes |
 | two-STID assumptions | Generalize public parameters and tests to four STIDs |
 
@@ -1337,7 +1337,7 @@ Deliver per-STID D2/D3/S1 staging, shared combinational stage arbiters,
 Exit: 1/2/4-STID and instruction-width 2/4/6 elaboration passes; arbitration
 fairness and retained-output tests pass.
 
-### O2: production decode, expansion, and fusion
+### O2: canonical decode, expansion, and fusion
 
 Deliver generated recipe metadata, ordinary one-to-five-uop break, retained
 complex-break engine, boundary fusion, standalone fallback, and dense D2 input.
@@ -1352,8 +1352,8 @@ tracking, native BID/BROB integration, 64-entry PC buffer, and grouped commit.
 
 Implementation status: packet complete. The virtual planner, retained D2 row,
 D3 provisional allocator, S1 atomic grouped-ROB publication, exact member
-completion, retained grouped commit, production native BID/generation BROB,
-production 64-entry PC-base owner, and terminal coordinator are implemented.
+completion, retained grouped commit, canonical native BID/generation BROB,
+canonical 64-entry PC-base owner, and terminal coordinator are implemented.
 BROB publication and retirement share the grouped ROB terminal handshakes and
 preserve an exact cross-BID close-owner for in-body BSTART. The S1 request also
 makes PC bindings explicit. The PC owner provides fixed four-way STID
@@ -1369,7 +1369,7 @@ serialized while different STIDs may publish and commit concurrently.
 Exit: no ROB hole on stale plans; group/BID/PC wrap and exact-completion suites
 pass; no group crosses a BID or PC-release boundary.
 
-### O4: P/T/U production rename
+### O4: P/T/U canonical rename
 
 Deliver banked PTag free list and staging FIFOs, SMAP IQID/ready payload,
 RAW/WAW inlining, banked MapQ/CMAP recovery, and independent T/U owners.
@@ -1411,12 +1411,12 @@ and T/U MapQ rows together. No published T/U row is released by P commit.
 Stale D2 plans bypass rename resource gating only to reach D3's zero-mutation
 reject path. Same-cycle same-STID publish/reserve is supported by previewing the
 outgoing local lease in capacity, sequence, physical-tag, and source lookup.
-O4.4.2 adds an independent `OooProductionTURetire` owner rather than mixing
+O4.4.2 adds an independent `OooTURetire` owner rather than mixing
 retire-source and relation state into sequential allocation. Every logical uop
 is published into a per-STID source ring, including no-destination block-last
 rows. Retained ROB batches are matched exactly before ordered T pre-release, U
 pre-release, destination mark, pressure release, exact-block relation cleanup,
-and local block commit. `OooProductionTURename` alone continues to own T/U
+and local block commit. `OooTURename` alone continues to own T/U
 MapQ rows and physical tags; it accepts only exact wrap-qualified mark/dealloc
 commands and releases only a retired native-BID/BROB-generation head prefix.
 Explicit boundary-stop and implicit BROB close both drive the same exact block
@@ -1598,7 +1598,7 @@ without clearing a row or sending a redirect. Only the typed exact
 completion: R4 waits for both the exact typed O3 rebuild completion and the
 real `LinxCoreIfu.canonicalFlush` echo, including the IFU-allocated new epoch,
 in either order. `OooO3RenameCoordinator` also publishes the exact aborted
-request after every retained lower/scanner owner has drained. The production
+request after every retained lower/scanner owner has drained. The canonical
 IFU composition gives this applied-recovery redirect priority over the
 compatibility BRU-feedback queue and consumes an identical duplicate once.
 
@@ -1621,7 +1621,7 @@ explicit fail-closed boundary, not a CTU bypass.
 
 The OOO-side O7 contract is therefore closed. O9 must still instantiate the
 external recipe producer, connect it to the claim/plan/child ports in the
-production top, and retire the legacy direct-effect CTU path.
+canonical top, and retire the legacy direct-effect CTU path.
 
 Exit: recovery at every stage and template phase closes with zero cross-STID
 mutation; CTU has no direct RF/ROB/LSU architectural-effect port.
@@ -1655,7 +1655,7 @@ minutes to 47.046 seconds; the expanded three-test recovery suite is 232.166
 seconds.
 
 O8.2 replaces the bank-wide slot encoder with a reusable bounded hierarchical
-selector. `iqFreeSelectLeafEntries` defaults to four; production's 32-entry
+selector. `iqFreeSelectLeafEntries` defaults to four; canonical's 32-entry
 bank therefore selects across eight leaf-valid bits and then four local entry
 bits. Exact first-free order, older-prefix atomicity, bank write-port budgets,
 and the retained reservation identity remain unchanged. The 32-entry selector
@@ -1682,18 +1682,18 @@ design's ARM register classes or RID/BID age shortcuts remains forbidden.
 Exit: timing reports contain no unbounded free-list encoder, group prefix, or
 ready-loop path; all functional coverage remains closed after banking changes.
 
-### O9: production integration and promotion
+### O9: canonical integration and promotion
 
-Connect production IFU, CTU, IEX, BCTRL, ROB/BROB, and commit/recovery; remove
-reduced/shadow owners from the production hierarchy; run generated RTL,
+Connect canonical IFU, CTU, IEX, BCTRL, ROB/BROB, and commit/recovery; remove
+reduced/shadow owners from the canonical hierarchy; run generated RTL,
 QEMU/DUT, CoreMark, and Dhrystone promotion evidence.
 
 Exit: commit/stage traces match, four-thread stress passes, no forbidden owner
 is instantiated, and every release artifact records revisions/parameters/seeds.
 
-## 26. Production forbidden-instance and forbidden-contract gate
+## 26. Canonical forbidden-instance and forbidden-contract gate
 
-Production elaboration/CI fails if it finds:
+Canonical elaboration/CI fails if it finds:
 
 - a `Reduced*` architectural state owner;
 - physical ROB allocation at D1-to-D2 fire;
@@ -1736,4 +1736,4 @@ The review should explicitly approve:
 Once these decisions are approved, O0 and O1 are the correct starting point
 for the Chisel extension. Implementing width expansion before grouped identity,
 stage ownership, and the S1/S2 reservation contract are frozen would create a
-second migration rather than a production path.
+second migration rather than a canonical path.

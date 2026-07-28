@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`OooO3RenameCoordinator` is the production atomic seam between D2 virtual
+`OooO3RenameCoordinator` is the atomic seam between D2 virtual
 planning and the D3/S1 physical owners. It composes grouped ROB/BROB/PC
 reservation, PTag staging and P rename, independent T/U rename, dispatch
 reservation, IEX S1 publication, fast resolve, commit, and retained recovery.
@@ -54,7 +54,7 @@ The following outputs are read-only verification and integration visibility:
 
 They expose the real owner state to independent reference models. They are not
 alternate allocation inputs and must not be used to reconstruct a new tail or
-transaction identity in production glue.
+transaction identity in glue.
 
 ## Reference-model evidence
 

@@ -2,7 +2,7 @@ package linxcore.ooo
 
 import chisel3.util.log2Ceil
 
-/** Independent production OOO sizing contract.
+/** Independent OOO sizing contract.
   *
   * IFU fetch geometry deliberately does not appear here. The IFU may continue
   * to fetch four entries while the OOO ingress gathers 2, 4, or 6 fixed-width
@@ -147,7 +147,7 @@ final case class OooParams(
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
   require(iqClassCount == 8 && isPowerOfTwo(iqBankCount),
-    "production IQ class vector has eight classes and bank count must be a power of two")
+    "IQ class vector has eight classes and bank count must be a power of two")
   require(isPowerOfTwo(iqEntriesPerBank),
     "IQ entries per bank must be a power of two")
   require(iqWritePortsPerBank > 0, "every IQ bank needs a write port")
@@ -163,7 +163,7 @@ final case class OooParams(
     iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
     "IEX recovery scan width must be a power-of-two divisor of each IQ bank")
   require(iexWakeupPorts > 0,
-    "the production IEX boundary needs at least one wakeup port")
+    "the IEX boundary needs at least one wakeup port")
   require(maxArchitecturalParentRefs >= 3,
     "BSTART + carrier + BSTOP fusion needs three parent references")
   require(maxSourceOperands >= 4 && maxDestinationOperands >= 2,
@@ -171,7 +171,7 @@ final case class OooParams(
   require(maxDispatchWritesPerInstruction >= 2 && maxMemoryRequestsPerInstruction >= 2,
     "pair/store recipes need two dispatch writes and two memory requests")
   require(pcWidth == 64 && instructionWidth == 64,
-    "production OOO consumes 64-bit PC and fixed 64-bit instruction containers")
+    "OOO consumes 64-bit PC and fixed 64-bit instruction containers")
   require(instructionLengthWidth >= 4, "instruction length must encode 2/4/6/8 bytes")
   require(opcodeWidth == 12, "generated Linx opcode IDs are 12 bits")
   require(archRegWidth == 6, "architectural register IDs use the reg6 namespace")

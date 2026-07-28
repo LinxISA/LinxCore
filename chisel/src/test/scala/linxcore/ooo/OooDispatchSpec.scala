@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
-private object OooProductionDispatchSpec {
+private object OooDispatchSpec {
   final case class Token(
       uopClass: Int,
       bank: Int,
@@ -16,10 +16,10 @@ private object OooProductionDispatchSpec {
       childIndex: Int)
 }
 
-class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
-  import OooProductionDispatchSpec._
+class OooDispatchSpec extends AnyFunSuite with ChiselSim {
+  import OooDispatchSpec._
 
-  private def clear(dut: OooProductionDispatch): Unit = {
+  private def clear(dut: OooDispatch): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.reserveFire.poke(false.B)
@@ -35,7 +35,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeTransaction(
-      dut: OooProductionDispatch,
+      dut: OooDispatch,
       stid: Int,
       transactionId: Int,
       demands: Vector[Vector[Int]],
@@ -76,7 +76,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(true.B)
   }
 
-  private def capture(dut: OooProductionDispatch): Vector[Token] =
+  private def capture(dut: OooDispatch): Vector[Token] =
     (0 until dut.p.dispatchWidth).flatMap { lane =>
       val allocation = dut.io.prepared.allocations(lane)
       if (allocation.valid.peek().litToBoolean) {
@@ -107,7 +107,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     }
 
   private def release(
-      dut: OooProductionDispatch,
+      dut: OooDispatch,
       stid: Int,
       transactionId: Int,
       token: Token): Unit = {
@@ -131,7 +131,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def reserve(
-      dut: OooProductionDispatch,
+      dut: OooDispatch,
       stid: Int,
       transactionId: Int,
       demands: Vector[Vector[Int]]): Vector[Token] = {
@@ -147,7 +147,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def publish(
-      dut: OooProductionDispatch,
+      dut: OooDispatch,
       stid: Int,
       transactionId: Int,
       tokens: Vector[Token]): Unit = {
@@ -186,7 +186,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeRecoveryPlan(
-      dut: OooProductionDispatch,
+      dut: OooDispatch,
       stid: Int,
       pivotPhysicalMembers: Int,
       survivingPhysicalMembers: Int): Unit = {
@@ -221,7 +221,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionDispatch(p)) { dut =>
+    simulate(new OooDispatch(p)) { dut =>
       clear(dut)
       val zero = Vector.fill(p.iqClassCount)(0)
       val alu = zero.updated(0, 1)
@@ -286,7 +286,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionDispatch(p)) { dut =>
+    simulate(new OooDispatch(p)) { dut =>
       clear(dut)
       val zero = Vector.fill(p.iqClassCount)(0)
       val alu = zero.updated(0, 1)
@@ -333,7 +333,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionDispatch(p)) { dut =>
+    simulate(new OooDispatch(p)) { dut =>
       clear(dut)
       val alu = Vector.fill(p.iqClassCount)(0).updated(0, 1)
       val token = reserve(dut, stid = 0, transactionId = 0,
@@ -385,7 +385,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionDispatch(p)) { dut =>
+    simulate(new OooDispatch(p)) { dut =>
       clear(dut)
       val zero = Vector.fill(p.iqClassCount)(0)
       val twoAlu = zero.updated(0, 2)
@@ -449,7 +449,7 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
       pMapQDepthPerStid = 4,
       tuMapQDepthPerStid = 4,
       tuRetireSourceDepthPerStid = 16)
-    simulate(new OooProductionDispatch(p)) { dut =>
+    simulate(new OooDispatch(p)) { dut =>
       clear(dut)
       val fourAlu = Vector.fill(p.iqClassCount)(0).updated(0, 2)
       val demands = Vector(fourAlu, fourAlu)
@@ -466,14 +466,14 @@ class OooProductionDispatchSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("elaborates production dispatch at instruction widths 2 4 and 6") {
+  test("elaborates dispatch at instruction widths 2 4 and 6") {
     Seq(2, 4, 6).foreach { width =>
       val p = OooParams(
         instructionDecodeWidth = width,
         iqBankCount = 2,
         iqEntriesPerBank = 4,
         pMapQDepthPerStid = 4)
-      circt.stage.ChiselStage.emitSystemVerilog(new OooProductionDispatch(p))
+      circt.stage.ChiselStage.emitSystemVerilog(new OooDispatch(p))
     }
   }
 }
