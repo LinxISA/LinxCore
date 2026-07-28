@@ -81,14 +81,15 @@ promotion.
 
 | Packet | Status | Evidence | Remaining exit work |
 |---|---|---|---|
-| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/OOO bundle pages, generated 689-record opcode recipe audit, and exact S1/S2/S3 residency contract updated | P1/I1/I2 and global-cancel integration contracts |
+| O0 normative contracts | In progress | microarchitecture, block-control, pipeline-stage, CTU, common/OOO bundle pages, generated 689-record opcode recipe audit, exact S1/S2/S3 residency contract, and canonical P1/I1/I2 read-lane contract updated | global-cancel integration contract |
 | O1 packet family | Implemented | `OooParams`, exact identity/stage bundles, 2/4/6 width elaboration | conservation monitors beyond stage occupancy |
 | O1 four-thread shell | Implemented | private per-STID D2/D3/S1 rows, stable shared grants, 1/2/4 STID tests | WFI/inactive inputs and bounded starvation counters |
 | O2 decode/expand/fuse | Implemented | schema-v2 generated recipes; fixed-four-wide IFU to per-STID 2/4/6 raw reservoir; parameterized canonical D1; exact P/T/U and pair operands; precise traps; exact CTU/complex diverted-parent sidebands; same/cross-cycle three-parent boundary fusion; focused UT/IT | the catalog has zero dispatch-owned complex forms, so unresolved macro/atomic forms remain fail-closed; the external CTU recipe producer is connected at O9 |
 | O3 grouped ROB/BROB/PC | Implemented | D2 virtual grouping and retention; D3 provisional claims; atomic S1 grouped ROB; exact member completion/commit; native BID/generation BROB; fixed-partition 64-entry byte-offset PC buffer; one shared reserve/publish/commit/recovery coordinator; O4 RENU and O5/O6 integration; O8.3d ROB bank/subbank address partition; O8.3e retained two-pass bounded recovery scan; O8.3f registered head token followed by retained payload read; O8.3g four-bank PC address partition with six-read preservation; O8.3h retained bounded PC recovery scan and row-repair masks; O8.3i fair retained bounded non-flush scan with atomic publication; O8.3j three explicit two-read base-payload replicas with common write/free broadcast | PC metadata/write macro realization remains |
 | O4 P/T/U RENU | Implemented | generation-qualified banked PTag staging/free-list owner; per-STID provisional leases; P SMAP prepare/publication; bundle-wide RAW/WAW inlining; ordered exact P MapQ rows in parameterized low-index subbanks; registered commit/recovery row selection before PTag return and pointer update; serialized CMAP/old-PTag commit walk; independent per-STID T/U sequential reserve, same-bundle relative bypass, wrap-qualified local tags, exact local MapQ publication; every-logical-uop retire sidecar; ordered T/U relation-CMAP mark/deallocation; post-clean exact block release; atomic P/T/U commit-owner start; exact recovery suffix authority; killed-current-PTag return and survivor replay; exact T/U suffix/cursor rollback; three-owner atomic coordinator; four-STID randomized sequential reference; exact producer IQ class/bank/entry binding and real IEX S1 transfer | close default-width synthesis timing |
 | O5.1 dispatch reservations | Implemented | generated demand compaction; exact class/bank/write-port/slot reservation leases; free/provisional/published conservation; full-owner publication/release validation; O3/O4 common-fire integration; O8.2 bounded hierarchical first-free selection; focused UT/IT | add occupancy/in-flight/PTag bank cost steering and safe-mode policy |
-| O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | P1/I1/I2 arbitration, speculative cancel/retry, RF reads, and execution stay in later IEX packets |
+| O5.2 IEX residency | Implemented | exact Decoupled O3-to-S1 transfer; per-STID retained S1; pending-target exclusion; fair atomic S2 bind; registered S3 pick enable; compact scheduling row plus memory-backed execution sidecar; generation-qualified P/T/U ready scoreboards; wakeup N to pick N+1; exact dispatch-coupled release; focused UT/IT | multi-pick policy remains later IEX scope |
+| I0.1 P1/I1/I2 read lane | Implemented | exact selected-row validation; retained atomic P/T/U plus PC read attempt; explicit grant/deny; denial-to-repick; partial-response rejection; retained I2 data under backpressure; exact recovery cancellation; real PC-buffer IT | multi-lane picker/arbiter, speculative in-flight owner, canonical RF/bypass, and E1 terminal release remain |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
@@ -923,9 +924,36 @@ cancels it. Therefore rename may safely publish `producerIqid` at D3/S1 without
 depending on an unreserved future allocation.
 
 Physical IQ valid/readiness now belongs to IEX. Age-matrix pick, speculative
-issue recovery, P1/I1/I2, RF arbitration, and execution remain later IEX
-owners. OOO consumes reservations and acknowledgments but never mirrors IQ
-residency.
+in-flight state, multi-lane RF arbitration, and execution remain later IEX
+owners. I0.1 implements one reusable P1/I1/I2 transaction lane without
+copying IQ residency into it. OOO consumes reservations and acknowledgments
+but never mirrors IQ residency.
+
+### 14.4 P1, I1, and I2
+
+I0.1 establishes the first canonical post-IQ stage contract:
+
+- P1 accepts one exact selected `OooIexIssueRow`. It validates member, BID,
+  reservation, primary-parent, ready-source, and optional PC-token shape. A
+  malformed producer is consumed as a typed reject rather than wedging the
+  interface.
+- I1 retains that row and presents one atomic read attempt covering every
+  valid P/T/U source plus the optional parent PC token. One explicit arbiter
+  decision grants the entire attempt or denies it for exact repick. A grant
+  with any missing readyless response is rejected; partial operand state never
+  reaches I2.
+- I2 retains the full row, source values, and reconstructed PC under
+  backpressure. Recovery applies exact grouped-ROB membership independently to
+  I1 and I2. The lane never releases the physical IQ row; only a later
+  non-cancellable execution handoff may issue the exact release.
+
+The current PC buffer returns `base + byteOffset` at its readyless I1 read
+port, and I2 registers that full PC. The ARM reference notes instead place the
+base read in I1 and the add in I2. Both preserve a data-bearing I2 boundary;
+the Linx implementation keeps reconstruction with the canonical PC owner.
+Replacing the readyless arrays with synchronous macros requires an explicit
+registered response phase and must not turn the request path into hidden
+state.
 
 ## 15. Fast-resolve plan
 
@@ -1510,9 +1538,11 @@ Boolean permit.
 
 Exit: focused class/bank/port, split, target-collision, retained-stage, wakeup,
 release, and real O3-to-IEX integration crosses pass; no ready loop; target and
-payload remain stable through arbitrary S1 backpressure. Multi-pick pipe
-arbitration and speculative issue cancellation are later IEX scope, not O5.2
-residency claims.
+payload remain stable through arbitrary S1 backpressure. Multi-pick policy is
+later IEX scope, not an O5.2 residency claim. I0.1 separately closes the
+reusable one-lane P1/I1/I2 transaction, including read denial, partial-response
+rejection, retained output, and recovery cancellation; multi-lane arbitration
+and speculative in-flight bookkeeping remain open.
 
 ### O6: fast resolve and non-flush
 
@@ -1788,8 +1818,9 @@ Final packet gates pass with `OooParamsSpec` 3/3, `OooPcBufferSpec` 15/15,
 
 The remaining O8.3 work realizes multirow metadata/read-payload write fanout
 through a selected array or macro boundary and closes width timing. A
-synchronous macro may require the subsequent IEX I1 request/I2 response
-contract rather than the current readyless read boundary. The bounded
+synchronous macro may require a registered response phase inside the now
+explicit IEX I1/I2 contract rather than the current readyless read boundary.
+The bounded
 retirement-width commit eligibility path still needs timing evidence rather
 than being hidden behind the registered payload boundary.
 Occupancy/in-flight cost steering, PTag-bank coupling, one-cycle-ahead policy,

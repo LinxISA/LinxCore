@@ -15,6 +15,10 @@ Source and test owners:
 - `chisel/src/test/scala/linxcore/ooo/OooIexRecoverySpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
 
+The first downstream read-stage packet is documented separately in
+[`OooIexP1I2Lane`](OooIexP1I2Lane.md). It consumes a selected joined row but
+does not take ownership of the physical IQ entry.
+
 ## Stage ownership
 
 | Stage | Retained owner | Terminal condition |
@@ -106,20 +110,23 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- P1/I1/I2 retained execution-pipe stages and cross-pipe arbitration.
 - Age-matrix or equivalent oldest-ready pick with same-STID exact ROB order
   and fair cross-STID selection.
-- Speculative issue inflight state, cancel/retry, and the rule that only a
- non-cancellable I2 terminal event releases the physical row.
-- RF read-port arbitration, operand bypass, and result/wakeup buses.
+- Multi-lane P1 arbitration and speculative in-flight bookkeeping around the
+  implemented single-lane P1/I1/I2 transaction.
+- Canonical P/T/U RF owners, shared read-port arbitration, operand bypass, and
+  result/wakeup buses.
+- The terminal handoff rule that releases the physical row only after a
+  non-cancellable I2 consumer accepts it.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
   safe-mode thresholds, and default-geometry timing/area closure. The
   unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.
 - Per-class multi-pick liveness counters and coverage closure.
 
 The legacy `ReducedScalarIssue*` modules remain compatibility evidence until a
-later IEX packet replaces their P1/I1/I2 and top-level consumers. They are not
-used as the semantic authority for this module.
+later IEX packet replaces their top-level consumers. `OooIexP1I2Lane` now
+replaces their read-stage semantics for the canonical path. They are not used
+as the semantic authority for this module.
 
 ## Verification
 

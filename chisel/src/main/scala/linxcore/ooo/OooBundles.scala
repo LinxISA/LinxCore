@@ -893,6 +893,58 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def closeBefore = payload.closeBefore
 }
 
+/** One exact resident IQ row selected into the canonical P1 read lane. */
+class OooIexP1Request(val p: OooParams = OooParams()) extends Bundle {
+  val row = new OooIexIssueRow(p)
+  val pcReadRequired = Bool()
+  val pcParentIndex = UInt(math.max(1,
+    chisel3.util.log2Ceil(p.maxArchitecturalParentRefs)).W)
+}
+
+/** Atomic I1 request presented to the shared P/T/U and PC read arbiters. */
+class OooIexI1ReadAttempt(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val sourceMask = UInt(p.maxSourceOperands.W)
+  val sources = Vec(p.maxSourceOperands, new OooIexSourceState(p))
+  val pcRequired = Bool()
+  val pcToken = new PcBufferToken(p)
+}
+
+/** Retained I2 payload after one atomic I1 read-port grant. */
+class OooIexI2Transaction(val p: OooParams = OooParams()) extends Bundle {
+  val row = new OooIexIssueRow(p)
+  val sourceMask = UInt(p.maxSourceOperands.W)
+  val sourceData = Vec(p.maxSourceOperands, UInt(p.pcWidth.W))
+  val pcValid = Bool()
+  val pc = UInt(p.pcWidth.W)
+}
+
+class OooIexReadRepick(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+}
+
+class OooIexReadReject(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+  val sourceMask = UInt(p.maxSourceOperands.W)
+  val sourceDataValid = UInt(p.maxSourceOperands.W)
+  val pcRequired = Bool()
+  val pcDataValid = Bool()
+}
+
+class OooIexP1Reject(val p: OooParams = OooParams()) extends Bundle {
+  val member = new RobMemberKey(p)
+  val reservation = new DispatchReservation(p)
+  val identityExact = Bool()
+  val sourcesReady = Bool()
+  val pcTokenExact = Bool()
+}
+
 /** Exact S2 acknowledgment for the earlier retained S1 transaction. */
 class OooIexS2BindAck(val p: OooParams = OooParams()) extends Bundle {
   val peId = UInt(p.peIdWidth.W)
