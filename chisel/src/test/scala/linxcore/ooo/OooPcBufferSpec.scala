@@ -264,10 +264,15 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       dut.io.usedBases(1).expect(1.U)
       dut.io.currentValid(1).expect(true.B)
       dut.io.current(1).index.expect(16.U)
-      dut.io.readTokens(0).valid.poke(true.B)
-      dut.io.readTokens(0).index.poke(17.U)
-      dut.io.readTokens(0).allocationEpoch.poke(0.U)
-      dut.io.readValid(0).expect(false.B)
+      for (port <- 0 until p.pcReadPorts) {
+        dut.io.readTokens(port).valid.poke(true.B)
+        dut.io.readTokens(port).index.poke(17.U)
+        dut.io.readTokens(port).allocationEpoch.poke(0.U)
+        dut.io.readValid(port).expect(false.B)
+        dut.io.readTokens(port).index.poke(16.U)
+        dut.io.readValid(port).expect(true.B)
+        dut.io.readPc(port).expect(100.U)
+      }
 
       pokePrepare(dut, stid = 1, transactionId = 2, firstRid = 2,
         pcs = Seq(1000))
@@ -559,6 +564,33 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       pokeCommit(dut, stid = 0, groups = Seq((4, 4, 0)))
       commit(dut)
       dut.io.usedBases(0).expect(0.U)
+    }
+  }
+
+  test("broadcasts base allocation and release across three fixed two-read replicas") {
+    val p = OooParams(instructionDecodeWidth = 4, pcBufferEntries = 64,
+      pcBankCount = 4, pcReadPorts = 6, pcReadReplicaCount = 3)
+    simulate(new OooPcBuffer(p)) { dut =>
+      clear(dut)
+      pokePrepare(dut, stid = 2, transactionId = 0, firstRid = 0,
+        pcs = Seq(4096), releases = Set(0))
+      publish(dut)
+
+      for (port <- 0 until p.pcReadPorts) {
+        dut.io.readTokens(port).valid.poke(true.B)
+        dut.io.readTokens(port).index.poke(32.U)
+        dut.io.readTokens(port).byteOffset.poke((port * 2).U)
+        dut.io.readTokens(port).allocationEpoch.poke(0.U)
+        dut.io.readValid(port).expect(true.B)
+        dut.io.readPc(port).expect((4096 + port * 2).U)
+      }
+
+      pokeCommit(dut, stid = 2, groups = Seq((0, 32, 0)))
+      commit(dut)
+      for (port <- 0 until p.pcReadPorts) {
+        dut.io.readValid(port).expect(false.B)
+        dut.io.readPc(port).expect(0.U)
+      }
     }
   }
 

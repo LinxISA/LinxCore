@@ -93,6 +93,6 @@ issue count as post-recovery occupancy.
 - occupancy plus retained-inflight bank cost and destination-PTag-aware
   steering;
 - one-cycle-ahead steering and configurable safe-mode thresholds;
-- physical PC metadata/read realization and grouped-ROB commit/non-flush
+- physical PC metadata/write macro realization and grouped-ROB commit
   prefix timing;
 - P1/I1/I2 and execution-side release integration.

@@ -1273,6 +1273,15 @@ class OooPcBaseEntry(val p: OooParams = OooParams()) extends Bundle {
   val closeCommitted = Bool()
 }
 
+/** Minimal PC-base payload replicated for fixed readyless consumer read ports. */
+class OooPcReadEntry(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val index = UInt(p.pcBufferIndexWidth.W)
+  val allocationEpoch = UInt(p.reservationEpochWidth.W)
+  val base = UInt(p.pcWidth.W)
+}
+
 class OooPcPreparedBindings(val p: OooParams = OooParams()) extends Bundle {
   val validMask = UInt(p.instructionDecodeWidth.W)
   val groupTokens = Vec(p.instructionDecodeWidth, new PcBufferToken(p))

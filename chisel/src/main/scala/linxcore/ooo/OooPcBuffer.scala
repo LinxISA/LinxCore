@@ -36,7 +36,9 @@ class OooPcBufferIO(val p: OooParams = OooParams()) extends Bundle {
   * prepare result; bases become visible only on the shared S1 publication.
   * Commit consumes exact ROB-group/token prefixes and frees only an ordered
   * partition-head prefix whose close owners have committed. Low local-index
-  * bits select one physical address bank and higher bits select its row; the
+  * bits select one physical address bank and higher bits select its row. A
+  * canonical metadata table owns allocation/commit/recovery while minimal
+  * base-payload replicas provide fixed readyless consumer read ports. The
   * token's global index and allocation epoch remain the public identity.
   */
 class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
@@ -52,6 +54,12 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     VecInit(Seq.fill(p.pcBankCount)(
       VecInit(Seq.fill(p.pcRowsPerBank)(
         0.U.asTypeOf(new OooPcBaseEntry(p)))))))))
+  val readReplicas = RegInit(VecInit(Seq.fill(p.pcReadReplicaCount)(
+    VecInit(Seq.fill(p.stidCount)(
+      VecInit(Seq.fill(p.pcBankCount)(
+        VecInit(Seq.fill(p.pcRowsPerBank)(
+          0.U.asTypeOf(new OooPcReadEntry(p)))))))))))
+  dontTouch(readReplicas)
   private def sizedLocal(local: UInt): UInt =
     local.pad(p.pcPartitionIndexWidth)
   private def pcBankIndex(local: UInt): UInt =
@@ -63,6 +71,11 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
       p.pcBankSelectionBits)
   private def rowAt(stid: UInt, local: UInt): OooPcBaseEntry =
     table(stid)(pcBankIndex(local))(pcBankRowIndex(local))
+  private def readRowAt(
+      replica: Int,
+      stid: UInt,
+      local: UInt): OooPcReadEntry =
+    readReplicas(replica)(stid)(pcBankIndex(local))(pcBankRowIndex(local))
   val usedBases = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.pcPartitionCountWidth.W))))
   val headLocal = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.pcPartitionIndexWidth.W))))
   val headEpoch = RegInit(VecInit(Seq.fill(p.stidCount)(0.U(p.reservationEpochWidth.W))))
@@ -849,6 +862,15 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
         row.nextCommitRobGroup :=
           io.prepare.bits.transaction.groups(firstIndex).key
         row.liveRobGroups := groupHits
+        for (replica <- 0 until p.pcReadReplicaCount) {
+          val readRow = readRowAt(replica, stid.U, local.U)
+          readRow.valid := true.B
+          readRow.stid := stid.U
+          readRow.index := groupTokens(firstIndex).index
+          readRow.allocationEpoch :=
+            groupTokens(firstIndex).allocationEpoch
+          readRow.base := groupBases(firstIndex)
+        }
       }.otherwise {
         row.liveRobGroups := row.liveRobGroups + groupHits
       }
@@ -881,6 +903,10 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     }
     when(commitHere && freedHere) {
       row := 0.U.asTypeOf(new OooPcBaseEntry(p))
+      for (replica <- 0 until p.pcReadReplicaCount) {
+        readRowAt(replica, stid.U, local.U) :=
+          0.U.asTypeOf(new OooPcReadEntry(p))
+      }
     }
   }
 
@@ -923,6 +949,10 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     }
     when(recoveryApply && freedHere) {
       row := 0.U.asTypeOf(new OooPcBaseEntry(p))
+      for (replica <- 0 until p.pcReadReplicaCount) {
+        readRowAt(replica, safeRecoveryStid, local.U) :=
+          0.U.asTypeOf(new OooPcReadEntry(p))
+      }
     }
   }
 
@@ -942,10 +972,11 @@ class OooPcBuffer(val p: OooParams = OooParams()) extends Module {
     val readStidInRange = readStidRaw < p.stidCount.U
     val readStid = readStidRaw(p.stidWidth - 1, 0)
     val safeReadStid = Mux(readStidInRange, readStid, 0.U)
-    val row = rowAt(safeReadStid, localIndex(token))
+    val replica = port % p.pcReadReplicaCount
+    val row = readRowAt(replica, safeReadStid, localIndex(token))
     io.readValid(port) := token.valid && readStidInRange && row.valid &&
-      row.stid === readStid && row.token.index === token.index &&
-      row.token.allocationEpoch === token.allocationEpoch
+      row.stid === readStid && row.index === token.index &&
+      row.allocationEpoch === token.allocationEpoch
     io.readPc(port) := Mux(
       io.readValid(port),
       row.base + token.byteOffset.pad(p.pcWidth),

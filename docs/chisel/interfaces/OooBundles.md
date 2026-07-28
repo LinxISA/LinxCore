@@ -269,13 +269,20 @@ dependency.
 head, tail, allocation epoch, live count, and current-base state; PC-buffer age
 is never inferred by comparing a global index.
 
-Each partition is physically addressed as `[bank][row]`. The low local-index
-bits select one of four default banks and the higher bits select one of four
-rows. `pcBankCount` is a power-of-two divisor of the partition; write and
-retirement prefix widths must fit within the bank count. One `rowAt` transform
-serves every preparation, publication, commit, recovery, and consumer read, so
-the public global token and ordered-ring semantics remain independent of the
-storage topology.
+Each partition's canonical metadata is physically addressed as `[bank][row]`.
+The low local-index bits select one of four default banks and the higher bits
+select one of four rows. `pcBankCount` is a power-of-two divisor of the
+partition; write and retirement prefix widths must fit within the bank count.
+One address transform serves every preparation, publication, commit, recovery,
+and consumer read, so the public global token and ordered-ring semantics remain
+independent of the storage topology.
+
+`OooPcReadEntry` is the minimal replicated consumer payload
+`{valid, STID, index, allocationEpoch, base}`. Byte offset remains a read-
+request field and is not stored in every replica. The default six logical reads
+map at elaboration onto three explicit replicas with two ports each.
+Publication and exact commit/recovery free broadcast to every replica;
+metadata-only lifecycle state is not copied.
 
 The module observes the retained D3 reservation without mutating state. It
 collects every architectural parent PC assigned to each ROB group, proves the
@@ -1024,8 +1031,9 @@ instructions, offset overflow, predicted-taken close, implicit close ownership,
 three-write admission, malformed uop/group inverse mapping, skipped/duplicate
 ROB-group rejection, four fixed STID partitions, allocation-epoch wrap, stale
 read rejection, consecutive allocation across bank and row boundaries, six
-simultaneous reads including same-bank/different-row consumers, and 1/2/4-bank
-elaboration with 2/4/6 decode widths.
+simultaneous reads including same-bank/different-row consumers, fixed
+three-replica allocation/commit/recovery coherence, and 1/2/4-bank elaboration
+with 2/4/6 decode widths.
 The O3 coordinator tests cover retained prepare views, publication backpressure,
 one common publication/commit fire, exact resident-generation binding, PC read
 tokens, malformed-PC zero-mutation rejection, commit retention, different-STID

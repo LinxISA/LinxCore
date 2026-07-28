@@ -21,8 +21,8 @@ returns `readValid = false` and zero data.
 
 ## Physical address boundary
 
-Storage is addressed as `[stid][bank][row]`. Let `local` be the index within one
-STID partition:
+Canonical allocation/commit/recovery metadata is addressed as
+`[stid][bank][row]`. Let `local` be the index within one STID partition:
 
 ```text
 bank = local[log2(pcBankCount)-1:0]
@@ -37,11 +37,21 @@ commit, recovery, and consumer read goes through the same `rowAt(stid, local)`
 decoder; the logical ring order and token encoding do not depend on the number
 of banks.
 
-All six readyless logical read ports remain independent. In particular, two
-ports may read different rows in the same bank in one cycle. The current Chisel
-storage therefore preserves the complete multi-read contract and does not
-silently arbitrate or invalidate a legal consumer. Mapping these logical ports
-onto replicated arrays or a specific SRAM macro is a later physical step.
+Consumer base payload is physically separated from that metadata. The minimal
+`OooPcReadEntry` contains only
+`{valid, STID, index, allocationEpoch, base}` and is stored as
+`[replica][stid][bank][row]`. The default six readyless ports use three
+replicas, with compile-time mapping `replica = port % 3`; ports 0/3, 1/4, and
+2/5 are therefore the two fixed reads of replicas 0, 1, and 2. Parameters must
+evenly distribute every logical port and permit no more than two ports per
+replica. There is no runtime read arbitration or invalidation.
+
+Allocation publication writes the new payload to every replica on the common
+S1 fire. Ordered commit free and exact recovery free clear every replica on the
+same owner mutation. Metadata-only changes remain canonical and are not
+replicated. `dontTouch` preserves the three explicit arrays in generated RTL;
+the structure is a replicated register/array boundary, not yet a claim about a
+specific foundry SRAM wrapper or its read latency.
 
 ## Allocation, commit, and recovery
 
@@ -97,6 +107,8 @@ It is not evidence for a bank count or port realization.
   peer-STID publication, and a non-default two-group scan slice;
 - consecutive bases across banks and rows, including six simultaneous reads
   where two ports target different rows of the same bank;
+- three fixed two-read replicas, all-replica allocation visibility, ordered
+  commit clear, exact recovery clear, and surviving-row coherence;
 - 1/2/4-bank elaboration paired with 2/4/6 decode widths.
 
 `OooRobBrobPcCoordinatorSpec`, `OooO3RenameCoordinatorSpec`,
@@ -106,10 +118,11 @@ IEX and real-IFU recovery boundaries.
 
 ## Remaining timing work
 
-The recovery compare/read depth is now bounded by the configured scan slice,
-and apply no longer recreates the killed-window CAM. This is still not a final
-physical timing claim: common apply may fan out to multiple metadata rows, the
-six readyless reads need a concrete replicated-array or SRAM realization, and
-default-width synthesis timing has not yet selected those macros. The grouped
-ROB's separate commit/non-flush prefix discovery and dispatch cost steering
-also remain O8 work.
+The recovery compare/read depth is bounded by the configured scan slice, apply
+does not recreate the killed-window CAM, and the six logical reads now have an
+explicit three-replica/two-read structure. This is still not a final physical
+timing claim: common apply may fan out to multiple metadata and read-payload
+rows, a foundry macro wrapper may require an I1 request/I2 response contract,
+and default-width synthesis timing has not selected those macros. The grouped
+ROB's separate commit prefix discovery and dispatch cost steering also remain
+O8 work.

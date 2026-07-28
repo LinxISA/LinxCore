@@ -45,6 +45,7 @@ final case class OooParams(
     pcOffsetWidth: Int = 7,
     pcWritePorts: Int = 3,
     pcReadPorts: Int = 6,
+    pcReadReplicaCount: Int = 3,
     iqClassCount: Int = 8,
     iqBankCount: Int = 8,
     iqEntriesPerBank: Int = 32,
@@ -173,6 +174,11 @@ final case class OooParams(
     "PC recovery scan width must be a power-of-two divisor of the ROB window")
   require(pcOffsetWidth >= 7, "PC byte offset must cover variable 2/4/6/8-byte rows")
   require(pcWritePorts > 0 && pcReadPorts > 0, "PC buffer port counts must be positive")
+  require(pcReadReplicaCount > 0 &&
+    pcReadReplicaCount <= pcReadPorts &&
+    pcReadPorts % pcReadReplicaCount == 0 &&
+    pcReadPorts / pcReadReplicaCount <= 2,
+    "PC-buffer read replicas must evenly map every logical port onto at most two reads per replica")
   require(pcWritePorts <= pcBankCount && retireGroupWidth <= pcBankCount,
     "PC-buffer banks must cover one allocation and retirement prefix without a bank collision")
   require(iqClassCount == 8 && isPowerOfTwo(iqBankCount),
@@ -262,6 +268,7 @@ final case class OooParams(
   def pcBankIndexWidth: Int = math.max(1, pcBankSelectionBits)
   def pcRowsPerBank: Int = pcEntriesPerStid / pcBankCount
   def pcBankRowIndexWidth: Int = math.max(1, log2Ceil(pcRowsPerBank))
+  def pcReadPortsPerReplica: Int = pcReadPorts / pcReadReplicaCount
   def pcRecoveryScanCycles: Int =
     robGroupsPerStid / pcRecoveryScanGroupsPerCycle
   def pcRecoveryScanCursorWidth: Int =
