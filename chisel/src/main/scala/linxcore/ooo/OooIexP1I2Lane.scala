@@ -79,7 +79,7 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     p1Row.uopKey.primaryParent.peId === p1Row.peId &&
     p1Row.uopKey.primaryParent.stid === p1Row.stid
   val p1SourcesReady = p1Row.sources.map(source =>
-    !source.valid || source.ready).reduce(_ && _)
+    !source.valid || source.ready || source.specReady).reduce(_ && _)
   val p1ParentIndexInRange =
     io.p1.bits.pcParentIndex < p.maxArchitecturalParentRefs.U
   val safeP1ParentIndex = Mux(

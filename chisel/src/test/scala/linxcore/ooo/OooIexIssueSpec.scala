@@ -456,6 +456,116 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("keeps speculative load readiness IQ-local and generation-qualified") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      pokeTransaction(dut, 0, 20,
+        Vector(Allocation(0, 0, 0, 0, 0, 0)),
+        pSourceReady = Some(false))
+      query(dut, 0, 0, 0)
+      advanceToS3(dut)
+      dut.io.queryPickable.expect(false.B)
+
+      val wakeup = dut.io.wakeup(0)
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.SpeculativeLoad)
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(3.U)
+      wakeup.bits.load.valid.poke(true.B)
+      pokeMember(wakeup.bits.load.producer, 0, memberIndex = 5,
+        residentGeneration = 9)
+      wakeup.bits.load.generation.poke(7.U)
+      wakeup.valid.poke(true.B)
+      dut.io.queryPickable.expect(false.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+
+      dut.io.queryRow.sources(0).ready.expect(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(true.B)
+      dut.io.queryRow.sources(0).load.valid.expect(true.B)
+      dut.io.queryRow.sources(0).load.generation.expect(7.U)
+      dut.io.queryRow.sources(0).load.producer.memberIndex.expect(5.U)
+      dut.io.queryPickable.expect(true.B)
+
+      // A consumer installed after the pulse must not inherit speculative
+      // readiness from the non-speculative P ready table.
+      pokeTransaction(dut, 0, 21,
+        Vector(Allocation(0, 0, 0, 0, 0, 1)),
+        pSourceReady = Some(false))
+      query(dut, 0, 0, 1)
+      advanceToS3(dut)
+      dut.io.queryRow.sources(0).ready.expect(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(false.B)
+      dut.io.queryPickable.expect(false.B)
+
+      // A stable wakeup promotes both resident consumers and is the only
+      // event allowed to populate the global ready table.
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.Committed)
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(3.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.io.queryRow.sources(0).ready.expect(true.B)
+      dut.io.queryRow.sources(0).specReady.expect(false.B)
+      dut.io.queryPickable.expect(true.B)
+      query(dut, 0, 0, 0)
+      dut.io.queryRow.sources(0).ready.expect(true.B)
+      dut.io.queryRow.sources(0).specReady.expect(false.B)
+      dut.io.queryRow.sources(0).load.valid.expect(false.B)
+
+      // The S2 bind edge has an explicit capture path because the ordinary
+      // resident-row wakeup loop still sees the slot as free on that edge.
+      pokeTransaction(dut, 0, 22,
+        Vector(Allocation(0, 0, 0, 0, 0, 2)),
+        pSourceReady = Some(false), pSourceGeneration = 4)
+      query(dut, 0, 0, 2)
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.io.s2Bind.valid.expect(true.B)
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.SpeculativeLoad)
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(6.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(4.U)
+      wakeup.bits.load.valid.poke(true.B)
+      pokeMember(wakeup.bits.load.producer, 0, memberIndex = 6,
+        residentGeneration = 10)
+      wakeup.bits.load.generation.poke(8.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.io.queryState.expect(OooIexIssueSlotState.BoundS2)
+      dut.clock.step()
+      dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
+      dut.io.queryRow.sources(0).ready.expect(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(true.B)
+      dut.io.queryRow.sources(0).load.generation.expect(8.U)
+      dut.io.queryPickable.expect(true.B)
+    }
+  }
+
   test("retains independent STID S1 rows and binds them fairly") {
     val p = OooParams(
       instructionDecodeWidth = 2,

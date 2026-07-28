@@ -616,8 +616,14 @@ reservationEpoch}`. Rows remain `BoundS2` for a complete cycle. The registered
 S3 event then changes them to `ResidentS3`, which is the only pick-eligible
 state. Registered source-ready bits are the sole pick input: a generation-
 qualified P/T/U wakeup observed in cycle N can affect eligibility only in
-cycle N+1. Generation-qualified P and per-STID T/U ready scoreboards retain
-that event for consumers dispatched after the one-cycle wakeup pulse; a new
+cycle N+1. `OooIexSourceState.ready` is stable non-speculative readiness;
+`specReady` is IQ-local cancellable readiness and carries an exact
+`{producer RobMemberKey, loadGeneration}`. Only `Committed` wakeups populate
+the generation-qualified P and per-STID T/U ready scoreboards for consumers
+dispatched after the one-cycle pulse. `SpeculativeLoad` wakeups mutate only
+matching resident rows (or an S2 row captured on the same edge), so a later
+consumer cannot inherit a prediction as RF readiness. A committed wakeup
+promotes a matching source and clears stale speculative provenance. A new
 destination allocation invalidates the matching physical-tag entry before it
 can be reused.
 
@@ -634,9 +640,10 @@ from `Documents/a.txt`; rename and commit owners remain authoritative.
 The current release seam accepts only a future exact non-cancellable I2
 terminal event. Full member identity and the original dispatch reservation
 must match, and physical-row removal shares one fire with dispatch-slot return.
-P1/I1/I2 pipe arbitration, speculative issue cancel/retry, age-matrix pick,
-operand RF arbitration, and execution remain explicit later packets; O5.2 does
-not claim them.
+P1/I1/I2 pipe arbitration, age-based pick, and atomic P/T/U/PC RF reads are
+implemented. Speculative-ready ownership is now canonical, while bypass data
+selection and exact load-miss poison/cancel/repick remain explicit later
+packets.
 
 O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
 `iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical

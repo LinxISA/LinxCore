@@ -766,8 +766,26 @@ class OooIexS1Transaction(val p: OooParams = OooParams()) extends Bundle {
   val dispatch = new OooDispatchReservationLease(p)
 }
 
+/** Whether a wakeup is architecturally stable or still load-cancellable. */
+object OooIexWakeupKind extends ChiselEnum {
+  val Committed, SpeculativeLoad = Value
+}
+
+/** Exact identity of one speculative load attempt.
+  *
+  * A numerical attempt generation is never authoritative by itself.  The
+  * producer ROB member prevents an old load slot/generation from poisoning a
+  * different producer after wrap or reuse.
+  */
+class OooIexLoadGeneration(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val producer = new RobMemberKey(p)
+  val generation = UInt(p.loadGenerationWidth.W)
+}
+
 /** One generation-qualified producer wakeup observed by resident IQ rows. */
 class OooIexWakeup(val p: OooParams = OooParams()) extends Bundle {
+  val kind = OooIexWakeupKind()
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
   val operandClass = OperandClass()
@@ -775,17 +793,22 @@ class OooIexWakeup(val p: OooParams = OooParams()) extends Bundle {
   val ptagGeneration = UInt(p.pTagGenerationWidth.W)
   val localTag = UInt(p.localTagWidth.W)
   val localSequence = new OooLocalSeq(p)
+  val load = new OooIexLoadGeneration(p)
 }
 
 /** Source identity and registered readiness owned by one physical IQ row. */
 class OooIexSourceState(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
+  // `ready` is non-speculative and may be initialized from the RF/global
+  // scoreboard. `specReady` is IQ-local and can be withdrawn by load replay.
   val ready = Bool()
+  val specReady = Bool()
   val operandClass = OperandClass()
   val ptag = UInt(p.pTagWidth.W)
   val ptagGeneration = UInt(p.pTagGenerationWidth.W)
   val localTag = UInt(p.localTagWidth.W)
   val localSequence = new OooLocalSeq(p)
+  val load = new OooIexLoadGeneration(p)
 }
 
 /** Destination identity retained by IEX without copying rename-owner state. */

@@ -65,6 +65,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexTWritePorts == 4)
     assert(p.iexUWritePorts == 4)
     assert(p.iexWakeupPorts == 8)
+    assert(p.loadGenerationWidth == 8)
   }
 
   test("instruction decode widths 2 4 and 6 are independent elaboration points") {
@@ -108,6 +109,7 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(tPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(uPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(iexWakeupPorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(loadGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 9))
     assertThrows[IllegalArgumentException](OooParams(iexPReadPorts = 0))

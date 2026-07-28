@@ -333,6 +333,23 @@ ROB age；不同 STID 用 round-robin，禁止跨 STID 比 RID。
 - recovery 精确清 killed entry；retained entry 的 source state和
   inflight owner token保持一致。
 
+### 5.4.1 I0.7a 已实现：speculative-ready owner
+
+`OooIexIssue` 已将 source readiness 拆成两类：
+
+- `ready` 是 RF/global scoreboard 可继承的 non-spec readiness；
+- `specReady` 是 physical IQ row 私有、可撤销的 load-dependent readiness；
+- speculative wakeup 必须带完整 producer `RobMemberKey` 和独立
+  `loadGeneration`，数字 generation 不能脱离 producer identity 单独授权；
+- speculative wakeup 不写 P/T/U ready scoreboard，后绑定 consumer 不会
+  继承该脉冲；committed wakeup 才提升 global ready，并清掉 row 中旧的
+  speculative provenance；
+- picker、query 和 P1 只从注册状态判断 `ready || specReady`，仍保持
+  wakeup N、pick N+1。
+
+本包只关闭 ready ownership。I0.7b 负责 bypass data/provenance 选择，
+I0.7c 负责 load miss cancel、lane poison、清 `specReady` 和 exact repick。
+
 ### 5.5 迁移
 
 1. 先把 release identity 扩成 exact key。
@@ -407,8 +424,9 @@ I1 arbiter按同 STID age、跨 STID RR 分配 6 个 GPR read ports。一个 uop
 ### 6.5 迁移与验收
 
 read group、exact token、多 domain 原子端口仲裁和P/T/U真实data owner组合
-已经完成。下一步连接正式PC owner，再扩bypass/replay validation和
-I2-to-E owner transfer。验收必须覆盖：
+已经完成；IQ-local speculative-ready与精确load generation也已完成。
+下一步连接正式PC owner，再扩bypass/replay validation和I2-to-E owner
+transfer。验收必须覆盖：
 
 - 两 bank simultaneous pick；
 - 6R contention、全授予/全拒绝；

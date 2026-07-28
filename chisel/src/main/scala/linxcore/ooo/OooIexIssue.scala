@@ -363,7 +363,15 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       assert(false.B,
         "global recovery must quiesce target-STID wakeups before IEX prepare")
     }
+    when(wakeup.valid && wakeup.bits.kind ===
+        OooIexWakeupKind.SpeculativeLoad) {
+      assert(wakeup.bits.load.valid && wakeup.bits.load.producer.group.valid &&
+        wakeup.bits.load.producer.bid.valid &&
+        wakeup.bits.load.producer.group.stid === wakeup.bits.stid,
+        "speculative IEX wakeup requires an exact same-STID load producer")
+    }
     when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.kind === OooIexWakeupKind.Committed &&
         wakeup.bits.operandClass === OperandClass.P &&
         ptagInRange) {
       pReadyValid(safePtag) := true.B
@@ -372,6 +380,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       pReadyEpoch(safePtag) := wakeup.bits.epoch
     }
     when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.kind === OooIexWakeupKind.Committed &&
         wakeup.bits.operandClass === OperandClass.T &&
         wakeStidInRange && ttagInRange &&
         wakeup.bits.localSequence.valid) {
@@ -381,6 +390,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       tReadyEpoch(safeWakeStid)(safeTtag) := wakeup.bits.epoch
     }
     when(wakeup.valid && !wakeupFrozen &&
+        wakeup.bits.kind === OooIexWakeupKind.Committed &&
         wakeup.bits.operandClass === OperandClass.U &&
         wakeStidInRange && utagInRange &&
         wakeup.bits.localSequence.valid) {
@@ -505,6 +515,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           val pReadyNow = io.wakeup.map { wakeup =>
             wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
               wakeup.bits.epoch === s2Dispatch.epoch &&
+              wakeup.bits.kind === OooIexWakeupKind.Committed &&
               wakeup.bits.operandClass === OperandClass.P &&
               wakeup.bits.ptag === pSource.ptag &&
               wakeup.bits.ptagGeneration === pSource.ptagGeneration
@@ -512,6 +523,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           val tReadyNow = io.wakeup.map { wakeup =>
             wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
               wakeup.bits.epoch === s2Dispatch.epoch &&
+              wakeup.bits.kind === OooIexWakeupKind.Committed &&
               wakeup.bits.operandClass === OperandClass.T &&
               wakeup.bits.localTag === localSource.physicalTag &&
               wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
@@ -519,22 +531,55 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           val uReadyNow = io.wakeup.map { wakeup =>
             wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
               wakeup.bits.epoch === s2Dispatch.epoch &&
+              wakeup.bits.kind === OooIexWakeupKind.Committed &&
               wakeup.bits.operandClass === OperandClass.U &&
               wakeup.bits.localTag === localSource.physicalTag &&
               wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
           }.reduce(_ || _)
-          source.valid := decodedSource.valid
-          source.ready := !decodedSource.valid ||
+          val nonSpecReady = !decodedSource.valid ||
             (isP && (pSource.ready || pReadyRecorded || pReadyNow)) ||
             (isT && (tReadyRecorded || tReadyNow)) ||
             (isU && (uReadyRecorded || uReadyNow))
+          val specWakeMatches = VecInit(io.wakeup.map { wakeup =>
+            val pMatch = isP && wakeup.bits.operandClass === OperandClass.P &&
+              wakeup.bits.ptag === pSource.ptag &&
+              wakeup.bits.ptagGeneration === pSource.ptagGeneration
+            val tMatch = isT && wakeup.bits.operandClass === OperandClass.T &&
+              wakeup.bits.localTag === localSource.physicalTag &&
+              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
+            val uMatch = isU && wakeup.bits.operandClass === OperandClass.U &&
+              wakeup.bits.localTag === localSource.physicalTag &&
+              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
+            wakeup.valid && wakeup.bits.kind ===
+              OooIexWakeupKind.SpeculativeLoad && wakeup.bits.load.valid &&
+              wakeup.bits.stid === s2Dispatch.stid &&
+              wakeup.bits.epoch === s2Dispatch.epoch &&
+              (pMatch || tMatch || uMatch)
+          })
+          val specLoadNow = Wire(new OooIexLoadGeneration(p))
+          specLoadNow := 0.U.asTypeOf(specLoadNow)
+          for (port <- 0 until p.iexWakeupPorts) {
+            when(specWakeMatches(port)) {
+              specLoadNow := io.wakeup(port).bits.load
+            }
+          }
+          assert(PopCount(specWakeMatches) <= 1.U,
+            "one source cannot accept multiple speculative load generations")
+          source.valid := decodedSource.valid
+          source.ready := nonSpecReady
+          source.specReady := decodedSource.valid && !nonSpecReady &&
+            specWakeMatches.asUInt.orR
           source.operandClass := decodedSource.operandClass
           source.ptag := pSource.ptag
           source.ptagGeneration := pSource.ptagGeneration
           source.localTag := localSource.physicalTag
           source.localSequence := localSource.sequence
+          source.load := Mux(source.specReady, specLoadNow,
+            0.U.asTypeOf(specLoadNow))
           when(decodedSource.valid && !(isP || isT || isU)) {
             source.ready := false.B
+            source.specReady := false.B
+            source.load := 0.U.asTypeOf(source.load)
           }
         }
         for (destinationIndex <- 0 until p.maxDestinationOperands) {
@@ -612,12 +657,39 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       wake.valid && wake.bits.stid === scheduleRows(uopClass)(bank)(entry).stid &&
         wake.bits.epoch === scheduleRows(uopClass)(bank)(entry).epoch &&
         (pMatch || tMatch || uMatch)
-    }.reduce(_ || _)
+    }
+    val committedWakeMatch = VecInit(wakeMatch.zip(io.wakeup).map {
+      case (matches, wake) => matches &&
+        wake.bits.kind === OooIexWakeupKind.Committed
+    })
+    val speculativeWakeMatch = VecInit(wakeMatch.zip(io.wakeup).map {
+      case (matches, wake) => matches &&
+        wake.bits.kind === OooIexWakeupKind.SpeculativeLoad &&
+        wake.bits.load.valid
+    })
+    val speculativeLoad = Wire(new OooIexLoadGeneration(p))
+    speculativeLoad := 0.U.asTypeOf(speculativeLoad)
+    for (port <- 0 until p.iexWakeupPorts) {
+      when(speculativeWakeMatch(port)) {
+        speculativeLoad := io.wakeup(port).bits.load
+      }
+    }
+    assert(PopCount(speculativeWakeMatch) <= 1.U,
+      "one resident source cannot accept multiple speculative load generations")
     when(slotState(uopClass)(bank)(entry) =/= OooIexIssueSlotState.Free &&
         !(recoveryFreeze &&
           scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
-        source.valid && !source.ready && wakeMatch) {
+        source.valid && committedWakeMatch.asUInt.orR) {
       source.ready := true.B
+      source.specReady := false.B
+      source.load := 0.U.asTypeOf(source.load)
+    }.elsewhen(slotState(uopClass)(bank)(entry) =/=
+        OooIexIssueSlotState.Free &&
+        !(recoveryFreeze &&
+          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
+        source.valid && !source.ready && speculativeWakeMatch.asUInt.orR) {
+      source.specReady := true.B
+      source.load := speculativeLoad
     }
   }
 
@@ -1091,7 +1163,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
          entry <- 0 until p.iqEntriesPerBank) {
       val row = scheduleRows(pickerClassIndex)(bank)(entry)
       val sourcesReady = row.sources.map(source =>
-        !source.valid || source.ready).reduce(_ && _)
+        !source.valid || source.ready || source.specReady).reduce(_ && _)
       val candidate = picker.io.candidates(bank)(entry)
       candidate.eligible :=
         slotState(pickerClassIndex)(bank)(entry) ===
@@ -1220,7 +1292,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     io.queryRows(domain).payload :=
       queryPayloads(safeQueryClass)(safeQueryBank)
     val querySourcesReady = io.queryRows(domain).sources.map { source =>
-      !source.valid || source.ready
+      !source.valid || source.ready || source.specReady
     }.reduce(_ && _)
     io.queryPickables(domain) := queryClassInRange && queryBankInRange &&
       queryEntryInRange &&
