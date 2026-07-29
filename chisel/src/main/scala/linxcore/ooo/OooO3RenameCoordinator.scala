@@ -59,6 +59,11 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val pcRecoveryRejected = Valid(new OooPcRecoveryReject(p))
   val dispatchRecoveryRejected = Valid(new OooDispatchRecoveryReject(p))
   val fastRecoveryRejected = Valid(new OooFastResolveRecoveryReject(p))
+  val memoryOrderPrepareRejected = Valid(new OooMemoryOrderPrepareReject(p))
+  val memoryOrderRecoveryRejected =
+    Valid(new OooMemoryOrderRecoveryReject(p))
+  val memoryOrderNext = Output(Vec(p.stidCount,
+    new OooMemoryIdState(p)))
   val dispatchPrepared = Output(new OooDispatchReservationLease(p))
   val dispatchFreeEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
@@ -133,6 +138,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val turetire = Module(new OooTURetire(p))
   val dispatch = Module(new OooDispatch(p))
   val fast = Module(new OooFastResolve(p))
+  val memoryOrder = Module(new OooMemoryOrderAllocator(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val globalRecoveryState = RegInit(OooGlobalRecoveryState.Idle)
@@ -171,8 +177,10 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turename.io.reservePrepare.bits := io.reserve.bits
   dispatch.io.prepare.valid := reserveOffer
   dispatch.io.prepare.bits := io.reserve.bits
+  memoryOrder.io.prepare.valid := reserveOffer
+  memoryOrder.io.prepare.bits := io.reserve.bits
   val renameResourcesReady = ptag.io.prepareReady && turename.io.reserveReady &&
-    dispatch.io.prepareReady
+    dispatch.io.prepareReady && memoryOrder.io.prepareReady
   // Stale virtual plans are terminally consumed by D3 even when their obsolete
   // P/T/U shape would fail current resource checks. The stale pulse suppresses
   // both physical lease fires below, so this bypass cannot mutate rename state.
@@ -188,6 +196,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   turename.io.reserveFire := io.reserve.fire &&
     !o3.io.d3StaleRejected.valid
   dispatch.io.reserveFire := io.reserve.fire &&
+    !o3.io.d3StaleRejected.valid
+  memoryOrder.io.reserveFire := io.reserve.fire &&
     !o3.io.d3StaleRejected.valid
 
   o3.io.cancel := io.cancel
@@ -242,6 +252,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   dispatch.io.recoveryPrepare.bits := residencyRecoveryPlan
   fast.io.recoveryPrepare.valid := prepareGlobalOwners
   fast.io.recoveryPrepare.bits := residencyRecoveryPlan
+  memoryOrder.io.recoveryPrepare.valid := prepareGlobalOwners
+  memoryOrder.io.recoveryPrepare.bits := o3.io.recoveryPrepared
   io.iexRecoveryPrepare.valid := prepareGlobalOwners
   io.iexRecoveryPrepare.bits := residencyRecoveryPlan
 
@@ -258,18 +270,21 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     turename.io.recoveryAuthorize.ready
   val allGlobalOwnersPrepared = prepareGlobalOwners &&
     dispatch.io.recoveryPrepareReady && fast.io.recoveryPrepareReady &&
+    memoryOrder.io.recoveryPrepareReady &&
     iexRecoveryPreparedExact && renameRecoveryAuthorityExact &&
     renameRecoveryPrepared
   val globalRecoveryApply = allGlobalOwnersPrepared
   o3.io.recoveryApply := globalRecoveryApply
   dispatch.io.recoveryFire := globalRecoveryApply
   fast.io.recoveryFire := globalRecoveryApply
+  memoryOrder.io.recoveryFire := globalRecoveryApply
   io.iexRecoveryFire := globalRecoveryApply
   io.recoveryApplied.valid := globalRecoveryApply
   io.recoveryApplied.bits := globalRecoveryRequest
   when(globalRecoveryApply) {
     assert(o3.io.recoveryApplied.valid && dispatch.io.recoveryPrepared.valid &&
-      fast.io.recoveryPrepared.valid && io.iexRecoveryPrepared.valid,
+      fast.io.recoveryPrepared.valid &&
+      memoryOrder.io.recoveryPrepared.valid && io.iexRecoveryPrepared.valid,
       "all lower and upper physical owners must share one recovery apply")
     assert(turetire.io.recoveryAuthorize.fire &&
       prename.io.recoveryAuthorize.fire && turename.io.recoveryAuthorize.fire,
@@ -285,6 +300,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     o3.io.pcRecoveryRejected.valid
   val upperRecoveryRejected = turetire.io.recoveryRejected.valid ||
     dispatch.io.recoveryRejected.valid || fast.io.recoveryRejected.valid ||
+    memoryOrder.io.recoveryRejected.valid ||
     io.iexRecoveryRejected.valid
   val anyGlobalRecoveryRejected = globalRecoveryActive &&
     (lowerRecoveryRejected || upperRecoveryRejected)
@@ -296,6 +312,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   ptag.io.cancel := io.cancel
   turename.io.cancel := io.cancel
   dispatch.io.cancel := io.cancel
+  memoryOrder.io.cancel := io.cancel
   for (stid <- 0 until p.stidCount) {
     o3.io.publishEligible(stid) := !prename.io.commitBusy ||
       prename.io.commitStid =/= stid.U
@@ -314,6 +331,10 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   prename.io.ptagLease := ptag.io.provisional(safePreparedStid)
   prename.io.dispatchLease := dispatch.io.provisional(safePreparedStid)
   io.dispatchPrepared := dispatch.io.provisional(safePreparedStid)
+  o3.io.memoryOrder := memoryOrder.io.provisional(safePreparedStid)
+  memoryOrder.io.publishPrepare.valid := o3.io.preparedValid
+  memoryOrder.io.publishPrepare.bits :=
+    o3.io.prepared.request.reservation
 
   val tuPublication = Wire(new OooTUPublicationRequest(p))
   tuPublication := 0.U.asTypeOf(tuPublication)
@@ -477,7 +498,8 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   }
 
   io.preparedValid := o3.io.preparedValid && prename.io.prepareReady &&
-    turename.io.publicationReady && turetire.io.publicationReady
+    turename.io.publicationReady && turetire.io.publicationReady &&
+    memoryOrder.io.publishReady
   io.prepared := prename.io.prepared
   io.tuPrepared := turename.io.prepared
   // The real IEX residency owner and typed fast-resolve owner observe the
@@ -487,15 +509,19 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.iexS1.bits.pRename := prename.io.prepared
   io.iexS1.bits.tuRename := turename.io.prepared
   io.iexS1.bits.dispatch := dispatch.io.provisional(safePreparedStid)
+  io.iexS1.bits.memoryOrder :=
+    memoryOrder.io.provisional(safePreparedStid)
   fast.io.s1.valid := io.preparedValid && io.iexS1.ready
   fast.io.s1.bits := io.iexS1.bits
   o3.io.publishPermit := io.iexS1.ready && fast.io.s1.ready &&
     prename.io.prepareReady &&
-    turename.io.publicationReady && turetire.io.publicationReady
+    turename.io.publicationReady && turetire.io.publicationReady &&
+    memoryOrder.io.publishReady
   prename.io.publishFire := o3.io.publishFire
   turename.io.publishFire := o3.io.publishFire
   turetire.io.publishFire := o3.io.publishFire
   io.publishFire := o3.io.publishFire
+  memoryOrder.io.publishFire := o3.io.publishFire
   when(io.iexS1.valid || fast.io.s1.valid || o3.io.publishFire) {
     assert(io.iexS1.fire === o3.io.publishFire,
       "OOO publication and the exact IEX S1 transfer must share one fire")
@@ -664,4 +690,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.pcRecoveryRejected := o3.io.pcRecoveryRejected
   io.dispatchRecoveryRejected := dispatch.io.recoveryRejected
   io.fastRecoveryRejected := fast.io.recoveryRejected
+  io.memoryOrderPrepareRejected := memoryOrder.io.prepareRejected
+  io.memoryOrderRecoveryRejected := memoryOrder.io.recoveryRejected
+  io.memoryOrderNext := memoryOrder.io.next
 }

@@ -78,6 +78,16 @@ available resource. This is required for D2 to represent and reject a
 six-instruction window containing 12 pair destinations, dispatch writes, or
 memory requests instead of truncating the demand to the eight-wide capacity.
 
+`OooMemoryIdState` is the independent per-STID `{full LSID, full load ID,
+full store ID}` tail. `OooMemoryOrderReservationLease` assigns every active
+logical uop a before/after snapshot and, for memory uops, one consecutive
+request range. The full serials are program-order identities, never physical
+LHQ/STQ indices. D3 reserve, common S1 publication, private cancel, and global
+recovery are all-or-none owner events. `OooRobPhysicalGroupRecord` retains the
+group and per-logical-uop memory tails so partial-pivot recovery can distinguish
+the old published tail from the newly trimmed tail without reconstructing an
+ID from RID, BID, or queue occupancy.
+
 ## O2 canonical D1
 
 `OooRawInstructionGroup` is a dense same-PE/STID/epoch prefix of fixed-64-bit
@@ -612,8 +622,8 @@ for capacity, reservation, port-budget, and later S1-to-S3 handoff behavior.
 
 `OooIexIssue` owns one retained S1 transaction per STID and one
 shared round-robin S2 writer. S1 validates the redundant O3, P rename, T/U
-rename, and dispatch identities, exact dense allocation shape, target ranges,
-and all split children before accepting the transaction. A separate pending-S1
+rename, dispatch, and memory-order identities, exact dense allocation shape,
+target ranges, and all split children before accepting the transaction. A separate pending-S1
 claim bit prevents two STIDs from reserving the same physical target before
 either row reaches S2; this claim is admission state, not physical IQ
 residency.
@@ -639,7 +649,8 @@ The public `OooIexIssueRow` joins two physical domains. The resettable
 `OooIexScheduleRow` keeps exact ROB member/reservation identity plus physical
 P/T/U source/destination tags and is the only state scanned by wakeup, pick,
 release, and recovery. `OooIexPayloadSidecar` keeps opcode/recipe, split-child
-index, primary prediction, PC-buffer tokens, and boundary/template/trap
+index, the logical uop's full memory-order allocation, primary prediction,
+PC-buffer tokens, and boundary/template/trap
 controls in stable-slot memory and is read only for the selected query. It
 deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
 state into every IQ entry. This applies the critical/uncritical separation

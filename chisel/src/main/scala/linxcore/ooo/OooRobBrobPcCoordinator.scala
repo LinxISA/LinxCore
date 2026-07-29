@@ -7,6 +7,7 @@ class OooRobBrobPcCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
   val cancel = Input(Vec(p.stidCount, Bool()))
   val publishEligible = Input(Vec(p.stidCount, Bool()))
+  val memoryOrder = Input(new OooMemoryOrderReservationLease(p))
 
   // Later RENU/dispatch owners inspect this immutable D3 view and assert the
   // permit only when their own reservations can join the same publication.
@@ -132,11 +133,54 @@ class OooRobBrobPcCoordinator(val p: OooParams = OooParams()) extends Module {
     binding.residentGeneration :=
       residentGeneration(stid)(group.key.ridSlot) + 1.U
     binding.initiallyCompletedMembers := 0.U
+    binding.memoryOrderValid := io.memoryOrder.valid
+    binding.memoryBefore := io.memoryOrder.before
+    binding.memoryAfter := io.memoryOrder.before
+    for (uopIndex <- 0 until p.decodedUopWidth) {
+      val logical = group.logicalUopMask(uopIndex)
+      binding.logicalMemoryAfter(uopIndex) := Mux(logical,
+        io.memoryOrder.uops(uopIndex).after,
+        0.U.asTypeOf(new OooMemoryIdState(p)))
+      when(logical && uopIndex.U === group.firstLogicalUop) {
+        binding.memoryBefore := io.memoryOrder.uops(uopIndex).before
+      }
+      when(logical) {
+        binding.memoryAfter := io.memoryOrder.uops(uopIndex).after
+      }
+    }
   }
+
+  val memoryOrderIdentityExact = io.memoryOrder.valid &&
+    io.memoryOrder.peId === d3.io.out.bits.transaction.plan.peId &&
+    io.memoryOrder.stid === d3.io.out.bits.transaction.plan.stid &&
+    io.memoryOrder.epoch === d3.io.out.bits.transaction.plan.epoch &&
+    io.memoryOrder.transactionId ===
+      d3.io.out.bits.transaction.plan.transactionId &&
+    io.memoryOrder.uopMask === d3.io.out.bits.transaction.plan.uopMask
+  val memoryOrderUopShapeExact = (0 until p.decodedUopWidth).map { uopIndex =>
+    val active = d3.io.out.bits.transaction.plan.uopMask(uopIndex)
+    val allocation = io.memoryOrder.uops(uopIndex)
+    val expectedBefore = if (uopIndex == 0) io.memoryOrder.before
+    else io.memoryOrder.uops(uopIndex - 1).after
+    allocation.valid === active &&
+      allocation.before.asUInt === expectedBefore.asUInt
+  }.reduce(_ && _)
+  val memoryOrderRequired =
+    d3.io.out.bits.transaction.plan.demand.loadIds.orR ||
+      d3.io.out.bits.transaction.plan.demand.storeIds.orR
+  val memoryOrderExact = memoryOrderIdentityExact &&
+    memoryOrderUopShapeExact &&
+    io.memoryOrder.after.asUInt ===
+      io.memoryOrder.uops(p.decodedUopWidth - 1).after.asUInt
+  // Direct owner-level tests which predate the memory-order owner may omit a
+  // lease for a transaction with no memory demand. Canonical composition
+  // always supplies the valid full-tail lease, including non-memory groups.
+  val memoryOrderAccepted = memoryOrderExact ||
+    (!memoryOrderRequired && !io.memoryOrder.valid)
 
   rob.io.publish.bits := publishRequest
   val ownerPrepareReady = brob.io.prepareReady && pc.io.prepareReady &&
-    rob.io.publish.ready
+    rob.io.publish.ready && memoryOrderAccepted
   io.preparedValid := d3.io.out.valid && ownerPrepareReady
   io.prepared.request := publishRequest
   io.prepared.parentPcTokens := pc.io.prepared.parentTokens

@@ -1,10 +1,12 @@
 package linxcore.ooo
 
 import chisel3._
+import chisel3.simulator.HasSimulator
 import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.{Decoupled, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 import org.scalatest.funsuite.AnyFunSuite
+import svsim.verilator.Backend
 
 class OooO3IexIntegrationHarnessIO(val p: OooParams) extends Bundle {
   val reserve = Flipped(Decoupled(new OooD2GroupedTransaction(p)))
@@ -22,6 +24,8 @@ class OooO3IexIntegrationHarnessIO(val p: OooParams) extends Bundle {
   val queryPickable = Output(Bool())
   val queryMember = Output(new RobMemberKey(p))
   val queryReservation = Output(new DispatchReservation(p))
+  val queryMemoryOrder = Output(new OooMemoryOrderUopAllocation(p))
+  val memoryOrderNext = Output(Vec(p.stidCount, new OooMemoryIdState(p)))
   val dispatchPublishedEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val robOccupiedGroups = Output(Vec(p.stidCount,
@@ -94,12 +98,23 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   io.queryPickable := issue.io.queryPickable
   io.queryMember := issue.io.queryRow.member
   io.queryReservation := issue.io.queryRow.reservation
+  io.queryMemoryOrder := issue.io.queryRow.memoryOrder
+  io.memoryOrderNext := coordinator.io.memoryOrderNext
   io.dispatchPublishedEntries := coordinator.io.dispatchPublishedEntries
   io.robOccupiedGroups := coordinator.io.robOccupiedGroups
   io.mapQUsed := coordinator.io.mapQUsed
 }
 
 class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
+  private implicit val boundedVerilator: HasSimulator =
+    HasSimulator.simulators.verilator(verilatorSettings =
+      Backend.CompilationSettings.default
+        .withOutputSplit(Some(2000))
+        .withOutputSplitCFuncs(Some(100))
+        .withParallelism(Some(
+          Backend.CompilationSettings.Parallelism.Different.default
+            .withBuild(Some(1)).withVerilate(Some(1)))))
+
   private def clear(dut: OooO3IexIntegrationHarness): Unit = {
     dut.io.reserve.valid.poke(false.B)
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
@@ -127,12 +142,14 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
     transaction.plan.firstVirtualGroup.ridGeneration.poke(0.U)
     transaction.plan.demand.pDestinations.poke(1.U)
     transaction.plan.demand.mapQRows.poke(1.U)
-    transaction.plan.demand.dispatchWritesByClass(0).poke(1.U)
+    transaction.plan.demand.dispatchWritesByClass(2).poke(1.U)
+    transaction.plan.demand.loadIds.poke(1.U)
 
     transaction.decoded.peId.poke(3.U)
     transaction.decoded.stid.poke(0.U)
     transaction.decoded.epoch.poke(5.U)
     transaction.decoded.uopMask.poke(1.U)
+    transaction.decoded.demand.loadIds.poke(1.U)
     transaction.groupMask.poke(1.U)
 
     val group = transaction.groups(0)
@@ -157,9 +174,12 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
     uop.opcode.poke(42.U)
     uop.recipe.valid.poke(true.B)
     uop.recipe.opcode.poke(42.U)
-    uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
+    uop.recipe.dispatchClass.poke(OooDispatchClass.Agu.U)
     uop.recipe.dispatchWrites.poke(1.U)
-    uop.recipe.dispatchDemand(0).poke(1.U)
+    uop.recipe.dispatchDemand(2).poke(1.U)
+    uop.recipe.memoryRequestCount.poke(1.U)
+    uop.memory.valid.poke(true.B)
+    uop.memory.isLoad.poke(true.B)
     uop.plannedChildCount.poke(1.U)
     uop.identity.parentCount.poke(1.U)
     uop.identity.parents(0).key.valid.poke(true.B)
@@ -224,13 +244,13 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.publishFire.expect(true.B)
       dut.clock.step() // exact O3/RENU/dispatch/IEX-S1 common fire
-      dut.io.dispatchPublishedEntries(0)(0).expect(1.U)
+      dut.io.dispatchPublishedEntries(2)(0).expect(1.U)
       dut.io.s2Bind.valid.expect(true.B)
       dut.clock.step() // S2 physical row bind
       dut.io.s3Enable.valid.expect(true.B)
       dut.clock.step() // S3 pick enable
 
-      dut.io.query.uopClass.poke(OooUopClass.Alu)
+      dut.io.query.uopClass.poke(OooUopClass.Agu)
       dut.io.query.bank.poke(0.U)
       dut.io.query.entry.poke(0.U)
       dut.io.queryState.expect(OooIexIssueSlotState.ResidentS3)
@@ -240,8 +260,18 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryReservation.valid.expect(true.B)
       dut.io.queryReservation.writePort.expect(0.U)
       dut.io.queryReservation.reservationEpoch.expect(1.U)
+      dut.io.queryMemoryOrder.valid.expect(true.B)
+      dut.io.queryMemoryOrder.memoryValid.expect(true.B)
+      dut.io.queryMemoryOrder.isLoad.expect(true.B)
+      dut.io.queryMemoryOrder.requestCount.expect(1.U)
+      dut.io.queryMemoryOrder.firstLsid.expect(0.U)
+      dut.io.queryMemoryOrder.firstTypeId.expect(0.U)
+      dut.io.queryMemoryOrder.after.lsid.expect(1.U)
+      dut.io.queryMemoryOrder.after.loadId.expect(1.U)
+      dut.io.memoryOrderNext(0).lsid.expect(1.U)
+      dut.io.memoryOrderNext(0).loadId.expect(1.U)
 
-      dut.io.dispatchPublishedEntries(0)(0).expect(1.U)
+      dut.io.dispatchPublishedEntries(2)(0).expect(1.U)
       dut.io.robOccupiedGroups(0).expect(1.U)
       dut.io.mapQUsed(0).expect(1.U)
 
@@ -266,6 +296,8 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.dispatchPublishedEntries(0)(0).expect(0.U)
       dut.io.robOccupiedGroups(0).expect(0.U)
       dut.io.mapQUsed(0).expect(0.U)
+      dut.io.memoryOrderNext(0).lsid.expect(0.U)
+      dut.io.memoryOrderNext(0).loadId.expect(0.U)
     }
   }
 }

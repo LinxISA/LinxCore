@@ -23,3 +23,10 @@ if ! command -v sbt >/dev/null 2>&1; then
   echo "error: sbt is required for Chisel; install sbt and rerun" >&2
   exit 2
 fi
+
+LINX_CHISEL_SBT_MEM_MB="${LINX_CHISEL_SBT_MEM_MB:-4096}"
+if [[ ! "${LINX_CHISEL_SBT_MEM_MB}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: LINX_CHISEL_SBT_MEM_MB must be a positive integer" >&2
+  exit 2
+fi
+export LINX_CHISEL_SBT_MEM_MB

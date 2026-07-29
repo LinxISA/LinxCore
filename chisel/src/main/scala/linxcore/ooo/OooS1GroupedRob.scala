@@ -325,6 +325,10 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
             .preciseTrap
       }).asUInt
       row.logicalNonFlushNever := groupLogicalNonFlushNever(groupIndex)
+      row.memoryOrderValid := binding.memoryOrderValid
+      row.memoryBefore := binding.memoryBefore
+      row.memoryAfter := binding.memoryAfter
+      row.logicalMemoryAfter := binding.logicalMemoryAfter
       for (uopIndex <- 0 until p.decodedUopWidth) {
         val decoded = io.publish.bits.reservation.transaction.decoded
         val uop = decoded.uops(uopIndex)
@@ -504,6 +508,15 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
     recoveryPivot.logicalPreciseTrap & recoverySurvivingLogical.asUInt
   recoverySurvivingPivot.logicalNonFlushNever :=
     recoveryPivot.logicalNonFlushNever & recoverySurvivingLogical.asUInt
+  val recoverySurvivingMemoryAfter = Wire(new OooMemoryIdState(p))
+  recoverySurvivingMemoryAfter := recoveryPivot.memoryBefore
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    when(recoverySurvivingLogical(uopIndex)) {
+      recoverySurvivingMemoryAfter :=
+        recoveryPivot.logicalMemoryAfter(uopIndex)
+    }
+  }
+  recoverySurvivingPivot.memoryAfter := recoverySurvivingMemoryAfter
   for (uopIndex <- 0 until p.decodedUopWidth) {
     when(!recoverySurvivingLogical(uopIndex)) {
       recoverySurvivingPivot.logicalMemberBase(uopIndex) := 0.U
@@ -511,6 +524,8 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       recoverySurvivingPivot.logicalPMapQRows(uopIndex) := 0.U
       recoverySurvivingPivot.logicalArchitecturalParentCount(uopIndex) := 0.U
       recoverySurvivingPivot.logicalNonFlushRequiredProofs(uopIndex) := 0.U
+      recoverySurvivingPivot.logicalMemoryAfter(uopIndex) :=
+        0.U.asTypeOf(new OooMemoryIdState(p))
     }
   }
   val recoveryNewOccupied = recoveryPivotOffset +

@@ -173,6 +173,8 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
     val physicalCounts = Seq(3, 1, 1)
     val pMapRows = Seq(2, 0, 0)
     val parentCounts = Seq(2, 1, 1)
+    val memoryBefore = Seq(0, 2, 3)
+    val memoryAfter = Seq(2, 3, 4)
     for (groupIndex <- 0 until 3) {
       val absoluteSlot = firstSlot + groupIndex
       val group = transaction.groups(groupIndex)
@@ -195,6 +197,11 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       binding.brob.bid.value.poke(7.U)
       binding.brob.generation.poke(3.U)
       binding.residentGeneration.poke(5.U)
+      binding.memoryOrderValid.poke(true.B)
+      binding.memoryBefore.lsid.poke(memoryBefore(groupIndex).U)
+      binding.memoryBefore.storeId.poke(memoryBefore(groupIndex).U)
+      binding.memoryAfter.lsid.poke(memoryAfter(groupIndex).U)
+      binding.memoryAfter.storeId.poke(memoryAfter(groupIndex).U)
     }
 
     for (uopIndex <- 0 until 4) {
@@ -219,6 +226,9 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
         uop.destinations(0).kind.poke(DestinationKind.Gpr)
         uop.destinations(0).atag.poke((uopIndex + 1).U)
       }
+      val binding = dut.io.publish.bits.bindings(groupIndexes(uopIndex))
+      binding.logicalMemoryAfter(uopIndex).lsid.poke((uopIndex + 1).U)
+      binding.logicalMemoryAfter(uopIndex).storeId.poke((uopIndex + 1).U)
     }
     dut.io.publish.valid.poke(true.B)
   }
@@ -907,9 +917,11 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepared.pivotOffset.expect(0.U)
       dut.io.recoveryPrepared.pivot.physicalMemberCount.expect(3.U)
       dut.io.recoveryPrepared.pivot.logicalUopMask.expect(3.U)
+      dut.io.recoveryPrepared.pivot.memoryAfter.lsid.expect(2.U)
       dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
       dut.io.recoveryPrepared.survivingPivot.physicalMemberCount.expect(1.U)
       dut.io.recoveryPrepared.survivingPivot.logicalUopMask.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.memoryAfter.lsid.expect(1.U)
       dut.io.recoveryPrepared.survivingTailValid.expect(true.B)
       dut.io.recoveryPrepared.survivingTail.key.ridSlot.expect(0.U)
       dut.io.recoveryPrepared.survivingPivot.pMapQRows.expect(1.U)
@@ -919,7 +931,9 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepared.firstKilledGroup.valid.expect(true.B)
       dut.io.recoveryPrepared.firstKilledGroup.ridSlot.expect(1.U)
       dut.io.recoveryPrepared.killedGroups(0).key.ridSlot.expect(1.U)
+      dut.io.recoveryPrepared.killedGroups(0).memoryBefore.lsid.expect(2.U)
       dut.io.recoveryPrepared.killedGroups(1).key.ridSlot.expect(2.U)
+      dut.io.recoveryPrepared.killedGroups(1).memoryAfter.lsid.expect(4.U)
       dut.io.recoveryPrepared.oldTail.ridSlot.expect(3.U)
       dut.io.recoveryPrepared.newTail.ridSlot.expect(1.U)
 
@@ -948,6 +962,7 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.bits.release.groupCount.expect(1.U)
       dut.io.commit.bits.groups(0).physicalMemberCount.expect(1.U)
       dut.io.commit.bits.groups(0).pMapQRows.expect(1.U)
+      dut.io.commit.bits.groups(0).memoryAfter.lsid.expect(1.U)
     }
   }
 

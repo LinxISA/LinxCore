@@ -4,6 +4,14 @@
 non-flush evidence, retained commit batches, and exact suffix recovery for all
 STIDs.
 
+Each physical group also retains the memory-order tail before and after the
+group plus one after-snapshot per logical uop. These are full LSID/LID/SID
+values, not queue indices. A partial-pivot recovery recomputes only the
+surviving group's `memoryAfter` from its youngest surviving logical uop and
+clears killed logical snapshots. The original `pivot.memoryAfter` remains in
+the recovery plan so the memory-order allocator can prove its old live tail
+before atomically installing the trimmed tail.
+
 Runtime completion carries `{member, faultValid, faultCause}`. An exact fault
 completion sets the member-completion bit, the matching fault bit/cause, and
 the group precise-trap summary on one mutation. The commit row retains all

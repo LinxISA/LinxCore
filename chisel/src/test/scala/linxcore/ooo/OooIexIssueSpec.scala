@@ -293,10 +293,13 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
         Allocation(0, 1, 3, 0, 1, 2))
       pokeTransaction(dut, 1, 10, allocations)
       val decoded = dut.io.s1.bits.o3.request.reservation.transaction.decoded.uops(0)
+      val transaction =
+        dut.io.s1.bits.o3.request.reservation.transaction
       val pUop = dut.io.s1.bits.pRename.uops(0)
       Seq(decoded, pUop.decoded).foreach { logical =>
         logical.recipe.lateSplitKind.poke(OooLateSplitKind.StoreAddressData.U)
         logical.recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+        logical.recipe.memoryRequestCount.poke(1.U)
         logical.memory.valid.poke(true.B)
         logical.memory.isStore.poke(true.B)
         logical.memory.addressMode.poke(OooMemoryAddressMode.BaseIndex)
@@ -310,6 +313,31 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
           logical.sources(sourceIndex).atag.poke((8 + sourceIndex).U)
         }
       }
+      transaction.plan.demand.storeIds.poke(1.U)
+      transaction.decoded.demand.storeIds.poke(1.U)
+      dut.io.s1.ready.expect(false.B)
+      dut.io.s1Rejected.valid.expect(true.B)
+      dut.io.s1Rejected.bits.shapeExact.expect(false.B)
+      val memoryOrder = dut.io.s1.bits.memoryOrder
+      memoryOrder.valid.poke(true.B)
+      memoryOrder.peId.poke(3.U)
+      memoryOrder.stid.poke(1.U)
+      memoryOrder.epoch.poke(6.U)
+      memoryOrder.transactionId.poke(10.U)
+      memoryOrder.uopMask.poke(1.U)
+      memoryOrder.after.lsid.poke(1.U)
+      memoryOrder.after.storeId.poke(1.U)
+      memoryOrder.uops(0).valid.poke(true.B)
+      memoryOrder.uops(0).memoryValid.poke(true.B)
+      memoryOrder.uops(0).isStore.poke(true.B)
+      memoryOrder.uops(0).requestCount.poke(1.U)
+      memoryOrder.uops(0).after.lsid.poke(1.U)
+      memoryOrder.uops(0).after.storeId.poke(1.U)
+      memoryOrder.uops(1).before.lsid.poke(1.U)
+      memoryOrder.uops(1).before.storeId.poke(1.U)
+      memoryOrder.uops(1).firstLsid.poke(1.U)
+      memoryOrder.uops(1).after.lsid.poke(1.U)
+      memoryOrder.uops(1).after.storeId.poke(1.U)
       for (sourceIndex <- 0 until 3) {
         val renamed = pUop.sources(sourceIndex)
         renamed.decoded.valid.poke(true.B)
@@ -329,11 +357,17 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRow.sources(1).valid.expect(true.B)
       dut.io.queryRow.sources(2).valid.expect(true.B)
       dut.io.queryRow.destinations(0).valid.expect(false.B)
+      dut.io.queryRow.memoryOrder.memoryValid.expect(true.B)
+      dut.io.queryRow.memoryOrder.firstLsid.expect(0.U)
+      dut.io.queryRow.memoryOrder.firstTypeId.expect(0.U)
       query(dut, 3, 0, 2)
       dut.io.queryRow.sources(0).valid.expect(true.B)
       dut.io.queryRow.sources(1).valid.expect(false.B)
       dut.io.queryRow.sources(2).valid.expect(false.B)
       dut.io.queryRow.destinations(0).valid.expect(false.B)
+      dut.io.queryRow.memoryOrder.memoryValid.expect(true.B)
+      dut.io.queryRow.memoryOrder.firstLsid.expect(0.U)
+      dut.io.queryRow.memoryOrder.firstTypeId.expect(0.U)
     }
   }
 

@@ -644,6 +644,26 @@ vector 是 fail-closed protocol error，并且不发生 data/ready mutation。�
 grouped ROB、IQ wakeup、BCTRL/redirect 和 trace，并根据综合结果扩展并行 terminal
 带宽。
 
+### 6.11 I0.9f/I0.9g 已实现：store 子项投影与 full memory identity
+
+I0.9f 在 D1 只保留一个 canonical store uop，到 S1/S2 才投影成固定顺序的
+AGU/STD 两个 physical child；两者共享同一个 ROB logical member 和 memory
+identity，但分别只携带 address/data source。I0.9g 新增每 STID 独立的 full
+`{LSID,LID,SID}` owner。D2 只计算需求，D3 一次性领取整笔连续 range，common
+S1 fire 同时把 range 发布到 ROB snapshot 和 IEX payload。non-memory uop 只继承
+不前进的 tail snapshot。cancel 只能回滚尚未发布的本 STID suffix；global
+recovery 使用 ROB 保存的原始 pivot/killed chain 证明旧 tail，再用 surviving
+logical uop snapshot 安装新 tail。partial pivot 因此不会把“已经裁剪后的 tail”
+误当作恢复前 live tail。
+
+对 `Documents/a.txt` 的采纳边界也随此明确：借鉴 STA/STD 分离执行、STQ
+PGEN/DGEN 汇合、滑窗资格和 cancel/repick 机制，但不复制其中不同 core 版本的
+常数、ARM opcode/寄存器语义或 RID/BID 简化比较。下一步不建立独立 pre-STQ
+join buffer；canonical STQ row 本身是唯一 join owner。STA 与 STD 分别用同一个
+generation-qualified STQ lease 写 address/PGEN 和 data/DGEN，只有 row identity、
+full SID/LSID、member 与 generation 全部一致时才可汇合。full SID/LSID 继续是
+程序顺序身份，physical STQ index 只负责定位驻留项。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

@@ -143,6 +143,19 @@ accepted/completed condition.
 
 ## Chisel implementation status
 
+I0.9g adds the canonical OOO-side serial owner. `OooMemoryOrderAllocator`
+maintains independent full-width `{LSID, load ID, store ID}` tails per STID,
+derives exact consecutive ranges from D1 recipe demand, and retains one
+provisional lease until the common O3/S1 publication. Active non-memory uops
+carry unchanged before/after snapshots; only typed memory requests advance the
+tails. ROB groups retain before/after and per-logical-uop snapshots, while IEX
+payload sidecars retain the assigned logical range. Private cancellation rolls
+back only an unpublished suffix. Global recovery proves the original
+ROB-published chain and installs the surviving/trimmed tail on the same common
+apply as ROB, rename, dispatch, and IEX. The next STQ packet must bind a
+separate generation-qualified physical row to this identity; it must not reuse
+the physical row number as SID or LSID.
+
 R670 promotes the scalar store-retirement path to the full parameterized
 domain. `CoreParams.lsidWidth` feeds `InterfaceParams`; store dispatch carries
 both the canonical value and a legacy ROBID projection; STQ split merge uses

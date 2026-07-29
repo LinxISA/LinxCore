@@ -27,9 +27,9 @@ source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
 cd "${CHISEL_DIR}"
 if [[ "${ALL}" == true ]]; then
-  sbt --server --batch --no-colors "testOnly *"
+  sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" "testOnly *"
 elif [[ -n "${ONLY}" ]]; then
-  sbt --server --batch --no-colors "testOnly *${ONLY}*"
+  sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" "testOnly *${ONLY}*"
 else
-  sbt --server --batch --no-colors test
+  sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" test
 fi

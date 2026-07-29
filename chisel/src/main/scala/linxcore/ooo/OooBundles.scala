@@ -231,6 +231,81 @@ class InstructionDemand(val p: OooParams = OooParams()) extends Bundle {
   val storeIds = UInt(p.memoryDemandWidth.W)
 }
 
+/** Next serial identities owned by one STID's canonical memory-order stream.
+  *
+  * `lsid` orders every memory effect. `loadId` and `storeId` are independent
+  * type-local serials used by the future LHQ/STQ owners. None of these values
+  * is a physical queue index.
+  */
+class OooMemoryIdState(val p: OooParams = OooParams()) extends Bundle {
+  val lsid = UInt(p.lsidWidth.W)
+  val loadId = UInt(p.lsidWidth.W)
+  val storeId = UInt(p.lsidWidth.W)
+}
+
+/** Exact serial range assigned to one logical decoded uop.
+  *
+  * An active non-memory uop still carries `valid` and identical before/after
+  * snapshots. This lets every ROB group retain a complete memory-tail chain,
+  * including groups which happen not to contain a memory request.
+  */
+class OooMemoryOrderUopAllocation(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val memoryValid = Bool()
+  val isLoad = Bool()
+  val isStore = Bool()
+  val requestCount = UInt(p.memoryDemandWidth.W)
+  val firstLsid = UInt(p.lsidWidth.W)
+  val firstTypeId = UInt(p.lsidWidth.W)
+  val before = new OooMemoryIdState(p)
+  val after = new OooMemoryIdState(p)
+}
+
+/** All-or-none D3 memory-order lease retained until common S1 publication. */
+class OooMemoryOrderReservationLease(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val uopMask = UInt(p.decodedUopWidth.W)
+  val before = new OooMemoryIdState(p)
+  val after = new OooMemoryIdState(p)
+  val uops = Vec(p.decodedUopWidth,
+    new OooMemoryOrderUopAllocation(p))
+}
+
+class OooMemoryOrderPrepareReject(val p: OooParams = OooParams())
+    extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val requestedLoadIds = UInt(p.memoryDemandWidth.W)
+  val requestedStoreIds = UInt(p.memoryDemandWidth.W)
+  val calculatedLoadIds = UInt(p.memoryDemandWidth.W)
+  val calculatedStoreIds = UInt(p.memoryDemandWidth.W)
+  val occupied = Bool()
+}
+
+class OooMemoryOrderRecoveryPrepared(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val oldPublishedTail = new OooMemoryIdState(p)
+  val newTail = new OooMemoryIdState(p)
+  val provisionalKilled = Bool()
+}
+
+class OooMemoryOrderRecoveryReject(val p: OooParams = OooParams())
+    extends Bundle {
+  val requested = new OooRobRecoveryPlan(p)
+  val stidInRange = Bool()
+  val publishedChainExact = Bool()
+  val liveTailExact = Bool()
+  val provisionalExact = Bool()
+}
+
 class PcBufferToken(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val index = UInt(p.pcBufferIndexWidth.W)
@@ -792,6 +867,7 @@ class OooIexS1Transaction(val p: OooParams = OooParams()) extends Bundle {
   val pRename = new OooPRenamePreparedTransaction(p)
   val tuRename = new OooTURenamePreparedTransaction(p)
   val dispatch = new OooDispatchReservationLease(p)
+  val memoryOrder = new OooMemoryOrderReservationLease(p)
 }
 
 /** Whether a wakeup is architecturally stable or still load-cancellable. */
@@ -932,6 +1008,7 @@ class OooIexPayloadSidecar(val p: OooParams = OooParams()) extends Bundle {
   val immediateValid = Bool()
   val immediate = UInt(p.pcWidth.W)
   val memory = new OooMemoryControl(p)
+  val memoryOrder = new OooMemoryOrderUopAllocation(p)
   val boundaryTargetValid = Bool()
   val boundaryTarget = UInt(p.pcWidth.W)
   val preciseTrap = Bool()
@@ -980,6 +1057,7 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def immediateValid = payload.immediateValid
   def immediate = payload.immediate
   def memory = payload.memory
+  def memoryOrder = payload.memoryOrder
   def boundaryTargetValid = payload.boundaryTargetValid
   def boundaryTarget = payload.boundaryTarget
   def preciseTrap = payload.preciseTrap
@@ -1302,6 +1380,11 @@ class OooS1GroupBinding(val p: OooParams = OooParams()) extends Bundle {
   val pcImplicitClose = new PcBufferToken(p)
   val residentGeneration = UInt(p.residentGenerationWidth.W)
   val initiallyCompletedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
+  val memoryOrderValid = Bool()
+  val memoryBefore = new OooMemoryIdState(p)
+  val memoryAfter = new OooMemoryIdState(p)
+  val logicalMemoryAfter = Vec(p.decodedUopWidth,
+    new OooMemoryIdState(p))
 }
 
 class OooS1GroupedPublicationRequest(val p: OooParams = OooParams()) extends Bundle {
@@ -1371,6 +1454,11 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val logicalNonFlushRequiredProofs = Vec(p.decodedUopWidth,
     UInt(OooNonFlushProof.Count.W))
   val logicalNonFlushNever = UInt(p.decodedUopWidth.W)
+  val memoryOrderValid = Bool()
+  val memoryBefore = new OooMemoryIdState(p)
+  val memoryAfter = new OooMemoryIdState(p)
+  val logicalMemoryAfter = Vec(p.decodedUopWidth,
+    new OooMemoryIdState(p))
 }
 
 class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {

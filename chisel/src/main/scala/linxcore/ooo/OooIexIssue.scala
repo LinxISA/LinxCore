@@ -254,6 +254,71 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     decoded.epoch === plan.epoch &&
     request.pRename.uopMask === decoded.uopMask &&
     request.tuRename.uopMask === decoded.uopMask
+  val calculatedLoadIds = Wire(Vec(p.decodedUopWidth,
+    UInt(p.memoryDemandWidth.W)))
+  val calculatedStoreIds = Wire(Vec(p.decodedUopWidth,
+    UInt(p.memoryDemandWidth.W)))
+  val memoryOrderUopExact = Wire(Vec(p.decodedUopWidth, Bool()))
+  val memoryOrderDecodeShapeExact = Wire(Vec(p.decodedUopWidth, Bool()))
+  for (uopIndex <- 0 until p.decodedUopWidth) {
+    val active = decoded.uopMask(uopIndex)
+    val uop = decoded.uops(uopIndex)
+    val requestCount = uop.recipe.memoryRequestCount
+    val typedMemory = uop.memory.valid &&
+      (uop.memory.isLoad ^ uop.memory.isStore)
+    val memoryActive = active && uop.valid && uop.recipe.valid &&
+      typedMemory && requestCount.orR
+    val loadActive = memoryActive && uop.memory.isLoad
+    val storeActive = memoryActive && uop.memory.isStore
+    val allocation = request.memoryOrder.uops(uopIndex)
+    val expectedBefore = if (uopIndex == 0) request.memoryOrder.before
+    else request.memoryOrder.uops(uopIndex - 1).after
+
+    calculatedLoadIds(uopIndex) := Mux(loadActive, requestCount, 0.U)
+    calculatedStoreIds(uopIndex) := Mux(storeActive, requestCount, 0.U)
+    memoryOrderDecodeShapeExact(uopIndex) := !active || (
+      uop.valid && uop.recipe.valid &&
+        (requestCount.orR === typedMemory) &&
+        requestCount <= p.maxMemoryRequestsPerInstruction.U)
+    memoryOrderUopExact(uopIndex) :=
+      allocation.valid === active &&
+        allocation.memoryValid === memoryActive &&
+        allocation.isLoad === loadActive &&
+        allocation.isStore === storeActive &&
+        allocation.requestCount === Mux(memoryActive, requestCount, 0.U) &&
+        allocation.before.asUInt === expectedBefore.asUInt &&
+        allocation.firstLsid === allocation.before.lsid &&
+        (!memoryActive || allocation.firstTypeId === Mux(loadActive,
+          allocation.before.loadId, allocation.before.storeId)) &&
+        allocation.after.lsid === allocation.before.lsid +
+          Mux(memoryActive, requestCount, 0.U) &&
+        allocation.after.loadId === allocation.before.loadId +
+          Mux(loadActive, requestCount, 0.U) &&
+        allocation.after.storeId === allocation.before.storeId +
+          Mux(storeActive, requestCount, 0.U)
+  }
+  val calculatedLoadTotal = calculatedLoadIds.reduce(_ +& _)
+  val calculatedStoreTotal = calculatedStoreIds.reduce(_ +& _)
+  val memoryOrderDemandExact =
+    calculatedLoadTotal === plan.demand.loadIds &&
+      calculatedStoreTotal === plan.demand.storeIds &&
+      plan.demand.loadIds === decoded.demand.loadIds &&
+      plan.demand.storeIds === decoded.demand.storeIds
+  val memoryOrderRequired = calculatedLoadTotal.orR ||
+    calculatedStoreTotal.orR
+  val memoryOrderIdentityExact = request.memoryOrder.valid &&
+    request.memoryOrder.peId === plan.peId &&
+    request.memoryOrder.stid === plan.stid &&
+    request.memoryOrder.epoch === plan.epoch &&
+    request.memoryOrder.transactionId === plan.transactionId &&
+    request.memoryOrder.uopMask === decoded.uopMask
+  val memoryOrderLeaseExact = memoryOrderIdentityExact &&
+    memoryOrderUopExact.asUInt.andR &&
+    request.memoryOrder.after.asUInt ===
+      request.memoryOrder.uops(p.decodedUopWidth - 1).after.asUInt
+  val memoryOrderExact = memoryOrderDemandExact &&
+    memoryOrderDecodeShapeExact.asUInt.andR && Mux(request.memoryOrder.valid,
+      memoryOrderLeaseExact, !memoryOrderRequired)
 
   val allocationShapeExact = (0 until p.dispatchWidth).map { lane =>
     val allocation = request.dispatch.allocations(lane)
@@ -318,7 +383,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     }
   }.foldLeft(true.B)(_ && _)
 
-  val s1ShapeExact = requestStidInRange && identityExact &&
+  val s1ShapeExact = requestStidInRange && identityExact && memoryOrderExact &&
     allocationShapeExact && allocationDense && laneExact.reduce(_ && _) &&
     noDuplicateTargets
   val s1TargetsExact = laneTargetFree.reduce(_ && _)
@@ -511,6 +576,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         row.immediateValid := pUop.decoded.immediateValid
         row.immediate := pUop.decoded.immediate
         row.memory := pUop.decoded.memory
+        row.memoryOrder := s2Request.memoryOrder.uops(uopIndex)
         row.boundaryTargetValid := pUop.decoded.boundaryTargetValid
         row.boundaryTarget := pUop.decoded.boundaryTarget
         row.preciseTrap := pUop.decoded.preciseTrap

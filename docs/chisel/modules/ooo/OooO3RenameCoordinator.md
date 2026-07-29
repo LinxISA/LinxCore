@@ -5,8 +5,17 @@
 `OooO3RenameCoordinator` is the atomic seam between D2 virtual
 planning and the D3/S1 physical owners. It composes grouped ROB/BROB/PC
 reservation, PTag staging and P rename, independent T/U rename, dispatch
-reservation, IEX S1 publication, fast resolve, commit, and retained recovery.
-No child owner may publish or recover independently through this wrapper.
+reservation, full memory-order serial allocation, IEX S1 publication, fast
+resolve, commit, and retained recovery. No child owner may publish or recover
+independently through this wrapper.
+
+`OooMemoryOrderAllocator` is joined at the same three boundaries as the other
+physical owners. D2 prepare proves recipe-derived load/store demand and claims
+one complete per-STID serial suffix at D3 reserve. The exact lease reaches ROB
+group bindings and IEX S1 on the common publication fire. A provisional lease
+may roll back only through private same-STID cancel; a published tail may move
+back only through the grouped-ROB recovery plan and the common all-owner apply.
+Full LSID/LID/SID values are independent from RID, BID, LHQ, and STQ capacity.
 
 ## D3 identity and pointer domains
 
@@ -43,8 +52,11 @@ shrink on recovery and therefore are not transaction counters.
 The grouped ROB is the sole exact kill-set authority. The lower
 `OooRobBrobPcCoordinator` validates the retained ROB plan independently
 against D3 head/count/tail state, BROB state, and PC-buffer state. The upper
-coordinator then prepares dispatch, IEX, fast-resolve, and P/T/U owners and
-fires one common destructive apply. Rejection or abort mutates no owner.
+coordinator then prepares dispatch, IEX, fast-resolve, memory-order, and P/T/U
+owners and fires one common destructive apply. Rejection or abort mutates no
+owner. The memory-order owner uses the original pivot/killed-row chain to prove
+the old published tail, while the surviving pivot's per-logical-uop snapshot
+defines the new trimmed tail.
 
 The following outputs are read-only verification and integration visibility:
 
@@ -78,6 +90,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OooMemoryOrderAllocator
+bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/build_chisel.sh
 ```
 

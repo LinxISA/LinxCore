@@ -7,4 +7,4 @@ CHISEL_DIR="${ROOT_DIR}/chisel"
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
 cd "${CHISEL_DIR}"
-sbt --batch --no-colors Test/compile
+sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" Test/compile

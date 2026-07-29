@@ -64,7 +64,12 @@ prediction, PC-buffer tokens, derived primary-parent index, and
 immediate/boundary/template/trap/close controls. I0.9c also keeps the typed
 `OooMemoryControl` here, so selected AGU rows retain D1-normalized address
 mode, byte offset, access size, index transform, and child source masks without
-adding those wide controls to the wakeup/recovery scan row.
+adding those wide controls to the wakeup/recovery scan row. I0.9g adds the
+logical uop's full memory-order allocation beside those controls. S1 accepts a
+memory transaction only when its exact per-STID lease identity joined the O3
+publication; S2 copies the logical range into every physical child sidecar.
+STA and STD therefore share the same logical store range without treating an
+IQ slot or future STQ row as the full SID/LSID authority.
 
 The joined query view preserves the existing execution contract. Release or
 recovery invalidates only the scheduling row; stale payload memory is
@@ -172,9 +177,10 @@ must quiesce those producers before prepare.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
-- Store AGU/STD execution owners, exact address/data join, canonical STQ lease,
-  memory ordering, and terminal visibility remain open; I0.9f closes only
-  decode normalization and physical IQ projection.
+- Store AGU/STD execution owners, canonical STQ address/data join, physical
+  STQ lease generation, ordered issue/visibility, and terminal publication
+  remain open. Full logical LSID/SID allocation and exact recovery are closed;
+  the STQ must consume those identities rather than allocate replacements.
 - Select and measure the final class/bank/release-port topology. Static
   class/domain composition, parameterized simultaneous exact release,
   duplicate-target rejection, atomic transfer/release, and owner-side
