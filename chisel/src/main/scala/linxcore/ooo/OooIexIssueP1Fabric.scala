@@ -6,6 +6,8 @@ import chisel3.util.{Decoupled, Valid}
 class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
+  val loadCancel = Input(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
   val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
   val dispatchRelease = Decoupled(new OooDispatchRelease(p))
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
@@ -44,6 +46,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexReadReject(p))))
   val recoveryCanceled = Output(Vec(p.iexIssueDomainCount,
     Vec(2, Valid(new OooIexReadRepick(p)))))
+  val loadCanceled = Output(Vec(p.iexIssueDomainCount,
+    Vec(3, Valid(new OooIexReadRepick(p)))))
 
   val pickMalformed = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickReject(p))))
@@ -91,6 +95,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
 
   issue.io.s1 <> io.s1
   issue.io.wakeup := io.wakeup
+  issue.io.loadCancel := io.loadCancel
   issue.io.release <> io.release
   io.dispatchRelease <> issue.io.dispatchRelease
   issue.io.ptagRecycle <> io.ptagRecycle
@@ -128,6 +133,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
     lane.io.pcDataValid := io.pcDataValid(domain)
     lane.io.pcData := io.pcData(domain)
     lane.io.bypass := io.bypass
+    lane.io.loadCancel := io.loadCancel
     io.i2(domain) <> lane.io.i2
     lane.io.recoveryApply := issue.io.recoveryApplied
 
@@ -135,6 +141,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
     io.p1Rejected(domain) := lane.io.p1Rejected
     io.readRejected(domain) := lane.io.readRejected
     io.recoveryCanceled(domain) := lane.io.recoveryCanceled
+    io.loadCanceled(domain) := lane.io.loadCanceled
     io.pickMalformed(domain) := issue.io.pickMalformedByDomain(domain)
     io.pickRejected(domain) := issue.io.pickRejectedByDomain(domain)
     io.pickRetryRejected(domain) :=

@@ -57,8 +57,8 @@ expected data.
 
 ## Remaining gaps
 
-- Connect exact load-miss cancel/repick to the IQ-local speculative-ready and
-  retained bypass provenance owners; the RF remains non-speculative.
+- Connect the physical LSU resolver to the implemented IQ-local cancel/repick
+  and retained bypass provenance owners; the RF remains non-speculative.
 - Replace wide ready-mask observability with banked or replicated timing-safe
   reads at the default physical point.
 - Connect rename allocation clear and W1 terminal writes in the canonical top.

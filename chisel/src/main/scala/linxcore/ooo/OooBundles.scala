@@ -808,6 +808,13 @@ class OooIexBypassCandidate(val p: OooParams = OooParams()) extends Bundle {
   val data = UInt(p.pcWidth.W)
 }
 
+/** One exact speculative load attempt withdrawn after miss/replay resolve. */
+class OooIexLoadCancel(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val load = new OooIexLoadGeneration(p)
+}
+
 /** One generation-qualified producer wakeup observed by resident IQ rows. */
 class OooIexWakeup(val p: OooParams = OooParams()) extends Bundle {
   val kind = OooIexWakeupKind()

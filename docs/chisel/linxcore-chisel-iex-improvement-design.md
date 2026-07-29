@@ -437,8 +437,29 @@ I1 arbiter按同 STID age、跨 STID RR 分配 6 个 GPR read ports。一个 uop
 - I2 保留 logical source mask、合并数据、bypass mask和完整 provenance，
   下游背压不能改写它们。
 
-I0.7c 仍需把 load miss/cancel token 接入 IQ 与 lane，清 matching
-`specReady`、poison matching I1/I2 copy并完成 exact repick。
+I0.7b 当时尚缺的 load miss/cancel 闭环由下一节 I0.7c 完成。
+
+### 6.4.2 I0.7c 已实现：load cancel、poison与repick
+
+`OooIexLoadCancel` 使用 `{STID,epoch,producer RobMemberKey,
+loadGeneration}` 定位一次 speculative load attempt。该事件广播到
+canonical IQ 与每条 P1/I1/I2 lane：
+
+- IQ逐 source匹配其精确 load token；stale generation或reused numerical
+  tag零 mutation；
+- 命中时只清对应 source的 `specReady/load`，并清该 resident row的
+  `inFlight`，不释放 IQ/dispatch reservation；
+- cancel 与 wakeup 同周期时 cancel 胜；S2 bind 同边沿也不会保存已取消
+  generation；
+- picker/query/release在 cancel周期组合阻断 matching row，防止边沿竞态；
+- lane分别 poison matching P1、I1、I2 copy；同一 cancel 可同时命中多个
+  dependent，不受单路 retry feedback限制；
+- 后续新 generation speculative wakeup重新写入 source load-gene token，
+  row再经 picker、I1 exact bypass和I2，不复活旧数据。
+
+因此 canonical `sources[*].load` 向量就是精确 load gene vector owner；不再
+增加按 LIQ 数字槽位维护的第二套 replay scoreboard。下一步从 I2 进入
+E1/W1 owner transfer与真实 ALU/BRU/AGU/LSU resolver wiring。
 
 ### 6.5 迁移与验收
 

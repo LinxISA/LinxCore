@@ -2,6 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import linxcore.common.OperandClass
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
@@ -51,6 +52,8 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.pcData.poke(0.U)
     dut.io.bypass.foreach(
       _.poke(0.U.asTypeOf(dut.io.bypass.head)))
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
     dut.io.i2.ready.poke(false.B)
   }
 
@@ -65,6 +68,29 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
     target.brobGeneration.poke(2.U)
     target.memberIndex.poke(0.U)
     target.residentGeneration.poke(5.U)
+  }
+
+  private def pokeLoadProducer(target: RobMemberKey): Unit = {
+    target.poke(0.U.asTypeOf(target))
+    target.group.valid.poke(true.B)
+    target.group.peId.poke(3.U)
+    target.group.stid.poke(1.U)
+    target.group.ridSlot.poke(1.U)
+    target.group.ridGeneration.poke(1.U)
+    target.bid.valid.poke(true.B)
+    target.bid.value.poke(3.U)
+    target.brobGeneration.poke(2.U)
+    target.memberIndex.poke(0.U)
+    target.residentGeneration.poke(4.U)
+  }
+
+  private def pokeLoadToken(
+      target: OooIexLoadGeneration,
+      generation: Int): Unit = {
+    target.poke(0.U.asTypeOf(target))
+    target.valid.poke(true.B)
+    pokeLoadProducer(target.producer)
+    target.generation.poke(generation.U)
   }
 
   private def pokeOnePcBru(dut: OooIexIssueP1Lane): Unit = {
@@ -202,6 +228,113 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
       dut.io.i2.bits.pcValid.expect(true.B)
       dut.io.i2.bits.pc.expect("h80000126".U)
       dut.io.i2.bits.row.opcode.expect(73.U)
+    }
+  }
+
+  test("cancels an exact speculative load copy and reissues a new generation") {
+    simulate(new OooIexIssueP1Lane(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeOnePcBru(dut)
+      val request = dut.io.s1.bits
+      val decoded = request.o3.request.reservation.transaction.decoded.uops(0)
+      val renamed = request.pRename.uops(0)
+      Seq(decoded.sources(0), renamed.decoded.sources(0)).foreach { source =>
+        source.valid.poke(true.B)
+        source.operandClass.poke(OperandClass.P)
+        source.atag.poke(2.U)
+      }
+      renamed.sources(0).decoded.valid.poke(true.B)
+      renamed.sources(0).decoded.operandClass.poke(OperandClass.P)
+      renamed.sources(0).decoded.atag.poke(2.U)
+      renamed.sources(0).pMapping.valid.poke(true.B)
+      renamed.sources(0).pMapping.ptag.poke(17.U)
+      renamed.sources(0).pMapping.ptagGeneration.poke(3.U)
+      renamed.sources(0).pMapping.ready.poke(false.B)
+      renamed.sources(0).pMapping.stid.poke(1.U)
+      renamed.sources(0).pMapping.epoch.poke(7.U)
+
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step() // S2 bind
+      dut.clock.step() // S3 resident, still not ready
+
+      val wakeup = dut.io.wakeup(0)
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.SpeculativeLoad)
+      wakeup.bits.stid.poke(1.U)
+      wakeup.bits.epoch.poke(7.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(3.U)
+      pokeLoadToken(wakeup.bits.load, generation = 7)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.clock.step() // picker retains the now-ready row
+      dut.clock.step() // bridge joins and enters I1
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.readAttempt.valid.expect(false.B)
+
+      val bypass = dut.io.bypass(0)
+      bypass.bits.poke(0.U.asTypeOf(bypass.bits))
+      bypass.bits.stid.poke(1.U)
+      bypass.bits.epoch.poke(7.U)
+      pokeLoadToken(bypass.bits.load, generation = 7)
+      pokeLoadProducer(bypass.bits.producer)
+      bypass.bits.operandClass.poke(OperandClass.P)
+      bypass.bits.ptag.poke(17.U)
+      bypass.bits.ptagGeneration.poke(3.U)
+      bypass.bits.stage.poke(OooIexBypassStage.W1)
+      bypass.bits.data.poke("h1111222233334444".U)
+      bypass.valid.poke(true.B)
+      dut.io.readAttempt.valid.expect(true.B)
+      dut.io.readAttempt.bits.sourceMask.expect(0.U)
+      dut.io.readDecisionValid.poke(true.B)
+      dut.io.readGrant.poke(true.B)
+      dut.io.pcDataValid.poke(true.B)
+      dut.io.pcData.poke("h80000126".U)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+      bypass.valid.poke(false.B)
+      dut.io.i2.valid.expect(true.B)
+      dut.io.i2.bits.sourceData(0).expect("h1111222233334444".U)
+
+      val cancel = dut.io.loadCancel(0)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+      cancel.bits.stid.poke(1.U)
+      cancel.bits.epoch.poke(7.U)
+      pokeLoadToken(cancel.bits.load, generation = 7)
+      cancel.valid.poke(true.B)
+      dut.io.i2.valid.expect(false.B)
+      dut.io.loadCanceled(2).valid.expect(true.B)
+      dut.clock.step()
+      cancel.valid.poke(false.B)
+      dut.io.inFlightEntries(OooDispatchClass.Bru - 1)(0).expect(0.U)
+      dut.io.i2.valid.expect(false.B)
+
+      wakeup.bits.load.generation.poke(8.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.clock.step()
+      dut.clock.step()
+      dut.io.i1Occupied.expect(true.B)
+      bypass.bits.load.generation.poke(8.U)
+      bypass.valid.poke(true.B)
+      dut.io.readDecisionValid.poke(true.B)
+      dut.io.readGrant.poke(true.B)
+      dut.io.pcDataValid.poke(true.B)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+      bypass.valid.poke(false.B)
+      dut.io.i2.valid.expect(true.B)
+      dut.io.i2.bits.bypass(0).load.generation.expect(8.U)
     }
   }
 }

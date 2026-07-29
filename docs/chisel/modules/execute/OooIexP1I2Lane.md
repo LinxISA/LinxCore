@@ -69,13 +69,24 @@ and I2 rows. A matching recovery suppresses the affected output in the apply
 cycle, clears the retained stage, and reports the exact member/reservation in
 `recoveryCanceled(0)` for I1 or `(1)` for I2. An unrelated STID continues.
 
+## Speculative load cancellation
+
+`OooIexLoadCancel` matches the IQ-row source token by complete
+`{STID,epoch,producer RobMemberKey,loadGeneration}`. Matching P1, retained I1,
+and retained I2 copies are suppressed and reported independently through
+`loadCanceled(0..2)`. The lane does not mutate IQ state or manufacture a
+second retry queue; the canonical issue owner observes the same event and
+clears matching `specReady` plus `inFlight`. This allows one cancel to poison
+I1 and I2 dependents concurrently. A stale generation leaves both stages
+unchanged.
+
 ## Remaining integration work
 
 - instantiate the implemented oldest-ready picker/bridge/lane composition
   across the frozen
   multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
 - E1/W1 execution, wakeup, completion, and exact terminal IQ release;
-- exact load-miss poison/cancel of retained I1/I2 copies and IQ repick;
+- physical LSU hit/miss resolver wiring into the exact load-cancel ports;
 - synchronous-macro latency variants and default-width timing evidence.
 
 ## Verification
@@ -89,6 +100,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
 The focused UT covers backpressure stability, P/T source masks, optional PC,
 whole-uop grant, denial-to-repick, partial-response rejection-to-repick,
 exact cross-STID recovery, stale load-bypass rejection, RF-mask subtraction,
-and retained I2 bypass provenance. The IT allocates and publishes a real PC-buffer token,
+retained I2 bypass provenance, stale cancel rejection, and exact I2 poison.
+The issue/lane IT additionally proves canonical IQ in-flight return plus a new
+generation wakeup/bypass/reissue. The PC IT allocates and publishes a real PC-buffer token,
 reads it through the fixed readyless port, and proves that the full PC and
 source value are retained at I2.

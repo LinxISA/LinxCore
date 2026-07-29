@@ -19,6 +19,8 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val pcData = Input(UInt(p.pcWidth.W))
   val bypass = Input(Vec(p.iexBypassPorts,
     Valid(new OooIexBypassCandidate(p))))
+  val loadCancel = Input(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
 
   val i2 = Decoupled(new OooIexI2Transaction(p))
   val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
@@ -29,6 +31,9 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   // Index 0 reports I1 cancellation and index 1 reports retained I2
   // cancellation. Both can be valid when one recovery kills both stages.
   val recoveryCanceled = Output(Vec(2, Valid(new OooIexReadRepick(p))))
+  // P1, retained I1, and retained I2 cancellation diagnostics. Canonical IQ
+  // inFlight/specReady mutation is driven directly by the same cancel event.
+  val loadCanceled = Output(Vec(3, Valid(new OooIexReadRepick(p))))
 
   val i1Occupied = Output(Bool())
   val i2Occupied = Output(Bool())
@@ -68,6 +73,17 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     result
   }
 
+  private def canceledByLoad(row: OooIexIssueRow): Bool =
+    io.loadCancel.map { cancel =>
+      val sourceMatch = row.sources.map { source =>
+        source.valid && source.specReady && source.load.valid &&
+          cancel.bits.load.valid &&
+          source.load.asUInt === cancel.bits.load.asUInt
+      }.reduce(_ || _)
+      cancel.valid && cancel.bits.stid === row.stid &&
+        cancel.bits.epoch === row.epoch && sourceMatch
+    }.reduce(_ || _)
+
   val p1Row = io.p1.bits.row
   val p1Member = p1Row.member
   val p1Reservation = p1Row.reservation
@@ -96,17 +112,31 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
       selectedP1PcToken.valid)
   val p1ShapeExact = p1IdentityExact && p1SourcesReady && p1PcTokenExact
   val p1Killed = killedByRecovery(p1Row)
+  val p1LoadCanceled = canceledByLoad(p1Row)
 
   val i1Killed = i1Valid && killedByRecovery(i1Request.row)
   val i2Killed = i2Valid && killedByRecovery(i2Transaction.row)
-  val i2WillDrain = i2Valid && !i2Killed && io.i2.ready
-  val i2CanAccept = !i2Valid || i2WillDrain || i2Killed
+  val i1LoadCanceled = i1Valid && canceledByLoad(i1Request.row)
+  val i2LoadCanceled = i2Valid && canceledByLoad(i2Transaction.row)
+  val i2WillDrain = i2Valid && !i2Killed && !i2LoadCanceled && io.i2.ready
+  val i2CanAccept = !i2Valid || i2WillDrain || i2Killed || i2LoadCanceled
 
   val i1LogicalSourceMask = VecInit(
     i1Request.row.sources.map(_.valid)).asUInt
   val i1BypassValid = Wire(Vec(p.maxSourceOperands, Bool()))
   val i1Bypass = Wire(Vec(p.maxSourceOperands,
     new OooIexBypassCandidate(p)))
+  for (port <- 0 until p.iexLoadCancelPorts) {
+    when(io.loadCancel(port).valid) {
+      assert(io.loadCancel(port).bits.load.valid &&
+        io.loadCancel(port).bits.load.producer.group.valid &&
+        io.loadCancel(port).bits.load.producer.bid.valid &&
+        io.loadCancel(port).bits.stid < p.stidCount.U &&
+        io.loadCancel(port).bits.load.producer.group.stid ===
+          io.loadCancel(port).bits.stid,
+        "IEX load cancel requires an exact same-STID producer")
+    }
+  }
   for (port <- 0 until p.iexBypassPorts) {
     when(io.bypass(port).valid) {
       assert(io.bypass(port).bits.producer.group.valid &&
@@ -187,7 +217,8 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     i1ParentIndexInRange, i1Request.pcParentIndex, 0.U)
   val i1PcToken = i1Request.row.parentPcTokens(safeI1ParentIndex)
 
-  io.readAttempt.valid := i1Valid && !i1Killed && i2CanAccept &&
+  io.readAttempt.valid := i1Valid && !i1Killed && !i1LoadCanceled &&
+    i2CanAccept &&
     i1SpecSourcesCovered
   io.readAttempt.bits.member := i1Request.row.member
   io.readAttempt.bits.reservation := i1Request.row.reservation
@@ -205,22 +236,25 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     (!i1Request.pcReadRequired || io.pcDataValid)
   val readAccepted = readDecision && io.readGrant && readResponseExact
   val readInvalid = readDecision && io.readGrant && !readResponseExact
-  val i1WillClear = i1Killed || readDenied || readAccepted || readInvalid
+  val i1WillClear = i1Killed || i1LoadCanceled || readDenied ||
+    readAccepted || readInvalid
   // Do not replace a denied/invalid attempt on the same edge: the single
   // exact retry channel must never need to return two different members.
-  val i1CanAccept = !i1Valid || readAccepted || i1Killed
+  val i1CanAccept = !i1Valid || readAccepted || i1Killed || i1LoadCanceled
 
   // Invalid P1 payloads are consumed as typed rejects when the lane has room;
   // a malformed producer cannot wedge the ready/valid boundary forever.
-  io.p1.ready := i1CanAccept && !p1Killed
-  io.p1Rejected.valid := io.p1.fire && !p1ShapeExact
+  // A canceled P1 copy carries no state into I1 and can be consumed even when
+  // an unrelated I1 row is resident; never retain a one-cycle cancel pulse.
+  io.p1.ready := (i1CanAccept || p1LoadCanceled) && !p1Killed
+  io.p1Rejected.valid := io.p1.fire && !p1ShapeExact && !p1LoadCanceled
   io.p1Rejected.bits.member := p1Member
   io.p1Rejected.bits.reservation := p1Reservation
   io.p1Rejected.bits.identityExact := p1IdentityExact
   io.p1Rejected.bits.sourcesReady := p1SourcesReady
   io.p1Rejected.bits.pcTokenExact := p1PcTokenExact
 
-  val p1Failed = io.p1.fire && !p1ShapeExact
+  val p1Failed = io.p1.fire && !p1ShapeExact && !p1LoadCanceled
   io.repick.valid := readDenied || readInvalid || p1Failed
   io.repick.bits := Mux(p1Failed,
     repickFrom(p1Row), repickFrom(i1Request.row))
@@ -236,14 +270,20 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.recoveryCanceled(0).bits := repickFrom(i1Request.row)
   io.recoveryCanceled(1).valid := i2Killed
   io.recoveryCanceled(1).bits := repickFrom(i2Transaction.row)
+  io.loadCanceled(0).valid := io.p1.fire && p1LoadCanceled
+  io.loadCanceled(0).bits := repickFrom(p1Row)
+  io.loadCanceled(1).valid := i1LoadCanceled
+  io.loadCanceled(1).bits := repickFrom(i1Request.row)
+  io.loadCanceled(2).valid := i2LoadCanceled
+  io.loadCanceled(2).bits := repickFrom(i2Transaction.row)
 
-  io.i2.valid := i2Valid && !i2Killed
+  io.i2.valid := i2Valid && !i2Killed && !i2LoadCanceled
   io.i2.bits := i2Transaction
-  io.i1Occupied := i1Valid && !i1Killed
-  io.i2Occupied := i2Valid && !i2Killed
+  io.i1Occupied := i1Valid && !i1Killed && !i1LoadCanceled
+  io.i2Occupied := i2Valid && !i2Killed && !i2LoadCanceled
   io.empty := !io.i1Occupied && !io.i2Occupied
 
-  when(i2WillDrain || i2Killed) {
+  when(i2WillDrain || i2Killed || i2LoadCanceled) {
     i2Valid := false.B
   }
   when(readAccepted) {
@@ -264,7 +304,7 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   when(i1WillClear) {
     i1Valid := false.B
   }
-  when(io.p1.fire && p1ShapeExact) {
+  when(io.p1.fire && p1ShapeExact && !p1LoadCanceled) {
     i1Valid := true.B
     i1Request := io.p1.bits
   }

@@ -57,6 +57,7 @@ requires aggregate quiescence.
 ## Remaining gaps
 
 - Compose the six PC ports with `OooPcBuffer` in the canonical top.
-- Add exact load-miss cancel, wakeup poison, and repick across IQ/I1/I2.
+- Connect physical LSU hit/miss resolution to the implemented exact
+  load-cancel/wakeup ports.
 - Freeze the default class/bank/pipe map and class-specific eligibility rules.
 - Add the non-cancellable I2-to-E1 owner transfer and W1 terminal network.

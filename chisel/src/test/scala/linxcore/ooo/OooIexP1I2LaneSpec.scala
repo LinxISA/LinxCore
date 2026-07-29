@@ -39,6 +39,8 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       candidate.valid.poke(false.B)
       candidate.bits.poke(0.U.asTypeOf(candidate.bits))
     }
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
     dut.io.i2.ready.poke(false.B)
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
@@ -281,6 +283,42 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.i2.bits.sourceData(0).expect("h1020304050607080".U)
       dut.io.i2.bits.bypass(0).stage.expect(OooIexBypassStage.W1)
+
+      // Retain a second dependent in I1 so one cancel must poison both lane
+      // stages without serializing through a one-entry retry channel.
+      pokeRequest(dut, stid = 0, ridSlot = 3, pcRequired = false)
+      val secondSource = dut.io.p1.bits.row.schedule.sources(0)
+      secondSource.ready.poke(false.B)
+      secondSource.specReady.poke(true.B)
+      pokeLoadToken(secondSource.load, stid = 0, generation = 7)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.i2.valid.expect(true.B)
+
+      val cancel = dut.io.loadCancel(0)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+      cancel.bits.stid.poke(0.U)
+      cancel.bits.epoch.poke(7.U)
+      pokeLoadToken(cancel.bits.load, stid = 0, generation = 6)
+      cancel.valid.poke(true.B)
+      dut.io.i2.valid.expect(true.B)
+      dut.io.loadCanceled(2).valid.expect(false.B)
+      dut.clock.step()
+      cancel.valid.poke(false.B)
+      dut.io.i2.valid.expect(true.B)
+
+      cancel.bits.load.generation.poke(7.U)
+      cancel.valid.poke(true.B)
+      dut.io.i2.valid.expect(false.B)
+      dut.io.i1Occupied.expect(false.B)
+      dut.io.loadCanceled(1).valid.expect(true.B)
+      dut.io.loadCanceled(1).bits.member.group.ridSlot.expect(3.U)
+      dut.io.loadCanceled(2).valid.expect(true.B)
+      dut.io.loadCanceled(2).bits.member.group.ridSlot.expect(2.U)
+      dut.clock.step()
+      cancel.valid.poke(false.B)
+      dut.io.empty.expect(true.B)
     }
   }
 

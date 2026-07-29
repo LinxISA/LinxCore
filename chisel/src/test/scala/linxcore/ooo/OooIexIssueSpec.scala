@@ -39,6 +39,8 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       wakeup.valid.poke(false.B)
       wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
     }
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.dispatchRelease.ready.poke(false.B)
@@ -499,6 +501,38 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRow.sources(0).load.valid.expect(true.B)
       dut.io.queryRow.sources(0).load.generation.expect(7.U)
       dut.io.queryRow.sources(0).load.producer.memberIndex.expect(5.U)
+      dut.io.queryPickable.expect(true.B)
+
+      val cancel = dut.io.loadCancel(0)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+      cancel.bits.stid.poke(0.U)
+      cancel.bits.epoch.poke(6.U)
+      cancel.bits.load.valid.poke(true.B)
+      pokeMember(cancel.bits.load.producer, 0, memberIndex = 5,
+        residentGeneration = 9)
+      cancel.bits.load.generation.poke(6.U)
+      cancel.valid.poke(true.B)
+      dut.clock.step()
+      cancel.valid.poke(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(true.B)
+      dut.io.queryRow.sources(0).load.generation.expect(7.U)
+
+      cancel.bits.load.generation.poke(7.U)
+      cancel.valid.poke(true.B)
+      dut.io.queryPickable.expect(false.B)
+      dut.clock.step()
+      cancel.valid.poke(false.B)
+      dut.io.queryRow.sources(0).ready.expect(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(false.B)
+      dut.io.queryRow.sources(0).load.valid.expect(false.B)
+      dut.io.queryPickable.expect(false.B)
+
+      wakeup.bits.load.generation.poke(8.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+      dut.io.queryRow.sources(0).specReady.expect(true.B)
+      dut.io.queryRow.sources(0).load.generation.expect(8.U)
       dut.io.queryPickable.expect(true.B)
 
       // A consumer installed after the pulse must not inherit speculative

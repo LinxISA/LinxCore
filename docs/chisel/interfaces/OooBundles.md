@@ -641,9 +641,9 @@ The current release seam accepts only a future exact non-cancellable I2
 terminal event. Full member identity and the original dispatch reservation
 must match, and physical-row removal shares one fire with dispatch-slot return.
 P1/I1/I2 pipe arbitration, age-based pick, atomic P/T/U/PC RF-needed reads,
-and exact W1/W2/W3 bypass data/provenance selection are implemented.
-Speculative-ready ownership is canonical; exact load-miss
-poison/cancel/repick remains an explicit later packet.
+exact W1/W2/W3 bypass data/provenance selection, and exact speculative-load
+cancel/poison/repick are implemented. `sources[*].load` is the canonical exact
+load-gene vector; no LIQ-slot-only replay scoreboard is authoritative.
 
 O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
 `iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical

@@ -59,7 +59,8 @@ source is absent from the RF mask. The tested 2-domain/3P/2T/2U geometry emits a
 ## Remaining gaps
 
 - Connect the exposed PC requests to `OooPcBuffer` in the canonical top.
-- Add exact load-miss cancel/repick after retained bypass consumption.
+- Connect physical LSU resolve producers to the lane/IQ exact cancel path;
+  the arbiter itself remains outside replay-state ownership.
 - Replace the bounded subset comparator with a physically reviewed hierarchy if
   default-width timing requires it.
 

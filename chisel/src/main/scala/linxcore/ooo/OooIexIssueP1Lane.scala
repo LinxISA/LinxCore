@@ -27,6 +27,8 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val pcData = Input(UInt(p.pcWidth.W))
   val bypass = Input(Vec(p.iexBypassPorts,
     Valid(new OooIexBypassCandidate(p))))
+  val loadCancel = Input(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
   val i2 = Decoupled(new OooIexI2Transaction(p))
 
   val retryFeedback = Valid(new OooIexReadRepick(p))
@@ -34,6 +36,8 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val p1Rejected = Valid(new OooIexP1Reject(p))
   val readRejected = Valid(new OooIexReadReject(p))
   val recoveryCanceled = Output(Vec(2,
+    Valid(new OooIexReadRepick(p))))
+  val loadCanceled = Output(Vec(3,
     Valid(new OooIexReadRepick(p))))
 
   val pickMalformed = Valid(new OooIexPickReject(p))
@@ -75,6 +79,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
 
   issue.io.s1 <> io.s1
   issue.io.wakeup := io.wakeup
+  issue.io.loadCancel := io.loadCancel
   issue.io.release <> io.release
   io.dispatchRelease <> issue.io.dispatchRelease
   issue.io.ptagRecycle <> io.ptagRecycle
@@ -107,6 +112,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   lane.io.pcDataValid := io.pcDataValid
   lane.io.pcData := io.pcData
   lane.io.bypass := io.bypass
+  lane.io.loadCancel := io.loadCancel
   io.i2 <> lane.io.i2
   lane.io.recoveryApply := issue.io.recoveryApplied
 
@@ -114,6 +120,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   io.p1Rejected := lane.io.p1Rejected
   io.readRejected := lane.io.readRejected
   io.recoveryCanceled := lane.io.recoveryCanceled
+  io.loadCanceled := lane.io.loadCanceled
   io.pickMalformed := issue.io.pickMalformed
   io.pickRejected := issue.io.pickRejected
   io.pickRetryRejected := issue.io.pickRetryRejected

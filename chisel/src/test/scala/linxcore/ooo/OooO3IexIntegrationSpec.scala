@@ -65,6 +65,10 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
     wakeup.valid := false.B
     wakeup.bits := 0.U.asTypeOf(wakeup.bits)
   }
+  issue.io.loadCancel.foreach { cancel =>
+    cancel.valid := false.B
+    cancel.bits := 0.U.asTypeOf(cancel.bits)
+  }
   issue.io.release.valid := io.release.valid
   issue.io.release.bits := io.release.bits
   io.release.ready := issue.io.release.ready

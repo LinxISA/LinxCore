@@ -6,6 +6,8 @@ import chisel3.util.{Decoupled, Valid}
 class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
+  val loadCancel = Input(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
   val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
   val dispatchRelease = Decoupled(new OooDispatchRelease(p))
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
@@ -54,6 +56,8 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   val readShapeExact = Output(Vec(p.iexIssueDomainCount, Bool()))
   val retryFeedback = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexReadRepick(p))))
+  val loadCanceled = Output(Vec(p.iexIssueDomainCount,
+    Vec(3, Valid(new OooIexReadRepick(p)))))
   val readRejected = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexReadReject(p))))
   val p1Rejected = Output(Vec(p.iexIssueDomainCount,
@@ -100,6 +104,7 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
 
   issue.io.s1 <> io.s1
   issue.io.wakeup := io.wakeup
+  issue.io.loadCancel := io.loadCancel
   issue.io.release <> io.release
   io.dispatchRelease <> issue.io.dispatchRelease
   issue.io.ptagRecycle <> io.ptagRecycle
@@ -151,6 +156,7 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   io.readDeniedMask := arbiter.io.deniedMask
   io.readShapeExact := arbiter.io.shapeExact
   io.retryFeedback := issue.io.retryFeedback
+  io.loadCanceled := issue.io.loadCanceled
   io.readRejected := issue.io.readRejected
   io.p1Rejected := issue.io.p1Rejected
   io.joinRejected := issue.io.joinRejected

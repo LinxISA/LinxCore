@@ -61,6 +61,7 @@ final case class OooParams(
     iexUWritePorts: Int = 4,
     iexWakeupPorts: Int = 8,
     iexBypassPorts: Int = 12,
+    iexLoadCancelPorts: Int = 4,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
     maxDestinationOperands: Int = 2,
@@ -217,6 +218,8 @@ final case class OooParams(
     "the IEX boundary needs at least one wakeup port")
   require(iexBypassPorts > 0,
     "the IEX boundary needs at least one bypass candidate")
+  require(iexLoadCancelPorts > 0,
+    "the IEX boundary needs at least one load-cancel port")
   require(loadGenerationWidth > 0,
     "speculative load attempts need a positive generation width")
   require(maxArchitecturalParentRefs >= 3,

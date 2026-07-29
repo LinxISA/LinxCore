@@ -16,6 +16,8 @@ object OooIexRecoveryScanState extends ChiselEnum {
 class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
+  val loadCancel = Input(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
 
   val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
   val dispatchRelease = Decoupled(new OooDispatchRelease(p))
@@ -211,6 +213,19 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
   def sameMember(left: RobMemberKey, right: RobMemberKey): Bool =
     left.asUInt === right.asUInt
 
+  def sourceLoadCanceled(
+      row: OooIexScheduleRow,
+      source: OooIexSourceState): Bool =
+    io.loadCancel.map { cancel =>
+      cancel.valid && cancel.bits.load.valid && source.valid &&
+        source.specReady && source.load.valid &&
+        cancel.bits.stid === row.stid && cancel.bits.epoch === row.epoch &&
+        cancel.bits.load.asUInt === source.load.asUInt
+    }.reduce(_ || _)
+
+  def rowLoadCanceled(row: OooIexScheduleRow): Bool =
+    row.sources.map(sourceLoadCanceled(row, _)).reduce(_ || _)
+
   val request = io.s1.bits
   val transaction = request.o3.request.reservation.transaction
   val plan = transaction.plan
@@ -400,6 +415,16 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       uReadyEpoch(safeWakeStid)(safeUtag) := wakeup.bits.epoch
     }
   }
+  for (port <- 0 until p.iexLoadCancelPorts) {
+    val cancel = io.loadCancel(port)
+    when(cancel.valid) {
+      assert(cancel.bits.load.valid && cancel.bits.load.producer.group.valid &&
+        cancel.bits.load.producer.bid.valid &&
+        cancel.bits.stid < p.stidCount.U &&
+        cancel.bits.load.producer.group.stid === cancel.bits.stid,
+        "load cancel requires an exact same-STID producer generation")
+    }
+  }
 
   // Existing S2 rows advance before a new S2 bind writes its targets.  The
   // later assignment below keeps newly bound rows in S2 for one full cycle.
@@ -563,12 +588,18 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
               specLoadNow := io.wakeup(port).bits.load
             }
           }
+          val specLoadCanceledNow = io.loadCancel.map { cancel =>
+            cancel.valid && cancel.bits.load.valid &&
+              cancel.bits.stid === s2Dispatch.stid &&
+              cancel.bits.epoch === s2Dispatch.epoch &&
+              cancel.bits.load.asUInt === specLoadNow.asUInt
+          }.reduce(_ || _)
           assert(PopCount(specWakeMatches) <= 1.U,
             "one source cannot accept multiple speculative load generations")
           source.valid := decodedSource.valid
           source.ready := nonSpecReady
           source.specReady := decodedSource.valid && !nonSpecReady &&
-            specWakeMatches.asUInt.orR
+            specWakeMatches.asUInt.orR && !specLoadCanceledNow
           source.operandClass := decodedSource.operandClass
           source.ptag := pSource.ptag
           source.ptagGeneration := pSource.ptagGeneration
@@ -676,6 +707,9 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     }
     assert(PopCount(speculativeWakeMatch) <= 1.U,
       "one resident source cannot accept multiple speculative load generations")
+    assert(!(committedWakeMatch.asUInt.orR &&
+      sourceLoadCanceled(scheduleRows(uopClass)(bank)(entry), source)),
+      "one source cannot commit and cancel on the same cycle")
     when(slotState(uopClass)(bank)(entry) =/= OooIexIssueSlotState.Free &&
         !(recoveryFreeze &&
           scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
@@ -690,6 +724,29 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         source.valid && !source.ready && speculativeWakeMatch.asUInt.orR) {
       source.specReady := true.B
       source.load := speculativeLoad
+    }
+  }
+
+  // Load miss/replay follows wakeup assignment so cancel wins a same-cycle
+  // race. IQ residency is retained, but any P1/I1/I2 claim is returned to S3
+  // by clearing inFlight. A later exact wakeup can make the row pickable again.
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    val row = scheduleRows(uopClass)(bank)(entry)
+    val canceledSources = Wire(Vec(p.maxSourceOperands, Bool()))
+    for (sourceIndex <- 0 until p.maxSourceOperands) {
+      val source = row.sources(sourceIndex)
+      canceledSources(sourceIndex) := sourceLoadCanceled(row, source)
+      when(slotState(uopClass)(bank)(entry) =/=
+          OooIexIssueSlotState.Free && canceledSources(sourceIndex)) {
+        source.specReady := false.B
+        source.load := 0.U.asTypeOf(source.load)
+      }
+    }
+    when(slotState(uopClass)(bank)(entry) ===
+        OooIexIssueSlotState.ResidentS3 && canceledSources.asUInt.orR) {
+      row.inFlight := false.B
     }
   }
 
@@ -717,6 +774,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     release.dispatch.transactionId === releaseRow.transactionId &&
     release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt &&
     sameMember(release.dispatch.member, release.member) &&
+    !rowLoadCanceled(releaseRow) &&
     !(recoveryFreeze && release.dispatch.stid === recoveryStid)
   io.dispatchRelease.valid := io.release.valid && releaseExact
   io.dispatchRelease.bits := release.dispatch
@@ -1164,11 +1222,12 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       val row = scheduleRows(pickerClassIndex)(bank)(entry)
       val sourcesReady = row.sources.map(source =>
         !source.valid || source.ready || source.specReady).reduce(_ && _)
+      val loadCanceled = rowLoadCanceled(row)
       val candidate = picker.io.candidates(bank)(entry)
       candidate.eligible :=
         slotState(pickerClassIndex)(bank)(entry) ===
           OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
-        sourcesReady &&
+        sourcesReady && !loadCanceled &&
         !(recoveryFreeze && row.stid === recoveryStid)
       candidate.peId := row.peId
       candidate.stid := row.stid
@@ -1202,7 +1261,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       pickToken.query.entry === pickRow.reservation.speculativeSlot
     val pickNotInFlight = !pickRow.inFlight
     val pickClaimExact = pickResidentExact && pickIdentityExact &&
-      pickNotInFlight &&
+      pickNotInFlight && !rowLoadCanceled(pickRow) &&
       !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
 
     io.picks(domain).valid := picker.io.pick.valid && pickClaimExact
@@ -1299,6 +1358,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       io.queryStates(domain) === OooIexIssueSlotState.ResidentS3 &&
       io.queryRows(domain).valid &&
       !io.queryRows(domain).schedule.inFlight && querySourcesReady &&
+      !rowLoadCanceled(io.queryRows(domain).schedule) &&
       !(recoveryFreeze && io.queryRows(domain).stid === recoveryStid)
   }
 

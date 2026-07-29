@@ -57,6 +57,8 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
     }
     dut.io.bypass.foreach(
       _.poke(0.U.asTypeOf(dut.io.bypass.head)))
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
   }
 
   private def pokeMember(target: RobMemberKey, memberIndex: Int): Unit = {

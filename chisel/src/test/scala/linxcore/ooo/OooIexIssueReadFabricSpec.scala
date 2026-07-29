@@ -49,6 +49,8 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
       _.poke(0.U.asTypeOf(dut.io.pcReadResponses.head)))
     dut.io.bypass.foreach(
       _.poke(0.U.asTypeOf(dut.io.bypass.head)))
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
     dut.io.pInit.poke(0.U.asTypeOf(dut.io.pInit))
     dut.io.pClear.foreach(_.poke(0.U.asTypeOf(dut.io.pClear.head)))
     dut.io.pWrite.foreach(_.poke(0.U.asTypeOf(dut.io.pWrite.head)))

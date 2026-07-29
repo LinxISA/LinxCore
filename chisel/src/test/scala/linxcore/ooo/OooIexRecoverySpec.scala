@@ -30,6 +30,8 @@ class OooIexRecoverySpec extends AnyFunSuite with ChiselSim {
       wakeup.valid.poke(false.B)
       wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
     }
+    dut.io.loadCancel.foreach(
+      _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.dispatchRelease.ready.poke(true.B)
