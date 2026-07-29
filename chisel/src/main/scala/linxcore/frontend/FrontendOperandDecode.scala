@@ -395,6 +395,10 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
         setImm(hlSetretImm)
       }.elsewhen(opcodeIs(FrontendOpcodeDecodeTable.OP_HL_LIU)) {
         setImm(hlLiuImm)
+      }.elsewhen(opcodeIs(FrontendOpcodeDecodeTable.OP_HL_ADDTPC)) {
+        // Match ADDTPC's D1 contract: execute receives the signed page
+        // displacement in bytes, not the encoded unshifted page count.
+        setImm(fitImm(hlLuiImm << 12))
       }.otherwise {
         setImm(hlLuiImm)
       }

@@ -552,6 +552,27 @@ invert/shift 还没有在 D1 归一化成 typed uop control，不能从 `a.txt` 
 把它们分到 BRU/BCTRL，必须在 branch path 中把 value 与 control effect
 原子实现。
 
+### 6.7 I0.9b 已实现：typed BRU E1/E2 value/control owner
+
+`OooIexBruPipeline` 接收完整 `OooIexExecuteTransaction`，只接受 generated
+recipe 明确归属 BRU/BCTRL 且 operand shape 完整的 uop。E1 计算 value 或
+BCTRL update，下一拍进入 retained E2。E2 把原 execute identity、可选
+writeback 和可选 BCTRL update 保持为一个事务；在后续 atomic sink 接受
+以前，不修改 BCTRL、不写 P/T/U RF、不发 wakeup、不完成 ROB、不产生
+redirect/trace。
+
+当前覆盖 `ADDTPC/HL.ADDTPC`、八种 immediate compare/logic value、compact
+`C.SETC.EQ/NE` condition update，以及 `SETC.TGT/C.SETC.TGT` target update。
+D1 同时修正了一个编码归一化差异：32-bit ADDTPC 早已输出 `pageImm << 12`
+的 byte displacement，而 48-bit `HL.ADDTPC` 曾输出 raw page count。现在两种
+编码在 D1 都转成 signed byte displacement，E1 只执行
+`(pc & ~0xfff) + immediate`，不再理解原始编码字段。
+
+`B.Z/B.NZ/J/JR` 继续 fail-closed。前两者需要显式 architectural condition
+owner；所有 redirect form 还需要 typed prediction/redirect transaction 及原子
+publication sink。E2 retained row 支持同拍 drain/refill，并对 grouped-ROB
+recovery 和 exact load-generation cancel 做精确抑制。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

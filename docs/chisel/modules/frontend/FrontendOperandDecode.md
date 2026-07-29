@@ -95,7 +95,9 @@ Implemented immediate forms:
 - `FENTRY_UIMM_HI`
 - `IMM20`, including `SETRET`'s unsigned shifted return-label form
 - `IMM32` for `HL.LUI` and related HL immediate forms, packed as
-  `Cat(pfx16[15:4], main32[31:12])` and sign-extended to 64 bits
+  `Cat(pfx16[15:4], main32[31:12])` and sign-extended to 64 bits;
+  `HL.ADDTPC` additionally shifts that signed page count left by 12 so D1
+  emits the same byte-displacement contract as 32-bit `ADDTPC`
 - `SIMM_4_S12_31_17` for HL `BSTART` target byte offsets
 - compressed `SIMM12` branch offsets
 - explicit `shamt_20_25` for 32-bit shift-immediate opcodes whose generated
@@ -180,6 +182,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only OooD1DecodeSpec
 ```
 
 The `FrontendDecodeStageSpec` reference cases cover:
@@ -229,6 +232,14 @@ The `FrontendDecodeStageSpec` reference cases cover:
   writeback, compact `C.SWI` uses the compressed store source/immediate shape,
   and high-long PCR byte/half/word/doubleword stores share the R134 split
   PCR-store immediate extraction while execute owns the store size.
+- I0.9b `ADDTPC` normalization. Both the 32-bit and high-long encodings deliver
+  a signed page displacement in bytes to OOO. The 48-bit path therefore
+  overrides generic `IMM32` with `signext(imm32) << 12`; BRU must not repeat
+  encoding-aware extraction or consume the raw page count.
+
+`OooD1DecodeSpec` additionally proves that 32-bit `ADDTPC` and 48-bit
+`HL.ADDTPC` with the same encoded page count both produce immediate `0x1000`
+and a BRU dispatch recipe.
 
 ## Open Work
 

@@ -138,6 +138,28 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("normalizes 32 and 48-bit ADDTPC page displacements to bytes") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      val addtpc = encoded("OP_ADDTPC", (31, 12, 1), (11, 7, 3))
+      val hlAddtpc = encoded("OP_HL_ADDTPC", (47, 28, 1), (27, 23, 4))
+      drive(dut, 0, "OP_ADDTPC", addtpc, 27, 0x2700)
+      drive(dut, 1, "OP_HL_ADDTPC", hlAddtpc, 28, 0x2704)
+      dut.io.in.bits.validMask.poke(3.U)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.out.bits.uops(0).immediateValid.expect(true.B)
+      dut.io.out.bits.uops(1).immediateValid.expect(true.B)
+      dut.io.out.bits.uops(0).immediate.expect(0x1000.U)
+      dut.io.out.bits.uops(1).immediate.expect(0x1000.U)
+      dut.io.out.bits.uops(0).recipe.dispatchClass.expect(
+        OooDispatchClass.Bru.U)
+      dut.io.out.bits.uops(1).recipe.dispatchClass.expect(
+        OooDispatchClass.Bru.U)
+    }
+  }
+
   test("preserves P T U architectural aliases and counts their rename domains separately") {
     val p = OooParams()
     simulate(new OooD1Decode(p)) { dut =>
