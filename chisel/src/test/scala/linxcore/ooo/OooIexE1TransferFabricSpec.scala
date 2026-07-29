@@ -24,18 +24,21 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
     iexIssueDomainCount = 2,
+    iexReleaseWidth = 2,
     tuRetireSourceDepthPerStid = 16)
 
   private val topology = Seq(
-    OooIexIssueDomainConfig(OooUopClass.Alu.asUInt.litValue.toInt, 1),
-    OooIexIssueDomainConfig(OooUopClass.Bru.asUInt.litValue.toInt, 1))
+    OooIexIssueDomainConfig(
+      OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
+    OooIexIssueDomainConfig(
+      OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 1))
 
   private def clear(dut: OooIexE1TransferFabric): Unit = {
     dut.io.i2.foreach { port =>
       port.valid.poke(false.B)
       port.bits.poke(0.U.asTypeOf(port.bits))
     }
-    dut.io.issueRelease.ready.poke(false.B)
+    dut.io.issueReleases.foreach(_.ready.poke(false.B))
     dut.io.e1.foreach(_.ready.poke(false.B))
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
@@ -78,7 +81,7 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     port.valid.poke(true.B)
   }
 
-  test("arbitrates static ALU and BRU transfers without losing I2 owners") {
+  test("transfers static ALU and BRU domains through independent releases") {
     simulate(new OooIexE1TransferFabric(p, topology)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
@@ -92,27 +95,23 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
 
       pokeI2(dut.io.i2(0), OooUopClass.Alu, ridSlot = 1, data = 11)
       pokeI2(dut.io.i2(1), OooUopClass.Bru, ridSlot = 2, data = 22)
-      dut.io.issueRelease.ready.poke(false.B)
+      dut.io.issueReleases.foreach(_.ready.poke(false.B))
       dut.io.i2(0).ready.expect(false.B)
       dut.io.i2(1).ready.expect(false.B)
       dut.io.empty.expect(true.B)
 
-      dut.io.issueRelease.ready.poke(true.B)
-      val first = dut.io.releaseDomain.bits.peek().litValue.toInt
-      assert(first == 0 || first == 1)
-      dut.io.releaseDomain.valid.expect(true.B)
-      dut.io.i2(first).ready.expect(true.B)
-      dut.io.i2(1 - first).ready.expect(false.B)
-      dut.io.issueRelease.bits.member.group.ridSlot.expect((first + 1).U)
+      dut.io.issueReleases.foreach(_.ready.poke(true.B))
+      dut.io.releaseDomains(0).valid.expect(true.B)
+      dut.io.releaseDomains(0).bits.expect(0.U)
+      dut.io.releaseDomains(1).valid.expect(true.B)
+      dut.io.releaseDomains(1).bits.expect(1.U)
+      dut.io.i2(0).ready.expect(true.B)
+      dut.io.i2(1).ready.expect(true.B)
+      dut.io.issueReleases(0).bits.member.group.ridSlot.expect(1.U)
+      dut.io.issueReleases(1).bits.member.group.ridSlot.expect(2.U)
       dut.clock.step()
-      dut.io.i2(first).valid.poke(false.B)
-
-      // The peer still owns I2 and wins the only exact release port next.
-      dut.io.i2(1 - first).ready.expect(true.B)
-      dut.io.releaseDomain.bits.expect((1 - first).U)
-      dut.clock.step()
-      dut.io.i2(1 - first).valid.poke(false.B)
-      dut.io.issueRelease.ready.poke(false.B)
+      dut.io.i2.foreach(_.valid.poke(false.B))
+      dut.io.issueReleases.foreach(_.ready.poke(false.B))
 
       dut.io.occupied(0).expect(true.B)
       dut.io.occupied(1).expect(true.B)
@@ -140,8 +139,10 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects overlapping static class and bank ownership") {
     val overlap = Seq(
-      OooIexIssueDomainConfig(OooUopClass.Alu.asUInt.litValue.toInt, 1),
-      OooIexIssueDomainConfig(OooUopClass.Alu.asUInt.litValue.toInt, 1))
+      OooIexIssueDomainConfig(
+        OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
+      OooIexIssueDomainConfig(
+        OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 1))
     assertThrows[IllegalArgumentException](
       OooIexIssueDomainConfig.validate(p, overlap))
     assertThrows[IllegalArgumentException](
@@ -154,5 +155,8 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
       topology.updated(1, OooIexIssueDomainConfig(
         OooUopClass.Bru.asUInt.litValue.toInt, 4))))
+    assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
+      topology.updated(1, OooIexIssueDomainConfig(
+        OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 2))))
   }
 }

@@ -16,7 +16,9 @@ class OooDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   val cancel = Input(Vec(p.stidCount, Bool()))
 
   val publish = Flipped(Valid(new OooDispatchPublish(p)))
-  val release = Flipped(Decoupled(new OooDispatchRelease(p)))
+  val releases = Flipped(Vec(p.iexReleaseWidth,
+    Decoupled(new OooDispatchRelease(p))))
+  def release = releases(0)
 
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
@@ -37,7 +39,9 @@ class OooDispatchIO(val p: OooParams = OooParams()) extends Bundle {
 
   val prepareRejected = Valid(new OooDispatchPrepareReject(p))
   val publishRejected = Valid(new OooDispatchPublishReject(p))
-  val releaseRejected = Valid(new OooDispatchReleaseReject(p))
+  val releaseRejecteds = Vec(p.iexReleaseWidth,
+    Valid(new OooDispatchReleaseReject(p)))
+  def releaseRejected = releaseRejecteds(0)
   val recoveryRejected = Valid(new OooDispatchRecoveryReject(p))
 }
 
@@ -411,45 +415,76 @@ class OooDispatch(val p: OooParams = OooParams()) extends Module {
       0.U.asTypeOf(new OooDispatchReservationLease(p))
   }
 
-  val release = io.release.bits
-  val releaseClass = release.reservation.uopClass.asUInt
-  val releaseClassInRange = releaseClass < p.iqClassCount.U
-  val releaseBankInRange = release.reservation.bank < p.iqBankCount.U
-  val releaseSlotInRange =
-    release.reservation.speculativeSlot < p.iqEntriesPerBank.U
-  val safeReleaseClass = Mux(releaseClassInRange, releaseClass, 0.U)
-  val safeReleaseBank = Mux(releaseBankInRange,
-    release.reservation.bank, 0.U)
-  val safeReleaseSlot = Mux(releaseSlotInRange,
-    release.reservation.speculativeSlot, 0.U)
-  val releaseExact = release.reservation.valid && releaseClassInRange &&
-    releaseBankInRange && releaseSlotInRange &&
-    slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      OooDispatchSlotState.Published &&
-    slotGeneration(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.reservation.reservationEpoch &&
-    slotWritePort(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.reservation.writePort &&
-    slotPeId(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.peId &&
-    slotStid(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.stid &&
-    slotEpoch(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.epoch &&
-    slotTransaction(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) ===
-      release.transactionId &&
-    slotMemberValid(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) &&
-    slotMember(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot).asUInt ===
-      release.member.asUInt &&
-    !(recoveryFreeze && release.stid === recoveryStid)
-  io.release.ready := releaseExact
-  io.releaseRejected.valid := io.release.valid && !releaseExact
-  io.releaseRejected.bits.requested := release
-  when(io.release.fire) {
-    slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) :=
-      OooDispatchSlotState.Free
-    slotMemberValid(safeReleaseClass)(safeReleaseBank)(safeReleaseSlot) :=
-      false.B
+  val releaseClasses = Wire(Vec(p.iexReleaseWidth,
+    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
+  val releaseClassInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseBankInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseSlotInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val safeReleaseClasses = Wire(Vec(p.iexReleaseWidth,
+    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
+  val safeReleaseBanks = Wire(Vec(p.iexReleaseWidth,
+    UInt(p.iqBankWidth.W)))
+  val safeReleaseSlots = Wire(Vec(p.iexReleaseWidth,
+    UInt(p.iqEntryWidth.W)))
+  val releaseAddressExact = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseOwnerExact = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseCollision = Wire(Vec(p.iexReleaseWidth, Bool()))
+
+  for (lane <- 0 until p.iexReleaseWidth) {
+    val release = io.releases(lane).bits
+    releaseClasses(lane) := release.reservation.uopClass.asUInt
+    releaseClassInRange(lane) := releaseClasses(lane) < p.iqClassCount.U
+    releaseBankInRange(lane) := release.reservation.bank < p.iqBankCount.U
+    releaseSlotInRange(lane) :=
+      release.reservation.speculativeSlot < p.iqEntriesPerBank.U
+    safeReleaseClasses(lane) := Mux(
+      releaseClassInRange(lane), releaseClasses(lane), 0.U)
+    safeReleaseBanks(lane) := Mux(
+      releaseBankInRange(lane), release.reservation.bank, 0.U)
+    safeReleaseSlots(lane) := Mux(
+      releaseSlotInRange(lane), release.reservation.speculativeSlot, 0.U)
+    releaseAddressExact(lane) := release.reservation.valid &&
+      releaseClassInRange(lane) && releaseBankInRange(lane) &&
+      releaseSlotInRange(lane)
+    releaseOwnerExact(lane) := releaseAddressExact(lane) &&
+      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === OooDispatchSlotState.Published &&
+      slotGeneration(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.reservation.reservationEpoch &&
+      slotWritePort(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.reservation.writePort &&
+      slotPeId(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.peId &&
+      slotStid(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.stid &&
+      slotEpoch(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.epoch &&
+      slotTransaction(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) === release.transactionId &&
+      slotMemberValid(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) &&
+      slotMember(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)).asUInt === release.member.asUInt &&
+      !(recoveryFreeze && release.stid === recoveryStid)
+    releaseCollision(lane) := (0 until p.iexReleaseWidth).filter(_ != lane)
+      .map { peer =>
+        io.releases(peer).valid && releaseAddressExact(lane) &&
+          releaseAddressExact(peer) &&
+          safeReleaseClasses(lane) === safeReleaseClasses(peer) &&
+          safeReleaseBanks(lane) === safeReleaseBanks(peer) &&
+          safeReleaseSlots(lane) === safeReleaseSlots(peer)
+      }.foldLeft(false.B)(_ || _)
+    val releaseExact = releaseOwnerExact(lane) && !releaseCollision(lane)
+    io.releases(lane).ready := releaseExact
+    io.releaseRejecteds(lane).valid :=
+      io.releases(lane).valid && !releaseExact
+    io.releaseRejecteds(lane).bits.requested := release
+    when(io.releases(lane).fire) {
+      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) := OooDispatchSlotState.Free
+      slotMemberValid(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseSlots(lane)) := false.B
+    }
   }
 
   val recoveryPublishedExact = (0 until p.iqClassCount).flatMap { uopClass =>

@@ -32,7 +32,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val interruptPending = Input(Vec(p.stidCount, Bool()))
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
-  val dispatchRelease = Flipped(Decoupled(new OooDispatchRelease(p)))
+  val dispatchReleases = Flipped(Vec(p.iexReleaseWidth,
+    Decoupled(new OooDispatchRelease(p))))
+  def dispatchRelease = dispatchReleases(0)
   val ptagRecycle = Decoupled(new OooPTagReturnBatch(p))
 
   val recoveryRequest = Flipped(Decoupled(
@@ -66,7 +68,9 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val dispatchPrepareRejected = Valid(new OooDispatchPrepareReject(p))
   val dispatchPublishRejected = Valid(new OooDispatchPublishReject(p))
-  val dispatchReleaseRejected = Valid(new OooDispatchReleaseReject(p))
+  val dispatchReleaseRejecteds = Vec(p.iexReleaseWidth,
+    Valid(new OooDispatchReleaseReject(p)))
+  def dispatchReleaseRejected = dispatchReleaseRejecteds(0)
 
   val queryStid = Input(UInt(p.stidWidth.W))
   val queryAtag = Input(UInt(p.archRegWidth.W))
@@ -599,7 +603,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     commitOwnersStarted := false.B
   }
 
-  dispatch.io.release <> io.dispatchRelease
+  dispatch.io.releases <> io.dispatchReleases
 
   prename.io.queryStid := io.queryStid
   prename.io.queryAtag := io.queryAtag
@@ -638,7 +642,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   io.dispatchPublishedEntries := dispatch.io.publishedEntries
   io.dispatchPrepareRejected := dispatch.io.prepareRejected
   io.dispatchPublishRejected := dispatch.io.publishRejected
-  io.dispatchReleaseRejected := dispatch.io.releaseRejected
+  io.dispatchReleaseRejecteds := dispatch.io.releaseRejecteds
   io.recoveryBusy := globalRecoveryActive || turetire.io.recoveryBusy ||
     prename.io.recoveryBusy || turename.io.recoveryBusy || o3.io.recoveryBusy
   io.recoveryStid := Mux(globalRecoveryActive, activeRecoveryStid,

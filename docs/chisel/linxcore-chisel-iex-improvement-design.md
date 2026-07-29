@@ -500,12 +500,29 @@ bank mask变成 elaboration-time contract。`OooIexE1TransferFabric`：
 schedule副本可能仍为0，transfer不得把这个旧副本当第二份authority。
 下一步是把 release/dispatch return扩成目标吞吐，再连接typed ALU/BRU。
 
+### 6.4.5 I0.8c 已实现：参数化多路精确 release
+
+`iexReleaseWidth` 把 IEX 到 canonical IQ、dispatch reservation owner 和
+O3 coordinator 的 terminal return 扩成同宽 Decoupled vector。每条 lane
+仍必须匹配完整 member 与 dispatch reservation；扩宽没有降低 exact-owner
+校验。互不相同的 physical row 可以在同一周期释放。如果多个 valid lane
+指向同一个 `{class,bank,entry}`，所有冲突 lane 都 fail-closed，IQ row 与
+dispatch reservation 均保持驻留，不能任择一个 winner 造成 double-free。
+
+静态 `OooIexIssueDomainConfig.releasePort` 把每个 physical issue domain
+绑定到 release port。每个 port 有独立公平 arbiter：共享端口的 domain
+串行，独立端口的 domain 同周期前进。两 domain、两 release-port 的真实
+IQ/read/E1 IT 已证明 ALU 与 BRU 可以同 edge 完成 I2 accept、E1 capture、
+IQ row removal 和 dispatch-slot return；重复 physical target UT 则证明
+冲突请求不会改变 residency。
+
 ### 6.5 迁移与验收
 
 read group、exact token、多 domain 原子端口仲裁、P/T/U真实data owner、
 IQ-local speculative-ready、精确load generation、bypass/replay poison和
 单lane I2-to-E1 owner transfer、静态多class router与真实IQ release回接
-已经完成。下一步连接正式PC owner、扩展release吞吐并接入typed FU。
+以及参数化多路 exact release 已经完成。下一步连接正式PC owner，并把
+E1 接入 typed ALU/BRU/AGU 与后续 LSU owner。
 验收必须覆盖：
 
 - 两 bank simultaneous pick；

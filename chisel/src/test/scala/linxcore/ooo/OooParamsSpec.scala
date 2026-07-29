@@ -58,6 +58,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iqFreeSelectLeafEntriesEffective == 4)
     assert(p.iqFreeSelectGroupCount == 8)
     assert(p.iexIssueDomainCount == 1)
+    assert(p.iexReleaseWidth == 1)
     assert(p.iexPReadPorts == 6)
     assert(p.iexTReadPorts == 4)
     assert(p.iexUReadPorts == 4)
@@ -119,6 +120,9 @@ class OooParamsSpec extends AnyFunSuite {
       executeSlotGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 9))
+    assertThrows[IllegalArgumentException](OooParams(iexReleaseWidth = 0))
+    assertThrows[IllegalArgumentException](OooParams(
+      iexIssueDomainCount = 2, iexReleaseWidth = 3))
     assertThrows[IllegalArgumentException](OooParams(iexPReadPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexTReadPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexUReadPorts = 0))

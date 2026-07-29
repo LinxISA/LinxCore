@@ -53,6 +53,7 @@ final case class OooParams(
     iqFreeSelectLeafEntries: Int = 4,
     iexRecoveryScanEntriesPerBankPerCycle: Int = 1,
     iexIssueDomainCount: Int = 1,
+    iexReleaseWidth: Int = 1,
     iexPReadPorts: Int = 6,
     iexTReadPorts: Int = 4,
     iexUReadPorts: Int = 4,
@@ -211,6 +212,8 @@ final case class OooParams(
   require(iexIssueDomainCount > 0 &&
     iexIssueDomainCount <= math.min(8, iqClassCount * iqBankCount),
     "IEX issue-domain count must fit the bounded physical topology")
+  require(iexReleaseWidth > 0 && iexReleaseWidth <= iexIssueDomainCount,
+    "IEX release width must fit the physical issue-domain count")
   require(iexPReadPorts > 0 && iexTReadPorts > 0 && iexUReadPorts > 0,
     "IEX P/T/U read-port counts must be positive")
   require(iexPWritePorts > 0 && iexTWritePorts > 0 && iexUWritePorts > 0,

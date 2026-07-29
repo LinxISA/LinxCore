@@ -38,6 +38,19 @@ side-effect free until the common O3 apply. It cancels the target STID's
 provisional lease and the exact published suffix while preserving unrelated
 STIDs.
 
+## Exact release ports
+
+`iexReleaseWidth` parameterizes independent terminal-release ports from IEX.
+Every lane must match the complete published owner: member, class, bank,
+write port, entry, reservation epoch, PE/STID/frontend epoch, and transaction.
+Independent physical reservations may return in the same cycle. If two valid
+lanes name the same physical `{class,bank,entry}`, both are rejected and the
+published reservation remains resident. This fail-closed collision rule
+prevents a malformed peer from turning one lease into two frees.
+
+Release-port width is bounded by `iexIssueDomainCount`; lane zero retains the
+focused compatibility alias used by one-domain tests and wrappers.
+
 ## Hierarchical free-entry selection
 
 `iqFreeSelectLeafEntries` is the maximum leaf width. The effective leaf width
@@ -88,6 +101,10 @@ transaction ID, wrap-qualified ROB head/tail, tail epoch, and live occupancy as
 independent domains. It passes suffix recovery and no longer uses cumulative
 issue count as post-recovery occupancy.
 
+The release UT also proves two independent same-cycle returns and proves that
+duplicate physical targets reject every colliding lane without changing
+residency.
+
 ## Remaining gaps
 
 - occupancy plus retained-inflight bank cost and destination-PTag-aware
@@ -95,4 +112,4 @@ issue count as post-recovery occupancy.
 - one-cycle-ahead steering and configurable safe-mode thresholds;
 - physical PC metadata/write macro realization and grouped-ROB commit
   prefix timing;
-- P1/I1/I2 and execution-side release integration.
+- typed ALU/BRU/AGU/LSU execution owners and measured release-port topology.

@@ -98,6 +98,7 @@ promotion.
 | I0.7 speculative issue closure | Implemented | IQ-local speculative-ready state; complete producer/load-generation identity; exact W1/W2/W3 bypass selection and retained provenance; RF-needed masking; same-cycle cancel dominance; IQ plus P1/I1/I2 poison; exact new-generation repick IT | connect physical load hit/miss producers and bypass network in canonical top |
 | I0.8a I2/E1 owner transfer | Implemented | class-specific retained E1 slot; I2 accept and exact IQ/dispatch release on one fire; complete owner class/lane/generation transaction; E1 backpressure retention; same-cycle drain/refill; exact recovery and load-cancel suppression; canonical IQ alone revalidates live in-flight state; malformed immutable shape fail-stop UT | compose with typed FU owners |
 | I0.8b static transfer fabric | Implemented | elaboration-time domain class/bank contracts; overlap rejection; one retained slot per domain; fair single-release arbitration; independent ALU/BRU E1 backpressure UT; real S1-to-I2-to-E1 IT with atomic IQ removal and dispatch return | select final topology, widen release/dispatch return throughput, and connect ALU/BRU/AGU/LSU owners |
+| I0.8c parameterized exact release | Implemented | `iexReleaseWidth`; vectorized IQ/dispatch/O3/wrapper return; static domain-to-release-port ownership; independent same-cycle ALU/BRU transfer; full-owner validation; duplicate physical-target fail-closed UT/IT | select measured final topology and connect typed ALU/BRU/AGU/LSU owners |
 | O6.1 typed fast resolve | Implemented | generated whitelist; retained per-STID typed entries; exact boundary/writeback/wakeup/trace/completion fork; O3/ROB integration and exact global cancellation; focused UT/IT | O9 consumer/top activation remains |
 | O6.2 non-flush | Implemented | grouped ROB-owned per-STID window; exact typed proof intake/rejection; interrupt freeze; recovery recomputation; direct ROB UT and coordinator IT | O9 final consumer activation remains |
 | O7 recovery and CTU | Implemented | O7.1 grouped ROB exact suffix truncation; O7.2 retained all-owner recovery through CTU prepare, one common destructive apply, P/T/U rebuild, and exact IFU restart acknowledgement; O7.3 adds per-STID CTU claim/plan/lease state, ordered canonical-child reinsertion, multi-RID parent semantics, stale-generation rejection, and prepare/apply/abort recovery IT | unresolved complex parents remain fail-closed; the external CTU recipe engine and core-top wiring are O9 integration work |
@@ -1105,8 +1106,10 @@ in-flight until a separate exact terminal release.
 I0.7 adds bypass provenance, speculative-ready/load-generation validation,
 miss poison, and cancel/repick without setting the non-speculative RF ready
 owner from speculative load wakeup. I0.8a then couples exact issue release to
-one retained class-specific E1 accept; the remaining work is full topology and
-FU composition.
+one retained class-specific E1 accept. I0.8b freezes class/bank domain
+ownership, and I0.8c adds parameterized exact release ports with duplicate
+physical-target rejection. The remaining work is the measured final topology
+and typed FU/LSU composition.
 
 ## 15. Fast-resolve plan
 

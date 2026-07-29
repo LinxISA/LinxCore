@@ -41,9 +41,11 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
     }
     dut.io.loadCancel.foreach(
       _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
-    dut.io.release.valid.poke(false.B)
-    dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
-    dut.io.dispatchRelease.ready.poke(false.B)
+    dut.io.releases.foreach { release =>
+      release.valid.poke(false.B)
+      release.bits.poke(0.U.asTypeOf(release.bits))
+    }
+    dut.io.dispatchReleases.foreach(_.ready.poke(false.B))
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
     dut.io.pickClass.poke(OooUopClass.Alu)
     dut.io.pickBankEnable.poke(0.U)
@@ -743,6 +745,94 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.release.valid.poke(false.B)
       dut.io.queryState.expect(OooIexIssueSlotState.Free)
+    }
+  }
+
+  test("multi-release frees independent rows and blocks duplicate targets") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      iexIssueDomainCount = 2,
+      iexReleaseWidth = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      val allocations = Vector(
+        Allocation(0, 0, 0, 0, 0, 1, reservationEpoch = 3),
+        Allocation(1, 0, 1, 0, 1, 2, reservationEpoch = 4))
+      pokeTransaction(dut, 1, 21, allocations)
+      advanceToS3(dut)
+
+      dut.io.pickClasses(0).poke(OooUopClass.Alu)
+      dut.io.pickClasses(1).poke(OooUopClass.Bru)
+      dut.io.pickBankEnables(0).poke(1.U)
+      dut.io.pickBankEnables(1).poke(1.U)
+      dut.clock.step()
+      dut.io.picks.foreach(_.valid.expect(true.B))
+      dut.io.picks.foreach(_.ready.poke(true.B))
+      dut.clock.step()
+      dut.io.picks.foreach(_.ready.poke(false.B))
+
+      def pokeRelease(
+          lane: Int,
+          allocation: Allocation,
+          memberIndex: Int): Unit = {
+        val release = dut.io.releases(lane).bits
+        release.poke(0.U.asTypeOf(release))
+        pokeMember(release.member, 1, memberIndex)
+        pokeMember(release.dispatch.member, 1, memberIndex)
+        release.dispatch.peId.poke(3.U)
+        release.dispatch.stid.poke(1.U)
+        release.dispatch.epoch.poke(6.U)
+        release.dispatch.transactionId.poke(21.U)
+        release.dispatch.reservation.valid.poke(true.B)
+        pokeClass(release.dispatch.reservation.uopClass,
+          allocation.uopClass)
+        release.dispatch.reservation.bank.poke(allocation.bank.U)
+        release.dispatch.reservation.writePort.poke(allocation.port.U)
+        release.dispatch.reservation.speculativeSlot.poke(allocation.entry.U)
+        release.dispatch.reservation.reservationEpoch.poke(
+          allocation.reservationEpoch.U)
+        dut.io.releases(lane).valid.poke(true.B)
+      }
+
+      pokeRelease(0, allocations(0), memberIndex = 0)
+      pokeRelease(1, allocations(1), memberIndex = 2)
+      dut.io.dispatchReleases.foreach(_.ready.poke(true.B))
+      dut.io.releases.foreach(_.ready.expect(true.B))
+      dut.clock.step()
+      dut.io.releases.foreach(_.valid.poke(false.B))
+      dut.io.residentEntries(0)(0).expect(0.U)
+      dut.io.residentEntries(1)(0).expect(0.U)
+
+      val duplicate = Allocation(0, 0, 0, 0, 0, 3,
+        reservationEpoch = 5)
+      pokeTransaction(dut, 1, 22, Vector(duplicate))
+      advanceToS3(dut)
+      dut.io.pickClasses(0).poke(OooUopClass.Alu)
+      dut.io.pickBankEnables(0).poke(1.U)
+      dut.clock.step()
+      dut.io.picks(0).valid.expect(true.B)
+      dut.io.picks(0).ready.poke(true.B)
+      dut.clock.step()
+      dut.io.picks(0).ready.poke(false.B)
+
+      pokeRelease(0, duplicate, memberIndex = 0)
+      pokeRelease(1, duplicate, memberIndex = 0)
+      dut.io.releases.foreach(_.bits.dispatch.transactionId.poke(22.U))
+      dut.io.releases.foreach(_.ready.expect(false.B))
+      dut.io.releaseRejecteds.foreach(_.valid.expect(true.B))
+      dut.clock.step()
+      dut.io.releases.foreach(_.valid.poke(false.B))
+      dut.io.residentEntries(0)(0).expect(1.U)
+      dut.io.inFlightEntries(0)(0).expect(1.U)
     }
   }
 

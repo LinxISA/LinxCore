@@ -51,8 +51,8 @@ consumer applies backpressure. This module does not free the IQ row.
 next owner: its one acceptance fire is coupled to the existing exact IQ and
 dispatch release fire, so no cycle exists in which neither side owns recovery.
 [`OooIexE1TransferFabric`](OooIexE1TransferFabric.md) supplies static
-domain/class/bank ownership and serializes those slots through the current
-single canonical release port.
+domain/class/bank/release-port ownership. Domains sharing one release port
+serialize fairly; domains on distinct ports can transfer together.
 
 ## PC timing
 
@@ -89,7 +89,7 @@ unchanged.
 - instantiate the implemented oldest-ready picker/bridge/lane composition
   across the frozen
   multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
-- select the final static class/domain map and widen exact release throughput;
+- select and measure the final static class/domain/release-port map;
 - E1/W1 execution, wakeup, completion, and result publication;
 - physical LSU hit/miss resolver wiring into the exact load-cancel ports;
 - synchronous-macro latency variants and default-width timing evidence.

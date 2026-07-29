@@ -8,8 +8,12 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-  val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
-  val dispatchRelease = Decoupled(new OooDispatchRelease(p))
+  val releases = Flipped(Vec(p.iexReleaseWidth,
+    Decoupled(new OooIexIssueRelease(p))))
+  def release = releases(0)
+  val dispatchReleases = Vec(p.iexReleaseWidth,
+    Decoupled(new OooDispatchRelease(p)))
+  def dispatchRelease = dispatchReleases(0)
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
 
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
@@ -60,7 +64,9 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val pickRecoveryBlocked = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickToken(p))))
   val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
-  val releaseRejected = Output(Valid(new OooIexReleaseReject(p)))
+  val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
+    Valid(new OooIexReleaseReject(p))))
+  def releaseRejected = releaseRejecteds(0)
   val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
 
   val s1Occupied = Output(Vec(p.stidCount, Bool()))
@@ -96,8 +102,8 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
   issue.io.s1 <> io.s1
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
-  issue.io.release <> io.release
-  io.dispatchRelease <> issue.io.dispatchRelease
+  issue.io.releases <> io.releases
+  io.dispatchReleases <> issue.io.dispatchReleases
   issue.io.ptagRecycle <> io.ptagRecycle
   issue.io.recoveryPrepare := io.recoveryPrepare
   io.recoveryPrepareReady := issue.io.recoveryPrepareReady
@@ -155,7 +161,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
   }
 
   io.s1Rejected := issue.io.s1Rejected
-  io.releaseRejected := issue.io.releaseRejected
+  io.releaseRejecteds := issue.io.releaseRejecteds
   io.recoveryRejected := issue.io.recoveryRejected
   io.s1Occupied := issue.io.s1Occupied
   io.boundEntries := issue.io.boundEntries

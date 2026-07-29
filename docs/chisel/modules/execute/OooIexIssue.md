@@ -26,7 +26,7 @@ documented in [`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
 [`OooIexIssueP1Fabric`](OooIexIssueP1Fabric.md).
 The first class-specific terminal handoff is documented in
 [`OooIexE1TransferSlot`](OooIexE1TransferSlot.md).
-Its static multi-domain topology and current single-release arbitration are
+Its static multi-domain and parameterized release-port topology are
 documented in [`OooIexE1TransferFabric`](OooIexE1TransferFabric.md).
 
 ## Stage ownership
@@ -96,8 +96,12 @@ reservation. Domain-zero aliases preserve the focused one-lane interface.
 
 Release is fail-closed. It requires an in-flight row, the exact member, and
 complete dispatch reservation, including class-local entry, write port, and
-reservation epoch.
-The IQ row and dispatch allocation return on one Decoupled fire.
+reservation epoch. `iexReleaseWidth` provides independent Decoupled release
+lanes, and each accepted lane removes its IQ row and returns its dispatch
+allocation on the same fire. Independent physical rows may release together.
+If two valid lanes name the same physical `{class,bank,entry}`, every
+colliding lane is rejected and the row remains resident; the owner never
+chooses a winner for an ambiguous double-free request.
 
 ## Recovery
 
@@ -140,10 +144,10 @@ must quiesce those producers before prepare.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
-- Select the final class/bank topology and widen the current single exact
-  release/dispatch-return path. Static class/domain composition, atomic
-  transfer/release, and owner-side in-flight release guard are implemented;
-  two simultaneous transfers still serialize.
+- Select and measure the final class/bank/release-port topology. Static
+  class/domain composition, parameterized simultaneous exact release,
+  duplicate-target rejection, atomic transfer/release, and owner-side
+  in-flight release guard are implemented.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
   safe-mode thresholds, and default-geometry timing/area closure. The
   unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.
@@ -162,6 +166,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPicker
 bash tools/chisel/run_chisel_tests.sh --only OooIexPickP1Bridge
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Lane
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Fabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1Integration
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator

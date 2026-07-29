@@ -26,8 +26,10 @@ class OooDispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.cancel.foreach(_.poke(false.B))
     dut.io.publish.valid.poke(false.B)
     dut.io.publish.bits.poke(0.U.asTypeOf(dut.io.publish.bits))
-    dut.io.release.valid.poke(false.B)
-    dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.releases.foreach { release =>
+      release.valid.poke(false.B)
+      release.bits.poke(0.U.asTypeOf(release.bits))
+    }
     dut.io.recoveryPrepare.valid.poke(false.B)
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
@@ -271,6 +273,65 @@ class OooDispatchSpec extends AnyFunSuite with ChiselSim {
       second.foreach { token =>
         dut.io.freeEntries(token.uopClass)(token.bank).expect(4.U)
       }
+    }
+  }
+
+  test("releases two independent published slots and rejects a duplicate pair") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      iexIssueDomainCount = 2,
+      iexReleaseWidth = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooDispatch(p)) { dut =>
+      clear(dut)
+      val zero = Vector.fill(p.iqClassCount)(0)
+      val tokens = reserve(dut, stid = 1, transactionId = 0,
+        demands = Vector(zero.updated(0, 1), zero.updated(1, 1)))
+      publish(dut, stid = 1, transactionId = 0, tokens)
+
+      def pokeLane(lane: Int, token: Token): Unit = {
+        val request = dut.io.releases(lane).bits
+        request.poke(0.U.asTypeOf(request))
+        request.peId.poke(3.U)
+        request.stid.poke(1.U)
+        request.epoch.poke(5.U)
+        request.transactionId.poke(0.U)
+        pokeMember(request.member, 1, 0, token.lane)
+        request.reservation.valid.poke(true.B)
+        pokeClass(request.reservation.uopClass, token.uopClass)
+        request.reservation.bank.poke(token.bank.U)
+        request.reservation.writePort.poke(token.port.U)
+        request.reservation.speculativeSlot.poke(token.slot.U)
+        request.reservation.reservationEpoch.poke(token.epoch.U)
+        dut.io.releases(lane).valid.poke(true.B)
+      }
+
+      pokeLane(0, tokens(0))
+      pokeLane(1, tokens(1))
+      dut.io.releases.foreach(_.ready.expect(true.B))
+      dut.clock.step()
+      dut.io.releases.foreach(_.valid.poke(false.B))
+      dut.io.publishedEntries(0)(tokens(0).bank).expect(0.U)
+      dut.io.publishedEntries(1)(tokens(1).bank).expect(0.U)
+
+      val duplicate = reserve(dut, stid = 1, transactionId = 2,
+        demands = Vector(zero.updated(0, 1))).head
+      publish(dut, stid = 1, transactionId = 2, Vector(duplicate))
+      pokeLane(0, duplicate)
+      pokeLane(1, duplicate)
+      dut.io.releases.foreach(_.ready.expect(false.B))
+      dut.io.releaseRejecteds.foreach(_.valid.expect(true.B))
+      dut.clock.step()
+      dut.io.releases.foreach(_.valid.poke(false.B))
+      dut.io.publishedEntries(0)(duplicate.bank).expect(1.U)
     }
   }
 

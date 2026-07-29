@@ -19,8 +19,12 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
-  val release = Flipped(Decoupled(new OooIexIssueRelease(p)))
-  val dispatchRelease = Decoupled(new OooDispatchRelease(p))
+  val releases = Flipped(Vec(p.iexReleaseWidth,
+    Decoupled(new OooIexIssueRelease(p))))
+  def release = releases(0)
+  val dispatchReleases = Vec(p.iexReleaseWidth,
+    Decoupled(new OooDispatchRelease(p)))
+  def dispatchRelease = dispatchReleases(0)
 
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
@@ -88,7 +92,9 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
 
   val s1Rejected = Valid(new OooIexS1Reject(p))
-  val releaseRejected = Valid(new OooIexReleaseReject(p))
+  val releaseRejecteds = Vec(p.iexReleaseWidth,
+    Valid(new OooIexReleaseReject(p)))
+  def releaseRejected = releaseRejecteds(0)
   val recoveryRejected = Valid(new OooIexRecoveryReject(p))
 }
 
@@ -750,48 +756,85 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     }
   }
 
-  val release = io.release.bits
-  val releaseClass = release.dispatch.reservation.uopClass.asUInt
-  val releaseClassInRange = releaseClass < p.iqClassCount.U
-  val releaseBankInRange = release.dispatch.reservation.bank < p.iqBankCount.U
-  val releaseEntryInRange =
-    release.dispatch.reservation.speculativeSlot < p.iqEntriesPerBank.U
-  val safeReleaseClass = Mux(releaseClassInRange, releaseClass, 0.U)
-  val safeReleaseBank = Mux(releaseBankInRange,
-    release.dispatch.reservation.bank, 0.U)
-  val safeReleaseEntry = Mux(releaseEntryInRange,
-    release.dispatch.reservation.speculativeSlot, 0.U)
-  val releaseRow = scheduleRows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry)
-  val releaseExact = releaseClassInRange && releaseBankInRange &&
-    releaseEntryInRange && release.dispatch.reservation.valid &&
-    slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) ===
-      OooIexIssueSlotState.ResidentS3 && releaseRow.valid &&
-    releaseRow.inFlight &&
-    sameMember(release.member, releaseRow.member) &&
-    release.dispatch.peId === releaseRow.peId &&
-    release.dispatch.stid === releaseRow.stid &&
-    release.dispatch.epoch === releaseRow.epoch &&
-    release.dispatch.transactionId === releaseRow.transactionId &&
-    release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt &&
-    sameMember(release.dispatch.member, release.member) &&
-    !rowLoadCanceled(releaseRow) &&
-    !(recoveryFreeze && release.dispatch.stid === recoveryStid)
-  io.dispatchRelease.valid := io.release.valid && releaseExact
-  io.dispatchRelease.bits := release.dispatch
-  io.release.ready := releaseExact && io.dispatchRelease.ready
-  io.releaseRejected.valid := io.release.valid && !releaseExact
-  io.releaseRejected.bits.member := release.member
-  io.releaseRejected.bits.peId := release.dispatch.peId
-  io.releaseRejected.bits.stid := release.dispatch.stid
-  io.releaseRejected.bits.epoch := release.dispatch.epoch
-  io.releaseRejected.bits.transactionId := release.dispatch.transactionId
-  io.releaseRejected.bits.reservation := release.dispatch.reservation
+  val releaseClasses = Wire(Vec(p.iexReleaseWidth,
+    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
+  val releaseClassInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseBankInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseEntryInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val safeReleaseClasses = Wire(Vec(p.iexReleaseWidth,
+    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
+  val safeReleaseBanks = Wire(Vec(p.iexReleaseWidth,
+    UInt(p.iqBankWidth.W)))
+  val safeReleaseEntries = Wire(Vec(p.iexReleaseWidth,
+    UInt(p.iqEntryWidth.W)))
+  val releaseAddressExact = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseOwnerExact = Wire(Vec(p.iexReleaseWidth, Bool()))
+  val releaseCollision = Wire(Vec(p.iexReleaseWidth, Bool()))
 
-  when(io.release.fire) {
-    slotState(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) :=
-      OooIexIssueSlotState.Free
-    scheduleRows(safeReleaseClass)(safeReleaseBank)(safeReleaseEntry) :=
-      0.U.asTypeOf(new OooIexScheduleRow(p))
+  for (lane <- 0 until p.iexReleaseWidth) {
+    val release = io.releases(lane).bits
+    releaseClasses(lane) := release.dispatch.reservation.uopClass.asUInt
+    releaseClassInRange(lane) := releaseClasses(lane) < p.iqClassCount.U
+    releaseBankInRange(lane) :=
+      release.dispatch.reservation.bank < p.iqBankCount.U
+    releaseEntryInRange(lane) :=
+      release.dispatch.reservation.speculativeSlot < p.iqEntriesPerBank.U
+    safeReleaseClasses(lane) := Mux(
+      releaseClassInRange(lane), releaseClasses(lane), 0.U)
+    safeReleaseBanks(lane) := Mux(releaseBankInRange(lane),
+      release.dispatch.reservation.bank, 0.U)
+    safeReleaseEntries(lane) := Mux(releaseEntryInRange(lane),
+      release.dispatch.reservation.speculativeSlot, 0.U)
+    releaseAddressExact(lane) := release.dispatch.reservation.valid &&
+      releaseClassInRange(lane) && releaseBankInRange(lane) &&
+      releaseEntryInRange(lane)
+    val releaseRow = scheduleRows(safeReleaseClasses(lane))(
+      safeReleaseBanks(lane))(safeReleaseEntries(lane))
+    releaseOwnerExact(lane) := releaseAddressExact(lane) &&
+      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseEntries(lane)) === OooIexIssueSlotState.ResidentS3 &&
+      releaseRow.valid && releaseRow.inFlight &&
+      sameMember(release.member, releaseRow.member) &&
+      release.dispatch.peId === releaseRow.peId &&
+      release.dispatch.stid === releaseRow.stid &&
+      release.dispatch.epoch === releaseRow.epoch &&
+      release.dispatch.transactionId === releaseRow.transactionId &&
+      release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt &&
+      sameMember(release.dispatch.member, release.member) &&
+      !rowLoadCanceled(releaseRow) &&
+      !(recoveryFreeze && release.dispatch.stid === recoveryStid)
+    releaseCollision(lane) := (0 until p.iexReleaseWidth).filter(_ != lane)
+      .map { peer =>
+        io.releases(peer).valid && releaseAddressExact(lane) &&
+          releaseAddressExact(peer) &&
+          safeReleaseClasses(lane) === safeReleaseClasses(peer) &&
+          safeReleaseBanks(lane) === safeReleaseBanks(peer) &&
+          safeReleaseEntries(lane) === safeReleaseEntries(peer)
+      }.foldLeft(false.B)(_ || _)
+    val releaseExact = releaseOwnerExact(lane) && !releaseCollision(lane)
+    io.dispatchReleases(lane).valid :=
+      io.releases(lane).valid && releaseExact
+    io.dispatchReleases(lane).bits := release.dispatch
+    io.releases(lane).ready :=
+      releaseExact && io.dispatchReleases(lane).ready
+    io.releaseRejecteds(lane).valid :=
+      io.releases(lane).valid && !releaseExact
+    io.releaseRejecteds(lane).bits.member := release.member
+    io.releaseRejecteds(lane).bits.peId := release.dispatch.peId
+    io.releaseRejecteds(lane).bits.stid := release.dispatch.stid
+    io.releaseRejecteds(lane).bits.epoch := release.dispatch.epoch
+    io.releaseRejecteds(lane).bits.transactionId :=
+      release.dispatch.transactionId
+    io.releaseRejecteds(lane).bits.reservation :=
+      release.dispatch.reservation
+
+    when(io.releases(lane).fire) {
+      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseEntries(lane)) := OooIexIssueSlotState.Free
+      scheduleRows(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
+        safeReleaseEntries(lane)) :=
+        0.U.asTypeOf(new OooIexScheduleRow(p))
+    }
   }
 
   val recoveryS1 = s1Rows(safeRecoveryStid)
