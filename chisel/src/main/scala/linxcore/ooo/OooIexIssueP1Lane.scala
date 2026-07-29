@@ -17,6 +17,7 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
 
   val pickClass = Input(OooUopClass())
   val pickBankEnable = Input(UInt(p.iqBankCount.W))
+  val issuePolicy = Input(new OooIexIssuePolicy(p))
 
   val readAttempt = Valid(new OooIexI1ReadAttempt(p))
   val readDecisionValid = Input(Bool())
@@ -45,6 +46,11 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val pickRetryRejected = Valid(new OooIexPickRetryReject(p))
   val pickRecoveryCanceled = Valid(new OooIexPickToken(p))
   val pickRecoveryBlocked = Valid(new OooIexPickToken(p))
+  val pickPolicyBlocked = Valid(new OooIexIssuePolicyBlockEvent(p))
+  val queryPolicyReason = Output(
+    UInt(OooIexIssueBlockReason.Count.W))
+  val policyBlockedCount = Output(
+    UInt(p.countWidth(p.iqBankCount * p.iqEntriesPerBank).W))
   val s1Rejected = Valid(new OooIexS1Reject(p))
   val releaseRejected = Valid(new OooIexReleaseReject(p))
   val recoveryRejected = Valid(new OooIexRecoveryReject(p))
@@ -89,6 +95,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   issue.io.recoveryFire := io.recoveryFire
   issue.io.pickClass := io.pickClass
   issue.io.pickBankEnable := io.pickBankEnable
+  issue.io.issuePolicy := io.issuePolicy
 
   bridge.io.pick <> issue.io.pick
   issue.io.query := bridge.io.query
@@ -126,6 +133,9 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   io.pickRetryRejected := issue.io.pickRetryRejected
   io.pickRecoveryCanceled := issue.io.pickRecoveryCanceled
   io.pickRecoveryBlocked := issue.io.pickRecoveryBlocked
+  io.pickPolicyBlocked := issue.io.pickPolicyBlocked
+  io.queryPolicyReason := issue.io.queryPolicyReason
+  io.policyBlockedCount := issue.io.policyBlockedCount(0)
   io.s1Rejected := issue.io.s1Rejected
   io.releaseRejected := issue.io.releaseRejected
   io.recoveryRejected := issue.io.recoveryRejected

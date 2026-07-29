@@ -80,6 +80,7 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   issue.io.query := io.query
   issue.io.pickClass := OooUopClass.Alu
   issue.io.pickBankEnable := 0.U
+  issue.io.issuePolicy := 0.U.asTypeOf(issue.io.issuePolicy)
   issue.io.pick.ready := false.B
   issue.io.pickRetry.valid := false.B
   issue.io.pickRetry.bits := 0.U.asTypeOf(issue.io.pickRetry.bits)

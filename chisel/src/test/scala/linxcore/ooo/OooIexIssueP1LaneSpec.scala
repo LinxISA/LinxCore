@@ -44,6 +44,7 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryFire.poke(false.B)
     dut.io.pickClass.poke(OooUopClass.Bru)
     dut.io.pickBankEnable.poke(1.U)
+    dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.readDecisionValid.poke(false.B)
     dut.io.readGrant.poke(false.B)
     dut.io.sourceDataValid.poke(0.U)

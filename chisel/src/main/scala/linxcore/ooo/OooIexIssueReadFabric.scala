@@ -23,6 +23,7 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   val pickClasses = Input(Vec(p.iexIssueDomainCount, OooUopClass()))
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     UInt(p.iqBankCount.W)))
+  val issuePolicy = Input(new OooIexIssuePolicy(p))
 
   val pcReadRequests = Output(Vec(p.pcReadPorts,
     Valid(new OooIexPcReadPortRequest(p))))
@@ -68,6 +69,12 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexP1Reject(p))))
   val joinRejected = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickJoinReject(p))))
+  val pickPolicyBlocked = Output(Vec(p.iexIssueDomainCount,
+    Valid(new OooIexIssuePolicyBlockEvent(p))))
+  val queryPolicyReasons = Output(Vec(p.iexIssueDomainCount,
+    UInt(OooIexIssueBlockReason.Count.W)))
+  val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
+    UInt(p.countWidth(p.iqBankCount * p.iqEntriesPerBank).W)))
   val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
@@ -120,6 +127,7 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   issue.io.recoveryFire := io.recoveryFire
   issue.io.pickClasses := io.pickClasses
   issue.io.pickBankEnables := io.pickBankEnables
+  issue.io.issuePolicy := io.issuePolicy
   issue.io.bypass := io.bypass
 
   arbiter.io.attempts := issue.io.readAttempts
@@ -166,6 +174,9 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   io.readRejected := issue.io.readRejected
   io.p1Rejected := issue.io.p1Rejected
   io.joinRejected := issue.io.joinRejected
+  io.pickPolicyBlocked := issue.io.pickPolicyBlocked
+  io.queryPolicyReasons := issue.io.queryPolicyReasons
+  io.policyBlockedCount := issue.io.policyBlockedCount
   io.s1Rejected := issue.io.s1Rejected
   io.releaseRejecteds := issue.io.releaseRejecteds
   io.recoveryRejected := issue.io.recoveryRejected

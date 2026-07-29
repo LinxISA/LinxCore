@@ -24,6 +24,7 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val pickClasses = Input(Vec(p.iexIssueDomainCount, OooUopClass()))
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     UInt(p.iqBankCount.W)))
+  val issuePolicy = Input(new OooIexIssuePolicy(p))
 
   val readAttempts = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexI1ReadAttempt(p))))
@@ -63,6 +64,12 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexPickToken(p))))
   val pickRecoveryBlocked = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickToken(p))))
+  val pickPolicyBlocked = Output(Vec(p.iexIssueDomainCount,
+    Valid(new OooIexIssuePolicyBlockEvent(p))))
+  val queryPolicyReasons = Output(Vec(p.iexIssueDomainCount,
+    UInt(OooIexIssueBlockReason.Count.W)))
+  val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
+    UInt(p.countWidth(p.iqBankCount * p.iqEntriesPerBank).W)))
   val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
@@ -111,6 +118,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
   issue.io.recoveryFire := io.recoveryFire
   issue.io.pickClasses := io.pickClasses
   issue.io.pickBankEnables := io.pickBankEnables
+  issue.io.issuePolicy := io.issuePolicy
 
   for (domain <- 0 until p.iexIssueDomainCount) {
     val bridge = bridges(domain)
@@ -156,6 +164,10 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
       issue.io.pickRecoveryCanceledByDomain(domain)
     io.pickRecoveryBlocked(domain) :=
       issue.io.pickRecoveryBlockedByDomain(domain)
+    io.pickPolicyBlocked(domain) :=
+      issue.io.pickPolicyBlockedByDomain(domain)
+    io.queryPolicyReasons(domain) := issue.io.queryPolicyReasons(domain)
+    io.policyBlockedCount(domain) := issue.io.policyBlockedCount(domain)
     io.i1Occupied(domain) := lane.io.i1Occupied
     io.i2Occupied(domain) := lane.io.i2Occupied
   }

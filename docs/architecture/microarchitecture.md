@@ -604,6 +604,30 @@ Detailed local-register lifetime and recovery rules are documented in
   On miss/replay, recovery cancels the speculative pipe copy, clears
   `inflight`, and leaves the resident entry eligible for repick.
 
+### Physical issue-policy blocking
+
+- Conditions that prevent a current pick are typed scheduling policy, not IQ
+  mutation. A blocked row remains resident, valid, and not `inflight`.
+- The canonical reason vector distinguishes global quiesce, power throttle,
+  per-class/per-STID pressure, load-queue pressure, store-window pressure,
+  domain structural occupancy, latency reservation, reflow reservation,
+  LSU sidedoor conflict, and result-bus reservation.
+- Load-queue pressure applies only to load-address rows
+  (`Agu && !isStore`). It must not suppress a store-address row merely because
+  both share an AGU class.
+- Store-window pressure applies only to typed store rows in `Agu` or `Std`.
+  It must not suppress loads or unrelated execution classes.
+- Class pressure is shared by all physical domains projecting that class.
+  Structural, latency, reflow, sidedoor, and result-bus reasons are qualified
+  by both physical domain and STID.
+- A picker token retained before a policy change must be revalidated against
+  current policy before the IQ claim fire. If it becomes blocked, the token is
+  consumed as a typed policy event without setting the row `inflight`; the
+  unchanged resident row may be selected again after unblock.
+- The policy matrix is the early-block owner only. A conflict discovered after
+  P1 acceptance requires an exact stage-qualified cancel/repick event; it must
+  not be approximated by deleting or reinserting the IQ row.
+
 ### Ready table vs speculative ready
 
 - `ready_table` is non-speculative readiness only.

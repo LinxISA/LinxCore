@@ -38,6 +38,7 @@ class OooIexRecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
     dut.io.pickClass.poke(OooUopClass.Alu)
     dut.io.pickBankEnable.poke(0.U)
+    dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.pick.ready.poke(false.B)
     dut.io.pickRetry.valid.poke(false.B)
     dut.io.pickRetry.bits.poke(0.U.asTypeOf(dut.io.pickRetry.bits))

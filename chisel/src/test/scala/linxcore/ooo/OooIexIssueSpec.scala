@@ -49,6 +49,7 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
     dut.io.pickClass.poke(OooUopClass.Alu)
     dut.io.pickBankEnable.poke(0.U)
+    dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.pick.ready.poke(false.B)
     dut.io.pickRetry.valid.poke(false.B)
     dut.io.pickRetry.bits.poke(0.U.asTypeOf(dut.io.pickRetry.bits))
@@ -948,6 +949,56 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.release.valid.poke(false.B)
       dut.io.queryState.expect(OooIexIssueSlotState.Free)
+    }
+  }
+
+  test("policy blocks a resident row and invalidates a newly held pick token") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      val allocation = Allocation(0, 0, 0, 0, 0, 1)
+      pokeTransaction(dut, 1, 17, Vector(allocation))
+      query(dut, 0, 0, 1)
+      advanceToS3(dut)
+
+      dut.io.pickClass.poke(OooUopClass.Alu)
+      dut.io.pickBankEnable.poke(1.U)
+      dut.clock.step()
+      dut.io.pick.valid.expect(true.B)
+
+      dut.io.issuePolicy.classPressure(0).poke("b0010".U)
+      val classPressure = 1 << OooIexIssueBlockReason.ClassPressure
+      dut.io.pick.valid.expect(false.B)
+      dut.io.pickPolicyBlocked.valid.expect(true.B)
+      dut.io.pickPolicyBlocked.bits.reasonMask.expect(classPressure.U)
+      dut.io.pickPolicyBlocked.bits.token.candidate.stid.expect(1.U)
+      dut.io.queryPolicyReason.expect(classPressure.U)
+      dut.io.queryPickable.expect(false.B)
+      dut.io.policyBlockedCount(0).expect(1.U)
+      dut.clock.step()
+
+      // The policy event consumes only the stale held picker token. The IQ
+      // row never became in-flight and is selected again after unblock.
+      dut.io.pickPolicyBlocked.valid.expect(false.B)
+      dut.io.inFlightEntries(0)(0).expect(0.U)
+      dut.io.issuePolicy.classPressure(0).poke(0.U)
+      dut.io.queryPickable.expect(true.B)
+      dut.clock.step()
+      dut.io.pick.valid.expect(true.B)
+      dut.io.pick.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.pick.ready.poke(false.B)
+      dut.io.inFlightEntries(0)(0).expect(1.U)
     }
   }
 

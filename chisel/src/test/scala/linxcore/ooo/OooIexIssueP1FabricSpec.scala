@@ -46,6 +46,7 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.pickClasses(1).poke(OooUopClass.Bru)
     dut.io.pickBankEnables(0).poke(1.U)
     dut.io.pickBankEnables(1).poke(1.U)
+    dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     for (domain <- 0 until p.iexIssueDomainCount) {
       dut.io.readDecisionValid(domain).poke(false.B)
       dut.io.readGrant(domain).poke(false.B)
