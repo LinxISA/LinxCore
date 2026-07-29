@@ -11,6 +11,45 @@ object STQStoreType extends ChiselEnum {
   val All, Addr, Data = Value
 }
 
+/** Generation-qualified semantic owner for one logical store beat.
+  *
+  * The physical STQ index is deliberately absent.  It identifies storage,
+  * while this bundle identifies the ROB/BROB member allowed to mutate it.
+  */
+class STQExactOwner(
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val nativeBidWidth: Int = 8,
+    val ridSlotWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8)
+    extends Bundle {
+  val valid = Bool()
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
+  val nativeBidValid = Bool()
+  val nativeBid = UInt(nativeBidWidth.W)
+  val brobGeneration = UInt(brobGenerationWidth.W)
+  val ridSlot = UInt(ridSlotWidth.W)
+  val ridGeneration = UInt(ridGenerationWidth.W)
+  val memberIndex = UInt(memberIndexWidth.W)
+  val residentGeneration = UInt(residentGenerationWidth.W)
+}
+
+/** Physical STQ capability.  A slot index is never sufficient without the
+  * allocation generation returned by the canonical STQ owner.
+  */
+class STQPhysicalLease(
+    val entries: Int,
+    val generationWidth: Int = 8)
+    extends Bundle {
+  val valid = Bool()
+  val index = UInt(log2Ceil(entries).W)
+  val generation = UInt(generationWidth.W)
+}
+
 class STQStoreRequest(
     val entries: Int,
     val addrWidth: Int = 64,
@@ -22,8 +61,17 @@ class STQStoreRequest(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8,
+    val physicalStqEntries: Int = 0)
     extends Bundle {
+  private val ridSlotWidth = log2Ceil(entries)
+  private val leaseEntries = if (physicalStqEntries > 0) physicalStqEntries else entries
   val storeType = STQStoreType()
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
@@ -33,6 +81,13 @@ class STQStoreRequest(
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
   val lsIdFull = UInt(lsidWidth.W)
+  val storeIdFullValid = Bool()
+  val storeIdFull = UInt(lsidWidth.W)
+  val exactOwner = new STQExactOwner(
+    peIdWidth, stidWidth, nativeBidWidth, ridSlotWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth)
+  val lease = new STQPhysicalLease(leaseEntries, leaseGenerationWidth)
   val tSeq = new ROBID(mapQDepth)
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
@@ -57,8 +112,15 @@ class STQEntryBankRow(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val pcWidth: Int = 64,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Bundle {
+  private val ridSlotWidth = log2Ceil(entries)
   val valid = Bool()
   val status = STQEntryStatus()
   val storeType = STQStoreType()
@@ -70,6 +132,13 @@ class STQEntryBankRow(
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
   val lsIdFull = UInt(lsidWidth.W)
+  val storeIdFullValid = Bool()
+  val storeIdFull = UInt(lsidWidth.W)
+  val exactOwner = new STQExactOwner(
+    peIdWidth, stidWidth, nativeBidWidth, ridSlotWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth)
+  val leaseGeneration = UInt(leaseGenerationWidth.W)
   val tSeq = new ROBID(mapQDepth)
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
@@ -96,7 +165,13 @@ class STQEntryBankIO(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -106,13 +181,42 @@ class STQEntryBankIO(
   val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+  val insert = Input(new STQStoreRequest(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth, entries))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
   val insertMerged = Output(Bool())
   val insertConflict = Output(Bool())
   val insertIndex = Output(UInt(ptrWidth.W))
+  val insertLease = Output(new STQPhysicalLease(entries, leaseGenerationWidth))
+
+  /** Canonical path: reserve storage before STA/STD execute, then let either
+    * half fill only the returned generation-qualified lease.
+    */
+  val reserveValid = Input(Bool())
+  val reserve = Input(new STQStoreRequest(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth, entries))
+  val reserveReady = Output(Bool())
+  val reserveAccepted = Output(Bool())
+  val reserveConflict = Output(Bool())
+  val reserveLease = Output(new STQPhysicalLease(entries, leaseGenerationWidth))
+
+  val fillValid = Input(Bool())
+  val fill = Input(new STQStoreRequest(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth, entries))
+  val fillReady = Output(Bool())
+  val fillAccepted = Output(Bool())
+  val fillConflict = Output(Bool())
 
   val markCommitValid = Input(Bool())
   val markCommitIndex = Input(UInt(ptrWidth.W))
@@ -141,7 +245,11 @@ class STQEntryBankIO(
   val lsuTULinkSourceMatched = Output(Bool())
   val lsuTULinkSourceMultipleMatch = Output(Bool())
 
-  val rows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
+  val rows = Output(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth)))
   val occupiedMask = Output(UInt(entries.W))
   val waitMask = Output(UInt(entries.W))
   val commitMask = Output(UInt(entries.W))
@@ -155,6 +263,18 @@ class STQEntryBankIO(
   val outstandingWaitCount = Output(UInt(countWidth.W))
 }
 
+object STQEntryBank {
+  /** Compatibility tie-off for paths that still use CAM-based insert while
+    * they migrate to reservation plus exact lease fills.
+    */
+  def disableCanonicalPorts(io: STQEntryBankIO): Unit = {
+    io.reserveValid := false.B
+    io.reserve := 0.U.asTypeOf(io.reserve)
+    io.fillValid := false.B
+    io.fill := 0.U.asTypeOf(io.fill)
+  }
+}
+
 class STQEntryBank(
     val entries: Int = 16,
     val addrWidth: Int = 64,
@@ -166,7 +286,13 @@ class STQEntryBank(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -174,15 +300,27 @@ class STQEntryBank(
   require(identityEntries > 1, "ROB entries must be greater than one")
   require((identityEntries & (identityEntries - 1)) == 0, "ROB entries must be a power of two")
   require(lsidWidth >= 2, "LSID width must support modular serial ordering")
+  require(leaseGenerationWidth > 0, "STQ lease generation width must be positive")
 
   private val countWidth = log2Ceil(entries + 1)
 
   private val sourceParams = InterfaceParams(robEntries = identityEntries)
 
-  val io = IO(new STQEntryBankIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
+  val io = IO(new STQEntryBankIO(
+    entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
+    simtLaneWidth, mapQDepth, identityEntries, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth))
+
+  private def rowBundle: STQEntryBankRow =
+    new STQEntryBankRow(
+      identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+      sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+      ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth, leaseGenerationWidth)
 
   private def zeroRow: STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+    val row = Wire(rowBundle)
     row := 0.U.asTypeOf(row)
     row.status := STQEntryStatus.Idle
     row
@@ -194,8 +332,11 @@ class STQEntryBank(
     source
   }
 
-  private def requestToRow(req: STQStoreRequest): STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+  private def requestToRow(
+      req: STQStoreRequest,
+      leaseGeneration: UInt,
+      reserved: Bool = false.B): STQEntryBankRow = {
+    val row = Wire(rowBundle)
     row := 0.U.asTypeOf(row)
     row.valid := true.B
     row.status := STQEntryStatus.Wait
@@ -208,6 +349,10 @@ class STQEntryBank(
     row.rid := req.rid
     row.lsId := req.lsId
     row.lsIdFull := req.lsIdFull
+    row.storeIdFullValid := req.storeIdFullValid
+    row.storeIdFull := req.storeIdFull
+    row.exactOwner := req.exactOwner
+    row.leaseGeneration := leaseGeneration
     row.tSeq := req.tSeq
     row.uSeq := req.uSeq
     row.tuDstValid := req.tuDstValid
@@ -219,13 +364,15 @@ class STQEntryBank(
     row.stackValid := req.stackValid
     row.scalarIex := req.scalarIex
     row.simtLane := req.simtLane
-    row.addrReady := (req.storeType === STQStoreType.All) || (req.storeType === STQStoreType.Addr)
-    row.dataReady := (req.storeType === STQStoreType.All) || (req.storeType === STQStoreType.Data)
+    row.addrReady := !reserved &&
+      ((req.storeType === STQStoreType.All) || (req.storeType === STQStoreType.Addr))
+    row.dataReady := !reserved &&
+      ((req.storeType === STQStoreType.All) || (req.storeType === STQStoreType.Data))
     row
   }
 
   private def mergeRow(row: STQEntryBankRow, req: STQStoreRequest): STQEntryBankRow = {
-    val out = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+    val out = Wire(rowBundle)
     out := row
     out.storeType := STQStoreType.All
     out.stackValid := row.stackValid || req.stackValid
@@ -241,7 +388,33 @@ class STQEntryBank(
     out
   }
 
+  private def fillRow(row: STQEntryBankRow, req: STQStoreRequest): STQEntryBankRow = {
+    val out = Wire(rowBundle)
+    out := row
+    out.stackValid := row.stackValid || req.stackValid
+    when((req.storeType === STQStoreType.All) ||
+      (req.storeType === STQStoreType.Addr)) {
+      out.addrReady := true.B
+      out.addr := req.addr
+      out.size := req.size
+    }
+    when((req.storeType === STQStoreType.All) ||
+      (req.storeType === STQStoreType.Data)) {
+      out.dataReady := true.B
+      out.data := req.data
+    }
+    when(out.addrReady && out.dataReady) {
+      out.storeType := STQStoreType.All
+    }.elsewhen(out.addrReady) {
+      out.storeType := STQStoreType.Addr
+    }.otherwise {
+      out.storeType := STQStoreType.Data
+    }
+    out
+  }
+
   val rows = RegInit(VecInit(Seq.fill(entries)(zeroRow)))
+  val leaseGenerations = RegInit(VecInit(Seq.fill(entries)(0.U(leaseGenerationWidth.W))))
   val residentCount = RegInit(0.U(countWidth.W))
   val outstandingWaitCount = RegInit(0.U(countWidth.W))
 
@@ -287,6 +460,7 @@ class STQEntryBank(
   }
 
   val flushApplied = flushPrune.io.freeMask.orR
+  val recoveryActive = io.flush.req.valid
   io.flushApplied := flushApplied
   io.flushMatchMask := flushPrune.io.matchMask
   io.flushFreeMask := flushPrune.io.freeMask
@@ -307,7 +481,7 @@ class STQEntryBank(
         (rows(idx).stid === io.flush.req.stid)
   }
 
-  val lsuSourceSelected = Wire(new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+  val lsuSourceSelected = Wire(rowBundle)
   lsuSourceSelected := zeroRow
   for (idx <- 0 until entries) {
     when(lsuSourceMatchVec(idx)) {
@@ -330,6 +504,59 @@ class STQEntryBank(
   io.lsuTULinkSourceMatched := lsuSource.valid
   io.lsuTULinkSourceMultipleMatch := PopCount(lsuSourceMatchVec) > 1.U
 
+  val fillIndex = io.fill.lease.index
+  val fillTarget = rows(fillIndex)
+  val fillOwnerMatches =
+    io.fill.exactOwner.valid &&
+      fillTarget.exactOwner.valid &&
+      (io.fill.exactOwner.asUInt === fillTarget.exactOwner.asUInt)
+  val fillIdentityMatches =
+    io.fill.lease.valid &&
+      fillTarget.valid &&
+      (fillTarget.status === STQEntryStatus.Wait) &&
+      (io.fill.lease.generation === fillTarget.leaseGeneration) &&
+      fillOwnerMatches &&
+      (io.fill.lsIdFull === fillTarget.lsIdFull) &&
+      io.fill.storeIdFullValid &&
+      fillTarget.storeIdFullValid &&
+      (io.fill.storeIdFull === fillTarget.storeIdFull)
+  val fillPartAvailable = MuxLookup(io.fill.storeType, false.B)(Seq(
+    STQStoreType.All -> (!fillTarget.addrReady && !fillTarget.dataReady),
+    STQStoreType.Addr -> !fillTarget.addrReady,
+    STQStoreType.Data -> !fillTarget.dataReady
+  ))
+  io.fillReady := !recoveryActive && fillIdentityMatches && fillPartAvailable
+  io.fillAccepted := io.fillValid && io.fillReady
+  io.fillConflict := io.fillValid && !io.fillReady
+
+  val freeAvailable = !occupiedVec.asUInt.andR
+  val freeIndex = PriorityEncoder(~occupiedVec.asUInt)
+  val reserveOwnerConsistent =
+    io.reserve.exactOwner.valid &&
+      io.reserve.exactOwner.nativeBidValid &&
+      (io.reserve.exactOwner.peId === io.reserve.peId) &&
+      (io.reserve.exactOwner.stid === io.reserve.stid)
+  val reserveIdentityValid =
+    reserveOwnerConsistent && io.reserve.storeIdFullValid
+  val reserveDuplicate = VecInit(rows.map { row =>
+    row.valid &&
+      row.exactOwner.valid &&
+      (row.exactOwner.asUInt === io.reserve.exactOwner.asUInt) &&
+      (row.lsIdFull === io.reserve.lsIdFull) &&
+      row.storeIdFullValid &&
+      (row.storeIdFull === io.reserve.storeIdFull)
+  }).asUInt.orR
+  io.reserveReady :=
+    !recoveryActive && !io.fillAccepted && reserveIdentityValid &&
+      !reserveDuplicate && freeAvailable
+  io.reserveAccepted := io.reserveValid && io.reserveReady
+  io.reserveConflict := io.reserveValid &&
+    (!reserveIdentityValid || reserveDuplicate)
+  val reserveGeneration = leaseGenerations(freeIndex) + 1.U
+  io.reserveLease.valid := io.reserveAccepted
+  io.reserveLease.index := freeIndex
+  io.reserveLease.generation := reserveGeneration
+
   val insertProbe = Module(new STQInsertProbe(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
@@ -341,12 +568,18 @@ class STQEntryBank(
   val mergeIndex = insertProbe.io.mergeIndex
   val allocateIndex = insertProbe.io.allocateIndex
 
+  val canonicalMutation = io.fillAccepted || io.reserveAccepted
   io.insertConflict := insertProbe.io.conflict
-  io.insertReady := insertProbe.io.ready
+  io.insertReady := insertProbe.io.ready && !recoveryActive && !canonicalMutation
   io.insertAccepted := io.insertValid && io.insertReady
   io.insertMerged := io.insertAccepted && insertProbe.io.canMerge
   io.insertAllocated := io.insertAccepted && !insertProbe.io.canMerge
   io.insertIndex := Mux(io.insertMerged, mergeIndex, allocateIndex)
+  val insertAllocateGeneration = leaseGenerations(allocateIndex) + 1.U
+  io.insertLease.valid := io.insertAccepted
+  io.insertLease.index := io.insertIndex
+  io.insertLease.generation := Mux(
+    io.insertMerged, rows(mergeIndex).leaseGeneration, insertAllocateGeneration)
 
   val markCommitRow = rows(io.markCommitIndex)
   val markCommitLocalReady =
@@ -355,13 +588,13 @@ class STQEntryBank(
       markCommitRow.addrReady &&
       markCommitRow.dataReady &&
       (markCommitRow.storeType === STQStoreType.All)
-  io.markCommitAccepted := !flushApplied && io.markCommitValid && markCommitLocalReady
-  io.markCommitIgnored := io.markCommitValid && (!markCommitLocalReady || flushApplied)
+  io.markCommitAccepted := !recoveryActive && io.markCommitValid && markCommitLocalReady
+  io.markCommitIgnored := io.markCommitValid && (!markCommitLocalReady || recoveryActive)
 
   val freeCommitRow = rows(io.commitFreeIndex)
   val commitFreeLocalReady = freeCommitRow.valid && (freeCommitRow.status === STQEntryStatus.Commit)
-  io.commitFreeAccepted := !flushApplied && io.commitFreeValid && commitFreeLocalReady
-  io.commitFreeIgnored := io.commitFreeValid && (!commitFreeLocalReady || flushApplied)
+  io.commitFreeAccepted := !recoveryActive && io.commitFreeValid && commitFreeLocalReady
+  io.commitFreeIgnored := io.commitFreeValid && (!commitFreeLocalReady || recoveryActive)
 
   val commitFreeReqVec = Wire(Vec(entries, Bool()))
   val commitFreeAcceptedVec = Wire(Vec(entries, Bool()))
@@ -371,8 +604,8 @@ class STQEntryBank(
     val maskHit = io.commitFreeMaskValid && io.commitFreeMask(idx)
     val rowReady = rows(idx).valid && (rows(idx).status === STQEntryStatus.Commit)
     commitFreeReqVec(idx) := singleHit || maskHit
-    commitFreeAcceptedVec(idx) := !flushApplied && commitFreeReqVec(idx) && rowReady
-    commitFreeIgnoredVec(idx) := commitFreeReqVec(idx) && (!rowReady || flushApplied)
+    commitFreeAcceptedVec(idx) := !recoveryActive && commitFreeReqVec(idx) && rowReady
+    commitFreeIgnoredVec(idx) := commitFreeReqVec(idx) && (!rowReady || recoveryActive)
   }
   io.commitFreeAcceptedMask := commitFreeAcceptedVec.asUInt
   io.commitFreeIgnoredMask := commitFreeIgnoredVec.asUInt
@@ -394,15 +627,25 @@ class STQEntryBank(
     }
   }
 
+  when(io.fillAccepted) {
+    rows(fillIndex) := fillRow(fillTarget, io.fill)
+  }
+
+  when(io.reserveAccepted) {
+    rows(freeIndex) := requestToRow(io.reserve, reserveGeneration, reserved = true.B)
+    leaseGenerations(freeIndex) := reserveGeneration
+  }
+
   when(io.insertMerged) {
     rows(mergeIndex) := mergeRow(rows(mergeIndex), io.insert)
   }
 
   when(io.insertAllocated) {
-    rows(allocateIndex) := requestToRow(io.insert)
+    rows(allocateIndex) := requestToRow(io.insert, insertAllocateGeneration)
+    leaseGenerations(allocateIndex) := insertAllocateGeneration
   }
 
-  val allocDelta = io.insertAllocated.asUInt
+  val allocDelta = io.insertAllocated.asUInt +& io.reserveAccepted.asUInt
   val markCommitDelta = io.markCommitAccepted.asUInt
   val commitFreeDelta = io.commitFreeCount
   val flushFreeDelta = Mux(flushApplied, flushPrune.io.freeCount, 0.U)

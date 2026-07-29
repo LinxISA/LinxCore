@@ -169,6 +169,7 @@ class StoreDispatchSTQPath(
   val stq = Module(new STQEntryBank(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, mapQDepth, p.robEntries, p.lsidWidth))
+  STQEntryBank.disableCanonicalPorts(stq.io)
 
   queues.io.flushValid := io.flush.req.valid || io.queueFlushValid
   queues.io.staIn := io.staIn

@@ -407,6 +407,21 @@ recovery prune > commit/non-flush > drain release > execute fill > allocate
 - pair/cross-line store 无部分分配；
 - STQ16/ROB8/LSID40 配置无截断。
 
+### 7.8 当前落地状态（I0.9h）
+
+`STQEntryBank` 已实现第一阶段 canonical owner 边界：
+
+- row 同时保存完整 LSID、完整 store ID、精确 ROB/BROB member owner 和独立 lease generation；
+- `reserve` 在 STA/STD 执行前分配物理槽，并返回 `(index,generation)` lease；
+- `fill` 只按 lease 定点写 row，不再通过模糊 CAM 猜测目标；owner、完整 LSID、完整 store ID、generation 或待填半部任一不匹配即拒绝；
+- 槽释放后 generation 保留并在复用时递增，旧 STA/STD 无法写入新 row；
+- recovery request 对 reserve、fill、commit 和 free 具有当拍优先级；
+- 旧 `insert` 接口暂时作为迁移兼容入口，并暴露其实际 lease；它不再能和 canonical reserve/fill 同拍修改状态。
+
+定向动态测试使用 `STQ=4, ROB=8, LSID=40`，覆盖 reservation、STA/STD 任意分拍、commit/free、同槽复用、旧 generation、错误 member、错误完整 SID/LSID 和 recovery/reserve 冲突。参考模型 `tools/LinxCoreModel/model/mtccore/lsu/store_unit/stq.cpp::STQ::mergeStore` 仅提供“互补半部在 STQ 汇合”的行为证据；Linx Chisel 额外要求 generation-qualified lease，不能沿用模型中只按 BID/LSID 搜索 WAIT row 的宽松身份。
+
+尚未完成的部分：OOO `RobMemberKey + OooMemoryOrderUopAllocation` 到 reservation 的正式连接、每个 pair beat 的原子多槽预留、保留式 STA/STD E1 写入、exact recovery kill-set、sliding window、commit/drain 与 forwarding view 迁移，以及旧 CAM insert 和重复 STQ state 的删除。
+
 ## 8. Store CommitQ 与 drain
 
 ### 8.1 当前实现

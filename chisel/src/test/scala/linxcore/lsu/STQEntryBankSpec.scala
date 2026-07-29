@@ -1,6 +1,8 @@
 package linxcore.lsu
 
 import circt.stage.ChiselStage
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
 object STQEntryBankReference {
@@ -242,7 +244,7 @@ object STQEntryBankReference {
   }
 }
 
-class STQEntryBankSpec extends AnyFunSuite {
+class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
   import STQEntryBankReference._
   import STQFlushPruneReference.Id
 
@@ -480,5 +482,165 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(io.insert.lsId.value.getWidth == 3)
     assert(io.insert.lsIdFull.getWidth == 40)
     assert(io.rows.head.lsIdFull.getWidth == 40)
+  }
+
+  private def clearCanonicalDut(dut: STQEntryBank): Unit = {
+    dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+    dut.io.insertValid.poke(false.B)
+    dut.io.insert.poke(0.U.asTypeOf(dut.io.insert))
+    dut.io.reserveValid.poke(false.B)
+    dut.io.reserve.poke(0.U.asTypeOf(dut.io.reserve))
+    dut.io.fillValid.poke(false.B)
+    dut.io.fill.poke(0.U.asTypeOf(dut.io.fill))
+    dut.io.markCommitValid.poke(false.B)
+    dut.io.markCommitIndex.poke(0.U)
+    dut.io.commitFreeValid.poke(false.B)
+    dut.io.commitFreeIndex.poke(0.U)
+    dut.io.commitFreeMaskValid.poke(false.B)
+    dut.io.commitFreeMask.poke(0.U)
+  }
+
+  private def pokeExactRequest(
+      req: STQStoreRequest,
+      ridGeneration: Int,
+      residentGeneration: Int,
+      lsid: BigInt,
+      storeId: BigInt): Unit = {
+    req.poke(0.U.asTypeOf(req))
+    req.peId.poke(2.U)
+    req.stid.poke(1.U)
+    req.tid.poke(3.U)
+    req.lsIdFull.poke(lsid.U)
+    req.storeIdFullValid.poke(true.B)
+    req.storeIdFull.poke(storeId.U)
+    req.exactOwner.valid.poke(true.B)
+    req.exactOwner.peId.poke(2.U)
+    req.exactOwner.stid.poke(1.U)
+    req.exactOwner.nativeBidValid.poke(true.B)
+    req.exactOwner.nativeBid.poke(0x93.U)
+    req.exactOwner.brobGeneration.poke(5.U)
+    req.exactOwner.ridSlot.poke(6.U)
+    req.exactOwner.ridGeneration.poke(ridGeneration.U)
+    req.exactOwner.memberIndex.poke(1.U)
+    req.exactOwner.residentGeneration.poke(residentGeneration.U)
+    req.size.poke(8.U)
+    req.scalarIex.poke(true.B)
+  }
+
+  test("canonical reserve and fills reject stale leases after physical slot reuse") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      dut.clock.step()
+
+      pokeExactRequest(dut.io.reserve, ridGeneration = 1, residentGeneration = 2,
+        lsid = BigInt("100000001", 16), storeId = BigInt("200000001", 16))
+      dut.io.reserveValid.poke(true.B)
+      dut.io.reserveReady.expect(true.B)
+      dut.io.reserveAccepted.expect(true.B)
+      dut.io.reserveLease.index.expect(0.U)
+      dut.io.reserveLease.generation.expect(1.U)
+      dut.clock.step()
+      dut.io.reserveValid.poke(false.B)
+      dut.io.rows(0).valid.expect(true.B)
+      dut.io.rows(0).addrReady.expect(false.B)
+      dut.io.rows(0).dataReady.expect(false.B)
+
+      dut.io.reserveValid.poke(true.B)
+      dut.io.reserveReady.expect(false.B)
+      dut.io.reserveConflict.expect(true.B)
+      dut.clock.step()
+      dut.io.residentCount.expect(1.U)
+      dut.io.reserveValid.poke(false.B)
+
+      pokeExactRequest(dut.io.fill, ridGeneration = 1, residentGeneration = 2,
+        lsid = BigInt("100000001", 16), storeId = BigInt("200000001", 16))
+      dut.io.fill.storeType.poke(STQStoreType.Addr)
+      dut.io.fill.addr.poke("h12345678".U)
+      dut.io.fill.lease.valid.poke(true.B)
+      dut.io.fill.lease.index.poke(0.U)
+      dut.io.fill.lease.generation.poke(1.U)
+      dut.io.fillValid.poke(true.B)
+      dut.io.fillAccepted.expect(true.B)
+      dut.clock.step()
+
+      dut.io.fill.storeType.poke(STQStoreType.Data)
+      dut.io.fill.data.poke("hfeedface".U)
+      dut.io.fillAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.fillValid.poke(false.B)
+      dut.io.rows(0).storeType.expect(STQStoreType.All)
+      dut.io.rows(0).addrReady.expect(true.B)
+      dut.io.rows(0).dataReady.expect(true.B)
+      dut.io.rows(0).addr.expect("h12345678".U)
+      dut.io.rows(0).data.expect("hfeedface".U)
+
+      dut.io.markCommitValid.poke(true.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.io.markCommitAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.markCommitValid.poke(false.B)
+      dut.io.commitFreeValid.poke(true.B)
+      dut.io.commitFreeIndex.poke(0.U)
+      dut.io.commitFreeAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.commitFreeValid.poke(false.B)
+
+      pokeExactRequest(dut.io.reserve, ridGeneration = 7, residentGeneration = 9,
+        lsid = BigInt("100000111", 16), storeId = BigInt("200000111", 16))
+      dut.io.reserveValid.poke(true.B)
+      dut.io.reserveLease.index.expect(0.U)
+      dut.io.reserveLease.generation.expect(2.U)
+      dut.clock.step()
+      dut.io.reserveValid.poke(false.B)
+
+      pokeExactRequest(dut.io.fill, ridGeneration = 1, residentGeneration = 2,
+        lsid = BigInt("100000001", 16), storeId = BigInt("200000001", 16))
+      dut.io.fill.storeType.poke(STQStoreType.All)
+      dut.io.fill.lease.valid.poke(true.B)
+      dut.io.fill.lease.index.poke(0.U)
+      dut.io.fill.lease.generation.poke(1.U)
+      dut.io.fillValid.poke(true.B)
+      dut.io.fillReady.expect(false.B)
+      dut.io.fillConflict.expect(true.B)
+      dut.clock.step()
+      dut.io.rows(0).addrReady.expect(false.B)
+      dut.io.rows(0).dataReady.expect(false.B)
+
+      pokeExactRequest(dut.io.fill, ridGeneration = 1, residentGeneration = 2,
+        lsid = BigInt("100000111", 16), storeId = BigInt("200000111", 16))
+      dut.io.fill.lease.valid.poke(true.B)
+      dut.io.fill.lease.index.poke(0.U)
+      dut.io.fill.lease.generation.poke(2.U)
+      dut.io.fillReady.expect(false.B)
+      dut.io.fillConflict.expect(true.B)
+
+      pokeExactRequest(dut.io.fill, ridGeneration = 7, residentGeneration = 9,
+        lsid = BigInt("100000111", 16), storeId = BigInt("200000111", 16))
+      dut.io.fill.storeType.poke(STQStoreType.All)
+      dut.io.fill.addr.poke("h88776655".U)
+      dut.io.fill.data.poke("h11223344".U)
+      dut.io.fill.lease.valid.poke(true.B)
+      dut.io.fill.lease.index.poke(0.U)
+      dut.io.fill.lease.generation.poke(2.U)
+      dut.io.fillAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.fillValid.poke(false.B)
+      dut.io.rows(0).addr.expect("h88776655".U)
+      dut.io.rows(0).data.expect("h11223344".U)
+    }
+  }
+
+  test("recovery has priority over canonical STQ reservation") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserve, ridGeneration = 1, residentGeneration = 1,
+        lsid = 9, storeId = 11)
+      dut.io.reserveValid.poke(true.B)
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.reserveReady.expect(false.B)
+      dut.io.reserveAccepted.expect(false.B)
+      dut.clock.step()
+      dut.io.residentCount.expect(0.U)
+    }
   }
 }

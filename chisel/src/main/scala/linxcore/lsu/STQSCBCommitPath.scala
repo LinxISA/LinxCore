@@ -207,6 +207,7 @@ class STQSCBCommitPath(
   val stq = Module(new STQEntryBank(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
+  STQEntryBank.disableCanonicalPorts(stq.io)
   val drain = Module(new STQCommitDrain(
     entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth,
     tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lineBytes, lsidWidth))

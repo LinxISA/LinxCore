@@ -185,6 +185,7 @@ class ReducedStoreWaitReplayChiselPathProbe(
 
   val stq = Module(new STQEntryBank(
     entries, addrWidth, dataWidth, sizeWidth = 4, lsidWidth = lsidWidth))
+  STQEntryBank.disableCanonicalPorts(stq.io)
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
   stq.io.flush.req.valid := io.flush
   stq.io.insertValid := io.storeInsertValid && !io.flush
