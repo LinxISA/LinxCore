@@ -121,7 +121,11 @@ class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
   for (domain <- 0 until domainCount) {
     val attempt = io.attempts(domain).bits
     val sourceValidMask = VecInit(attempt.sources.map(_.valid)).asUInt
-    sourceMasksExact(domain) := attempt.sourceMask === sourceValidMask
+    // sourceMask contains only sources that still need an RF port after the
+    // lane's exact bypass selection. It must remain a subset of logical
+    // sources, but need not equal the complete logical-source mask.
+    sourceMasksExact(domain) :=
+      (attempt.sourceMask & ~sourceValidMask).orR === false.B
 
     val sourceShapeExact = attempt.sources.zipWithIndex.map {
       case (source, sourceIndex) =>

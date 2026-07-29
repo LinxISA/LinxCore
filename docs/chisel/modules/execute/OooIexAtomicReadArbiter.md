@@ -20,9 +20,11 @@ The independently parameterized resources are:
 - `iexUReadPorts`, default 4 STID-local U reads;
 - the existing `pcReadPorts`, with at most one PC token per group.
 
-Every valid source must be P, T, or U and have an in-range physical tag. The
-source-valid vector must equal `sourceMask`; member, BID, reservation, STID,
-and optional PC-token shape must also be exact. A malformed attempt receives a
+Every RF-requested source must be P, T, or U and have an in-range physical
+tag. `sourceMask` is the exact RF-needed subset left after lane-local bypass
+selection, so it must be a subset of the logical source-valid vector rather
+than equal to it. Member, BID, reservation, STID, and optional PC-token shape
+must also be exact. A malformed attempt receives a
 decision with `grant=0` and drives no physical request.
 
 The arbiter enumerates every bounded domain subset (at most eight domains) and
@@ -50,13 +52,14 @@ bash tools/chisel/run_chisel_tests.sh --only OooParamsSpec
 The focused UT covers an older three-P-source group excluding a younger
 two-source peer from three ports, cross-STID round-robin turnover, mixed
 P/T/U/PC mapping, complete response routing, a missing T response, and a
-malformed operand class. The tested 2-domain/3P/2T/2U geometry emits a
+malformed operand class, and a mixed logical source group whose bypassed P
+source is absent from the RF mask. The tested 2-domain/3P/2T/2U geometry emits a
 2,325-line standalone SystemVerilog module.
 
 ## Remaining gaps
 
 - Connect the exposed PC requests to `OooPcBuffer` in the canonical top.
-- Add bypass provenance, speculative load generations, and miss cancel/repick.
+- Add exact load-miss cancel/repick after retained bypass consumption.
 - Replace the bounded subset comparator with a physically reviewed hierarchy if
   default-width timing requires it.
 

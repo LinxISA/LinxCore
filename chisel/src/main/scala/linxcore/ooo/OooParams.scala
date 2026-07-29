@@ -60,6 +60,7 @@ final case class OooParams(
     iexTWritePorts: Int = 4,
     iexUWritePorts: Int = 4,
     iexWakeupPorts: Int = 8,
+    iexBypassPorts: Int = 12,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
     maxDestinationOperands: Int = 2,
@@ -214,6 +215,8 @@ final case class OooParams(
     "IEX P/T/U write-port counts must be positive")
   require(iexWakeupPorts > 0,
     "the IEX boundary needs at least one wakeup port")
+  require(iexBypassPorts > 0,
+    "the IEX boundary needs at least one bypass candidate")
   require(loadGenerationWidth > 0,
     "speculative load attempts need a positive generation width")
   require(maxArchitecturalParentRefs >= 3,

@@ -640,10 +640,10 @@ from `Documents/a.txt`; rename and commit owners remain authoritative.
 The current release seam accepts only a future exact non-cancellable I2
 terminal event. Full member identity and the original dispatch reservation
 must match, and physical-row removal shares one fire with dispatch-slot return.
-P1/I1/I2 pipe arbitration, age-based pick, and atomic P/T/U/PC RF reads are
-implemented. Speculative-ready ownership is now canonical, while bypass data
-selection and exact load-miss poison/cancel/repick remain explicit later
-packets.
+P1/I1/I2 pipe arbitration, age-based pick, atomic P/T/U/PC RF-needed reads,
+and exact W1/W2/W3 bypass data/provenance selection are implemented.
+Speculative-ready ownership is canonical; exact load-miss
+poison/cancel/repick remains an explicit later packet.
 
 O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
 `iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical

@@ -133,8 +133,9 @@ must quiesce those producers before prepare.
 
 - Frozen default class/bank-to-pipe mapping and class-specific admission
   blockers; the N-domain mechanism and overlap enforcement are implemented.
-- Canonical P/T/U RF owners, shared read-port arbitration, operand bypass, and
-  result/wakeup buses.
+- Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
+  arbitration, speculative-ready, and exact bypass paths; result/wakeup buses
+  plus load-miss cancel/repick remain open.
 - The terminal handoff rule that releases the physical row only after a
   non-cancellable I2/E1 consumer accepts it; the owner-side in-flight release
   guard is implemented.

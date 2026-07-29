@@ -29,6 +29,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
     Vec(p.maxSourceOperands, UInt(p.pcWidth.W))))
   val pcDataValid = Input(Vec(p.iexIssueDomainCount, Bool()))
   val pcData = Input(Vec(p.iexIssueDomainCount, UInt(p.pcWidth.W)))
+  val bypass = Input(Vec(p.iexBypassPorts,
+    Valid(new OooIexBypassCandidate(p))))
   val i2 = Vec(p.iexIssueDomainCount,
     Decoupled(new OooIexI2Transaction(p)))
 
@@ -125,6 +127,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
     lane.io.sourceData := io.sourceData(domain)
     lane.io.pcDataValid := io.pcDataValid(domain)
     lane.io.pcData := io.pcData(domain)
+    lane.io.bypass := io.bypass
     io.i2(domain) <> lane.io.i2
     lane.io.recoveryApply := issue.io.recoveryApplied
 

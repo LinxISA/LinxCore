@@ -35,10 +35,38 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.sourceData.foreach(_.poke(0.U))
     dut.io.pcDataValid.poke(false.B)
     dut.io.pcData.poke(0.U)
+    dut.io.bypass.foreach { candidate =>
+      candidate.valid.poke(false.B)
+      candidate.bits.poke(0.U.asTypeOf(candidate.bits))
+    }
     dut.io.i2.ready.poke(false.B)
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
       0.U.asTypeOf(dut.io.recoveryApply.bits))
+  }
+
+  private def pokeLoadProducer(target: RobMemberKey, stid: Int): Unit = {
+    target.poke(0.U.asTypeOf(target))
+    target.group.valid.poke(true.B)
+    target.group.peId.poke(3.U)
+    target.group.stid.poke(stid.U)
+    target.group.ridSlot.poke(1.U)
+    target.group.ridGeneration.poke(2.U)
+    target.bid.valid.poke(true.B)
+    target.bid.value.poke(4.U)
+    target.brobGeneration.poke(5.U)
+    target.memberIndex.poke(1.U)
+    target.residentGeneration.poke(6.U)
+  }
+
+  private def pokeLoadToken(
+      target: OooIexLoadGeneration,
+      stid: Int,
+      generation: Int): Unit = {
+    target.poke(0.U.asTypeOf(target))
+    target.valid.poke(true.B)
+    pokeLoadProducer(target.producer, stid)
+    target.generation.poke(generation.U)
   }
 
   private def pokeRequest(
@@ -195,6 +223,64 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       dut.io.i1Occupied.expect(false.B)
       dut.io.i2.valid.expect(false.B)
       dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("uses exact load bypass data without requesting its RF source") {
+    simulate(new OooIexP1I2Lane(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeRequest(dut, stid = 0, ridSlot = 2, pcRequired = false)
+      val source = dut.io.p1.bits.row.schedule.sources(0)
+      source.ready.poke(false.B)
+      source.specReady.poke(true.B)
+      pokeLoadToken(source.load, stid = 0, generation = 7)
+      dut.io.p1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+
+      // A speculative source may not silently fall back to RF data.
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.readAttempt.valid.expect(false.B)
+
+      val candidate = dut.io.bypass(0)
+      candidate.bits.poke(0.U.asTypeOf(candidate.bits))
+      candidate.bits.stid.poke(0.U)
+      candidate.bits.epoch.poke(7.U)
+      candidate.bits.operandClass.poke(OperandClass.P)
+      candidate.bits.ptag.poke(17.U)
+      candidate.bits.ptagGeneration.poke(3.U)
+      candidate.bits.stage.poke(OooIexBypassStage.W1)
+      candidate.bits.data.poke("h1020304050607080".U)
+      pokeLoadToken(candidate.bits.load, stid = 0, generation = 6)
+      pokeLoadProducer(candidate.bits.producer, stid = 0)
+      candidate.valid.poke(true.B)
+      dut.io.readAttempt.valid.expect(false.B)
+
+      candidate.bits.load.generation.poke(7.U)
+      dut.io.readAttempt.valid.expect(true.B)
+      dut.io.readAttempt.bits.sourceMask.expect("b0010".U)
+      dut.io.readDecisionValid.poke(true.B)
+      dut.io.readGrant.poke(true.B)
+      dut.io.sourceDataValid.poke("b0010".U)
+      dut.io.sourceData(1).poke("h8877665544332211".U)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+      candidate.valid.poke(false.B)
+
+      dut.io.i2.valid.expect(true.B)
+      dut.io.i2.bits.sourceMask.expect("b0011".U)
+      dut.io.i2.bits.bypassMask.expect("b0001".U)
+      dut.io.i2.bits.sourceData(0).expect("h1020304050607080".U)
+      dut.io.i2.bits.sourceData(1).expect("h8877665544332211".U)
+      dut.io.i2.bits.bypass(0).load.generation.expect(7.U)
+      dut.clock.step()
+      dut.io.i2.bits.sourceData(0).expect("h1020304050607080".U)
+      dut.io.i2.bits.bypass(0).stage.expect(OooIexBypassStage.W1)
     }
   }
 

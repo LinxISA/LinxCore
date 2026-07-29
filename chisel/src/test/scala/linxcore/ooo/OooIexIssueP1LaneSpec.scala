@@ -49,6 +49,8 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.sourceData.foreach(_.poke(0.U))
     dut.io.pcDataValid.poke(false.B)
     dut.io.pcData.poke(0.U)
+    dut.io.bypass.foreach(
+      _.poke(0.U.asTypeOf(dut.io.bypass.head)))
     dut.io.i2.ready.poke(false.B)
   }
 

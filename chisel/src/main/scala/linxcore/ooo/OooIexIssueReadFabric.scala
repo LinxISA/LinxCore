@@ -22,6 +22,8 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexPcReadPortRequest(p))))
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
+  val bypass = Input(Vec(p.iexBypassPorts,
+    Valid(new OooIexBypassCandidate(p))))
 
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
   val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
@@ -107,6 +109,7 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   issue.io.recoveryFire := io.recoveryFire
   issue.io.pickClasses := io.pickClasses
   issue.io.pickBankEnables := io.pickBankEnables
+  issue.io.bypass := io.bypass
 
   arbiter.io.attempts := issue.io.readAttempts
   for (domain <- 0 until p.iexIssueDomainCount) {

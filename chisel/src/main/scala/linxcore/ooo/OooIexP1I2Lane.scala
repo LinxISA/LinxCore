@@ -1,7 +1,8 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.{Decoupled, PopCount, Valid}
+import linxcore.common.OperandClass
 
 class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val p1 = Flipped(Decoupled(new OooIexP1Request(p)))
@@ -16,6 +17,8 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val sourceData = Input(Vec(p.maxSourceOperands, UInt(p.pcWidth.W)))
   val pcDataValid = Input(Bool())
   val pcData = Input(UInt(p.pcWidth.W))
+  val bypass = Input(Vec(p.iexBypassPorts,
+    Valid(new OooIexBypassCandidate(p))))
 
   val i2 = Decoupled(new OooIexI2Transaction(p))
   val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
@@ -34,12 +37,14 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
 
 /** One reusable canonical P1/I1/I2 issue lane.
   *
-  * P1 accepts one exact resident IQ row. I1 exposes a single atomic read
-  * attempt covering every valid P/T/U source plus the optional PC token. A
+  * P1 accepts one exact resident IQ row. I1 selects exact W1/W2/W3 bypass
+  * values, then exposes one atomic read attempt covering every remaining
+  * RF-needed P/T/U source plus the optional PC token. A
   * shared read arbiter returns one explicit decision: denial releases the
   * attempt for exact repick, while a grant may advance only when every
   * requested readyless read is valid in that cycle. I2 retains the complete
-  * row, operand data, and reconstructed PC under downstream backpressure.
+  * row, merged operand data, bypass provenance, and reconstructed PC under
+  * downstream backpressure.
   *
   * This lane owns only pipeline residency. The physical IQ, RFs, PC buffer,
   * picker, and execution pipe remain separate single owners.
@@ -97,28 +102,106 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   val i2WillDrain = i2Valid && !i2Killed && io.i2.ready
   val i2CanAccept = !i2Valid || i2WillDrain || i2Killed
 
-  val i1SourceMask = VecInit(
+  val i1LogicalSourceMask = VecInit(
     i1Request.row.sources.map(_.valid)).asUInt
+  val i1BypassValid = Wire(Vec(p.maxSourceOperands, Bool()))
+  val i1Bypass = Wire(Vec(p.maxSourceOperands,
+    new OooIexBypassCandidate(p)))
+  for (port <- 0 until p.iexBypassPorts) {
+    when(io.bypass(port).valid) {
+      assert(io.bypass(port).bits.producer.group.valid &&
+        io.bypass(port).bits.producer.bid.valid &&
+        io.bypass(port).bits.producer.group.stid ===
+          io.bypass(port).bits.stid,
+        "IEX bypass candidates require an exact same-STID producer")
+      when(io.bypass(port).bits.load.valid) {
+        assert(io.bypass(port).bits.load.producer.asUInt ===
+          io.bypass(port).bits.producer.asUInt,
+          "load bypass provenance must name the data producer exactly")
+      }
+    }
+  }
+  for (sourceIndex <- 0 until p.maxSourceOperands) {
+    val source = i1Request.row.sources(sourceIndex)
+    val matches = VecInit(io.bypass.map { candidate =>
+      val pMatch = source.operandClass === OperandClass.P &&
+        candidate.bits.operandClass === OperandClass.P &&
+        source.ptag === candidate.bits.ptag &&
+        source.ptagGeneration === candidate.bits.ptagGeneration
+      val tMatch = source.operandClass === OperandClass.T &&
+        candidate.bits.operandClass === OperandClass.T &&
+        source.localTag === candidate.bits.localTag &&
+        source.localSequence.asUInt === candidate.bits.localSequence.asUInt
+      val uMatch = source.operandClass === OperandClass.U &&
+        candidate.bits.operandClass === OperandClass.U &&
+        source.localTag === candidate.bits.localTag &&
+        source.localSequence.asUInt === candidate.bits.localSequence.asUInt
+      val requiresSpecBypass = source.specReady && !source.ready
+      val speculativeExact = !requiresSpecBypass ||
+        (source.load.valid && candidate.bits.load.valid &&
+          source.load.asUInt === candidate.bits.load.asUInt)
+      candidate.valid && source.valid &&
+        candidate.bits.stid === i1Request.row.stid &&
+        candidate.bits.epoch === i1Request.row.epoch &&
+        candidate.bits.producer.group.stid === i1Request.row.stid &&
+        speculativeExact && (pMatch || tMatch || uMatch)
+    })
+    val w1Matches = VecInit(matches.zip(io.bypass).map {
+      case (matchesSource, candidate) => matchesSource &&
+        candidate.bits.stage === OooIexBypassStage.W1
+    })
+    val w2Matches = VecInit(matches.zip(io.bypass).map {
+      case (matchesSource, candidate) => matchesSource &&
+        candidate.bits.stage === OooIexBypassStage.W2
+    })
+    val w3Matches = VecInit(matches.zip(io.bypass).map {
+      case (matchesSource, candidate) => matchesSource &&
+        candidate.bits.stage === OooIexBypassStage.W3
+    })
+    val preferred = Wire(Vec(p.iexBypassPorts, Bool()))
+    preferred := Mux(w1Matches.asUInt.orR, w1Matches,
+      Mux(w2Matches.asUInt.orR, w2Matches, w3Matches))
+    assert(PopCount(preferred) <= 1.U,
+      "one source cannot select duplicate candidates at the same bypass age")
+    i1BypassValid(sourceIndex) := preferred.asUInt.orR
+    i1Bypass(sourceIndex) := 0.U.asTypeOf(i1Bypass(sourceIndex))
+    for (port <- (0 until p.iexBypassPorts).reverse) {
+      when(preferred(port)) {
+        i1Bypass(sourceIndex) := io.bypass(port).bits
+      }
+    }
+  }
+  val i1SpecSourcesCovered = i1Request.row.sources.zipWithIndex.map {
+    case (source, sourceIndex) =>
+      !source.valid || !source.specReady || source.ready ||
+        i1BypassValid(sourceIndex)
+  }.reduce(_ && _)
+  val i1RfSourceMask = VecInit(i1Request.row.sources.zipWithIndex.map {
+    case (source, sourceIndex) =>
+      val requiresSpecBypass = source.specReady && !source.ready
+      source.valid && !i1BypassValid(sourceIndex) && !requiresSpecBypass
+  }).asUInt
   val i1ParentIndexInRange =
     i1Request.pcParentIndex < p.maxArchitecturalParentRefs.U
   val safeI1ParentIndex = Mux(
     i1ParentIndexInRange, i1Request.pcParentIndex, 0.U)
   val i1PcToken = i1Request.row.parentPcTokens(safeI1ParentIndex)
 
-  io.readAttempt.valid := i1Valid && !i1Killed && i2CanAccept
+  io.readAttempt.valid := i1Valid && !i1Killed && i2CanAccept &&
+    i1SpecSourcesCovered
   io.readAttempt.bits.member := i1Request.row.member
   io.readAttempt.bits.reservation := i1Request.row.reservation
   io.readAttempt.bits.stid := i1Request.row.stid
   io.readAttempt.bits.epoch := i1Request.row.epoch
   io.readAttempt.bits.transactionId := i1Request.row.transactionId
-  io.readAttempt.bits.sourceMask := i1SourceMask
+  io.readAttempt.bits.sourceMask := i1RfSourceMask
   io.readAttempt.bits.sources := i1Request.row.sources
   io.readAttempt.bits.pcRequired := i1Request.pcReadRequired
   io.readAttempt.bits.pcToken := i1PcToken
 
   val readDecision = io.readAttempt.valid && io.readDecisionValid
   val readDenied = readDecision && !io.readGrant
-  val readResponseExact = io.sourceDataValid === i1SourceMask &&
+  val readResponseExact = io.sourceDataValid === i1RfSourceMask &&
     (!i1Request.pcReadRequired || io.pcDataValid)
   val readAccepted = readDecision && io.readGrant && readResponseExact
   val readInvalid = readDecision && io.readGrant && !readResponseExact
@@ -144,7 +227,7 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.readRejected.valid := readInvalid
   io.readRejected.bits.member := i1Request.row.member
   io.readRejected.bits.reservation := i1Request.row.reservation
-  io.readRejected.bits.sourceMask := i1SourceMask
+  io.readRejected.bits.sourceMask := i1RfSourceMask
   io.readRejected.bits.sourceDataValid := io.sourceDataValid
   io.readRejected.bits.pcRequired := i1Request.pcReadRequired
   io.readRejected.bits.pcDataValid := io.pcDataValid
@@ -166,8 +249,14 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   when(readAccepted) {
     i2Valid := true.B
     i2Transaction.row := i1Request.row
-    i2Transaction.sourceMask := i1SourceMask
-    i2Transaction.sourceData := io.sourceData
+    i2Transaction.sourceMask := i1LogicalSourceMask
+    for (sourceIndex <- 0 until p.maxSourceOperands) {
+      i2Transaction.sourceData(sourceIndex) := Mux(
+        i1BypassValid(sourceIndex), i1Bypass(sourceIndex).data,
+        io.sourceData(sourceIndex))
+      i2Transaction.bypass(sourceIndex) := i1Bypass(sourceIndex)
+    }
+    i2Transaction.bypassMask := i1BypassValid.asUInt
     i2Transaction.pcValid := i1Request.pcReadRequired
     i2Transaction.pc := Mux(i1Request.pcReadRequired, io.pcData, 0.U)
   }

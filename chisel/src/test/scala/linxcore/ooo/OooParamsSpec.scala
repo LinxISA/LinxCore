@@ -65,6 +65,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexTWritePorts == 4)
     assert(p.iexUWritePorts == 4)
     assert(p.iexWakeupPorts == 8)
+    assert(p.iexBypassPorts == 12)
     assert(p.loadGenerationWidth == 8)
   }
 
@@ -109,6 +110,7 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(tPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(uPhysRegs = 1))
     assertThrows[IllegalArgumentException](OooParams(iexWakeupPorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(iexBypassPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(loadGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 9))

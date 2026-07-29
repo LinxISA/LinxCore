@@ -783,6 +783,31 @@ class OooIexLoadGeneration(val p: OooParams = OooParams()) extends Bundle {
   val generation = UInt(p.loadGenerationWidth.W)
 }
 
+/** Producer-relative result age carried by the data bypass network. */
+object OooIexBypassStage extends ChiselEnum {
+  val W1, W2, W3 = Value
+}
+
+/** One exact data candidate visible to every I1 operand selector.
+  *
+  * P/T/U destination identity prevents numerical tag aliasing.  A
+  * speculative-load consumer additionally requires `load` to match the
+  * source row's exact producer/generation token.
+  */
+class OooIexBypassCandidate(val p: OooParams = OooParams()) extends Bundle {
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val producer = new RobMemberKey(p)
+  val operandClass = OperandClass()
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+  val localTag = UInt(p.localTagWidth.W)
+  val localSequence = new OooLocalSeq(p)
+  val load = new OooIexLoadGeneration(p)
+  val stage = OooIexBypassStage()
+  val data = UInt(p.pcWidth.W)
+}
+
 /** One generation-qualified producer wakeup observed by resident IQ rows. */
 class OooIexWakeup(val p: OooParams = OooParams()) extends Bundle {
   val kind = OooIexWakeupKind()
@@ -953,6 +978,8 @@ class OooIexI2Transaction(val p: OooParams = OooParams()) extends Bundle {
   val row = new OooIexIssueRow(p)
   val sourceMask = UInt(p.maxSourceOperands.W)
   val sourceData = Vec(p.maxSourceOperands, UInt(p.pcWidth.W))
+  val bypassMask = UInt(p.maxSourceOperands.W)
+  val bypass = Vec(p.maxSourceOperands, new OooIexBypassCandidate(p))
   val pcValid = Bool()
   val pc = UInt(p.pcWidth.W)
 }

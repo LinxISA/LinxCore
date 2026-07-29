@@ -25,6 +25,8 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val sourceData = Input(Vec(p.maxSourceOperands, UInt(p.pcWidth.W)))
   val pcDataValid = Input(Bool())
   val pcData = Input(UInt(p.pcWidth.W))
+  val bypass = Input(Vec(p.iexBypassPorts,
+    Valid(new OooIexBypassCandidate(p))))
   val i2 = Decoupled(new OooIexI2Transaction(p))
 
   val retryFeedback = Valid(new OooIexReadRepick(p))
@@ -104,6 +106,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   lane.io.sourceData := io.sourceData
   lane.io.pcDataValid := io.pcDataValid
   lane.io.pcData := io.pcData
+  lane.io.bypass := io.bypass
   io.i2 <> lane.io.i2
   lane.io.recoveryApply := issue.io.recoveryApplied
 

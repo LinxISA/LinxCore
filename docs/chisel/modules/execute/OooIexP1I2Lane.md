@@ -19,15 +19,22 @@ Source and test owners:
 | Stage | Retained state | Advance or cancellation |
 |---|---|---|
 | P1 | no independent architectural state; accepts one selected joined IQ row | exact row shape enters I1; malformed shape produces a typed reject |
-| I1 | full selected row, source tags/mask, optional parent PC token | one whole-uop read decision grants every requested source and PC port, or denies the attempt for exact repick |
-| I2 | full row, returned source values, and reconstructed PC | retained under backpressure until a later non-cancellable execution handoff or exact recovery cancellation |
+| I1 | full selected row, source tags, exact W1/W2/W3 bypass selection, RF-needed mask, optional parent PC token | one whole-uop read decision grants every remaining RF source and PC port, or denies the attempt for exact repick |
+| I2 | full row, merged RF/bypass values, bypass mask/provenance, and reconstructed PC | retained under backpressure until a later non-cancellable execution handoff or exact recovery cancellation |
 
 P1 requires exact member/group/BID/reservation identity, a valid primary
 parent, registered-ready valid sources, and a valid selected PC token when PC
 is requested. Invalid inputs are consumed as `p1Rejected`; they cannot wedge
 the ready/valid boundary.
 
-I1 presents one `OooIexI1ReadAttempt`. The future shared RF/PC arbiter must
+I1 selects the newest legal bypass age in W1, W2, W3 order using exact
+STID/epoch and PTag-generation or T/U sequence identity. A speculative source
+additionally requires the complete `{producer RobMemberKey, loadGeneration}`
+to match. A stale generation cannot unlock I1, and an uncovered speculative
+source waits rather than falling back to RF. A legal bypass hit is removed
+from the RF-needed `sourceMask`.
+
+I1 presents one `OooIexI1ReadAttempt`. The shared RF/PC arbiter must
 return one explicit `readDecisionValid/readGrant` result for the whole uop.
 Port denial, an incomplete readyless response, or a typed P1 rejection
 produces `repick` with the original member and reservation. A
@@ -37,10 +44,11 @@ produces `readRejected`, exact repick, and never publishes a partial I2 transact
 physical IQ remains the canonical row owner, so denial or rejection does not
 release its reservation.
 
-I2 is the first retained data-bearing stage. Its row, operand values, and PC
-remain stable while the consumer applies backpressure. This module does not
-free the IQ row; the later E1 handoff must first become non-cancellable and
-then drive the existing exact IEX release transaction.
+I2 is the first retained data-bearing stage. Its row, merged operand values,
+logical-source mask, bypass mask/provenance, and PC remain stable while the
+consumer applies backpressure. This module does not free the IQ row; the later
+E1 handoff must first become non-cancellable and then drive the existing exact
+IEX release transaction.
 
 ## PC timing
 
@@ -66,9 +74,8 @@ cycle, clears the retained stage, and reports the exact member/reservation in
 - instantiate the implemented oldest-ready picker/bridge/lane composition
   across the frozen
   multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
-- canonical P/T/U RF implementations and one atomic multi-lane read arbiter;
-- P/T/U bypass matching with tag generation and local-sequence identity;
 - E1/W1 execution, wakeup, completion, and exact terminal IQ release;
+- exact load-miss poison/cancel of retained I1/I2 copies and IQ repick;
 - synchronous-macro latency variants and default-width timing evidence.
 
 ## Verification
@@ -80,7 +87,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
 ```
 
 The focused UT covers backpressure stability, P/T source masks, optional PC,
-whole-uop grant, denial-to-repick, partial-response rejection-to-repick, and exact
-cross-STID recovery. The IT allocates and publishes a real PC-buffer token,
+whole-uop grant, denial-to-repick, partial-response rejection-to-repick,
+exact cross-STID recovery, stale load-bypass rejection, RF-mask subtraction,
+and retained I2 bypass provenance. The IT allocates and publishes a real PC-buffer token,
 reads it through the fixed readyless port, and proves that the full PC and
 source value are retained at I2.

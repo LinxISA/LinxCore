@@ -421,6 +421,25 @@ I1 arbiter按同 STID age、跨 STID RR 分配 6 个 GPR read ports。一个 uop
 - recovery 杀掉 P1/I1/I2 中 matching row；已 transfer 的 row 由 FU
   owner kill，issue select 不再次释放。
 
+### 6.4.1 I0.7b 已实现：exact bypass select
+
+每条 `OooIexP1I2Lane` 现在直接观察参数化 bypass candidates：
+
+- P 用 `{STID,epoch,PTag,ptagGeneration}` 匹配；T/U 用
+  `{STID,epoch,localTag,localSequence}` 匹配；
+- speculative source 还必须匹配 I0.7a 保存的完整
+  `{producer RobMemberKey,loadGeneration}`；
+- 同一 source 按 W1、W2、W3 选择最新合法值，同 age duplicate candidate
+  fail closed；
+- bypass 命中的 source 不占 RF port，`OooIexI1ReadAttempt.sourceMask`
+  明确定义为 logical source 的 RF-needed subset；
+- 没有精确 bypass 的 speculative source 停在 I1，不允许回退到 RF；
+- I2 保留 logical source mask、合并数据、bypass mask和完整 provenance，
+  下游背压不能改写它们。
+
+I0.7c 仍需把 load miss/cancel token 接入 IQ 与 lane，清 matching
+`specReady`、poison matching I1/I2 copy并完成 exact repick。
+
 ### 6.5 迁移与验收
 
 read group、exact token、多 domain 原子端口仲裁和P/T/U真实data owner组合

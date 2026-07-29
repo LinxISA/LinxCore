@@ -24,7 +24,9 @@ OooIexIssueP1Fabric
 
 The issue fabric remains the only IQ scheduling, sidecar, ready-scoreboard,
 in-flight, and retry owner. Every domain contributes one complete retained I1
-attempt to the shared atomic arbiter. Selected P/T/U port requests go directly
+attempt to the shared atomic arbiter after exact W1/W2/W3 bypass selection.
+Bypass hits retain complete provenance in I2 and are removed from RF demand;
+an uncovered speculative source waits in I1. Selected P/T/U port requests go directly
 to the operand-file owner, and readyless responses return through the exact
 domain/source crossbar. The arbiter drives each lane's decision and data
 inputs; this composition exposes no manual grant/data injection.
@@ -55,6 +57,6 @@ requires aggregate quiescence.
 ## Remaining gaps
 
 - Compose the six PC ports with `OooPcBuffer` in the canonical top.
-- Add bypass/speculative-load tracking, validation, cancel, and wakeup poison.
+- Add exact load-miss cancel, wakeup poison, and repick across IQ/I1/I2.
 - Freeze the default class/bank/pipe map and class-specific eligibility rules.
 - Add the non-cancellable I2-to-E1 owner transfer and W1 terminal network.

@@ -145,9 +145,23 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.grant(0).expect(true.B)
       dut.io.sourceDataValid(0).expect("b0101".U)
 
-      // Malformed operand classes are decided as a denial and emit no port.
+      // A lane may remove exact bypass hits from the RF mask while retaining
+      // those operands in its logical I2 source mask.
       clear(dut)
       pokeAttempt(dut, 0, stid = 0, rid = 4,
+        Seq(OperandClass.P, OperandClass.T, OperandClass.U))
+      dut.io.attempts(0).bits.sourceMask.poke("b0110".U)
+      dut.io.shapeExact(0).expect(true.B)
+      dut.io.pDemand(0).expect(0.U)
+      dut.io.tDemand(0).expect(1.U)
+      dut.io.uDemand(0).expect(1.U)
+      dut.io.pReadRequests.foreach(_.valid.expect(false.B))
+      dut.io.tReadRequests(0).valid.expect(true.B)
+      dut.io.uReadRequests(0).valid.expect(true.B)
+
+      // Malformed operand classes are decided as a denial and emit no port.
+      clear(dut)
+      pokeAttempt(dut, 0, stid = 0, rid = 5,
         Seq(OperandClass.Invalid))
       dut.io.decisionValid(0).expect(true.B)
       dut.io.shapeExact(0).expect(false.B)
