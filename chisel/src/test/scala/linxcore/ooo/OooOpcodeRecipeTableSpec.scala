@@ -33,6 +33,8 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
 
     assert(rule("OP_ADD").dispatchClass == OooDispatchClass.Alu)
     assert(rule("OP_SD").lateSplitKind == OooLateSplitKind.StoreAddressData)
+    assert(rule("OP_SD").pSourceCount == 3)
+    assert(rule("OP_SDI").pSourceCount == 2)
     assert(rule("OP_C_BSTOP").fastResolveClass == OooFastResolveClass.BoundaryMetadata)
     assert(rule("OP_FENTRY").disposition == OooOpcodeDisposition.Ctu)
     assert(rule("OP_MCOPY").disposition == OooOpcodeDisposition.Illegal)

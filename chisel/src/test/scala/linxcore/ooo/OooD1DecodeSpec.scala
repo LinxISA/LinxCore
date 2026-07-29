@@ -116,9 +116,79 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
       }
       dut.io.out.bits.uops(0).plannedChildCount.expect(2.U)
       dut.io.out.bits.uops(1).plannedChildCount.expect(2.U)
+      val immediateMemory = dut.io.out.bits.uops(0).memory
+      immediateMemory.valid.expect(true.B)
+      immediateMemory.isStore.expect(true.B)
+      immediateMemory.addressMode.expect(OooMemoryAddressMode.BaseOffset)
+      immediateMemory.accessBytes.expect(8.U)
+      immediateMemory.addressSourceMask.expect("b0100".U)
+      immediateMemory.dataSourceMask.expect("b0011".U)
+      val indexedMemory = dut.io.out.bits.uops(1).memory
+      indexedMemory.addressMode.expect(OooMemoryAddressMode.BaseIndex)
+      indexedMemory.addressSourceMask.expect("b1100".U)
+      indexedMemory.dataSourceMask.expect("b0011".U)
+      indexedMemory.indexShift.expect(5.U)
       dut.io.out.bits.demand.dispatchWritesByClass(OooDispatchClass.Agu - 1).expect(2.U)
       dut.io.out.bits.demand.dispatchWritesByClass(OooDispatchClass.Std - 1).expect(2.U)
       dut.io.out.bits.demand.storeIds.expect(4.U)
+    }
+  }
+
+  test("normalizes scalar store data and address identities across all address forms") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      val immediate = encoded(
+        "OP_SDI", (31, 25, 0x7f), (24, 20, 6), (19, 15, 5),
+        (11, 7, 0x1f))
+      val pcr = encoded(
+        "OP_SD_PCR", (31, 20, 0x123), (19, 15, 7), (11, 7, 0x1f))
+      val indexed = encoded(
+        "OP_SD", (31, 27, 8), (26, 25, 1), (24, 20, 9), (19, 15, 10))
+      val postIndexed = encoded(
+        "OP_HL_SDI_UPO", (35, 31, 11), (40, 36, 12))
+      drive(dut, 0, "OP_SDI", immediate, 34, 0x3400)
+      drive(dut, 1, "OP_SD_PCR", pcr, 35, 0x3404)
+      drive(dut, 2, "OP_SD", indexed, 36, 0x3408)
+      drive(dut, 3, "OP_HL_SDI_UPO", postIndexed, 37, 0x340c)
+      dut.io.in.bits.validMask.poke("b1111".U)
+      dut.io.in.valid.poke(true.B)
+
+      val immediateMemory = dut.io.out.bits.uops(0).memory
+      immediateMemory.addressMode.expect(OooMemoryAddressMode.BaseOffset)
+      immediateMemory.addressSourceMask.expect("b0010".U)
+      immediateMemory.dataSourceMask.expect("b0001".U)
+      immediateMemory.offset.expect(BigInt("fffffffffffffff8", 16).U)
+      dut.io.out.bits.uops(0).sources(0).atag.expect(5.U)
+      dut.io.out.bits.uops(0).sources(1).atag.expect(6.U)
+
+      val pcrMemory = dut.io.out.bits.uops(1).memory
+      pcrMemory.addressMode.expect(OooMemoryAddressMode.PcOffset)
+      pcrMemory.addressSourceMask.expect(0.U)
+      pcrMemory.dataSourceMask.expect(1.U)
+      pcrMemory.offset.expect(BigInt("fffffffffffff123", 16).U)
+      dut.io.out.bits.uops(1).immediateValid.expect(true.B)
+      dut.io.out.bits.uops(1).immediate.expect(BigInt("fffffffffffff123", 16).U)
+      dut.io.out.bits.uops(1).sources(0).atag.expect(7.U)
+
+      val indexedMemory = dut.io.out.bits.uops(2).memory
+      indexedMemory.addressMode.expect(OooMemoryAddressMode.BaseIndex)
+      indexedMemory.addressSourceMask.expect("b0110".U)
+      indexedMemory.dataSourceMask.expect("b0001".U)
+      indexedMemory.indexMode.expect(OooMemoryIndexMode.ZeroExtend32)
+      indexedMemory.indexShift.expect(3.U)
+      Seq(8, 10, 9).zipWithIndex.foreach { case (atag, index) =>
+        dut.io.out.bits.uops(2).sources(index).atag.expect(atag.U)
+      }
+
+      val writebackMemory = dut.io.out.bits.uops(3).memory
+      writebackMemory.addressMode.expect(OooMemoryAddressMode.BaseOffset)
+      writebackMemory.addressSourceMask.expect("b0010".U)
+      writebackMemory.dataSourceMask.expect("b0001".U)
+      writebackMemory.writebackValid.expect(true.B)
+      writebackMemory.writebackPreIndex.expect(false.B)
+      writebackMemory.offset.expect(0.U)
+      dut.io.out.bits.uops(3).destinations(0).valid.expect(true.B)
     }
   }
 

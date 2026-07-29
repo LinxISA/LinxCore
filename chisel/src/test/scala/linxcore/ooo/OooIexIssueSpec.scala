@@ -274,6 +274,97 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("projects split stores into disjoint AGU and STD operand rows") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      val allocations = Vector(
+        Allocation(0, 0, 2, 0, 0, 1),
+        Allocation(0, 1, 3, 0, 1, 2))
+      pokeTransaction(dut, 1, 10, allocations)
+      val decoded = dut.io.s1.bits.o3.request.reservation.transaction.decoded.uops(0)
+      val pUop = dut.io.s1.bits.pRename.uops(0)
+      Seq(decoded, pUop.decoded).foreach { logical =>
+        logical.recipe.lateSplitKind.poke(OooLateSplitKind.StoreAddressData.U)
+        logical.recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+        logical.memory.valid.poke(true.B)
+        logical.memory.isStore.poke(true.B)
+        logical.memory.addressMode.poke(OooMemoryAddressMode.BaseIndex)
+        logical.memory.accessBytes.poke(8.U)
+        logical.memory.addressSourceMask.poke("b0110".U)
+        logical.memory.dataSourceMask.poke("b0001".U)
+        logical.destinations(0).valid.poke(false.B)
+        for (sourceIndex <- 0 until 3) {
+          logical.sources(sourceIndex).valid.poke(true.B)
+          logical.sources(sourceIndex).operandClass.poke(OperandClass.P)
+          logical.sources(sourceIndex).atag.poke((8 + sourceIndex).U)
+        }
+      }
+      for (sourceIndex <- 0 until 3) {
+        val renamed = pUop.sources(sourceIndex)
+        renamed.decoded.valid.poke(true.B)
+        renamed.decoded.operandClass.poke(OperandClass.P)
+        renamed.decoded.atag.poke((8 + sourceIndex).U)
+        renamed.pMapping.valid.poke(true.B)
+        renamed.pMapping.ptag.poke((40 + sourceIndex).U)
+        renamed.pMapping.ptagGeneration.poke(3.U)
+        renamed.pMapping.ready.poke(true.B)
+        renamed.pMapping.stid.poke(1.U)
+        renamed.pMapping.epoch.poke(6.U)
+      }
+
+      advanceToS3(dut)
+      query(dut, 2, 0, 1)
+      dut.io.queryRow.sources(0).valid.expect(false.B)
+      dut.io.queryRow.sources(1).valid.expect(true.B)
+      dut.io.queryRow.sources(2).valid.expect(true.B)
+      dut.io.queryRow.destinations(0).valid.expect(false.B)
+      query(dut, 3, 0, 2)
+      dut.io.queryRow.sources(0).valid.expect(true.B)
+      dut.io.queryRow.sources(1).valid.expect(false.B)
+      dut.io.queryRow.sources(2).valid.expect(false.B)
+      dut.io.queryRow.destinations(0).valid.expect(false.B)
+    }
+  }
+
+  test("rejects a split store whose child classes are swapped") {
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      pokeTransaction(dut, 1, 11, Vector(
+        Allocation(0, 0, 3, 0, 0, 1),
+        Allocation(0, 1, 2, 0, 1, 2)))
+      val decoded = dut.io.s1.bits.o3.request.reservation.transaction.decoded.uops(0)
+      val pDecoded = dut.io.s1.bits.pRename.uops(0).decoded
+      Seq(decoded, pDecoded).foreach { logical =>
+        logical.recipe.lateSplitKind.poke(OooLateSplitKind.StoreAddressData.U)
+      }
+      dut.io.s1.ready.expect(false.B)
+      dut.io.s1Rejected.valid.expect(true.B)
+      dut.io.s1Rejected.bits.shapeExact.expect(false.B)
+    }
+  }
+
   test("registers wakeup before it becomes visible to S3 eligibility") {
     val p = OooParams(
       instructionDecodeWidth = 2,

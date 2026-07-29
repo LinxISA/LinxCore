@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, is, PopCount, switch}
+import chisel3.util.{Cat, Decoupled, Fill, is, PopCount, switch}
 import linxcore.common.{
   BranchPredictionSidecar,
   DestinationKind,
@@ -144,6 +144,10 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     recipe.recipeKind === OooOpcodeRecipeKind.ScalarLoad.U &&
     recipe.dispatchClass === OooDispatchClass.Agu.U &&
     recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U
+  val scalarStore = recipe.valid &&
+    recipe.recipeKind === OooOpcodeRecipeKind.ScalarStore.U &&
+    recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U &&
+    recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U
   val loadPcr = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LB_PCR,
     FrontendOpcodeDecodeTable.OP_LBU_PCR,
@@ -160,6 +164,27 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LHU,
     FrontendOpcodeDecodeTable.OP_LW,
     FrontendOpcodeDecodeTable.OP_LWU)
+  val storePcr = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SB_PCR,
+    FrontendOpcodeDecodeTable.OP_SD_PCR,
+    FrontendOpcodeDecodeTable.OP_SH_PCR,
+    FrontendOpcodeDecodeTable.OP_SW_PCR)
+  val storeRegister = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SB,
+    FrontendOpcodeDecodeTable.OP_SD,
+    FrontendOpcodeDecodeTable.OP_SD_U,
+    FrontendOpcodeDecodeTable.OP_SH,
+    FrontendOpcodeDecodeTable.OP_SH_U,
+    FrontendOpcodeDecodeTable.OP_SW,
+    FrontendOpcodeDecodeTable.OP_SW_U)
+  val pairStoreRegister = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_HL_SBP,
+    FrontendOpcodeDecodeTable.OP_HL_SDP,
+    FrontendOpcodeDecodeTable.OP_HL_SDP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SHP,
+    FrontendOpcodeDecodeTable.OP_HL_SHP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SWP,
+    FrontendOpcodeDecodeTable.OP_HL_SWP_U)
   val byteLoad = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LB,
     FrontendOpcodeDecodeTable.OP_LBI,
@@ -167,6 +192,12 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LBU,
     FrontendOpcodeDecodeTable.OP_LBUI,
     FrontendOpcodeDecodeTable.OP_LBU_PCR)
+  val byteStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SB,
+    FrontendOpcodeDecodeTable.OP_SBI,
+    FrontendOpcodeDecodeTable.OP_SB_PCR,
+    FrontendOpcodeDecodeTable.OP_HL_SBIP,
+    FrontendOpcodeDecodeTable.OP_HL_SBP)
   val halfLoad = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LH,
     FrontendOpcodeDecodeTable.OP_LHI,
@@ -176,6 +207,16 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LHUI,
     FrontendOpcodeDecodeTable.OP_LHUI_U,
     FrontendOpcodeDecodeTable.OP_LHU_PCR)
+  val halfStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SH,
+    FrontendOpcodeDecodeTable.OP_SH_U,
+    FrontendOpcodeDecodeTable.OP_SHI,
+    FrontendOpcodeDecodeTable.OP_SHI_U,
+    FrontendOpcodeDecodeTable.OP_SH_PCR,
+    FrontendOpcodeDecodeTable.OP_HL_SHIP,
+    FrontendOpcodeDecodeTable.OP_HL_SHIP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SHP,
+    FrontendOpcodeDecodeTable.OP_HL_SHP_U)
   val wordLoad = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LW,
     FrontendOpcodeDecodeTable.OP_LWI,
@@ -185,6 +226,16 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LWUI,
     FrontendOpcodeDecodeTable.OP_LWUI_U,
     FrontendOpcodeDecodeTable.OP_LWU_PCR)
+  val wordStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SW,
+    FrontendOpcodeDecodeTable.OP_SW_U,
+    FrontendOpcodeDecodeTable.OP_SWI,
+    FrontendOpcodeDecodeTable.OP_SWI_U,
+    FrontendOpcodeDecodeTable.OP_SW_PCR,
+    FrontendOpcodeDecodeTable.OP_HL_SWIP,
+    FrontendOpcodeDecodeTable.OP_HL_SWIP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SWP,
+    FrontendOpcodeDecodeTable.OP_HL_SWP_U)
   val unsignedLoad = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LBU,
     FrontendOpcodeDecodeTable.OP_LBUI,
@@ -215,34 +266,84 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LWI_U,
     FrontendOpcodeDecodeTable.OP_LWUI_U,
     FrontendOpcodeDecodeTable.OP_LDI_U)
-  val accessBytes = Mux(byteLoad, 1.U, Mux(halfLoad, 2.U,
-    Mux(wordLoad, 4.U, 8.U)))
-  val accessShift = Mux(byteLoad, 0.U, Mux(halfLoad, 1.U,
-    Mux(wordLoad, 2.U, 3.U)))
-  val normalizedOffset = Mux(loadPcr || unscaledLoad,
-    legacy.io.out.imm,
-    (legacy.io.out.imm << accessShift)(p.pcWidth - 1, 0))
+  val unscaledStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_SD_U,
+    FrontendOpcodeDecodeTable.OP_SH_U,
+    FrontendOpcodeDecodeTable.OP_SW_U,
+    FrontendOpcodeDecodeTable.OP_SDI_U,
+    FrontendOpcodeDecodeTable.OP_SHI_U,
+    FrontendOpcodeDecodeTable.OP_SWI_U,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_U,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_UPO,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_UPR,
+    FrontendOpcodeDecodeTable.OP_HL_SDIP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SDP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SHIP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SHP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SWIP_U,
+    FrontendOpcodeDecodeTable.OP_HL_SWP_U)
+  val storeWriteback = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_HL_SDI_PO,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_PR,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_UPO,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_UPR)
+  val storeWritebackPreIndex = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_HL_SDI_PR,
+    FrontendOpcodeDecodeTable.OP_HL_SDI_UPR)
+  val memoryPcr = loadPcr || storePcr
+  val memoryRegister = loadRegister || storeRegister || pairStoreRegister
+  val memoryUnscaled = unscaledLoad || unscaledStore
+  val byteMemory = byteLoad || byteStore
+  val halfMemory = halfLoad || halfStore
+  val wordMemory = wordLoad || wordStore
+  val accessBytes = Mux(byteMemory, 1.U, Mux(halfMemory, 2.U,
+    Mux(wordMemory, 4.U, 8.U)))
+  val accessShift = Mux(byteMemory, 0.U, Mux(halfMemory, 1.U,
+    Mux(wordMemory, 2.U, 3.U)))
+  val storePcrOffset = Cat(
+    Fill(p.pcWidth - 17, parent.rawInstruction(11)),
+    parent.rawInstruction(11, 7),
+    parent.rawInstruction(31, 20))
+  when(storePcr) {
+    uop.immediateValid := true.B
+    uop.immediate := storePcrOffset
+  }
+  val decodedOffset = Mux(storePcr, storePcrOffset, legacy.io.out.imm)
+  val normalizedOffset = Mux(memoryPcr || memoryUnscaled,
+    decodedOffset,
+    (decodedOffset << accessShift)(p.pcWidth - 1, 0))
 
-  uop.memory.valid := scalarLoad
+  uop.memory.valid := scalarLoad || scalarStore || pairStore
   uop.memory.isLoad := scalarLoad
-  uop.memory.isStore := false.B
-  uop.memory.addressMode := Mux(loadPcr, OooMemoryAddressMode.PcOffset,
-    Mux(loadRegister, OooMemoryAddressMode.BaseIndex,
+  uop.memory.isStore := scalarStore || pairStore
+  uop.memory.addressMode := Mux(memoryPcr, OooMemoryAddressMode.PcOffset,
+    Mux(memoryRegister, OooMemoryAddressMode.BaseIndex,
       OooMemoryAddressMode.BaseOffset))
   uop.memory.accessBytes := accessBytes
   uop.memory.signExtend := scalarLoad && signedNarrowLoad && !unsignedLoad
   uop.memory.offset := normalizedOffset
   uop.memory.indexMode := OooMemoryIndexMode.Identity
-  switch(parent.rawInstruction(26, 25)) {
+  val indexModeBits = Mux(pairStoreRegister,
+    parent.rawInstruction(42, 41), parent.rawInstruction(26, 25))
+  switch(indexModeBits) {
     is(0.U) { uop.memory.indexMode := OooMemoryIndexMode.SignExtend32 }
     is(1.U) { uop.memory.indexMode := OooMemoryIndexMode.ZeroExtend32 }
     is(2.U) { uop.memory.indexMode := OooMemoryIndexMode.Negate }
   }
-  uop.memory.indexShift := Mux(loadRegister,
-    parent.rawInstruction(31, 27), 0.U)
-  uop.memory.addressSourceMask := Mux(loadPcr, 0.U,
-    Mux(loadRegister, 3.U, 1.U))
-  uop.memory.dataSourceMask := 0.U
+  uop.memory.indexShift := Mux(pairStoreRegister,
+    parent.rawInstruction(47, 43),
+    Mux(loadRegister, parent.rawInstruction(31, 27),
+      Mux(storeRegister, accessShift, 0.U)))
+  uop.memory.addressSourceMask := Mux(memoryPcr, 0.U,
+    Mux(pairStoreRegister, 12.U,
+      Mux(storeRegister, 6.U,
+        Mux(pairStore, 4.U,
+          Mux(scalarStore, 2.U,
+            Mux(loadRegister, 3.U, 1.U))))))
+  uop.memory.dataSourceMask := Mux(pairStore, 3.U,
+    Mux(scalarStore, 1.U, 0.U))
+  uop.memory.writebackValid := storeWriteback
+  uop.memory.writebackPreIndex := storeWritebackPreIndex
   uop.boundaryTargetValid := recipe.requiresTargetValidation && legacy.io.out.immValid
   uop.boundaryTarget := legacy.io.out.boundaryTarget
   uop.preciseTrap := effectiveIllegal
@@ -293,6 +394,22 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
       copySource(uop.sources(2), pairBase)
       copySource(uop.sources(3), pairIndex)
     }
+  }
+
+  val decodedSourceMask = VecInit(uop.sources.map(_.valid)).asUInt
+  when(io.active && (scalarStore || pairStore) && !effectiveIllegal) {
+    assert(
+      (uop.memory.addressSourceMask & uop.memory.dataSourceMask) === 0.U,
+      "store address and data source projections must be disjoint")
+    assert(
+      (uop.memory.addressSourceMask | uop.memory.dataSourceMask) === decodedSourceMask,
+      "store child projections must cover every decoded source exactly once")
+    assert(
+      recipe.pSourceCount === PopCount(decodedSourceMask),
+      "store recipe source count must match normalized decoded operands")
+    assert(
+      uop.plannedChildCount === 2.U,
+      "store address/data split must reserve exactly two execution children")
   }
 
   when(effectiveIllegal) {

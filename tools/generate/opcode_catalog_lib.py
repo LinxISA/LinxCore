@@ -319,6 +319,29 @@ OOO_PAIR_STORE_SYMBOLS = {
     "OP_HL_SWIP_U", "OP_HL_SDIP_U",
 }
 
+# Indexed scalar stores encode three architectural sources: SrcD carries the
+# store data while SrcL/SrcR form the address.  The generic decode-field
+# classifier can represent only rs1/rs2, so the OOO recipe must account for
+# SrcD explicitly or rename will under-declare the physical source demand.
+OOO_INDEXED_SCALAR_STORE_SYMBOLS = {
+    "OP_SB", "OP_SH", "OP_SW", "OP_SD",
+    "OP_SH_U", "OP_SW_U", "OP_SD_U",
+}
+
+OOO_PC_READ_BRU_SYMBOLS = {
+    "OP_ADDTPC", "OP_HL_ADDTPC", "OP_B_NZ", "OP_B_Z", "OP_J", "OP_JR",
+}
+OOO_PC_READ_AGU_SYMBOLS = {
+    "OP_LB_PCR", "OP_LBU_PCR", "OP_LD_PCR", "OP_LH_PCR",
+    "OP_LHU_PCR", "OP_LW_PCR", "OP_LWU_PCR",
+    "OP_SB_PCR", "OP_SD_PCR", "OP_SH_PCR", "OP_SW_PCR",
+}
+OOO_PC_READ_ALU_SYMBOLS = {
+    "OP_HL_LB_PCR", "OP_HL_LBU_PCR", "OP_HL_LD_PCR", "OP_HL_LH_PCR",
+    "OP_HL_LHU_PCR", "OP_HL_LW_PCR", "OP_HL_LWU_PCR",
+    "OP_HL_SB_PCR", "OP_HL_SD_PCR", "OP_HL_SH_PCR", "OP_HL_SW_PCR",
+}
+
 OOO_CTU_SYMBOLS = {"OP_FENTRY", "OP_FEXIT", "OP_FRET_RA", "OP_FRET_STK"}
 OOO_UNRESOLVED_TEMPLATE_SYMBOLS = {"OP_ERCOV", "OP_ESAVE", "OP_MCOPY", "OP_MSET"}
 OOO_START_CALL_SYMBOLS = {"OP_START_CALL_32", "OP_START_CALL_48"}
@@ -383,7 +406,16 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
         "t_allocation_count": 0,
         "u_allocation_count": 0,
         "reason": "unclassified opcode must trap before dispatch",
+        "pc_read_parent": "NONE",
+        "pc_read_class": "NONE",
     }
+
+    if symbol in OOO_PC_READ_BRU_SYMBOLS:
+        metadata.update({"pc_read_parent": "PRIMARY", "pc_read_class": "BRU"})
+    elif symbol in OOO_PC_READ_AGU_SYMBOLS:
+        metadata.update({"pc_read_parent": "PRIMARY", "pc_read_class": "AGU"})
+    elif symbol in OOO_PC_READ_ALU_SYMBOLS:
+        metadata.update({"pc_read_parent": "PRIMARY", "pc_read_class": "ALU"})
 
     def dispatch(
         recipe: str,
@@ -565,6 +597,8 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
             "may_trap": True,
             "may_trap_late": True,
             "memory_request_count": 1,
+            "p_source_count": 3 if symbol in OOO_INDEXED_SCALAR_STORE_SYMBOLS
+            else metadata["p_source_count"],
         })
         return metadata
 

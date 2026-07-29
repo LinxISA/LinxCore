@@ -92,6 +92,14 @@ pair-memory overlays follow QEMU decodetree fields and do not inherit the
 reduced three-source/two-destination limitations. Runtime register aliases are
 classified into P, T, and U before D2 resource preview.
 
+`OooMemoryControl` is the encoding-independent memory seam. In addition to
+load address mode/size/sign/index controls, it carries disjoint store address
+and data source masks plus explicit writeback/pre-index state. D1 asserts that
+every scalar or pair store source belongs to exactly one mask and that the
+generated recipe source count matches the normalized operand vector. These
+controls survive rename in the payload sidecar; the issue owner uses them to
+project child 0 to AGU and child 1 to STD without re-reading instruction bits.
+
 `OooD1FusionHistory` owns one retained fusion-eligible uop per STID. It delays
 publication until the architectural successor or end-of-stream is known,
 which permits cross-cycle BSTART-forward and BSTOP-backward fusion without

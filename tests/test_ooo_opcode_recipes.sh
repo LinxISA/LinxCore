@@ -50,6 +50,12 @@ assert by_symbol["OP_HL_SDP"]["p_source_count"] == 4
 assert by_symbol["OP_HL_SDIP"]["dispatch_demand"]["AGU"] == 1
 assert by_symbol["OP_HL_SDIP"]["dispatch_demand"]["STD"] == 1
 assert by_symbol["OP_SD"]["late_split_kind"] == "STORE_ADDRESS_DATA"
+assert by_symbol["OP_SD"]["p_source_count"] == 3
+assert by_symbol["OP_SDI"]["p_source_count"] == 2
+assert by_symbol["OP_SD_PCR"]["pc_read_parent"] == "PRIMARY"
+assert by_symbol["OP_SD_PCR"]["pc_read_class"] == "AGU"
+assert by_symbol["OP_HL_SD_PCR"]["pc_read_parent"] == "PRIMARY"
+assert by_symbol["OP_HL_SD_PCR"]["pc_read_class"] == "ALU"
 assert by_symbol["OP_ACRC"]["disposition"] == "DISPATCH"
 assert by_symbol["OP_BSTART_TMA"]["recipe_kind"] == "ENGINE_CMD"
 PY

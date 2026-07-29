@@ -247,6 +247,15 @@ offsets remain unscaled, and register index modifier/shift bits become typed
 controls. This OOO-only normalization leaves the compatibility decode payload
 unchanged while preventing the typed AGU from reading raw instruction bits.
 
+I0.9f extends that OOO-only seam to scalar and pair stores. It classifies
+1/2/4/8-byte accesses, distinguishes base-offset/base-index/PC-offset forms,
+normalizes scaled versus `_U` offsets, records HL pre/post writeback, and emits
+disjoint address/data source masks. The 32-bit PCR-store 17-bit split field is
+decoded directly into both canonical immediate and memory offset because the
+compatibility leaf intentionally does not own that encoding. Indexed scalar
+stores are three-source recipes; immediate scalar stores remain two-source
+recipes.
+
 ## Open Work
 
 - Add cycle-level simulation checks once the Chisel test lane has a probe
@@ -255,5 +264,6 @@ unchanged while preventing the typed AGU from reading raw instruction bits.
   classes.
 - Promote shift/source-type sidebands (`srcr_type`, `shamt`) into generated
   metadata once the frontend table generator owns them directly.
-- Add LSID allocation, D2 queueing, store split rewrite, block split queues,
-  and rename/ROB admission in their own owner packets.
+- Complete store AGU/STD execution, address/data join, STQ/LSU ownership, and
+  visibility in their own owner packets. D1 normalization and S1/S2 split-row
+  projection are complete; LSID and ROB ownership remain outside this leaf.

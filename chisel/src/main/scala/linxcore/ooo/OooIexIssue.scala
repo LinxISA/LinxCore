@@ -287,10 +287,19 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     val safeClass = Mux(classInRange, classIndex, 0.U)
     val safeBank = Mux(bankInRange, reservation.bank, 0.U)
     val safeEntry = Mux(entryInRange, reservation.speculativeSlot, 0.U)
+    val storeSplit =
+      decodedUop.recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U ||
+        decodedUop.recipe.lateSplitKind === OooLateSplitKind.PairStoreAddressData.U
+    val storeChildClassExact = !storeSplit ||
+      (allocation.childIndex === 0.U &&
+        reservation.uopClass === OooUopClass.Agu) ||
+      (allocation.childIndex === 1.U &&
+        reservation.uopClass === OooUopClass.Std)
     laneExact(lane) := !allocation.valid || (uopIndexInRange && activeUop &&
       classInRange && bankInRange && entryInRange && portInRange &&
       pUop.decoded.asUInt === decodedUop.asUInt &&
       sameMember(pUop.member, tuUop.member) &&
+      storeChildClassExact &&
       allocation.childIndex < decodedUop.plannedChildCount &&
       memberEnd < p.maxOrdinaryUopsPerGroup.U)
     laneTargetFree(lane) := !allocation.valid ||
@@ -509,11 +518,20 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         row.blockLast := tuUop.blockLast
         row.closeBeforeValid := tuUop.closeBeforeValid
         row.closeBefore := tuUop.closeBefore
+        val storeSplit =
+          pUop.decoded.recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U ||
+            pUop.decoded.recipe.lateSplitKind === OooLateSplitKind.PairStoreAddressData.U
+        val storeAddressChild = storeSplit && allocation.childIndex === 0.U
+        val storeDataChild = storeSplit && allocation.childIndex === 1.U
         for (sourceIndex <- 0 until p.maxSourceOperands) {
           val decodedSource = pUop.decoded.sources(sourceIndex)
           val pSource = pUop.sources(sourceIndex).pMapping
           val localSource = tuUop.sources(sourceIndex)
           val source = row.sources(sourceIndex)
+          val sourceSelected = decodedSource.valid && Mux(storeAddressChild,
+            pUop.decoded.memory.addressSourceMask(sourceIndex),
+            Mux(storeDataChild,
+              pUop.decoded.memory.dataSourceMask(sourceIndex), true.B))
           val isP = decodedSource.operandClass === OperandClass.P
           val isT = decodedSource.operandClass === OperandClass.T
           val isU = decodedSource.operandClass === OperandClass.U
@@ -568,7 +586,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
               wakeup.bits.localTag === localSource.physicalTag &&
               wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
           }.reduce(_ || _)
-          val nonSpecReady = !decodedSource.valid ||
+          val nonSpecReady = !sourceSelected ||
             (isP && (pSource.ready || pReadyRecorded || pReadyNow)) ||
             (isT && (tReadyRecorded || tReadyNow)) ||
             (isU && (uReadyRecorded || uReadyNow))
@@ -603,9 +621,9 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           }.reduce(_ || _)
           assert(PopCount(specWakeMatches) <= 1.U,
             "one source cannot accept multiple speculative load generations")
-          source.valid := decodedSource.valid
+          source.valid := sourceSelected
           source.ready := nonSpecReady
-          source.specReady := decodedSource.valid && !nonSpecReady &&
+          source.specReady := sourceSelected && !nonSpecReady &&
             specWakeMatches.asUInt.orR && !specLoadCanceledNow
           source.operandClass := decodedSource.operandClass
           source.ptag := pSource.ptag
@@ -614,7 +632,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           source.localSequence := localSource.sequence
           source.load := Mux(source.specReady, specLoadNow,
             0.U.asTypeOf(specLoadNow))
-          when(decodedSource.valid && !(isP || isT || isU)) {
+          when(sourceSelected && !(isP || isT || isU)) {
             source.ready := false.B
             source.specReady := false.B
             source.load := 0.U.asTypeOf(source.load)
@@ -627,7 +645,9 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
             pUop.destinations(destinationIndex).currentPMapping
           val localDestination = tuUop.destinations(destinationIndex)
           val destination = row.destinations(destinationIndex)
-          destination.valid := decodedDestination.valid
+          val destinationSelected = decodedDestination.valid &&
+            (!storeSplit || storeAddressChild)
+          destination.valid := destinationSelected
           destination.kind := decodedDestination.kind
           destination.atag := decodedDestination.atag
           destination.relativeIndex := decodedDestination.relativeIndex
@@ -635,12 +655,12 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           destination.ptagGeneration := pDestination.ptagGeneration
           destination.localTag := localDestination.physicalTag
           destination.localSequence := localDestination.sequence
-          when(decodedDestination.valid &&
+          when(destinationSelected &&
               decodedDestination.kind === DestinationKind.Gpr &&
               pDestination.valid) {
             pReadyValid(pDestination.ptag) := false.B
           }
-          when(decodedDestination.valid &&
+          when(destinationSelected &&
               decodedDestination.kind === DestinationKind.T &&
               localDestination.valid &&
               localDestination.physicalTag < p.tPhysRegs.U) {
@@ -648,7 +668,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
               ttagIndexWidth - 1, 0)
             tReadyValid(safeS2OwnerStid)(destinationTtag) := false.B
           }
-          when(decodedDestination.valid &&
+          when(destinationSelected &&
               decodedDestination.kind === DestinationKind.U &&
               localDestination.valid &&
               localDestination.physicalTag < p.uPhysRegs.U) {

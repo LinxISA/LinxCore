@@ -74,6 +74,31 @@ relations remain owned by RENU/commit. The wide sidecar therefore does not
 participate in every wakeup/recovery comparison, and IEX does not become a
 second rename or recovery authority.
 
+## Split-store projection
+
+I0.9f keeps one canonical decoded store and creates its two physical children
+only at the reserved S1/S2 boundary. D1 records two disjoint masks in
+`OooMemoryControl`: `addressSourceMask` and `dataSourceMask`. The masks must be
+disjoint, their union must equal every valid decoded source, and the generated
+`pSourceCount` must equal that union's population count.
+
+The child contract is fixed and fail-closed:
+
+- child 0 must use the AGU class and receives only address operands;
+- child 1 must use the STD class and receives only store-data operands;
+- S1 rejects swapped or otherwise mismatched child classes;
+- S2 installs each projected source set in its own physical row while
+  preserving the common parent/member/LSID and recipe identity;
+- a store writeback destination is retained only by the AGU child; STD never
+  becomes a second destination producer.
+
+Immediate scalar stores therefore project `{data=source0, base=source1}`.
+Indexed scalar stores project `{data=source0, base=source1, index=source2}`.
+Immediate pair stores project `{data0,data1,base}`, and indexed pair stores
+project `{data0,data1,base,index}`. PCR stores have no register address source;
+their AGU child obtains the primary-parent PC through the generated PC-read
+policy, while STD consumes only the data source.
+
 ## Wakeup and release
 
 Wakeups compare full STID/epoch and physical generation. They update only
@@ -147,6 +172,9 @@ must quiesce those producers before prepare.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
+- Store AGU/STD execution owners, exact address/data join, canonical STQ lease,
+  memory ordering, and terminal visibility remain open; I0.9f closes only
+  decode normalization and physical IQ projection.
 - Select and measure the final class/bank/release-port topology. Static
   class/domain composition, parameterized simultaneous exact release,
   duplicate-target rejection, atomic transfer/release, and owner-side

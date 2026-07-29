@@ -34,6 +34,8 @@ class OooMemoryControl(val p: OooParams = OooParams()) extends Bundle {
   val indexShift = UInt(5.W)
   val addressSourceMask = UInt(p.maxSourceOperands.W)
   val dataSourceMask = UInt(p.maxSourceOperands.W)
+  val writebackValid = Bool()
+  val writebackPreIndex = Bool()
 }
 
 /** Independent proof obligations used by the ROB-owned non-flush window.
