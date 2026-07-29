@@ -14,7 +14,6 @@ class OooIexIssueE1IntegrationHarnessIO(val p: OooParams) extends Bundle {
   def dispatchRelease = dispatchReleases(0)
   val transferFire = Output(Bool())
   val transferFireMask = Output(UInt(p.iexReleaseWidth.W))
-  val transferDomain = Output(UInt(p.iexIssueDomainWidth.W))
   val residentEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val inFlightEntries = Output(Vec(p.iqClassCount,
@@ -23,66 +22,56 @@ class OooIexIssueE1IntegrationHarnessIO(val p: OooParams) extends Bundle {
 }
 
 class OooIexIssueE1IntegrationHarness(
-    val p: OooParams,
-    val topology: Seq[OooIexIssueDomainConfig]) extends Module {
+    val profile: OooIexPhysicalProfile) extends Module {
+  val p = profile.params
   val io = IO(new OooIexIssueE1IntegrationHarnessIO(p))
 
-  val issue = Module(new OooIexIssueReadFabric(p,
-    topology.map(_.capabilities), staticDomains = topology))
-  val transfer = Module(new OooIexE1TransferFabric(p, topology))
+  val pipeline = Module(new OooIexPipeline(profile))
 
-  issue.io.s1 <> io.s1
-  issue.io.wakeup.foreach(_ := 0.U.asTypeOf(issue.io.wakeup.head))
-  issue.io.loadCancel.foreach(
-    _ := 0.U.asTypeOf(issue.io.loadCancel.head))
-  issue.io.ptagRecycle.valid := false.B
-  issue.io.ptagRecycle.bits := 0.U.asTypeOf(issue.io.ptagRecycle.bits)
-  issue.io.recoveryPrepare.valid := false.B
-  issue.io.recoveryPrepare.bits :=
-    0.U.asTypeOf(issue.io.recoveryPrepare.bits)
-  issue.io.recoveryFire := false.B
-  issue.io.pickBankEnables := transfer.io.pickBankEnables
-  issue.io.issuePolicy := 0.U.asTypeOf(issue.io.issuePolicy)
-  issue.io.stageCancels.flatten.foreach { cancel =>
+  pipeline.io.s1 <> io.s1
+  pipeline.io.wakeup.foreach(_ := 0.U.asTypeOf(pipeline.io.wakeup.head))
+  pipeline.io.loadCancel.foreach(
+    _ := 0.U.asTypeOf(pipeline.io.loadCancel.head))
+  pipeline.io.ptagRecycle.valid := false.B
+  pipeline.io.ptagRecycle.bits :=
+    0.U.asTypeOf(pipeline.io.ptagRecycle.bits)
+  pipeline.io.recoveryPrepare.valid := false.B
+  pipeline.io.recoveryPrepare.bits :=
+    0.U.asTypeOf(pipeline.io.recoveryPrepare.bits)
+  pipeline.io.recoveryFire := false.B
+  pipeline.io.issuePolicy := 0.U.asTypeOf(pipeline.io.issuePolicy)
+  pipeline.io.stageCancels.flatten.foreach { cancel =>
     cancel.valid := false.B
     cancel.bits := 0.U.asTypeOf(cancel.bits)
   }
   for (port <- 0 until p.pcReadPorts) {
-    issue.io.pcReadResponses(port).valid :=
-      issue.io.pcReadRequests(port).valid
-    issue.io.pcReadResponses(port).bits := ("h80000100".U + port.U)
+    pipeline.io.pcReadResponses(port).valid :=
+      pipeline.io.pcReadRequests(port).valid
+    pipeline.io.pcReadResponses(port).bits := ("h80000100".U + port.U)
   }
-  issue.io.bypass.foreach(_ := 0.U.asTypeOf(issue.io.bypass.head))
-  issue.io.pInit := 0.U.asTypeOf(issue.io.pInit)
-  issue.io.pClear.foreach(_ := 0.U.asTypeOf(issue.io.pClear.head))
-  issue.io.pWrite.foreach(_ := 0.U.asTypeOf(issue.io.pWrite.head))
-  issue.io.tClear.foreach(_ := 0.U.asTypeOf(issue.io.tClear.head))
-  issue.io.uClear.foreach(_ := 0.U.asTypeOf(issue.io.uClear.head))
-  issue.io.tWrite.foreach(_ := 0.U.asTypeOf(issue.io.tWrite.head))
-  issue.io.uWrite.foreach(_ := 0.U.asTypeOf(issue.io.uWrite.head))
+  pipeline.io.bypass.foreach(_ := 0.U.asTypeOf(pipeline.io.bypass.head))
+  pipeline.io.pInit := 0.U.asTypeOf(pipeline.io.pInit)
+  pipeline.io.pClear.foreach(_ := 0.U.asTypeOf(pipeline.io.pClear.head))
+  pipeline.io.pWrite.foreach(_ := 0.U.asTypeOf(pipeline.io.pWrite.head))
+  pipeline.io.tClear.foreach(_ := 0.U.asTypeOf(pipeline.io.tClear.head))
+  pipeline.io.uClear.foreach(_ := 0.U.asTypeOf(pipeline.io.uClear.head))
+  pipeline.io.tWrite.foreach(_ := 0.U.asTypeOf(pipeline.io.tWrite.head))
+  pipeline.io.uWrite.foreach(_ := 0.U.asTypeOf(pipeline.io.uWrite.head))
 
   for (domain <- 0 until p.iexIssueDomainCount) {
-    transfer.io.i2(domain) <> issue.io.i2(domain)
-    io.e1(domain) <> transfer.io.e1(domain)
+    io.e1(domain) <> pipeline.io.e1(domain)
   }
-  issue.io.releases <> transfer.io.issueReleases
-  io.dispatchReleases <> issue.io.dispatchReleases
-  transfer.io.recoveryApply.valid := false.B
-  transfer.io.recoveryApply.bits :=
-    0.U.asTypeOf(transfer.io.recoveryApply.bits)
-  transfer.io.loadCancel.foreach(
-    _ := 0.U.asTypeOf(transfer.io.loadCancel.head))
+  io.dispatchReleases <> pipeline.io.dispatchReleases
 
-  io.transferFire := transfer.io.issueRelease.fire
-  io.transferFireMask := VecInit(transfer.io.issueReleases.map(_.fire)).asUInt
-  io.transferDomain := transfer.io.releaseDomain.bits
-  io.residentEntries := issue.io.residentEntries
-  io.inFlightEntries := issue.io.inFlightEntries
-  io.empty := issue.io.empty && transfer.io.empty
+  io.transferFire := pipeline.io.transferFireMask.orR
+  io.transferFireMask := pipeline.io.transferFireMask
+  io.residentEntries := pipeline.io.residentEntries
+  io.inFlightEntries := pipeline.io.inFlightEntries
+  io.empty := pipeline.io.empty
 }
 
 class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
-  private val p = OooParams(
+  private val baseP = OooParams(
     stidCount = 2,
     instructionDecodeWidth = 2,
     decodedUopWidth = 2,
@@ -97,21 +86,15 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
     pcBankCount = 2,
     pcRecoveryScanGroupsPerCycle = 2,
     pcWritePorts = 2,
-    iqBankCount = 2,
-    iqEntriesPerBank = 4,
+    iqBankCount = 8,
+    iqEntriesPerBank = 2,
     iqWritePortsPerBank = 2,
     iqFreeSelectLeafEntries = 2,
-    iexIssueDomainCount = 2,
-    iexReleaseWidth = 2,
     pMapQDepthPerStid = 4,
     tuMapQDepthPerStid = 4,
     tuRetireSourceDepthPerStid = 16)
-
-  private val topology = Seq(
-    OooIexIssueDomainConfig.singleClass(p,
-      OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
-    OooIexIssueDomainConfig.singleClass(p,
-      OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 1))
+  private val profile = OooIexLinxPhysicalProfile(baseP)
+  private val p = profile.params
 
   private def pokeMember(target: RobMemberKey, memberIndex: Int): Unit = {
     target.group.valid.poke(true.B)
@@ -222,7 +205,7 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
       allocation.reservation.uopClass.poke(uopClass)
       allocation.reservation.bank.poke(0.U)
       allocation.reservation.writePort.poke(index.U)
-      allocation.reservation.speculativeSlot.poke((index + 1).U)
+      allocation.reservation.speculativeSlot.poke(index.U)
       allocation.reservation.reservationEpoch.poke((9 + index).U)
     }
 
@@ -234,7 +217,7 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("canonical IQ release and dispatch return share the E1 transfer") {
-    simulate(new OooIexIssueE1IntegrationHarness(p, topology)) { dut =>
+    simulate(new OooIexIssueE1IntegrationHarness(profile)) { dut =>
       dut.io.s1.valid.poke(false.B)
       dut.io.s1.bits.poke(0.U.asTypeOf(dut.io.s1.bits))
       dut.io.e1.foreach(_.ready.poke(false.B))
@@ -249,31 +232,38 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.s1.valid.poke(false.B)
 
       var cycles = 0
-      while (dut.io.transferFireMask.peek().litValue != 3 && cycles < 12) {
+      val aluRelease = profile.picker("alu0").releasePort
+      val bruRelease = profile.picker("bru0").releasePort
+      val aluLane = profile.pickerIndex("alu0")
+      val bruLane = profile.pickerIndex("bru0")
+      val expectedFireMask = (BigInt(1) << aluRelease) |
+        (BigInt(1) << bruRelease)
+      while (dut.io.transferFireMask.peek().litValue != expectedFireMask &&
+          cycles < 12) {
         dut.clock.step()
         cycles += 1
       }
-      dut.io.transferFireMask.expect(3.U)
-      dut.io.transferDomain.expect(0.U)
-      dut.io.dispatchReleases.foreach(_.valid.expect(true.B))
-      dut.io.dispatchReleases(0).bits.member.memberIndex.expect(0.U)
-      dut.io.dispatchReleases(1).bits.member.memberIndex.expect(1.U)
+      dut.io.transferFireMask.expect(expectedFireMask.U)
+      dut.io.dispatchReleases(aluRelease).valid.expect(true.B)
+      dut.io.dispatchReleases(bruRelease).valid.expect(true.B)
+      dut.io.dispatchReleases(aluRelease).bits.member.memberIndex.expect(0.U)
+      dut.io.dispatchReleases(bruRelease).bits.member.memberIndex.expect(1.U)
       dut.clock.step()
 
-      dut.io.e1(0).valid.expect(true.B)
-      dut.io.e1(1).valid.expect(true.B)
-      dut.io.e1(0).bits.ownerClass.expect(OooUopClass.Alu)
-      dut.io.e1(1).bits.ownerClass.expect(OooUopClass.Bru)
-      dut.io.e1(0).bits.i2.row.member.group.ridSlot.expect(2.U)
-      dut.io.e1(1).bits.i2.row.member.memberIndex.expect(1.U)
+      dut.io.e1(aluLane).valid.expect(true.B)
+      dut.io.e1(bruLane).valid.expect(true.B)
+      dut.io.e1(aluLane).bits.ownerClass.expect(OooUopClass.Alu)
+      dut.io.e1(bruLane).bits.ownerClass.expect(OooUopClass.Bru)
+      dut.io.e1(aluLane).bits.i2.row.member.group.ridSlot.expect(2.U)
+      dut.io.e1(bruLane).bits.i2.row.member.memberIndex.expect(1.U)
       dut.io.residentEntries(OooDispatchClass.Alu - 1)(0).expect(0.U)
       dut.io.residentEntries(OooDispatchClass.Bru - 1)(0).expect(0.U)
       dut.io.inFlightEntries(OooDispatchClass.Alu - 1)(0).expect(0.U)
       dut.io.inFlightEntries(OooDispatchClass.Bru - 1)(0).expect(0.U)
       dut.io.empty.expect(false.B)
 
-      dut.io.e1(0).ready.poke(true.B)
-      dut.io.e1(1).ready.poke(true.B)
+      dut.io.e1(aluLane).ready.poke(true.B)
+      dut.io.e1(bruLane).ready.poke(true.B)
       dut.clock.step()
       dut.io.empty.expect(true.B)
     }

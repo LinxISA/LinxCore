@@ -95,5 +95,6 @@ requires aggregate quiescence.
   miss/fault cancel outputs to the canonical issue ports in the static top.
 - Connect execution-unit busy/latency reservations to early policy and static
   E1/reflow/result-bus owners to the exact stage-cancel channels.
-- Instantiate the specialized read and E1 fabrics together in the canonical
-  OOO/IEX top; both specializations now consume the same formal profile.
+- `OooIexPipeline` now instantiates the specialized read and E1 fabrics from
+  one formal profile and makes I2/release wiring private. Connect that
+  production boundary to O3 PC reads and typed execution owners.

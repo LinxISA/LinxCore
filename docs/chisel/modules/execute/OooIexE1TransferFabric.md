@@ -89,6 +89,8 @@ returned. The formal-profile UT elaborates the production specialization.
 
 ## Remaining gaps
 
+- `OooIexPipeline` now owns the canonical issue/read-to-E1 composition; direct
+  fabric instantiation remains a focused-test surface.
 - connect shared DIV/PAC/SYS busy/latency state to issue policy and exact
   stage-cancel; same-cycle ALU2/ALU5 arbitration is owned before RF read;
 - connect picker-specific E1 outputs to typed execution units;

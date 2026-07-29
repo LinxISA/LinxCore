@@ -121,6 +121,7 @@ oldest selection across ALU/STD projections.
 ## Remaining work
 
 - connect shared-resource busy/latency and result-bus reservations;
-- instantiate the profile in the canonical static IEX/LSU top;
+- `OooIexPipeline` now instantiates the profile in the canonical static
+  issue/read/E1 top; typed execution and LSU owners remain to be connected;
 - synthesize the fourteen-picker rank, RF crossbar, release fanout, and picker
   matrix at the default geometry.
