@@ -65,6 +65,18 @@ DISPATCH_CLASS = {
     "CMD": 7,
     "BOUNDARY": 8,
 }
+EXECUTION_CAPABILITY = {
+    "NONE": 0,
+    "SIMPLE_ALU": 1 << 0,
+    "MULTI_CYCLE_ALU": 1 << 1,
+    "STORE_DATA": 1 << 2,
+    "SYSTEM": 1 << 3,
+    "BRANCH": 1 << 4,
+    "LOAD_ADDRESS": 1 << 5,
+    "STORE_ADDRESS": 1 << 6,
+    "FLOATING_VECTOR": 1 << 7,
+    "ENGINE_COMMAND": 1 << 8,
+}
 PC_READ_PARENT = {"NONE", "PRIMARY"}
 
 REQUIRED_OOO_FIELDS = {
@@ -74,7 +86,8 @@ REQUIRED_OOO_FIELDS = {
     "implicit_destination", "side_effect_owner", "requires_target_validation",
     "may_trap", "may_trap_late", "may_redirect", "nonspeculative",
     "pc_read_parent", "pc_read_class",
-    "dispatch_class", "dispatch_writes", "dispatch_demand", "memory_request_count", "p_source_count",
+    "dispatch_class", "dispatch_writes", "dispatch_demand", "dispatch_capabilities",
+    "memory_request_count", "p_source_count",
     "p_destination_count", "t_allocation_count", "u_allocation_count", "reason",
 }
 
@@ -138,6 +151,16 @@ def validate_catalog(data: dict) -> list[dict]:
             raise ValueError(f"{record['symbol']} has malformed dispatch_demand keys")
         if sum(int(value) for value in demand.values()) != int(meta["dispatch_writes"]):
             raise ValueError(f"{record['symbol']} dispatch demand does not sum to dispatch_writes")
+        capabilities = meta["dispatch_capabilities"]
+        if set(capabilities) != set(DISPATCH_CLASS) - {"NONE"}:
+            raise ValueError(f"{record['symbol']} has malformed dispatch_capabilities keys")
+        for name, value in capabilities.items():
+            if value not in EXECUTION_CAPABILITY:
+                raise ValueError(
+                    f"{record['symbol']} has unknown {name} capability={value}")
+            if (int(demand[name]) > 0) != (value != "NONE"):
+                raise ValueError(
+                    f"{record['symbol']} has inconsistent {name} demand/capability")
         op_id = int(record["op_id"])
         signature = {k: v for k, v in meta.items() if k != "reason"}
         if op_id in by_id and by_id[op_id] != signature:
@@ -153,6 +176,9 @@ def bool_lit(value: object) -> str:
 def rule_expr(record: dict) -> str:
     meta = record["ooo"]
     demand = ", ".join(str(meta["dispatch_demand"][name]) for name in DISPATCH_CLASS if name != "NONE")
+    capabilities = ", ".join(
+        str(EXECUTION_CAPABILITY[meta["dispatch_capabilities"][name]])
+        for name in DISPATCH_CLASS if name != "NONE")
     return (
         "OooOpcodeRecipeRule("
         f"symbol = \"{record['symbol']}\", opcode = {record['op_id']}, "
@@ -170,7 +196,7 @@ def rule_expr(record: dict) -> str:
         f"mayRedirect = {bool_lit(meta['may_redirect'])}, nonspeculative = {bool_lit(meta['nonspeculative'])}, "
         f"pcReadRequired = {bool_lit(meta['pc_read_parent'] == 'PRIMARY')}, "
         f"pcReadClass = {DISPATCH_CLASS[meta['pc_read_class']]}, "
-        f"dispatchClass = {DISPATCH_CLASS[meta['dispatch_class']]}, dispatchWrites = {meta['dispatch_writes']}, dispatchDemand = Seq({demand}), "
+        f"dispatchClass = {DISPATCH_CLASS[meta['dispatch_class']]}, dispatchWrites = {meta['dispatch_writes']}, dispatchDemand = Seq({demand}), dispatchCapabilities = Seq({capabilities}), "
         f"memoryRequestCount = {meta['memory_request_count']}, "
         f"pSourceCount = {meta['p_source_count']}, pDestinationCount = {meta['p_destination_count']}, "
         f"tAllocationCount = {meta['t_allocation_count']}, uAllocationCount = {meta['u_allocation_count']})"
@@ -225,10 +251,11 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         "  val mayRedirect = Bool()", "  val nonspeculative = Bool()", "  val pcReadRequired = Bool()",
         "  val pcReadClass = UInt(4.W)",
         "  val dispatchClass = UInt(4.W)", "  val dispatchWrites = UInt(p.dispatchCountWidth.W)",
-        "  val dispatchDemand = Vec(p.iqClassCount, UInt(p.dispatchCountWidth.W))", "  val memoryRequestCount = UInt(3.W)",
+        "  val dispatchDemand = Vec(p.iqClassCount, UInt(p.dispatchCountWidth.W))",
+        "  val dispatchCapabilities = Vec(p.iqClassCount, UInt(OooIexDomainCapability.Count.W))", "  val memoryRequestCount = UInt(3.W)",
         "  val pSourceCount = UInt(p.sourceCountWidth.W)", "  val pDestinationCount = UInt(p.destinationCountWidth.W)",
         "  val tAllocationCount = UInt(2.W)", "  val uAllocationCount = UInt(2.W)", "}", "",
-        "final case class OooOpcodeRecipeRule(symbol: String, opcode: Int, lenBytes: Int, mask: BigInt, value: BigInt, disposition: Int, recipeKind: Int, uopCountMin: Int, uopCountMax: Int, complexBreak: Boolean, lateSplitKind: Int, fusionHeadClass: Int, fusionTailClass: Int, fastResolveClass: Int, implicitSourceMask: Int, implicitDestination: Int, sideEffectOwner: Int, requiresTargetValidation: Boolean, mayTrap: Boolean, mayTrapLate: Boolean, mayRedirect: Boolean, nonspeculative: Boolean, pcReadRequired: Boolean, pcReadClass: Int, dispatchClass: Int, dispatchWrites: Int, dispatchDemand: Seq[Int], memoryRequestCount: Int, pSourceCount: Int, pDestinationCount: Int, tAllocationCount: Int, uAllocationCount: Int)", "",
+        "final case class OooOpcodeRecipeRule(symbol: String, opcode: Int, lenBytes: Int, mask: BigInt, value: BigInt, disposition: Int, recipeKind: Int, uopCountMin: Int, uopCountMax: Int, complexBreak: Boolean, lateSplitKind: Int, fusionHeadClass: Int, fusionTailClass: Int, fastResolveClass: Int, implicitSourceMask: Int, implicitDestination: Int, sideEffectOwner: Int, requiresTargetValidation: Boolean, mayTrap: Boolean, mayTrapLate: Boolean, mayRedirect: Boolean, nonspeculative: Boolean, pcReadRequired: Boolean, pcReadClass: Int, dispatchClass: Int, dispatchWrites: Int, dispatchDemand: Seq[Int], dispatchCapabilities: Seq[Int], memoryRequestCount: Int, pSourceCount: Int, pDestinationCount: Int, tAllocationCount: Int, uAllocationCount: Int)", "",
     ]
     for chunk_idx, chunk in enumerate(chunks):
         lines.append(f"private object OooOpcodeRecipeRules{chunk_idx} {{")
@@ -254,6 +281,7 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         "    meta.pcReadClass := rule.pcReadClass.U",
         "    meta.dispatchClass := rule.dispatchClass.U",
         "    meta.dispatchWrites := rule.dispatchWrites.U", "    rule.dispatchDemand.zipWithIndex.foreach { case (value, idx) => meta.dispatchDemand(idx) := value.U }",
+        "    rule.dispatchCapabilities.zipWithIndex.foreach { case (value, idx) => meta.dispatchCapabilities(idx) := value.U }",
         "    meta.memoryRequestCount := rule.memoryRequestCount.U", "    meta.pSourceCount := rule.pSourceCount.U",
         "    meta.pDestinationCount := rule.pDestinationCount.U", "    meta.tAllocationCount := rule.tAllocationCount.U",
         "    meta.uAllocationCount := rule.uAllocationCount.U", "  }", "",
@@ -306,13 +334,16 @@ def emit_audit(path: Path, records: list[dict]) -> None:
         "| Disposition | Count |", "|---|---:|",
     ]
     lines.extend(f"| `{name}` | {counts.get(name, 0)} |" for name in DISPOSITION)
-    lines.extend(["", "| Opcode | ID | Recipe | Disposition | Uops | Dispatch | PC read | Owner | Reason |", "|---|---:|---|---|---:|---|---|---|---|"])
+    lines.extend(["", "| Opcode | ID | Recipe | Disposition | Uops | Dispatch | Capabilities | PC read | Owner | Reason |", "|---|---:|---|---|---:|---|---|---|---|---|"])
     for op_id, record in sorted(unique.items()):
         meta = record["ooo"]
         uops = f"{meta['uop_count_min']}..{meta['uop_count_max']}"
         reason = str(meta["reason"]).replace("|", "\\|")
         pc_read = f"{meta['pc_read_parent']}/{meta['pc_read_class']}"
-        lines.append(f"| `{record['symbol']}` | {op_id} | `{meta['recipe_kind']}` | `{meta['disposition']}` | {uops} | `{meta['dispatch_class']}` | `{pc_read}` | `{meta['side_effect_owner']}` | {reason} |")
+        capabilities = ",".join(
+            f"{name}:{value}" for name, value in meta["dispatch_capabilities"].items()
+            if value != "NONE") or "NONE"
+        lines.append(f"| `{record['symbol']}` | {op_id} | `{meta['recipe_kind']}` | `{meta['disposition']}` | {uops} | `{meta['dispatch_class']}` | `{capabilities}` | `{pc_read}` | `{meta['side_effect_owner']}` | {reason} |")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

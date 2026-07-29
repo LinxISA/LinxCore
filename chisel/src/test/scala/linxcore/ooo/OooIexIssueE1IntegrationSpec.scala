@@ -27,7 +27,8 @@ class OooIexIssueE1IntegrationHarness(
     val topology: Seq[OooIexIssueDomainConfig]) extends Module {
   val io = IO(new OooIexIssueE1IntegrationHarnessIO(p))
 
-  val issue = Module(new OooIexIssueReadFabric(p))
+  val issue = Module(new OooIexIssueReadFabric(p,
+    topology.map(_.capabilities)))
   val transfer = Module(new OooIexE1TransferFabric(p, topology))
 
   issue.io.s1 <> io.s1
@@ -179,6 +180,15 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
         uop.recipe.dispatchClass.poke(dispatchClass.U)
         uop.recipe.dispatchWrites.poke(1.U)
         uop.recipe.dispatchDemand(dispatchClass - 1).poke(1.U)
+        val capability = dispatchClass match {
+          case OooDispatchClass.Alu => OooIexDomainCapability.mask(
+            OooIexDomainCapability.SimpleAlu)
+          case OooDispatchClass.Bru => OooIexDomainCapability.mask(
+            OooIexDomainCapability.Branch)
+          case _ => OooIexDomainCapability.ValidMask
+        }
+        uop.recipe.dispatchCapabilities(dispatchClass - 1)
+          .poke(capability.U)
         uop.recipe.pcReadRequired.poke(pcRead.B)
         uop.recipe.pcReadClass.poke(dispatchClass.U)
         uop.plannedChildCount.poke(1.U)

@@ -34,8 +34,9 @@ old E1 output and new exact release still refer to different retained values.
 ## Validation and recovery
 
 Admission requires exact PE/STID group identity, valid BID and reservation,
-membership in the configured class/bank projection, a logical-source mask
-equal to all valid sources, and a
+membership in the configured class/bank projection, coverage of the selected
+child's generated recipe capability by the static physical-domain capability,
+a logical-source mask equal to all valid sources, and a
 bypass mask contained by that source mask. The I2 row is a snapshot captured
 on the earlier pick/claim edge and may still contain the pre-claim `inFlight`
 bit; only the canonical IQ release sink revalidates live in-flight ownership.
@@ -57,8 +58,6 @@ The module closes one physical-domain protocol, not the complete execute
 topology.
 Remaining work is:
 
-- enforce recipe-level capability before a class/bank-valid transaction reaches
-  the slot;
 - route each retained E1 transaction to its typed FU or external FSU owner;
 - implement ALU/BRU result paths and AGU/LSU request/resolve ownership;
 - arbitrate W1/W2/W3 bypass, committed wakeup, RF write, ROB completion, and
@@ -75,4 +74,5 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferSlotSpec
 The focused test covers release backpressure, atomic transfer, retained E1
 payload stability, same-cycle drain/refill, exact recovery suffix kill, stale
 and exact load generations, generation advancement, class/bank mismatch
-fail-stop behavior, and multi-class ownership through the fabric test.
+fail-stop behavior, recipe-capability mismatch rejection, and multi-class
+ownership through the fabric test.

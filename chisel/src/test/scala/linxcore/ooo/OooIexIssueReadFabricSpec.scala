@@ -126,6 +126,8 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
       uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
       uop.recipe.dispatchWrites.poke(1.U)
       uop.recipe.dispatchDemand(OooDispatchClass.Alu - 1).poke(1.U)
+      uop.recipe.dispatchCapabilities(OooDispatchClass.Alu - 1).poke(
+        OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu).U)
       uop.recipe.pcReadRequired.poke(false.B)
       uop.recipe.pcReadClass.poke(OooDispatchClass.Alu.U)
       uop.plannedChildCount.poke(1.U)

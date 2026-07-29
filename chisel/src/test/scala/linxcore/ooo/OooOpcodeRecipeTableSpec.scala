@@ -32,8 +32,23 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     })
 
     assert(rule("OP_ADD").dispatchClass == OooDispatchClass.Alu)
+    assert(rule("OP_ADD").dispatchCapabilities(
+      OooDispatchClass.Alu - 1) ==
+      OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu))
+    assert(rule("OP_DIV").dispatchCapabilities(
+      OooDispatchClass.Alu - 1) ==
+      OooIexDomainCapability.mask(OooIexDomainCapability.MultiCycleAlu))
+    assert(rule("OP_LD").dispatchCapabilities(
+      OooDispatchClass.Agu - 1) ==
+      OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress))
     assert(rule("OP_SD").lateSplitKind == OooLateSplitKind.StoreAddressData)
     assert(rule("OP_SD").pSourceCount == 3)
+    assert(rule("OP_SD").dispatchCapabilities(
+      OooDispatchClass.Agu - 1) ==
+      OooIexDomainCapability.mask(OooIexDomainCapability.StoreAddress))
+    assert(rule("OP_SD").dispatchCapabilities(
+      OooDispatchClass.Std - 1) ==
+      OooIexDomainCapability.mask(OooIexDomainCapability.StoreData))
     assert(rule("OP_SDI").pSourceCount == 2)
     assert(rule("OP_C_BSTOP").fastResolveClass == OooFastResolveClass.BoundaryMetadata)
     assert(rule("OP_FENTRY").disposition == OooOpcodeDisposition.Ctu)
@@ -105,6 +120,10 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
         dut.io.meta.disposition.expect(entry.disposition.U)
         dut.io.meta.recipeKind.expect(entry.recipeKind.U)
         dut.io.meta.pcReadRequired.expect(entry.pcReadRequired.B)
+        for (classIndex <- 0 until p.iqClassCount) {
+          dut.io.meta.dispatchCapabilities(classIndex)
+            .expect(entry.dispatchCapabilities(classIndex).U)
+        }
       }
 
       dut.io.insn.poke("hffffffffffffffff".U)
@@ -143,6 +162,7 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       assert(sv.contains("io_meta_sideEffectOwner"))
       assert(sv.contains("io_meta_pcReadRequired"))
       assert(sv.contains("io_meta_pcReadClass"))
+      assert(sv.contains("io_meta_dispatchCapabilities"))
     }
   }
 }

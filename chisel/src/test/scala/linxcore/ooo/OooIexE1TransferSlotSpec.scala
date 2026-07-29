@@ -68,7 +68,9 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
       dut: OooIexE1TransferSlot,
       ridSlot: Int,
       data: BigInt,
-      speculativeLoad: Boolean = false): Unit = {
+      speculativeLoad: Boolean = false,
+      capability: BigInt = OooIexDomainCapability.mask(
+        OooIexDomainCapability.SimpleAlu)): Unit = {
     val i2 = dut.io.i2.bits
     i2.poke(0.U.asTypeOf(i2))
     val row = i2.row.schedule
@@ -84,6 +86,8 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
     row.reservation.writePort.poke(0.U)
     row.reservation.speculativeSlot.poke(1.U)
     row.reservation.reservationEpoch.poke(9.U)
+    i2.row.payload.recipe.dispatchCapabilities(
+      OooDispatchClass.Alu - 1).poke(capability.U)
     row.inFlight.poke(true.B)
     row.sources(0).valid.poke(true.B)
     row.sources(0).ready.poke((!speculativeLoad).B)
@@ -224,6 +228,22 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
       dut.io.rejected.bits.shapeExact.expect(false.B)
       dut.clock.step()
       dut.io.occupied.expect(false.B)
+    }
+  }
+
+  test("rejects an I2 row whose recipe exceeds the retained domain capability") {
+    import OooIexDomainCapability._
+    simulate(new OooIexE1TransferSlot(p,
+      acceptedCapabilities = mask(SimpleAlu))) { dut =>
+      clear(dut)
+      pokeI2(dut, ridSlot = 1, data = 0,
+        capability = mask(MultiCycleAlu))
+      dut.io.i2.valid.poke(true.B)
+      dut.io.issueRelease.ready.poke(true.B)
+      dut.io.i2.ready.expect(false.B)
+      dut.io.issueRelease.valid.expect(false.B)
+      dut.io.rejected.valid.expect(true.B)
+      dut.io.rejected.bits.shapeExact.expect(false.B)
     }
   }
 }

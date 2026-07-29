@@ -7,7 +7,8 @@ import chisel3.util.{Decoupled, RRArbiter, Valid}
 final case class OooIexIssueDomainConfig(
     classBankEnables: Seq[BigInt],
     releasePort: Int = 0,
-    name: String = "")
+    name: String = "",
+    capabilities: BigInt = OooIexDomainCapability.ValidMask)
 
 object OooIexIssueDomainConfig {
   def singleClass(
@@ -21,7 +22,7 @@ object OooIexIssueDomainConfig {
     OooIexIssueDomainConfig(
       Seq.tabulate(p.iqClassCount)(index =>
         if (index == uopClass) bankEnable else BigInt(0)),
-      releasePort, name)
+      releasePort, name, OooIexDomainCapability.ValidMask)
   }
 
   def validate(p: OooParams, domains: Seq[OooIexIssueDomainConfig]): Unit = {
@@ -37,6 +38,9 @@ object OooIexIssueDomainConfig {
       require(domain.releasePort >= 0 &&
         domain.releasePort < p.iexReleaseWidth,
         s"IEX domain $index names an invalid exact release port")
+      require(domain.capabilities != 0 &&
+        (domain.capabilities & ~OooIexDomainCapability.ValidMask) == 0,
+        s"IEX domain $index needs a nonempty declared capability mask")
     }
     for (port <- 0 until p.iexReleaseWidth) {
       require(domains.exists(_.releasePort == port),
@@ -95,7 +99,8 @@ class OooIexE1TransferFabric(
 
   val io = IO(new OooIexE1TransferFabricIO(p))
   val slots = domains.zipWithIndex.map { case (domain, lane) =>
-    Module(new OooIexE1TransferSlot(p, domain.classBankEnables, lane))
+    Module(new OooIexE1TransferSlot(p, domain.classBankEnables, lane,
+      domain.capabilities))
   }
 
   for (((slot, domain), lane) <- slots.zip(domains).zipWithIndex) {

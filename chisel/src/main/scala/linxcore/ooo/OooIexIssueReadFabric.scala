@@ -114,10 +114,12 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   * boundary for the canonical OooPcBuffer owner. No manual read decision or
   * operand-data injection remains on this composition.
   */
-class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
+class OooIexIssueReadFabric(
+    val p: OooParams = OooParams(),
+    val domainCapabilities: Seq[BigInt] = Seq.empty) extends Module {
   val io = IO(new OooIexIssueReadFabricIO(p))
 
-  val issue = Module(new OooIexIssueP1Fabric(p))
+  val issue = Module(new OooIexIssueP1Fabric(p, domainCapabilities))
   val arbiter = Module(new OooIexAtomicReadArbiter(p))
   val operands = Module(new OooIexOperandFiles(p))
 

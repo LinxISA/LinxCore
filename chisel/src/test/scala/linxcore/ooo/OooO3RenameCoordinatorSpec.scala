@@ -292,6 +292,8 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       dut.io.reserve.bits.decoded.uops(0).recipe.valid.poke(true.B)
       dut.io.reserve.bits.decoded.uops(0).recipe.dispatchWrites.poke(1.U)
       dut.io.reserve.bits.decoded.uops(0).recipe.dispatchDemand(0).poke(1.U)
+      dut.io.reserve.bits.decoded.uops(0).recipe.dispatchCapabilities(0).poke(
+        OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu).U)
       dut.io.reserve.bits.plan.demand.dispatchWritesByClass(0).poke(1.U)
       dut.io.reserve.ready.expect(true.B)
       dut.clock.step()

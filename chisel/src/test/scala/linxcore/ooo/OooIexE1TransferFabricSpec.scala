@@ -76,6 +76,16 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     row.reservation.writePort.poke(0.U)
     row.reservation.speculativeSlot.poke((ridSlot % p.iqEntriesPerBank).U)
     row.reservation.reservationEpoch.poke(9.U)
+    val classIndex = uopClass.asUInt.litValue.toInt
+    val capability = classIndex match {
+      case 0 => OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu)
+      case 1 => OooIexDomainCapability.mask(OooIexDomainCapability.Branch)
+      case 2 => OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress)
+      case 3 => OooIexDomainCapability.mask(OooIexDomainCapability.StoreData)
+      case _ => OooIexDomainCapability.ValidMask
+    }
+    port.bits.row.payload.recipe.dispatchCapabilities(classIndex)
+      .poke(capability.U)
     row.inFlight.poke(true.B)
     port.bits.sourceMask.poke(0.U)
     port.bits.sourceData(0).poke(data.U)

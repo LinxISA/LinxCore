@@ -1,5 +1,7 @@
 package linxcore.ooo
 
+import chisel3._
+
 /** Stable execution capabilities used to separate IQ residency from the
   * physical operation that a picker/pipe can accept.
   *
@@ -22,6 +24,46 @@ object OooIexDomainCapability {
   def mask(values: Int*): BigInt =
     values.foldLeft(BigInt(0))((result, value) => result | (BigInt(1) << value))
   val ValidMask: BigInt = (BigInt(1) << Count) - 1
+
+  def covers(available: UInt, required: UInt): Bool =
+    required.orR && (available & required) === required
+}
+
+/** Per-class/per-bank capability admission used by D3 reservation. */
+final case class OooIexCapabilityTopology(
+    classBankCapabilities: Seq[Seq[BigInt]]) {
+  def validate(p: OooParams): Unit = {
+    require(classBankCapabilities.length == p.iqClassCount,
+      "IEX capability topology must define every IQ class")
+    classBankCapabilities.zipWithIndex.foreach { case (banks, classIndex) =>
+      require(banks.length == p.iqBankCount,
+        s"IEX capability topology class $classIndex must define every bank")
+      require(banks.forall(mask => mask >= 0 &&
+        (mask & ~OooIexDomainCapability.ValidMask) == 0),
+        s"IEX capability topology class $classIndex contains an invalid mask")
+    }
+  }
+}
+
+object OooIexCapabilityTopology {
+  def permissive(p: OooParams): OooIexCapabilityTopology =
+    OooIexCapabilityTopology(Seq.fill(p.iqClassCount)(
+      Seq.fill(p.iqBankCount)(OooIexDomainCapability.ValidMask)))
+
+  def fromDomains(
+      p: OooParams,
+      domains: Seq[OooIexIssueDomainConfig]): OooIexCapabilityTopology = {
+    OooIexIssueDomainConfig.validate(p, domains)
+    val matrix = Seq.tabulate(p.iqClassCount, p.iqBankCount) {
+      case (classIndex, bank) =>
+        domains.filter(domain =>
+          (domain.classBankEnables(classIndex) & (BigInt(1) << bank)) != 0)
+          .foldLeft(BigInt(0))(_ | _.capabilities)
+    }
+    val topology = OooIexCapabilityTopology(matrix)
+    topology.validate(p)
+    topology
+  }
 }
 
 /** One independently selected physical issue pipe and its IQ residency. */
@@ -36,7 +78,7 @@ final case class OooIexPhysicalDomain(
   def hasCapability(capability: Int): Boolean =
     (capabilities & (BigInt(1) << capability)) != 0
   def transferConfig: OooIexIssueDomainConfig =
-    OooIexIssueDomainConfig(classBankEnables, releasePort, name)
+    OooIexIssueDomainConfig(classBankEnables, releasePort, name, capabilities)
 }
 
 /** Elaborated physical topology shared by dispatch, pick, RF arbitration, and
@@ -78,6 +120,8 @@ final case class OooIexPhysicalProfile(
 
   def transferConfigs: Seq[OooIexIssueDomainConfig] =
     domains.map(_.transferConfig)
+  def capabilityTopology: OooIexCapabilityTopology =
+    OooIexCapabilityTopology.fromDomains(params, transferConfigs)
   def domain(name: String): OooIexPhysicalDomain =
     domains.find(_.name == name).getOrElse(
       throw new NoSuchElementException(s"unknown IEX domain $name"))

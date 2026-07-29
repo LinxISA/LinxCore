@@ -40,6 +40,14 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
     assert(profile.domain("fsu0").hasCapability(FloatingVector))
     assert(profile.domain("fsu0").hasCapability(EngineCommand))
 
+    val topology = profile.capabilityTopology.classBankCapabilities
+    val aguClass = OooDispatchClass.Agu - 1
+    assert(topology(aguClass)(2) == mask(LoadAddress))
+    assert((topology(aguClass)(0) & mask(StoreAddress)) != 0)
+    val aluClass = OooDispatchClass.Alu - 1
+    assert(topology(aluClass)(2) == mask(SimpleAlu, MultiCycleAlu, System))
+    assert(topology(aluClass)(0) == mask(SimpleAlu, StoreData))
+
     assert(profile.domain("alu0").classBankEnables(
       OooDispatchClass.Alu - 1) == BigInt("09", 16))
     assert(profile.domain("alu0").classBankEnables(

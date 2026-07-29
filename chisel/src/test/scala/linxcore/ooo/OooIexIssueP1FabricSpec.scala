@@ -101,6 +101,15 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
       uop.recipe.dispatchClass.poke(dispatchClass.U)
       uop.recipe.dispatchWrites.poke(1.U)
       uop.recipe.dispatchDemand(dispatchClass - 1).poke(1.U)
+      val capability = dispatchClass match {
+        case OooDispatchClass.Alu => OooIexDomainCapability.mask(
+          OooIexDomainCapability.SimpleAlu)
+        case OooDispatchClass.Bru => OooIexDomainCapability.mask(
+          OooIexDomainCapability.Branch)
+        case _ => OooIexDomainCapability.ValidMask
+      }
+      uop.recipe.dispatchCapabilities(dispatchClass - 1)
+        .poke(capability.U)
       uop.recipe.pcReadRequired.poke(pcRead.B)
       uop.recipe.pcReadClass.poke(dispatchClass.U)
       uop.plannedChildCount.poke(1.U)
@@ -188,6 +197,10 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
       uop.recipe.dispatchClass.poke(OooDispatchClass.Alu.U)
       uop.recipe.dispatchDemand.poke(0.U.asTypeOf(uop.recipe.dispatchDemand))
       uop.recipe.dispatchDemand(OooDispatchClass.Alu - 1).poke(1.U)
+      uop.recipe.dispatchCapabilities.poke(
+        0.U.asTypeOf(uop.recipe.dispatchCapabilities))
+      uop.recipe.dispatchCapabilities(OooDispatchClass.Alu - 1).poke(
+        OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu).U)
       uop.recipe.pcReadRequired.poke(false.B)
       uop.recipe.pcReadClass.poke(OooDispatchClass.Alu.U)
     }
@@ -335,6 +348,34 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
         dut.reset.poke(false.B)
         dut.clock.step()
       }
+    }
+  }
+
+  test("keeps an unsupported multi-cycle ALU row resident and unclaimed") {
+    import OooIexDomainCapability._
+    simulate(new OooIexIssueP1Fabric(p,
+      Seq(mask(SimpleAlu), mask(SimpleAlu)))) { dut =>
+      clear(dut)
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Alu - 1).poke(2.U)
+      pokeTwoAluBankTransaction(dut)
+      val request = dut.io.s1.bits
+      Seq(
+        request.o3.request.reservation.transaction.decoded.uops(1),
+        request.pRename.uops(1).decoded).foreach { uop =>
+        uop.recipe.dispatchCapabilities(OooDispatchClass.Alu - 1)
+          .poke(mask(MultiCycleAlu).U)
+      }
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step(4)
+
+      dut.io.readAttempts(0).valid.expect(true.B)
+      dut.io.readAttempts(1).valid.expect(false.B)
+      dut.io.residentEntries(OooDispatchClass.Alu - 1)(1).expect(1.U)
+      dut.io.inFlightEntries(OooDispatchClass.Alu - 1)(1).expect(0.U)
     }
   }
 }

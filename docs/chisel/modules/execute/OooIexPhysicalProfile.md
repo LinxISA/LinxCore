@@ -56,11 +56,21 @@ This distinction is required because:
 - FSU and engine commands share one external selection domain but require
   different downstream execution behavior.
 
-The current packet freezes and validates this metadata but does not yet add a
-capability field to every generated recipe or consume it in dispatch/pick.
-Until that runtime gate is connected, the profile is a residency contract, not
-proof that every opcode reaches a legal pipe. That gap is intentional and
-fail-closed integration work, not an implied class-level guarantee.
+Generated recipe metadata now carries one capability requirement per dispatch
+class. `OooIexCapabilityTopology` projects the static domain declarations into
+a class-by-bank matrix for D3. Reservation considers only free banks whose
+physical owner covers the recipe requirement. S2 stores the selected child's
+requirement beside the compact scheduling state; S3 candidate creation,
+retained-token claim, retry, and query all revalidate it against the static
+domain capability. I2-to-E1 transfer performs the final check from the full
+recipe before ownership and exact IQ release can fire.
+
+All checks are fail-closed: a nonzero dispatch demand needs exactly one known
+capability, and a physical domain must cover every required bit. Therefore
+AGU2 cannot receive STA, and DIV/REM-class work can be reserved or selected
+only by ALU2/5. Default constructors retain a permissive topology for focused
+legacy unit harnesses; the formal profile exposes `capabilityTopology` and
+`transferConfigs` for canonical integration.
 
 The same separation is needed for picker multiplicity. AGU0/1 ultimately need
 independent load- and store-address pickers over one residency owner, whereas
@@ -82,19 +92,22 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexPhysicalProfileSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexAtomicReadArbiterSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPickerSpec
+bash tools/chisel/run_chisel_tests.sh --only OooDispatchSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1FabricSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferSlotSpec
 ```
 
 The profile UT proves exact names, domain/release counts, complete disjoint
 coverage, required capability placement, representative cluster masks,
 invalid coverage/capability rejection, and twelve-domain transfer-fabric
-elaboration. The RF arbiter UT proves six oldest complete P-read groups win
+elaboration. Dispatch, P1-fabric, and E1-slot tests prove recipe capability
+steering, unsupported-row residency without claim, and final retained-transfer
+rejection. The RF arbiter UT proves six oldest complete P-read groups win
 from twelve contenders. Fabric and picker tests prove multi-class admission,
 wrong-bank rejection, and oldest selection across ALU/STD projections.
 
 ## Remaining work
 
-- generate per-recipe capability requirements and enforce them at D3 steering,
-  S3 eligibility, and retained-token revalidation;
 - represent multiple picker functions over AGU0/1 residency;
 - add shared DIV/PAC/SYS and result-bus arbitration;
 - instantiate the profile in the canonical static IEX/LSU top;

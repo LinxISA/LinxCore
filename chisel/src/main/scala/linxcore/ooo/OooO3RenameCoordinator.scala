@@ -136,7 +136,14 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   * sink is the real retained IEX S1 transaction; no external Boolean permit
   * can publish the OOO owners without also transferring that exact payload.
   */
-class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
+class OooO3RenameCoordinator(
+    val p: OooParams = OooParams(),
+    val capabilityTopology: OooIexCapabilityTopology =
+      OooIexCapabilityTopology(Seq.empty)) extends Module {
+  private val effectiveCapabilityTopology =
+    if (capabilityTopology.classBankCapabilities.isEmpty)
+      OooIexCapabilityTopology.permissive(p)
+    else capabilityTopology
   val io = IO(new OooO3RenameCoordinatorIO(p))
 
   val o3 = Module(new OooRobBrobPcCoordinator(p))
@@ -144,7 +151,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val prename = Module(new OooPRename(p))
   val turename = Module(new OooTURename(p))
   val turetire = Module(new OooTURetire(p))
-  val dispatch = Module(new OooDispatch(p))
+  val dispatch = Module(new OooDispatch(p, effectiveCapabilityTopology))
   val fast = Module(new OooFastResolve(p))
   val memoryOrder = Module(new OooMemoryOrderAllocator(p))
   val storeCommit = Module(new OooRobStoreCommitOwner(p))

@@ -355,6 +355,22 @@ OOO_ENGINE_BOUNDARY_SYMBOLS = {
     "OP_C_BSTART_VPAR", "OP_C_BSTART_VSEQ",
 }
 OOO_DISPATCH_CLASSES = ("ALU", "BRU", "AGU", "STD", "FSU", "SYS", "CMD", "BOUNDARY")
+OOO_EXECUTION_CAPABILITIES = {
+    "ALU": "SIMPLE_ALU",
+    "BRU": "BRANCH",
+    "AGU": "LOAD_ADDRESS",
+    "STD": "STORE_DATA",
+    "FSU": "FLOATING_VECTOR",
+    "SYS": "SYSTEM",
+    "CMD": "ENGINE_COMMAND",
+    "BOUNDARY": "NONE",
+}
+OOO_MULTICYCLE_ALU_SYMBOLS = {
+    "OP_DIV", "OP_DIVU", "OP_DIVUW", "OP_DIVW",
+    "OP_REM", "OP_REMU", "OP_REMUW", "OP_REMW",
+    "OP_HL_DIV", "OP_HL_DIVU", "OP_HL_DIVUW", "OP_HL_DIVW",
+    "OP_HL_REM", "OP_HL_REMU", "OP_HL_REMUW", "OP_HL_REMW",
+}
 
 
 def _is_ooo_atomic_symbol(symbol: str) -> bool:
@@ -400,6 +416,7 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
         "dispatch_class": "NONE",
         "dispatch_writes": 0,
         "dispatch_demand": {name: 0 for name in OOO_DISPATCH_CLASSES},
+        "dispatch_capabilities": {name: "NONE" for name in OOO_DISPATCH_CLASSES},
         "memory_request_count": 0,
         "p_source_count": int(record["rs1_kind"] == "REG") + int(record["rs2_kind"] == "REG"),
         "p_destination_count": int(record["rd_kind"] == "REG"),
@@ -424,12 +441,19 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
         *,
         children: int = 1,
         demand: Dict[str, int] | None = None,
+        capabilities: Dict[str, str] | None = None,
     ) -> None:
         dispatch_demand = {name: 0 for name in OOO_DISPATCH_CLASSES}
         if demand is None:
             dispatch_demand[dispatch_class] = children
         else:
             dispatch_demand.update(demand)
+        dispatch_capabilities = {name: "NONE" for name in OOO_DISPATCH_CLASSES}
+        for name, count in dispatch_demand.items():
+            if count:
+                dispatch_capabilities[name] = OOO_EXECUTION_CAPABILITIES[name]
+        if capabilities is not None:
+            dispatch_capabilities.update(capabilities)
         metadata.update({
             "disposition": "DISPATCH",
             "recipe_kind": recipe,
@@ -439,6 +463,7 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
             "dispatch_class": dispatch_class,
             "dispatch_writes": children,
             "dispatch_demand": dispatch_demand,
+            "dispatch_capabilities": dispatch_capabilities,
             "reason": "generated dispatch recipe",
         })
 
@@ -511,6 +536,7 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
             "LSU",
             children=2,
             demand={"AGU": 1, "STD": 1},
+            capabilities={"AGU": "STORE_ADDRESS", "STD": "STORE_DATA"},
         )
         metadata.update({
             "late_split_kind": "PAIR_STORE_ADDRESS_DATA",
@@ -591,6 +617,7 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
             "LSU",
             children=2,
             demand={"AGU": 1, "STD": 1},
+            capabilities={"AGU": "STORE_ADDRESS", "STD": "STORE_DATA"},
         )
         metadata.update({
             "late_split_kind": "STORE_ADDRESS_DATA",
@@ -609,6 +636,8 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
 
     if major in {"ALU_INT", "COMPRESSED", "HL_PCR"}:
         dispatch("SINGLE", "ALU", "IEX")
+        if symbol in OOO_MULTICYCLE_ALU_SYMBOLS:
+            metadata["dispatch_capabilities"]["ALU"] = "MULTI_CYCLE_ALU"
         return metadata
 
     if major == "VECTOR":

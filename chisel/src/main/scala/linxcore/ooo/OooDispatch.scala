@@ -52,7 +52,15 @@ class OooDispatchIO(val p: OooParams = OooParams()) extends Bundle {
   * generation. The complete bundle reserves or publishes atomically; a later
   * IEX owner may release only the identical published token.
   */
-class OooDispatch(val p: OooParams = OooParams()) extends Module {
+class OooDispatch(
+    val p: OooParams = OooParams(),
+    val capabilityTopology: OooIexCapabilityTopology =
+      OooIexCapabilityTopology(Seq.empty)) extends Module {
+  private val effectiveCapabilityTopology =
+    if (capabilityTopology.classBankCapabilities.isEmpty)
+      OooIexCapabilityTopology.permissive(p)
+    else capabilityTopology
+  effectiveCapabilityTopology.validate(p)
   val io = IO(new OooDispatchIO(p))
 
   private val candidateCount = p.decodedUopWidth * p.iqClassCount *
@@ -69,6 +77,10 @@ class OooDispatch(val p: OooParams = OooParams()) extends Module {
     OooUopClass.Sys,
     OooUopClass.Cmd,
     OooUopClass.Boundary))
+  private val classBankCapabilities = VecInit(
+    effectiveCapabilityTopology.classBankCapabilities.map { banks =>
+      VecInit(banks.map(_.U(OooIexDomainCapability.Count.W)))
+    })
 
   val slotState = RegInit(VecInit(Seq.fill(p.iqClassCount)(
     VecInit(Seq.fill(p.iqBankCount)(
@@ -182,7 +194,12 @@ class OooDispatch(val p: OooParams = OooParams()) extends Module {
     val uop = decoded.uops(uopIndex)
     val active = decoded.uopMask(uopIndex)
     val demandTotal = uop.recipe.dispatchDemand.reduce(_ +& _)
-    !active || (uop.valid && uop.recipe.valid &&
+    val capabilityShapeExact = (0 until p.iqClassCount).map { classIndex =>
+      val demand = uop.recipe.dispatchDemand(classIndex)
+      val capability = uop.recipe.dispatchCapabilities(classIndex)
+      demand.orR === capability.orR && PopCount(capability) <= 1.U
+    }.reduce(_ && _)
+    !active || (uop.valid && uop.recipe.valid && capabilityShapeExact &&
       demandTotal === uop.recipe.dispatchWrites &&
       uop.recipe.dispatchWrites <= p.maxDispatchWritesPerInstruction.U)
   }.reduce(_ && _)
@@ -224,6 +241,13 @@ class OooDispatch(val p: OooParams = OooParams()) extends Module {
   val selectedSlot = Wire(Vec(p.dispatchWidth, UInt(p.iqEntryWidth.W)))
   val selectedEpoch = Wire(Vec(p.dispatchWidth,
     UInt(p.reservationEpochWidth.W)))
+  val laneRequiredCapability = Wire(Vec(p.dispatchWidth,
+    UInt(OooIexDomainCapability.Count.W)))
+
+  for (lane <- 0 until p.dispatchWidth) {
+    laneRequiredCapability(lane) := decoded.uops(laneUop(lane)).recipe
+      .dispatchCapabilities(laneClass(lane))
+  }
 
   for (lane <- 0 until p.dispatchWidth) {
     val olderPrefixReady = if (lane == 0) true.B else
@@ -268,7 +292,10 @@ class OooDispatch(val p: OooParams = OooParams()) extends Module {
         p.iqEntriesPerBank, p.iqFreeSelectLeafEntriesEffective))
       freeSelect.io.available := candidateAvailable(offset)
       candidateValid(offset) := freeSelect.io.selectedValid &&
-        olderWrites(candidateBank(offset)) < p.iqWritePortsPerBank.U
+        olderWrites(candidateBank(offset)) < p.iqWritePortsPerBank.U &&
+        OooIexDomainCapability.covers(
+          classBankCapabilities(laneClass(lane))(candidateBank(offset)),
+          laneRequiredCapability(lane))
       candidateSlot(offset) := freeSelect.io.selectedIndex
     }
     val chosenOffset = PriorityEncoder(candidateValid)

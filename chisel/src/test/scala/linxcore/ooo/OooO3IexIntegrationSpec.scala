@@ -180,6 +180,8 @@ class OooO3IexIntegrationSpec extends AnyFunSuite with ChiselSim {
     uop.recipe.dispatchClass.poke(OooDispatchClass.Agu.U)
     uop.recipe.dispatchWrites.poke(1.U)
     uop.recipe.dispatchDemand(2).poke(1.U)
+    uop.recipe.dispatchCapabilities(2).poke(
+      OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress).U)
     uop.recipe.memoryRequestCount.poke(1.U)
     uop.memory.valid.poke(true.B)
     uop.memory.isLoad.poke(true.B)

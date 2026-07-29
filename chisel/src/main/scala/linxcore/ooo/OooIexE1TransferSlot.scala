@@ -35,7 +35,9 @@ class OooIexE1TransferSlotIO(val p: OooParams = OooParams()) extends Bundle {
 class OooIexE1TransferSlot(
     val p: OooParams = OooParams(),
     val acceptedClassBankEnables: Seq[BigInt] = Seq.empty,
-    val ownerLane: Int = 0) extends Module {
+    val ownerLane: Int = 0,
+    val acceptedCapabilities: BigInt = OooIexDomainCapability.ValidMask)
+    extends Module {
   private val defaultClassBankEnables = Seq.tabulate(p.iqClassCount) {
     classIndex =>
       if (classIndex == OooUopClass.Alu.asUInt.litValue.toInt)
@@ -53,6 +55,9 @@ class OooIexE1TransferSlot(
     "E1 transfer projection needs nonempty in-range class/bank ownership")
   require(ownerLane >= 0 && ownerLane < p.iexIssueDomainCount,
     "E1 transfer owner lane must fit the issue-domain topology")
+  require(acceptedCapabilities != 0 &&
+    (acceptedCapabilities & ~OooIexDomainCapability.ValidMask) == 0,
+    "E1 transfer owner needs a nonempty declared capability mask")
 
   val io = IO(new OooIexE1TransferSlotIO(p))
 
@@ -88,6 +93,12 @@ class OooIexE1TransferSlot(
     _.U(p.iqBankCount.W)))
   val domainExact = incomingClassInRange && incomingBankInRange &&
     acceptedProjection(safeIncomingClass)(safeIncomingBank)
+  val requiredCapability = incoming.row.payload.recipe
+    .dispatchCapabilities(safeIncomingClass)
+  val capabilityExact = incomingClassInRange &&
+    OooIexDomainCapability.covers(
+      acceptedCapabilities.U(OooIexDomainCapability.Count.W),
+      requiredCapability)
   val logicalSourceMask = VecInit(incoming.row.sources.map(_.valid)).asUInt
   // The lane captures its row on the canonical pick/claim edge, so its local
   // schedule snapshot may still contain the pre-claim inFlight value. The IQ
@@ -96,7 +107,7 @@ class OooIexE1TransferSlot(
   val shapeExact = incoming.row.valid &&
     incoming.row.member.group.valid && incoming.row.member.bid.valid &&
     incoming.row.reservation.valid &&
-    domainExact &&
+    domainExact && capabilityExact &&
     incoming.row.peId === incoming.row.member.group.peId &&
     incoming.row.stid === incoming.row.member.group.stid &&
     incoming.sourceMask === logicalSourceMask &&

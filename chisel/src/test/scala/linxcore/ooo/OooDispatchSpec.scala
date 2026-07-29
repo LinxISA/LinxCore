@@ -41,7 +41,8 @@ class OooDispatchSpec extends AnyFunSuite with ChiselSim {
       stid: Int,
       transactionId: Int,
       demands: Vector[Vector[Int]],
-      plannedOverride: Option[Vector[Int]] = None): Unit = {
+      plannedOverride: Option[Vector[Int]] = None,
+      capabilities: Option[Vector[Vector[Int]]] = None): Unit = {
     require(demands.length <= dut.p.decodedUopWidth)
     require(demands.forall(_.length == dut.p.iqClassCount))
     val transaction = dut.io.prepare.bits
@@ -65,6 +66,21 @@ class OooDispatchSpec extends AnyFunSuite with ChiselSim {
       for (uopClass <- 0 until dut.p.iqClassCount) {
         uop.recipe.dispatchDemand(uopClass).poke(
           demands(uopIndex)(uopClass).U)
+        val defaultCapability = uopClass match {
+          case 0 => BigInt(1) << OooIexDomainCapability.SimpleAlu
+          case 1 => BigInt(1) << OooIexDomainCapability.Branch
+          case 2 => BigInt(1) << OooIexDomainCapability.LoadAddress
+          case 3 => BigInt(1) << OooIexDomainCapability.StoreData
+          case 4 => BigInt(1) << OooIexDomainCapability.FloatingVector
+          case 5 => BigInt(1) << OooIexDomainCapability.System
+          case 6 => BigInt(1) << OooIexDomainCapability.EngineCommand
+          case _ => BigInt(0)
+        }
+        val capability = capabilities
+          .map(_(uopIndex)(uopClass))
+          .getOrElse(if (demands(uopIndex)(uopClass) != 0)
+            defaultCapability.toInt else 0)
+        uop.recipe.dispatchCapabilities(uopClass).poke(capability.U)
       }
     }
     val planned = plannedOverride.getOrElse(Vector.tabulate(
@@ -524,6 +540,54 @@ class OooDispatchSpec extends AnyFunSuite with ChiselSim {
       assert(first.map(_.slot) == Vector(0, 1, 0, 1))
       assert(second.map(_.slot) == Vector(2, 3, 2, 3))
       assert(third.map(_.slot) == Vector(4, 5, 4, 5))
+    }
+  }
+
+  test("admits only banks whose physical domain covers the recipe capability") {
+    import OooIexDomainCapability._
+    val p = OooParams(
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      robGroupsPerStid = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16)
+    val permissive = Seq.fill(p.iqClassCount)(
+      Seq.fill(p.iqBankCount)(ValidMask))
+    val topology = OooIexCapabilityTopology(permissive
+      .updated(OooDispatchClass.Alu - 1,
+        Seq(mask(SimpleAlu), mask(MultiCycleAlu)))
+      .updated(OooDispatchClass.Agu - 1,
+        Seq(mask(LoadAddress, StoreAddress), mask(LoadAddress))))
+
+    simulate(new OooDispatch(p, topology)) { dut =>
+      clear(dut)
+      val zero = Vector.fill(p.iqClassCount)(0)
+      val aluDemand = Vector(zero.updated(OooDispatchClass.Alu - 1, 1))
+      val multiCaps = Vector(zero.updated(OooDispatchClass.Alu - 1,
+        mask(MultiCycleAlu).toInt))
+      pokeTransaction(dut, stid = 0, transactionId = 0,
+        demands = aluDemand, capabilities = Some(multiCaps))
+      dut.io.prepareReady.expect(true.B)
+      assert(capture(dut).head.bank == 1)
+
+      val aguDemand = Vector(zero.updated(OooDispatchClass.Agu - 1, 1))
+      val storeCaps = Vector(zero.updated(OooDispatchClass.Agu - 1,
+        mask(StoreAddress).toInt))
+      pokeTransaction(dut, stid = 1, transactionId = 1,
+        demands = aguDemand, capabilities = Some(storeCaps))
+      dut.io.prepareReady.expect(true.B)
+      assert(capture(dut).head.bank == 0)
+
+      val malformedCaps = Vector(zero)
+      pokeTransaction(dut, stid = 2, transactionId = 0,
+        demands = aluDemand, capabilities = Some(malformedCaps))
+      dut.io.prepareReady.expect(false.B)
+      dut.io.prepareRejected.valid.expect(true.B)
     }
   }
 

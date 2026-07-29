@@ -124,7 +124,17 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   * event and joins physical row removal to the existing dispatch-reservation
   * release handshake.
   */
-class OooIexIssue(val p: OooParams = OooParams()) extends Module {
+class OooIexIssue(
+    val p: OooParams = OooParams(),
+    val domainCapabilities: Seq[BigInt] = Seq.empty) extends Module {
+  private val effectiveDomainCapabilities =
+    if (domainCapabilities.isEmpty) Seq.fill(p.iexIssueDomainCount)(
+      OooIexDomainCapability.ValidMask) else domainCapabilities
+  require(effectiveDomainCapabilities.length == p.iexIssueDomainCount,
+    "IEX issue capability topology must define every physical domain")
+  require(effectiveDomainCapabilities.forall(mask => mask != 0 &&
+    (mask & ~OooIexDomainCapability.ValidMask) == 0),
+    "IEX issue domains need nonempty declared capability masks")
   val io = IO(new OooIexIssueIO(p))
   private val ttagIndexWidth = log2Ceil(p.tPhysRegs)
   private val utagIndexWidth = log2Ceil(p.uPhysRegs)
@@ -142,6 +152,12 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(
         0.U.asTypeOf(new OooIexScheduleRow(p)))))))))
+  val capabilityRows = RegInit(0.U.asTypeOf(
+    Vec(p.iqClassCount, Vec(p.iqBankCount,
+      Vec(p.iqEntriesPerBank,
+        UInt(OooIexDomainCapability.Count.W))))))
+  private val physicalDomainCapabilities = VecInit(
+    effectiveDomainCapabilities.map(_.U(OooIexDomainCapability.Count.W)))
   val payloadRows = Seq.tabulate(p.iqClassCount, p.iqBankCount) { (_, _) =>
     Mem(p.iqEntriesPerBank, new OooIexPayloadSidecar(p))
   }
@@ -424,11 +440,23 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     val storeClassExact = !memoryStore ||
       reservation.uopClass === OooUopClass.Agu ||
       reservation.uopClass === OooUopClass.Std
+    val requiredCapability = decodedUop.recipe
+      .dispatchCapabilities(safeClass)
+    val recipeCapabilityShapeExact = (0 until p.iqClassCount).map {
+      recipeClass =>
+        val demand = decodedUop.recipe.dispatchDemand(recipeClass)
+        val capability = decodedUop.recipe.dispatchCapabilities(recipeClass)
+        demand.orR === capability.orR && PopCount(capability) <= 1.U
+    }.reduce(_ && _)
+    val capabilityShapeExact =
+      decodedUop.recipe.dispatchDemand(safeClass).orR &&
+      requiredCapability.orR && PopCount(requiredCapability) === 1.U &&
+      recipeCapabilityShapeExact
     laneExact(lane) := !allocation.valid || (uopIndexInRange && activeUop &&
       classInRange && bankInRange && entryInRange && portInRange &&
       pUop.decoded.asUInt === decodedUop.asUInt &&
       sameMember(pUop.member, tuUop.member) &&
-      storeChildClassExact && storeClassExact &&
+      storeChildClassExact && storeClassExact && capabilityShapeExact &&
       allocation.childIndex < decodedUop.plannedChildCount &&
       memberEnd < p.maxOrdinaryUopsPerGroup.U)
     laneTargetFree(lane) := !allocation.valid ||
@@ -816,6 +844,8 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           }
         }
         scheduleRows(uopClass)(bank)(entry) := row.schedule
+        capabilityRows(uopClass)(bank)(entry) :=
+          pUop.decoded.recipe.dispatchCapabilities(uopClass)
         for (targetClass <- 0 until p.iqClassCount;
              targetBank <- 0 until p.iqBankCount) {
           when(uopClass === targetClass.U && bank === targetBank.U) {
@@ -1443,6 +1473,9 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
         sourcesReady && !loadCanceled &&
         storeIssueAllowed(classIndex)(bank)(entry) &&
+        OooIexDomainCapability.covers(
+          physicalDomainCapabilities(domain),
+          capabilityRows(classIndex)(bank)(entry)) &&
         !policyReasons.orR &&
         !(recoveryFreeze && row.stid === recoveryStid)
       candidate.peId := row.peId
@@ -1480,7 +1513,10 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       pickToken.query.entry === pickRow.reservation.speculativeSlot
     val pickNotInFlight = !pickRow.inFlight
     val pickDomainExact = pickClassInRange && pickBankInRange &&
-      io.pickBankEnables(domain)(safePickClass)(safePickBank)
+      io.pickBankEnables(domain)(safePickClass)(safePickBank) &&
+      OooIexDomainCapability.covers(
+        physicalDomainCapabilities(domain),
+        capabilityRows(safePickClass)(safePickBank)(safePickEntry))
     val pickBaseClaimExact = pickResidentExact && pickIdentityExact &&
       pickDomainExact && pickNotInFlight && !rowLoadCanceled(pickRow) &&
       storeIssueAllowed(safePickClass)(safePickBank)(safePickEntry) &&
@@ -1535,7 +1571,10 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
       retry.reservation.asUInt === retryRow.reservation.asUInt
     val retryDomainExact = retryClassInRange &&
-      io.pickBankEnables(domain)(safeRetryClass)(safeRetryBank)
+      io.pickBankEnables(domain)(safeRetryClass)(safeRetryBank) &&
+      OooIexDomainCapability.covers(
+        physicalDomainCapabilities(domain),
+        capabilityRows(safeRetryClass)(safeRetryBank)(safeRetryEntry))
     val retryClaimsCurrentPick = io.picks(domain).fire &&
       safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
       safeRetryEntry === safePickEntry &&
@@ -1590,6 +1629,9 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     io.queryPickables(domain) := queryClassInRange && queryBankInRange &&
       queryEntryInRange &&
       io.pickBankEnables(domain)(safeQueryClass)(safeQueryBank) &&
+      OooIexDomainCapability.covers(
+        physicalDomainCapabilities(domain),
+        capabilityRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)) &&
       io.queryStates(domain) === OooIexIssueSlotState.ResidentS3 &&
       io.queryRows(domain).valid &&
       !io.queryRows(domain).schedule.inFlight && querySourcesReady &&

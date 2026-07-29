@@ -55,6 +55,15 @@ Each physical slot has two storage domains joined as `OooIexIssueRow`:
 - `OooIexPayloadSidecar` is a memory-backed execution payload addressed by the
   stable class/bank/slot reservation and read only for the selected query.
 
+A separate nine-bit `capabilityRows` array retains the generated requirement
+for each physical child without widening the frequently copied public row.
+S1 requires exactly one capability for every allocated class child. S2 writes
+that requirement with the scheduling row, and S3 checks it against the static
+physical-domain capability before candidate eligibility, retained-token claim,
+retry acceptance, or query pickability. A capability-mismatched row remains
+resident and not in flight; it is never silently redirected to an incompatible
+pipe.
+
 The scheduling row contains exact PE/STID/epoch/transaction, canonical
 speculative `inFlight`, and
 `RobMemberKey`, the class/bank/write-port/entry/reservation generation, and
@@ -173,9 +182,9 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- The formal 12-domain residency/capability profile is frozen. Runtime
-  recipe-capability admission, dual AGU pickers, and shared DIV/PAC/SYS
-  arbitration remain open; broad dispatch class alone is insufficient.
+- The formal 12-domain residency/capability profile and runtime capability
+  admission are implemented. Dual AGU pickers and shared DIV/PAC/SYS
+  arbitration remain open; broad dispatch class alone remains insufficient.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
@@ -237,6 +246,12 @@ the denial cannot disturb the peer domain, repicks BRU, releases both exact IQ
 rows, and observes aggregate quiescence. It then runs two ALU domains on
 disjoint banks. A negative case proves overlapping same-class bank projections
 trip the topology assertion.
+
+The physical-capability packet adds a negative S3 case in which a multi-cycle
+ALU row resides in a bank owned by a simple-only domain. The row remains
+resident, no read attempt is emitted, and canonical `inFlight` remains clear.
+The matching D3 and E1 tests prove legal-bank steering and fail-closed retained
+transfer, respectively.
 
 O8.1/O8.1b elaboration evidence uses the same first 2-bank x 4-entry stage
 test. Splitting the wide payload into inferred memory first reduced the main

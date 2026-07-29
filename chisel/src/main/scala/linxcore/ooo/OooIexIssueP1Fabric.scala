@@ -103,10 +103,12 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   * `{uopClass, bankEnable}` projections; the IQ asserts that topology every
   * cycle before allowing parallel claims.
   */
-class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
+class OooIexIssueP1Fabric(
+    val p: OooParams = OooParams(),
+    val domainCapabilities: Seq[BigInt] = Seq.empty) extends Module {
   val io = IO(new OooIexIssueP1FabricIO(p))
 
-  val issue = Module(new OooIexIssue(p))
+  val issue = Module(new OooIexIssue(p, domainCapabilities))
   val bridges = Seq.fill(p.iexIssueDomainCount)(
     Module(new OooIexPickP1Bridge(p)))
   val lanes = Seq.fill(p.iexIssueDomainCount)(
