@@ -532,6 +532,26 @@ E1 接入 typed ALU/BRU/AGU 与后续 LSU owner。
 - redirect younger 不影响 older accepted E/W；
 - stale bypass/version 被拒绝并重试。
 
+### 6.6 I0.9a 已实现：typed ALU E1/W1/W2 owner
+
+`OooIexAluPipeline` 接收完整 `OooIexExecuteTransaction`，在 E1 只执行
+明确白名单中的规范化 scalar integer uop。结果在下一拍进入 retained W1，
+W1 提供旁路投影，再进入 retained W2 terminal transaction。W2 接受之前不
+写 P/T/U RF、不发 committed wakeup、不完成 ROB、不重定向 IFU，也不写
+trace；这些副作用必须由后续 atomic sink 同一事务发布。
+
+当前白名单覆盖 immediate ADD/SUB/AND/OR/XOR 及 word 形式、compact
+ADD/ADDI/AND/OR/SUB/MOVI/MOVR。UT 对照 generated recipe catalog，防止
+opcode 的 dispatch class 或 side-effect owner 漂移。GPR/T/U destination
+identity 原样保留，word 结果按 bit31 符号扩展。W1/W2 都执行精确 ROB
+recovery 与 load-generation cancel，blocked W2 下 payload 保持稳定。
+
+普通 register-form ALU 暂不纳入，因为 Linx SrcR 的 sign/zero/negate/
+invert/shift 还没有在 D1 归一化成 typed uop control，不能从 `a.txt` 或旧
+执行叶子猜测。`ADDTPC/HL.ADDTPC` 也不属于 ALU：当前 generated catalog
+把它们分到 BRU/BCTRL，必须在 branch path 中把 value 与 control effect
+原子实现。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

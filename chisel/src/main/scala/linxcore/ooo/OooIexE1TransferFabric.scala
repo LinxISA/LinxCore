@@ -65,11 +65,10 @@ class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
 
 /** Static class/bank topology around class-specific retained E1 slots.
   *
-  * The existing IQ has one exact terminal-release port, so simultaneous I2
-  * candidates arbitrate before ownership transfer. A denied domain retains
-  * I2; the winner's accept and release remain one fire. This fabric therefore
-  * closes identity and recovery composition but does not claim multi-release
-  * throughput.
+  * One fair arbiter serves each statically owned exact release port. Domains
+  * sharing a port serialize and retain denied I2 owners; domains on distinct
+  * ports may transfer together. Every winner's accept and release remain one
+  * fire.
   */
 class OooIexE1TransferFabric(
     val p: OooParams,
