@@ -227,4 +227,58 @@ class OooIexOperandFilesSpec extends AnyFunSuite with ChiselSim {
       }
     }
   }
+
+  test("rejects duplicate exact P writes without granting a mutation") {
+    intercept[Exception] {
+      simulate(new OooIexOperandFiles(p)) { dut =>
+        clear(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+        dut.io.pClear(0).valid.poke(true.B)
+        pokePKey(dut.io.pClear(0).bits,
+          stid = 1, ptag = 40, generation = 4)
+        dut.clock.step()
+        dut.io.pClear(0).valid.poke(false.B)
+        for (port <- 0 until 2) {
+          dut.io.pWrite(port).valid.poke(true.B)
+          dut.io.pWrite(port).bits.commit.poke(true.B)
+          pokePKey(dut.io.pWrite(port).bits.key,
+            stid = 1, ptag = 40, generation = 4)
+          dut.io.pWrite(port).bits.data.poke((50 + port).U)
+          dut.io.pWriteReady(port).expect(true.B)
+          dut.io.pWriteFire(port).expect(false.B)
+        }
+        dut.io.pProtocolError.expect(true.B)
+        dut.clock.step()
+      }
+    }
+  }
+
+  test("rejects duplicate exact local writes without granting a mutation") {
+    intercept[Exception] {
+      simulate(new OooIexOperandFiles(p)) { dut =>
+        clear(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+        dut.io.tClear(0).valid.poke(true.B)
+        pokeLocalKey(dut.io.tClear(0).bits,
+          stid = 1, tag = 2, index = 3, generation = 4)
+        dut.clock.step()
+        dut.io.tClear(0).valid.poke(false.B)
+        for (port <- 0 until 2) {
+          dut.io.tWrite(port).valid.poke(true.B)
+          dut.io.tWrite(port).bits.commit.poke(true.B)
+          pokeLocalKey(dut.io.tWrite(port).bits.key,
+            stid = 1, tag = 2, index = 3, generation = 4)
+          dut.io.tWrite(port).bits.data.poke((60 + port).U)
+          dut.io.tWriteReady(port).expect(true.B)
+          dut.io.tWriteFire(port).expect(false.B)
+        }
+        dut.io.localProtocolError.expect(true.B)
+        dut.clock.step()
+      }
+    }
+  }
 }

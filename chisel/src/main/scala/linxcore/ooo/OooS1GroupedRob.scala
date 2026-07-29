@@ -289,6 +289,8 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       row.physicalMemberCount := group.physicalMemberCount
       row.pMapQRows := group.pMapQRows
       row.completedMembers := binding.initiallyCompletedMembers
+      row.faultedMembers := 0.U
+      row.memberFaultCauses.foreach(_ := 0.U)
       row.architecturalParentCount := group.architecturalParentCount
       row.boundaryStart := group.boundaryStart
       row.boundaryStop := group.boundaryStop
@@ -454,6 +456,13 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       p.maxOrdinaryUopsPerGroup - 1, 0)
   recoverySurvivingPivot.completedMembers :=
     recoveryPivot.completedMembers & recoverySurvivingMemberMask
+  recoverySurvivingPivot.faultedMembers :=
+    recoveryPivot.faultedMembers & recoverySurvivingMemberMask
+  for (memberIndex <- 0 until p.maxOrdinaryUopsPerGroup) {
+    recoverySurvivingPivot.memberFaultCauses(memberIndex) := Mux(
+      recoverySurvivingMemberMask(memberIndex),
+      recoveryPivot.memberFaultCauses(memberIndex), 0.U)
+  }
   recoverySurvivingPivot.pMapQRows := (0 until p.decodedUopWidth).map {
     uopIndex => Mux(recoverySurvivingLogical(uopIndex),
       recoveryPivot.logicalPMapQRows(uopIndex), 0.U)
@@ -474,7 +483,8 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
       recoverySurvivingLogical.asUInt).orR
   recoverySurvivingPivot.preciseTrap :=
     (recoveryPivot.logicalPreciseTrap &
-      recoverySurvivingLogical.asUInt).orR
+      recoverySurvivingLogical.asUInt).orR ||
+      (recoveryPivot.faultedMembers & recoverySurvivingMemberMask).orR
   recoverySurvivingPivot.nonFlushRequiredProofs :=
     (0 until p.decodedUopWidth).map { uopIndex =>
       Mux(recoverySurvivingLogical(uopIndex),
@@ -700,6 +710,17 @@ class OooS1GroupedRob(val p: OooParams = OooParams()) extends Module {
   when(completionFire && completionExact) {
     rowAt(completionStid, completionSlot).completedMembers :=
       liveCompletionRow.completedMembers | completionBit
+    when(io.completion.bits.faultValid) {
+      rowAt(completionStid, completionSlot).faultedMembers :=
+        liveCompletionRow.faultedMembers | completionBit
+      for (memberIndex <- 0 until p.maxOrdinaryUopsPerGroup) {
+        when(io.completion.bits.key.memberIndex === memberIndex.U) {
+          rowAt(completionStid, completionSlot).memberFaultCauses(memberIndex) :=
+            io.completion.bits.faultCause
+        }
+      }
+      rowAt(completionStid, completionSlot).preciseTrap := true.B
+    }
   }
   io.completionRejected.valid := completionFire && !completionExact
   io.completionRejected.bits.requested := io.completion.bits.key

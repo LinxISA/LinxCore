@@ -616,6 +616,34 @@ atomic sink 必须在同一个 result accept 上完成 data write、committed re
 ROB completion/fault 和 trace。physical cache/TLB、alignment/order、store
 queue/forwarding 以及多 response/bypass port 仍未实现。
 
+### 6.10 I0.9e 已实现：统一 atomic terminal publication
+
+`OooIexTerminalPublish` 把 ALU W2、BRU E2 和 scalar-load result 归一成统一
+terminal transaction，并用 fair arbiter 选择一个 retained owner。输入必须同时
+满足精确 ROB member/PE/STID、source owner class、generated dispatch recipe、
+side-effect owner、P/T/U destination identity 和 load producer token。重复物理
+destination 整条拒绝，不能依赖写口优先级静默覆盖。
+
+选中事务的 required mask 包含全部有效 P/T/U data write、逐 destination 的
+`Committed` wakeup、可选 BCTRL update、execution-terminal trace 和 exact ROB
+member completion。每个 Decoupled endpoint 的 `valid` 只依赖其他 endpoint 的
+ready，不依赖自己的 ready；因此任一端反压时没有其他端能够提前 fire。
+`terminalFire` 时全部 required endpoint 同拍 fire，FU/LoadUnit 才可释放 owner。
+load hit 会把 speculative-ready 转为 committed-ready；load fault 不写 RF、不发
+wakeup，但 precise fault trace 与带 cause 的 ROB completion 仍在同一个
+terminal fire。grouped ROB 按 member 保存 `faultedMembers` 与
+`memberFaultCauses`；suffix recovery 同时裁剪 fault bitmap，并清除 killed member
+的 cause，不能让旧 fault 穿过 survivor rewrite。
+
+真实 `OooIexOperandFiles` 组合 IT 首次暴露了旧 T/U 写口 valid-to-ready 环：
+atomic fork 等 peer ready，而低优先级 ready 又等高优先级 valid。现在 P/T/U
+write ready 只表示 generation/sequence-qualified owner preflight；重复同目标
+vector 是 fail-closed protocol error，并且不发生 data/ready mutation。终端 UT
+覆盖 P backpressure、T/U 双目的原子性、BCTRL、load fault、duplicate reject；
+组合 IT 读取回真实 P/T/U 数据。尚待 canonical static top 把 publisher 接到
+grouped ROB、IQ wakeup、BCTRL/redirect 和 trace，并根据综合结果扩展并行 terminal
+带宽。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

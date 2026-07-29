@@ -27,9 +27,11 @@ backpressure. E2 may drain and refill on the same edge without losing owner
 continuity.
 
 E2 contains the original execute identity, optional writeback, and optional
-BCTRL update. A later atomic sink must accept this transaction before
-publishing any RF/BCTRL/ROB/redirect/trace effect. This prevents replay or
-backpressure from applying only part of a branch result.
+BCTRL update. The implemented `OooIexTerminalPublish` accepts the transaction
+only when RF write, committed wakeup, BCTRL update, execution trace, and exact
+ROB completion can fire together. Redirect validation remains a separate
+future endpoint. This prevents replay or backpressure from applying only part
+of a branch result.
 
 Exact grouped-ROB recovery and exact speculative-load cancellation suppress
 the retained E2 owner. Unrelated STIDs and stale load generations do not kill
@@ -74,6 +76,7 @@ and exact load cancellation, unsupported redirects, and class mismatch.
 
 - explicit condition-state input and typed B.Z/B.NZ execution;
 - J/JR target calculation and prediction comparison;
-- atomic E2 BCTRL/RF/ROB/redirect/trace sink;
+- canonical connection to terminal publisher, grouped ROB, IQ, and BCTRL;
+- atomic redirect validation/recovery endpoint for redirecting opcodes;
 - connection to the static E1 transfer topology;
 - redirect recovery IT, synthesis timing, and workload evidence.

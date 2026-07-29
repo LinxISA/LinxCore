@@ -1343,6 +1343,9 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
   val physicalMemberCount = UInt(p.robMemberCountWidth.W)
   val pMapQRows = UInt(p.destinationDemandWidth.W)
   val completedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
+  val faultedMembers = UInt(p.maxOrdinaryUopsPerGroup.W)
+  val memberFaultCauses = Vec(p.maxOrdinaryUopsPerGroup,
+    UInt(p.trapCauseWidth.W))
   val architecturalParentCount = UInt(p.robGroupParentDemandWidth.W)
   val boundaryStart = Bool()
   val boundaryStop = Bool()
@@ -1370,6 +1373,8 @@ class OooRobPhysicalGroupRecord(val p: OooParams = OooParams()) extends Bundle {
 
 class OooRobMemberCompletion(val p: OooParams = OooParams()) extends Bundle {
   val key = new RobMemberKey(p)
+  val faultValid = Bool()
+  val faultCause = UInt(p.trapCauseWidth.W)
 }
 
 class OooRobMemberCompletionReject(val p: OooParams = OooParams()) extends Bundle {

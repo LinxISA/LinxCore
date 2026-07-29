@@ -57,10 +57,11 @@ only matching entries.
 
 ## Publication boundary
 
-This unit does not write P/T/U data files, emit a committed wakeup, complete
-ROB, or publish trace. `OooIexLoadResult` is the atomic terminal transaction
-for a later sink. Committed readiness must be published on the same accept
-event that writes the destination data and completes or faults the ROB member.
+This unit does not directly write P/T/U data files, emit a committed wakeup,
+complete ROB, or publish trace. `OooIexLoadResult` is accepted by the
+implemented `OooIexTerminalPublish`, which writes data, publishes committed
+readiness, traces the result/fault, and completes the ROB member on one common
+terminal fire. Canonical static-top wiring remains open.
 
 ## Verification
 
@@ -83,7 +84,7 @@ then a new generation wakes, bypasses, and repicks the consumer.
 - physical cache/TLB request and response adapter, ordering, alignment, and
   access-fault generation;
 - store AGU/STD source projection, join, store queue, forwarding, and commit;
-- atomic load-result RF/committed-wakeup/ROB/trace sink;
+- canonical connection to `OooIexTerminalPublish`, grouped ROB, IQ, and trace;
 - multi-port load response/bypass bandwidth and latency reservation;
 - canonical static-top connection and end-to-end AGU/LSU/IQ replay IT;
 - synthesis timing, randomized pressure, and workload evidence.

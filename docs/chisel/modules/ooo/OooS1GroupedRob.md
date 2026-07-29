@@ -4,6 +4,12 @@
 non-flush evidence, retained commit batches, and exact suffix recovery for all
 STIDs.
 
+Runtime completion carries `{member, faultValid, faultCause}`. An exact fault
+completion sets the member-completion bit, the matching fault bit/cause, and
+the group precise-trap summary on one mutation. The commit row retains all
+three views. Intra-group suffix recovery masks `faultedMembers` by the same
+surviving-member mask as completion and zeroes every killed member cause.
+
 ## Physical row address
 
 The logical RID slot remains the architectural ordering key. Physical storage
@@ -95,6 +101,10 @@ commit-selection policy work.
 - three legal sequential publications spanning bank 0 through bank 7 and
   then the odd subbank, followed by exact completion reads at RID slots 0 and
   8.
+
+`OooS1GroupedRobFaultSpec` separately covers exact runtime fault/cause
+retention at commit and killed-member fault/cause pruning in a surviving
+intra-group recovery pivot.
 
 The lower ROB/BROB/PC coordinator, D3-to-S1 integration, and upper O3
 coordinator suites verify that the physical layout and added read stage remain

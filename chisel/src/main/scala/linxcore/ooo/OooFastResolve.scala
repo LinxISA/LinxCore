@@ -229,6 +229,8 @@ class OooFastResolve(val p: OooParams = OooParams()) extends Module {
     (!boundaryRequired || io.boundary.ready) &&
     (!resultRequired || (io.writeback.ready && io.wakeup.ready))
   io.completion.bits.key := selected.member
+  io.completion.bits.faultValid := selected.trapValid
+  io.completion.bits.faultCause := selected.trapCause
 
   io.boundary.valid := selectedValid && boundaryRequired &&
     io.completion.ready && io.trace.ready &&

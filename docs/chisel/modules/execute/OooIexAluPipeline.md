@@ -27,9 +27,10 @@ terminal backpressure. Both stages permit drain/refill without creating a
 cycle in which the complete execute transaction has no owner.
 
 W2 is a transaction boundary, not a writeback event. This module does not
-write P/T/U data files, publish wakeup, complete the ROB member, redirect IFU,
-or emit trace. A later atomic sink must accept W2 before any of those effects
-occur.
+directly write P/T/U data files, publish wakeup, complete the ROB member,
+redirect IFU, or emit trace. The implemented `OooIexTerminalPublish` accepts
+W2 and applies RF write, committed wakeup, execution trace, and exact ROB
+completion on one common fire; canonical static-top wiring remains open.
 
 Exact grouped-ROB recovery and exact speculative-load cancellation suppress
 matching W1 and W2 rows independently. An unrelated STID or stale load
@@ -70,5 +71,5 @@ load-generation cancel, unsupported opcode rejection, and class mismatch.
 - typed D1 ALU function/source-modifier controls and register-form arithmetic;
 - shifts, compares, bit manipulation, multiply/divide, and variable latency;
 - physical W1 bypass fanout and latency-conflict reservation;
-- atomic W2 P/T/U write, committed wakeup, ROB completion, and trace sink;
+- canonical connection to `OooIexTerminalPublish`, grouped ROB, IQ, and trace;
 - connection to the static E1 transfer topology and default-width timing.

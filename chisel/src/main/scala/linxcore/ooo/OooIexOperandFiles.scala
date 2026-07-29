@@ -173,6 +173,13 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
 
   val stalePWrite = Wire(Vec(p.iexPWritePorts, Bool()))
   val pWriteFire = Wire(Vec(p.iexPWritePorts, Bool()))
+  val duplicatePWrite = (0 until p.iexPWritePorts).flatMap { left =>
+    (left + 1 until p.iexPWritePorts).map { right =>
+      io.pWrite(left).valid && io.pWrite(left).bits.commit &&
+        io.pWrite(right).valid && io.pWrite(right).bits.commit &&
+        io.pWrite(left).bits.key.ptag === io.pWrite(right).bits.key.ptag
+    }
+  }.foldLeft(false.B)(_ || _)
   for (port <- 0 until p.iexPWritePorts) {
     val request = io.pWrite(port)
     val key = request.bits.key
@@ -183,12 +190,16 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
       pOwnerValid(safeTag) && pOwnerStid(safeTag) === key.stid &&
       pOwnerEpoch(safeTag) === key.epoch &&
       pOwnerGeneration(safeTag) === key.generation
-    pFile.io.write(port).requestValid := request.valid && ownerExact
+    // Ready is an owner preflight and must not depend on peer request valids.
+    // The global duplicate guard below makes an invalid same-target vector
+    // fail closed without creating a valid-to-ready combinational path.
+    pFile.io.write(port).requestValid := request.valid && ownerExact &&
+      !duplicatePWrite
     pFile.io.write(port).commit := request.valid &&
-      request.bits.commit && ownerExact
+      request.bits.commit && ownerExact && !duplicatePWrite
     pFile.io.write(port).tag := request.bits.key.ptag
     pFile.io.write(port).data := io.pWrite(port).bits.data
-    io.pWriteReady(port) := ownerExact && pFile.io.write(port).ready
+    io.pWriteReady(port) := ownerExact
     pWriteFire(port) := request.valid && request.bits.commit &&
       ownerExact && pFile.io.write(port).fire
     io.pWriteFire(port) := pWriteFire(port)
@@ -212,7 +223,7 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     }.foldLeft(false.B)(_ || _)
   io.pProtocolError := pFile.io.protocolError || invalidPInit ||
     invalidPClear.asUInt.orR || duplicatePClear ||
-    stalePWrite.asUInt.orR || pInitClearCollision ||
+    stalePWrite.asUInt.orR || duplicatePWrite || pInitClearCollision ||
     pClearWriteCollision || pInitWriteCollision
   assert(!io.pProtocolError,
     "P data mutation requires one exact generation-qualified owner")
@@ -293,6 +304,22 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
   val staleUWrite = Wire(Vec(p.iexUWritePorts, Bool()))
   val tWriteFire = Wire(Vec(p.iexTWritePorts, Bool()))
   val uWriteFire = Wire(Vec(p.iexUWritePorts, Bool()))
+  val duplicateTWrite = (0 until p.iexTWritePorts).flatMap { left =>
+    (left + 1 until p.iexTWritePorts).map { right =>
+      io.tWrite(left).valid && io.tWrite(left).bits.commit &&
+        io.tWrite(right).valid && io.tWrite(right).bits.commit &&
+        sameLocalTarget(io.tWrite(left).bits.key,
+          io.tWrite(right).bits.key)
+    }
+  }.foldLeft(false.B)(_ || _)
+  val duplicateUWrite = (0 until p.iexUWritePorts).flatMap { left =>
+    (left + 1 until p.iexUWritePorts).map { right =>
+      io.uWrite(left).valid && io.uWrite(left).bits.commit &&
+        io.uWrite(right).valid && io.uWrite(right).bits.commit &&
+        sameLocalTarget(io.uWrite(left).bits.key,
+          io.uWrite(right).bits.key)
+    }
+  }.foldLeft(false.B)(_ || _)
   for (port <- 0 until p.iexTWritePorts) {
     val request = io.tWrite(port)
     val key = request.bits.key
@@ -304,14 +331,10 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
       tAllocated(safeStid)(safeTag) &&
       tEpoch(safeStid)(safeTag) === key.epoch &&
       tSequence(safeStid)(safeTag).asUInt === key.sequence.asUInt
-    val blockedByHigher = (0 until port).map { higher =>
-      io.tWrite(higher).valid &&
-        sameLocalTarget(io.tWrite(higher).bits.key, key)
-    }.foldLeft(false.B)(_ || _)
-    io.tWriteReady(port) := ownerExact && !blockedByHigher
+    io.tWriteReady(port) := ownerExact
     staleTWrite(port) := request.valid && !ownerExact
     tWriteFire(port) := request.valid && request.bits.commit &&
-      io.tWriteReady(port)
+      io.tWriteReady(port) && !duplicateTWrite
     io.tWriteFire(port) := tWriteFire(port)
     when(tWriteFire(port)) {
       tData(safeStid)(safeTag) := request.bits.data
@@ -329,14 +352,10 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
       uAllocated(safeStid)(safeTag) &&
       uEpoch(safeStid)(safeTag) === key.epoch &&
       uSequence(safeStid)(safeTag).asUInt === key.sequence.asUInt
-    val blockedByHigher = (0 until port).map { higher =>
-      io.uWrite(higher).valid &&
-        sameLocalTarget(io.uWrite(higher).bits.key, key)
-    }.foldLeft(false.B)(_ || _)
-    io.uWriteReady(port) := ownerExact && !blockedByHigher
+    io.uWriteReady(port) := ownerExact
     staleUWrite(port) := request.valid && !ownerExact
     uWriteFire(port) := request.valid && request.bits.commit &&
-      io.uWriteReady(port)
+      io.uWriteReady(port) && !duplicateUWrite
     io.uWriteFire(port) := uWriteFire(port)
     when(uWriteFire(port)) {
       uData(safeStid)(safeTag) := request.bits.data
@@ -392,6 +411,7 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
 
   io.localProtocolError := invalidTClear.asUInt.orR ||
     invalidUClear.asUInt.orR || duplicateTClear || duplicateUClear ||
+    duplicateTWrite || duplicateUWrite ||
     staleTWrite.asUInt.orR || staleUWrite.asUInt.orR ||
     tClearWriteCollision || uClearWriteCollision
   assert(!io.localProtocolError,
