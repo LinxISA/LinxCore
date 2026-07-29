@@ -595,6 +595,27 @@ source projection，不能继续让两者复制 parent 的全部 source payload�
 与部分 high-long load 仍被 generated catalog 分到 ALU/IEX，也必须先修 recipe
 ownership，不能在 AGU 中暗中接管。
 
+### 6.9 I0.9d 已实现：load generation、tracking、cancel 与 retry
+
+`OooIexLoadUnit` 在接受 typed AGU request 时分配 tracking entry 和完整
+`{producer RobMemberKey, loadGeneration}`。默认 16 entries，由参数
+`iexLoadTrackEntries` 控制。pending request 经过 fair arbiter 发往 memory；每次
+attempt 真正 fire 时才发送 `SpeculativeLoad` wakeup。consumer 可以在 IQ 中
+specReady，但 I1 必须等同 gene 的 bypass data，不能退回读取旧 RF 数据。
+
+response 必须匹配处于 awaiting 状态的完整 token。hit 对 byte/half/word 做
+D1 指定的 sign/zero extension，并保持 W1 bypass 与 terminal load result；
+miss 对旧 gene 发 exact cancel，同一个 tracking owner 分配新 gene 后 retry；
+fault 同样撤回 speculation，但保留 precise fault terminal。IQ/P1/I1/I2 已有的
+cancel contract 会清 consumer 的 `specReady/inFlight`，随后新 gene wakeup +
+bypass 使其 repick。stale、duplicate、unknown 和 recovery 后迟到 response 均
+typed reject，不能命中其他 entry。
+
+load terminal 仍不直接写 P/T/U RF、不发 committed wakeup、不完成 ROB。后续
+atomic sink 必须在同一个 result accept 上完成 data write、committed readiness、
+ROB completion/fault 和 trace。physical cache/TLB、alignment/order、store
+queue/forwarding 以及多 response/bypass port 仍未实现。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

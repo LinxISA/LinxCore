@@ -83,7 +83,8 @@ and malformed memory/class rejection.
 
 ## Remaining gaps
 
-- AGU-to-LSU load-generation allocation and accepted-request tracking;
+- static connection to the implemented `OooIexLoadUnit` generation/tracking
+  boundary;
 - load hit/miss return, size extraction, sign/zero extension, bypass, and
   speculative/committed wakeup;
 - miss cancellation, replay, poison, and exact repick;
