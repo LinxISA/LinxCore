@@ -113,6 +113,7 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
     dut.io.enqueueLogicalFirstStoreId.poke(0.U)
     dut.io.enqueueLogicalRequestCount.poke(0.U)
     dut.io.enqueueLogicalBeat.poke(0.U)
+    dut.io.enqueueMemoryClass.poke(STQMemoryClass.Unknown)
     dut.io.enqueueExactOwner.poke(0.U.asTypeOf(dut.io.enqueueExactOwner))
     dut.io.flushValid.poke(false.B)
     dut.io.issueEnable.poke(false.B)
@@ -130,7 +131,8 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
       logicalFirstStoreId: BigInt = -1,
       logicalRequestCount: Int = 1,
       logicalBeat: Int = 0,
-      ownerKey: Int = -1): Unit = {
+      ownerKey: Int = -1,
+      memoryClass: STQMemoryClass.Type = STQMemoryClass.NormalCacheable): Unit = {
     val firstLsid = if (logicalFirstLsid >= 0) logicalFirstLsid else lsid
     val firstStoreId =
       if (logicalFirstStoreId >= 0) logicalFirstStoreId else storeId
@@ -150,6 +152,7 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
     dut.io.enqueueLogicalFirstStoreId.poke(firstStoreId.U)
     dut.io.enqueueLogicalRequestCount.poke(logicalRequestCount.U)
     dut.io.enqueueLogicalBeat.poke(logicalBeat.U)
+    dut.io.enqueueMemoryClass.poke(memoryClass)
     val owner = dut.io.enqueueExactOwner
     owner.valid.poke(true.B)
     owner.peId.poke(1.U)
@@ -387,5 +390,65 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
     assert(io.queued.head.lsId.getWidth == 40)
     assert(io.queued.head.storeId.getWidth == 40)
     assert(io.issue.head.leaseGeneration.getWidth == 8)
+  }
+
+  test("serialized memory classes select only one logical store per batch") {
+    simulate(new STQCommitQueue(
+      robEntries = 8,
+      stqEntries = 8,
+      queueEntries = 8,
+      issueWidth = 2,
+      stidWidth = 2)) { dut =>
+      clearInputs(dut)
+      pokeEnqueue(
+        dut, index = 0, stid = 0, lsid = 10, storeId = 20,
+        memoryClass = STQMemoryClass.DeviceMmio)
+      dut.clock.step()
+      clearInputs(dut)
+      pokeEnqueue(
+        dut, index = 1, stid = 1, lsid = 11, storeId = 21,
+        memoryClass = STQMemoryClass.DeviceMmio)
+      dut.clock.step()
+      clearInputs(dut)
+
+      dut.io.issueEnable.poke(true.B)
+      dut.io.readyMask.poke("b00000011".U)
+      dut.io.issueCount.expect(1.U)
+      dut.io.issue(0).stqIndex.expect(0.U)
+      dut.clock.step()
+      dut.io.queueCount.expect(1.U)
+      dut.io.issueCount.expect(1.U)
+      dut.io.issue(0).stqIndex.expect(1.U)
+    }
+  }
+
+  test("one logical pair cannot straddle memory classes") {
+    simulate(new STQCommitQueue(
+      robEntries = 8,
+      stqEntries = 8,
+      queueEntries = 8,
+      issueWidth = 2,
+      stidWidth = 2)) { dut =>
+      clearInputs(dut)
+      pokeEnqueue(
+        dut, index = 0, stid = 0, lsid = 10, storeId = 20,
+        logicalFirstLsid = 10, logicalFirstStoreId = 20,
+        logicalRequestCount = 2, logicalBeat = 0, ownerKey = 0,
+        memoryClass = STQMemoryClass.NormalCacheable)
+      dut.clock.step()
+      clearInputs(dut)
+      pokeEnqueue(
+        dut, index = 1, stid = 0, lsid = 11, storeId = 21,
+        logicalFirstLsid = 10, logicalFirstStoreId = 20,
+        logicalRequestCount = 2, logicalBeat = 1, ownerKey = 0,
+        memoryClass = STQMemoryClass.DeviceMmio)
+      dut.clock.step()
+      clearInputs(dut)
+
+      dut.io.issueEnable.poke(true.B)
+      dut.io.readyMask.poke("b00000011".U)
+      dut.io.orderError.expect(true.B)
+      dut.io.issueCount.expect(0.U)
+    }
   }
 }

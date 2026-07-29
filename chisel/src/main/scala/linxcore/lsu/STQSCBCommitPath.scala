@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Decoupled, Fill, log2Ceil}
+import chisel3.util.{Decoupled, Fill, MuxLookup, Valid, log2Ceil}
 
 import linxcore.common.{InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
@@ -71,6 +71,20 @@ class STQSCBCommitPathIO(
   val robStoreCommitMissing = Output(Bool())
   val robStoreCommitMultiple = Output(Bool())
   val robStoreCommitNotReady = Output(Bool())
+  val robStoreCommitClassificationMissing = Output(Bool())
+  val robStoreCommitClassificationFault = Output(Bool())
+
+  val memoryClassify = Flipped(Decoupled(new STQMemoryClassifyToken(
+    entries, identityEntries, peIdWidth, stidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth)))
+  val memoryClassifyAccepted = Output(Bool())
+  val memoryClassifyMissing = Output(Bool())
+  val memoryClassifyMultiple = Output(Bool())
+  val memoryClassifyDuplicate = Output(Bool())
+  val memoryClassifyConflict = Output(Bool())
+  val memoryClassifyMalformed = Output(Bool())
+  val stqMemoryAttributes = Output(Vec(entries, new STQMemoryAttribute))
 
   val issueEnable = Input(Bool())
   val evictEnable = Input(Bool())
@@ -127,6 +141,8 @@ class STQSCBCommitPathIO(
   val drainRetainedBatchValid = Output(Bool())
   val drainRetainedBatchAccepted = Output(Bool())
   val drainRetainedIdentityError = Output(Bool())
+  val drainRetainedBatchMemoryClass = Output(STQMemoryClass())
+  val drainRetainedBatchSerialized = Output(Bool())
   val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val drainLogicalCompletions = Output(Vec(issueWidth,
     new STQCommitLogicalCompletion(
@@ -187,6 +203,26 @@ class STQSCBCommitPathIO(
   val scbRespBufferFull = Output(Bool())
   val scbRespBufferEmpty = Output(Bool())
   val scbRespBufferCount = Output(UInt(scbResponseBufferCountWidth.W))
+
+  val serializedRequest = Decoupled(new STQSerializedStoreRequest(
+    entries, identityEntries, addrWidth, dataWidth, sizeWidth, lsidWidth,
+    peIdWidth, stidWidth, nativeBidWidth, ridGenerationWidth,
+    brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
+    leaseGenerationWidth))
+  val serializedResponse = Flipped(Decoupled(
+    new STQSerializedStoreResponse()))
+  val serializedBusy = Output(Bool())
+  val serializedWaitingResponse = Output(Bool())
+  val serializedBatchMalformed = Output(Bool())
+  val serializedStaleResponse = Output(Bool())
+  val serializedTerminalError = Output(Bool())
+  val serializedFreeMaskValid = Output(Bool())
+  val serializedFreeMask = Output(UInt(entries.W))
+  val serializedLogicalCompletion = Output(Valid(
+    new STQCommitLogicalCompletion(
+      identityEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
+      ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth)))
 
   val stqCommitFreeAcceptedMask = Output(UInt(entries.W))
   val stqCommitFreeIgnoredMask = Output(UInt(entries.W))
@@ -285,6 +321,40 @@ class STQSCBCommitPath(
     memberIndexWidth = memberIndexWidth,
     residentGenerationWidth = residentGenerationWidth,
     leaseGenerationWidth = leaseGenerationWidth))
+  val memoryAttributes = Module(new STQMemoryAttributeOwner(
+    stqEntries = entries,
+    robEntries = identityEntries,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    sizeWidth = sizeWidth,
+    simtLaneWidth = simtLaneWidth,
+    mapQDepth = mapQDepth,
+    lsidWidth = lsidWidth,
+    nativeBidWidth = nativeBidWidth,
+    ridGenerationWidth = ridGenerationWidth,
+    brobGenerationWidth = brobGenerationWidth,
+    memberIndexWidth = memberIndexWidth,
+    residentGenerationWidth = residentGenerationWidth,
+    leaseGenerationWidth = leaseGenerationWidth))
+  val serializer = Module(new STQCommittedStoreSerializer(
+    stqEntries = entries,
+    robEntries = identityEntries,
+    issueWidth = issueWidth,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    sizeWidth = sizeWidth,
+    lsidWidth = lsidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    nativeBidWidth = nativeBidWidth,
+    ridGenerationWidth = ridGenerationWidth,
+    brobGenerationWidth = brobGenerationWidth,
+    memberIndexWidth = memberIndexWidth,
+    residentGenerationWidth = residentGenerationWidth,
+    leaseGenerationWidth = leaseGenerationWidth))
   val scb = Module(new SCBRowBank(
     stqEntries = entries,
     scbEntries = scbEntries,
@@ -302,11 +372,23 @@ class STQSCBCommitPath(
   stq.io.insert := io.insert
   stq.io.commitFreeValid := false.B
   stq.io.commitFreeIndex := 0.U
-  stq.io.commitFreeMaskValid := scb.io.commitFreeMaskValid
-  stq.io.commitFreeMask := scb.io.commitFreeMask
+  stq.io.commitFreeMaskValid := scb.io.commitFreeMaskValid ||
+    serializer.io.freeMask.valid
+  val scbCommitFreeMask = Mux(
+    scb.io.commitFreeMaskValid, scb.io.commitFreeMask, 0.U)
+  val serializedCommitFreeMask = Mux(
+    serializer.io.freeMask.valid, serializer.io.freeMask.bits, 0.U)
+  stq.io.commitFreeMask := scbCommitFreeMask | serializedCommitFreeMask
+
+  memoryAttributes.io.classify.valid := io.memoryClassify.valid
+  memoryAttributes.io.classify.bits := io.memoryClassify.bits
+  io.memoryClassify.ready := memoryAttributes.io.classify.ready
+  memoryAttributes.io.rows := stq.io.rows
+  memoryAttributes.io.recoveryActive := io.flush.req.valid
 
   robCommitIngress.io.commit <> io.robStoreCommit
   robCommitIngress.io.rows := stq.io.rows
+  robCommitIngress.io.memoryAttributes := memoryAttributes.io.attributes
   robCommitIngress.io.recoveryActive := io.flush.req.valid
 
   val canonicalSelected = io.robStoreCommit.valid
@@ -326,13 +408,41 @@ class STQSCBCommitPath(
   // are already non-flush and survive; module reset remains the hard abort.
   drain.io.flushValid := false.B
   drain.io.rows := stq.io.rows
+  drain.io.memoryAttributes := memoryAttributes.io.attributes
 
   val scbReadyForDrain = scb.io.modelBatchReady && !stq.io.flushApplied
   drain.io.issueEnable := io.issueEnable && !stq.io.flushApplied
-  drain.io.primaryReadyMask := Fill(entries, scbReadyForDrain)
-  drain.io.secondaryReadyMask := Fill(entries, scbReadyForDrain)
+  serializer.io.batch.valid := drain.io.retainedBatchValid &&
+    drain.io.retainedBatchSerialized && io.issueEnable &&
+    !stq.io.flushApplied
+  serializer.io.batch.bits.memoryClass :=
+    drain.io.retainedBatchMemoryClass
+  serializer.io.batch.bits.issues := drain.io.retainedIssue
+  serializer.io.batch.bits.requests := drain.io.memReqs
+  serializer.io.recoveryActive := io.flush.req.valid
 
-  scb.io.reqs := drain.io.memReqs
+  val serializedReady = Mux(
+    drain.io.retainedBatchValid && drain.io.retainedBatchSerialized,
+    serializer.io.batch.ready,
+    serializer.io.canAcceptBatch)
+  val downstreamReadyVec = Wire(Vec(entries, Bool()))
+  for (index <- 0 until entries) {
+    val attribute = memoryAttributes.io.attributes(index)
+    downstreamReadyVec(index) := attribute.valid && MuxLookup(
+      attribute.memoryClass.asUInt,
+      false.B)(Seq(
+        STQMemoryClass.NormalCacheable.asUInt -> scbReadyForDrain,
+        STQMemoryClass.NormalNonCacheable.asUInt -> serializedReady,
+        STQMemoryClass.DeviceMmio.asUInt -> serializedReady))
+  }
+  drain.io.primaryReadyMask := downstreamReadyVec.asUInt
+  drain.io.secondaryReadyMask := downstreamReadyVec.asUInt
+
+  for (request <- 0 until requestCount) {
+    scb.io.reqs(request) := drain.io.memReqs(request)
+    scb.io.reqs(request).valid := drain.io.memReqs(request).valid &&
+      !drain.io.retainedBatchSerialized
+  }
   scb.io.evictEnable := io.evictEnable
   scb.io.dcacheReady := io.dcacheReady
   scb.io.dcacheWriteHit := io.dcacheWriteHit
@@ -342,6 +452,13 @@ class STQSCBCommitPath(
   scb.io.rawRespTxnId := io.rawRespTxnId
   scb.io.rawRespWrite := io.rawRespWrite
   scb.io.rawRespUpgrade := io.rawRespUpgrade
+
+  io.serializedRequest.valid := serializer.io.request.valid
+  io.serializedRequest.bits := serializer.io.request.bits
+  serializer.io.request.ready := io.serializedRequest.ready
+  serializer.io.response.valid := io.serializedResponse.valid
+  serializer.io.response.bits := io.serializedResponse.bits
+  io.serializedResponse.ready := serializer.io.response.ready
 
   io.insertReady := stq.io.insertReady
   io.insertAccepted := stq.io.insertAccepted
@@ -355,6 +472,17 @@ class STQSCBCommitPath(
   io.robStoreCommitMissing := robCommitIngress.io.missing
   io.robStoreCommitMultiple := robCommitIngress.io.multiple
   io.robStoreCommitNotReady := robCommitIngress.io.notReady
+  io.robStoreCommitClassificationMissing :=
+    robCommitIngress.io.classificationMissing
+  io.robStoreCommitClassificationFault :=
+    robCommitIngress.io.classificationFault
+  io.memoryClassifyAccepted := memoryAttributes.io.accepted
+  io.memoryClassifyMissing := memoryAttributes.io.missing
+  io.memoryClassifyMultiple := memoryAttributes.io.multiple
+  io.memoryClassifyDuplicate := memoryAttributes.io.duplicate
+  io.memoryClassifyConflict := memoryAttributes.io.conflict
+  io.memoryClassifyMalformed := memoryAttributes.io.malformed
+  io.stqMemoryAttributes := memoryAttributes.io.attributes
 
   when(io.robStoreCommit.fire) {
     assert(stq.io.markCommitAccepted && drain.io.enqueueAccepted,
@@ -364,10 +492,22 @@ class STQSCBCommitPath(
     assert(drain.io.enqueueAccepted,
       "STQ WAIT-to-Commit must not occur without the matching CommitQ token")
   }
+  when(drain.io.retainedBatchAccepted &&
+    drain.io.retainedBatchSerialized) {
+    assert(serializer.io.batch.fire,
+      "a serialized committed-store batch must transfer atomically")
+  }
+  when(serializer.io.batch.fire) {
+    assert(drain.io.retainedBatchAccepted,
+      "the serializer may accept only the drain owner's retained batch")
+  }
+  assert(!(scb.io.commitFreeMaskValid && serializer.io.freeMask.valid &&
+    (scb.io.commitFreeMask & serializer.io.freeMask.bits).orR),
+    "cacheable and serialized owners must not free the same STQ row")
 
   io.scbReadyForDrain := scbReadyForDrain
   io.drainIssueEnable := drain.io.issueEnable
-  io.downstreamReadyMask := Fill(entries, scbReadyForDrain)
+  io.downstreamReadyMask := downstreamReadyVec.asUInt
 
   io.stqFlushApplied := stq.io.flushApplied
   io.stqFlushMatchMask := stq.io.flushMatchMask
@@ -401,9 +541,20 @@ class STQSCBCommitPath(
   io.drainRetainedBatchValid := drain.io.retainedBatchValid
   io.drainRetainedBatchAccepted := drain.io.retainedBatchAccepted
   io.drainRetainedIdentityError := drain.io.retainedIdentityError
+  io.drainRetainedBatchMemoryClass := drain.io.retainedBatchMemoryClass
+  io.drainRetainedBatchSerialized := drain.io.retainedBatchSerialized
   io.drainMemReqs := drain.io.memReqs
   io.drainLogicalCompletions := drain.io.logicalCompletions
-  io.drainLogicalCompletionCount := drain.io.logicalCompletionCount
+  when(serializer.io.logicalCompletion.valid) {
+    io.drainLogicalCompletions(0) := serializer.io.logicalCompletion.bits
+  }
+  assert(!(drain.io.logicalCompletionCount.orR &&
+    serializer.io.logicalCompletion.valid),
+    "cacheable drain and serialized transport cannot complete together")
+  io.drainLogicalCompletionCount := Mux(
+    serializer.io.logicalCompletion.valid,
+    1.U,
+    drain.io.logicalCompletionCount)
   io.drainEarlyFreeMaskValid := drain.io.commitFreeMaskValid
   io.drainEarlyFreeMask := drain.io.commitFreeMask
   io.drainEarlyFreeCount := drain.io.commitFreeCount
@@ -455,6 +606,15 @@ class STQSCBCommitPath(
   io.scbRespBufferFull := scb.io.respBufferFull
   io.scbRespBufferEmpty := scb.io.respBufferEmpty
   io.scbRespBufferCount := scb.io.respBufferCount
+
+  io.serializedBusy := serializer.io.busy
+  io.serializedWaitingResponse := serializer.io.waitingResponse
+  io.serializedBatchMalformed := serializer.io.batchMalformed
+  io.serializedStaleResponse := serializer.io.staleResponse
+  io.serializedTerminalError := serializer.io.terminalError
+  io.serializedFreeMaskValid := serializer.io.freeMask.valid
+  io.serializedFreeMask := serializer.io.freeMask.bits
+  io.serializedLogicalCompletion := serializer.io.logicalCompletion
 
   io.stqCommitFreeAcceptedMask := stq.io.commitFreeAcceptedMask
   io.stqCommitFreeIgnoredMask := stq.io.commitFreeIgnoredMask

@@ -9,6 +9,7 @@ class STQRobCommitIngressSpec extends AnyFunSuite with ChiselSim {
     dut.io.commit.valid.poke(false.B)
     dut.io.commit.bits.poke(0.U.asTypeOf(dut.io.commit.bits))
     dut.io.rows.poke(0.U.asTypeOf(dut.io.rows))
+    dut.io.memoryAttributes.poke(0.U.asTypeOf(dut.io.memoryAttributes))
     dut.io.recoveryActive.poke(false.B)
     dut.io.drainEnqueueReady.poke(false.B)
   }
@@ -64,6 +65,9 @@ class STQRobCommitIngressSpec extends AnyFunSuite with ChiselSim {
     row.exactOwner.ridGeneration.poke(4.U)
     row.exactOwner.memberIndex.poke(1.U)
     row.exactOwner.residentGeneration.poke(9.U)
+    dut.io.memoryAttributes(index).valid.poke(true.B)
+    dut.io.memoryAttributes(index).memoryClass.poke(
+      STQMemoryClass.NormalCacheable)
   }
 
   test("accepts only a unique converged exact STQ row with CommitQ credit") {
@@ -122,6 +126,31 @@ class STQRobCommitIngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryActive.poke(false.B)
       dut.io.commit.ready.expect(true.B)
       dut.io.markIndex.expect(3.U)
+    }
+  }
+
+  test("missing and faulting memory classifications fail closed") {
+    simulate(new STQRobCommitIngress(entries = 4, robEntries = 8)) { dut =>
+      clear(dut)
+      pokeToken(dut)
+      pokeMatchingRow(dut, index = 2)
+      dut.io.commit.valid.poke(true.B)
+      dut.io.drainEnqueueReady.poke(true.B)
+
+      dut.io.memoryAttributes(2).valid.poke(false.B)
+      dut.io.classificationMissing.expect(true.B)
+      dut.io.commit.ready.expect(false.B)
+
+      dut.io.memoryAttributes(2).valid.poke(true.B)
+      dut.io.memoryAttributes(2).memoryClass.poke(STQMemoryClass.Fault)
+      dut.io.classificationMissing.expect(false.B)
+      dut.io.classificationFault.expect(true.B)
+      dut.io.commit.ready.expect(false.B)
+
+      dut.io.memoryAttributes(2).memoryClass.poke(
+        STQMemoryClass.DeviceMmio)
+      dut.io.classificationFault.expect(false.B)
+      dut.io.commit.ready.expect(true.B)
     }
   }
 }

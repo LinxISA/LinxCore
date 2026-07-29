@@ -661,6 +661,40 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("committed terminal free remains live while ordinary recovery fences speculative mutation") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.insert, ridGeneration = 1,
+        residentGeneration = 1, lsid = 9, storeId = 11)
+      dut.io.insert.storeType.poke(STQStoreType.All)
+      dut.io.insert.addr.poke("h1000".U)
+      dut.io.insert.data.poke("h1234".U)
+      dut.io.insertValid.poke(true.B)
+      dut.io.insertAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.insertValid.poke(false.B)
+
+      dut.io.markCommitValid.poke(true.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.io.markCommitAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.markCommitValid.poke(false.B)
+      dut.io.rows(0).status.expect(STQEntryStatus.Commit)
+
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.commitFreeMaskValid.poke(true.B)
+      dut.io.commitFreeMask.poke(1.U)
+      dut.io.commitFreeAcceptedMask.expect(1.U)
+      dut.io.commitFreeIgnoredMask.expect(0.U)
+      dut.io.commitFreeCount.expect(1.U)
+      dut.clock.step()
+
+      dut.io.occupiedMask.expect(0.U)
+      dut.io.residentCount.expect(0.U)
+      dut.io.outstandingWaitCount.expect(0.U)
+    }
+  }
+
   test("pair reservation is all-or-none and returns two independent leases") {
     simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
       clearCanonicalDut(dut)

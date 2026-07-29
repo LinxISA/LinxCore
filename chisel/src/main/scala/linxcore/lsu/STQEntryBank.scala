@@ -731,8 +731,11 @@ class STQEntryBank(
 
   val freeCommitRow = rows(io.commitFreeIndex)
   val commitFreeLocalReady = freeCommitRow.valid && (freeCommitRow.status === STQEntryStatus.Commit)
-  io.commitFreeAccepted := !recoveryActive && io.commitFreeValid && commitFreeLocalReady
-  io.commitFreeIgnored := io.commitFreeValid && (!commitFreeLocalReady || recoveryActive)
+  // A committed row is outside the speculative recovery suffix.  Its exact
+  // terminal owner may release it while an ordinary recovery is active;
+  // otherwise a one-cycle memory response would be lost and leak the row.
+  io.commitFreeAccepted := io.commitFreeValid && commitFreeLocalReady
+  io.commitFreeIgnored := io.commitFreeValid && !commitFreeLocalReady
 
   val commitFreeReqVec = Wire(Vec(entries, Bool()))
   val commitFreeAcceptedVec = Wire(Vec(entries, Bool()))
@@ -742,8 +745,8 @@ class STQEntryBank(
     val maskHit = io.commitFreeMaskValid && io.commitFreeMask(idx)
     val rowReady = rows(idx).valid && (rows(idx).status === STQEntryStatus.Commit)
     commitFreeReqVec(idx) := singleHit || maskHit
-    commitFreeAcceptedVec(idx) := !recoveryActive && commitFreeReqVec(idx) && rowReady
-    commitFreeIgnoredVec(idx) := commitFreeReqVec(idx) && (!rowReady || recoveryActive)
+    commitFreeAcceptedVec(idx) := commitFreeReqVec(idx) && rowReady
+    commitFreeIgnoredVec(idx) := commitFreeReqVec(idx) && !rowReady
   }
   io.commitFreeAcceptedMask := commitFreeAcceptedVec.asUInt
   io.commitFreeIgnoredMask := commitFreeIgnoredVec.asUInt

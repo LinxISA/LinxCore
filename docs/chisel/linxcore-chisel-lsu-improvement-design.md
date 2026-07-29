@@ -48,7 +48,8 @@ flowchart LR
 
 - frontend/AGU 到 LSU 的完整请求协议尚未闭合；
 - store row 到 load E2 查询、SCB 返回和 STQ 返回仍有外部输入痕迹；
-- 下级 memory/coherence、DTLB、PMP、MMIO 属性分类尚未形成生产级 owner；
+- 翻译/PMA 到属性 sidecar 的正式适配器、下级 memory/coherence 总线尚未闭合；
+  exact memory-class sidecar 与 committed NC/MMIO serializer 已有独立 owner；
 - LR/SC reservation owner 仍主要组合在 reduced 路径；
 - load W2 只接到 reduced ROB/GPR 侧的有限闭环。
 
@@ -110,7 +111,7 @@ canonical `ScalarLSU` 已有 store dispatch、STQ、CommitQ、drain 和 SCB 相�
 | canonical composition | `ScalarLSU` / `ScalarLSULoadPath` 已形成主要组合点 | 应扩展为唯一生产 owner |
 | reduced composition | reduced top 能运行有限 benchmark | 只能作为迁移脚手架 |
 | external/tie-off | cache hit、lower ready、部分 source return 可被固定或外部注入 | 不代表完整实现 |
-| physical memory system | DTLB/PMP/coherence/MMIO/maintenance 未闭合 | 是后续核心工作 |
+| physical memory system | memory-class sidecar与committed NC/MMIO serializer已落地；DTLB/PMA adapter、coherence与maintenance未闭合 | 是后续核心工作 |
 
 ## 3. 不可破坏的设计约束
 
@@ -597,6 +598,32 @@ row匹配并且CommitQ有credit时才接受。该接受、STQ `WAIT -> Commit`�
 fail closed。端到端IT从grouped ROB pair batch出发，在没有physical-index sideband的
 情况下验证two-token ingress、two-row commit、four-fragment SCB admission和one logical
 completion。下一步仍是MMIO serializer、serial-wrap quiescence和静态OOO/IEX/LSU组合。
+
+### 8.12 I0.9p 已实现：memory-class sidecar 与 committed serializer
+
+内存属性不再由 decode opcode 或硬编码地址范围推断。新增
+`STQMemoryAttributeOwner`，接受翻译/PMA侧的
+`{physical lease generation, exact owner, logical beat, memory class}`，只允许
+唯一、地址已就绪的 live WAIT row完成单次分类。sidecar随物理slot复用自动失效；
+`Unknown`和`Fault`都不能通过ROB store commit ingress。pair两个beat必须拥有相同
+memory class，否则CommitQ按malformed group fail closed。
+
+cacheable batch继续进入SCB。`NormalNonCacheable`和`DeviceMmio`进入新增的
+`STQCommittedStoreSerializer`：一次只允许一个外部transaction outstanding，请求在
+backpressure下保持完整identity、地址、数据和transaction ID；错误或过期response不
+推进状态。scalar/pair及其最多四个line fragment逐个完成后，最后一个exact response才
+释放全部STQ row并发布一次logical completion。普通speculative recovery只阻止新batch，
+不会取消或重发已经接受的committed store。STQ bank同时允许该terminal free与其他
+speculative WAIT-row recovery并行，避免单拍response被恢复门控吞掉。
+
+动态UT/IT覆盖classification missing/fault、single-assignment、slot reuse、pair class
+一致性、serializer backpressure、错误transaction response、四fragment顺序、终端error、
+恢复期间不重发及最终free。grouped ROB→STQ集成夹具也改为显式模拟分配后的PMA结果，
+不再通过测试默认值绕过属性契约。
+
+I0.9p之后仍未完成：真实DTLB/PMA分类适配器、外部NC/MMIO fabric、terminal error到精确
+ROB/platform fault的连接、Device load、atomic/fence/maintenance统一排序、full serial
+wrap quiescence，以及canonical静态OOO/IEX/LSU top组合。
 
 ## 9. Store Coalescing Buffer（SCB）
 

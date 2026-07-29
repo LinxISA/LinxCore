@@ -1187,6 +1187,24 @@ implementation choices and must not change architectural identity widths:
   live STQ row matches the full generation-qualified owner and logical serial
   range. Token acceptance, `WAIT -> Commit`, and CommitQ enqueue are one edge;
   missing, duplicate, stale, or queue-blocked rows cannot partially promote.
+- Store memory class is translation/PMA evidence, not decode policy. Each
+  physical STQ residency receives a typed sidecar result keyed by its physical
+  lease generation, complete semantic owner, and logical beat. The routable
+  classes are `NormalCacheable`, `NormalNonCacheable`, and `DeviceMmio`;
+  `Unknown` and `Fault` fail closed at ROB commit ingress. Slot reuse makes an
+  older sidecar unreachable even when the numerical STQ index is reused.
+- Every beat of one logical scalar/pair store has one common memory class. A
+  mixed-class logical group is malformed and cannot issue. Cacheable committed
+  stores enter SCB coalescing. Normal-noncacheable and Device/MMIO committed
+  stores bypass SCB and enter one retained, single-outstanding serializer.
+- The serialized owner retains the complete logical store batch, emits one
+  exact transaction at a time, and waits for the matching transaction response
+  before advancing. It releases every physical STQ beat and emits one logical
+  completion only after the final exact response. A stale response has zero
+  effect. Ordinary speculative recovery fences new serialized admission but
+  cannot cancel, duplicate, or reissue an already accepted committed batch.
+  Terminal error remains attached to that exact batch for the precise
+  exception/platform-error owner.
 - Dispatch reserves the two halves atomically. After dispatch, address and data
   may execute and merge into STQ independently; a blocked address allocation
   must not prevent a complementary data half from merging into an existing
@@ -1214,8 +1232,10 @@ implementation choices and must not change architectural identity widths:
 - SCB owns committed, non-flushable, physical-cacheline coalescing. It must not
   merge new bytes into a row that has issued ownership traffic and is awaiting
   its response.
-- An accepted final SCB fragment, not a standalone drain attempt, authorizes
-  the matching committed STQ row to free. Request acceptance is not fence- or
+- For `NormalCacheable`, an accepted final SCB fragment, not a standalone drain
+  attempt, authorizes the matching committed STQ row to free. For
+  `NormalNonCacheable` and `DeviceMmio`, only the serializer's final exact
+  response authorizes free. Request acceptance is not fence- or
   store-completion evidence; the required WriteResp or platform-equivalent
   completion must be observed where architectural completion depends on it.
 - Committed stores drain in program order. Store coalescing may reduce physical

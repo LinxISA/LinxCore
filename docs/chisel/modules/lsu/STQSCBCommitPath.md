@@ -4,187 +4,138 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQSCBCommitPathSpec.scala`
-- Child Chisel contracts:
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQRobCommitIngress.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
-- LinxCoreModel evidence:
-  - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
-    - `STQ::retire`
-    - `STQ::commit`
-  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
-    - `MemReqBus::tSeq/uSeq`
-  - `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
-    - `StoreUnit::GetCommitID`
-- Contract IDs: `LC-CHISEL-LSU-STQ-SCB-COMMITPATH-001`
+- Child state owners:
+  - `STQEntryBank.scala`
+  - `STQMemoryAttributeOwner.scala`
+  - `STQCommitDrain.scala`
+  - `STQCommittedStoreSerializer.scala`
+  - `SCBRowBank.scala`
+- Contract ID: `LC-CHISEL-LSU-STQ-SCB-COMMITPATH-001`
 
 ## Purpose
 
-`STQSCBCommitPath` is the first full STQ-to-SCB composition owner. Earlier
-packets proved the STQ bank, ordered commit queue, split-aware drain, and
-registered SCB row bank separately. This module wires those owners into one
-store-commit path so accepted SCB admission, not early drain issue, is the only
-source of committed-row free commands back to `STQEntryBank`.
+`STQSCBCommitPath` composes the committed-store path from exact ROB ownership
+through memory classification and class-dependent completion. It does not
+guess the memory type in decode. A translation/PMA result is retained beside
+the live STQ residency before ROB commit may promote the row.
 
-The module owns:
+The composition has two mutually exclusive terminal paths:
 
-- `STQEntryBank` row allocation, mark-commit, flush-prune consumption, and final
-  committed-row free mutation;
-- `STQCommitDrain` queue ordering and split request descriptor generation;
-- exact ROB-token matching without a physical-index sideband, with atomic
-  STQ promotion and CommitQ enqueue;
-- `SCBRowBank` model-batch admission, row-bank insertion, egress lookup, and
-  final free-mask authorization for accepted `last` fragments;
-- raw WriteResp/UpgradeResp tag handoff into `SCBRowBank`;
-- raw response backpressure and buffer observability from `SCBRowBank`;
-- the composition rule that drains are held while the registered SCB model
-  batch gate is closed or while an STQ flush-prune cycle owns the bank.
+- `NormalCacheable` stores enter `SCBRowBank`; accepted final fragments release
+  their STQ rows and complete the logical store.
+- `NormalNonCacheable` and `DeviceMmio` stores enter
+  `STQCommittedStoreSerializer`; only the last exact external response releases
+  every participating row and completes the logical store.
 
-It does not own L2/CHI queue storage or response arbitration, DCache RAM
-mutation, MDB conflict prediction, store-to-load forwarding, BSB window-slide
-side effects, or live memory-event trace rows.
+`Unknown` and `Fault` fail closed at ROB commit ingress. The module does not yet
+own a real DTLB/PMA adapter, uncached/device interconnect, Device-load path, or
+atomic/fence ordering.
 
 ## Interface
 
 ### Inputs
 
-| Signal | Type | Description |
-|---|---|---|
-| `flush` | `FlushBus` | Recovery cleanup request consumed by `STQEntryBank` through `STQFlushPrune`. |
-| `insertValid/insert` | `STQStoreRequest` | Store dispatch input for the STQ bank. |
-| `markCommitValid/markCommitIndex` | command | Marks one locally ready STQ row `Commit` and enqueues it into the ordered commit drain. |
-| `robStoreCommit` | `Decoupled[STQRobCommitToken]` | Canonical generation-qualified ROB store beat; it carries no physical STQ index. |
-| `issueEnable` | `Bool` | Enables memory-side drain issue when the SCB model-batch gate is also open. |
-| `evictEnable` | `Bool` | Enables one SCB egress lookup candidate after accepted ingress. |
-| `dcacheReady/dcacheWriteHit/dcacheTagHit` | abstract DCache result | Lookup outcome inputs forwarded to `SCBRowBank`. |
-| `l2RequestReady` | `Bool` | Abstract ownership request queue readiness. |
-| `rawRespValid/rawRespTxnId` | raw response | Raw response tag candidate forwarded into `SCBRowBank`. |
-| `rawRespWrite/rawRespUpgrade` | response type | WriteResp/UpgradeResp type flags forwarded into `SCBRowBank`. |
-| `scbResponseBufferDepth` | parameter | Raw response FIFO depth inside `SCBRowBank`. |
+| Signal | Description |
+|---|---|
+| `flush` | Speculative STQ recovery cleanup. |
+| `insertValid/insert` | Store dispatch allocation into the STQ bank. |
+| `memoryClassify` | Generation- and owner-qualified translation/PMA result. |
+| `robStoreCommit` | Canonical ROB store token without a physical STQ index. |
+| `markCommit*` | Migration-only index commit port. |
+| `issueEnable` | Enables memory-side drain launch. |
+| `evictEnable` and DCache/L2 inputs | Cacheable SCB egress controls. |
+| `rawResp*` | Raw cacheable WriteResp/UpgradeResp stream. |
+| `serializedRequest.ready` | Uncached/device transport request readiness. |
+| `serializedResponse` | Exact uncached/device transaction response. |
 
 ### Outputs
 
 | Signal | Description |
 |---|---|
-| `insert*` / `markCommit*` | STQ bank insertion and commit-mark acknowledgement. |
-| `robStoreCommit*` | Canonical token acceptance plus missing, duplicate, and temporarily-not-ready diagnostics. |
-| `scbReadyForDrain` | Registered SCB row bank has enough pre-cycle free rows for the worst-case request batch and no STQ flush-prune is active. |
-| `drainIssueEnable/downstreamReadyMask` | The derived drain issue gate and all-row downstream-ready mask used for SCB issue. |
-| `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
-| `lsuTULinkSource*` | STQ bank's exact non-base T/U cleanup source candidate and match diagnostics. |
-| `drain*` | Ordered logical-store queue observability, issued beats, retained request descriptors, one-per-logical-store completions, and debug-only early drain free mask. |
-| `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, response decode flags, and lookup/state-update descriptors. |
-| `rawRespReady` / `scbRespBuffer*` | Raw response FIFO backpressure, occupancy, and head-consumption observability. |
+| `memoryClassify*` | Classification acceptance and malformed/missing/duplicate/conflict diagnostics. |
+| `robStoreCommit*` | Token acceptance plus missing, duplicate, blocked, classification-missing, and classification-fault diagnostics. |
+| `serializedRequest` | Retained non-cacheable/MMIO fragment request. |
+| `serialized*` | Busy/waiting, stale-response, malformed-batch, terminal-error, free, and logical-completion observability. |
+| `scb*` | Cacheable admission, row-bank, response, egress, and free observability. |
+| `stq*` | STQ row image, occupancy, status masks, recovery masks, and final free acknowledgements. |
+| `drain*` | CommitQ ordering, retained fragments, memory class, issue, and logical completion observability. |
+| `lsuTULinkSource*` | Exact T/U cleanup-source candidate owned by the STQ bank. |
 
-## State
+## State Ownership
 
-The module owns no registers directly. It composes three state owners:
+The wrapper owns no architectural registers directly. Its five child owners
+have non-overlapping responsibilities:
 
-- `STQEntryBank` owns STQ rows and resident/outstanding counts.
-- `STQCommitDrain` owns the ordered store-commit queue.
-- `SCBRowBank` owns SCB line entries.
+1. `STQEntryBank`: physical store residency and final mutation;
+2. `STQMemoryAttributeOwner`: class evidence for one exact residency;
+3. `STQCommitDrain`: ordered CommitQ and retained fragment batch;
+4. `STQCommittedStoreSerializer`: committed uncached/device transaction state;
+5. `SCBRowBank`: cacheable line entries and response state.
 
 ## Logic Design
 
-The LinxCoreModel store unit calls `STQ::retire()` before `STQ::commit()` in
-`StoreUnit::GetCommitID()`. `retire()` changes ready, non-flushable stores from
-`STQ_WAIT` to `STQ_COMMIT` and appends their row indices to `storeCommitQ`.
-`commit()` then walks `storeCommitQ`, sends one or two split fragments, and
-frees the STQ row only after the memory-side send succeeds. The Chisel path
-strengthens the model's ready-row scan: an older stalled store blocks every
-younger same-STID token, while independent STIDs may still bypass.
+1. AGU completion makes a `Wait` row address-ready.
+2. The translation/PMA adapter classifies that exact lease, semantic owner, and
+   logical beat. Slot reuse cannot expose a stale class.
+3. `STQRobCommitIngress` accepts the ROB token only when it finds one exact,
+   ready row with a routable retained class. The row promotion and CommitQ
+   enqueue occur atomically.
+4. `STQCommitDrain` snapshots the class with the logical store and produces one
+   or two ordered fragments per row. A pair must have the same class.
+5. Cacheable fragments are admitted atomically by the SCB batch gate. SCB
+   accepted `last` ownership supplies the cacheable free mask.
+6. A non-cacheable/device batch is admitted only when the serializer is idle.
+   Its early drain free and completion are suppressed. The serializer sends
+   one fragment at a time and supplies a full-row free mask plus one logical
+   completion at the final exact response.
+7. Cacheable and serialized completions are asserted mutually exclusive before
+   the wrapper selects the single visible completion source.
 
-The Chisel composition maps that behavior into registered owner boundaries:
+This preserves committed-store residency across downstream backpressure and
+prevents a Device/MMIO request handshake from being mistaken for architectural
+completion.
 
-1. `STQRobCommitIngress` uniquely matches a canonical ROB token against exact
-   live row ownership and full serial identity. Token acceptance,
-   `STQEntryBank.markCommitAccepted`, and `STQCommitDrain.enqueueAccepted`
-   occur on one edge. The index-based mark input remains a migration port.
-2. CommitQ launches an exact token batch into the drain's retained fragment
-   owner without depending on `SCBRowBank.modelBatchReady`.
-3. `STQEntryBank.flushApplied` suppresses drain issue for the bank-owned
-   recovery cycle, but does not clear committed/non-flush drain tokens.
-4. `STQCommitDrain` shapes selected committed rows into one or two retained
-   `STQCommitDrainRequest` fragments and holds them stable while the SCB batch
-   gate is closed.
-5. `SCBRowBank` atomically accepts the retained fragments, coalesces them into line entries, and
-   emits `commitFreeMask` only for accepted fragments with `last=1`.
-6. The same acceptance emits one `drainLogicalCompletion` for every distinct
-   logical store. A pair may contribute two STQ rows and four fragments but
-   still completes once.
-7. `STQEntryBank.commitFreeMask` is driven only from
-   `SCBRowBank.commitFreeMask`. `STQCommitDrain.commitFreeMask` is exported as
-   `drainEarlyFreeMask` for debug visibility and is not wired to bank mutation.
+## Timing and Recovery
 
-This preserves the model requirement that committed stores remain resident when
-the SCB path cannot accept them.
+The STQ, CommitQ, serializer, and SCB are registered boundaries. A newly
+committed row is visible to drain launch from the next registered row image.
+The SCB batch gate uses pre-cycle capacity; a same-cycle free does not reopen
+admission in that cycle.
 
-The composition forwards `STQEntryBank.lsuTULinkSource*` unchanged. This keeps
-T/U source ownership with the row bank while exposing the same LSU-side source
-candidate through the full STQ-to-SCB wrapper used by later top-level
-integration.
+Recovery fences new classification, ROB-commit ingress, drain launch, and new
+serialized-batch admission. It prunes speculative `Wait` rows only. Final free
+from an already accepted committed SCB or serialized transaction remains live
+during recovery; suppressing it could lose a one-cycle terminal response and
+leak the committed STQ residency.
 
-## Timing
-
-`STQCommitDrain` observes the registered STQ row image, so a row marked
-`Commit` in the current cycle is enqueued immediately but becomes eligible for
-CommitQ launch from the next visible bank row image. Launch registers one
-fragment batch; SCB admission starts on the following cycle. Older
-already-committed rows can launch in the same cycle that a younger row is
-marked and enqueued.
-
-`SCBRowBank` still uses pre-cycle free count for the model batch gate. A
-same-cycle SCB hit free does not reopen the drain path in that cycle.
-
-## Flush/Recovery
-
-`STQEntryBank` remains the flush-prune state owner. When `flushApplied` is high,
-this composition suppresses drain issue even if SCB capacity is available. That
-keeps the bank's flush-owned cycle from accepting SCB-side free commands that
-the bank is required to ignore.
-
-CommitQ and SCB rows are committed-store state and are not flushed by this
-module. The child CommitQ hard-clear input is tied low; module reset remains
-the architectural abort boundary.
-
-## Trace/Observability
-
-This module exposes enough STQ/drain/SCB masks to become the future memory-event
-trace source, but it does not emit architectural trace rows yet. QEMU
-cross-check evidence remains through the existing ROB/top synthetic trace path
-until the top can retire live memory operations.
-
-`lsuTULinkSource*` is recovery-observability, not a memory-event trace row. It
-is intended to feed `TULinkRecoveryCleanupPath.lsuSource` once the full LSU
-path is composed with recovery cleanup.
+Committed CommitQ, SCB, and accepted serializer state are not flushed by
+ordinary recovery. Reset remains the architectural abort boundary.
 
 ## Verification
 
-- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPathSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQMemoryAttributeOwnerSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommittedStoreSerializerSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQRobCommitIngressSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueueSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrainSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBankSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only OooRobStoreCommitStqIntegrationSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/build_chisel.sh`
-- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer`
-- `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank`
-- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
-- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
-- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
-- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
-- `python3 tools/chisel/trace_schema_adapter.py --self-test`
-- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
-- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
-- `bash tools/chisel/run_chisel_top_xcheck.sh`
-- `bash tools/chisel/run_chisel_verilator_lint.sh`
+- `bash tests/test_microarchitecture_contract.sh`
 
-Focused reference tests cover final `last`-fragment free ownership, SCB
-model-batch backpressure, split-store final free, and concurrent older drain
-plus younger enqueue. Dynamic integration additionally proves that an accepted
-WAIT-to-Commit transition snapshots one exact token and that only SCB-accepted
-last-fragment ownership frees the canonical STQ row. The pair-store IT now
-uses semantic ROB tokens rather than physical indexes and proves two
-cross-line beats become four SCB requests, two physical row frees, and one
-logical completion. `OooRobStoreCommitStqIntegrationSpec` additionally begins
-at the grouped ROB memory-tail batch.
+Focused UT covers class-qualified ROB commit, cacheable SCB routing,
+non-cacheable/MMIO serialization, split and pair stores, request/response
+backpressure, stale responses, recovery overlap, and exact final row release.
+The grouped-ROB integration test starts at the memory-tail batch and supplies a
+retained fake PMA adapter so it cannot bypass the classification contract.
 
-R670 threads one `lsidWidth` parameter through STQ residency, commit queue,
-split drain, and SCB admission. The composition keeps physical STQ/SCB sizing,
-ROB identity sizing, and full LSID ordering as three independent domains.
+## Remaining Integration Gaps
+
+- real DTLB/PMA classification adapter and platform PMA ownership;
+- real uncached/device request-response fabric;
+- precise ROB/platform handling of serialized terminal errors;
+- Device load, atomics, fences, and maintenance ordering;
+- transaction-identity wrap/quiescence proof;
+- canonical static top-level composition and trace integration.

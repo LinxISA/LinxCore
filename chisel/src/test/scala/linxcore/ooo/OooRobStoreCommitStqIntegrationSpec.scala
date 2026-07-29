@@ -72,6 +72,43 @@ private class OooRobStoreCommitStqHarness(val p: OooParams) extends Module {
   path.io.rawRespTxnId := 0.U
   path.io.rawRespWrite := false.B
   path.io.rawRespUpgrade := false.B
+  path.io.serializedRequest.ready := false.B
+  path.io.serializedResponse.valid := false.B
+  path.io.serializedResponse.bits := 0.U.asTypeOf(
+    path.io.serializedResponse.bits)
+
+  // This harness models the translation/PMA result as a one-entry retained
+  // adapter.  Classification follows physical allocation and carries the
+  // exact lease generation plus semantic owner; commit never guesses a memory
+  // class from the opcode or address.
+  val classifyPending = RegInit(false.B)
+  val classifyIndex = Reg(UInt(2.W))
+  val classifyGeneration = Reg(UInt(p.executeSlotGenerationWidth.W))
+  val classifyOwner = Reg(chiselTypeOf(io.insert.exactOwner))
+  val classifyBeat = Reg(UInt(1.W))
+  path.io.memoryClassify.valid := classifyPending
+  path.io.memoryClassify.bits := 0.U.asTypeOf(
+    path.io.memoryClassify.bits)
+  path.io.memoryClassify.bits.lease.valid := classifyPending
+  path.io.memoryClassify.bits.lease.index := classifyIndex
+  path.io.memoryClassify.bits.lease.generation := classifyGeneration
+  path.io.memoryClassify.bits.exactOwner := classifyOwner
+  path.io.memoryClassify.bits.logicalBeat := classifyBeat
+  path.io.memoryClassify.bits.memoryClass := STQMemoryClass.NormalCacheable
+
+  when(path.io.memoryClassify.fire) {
+    classifyPending := false.B
+  }
+  when(path.io.insertAccepted) {
+    assert(!classifyPending || path.io.memoryClassify.fire,
+      "the test PMA adapter must not overwrite an unaccepted classification")
+    classifyPending := true.B
+    classifyIndex := path.io.insertIndex
+    classifyGeneration :=
+      path.io.stqRows(path.io.insertIndex).leaseGeneration + 1.U
+    classifyOwner := io.insert.exactOwner
+    classifyBeat := io.insert.logicalBeat
+  }
 
   io.commitStartReady := owner.io.commitStartReady
   io.insertReady := path.io.insertReady

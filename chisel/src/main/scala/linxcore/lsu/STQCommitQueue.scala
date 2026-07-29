@@ -32,6 +32,7 @@ class STQCommitQueueEntry(
   val logicalFirstStoreId = UInt(lsidWidth.W)
   val logicalRequestCount = UInt(2.W)
   val logicalBeat = UInt(1.W)
+  val memoryClass = STQMemoryClass()
   val exactOwner = new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, log2Ceil(robEntries),
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -85,6 +86,7 @@ class STQCommitQueueIO(
   val enqueueLogicalFirstStoreId = Input(UInt(lsidWidth.W))
   val enqueueLogicalRequestCount = Input(UInt(2.W))
   val enqueueLogicalBeat = Input(UInt(1.W))
+  val enqueueMemoryClass = Input(STQMemoryClass())
   val enqueueExactOwner = Input(new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, log2Ceil(robEntries),
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -210,6 +212,8 @@ class STQCommitQueue(
         (entry.logicalRequestCount === 2.U)) &&
       entry.logicalRequestCount <= issueWidth.U &&
       entry.logicalBeat < entry.logicalRequestCount &&
+      entry.memoryClass =/= STQMemoryClass.Unknown &&
+      entry.memoryClass =/= STQMemoryClass.Fault &&
       entry.lsId === entry.logicalFirstLsid + entry.logicalBeat &&
       entry.storeId === entry.logicalFirstStoreId + entry.logicalBeat
 
@@ -243,6 +247,7 @@ class STQCommitQueue(
     entry.logicalFirstStoreId := io.enqueueLogicalFirstStoreId
     entry.logicalRequestCount := io.enqueueLogicalRequestCount
     entry.logicalBeat := io.enqueueLogicalBeat
+    entry.memoryClass := io.enqueueMemoryClass
     entry.exactOwner := io.enqueueExactOwner
     entry
   }
@@ -281,6 +286,8 @@ class STQCommitQueue(
             !sameLease(queue(slot), queue(other)))) ||
           (sameOwner(queue(slot), queue(other)) && !sameGroup) ||
           (sameGroup && queue(slot).logicalBeat === queue(other).logicalBeat) ||
+          (sameGroup &&
+            queue(slot).memoryClass =/= queue(other).memoryClass) ||
           (sameLogicalKey && !sameGroup) ||
           sameLease(queue(slot), queue(other))
       val storeRelation = serialOlder(
@@ -343,7 +350,26 @@ class STQCommitQueue(
       !stidMalformed(slot) && !hasOlder(slot) && groupReady(slot) &&
       io.issueEnable && !io.flushValid
     groupBase(slot) := selectedCount
+    val selectedBefore = if (slot == 0) false.B else
+      VecInit(groupSelected.take(slot)).asUInt.orR
+    val serializedBefore = if (slot == 0) false.B else
+      (0 until slot).map { earlier =>
+        groupSelected(earlier) &&
+          (queue(earlier).memoryClass === STQMemoryClass.NormalNonCacheable ||
+            queue(earlier).memoryClass === STQMemoryClass.DeviceMmio)
+      }.reduce(_ || _)
+    val serializedCurrent =
+      queue(slot).memoryClass === STQMemoryClass.NormalNonCacheable ||
+        queue(slot).memoryClass === STQMemoryClass.DeviceMmio
+    val selectedClassExact = if (slot == 0) true.B else {
+      val priorClass = Mux1H(
+        VecInit(groupSelected.take(slot)),
+        queue.take(slot).map(_.memoryClass.asUInt))
+      !selectedBefore || priorClass === queue(slot).memoryClass.asUInt
+    }
     groupSelected(slot) := groupEligible(slot) &&
+      !serializedBefore && (!serializedCurrent || !selectedBefore) &&
+      selectedClassExact &&
       selectedCount + queue(slot).logicalRequestCount <= issueWidth.U
     selectedCount = selectedCount + Mux(
       groupSelected(slot), queue(slot).logicalRequestCount, 0.U)
@@ -384,6 +410,8 @@ class STQCommitQueue(
       Mux1H(laneHit, queue.map(_.logicalRequestCount))
     io.issue(lane).logicalBeat :=
       Mux1H(laneHit, queue.map(_.logicalBeat))
+    io.issue(lane).memoryClass := STQMemoryClass.safe(
+      Mux1H(laneHit, queue.map(_.memoryClass.asUInt)))._1
     io.issue(lane).exactOwner := Mux1H(laneHit, queue.map(_.exactOwner))
   }
 

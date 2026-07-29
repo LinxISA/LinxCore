@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Cat, Fill, log2Ceil, PopCount}
+import chisel3.util.{Cat, Fill, Mux1H, PopCount, log2Ceil}
 
 import linxcore.rob.ROBID
 
@@ -16,6 +16,7 @@ class STQCommitDrainRequest(
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   val valid = Bool()
+  val memoryClass = STQMemoryClass()
   val ownsStqRow = Bool()
   val stqIndex = UInt(log2Ceil(entries).W)
   val split = Bool()
@@ -102,6 +103,7 @@ class STQCommitDrainIO(
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
     residentGenerationWidth, leaseGenerationWidth)))
+  val memoryAttributes = Input(Vec(entries, new STQMemoryAttribute))
 
   val commitEligibleMask = Output(UInt(entries.W))
   val splitMask = Output(UInt(entries.W))
@@ -116,6 +118,12 @@ class STQCommitDrainIO(
   val retainedBatchValid = Output(Bool())
   val retainedBatchAccepted = Output(Bool())
   val retainedIdentityError = Output(Bool())
+  val retainedBatchMemoryClass = Output(STQMemoryClass())
+  val retainedBatchSerialized = Output(Bool())
+  val retainedIssue = Output(Vec(issueWidth, new STQCommitIssue(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val logicalCompletions = Output(Vec(issueWidth,
     new STQCommitLogicalCompletion(
@@ -236,6 +244,7 @@ class STQCommitDrain(
     residentGenerationWidth = residentGenerationWidth,
     leaseGenerationWidth = leaseGenerationWidth))
   val enqueueRow = io.rows(io.enqueueIndex)
+  val enqueueAttribute = io.memoryAttributes(io.enqueueIndex)
   val enqueueRowExact = enqueueRow.valid &&
     (enqueueRow.status === STQEntryStatus.Wait ||
       enqueueRow.status === STQEntryStatus.Commit) &&
@@ -254,7 +263,10 @@ class STQCommitDrain(
     enqueueRow.lsIdFull ===
       enqueueRow.logicalFirstLsid + enqueueRow.logicalBeat &&
     enqueueRow.storeIdFull ===
-      enqueueRow.logicalFirstStoreId + enqueueRow.logicalBeat
+      enqueueRow.logicalFirstStoreId + enqueueRow.logicalBeat &&
+    enqueueAttribute.valid &&
+    enqueueAttribute.memoryClass =/= STQMemoryClass.Unknown &&
+    enqueueAttribute.memoryClass =/= STQMemoryClass.Fault
   queue.io.enqueueValid := io.enqueueValid && enqueueRowExact
   queue.io.enqueueIndex := io.enqueueIndex
   queue.io.enqueueLeaseGeneration := enqueueRow.leaseGeneration
@@ -268,6 +280,7 @@ class STQCommitDrain(
   queue.io.enqueueLogicalFirstStoreId := enqueueRow.logicalFirstStoreId
   queue.io.enqueueLogicalRequestCount := enqueueRow.logicalRequestCount
   queue.io.enqueueLogicalBeat := enqueueRow.logicalBeat
+  queue.io.enqueueMemoryClass := enqueueAttribute.memoryClass
   queue.io.enqueueExactOwner := enqueueRow.exactOwner
   queue.io.flushValid := io.flushValid
 
@@ -285,13 +298,16 @@ class STQCommitDrain(
   val readyVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
     val row = io.rows(idx)
+    val attribute = io.memoryAttributes(idx)
     splitVec(idx) := STQCommitDrain.crossesScalarCacheline(row.addr, row.size, lineBytes)
     commitEligibleVec(idx) :=
       row.valid &&
         (row.status === STQEntryStatus.Commit) &&
         (row.storeType === STQStoreType.All) &&
         row.addrReady &&
-        row.dataReady
+        row.dataReady && attribute.valid &&
+        attribute.memoryClass =/= STQMemoryClass.Unknown &&
+        attribute.memoryClass =/= STQMemoryClass.Fault
     readyVec(idx) :=
       commitEligibleVec(idx) &&
         Mux(splitVec(idx), io.primaryReadyMask(idx) && io.secondaryReadyMask(idx), io.primaryReadyMask(idx))
@@ -314,6 +330,8 @@ class STQCommitDrain(
         row.logicalFirstStoreId === token.logicalFirstStoreId &&
         row.logicalRequestCount === token.logicalRequestCount &&
         row.logicalBeat === token.logicalBeat &&
+        io.memoryAttributes(token.stqIndex).valid &&
+        io.memoryAttributes(token.stqIndex).memoryClass === token.memoryClass &&
         row.exactOwner.asUInt === token.exactOwner.asUInt)
     queuedTokenReady(slot) := token.valid && queuedTokenExact(slot) &&
       commitEligibleVec(token.stqIndex)
@@ -368,6 +386,7 @@ class STQCommitDrain(
     val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
     firstReq := zeroReq
     firstReq.valid := issue.valid
+    firstReq.memoryClass := issue.memoryClass
     firstReq.ownsStqRow := issue.valid && !crosses
     firstReq.stqIndex := issue.stqIndex
     firstReq.split := crosses
@@ -385,6 +404,7 @@ class STQCommitDrain(
     val secondReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
     secondReq := zeroReq
     secondReq.valid := issue.valid && crosses
+    secondReq.memoryClass := issue.memoryClass
     secondReq.ownsStqRow := issue.valid && crosses
     secondReq.stqIndex := issue.stqIndex
     secondReq.split := crosses
@@ -421,6 +441,7 @@ class STQCommitDrain(
   for (lane <- 0 until issueWidth) {
     val issue = retainedIssues(lane)
     val row = io.rows(issue.stqIndex)
+    val attribute = io.memoryAttributes(issue.stqIndex)
     retainedExact(lane) := !issue.valid || (
       row.valid && row.status === STQEntryStatus.Commit &&
         row.storeType === STQStoreType.All && row.addrReady && row.dataReady &&
@@ -433,6 +454,7 @@ class STQCommitDrain(
         row.logicalFirstStoreId === issue.logicalFirstStoreId &&
         row.logicalRequestCount === issue.logicalRequestCount &&
         row.logicalBeat === issue.logicalBeat &&
+        attribute.valid && attribute.memoryClass === issue.memoryClass &&
         row.exactOwner.asUInt === issue.exactOwner.asUInt)
     val crosses = retainedReqs(lane * 2 + 1).valid
     retainedReady(lane) := !issue.valid || (
@@ -460,6 +482,16 @@ class STQCommitDrain(
   io.retainedBatchValid := retainedBatchValid
   io.retainedBatchAccepted := retainedBatchAccepted
   io.retainedIdentityError := retainedIdentityError
+  val retainedClassValid = VecInit(retainedIssues.map(_.valid)).asUInt.orR
+  val retainedClass = STQMemoryClass.safe(Mux1H(
+    VecInit(retainedIssues.map(_.valid)),
+    retainedIssues.map(_.memoryClass.asUInt)))._1
+  io.retainedBatchMemoryClass := Mux(retainedClassValid,
+    retainedClass, STQMemoryClass.Unknown)
+  io.retainedBatchSerialized := retainedClassValid &&
+    (retainedClass === STQMemoryClass.NormalNonCacheable ||
+      retainedClass === STQMemoryClass.DeviceMmio)
+  io.retainedIssue := retainedIssues
   for (reqIdx <- 0 until issueWidth * 2) {
     io.memReqs(reqIdx) := retainedReqs(reqIdx)
     io.memReqs(reqIdx).valid := retainedBatchValid &&
@@ -474,7 +506,8 @@ class STQCommitDrain(
     }
     val isLeader = retainedIssues(lane).valid &&
       !(if (earlierSame.isEmpty) false.B else earlierSame.reduce(_ || _))
-    logicalCompletionValid(lane) := retainedBatchAccepted && isLeader
+    logicalCompletionValid(lane) := retainedBatchAccepted && isLeader &&
+      retainedClass === STQMemoryClass.NormalCacheable
     io.logicalCompletions(lane) := zeroLogicalCompletion
     io.logicalCompletions(lane).valid := logicalCompletionValid(lane)
     io.logicalCompletions(lane).stid := retainedIssues(lane).stid
@@ -499,6 +532,7 @@ class STQCommitDrain(
   val commitFreeVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
     commitFreeVec(idx) := retainedBatchAccepted &&
+      retainedClass === STQMemoryClass.NormalCacheable &&
       retainedIssues.map(issue =>
         issue.valid && issue.stqIndex === idx.U).reduce(_ || _)
   }

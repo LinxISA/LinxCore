@@ -61,6 +61,7 @@ class STQRobCommitIngressIO(
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
     residentGenerationWidth, leaseGenerationWidth)))
+  val memoryAttributes = Input(Vec(entries, new STQMemoryAttribute))
   val recoveryActive = Input(Bool())
   val drainEnqueueReady = Input(Bool())
 
@@ -70,6 +71,8 @@ class STQRobCommitIngressIO(
   val missing = Output(Bool())
   val multiple = Output(Bool())
   val notReady = Output(Bool())
+  val classificationMissing = Output(Bool())
+  val classificationFault = Output(Bool())
 }
 
 /** Exact ROB-token to physical-STQ ingress.
@@ -119,9 +122,11 @@ class STQRobCommitIngress(
   val fullStoreId = token.logicalFirstStoreId + token.logicalBeat
 
   val identityMatch = Wire(Vec(entries, Bool()))
+  val physicalReadyMatch = Wire(Vec(entries, Bool()))
   val readyMatch = Wire(Vec(entries, Bool()))
   for (index <- 0 until entries) {
     val row = io.rows(index)
+    val attribute = io.memoryAttributes(index)
     identityMatch(index) := tokenShapeExact && row.valid &&
       row.exactOwner.valid &&
       row.exactOwner.asUInt === token.exactOwner.asUInt &&
@@ -134,12 +139,16 @@ class STQRobCommitIngress(
       row.logicalBeat === token.logicalBeat &&
       row.lsIdFull === fullLsid && row.storeIdFullValid &&
       row.storeIdFull === fullStoreId
-    readyMatch(index) := identityMatch(index) &&
+    physicalReadyMatch(index) := identityMatch(index) &&
       row.status === STQEntryStatus.Wait &&
       row.storeType === STQStoreType.All && row.addrReady && row.dataReady
+    readyMatch(index) := physicalReadyMatch(index) && attribute.valid &&
+      attribute.memoryClass =/= STQMemoryClass.Unknown &&
+      attribute.memoryClass =/= STQMemoryClass.Fault
   }
 
   val identityCount = PopCount(identityMatch)
+  val physicalReadyCount = PopCount(physicalReadyMatch)
   val readyCount = PopCount(readyMatch)
   val uniqueReady = identityCount === 1.U && readyCount === 1.U
   val selectedIndex = PriorityEncoder(readyMatch.asUInt)
@@ -154,6 +163,19 @@ class STQRobCommitIngress(
   io.multiple := io.commit.valid && identityCount > 1.U
   io.notReady := io.commit.valid && identityCount === 1.U &&
     (readyCount =/= 1.U || io.recoveryActive || !io.drainEnqueueReady)
+  io.classificationMissing := io.commit.valid && identityCount === 1.U &&
+    physicalReadyCount === 1.U &&
+    (0 until entries).map { index =>
+      physicalReadyMatch(index) &&
+        (!io.memoryAttributes(index).valid ||
+          io.memoryAttributes(index).memoryClass === STQMemoryClass.Unknown)
+    }.reduce(_ || _)
+  io.classificationFault := io.commit.valid && identityCount === 1.U &&
+    physicalReadyCount === 1.U &&
+    (0 until entries).map { index =>
+      physicalReadyMatch(index) && io.memoryAttributes(index).valid &&
+        io.memoryAttributes(index).memoryClass === STQMemoryClass.Fault
+    }.reduce(_ || _)
 
   when(io.commit.fire) {
     assert(io.markValid,

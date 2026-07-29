@@ -221,6 +221,8 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
       stidWidth = 2,
       lsidWidth = 40)) { dut =>
       dut.io.rows.foreach(row => row.poke(0.U.asTypeOf(row)))
+      dut.io.memoryAttributes.foreach(attribute =>
+        attribute.poke(0.U.asTypeOf(attribute)))
       dut.io.enqueueValid.poke(false.B)
       dut.io.enqueueIndex.poke(0.U)
       dut.io.enqueueBid.poke(0.U.asTypeOf(dut.io.enqueueBid))
@@ -262,6 +264,9 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
       row.exactOwner.ridGeneration.poke(3.U)
       row.exactOwner.memberIndex.poke(0.U)
       row.exactOwner.residentGeneration.poke(4.U)
+      dut.io.memoryAttributes(1).valid.poke(true.B)
+      dut.io.memoryAttributes(1).memoryClass.poke(
+        STQMemoryClass.NormalCacheable)
 
       dut.io.enqueueValid.poke(true.B)
       dut.io.enqueueIndex.poke(1.U)
@@ -333,6 +338,8 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
       stidWidth = 2,
       lsidWidth = 40)) { dut =>
       dut.io.rows.foreach(row => row.poke(0.U.asTypeOf(row)))
+      dut.io.memoryAttributes.foreach(attribute =>
+        attribute.poke(0.U.asTypeOf(attribute)))
       dut.io.enqueueValid.poke(false.B)
       dut.io.enqueueIndex.poke(0.U)
       dut.io.enqueueBid.poke(0.U.asTypeOf(dut.io.enqueueBid))
@@ -391,6 +398,11 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
         dut.io.rows(1), beat = 1, lsid = 11, storeId = 21,
         leaseGeneration = 6, addr = 0x107e,
         data = BigInt("99aabbccddeeff00", 16))
+      for (index <- 0 until 2) {
+        dut.io.memoryAttributes(index).valid.poke(true.B)
+        dut.io.memoryAttributes(index).memoryClass.poke(
+          STQMemoryClass.NormalCacheable)
+      }
 
       def enqueueRow(index: Int, lsid: Int): Unit = {
         dut.io.enqueueValid.poke(true.B)
