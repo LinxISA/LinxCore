@@ -280,14 +280,38 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
 
       row.leaseGeneration.poke(7.U)
       dut.io.queuedIdentityError.expect(false.B)
+      dut.io.primaryReadyMask.poke(0.U)
+      dut.io.secondaryReadyMask.poke(0.U)
       dut.io.issue(0).valid.expect(true.B)
       dut.io.issue(0).leaseGeneration.expect(7.U)
+      dut.clock.step()
+
+      dut.io.retainedBatchValid.expect(true.B)
+      dut.io.retainedBatchAccepted.expect(false.B)
       dut.io.memReqs(0).valid.expect(true.B)
       dut.io.memReqs(0).last.expect(false.B)
       dut.io.memReqs(0).ownsStqRow.expect(false.B)
       dut.io.memReqs(1).valid.expect(true.B)
       dut.io.memReqs(1).last.expect(true.B)
       dut.io.memReqs(1).ownsStqRow.expect(true.B)
+      val firstAddr = dut.io.memReqs(0).addr.peek().litValue
+      val firstData = dut.io.memReqs(0).data.peek().litValue
+      dut.clock.step(2)
+      dut.io.memReqs(0).valid.expect(true.B)
+      dut.io.memReqs(0).addr.expect(firstAddr.U)
+      dut.io.memReqs(0).data.expect(firstData.U)
+      dut.io.commitFreeMaskValid.expect(false.B)
+
+      dut.io.primaryReadyMask.poke("b0010".U)
+      dut.io.secondaryReadyMask.poke("b0010".U)
+      dut.io.issueEnable.poke(false.B)
+      dut.io.memReqs(0).valid.expect(false.B)
+      dut.io.retainedBatchAccepted.expect(false.B)
+      dut.io.commitFreeMaskValid.expect(false.B)
+
+      dut.io.issueEnable.poke(true.B)
+      dut.io.memReqs(0).valid.expect(true.B)
+      dut.io.retainedBatchAccepted.expect(true.B)
       dut.io.commitFreeMask.expect("b0010".U)
     }
   }

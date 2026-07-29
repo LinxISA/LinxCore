@@ -94,14 +94,14 @@ The Chisel composition maps that behavior into registered owner boundaries:
 
 1. `STQEntryBank.markCommitAccepted` enqueues the current row identity into
    `STQCommitDrain`.
-2. `SCBRowBank.modelBatchReady` gates the drain issue path. If the row bank has
-   fewer free rows than the worst-case split request batch, the drain queue does
-   not issue or compact.
+2. CommitQ launches an exact token batch into the drain's retained fragment
+   owner without depending on `SCBRowBank.modelBatchReady`.
 3. `STQEntryBank.flushApplied` suppresses drain issue for the bank-owned
    recovery cycle, but does not clear committed/non-flush drain tokens.
-4. `STQCommitDrain` shapes selected committed rows into one or two
-   `STQCommitDrainRequest` fragments.
-5. `SCBRowBank` accepts those fragments, coalesces them into line entries, and
+4. `STQCommitDrain` shapes selected committed rows into one or two retained
+   `STQCommitDrainRequest` fragments and holds them stable while the SCB batch
+   gate is closed.
+5. `SCBRowBank` atomically accepts the retained fragments, coalesces them into line entries, and
    emits `commitFreeMask` only for accepted fragments with `last=1`.
 6. `STQEntryBank.commitFreeMask` is driven only from
    `SCBRowBank.commitFreeMask`. `STQCommitDrain.commitFreeMask` is exported as
@@ -119,8 +119,10 @@ integration.
 
 `STQCommitDrain` observes the registered STQ row image, so a row marked
 `Commit` in the current cycle is enqueued immediately but becomes eligible for
-issue from the next visible bank row image. Older already-committed rows can
-issue in the same cycle that a younger row is marked and enqueued.
+CommitQ launch from the next visible bank row image. Launch registers one
+fragment batch; SCB admission starts on the following cycle. Older
+already-committed rows can launch in the same cycle that a younger row is
+marked and enqueued.
 
 `SCBRowBank` still uses pre-cycle free count for the model batch gate. A
 same-cycle SCB hit free does not reopen the drain path in that cycle.

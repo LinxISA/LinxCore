@@ -74,6 +74,9 @@ class STQCommitDrainIO(
   val issue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
   val issueValidMask = Output(UInt(issueWidth.W))
   val issueCount = Output(UInt(freeCountWidth.W))
+  val retainedBatchValid = Output(Bool())
+  val retainedBatchAccepted = Output(Bool())
+  val retainedIdentityError = Output(Bool())
   val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
 
   val commitFreeMaskValid = Output(Bool())
@@ -172,7 +175,13 @@ class STQCommitDrain(
   queue.io.enqueueStoreId := enqueueRow.storeIdFull
   queue.io.enqueueExactOwner := enqueueRow.exactOwner
   queue.io.flushValid := io.flushValid
-  queue.io.issueEnable := io.issueEnable
+
+  val retainedBatchValid = RegInit(false.B)
+  val retainedIssues = Reg(Vec(issueWidth, new STQCommitIssue(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth)))
+  val retainedReqs = Reg(Vec(issueWidth * 2, new STQCommitDrainRequest(
+    entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
+  queue.io.issueEnable := io.issueEnable && !retainedBatchValid
 
   val commitEligibleVec = Wire(Vec(entries, Bool()))
   val splitVec = Wire(Vec(entries, Bool()))
@@ -205,7 +214,7 @@ class STQCommitDrain(
         token.storeIdValid && row.storeIdFull === token.storeId &&
         row.exactOwner.asUInt === token.exactOwner.asUInt)
     queuedTokenReady(slot) := token.valid && queuedTokenExact(slot) &&
-      readyVec(token.stqIndex)
+      commitEligibleVec(token.stqIndex)
   }
   queue.io.readyMask := queuedTokenReady.asUInt
 
@@ -224,23 +233,17 @@ class STQCommitDrain(
   io.queued := queue.io.queued
   io.queuedValidMask := queue.io.queuedValidMask
   io.queueCount := queue.io.queueCount
-  io.empty := queue.io.empty
+  io.empty := queue.io.empty && !retainedBatchValid
   io.full := queue.io.full
   io.orderError := queue.io.orderError
   io.queuedIdentityError := VecInit((0 until queueEntries).map { slot =>
     queue.io.queued(slot).valid && !queuedTokenExact(slot)
   }).asUInt.orR
 
-  val commitFreeVec = Wire(Vec(entries, Bool()))
-  for (idx <- 0 until entries) {
-    commitFreeVec(idx) := queue.io.issue.map(issue => issue.valid && (issue.stqIndex === idx.U)).reduce(_ || _)
-  }
-  io.commitFreeMask := commitFreeVec.asUInt
-  io.commitFreeMaskValid := commitFreeVec.asUInt.orR
-  io.commitFreeCount := PopCount(commitFreeVec)(freeCountWidth - 1, 0)
-
+  val launchReqs = Wire(Vec(issueWidth * 2, new STQCommitDrainRequest(
+    entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   for (reqIdx <- 0 until issueWidth * 2) {
-    io.memReqs(reqIdx) := zeroReq
+    launchReqs(reqIdx) := zeroReq
   }
 
   for (lane <- 0 until issueWidth) {
@@ -294,8 +297,8 @@ class STQCommitDrain(
     secondReq.rid := row.rid
     secondReq.lsId := issue.lsId
 
-    io.memReqs(lane * 2) := firstReq
-    io.memReqs(lane * 2 + 1) := secondReq
+    launchReqs(lane * 2) := firstReq
+    launchReqs(lane * 2 + 1) := secondReq
 
     when(issue.valid) {
       assert(row.leaseGeneration === issue.leaseGeneration &&
@@ -305,4 +308,61 @@ class STQCommitDrain(
         "a committed store may drain only through its exact live STQ lease")
     }
   }
+
+  val retainedExact = Wire(Vec(issueWidth, Bool()))
+  val retainedReady = Wire(Vec(issueWidth, Bool()))
+  for (lane <- 0 until issueWidth) {
+    val issue = retainedIssues(lane)
+    val row = io.rows(issue.stqIndex)
+    retainedExact(lane) := !issue.valid || (
+      row.valid && row.status === STQEntryStatus.Commit &&
+        row.storeType === STQStoreType.All && row.addrReady && row.dataReady &&
+        row.leaseGeneration === issue.leaseGeneration &&
+        row.stid === issue.stid && ROBID.equal(row.bid, issue.bid) &&
+        row.lsIdFull === issue.lsId && row.storeIdFullValid &&
+        issue.storeIdValid && row.storeIdFull === issue.storeId &&
+        row.exactOwner.asUInt === issue.exactOwner.asUInt)
+    val crosses = retainedReqs(lane * 2 + 1).valid
+    retainedReady(lane) := !issue.valid || (
+      io.primaryReadyMask(issue.stqIndex) &&
+        (!crosses || io.secondaryReadyMask(issue.stqIndex)))
+  }
+  val retainedIdentityError = retainedBatchValid &&
+    VecInit((0 until issueWidth).map { lane =>
+      retainedIssues(lane).valid && !retainedExact(lane)
+    }).asUInt.orR
+  val retainedBatchAccepted = retainedBatchValid && io.issueEnable &&
+    !io.flushValid && !retainedIdentityError && retainedReady.asUInt.andR
+  val launchAccepted = queue.io.issueValidMask.orR
+
+  when(io.flushValid) {
+    retainedBatchValid := false.B
+  }.elsewhen(retainedBatchAccepted) {
+    retainedBatchValid := false.B
+  }.elsewhen(launchAccepted) {
+    retainedBatchValid := true.B
+    retainedIssues := queue.io.issue
+    retainedReqs := launchReqs
+  }
+
+  io.retainedBatchValid := retainedBatchValid
+  io.retainedBatchAccepted := retainedBatchAccepted
+  io.retainedIdentityError := retainedIdentityError
+  for (reqIdx <- 0 until issueWidth * 2) {
+    io.memReqs(reqIdx) := retainedReqs(reqIdx)
+    io.memReqs(reqIdx).valid := retainedBatchValid &&
+      io.issueEnable && !io.flushValid && !retainedIdentityError &&
+      retainedReqs(reqIdx).valid
+  }
+
+  val commitFreeVec = Wire(Vec(entries, Bool()))
+  for (idx <- 0 until entries) {
+    commitFreeVec(idx) := retainedBatchAccepted &&
+      retainedIssues.map(issue =>
+        issue.valid && issue.stqIndex === idx.U).reduce(_ || _)
+  }
+  io.commitFreeMask := commitFreeVec.asUInt
+  io.commitFreeMaskValid := commitFreeVec.asUInt.orR
+  io.commitFreeCount := PopCount(commitFreeVec)(freeCountWidth - 1, 0)
+
 }

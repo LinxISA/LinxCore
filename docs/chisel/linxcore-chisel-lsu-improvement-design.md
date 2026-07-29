@@ -546,6 +546,21 @@ ownership。I0.9l 尚未完成 retained fragment状态：当前 queue issue仍�
 为组合资格，下一包需要让 token/fragment在下游回压期间稳定保持，并把 pair store的
 最多四个 fragment归一到一个 logical completion token。
 
+### 8.9 I0.9m 已实现：retained fragment batch owner
+
+CommitQ launch 已与 SCB ready 解耦。`STQCommitDrain` 在 exact token launch 时把
+issue token和一/两个 shaped fragment注册到单一 retained batch；SCB关闭时
+`valid/addr/data/size/identity/ownsStqRow`跨周期保持不变，CommitQ中的更年轻 token
+也不会越过该 owner。只有所有必需 segment credit都满足时 batch才 accepted并清除，
+acceptance-derived diagnostic free与SCB accepted last-fragment free在同一事务上对齐。
+
+retained期间继续逐拍对 canonical Commit row做 exact owner、lease generation、full
+LSID/store-ID检查；任何意外 slot变化都抑制 fragment并报告
+`retainedIdentityError`。动态 UT在SCB连续回压下保持两个周期并比较地址/数据稳定，
+随后开放 credit验证 accepted/free；STQ→SCB IT验证新增 launch→retained→accept一拍
+边界。仍未完成的是把 pair store的两个 STQ beat与最多四 fragment归一到一个 logical
+completion token，以及 MMIO serializer和 exact ROB commit ingress。
+
 ## 9. Store Coalescing Buffer（SCB）
 
 ### 9.1 当前实现

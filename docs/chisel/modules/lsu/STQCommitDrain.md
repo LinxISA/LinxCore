@@ -4,7 +4,8 @@
 
 `STQCommitDrain` joins exact committed tokens with the canonical STQ row,
 applies downstream segment credit, and shapes one or two 64-byte-line
-fragments. It does not copy STQ data into another resident queue.
+fragments. It retains an immutable request snapshot under backpressure, but
+does not create a second mutable STQ-row owner.
 
 Sources and tests:
 
@@ -36,10 +37,19 @@ A store that stays within one 64-byte line emits one request with `last=1` and
 - segment 0 carries the first-line bytes with `last=0`, `ownsStqRow=0`;
 - segment 1 carries the remainder with `last=1`, `ownsStqRow=1`.
 
-Both segment credits are required before the queue token issues. In
-`STQSCBCommitPath`, only an accepted request with `ownsStqRow`/`last` can
-generate the canonical STQ free mask. The drain's issue-derived free mask is
-diagnostic and is not wired to STQ mutation.
+CommitQ launch is independent of downstream segment credit. The selected exact
+tokens and shaped fragments move into one retained batch; `valid`, address,
+data, size, identity, and ownership remain stable until all required segment
+credits are present. In `STQSCBCommitPath`, only an accepted request with
+`ownsStqRow`/`last` can generate the canonical STQ free mask. The drain's
+acceptance-derived free mask is diagnostic and is not wired to STQ mutation.
+
+`retainedBatchValid`, `retainedBatchAccepted`, and
+`retainedIdentityError` expose this owner. The owner revalidates every retained
+token against the canonical Commit row while stalled; an unexpected row/lease
+change suppresses requests and fails closed. Deasserting `issueEnable` also
+suppresses external request valid without clearing or changing the retained
+payload, so a paused drain cannot be consumed by SCB accidentally.
 
 ## Ordering and recovery
 
@@ -57,14 +67,13 @@ bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPathSpec
 bash tools/chisel/build_chisel.sh
 ```
 
-Dynamic tests cover stale lease rejection and last-fragment-only ownership.
+Dynamic tests cover stale lease rejection, multi-cycle fragment stability,
+accepted-batch release, and last-fragment-only ownership.
 Reference tests cover single/split shaping, same-STID blocking, peer bypass,
 downstream gating, and independent STQ/ROB/full-serial widths.
 
 ## Remaining gaps
 
-- Retain the selected token and fragments independently of downstream ready,
-  rather than qualifying queue issue combinationally with batch credit.
 - Group pair-store/cross-line fragments under one logical completion token.
 - Route MMIO stores to the serializer instead of SCB.
 - Replace compatibility `commitFreeMask` observability after static-top
