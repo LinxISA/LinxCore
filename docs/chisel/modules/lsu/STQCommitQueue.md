@@ -19,6 +19,7 @@ Every entry retains:
 - physical STQ index plus lease generation;
 - explicit STID and legacy BID observability;
 - full LSID and valid full store ID;
+- logical-store first LSID/first store ID, request count, and beat ordinal;
 - generation-qualified `STQExactOwner`.
 
 A physical index alone never authorizes issue. Duplicate live leases or a
@@ -27,15 +28,24 @@ are malformed and fail closed.
 
 ## Per-STID issue frontier
 
-For each resident token, the queue checks every same-STID peer with modular
-full-store-ID comparison. A token is issue-eligible only when no older token
-exists in that STID. Full LSID must give the same relative ordering. Therefore:
+For each resident logical group, the queue checks every same-STID peer with
+modular first-store-ID comparison. The first full LSID must give the same
+relative ordering. A scalar group contains beat 0 only; a pair group is
+eligible only when exact beats 0 and 1 are both resident and every beat has a
+revalidated ready bit. Therefore:
 
 - a ready younger store cannot bypass an older stalled same-STID store;
-- one oldest token per STID may issue in a cycle;
+- the complete oldest logical store issues atomically as one or two tokens;
 - peer STIDs may bypass and use other issue lanes;
-- duplicate serial ownership or SID/LSID order drift blocks the affected
-  STID and raises `orderError`.
+- an incomplete pair blocks younger same-STID stores but not peer STIDs;
+- duplicate/missing beats, conflicting logical owner metadata, duplicate
+  serial ownership, or first-SID/first-LSID order drift blocks the affected
+  STID and raises `orderError` where the state is malformed.
+
+Issue packing operates on logical groups, not individual queue slots. Pair
+beats may be physically separated by a peer-STID token; once selected they
+still occupy adjacent output lanes in beat order, so no half-pair can leave
+the queue.
 
 `readyMask` is indexed by CommitQ slot, not STQ index. `STQCommitDrain`
 asserts a slot only after revalidating the token against the current canonical
@@ -59,13 +69,14 @@ bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPathSpec
 bash tools/chisel/build_chisel.sh
 ```
 
-Dynamic tests cover same-STID blocking, peer bypass, modular wrap ordering,
+Dynamic tests cover same-STID blocking, incomplete-pair peer bypass, atomic
+pair issue with physically interleaved tokens, modular wrap ordering,
 malformed/duplicate rejection, exact widths, and explicit architectural abort.
 
 ## Remaining gaps
 
 - Replace the physical-index mark-commit command with a ROB-originated exact
   commit token at the static top.
-- Add retained multi-fragment drain state and MMIO classification.
+- Add MMIO classification and serializer routing.
 - Define full-serial quiescence before half-range ambiguity.
 - Close default geometry timing and workload gates.

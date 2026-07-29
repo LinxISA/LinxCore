@@ -27,6 +27,11 @@ class STQCommitQueueEntry(
   val lsId = UInt(lsidWidth.W)
   val storeIdValid = Bool()
   val storeId = UInt(lsidWidth.W)
+  val logicalStoreValid = Bool()
+  val logicalFirstLsid = UInt(lsidWidth.W)
+  val logicalFirstStoreId = UInt(lsidWidth.W)
+  val logicalRequestCount = UInt(2.W)
+  val logicalBeat = UInt(1.W)
   val exactOwner = new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, log2Ceil(robEntries),
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -75,6 +80,11 @@ class STQCommitQueueIO(
   val enqueueLsId = Input(UInt(lsidWidth.W))
   val enqueueStoreIdValid = Input(Bool())
   val enqueueStoreId = Input(UInt(lsidWidth.W))
+  val enqueueLogicalStoreValid = Input(Bool())
+  val enqueueLogicalFirstLsid = Input(UInt(lsidWidth.W))
+  val enqueueLogicalFirstStoreId = Input(UInt(lsidWidth.W))
+  val enqueueLogicalRequestCount = Input(UInt(2.W))
+  val enqueueLogicalBeat = Input(UInt(1.W))
   val enqueueExactOwner = Input(new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, log2Ceil(robEntries),
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -195,10 +205,23 @@ class STQCommitQueue(
   private def shapeExact(entry: Entry): Bool =
     entry.valid && entry.bid.valid && entry.storeIdValid &&
       entry.exactOwner.valid && entry.exactOwner.nativeBidValid &&
-      entry.exactOwner.stid === entry.stid
+      entry.exactOwner.stid === entry.stid && entry.logicalStoreValid &&
+      ((entry.logicalRequestCount === 1.U) ||
+        (entry.logicalRequestCount === 2.U)) &&
+      entry.logicalRequestCount <= issueWidth.U &&
+      entry.logicalBeat < entry.logicalRequestCount &&
+      entry.lsId === entry.logicalFirstLsid + entry.logicalBeat &&
+      entry.storeId === entry.logicalFirstStoreId + entry.logicalBeat
 
   private def sameOwner(left: Entry, right: Entry): Bool =
     left.exactOwner.asUInt === right.exactOwner.asUInt
+
+  private def sameLogical(left: Entry, right: Entry): Bool =
+    sameOwner(left, right) && left.stid === right.stid &&
+      left.logicalStoreValid && right.logicalStoreValid &&
+      left.logicalFirstLsid === right.logicalFirstLsid &&
+      left.logicalFirstStoreId === right.logicalFirstStoreId &&
+      left.logicalRequestCount === right.logicalRequestCount
 
   private def sameLease(left: Entry, right: Entry): Bool =
     left.stqIndex === right.stqIndex &&
@@ -215,6 +238,11 @@ class STQCommitQueue(
     entry.lsId := io.enqueueLsId
     entry.storeIdValid := io.enqueueStoreIdValid
     entry.storeId := io.enqueueStoreId
+    entry.logicalStoreValid := io.enqueueLogicalStoreValid
+    entry.logicalFirstLsid := io.enqueueLogicalFirstLsid
+    entry.logicalFirstStoreId := io.enqueueLogicalFirstStoreId
+    entry.logicalRequestCount := io.enqueueLogicalRequestCount
+    entry.logicalBeat := io.enqueueLogicalBeat
     entry.exactOwner := io.enqueueExactOwner
     entry
   }
@@ -234,19 +262,36 @@ class STQCommitQueue(
   val entryExact = Wire(Vec(queueEntries, Bool()))
   val stidMalformed = Wire(Vec(queueEntries, Bool()))
   val hasOlder = Wire(Vec(queueEntries, Bool()))
+  val groupLeader = Wire(Vec(queueEntries, Bool()))
+  val groupComplete = Wire(Vec(queueEntries, Bool()))
+  val groupReady = Wire(Vec(queueEntries, Bool()))
   for (slot <- 0 until queueEntries) {
     entryExact(slot) := !queue(slot).valid || shapeExact(queue(slot))
     val peerErrors = (0 until queueEntries).filter(_ != slot).map { other =>
       val sameStid = queue(slot).valid && queue(other).valid &&
         queue(slot).stid === queue(other).stid
       val sameStoreId = queue(slot).storeId === queue(other).storeId
-      val ownerCollision = sameStoreId &&
-        (!sameOwner(queue(slot), queue(other)) ||
-          !sameLease(queue(slot), queue(other)))
-      val storeRelation = serialOlder(queue(other).storeId, queue(slot).storeId)
-      val lsidRelation = serialOlder(queue(other).lsId, queue(slot).lsId)
+      val sameGroup = sameLogical(queue(slot), queue(other))
+      val sameLogicalKey =
+        queue(slot).logicalFirstStoreId === queue(other).logicalFirstStoreId ||
+          queue(slot).logicalFirstLsid === queue(other).logicalFirstLsid
+      val ownerCollision =
+        (sameStoreId &&
+          (!sameOwner(queue(slot), queue(other)) ||
+            !sameLease(queue(slot), queue(other)))) ||
+          (sameOwner(queue(slot), queue(other)) && !sameGroup) ||
+          (sameGroup && queue(slot).logicalBeat === queue(other).logicalBeat) ||
+          (sameLogicalKey && !sameGroup) ||
+          sameLease(queue(slot), queue(other))
+      val storeRelation = serialOlder(
+        queue(other).logicalFirstStoreId,
+        queue(slot).logicalFirstStoreId)
+      val lsidRelation = serialOlder(
+        queue(other).logicalFirstLsid,
+        queue(slot).logicalFirstLsid)
       sameStid && ((!entryExact(other)) || ownerCollision ||
-        (!sameStoreId && (storeRelation =/= lsidRelation)))
+        (!sameGroup && !sameLogicalKey &&
+          (storeRelation =/= lsidRelation)))
     }
     val malformedPeer = if (peerErrors.isEmpty) false.B else peerErrors.reduce(_ || _)
     stidMalformed(slot) := queue(slot).valid &&
@@ -254,27 +299,69 @@ class STQCommitQueue(
     val olderPeers = (0 until queueEntries).filter(_ != slot).map { other =>
       queue(slot).valid && queue(other).valid && entryExact(slot) &&
         entryExact(other) && queue(slot).stid === queue(other).stid &&
-        serialOlder(queue(other).storeId, queue(slot).storeId)
+        !sameLogical(queue(slot), queue(other)) &&
+        serialOlder(
+          queue(other).logicalFirstStoreId,
+          queue(slot).logicalFirstStoreId)
     }
     hasOlder(slot) := (if (olderPeers.isEmpty) false.B
       else olderPeers.reduce(_ || _))
+    val earlierSameGroup = (0 until slot).map { other =>
+      queue(other).valid && sameLogical(queue(slot), queue(other))
+    }
+    groupLeader(slot) := queue(slot).valid &&
+      !(if (earlierSameGroup.isEmpty) false.B
+        else earlierSameGroup.reduce(_ || _))
+    val groupMembers = (0 until queueEntries).map { other =>
+      queue(other).valid && sameLogical(queue(slot), queue(other))
+    }
+    val beatZeroPresent = (0 until queueEntries).map { other =>
+      groupMembers(other) && queue(other).logicalBeat === 0.U
+    }.reduce(_ || _)
+    val beatOnePresent = (0 until queueEntries).map { other =>
+      groupMembers(other) && queue(other).logicalBeat === 1.U
+    }.reduce(_ || _)
+    val memberCount = PopCount(groupMembers)
+    groupComplete(slot) := queue(slot).valid &&
+      memberCount === queue(slot).logicalRequestCount &&
+      beatZeroPresent &&
+      Mux(queue(slot).logicalRequestCount === 2.U,
+        beatOnePresent, !beatOnePresent)
+    groupReady(slot) := groupComplete(slot) &&
+      (0 until queueEntries).map { other =>
+        !groupMembers(other) || io.readyMask(other)
+      }.reduce(_ && _)
   }
 
-  val readyVec = Wire(Vec(queueEntries, Bool()))
-  val readyRank = Wire(Vec(queueEntries, UInt(countWidth.W)))
+  val groupEligible = Wire(Vec(queueEntries, Bool()))
+  val groupSelected = Wire(Vec(queueEntries, Bool()))
+  val groupBase = Wire(Vec(queueEntries, UInt(countWidth.W)))
   val issueSelected = Wire(Vec(queueEntries, Bool()))
+  var selectedCount = 0.U(countWidth.W)
   for (slot <- 0 until queueEntries) {
-    readyVec(slot) := queue(slot).valid && entryExact(slot) &&
-      !stidMalformed(slot) && !hasOlder(slot) && io.issueEnable &&
-      !io.flushValid && io.readyMask(slot)
-    readyRank(slot) := (if (slot == 0) 0.U
-      else PopCount((0 until slot).map(readyVec(_))))
-    issueSelected(slot) := readyVec(slot) && readyRank(slot) < issueWidth.U
+    groupEligible(slot) := groupLeader(slot) && entryExact(slot) &&
+      !stidMalformed(slot) && !hasOlder(slot) && groupReady(slot) &&
+      io.issueEnable && !io.flushValid
+    groupBase(slot) := selectedCount
+    groupSelected(slot) := groupEligible(slot) &&
+      selectedCount + queue(slot).logicalRequestCount <= issueWidth.U
+    selectedCount = selectedCount + Mux(
+      groupSelected(slot), queue(slot).logicalRequestCount, 0.U)
+    issueSelected(slot) := queue(slot).valid &&
+      (0 until queueEntries).map { leader =>
+        groupSelected(leader) && sameLogical(queue(slot), queue(leader))
+      }.reduce(_ || _)
   }
 
   for (lane <- 0 until issueWidth) {
     val laneHit = VecInit((0 until queueEntries).map { slot =>
-      readyVec(slot) && readyRank(slot) === lane.U
+      val selectedBase = Mux1H(
+        VecInit((0 until queueEntries).map { leader =>
+          groupSelected(leader) && sameLogical(queue(slot), queue(leader))
+        }),
+        groupBase)
+      issueSelected(slot) &&
+        selectedBase + queue(slot).logicalBeat === lane.U
     })
     io.issue(lane) := zeroIssue
     io.issue(lane).valid := laneHit.asUInt.orR
@@ -287,6 +374,16 @@ class STQCommitQueue(
     io.issue(lane).storeIdValid :=
       Mux1H(laneHit, queue.map(_.storeIdValid))
     io.issue(lane).storeId := Mux1H(laneHit, queue.map(_.storeId))
+    io.issue(lane).logicalStoreValid :=
+      Mux1H(laneHit, queue.map(_.logicalStoreValid))
+    io.issue(lane).logicalFirstLsid :=
+      Mux1H(laneHit, queue.map(_.logicalFirstLsid))
+    io.issue(lane).logicalFirstStoreId :=
+      Mux1H(laneHit, queue.map(_.logicalFirstStoreId))
+    io.issue(lane).logicalRequestCount :=
+      Mux1H(laneHit, queue.map(_.logicalRequestCount))
+    io.issue(lane).logicalBeat :=
+      Mux1H(laneHit, queue.map(_.logicalBeat))
     io.issue(lane).exactOwner := Mux1H(laneHit, queue.map(_.exactOwner))
   }
 
@@ -368,8 +465,9 @@ class STQCommitQueue(
     }
     for (other <- lane + 1 until issueWidth) {
       assert(!(io.issue(lane).valid && io.issue(other).valid &&
-        io.issue(lane).stid === io.issue(other).stid),
-        "at most one oldest committed store may issue per STID per cycle")
+        io.issue(lane).stid === io.issue(other).stid &&
+        !sameLogical(io.issue(lane), io.issue(other))),
+        "only beats of one exact logical store may share an STID issue cycle")
     }
   }
 }

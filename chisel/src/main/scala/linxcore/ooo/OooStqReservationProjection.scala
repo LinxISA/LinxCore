@@ -114,6 +114,11 @@ class OooStqReservationProjection(
     req.lsIdFull := fullLsid
     req.storeIdFullValid := true.B
     req.storeIdFull := fullStoreId
+    req.logicalStoreValid := true.B
+    req.logicalFirstLsid := io.input.memoryOrder.firstLsid
+    req.logicalFirstStoreId := io.input.memoryOrder.firstTypeId
+    req.logicalRequestCount := io.input.memoryOrder.requestCount
+    req.logicalBeat := beat.U
     req.exactOwner.valid := io.input.member.group.valid
     req.exactOwner.peId := io.input.member.group.peId
     req.exactOwner.stid := io.input.member.group.stid

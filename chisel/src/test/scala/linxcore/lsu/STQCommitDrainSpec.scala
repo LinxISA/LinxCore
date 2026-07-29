@@ -241,6 +241,11 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
       row.lsIdFull.poke(9.U)
       row.storeIdFullValid.poke(true.B)
       row.storeIdFull.poke(4.U)
+      row.logicalStoreValid.poke(true.B)
+      row.logicalFirstLsid.poke(9.U)
+      row.logicalFirstStoreId.poke(4.U)
+      row.logicalRequestCount.poke(1.U)
+      row.logicalBeat.poke(0.U)
       row.leaseGeneration.poke(7.U)
       row.addrReady.poke(true.B)
       row.dataReady.poke(true.B)
@@ -313,6 +318,125 @@ class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
       dut.io.memReqs(0).valid.expect(true.B)
       dut.io.retainedBatchAccepted.expect(true.B)
       dut.io.commitFreeMask.expect("b0010".U)
+      dut.io.logicalCompletionCount.expect(1.U)
+      dut.io.logicalCompletions(0).valid.expect(true.B)
+      dut.io.logicalCompletions(0).logicalRequestCount.expect(1.U)
+    }
+  }
+
+  test("pair store retains four fragments and completes one logical owner") {
+    simulate(new STQCommitDrain(
+      entries = 4,
+      queueEntries = 4,
+      issueWidth = 2,
+      robEntries = 8,
+      stidWidth = 2,
+      lsidWidth = 40)) { dut =>
+      dut.io.rows.foreach(row => row.poke(0.U.asTypeOf(row)))
+      dut.io.enqueueValid.poke(false.B)
+      dut.io.enqueueIndex.poke(0.U)
+      dut.io.enqueueBid.poke(0.U.asTypeOf(dut.io.enqueueBid))
+      dut.io.enqueueLsId.poke(0.U)
+      dut.io.flushValid.poke(false.B)
+      dut.io.issueEnable.poke(false.B)
+      dut.io.primaryReadyMask.poke(0.U)
+      dut.io.secondaryReadyMask.poke(0.U)
+      dut.clock.step()
+
+      def pokePairRow(
+          row: STQEntryBankRow,
+          beat: Int,
+          lsid: Int,
+          storeId: Int,
+          leaseGeneration: Int,
+          addr: BigInt,
+          data: BigInt): Unit = {
+        row.valid.poke(true.B)
+        row.status.poke(STQEntryStatus.Commit)
+        row.storeType.poke(STQStoreType.All)
+        row.stid.poke(0.U)
+        row.bid.valid.poke(true.B)
+        row.bid.value.poke(2.U)
+        row.lsIdFull.poke(lsid.U)
+        row.storeIdFullValid.poke(true.B)
+        row.storeIdFull.poke(storeId.U)
+        row.logicalStoreValid.poke(true.B)
+        row.logicalFirstLsid.poke(10.U)
+        row.logicalFirstStoreId.poke(20.U)
+        row.logicalRequestCount.poke(2.U)
+        row.logicalBeat.poke(beat.U)
+        row.leaseGeneration.poke(leaseGeneration.U)
+        row.addrReady.poke(true.B)
+        row.dataReady.poke(true.B)
+        row.addr.poke(addr.U)
+        row.data.poke(data.U)
+        row.size.poke(8.U)
+        row.exactOwner.valid.poke(true.B)
+        row.exactOwner.peId.poke(1.U)
+        row.exactOwner.stid.poke(0.U)
+        row.exactOwner.nativeBidValid.poke(true.B)
+        row.exactOwner.nativeBid.poke(6.U)
+        row.exactOwner.brobGeneration.poke(2.U)
+        row.exactOwner.ridSlot.poke(1.U)
+        row.exactOwner.ridGeneration.poke(3.U)
+        row.exactOwner.memberIndex.poke(0.U)
+        row.exactOwner.residentGeneration.poke(4.U)
+      }
+
+      pokePairRow(
+        dut.io.rows(0), beat = 0, lsid = 10, storeId = 20,
+        leaseGeneration = 5, addr = 0x103e,
+        data = BigInt("1122334455667788", 16))
+      pokePairRow(
+        dut.io.rows(1), beat = 1, lsid = 11, storeId = 21,
+        leaseGeneration = 6, addr = 0x107e,
+        data = BigInt("99aabbccddeeff00", 16))
+
+      def enqueueRow(index: Int, lsid: Int): Unit = {
+        dut.io.enqueueValid.poke(true.B)
+        dut.io.enqueueIndex.poke(index.U)
+        dut.io.enqueueBid.valid.poke(true.B)
+        dut.io.enqueueBid.value.poke(2.U)
+        dut.io.enqueueLsId.poke(lsid.U)
+        dut.io.enqueueReady.expect(true.B)
+        dut.io.enqueueAccepted.expect(true.B)
+        dut.clock.step()
+        dut.io.enqueueValid.poke(false.B)
+      }
+
+      enqueueRow(index = 0, lsid = 10)
+      enqueueRow(index = 1, lsid = 11)
+      dut.io.issueEnable.poke(true.B)
+      dut.io.issueCount.expect(2.U)
+      dut.io.issue(0).logicalBeat.expect(0.U)
+      dut.io.issue(1).logicalBeat.expect(1.U)
+      dut.clock.step()
+
+      dut.io.retainedBatchValid.expect(true.B)
+      dut.io.retainedBatchAccepted.expect(false.B)
+      dut.io.logicalCompletionCount.expect(0.U)
+      dut.io.memReqs.foreach(_.valid.expect(true.B))
+      val retainedAddresses = dut.io.memReqs.map(_.addr.peek().litValue)
+      val retainedData = dut.io.memReqs.map(_.data.peek().litValue)
+      dut.clock.step(2)
+      dut.io.memReqs.zip(retainedAddresses).foreach { case (req, addr) =>
+        req.addr.expect(addr.U)
+      }
+      dut.io.memReqs.zip(retainedData).foreach { case (req, data) =>
+        req.data.expect(data.U)
+      }
+
+      dut.io.primaryReadyMask.poke("b0011".U)
+      dut.io.secondaryReadyMask.poke("b0011".U)
+      dut.io.retainedBatchAccepted.expect(true.B)
+      dut.io.commitFreeMask.expect("b0011".U)
+      dut.io.commitFreeCount.expect(2.U)
+      dut.io.logicalCompletionCount.expect(1.U)
+      dut.io.logicalCompletions(0).valid.expect(true.B)
+      dut.io.logicalCompletions(0).logicalFirstLsid.expect(10.U)
+      dut.io.logicalCompletions(0).logicalFirstStoreId.expect(20.U)
+      dut.io.logicalCompletions(0).logicalRequestCount.expect(2.U)
+      dut.io.logicalCompletions(1).valid.expect(false.B)
     }
   }
 }

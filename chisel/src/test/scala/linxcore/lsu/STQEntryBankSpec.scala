@@ -510,7 +510,14 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
       ridGeneration: Int,
       residentGeneration: Int,
       lsid: BigInt,
-      storeId: BigInt): Unit = {
+      storeId: BigInt,
+      logicalFirstLsid: BigInt = -1,
+      logicalFirstStoreId: BigInt = -1,
+      logicalRequestCount: Int = 1,
+      logicalBeat: Int = 0): Unit = {
+    val firstLsid = if (logicalFirstLsid >= 0) logicalFirstLsid else lsid
+    val firstStoreId =
+      if (logicalFirstStoreId >= 0) logicalFirstStoreId else storeId
     req.poke(0.U.asTypeOf(req))
     req.peId.poke(2.U)
     req.stid.poke(1.U)
@@ -518,6 +525,11 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     req.lsIdFull.poke(lsid.U)
     req.storeIdFullValid.poke(true.B)
     req.storeIdFull.poke(storeId.U)
+    req.logicalStoreValid.poke(true.B)
+    req.logicalFirstLsid.poke(firstLsid.U)
+    req.logicalFirstStoreId.poke(firstStoreId.U)
+    req.logicalRequestCount.poke(logicalRequestCount.U)
+    req.logicalBeat.poke(logicalBeat.U)
     req.exactOwner.valid.poke(true.B)
     req.exactOwner.peId.poke(2.U)
     req.exactOwner.stid.poke(1.U)
@@ -653,9 +665,13 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
       clearCanonicalDut(dut)
       pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
-        residentGeneration = 4, lsid = 20, storeId = 30)
+        residentGeneration = 4, lsid = 20, storeId = 30,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 0)
       pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
-        residentGeneration = 4, lsid = 21, storeId = 31)
+        residentGeneration = 4, lsid = 21, storeId = 31,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 1)
       dut.io.reserveBatchMask.poke(3.U)
       dut.io.reserveBatchValid.poke(true.B)
       dut.io.reserveBatchReady.expect(true.B)
@@ -676,10 +692,16 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.reserve.lsIdFull.poke(41.U)
       dut.io.reserve.storeIdFull.poke(51.U)
+      dut.io.reserve.logicalFirstLsid.poke(41.U)
+      dut.io.reserve.logicalFirstStoreId.poke(51.U)
       pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 7,
-        residentGeneration = 8, lsid = 60, storeId = 70)
+        residentGeneration = 8, lsid = 60, storeId = 70,
+        logicalFirstLsid = 60, logicalFirstStoreId = 70,
+        logicalRequestCount = 2, logicalBeat = 0)
       pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 7,
-        residentGeneration = 8, lsid = 61, storeId = 71)
+        residentGeneration = 8, lsid = 61, storeId = 71,
+        logicalFirstLsid = 60, logicalFirstStoreId = 70,
+        logicalRequestCount = 2, logicalBeat = 1)
       dut.io.reserveBatchMask.poke(3.U)
       dut.io.reserveBatchValid.poke(true.B)
       dut.io.reserveBatchReady.expect(false.B)
@@ -700,9 +722,13 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
       clearCanonicalDut(dut)
       pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
-        residentGeneration = 4, lsid = 20, storeId = 30)
+        residentGeneration = 4, lsid = 20, storeId = 30,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 0)
       pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
-        residentGeneration = 4, lsid = 22, storeId = 31)
+        residentGeneration = 4, lsid = 22, storeId = 31,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 1)
       dut.io.reserveBatchMask.poke(3.U)
       dut.io.reserveBatchValid.poke(true.B)
       dut.io.reserveBatchReady.expect(false.B)
@@ -716,16 +742,22 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
       clearCanonicalDut(dut)
       pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
-        residentGeneration = 4, lsid = 20, storeId = 30)
+        residentGeneration = 4, lsid = 20, storeId = 30,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 0)
       pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
-        residentGeneration = 4, lsid = 21, storeId = 31)
+        residentGeneration = 4, lsid = 21, storeId = 31,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 1)
       dut.io.reserveBatchMask.poke(3.U)
       dut.io.reserveBatchValid.poke(true.B)
       dut.clock.step()
       dut.io.reserveBatchValid.poke(false.B)
 
       pokeExactRequest(dut.io.fill, ridGeneration = 3,
-        residentGeneration = 4, lsid = 20, storeId = 30)
+        residentGeneration = 4, lsid = 20, storeId = 30,
+        logicalFirstLsid = 20, logicalFirstStoreId = 30,
+        logicalRequestCount = 2, logicalBeat = 0)
       dut.io.fill.storeType.poke(STQStoreType.All)
       dut.io.fill.lease.valid.poke(true.B)
       dut.io.fill.lease.index.poke(0.U)

@@ -83,6 +83,11 @@ class STQStoreRequest(
   val lsIdFull = UInt(lsidWidth.W)
   val storeIdFullValid = Bool()
   val storeIdFull = UInt(lsidWidth.W)
+  val logicalStoreValid = Bool()
+  val logicalFirstLsid = UInt(lsidWidth.W)
+  val logicalFirstStoreId = UInt(lsidWidth.W)
+  val logicalRequestCount = UInt(2.W)
+  val logicalBeat = UInt(1.W)
   val exactOwner = new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, ridSlotWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -134,6 +139,11 @@ class STQEntryBankRow(
   val lsIdFull = UInt(lsidWidth.W)
   val storeIdFullValid = Bool()
   val storeIdFull = UInt(lsidWidth.W)
+  val logicalStoreValid = Bool()
+  val logicalFirstLsid = UInt(lsidWidth.W)
+  val logicalFirstStoreId = UInt(lsidWidth.W)
+  val logicalRequestCount = UInt(2.W)
+  val logicalBeat = UInt(1.W)
   val exactOwner = new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, ridSlotWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -379,6 +389,11 @@ class STQEntryBank(
     row.lsIdFull := req.lsIdFull
     row.storeIdFullValid := req.storeIdFullValid
     row.storeIdFull := req.storeIdFull
+    row.logicalStoreValid := req.logicalStoreValid
+    row.logicalFirstLsid := req.logicalFirstLsid
+    row.logicalFirstStoreId := req.logicalFirstStoreId
+    row.logicalRequestCount := req.logicalRequestCount
+    row.logicalBeat := req.logicalBeat
     row.exactOwner := req.exactOwner
     row.leaseGeneration := leaseGeneration
     row.tSeq := req.tSeq
@@ -566,7 +581,12 @@ class STQEntryBank(
       (io.fill.lsIdFull === fillTarget.lsIdFull) &&
       io.fill.storeIdFullValid &&
       fillTarget.storeIdFullValid &&
-      (io.fill.storeIdFull === fillTarget.storeIdFull)
+      (io.fill.storeIdFull === fillTarget.storeIdFull) &&
+      io.fill.logicalStoreValid && fillTarget.logicalStoreValid &&
+      (io.fill.logicalFirstLsid === fillTarget.logicalFirstLsid) &&
+      (io.fill.logicalFirstStoreId === fillTarget.logicalFirstStoreId) &&
+      (io.fill.logicalRequestCount === fillTarget.logicalRequestCount) &&
+      (io.fill.logicalBeat === fillTarget.logicalBeat)
   val fillPartAvailable = MuxLookup(io.fill.storeType, false.B)(Seq(
     STQStoreType.All -> (!fillTarget.addrReady && !fillTarget.dataReady),
     STQStoreType.Addr -> !fillTarget.addrReady,
@@ -588,7 +608,12 @@ class STQEntryBank(
       req.exactOwner.nativeBidValid &&
       (req.exactOwner.peId === req.peId) &&
       (req.exactOwner.stid === req.stid) &&
-      req.storeIdFullValid
+      req.storeIdFullValid && req.logicalStoreValid &&
+      ((req.logicalRequestCount === 1.U) ||
+        (req.logicalRequestCount === 2.U)) &&
+      (req.logicalBeat < req.logicalRequestCount) &&
+      (req.lsIdFull === req.logicalFirstLsid + req.logicalBeat) &&
+      (req.storeIdFull === req.logicalFirstStoreId + req.logicalBeat)
 
   private def duplicatesResident(req: STQStoreRequest): Bool =
     VecInit(rows.map { row =>
@@ -609,6 +634,16 @@ class STQEntryBank(
     !io.reserveBatchMask(1) ||
       (io.reserveBatch(0).exactOwner.asUInt ===
         io.reserveBatch(1).exactOwner.asUInt)
+  val batchLogicalExact =
+    !io.reserveBatchMask(1) ||
+      (io.reserveBatch(0).logicalFirstLsid ===
+        io.reserveBatch(1).logicalFirstLsid) &&
+      (io.reserveBatch(0).logicalFirstStoreId ===
+        io.reserveBatch(1).logicalFirstStoreId) &&
+      (io.reserveBatch(0).logicalRequestCount === 2.U) &&
+      (io.reserveBatch(1).logicalRequestCount === 2.U) &&
+      (io.reserveBatch(0).logicalBeat === 0.U) &&
+      (io.reserveBatch(1).logicalBeat === 1.U)
   val batchSerialConsecutive =
     !io.reserveBatchMask(1) ||
       ((io.reserveBatch(1).lsIdFull === io.reserveBatch(0).lsIdFull + 1.U) &&
@@ -621,7 +656,7 @@ class STQEntryBank(
     (io.reserveBatch(0).lsIdFull === io.reserveBatch(1).lsIdFull) &&
     (io.reserveBatch(0).storeIdFull === io.reserveBatch(1).storeIdFull)
   val batchShapeValid = batchMaskLegal && batchIdentityValid &&
-    batchOwnerExact && batchSerialConsecutive &&
+    batchOwnerExact && batchLogicalExact && batchSerialConsecutive &&
     !batchDuplicatesResident && !batchInternalDuplicate
   val batchFreeEnough = PopCount(freeMask) >= PopCount(io.reserveBatchMask)
   io.reserveBatchReady :=

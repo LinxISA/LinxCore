@@ -20,6 +20,10 @@ class OooStqReservationHarnessIO(
       stqEntries, p.executeSlotGenerationWidth)))
   val rowLsid = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
   val rowStoreId = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
+  val rowLogicalFirstLsid = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
+  val rowLogicalFirstStoreId = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
+  val rowLogicalRequestCount = Output(Vec(stqEntries, UInt(2.W)))
+  val rowLogicalBeat = Output(Vec(stqEntries, UInt(1.W)))
   val rowMember = Output(Vec(stqEntries, UInt(p.robMemberIndexWidth.W)))
 }
 
@@ -74,6 +78,12 @@ class OooStqReservationHarness(
   for (index <- 0 until stqEntries) {
     io.rowLsid(index) := stq.io.rows(index).lsIdFull
     io.rowStoreId(index) := stq.io.rows(index).storeIdFull
+    io.rowLogicalFirstLsid(index) := stq.io.rows(index).logicalFirstLsid
+    io.rowLogicalFirstStoreId(index) :=
+      stq.io.rows(index).logicalFirstStoreId
+    io.rowLogicalRequestCount(index) :=
+      stq.io.rows(index).logicalRequestCount
+    io.rowLogicalBeat(index) := stq.io.rows(index).logicalBeat
     io.rowMember(index) := stq.io.rows(index).exactOwner.memberIndex
   }
 }
@@ -158,6 +168,14 @@ class OooStqReservationProjectionSpec extends AnyFunSuite with ChiselSim {
       dut.io.rowLsid(1).expect(BigInt("100000002", 16).U)
       dut.io.rowStoreId(0).expect(BigInt("200000001", 16).U)
       dut.io.rowStoreId(1).expect(BigInt("200000002", 16).U)
+      dut.io.rowLogicalFirstLsid(0).expect(BigInt("100000001", 16).U)
+      dut.io.rowLogicalFirstLsid(1).expect(BigInt("100000001", 16).U)
+      dut.io.rowLogicalFirstStoreId(0).expect(BigInt("200000001", 16).U)
+      dut.io.rowLogicalFirstStoreId(1).expect(BigInt("200000001", 16).U)
+      dut.io.rowLogicalRequestCount(0).expect(2.U)
+      dut.io.rowLogicalRequestCount(1).expect(2.U)
+      dut.io.rowLogicalBeat(0).expect(0.U)
+      dut.io.rowLogicalBeat(1).expect(1.U)
       dut.io.rowMember(0).expect(3.U)
       dut.io.rowMember(1).expect(3.U)
     }
@@ -172,6 +190,10 @@ class OooStqReservationProjectionSpec extends AnyFunSuite with ChiselSim {
       dut.io.leases(1).valid.expect(false.B)
       dut.clock.step()
       dut.io.residentCount.expect(1.U)
+      dut.io.rowLogicalFirstLsid(0).expect(BigInt("100000001", 16).U)
+      dut.io.rowLogicalFirstStoreId(0).expect(BigInt("200000001", 16).U)
+      dut.io.rowLogicalRequestCount(0).expect(1.U)
+      dut.io.rowLogicalBeat(0).expect(0.U)
     }
   }
 

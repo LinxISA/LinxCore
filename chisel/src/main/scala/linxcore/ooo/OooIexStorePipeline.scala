@@ -230,6 +230,11 @@ class OooIexStorePipeline(
     req.lsIdFull := fullLsid
     req.storeIdFullValid := true.B
     req.storeIdFull := fullStoreId
+    req.logicalStoreValid := true.B
+    req.logicalFirstLsid := value.lease.firstLsid
+    req.logicalFirstStoreId := value.lease.firstStoreId
+    req.logicalRequestCount := value.lease.requestCount
+    req.logicalBeat := beat
     req.exactOwner.valid := logical.group.valid
     req.exactOwner.peId := logical.group.peId
     req.exactOwner.stid := logical.group.stid

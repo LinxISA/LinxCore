@@ -31,6 +31,32 @@ class STQCommitDrainRequest(
   val lsId = UInt(lsidWidth.W)
 }
 
+/** One accepted logical store drain group, independent of its one/two STQ
+  * beats and one/two cache-line fragments per beat. This is not a lower-level
+  * WriteResp or architectural memory-completion acknowledgement.
+  */
+class STQCommitLogicalCompletion(
+    val entries: Int,
+    val lsidWidth: Int = 32,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8)
+    extends Bundle {
+  val valid = Bool()
+  val stid = UInt(stidWidth.W)
+  val logicalFirstLsid = UInt(lsidWidth.W)
+  val logicalFirstStoreId = UInt(lsidWidth.W)
+  val logicalRequestCount = UInt(2.W)
+  val exactOwner = new STQExactOwner(
+    peIdWidth, stidWidth, nativeBidWidth, log2Ceil(entries),
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth)
+}
+
 class STQCommitDrainIO(
     val entries: Int,
     val queueEntries: Int,
@@ -78,6 +104,9 @@ class STQCommitDrainIO(
   val retainedBatchAccepted = Output(Bool())
   val retainedIdentityError = Output(Bool())
   val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
+  val logicalCompletions = Output(Vec(issueWidth,
+    new STQCommitLogicalCompletion(identityEntries, lsidWidth, peIdWidth, stidWidth)))
+  val logicalCompletionCount = Output(UInt(freeCountWidth.W))
 
   val commitFreeMaskValid = Output(Bool())
   val commitFreeMask = Output(UInt(entries.W))
@@ -145,6 +174,21 @@ class STQCommitDrain(
     req
   }
 
+  private def zeroLogicalCompletion: STQCommitLogicalCompletion = {
+    val completion = Wire(new STQCommitLogicalCompletion(
+      identityEntries, lsidWidth, peIdWidth, stidWidth))
+    completion := 0.U.asTypeOf(completion)
+    completion
+  }
+
+  private def sameLogical(left: STQCommitIssue, right: STQCommitIssue): Bool =
+    left.valid && right.valid && left.stid === right.stid &&
+      left.exactOwner.asUInt === right.exactOwner.asUInt &&
+      left.logicalStoreValid && right.logicalStoreValid &&
+      left.logicalFirstLsid === right.logicalFirstLsid &&
+      left.logicalFirstStoreId === right.logicalFirstStoreId &&
+      left.logicalRequestCount === right.logicalRequestCount
+
   val queue = Module(new STQCommitQueue(
     robEntries = identityEntries,
     stqEntries = entries,
@@ -164,7 +208,15 @@ class STQCommitDrain(
     enqueueRow.lsIdFull === io.enqueueLsId &&
     enqueueRow.storeIdFullValid && enqueueRow.exactOwner.valid &&
     enqueueRow.exactOwner.nativeBidValid &&
-    enqueueRow.exactOwner.stid === enqueueRow.stid
+    enqueueRow.exactOwner.stid === enqueueRow.stid &&
+    enqueueRow.logicalStoreValid &&
+    (enqueueRow.logicalRequestCount === 1.U ||
+      enqueueRow.logicalRequestCount === 2.U) &&
+    enqueueRow.logicalBeat < enqueueRow.logicalRequestCount &&
+    enqueueRow.lsIdFull ===
+      enqueueRow.logicalFirstLsid + enqueueRow.logicalBeat &&
+    enqueueRow.storeIdFull ===
+      enqueueRow.logicalFirstStoreId + enqueueRow.logicalBeat
   queue.io.enqueueValid := io.enqueueValid && enqueueRowExact
   queue.io.enqueueIndex := io.enqueueIndex
   queue.io.enqueueLeaseGeneration := enqueueRow.leaseGeneration
@@ -173,6 +225,11 @@ class STQCommitDrain(
   queue.io.enqueueLsId := io.enqueueLsId
   queue.io.enqueueStoreIdValid := enqueueRow.storeIdFullValid
   queue.io.enqueueStoreId := enqueueRow.storeIdFull
+  queue.io.enqueueLogicalStoreValid := enqueueRow.logicalStoreValid
+  queue.io.enqueueLogicalFirstLsid := enqueueRow.logicalFirstLsid
+  queue.io.enqueueLogicalFirstStoreId := enqueueRow.logicalFirstStoreId
+  queue.io.enqueueLogicalRequestCount := enqueueRow.logicalRequestCount
+  queue.io.enqueueLogicalBeat := enqueueRow.logicalBeat
   queue.io.enqueueExactOwner := enqueueRow.exactOwner
   queue.io.flushValid := io.flushValid
 
@@ -212,6 +269,11 @@ class STQCommitDrain(
         row.stid === token.stid && ROBID.equal(row.bid, token.bid) &&
         row.lsIdFull === token.lsId && row.storeIdFullValid &&
         token.storeIdValid && row.storeIdFull === token.storeId &&
+        row.logicalStoreValid && token.logicalStoreValid &&
+        row.logicalFirstLsid === token.logicalFirstLsid &&
+        row.logicalFirstStoreId === token.logicalFirstStoreId &&
+        row.logicalRequestCount === token.logicalRequestCount &&
+        row.logicalBeat === token.logicalBeat &&
         row.exactOwner.asUInt === token.exactOwner.asUInt)
     queuedTokenReady(slot) := token.valid && queuedTokenExact(slot) &&
       commitEligibleVec(token.stqIndex)
@@ -304,7 +366,12 @@ class STQCommitDrain(
       assert(row.leaseGeneration === issue.leaseGeneration &&
         row.exactOwner.asUInt === issue.exactOwner.asUInt &&
         row.storeIdFullValid && issue.storeIdValid &&
-        row.storeIdFull === issue.storeId,
+        row.storeIdFull === issue.storeId &&
+        row.logicalStoreValid && issue.logicalStoreValid &&
+        row.logicalFirstLsid === issue.logicalFirstLsid &&
+        row.logicalFirstStoreId === issue.logicalFirstStoreId &&
+        row.logicalRequestCount === issue.logicalRequestCount &&
+        row.logicalBeat === issue.logicalBeat,
         "a committed store may drain only through its exact live STQ lease")
     }
   }
@@ -321,6 +388,11 @@ class STQCommitDrain(
         row.stid === issue.stid && ROBID.equal(row.bid, issue.bid) &&
         row.lsIdFull === issue.lsId && row.storeIdFullValid &&
         issue.storeIdValid && row.storeIdFull === issue.storeId &&
+        row.logicalStoreValid && issue.logicalStoreValid &&
+        row.logicalFirstLsid === issue.logicalFirstLsid &&
+        row.logicalFirstStoreId === issue.logicalFirstStoreId &&
+        row.logicalRequestCount === issue.logicalRequestCount &&
+        row.logicalBeat === issue.logicalBeat &&
         row.exactOwner.asUInt === issue.exactOwner.asUInt)
     val crosses = retainedReqs(lane * 2 + 1).valid
     retainedReady(lane) := !issue.valid || (
@@ -354,6 +426,35 @@ class STQCommitDrain(
       io.issueEnable && !io.flushValid && !retainedIdentityError &&
       retainedReqs(reqIdx).valid
   }
+
+  val logicalCompletionValid = Wire(Vec(issueWidth, Bool()))
+  for (lane <- 0 until issueWidth) {
+    val earlierSame = (0 until lane).map { earlier =>
+      sameLogical(retainedIssues(lane), retainedIssues(earlier))
+    }
+    val isLeader = retainedIssues(lane).valid &&
+      !(if (earlierSame.isEmpty) false.B else earlierSame.reduce(_ || _))
+    logicalCompletionValid(lane) := retainedBatchAccepted && isLeader
+    io.logicalCompletions(lane) := zeroLogicalCompletion
+    io.logicalCompletions(lane).valid := logicalCompletionValid(lane)
+    io.logicalCompletions(lane).stid := retainedIssues(lane).stid
+    io.logicalCompletions(lane).logicalFirstLsid :=
+      retainedIssues(lane).logicalFirstLsid
+    io.logicalCompletions(lane).logicalFirstStoreId :=
+      retainedIssues(lane).logicalFirstStoreId
+    io.logicalCompletions(lane).logicalRequestCount :=
+      retainedIssues(lane).logicalRequestCount
+    io.logicalCompletions(lane).exactOwner := retainedIssues(lane).exactOwner
+
+    when(retainedBatchValid && retainedIssues(lane).valid) {
+      val matchingCount = PopCount((0 until issueWidth).map { other =>
+        sameLogical(retainedIssues(lane), retainedIssues(other))
+      })
+      assert(matchingCount === retainedIssues(lane).logicalRequestCount,
+        "a retained logical store must contain every exact STQ beat")
+    }
+  }
+  io.logicalCompletionCount := PopCount(logicalCompletionValid)
 
   val commitFreeVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {

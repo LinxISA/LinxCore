@@ -28,6 +28,10 @@ class OooIexStoreStqHarnessIO(
   val dataReady = Output(UInt(stqEntries.W))
   val addresses = Output(Vec(stqEntries, UInt(p.pcWidth.W)))
   val data = Output(Vec(stqEntries, UInt(p.pcWidth.W)))
+  val logicalFirstLsid = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
+  val logicalFirstStoreId = Output(Vec(stqEntries, UInt(p.lsidWidth.W)))
+  val logicalRequestCount = Output(Vec(stqEntries, UInt(2.W)))
+  val logicalBeat = Output(Vec(stqEntries, UInt(1.W)))
   val occupied = Output(Bool())
   val residentCount = Output(UInt(log2Ceil(stqEntries + 1).W))
 }
@@ -119,6 +123,10 @@ class OooIexStoreStqHarness(
   for (index <- 0 until stqEntries) {
     io.addresses(index) := stq.io.rows(index).addr
     io.data(index) := stq.io.rows(index).data
+    io.logicalFirstLsid(index) := stq.io.rows(index).logicalFirstLsid
+    io.logicalFirstStoreId(index) := stq.io.rows(index).logicalFirstStoreId
+    io.logicalRequestCount(index) := stq.io.rows(index).logicalRequestCount
+    io.logicalBeat(index) := stq.io.rows(index).logicalBeat
   }
 }
 
@@ -225,6 +233,14 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.reserveValid.poke(false.B)
       dut.io.residentCount.expect(2.U)
+      dut.io.logicalFirstLsid(0).expect(BigInt("100000001", 16).U)
+      dut.io.logicalFirstLsid(1).expect(BigInt("100000001", 16).U)
+      dut.io.logicalFirstStoreId(0).expect(BigInt("200000001", 16).U)
+      dut.io.logicalFirstStoreId(1).expect(BigInt("200000001", 16).U)
+      dut.io.logicalRequestCount(0).expect(2.U)
+      dut.io.logicalRequestCount(1).expect(2.U)
+      dut.io.logicalBeat(0).expect(0.U)
+      dut.io.logicalBeat(1).expect(1.U)
 
       pokeExecute(dut.io.sta, addressHalf = true)
       pokeExecute(dut.io.std, addressHalf = false)

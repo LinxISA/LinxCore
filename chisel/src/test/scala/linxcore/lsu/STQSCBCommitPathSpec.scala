@@ -243,6 +243,11 @@ class STQSCBCommitPathSpec extends AnyFunSuite with ChiselSim {
       request.lsIdFull.poke(9.U)
       request.storeIdFullValid.poke(true.B)
       request.storeIdFull.poke(4.U)
+      request.logicalStoreValid.poke(true.B)
+      request.logicalFirstLsid.poke(9.U)
+      request.logicalFirstStoreId.poke(4.U)
+      request.logicalRequestCount.poke(1.U)
+      request.logicalBeat.poke(0.U)
       request.exactOwner.valid.poke(true.B)
       request.exactOwner.peId.poke(1.U)
       request.exactOwner.stid.poke(0.U)
@@ -283,6 +288,120 @@ class STQSCBCommitPathSpec extends AnyFunSuite with ChiselSim {
       dut.io.drainMemReqs(0).ownsStqRow.expect(true.B)
       dut.io.scbAcceptedMask.expect(1.U)
       dut.io.scbCommitFreeMask.expect((BigInt(1) << index.toInt).U)
+      dut.io.drainLogicalCompletionCount.expect(1.U)
+      dut.io.drainLogicalCompletions(0).valid.expect(true.B)
+    }
+  }
+
+  test("pair store reaches SCB as four fragments and reports one logical drain completion") {
+    simulate(new STQSCBCommitPath(
+      entries = 4,
+      queueEntries = 4,
+      issueWidth = 2,
+      scbEntries = 4,
+      scbResponseBufferDepth = 2,
+      robEntries = 8,
+      stidWidth = 2,
+      lsidWidth = 40)) { dut =>
+      dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+      dut.io.insertValid.poke(false.B)
+      dut.io.insert.poke(0.U.asTypeOf(dut.io.insert))
+      dut.io.markCommitValid.poke(false.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.io.issueEnable.poke(false.B)
+      dut.io.evictEnable.poke(false.B)
+      dut.io.dcacheReady.poke(true.B)
+      dut.io.dcacheWriteHit.poke(false.B)
+      dut.io.dcacheTagHit.poke(false.B)
+      dut.io.l2RequestReady.poke(true.B)
+      dut.io.rawRespValid.poke(false.B)
+      dut.io.rawRespTxnId.poke(0.U)
+      dut.io.rawRespWrite.poke(false.B)
+      dut.io.rawRespUpgrade.poke(false.B)
+      dut.clock.step()
+
+      def insertBeat(
+          beat: Int,
+          lsid: Int,
+          storeId: Int,
+          addr: BigInt,
+          data: BigInt): BigInt = {
+        val request = dut.io.insert
+        request.poke(0.U.asTypeOf(request))
+        request.storeType.poke(STQStoreType.All)
+        request.peId.poke(1.U)
+        request.stid.poke(0.U)
+        request.bid.valid.poke(true.B)
+        request.bid.value.poke(2.U)
+        request.gid.valid.poke(true.B)
+        request.gid.value.poke(1.U)
+        request.rid.valid.poke(true.B)
+        request.rid.value.poke(3.U)
+        request.lsId.valid.poke(true.B)
+        request.lsId.value.poke((lsid & 7).U)
+        request.lsIdFull.poke(lsid.U)
+        request.storeIdFullValid.poke(true.B)
+        request.storeIdFull.poke(storeId.U)
+        request.logicalStoreValid.poke(true.B)
+        request.logicalFirstLsid.poke(10.U)
+        request.logicalFirstStoreId.poke(20.U)
+        request.logicalRequestCount.poke(2.U)
+        request.logicalBeat.poke(beat.U)
+        request.exactOwner.valid.poke(true.B)
+        request.exactOwner.peId.poke(1.U)
+        request.exactOwner.stid.poke(0.U)
+        request.exactOwner.nativeBidValid.poke(true.B)
+        request.exactOwner.nativeBid.poke(6.U)
+        request.exactOwner.brobGeneration.poke(2.U)
+        request.exactOwner.ridSlot.poke(1.U)
+        request.exactOwner.ridGeneration.poke(3.U)
+        request.exactOwner.memberIndex.poke(0.U)
+        request.exactOwner.residentGeneration.poke(4.U)
+        request.addr.poke(addr.U)
+        request.data.poke(data.U)
+        request.size.poke(8.U)
+        dut.io.insertValid.poke(true.B)
+        dut.io.insertReady.expect(true.B)
+        val index = dut.io.insertIndex.peek().litValue
+        dut.clock.step()
+        dut.io.insertValid.poke(false.B)
+        index
+      }
+
+      val firstIndex = insertBeat(
+        beat = 0, lsid = 10, storeId = 20, addr = 0x103e,
+        data = BigInt("1122334455667788", 16))
+      val secondIndex = insertBeat(
+        beat = 1, lsid = 11, storeId = 21, addr = 0x107e,
+        data = BigInt("99aabbccddeeff00", 16))
+
+      def markCommitted(index: BigInt): Unit = {
+        dut.io.markCommitValid.poke(true.B)
+        dut.io.markCommitIndex.poke(index.U)
+        dut.io.markCommitAccepted.expect(true.B)
+        dut.io.drainEnqueueAccepted.expect(true.B)
+        dut.clock.step()
+        dut.io.markCommitValid.poke(false.B)
+      }
+
+      markCommitted(firstIndex)
+      dut.io.drainIssueValidMask.expect(0.U)
+      markCommitted(secondIndex)
+      dut.io.issueEnable.poke(true.B)
+      dut.io.drainIssueCount.expect(2.U)
+      dut.clock.step()
+
+      dut.io.drainRetainedBatchValid.expect(true.B)
+      dut.io.drainRetainedBatchAccepted.expect(true.B)
+      dut.io.drainMemReqs.foreach(_.valid.expect(true.B))
+      dut.io.scbAcceptedMask.expect("b1111".U)
+      dut.io.scbCommitFreeMask.expect(
+        ((BigInt(1) << firstIndex.toInt) |
+          (BigInt(1) << secondIndex.toInt)).U)
+      dut.io.drainLogicalCompletionCount.expect(1.U)
+      dut.io.drainLogicalCompletions(0).valid.expect(true.B)
+      dut.io.drainLogicalCompletions(0).logicalRequestCount.expect(2.U)
+      dut.io.drainLogicalCompletions(1).valid.expect(false.B)
     }
   }
 }

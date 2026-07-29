@@ -108,6 +108,11 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
     dut.io.enqueueLsId.poke(0.U)
     dut.io.enqueueStoreIdValid.poke(false.B)
     dut.io.enqueueStoreId.poke(0.U)
+    dut.io.enqueueLogicalStoreValid.poke(false.B)
+    dut.io.enqueueLogicalFirstLsid.poke(0.U)
+    dut.io.enqueueLogicalFirstStoreId.poke(0.U)
+    dut.io.enqueueLogicalRequestCount.poke(0.U)
+    dut.io.enqueueLogicalBeat.poke(0.U)
     dut.io.enqueueExactOwner.poke(0.U.asTypeOf(dut.io.enqueueExactOwner))
     dut.io.flushValid.poke(false.B)
     dut.io.issueEnable.poke(false.B)
@@ -120,7 +125,16 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
       stid: Int,
       lsid: BigInt,
       storeId: BigInt,
-      generation: Int = 1): Unit = {
+      generation: Int = 1,
+      logicalFirstLsid: BigInt = -1,
+      logicalFirstStoreId: BigInt = -1,
+      logicalRequestCount: Int = 1,
+      logicalBeat: Int = 0,
+      ownerKey: Int = -1): Unit = {
+    val firstLsid = if (logicalFirstLsid >= 0) logicalFirstLsid else lsid
+    val firstStoreId =
+      if (logicalFirstStoreId >= 0) logicalFirstStoreId else storeId
+    val exactOwnerKey = if (ownerKey >= 0) ownerKey else index
     dut.io.enqueueValid.poke(true.B)
     dut.io.enqueueIndex.poke(index.U)
     dut.io.enqueueLeaseGeneration.poke(generation.U)
@@ -131,17 +145,96 @@ class STQCommitQueueSpec extends AnyFunSuite with ChiselSim {
     dut.io.enqueueLsId.poke(lsid.U)
     dut.io.enqueueStoreIdValid.poke(true.B)
     dut.io.enqueueStoreId.poke(storeId.U)
+    dut.io.enqueueLogicalStoreValid.poke(true.B)
+    dut.io.enqueueLogicalFirstLsid.poke(firstLsid.U)
+    dut.io.enqueueLogicalFirstStoreId.poke(firstStoreId.U)
+    dut.io.enqueueLogicalRequestCount.poke(logicalRequestCount.U)
+    dut.io.enqueueLogicalBeat.poke(logicalBeat.U)
     val owner = dut.io.enqueueExactOwner
     owner.valid.poke(true.B)
     owner.peId.poke(1.U)
     owner.stid.poke(stid.U)
     owner.nativeBidValid.poke(true.B)
-    owner.nativeBid.poke((index + 4).U)
+    owner.nativeBid.poke((exactOwnerKey + 4).U)
     owner.brobGeneration.poke(2.U)
-    owner.ridSlot.poke(index.U)
+    owner.ridSlot.poke(exactOwnerKey.U)
     owner.ridGeneration.poke(3.U)
     owner.memberIndex.poke(0.U)
     owner.residentGeneration.poke(4.U)
+  }
+
+  test("logical pair waits for both beats, bypasses peers, and issues atomically") {
+    simulate(new STQCommitQueue(
+      robEntries = 8,
+      stqEntries = 8,
+      queueEntries = 8,
+      issueWidth = 2,
+      lsidWidth = 40,
+      stidWidth = 2)) { dut =>
+      clearInputs(dut)
+      dut.clock.step()
+
+      pokeEnqueue(
+        dut, index = 0, stid = 0, lsid = 10, storeId = 20,
+        logicalFirstLsid = 10, logicalFirstStoreId = 20,
+        logicalRequestCount = 2, logicalBeat = 0, ownerKey = 0)
+      dut.io.enqueueReady.expect(true.B)
+      dut.clock.step()
+      clearInputs(dut)
+
+      enqueue(dut, index = 1, stid = 1, lsid = 3, storeId = 4)
+      dut.io.issueEnable.poke(true.B)
+      dut.io.readyMask.poke("b00000011".U)
+      dut.io.issueCount.expect(1.U)
+      dut.io.issue(0).stqIndex.expect(1.U)
+      dut.clock.step()
+      clearInputs(dut)
+
+      pokeEnqueue(
+        dut, index = 2, stid = 0, lsid = 11, storeId = 21,
+        logicalFirstLsid = 10, logicalFirstStoreId = 20,
+        logicalRequestCount = 2, logicalBeat = 1, ownerKey = 0)
+      dut.io.enqueueReady.expect(true.B)
+      dut.clock.step()
+      clearInputs(dut)
+
+      dut.io.issueEnable.poke(true.B)
+      dut.io.readyMask.poke("b00000011".U)
+      dut.io.issueCount.expect(2.U)
+      dut.io.issue(0).stqIndex.expect(0.U)
+      dut.io.issue(0).logicalBeat.expect(0.U)
+      dut.io.issue(1).stqIndex.expect(2.U)
+      dut.io.issue(1).logicalBeat.expect(1.U)
+      dut.io.orderError.expect(false.B)
+      dut.clock.step()
+      dut.io.empty.expect(true.B)
+
+      clearInputs(dut)
+      pokeEnqueue(
+        dut, index = 3, stid = 0, lsid = 30, storeId = 40,
+        logicalFirstLsid = 30, logicalFirstStoreId = 40,
+        logicalRequestCount = 2, logicalBeat = 0, ownerKey = 3)
+      dut.clock.step()
+      clearInputs(dut)
+      enqueue(dut, index = 4, stid = 1, lsid = 8, storeId = 9)
+      pokeEnqueue(
+        dut, index = 5, stid = 0, lsid = 31, storeId = 41,
+        logicalFirstLsid = 30, logicalFirstStoreId = 40,
+        logicalRequestCount = 2, logicalBeat = 1, ownerKey = 3)
+      dut.clock.step()
+      clearInputs(dut)
+
+      // The peer token is physically between the pair beats. Selection still
+      // treats the pair as one two-lane transaction instead of emitting half.
+      dut.io.issueEnable.poke(true.B)
+      dut.io.readyMask.poke("b00000111".U)
+      dut.io.issueCount.expect(2.U)
+      dut.io.issue(0).stqIndex.expect(3.U)
+      dut.io.issue(1).stqIndex.expect(5.U)
+      dut.clock.step()
+      dut.io.queueCount.expect(1.U)
+      dut.io.queued(0).stqIndex.expect(4.U)
+    }
   }
 
   private def enqueue(

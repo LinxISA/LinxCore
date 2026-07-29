@@ -1171,6 +1171,14 @@ implementation choices and must not change architectural identity widths:
 
 - A scalar store splits into address (`STA`) and data (`STD`) work with one
   shared instruction, BID, RID, SID, and LSID identity.
+- A scalar store owns one logical group descriptor carrying exact owner,
+  first full LSID/store ID, request count, and beat ordinal. A normal scalar
+  group has one beat; a pair group has consecutive beats 0/1. Both pair beats
+  must remain resident, revalidate against their independent physical STQ
+  leases, and issue atomically. Pair plus cache-line splitting may create four
+  SCB fragments, but accepted SCB admission emits one logical drain-completion
+  record and two physical row frees. That logical record is not a lower-level
+  WriteResp or final architectural memory-completion acknowledgement.
 - Dispatch reserves the two halves atomically. After dispatch, address and data
   may execute and merge into STQ independently; a blocked address allocation
   must not prevent a complementary data half from merging into an existing

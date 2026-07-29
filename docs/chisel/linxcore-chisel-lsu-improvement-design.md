@@ -561,6 +561,26 @@ LSID/store-ID检查；任何意外 slot变化都抑制 fragment并报告
 边界。仍未完成的是把 pair store的两个 STQ beat与最多四 fragment归一到一个 logical
 completion token，以及 MMIO serializer和 exact ROB commit ingress。
 
+### 8.10 I0.9n 已实现：logical pair completion
+
+STQ reservation、STA/STD fill、CommitQ token现在都显式保留
+`{logicalFirstLsid, logicalFirstStoreId, requestCount, beat}`。scalar store使用
+`{count=1, beat=0}`；pair store的两个 physical row共享同一 exact owner和first
+serial，分别携带beat 0/1。任何缺失、重复、owner漂移或`fullId != first+beat`都不能
+成为可提交形状。
+
+CommitQ的调度单位从单独token升级为logical group。pair必须两个beat都resident、逐项
+通过canonical row/lease revalidation并且全部ready后才能原子占用两条issue lane；即使
+两个beat之间物理夹着peer-STID token，也不会发出半个pair。未完整或stalled pair继续
+阻止同STID年轻store，peer STID仍可绕过。
+
+Drain保留两个beat并最多形成四个cross-line fragment。所有fragment由同一个retained
+batch原子接受后，SCB的accepted-last语义仍分别释放两个physical STQ row，而新增
+`logicalCompletions`只为该exact logical owner发出一次完成。UT覆盖incomplete pair、
+peer bypass和interleaved-token atomic issue；Drain/SCB动态IT覆盖四fragment多周期稳定、
+四路SCB admission、two-row free和one-completion。下一步仍是exact ROB commit-token
+ingress、MMIO serializer和静态top组合。
+
 ## 9. Store Coalescing Buffer（SCB）
 
 ### 9.1 当前实现

@@ -68,7 +68,7 @@ side effects, or live memory-event trace rows.
 | `drainIssueEnable/downstreamReadyMask` | The derived drain issue gate and all-row downstream-ready mask used for SCB issue. |
 | `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
 | `lsuTULinkSource*` | STQ bank's exact non-base T/U cleanup source candidate and match diagnostics. |
-| `drain*` | Ordered commit queue observability, issued rows, generated request descriptors, and debug-only early drain free mask. |
+| `drain*` | Ordered logical-store queue observability, issued beats, retained request descriptors, one-per-logical-store completions, and debug-only early drain free mask. |
 | `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, response decode flags, and lookup/state-update descriptors. |
 | `rawRespReady` / `scbRespBuffer*` | Raw response FIFO backpressure, occupancy, and head-consumption observability. |
 
@@ -103,7 +103,10 @@ The Chisel composition maps that behavior into registered owner boundaries:
    gate is closed.
 5. `SCBRowBank` atomically accepts the retained fragments, coalesces them into line entries, and
    emits `commitFreeMask` only for accepted fragments with `last=1`.
-6. `STQEntryBank.commitFreeMask` is driven only from
+6. The same acceptance emits one `drainLogicalCompletion` for every distinct
+   logical store. A pair may contribute two STQ rows and four fragments but
+   still completes once.
+7. `STQEntryBank.commitFreeMask` is driven only from
    `SCBRowBank.commitFreeMask`. `STQCommitDrain.commitFreeMask` is exported as
    `drainEarlyFreeMask` for debug visibility and is not wired to bank mutation.
 
@@ -169,7 +172,9 @@ Focused reference tests cover final `last`-fragment free ownership, SCB
 model-batch backpressure, split-store final free, and concurrent older drain
 plus younger enqueue. Dynamic integration additionally proves that an accepted
 WAIT-to-Commit transition snapshots one exact token and that only SCB-accepted
-last-fragment ownership frees the canonical STQ row.
+last-fragment ownership frees the canonical STQ row. A separate pair-store IT
+proves two cross-line beats become four SCB requests, two physical row frees,
+and one logical completion.
 
 R670 threads one `lsidWidth` parameter through STQ residency, commit queue,
 split drain, and SCB admission. The composition keeps physical STQ/SCB sizing,

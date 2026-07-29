@@ -48,6 +48,9 @@ request type from executed store-dispatch queue heads.
 | `storeType` | `All`, `Addr`, or `Data`, matching model `ST_ALL=0`, `ST_ADDR=1`, `ST_DATA=2`. |
 | `peId/stid/tid` | Scope fields consumed by recovery and later LSU routing. |
 | `bid/gid/rid/lsId` | Ring identity sidecars from the model memory request. |
+| `lsIdFull/storeIdFull` | Full-width memory/store ordering identities, independent of physical STQ and ROB capacities. |
+| `logicalStoreValid/logicalFirstLsid/logicalFirstStoreId/logicalRequestCount/logicalBeat` | Exact scalar/pair group shape. A scalar is `{count=1, beat=0}`; a pair uses consecutive beats 0/1 with common first IDs and owner. |
+| `exactOwner/lease` | Generation-qualified ROB/BROB semantic owner and physical STQ capability. |
 | `tSeq/uSeq` | T/U local-register sequence snapshots carried by model `MemReqBus`. |
 | `tuDstValid/tuDstKind` | Destination ownership sidecar used to apply `GetPrevRegSeq` when the flushed store owns T or U. |
 | `pc` | Store PC sidecar used by resident wait-store diagnostics and later `LDQInfo::handleSUWakeup` matching. |
@@ -150,6 +153,14 @@ Partial-store merge preserves the first row's source sidecars. This matches
 model `STQueueEntryInfo::init` and `STQ::mergeStore`: merge fills missing
 address/data fields and changes the request type to `ST_ALL`, but it does not
 replace the stored request identity.
+
+Canonical reservation validates logical shape before allocating. Every beat's
+full LSID/store ID must equal `first + beat`; request count is currently one or
+two. A two-row batch additionally requires the same exact owner and first IDs,
+ordered beats 0/1, and consecutive full serials. Allocation copies this shape
+into the resident row, and later STA/STD fill must match it exactly along with
+the physical lease. This prevents two physical rows of one pair from becoming
+independent architectural stores at commit.
 
 R267 extends that preservation rule to the store PC. `StoreDispatchToSTQ`
 copies `StoreSplitIssuePayload.uop.pc` into `STQStoreRequest.pc`, allocation

@@ -102,6 +102,9 @@ class STQSCBCommitPathIO(
   val drainRetainedBatchAccepted = Output(Bool())
   val drainRetainedIdentityError = Output(Bool())
   val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
+  val drainLogicalCompletions = Output(Vec(issueWidth,
+    new STQCommitLogicalCompletion(identityEntries, lsidWidth, peIdWidth, stidWidth)))
+  val drainLogicalCompletionCount = Output(UInt(issueCountWidth.W))
   val drainEarlyFreeMaskValid = Output(Bool())
   val drainEarlyFreeMask = Output(UInt(entries.W))
   val drainEarlyFreeCount = Output(UInt(issueCountWidth.W))
@@ -309,6 +312,8 @@ class STQSCBCommitPath(
   io.drainRetainedBatchAccepted := drain.io.retainedBatchAccepted
   io.drainRetainedIdentityError := drain.io.retainedIdentityError
   io.drainMemReqs := drain.io.memReqs
+  io.drainLogicalCompletions := drain.io.logicalCompletions
+  io.drainLogicalCompletionCount := drain.io.logicalCompletionCount
   io.drainEarlyFreeMaskValid := drain.io.commitFreeMaskValid
   io.drainEarlyFreeMask := drain.io.commitFreeMask
   io.drainEarlyFreeCount := drain.io.commitFreeCount

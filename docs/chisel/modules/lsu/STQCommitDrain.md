@@ -17,14 +17,15 @@ Sources and tests:
 The accepted WAIT-to-Commit transition may enqueue in the same cycle in which
 the STQ row still reads WAIT; after that edge, issue requires the row to be
 Commit. The snapshot includes exact owner, physical lease generation, full
-LSID, full store ID, STID, and BID.
+LSID/store ID, logical first IDs/request count/beat, STID, and BID.
 
 Before exposing readiness to `STQCommitQueue`, each queue slot is revalidated
 against the current STQ row:
 
 - row is valid, Commit, `ST_ALL`, address/data ready;
 - lease index/generation still identify the same allocation;
-- owner, STID, BID, full LSID, and full store ID match exactly.
+- owner, STID, BID, full LSID/store ID, and every logical-group field match
+  exactly.
 
 A stale token remains resident, cannot issue or free the row, and raises
 `queuedIdentityError`.
@@ -51,6 +52,22 @@ change suppresses requests and fails closed. Deasserting `issueEnable` also
 suppresses external request valid without clearing or changing the retained
 payload, so a paused drain cannot be consumed by SCB accidentally.
 
+## Logical completion
+
+A scalar store has one retained beat and at most two retained fragments. A
+pair store has two exact beats and may therefore expose four fragments. The
+CommitQ cannot launch the pair until both beats are present and ready, and the
+drain assertion rechecks that the retained batch contains the declared beat
+count.
+
+On atomic retained-batch acceptance, `logicalCompletions` emits one record per
+distinct logical owner, not per beat or fragment. The record carries the exact
+owner, STID, first full LSID/store ID, and request count. Thus a pair with four
+accepted fragments frees two physical STQ rows but produces exactly one
+logical drain completion. This record is not a lower-level WriteResp or final
+architectural memory-completion acknowledgement. Peer scalar stores may still
+produce separate completion records in the same accepted batch.
+
 ## Ordering and recovery
 
 The child CommitQ enforces the per-STID oldest-token frontier. A stalled older
@@ -68,13 +85,13 @@ bash tools/chisel/build_chisel.sh
 ```
 
 Dynamic tests cover stale lease rejection, multi-cycle fragment stability,
-accepted-batch release, and last-fragment-only ownership.
+accepted-batch release, last-fragment-only ownership, and a two-beat pair held
+as four stable fragments before one logical completion and two-row free.
 Reference tests cover single/split shaping, same-STID blocking, peer bypass,
 downstream gating, and independent STQ/ROB/full-serial widths.
 
 ## Remaining gaps
 
-- Group pair-store/cross-line fragments under one logical completion token.
 - Route MMIO stores to the serializer instead of SCB.
 - Replace compatibility `commitFreeMask` observability after static-top
   migration.
