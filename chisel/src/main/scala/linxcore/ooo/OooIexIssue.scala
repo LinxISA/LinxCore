@@ -47,9 +47,8 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   // Each topology-neutral domain sees the same canonical IQ owner through a
   // disjoint class/bank projection.  The domain count changes picker width,
   // never the number of physical row or payload owners.
-  val pickClasses = Input(Vec(p.iexIssueDomainCount, OooUopClass()))
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
-    UInt(p.iqBankCount.W)))
+    Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val picks = Vec(p.iexIssueDomainCount,
     Decoupled(new OooIexPickToken(p)))
@@ -70,7 +69,8 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val queryPolicyReasons = Output(Vec(p.iexIssueDomainCount,
     UInt(OooIexIssueBlockReason.Count.W)))
   val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
-    UInt(p.countWidth(p.iqBankCount * p.iqEntriesPerBank).W)))
+    UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+      p.iqEntriesPerBank).W)))
 
   // Domain-zero aliases keep focused single-domain modules and regression
   // tests source-compatible while the physical IO is explicitly vectorized.
@@ -78,7 +78,6 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   def queryState = queryStates(0)
   def queryRow = queryRows(0)
   def queryPickable = queryPickables(0)
-  def pickClass = pickClasses(0)
   def pickBankEnable = pickBankEnables(0)
   def pick = picks(0)
   def pickRetry = pickRetries(0)
@@ -1403,8 +1402,12 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
 
   for (left <- 0 until p.iexIssueDomainCount;
        right <- left + 1 until p.iexIssueDomainCount) {
-    assert(io.pickClasses(left) =/= io.pickClasses(right) ||
-      !(io.pickBankEnables(left) & io.pickBankEnables(right)).orR,
+    val projectionOverlap = VecInit((0 until p.iqClassCount).map {
+      classIndex =>
+        (io.pickBankEnables(left)(classIndex) &
+          io.pickBankEnables(right)(classIndex)).orR
+    }).asUInt.orR
+    assert(!projectionOverlap,
       "IEX issue domains must have disjoint class/bank projections")
   }
 
@@ -1412,35 +1415,34 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     Module(new OooIexOldestReadyPicker(p)))
   for (domain <- 0 until p.iexIssueDomainCount) {
     val picker = pickers(domain)
-    picker.io.uopClass := io.pickClasses(domain)
-    picker.io.bankEnable := io.pickBankEnables(domain)
+    picker.io.classBankEnables := io.pickBankEnables(domain)
     picker.io.stidBlock := Mux(recoveryFreeze,
       UIntToOH(safeRecoveryStid, p.stidCount), 0.U)
     picker.io.recoveryApply.valid := io.recoveryFire && recoveryPlan.valid
     picker.io.recoveryApply.bits := recoveryPlan
 
-    val pickerClassIndex = io.pickClasses(domain).asUInt
-    val candidatePolicyBlocked = Wire(Vec(p.iqBankCount,
-      Vec(p.iqEntriesPerBank, Bool())))
-    for (bank <- 0 until p.iqBankCount;
+    val candidatePolicyBlocked = Wire(Vec(p.iqClassCount,
+      Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
+    for (classIndex <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount;
          entry <- 0 until p.iqEntriesPerBank) {
-      val row = scheduleRows(pickerClassIndex)(bank)(entry)
+      val row = scheduleRows(classIndex)(bank)(entry)
       val sourcesReady = row.sources.map(source =>
         !source.valid || source.ready || source.specReady).reduce(_ && _)
       val loadCanceled = rowLoadCanceled(row)
       val policyReasons = issuePolicyReasons(
-        domain, io.pickClasses(domain), row)
-      candidatePolicyBlocked(bank)(entry) :=
-        io.pickBankEnables(domain)(bank) &&
-        slotState(pickerClassIndex)(bank)(entry) ===
+        domain, OooUopClass.all(classIndex), row)
+      candidatePolicyBlocked(classIndex)(bank)(entry) :=
+        io.pickBankEnables(domain)(classIndex)(bank) &&
+        slotState(classIndex)(bank)(entry) ===
           OooIexIssueSlotState.ResidentS3 && row.valid &&
         policyReasons.orR
-      val candidate = picker.io.candidates(bank)(entry)
+      val candidate = picker.io.candidates(classIndex)(bank)(entry)
       candidate.eligible :=
-        slotState(pickerClassIndex)(bank)(entry) ===
+        slotState(classIndex)(bank)(entry) ===
           OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
         sourcesReady && !loadCanceled &&
-        storeIssueAllowed(pickerClassIndex)(bank)(entry) &&
+        storeIssueAllowed(classIndex)(bank)(entry) &&
         !policyReasons.orR &&
         !(recoveryFreeze && row.stid === recoveryStid)
       candidate.peId := row.peId
@@ -1451,7 +1453,8 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       candidate.reservation := row.reservation
     }
     io.policyBlockedCount(domain) :=
-      PopCount(candidatePolicyBlocked.flatten)
+      PopCount(candidatePolicyBlocked.toSeq.flatMap(
+        _.toSeq.flatMap(_.toSeq)))
 
     val pickToken = picker.io.pick.bits
     val pickClassIndex = pickToken.query.uopClass.asUInt
@@ -1476,8 +1479,10 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       pickToken.query.bank === pickRow.reservation.bank &&
       pickToken.query.entry === pickRow.reservation.speculativeSlot
     val pickNotInFlight = !pickRow.inFlight
+    val pickDomainExact = pickClassInRange && pickBankInRange &&
+      io.pickBankEnables(domain)(safePickClass)(safePickBank)
     val pickBaseClaimExact = pickResidentExact && pickIdentityExact &&
-      pickNotInFlight && !rowLoadCanceled(pickRow) &&
+      pickDomainExact && pickNotInFlight && !rowLoadCanceled(pickRow) &&
       storeIssueAllowed(safePickClass)(safePickBank)(safePickEntry) &&
       !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
     val pickPolicyReasons = issuePolicyReasons(
@@ -1495,7 +1500,8 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       picker.io.pick.valid && !pickBaseClaimExact
     io.pickRejectedByDomain(domain).bits.token := pickToken
     io.pickRejectedByDomain(domain).bits.residentExact := pickResidentExact
-    io.pickRejectedByDomain(domain).bits.identityExact := pickIdentityExact
+    io.pickRejectedByDomain(domain).bits.identityExact :=
+      pickIdentityExact && pickDomainExact
     io.pickRejectedByDomain(domain).bits.notInFlight := pickNotInFlight
     io.pickMalformedByDomain(domain) := picker.io.malformed
     io.pickRecoveryCanceledByDomain(domain) := picker.io.recoveryCanceled
@@ -1528,9 +1534,8 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         OooIexIssueSlotState.ResidentS3 && retryRow.valid
     val retryIdentityExact = sameMember(retry.member, retryRow.member) &&
       retry.reservation.asUInt === retryRow.reservation.asUInt
-    val retryDomainExact = retry.reservation.uopClass ===
-      io.pickClasses(domain) &&
-      io.pickBankEnables(domain)(safeRetryBank)
+    val retryDomainExact = retryClassInRange &&
+      io.pickBankEnables(domain)(safeRetryClass)(safeRetryBank)
     val retryClaimsCurrentPick = io.picks(domain).fire &&
       safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
       safeRetryEntry === safePickEntry &&
@@ -1584,6 +1589,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     io.queryPolicyReasons(domain) := queryPolicyReason
     io.queryPickables(domain) := queryClassInRange && queryBankInRange &&
       queryEntryInRange &&
+      io.pickBankEnables(domain)(safeQueryClass)(safeQueryBank) &&
       io.queryStates(domain) === OooIexIssueSlotState.ResidentS3 &&
       io.queryRows(domain).valid &&
       !io.queryRows(domain).schedule.inFlight && querySourcesReady &&

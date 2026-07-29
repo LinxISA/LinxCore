@@ -43,8 +43,8 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryFire.poke(false.B)
-    dut.io.pickClasses(0).poke(OooUopClass.Alu)
-    dut.io.pickBankEnables(0).poke(1.U)
+    dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+    dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
     dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.pcReadResponses.foreach(
       _.poke(0.U.asTypeOf(dut.io.pcReadResponses.head)))

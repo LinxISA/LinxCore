@@ -40,7 +40,6 @@ class OooIexIssueE1IntegrationHarness(
   issue.io.recoveryPrepare.bits :=
     0.U.asTypeOf(issue.io.recoveryPrepare.bits)
   issue.io.recoveryFire := false.B
-  issue.io.pickClasses := transfer.io.pickClasses
   issue.io.pickBankEnables := transfer.io.pickBankEnables
   issue.io.issuePolicy := 0.U.asTypeOf(issue.io.issuePolicy)
   issue.io.stageCancels.flatten.foreach { cancel =>
@@ -108,9 +107,9 @@ class OooIexIssueE1IntegrationSpec extends AnyFunSuite with ChiselSim {
     tuRetireSourceDepthPerStid = 16)
 
   private val topology = Seq(
-    OooIexIssueDomainConfig(
+    OooIexIssueDomainConfig.singleClass(p,
       OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
-    OooIexIssueDomainConfig(
+    OooIexIssueDomainConfig.singleClass(p,
       OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 1))
 
   private def pokeMember(target: RobMemberKey, memberIndex: Int): Unit = {

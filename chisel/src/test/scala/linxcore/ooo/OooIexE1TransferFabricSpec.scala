@@ -28,9 +28,9 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     tuRetireSourceDepthPerStid = 16)
 
   private val topology = Seq(
-    OooIexIssueDomainConfig(
+    OooIexIssueDomainConfig.singleClass(p,
       OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
-    OooIexIssueDomainConfig(
+    OooIexIssueDomainConfig.singleClass(p,
       OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 1))
 
   private def clear(dut: OooIexE1TransferFabric): Unit = {
@@ -51,7 +51,8 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
       port: chisel3.util.DecoupledIO[OooIexI2Transaction],
       uopClass: OooUopClass.Type,
       ridSlot: Int,
-      data: BigInt): Unit = {
+      data: BigInt,
+      bank: Int = 0): Unit = {
     port.bits.poke(0.U.asTypeOf(port.bits))
     val row = port.bits.row.schedule
     row.valid.poke(true.B)
@@ -71,9 +72,9 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     row.member.residentGeneration.poke(4.U)
     row.reservation.valid.poke(true.B)
     row.reservation.uopClass.poke(uopClass)
-    row.reservation.bank.poke(0.U)
+    row.reservation.bank.poke(bank.U)
     row.reservation.writePort.poke(0.U)
-    row.reservation.speculativeSlot.poke(ridSlot.U)
+    row.reservation.speculativeSlot.poke((ridSlot % p.iqEntriesPerBank).U)
     row.reservation.reservationEpoch.poke(9.U)
     row.inFlight.poke(true.B)
     port.bits.sourceMask.poke(0.U)
@@ -88,10 +89,10 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.reset.poke(false.B)
 
-      dut.io.pickClasses(0).expect(OooUopClass.Alu)
-      dut.io.pickClasses(1).expect(OooUopClass.Bru)
-      dut.io.pickBankEnables(0).expect(1.U)
-      dut.io.pickBankEnables(1).expect(1.U)
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).expect(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Bru - 1).expect(1.U)
+      dut.io.pickBankEnables(0)(OooDispatchClass.Bru - 1).expect(0.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Alu - 1).expect(0.U)
 
       pokeI2(dut.io.i2(0), OooUopClass.Alu, ridSlot = 1, data = 11)
       pokeI2(dut.io.i2(1), OooUopClass.Bru, ridSlot = 2, data = 22)
@@ -139,24 +140,63 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
 
   test("rejects overlapping static class and bank ownership") {
     val overlap = Seq(
-      OooIexIssueDomainConfig(
+      OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
-      OooIexIssueDomainConfig(
+      OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 1))
     assertThrows[IllegalArgumentException](
       OooIexIssueDomainConfig.validate(p, overlap))
     assertThrows[IllegalArgumentException](
       OooIexIssueDomainConfig.validate(p, topology.take(1)))
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
-      topology.updated(1, OooIexIssueDomainConfig(p.iqClassCount, 1))))
+      topology.updated(1, OooIexIssueDomainConfig(Seq(1), 1))))
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
       topology.updated(1, OooIexIssueDomainConfig(
-        OooUopClass.Bru.asUInt.litValue.toInt, 0))))
+        Seq.fill(p.iqClassCount)(BigInt(0))))))
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
-      topology.updated(1, OooIexIssueDomainConfig(
+      topology.updated(1, OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Bru.asUInt.litValue.toInt, 4))))
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
-      topology.updated(1, OooIexIssueDomainConfig(
+      topology.updated(1, OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 2))))
+  }
+
+  test("accepts every class-specific bank projection owned by one domain") {
+    val aluStdMasks = Seq.tabulate(p.iqClassCount) { classIndex =>
+      if (classIndex == OooDispatchClass.Alu - 1) BigInt(1)
+      else if (classIndex == OooDispatchClass.Std - 1) BigInt(2)
+      else BigInt(0)
+    }
+    val multiClassTopology = topology.updated(0,
+      OooIexIssueDomainConfig(aluStdMasks, releasePort = 0,
+        name = "alu-std"))
+
+    simulate(new OooIexE1TransferFabric(p, multiClassTopology)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).expect(1.U)
+      dut.io.pickBankEnables(0)(OooDispatchClass.Std - 1).expect(2.U)
+      pokeI2(dut.io.i2(0), OooUopClass.Std, ridSlot = 3,
+        data = 33, bank = 1)
+      dut.io.issueReleases(0).ready.poke(true.B)
+      dut.io.i2(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.i2(0).valid.poke(false.B)
+      dut.io.issueReleases(0).ready.poke(false.B)
+      dut.io.e1(0).valid.expect(true.B)
+      dut.io.e1(0).bits.ownerClass.expect(OooUopClass.Std)
+
+      dut.io.e1(0).ready.poke(true.B)
+      dut.clock.step()
+      pokeI2(dut.io.i2(0), OooUopClass.Std, ridSlot = 4,
+        data = 44, bank = 0)
+      dut.io.issueReleases(0).ready.poke(true.B)
+      dut.io.i2(0).ready.expect(false.B)
+      dut.io.rejected(0).valid.expect(true.B)
+      dut.io.rejected(0).bits.shapeExact.expect(false.B)
+    }
   }
 }

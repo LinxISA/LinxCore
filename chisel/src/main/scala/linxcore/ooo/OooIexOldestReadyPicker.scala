@@ -6,11 +6,12 @@ import chisel3.util.{Cat, Decoupled, Mux1H, PriorityEncoder,
 
 class OooIexOldestReadyPickerIO(val p: OooParams = OooParams())
     extends Bundle {
-  val uopClass = Input(OooUopClass())
-  val bankEnable = Input(UInt(p.iqBankCount.W))
+  val classBankEnables = Input(Vec(p.iqClassCount,
+    UInt(p.iqBankCount.W)))
   val stidBlock = Input(UInt(p.stidCount.W))
-  val candidates = Input(Vec(p.iqBankCount,
-    Vec(p.iqEntriesPerBank, new OooIexPickCandidate(p))))
+  val candidates = Input(Vec(p.iqClassCount,
+    Vec(p.iqBankCount,
+      Vec(p.iqEntriesPerBank, new OooIexPickCandidate(p)))))
   val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
 
   val pick = Decoupled(new OooIexPickToken(p))
@@ -23,11 +24,13 @@ class OooIexOldestReadyPickerIO(val p: OooParams = OooParams())
 
 /** Retained oldest-ready selection for one issue domain.
   *
-  * An instance covers one logical uop class and an arbitrary compile-time or
-  * runtime mask of its physical banks. It projects only canonical IQ schedule
-  * state, selects the oldest exact member independently for every STID, then
-  * uses work-conserving round-robin arbitration across STIDs. The selected
-  * token is retained under P1 backpressure; no IQ row or payload is copied.
+  * An instance covers one physical execution domain. Its class-indexed bank
+  * masks allow one pipe to own different bank subsets for ALU, STD, SYS, or
+  * another compatible class without creating duplicate scheduling state. It
+  * projects only canonical IQ schedule state, selects the oldest exact member
+  * independently for every STID across the complete domain, then uses
+  * work-conserving round-robin arbitration across STIDs. The selected token is
+  * retained under P1 backpressure; no IQ row or payload is copied.
   * After a pick fires, the canonical IQ owner must remove that row from the
   * eligible projection by setting its in-flight state. Same-edge refill masks
   * the fired token locally only to bridge that owner update edge.
@@ -35,8 +38,8 @@ class OooIexOldestReadyPickerIO(val p: OooParams = OooParams())
   * Same-STID age is the modular concatenation of RID generation, RID slot,
   * and member index. The live ROB/IQ window is far smaller than half of that
   * namespace, so subtraction remains unambiguous across RID wrap. Physical
-  * bank/entry order is only a deterministic tie break for malformed duplicate
-  * ages and never replaces architectural member age.
+  * class/bank/entry order is only a deterministic tie break for malformed
+  * duplicate ages and never replaces architectural member age.
   */
 class OooIexOldestReadyPicker(val p: OooParams = OooParams())
     extends Module {
@@ -44,7 +47,8 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
 
   private val ageWidth =
     p.ridGenerationWidth + p.ridSlotWidth + p.robMemberIndexWidth
-  private val candidateCount = p.iqBankCount * p.iqEntriesPerBank
+  private val candidateCount =
+    p.iqClassCount * p.iqBankCount * p.iqEntriesPerBank
 
   val heldValid = RegInit(false.B)
   val heldToken = Reg(new OooIexPickToken(p))
@@ -56,7 +60,7 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
       token.candidate.member.memberIndex)
 
   private def physicalKey(token: OooIexPickToken): UInt =
-    Cat(token.query.bank, token.query.entry)
+    Cat(token.query.uopClass.asUInt, token.query.bank, token.query.entry)
 
   private def older(left: OooIexPickToken, right: OooIexPickToken): Bool = {
     val delta = (ageKey(right) - ageKey(left))(ageWidth - 1, 0)
@@ -107,30 +111,33 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
   io.held := heldValid && !heldKilled && !heldBlocked
   io.roundRobin := roundRobin
 
-  val tokens = Wire(Vec(p.iqBankCount,
-    Vec(p.iqEntriesPerBank, new OooIexPickToken(p))))
-  val identityExact = Wire(Vec(p.iqBankCount,
-    Vec(p.iqEntriesPerBank, Bool())))
-  val reservationExact = Wire(Vec(p.iqBankCount,
-    Vec(p.iqEntriesPerBank, Bool())))
-  val selectable = Wire(Vec(p.iqBankCount,
-    Vec(p.iqEntriesPerBank, Bool())))
+  val tokens = Wire(Vec(p.iqClassCount, Vec(p.iqBankCount,
+    Vec(p.iqEntriesPerBank, new OooIexPickToken(p)))))
+  val identityExact = Wire(Vec(p.iqClassCount, Vec(p.iqBankCount,
+    Vec(p.iqEntriesPerBank, Bool()))))
+  val reservationExact = Wire(Vec(p.iqClassCount, Vec(p.iqBankCount,
+    Vec(p.iqEntriesPerBank, Bool()))))
+  val selectable = Wire(Vec(p.iqClassCount, Vec(p.iqBankCount,
+    Vec(p.iqEntriesPerBank, Bool()))))
 
-  for (bank <- 0 until p.iqBankCount;
+  for (classIndex <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
        entry <- 0 until p.iqEntriesPerBank) {
-    val candidate = io.candidates(bank)(entry)
-    val token = tokens(bank)(entry)
-    token.query.uopClass := io.uopClass
+    val candidate = io.candidates(classIndex)(bank)(entry)
+    val token = tokens(classIndex)(bank)(entry)
+    token.query.uopClass := OooUopClass.all(classIndex)
     token.query.bank := bank.U
     token.query.entry := entry.U
     token.candidate := candidate
 
-    identityExact(bank)(entry) := candidate.member.group.valid &&
+    identityExact(classIndex)(bank)(entry) :=
+      candidate.member.group.valid &&
       candidate.member.bid.valid && candidate.stid < p.stidCount.U &&
       candidate.peId === candidate.member.group.peId &&
       candidate.stid === candidate.member.group.stid
-    reservationExact(bank)(entry) := candidate.reservation.valid &&
-      candidate.reservation.uopClass === io.uopClass &&
+    reservationExact(classIndex)(bank)(entry) :=
+      candidate.reservation.valid &&
+      candidate.reservation.uopClass === OooUopClass.all(classIndex) &&
       candidate.reservation.bank === bank.U &&
       candidate.reservation.writePort < p.iqWritePortsPerBank.U &&
       candidate.reservation.speculativeSlot === entry.U
@@ -140,8 +147,10 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
     val firedAgain = pickFire && sameExact(token, heldToken)
     val stidBlocked = candidate.stid < p.stidCount.U &&
       io.stidBlock(candidate.stid)
-    selectable(bank)(entry) := io.bankEnable(bank) && candidate.eligible &&
-      identityExact(bank)(entry) && reservationExact(bank)(entry) &&
+    selectable(classIndex)(bank)(entry) :=
+      io.classBankEnables(classIndex)(bank) && candidate.eligible &&
+      identityExact(classIndex)(bank)(entry) &&
+      reservationExact(classIndex)(bank)(entry) &&
       !stidBlocked && !killed && !firedAgain
   }
 
@@ -149,15 +158,20 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
   val flatTokens = Wire(Vec(candidateCount, new OooIexPickToken(p)))
   val flatIdentityExact = Wire(Vec(candidateCount, Bool()))
   val flatReservationExact = Wire(Vec(candidateCount, Bool()))
-  for (bank <- 0 until p.iqBankCount;
+  for (classIndex <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
        entry <- 0 until p.iqEntriesPerBank) {
-    val flatIndex = bank * p.iqEntriesPerBank + entry
-    flatTokens(flatIndex) := tokens(bank)(entry)
-    flatIdentityExact(flatIndex) := identityExact(bank)(entry)
-    flatReservationExact(flatIndex) := reservationExact(bank)(entry)
-    flatMalformed(flatIndex) := io.bankEnable(bank) &&
-      io.candidates(bank)(entry).eligible &&
-      !(identityExact(bank)(entry) && reservationExact(bank)(entry))
+    val flatIndex = (classIndex * p.iqBankCount + bank) *
+      p.iqEntriesPerBank + entry
+    flatTokens(flatIndex) := tokens(classIndex)(bank)(entry)
+    flatIdentityExact(flatIndex) := identityExact(classIndex)(bank)(entry)
+    flatReservationExact(flatIndex) :=
+      reservationExact(classIndex)(bank)(entry)
+    flatMalformed(flatIndex) :=
+      io.classBankEnables(classIndex)(bank) &&
+      io.candidates(classIndex)(bank)(entry).eligible &&
+      !(identityExact(classIndex)(bank)(entry) &&
+        reservationExact(classIndex)(bank)(entry))
   }
   val malformedMask = flatMalformed.asUInt
   val malformedIndex = PriorityEncoder(malformedMask)
@@ -172,10 +186,13 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
   val perStidWinner = Wire(Vec(p.stidCount,
     Valid(new OooIexPickToken(p))))
   for (stid <- 0 until p.stidCount) {
-    val values = (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iqEntriesPerBank).map { entry =>
-        (selectable(bank)(entry) &&
-          io.candidates(bank)(entry).stid === stid.U, tokens(bank)(entry))
+    val values = (0 until p.iqClassCount).flatMap { classIndex =>
+      (0 until p.iqBankCount).flatMap { bank =>
+        (0 until p.iqEntriesPerBank).map { entry =>
+          (selectable(classIndex)(bank)(entry) &&
+            io.candidates(classIndex)(bank)(entry).stid === stid.U,
+            tokens(classIndex)(bank)(entry))
+        }
       }
     }
     val winner = selectTree(values)

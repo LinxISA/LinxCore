@@ -21,9 +21,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
   val recoveryFire = Input(Bool())
 
-  val pickClasses = Input(Vec(p.iexIssueDomainCount, OooUopClass()))
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
-    UInt(p.iqBankCount.W)))
+    Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
     Vec(2, Decoupled(new OooIexStageCancel(p)))))
@@ -75,7 +74,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val queryPolicyReasons = Output(Vec(p.iexIssueDomainCount,
     UInt(OooIexIssueBlockReason.Count.W)))
   val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
-    UInt(p.countWidth(p.iqBankCount * p.iqEntriesPerBank).W)))
+    UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+      p.iqEntriesPerBank).W)))
   val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
@@ -122,7 +122,6 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
   io.recoveryPrepareReady := issue.io.recoveryPrepareReady
   io.recoveryPrepared := issue.io.recoveryPrepared
   issue.io.recoveryFire := io.recoveryFire
-  issue.io.pickClasses := io.pickClasses
   issue.io.pickBankEnables := io.pickBankEnables
   issue.io.issuePolicy := io.issuePolicy
 

@@ -5,6 +5,8 @@ import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
+  private val aluClassIndex = OooDispatchClass.Alu - 1
+
   private val p = OooParams(
     stidCount = 2,
     instructionDecodeWidth = 2,
@@ -26,11 +28,11 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
     tuRetireSourceDepthPerStid = 16)
 
   private def clear(dut: OooIexOldestReadyPicker): Unit = {
-    dut.io.uopClass.poke(OooUopClass.Alu)
-    dut.io.bankEnable.poke("b11".U)
+    dut.io.classBankEnables.foreach(_.poke(0.U))
+    dut.io.classBankEnables(aluClassIndex).poke("b11".U)
     dut.io.stidBlock.poke(0.U)
-    dut.io.candidates.foreach(_.foreach(
-      _.poke(0.U.asTypeOf(dut.io.candidates.head.head))))
+    dut.io.candidates.foreach(_.foreach(_.foreach(
+      _.poke(0.U.asTypeOf(dut.io.candidates.head.head.head)))))
     dut.io.pick.ready.poke(false.B)
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
@@ -44,8 +46,9 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
       stid: Int,
       generation: Int,
       ridSlot: Int,
-      memberIndex: Int = 0): Unit = {
-    val candidate = dut.io.candidates(bank)(entry)
+      memberIndex: Int = 0,
+      classIndex: Int = OooDispatchClass.Alu - 1): Unit = {
+    val candidate = dut.io.candidates(classIndex)(bank)(entry)
     candidate.poke(0.U.asTypeOf(candidate))
     candidate.eligible.poke(true.B)
     candidate.peId.poke(3.U)
@@ -64,7 +67,7 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
     candidate.member.memberIndex.poke(memberIndex.U)
     candidate.member.residentGeneration.poke(4.U)
     candidate.reservation.valid.poke(true.B)
-    candidate.reservation.uopClass.poke(OooUopClass.Alu)
+    candidate.reservation.uopClass.poke(OooUopClass.all(classIndex))
     candidate.reservation.bank.poke(bank.U)
     candidate.reservation.speculativeSlot.poke(entry.U)
     candidate.reservation.reservationEpoch.poke(9.U)
@@ -109,11 +112,11 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
       dut.io.pick.bits.query.entry.expect(2.U)
 
       // The retained result is stable even if its candidate projection moves.
-      dut.io.candidates(0)(2).eligible.poke(false.B)
+      dut.io.candidates(aluClassIndex)(0)(2).eligible.poke(false.B)
       dut.clock.step()
       dut.io.pick.bits.query.bank.expect(0.U)
       dut.io.pick.bits.query.entry.expect(2.U)
-      dut.io.candidates(0)(2).eligible.poke(true.B)
+      dut.io.candidates(aluClassIndex)(0)(2).eligible.poke(true.B)
 
       // A fire may refill in the same edge, excludes the fired row, and uses
       // the next STID as the work-conserving arbitration base.
@@ -126,7 +129,7 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
 
       // The canonical IQ owner marks the earlier fired row in-flight on that
       // edge. The picker deliberately does not mirror that state.
-      dut.io.candidates(0)(2).eligible.poke(false.B)
+      dut.io.candidates(aluClassIndex)(0)(2).eligible.poke(false.B)
       dut.clock.step()
       dut.io.pick.valid.expect(true.B)
       dut.io.pick.bits.candidate.stid.expect(0.U)
@@ -142,7 +145,7 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.reset.poke(false.B)
 
-      dut.io.bankEnable.poke("b01".U)
+      dut.io.classBankEnables(aluClassIndex).poke("b01".U)
       pokeCandidate(dut, bank = 1, entry = 0, stid = 0,
         generation = 1, ridSlot = 1)
       dut.clock.step()
@@ -151,7 +154,7 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
 
       pokeCandidate(dut, bank = 0, entry = 1, stid = 0,
         generation = 1, ridSlot = 2)
-      dut.io.candidates(0)(1).reservation.bank.poke(1.U)
+      dut.io.candidates(aluClassIndex)(0)(1).reservation.bank.poke(1.U)
       dut.io.malformed.valid.expect(true.B)
       dut.io.malformed.bits.reservationExact.expect(false.B)
       dut.clock.step()
@@ -207,6 +210,35 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
       dut.io.stidBlock.poke(0.U)
       dut.io.pick.valid.expect(true.B)
       dut.io.pick.bits.candidate.stid.expect(0.U)
+    }
+  }
+
+  test("selects the oldest row across every class owned by one domain") {
+    simulate(new OooIexOldestReadyPicker(p)) { dut =>
+      clear(dut)
+      val stdClassIndex = OooDispatchClass.Std - 1
+      dut.io.classBankEnables(stdClassIndex).poke("b01".U)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeCandidate(dut, bank = 0, entry = 0, stid = 0,
+        generation = 1, ridSlot = 4, classIndex = aluClassIndex)
+      pokeCandidate(dut, bank = 0, entry = 1, stid = 0,
+        generation = 1, ridSlot = 2, classIndex = stdClassIndex)
+
+      dut.clock.step()
+      dut.io.pick.valid.expect(true.B)
+      dut.io.pick.bits.query.uopClass.expect(OooUopClass.Std)
+      dut.io.pick.bits.query.bank.expect(0.U)
+      dut.io.pick.bits.query.entry.expect(1.U)
+
+      dut.io.pick.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.candidates(stdClassIndex)(0)(1).eligible.poke(false.B)
+      dut.io.pick.valid.expect(true.B)
+      dut.io.pick.bits.query.uopClass.expect(OooUopClass.Alu)
+      dut.io.pick.bits.query.entry.expect(0.U)
     }
   }
 }

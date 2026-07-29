@@ -24,7 +24,7 @@ class OooIexE1TransferSlotIO(val p: OooParams = OooParams()) extends Bundle {
   val occupied = Output(Bool())
 }
 
-/** One class-specific retained I2-to-E1 ownership-transfer slot.
+/** One physical-domain retained I2-to-E1 ownership-transfer slot.
   *
   * I2 acceptance and exact IQ/dispatch release are one atomic fire. Before
   * that edge the issue lane owns recovery; after it, this slot owns the full
@@ -34,10 +34,23 @@ class OooIexE1TransferSlotIO(val p: OooParams = OooParams()) extends Bundle {
   */
 class OooIexE1TransferSlot(
     val p: OooParams = OooParams(),
-    val acceptedClass: Int = OooUopClass.Alu.asUInt.litValue.toInt,
+    val acceptedClassBankEnables: Seq[BigInt] = Seq.empty,
     val ownerLane: Int = 0) extends Module {
-  require(acceptedClass >= 0 && acceptedClass < p.iqClassCount,
-    "E1 transfer class must name one physical IQ class")
+  private val defaultClassBankEnables = Seq.tabulate(p.iqClassCount) {
+    classIndex =>
+      if (classIndex == OooUopClass.Alu.asUInt.litValue.toInt)
+        (BigInt(1) << p.iqBankCount) - 1
+      else BigInt(0)
+  }
+  private val classBankEnables =
+    if (acceptedClassBankEnables.isEmpty) defaultClassBankEnables
+    else acceptedClassBankEnables
+  require(classBankEnables.length == p.iqClassCount,
+    "E1 transfer projection must define every physical IQ class")
+  require(classBankEnables.exists(_ != 0) &&
+    classBankEnables.forall(mask => mask >= 0 &&
+      mask < (BigInt(1) << p.iqBankCount)),
+    "E1 transfer projection needs nonempty in-range class/bank ownership")
   require(ownerLane >= 0 && ownerLane < p.iexIssueDomainCount,
     "E1 transfer owner lane must fit the issue-domain topology")
 
@@ -64,6 +77,17 @@ class OooIexE1TransferSlot(
     }.reduce(_ || _)
 
   val incoming = io.i2.bits
+  val incomingClass = incoming.row.reservation.uopClass.asUInt
+  val incomingClassInRange = incomingClass < p.iqClassCount.U
+  val incomingBankInRange =
+    incoming.row.reservation.bank < p.iqBankCount.U
+  val safeIncomingClass = Mux(incomingClassInRange, incomingClass, 0.U)
+  val safeIncomingBank = Mux(
+    incomingBankInRange, incoming.row.reservation.bank, 0.U)
+  val acceptedProjection = VecInit(classBankEnables.map(
+    _.U(p.iqBankCount.W)))
+  val domainExact = incomingClassInRange && incomingBankInRange &&
+    acceptedProjection(safeIncomingClass)(safeIncomingBank)
   val logicalSourceMask = VecInit(incoming.row.sources.map(_.valid)).asUInt
   // The lane captures its row on the canonical pick/claim edge, so its local
   // schedule snapshot may still contain the pre-claim inFlight value. The IQ
@@ -72,7 +96,7 @@ class OooIexE1TransferSlot(
   val shapeExact = incoming.row.valid &&
     incoming.row.member.group.valid && incoming.row.member.bid.valid &&
     incoming.row.reservation.valid &&
-    incoming.row.reservation.uopClass.asUInt === acceptedClass.U &&
+    domainExact &&
     incoming.row.peId === incoming.row.member.group.peId &&
     incoming.row.stid === incoming.row.member.group.stid &&
     incoming.sourceMask === logicalSourceMask &&

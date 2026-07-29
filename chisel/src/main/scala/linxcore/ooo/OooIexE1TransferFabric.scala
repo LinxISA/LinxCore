@@ -5,20 +5,35 @@ import chisel3.util.{Decoupled, RRArbiter, Valid}
 
 /** Elaboration-time ownership of one issue domain. */
 final case class OooIexIssueDomainConfig(
-    uopClass: Int,
-    bankEnable: BigInt,
-    releasePort: Int = 0)
+    classBankEnables: Seq[BigInt],
+    releasePort: Int = 0,
+    name: String = "")
 
 object OooIexIssueDomainConfig {
+  def singleClass(
+      p: OooParams,
+      uopClass: Int,
+      bankEnable: BigInt,
+      releasePort: Int = 0,
+      name: String = ""): OooIexIssueDomainConfig = {
+    require(uopClass >= 0 && uopClass < p.iqClassCount,
+      "single-class IEX domain names an invalid IQ class")
+    OooIexIssueDomainConfig(
+      Seq.tabulate(p.iqClassCount)(index =>
+        if (index == uopClass) bankEnable else BigInt(0)),
+      releasePort, name)
+  }
+
   def validate(p: OooParams, domains: Seq[OooIexIssueDomainConfig]): Unit = {
     require(domains.length == p.iexIssueDomainCount,
       "static IEX topology must define every physical issue domain")
     domains.zipWithIndex.foreach { case (domain, index) =>
-      require(domain.uopClass >= 0 && domain.uopClass < p.iqClassCount,
-        s"IEX domain $index names an invalid physical IQ class")
-      require(domain.bankEnable > 0 &&
-        domain.bankEnable < (BigInt(1) << p.iqBankCount),
-        s"IEX domain $index needs a nonempty in-range bank mask")
+      require(domain.classBankEnables.length == p.iqClassCount,
+        s"IEX domain $index must define every physical IQ class")
+      require(domain.classBankEnables.exists(_ != 0) &&
+        domain.classBankEnables.forall(mask => mask >= 0 &&
+          mask < (BigInt(1) << p.iqBankCount)),
+        s"IEX domain $index needs nonempty in-range class/bank masks")
       require(domain.releasePort >= 0 &&
         domain.releasePort < p.iexReleaseWidth,
         s"IEX domain $index names an invalid exact release port")
@@ -28,8 +43,12 @@ object OooIexIssueDomainConfig {
         s"IEX release port $port has no statically owned issue domain")
     }
     for (left <- domains.indices; right <- left + 1 until domains.length) {
-      require(domains(left).uopClass != domains(right).uopClass ||
-        (domains(left).bankEnable & domains(right).bankEnable) == 0,
+      val overlaps = domains(left).classBankEnables
+        .zip(domains(right).classBankEnables)
+        .exists { case (leftMask, rightMask) =>
+          (leftMask & rightMask) != 0
+        }
+      require(!overlaps,
         s"IEX domains $left and $right overlap one class/bank owner")
     }
   }
@@ -49,9 +68,8 @@ class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
-  val pickClasses = Output(Vec(p.iexIssueDomainCount, OooUopClass()))
   val pickBankEnables = Output(Vec(p.iexIssueDomainCount,
-    UInt(p.iqBankCount.W)))
+    Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
   val releaseDomains = Vec(p.iexReleaseWidth,
     Valid(UInt(p.iexIssueDomainWidth.W)))
   def releaseDomain = releaseDomains(0)
@@ -77,7 +95,7 @@ class OooIexE1TransferFabric(
 
   val io = IO(new OooIexE1TransferFabricIO(p))
   val slots = domains.zipWithIndex.map { case (domain, lane) =>
-    Module(new OooIexE1TransferSlot(p, domain.uopClass, lane))
+    Module(new OooIexE1TransferSlot(p, domain.classBankEnables, lane))
   }
 
   for (((slot, domain), lane) <- slots.zip(domains).zipWithIndex) {
@@ -86,8 +104,8 @@ class OooIexE1TransferFabric(
     slot.io.recoveryApply := io.recoveryApply
     slot.io.loadCancel := io.loadCancel
 
-    io.pickClasses(lane) := OooUopClass.all(domain.uopClass)
-    io.pickBankEnables(lane) := domain.bankEnable.U
+    io.pickBankEnables(lane) := VecInit(
+      domain.classBankEnables.map(_.U(p.iqBankCount.W)))
     io.rejected(lane) := slot.io.rejected
     io.killed(lane) := slot.io.killed
     io.occupied(lane) := slot.io.occupied

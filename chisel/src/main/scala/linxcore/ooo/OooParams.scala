@@ -215,7 +215,7 @@ final case class OooParams(
     iqEntriesPerBank % iexRecoveryScanEntriesPerBankPerCycle == 0,
     "IEX recovery scan width must be a power-of-two divisor of each IQ bank")
   require(iexIssueDomainCount > 0 &&
-    iexIssueDomainCount <= math.min(8, iqClassCount * iqBankCount),
+    iexIssueDomainCount <= math.min(16, iqClassCount * iqBankCount),
     "IEX issue-domain count must fit the bounded physical topology")
   require(iexReleaseWidth > 0 && iexReleaseWidth <= iexIssueDomainCount,
     "IEX release width must fit the physical issue-domain count")

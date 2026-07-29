@@ -15,11 +15,12 @@ Source and test owners:
 
 ## Topology contract
 
-Each domain receives one `pickClass` and one physical-bank enable mask. Two
-domains may select different classes from the same bank number, or disjoint
-banks of the same class. They may not overlap both class and bank. The IQ
-asserts this condition every cycle, and exact retry additionally checks that
-the returning reservation still belongs to that domain.
+Each domain receives one physical-bank enable mask per class. A domain may
+select across multiple classes; two domains may share a numerical bank only
+when their class projections differ. They may never overlap the same
+class/bank address. The IQ asserts this condition every cycle, and exact retry
+additionally checks that the returning reservation still belongs to that
+domain.
 
 Each domain has its own retained oldest-ready token, sidecar join, retry merge,
 atomic read attempt/decision, source/PC responses, and I2 output. Recovery
@@ -67,7 +68,8 @@ area or timing claims.
 
 ## Remaining gaps
 
-- Freeze the default ALU/BRU/AGU/STD/FSU/SYS/CMD domain and bank map.
+- Instantiate the formal 12-domain profile in the canonical top and enforce
+  recipe-level pipe capabilities.
 - Connect class-specific physical resource owners to early policy and exact
   I1/I2 stage-cancel inputs.
 - Compose the implemented operand-read fabric with `OooPcBuffer` at the

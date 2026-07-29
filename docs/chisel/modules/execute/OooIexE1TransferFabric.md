@@ -10,24 +10,31 @@ static elaboration contract without yet implementing opcode execution.
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexE1TransferFabric.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexPhysicalProfile.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexE1TransferFabricSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexPhysicalProfileSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexIssueE1IntegrationSpec.scala`
 
 ## Static topology
 
-Each `OooIexIssueDomainConfig` contains one numerical `OooUopClass`, one
-nonempty IQ bank mask, and one static `releasePort`. Elaboration rejects:
+Each `OooIexIssueDomainConfig` contains one bank mask per numerical
+`OooUopClass` and one static `releasePort`. One physical domain may therefore
+own disjoint residency in several logical classes. Elaboration rejects:
 
 - a configuration count different from `iexIssueDomainCount`;
-- an out-of-range class or bank bit;
+- a missing class mask, an empty domain, or an out-of-range bank bit;
 - an out-of-range or unowned release port;
 - two domains that own the same class and any common bank.
 
-Different classes may inspect the same physical bank number because class is
-part of the physical IQ address. Two domains of the same class must use
-disjoint banks. The validated configuration directly drives
-`pickClasses/pickBankEnables`, the accepted class of each retained slot, and
-the release-port ownership used by the transfer fabric.
+Different classes may use the same numerical bank because class is part of the
+physical IQ address. For every class, physical domains must own disjoint bank
+masks. The validated matrix directly drives `pickBankEnables`, each retained
+slot's accepted class/bank projection, and release-port ownership.
+
+[`OooIexPhysicalProfile`](OooIexPhysicalProfile.md) freezes the first complete
+profile: six ALU, three AGU, two BRU, and one external FSU domain. STD shares
+ALU0/3 residency, SYS shares ALU2/5, and FSU/CMD share the external FSU domain.
+Boundary rows remain fast-resolved and own no IQ bank.
 
 ## Transfer and release arbitration
 
@@ -59,7 +66,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1IntegrationSpec
 ```
 
-The fabric UT proves static ALU/BRU mapping, overlap/release-port rejection,
+The fabric UT proves static ALU/BRU mapping, multi-class ALU/STD admission,
+wrong-bank rejection, overlap/release-port rejection,
 fair same-port serialization, retained loser ownership, independent E1
 backpressure, and simultaneous ALU/BRU transfer on distinct ports. The
 integration test connects the real canonical IQ/read fabric to this transfer
@@ -68,8 +76,10 @@ and dispatch reservations are returned.
 
 ## Remaining gaps
 
-- select the final ALU/BRU/AGU/STD/FSU/SYS/CMD domain and bank topology;
-- connect class-specific E1 outputs to typed execution units;
+- enforce recipe-level pipe capability at dispatch and pick; class residency
+  alone cannot distinguish LDA from STA or simple from multi-cycle ALU;
+- add dual LDA/STA pickers for AGU0/1 and shared DIV/PAC/SYS arbitration;
+- connect domain-specific E1 outputs to typed execution units;
 - connect retained recovery apply and physical load-cancel producers in the
   canonical top;
 - prove default-width timing, fairness bounds, and workload throughput.

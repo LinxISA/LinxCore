@@ -3,10 +3,11 @@
 ## Purpose
 
 `OooIexOldestReadyPicker` is a reusable retained picker for one issue domain.
-An issue domain is one uop class plus a mask of physical banks that feed one
-execution-pipe arbitration point. The module receives only minimal projections
-of canonical IQ scheduling rows; it does not copy row residency, readiness,
-payload memory, or recovery ownership.
+An issue domain is one physical selection/pipe arbitration point. It owns an
+independent bank mask for every logical uop class, so ALU0 may select ordinary
+ALU rows and its assigned STD rows without duplicating picker state. The module
+receives only minimal projections of canonical IQ scheduling rows; it does not
+copy row residency, readiness, payload memory, or recovery ownership.
 
 Source and test owners:
 
@@ -26,15 +27,16 @@ The picker first selects one oldest eligible candidate independently for each
 STID. Same-STID age is the modular concatenation
 `{ridGeneration, ridSlot, memberIndex}`. The maximum live IQ population must
 fit in less than half of this namespace, making subtraction unambiguous across
-RID generation wrap. Physical bank/entry order is only a deterministic tie
-break for duplicated ages.
+RID generation wrap. Physical class/bank/entry order is only a deterministic
+tie break for duplicated ages. Class boundaries do not reset age: one domain
+selects the oldest row across every class/bank projection it owns.
 
 The per-STID winners enter work-conserving round-robin arbitration. A terminal
 pick advances the round-robin base to the following STID. The next candidate
 may be retained on the same edge, so the domain sustains one pick per cycle
 after its initial selection latency.
 
-The ARM reference notes use different oldest rules for different queues: an
+The reference design uses different oldest rules for different queues: an
 age matrix for AGU/STD and next-retire RID restrictions for many ALU cases.
 The Linx baseline uses one exact member-age rule for every class. Later
 class-specific latency, memory-order, nonspeculative, or safe-mode blockers
@@ -63,13 +65,11 @@ apply, not by the picker.
 
 ## Remaining integration work
 
-- freeze execution-pipe topology and instantiate disjoint domains for ALU,
-  BRU, AGU, STD, FSU, SYS, and CMD throughput targets;
-- reuse the selected query read to form a complete P1 row without adding a
-  payload-memory read owner;
-- add generated `pcReadRequired/pcParentIndex` execution metadata;
-- connect P1/I1 read denial and partial-response rejection to `pickRetry`;
-- add latency/resource/tracking-vector/load-generation/safe-mode blockers;
+- consume generated recipe-level capabilities so AGU2 cannot select STA and
+  only ALU2/5 can select multi-cycle operations;
+- add the second LDA/STA picker relationship for AGU0/1 without creating a
+  second IQ residency owner;
+- arbitrate shared DIV/PAC/system resources across symmetric domains;
 - close per-domain starvation counters, coverage, and default-width timing.
 
 ## Verification
@@ -81,9 +81,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexRecoverySpec
 ```
 
 The focused picker UT covers RID-generation wrap, same-edge refill, retained
-backpressure, cross-STID fairness, bank masks, malformed fail-closed behavior,
-and exact recovery cancellation. The IEX owner UT covers canonical claim,
+backpressure, cross-STID fairness, class-specific bank masks, oldest selection
+across ALU/STD projections, malformed fail-closed behavior, and exact recovery
+cancellation. The IEX owner UT covers canonical claim,
 retry-to-repick, terminal release, split atomicity, and 2/4/6 decode widths.
-For the 2-bank x 4-entry structure case, the picker emits as a separate
-3,718-line SystemVerilog module and the main IEX owner is 176,457 lines. The
-picker RTL has no payload-memory reference.
+The picker RTL has no payload-memory reference.

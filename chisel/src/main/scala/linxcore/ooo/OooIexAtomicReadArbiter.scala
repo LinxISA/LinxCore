@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Cat, PopCount, Valid}
+import chisel3.util.{Cat, Mux1H, PopCount, Valid, log2Ceil}
 import linxcore.common.OperandClass
 
 class OooIexOperandReadPortRequest(val p: OooParams = OooParams())
@@ -67,11 +67,11 @@ class OooIexAtomicReadArbiterIO(val p: OooParams = OooParams())
 
 /** Atomic multi-domain I1 P/T/U/PC read-port allocator.
   *
-  * Every candidate contributes one complete operand group. A feasible subset
-  * must fit all four physical resources; no source from a denied group is
-  * presented to a read owner. Feasible subsets are compared lexicographically
-  * by same-STID member age and cross-STID round-robin order. This preserves the
-  * oldest request while packing every lower-priority group that still fits.
+  * Every candidate contributes one complete operand group. The arbiter ranks
+  * exact requests by same-STID member age and cross-STID round-robin order,
+  * then greedily accepts each complete group that fits the remaining four
+  * resources. This is the lexicographic optimum without enumerating 2^N
+  * subsets; no source from a denied group is presented to a read owner.
   *
   * Port responses are readyless. A granted group with a missing or stale
   * response retains the grant but exposes an incomplete valid mask, allowing
@@ -81,9 +81,11 @@ class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooIexAtomicReadArbiterIO(p))
 
   private val domainCount = p.iexIssueDomainCount
-  private val subsetCount = 1 << domainCount
   private val ageWidth =
     p.ridGenerationWidth + p.ridSlotWidth + p.robMemberIndexWidth
+  private val rankWidth = math.max(1, log2Ceil(domainCount))
+  private val resourceCountWidth = p.countWidth(
+    domainCount * (p.maxSourceOperands + 1))
 
   private def popCountOrZero(values: Seq[Bool]): UInt =
     if (values.isEmpty) 0.U else PopCount(VecInit(values))
@@ -160,50 +162,50 @@ class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
     }))
   }
 
-  val feasible = Wire(Vec(subsetCount, Bool()))
-  for (mask <- 0 until subsetCount) {
-    val selectedDomains = (0 until domainCount).filter { domain =>
-      ((mask >> domain) & 1) != 0
-    }
-    val selectedExact = selectedDomains.map { domain =>
-      io.attempts(domain).valid && io.shapeExact(domain)
-    }.foldLeft(true.B)(_ && _)
-    val pTotal = selectedDomains.map(io.pDemand(_))
-      .foldLeft(0.U(p.sourceCountWidth.W))(_ +& _)
-    val tTotal = selectedDomains.map(io.tDemand(_))
-      .foldLeft(0.U(p.sourceCountWidth.W))(_ +& _)
-    val uTotal = selectedDomains.map(io.uDemand(_))
-      .foldLeft(0.U(p.sourceCountWidth.W))(_ +& _)
-    val pcTotal = popCountOrZero(selectedDomains.map { domain =>
-      io.attempts(domain).bits.pcRequired
-    })
-    feasible(mask) := selectedExact &&
-      pTotal <= p.iexPReadPorts.U &&
-      tTotal <= p.iexTReadPorts.U &&
-      uTotal <= p.iexUReadPorts.U &&
-      pcTotal <= p.pcReadPorts.U
-  }
-
-  private def staticMaskBetter(mask: Int, current: UInt): Bool = {
-    val differing = Wire(Vec(domainCount, Bool()))
-    for (domain <- 0 until domainCount) {
-      differing(domain) := (((mask >> domain) & 1) != 0).B =/=
-        current(domain)
-    }
-    VecInit((0 until domainCount).map { domain =>
-      val selectedHere = ((mask >> domain) & 1) != 0
-      val higherDifference = (0 until domainCount)
-        .filter(_ != domain)
-        .map { peer => differing(peer) && higherPriority(peer, domain) }
-        .foldLeft(false.B)(_ || _)
-      differing(domain) && selectedHere.B && !higherDifference
-    }).asUInt.orR
+  // The exact lexicographic optimum is a greedy prefix over the total
+  // priority order: accept the highest-priority complete group when it fits,
+  // then repeat with the remaining independent resources.  Computing each
+  // eligible domain's rank keeps this polynomial in the physical pipe count;
+  // enumerating 2^N subsets would make the formal 12-domain profile an
+  // elaboration-time and timing liability.
+  val eligible = VecInit(io.attempts.zip(io.shapeExact).map {
+    case (attempt, exact) => attempt.valid && exact
+  })
+  val priorityRank = Wire(Vec(domainCount, UInt(rankWidth.W)))
+  for (domain <- 0 until domainCount) {
+    priorityRank(domain) := popCountOrZero(
+      (0 until domainCount).filter(_ != domain).map { peer =>
+        eligible(peer) && higherPriority(peer, domain)
+      })
   }
 
   var bestMask = 0.U(domainCount.W)
-  for (mask <- 1 until subsetCount) {
-    bestMask = Mux(feasible(mask) && staticMaskBetter(mask, bestMask),
-      mask.U(domainCount.W), bestMask)
+  var pUsed = 0.U(resourceCountWidth.W)
+  var tUsed = 0.U(resourceCountWidth.W)
+  var uUsed = 0.U(resourceCountWidth.W)
+  var pcUsed = 0.U(resourceCountWidth.W)
+  for (rank <- 0 until domainCount) {
+    val rankOneHot = VecInit((0 until domainCount).map { domain =>
+      eligible(domain) && priorityRank(domain) === rank.U
+    })
+    assert(PopCount(rankOneHot) <= 1.U,
+      "I1 read arbitration priority order must be total")
+    val present = rankOneHot.asUInt.orR
+    val pNext = pUsed +& Mux1H(rankOneHot, io.pDemand)
+    val tNext = tUsed +& Mux1H(rankOneHot, io.tDemand)
+    val uNext = uUsed +& Mux1H(rankOneHot, io.uDemand)
+    val pcNext = pcUsed +& Mux1H(rankOneHot,
+      io.attempts.map(_.bits.pcRequired.asUInt))
+    val fits = pNext <= p.iexPReadPorts.U &&
+      tNext <= p.iexTReadPorts.U &&
+      uNext <= p.iexUReadPorts.U &&
+      pcNext <= p.pcReadPorts.U
+    val accept = present && fits
+    bestMask = bestMask | Mux(accept, rankOneHot.asUInt, 0.U)
+    pUsed = Mux(accept, pNext, pUsed)
+    tUsed = Mux(accept, tNext, tUsed)
+    uUsed = Mux(accept, uNext, uUsed)
+    pcUsed = Mux(accept, pcNext, pcUsed)
   }
   io.selectedMask := bestMask
   val validMask = VecInit(io.attempts.map(attempt => attempt.valid)).asUInt

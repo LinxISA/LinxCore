@@ -47,7 +47,7 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
     attempt.bits.member.memberIndex.poke(domain.U)
     attempt.bits.reservation.valid.poke(true.B)
     attempt.bits.reservation.uopClass.poke(OooUopClass.Alu)
-    attempt.bits.reservation.bank.poke(domain.U)
+    attempt.bits.reservation.bank.poke((domain % p.iqBankCount).U)
     attempt.bits.reservation.writePort.poke(0.U)
     attempt.bits.reservation.speculativeSlot.poke(domain.U)
     attempt.bits.reservation.reservationEpoch.poke(9.U)
@@ -170,6 +170,35 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.tReadRequests.foreach(_.valid.expect(false.B))
       dut.io.uReadRequests.foreach(_.valid.expect(false.B))
       dut.io.pcReadRequests.foreach(_.valid.expect(false.B))
+    }
+  }
+
+  test("scales the same oldest-complete policy to twelve physical domains") {
+    val profileParams = OooParams(
+      iexIssueDomainCount = 12,
+      iexPReadPorts = 6,
+      iexTReadPorts = 4,
+      iexUReadPorts = 4)
+    simulate(new OooIexAtomicReadArbiter(profileParams)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      for (domain <- 0 until profileParams.iexIssueDomainCount) {
+        pokeAttempt(dut, domain, stid = 0, rid = domain + 1,
+          Seq(OperandClass.P))
+      }
+
+      dut.io.selectedMask.expect("h03f".U)
+      dut.io.deniedMask.expect("hfc0".U)
+      dut.io.pReadRequests.foreach(_.valid.expect(true.B))
+      for (domain <- 0 until 6) {
+        dut.io.grant(domain).expect(true.B)
+      }
+      for (domain <- 6 until profileParams.iexIssueDomainCount) {
+        dut.io.grant(domain).expect(false.B)
+      }
     }
   }
 }

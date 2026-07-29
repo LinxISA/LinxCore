@@ -27,12 +27,14 @@ than equal to it. Member, BID, reservation, STID, and optional PC-token shape
 must also be exact. A malformed attempt receives a
 decision with `grant=0` and drives no physical request.
 
-The arbiter enumerates every bounded domain subset (at most eight domains) and
-keeps only subsets whose complete P/T/U/PC demand fits. Feasible subsets are
-ordered lexicographically: wrap-qualified
-`{ridGeneration,ridSlot,memberIndex}` age within one STID, then advancing STID
-round-robin order across STIDs. The winning subset therefore preserves the
-oldest request and adds every lower-priority group that still fits. It never
+The arbiter computes a total priority rank for every exact request and walks
+those ranks once. At each rank it accepts the complete group only when its
+P/T/U/PC demand fits the remaining independent resources. This polynomial
+greedy selection is exactly the lexicographic optimum: preserve the oldest
+request, then add every lower-priority complete group that still fits. It
+scales to the formal twelve-domain issue profile without a `2^N` elaboration
+network. Priority is wrap-qualified `{ridGeneration,ridSlot,memberIndex}` age
+within one STID, then advancing STID round-robin order across STIDs. It never
 partially grants a uop.
 
 Each emitted port request retains domain, source index, STID/epoch, and the
@@ -45,7 +47,7 @@ operand data never enters I2.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexAtomicReadArbiter
+bash tools/chisel/run_chisel_tests.sh --only OooIexAtomicReadArbiterSpec
 bash tools/chisel/run_chisel_tests.sh --only OooParamsSpec
 ```
 
@@ -53,16 +55,16 @@ The focused UT covers an older three-P-source group excluding a younger
 two-source peer from three ports, cross-STID round-robin turnover, mixed
 P/T/U/PC mapping, complete response routing, a missing T response, and a
 malformed operand class, and a mixed logical source group whose bypassed P
-source is absent from the RF mask. The tested 2-domain/3P/2T/2U geometry emits a
-2,325-line standalone SystemVerilog module.
+source is absent from the RF mask. A second case presents twelve same-STID
+domains to six P ports and proves that the six oldest complete groups win.
 
 ## Remaining gaps
 
 - Connect the exposed PC requests to `OooPcBuffer` in the canonical top.
 - Connect physical LSU resolve producers to the lane/IQ exact cancel path;
   the arbiter itself remains outside replay-state ownership.
-- Replace the bounded subset comparator with a physically reviewed hierarchy if
-  default-width timing requires it.
+- Synthesize and place the rank/greedy hierarchy at twelve domains; add a
+  registered arbitration boundary only if measured timing requires it.
 
 `OooIexIssueReadFabric` now connects P/T/U requests to the exact operand owners
 and feeds every decision/response directly into the issue lanes.

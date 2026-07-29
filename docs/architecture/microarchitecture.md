@@ -628,6 +628,30 @@ Detailed local-register lifetime and recovery rules are documented in
   P1 acceptance requires an exact stage-qualified cancel/repick event; it must
   not be approximated by deleting or reinserting the IQ row.
 
+### Physical issue topology and capability
+
+- Logical dispatch class, physical IQ residency, picker function, and
+  execution capability are separate contracts. A class name alone never
+  proves that a row is executable on a particular pipe.
+- The first formal profile contains six ALU, three AGU, two BRU, and one
+  external FSU issue domain. Each domain owns an independent bank mask for
+  every logical class, and every dispatchable class/bank address has exactly
+  one owner.
+- STD rows reside only in ALU0/3 projections. SYS rows reside only in ALU2/5
+  projections. FSU and engine-command rows share the external FSU domain.
+  Boundary metadata is fast-resolved and owns no physical IQ row.
+- All six ALU domains accept simple ALU recipes; only ALU2/5 declare
+  multi-cycle capability. All three AGU domains accept LDA; only AGU0/1
+  declare STA capability. These restrictions require generated recipe-level
+  capability admission at D3 and revalidation before a retained pick claims
+  the canonical row.
+- AGU0/1 ultimately expose independent LDA and STA picker functions over one
+  residency owner. Shared DIV, PAC, system, and result-bus resources arbitrate
+  across local oldest-ready winners and never create a second IQ entry owner.
+- The twelve-domain atomic RF allocator ranks exact requests, then greedily
+  accepts complete P/T/U/PC groups in priority order. It must not enumerate
+  every domain subset or partially grant a uop.
+
 ### Exact post-P1 stage cancellation
 
 - A physical conflict discovered after P1 is represented by one retained

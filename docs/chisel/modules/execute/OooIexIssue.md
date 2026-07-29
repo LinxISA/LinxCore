@@ -121,11 +121,12 @@ canonical scheduling row. An exact retry clears that bit; stale or malformed
 claims/retries produce typed rejects.
 
 `iexIssueDomainCount` vectorizes only picker/query/retry ports. Every domain
-projects one class plus an arbitrary bank mask from the same `scheduleRows`
-and `payloadRows` owner. Same-class bank masks must be disjoint; a hardware
-assert rejects overlap before parallel claims can alias one row. Retry is
-accepted only by the domain whose current class/bank projection owns the
-reservation. Domain-zero aliases preserve the focused one-lane interface.
+projects an independent bank mask for each class from the same `scheduleRows`
+and `payloadRows` owner. Per-class bank masks must be disjoint across domains;
+a hardware assertion rejects overlap before parallel claims can alias one
+row. Retry is accepted only by the domain whose current class/bank projection
+owns the reservation. Domain-zero aliases preserve the focused one-lane
+interface.
 
 Release is fail-closed. It requires an in-flight row, the exact member, and
 complete dispatch reservation, including class-local entry, write port, and
@@ -172,8 +173,9 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- Frozen default class/bank-to-pipe mapping and class-specific admission
-  blockers; the N-domain mechanism and overlap enforcement are implemented.
+- The formal 12-domain residency/capability profile is frozen. Runtime
+  recipe-capability admission, dual AGU pickers, and shared DIV/PAC/SYS
+  arbitration remain open; broad dispatch class alone is insufficient.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
@@ -181,8 +183,8 @@ must quiesce those producers before prepare.
   STQ lease generation, ordered issue/visibility, and terminal publication
   remain open. Full logical LSID/SID allocation and exact recovery are closed;
   the STQ must consume those identities rather than allocate replacements.
-- Select and measure the final class/bank/release-port topology. Static
-  class/domain composition, parameterized simultaneous exact release,
+- Instantiate and measure the formal class/bank/release-port topology in the
+  canonical top. Static multi-class domain composition, parameterized simultaneous exact release,
   duplicate-target rejection, atomic transfer/release, and owner-side
   in-flight release guard are implemented.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,

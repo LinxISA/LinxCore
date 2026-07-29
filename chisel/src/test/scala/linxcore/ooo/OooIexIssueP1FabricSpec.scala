@@ -42,10 +42,9 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryFire.poke(false.B)
-    dut.io.pickClasses(0).poke(OooUopClass.Alu)
-    dut.io.pickClasses(1).poke(OooUopClass.Bru)
-    dut.io.pickBankEnables(0).poke(1.U)
-    dut.io.pickBankEnables(1).poke(1.U)
+    dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+    dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
+    dut.io.pickBankEnables(1)(OooDispatchClass.Bru - 1).poke(1.U)
     dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     for (domain <- 0 until p.iexIssueDomainCount) {
       dut.io.readDecisionValid(domain).poke(false.B)
@@ -290,10 +289,9 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
 
       // Reuse the quiescent fabric with two ALU domains split by bank. This
       // covers the other legal topology relation without another elaboration.
-      dut.io.pickClasses(0).poke(OooUopClass.Alu)
-      dut.io.pickClasses(1).poke(OooUopClass.Alu)
-      dut.io.pickBankEnables(0).poke(1.U)
-      dut.io.pickBankEnables(1).poke(2.U)
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Alu - 1).poke(2.U)
       pokeTwoAluBankTransaction(dut)
       dut.io.s1.ready.expect(true.B)
       dut.clock.step()
@@ -329,10 +327,9 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
     intercept[Exception] {
       simulate(new OooIexIssueP1Fabric(p)) { dut =>
         clear(dut)
-        dut.io.pickClasses(0).poke(OooUopClass.Alu)
-        dut.io.pickClasses(1).poke(OooUopClass.Alu)
-        dut.io.pickBankEnables(0).poke(1.U)
-        dut.io.pickBankEnables(1).poke(1.U)
+        dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+        dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
+        dut.io.pickBankEnables(1)(OooDispatchClass.Alu - 1).poke(1.U)
         dut.reset.poke(true.B)
         dut.clock.step()
         dut.reset.poke(false.B)

@@ -47,8 +47,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
     }
     dut.io.dispatchReleases.foreach(_.ready.poke(false.B))
     dut.io.query.poke(0.U.asTypeOf(dut.io.query))
-    dut.io.pickClass.poke(OooUopClass.Alu)
-    dut.io.pickBankEnable.poke(0.U)
+    dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+    val allBanks = (BigInt(1) << dut.p.iqBankCount) - 1
+    dut.io.pickBankEnables(0).foreach(_.poke(allBanks.U))
     dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.pick.ready.poke(false.B)
     dut.io.pickRetry.valid.poke(false.B)
@@ -290,10 +291,11 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut: OooIexIssue,
       uopClass: Int,
       bank: Int,
-      entry: Int): Unit = {
-    pokeClass(dut.io.query.uopClass, uopClass)
-    dut.io.query.bank.poke(bank.U)
-    dut.io.query.entry.poke(entry.U)
+      entry: Int,
+      domain: Int = 0): Unit = {
+    pokeClass(dut.io.queries(domain).uopClass, uopClass)
+    dut.io.queries(domain).bank.poke(bank.U)
+    dut.io.queries(domain).entry.poke(entry.U)
   }
 
   private def advanceToS3(dut: OooIexIssue): Unit = {
@@ -866,8 +868,7 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       query(dut, 0, 1, 2)
       advanceToS3(dut)
 
-      dut.io.pickClass.poke(OooUopClass.Alu)
-      dut.io.pickBankEnable.poke("b10".U)
+      dut.io.pickBankEnable(OooDispatchClass.Alu - 1).poke("b10".U)
       dut.clock.step()
       dut.io.pick.valid.expect(true.B)
       dut.io.pick.bits.query.bank.expect(1.U)
@@ -971,8 +972,7 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       query(dut, 0, 0, 1)
       advanceToS3(dut)
 
-      dut.io.pickClass.poke(OooUopClass.Alu)
-      dut.io.pickBankEnable.poke(1.U)
+      dut.io.pickBankEnable(OooDispatchClass.Alu - 1).poke(1.U)
       dut.clock.step()
       dut.io.pick.valid.expect(true.B)
 
@@ -1024,10 +1024,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       pokeTransaction(dut, 1, 21, allocations)
       advanceToS3(dut)
 
-      dut.io.pickClasses(0).poke(OooUopClass.Alu)
-      dut.io.pickClasses(1).poke(OooUopClass.Bru)
-      dut.io.pickBankEnables(0).poke(1.U)
-      dut.io.pickBankEnables(1).poke(1.U)
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Bru - 1).poke(1.U)
       dut.clock.step()
       dut.io.picks.foreach(_.valid.expect(true.B))
       dut.io.picks.foreach(_.ready.poke(true.B))
@@ -1070,8 +1069,7 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
         reservationEpoch = 5)
       pokeTransaction(dut, 1, 22, Vector(duplicate))
       advanceToS3(dut)
-      dut.io.pickClasses(0).poke(OooUopClass.Alu)
-      dut.io.pickBankEnables(0).poke(1.U)
+      dut.io.pickBankEnables(0)(OooDispatchClass.Alu - 1).poke(1.U)
       dut.clock.step()
       dut.io.picks(0).valid.expect(true.B)
       dut.io.picks(0).ready.poke(true.B)
@@ -1185,9 +1183,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeFrontierBlocked(0).expect(2.U)
       dut.io.storeFrontierBlocked(1).expect(0.U)
 
-      dut.io.pickClasses(0).poke(OooUopClass.Agu)
-      dut.io.pickClasses(1).poke(OooUopClass.Std)
-      dut.io.pickBankEnables.foreach(_.poke(1.U))
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+      dut.io.pickBankEnables(0)(OooDispatchClass.Agu - 1).poke(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Std - 1).poke(1.U)
       dut.clock.step()
       dut.io.picks(0).valid.expect(true.B)
       dut.io.picks(0).bits.query.entry.expect(0.U)
@@ -1239,8 +1237,8 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.releases(0).valid.poke(false.B)
       query(dut, uopClass = 2, bank = 0, entry = 1)
       dut.io.queryPickable.expect(true.B)
-      query(dut, uopClass = 3, bank = 0, entry = 1)
-      dut.io.queryPickable.expect(true.B)
+      query(dut, uopClass = 3, bank = 0, entry = 1, domain = 1)
+      dut.io.queryPickables(1).expect(true.B)
       dut.io.storeFrontierBlocked(0).expect(0.U)
     }
   }
