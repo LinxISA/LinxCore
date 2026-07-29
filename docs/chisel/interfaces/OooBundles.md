@@ -637,13 +637,21 @@ deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
 state into every IQ entry. This applies the critical/uncritical separation
 from `Documents/a.txt`; rename and commit owners remain authoritative.
 
-The current release seam accepts only a future exact non-cancellable I2
-terminal event. Full member identity and the original dispatch reservation
-must match, and physical-row removal shares one fire with dispatch-slot return.
+The release seam accepts only an exact non-cancellable I2 terminal event.
+Full member identity and the original dispatch reservation must match, and
+physical-row removal shares one fire with dispatch-slot return.
 P1/I1/I2 pipe arbitration, age-based pick, atomic P/T/U/PC RF-needed reads,
 exact W1/W2/W3 bypass data/provenance selection, and exact speculative-load
 cancel/poison/repick are implemented. `sources[*].load` is the canonical exact
 load-gene vector; no LIQ-slot-only replay scoreboard is authoritative.
+
+`OooIexE1TransferSlot` implements the first class-specific consumer of that
+seam. Its I2 accept and `OooIexIssueRelease` are one fire. The retained
+`OooIexExecuteTransaction` adds only physical owner class/lane and an E1 slot
+generation to the complete I2 payload. Before that fire the issue lane owns
+recovery; afterward the E1 slot independently suppresses an exact grouped-ROB
+recovery or load-generation cancel. Full class/domain router composition is a
+later IEX packet, so this leaf does not yet freeze the physical pipe map.
 
 O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
 `iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical

@@ -46,9 +46,10 @@ release its reservation.
 
 I2 is the first retained data-bearing stage. Its row, merged operand values,
 logical-source mask, bypass mask/provenance, and PC remain stable while the
-consumer applies backpressure. This module does not free the IQ row; the later
-E1 handoff must first become non-cancellable and then drive the existing exact
-IEX release transaction.
+consumer applies backpressure. This module does not free the IQ row.
+[`OooIexE1TransferSlot`](OooIexE1TransferSlot.md) is now the class-specific
+next owner: its one acceptance fire is coupled to the existing exact IQ and
+dispatch release fire, so no cycle exists in which neither side owns recovery.
 
 ## PC timing
 
@@ -85,7 +86,8 @@ unchanged.
 - instantiate the implemented oldest-ready picker/bridge/lane composition
   across the frozen
   multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
-- E1/W1 execution, wakeup, completion, and exact terminal IQ release;
+- compose one implemented E1 transfer slot per frozen class/domain lane;
+- E1/W1 execution, wakeup, completion, and result publication;
 - physical LSU hit/miss resolver wiring into the exact load-cancel ports;
 - synchronous-macro latency variants and default-width timing evidence.
 

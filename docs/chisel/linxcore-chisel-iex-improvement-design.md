@@ -458,15 +458,35 @@ canonical IQ 与每条 P1/I1/I2 lane：
   row再经 picker、I1 exact bypass和I2，不复活旧数据。
 
 因此 canonical `sources[*].load` 向量就是精确 load gene vector owner；不再
-增加按 LIQ 数字槽位维护的第二套 replay scoreboard。下一步从 I2 进入
-E1/W1 owner transfer与真实 ALU/BRU/AGU/LSU resolver wiring。
+增加按 LIQ 数字槽位维护的第二套 replay scoreboard。
+
+### 6.4.3 I0.8a 已实现：I2到E1的原子所有权转移
+
+`OooIexE1TransferSlot` 建立了第一条 class-specific retained transfer
+边界。它不解释 opcode，也不生成完成、写回、wakeup或外部副作用：
+
+- I2 accept 与现有 exact IQ/dispatch release 是同一个 fire；release
+  backpressure 时 I2 仍是唯一 owner，E1 slot不分配；
+- fire 后完整 `OooIexI2Transaction`、owner class/lane和独立 slot
+  generation 一起保存在 E1；E1 backpressure 下不可改写；
+- slot drain 与下一条 I2 transfer 可以同周期发生，旧 E1 payload和新
+  release identity不会混合；
+- transfer 前 matching recovery/load cancel 阻止 accept，transfer 后由
+  E1 slot独立匹配并抑制输出，IQ不再承担该 row的 recovery；
+- class、member、BID、reservation、in-flight或logical-source shape不精确
+  时 fail-stop，不允许发 release，因此 malformed transaction不能误释放
+  physical IQ row。
+
+这只关闭了单个 class/lane 的所有权协议。下一包仍需冻结 ALU/BRU/AGU
+等 class/domain 拓扑，实例化 transfer router，并把 E1 接到真实 FU 与
+LSU resolver。
 
 ### 6.5 迁移与验收
 
-read group、exact token、多 domain 原子端口仲裁和P/T/U真实data owner组合
-已经完成；IQ-local speculative-ready与精确load generation也已完成。
-下一步连接正式PC owner，再扩bypass/replay validation和I2-to-E owner
-transfer。验收必须覆盖：
+read group、exact token、多 domain 原子端口仲裁、P/T/U真实data owner、
+IQ-local speculative-ready、精确load generation、bypass/replay poison和
+单lane I2-to-E1 owner transfer已经完成。下一步连接正式PC owner并构成
+多class execute router。验收必须覆盖：
 
 - 两 bank simultaneous pick；
 - 6R contention、全授予/全拒绝；

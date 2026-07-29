@@ -991,6 +991,14 @@ class OooIexI2Transaction(val p: OooParams = OooParams()) extends Bundle {
   val pc = UInt(p.pcWidth.W)
 }
 
+/** Full transaction after an exact I2-to-E1 ownership transfer. */
+class OooIexExecuteTransaction(val p: OooParams = OooParams()) extends Bundle {
+  val ownerClass = OooUopClass()
+  val ownerLane = UInt(p.iexIssueDomainWidth.W)
+  val slotGeneration = UInt(p.executeSlotGenerationWidth.W)
+  val i2 = new OooIexI2Transaction(p)
+}
+
 class OooIexReadRepick(val p: OooParams = OooParams()) extends Bundle {
   val member = new RobMemberKey(p)
   val reservation = new DispatchReservation(p)

@@ -87,6 +87,7 @@ final case class OooParams(
     residentGenerationWidth: Int = 8,
     pTagGenerationWidth: Int = 8,
     loadGenerationWidth: Int = 8,
+    executeSlotGenerationWidth: Int = 8,
     reservationEpochWidth: Int = 8) {
   private def isPowerOfTwo(value: Int): Boolean =
     value > 0 && (value & (value - 1)) == 0
@@ -222,6 +223,8 @@ final case class OooParams(
     "the IEX boundary needs at least one load-cancel port")
   require(loadGenerationWidth > 0,
     "speculative load attempts need a positive generation width")
+  require(executeSlotGenerationWidth > 0,
+    "retained execute slots need a positive generation width")
   require(maxArchitecturalParentRefs >= 3,
     "BSTART + carrier + BSTOP fusion needs three parent references")
   require(maxSourceOperands >= 4 && maxDestinationOperands >= 2,
