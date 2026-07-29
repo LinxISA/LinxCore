@@ -444,6 +444,30 @@ I0.9h 结束时尚未完成的部分包括 OOO reservation 投影、pair 原子�
 
 端到端 IT 现在证明同一 typed recovery 同时杀 retained STD并释放其两个 reservation row；STQ UT覆盖 WAIT/Commit混合 mask以及 exact/legacy source碰撞。尚未完成的是把这一 projection 实例化进正式静态 IEX/LSU composition、将 compatibility rows全部迁移为 exact owner、commit/non-flush sliding frontier以及 forwarding/visibility闭环。
 
+### 7.11 Store issue sliding frontier（I0.9k）
+
+IEX 现在从 canonical IQ 的 AGU/STD scheduling row 直接归约每个 STID 最老的
+logical store。full store ID 决定 store 间顺序，full LSID作为独立一致性检查；
+两者都不是物理 STQ index。一个 logical store 的 STA/STD child 使用同一
+`OooIexStoreOrderState`，所以两边可以并行进入 I1，但任何一边仍 resident 时，
+年轻同 STID store 的 STA 和 STD 都不能越过。
+
+该机制比参考 ARM SID window 更严格地限定 owner：相同 serial 必须匹配完整
+ROB/BROB logical member、first LSID 和 request count；冲突时目标 STID 的 store
+全部 fail closed，其他 STID 和 load/非memory工作不受影响。frontier没有独立
+推进寄存器，exact IQ release 或 common recovery 改变 residency 后即刻重算，
+因此 cancel/repick 不需要同步第二份状态。
+
+compact scheduling row 另存独立 typed `isStore` 位，不以 order-key valid 反推
+类别；因此 resident store 丢失 logical key 时会阻塞并报告 malformed，不会作为
+non-store 静默越过。
+
+I0.9k 解决的是 IEX 到 store execute 的顺序入口，还不是完整 LSU 窗口。后续仍需
+把 canonical STQ 的真实可接收范围/credit接入 eligibility，定义 full serial
+wrap 前的 quiescence，连接 ROB commit/non-flush frontier，完成 CommitQ/SCB drain
+与 load-forwarding visibility，并在静态 IEX/LSU 顶层证明这些 owner 共用同一
+store lease。
+
 ## 8. Store CommitQ 与 drain
 
 ### 8.1 当前实现

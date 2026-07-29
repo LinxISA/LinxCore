@@ -42,17 +42,19 @@ IEX on one common S1 fire. ROB groups retain group and logical-uop snapshots.
 IEX stores each logical allocation in the stable payload sidecar; split STA and
 STD children inherit the same logical store range.
 
-The next store packet must allocate a separate generation-qualified physical
-STQ lease and bind it to full SID/LSID plus exact ROB member. Canonical STQ
-state will own address/PGEN and data/DGEN convergence. No pre-STQ join buffer
-may become a competing owner, and queue wrap must not alter serial identity.
+The store path now allocates a separate generation-qualified physical STQ
+lease and binds it to full SID/LSID plus the exact logical ROB member.
+Canonical STQ state owns address/PGEN and data/DGEN convergence. The IEX
+AGU/STD scheduling rows retain the minimal logical-store order key and derive
+the same-STID oldest issue frontier directly from canonical IQ residency. No
+pre-STQ join buffer or duplicate frontier queue may become a competing owner,
+and queue wrap must not alter serial identity.
 
 ## Remaining gaps
 
-- Bind logical store ranges to canonical generation-qualified STQ rows and let
-  that row own STA/STD PGEN/DGEN convergence.
-- Add per-STID memory issue and commit frontiers, sliding-window eligibility,
-  cancel/repick, forwarding, and architectural visibility.
+- Connect actual STQ issue-window credit to the existing per-STID logical-store
+  frontier, then add commit/non-flush authorization, forwarding, and
+  architectural visibility.
 - Define and verify full-serial wrap quiescence or a separate generation
   sidecar. Plain unsigned comparison across full-LSID wrap remains forbidden.
 - Connect the owner to the final static core and prove Dhrystone/CoreMark plus
@@ -65,6 +67,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooMemoryOrderAllocator
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
+bash tools/chisel/run_chisel_tests.sh --only OooIexStoreIssueFrontier
 bash tools/chisel/build_chisel.sh
 ```
 

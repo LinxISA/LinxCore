@@ -64,11 +64,12 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       target: RobMemberKey,
       stid: Int,
       memberIndex: Int,
-      residentGeneration: Int = 7): Unit = {
+      residentGeneration: Int = 7,
+      ridSlot: Int = 1): Unit = {
     target.group.valid.poke(true.B)
     target.group.peId.poke(3.U)
     target.group.stid.poke(stid.U)
-    target.group.ridSlot.poke(1.U)
+    target.group.ridSlot.poke(ridSlot.U)
     target.group.ridGeneration.poke(2.U)
     target.bid.valid.poke(true.B)
     target.bid.value.poke(4.U)
@@ -83,7 +84,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       transactionId: Int,
       allocations: Vector[Allocation],
       pSourceReady: Option[Boolean] = None,
-      pSourceGeneration: Int = 3): Unit = {
+      pSourceGeneration: Int = 3,
+      ridSlot: Int = 1,
+      memberBase: Int = 0): Unit = {
     val request = dut.io.s1.bits
     request.poke(0.U.asTypeOf(request))
     val transaction = request.o3.request.reservation.transaction
@@ -133,8 +136,10 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       pUop.decoded.opcode.poke((40 + uopIndex).U)
       pUop.decoded.plannedChildCount.poke(childCount.U)
       tuUop.valid.poke(true.B)
-      pokeMember(pUop.member, stid, memberIndex = uopIndex * 2)
-      pokeMember(tuUop.member, stid, memberIndex = uopIndex * 2)
+      pokeMember(pUop.member, stid,
+        memberIndex = memberBase + uopIndex * 2, ridSlot = ridSlot)
+      pokeMember(tuUop.member, stid,
+        memberIndex = memberBase + uopIndex * 2, ridSlot = ridSlot)
 
       Seq(decoded, pUop.decoded).foreach { logical =>
         logical.identity.key.primaryParent.valid.poke(true.B)
@@ -205,6 +210,79 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       allocation.reservation.reservationEpoch.poke(value.reservationEpoch.U)
     }
     dut.io.s1.valid.poke(true.B)
+  }
+
+  private def pokeStoreTransaction(
+      dut: OooIexIssue,
+      stid: Int,
+      transactionId: Int,
+      ridSlot: Int,
+      memberBase: Int,
+      firstLsid: BigInt,
+      firstStoreId: BigInt,
+      allocations: Vector[Allocation]): Unit = {
+    pokeTransaction(dut, stid, transactionId, allocations,
+      ridSlot = ridSlot, memberBase = memberBase)
+    val request = dut.io.s1.bits
+    val transaction = request.o3.request.reservation.transaction
+    val decoded = transaction.decoded.uops(0)
+    val pUop = request.pRename.uops(0)
+    Seq(decoded, pUop.decoded).foreach { logical =>
+      logical.recipe.recipeKind.poke(OooOpcodeRecipeKind.ScalarStore.U)
+      logical.recipe.lateSplitKind.poke(OooLateSplitKind.StoreAddressData.U)
+      logical.recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+      logical.recipe.memoryRequestCount.poke(1.U)
+      logical.memory.valid.poke(true.B)
+      logical.memory.isLoad.poke(false.B)
+      logical.memory.isStore.poke(true.B)
+      logical.memory.accessBytes.poke(8.U)
+      logical.memory.addressSourceMask.poke(1.U)
+      logical.memory.dataSourceMask.poke(2.U)
+      logical.destinations(0).valid.poke(false.B)
+    }
+    pUop.destinations(0).currentPMapping.valid.poke(false.B)
+    transaction.plan.demand.storeIds.poke(1.U)
+    transaction.decoded.demand.storeIds.poke(1.U)
+
+    val memoryOrder = request.memoryOrder
+    memoryOrder.valid.poke(true.B)
+    memoryOrder.peId.poke(3.U)
+    memoryOrder.stid.poke(stid.U)
+    memoryOrder.epoch.poke(6.U)
+    memoryOrder.transactionId.poke(transactionId.U)
+    memoryOrder.uopMask.poke(1.U)
+    memoryOrder.before.lsid.poke(firstLsid.U)
+    memoryOrder.before.storeId.poke(firstStoreId.U)
+    memoryOrder.after.lsid.poke((firstLsid + 1).U)
+    memoryOrder.after.storeId.poke((firstStoreId + 1).U)
+
+    val active = memoryOrder.uops(0)
+    active.valid.poke(true.B)
+    active.memoryValid.poke(true.B)
+    active.isLoad.poke(false.B)
+    active.isStore.poke(true.B)
+    active.requestCount.poke(1.U)
+    active.firstLsid.poke(firstLsid.U)
+    active.firstTypeId.poke(firstStoreId.U)
+    active.before.lsid.poke(firstLsid.U)
+    active.before.storeId.poke(firstStoreId.U)
+    active.after.lsid.poke((firstLsid + 1).U)
+    active.after.storeId.poke((firstStoreId + 1).U)
+
+    for (uopIndex <- 1 until memoryOrder.uops.length) {
+      val inactive = memoryOrder.uops(uopIndex)
+      inactive.valid.poke(false.B)
+      inactive.memoryValid.poke(false.B)
+      inactive.isLoad.poke(false.B)
+      inactive.isStore.poke(false.B)
+      inactive.requestCount.poke(0.U)
+      inactive.firstLsid.poke((firstLsid + 1).U)
+      inactive.firstTypeId.poke((firstStoreId + 1).U)
+      inactive.before.lsid.poke((firstLsid + 1).U)
+      inactive.before.storeId.poke((firstStoreId + 1).U)
+      inactive.after.lsid.poke((firstLsid + 1).U)
+      inactive.after.storeId.poke((firstStoreId + 1).U)
+    }
   }
 
   private def query(
@@ -997,6 +1075,122 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRow.member.memberIndex.expect(0.U)
       query(dut, 2, 0, 2)
       dut.io.queryRow.member.memberIndex.expect(1.U)
+    }
+  }
+
+  test("keeps younger same-STID stores behind the cross-bank logical frontier") {
+    val p = OooParams(
+      stidCount = 2,
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      retireGroupWidth = 2,
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      robRecoveryScanGroupsPerCycle = 2,
+      robNonFlushScanGroupsPerCycle = 2,
+      pcBufferEntries = 8,
+      pcBankCount = 2,
+      pcRecoveryScanGroupsPerCycle = 2,
+      pcWritePorts = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      iqFreeSelectLeafEntries = 2,
+      iexIssueDomainCount = 2,
+      iexReleaseWidth = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16,
+      lsidWidth = 40)
+    simulate(new OooIexIssue(p)) { dut =>
+      clear(dut)
+      val older = Vector(
+        Allocation(0, 0, 2, 0, 0, 0, reservationEpoch = 3),
+        Allocation(0, 1, 3, 0, 1, 0, reservationEpoch = 4))
+      val younger = Vector(
+        Allocation(0, 0, 2, 0, 0, 1, reservationEpoch = 5),
+        Allocation(0, 1, 3, 0, 1, 1, reservationEpoch = 6))
+
+      pokeStoreTransaction(dut, stid = 0, transactionId = 30,
+        ridSlot = 1, memberBase = 0, firstLsid = 20,
+        firstStoreId = 10, allocations = older)
+      advanceToS3(dut)
+      pokeStoreTransaction(dut, stid = 0, transactionId = 31,
+        ridSlot = 2, memberBase = 0, firstLsid = 23,
+        firstStoreId = 11, allocations = younger)
+      advanceToS3(dut)
+
+      query(dut, uopClass = 2, bank = 0, entry = 0)
+      dut.io.queryPickable.expect(true.B)
+      dut.io.queryRow.storeOrder.firstStoreId.expect(10.U)
+      query(dut, uopClass = 3, bank = 0, entry = 0)
+      dut.io.queryPickable.expect(true.B)
+      query(dut, uopClass = 2, bank = 0, entry = 1)
+      dut.io.queryPickable.expect(false.B)
+      query(dut, uopClass = 3, bank = 0, entry = 1)
+      dut.io.queryPickable.expect(false.B)
+      dut.io.storeFrontierBlocked(0).expect(2.U)
+      dut.io.storeFrontierBlocked(1).expect(0.U)
+
+      dut.io.pickClasses(0).poke(OooUopClass.Agu)
+      dut.io.pickClasses(1).poke(OooUopClass.Std)
+      dut.io.pickBankEnables.foreach(_.poke(1.U))
+      dut.clock.step()
+      dut.io.picks(0).valid.expect(true.B)
+      dut.io.picks(0).bits.query.entry.expect(0.U)
+      dut.io.picks(1).valid.expect(true.B)
+      dut.io.picks(1).bits.query.entry.expect(0.U)
+      dut.io.picks.foreach(_.ready.poke(true.B))
+      dut.clock.step()
+      dut.io.picks.foreach(_.ready.poke(false.B))
+
+      def pokeRelease(
+          lane: Int,
+          allocation: Allocation,
+          childIndex: Int): Unit = {
+        val release = dut.io.releases(lane).bits
+        release.poke(0.U.asTypeOf(release))
+        pokeMember(release.member, stid = 0, memberIndex = childIndex,
+          ridSlot = 1)
+        pokeMember(release.dispatch.member, stid = 0,
+          memberIndex = childIndex, ridSlot = 1)
+        release.dispatch.peId.poke(3.U)
+        release.dispatch.stid.poke(0.U)
+        release.dispatch.epoch.poke(6.U)
+        release.dispatch.transactionId.poke(30.U)
+        release.dispatch.reservation.valid.poke(true.B)
+        pokeClass(release.dispatch.reservation.uopClass,
+          allocation.uopClass)
+        release.dispatch.reservation.bank.poke(allocation.bank.U)
+        release.dispatch.reservation.writePort.poke(allocation.port.U)
+        release.dispatch.reservation.speculativeSlot.poke(allocation.entry.U)
+        release.dispatch.reservation.reservationEpoch.poke(
+          allocation.reservationEpoch.U)
+        dut.io.releases(lane).valid.poke(true.B)
+        dut.io.dispatchReleases(lane).ready.poke(true.B)
+      }
+
+      // Releasing only STA is insufficient: the resident STD child still
+      // represents the older logical store across both physical IQ classes.
+      pokeRelease(0, older(0), childIndex = 0)
+      dut.io.releases(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.releases(0).valid.poke(false.B)
+      query(dut, uopClass = 2, bank = 0, entry = 1)
+      dut.io.queryPickable.expect(false.B)
+      dut.io.storeFrontierBlocked(0).expect(2.U)
+
+      pokeRelease(0, older(1), childIndex = 1)
+      dut.io.releases(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.releases(0).valid.poke(false.B)
+      query(dut, uopClass = 2, bank = 0, entry = 1)
+      dut.io.queryPickable.expect(true.B)
+      query(dut, uopClass = 3, bank = 0, entry = 1)
+      dut.io.queryPickable.expect(true.B)
+      dut.io.storeFrontierBlocked(0).expect(0.U)
     }
   }
 

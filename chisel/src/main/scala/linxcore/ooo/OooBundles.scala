@@ -959,6 +959,22 @@ class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
   val localSequence = new OooLocalSeq(p)
 }
 
+/** Minimal logical-store identity required by the cross-bank issue frontier.
+  *
+  * Both physical children of a split store carry the same logical member and
+  * full serial range.  The full store ID is an ordering identity, never a
+  * physical STQ index.  Keeping only this projection in the scheduling row
+  * lets the picker enforce store order without scanning the wide payload
+  * sidecar or creating a second store-residency owner.
+  */
+class OooIexStoreOrderState(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val logicalMember = new RobMemberKey(p)
+  val firstLsid = UInt(p.lsidWidth.W)
+  val firstStoreId = UInt(p.lsidWidth.W)
+  val requestCount = UInt(p.memoryDemandWidth.W)
+}
+
 /** Frequently scanned physical scheduling state.
   *
   * Recovery, wakeup, release, and pick inspect only this compact row.  Wide
@@ -980,6 +996,8 @@ class OooIexScheduleRow(val p: OooParams = OooParams()) extends Bundle {
     chisel3.util.log2Ceil(p.maxDispatchWritesPerInstruction)).W)
   val member = new RobMemberKey(p)
   val reservation = new DispatchReservation(p)
+  val isStore = Bool()
+  val storeOrder = new OooIexStoreOrderState(p)
   val sources = Vec(p.maxSourceOperands, new OooIexSourceState(p))
   val destinations = Vec(p.maxDestinationOperands,
     new OooIexDestinationState(p))
@@ -1039,6 +1057,8 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def childIndex = schedule.childIndex
   def member = schedule.member
   def reservation = schedule.reservation
+  def isStore = schedule.isStore
+  def storeOrder = schedule.storeOrder
   def sources = schedule.sources
   def destinations = schedule.destinations
   def uopKey = payload.uopKey

@@ -664,6 +664,34 @@ generation-qualified STQ lease 写 address/PGEN 和 data/DGEN，只有 row ident
 full SID/LSID、member 与 generation 全部一致时才可汇合。full SID/LSID 继续是
 程序顺序身份，physical STQ index 只负责定位驻留项。
 
+### 6.12 I0.9k 已实现：跨 IQ bank 的 logical-store issue frontier
+
+`OooIexStoreIssueFrontier` 把 `Documents/a.txt` 的 store sliding-window
+思想改写为 Linx 精确身份规则：一个 store physical child 只有在同 STID 不存在
+更老的 resident logical store 时才允许进入 P1/I1。它不把 SID 当 STQ index，
+而是对 full store ID 做 wrap-safe 归约，并同时用 full LSID 检查顺序关系。
+
+frontier 不拥有第二份 queue 或 advance pointer。`OooIexScheduleRow` 增加独立的
+typed `isStore` 分类位和最小 `OooIexStoreOrderState`，后者保存共同 logical
+member、first full LSID、first full store ID 和 request count。分类位不依赖 order
+key 是否有效，因此 resident store 丢失 key 时会 fail closed，而不是被误判为
+non-store 绕过；组合归约仍只读取 canonical IQ residency。IQ exact release、retry
+和 common recovery 是唯一状态 mutation，因此释放/恢复后资格自然重算，不存在
+frontier 与 IQ 漂移。
+
+AGU child0 和 STD child1 共享完全相同的 logical-store key，所以最老 store 的
+两个 child 可以从不同 class/bank 同时前进；只释放其中一半时，剩余 child 仍
+阻止年轻 store。loads、非 memory uop 与其他 STID 不参与该 frontier。相同 full
+SID 却属于不同 logical member、SID/LSID 顺序不一致、非法 request count 或残缺
+owner 会让该 STID 的 store 资格 fail closed，并通过 blocked/malformed 观测量暴露。
+
+为控制物理规模，正式归约域只包含 AGU 和 STD 两类，而不是扫描全部八类 IQ；
+S1 同时拒绝任何 typed memory store 被错误分派到其他 class。独立 UT 覆盖双 child、
+同 STID 年轻 store、peer STID、non-store、40-bit wrap 和重复 owner；IEX IT 覆盖
+跨 AGU/STD class 的共同 frontier、pick、单边 release 继续阻塞和双边 release 后
+立即前进。下一步是把 STQ 实际 issue-window credit、safe-mode/liveness 与 commit
+frontier 叠加成 class-specific eligibility，并接入静态顶层。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

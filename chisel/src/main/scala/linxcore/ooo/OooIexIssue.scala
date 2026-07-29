@@ -90,6 +90,9 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val inFlightEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
+  val storeFrontierBlocked = Output(Vec(p.stidCount,
+    UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
+      p.iqEntriesPerBank).W)))
 
   val s1Rejected = Valid(new OooIexS1Reject(p))
   val releaseRejecteds = Vec(p.iexReleaseWidth,
@@ -134,6 +137,43 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
   val payloadRows = Seq.tabulate(p.iqClassCount, p.iqBankCount) { (_, _) =>
     Mem(p.iqEntriesPerBank, new OooIexPayloadSidecar(p))
   }
+  private val storeIssueClasses = Seq(
+    OooUopClass.Agu.asUInt.litValue.toInt,
+    OooUopClass.Std.asUInt.litValue.toInt)
+  private val storeIssuePhysicalRowCount =
+    storeIssueClasses.size * p.iqBankCount * p.iqEntriesPerBank
+  private def storePhysicalRowIndex(
+      storeClassIndex: Int,
+      bank: Int,
+      entry: Int): Int =
+    (storeClassIndex * p.iqBankCount + bank) * p.iqEntriesPerBank + entry
+
+  val storeIssueFrontier = Module(
+    new OooIexStoreIssueFrontier(p, storeIssuePhysicalRowCount))
+  val storeIssueAllowed = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    storeIssueAllowed(uopClass)(bank)(entry) := true.B
+  }
+  for ((uopClass, storeClassIndex) <- storeIssueClasses.zipWithIndex;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    val index = storePhysicalRowIndex(storeClassIndex, bank, entry)
+    val row = scheduleRows(uopClass)(bank)(entry)
+    val candidate = storeIssueFrontier.io.candidates(index)
+    candidate.resident :=
+      slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.ResidentS3 &&
+        row.valid
+    candidate.isStore := row.isStore
+    candidate.peId := row.peId
+    candidate.stid := row.stid
+    candidate.order := row.storeOrder
+    storeIssueAllowed(uopClass)(bank)(entry) :=
+      storeIssueFrontier.io.allowed(index)
+  }
+  io.storeFrontierBlocked := storeIssueFrontier.io.blockedCount
 
   val s1Valid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
   val s1Rows = Reg(Vec(p.stidCount, new OooIexS1Transaction(p)))
@@ -360,11 +400,16 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         reservation.uopClass === OooUopClass.Agu) ||
       (allocation.childIndex === 1.U &&
         reservation.uopClass === OooUopClass.Std)
+    val memoryStore = decodedUop.memory.valid &&
+      decodedUop.memory.isStore && !decodedUop.memory.isLoad
+    val storeClassExact = !memoryStore ||
+      reservation.uopClass === OooUopClass.Agu ||
+      reservation.uopClass === OooUopClass.Std
     laneExact(lane) := !allocation.valid || (uopIndexInRange && activeUop &&
       classInRange && bankInRange && entryInRange && portInRange &&
       pUop.decoded.asUInt === decodedUop.asUInt &&
       sameMember(pUop.member, tuUop.member) &&
-      storeChildClassExact &&
+      storeChildClassExact && storeClassExact &&
       allocation.childIndex < decodedUop.plannedChildCount &&
       memberEnd < p.maxOrdinaryUopsPerGroup.U)
     laneTargetFree(lane) := !allocation.valid ||
@@ -577,6 +622,14 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         row.immediate := pUop.decoded.immediate
         row.memory := pUop.decoded.memory
         row.memoryOrder := s2Request.memoryOrder.uops(uopIndex)
+        row.isStore := row.memoryOrder.valid &&
+          row.memoryOrder.memoryValid && row.memoryOrder.isStore &&
+          !row.memoryOrder.isLoad
+        row.storeOrder.valid := row.isStore
+        row.storeOrder.logicalMember := pUop.member
+        row.storeOrder.firstLsid := row.memoryOrder.firstLsid
+        row.storeOrder.firstStoreId := row.memoryOrder.firstTypeId
+        row.storeOrder.requestCount := row.memoryOrder.requestCount
         row.boundaryTargetValid := pUop.decoded.boundaryTargetValid
         row.boundaryTarget := pUop.decoded.boundaryTarget
         row.preciseTrap := pUop.decoded.preciseTrap
@@ -1358,6 +1411,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         slotState(pickerClassIndex)(bank)(entry) ===
           OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
         sourcesReady && !loadCanceled &&
+        storeIssueAllowed(pickerClassIndex)(bank)(entry) &&
         !(recoveryFreeze && row.stid === recoveryStid)
       candidate.peId := row.peId
       candidate.stid := row.stid
@@ -1392,6 +1446,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
     val pickNotInFlight = !pickRow.inFlight
     val pickClaimExact = pickResidentExact && pickIdentityExact &&
       pickNotInFlight && !rowLoadCanceled(pickRow) &&
+      storeIssueAllowed(safePickClass)(safePickBank)(safePickEntry) &&
       !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
 
     io.picks(domain).valid := picker.io.pick.valid && pickClaimExact
@@ -1489,6 +1544,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
       io.queryRows(domain).valid &&
       !io.queryRows(domain).schedule.inFlight && querySourcesReady &&
       !rowLoadCanceled(io.queryRows(domain).schedule) &&
+      storeIssueAllowed(safeQueryClass)(safeQueryBank)(safeQueryEntry) &&
       !(recoveryFreeze && io.queryRows(domain).stid === recoveryStid)
   }
 
@@ -1519,6 +1575,19 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
           slotState(uopClass)(bank)(entry) ===
             OooIexIssueSlotState.ResidentS3),
         "only one resident S3 row may own speculative issue in-flight state")
+      assert(!scheduleRows(uopClass)(bank)(entry).storeOrder.valid ||
+        (scheduleRows(uopClass)(bank)(entry).valid &&
+          (scheduleRows(uopClass)(bank)(entry).reservation.uopClass ===
+            OooUopClass.Agu ||
+            scheduleRows(uopClass)(bank)(entry).reservation.uopClass ===
+              OooUopClass.Std) &&
+          scheduleRows(uopClass)(bank)(entry).storeOrder.logicalMember.group.valid &&
+          scheduleRows(uopClass)(bank)(entry).storeOrder.logicalMember.bid.valid),
+        "a store issue-order key must belong to one exact resident logical store")
+      assert(!scheduleRows(uopClass)(bank)(entry).valid ||
+        !scheduleRows(uopClass)(bank)(entry).isStore ||
+        scheduleRows(uopClass)(bank)(entry).storeOrder.valid,
+        "every resident typed store must retain its logical issue-order key")
     }
   }
 }
