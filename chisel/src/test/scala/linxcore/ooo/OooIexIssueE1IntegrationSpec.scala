@@ -43,6 +43,10 @@ class OooIexIssueE1IntegrationHarness(
   issue.io.pickClasses := transfer.io.pickClasses
   issue.io.pickBankEnables := transfer.io.pickBankEnables
   issue.io.issuePolicy := 0.U.asTypeOf(issue.io.issuePolicy)
+  issue.io.stageCancels.flatten.foreach { cancel =>
+    cancel.valid := false.B
+    cancel.bits := 0.U.asTypeOf(cancel.bits)
+  }
   for (port <- 0 until p.pcReadPorts) {
     issue.io.pcReadResponses(port).valid :=
       issue.io.pcReadRequests(port).valid

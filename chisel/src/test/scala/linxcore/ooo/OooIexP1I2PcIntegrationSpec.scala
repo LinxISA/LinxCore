@@ -57,6 +57,11 @@ private class OooIexP1I2PcIntegrationHarness(val p: OooParams)
     0.U.asTypeOf(lane.io.recoveryApply.bits)
   lane.io.bypass.foreach(_ := 0.U.asTypeOf(lane.io.bypass.head))
   lane.io.loadCancel.foreach(_ := 0.U.asTypeOf(lane.io.loadCancel.head))
+  lane.io.stageCancel.foreach { cancel =>
+    cancel.valid := false.B
+    cancel.bits := 0.U.asTypeOf(cancel.bits)
+  }
+  lane.io.repick.ready := true.B
   io.i2.valid := lane.io.i2.valid
   io.i2.bits := lane.io.i2.bits
   lane.io.i2.ready := io.i2.ready

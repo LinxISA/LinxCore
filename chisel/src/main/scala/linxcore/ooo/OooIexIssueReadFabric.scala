@@ -24,6 +24,8 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     UInt(p.iqBankCount.W)))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
+  val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
+    Vec(2, Decoupled(new OooIexStageCancel(p)))))
 
   val pcReadRequests = Output(Vec(p.pcReadPorts,
     Valid(new OooIexPcReadPortRequest(p))))
@@ -63,6 +65,10 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexReadRepick(p))))
   val loadCanceled = Output(Vec(p.iexIssueDomainCount,
     Vec(3, Valid(new OooIexReadRepick(p)))))
+  val stageCanceled = Output(Vec(p.iexIssueDomainCount,
+    Vec(2, Valid(new OooIexStageCancel(p)))))
+  val stageCancelRejected = Output(Vec(p.iexIssueDomainCount,
+    Vec(2, Valid(new OooIexStageCancelReject(p)))))
   val readRejected = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexReadReject(p))))
   val p1Rejected = Output(Vec(p.iexIssueDomainCount,
@@ -128,6 +134,7 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   issue.io.pickClasses := io.pickClasses
   issue.io.pickBankEnables := io.pickBankEnables
   issue.io.issuePolicy := io.issuePolicy
+  issue.io.stageCancels <> io.stageCancels
   issue.io.bypass := io.bypass
 
   arbiter.io.attempts := issue.io.readAttempts
@@ -171,6 +178,8 @@ class OooIexIssueReadFabric(val p: OooParams = OooParams()) extends Module {
   io.readShapeExact := arbiter.io.shapeExact
   io.retryFeedback := issue.io.retryFeedback
   io.loadCanceled := issue.io.loadCanceled
+  io.stageCanceled := issue.io.stageCanceled
+  io.stageCancelRejected := issue.io.stageCancelRejected
   io.readRejected := issue.io.readRejected
   io.p1Rejected := issue.io.p1Rejected
   io.joinRejected := issue.io.joinRejected

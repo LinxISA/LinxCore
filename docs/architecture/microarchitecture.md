@@ -628,6 +628,35 @@ Detailed local-register lifetime and recovery rules are documented in
   P1 acceptance requires an exact stage-qualified cancel/repick event; it must
   not be approximated by deleting or reinserting the IQ row.
 
+### Exact post-P1 stage cancellation
+
+- A physical conflict discovered after P1 is represented by one retained
+  `{stage, member, reservation, reason_mask}` request. `stage` is exactly I1 or
+  I2; the complete member and dispatch reservation identify the already
+  `inflight` canonical IQ row.
+- Only pipe-local structural, latency-reservation, reflow-reservation,
+  sidedoor, and result-bus reasons are legal late-cancel causes. Global,
+  power, class, LDQ, and store-window pressure remain early-block policy and
+  may not retroactively cancel a retained stage.
+- A late-cancel producer holds its request until accepted. The lane suppresses
+  the addressed I1 read attempt or I2 output immediately, but it clears the
+  retained stage only when storage for the exact IQ retry is guaranteed.
+- I1 and I2 can contain different uops. If exact requests target both in one
+  cycle, the older I2 transaction returns first and I1 remains retained for a
+  later accepted retry. Two identities must never be collapsed into one retry
+  pulse.
+- The retry path carries the original member and reservation back to the
+  canonical IQ. It clears `inflight`; it never deletes or reinserts the row.
+  Pending stored retries participate in lane/fabric quiescence.
+- A wrong stage, stale identity, missing stage occupancy, empty reason mask, or
+  early-only reason is consumed as a typed rejection without changing I1, I2,
+  or IQ state.
+- Architectural recovery and exact speculative-load cancellation take
+  precedence over a same-cycle resource cancel. Recovery deletes killed
+  residency through its normal owner; load cancellation repairs speculative
+  source readiness and `inflight` directly, so neither event manufactures a
+  duplicate ordinary retry.
+
 ### Ready table vs speculative ready
 
 - `ready_table` is non-speculative readiness only.

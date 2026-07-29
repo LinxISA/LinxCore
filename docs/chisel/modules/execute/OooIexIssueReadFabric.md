@@ -41,10 +41,16 @@ P initialization, rename clears, and terminal writes plus exact T/U
 allocation/write ports are exposed for later top-level integration. Protocol
 errors from every physical operand namespace remain observable.
 
+Per-domain I1/I2 resource-cancel channels pass through unchanged to the
+private lanes. They are intentionally separate from the atomic RF grant: a
+known read-port conflict is expressed by the arbiter as an ordinary denial,
+while a structural/sidedoor/reflow/latency/result-bus conflict discovered by a
+later physical owner uses the exact retained stage token.
+
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabricSpec
 ```
 
 The IT publishes one ready ALU row whose generation-qualified PTag has no
@@ -60,4 +66,4 @@ requires aggregate quiescence.
 - Connect the implemented `OooIexLoadUnit` speculative wakeup, bypass, and
   miss/fault cancel outputs to the canonical issue ports in the static top.
 - Freeze the default class/bank/pipe map and class-specific eligibility rules.
-- Add the non-cancellable I2-to-E1 owner transfer and W1 terminal network.
+- Connect static E1/reflow/result-bus owners to the exact stage-cancel channels.

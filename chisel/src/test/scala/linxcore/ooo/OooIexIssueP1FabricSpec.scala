@@ -60,6 +60,10 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
       _.poke(0.U.asTypeOf(dut.io.bypass.head)))
     dut.io.loadCancel.foreach(
       _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
+    dut.io.stageCancels.flatten.foreach { cancel =>
+      cancel.valid.poke(false.B)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+    }
   }
 
   private def pokeMember(target: RobMemberKey, memberIndex: Int): Unit = {

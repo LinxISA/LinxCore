@@ -10,6 +10,7 @@ recovery state.
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexP1I2Lane.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexStageCancel.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooBundles.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexP1I2LaneSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexP1I2PcIntegrationSpec.scala`
@@ -19,8 +20,8 @@ Source and test owners:
 | Stage | Retained state | Advance or cancellation |
 |---|---|---|
 | P1 | no independent architectural state; accepts one selected joined IQ row | exact row shape enters I1; malformed shape produces a typed reject |
-| I1 | full selected row, source tags, exact W1/W2/W3 bypass selection, RF-needed mask, optional parent PC token | one whole-uop read decision grants every remaining RF source and PC port, or denies the attempt for exact repick |
-| I2 | full row, merged RF/bypass values, bypass mask/provenance, and reconstructed PC | retained under backpressure until a later non-cancellable execution handoff or exact recovery cancellation |
+| I1 | full selected row, source tags, exact W1/W2/W3 bypass selection, RF-needed mask, optional parent PC token | one whole-uop read decision grants every remaining RF source and PC port, denies for exact repick, or accepts an exact I1 resource cancel |
+| I2 | full row, merged RF/bypass values, bypass mask/provenance, and reconstructed PC | retained under backpressure until a later handoff, exact recovery/load cancellation, or accepted I2 resource cancel |
 
 P1 requires exact member/group/BID/reservation identity, a valid primary
 parent, registered-ready valid sources, and a valid selected PC token when PC
@@ -84,13 +85,34 @@ clears matching `specReady` plus `inFlight`. This allows one cancel to poison
 I1 and I2 dependents concurrently. A stale generation leaves both stages
 unchanged.
 
+## Exact stage cancellation
+
+`stageCancel(0)` addresses I1 and `stageCancel(1)` addresses I2. Each
+backpressurable request carries an explicit stage, complete ROB member,
+dispatch reservation, and the shared issue reason mask. Legal late reasons
+are domain structural occupancy, latency reservation, reflow reservation,
+LSU sidedoor conflict, and result-bus reservation. Queue/global/power reasons
+are rejected because they must be known before pick.
+
+An exact pending request suppresses the addressed I1 attempt or I2 output.
+State clears only on request fire, after the two-entry retry queue can accept
+the original member/reservation. If both retained stages are canceled
+together, I2 has priority and I1 stays resident until its retry is accepted.
+The queue can therefore retain both identities while the consumer is
+backpressured; `empty` remains low until they drain. A stored retry also blocks
+a new bridge join, preventing a malformed join retry from colliding with an
+older lane retry.
+
+`stageCanceled` reports accepted events with their reasons.
+`stageCancelRejected` reports stage, occupancy, identity, and reason checks for
+consumed stale or malformed requests. Recovery or exact load cancellation
+wins a same-cycle race and does not generate a duplicate ordinary retry.
+
 ## Remaining integration work
 
-- instantiate the implemented oldest-ready picker/bridge/lane composition
-  across the frozen
-  multi-domain class/bank-to-pipe topology and connect per-pipe P1 steering;
 - select and measure the final static class/domain/release-port map;
-- E1/W1 execution, wakeup, completion, and result publication;
+- connect real per-domain structural, sidedoor, reflow, latency, and
+  result-bus owners to `stageCancel` in the static execution top;
 - physical LSU hit/miss resolver wiring into the exact load-cancel ports;
 - synchronous-macro latency variants and default-width timing evidence.
 
@@ -105,7 +127,9 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
 The focused UT covers backpressure stability, P/T source masks, optional PC,
 whole-uop grant, denial-to-repick, partial-response rejection-to-repick,
 exact cross-STID recovery, stale load-bypass rejection, RF-mask subtraction,
-retained I2 bypass provenance, stale cancel rejection, and exact I2 poison.
+retained I2 bypass provenance, stale load-cancel rejection, simultaneous
+I1/I2 exact resource cancellation with two retained retries, stale stage-token
+rejection, and exact I2 poison.
 The issue/lane IT additionally proves canonical IQ in-flight return plus a new
 generation wakeup/bypass/reissue. The PC IT allocates and publishes a real PC-buffer token,
 reads it through the fixed readyless port, and proves that the full PC and

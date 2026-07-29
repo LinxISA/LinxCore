@@ -28,7 +28,15 @@ lane evaluates exact member membership independently. Dispatch publication,
 wakeup state, terminal IQ release, and PTag recycling remain single-owner
 interfaces.
 
-`lanesEmpty` reports only private P1/I1/I2 residency. `empty` additionally
+Each domain also exposes two backpressurable resource-cancel inputs, one for
+I1 and one for I2. The private lane proves the exact stage/member/reservation
+identity and retains canceled identities until they can be returned to the
+single canonical IQ. A queued lane retry blocks a new bridge join, so the
+bridge and lane retry sources remain mutually exclusive without a
+ready-to-valid combinational loop.
+
+`lanesEmpty` reports private P1/I1/I2 and retained retry residency. `empty`
+additionally
 requires no retained S1 row, no BoundS2/ResidentS3 IQ row, and no retained
 recovery scan. It is the fabric quiescence signal; queue-empty or lane-empty
 alone is insufficient.
@@ -40,7 +48,7 @@ multi-domain integrations instantiate this fabric.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Fabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1FabricSpec
 ```
 
 The two-domain IT installs ALU and PC-reading BRU children together, observes
@@ -60,11 +68,11 @@ area or timing claims.
 ## Remaining gaps
 
 - Freeze the default ALU/BRU/AGU/STD/FSU/SYS/CMD domain and bank map.
-- Add class-specific control, memory-order, nonspeculative, and load-generation
-  eligibility blockers before pick.
+- Connect class-specific physical resource owners to early policy and exact
+  I1/I2 stage-cancel inputs.
 - Compose the implemented operand-read fabric with `OooPcBuffer` at the
   canonical top boundary.
-- Connect bypass/load tracking and the non-cancellable I2-to-E1 release point.
+- Connect bypass/load tracking and all static execution pipes.
 
 `OooIexIssueReadFabric` is the direct-composition successor for integrations
 that need real P/T/U data rather than manually driven decisions.

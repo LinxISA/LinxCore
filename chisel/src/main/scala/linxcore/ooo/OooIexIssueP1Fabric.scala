@@ -25,6 +25,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     UInt(p.iqBankCount.W)))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
+  val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
+    Vec(2, Decoupled(new OooIexStageCancel(p)))))
 
   val readAttempts = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexI1ReadAttempt(p))))
@@ -53,6 +55,10 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
     Vec(2, Valid(new OooIexReadRepick(p)))))
   val loadCanceled = Output(Vec(p.iexIssueDomainCount,
     Vec(3, Valid(new OooIexReadRepick(p)))))
+  val stageCanceled = Output(Vec(p.iexIssueDomainCount,
+    Vec(2, Valid(new OooIexStageCancel(p)))))
+  val stageCancelRejected = Output(Vec(p.iexIssueDomainCount,
+    Vec(2, Valid(new OooIexStageCancelReject(p)))))
 
   val pickMalformed = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickReject(p))))
@@ -137,6 +143,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
       bridge.io.repick.valid || lane.io.repick.valid
     issue.io.pickRetries(domain).bits := Mux(
       bridge.io.repick.valid, bridge.io.repick.bits, lane.io.repick.bits)
+    lane.io.repick.ready := true.B
     io.retryFeedback(domain) := issue.io.pickRetries(domain)
 
     io.readAttempts(domain) := lane.io.readAttempt
@@ -148,6 +155,7 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
     lane.io.pcData := io.pcData(domain)
     lane.io.bypass := io.bypass
     lane.io.loadCancel := io.loadCancel
+    lane.io.stageCancel <> io.stageCancels(domain)
     io.i2(domain) <> lane.io.i2
     lane.io.recoveryApply := issue.io.recoveryApplied
 
@@ -156,6 +164,8 @@ class OooIexIssueP1Fabric(val p: OooParams = OooParams()) extends Module {
     io.readRejected(domain) := lane.io.readRejected
     io.recoveryCanceled(domain) := lane.io.recoveryCanceled
     io.loadCanceled(domain) := lane.io.loadCanceled
+    io.stageCanceled(domain) := lane.io.stageCanceled
+    io.stageCancelRejected(domain) := lane.io.stageCancelRejected
     io.pickMalformed(domain) := issue.io.pickMalformedByDomain(domain)
     io.pickRejected(domain) := issue.io.pickRejectedByDomain(domain)
     io.pickRetryRejected(domain) :=

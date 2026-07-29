@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, Valid}
+import chisel3.util.{Decoupled, PopCount, Queue, Valid}
 import linxcore.common.OperandClass
 
 class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
@@ -22,10 +22,16 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
+  /** Exact post-P1 resource conflicts. Port 0 addresses I1 and port 1 I2.
+    * A producer must hold valid until ready; cancellation does not mutate the
+    * retained stage until the corresponding IQ retry has storage.
+    */
+  val stageCancel = Flipped(Vec(2, Decoupled(new OooIexStageCancel(p))))
+
   val i2 = Decoupled(new OooIexI2Transaction(p))
   val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
 
-  val repick = Valid(new OooIexReadRepick(p))
+  val repick = Decoupled(new OooIexReadRepick(p))
   val p1Rejected = Valid(new OooIexP1Reject(p))
   val readRejected = Valid(new OooIexReadReject(p))
   // Index 0 reports I1 cancellation and index 1 reports retained I2
@@ -34,6 +40,9 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   // P1, retained I1, and retained I2 cancellation diagnostics. Canonical IQ
   // inFlight/specReady mutation is driven directly by the same cancel event.
   val loadCanceled = Output(Vec(3, Valid(new OooIexReadRepick(p))))
+  val stageCanceled = Output(Vec(2, Valid(new OooIexStageCancel(p))))
+  val stageCancelRejected = Output(Vec(2,
+    Valid(new OooIexStageCancelReject(p))))
 
   val i1Occupied = Output(Bool())
   val i2Occupied = Output(Bool())
@@ -61,6 +70,9 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   val i1Request = Reg(new OooIexP1Request(p))
   val i2Valid = RegInit(false.B)
   val i2Transaction = Reg(new OooIexI2Transaction(p))
+  val retryQueue = Module(new Queue(new OooIexReadRepick(p), 2,
+    pipe = true, flow = true))
+  io.repick <> retryQueue.io.deq
 
   private def killedByRecovery(row: OooIexIssueRow): Bool =
     io.recoveryApply.valid && io.recoveryApply.bits.valid &&
@@ -118,7 +130,33 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   val i2Killed = i2Valid && killedByRecovery(i2Transaction.row)
   val i1LoadCanceled = i1Valid && canceledByLoad(i1Request.row)
   val i2LoadCanceled = i2Valid && canceledByLoad(i2Transaction.row)
-  val i2WillDrain = i2Valid && !i2Killed && !i2LoadCanceled && io.i2.ready
+
+  private def stageCancelIdentityExact(
+      request: OooIexStageCancel,
+      row: OooIexIssueRow): Bool =
+    request.member.asUInt === row.member.asUInt &&
+      request.reservation.asUInt === row.reservation.asUInt
+
+  val i1StageRequest = io.stageCancel(0).bits
+  val i2StageRequest = io.stageCancel(1).bits
+  val i1StageExact = i1Valid && !i1Killed && !i1LoadCanceled &&
+    i1StageRequest.stage === OooIexStageCancelPoint.I1 &&
+    stageCancelIdentityExact(i1StageRequest, i1Request.row) &&
+    OooIexStageCancelReason.legal(i1StageRequest.reasonMask)
+  val i2StageExact = i2Valid && !i2Killed && !i2LoadCanceled &&
+    i2StageRequest.stage === OooIexStageCancelPoint.I2 &&
+    stageCancelIdentityExact(i2StageRequest, i2Transaction.row) &&
+    OooIexStageCancelReason.legal(i2StageRequest.reasonMask)
+  val i1StagePending = io.stageCancel(0).valid && i1StageExact
+  val i2StagePending = io.stageCancel(1).valid && i2StageExact
+  // The older I2 transaction wins the single exact IQ retry path. I1 remains
+  // retained and its producer observes ready low until the following cycle.
+  val selectI2StageCancel = i2StagePending
+  val selectI1StageCancel = i1StagePending && !selectI2StageCancel
+  val stageCancelFreeze = i1StagePending || i2StagePending
+
+  val i2WillDrain = i2Valid && !i2Killed && !i2LoadCanceled &&
+    !i2StagePending && io.i2.ready
   val i2CanAccept = !i2Valid || i2WillDrain || i2Killed || i2LoadCanceled
 
   val i1LogicalSourceMask = VecInit(
@@ -218,6 +256,7 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   val i1PcToken = i1Request.row.parentPcTokens(safeI1ParentIndex)
 
   io.readAttempt.valid := i1Valid && !i1Killed && !i1LoadCanceled &&
+    !stageCancelFreeze && retryQueue.io.enq.ready &&
     i2CanAccept &&
     i1SpecSourcesCovered
   io.readAttempt.bits.member := i1Request.row.member
@@ -236,17 +275,22 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     (!i1Request.pcReadRequired || io.pcDataValid)
   val readAccepted = readDecision && io.readGrant && readResponseExact
   val readInvalid = readDecision && io.readGrant && !readResponseExact
-  val i1WillClear = i1Killed || i1LoadCanceled || readDenied ||
-    readAccepted || readInvalid
+  val i1StageCancelFire = io.stageCancel(0).fire && i1StageExact
+  val i2StageCancelFire = io.stageCancel(1).fire && i2StageExact
+  val i1WillClear = i1Killed || i1LoadCanceled || i1StageCancelFire ||
+    readDenied || readAccepted || readInvalid
   // Do not replace a denied/invalid attempt on the same edge: the single
   // exact retry channel must never need to return two different members.
-  val i1CanAccept = !i1Valid || readAccepted || i1Killed || i1LoadCanceled
+  val i1CanAccept = !i1Valid || readAccepted || i1Killed || i1LoadCanceled ||
+    i1StageCancelFire
 
   // Invalid P1 payloads are consumed as typed rejects when the lane has room;
   // a malformed producer cannot wedge the ready/valid boundary forever.
   // A canceled P1 copy carries no state into I1 and can be consumed even when
   // an unrelated I1 row is resident; never retain a one-cycle cancel pulse.
-  io.p1.ready := (i1CanAccept || p1LoadCanceled) && !p1Killed
+  io.p1.ready := (i1CanAccept || p1LoadCanceled) && !p1Killed &&
+    !stageCancelFreeze && retryQueue.io.enq.ready &&
+    !retryQueue.io.count.orR
   io.p1Rejected.valid := io.p1.fire && !p1ShapeExact && !p1LoadCanceled
   io.p1Rejected.bits.member := p1Member
   io.p1Rejected.bits.reservation := p1Reservation
@@ -255,9 +299,42 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.p1Rejected.bits.pcTokenExact := p1PcTokenExact
 
   val p1Failed = io.p1.fire && !p1ShapeExact && !p1LoadCanceled
-  io.repick.valid := readDenied || readInvalid || p1Failed
-  io.repick.bits := Mux(p1Failed,
-    repickFrom(p1Row), repickFrom(i1Request.row))
+  val ordinaryRepick = readDenied || readInvalid || p1Failed
+  val stageRepick = selectI1StageCancel || selectI2StageCancel
+  retryQueue.io.enq.valid := ordinaryRepick || stageRepick
+  retryQueue.io.enq.bits := Mux(ordinaryRepick,
+    Mux(p1Failed, repickFrom(p1Row), repickFrom(i1Request.row)),
+    Mux(selectI2StageCancel, repickFrom(i2Transaction.row),
+      repickFrom(i1Request.row)))
+  when(ordinaryRepick) {
+    assert(retryQueue.io.enq.ready,
+      "non-backpressurable P1/I1 retry requires reserved queue capacity")
+  }
+
+  for (port <- 0 until 2) {
+    val expectedStage = if (port == 0) OooIexStageCancelPoint.I1
+      else OooIexStageCancelPoint.I2
+    val occupied = if (port == 0) i1Valid && !i1Killed && !i1LoadCanceled
+      else i2Valid && !i2Killed && !i2LoadCanceled
+    val row = if (port == 0) i1Request.row else i2Transaction.row
+    val exact = if (port == 0) i1StageExact else i2StageExact
+    val selected = if (port == 0) selectI1StageCancel
+      else selectI2StageCancel
+    io.stageCancel(port).ready := Mux(exact,
+      selected && retryQueue.io.enq.ready, true.B)
+    io.stageCanceled(port).valid := io.stageCancel(port).fire && exact
+    io.stageCanceled(port).bits := io.stageCancel(port).bits
+    io.stageCancelRejected(port).valid :=
+      io.stageCancel(port).fire && !exact
+    io.stageCancelRejected(port).bits.request := io.stageCancel(port).bits
+    io.stageCancelRejected(port).bits.stageExact :=
+      io.stageCancel(port).bits.stage === expectedStage
+    io.stageCancelRejected(port).bits.occupied := occupied
+    io.stageCancelRejected(port).bits.identityExact := occupied &&
+      stageCancelIdentityExact(io.stageCancel(port).bits, row)
+    io.stageCancelRejected(port).bits.reasonExact :=
+      OooIexStageCancelReason.legal(io.stageCancel(port).bits.reasonMask)
+  }
   io.readRejected.valid := readInvalid
   io.readRejected.bits.member := i1Request.row.member
   io.readRejected.bits.reservation := i1Request.row.reservation
@@ -277,13 +354,13 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.loadCanceled(2).valid := i2LoadCanceled
   io.loadCanceled(2).bits := repickFrom(i2Transaction.row)
 
-  io.i2.valid := i2Valid && !i2Killed && !i2LoadCanceled
+  io.i2.valid := i2Valid && !i2Killed && !i2LoadCanceled && !i2StagePending
   io.i2.bits := i2Transaction
   io.i1Occupied := i1Valid && !i1Killed && !i1LoadCanceled
   io.i2Occupied := i2Valid && !i2Killed && !i2LoadCanceled
-  io.empty := !io.i1Occupied && !io.i2Occupied
+  io.empty := !io.i1Occupied && !io.i2Occupied && !io.repick.valid
 
-  when(i2WillDrain || i2Killed || i2LoadCanceled) {
+  when(i2WillDrain || i2Killed || i2LoadCanceled || i2StageCancelFire) {
     i2Valid := false.B
   }
   when(readAccepted) {

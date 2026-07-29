@@ -55,6 +55,10 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
       _.poke(0.U.asTypeOf(dut.io.bypass.head)))
     dut.io.loadCancel.foreach(
       _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
+    dut.io.stageCancel.foreach { cancel =>
+      cancel.valid.poke(false.B)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+    }
     dut.io.i2.ready.poke(false.B)
   }
 
@@ -92,6 +96,22 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
     target.valid.poke(true.B)
     pokeLoadProducer(target.producer)
     target.generation.poke(generation.U)
+  }
+
+  private def pokeI2StageCancel(dut: OooIexIssueP1Lane): Unit = {
+    val cancel = dut.io.stageCancel(1).bits
+    cancel.poke(0.U.asTypeOf(cancel))
+    cancel.stage.poke(OooIexStageCancelPoint.I2)
+    pokeMember(cancel.member)
+    cancel.reservation.valid.poke(true.B)
+    cancel.reservation.uopClass.poke(OooUopClass.Bru)
+    cancel.reservation.bank.poke(0.U)
+    cancel.reservation.writePort.poke(0.U)
+    cancel.reservation.speculativeSlot.poke(1.U)
+    cancel.reservation.reservationEpoch.poke(9.U)
+    cancel.reasonMask.poke(
+      (BigInt(1) << OooIexIssueBlockReason.SideDoorConflict).U)
+    dut.io.stageCancel(1).valid.poke(true.B)
   }
 
   private def pokeOnePcBru(dut: OooIexIssueP1Lane): Unit = {
@@ -336,6 +356,47 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
       bypass.valid.poke(false.B)
       dut.io.i2.valid.expect(true.B)
       dut.io.i2.bits.bypass(0).load.generation.expect(8.U)
+    }
+  }
+
+  test("returns an exact I2 resource cancel to the canonical IQ") {
+    simulate(new OooIexIssueP1Lane(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeOnePcBru(dut)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step(4)
+      dut.io.i1Occupied.expect(true.B)
+
+      dut.io.readDecisionValid.poke(true.B)
+      dut.io.readGrant.poke(true.B)
+      dut.io.pcDataValid.poke(true.B)
+      dut.io.pcData.poke("h80000126".U)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+      dut.io.i2.valid.expect(true.B)
+      dut.io.inFlightEntries(OooDispatchClass.Bru - 1)(0).expect(1.U)
+
+      pokeI2StageCancel(dut)
+      dut.io.stageCancel(1).ready.expect(true.B)
+      dut.io.stageCanceled(1).valid.expect(true.B)
+      dut.io.i2.valid.expect(false.B)
+      dut.io.retryFeedback.valid.expect(true.B)
+      dut.io.retryFeedback.bits.member.group.ridSlot.expect(2.U)
+      dut.clock.step()
+      dut.io.stageCancel(1).valid.poke(false.B)
+      dut.io.inFlightEntries(OooDispatchClass.Bru - 1)(0).expect(0.U)
+      dut.io.i2Occupied.expect(false.B)
+
+      dut.clock.step()
+      dut.clock.step()
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.inFlightEntries(OooDispatchClass.Bru - 1)(0).expect(1.U)
     }
   }
 }

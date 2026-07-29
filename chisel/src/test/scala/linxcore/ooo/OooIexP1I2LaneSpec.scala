@@ -41,6 +41,11 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     }
     dut.io.loadCancel.foreach(
       _.poke(0.U.asTypeOf(dut.io.loadCancel.head)))
+    dut.io.stageCancel.foreach { cancel =>
+      cancel.valid.poke(false.B)
+      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+    }
+    dut.io.repick.ready.poke(true.B)
     dut.io.i2.ready.poke(false.B)
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
@@ -144,6 +149,34 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.pcData.poke("h80000126".U)
   }
 
+  private def pokeStageCancel(
+      target: OooIexStageCancel,
+      stage: OooIexStageCancelPoint.Type,
+      stid: Int,
+      ridSlot: Int,
+      memberIndex: Int,
+      reason: Int): Unit = {
+    target.poke(0.U.asTypeOf(target))
+    target.stage.poke(stage)
+    target.member.group.valid.poke(true.B)
+    target.member.group.peId.poke(3.U)
+    target.member.group.stid.poke(stid.U)
+    target.member.group.ridSlot.poke(ridSlot.U)
+    target.member.group.ridGeneration.poke(1.U)
+    target.member.bid.valid.poke(true.B)
+    target.member.bid.value.poke(5.U)
+    target.member.brobGeneration.poke(2.U)
+    target.member.memberIndex.poke(memberIndex.U)
+    target.member.residentGeneration.poke(4.U)
+    target.reservation.valid.poke(true.B)
+    target.reservation.uopClass.poke(OooUopClass.Alu)
+    target.reservation.bank.poke(0.U)
+    target.reservation.writePort.poke(0.U)
+    target.reservation.speculativeSlot.poke(1.U)
+    target.reservation.reservationEpoch.poke(9.U)
+    target.reasonMask.poke((BigInt(1) << reason).U)
+  }
+
   private def pokeRecovery(
       dut: OooIexP1I2Lane,
       stid: Int,
@@ -225,6 +258,123 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       dut.io.i1Occupied.expect(false.B)
       dut.io.i2.valid.expect(false.B)
       dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("serializes simultaneous exact I2 and I1 cancels without losing retries") {
+    simulate(new OooIexP1I2Lane(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeRequest(dut, stid = 0, ridSlot = 2, memberIndex = 0,
+        pcRequired = false)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+      grantRead(dut)
+      dut.io.pcDataValid.poke(false.B)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+      dut.io.i2.valid.expect(true.B)
+
+      pokeRequest(dut, stid = 0, ridSlot = 3, memberIndex = 1,
+        pcRequired = false)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.i2Occupied.expect(true.B)
+
+      dut.io.repick.ready.poke(false.B)
+      pokeStageCancel(dut.io.stageCancel(0).bits,
+        OooIexStageCancelPoint.I1, stid = 0, ridSlot = 3,
+        memberIndex = 1, reason = OooIexIssueBlockReason.SideDoorConflict)
+      pokeStageCancel(dut.io.stageCancel(1).bits,
+        OooIexStageCancelPoint.I2, stid = 0, ridSlot = 2,
+        memberIndex = 0,
+        reason = OooIexIssueBlockReason.ResultBusReservation)
+      dut.io.stageCancel.foreach(_.valid.poke(true.B))
+
+      dut.io.stageCancel(1).ready.expect(true.B)
+      dut.io.stageCancel(0).ready.expect(false.B)
+      dut.io.i2.valid.expect(false.B)
+      dut.io.readAttempt.valid.expect(false.B)
+      dut.io.stageCanceled(1).valid.expect(true.B)
+      dut.io.stageCanceled(1).bits.reasonMask.expect(
+        (BigInt(1) << OooIexIssueBlockReason.ResultBusReservation).U)
+      dut.clock.step()
+      dut.io.stageCancel(1).valid.poke(false.B)
+
+      dut.io.i2Occupied.expect(false.B)
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.stageCancel(0).ready.expect(true.B)
+      dut.io.stageCanceled(0).valid.expect(true.B)
+      dut.clock.step()
+      dut.io.stageCancel(0).valid.poke(false.B)
+
+      dut.io.i1Occupied.expect(false.B)
+      dut.io.repick.valid.expect(true.B)
+      dut.io.repick.bits.member.group.ridSlot.expect(2.U)
+      dut.io.empty.expect(false.B)
+      dut.io.repick.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.repick.valid.expect(true.B)
+      dut.io.repick.bits.member.group.ridSlot.expect(3.U)
+      dut.clock.step()
+      dut.io.repick.valid.expect(false.B)
+      dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("rejects a stale stage-cancel identity without disturbing I1") {
+    simulate(new OooIexP1I2Lane(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeRequest(dut, stid = 0, ridSlot = 4, pcRequired = false)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+      pokeStageCancel(dut.io.stageCancel(0).bits,
+        OooIexStageCancelPoint.I1, stid = 0, ridSlot = 3,
+        memberIndex = 0, reason = OooIexIssueBlockReason.DomainStructural)
+      dut.io.stageCancel(0).valid.poke(true.B)
+
+      dut.io.stageCancel(0).ready.expect(true.B)
+      dut.io.stageCancelRejected(0).valid.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.occupied.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.stageExact.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.identityExact.expect(false.B)
+      dut.io.stageCancelRejected(0).bits.reasonExact.expect(true.B)
+      dut.io.readAttempt.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.stageCancel(0).valid.poke(false.B)
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.repick.valid.expect(false.B)
+
+      pokeStageCancel(dut.io.stageCancel(0).bits,
+        OooIexStageCancelPoint.I2, stid = 0, ridSlot = 4,
+        memberIndex = 0, reason = OooIexIssueBlockReason.DomainStructural)
+      dut.io.stageCancel(0).valid.poke(true.B)
+      dut.io.stageCancelRejected(0).valid.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.stageExact.expect(false.B)
+      dut.io.stageCancelRejected(0).bits.identityExact.expect(true.B)
+      dut.clock.step()
+      dut.io.stageCancel(0).valid.poke(false.B)
+
+      pokeStageCancel(dut.io.stageCancel(0).bits,
+        OooIexStageCancelPoint.I1, stid = 0, ridSlot = 4,
+        memberIndex = 0, reason = OooIexIssueBlockReason.PowerThrottle)
+      dut.io.stageCancel(0).valid.poke(true.B)
+      dut.io.stageCancelRejected(0).valid.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.identityExact.expect(true.B)
+      dut.io.stageCancelRejected(0).bits.reasonExact.expect(false.B)
+      dut.clock.step()
+      dut.io.stageCancel(0).valid.poke(false.B)
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.repick.valid.expect(false.B)
     }
   }
 
@@ -310,14 +460,22 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
 
       cancel.bits.load.generation.poke(7.U)
       cancel.valid.poke(true.B)
+      pokeStageCancel(dut.io.stageCancel(1).bits,
+        OooIexStageCancelPoint.I2, stid = 0, ridSlot = 2,
+        memberIndex = 0, reason = OooIexIssueBlockReason.SideDoorConflict)
+      dut.io.stageCancel(1).valid.poke(true.B)
       dut.io.i2.valid.expect(false.B)
       dut.io.i1Occupied.expect(false.B)
       dut.io.loadCanceled(1).valid.expect(true.B)
       dut.io.loadCanceled(1).bits.member.group.ridSlot.expect(3.U)
       dut.io.loadCanceled(2).valid.expect(true.B)
       dut.io.loadCanceled(2).bits.member.group.ridSlot.expect(2.U)
+      dut.io.stageCancelRejected(1).valid.expect(true.B)
+      dut.io.stageCancelRejected(1).bits.occupied.expect(false.B)
+      dut.io.repick.valid.expect(false.B)
       dut.clock.step()
       cancel.valid.poke(false.B)
+      dut.io.stageCancel(1).valid.poke(false.B)
       dut.io.empty.expect(true.B)
     }
   }
@@ -392,10 +550,18 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       dut.io.i2.valid.expect(true.B)
 
       pokeRecovery(dut, stid = 1, newOccupied = 1)
+      pokeStageCancel(dut.io.stageCancel(1).bits,
+        OooIexStageCancelPoint.I2, stid = 1, ridSlot = 2,
+        memberIndex = 0, reason = OooIexIssueBlockReason.ReflowReservation)
+      dut.io.stageCancel(1).valid.poke(true.B)
       dut.io.i2.valid.expect(false.B)
       dut.io.recoveryCanceled(1).valid.expect(true.B)
+      dut.io.stageCancelRejected(1).valid.expect(true.B)
+      dut.io.stageCancelRejected(1).bits.occupied.expect(false.B)
+      dut.io.repick.valid.expect(false.B)
       dut.clock.step()
       dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.stageCancel(1).valid.poke(false.B)
       dut.io.i2.valid.expect(false.B)
       dut.io.empty.expect(true.B)
     }

@@ -30,6 +30,8 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexBypassCandidate(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
+  val stageCancel = Flipped(Vec(2,
+    Decoupled(new OooIexStageCancel(p))))
   val i2 = Decoupled(new OooIexI2Transaction(p))
 
   val retryFeedback = Valid(new OooIexReadRepick(p))
@@ -40,6 +42,10 @@ class OooIexIssueP1LaneIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexReadRepick(p))))
   val loadCanceled = Output(Vec(3,
     Valid(new OooIexReadRepick(p))))
+  val stageCanceled = Output(Vec(2,
+    Valid(new OooIexStageCancel(p))))
+  val stageCancelRejected = Output(Vec(2,
+    Valid(new OooIexStageCancelReject(p))))
 
   val pickMalformed = Valid(new OooIexPickReject(p))
   val pickRejected = Valid(new OooIexPickClaimReject(p))
@@ -109,6 +115,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   issue.io.pickRetry.valid := bridge.io.repick.valid || lane.io.repick.valid
   issue.io.pickRetry.bits := Mux(
     bridge.io.repick.valid, bridge.io.repick.bits, lane.io.repick.bits)
+  lane.io.repick.ready := true.B
   io.retryFeedback := issue.io.pickRetry
 
   io.readAttempt := lane.io.readAttempt
@@ -120,6 +127,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   lane.io.pcData := io.pcData
   lane.io.bypass := io.bypass
   lane.io.loadCancel := io.loadCancel
+  lane.io.stageCancel <> io.stageCancel
   io.i2 <> lane.io.i2
   lane.io.recoveryApply := issue.io.recoveryApplied
 
@@ -128,6 +136,8 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   io.readRejected := lane.io.readRejected
   io.recoveryCanceled := lane.io.recoveryCanceled
   io.loadCanceled := lane.io.loadCanceled
+  io.stageCanceled := lane.io.stageCanceled
+  io.stageCancelRejected := lane.io.stageCancelRejected
   io.pickMalformed := issue.io.pickMalformed
   io.pickRejected := issue.io.pickRejected
   io.pickRetryRejected := issue.io.pickRetryRejected
