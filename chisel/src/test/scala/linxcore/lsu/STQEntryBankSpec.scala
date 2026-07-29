@@ -490,6 +490,9 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.insert.poke(0.U.asTypeOf(dut.io.insert))
     dut.io.reserveValid.poke(false.B)
     dut.io.reserve.poke(0.U.asTypeOf(dut.io.reserve))
+    dut.io.reserveBatchValid.poke(false.B)
+    dut.io.reserveBatchMask.poke(0.U)
+    dut.io.reserveBatch.poke(0.U.asTypeOf(dut.io.reserveBatch))
     dut.io.fillValid.poke(false.B)
     dut.io.fill.poke(0.U.asTypeOf(dut.io.fill))
     dut.io.markCommitValid.poke(false.B)
@@ -639,6 +642,69 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
       dut.io.flush.req.valid.poke(true.B)
       dut.io.reserveReady.expect(false.B)
       dut.io.reserveAccepted.expect(false.B)
+      dut.clock.step()
+      dut.io.residentCount.expect(0.U)
+    }
+  }
+
+  test("pair reservation is all-or-none and returns two independent leases") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
+        residentGeneration = 4, lsid = 20, storeId = 30)
+      pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
+        residentGeneration = 4, lsid = 21, storeId = 31)
+      dut.io.reserveBatchMask.poke(3.U)
+      dut.io.reserveBatchValid.poke(true.B)
+      dut.io.reserveBatchReady.expect(true.B)
+      dut.io.reserveBatchAccepted.expect(true.B)
+      dut.io.reserveBatchLeases(0).index.expect(0.U)
+      dut.io.reserveBatchLeases(1).index.expect(1.U)
+      dut.io.reserveBatchLeases(0).generation.expect(1.U)
+      dut.io.reserveBatchLeases(1).generation.expect(1.U)
+      dut.clock.step()
+      dut.io.reserveBatchValid.poke(false.B)
+      dut.io.residentCount.expect(2.U)
+      dut.io.rows(0).lsIdFull.expect(20.U)
+      dut.io.rows(1).lsIdFull.expect(21.U)
+
+      pokeExactRequest(dut.io.reserve, ridGeneration = 5,
+        residentGeneration = 6, lsid = 40, storeId = 50)
+      dut.io.reserveValid.poke(true.B)
+      dut.clock.step()
+      dut.io.reserve.lsIdFull.poke(41.U)
+      dut.io.reserve.storeIdFull.poke(51.U)
+      pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 7,
+        residentGeneration = 8, lsid = 60, storeId = 70)
+      pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 7,
+        residentGeneration = 8, lsid = 61, storeId = 71)
+      dut.io.reserveBatchMask.poke(3.U)
+      dut.io.reserveBatchValid.poke(true.B)
+      dut.io.reserveBatchReady.expect(false.B)
+      dut.io.reserveBatchAccepted.expect(false.B)
+      dut.io.reserveReady.expect(false.B)
+      dut.clock.step()
+      dut.io.residentCount.expect(3.U)
+
+      dut.io.reserveBatchValid.poke(false.B)
+      dut.io.reserveReady.expect(true.B)
+      dut.clock.step()
+      dut.io.reserveValid.poke(false.B)
+      dut.io.residentCount.expect(4.U)
+    }
+  }
+
+  test("pair reservation rejects non-consecutive serial identity") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
+        residentGeneration = 4, lsid = 20, storeId = 30)
+      pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
+        residentGeneration = 4, lsid = 22, storeId = 31)
+      dut.io.reserveBatchMask.poke(3.U)
+      dut.io.reserveBatchValid.poke(true.B)
+      dut.io.reserveBatchReady.expect(false.B)
+      dut.io.reserveBatchConflict.expect(true.B)
       dut.clock.step()
       dut.io.residentCount.expect(0.U)
     }

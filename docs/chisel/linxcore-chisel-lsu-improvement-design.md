@@ -420,7 +420,21 @@ recovery prune > commit/non-flush > drain release > execute fill > allocate
 
 定向动态测试使用 `STQ=4, ROB=8, LSID=40`，覆盖 reservation、STA/STD 任意分拍、commit/free、同槽复用、旧 generation、错误 member、错误完整 SID/LSID 和 recovery/reserve 冲突。参考模型 `tools/LinxCoreModel/model/mtccore/lsu/store_unit/stq.cpp::STQ::mergeStore` 仅提供“互补半部在 STQ 汇合”的行为证据；Linx Chisel 额外要求 generation-qualified lease，不能沿用模型中只按 BID/LSID 搜索 WAIT row 的宽松身份。
 
-尚未完成的部分：OOO `RobMemberKey + OooMemoryOrderUopAllocation` 到 reservation 的正式连接、每个 pair beat 的原子多槽预留、保留式 STA/STD E1 写入、exact recovery kill-set、sliding window、commit/drain 与 forwarding view 迁移，以及旧 CAM insert 和重复 STQ state 的删除。
+I0.9h 结束时尚未完成的部分包括 OOO reservation 投影、pair 原子多槽预留和保留式 STA/STD；这些前三项由下一节 I0.9i 收敛。exact STQ recovery kill-set、sliding window、commit/drain 与 forwarding view 迁移，以及旧 CAM insert 和重复 STQ state 的删除仍然开放。
+
+### 7.9 OOO reservation 与保留式 STA/STD（I0.9i）
+
+`OooStqReservationProjection` 把已经发布到 IEX 的 store 地址 child 转换成 canonical STQ reservation：
+
+- 只允许 LSU-owned、AGU child0、typed ScalarStore/PairStore；STD child 不得重复分配；
+- `RobMemberKey`、`OooMemoryOrderUopAllocation` 和 recipe/requestCount 必须完整一致；
+- scalar store 原子申请一个 row，pair store 原子申请两个 row；pair SID/LSID 必须连续且两个 row 共享同一逻辑首 member；
+- 物理 AGU/STD child 的 `memberIndex` 保持独立，但共享资源 owner 通过 `memberIndex-childIndex` 归一到逻辑 store 首 member；
+- pair credit 不足时，batch 保持不接受，并阻止低优先级 single/legacy allocation 抢占剩余槽。
+
+`OooIexStorePipeline` 分别保留 STA 与 STD E1 transaction。两边可以任意先后到达，在 STQ 回压下保持完整 execute payload 和 lease；仲裁器逐 beat 发送定点 fill，实际地址/数据合流只发生在 `STQEntryBank`。地址按照 normalized memory mode 和 address-source mask 计算，pair beat 地址按 access size 递增；数据由 data-source mask 选择对应 beat。错误 child member、错误 lease/range、错误 recipe/class全部 fail closed。typed recovery 或精确 load-generation cancel 在 fill 前清除匹配 retained owner。
+
+动态 IT 使用 `STQ=4, ROB=8, LSID=40` 串接真实 projection、store pipeline 和 STQ，证明 pair reservation、STA/STD交错 fill、STD先到、连续回压、错误 child、恢复抑制、完整地址和两个独立 data beat。当前仍缺：lease set 在正式 IEX composition 中的多 store 并发 residency、ROB-owned exact STQ recovery/free、store issue/commit sliding frontier、load forwarding/visibility以及旧接口删除。
 
 ## 8. Store CommitQ 与 drain
 

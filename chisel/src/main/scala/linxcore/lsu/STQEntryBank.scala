@@ -171,7 +171,8 @@ class STQEntryBankIO(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val maxReserveBeats: Int = 2)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -207,6 +208,19 @@ class STQEntryBankIO(
   val reserveAccepted = Output(Bool())
   val reserveConflict = Output(Bool())
   val reserveLease = Output(new STQPhysicalLease(entries, leaseGenerationWidth))
+
+  val reserveBatchValid = Input(Bool())
+  val reserveBatchMask = Input(UInt(maxReserveBeats.W))
+  val reserveBatch = Input(Vec(maxReserveBeats, new STQStoreRequest(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth, entries)))
+  val reserveBatchReady = Output(Bool())
+  val reserveBatchAccepted = Output(Bool())
+  val reserveBatchConflict = Output(Bool())
+  val reserveBatchLeases = Output(Vec(maxReserveBeats,
+    new STQPhysicalLease(entries, leaseGenerationWidth)))
 
   val fillValid = Input(Bool())
   val fill = Input(new STQStoreRequest(
@@ -270,6 +284,9 @@ object STQEntryBank {
   def disableCanonicalPorts(io: STQEntryBankIO): Unit = {
     io.reserveValid := false.B
     io.reserve := 0.U.asTypeOf(io.reserve)
+    io.reserveBatchValid := false.B
+    io.reserveBatchMask := 0.U
+    io.reserveBatch := 0.U.asTypeOf(io.reserveBatch)
     io.fillValid := false.B
     io.fill := 0.U.asTypeOf(io.fill)
   }
@@ -292,7 +309,8 @@ class STQEntryBank(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val maxReserveBeats: Int = 2)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -301,6 +319,8 @@ class STQEntryBank(
   require((identityEntries & (identityEntries - 1)) == 0, "ROB entries must be a power of two")
   require(lsidWidth >= 2, "LSID width must support modular serial ordering")
   require(leaseGenerationWidth > 0, "STQ lease generation width must be positive")
+  require(maxReserveBeats == 2,
+    "canonical scalar STQ currently supports one or two atomic store beats")
 
   private val countWidth = log2Ceil(entries + 1)
 
@@ -310,7 +330,7 @@ class STQEntryBank(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, mapQDepth, identityEntries, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth))
+    residentGenerationWidth, leaseGenerationWidth, maxReserveBeats))
 
   private def rowBundle: STQEntryBankRow =
     new STQEntryBankRow(
@@ -529,15 +549,70 @@ class STQEntryBank(
   io.fillAccepted := io.fillValid && io.fillReady
   io.fillConflict := io.fillValid && !io.fillReady
 
-  val freeAvailable = !occupiedVec.asUInt.andR
-  val freeIndex = PriorityEncoder(~occupiedVec.asUInt)
-  val reserveOwnerConsistent =
-    io.reserve.exactOwner.valid &&
-      io.reserve.exactOwner.nativeBidValid &&
-      (io.reserve.exactOwner.peId === io.reserve.peId) &&
-      (io.reserve.exactOwner.stid === io.reserve.stid)
-  val reserveIdentityValid =
-    reserveOwnerConsistent && io.reserve.storeIdFullValid
+  val freeMask = ~occupiedVec.asUInt
+  val freeAvailable = freeMask.orR
+  val freeIndex = PriorityEncoder(freeMask)
+  val firstFreeOH = PriorityEncoderOH(freeMask)
+  val secondFreeMask = freeMask & ~firstFreeOH
+  val secondFreeIndex = PriorityEncoder(secondFreeMask)
+
+  private def exactRequestIdentityValid(req: STQStoreRequest): Bool =
+    req.exactOwner.valid &&
+      req.exactOwner.nativeBidValid &&
+      (req.exactOwner.peId === req.peId) &&
+      (req.exactOwner.stid === req.stid) &&
+      req.storeIdFullValid
+
+  private def duplicatesResident(req: STQStoreRequest): Bool =
+    VecInit(rows.map { row =>
+      row.valid &&
+        row.exactOwner.valid &&
+        (row.exactOwner.asUInt === req.exactOwner.asUInt) &&
+        (row.lsIdFull === req.lsIdFull) &&
+        row.storeIdFullValid &&
+        (row.storeIdFull === req.storeIdFull)
+    }).asUInt.orR
+
+  val batchMaskLegal =
+    (io.reserveBatchMask === 1.U) || (io.reserveBatchMask === 3.U)
+  val batchIdentityValid = VecInit((0 until maxReserveBeats).map { beat =>
+    !io.reserveBatchMask(beat) || exactRequestIdentityValid(io.reserveBatch(beat))
+  }).asUInt.andR
+  val batchOwnerExact =
+    !io.reserveBatchMask(1) ||
+      (io.reserveBatch(0).exactOwner.asUInt ===
+        io.reserveBatch(1).exactOwner.asUInt)
+  val batchSerialConsecutive =
+    !io.reserveBatchMask(1) ||
+      ((io.reserveBatch(1).lsIdFull === io.reserveBatch(0).lsIdFull + 1.U) &&
+        (io.reserveBatch(1).storeIdFull ===
+          io.reserveBatch(0).storeIdFull + 1.U))
+  val batchDuplicatesResident = VecInit((0 until maxReserveBeats).map { beat =>
+    io.reserveBatchMask(beat) && duplicatesResident(io.reserveBatch(beat))
+  }).asUInt.orR
+  val batchInternalDuplicate = io.reserveBatchMask(1) &&
+    (io.reserveBatch(0).lsIdFull === io.reserveBatch(1).lsIdFull) &&
+    (io.reserveBatch(0).storeIdFull === io.reserveBatch(1).storeIdFull)
+  val batchShapeValid = batchMaskLegal && batchIdentityValid &&
+    batchOwnerExact && batchSerialConsecutive &&
+    !batchDuplicatesResident && !batchInternalDuplicate
+  val batchFreeEnough = PopCount(freeMask) >= PopCount(io.reserveBatchMask)
+  io.reserveBatchReady :=
+    !recoveryActive && !io.fillAccepted && batchShapeValid && batchFreeEnough
+  io.reserveBatchAccepted := io.reserveBatchValid && io.reserveBatchReady
+  io.reserveBatchConflict := io.reserveBatchValid && !batchShapeValid
+  val batchIndices = Wire(Vec(maxReserveBeats, UInt(log2Ceil(entries).W)))
+  batchIndices(0) := freeIndex
+  batchIndices(1) := secondFreeIndex
+  for (beat <- 0 until maxReserveBeats) {
+    val generation = leaseGenerations(batchIndices(beat)) + 1.U
+    io.reserveBatchLeases(beat).valid :=
+      io.reserveBatchAccepted && io.reserveBatchMask(beat)
+    io.reserveBatchLeases(beat).index := batchIndices(beat)
+    io.reserveBatchLeases(beat).generation := generation
+  }
+
+  val reserveIdentityValid = exactRequestIdentityValid(io.reserve)
   val reserveDuplicate = VecInit(rows.map { row =>
     row.valid &&
       row.exactOwner.valid &&
@@ -547,7 +622,8 @@ class STQEntryBank(
       (row.storeIdFull === io.reserve.storeIdFull)
   }).asUInt.orR
   io.reserveReady :=
-    !recoveryActive && !io.fillAccepted && reserveIdentityValid &&
+    !recoveryActive && !io.fillAccepted && !io.reserveBatchValid &&
+      reserveIdentityValid &&
       !reserveDuplicate && freeAvailable
   io.reserveAccepted := io.reserveValid && io.reserveReady
   io.reserveConflict := io.reserveValid &&
@@ -568,9 +644,9 @@ class STQEntryBank(
   val mergeIndex = insertProbe.io.mergeIndex
   val allocateIndex = insertProbe.io.allocateIndex
 
-  val canonicalMutation = io.fillAccepted || io.reserveAccepted
   io.insertConflict := insertProbe.io.conflict
-  io.insertReady := insertProbe.io.ready && !recoveryActive && !canonicalMutation
+  io.insertReady := insertProbe.io.ready && !recoveryActive &&
+    !io.fillAccepted && !io.reserveBatchValid && !io.reserveValid
   io.insertAccepted := io.insertValid && io.insertReady
   io.insertMerged := io.insertAccepted && insertProbe.io.canMerge
   io.insertAllocated := io.insertAccepted && !insertProbe.io.canMerge
@@ -631,6 +707,17 @@ class STQEntryBank(
     rows(fillIndex) := fillRow(fillTarget, io.fill)
   }
 
+  when(io.reserveBatchAccepted) {
+    for (beat <- 0 until maxReserveBeats) {
+      when(io.reserveBatchMask(beat)) {
+        val generation = leaseGenerations(batchIndices(beat)) + 1.U
+        rows(batchIndices(beat)) := requestToRow(
+          io.reserveBatch(beat), generation, reserved = true.B)
+        leaseGenerations(batchIndices(beat)) := generation
+      }
+    }
+  }
+
   when(io.reserveAccepted) {
     rows(freeIndex) := requestToRow(io.reserve, reserveGeneration, reserved = true.B)
     leaseGenerations(freeIndex) := reserveGeneration
@@ -645,7 +732,8 @@ class STQEntryBank(
     leaseGenerations(allocateIndex) := insertAllocateGeneration
   }
 
-  val allocDelta = io.insertAllocated.asUInt +& io.reserveAccepted.asUInt
+  val allocDelta = io.insertAllocated.asUInt +& io.reserveAccepted.asUInt +&
+    PopCount(Mux(io.reserveBatchAccepted, io.reserveBatchMask, 0.U))
   val markCommitDelta = io.markCommitAccepted.asUInt
   val commitFreeDelta = io.commitFreeCount
   val flushFreeDelta = Mux(flushApplied, flushPrune.io.freeCount, 0.U)
