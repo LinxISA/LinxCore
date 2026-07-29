@@ -581,6 +581,23 @@ peer bypass和interleaved-token atomic issue；Drain/SCB动态IT覆盖四fragmen
 四路SCB admission、two-row free和one-completion。下一步仍是exact ROB commit-token
 ingress、MMIO serializer和静态top组合。
 
+### 8.11 I0.9o 已实现：exact ROB commit-token ingress
+
+`OooRobStoreCommitOwner`加入 grouped ROB、BROB/PC、P rename 和 T/U retire 的共同
+commit事务。它从 ROB row保存的每个logical uop memory-order tail重建store范围，验证
+release head、RID/BROB/resident generation、member extent、组内和跨组memory chain，
+然后把scalar/pair展开成一/两个有序beat token。prepare阶段无副作用；只有共同commit
+fire才能把整个batch原子写入multi-enqueue ring，因此LSU反压不能造成半个ROB batch提前
+变为non-flush。
+
+`STQRobCommitIngress`不接收物理STQ index。它用完整exact owner、full LSID/store ID、
+logical first IDs、count和beat扫描当前canonical row；只有恰好一个已完成STA+STD的WAIT
+row匹配并且CommitQ有credit时才接受。该接受、STQ `WAIT -> Commit`和CommitQ enqueue在
+同一拍发生。missing、duplicate、half-filled、recovery或queue-full都保持上游token并
+fail closed。端到端IT从grouped ROB pair batch出发，在没有physical-index sideband的
+情况下验证two-token ingress、two-row commit、four-fragment SCB admission和one logical
+completion。下一步仍是MMIO serializer、serial-wrap quiescence和静态OOO/IEX/LSU组合。
+
 ## 9. Store Coalescing Buffer（SCB）
 
 ### 9.1 当前实现

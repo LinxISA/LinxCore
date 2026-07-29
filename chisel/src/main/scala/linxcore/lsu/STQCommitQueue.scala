@@ -422,7 +422,7 @@ class STQCommitQueue(
   io.enqueueDuplicate := io.enqueueValid && !io.flushValid &&
     incomingShapeExact && duplicateVec.asUInt.orR
   io.enqueueReady := !io.flushValid && incomingShapeExact &&
-    !io.enqueueDuplicate && keptCount < queueEntries.U
+    !duplicateVec.asUInt.orR && keptCount < queueEntries.U
   io.enqueueAccepted := io.enqueueValid && io.enqueueReady
   io.enqueueInsertPosition := keptCount
 

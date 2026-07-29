@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Fill, log2Ceil}
+import chisel3.util.{Decoupled, Fill, log2Ceil}
 
 import linxcore.common.{InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
@@ -22,7 +22,13 @@ class STQSCBCommitPathIO(
     val lineBytes: Int = 64,
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -40,7 +46,11 @@ class STQSCBCommitPathIO(
   val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth))
+  val insert = Input(new STQStoreRequest(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth, entries))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -52,6 +62,15 @@ class STQSCBCommitPathIO(
   val markCommitIndex = Input(UInt(ptrWidth.W))
   val markCommitAccepted = Output(Bool())
   val markCommitIgnored = Output(Bool())
+
+  val robStoreCommit = Flipped(Decoupled(new STQRobCommitToken(
+    identityEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth)))
+  val robStoreCommitAccepted = Output(Bool())
+  val robStoreCommitMissing = Output(Bool())
+  val robStoreCommitMultiple = Output(Bool())
+  val robStoreCommitNotReady = Output(Bool())
 
   val issueEnable = Input(Bool())
   val evictEnable = Input(Bool())
@@ -77,7 +96,11 @@ class STQSCBCommitPathIO(
   val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
   val lsuTULinkSourceMatched = Output(Bool())
   val lsuTULinkSourceMultipleMatch = Output(Bool())
-  val stqRows = Output(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
+  val stqRows = Output(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth)))
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
@@ -95,7 +118,10 @@ class STQSCBCommitPathIO(
   val drainCommitEligibleMask = Output(UInt(entries.W))
   val drainSplitMask = Output(UInt(entries.W))
   val drainReadyMask = Output(UInt(entries.W))
-  val drainIssue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
+  val drainIssue = Output(Vec(issueWidth, new STQCommitIssue(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val drainIssueValidMask = Output(UInt(issueWidth.W))
   val drainIssueCount = Output(UInt(issueCountWidth.W))
   val drainRetainedBatchValid = Output(Bool())
@@ -103,12 +129,18 @@ class STQSCBCommitPathIO(
   val drainRetainedIdentityError = Output(Bool())
   val drainMemReqs = Output(Vec(requestCount, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val drainLogicalCompletions = Output(Vec(issueWidth,
-    new STQCommitLogicalCompletion(identityEntries, lsidWidth, peIdWidth, stidWidth)))
+    new STQCommitLogicalCompletion(
+      identityEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
+      ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth)))
   val drainLogicalCompletionCount = Output(UInt(issueCountWidth.W))
   val drainEarlyFreeMaskValid = Output(Bool())
   val drainEarlyFreeMask = Output(UInt(entries.W))
   val drainEarlyFreeCount = Output(UInt(issueCountWidth.W))
-  val drainQueued = Output(Vec(queueEntries, new STQCommitQueueEntry(identityEntries, entries, lsidWidth)))
+  val drainQueued = Output(Vec(queueEntries, new STQCommitQueueEntry(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val drainQueuedValidMask = Output(UInt(queueEntries.W))
   val drainQueueCount = Output(UInt(queueCountWidth.W))
   val drainEmpty = Output(Bool())
@@ -177,7 +209,13 @@ class STQSCBCommitPath(
     val lineBytes: Int = 64,
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -209,16 +247,44 @@ class STQSCBCommitPath(
     lineBytes,
     mapQDepth,
     identityEntries,
-    lsidWidth
+    lsidWidth,
+    nativeBidWidth,
+    ridGenerationWidth,
+    brobGenerationWidth,
+    memberIndexWidth,
+    residentGenerationWidth,
+    leaseGenerationWidth
   ))
 
   val stq = Module(new STQEntryBank(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
-    simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
+    simtLaneWidth, mapQDepth, identityEntries, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth))
   STQEntryBank.disableCanonicalPorts(stq.io)
   val drain = Module(new STQCommitDrain(
     entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth,
-    tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lineBytes, lsidWidth))
+    tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lineBytes,
+    lsidWidth, nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth))
+  val robCommitIngress = Module(new STQRobCommitIngress(
+    entries = entries,
+    robEntries = identityEntries,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    sizeWidth = sizeWidth,
+    simtLaneWidth = simtLaneWidth,
+    mapQDepth = mapQDepth,
+    lsidWidth = lsidWidth,
+    nativeBidWidth = nativeBidWidth,
+    ridGenerationWidth = ridGenerationWidth,
+    brobGenerationWidth = brobGenerationWidth,
+    memberIndexWidth = memberIndexWidth,
+    residentGenerationWidth = residentGenerationWidth,
+    leaseGenerationWidth = leaseGenerationWidth))
   val scb = Module(new SCBRowBank(
     stqEntries = entries,
     scbEntries = scbEntries,
@@ -234,17 +300,28 @@ class STQSCBCommitPath(
   stq.io.flush := io.flush
   stq.io.insertValid := io.insertValid
   stq.io.insert := io.insert
-  stq.io.markCommitValid := io.markCommitValid
-  stq.io.markCommitIndex := io.markCommitIndex
   stq.io.commitFreeValid := false.B
   stq.io.commitFreeIndex := 0.U
   stq.io.commitFreeMaskValid := scb.io.commitFreeMaskValid
   stq.io.commitFreeMask := scb.io.commitFreeMask
 
+  robCommitIngress.io.commit <> io.robStoreCommit
+  robCommitIngress.io.rows := stq.io.rows
+  robCommitIngress.io.recoveryActive := io.flush.req.valid
+
+  val canonicalSelected = io.robStoreCommit.valid
+  val selectedCommitIndex = Mux(canonicalSelected,
+    robCommitIngress.io.markIndex, io.markCommitIndex)
+  drain.io.enqueueIndex := selectedCommitIndex
+  drain.io.enqueueBid := stq.io.rows(selectedCommitIndex).bid
+  drain.io.enqueueLsId := stq.io.rows(selectedCommitIndex).lsIdFull
+  robCommitIngress.io.drainEnqueueReady := drain.io.enqueueReady
+  val legacyMarkValid = io.markCommitValid && !canonicalSelected &&
+    drain.io.enqueueReady
+  stq.io.markCommitValid := Mux(canonicalSelected,
+    robCommitIngress.io.markValid, legacyMarkValid)
+  stq.io.markCommitIndex := selectedCommitIndex
   drain.io.enqueueValid := stq.io.markCommitAccepted
-  drain.io.enqueueIndex := io.markCommitIndex
-  drain.io.enqueueBid := stq.io.rows(io.markCommitIndex).bid
-  drain.io.enqueueLsId := stq.io.rows(io.markCommitIndex).lsIdFull
   // STQ branch recovery removes only speculative WAIT rows. CommitQ tokens
   // are already non-flush and survive; module reset remains the hard abort.
   drain.io.flushValid := false.B
@@ -272,8 +349,21 @@ class STQSCBCommitPath(
   io.insertMerged := stq.io.insertMerged
   io.insertConflict := stq.io.insertConflict
   io.insertIndex := stq.io.insertIndex
-  io.markCommitAccepted := stq.io.markCommitAccepted
-  io.markCommitIgnored := stq.io.markCommitIgnored
+  io.markCommitAccepted := !canonicalSelected && stq.io.markCommitAccepted
+  io.markCommitIgnored := io.markCommitValid && !io.markCommitAccepted
+  io.robStoreCommitAccepted := robCommitIngress.io.accepted
+  io.robStoreCommitMissing := robCommitIngress.io.missing
+  io.robStoreCommitMultiple := robCommitIngress.io.multiple
+  io.robStoreCommitNotReady := robCommitIngress.io.notReady
+
+  when(io.robStoreCommit.fire) {
+    assert(stq.io.markCommitAccepted && drain.io.enqueueAccepted,
+      "ROB store commit must atomically mark STQ and enqueue CommitQ")
+  }
+  when(stq.io.markCommitAccepted) {
+    assert(drain.io.enqueueAccepted,
+      "STQ WAIT-to-Commit must not occur without the matching CommitQ token")
+  }
 
   io.scbReadyForDrain := scbReadyForDrain
   io.drainIssueEnable := drain.io.issueEnable

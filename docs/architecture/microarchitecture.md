@@ -1179,6 +1179,14 @@ implementation choices and must not change architectural identity widths:
   SCB fragments, but accepted SCB admission emits one logical drain-completion
   record and two physical row frees. That logical record is not a lower-level
   WriteResp or final architectural memory-completion acknowledgement.
+- The grouped ROB stores per-logical-uop memory-order tail snapshots rather
+  than physical STQ pointers. On the common ROB/BROB/rename commit fire, the
+  store-commit owner validates the complete group/member/memory chain,
+  reconstructs one/two ordered beat tokens, and atomically captures the whole
+  batch. The LSU later accepts each token only after exactly one converged
+  live STQ row matches the full generation-qualified owner and logical serial
+  range. Token acceptance, `WAIT -> Commit`, and CommitQ enqueue are one edge;
+  missing, duplicate, stale, or queue-blocked rows cannot partially promote.
 - Dispatch reserves the two halves atomically. After dispatch, address and data
   may execute and merge into STQ independently; a blocked address allocation
   must not prevent a complementary data half from merging into an existing

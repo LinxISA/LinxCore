@@ -7,6 +7,7 @@
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQRobCommitIngress.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
@@ -31,6 +32,8 @@ The module owns:
 - `STQEntryBank` row allocation, mark-commit, flush-prune consumption, and final
   committed-row free mutation;
 - `STQCommitDrain` queue ordering and split request descriptor generation;
+- exact ROB-token matching without a physical-index sideband, with atomic
+  STQ promotion and CommitQ enqueue;
 - `SCBRowBank` model-batch admission, row-bank insertion, egress lookup, and
   final free-mask authorization for accepted `last` fragments;
 - raw WriteResp/UpgradeResp tag handoff into `SCBRowBank`;
@@ -51,6 +54,7 @@ side effects, or live memory-event trace rows.
 | `flush` | `FlushBus` | Recovery cleanup request consumed by `STQEntryBank` through `STQFlushPrune`. |
 | `insertValid/insert` | `STQStoreRequest` | Store dispatch input for the STQ bank. |
 | `markCommitValid/markCommitIndex` | command | Marks one locally ready STQ row `Commit` and enqueues it into the ordered commit drain. |
+| `robStoreCommit` | `Decoupled[STQRobCommitToken]` | Canonical generation-qualified ROB store beat; it carries no physical STQ index. |
 | `issueEnable` | `Bool` | Enables memory-side drain issue when the SCB model-batch gate is also open. |
 | `evictEnable` | `Bool` | Enables one SCB egress lookup candidate after accepted ingress. |
 | `dcacheReady/dcacheWriteHit/dcacheTagHit` | abstract DCache result | Lookup outcome inputs forwarded to `SCBRowBank`. |
@@ -64,6 +68,7 @@ side effects, or live memory-event trace rows.
 | Signal | Description |
 |---|---|
 | `insert*` / `markCommit*` | STQ bank insertion and commit-mark acknowledgement. |
+| `robStoreCommit*` | Canonical token acceptance plus missing, duplicate, and temporarily-not-ready diagnostics. |
 | `scbReadyForDrain` | Registered SCB row bank has enough pre-cycle free rows for the worst-case request batch and no STQ flush-prune is active. |
 | `drainIssueEnable/downstreamReadyMask` | The derived drain issue gate and all-row downstream-ready mask used for SCB issue. |
 | `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
@@ -92,8 +97,10 @@ younger same-STID token, while independent STIDs may still bypass.
 
 The Chisel composition maps that behavior into registered owner boundaries:
 
-1. `STQEntryBank.markCommitAccepted` enqueues the current row identity into
-   `STQCommitDrain`.
+1. `STQRobCommitIngress` uniquely matches a canonical ROB token against exact
+   live row ownership and full serial identity. Token acceptance,
+   `STQEntryBank.markCommitAccepted`, and `STQCommitDrain.enqueueAccepted`
+   occur on one edge. The index-based mark input remains a migration port.
 2. CommitQ launches an exact token batch into the drain's retained fragment
    owner without depending on `SCBRowBank.modelBatchReady`.
 3. `STQEntryBank.flushApplied` suppresses drain issue for the bank-owned
@@ -172,9 +179,11 @@ Focused reference tests cover final `last`-fragment free ownership, SCB
 model-batch backpressure, split-store final free, and concurrent older drain
 plus younger enqueue. Dynamic integration additionally proves that an accepted
 WAIT-to-Commit transition snapshots one exact token and that only SCB-accepted
-last-fragment ownership frees the canonical STQ row. A separate pair-store IT
-proves two cross-line beats become four SCB requests, two physical row frees,
-and one logical completion.
+last-fragment ownership frees the canonical STQ row. The pair-store IT now
+uses semantic ROB tokens rather than physical indexes and proves two
+cross-line beats become four SCB requests, two physical row frees, and one
+logical completion. `OooRobStoreCommitStqIntegrationSpec` additionally begins
+at the grouped ROB memory-tail batch.
 
 R670 threads one `lsidWidth` parameter through STQ residency, commit queue,
 split drain, and SCB admission. The composition keeps physical STQ/SCB sizing,

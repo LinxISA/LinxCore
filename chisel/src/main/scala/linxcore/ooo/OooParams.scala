@@ -15,6 +15,7 @@ final case class OooParams(
     renameWidth: Int = 8,
     dispatchWidth: Int = 8,
     retireGroupWidth: Int = 4,
+    storeCommitBufferEntries: Int = 64,
     maxInstPerRobGroup: Int = 4,
     maxOrdinaryUopsPerGroup: Int = 12,
     maxRecipeUops: Int = 32,
@@ -103,6 +104,9 @@ final case class OooParams(
     "decodedUopWidth must contain the instruction decode prefix")
   require(renameWidth > 0 && dispatchWidth > 0 && retireGroupWidth > 0,
     "rename, dispatch, and retire widths must be positive")
+  require(isPowerOfTwo(storeCommitBufferEntries) &&
+    storeCommitBufferEntries >= maxCommitStoreTokens,
+    "store commit buffer must be a power of two covering one worst-case ROB commit batch")
   require(maxInstPerRobGroup > 0,
     "ROB group instruction cap must be positive")
   require(maxOrdinaryUopsPerGroup >= maxInstPerRobGroup,
@@ -246,6 +250,9 @@ final case class OooParams(
   require(lsidWidth >= 32, "full LSID must preserve at least 32 bits")
 
   def countWidth(maximum: Int): Int = math.max(1, log2Ceil(maximum + 1))
+  def maxCommitStoreTokens: Int = retireGroupWidth * decodedUopWidth *
+    maxMemoryRequestsPerInstruction
+  def storeCommitBufferCountWidth: Int = countWidth(storeCommitBufferEntries)
   def stidWidth: Int = math.max(1, log2Ceil(stidCount))
   def ridSlotWidth: Int = log2Ceil(robGroupsPerStid)
   def robBankCountEffective: Int = math.min(robBankCount, robGroupsPerStid)

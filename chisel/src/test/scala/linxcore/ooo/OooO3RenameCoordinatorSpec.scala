@@ -22,6 +22,7 @@ class OooO3RenameCoordinatorSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))
     dut.io.interruptPending.foreach(_.poke(false.B))
     dut.io.commit.ready.poke(false.B)
+    dut.io.storeCommit.ready.poke(true.B)
     dut.io.ptagRecycle.ready.poke(true.B)
     dut.io.dispatchRelease.valid.poke(false.B)
     dut.io.dispatchRelease.bits.poke(

@@ -12,6 +12,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.renameWidth == 8)
     assert(p.dispatchWidth == 8)
     assert(p.retireGroupWidth == 4)
+    assert(p.storeCommitBufferEntries == 64)
+    assert(p.maxCommitStoreTokens == 64)
     assert(p.ridSlotWidth == 6)
     assert(p.robBankCount == 8)
     assert(p.robBankCountEffective == 8)
@@ -155,6 +157,10 @@ class OooParamsSpec extends AnyFunSuite {
       instructionDecodeWidth = 6, robBankCount = 4))
     assertThrows[IllegalArgumentException](OooParams(
       retireGroupWidth = 8, robBankCount = 4))
+    assertThrows[IllegalArgumentException](OooParams(
+      storeCommitBufferEntries = 32))
+    assertThrows[IllegalArgumentException](OooParams(
+      storeCommitBufferEntries = 96))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 32, stidCount = 3))
     assertThrows[IllegalArgumentException](OooParams(pcBufferEntries = 8, stidCount = 8))
     assertThrows[IllegalArgumentException](OooParams(pcBankCount = 3))

@@ -9,6 +9,12 @@ reservation, full memory-order serial allocation, IEX S1 publication, fast
 resolve, commit, and retained recovery. No child owner may publish or recover
 independently through this wrapper.
 
+`OooRobStoreCommitOwner` is a commit peer of P rename and T/U retirement.
+Its side-effect-free exactness/credit probe joins commit start; its complete
+semantic store-beat batch is captured only on the same terminal
+ROB/BROB/PC deallocation fire. The resulting `storeCommit` stream is
+independently backpressured by LSU and never carries a physical STQ index.
+
 `OooMemoryOrderAllocator` is joined at the same three boundaries as the other
 physical owners. D2 prepare proves recipe-derived load/store demand and claims
 one complete per-STID serial suffix at D3 reserve. The exact lease reaches ROB

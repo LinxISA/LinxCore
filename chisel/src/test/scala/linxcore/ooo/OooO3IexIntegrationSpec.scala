@@ -38,6 +38,7 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   val io = IO(new OooO3IexIntegrationHarnessIO(p))
 
   val coordinator = Module(new OooO3RenameCoordinator(p))
+  coordinator.io.storeCommit.ready := true.B
   val issue = Module(new OooIexIssue(p))
 
   coordinator.io.reserve.valid := io.reserve.valid

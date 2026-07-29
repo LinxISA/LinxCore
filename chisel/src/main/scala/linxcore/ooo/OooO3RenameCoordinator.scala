@@ -3,6 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, RRArbiter, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
+import linxcore.lsu.STQRobCommitToken
 
 object OooGlobalRecoveryState extends ChiselEnum {
   val Idle, CaptureOwners, PrepareOwners, Rebuild, AbortOwners = Value
@@ -32,6 +33,13 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val interruptPending = Input(Vec(p.stidCount, Bool()))
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
   val commit = Decoupled(new OooRobCommitBatch(p))
+  val storeCommit = Decoupled(new STQRobCommitToken(
+    p.robGroupsPerStid, p.lsidWidth, p.peIdWidth, p.stidWidth,
+    p.nativeBidWidth, p.ridGenerationWidth, p.brobGenerationWidth,
+    p.robMemberIndexWidth, p.residentGenerationWidth))
+  val storeCommitUsed = Output(UInt(p.storeCommitBufferCountWidth.W))
+  val storeCommitFree = Output(UInt(p.storeCommitBufferCountWidth.W))
+  val storeCommitRejected = Valid(new OooRobCommitBatch(p))
   val dispatchReleases = Flipped(Vec(p.iexReleaseWidth,
     Decoupled(new OooDispatchRelease(p))))
   def dispatchRelease = dispatchReleases(0)
@@ -139,6 +147,7 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   val dispatch = Module(new OooDispatch(p))
   val fast = Module(new OooFastResolve(p))
   val memoryOrder = Module(new OooMemoryOrderAllocator(p))
+  val storeCommit = Module(new OooRobStoreCommitOwner(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val globalRecoveryState = RegInit(OooGlobalRecoveryState.Idle)
@@ -598,12 +607,15 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
     !commitConflictsExposedPrepare
   prename.io.commitPrepare.bits := o3.io.commit.bits
   turetire.io.commitPrepare.bits := o3.io.commit.bits
+  storeCommit.io.commitPrepare.bits := o3.io.commit.bits
   val commitOwnersStarted = RegInit(false.B)
   val commitOwnersStart = commitProbeValid && !commitOwnersStarted &&
-    prename.io.commitStartReady && turetire.io.commitStartReady
+    prename.io.commitStartReady && turetire.io.commitStartReady &&
+    storeCommit.io.commitStartReady
   val ownerCommitPrepareValid = commitOwnersStarted || commitOwnersStart
   prename.io.commitPrepare.valid := ownerCommitPrepareValid
   turetire.io.commitPrepare.valid := ownerCommitPrepareValid
+  storeCommit.io.commitPrepare.valid := ownerCommitPrepareValid
   when(commitOwnersStart) {
     commitOwnersStarted := true.B
   }
@@ -618,18 +630,26 @@ class OooO3RenameCoordinator(val p: OooParams = OooParams()) extends Module {
   prename.io.ptagReturn.ready := ptag.io.release.ready &&
     io.ptagRecycle.ready
   io.commit.valid := o3.io.commit.valid && commitOwnersStarted &&
-    prename.io.commitReady && turetire.io.commitReady
+    prename.io.commitReady && turetire.io.commitReady &&
+    storeCommit.io.commitStartReady
   io.commit.bits := o3.io.commit.bits
   o3.io.commit.ready := io.commit.ready && commitOwnersStarted &&
-    prename.io.commitReady && turetire.io.commitReady
+    prename.io.commitReady && turetire.io.commitReady &&
+    storeCommit.io.commitStartReady
   val sharedCommitFire = io.commit.valid && io.commit.ready
   prename.io.commitFire := sharedCommitFire
   turetire.io.commitFire := sharedCommitFire
+  storeCommit.io.commitFire := sharedCommitFire
   when(sharedCommitFire) {
     commitOwnersStarted := false.B
   }
 
   dispatch.io.releases <> io.dispatchReleases
+
+  io.storeCommit <> storeCommit.io.storeCommit
+  io.storeCommitUsed := storeCommit.io.used
+  io.storeCommitFree := storeCommit.io.free
+  io.storeCommitRejected := storeCommit.io.commitRejected
 
   prename.io.queryStid := io.queryStid
   prename.io.queryAtag := io.queryAtag

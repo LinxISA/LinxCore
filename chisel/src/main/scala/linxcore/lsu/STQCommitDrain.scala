@@ -70,7 +70,13 @@ class STQCommitDrainIO(
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -91,13 +97,20 @@ class STQCommitDrainIO(
   val issueEnable = Input(Bool())
   val primaryReadyMask = Input(UInt(entries.W))
   val secondaryReadyMask = Input(UInt(entries.W))
-  val rows = Input(Vec(entries, new STQEntryBankRow(identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth)))
+  val rows = Input(Vec(entries, new STQEntryBankRow(
+    identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
+    sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth, leaseGenerationWidth)))
 
   val commitEligibleMask = Output(UInt(entries.W))
   val splitMask = Output(UInt(entries.W))
   val readyMask = Output(UInt(entries.W))
 
-  val issue = Output(Vec(issueWidth, new STQCommitIssue(identityEntries, entries, lsidWidth)))
+  val issue = Output(Vec(issueWidth, new STQCommitIssue(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val issueValidMask = Output(UInt(issueWidth.W))
   val issueCount = Output(UInt(freeCountWidth.W))
   val retainedBatchValid = Output(Bool())
@@ -105,14 +118,20 @@ class STQCommitDrainIO(
   val retainedIdentityError = Output(Bool())
   val memReqs = Output(Vec(issueWidth * 2, new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   val logicalCompletions = Output(Vec(issueWidth,
-    new STQCommitLogicalCompletion(identityEntries, lsidWidth, peIdWidth, stidWidth)))
+    new STQCommitLogicalCompletion(
+      identityEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
+      ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth)))
   val logicalCompletionCount = Output(UInt(freeCountWidth.W))
 
   val commitFreeMaskValid = Output(Bool())
   val commitFreeMask = Output(UInt(entries.W))
   val commitFreeCount = Output(UInt(freeCountWidth.W))
 
-  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(identityEntries, entries, lsidWidth)))
+  val queued = Output(Vec(queueEntries, new STQCommitQueueEntry(
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val queuedValidMask = Output(UInt(queueEntries.W))
   val queueCount = Output(UInt(queueCountWidth.W))
   val empty = Output(Bool())
@@ -148,7 +167,13 @@ class STQCommitDrain(
     val mapQDepth: Int = 32,
     val robEntries: Int = 0,
     val lineBytes: Int = 64,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val nativeBidWidth: Int = 8,
+    val ridGenerationWidth: Int = 8,
+    val brobGenerationWidth: Int = 8,
+    val memberIndexWidth: Int = 8,
+    val residentGenerationWidth: Int = 8,
+    val leaseGenerationWidth: Int = 8)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -166,7 +191,12 @@ class STQCommitDrain(
 
   private val freeCountWidth = log2Ceil(issueWidth + 1)
 
-  val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth, identityEntries, lsidWidth))
+  val io = IO(new STQCommitDrainIO(
+    entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth,
+    stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth,
+    identityEntries, lsidWidth, nativeBidWidth, ridGenerationWidth,
+    brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
+    leaseGenerationWidth))
 
   private def zeroReq: STQCommitDrainRequest = {
     val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
@@ -176,7 +206,9 @@ class STQCommitDrain(
 
   private def zeroLogicalCompletion: STQCommitLogicalCompletion = {
     val completion = Wire(new STQCommitLogicalCompletion(
-      identityEntries, lsidWidth, peIdWidth, stidWidth))
+      identityEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
+      ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth))
     completion := 0.U.asTypeOf(completion)
     completion
   }
@@ -196,7 +228,13 @@ class STQCommitDrain(
     issueWidth = issueWidth,
     lsidWidth = lsidWidth,
     peIdWidth = peIdWidth,
-    stidWidth = stidWidth))
+    stidWidth = stidWidth,
+    nativeBidWidth = nativeBidWidth,
+    ridGenerationWidth = ridGenerationWidth,
+    brobGenerationWidth = brobGenerationWidth,
+    memberIndexWidth = memberIndexWidth,
+    residentGenerationWidth = residentGenerationWidth,
+    leaseGenerationWidth = leaseGenerationWidth))
   val enqueueRow = io.rows(io.enqueueIndex)
   val enqueueRowExact = enqueueRow.valid &&
     (enqueueRow.status === STQEntryStatus.Wait ||
@@ -235,7 +273,9 @@ class STQCommitDrain(
 
   val retainedBatchValid = RegInit(false.B)
   val retainedIssues = Reg(Vec(issueWidth, new STQCommitIssue(
-    identityEntries, entries, lsidWidth, peIdWidth, stidWidth)))
+    identityEntries, entries, lsidWidth, peIdWidth, stidWidth,
+    nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth)))
   val retainedReqs = Reg(Vec(issueWidth * 2, new STQCommitDrainRequest(
     entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth)))
   queue.io.issueEnable := io.issueEnable && !retainedBatchValid
