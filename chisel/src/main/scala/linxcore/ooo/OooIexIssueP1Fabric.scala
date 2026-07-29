@@ -98,10 +98,10 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
 /** Parameterized multi-domain IQ → P1 → I1 → I2 composition.
   *
   * One canonical IQ owns every schedule row and payload sidecar. Each physical
-  * issue domain adds only a retained picker token, exact sidecar join, and
-  * private P1/I1/I2 residency. The caller supplies mutually disjoint
-  * `{uopClass, bankEnable}` projections; the IQ asserts that topology every
-  * cycle before allowing parallel claims.
+  * picker function adds only a retained token, exact sidecar join, and
+  * private P1/I1/I2 residency. The caller supplies class/bank/capability
+  * projections. The IQ permits overlapping banks only for capability-disjoint
+  * picker functions and asserts that topology before parallel claims.
   */
 class OooIexIssueP1Fabric(
     val p: OooParams = OooParams(),

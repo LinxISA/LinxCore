@@ -10,35 +10,58 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
     val profile = OooIexLinxPhysicalProfile()
     val p = profile.params
     val allBanks = (BigInt(1) << p.iqBankCount) - 1
-    val names = Seq("alu0", "alu1", "alu2", "alu3", "alu4", "alu5",
+    val ownerNames = Seq("alu0", "alu1", "alu2", "alu3", "alu4", "alu5",
       "agu0", "agu1", "agu2", "bru0", "bru1", "fsu0")
+    val pickerNames = Seq("alu0", "alu1", "alu2", "alu3", "alu4", "alu5",
+      "agu0-lda", "agu0-sta", "agu1-lda", "agu1-sta", "agu2-lda",
+      "bru0", "bru1", "fsu0")
 
-    assert(profile.domains.map(_.name) == names)
-    assert(profile.domains.map(_.releasePort) == names.indices)
-    assert(p.iexIssueDomainCount == 12)
-    assert(p.iexReleaseWidth == 12)
+    assert(profile.residencyOwners.map(_.name) == ownerNames)
+    assert(profile.pickerFunctions.map(_.name) == pickerNames)
+    assert(profile.executionLanes.map(_.name) == pickerNames)
+    assert(profile.pickerFunctions.map(_.releasePort) == pickerNames.indices)
+    assert(profile.residencyOwners.length == 12)
+    assert(p.iexIssueDomainCount == 14)
+    assert(p.iexReleaseWidth == 14)
 
     profile.dispatchableClasses.foreach { classIndex =>
-      val masks = profile.domains.map(_.classBankEnables(classIndex))
+      val masks = profile.residencyOwners.map(
+        _.classBankEnables(classIndex))
       assert(masks.reduce(_ | _) == allBanks)
       for (left <- masks.indices; right <- left + 1 until masks.length) {
         assert((masks(left) & masks(right)) == 0)
       }
     }
     profile.fastResolvedClasses.foreach { classIndex =>
-      assert(profile.domains.forall(_.classBankEnables(classIndex) == 0))
+      assert(profile.residencyOwners.forall(
+        _.classBankEnables(classIndex) == 0))
     }
 
-    assert(profile.domain("alu0").hasCapability(StoreData))
-    assert(profile.domain("alu3").hasCapability(StoreData))
-    assert(profile.domain("alu2").hasCapability(MultiCycleAlu))
-    assert(profile.domain("alu5").hasCapability(System))
-    assert(!profile.domain("alu0").hasCapability(MultiCycleAlu))
-    assert(profile.domain("agu0").hasCapability(StoreAddress))
-    assert(profile.domain("agu1").hasCapability(StoreAddress))
-    assert(!profile.domain("agu2").hasCapability(StoreAddress))
-    assert(profile.domain("fsu0").hasCapability(FloatingVector))
-    assert(profile.domain("fsu0").hasCapability(EngineCommand))
+    assert(profile.owner("alu0").hasCapability(StoreData))
+    assert(profile.owner("alu3").hasCapability(StoreData))
+    assert(profile.owner("alu2").hasCapability(MultiCycleAlu))
+    assert(profile.owner("alu5").hasCapability(System))
+    assert(!profile.owner("alu0").hasCapability(MultiCycleAlu))
+    assert(profile.owner("agu0").hasCapability(StoreAddress))
+    assert(profile.owner("agu1").hasCapability(StoreAddress))
+    assert(!profile.owner("agu2").hasCapability(StoreAddress))
+    assert(profile.owner("fsu0").hasCapability(FloatingVector))
+    assert(profile.owner("fsu0").hasCapability(EngineCommand))
+
+    assert(profile.pickersFor("agu0").map(_.name) ==
+      Seq("agu0-lda", "agu0-sta"))
+    assert(profile.pickersFor("agu1").map(_.name) ==
+      Seq("agu1-lda", "agu1-sta"))
+    assert(profile.pickersFor("agu2").map(_.name) == Seq("agu2-lda"))
+    assert(profile.picker("agu0-lda").capabilities == mask(LoadAddress))
+    assert(profile.picker("agu0-sta").capabilities == mask(StoreAddress))
+    assert((profile.picker("agu0-lda").classBankEnables(
+      OooDispatchClass.Agu - 1) & profile.picker("agu0-sta")
+      .classBankEnables(OooDispatchClass.Agu - 1)) != 0)
+    assert((profile.picker("agu0-lda").capabilities &
+      profile.picker("agu0-sta").capabilities) == 0)
+    assert(profile.pickerFunctions.forall(picker =>
+      profile.lane(picker.executionLane).capabilities == picker.capabilities))
 
     val topology = profile.capabilityTopology.classBankCapabilities
     val aguClass = OooDispatchClass.Agu - 1
@@ -48,42 +71,54 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
     assert(topology(aluClass)(2) == mask(SimpleAlu, MultiCycleAlu, System))
     assert(topology(aluClass)(0) == mask(SimpleAlu, StoreData))
 
-    assert(profile.domain("alu0").classBankEnables(
+    assert(profile.owner("alu0").classBankEnables(
       OooDispatchClass.Alu - 1) == BigInt("09", 16))
-    assert(profile.domain("alu0").classBankEnables(
+    assert(profile.owner("alu0").classBankEnables(
       OooDispatchClass.Std - 1) == BigInt("0f", 16))
-    assert(profile.domain("alu3").classBankEnables(
+    assert(profile.owner("alu3").classBankEnables(
       OooDispatchClass.Alu - 1) == BigInt("90", 16))
-    assert(profile.domain("alu3").classBankEnables(
+    assert(profile.owner("alu3").classBankEnables(
       OooDispatchClass.Std - 1) == BigInt("f0", 16))
   }
 
   test("rejects incomplete class coverage and undeclared capability bits") {
     val profile = OooIexLinxPhysicalProfile()
     val aluClass = OooDispatchClass.Alu - 1
-    val brokenDomains = profile.domains.updated(0,
-      profile.domain("alu0").copy(
-        classBankEnables = profile.domain("alu0").classBankEnables.updated(
+    val brokenOwners = profile.residencyOwners.updated(0,
+      profile.owner("alu0").copy(
+        classBankEnables = profile.owner("alu0").classBankEnables.updated(
           aluClass, BigInt(0))))
 
     assertThrows[IllegalArgumentException] {
-      OooIexPhysicalProfile("broken-coverage", profile.params, brokenDomains,
-        profile.dispatchableClasses, profile.fastResolvedClasses)
+      profile.copy(name = "broken-coverage", residencyOwners = brokenOwners)
     }
     assertThrows[IllegalArgumentException] {
-      OooIexPhysicalProfile("broken-capability", profile.params,
-        profile.domains.updated(0, profile.domain("alu0").copy(
-          capabilities = BigInt(1) << Count)),
-        profile.dispatchableClasses, profile.fastResolvedClasses)
+      profile.copy(name = "broken-capability",
+        residencyOwners = profile.residencyOwners.updated(0,
+          profile.owner("alu0").copy(capabilities = BigInt(1) << Count)))
+    }
+    assertThrows[IllegalArgumentException] {
+      profile.copy(name = "unknown-owner",
+        pickerFunctions = profile.pickerFunctions.updated(0,
+          profile.picker("alu0").copy(residencyOwner = "missing")))
+    }
+    val aguClass = OooDispatchClass.Agu - 1
+    val partialSta = profile.picker("agu0-sta")
+    assertThrows[IllegalArgumentException] {
+      profile.copy(name = "partial-capability-projection",
+        pickerFunctions = profile.pickerFunctions.updated(7,
+          partialSta.copy(classBankEnables = partialSta.classBankEnables
+            .updated(aguClass,
+              partialSta.classBankEnables(aguClass) & ~BigInt(1)))))
     }
   }
 
-  test("elaborates the twelve-domain retained transfer topology") {
+  test("elaborates the fourteen-picker retained transfer topology") {
     val profile = OooIexLinxPhysicalProfile()
     val systemVerilog = ChiselStage.emitSystemVerilog(
       new OooIexE1TransferFabric(profile.params, profile.transferConfigs),
       firtoolOpts = Array("--disable-all-randomization"))
     assert(systemVerilog.contains("module OooIexE1TransferFabric"))
-    assert(systemVerilog.contains("pickBankEnables_11_7"))
+    assert(systemVerilog.contains("pickBankEnables_13_7"))
   }
 }

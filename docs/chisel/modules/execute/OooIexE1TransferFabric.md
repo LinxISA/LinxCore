@@ -3,7 +3,7 @@
 ## Purpose
 
 `OooIexE1TransferFabric` composes one retained
-[`OooIexE1TransferSlot`](OooIexE1TransferSlot.md) per physical issue domain.
+[`OooIexE1TransferSlot`](OooIexE1TransferSlot.md) per picker/execution lane.
 It turns the dynamic picker controls used by earlier focused tests into a
 static elaboration contract without yet implementing opcode execution.
 
@@ -18,30 +18,35 @@ Source and test owners:
 ## Static topology
 
 Each `OooIexIssueDomainConfig` contains one bank mask per numerical
-`OooUopClass` and one static `releasePort`. One physical domain may therefore
-own disjoint residency in several logical classes. Elaboration rejects:
+`OooUopClass`, one capability predicate, and one static `releasePort`. Despite
+the retained type name, this is a picker-function configuration: canonical
+residency is defined separately by `OooIexPhysicalProfile`. Elaboration
+rejects:
 
 - a configuration count different from `iexIssueDomainCount`;
 - a missing class mask, an empty domain, or an out-of-range bank bit;
 - an out-of-range or unowned release port;
-- two domains that own the same class and any common bank.
+- two pickers that observe the same class/bank and share any capability.
 
 Different classes may use the same numerical bank because class is part of the
-physical IQ address. For every class, physical domains must own disjoint bank
-masks. The validated matrix directly drives `pickBankEnables`, each retained
-slot's accepted class/bank projection, and release-port ownership.
+physical IQ address. Two capability-disjoint pickers may also observe the same
+physical class/bank. The validated matrix directly drives
+`pickBankEnables`, each retained slot's accepted class/bank/capability
+projection, and release-port ownership. Canonical IQ storage is never copied.
 
 [`OooIexPhysicalProfile`](OooIexPhysicalProfile.md) freezes the first complete
-profile: six ALU, three AGU, two BRU, and one external FSU domain. STD shares
-ALU0/3 residency, SYS shares ALU2/5, and FSU/CMD share the external FSU domain.
-Boundary rows remain fast-resolved and own no IQ bank.
+profile: six ALU, three AGU, two BRU, and one external FSU residency owner,
+expanded into fourteen picker/execution lanes. AGU0/1 each expose an LDA and
+STA picker; AGU2 exposes LDA only. STD shares ALU0/3 residency, SYS shares
+ALU2/5, and FSU/CMD share the external FSU owner. Boundary rows remain
+fast-resolved and own no IQ bank.
 
 ## Transfer and release arbitration
 
-Each domain has independent I2 input and E1 output backpressure. One
-round-robin arbiter is instantiated per `iexReleaseWidth` port. Domains mapped
+Each picker lane has independent I2 input and E1 output backpressure. One
+round-robin arbiter is instantiated per `iexReleaseWidth` port. Pickers mapped
 to the same port serialize fairly and a loser retains its complete I2
-transaction without issuing an early release. Domains mapped to different
+transaction without issuing an early release. Pickers mapped to different
 ports may transfer on the same edge. For every winner, `i2.fire`, exact issue
 release, IQ row removal, dispatch-slot return, and E1 capture remain one
 ownership transaction.
@@ -67,7 +72,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1IntegrationSpec
 ```
 
 The fabric UT proves static ALU/BRU mapping, multi-class ALU/STD admission,
-wrong-bank rejection, overlap/release-port rejection,
+simultaneous capability-disjoint AGU LDA/STA transfer, wrong-bank rejection,
+unsafe overlap/release-port rejection,
 fair same-port serialization, retained loser ownership, independent E1
 backpressure, and simultaneous ALU/BRU transfer on distinct ports. The
 integration test connects the real canonical IQ/read fabric to this transfer
@@ -76,10 +82,8 @@ and dispatch reservations are returned.
 
 ## Remaining gaps
 
-- enforce recipe-level pipe capability at dispatch and pick; class residency
-  alone cannot distinguish LDA from STA or simple from multi-cycle ALU;
-- add dual LDA/STA pickers for AGU0/1 and shared DIV/PAC/SYS arbitration;
-- connect domain-specific E1 outputs to typed execution units;
+- add shared DIV/PAC/SYS arbitration;
+- connect picker-specific E1 outputs to typed execution units;
 - connect retained recovery apply and physical load-cancel producers in the
   canonical top;
 - prove default-width timing, fairness bounds, and workload throughput.

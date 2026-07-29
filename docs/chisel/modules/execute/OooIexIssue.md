@@ -129,13 +129,17 @@ token is retained under P1 backpressure. Its fire sets `inFlight` only in the
 canonical scheduling row. An exact retry clears that bit; stale or malformed
 claims/retries produce typed rejects.
 
-`iexIssueDomainCount` vectorizes only picker/query/retry ports. Every domain
-projects an independent bank mask for each class from the same `scheduleRows`
-and `payloadRows` owner. Per-class bank masks must be disjoint across domains;
-a hardware assertion rejects overlap before parallel claims can alias one
-row. Retry is accepted only by the domain whose current class/bank projection
-owns the reservation. Domain-zero aliases preserve the focused one-lane
-interface.
+`iexIssueDomainCount` vectorizes picker/query/retry functions; it is not the
+number of physical IQ residency owners. Every picker projects a bank mask for
+each class from the same `scheduleRows` and `payloadRows` owner. Overlapping
+class/bank projections are legal only when the two pickers' elaboration-time
+capability sets are disjoint. A hardware assertion rejects every other
+overlap. Candidate eligibility applies the capability predicate before
+oldest-ready selection, so AGU LDA and STA pickers can observe one residency
+owner without ever claiming the same row. The canonical `inFlight` update is
+still the final same-cycle collision guard. Retry is accepted only by the
+picker whose projection and capability currently cover the reservation.
+Domain-zero aliases preserve the focused one-lane interface.
 
 Release is fail-closed. It requires an in-flight row, the exact member, and
 complete dispatch reservation, including class-local entry, write port, and
@@ -182,9 +186,10 @@ must quiesce those producers before prepare.
 
 ## Remaining gaps
 
-- The formal 12-domain residency/capability profile and runtime capability
-  admission are implemented. Dual AGU pickers and shared DIV/PAC/SYS
-  arbitration remain open; broad dispatch class alone remains insufficient.
+- The formal 12-owner/14-picker residency/capability profile, runtime
+  capability admission, and dual AGU LDA/STA pickers are implemented. Shared
+  DIV/PAC/SYS arbitration remains open; broad dispatch class alone remains
+  insufficient.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
@@ -240,12 +245,12 @@ primary-parent indexing, physical-child PC class selection, bridge
 backpressure/rejection, and an end-to-end S1/S2/S3 → P1/I1 denial → exact
 repick → I2 transaction.
 
-I0.4 adds a two-domain integration case that publishes ALU and BRU rows in one
+I0.4 adds a two-picker integration case that publishes ALU and BRU rows in one
 S1 transaction, claims both in parallel, grants ALU while denying BRU, proves
-the denial cannot disturb the peer domain, repicks BRU, releases both exact IQ
-rows, and observes aggregate quiescence. It then runs two ALU domains on
-disjoint banks. A negative case proves overlapping same-class bank projections
-trip the topology assertion.
+the denial cannot disturb the peer picker, repicks BRU, releases both exact IQ
+rows, and observes aggregate quiescence. It then runs two ALU pickers on
+disjoint banks. A negative case proves overlapping same-class/same-capability
+bank projections trip the topology assertion.
 
 The physical-capability packet adds a negative S3 case in which a multi-cycle
 ALU row resides in a bank owned by a simple-only domain. The row remains

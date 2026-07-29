@@ -52,7 +52,8 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
       uopClass: OooUopClass.Type,
       ridSlot: Int,
       data: BigInt,
-      bank: Int = 0): Unit = {
+      bank: Int = 0,
+      requiredCapability: Option[BigInt] = None): Unit = {
     port.bits.poke(0.U.asTypeOf(port.bits))
     val row = port.bits.row.schedule
     row.valid.poke(true.B)
@@ -77,13 +78,13 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     row.reservation.speculativeSlot.poke((ridSlot % p.iqEntriesPerBank).U)
     row.reservation.reservationEpoch.poke(9.U)
     val classIndex = uopClass.asUInt.litValue.toInt
-    val capability = classIndex match {
+    val capability = requiredCapability.getOrElse(classIndex match {
       case 0 => OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu)
       case 1 => OooIexDomainCapability.mask(OooIexDomainCapability.Branch)
       case 2 => OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress)
       case 3 => OooIexDomainCapability.mask(OooIexDomainCapability.StoreData)
       case _ => OooIexDomainCapability.ValidMask
-    }
+    })
     port.bits.row.payload.recipe.dispatchCapabilities(classIndex)
       .poke(capability.U)
     row.inFlight.poke(true.B)
@@ -148,7 +149,7 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("rejects overlapping static class and bank ownership") {
+  test("rejects capability-ambiguous overlap and malformed topology") {
     val overlap = Seq(
       OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Alu.asUInt.litValue.toInt, 1, releasePort = 0),
@@ -169,6 +170,51 @@ class OooIexE1TransferFabricSpec extends AnyFunSuite with ChiselSim {
     assertThrows[IllegalArgumentException](OooIexIssueDomainConfig.validate(p,
       topology.updated(1, OooIexIssueDomainConfig.singleClass(p,
         OooUopClass.Bru.asUInt.litValue.toInt, 1, releasePort = 2))))
+
+    val capabilityDisjointOverlap = Seq(
+      OooIexIssueDomainConfig.singleClass(p,
+        OooUopClass.Agu.asUInt.litValue.toInt, 1, releasePort = 0)
+        .copy(capabilities = OooIexDomainCapability.mask(
+          OooIexDomainCapability.LoadAddress)),
+      OooIexIssueDomainConfig.singleClass(p,
+        OooUopClass.Agu.asUInt.litValue.toInt, 1, releasePort = 1)
+        .copy(capabilities = OooIexDomainCapability.mask(
+          OooIexDomainCapability.StoreAddress)))
+    OooIexIssueDomainConfig.validate(p, capabilityDisjointOverlap)
+  }
+
+  test("transfers capability-disjoint LDA and STA picks from one AGU bank") {
+    import OooIexDomainCapability._
+    val aguTopology = Seq(
+      OooIexIssueDomainConfig.singleClass(p,
+        OooUopClass.Agu.asUInt.litValue.toInt, 1, releasePort = 0,
+        name = "agu0-lda").copy(capabilities = mask(LoadAddress)),
+      OooIexIssueDomainConfig.singleClass(p,
+        OooUopClass.Agu.asUInt.litValue.toInt, 1, releasePort = 1,
+        name = "agu0-sta").copy(capabilities = mask(StoreAddress)))
+
+    simulate(new OooIexE1TransferFabric(p, aguTopology)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeI2(dut.io.i2(0), OooUopClass.Agu, ridSlot = 1, data = 11,
+        requiredCapability = Some(mask(LoadAddress)))
+      pokeI2(dut.io.i2(1), OooUopClass.Agu, ridSlot = 2, data = 22,
+        requiredCapability = Some(mask(StoreAddress)))
+      dut.io.issueReleases.foreach(_.ready.poke(true.B))
+      dut.io.i2(0).ready.expect(true.B)
+      dut.io.i2(1).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.i2.foreach(_.valid.poke(false.B))
+      dut.io.issueReleases.foreach(_.ready.poke(false.B))
+
+      dut.io.e1(0).valid.expect(true.B)
+      dut.io.e1(1).valid.expect(true.B)
+      dut.io.e1(0).bits.i2.sourceData(0).expect(11.U)
+      dut.io.e1(1).bits.i2.sourceData(0).expect(22.U)
+    }
   }
 
   test("accepts every class-specific bank projection owned by one domain") {

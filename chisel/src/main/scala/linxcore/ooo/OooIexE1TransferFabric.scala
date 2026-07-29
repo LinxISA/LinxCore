@@ -3,7 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid}
 
-/** Elaboration-time ownership of one issue domain. */
+/** Elaboration-time projection of one picker/execution lane. */
 final case class OooIexIssueDomainConfig(
     classBankEnables: Seq[BigInt],
     releasePort: Int = 0,
@@ -27,7 +27,7 @@ object OooIexIssueDomainConfig {
 
   def validate(p: OooParams, domains: Seq[OooIexIssueDomainConfig]): Unit = {
     require(domains.length == p.iexIssueDomainCount,
-      "static IEX topology must define every physical issue domain")
+      "static IEX topology must define every picker function")
     domains.zipWithIndex.foreach { case (domain, index) =>
       require(domain.classBankEnables.length == p.iqClassCount,
         s"IEX domain $index must define every physical IQ class")
@@ -44,7 +44,7 @@ object OooIexIssueDomainConfig {
     }
     for (port <- 0 until p.iexReleaseWidth) {
       require(domains.exists(_.releasePort == port),
-        s"IEX release port $port has no statically owned issue domain")
+        s"IEX release port $port has no statically owned picker")
     }
     for (left <- domains.indices; right <- left + 1 until domains.length) {
       val overlaps = domains(left).classBankEnables
@@ -52,8 +52,10 @@ object OooIexIssueDomainConfig {
         .exists { case (leftMask, rightMask) =>
           (leftMask & rightMask) != 0
         }
-      require(!overlaps,
-        s"IEX domains $left and $right overlap one class/bank owner")
+      val capabilityOverlap =
+        (domains(left).capabilities & domains(right).capabilities) != 0
+      require(!overlaps || !capabilityOverlap,
+        s"IEX pickers $left and $right overlap one class/bank/capability")
     }
   }
 }
@@ -85,7 +87,7 @@ class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
   val empty = Output(Bool())
 }
 
-/** Static class/bank topology around class-specific retained E1 slots.
+/** Static class/bank/capability topology around retained picker/E1 slots.
   *
   * One fair arbiter serves each statically owned exact release port. Domains
   * sharing a port serialize and retain denied I2 owners; domains on distinct

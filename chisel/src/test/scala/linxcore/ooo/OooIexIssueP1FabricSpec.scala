@@ -209,6 +209,34 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
     request.dispatch.allocations(1).reservation.bank.poke(1.U)
   }
 
+  private def pokeTwoAguCapabilityTransaction(
+      dut: OooIexIssueP1Fabric): Unit = {
+    import OooIexDomainCapability._
+    pokeTwoDomainTransaction(dut)
+    val request = dut.io.s1.bits
+    for (index <- 0 until 2) {
+      val capability = if (index == 0) mask(LoadAddress)
+        else mask(StoreAddress)
+      Seq(
+        request.o3.request.reservation.transaction.decoded.uops(index),
+        request.pRename.uops(index).decoded).foreach { uop =>
+        uop.recipe.dispatchClass.poke(OooDispatchClass.Agu.U)
+        uop.recipe.dispatchDemand.poke(
+          0.U.asTypeOf(uop.recipe.dispatchDemand))
+        uop.recipe.dispatchDemand(OooDispatchClass.Agu - 1).poke(1.U)
+        uop.recipe.dispatchCapabilities.poke(
+          0.U.asTypeOf(uop.recipe.dispatchCapabilities))
+        uop.recipe.dispatchCapabilities(OooDispatchClass.Agu - 1)
+          .poke(capability.U)
+        uop.recipe.pcReadRequired.poke(false.B)
+        uop.recipe.pcReadClass.poke(OooDispatchClass.Agu.U)
+      }
+      request.dispatch.allocations(index).reservation.uopClass.poke(
+        OooUopClass.Agu)
+      request.dispatch.allocations(index).reservation.bank.poke(0.U)
+    }
+  }
+
   private def pokeRelease(
       dut: OooIexIssueP1Fabric,
       memberIndex: Int,
@@ -348,6 +376,32 @@ class OooIexIssueP1FabricSpec extends AnyFunSuite with ChiselSim {
         dut.reset.poke(false.B)
         dut.clock.step()
       }
+    }
+  }
+
+  test("capability-disjoint LDA and STA pickers issue from one AGU owner") {
+    import OooIexDomainCapability._
+    simulate(new OooIexIssueP1Fabric(p,
+      Seq(mask(LoadAddress), mask(StoreAddress)))) { dut =>
+      clear(dut)
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
+      dut.io.pickBankEnables(0)(OooDispatchClass.Agu - 1).poke(1.U)
+      dut.io.pickBankEnables(1)(OooDispatchClass.Agu - 1).poke(1.U)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeTwoAguCapabilityTransaction(dut)
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+      dut.clock.step(4)
+
+      dut.io.readAttempts(0).valid.expect(true.B)
+      dut.io.readAttempts(0).bits.reservation.speculativeSlot.expect(1.U)
+      dut.io.readAttempts(1).valid.expect(true.B)
+      dut.io.readAttempts(1).bits.reservation.speculativeSlot.expect(2.U)
+      dut.io.inFlightEntries(OooDispatchClass.Agu - 1)(0).expect(2.U)
     }
   }
 

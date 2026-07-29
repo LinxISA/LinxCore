@@ -66,81 +66,181 @@ object OooIexCapabilityTopology {
   }
 }
 
-/** One independently selected physical issue pipe and its IQ residency. */
-final case class OooIexPhysicalDomain(
+/** One canonical class/bank residency owner. */
+final case class OooIexResidencyOwner(
     name: String,
     classBankEnables: Seq[BigInt],
-    capabilities: BigInt,
-    releasePort: Int) {
+    capabilities: BigInt) {
   def ownsClass(classIndex: Int): Boolean =
     classIndex >= 0 && classIndex < classBankEnables.length &&
       classBankEnables(classIndex) != 0
   def hasCapability(capability: Int): Boolean =
     (capabilities & (BigInt(1) << capability)) != 0
+}
+
+/** One execution destination independently named from selection topology. */
+final case class OooIexExecutionLane(
+    name: String,
+    capabilities: BigInt)
+
+/** One oldest-ready selection function over a canonical residency owner. */
+final case class OooIexPickerFunction(
+    name: String,
+    residencyOwner: String,
+    executionLane: String,
+    classBankEnables: Seq[BigInt],
+    capabilities: BigInt,
+    releasePort: Int) {
   def transferConfig: OooIexIssueDomainConfig =
     OooIexIssueDomainConfig(classBankEnables, releasePort, name, capabilities)
 }
 
-/** Elaborated physical topology shared by dispatch, pick, RF arbitration, and
-  * the retained I2/E1 transfer boundary.
+/** Elaborated physical topology shared by dispatch, pick, RF arbitration,
+  * execution-lane routing, and the retained I2/E1 transfer boundary.
   */
 final case class OooIexPhysicalProfile(
     name: String,
     params: OooParams,
-    domains: Seq[OooIexPhysicalDomain],
+    residencyOwners: Seq[OooIexResidencyOwner],
+    pickerFunctions: Seq[OooIexPickerFunction],
+    executionLanes: Seq[OooIexExecutionLane],
     dispatchableClasses: Set[Int],
     fastResolvedClasses: Set[Int]) {
   private val allBanks = (BigInt(1) << params.iqBankCount) - 1
 
   require(name.nonEmpty, "physical IEX profile needs a stable name")
-  require(domains.map(_.name).forall(_.nonEmpty) &&
-    domains.map(_.name).distinct.length == domains.length,
-    "physical IEX domains need nonempty unique names")
-  require(domains.forall(domain => domain.capabilities != 0 &&
-    (domain.capabilities & ~OooIexDomainCapability.ValidMask) == 0),
-    "physical IEX domains need only declared nonempty capabilities")
+  require(residencyOwners.map(_.name).forall(_.nonEmpty) &&
+    residencyOwners.map(_.name).distinct.length == residencyOwners.length,
+    "IEX residency owners need nonempty unique names")
+  require(residencyOwners.forall(owner =>
+    owner.classBankEnables.length == params.iqClassCount &&
+      owner.classBankEnables.exists(_ != 0) &&
+      owner.classBankEnables.forall(mask => mask >= 0 && mask <= allBanks) &&
+      owner.capabilities != 0 &&
+      (owner.capabilities & ~OooIexDomainCapability.ValidMask) == 0),
+    "IEX residency owners need valid projections and capabilities")
+  require(pickerFunctions.map(_.name).forall(_.nonEmpty) &&
+    pickerFunctions.map(_.name).distinct.length == pickerFunctions.length,
+    "IEX picker functions need nonempty unique names")
+  require(executionLanes.map(_.name).forall(_.nonEmpty) &&
+    executionLanes.map(_.name).distinct.length == executionLanes.length &&
+    executionLanes.forall(lane => lane.capabilities != 0 &&
+      (lane.capabilities & ~OooIexDomainCapability.ValidMask) == 0),
+    "IEX execution lanes need nonempty unique names and valid capabilities")
   require(dispatchableClasses.intersect(fastResolvedClasses).isEmpty,
     "a class cannot be both physically issued and fast-resolved")
   require((dispatchableClasses ++ fastResolvedClasses).forall(classIndex =>
     classIndex >= 0 && classIndex < params.iqClassCount),
     "physical IEX profile names an out-of-range dispatch class")
 
-  OooIexIssueDomainConfig.validate(params, domains.map(_.transferConfig))
+  OooIexIssueDomainConfig.validate(params,
+    pickerFunctions.map(_.transferConfig))
+
+  pickerFunctions.foreach { picker =>
+    val owner = residencyOwners.find(_.name == picker.residencyOwner).getOrElse(
+      throw new IllegalArgumentException(
+        s"IEX picker ${picker.name} names an unknown residency owner"))
+    val lane = executionLanes.find(_.name == picker.executionLane).getOrElse(
+      throw new IllegalArgumentException(
+        s"IEX picker ${picker.name} names an unknown execution lane"))
+    require((picker.capabilities & ~owner.capabilities) == 0,
+      s"IEX picker ${picker.name} exceeds its residency-owner capability")
+    require((picker.capabilities & ~lane.capabilities) == 0,
+      s"IEX picker ${picker.name} exceeds its execution-lane capability")
+    require(picker.classBankEnables.zip(owner.classBankEnables).forall {
+      case (pickerMask, ownerMask) => (pickerMask & ~ownerMask) == 0
+    }, s"IEX picker ${picker.name} exceeds its residency-owner projection")
+  }
+  require(executionLanes.forall(lane =>
+    pickerFunctions.exists(_.executionLane == lane.name)),
+    "every IEX execution lane needs at least one picker function")
+
+  for (left <- residencyOwners.indices;
+       right <- left + 1 until residencyOwners.length) {
+    require(residencyOwners(left).classBankEnables
+      .zip(residencyOwners(right).classBankEnables)
+      .forall { case (leftMask, rightMask) => (leftMask & rightMask) == 0 },
+      s"IEX residency owners $left and $right overlap one class/bank")
+  }
 
   dispatchableClasses.foreach { classIndex =>
-    val coverage = domains.foldLeft(BigInt(0))(
+    val coverage = residencyOwners.foldLeft(BigInt(0))(
       _ | _.classBankEnables(classIndex))
     require(coverage == allBanks,
       s"physical IEX class $classIndex must cover every IQ bank exactly once")
   }
   fastResolvedClasses.foreach { classIndex =>
-    require(domains.forall(_.classBankEnables(classIndex) == 0),
+    require(residencyOwners.forall(_.classBankEnables(classIndex) == 0),
       s"fast-resolved class $classIndex must not own physical IQ banks")
+  }
+  residencyOwners.foreach { owner =>
+    val pickerCapabilities = pickerFunctions
+      .filter(_.residencyOwner == owner.name)
+      .foldLeft(BigInt(0))(_ | _.capabilities)
+    require(pickerCapabilities == owner.capabilities,
+      s"IEX owner ${owner.name} capabilities are not fully projected")
+    for (classIndex <- 0 until params.iqClassCount) {
+      val pickerCoverage = pickerFunctions
+        .filter(_.residencyOwner == owner.name)
+        .foldLeft(BigInt(0))(_ | _.classBankEnables(classIndex))
+      require(pickerCoverage == owner.classBankEnables(classIndex),
+        s"IEX owner ${owner.name} is not fully projected by its pickers")
+      for (bank <- 0 until params.iqBankCount
+           if (owner.classBankEnables(classIndex) &
+             (BigInt(1) << bank)) != 0) {
+        val bankCapabilities = pickerFunctions.filter(picker =>
+          picker.residencyOwner == owner.name &&
+            (picker.classBankEnables(classIndex) &
+              (BigInt(1) << bank)) != 0)
+          .foldLeft(BigInt(0))(_ | _.capabilities)
+        require(bankCapabilities == owner.capabilities,
+          s"IEX owner ${owner.name} class $classIndex bank $bank " +
+            "does not expose every declared capability")
+      }
+    }
   }
 
   def transferConfigs: Seq[OooIexIssueDomainConfig] =
-    domains.map(_.transferConfig)
-  def capabilityTopology: OooIexCapabilityTopology =
-    OooIexCapabilityTopology.fromDomains(params, transferConfigs)
-  def domain(name: String): OooIexPhysicalDomain =
-    domains.find(_.name == name).getOrElse(
-      throw new NoSuchElementException(s"unknown IEX domain $name"))
-  def ownersOf(classIndex: Int): Seq[OooIexPhysicalDomain] =
-    domains.filter(_.ownsClass(classIndex))
+    pickerFunctions.map(_.transferConfig)
+  def capabilityTopology: OooIexCapabilityTopology = {
+    val topology = OooIexCapabilityTopology(Seq.tabulate(
+      params.iqClassCount, params.iqBankCount) { case (classIndex, bank) =>
+      residencyOwners.filter(owner =>
+        (owner.classBankEnables(classIndex) & (BigInt(1) << bank)) != 0)
+        .foldLeft(BigInt(0))(_ | _.capabilities)
+    })
+    topology.validate(params)
+    topology
+  }
+  def owner(name: String): OooIexResidencyOwner =
+    residencyOwners.find(_.name == name).getOrElse(
+      throw new NoSuchElementException(s"unknown IEX residency owner $name"))
+  def picker(name: String): OooIexPickerFunction =
+    pickerFunctions.find(_.name == name).getOrElse(
+      throw new NoSuchElementException(s"unknown IEX picker function $name"))
+  def lane(name: String): OooIexExecutionLane =
+    executionLanes.find(_.name == name).getOrElse(
+      throw new NoSuchElementException(s"unknown IEX execution lane $name"))
+  def ownersOf(classIndex: Int): Seq[OooIexResidencyOwner] =
+    residencyOwners.filter(_.ownsClass(classIndex))
+  def pickersFor(ownerName: String): Seq[OooIexPickerFunction] =
+    pickerFunctions.filter(_.residencyOwner == ownerName)
 }
 
 /** Formal Linx scalar/control issue profile.
   *
-  * Six ALU, three AGU, and two BRU domains are internal.  One external FSU
-  * domain owns both floating/vector work and engine-command work.  Logical
-  * class-bank residency is complete and disjoint; recipe-level capability
-  * admission remains a separate runtime check.
+  * Six ALU, three AGU, and two BRU residency owners are internal. One external
+  * FSU owner retains both floating/vector work and engine-command work.
+  * Logical class-bank residency is complete and disjoint. AGU0/1 expand to
+  * capability-disjoint LDA/STA pickers without duplicating those rows.
   */
 object OooIexLinxPhysicalProfile {
   import OooIexDomainCapability._
 
-  val DomainCount = 12
-  val ReleaseWidth = 12
+  val ResidencyOwnerCount = 12
+  val PickerFunctionCount = 14
+  val ExecutionLaneCount = 14
+  val ReleaseWidth = 14
 
   private val aluClass = OooDispatchClass.Alu - 1
   private val bruClass = OooDispatchClass.Bru - 1
@@ -154,7 +254,7 @@ object OooIexLinxPhysicalProfile {
   def params(base: OooParams = OooParams()): OooParams = {
     require(base.iqBankCount >= 8 && base.iqBankCount % 2 == 0,
       "formal Linx IEX profile needs two clusters with at least four IQ banks each")
-    base.copy(iexIssueDomainCount = DomainCount,
+    base.copy(iexIssueDomainCount = PickerFunctionCount,
       iexReleaseWidth = ReleaseWidth)
   }
 
@@ -188,58 +288,91 @@ object OooIexLinxPhysicalProfile {
     val allBanks = (BigInt(1) << p.iqBankCount) - 1
     val upperBanks = allBanks ^ lowerBanks
 
-    val domains = Seq(
-      OooIexPhysicalDomain("alu0",
+    val owners = Seq(
+      OooIexResidencyOwner("alu0",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 0, 0),
           stdClass -> lowerBanks),
-        mask(SimpleAlu, StoreData), 0),
-      OooIexPhysicalDomain("alu1",
+        mask(SimpleAlu, StoreData)),
+      OooIexResidencyOwner("alu1",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 0, 1)),
-        mask(SimpleAlu), 1),
-      OooIexPhysicalDomain("alu2",
+        mask(SimpleAlu)),
+      OooIexResidencyOwner("alu2",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 0, 2),
           sysClass -> lowerBanks),
-        mask(SimpleAlu, MultiCycleAlu, System), 2),
-      OooIexPhysicalDomain("alu3",
+        mask(SimpleAlu, MultiCycleAlu, System)),
+      OooIexResidencyOwner("alu3",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 1, 0),
           stdClass -> upperBanks),
-        mask(SimpleAlu, StoreData), 3),
-      OooIexPhysicalDomain("alu4",
+        mask(SimpleAlu, StoreData)),
+      OooIexResidencyOwner("alu4",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 1, 1)),
-        mask(SimpleAlu), 4),
-      OooIexPhysicalDomain("alu5",
+        mask(SimpleAlu)),
+      OooIexResidencyOwner("alu5",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 1, 2),
           sysClass -> upperBanks),
-        mask(SimpleAlu, MultiCycleAlu, System), 5),
-      OooIexPhysicalDomain("agu0",
+        mask(SimpleAlu, MultiCycleAlu, System)),
+      OooIexResidencyOwner("agu0",
         classMasks(p, aguClass -> moduloMask(p.iqBankCount, 0, 3)),
-        mask(LoadAddress, StoreAddress), 6),
-      OooIexPhysicalDomain("agu1",
+        mask(LoadAddress, StoreAddress)),
+      OooIexResidencyOwner("agu1",
         classMasks(p, aguClass -> moduloMask(p.iqBankCount, 1, 3)),
-        mask(LoadAddress, StoreAddress), 7),
-      OooIexPhysicalDomain("agu2",
+        mask(LoadAddress, StoreAddress)),
+      OooIexResidencyOwner("agu2",
         classMasks(p, aguClass -> moduloMask(p.iqBankCount, 2, 3)),
-        mask(LoadAddress), 8),
-      OooIexPhysicalDomain("bru0",
+        mask(LoadAddress)),
+      OooIexResidencyOwner("bru0",
         classMasks(p, bruClass -> moduloMask(p.iqBankCount, 0, 2)),
-        mask(Branch), 9),
-      OooIexPhysicalDomain("bru1",
+        mask(Branch)),
+      OooIexResidencyOwner("bru1",
         classMasks(p, bruClass -> moduloMask(p.iqBankCount, 1, 2)),
-        mask(Branch), 10),
-      OooIexPhysicalDomain("fsu0",
+        mask(Branch)),
+      OooIexResidencyOwner("fsu0",
         classMasks(p, fsuClass -> allBanks, cmdClass -> allBanks),
-        mask(FloatingVector, EngineCommand), 11))
+        mask(FloatingVector, EngineCommand)))
+
+    def picker(
+        name: String,
+        ownerName: String,
+        capabilities: BigInt,
+        releasePort: Int): OooIexPickerFunction =
+      OooIexPickerFunction(name, ownerName, name,
+        owners.find(_.name == ownerName).get.classBankEnables,
+        capabilities, releasePort)
+
+    val pickers = Seq(
+      picker("alu0", "alu0", mask(SimpleAlu, StoreData), 0),
+      picker("alu1", "alu1", mask(SimpleAlu), 1),
+      picker("alu2", "alu2", mask(SimpleAlu, MultiCycleAlu, System), 2),
+      picker("alu3", "alu3", mask(SimpleAlu, StoreData), 3),
+      picker("alu4", "alu4", mask(SimpleAlu), 4),
+      picker("alu5", "alu5", mask(SimpleAlu, MultiCycleAlu, System), 5),
+      picker("agu0-lda", "agu0", mask(LoadAddress), 6),
+      picker("agu0-sta", "agu0", mask(StoreAddress), 7),
+      picker("agu1-lda", "agu1", mask(LoadAddress), 8),
+      picker("agu1-sta", "agu1", mask(StoreAddress), 9),
+      picker("agu2-lda", "agu2", mask(LoadAddress), 10),
+      picker("bru0", "bru0", mask(Branch), 11),
+      picker("bru1", "bru1", mask(Branch), 12),
+      picker("fsu0", "fsu0", mask(FloatingVector, EngineCommand), 13))
+    val lanes = pickers.map(picker =>
+      OooIexExecutionLane(picker.executionLane, picker.capabilities))
+    require(owners.length == ResidencyOwnerCount &&
+      pickers.length == PickerFunctionCount &&
+      lanes.length == ExecutionLaneCount,
+      "formal Linx IEX topology counts must remain explicit")
 
     val profile = OooIexPhysicalProfile(
-      name = "linx-scalar-control-v1",
+      name = "linx-scalar-control-v2",
       params = p,
-      domains = domains,
+      residencyOwners = owners,
+      pickerFunctions = pickers,
+      executionLanes = lanes,
       dispatchableClasses = Set(aluClass, bruClass, aguClass, stdClass,
         fsuClass, sysClass, cmdClass),
       fastResolvedClasses = Set(boundaryClass))
@@ -250,13 +383,20 @@ object OooIexLinxPhysicalProfile {
     require(profile.ownersOf(sysClass).map(_.name).toSet == Set("alu2", "alu5") &&
       profile.ownersOf(sysClass).forall(_.hasCapability(System)),
       "system residency must be restricted to ALU2/ALU5")
-    require(profile.domains.filter(_.hasCapability(MultiCycleAlu))
+    require(profile.residencyOwners.filter(_.hasCapability(MultiCycleAlu))
       .map(_.name).toSet == Set("alu2", "alu5"),
       "multi-cycle ALU capability must be restricted to ALU2/ALU5")
     require(profile.ownersOf(aguClass).forall(_.hasCapability(LoadAddress)) &&
-      profile.domains.filter(_.hasCapability(StoreAddress)).map(_.name).toSet ==
+      profile.residencyOwners.filter(_.hasCapability(StoreAddress))
+        .map(_.name).toSet ==
         Set("agu0", "agu1"),
       "all AGUs accept loads while only AGU0/AGU1 accept stores")
+    require(profile.pickersFor("agu0").map(_.name) ==
+      Seq("agu0-lda", "agu0-sta") &&
+      profile.pickersFor("agu1").map(_.name) ==
+        Seq("agu1-lda", "agu1-sta") &&
+      profile.pickersFor("agu2").map(_.name) == Seq("agu2-lda"),
+      "AGU0/1 need LDA+STA pickers while AGU2 is LDA-only")
     require(profile.ownersOf(fsuClass).map(_.name) == Seq("fsu0") &&
       profile.ownersOf(cmdClass).map(_.name) == Seq("fsu0"),
       "the external FSU domain owns FSU and engine-command residency")

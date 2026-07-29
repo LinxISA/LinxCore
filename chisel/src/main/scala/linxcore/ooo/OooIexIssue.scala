@@ -44,9 +44,9 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
     new OooIexIssueRow(p)))
   val queryPickables = Output(Vec(p.iexIssueDomainCount, Bool()))
 
-  // Each topology-neutral domain sees the same canonical IQ owner through a
-  // disjoint class/bank projection.  The domain count changes picker width,
-  // never the number of physical row or payload owners.
+  // Each topology-neutral picker sees the same canonical IQ owner through a
+  // class/bank/capability projection. Capability-disjoint pickers may observe
+  // the same bank. The picker count changes bandwidth, never physical rows.
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
@@ -1437,8 +1437,11 @@ class OooIexIssue(
         (io.pickBankEnables(left)(classIndex) &
           io.pickBankEnables(right)(classIndex)).orR
     }).asUInt.orR
-    assert(!projectionOverlap,
-      "IEX issue domains must have disjoint class/bank projections")
+    if ((effectiveDomainCapabilities(left) &
+        effectiveDomainCapabilities(right)) != 0) {
+      assert(!projectionOverlap,
+        "IEX pickers may overlap class/bank only with disjoint capabilities")
+    }
   }
 
   val pickers = Seq.fill(p.iexIssueDomainCount)(

@@ -2,10 +2,13 @@
 
 ## Purpose
 
-`OooIexOldestReadyPicker` is a reusable retained picker for one issue domain.
-An issue domain is one physical selection/pipe arbitration point. It owns an
-independent bank mask for every logical uop class, so ALU0 may select ordinary
-ALU rows and its assigned STD rows without duplicating picker state. The module
+`OooIexOldestReadyPicker` is a reusable retained picker for one picker
+function. A picker is a physical selection point, not an IQ residency owner.
+It observes a bank mask for every logical uop class, so ALU0 may select
+ordinary ALU rows and its assigned STD rows without duplicating picker state.
+Capability filtering is applied by `OooIexIssue` before candidates reach the
+picker. Therefore capability-disjoint LDA and STA instances may observe the
+same AGU bank while remaining mutually exclusive per row. The module
 receives only minimal projections of canonical IQ scheduling rows; it does not
 copy row residency, readiness, payload memory, or recovery ownership.
 
@@ -28,12 +31,12 @@ STID. Same-STID age is the modular concatenation
 `{ridGeneration, ridSlot, memberIndex}`. The maximum live IQ population must
 fit in less than half of this namespace, making subtraction unambiguous across
 RID generation wrap. Physical class/bank/entry order is only a deterministic
-tie break for duplicated ages. Class boundaries do not reset age: one domain
+tie break for duplicated ages. Class boundaries do not reset age: one picker
 selects the oldest row across every class/bank projection it owns.
 
 The per-STID winners enter work-conserving round-robin arbitration. A terminal
 pick advances the round-robin base to the following STID. The next candidate
-may be retained on the same edge, so the domain sustains one pick per cycle
+may be retained on the same edge, so the picker sustains one pick per cycle
 after its initial selection latency.
 
 The reference design uses different oldest rules for different queues: an
@@ -65,12 +68,8 @@ apply, not by the picker.
 
 ## Remaining integration work
 
-- consume generated recipe-level capabilities so AGU2 cannot select STA and
-  only ALU2/5 can select multi-cycle operations;
-- add the second LDA/STA picker relationship for AGU0/1 without creating a
-  second IQ residency owner;
-- arbitrate shared DIV/PAC/system resources across symmetric domains;
-- close per-domain starvation counters, coverage, and default-width timing.
+- arbitrate shared DIV/PAC/system resources across symmetric pickers;
+- close per-picker starvation counters, coverage, and default-width timing.
 
 ## Verification
 

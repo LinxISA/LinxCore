@@ -173,12 +173,11 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("scales the same oldest-complete policy to twelve physical domains") {
-    val profileParams = OooParams(
-      iexIssueDomainCount = 12,
+  test("scales the same oldest-complete policy to fourteen picker functions") {
+    val profileParams = OooIexLinxPhysicalProfile.params(OooParams(
       iexPReadPorts = 6,
       iexTReadPorts = 4,
-      iexUReadPorts = 4)
+      iexUReadPorts = 4))
     simulate(new OooIexAtomicReadArbiter(profileParams)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
@@ -190,8 +189,8 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
           Seq(OperandClass.P))
       }
 
-      dut.io.selectedMask.expect("h03f".U)
-      dut.io.deniedMask.expect("hfc0".U)
+      dut.io.selectedMask.expect("h003f".U)
+      dut.io.deniedMask.expect("h3fc0".U)
       dut.io.pReadRequests.foreach(_.valid.expect(true.B))
       for (domain <- 0 until 6) {
         dut.io.grant(domain).expect(true.B)
