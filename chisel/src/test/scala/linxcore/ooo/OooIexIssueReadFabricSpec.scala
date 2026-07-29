@@ -30,6 +30,12 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
     tuMapQDepthPerStid = 4,
     tuRetireSourceDepthPerStid = 16)
 
+  private val staticTopology = Seq(
+    OooIexIssueDomainConfig.singleClass(p,
+      OooUopClass.Alu.asUInt.litValue.toInt, 1,
+      name = "alu0").copy(capabilities = OooIexDomainCapability.mask(
+        OooIexDomainCapability.SimpleAlu)))
+
   private def clear(dut: OooIexIssueReadFabric): Unit = {
     dut.io.s1.valid.poke(false.B)
     dut.io.s1.bits.poke(0.U.asTypeOf(dut.io.s1.bits))
@@ -191,8 +197,10 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("missing canonical P data rejects and exact-repicks before I2") {
-    simulate(new OooIexIssueReadFabric(p)) { dut =>
+    simulate(new OooIexIssueReadFabric(p,
+      staticDomains = staticTopology)) { dut =>
       clear(dut)
+      dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
       dut.reset.poke(true.B)
       dut.clock.step()
       dut.reset.poke(false.B)
@@ -314,6 +322,21 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
       new OooIexSharedResourceArbiter(sharedP, Seq(
         OooIexSharedResourceConfig("divide-a", MultiCycleAlu, Seq(0, 1)),
         OooIexSharedResourceConfig("divide-b", MultiCycleAlu, Seq(0, 1))))
+    }
+  }
+
+  test("rejects inconsistent static capabilities and shared participants") {
+    assertThrows[IllegalArgumentException] {
+      new OooIexIssueReadFabric(p,
+        domainCapabilities = Seq(OooIexDomainCapability.mask(
+          OooIexDomainCapability.Branch)),
+        staticDomains = staticTopology)
+    }
+    assertThrows[IllegalArgumentException] {
+      new OooIexIssueReadFabric(p,
+        sharedResources = Seq(OooIexSharedResourceConfig(
+          "divide", OooIexDomainCapability.MultiCycleAlu, Seq(0, 0))),
+        staticDomains = staticTopology)
     }
   }
 }

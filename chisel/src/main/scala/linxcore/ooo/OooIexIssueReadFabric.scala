@@ -244,11 +244,42 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
 class OooIexIssueReadFabric(
     val p: OooParams = OooParams(),
     val domainCapabilities: Seq[BigInt] = Seq.empty,
-    val sharedResources: Seq[OooIexSharedResourceConfig] = Seq.empty)
+    val sharedResources: Seq[OooIexSharedResourceConfig] = Seq.empty,
+    val staticDomains: Seq[OooIexIssueDomainConfig] = Seq.empty)
     extends Module {
+  if (staticDomains.nonEmpty) {
+    OooIexIssueDomainConfig.validate(p, staticDomains)
+  }
+  private val effectiveDomainCapabilities =
+    if (staticDomains.nonEmpty) staticDomains.map(_.capabilities)
+    else domainCapabilities
+  if (effectiveDomainCapabilities.nonEmpty) {
+    require(effectiveDomainCapabilities.length == p.iexIssueDomainCount &&
+      effectiveDomainCapabilities.forall(mask => mask != 0 &&
+        (mask & ~OooIexDomainCapability.ValidMask) == 0),
+      "IEX read fabric needs one valid capability mask per picker")
+  }
+  if (staticDomains.nonEmpty && domainCapabilities.nonEmpty) {
+    require(domainCapabilities == effectiveDomainCapabilities,
+      "static IEX domain capabilities must match the issue configuration")
+  }
+  if (sharedResources.nonEmpty) {
+    OooIexSharedResourceConfig.validate(p, sharedResources)
+    val declaredCapabilities =
+      if (effectiveDomainCapabilities.nonEmpty) effectiveDomainCapabilities
+      else Seq.fill(p.iexIssueDomainCount)(
+        OooIexDomainCapability.ValidMask)
+    sharedResources.foreach { resource =>
+      val resourceMask = OooIexDomainCapability.mask(resource.capability)
+      require(resource.pickerFunctions.forall(picker =>
+        (declaredCapabilities(picker) & resourceMask) != 0),
+        s"shared IEX resource ${resource.name} names an incapable picker")
+    }
+  }
   val io = IO(new OooIexIssueReadFabricIO(p))
 
-  val issue = Module(new OooIexIssueP1Fabric(p, domainCapabilities))
+  val issue = Module(new OooIexIssueP1Fabric(p,
+    effectiveDomainCapabilities))
   val arbiter = Module(new OooIexAtomicReadArbiter(p))
   val operands = Module(new OooIexOperandFiles(p))
 
@@ -262,7 +293,14 @@ class OooIexIssueReadFabric(
   io.recoveryPrepareReady := issue.io.recoveryPrepareReady
   io.recoveryPrepared := issue.io.recoveryPrepared
   issue.io.recoveryFire := io.recoveryFire
-  issue.io.pickBankEnables := io.pickBankEnables
+  if (staticDomains.nonEmpty) {
+    for (picker <- 0 until p.iexIssueDomainCount) {
+      issue.io.pickBankEnables(picker) := VecInit(
+        staticDomains(picker).classBankEnables.map(_.U(p.iqBankCount.W)))
+    }
+  } else {
+    issue.io.pickBankEnables := io.pickBankEnables
+  }
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels
   issue.io.bypass := io.bypass
@@ -353,3 +391,13 @@ class OooIexIssueReadFabric(
   io.pProtocolError := operands.io.pProtocolError
   io.localProtocolError := operands.io.localProtocolError
 }
+
+/** Production Linx specialization with one authoritative physical profile. */
+class OooIexLinxIssueReadFabric(
+    val profile: OooIexPhysicalProfile =
+      OooIexLinxPhysicalProfile())
+    extends OooIexIssueReadFabric(
+      profile.params,
+      profile.transferConfigs.map(_.capabilities),
+      OooIexLinxPhysicalProfile.sharedReadResources(profile),
+      profile.transferConfigs)

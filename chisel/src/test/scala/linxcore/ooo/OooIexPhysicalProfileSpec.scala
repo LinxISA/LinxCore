@@ -124,9 +124,9 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
   test("elaborates the fourteen-picker transfer and shared-resource topology") {
     val profile = OooIexLinxPhysicalProfile()
     val systemVerilog = ChiselStage.emitSystemVerilog(
-      new OooIexE1TransferFabric(profile.params, profile.transferConfigs),
+      new OooIexLinxE1TransferFabric(profile = profile),
       firtoolOpts = Array("--disable-all-randomization"))
-    assert(systemVerilog.contains("module OooIexE1TransferFabric"))
+    assert(systemVerilog.contains("module OooIexLinxE1TransferFabric"))
     assert(systemVerilog.contains("pickBankEnables_13_7"))
 
     val sharedSystemVerilog = ChiselStage.emitSystemVerilog(

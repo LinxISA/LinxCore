@@ -68,8 +68,8 @@ area or timing claims.
 
 ## Remaining gaps
 
-- Instantiate the formal 12-domain profile in the canonical top and enforce
-  recipe-level pipe capabilities.
+- Instantiate the formal 14-picker specialization in the canonical top; the
+  static class/bank/capability contract is now enforced at elaboration.
 - Connect class-specific physical resource owners to early policy and exact
   I1/I2 stage-cancel inputs.
 - Compose the implemented operand-read fabric with `OooPcBuffer` at the

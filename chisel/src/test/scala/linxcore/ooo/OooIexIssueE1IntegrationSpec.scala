@@ -28,7 +28,7 @@ class OooIexIssueE1IntegrationHarness(
   val io = IO(new OooIexIssueE1IntegrationHarnessIO(p))
 
   val issue = Module(new OooIexIssueReadFabric(p,
-    topology.map(_.capabilities)))
+    topology.map(_.capabilities), staticDomains = topology))
   val transfer = Module(new OooIexE1TransferFabric(p, topology))
 
   issue.io.s1 <> io.s1

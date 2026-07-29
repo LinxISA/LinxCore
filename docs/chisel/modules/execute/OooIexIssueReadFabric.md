@@ -28,6 +28,15 @@ in-flight, and retry owner. Every picker contributes one complete retained I1
 attempt after exact W1/W2/W3 bypass selection. It also exports that row's
 one-hot recipe capability independently from the compact RF request bundle.
 
+Production callers use `OooIexLinxIssueReadFabric`. This specialization derives
+the picker count, class/bank projections, capabilities, release geometry, and
+shared-resource participants from one `OooIexPhysicalProfile`. The base module
+still accepts dynamic `pickBankEnables` for focused harnesses, but when
+`staticDomains` is present the elaborated constants are authoritative and the
+external mask cannot alter residency visibility. Elaboration rejects a
+capability list that differs from the static domains or a shared-resource
+participant that does not advertise the required capability.
+
 Configured shared resources arbitrate before RF reads. The formal profile has
 three independent resources shared by ALU2 and ALU5: DIV, PAC, and SYS. Two
 requests for different resources may proceed together; two requests for the
@@ -69,7 +78,9 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabricSpec
 
 The shared-resource UT proves ALU2/ALU5 same-resource exclusion, accepted-grant
 round-robin rotation, independent DIV/PAC concurrency, ordinary-ALU bypass,
-and malformed capability rejection. The IT publishes one ready ALU row whose
+malformed capability rejection, and fail-closed inconsistent static metadata.
+The IT drives the compatibility bank-mask input to zero while a static ALU
+domain still selects its declared bank, then publishes one ready ALU row whose
 generation-qualified PTag has no
 physical data. I1 receives a complete port grant but no P response, rejects the
 attempt, and clears only that row's in-flight claim. After the exact P owner is
@@ -84,3 +95,5 @@ requires aggregate quiescence.
   miss/fault cancel outputs to the canonical issue ports in the static top.
 - Connect execution-unit busy/latency reservations to early policy and static
   E1/reflow/result-bus owners to the exact stage-cancel channels.
+- Instantiate the specialized read and E1 fabrics together in the canonical
+  OOO/IEX top; both specializations now consume the same formal profile.

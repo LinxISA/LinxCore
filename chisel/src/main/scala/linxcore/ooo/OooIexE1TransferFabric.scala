@@ -132,3 +132,9 @@ class OooIexE1TransferFabric(
   }
   io.empty := !io.occupied.asUInt.orR
 }
+
+/** Production Linx specialization driven by the formal physical profile. */
+class OooIexLinxE1TransferFabric(
+    val profile: OooIexPhysicalProfile =
+      OooIexLinxPhysicalProfile())
+    extends OooIexE1TransferFabric(profile.params, profile.transferConfigs)

@@ -41,6 +41,12 @@ STA picker; AGU2 exposes LDA only. STD shares ALU0/3 residency, SYS shares
 ALU2/5, and FSU/CMD share the external FSU owner. Boundary rows remain
 fast-resolved and own no IQ bank.
 
+`OooIexLinxE1TransferFabric` is the production specialization. It accepts one
+formal profile and derives every transfer slot, capability predicate, bank
+projection, and release owner from that profile. Paired with
+`OooIexLinxIssueReadFabric`, neither half can silently substitute an ad-hoc
+picker topology.
+
 ## Transfer and release arbitration
 
 Each picker lane has independent I2 input and E1 output backpressure. One
@@ -77,8 +83,9 @@ unsafe overlap/release-port rejection,
 fair same-port serialization, retained loser ownership, independent E1
 backpressure, and simultaneous ALU/BRU transfer on distinct ports. The
 integration test connects the real canonical IQ/read fabric to this transfer
-fabric and proves both rows can reach E1 on one edge exactly when both IQ rows
-and dispatch reservations are returned.
+fabric using the same static domain declarations and proves both rows can
+reach E1 on one edge exactly when both IQ rows and dispatch reservations are
+returned. The formal-profile UT elaborates the production specialization.
 
 ## Remaining gaps
 
