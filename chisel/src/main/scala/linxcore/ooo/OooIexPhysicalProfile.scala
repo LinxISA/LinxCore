@@ -19,7 +19,8 @@ object OooIexDomainCapability {
   val StoreAddress = 6
   val FloatingVector = 7
   val EngineCommand = 8
-  val Count = 9
+  val PointerAuth = 9
+  val Count = 10
 
   def mask(values: Int*): BigInt =
     values.foldLeft(BigInt(0))((result, value) => result | (BigInt(1) << value))
@@ -225,6 +226,11 @@ final case class OooIexPhysicalProfile(
     residencyOwners.filter(_.ownsClass(classIndex))
   def pickersFor(ownerName: String): Seq[OooIexPickerFunction] =
     pickerFunctions.filter(_.residencyOwner == ownerName)
+  def pickerIndex(name: String): Int = {
+    val index = pickerFunctions.indexWhere(_.name == name)
+    if (index >= 0) index
+    else throw new NoSuchElementException(s"unknown IEX picker function $name")
+  }
 }
 
 /** Formal Linx scalar/control issue profile.
@@ -281,6 +287,19 @@ object OooIexLinxPhysicalProfile {
       (mask, localBank) => mask | (BigInt(1) << (base + localBank)))
   }
 
+  def sharedReadResources(
+      profile: OooIexPhysicalProfile): Seq[OooIexSharedResourceConfig] = {
+    val symmetricAluPickers = Seq(
+      profile.pickerIndex("alu2"), profile.pickerIndex("alu5"))
+    Seq(
+      OooIexSharedResourceConfig("divide", MultiCycleAlu,
+        symmetricAluPickers),
+      OooIexSharedResourceConfig("pointer-auth", PointerAuth,
+        symmetricAluPickers),
+      OooIexSharedResourceConfig("system", System,
+        symmetricAluPickers))
+  }
+
   def apply(base: OooParams = OooParams()): OooIexPhysicalProfile = {
     val p = params(base)
     val half = p.iqBankCount / 2
@@ -302,7 +321,7 @@ object OooIexLinxPhysicalProfile {
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 0, 2),
           sysClass -> lowerBanks),
-        mask(SimpleAlu, MultiCycleAlu, System)),
+        mask(SimpleAlu, MultiCycleAlu, System, PointerAuth)),
       OooIexResidencyOwner("alu3",
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 1, 0),
@@ -316,7 +335,7 @@ object OooIexLinxPhysicalProfile {
         classMasks(p,
           aluClass -> clusterModuloMask(p.iqBankCount, 1, 2),
           sysClass -> upperBanks),
-        mask(SimpleAlu, MultiCycleAlu, System)),
+        mask(SimpleAlu, MultiCycleAlu, System, PointerAuth)),
       OooIexResidencyOwner("agu0",
         classMasks(p, aguClass -> moduloMask(p.iqBankCount, 0, 3)),
         mask(LoadAddress, StoreAddress)),
@@ -348,10 +367,12 @@ object OooIexLinxPhysicalProfile {
     val pickers = Seq(
       picker("alu0", "alu0", mask(SimpleAlu, StoreData), 0),
       picker("alu1", "alu1", mask(SimpleAlu), 1),
-      picker("alu2", "alu2", mask(SimpleAlu, MultiCycleAlu, System), 2),
+      picker("alu2", "alu2",
+        mask(SimpleAlu, MultiCycleAlu, System, PointerAuth), 2),
       picker("alu3", "alu3", mask(SimpleAlu, StoreData), 3),
       picker("alu4", "alu4", mask(SimpleAlu), 4),
-      picker("alu5", "alu5", mask(SimpleAlu, MultiCycleAlu, System), 5),
+      picker("alu5", "alu5",
+        mask(SimpleAlu, MultiCycleAlu, System, PointerAuth), 5),
       picker("agu0-lda", "agu0", mask(LoadAddress), 6),
       picker("agu0-sta", "agu0", mask(StoreAddress), 7),
       picker("agu1-lda", "agu1", mask(LoadAddress), 8),
@@ -386,6 +407,9 @@ object OooIexLinxPhysicalProfile {
     require(profile.residencyOwners.filter(_.hasCapability(MultiCycleAlu))
       .map(_.name).toSet == Set("alu2", "alu5"),
       "multi-cycle ALU capability must be restricted to ALU2/ALU5")
+    require(profile.residencyOwners.filter(_.hasCapability(PointerAuth))
+      .map(_.name).toSet == Set("alu2", "alu5"),
+      "pointer-authentication capability must be restricted to ALU2/ALU5")
     require(profile.ownersOf(aguClass).forall(_.hasCapability(LoadAddress)) &&
       profile.residencyOwners.filter(_.hasCapability(StoreAddress))
         .map(_.name).toSet ==
@@ -397,6 +421,7 @@ object OooIexLinxPhysicalProfile {
         Seq("agu1-lda", "agu1-sta") &&
       profile.pickersFor("agu2").map(_.name) == Seq("agu2-lda"),
       "AGU0/1 need LDA+STA pickers while AGU2 is LDA-only")
+    OooIexSharedResourceConfig.validate(p, sharedReadResources(profile))
     require(profile.ownersOf(fsuClass).map(_.name) == Seq("fsu0") &&
       profile.ownersOf(cmdClass).map(_.name) == Seq("fsu0"),
       "the external FSU domain owns FSU and engine-command residency")

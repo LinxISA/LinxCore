@@ -29,6 +29,8 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
 
   val readAttempts = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexI1ReadAttempt(p))))
+  val readCapabilities = Output(Vec(p.iexIssueDomainCount,
+    UInt(OooIexDomainCapability.Count.W)))
   val readDecisionValid = Input(Vec(p.iexIssueDomainCount, Bool()))
   val readGrant = Input(Vec(p.iexIssueDomainCount, Bool()))
   val sourceDataValid = Input(Vec(p.iexIssueDomainCount,
@@ -148,6 +150,7 @@ class OooIexIssueP1Fabric(
     io.retryFeedback(domain) := issue.io.pickRetries(domain)
 
     io.readAttempts(domain) := lane.io.readAttempt
+    io.readCapabilities(domain) := lane.io.readCapability
     lane.io.readDecisionValid := io.readDecisionValid(domain)
     lane.io.readGrant := io.readGrant(domain)
     lane.io.sourceDataValid := io.sourceDataValid(domain)

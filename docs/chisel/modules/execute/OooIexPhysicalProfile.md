@@ -31,10 +31,10 @@ bandwidth and must not be used to duplicate IQ rows.
 |---|---|---|---|
 | ALU0 | partition of ALU; lower-half STD banks | `alu0` | simple ALU, store data |
 | ALU1 | partition of ALU | `alu1` | simple ALU |
-| ALU2 | partition of ALU; lower-half SYS banks | `alu2` | simple/multi-cycle ALU, system |
+| ALU2 | partition of ALU; lower-half SYS banks | `alu2` | simple/multi-cycle ALU, PAC, system |
 | ALU3 | partition of ALU; upper-half STD banks | `alu3` | simple ALU, store data |
 | ALU4 | partition of ALU | `alu4` | simple ALU |
-| ALU5 | partition of ALU; upper-half SYS banks | `alu5` | simple/multi-cycle ALU, system |
+| ALU5 | partition of ALU; upper-half SYS banks | `alu5` | simple/multi-cycle ALU, PAC, system |
 | AGU0 | partition of AGU | `agu0-lda`, `agu0-sta` | load address, store address |
 | AGU1 | partition of AGU | `agu1-lda`, `agu1-sta` | load address, store address |
 | AGU2 | partition of AGU | `agu2-lda` | load address only |
@@ -57,8 +57,8 @@ Capability is retained as profile metadata rather than inferred from class.
 This distinction is required because:
 
 - AGU contains both LDA and STA recipes, but AGU2 cannot accept STA;
-- ALU contains simple and multi-cycle recipes, but only ALU2/5 accept the
-  latter;
+- ALU contains simple, multi-cycle, and pointer-authentication recipes, but
+  only ALU2/5 accept the latter two;
 - STD and SYS share physical ALU queues without becoming ordinary ALU
   operations;
 - FSU and engine commands share one external selection domain but require
@@ -83,9 +83,9 @@ legacy unit harnesses; the formal profile exposes `capabilityTopology` and
 The same separation now models picker multiplicity directly. AGU0/1 each have
 independent load- and store-address pickers over one residency owner, whereas
 AGU2 has only a load picker. The two typed pickers can issue together when
-both have ready rows. Shared DIV/PAC/SYS resources still require arbitration
-after local oldest-ready selection; that future arbitration is represented by
-the separate execution-lane identity rather than changing residency.
+both have ready rows. DIV, PAC, and SYS remain independent physical resources
+shared by ALU2/ALU5. Their I1 arbiter uses the separate execution-lane identity
+without changing residency or picker ownership.
 
 ## Scaling the read boundary
 
@@ -120,7 +120,7 @@ oldest selection across ALU/STD projections.
 
 ## Remaining work
 
-- add shared DIV/PAC/SYS and result-bus arbitration;
+- connect shared-resource busy/latency and result-bus reservations;
 - instantiate the profile in the canonical static IEX/LSU top;
 - synthesize the fourteen-picker rank, RF crossbar, release fanout, and picker
   matrix at the default geometry.

@@ -40,6 +40,7 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
     assert(profile.owner("alu0").hasCapability(StoreData))
     assert(profile.owner("alu3").hasCapability(StoreData))
     assert(profile.owner("alu2").hasCapability(MultiCycleAlu))
+    assert(profile.owner("alu2").hasCapability(PointerAuth))
     assert(profile.owner("alu5").hasCapability(System))
     assert(!profile.owner("alu0").hasCapability(MultiCycleAlu))
     assert(profile.owner("agu0").hasCapability(StoreAddress))
@@ -62,13 +63,20 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
       profile.picker("agu0-sta").capabilities) == 0)
     assert(profile.pickerFunctions.forall(picker =>
       profile.lane(picker.executionLane).capabilities == picker.capabilities))
+    val sharedResources = OooIexLinxPhysicalProfile.sharedReadResources(profile)
+    assert(sharedResources.map(_.name) ==
+      Seq("divide", "pointer-auth", "system"))
+    assert(sharedResources.map(_.capability) ==
+      Seq(MultiCycleAlu, PointerAuth, System))
+    assert(sharedResources.forall(_.pickerFunctions == Seq(2, 5)))
 
     val topology = profile.capabilityTopology.classBankCapabilities
     val aguClass = OooDispatchClass.Agu - 1
     assert(topology(aguClass)(2) == mask(LoadAddress))
     assert((topology(aguClass)(0) & mask(StoreAddress)) != 0)
     val aluClass = OooDispatchClass.Alu - 1
-    assert(topology(aluClass)(2) == mask(SimpleAlu, MultiCycleAlu, System))
+    assert(topology(aluClass)(2) ==
+      mask(SimpleAlu, MultiCycleAlu, System, PointerAuth))
     assert(topology(aluClass)(0) == mask(SimpleAlu, StoreData))
 
     assert(profile.owner("alu0").classBankEnables(
@@ -113,12 +121,19 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
     }
   }
 
-  test("elaborates the fourteen-picker retained transfer topology") {
+  test("elaborates the fourteen-picker transfer and shared-resource topology") {
     val profile = OooIexLinxPhysicalProfile()
     val systemVerilog = ChiselStage.emitSystemVerilog(
       new OooIexE1TransferFabric(profile.params, profile.transferConfigs),
       firtoolOpts = Array("--disable-all-randomization"))
     assert(systemVerilog.contains("module OooIexE1TransferFabric"))
     assert(systemVerilog.contains("pickBankEnables_13_7"))
+
+    val sharedSystemVerilog = ChiselStage.emitSystemVerilog(
+      new OooIexSharedResourceArbiter(profile.params,
+        OooIexLinxPhysicalProfile.sharedReadResources(profile)),
+      firtoolOpts = Array("--disable-all-randomization"))
+    assert(sharedSystemVerilog.contains("module OooIexSharedResourceArbiter"))
+    assert(sharedSystemVerilog.contains("io_conflicted"))
   }
 }

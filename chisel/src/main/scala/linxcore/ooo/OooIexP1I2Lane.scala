@@ -11,6 +11,7 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
     * source and the optional PC read together or denies the attempt together.
     */
   val readAttempt = Valid(new OooIexI1ReadAttempt(p))
+  val readCapability = Output(UInt(OooIexDomainCapability.Count.W))
   val readDecisionValid = Input(Bool())
   val readGrant = Input(Bool())
   val sourceDataValid = Input(UInt(p.maxSourceOperands.W))
@@ -268,6 +269,12 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.readAttempt.bits.sources := i1Request.row.sources
   io.readAttempt.bits.pcRequired := i1Request.pcReadRequired
   io.readAttempt.bits.pcToken := i1PcToken
+  val i1ClassInRange =
+    i1Request.row.reservation.uopClass.asUInt < p.iqClassCount.U
+  val safeI1Class = Mux(i1ClassInRange,
+    i1Request.row.reservation.uopClass.asUInt, 0.U)
+  io.readCapability := Mux(i1Valid && i1ClassInRange,
+    i1Request.row.recipe.dispatchCapabilities(safeI1Class), 0.U)
 
   val readDecision = io.readAttempt.valid && io.readDecisionValid
   val readDenied = readDecision && !io.readGrant

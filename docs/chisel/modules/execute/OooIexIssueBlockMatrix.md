@@ -78,9 +78,10 @@ normal pick.
 
 ## Remaining Gaps
 
-- exact I1/I2 stage-cancel and repick for conflicts discovered after P1;
 - concrete LSU LDQ/STQ-window and sidedoor producers in the canonical static
   top;
-- latency/reflow/result-bus reservation owners for every typed execution pipe;
+- concrete busy/latency/reflow/result-bus producers for every typed execution
+  pipe; same-cycle DIV/PAC/SYS sharing between ALU2/ALU5 is already resolved
+  before RF read, while later conflicts use exact I1/I2 stage-cancel and repick;
 - liveness counters and safe-mode peer suppression;
-- measured static physical domain profile and final ALU/AGU/STD/BRU mapping.
+- measured workload validation of the static ALU/AGU/STD/BRU mapping.

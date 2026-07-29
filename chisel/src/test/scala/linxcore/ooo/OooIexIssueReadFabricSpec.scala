@@ -213,6 +213,11 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.readDeniedMask.expect(0.U)
       dut.io.readAttempts(0).bits.sourceMask.expect(1.U)
       dut.io.readAttempts(0).bits.sources(0).ptag.expect(40.U)
+      dut.io.readCapabilities(0).expect(OooIexDomainCapability.mask(
+        OooIexDomainCapability.SimpleAlu).U)
+      dut.io.sharedEligibleMask.expect(1.U)
+      dut.io.sharedConflictMask.expect(0.U)
+      dut.io.sharedMalformedMask.expect(0.U)
       dut.io.readRejected(0).valid.expect(true.B)
       dut.io.retryFeedback(0).valid.expect(true.B)
       dut.io.retryFeedback(0).bits.member.group.ridSlot.expect(2.U)
@@ -254,6 +259,61 @@ class OooIexIssueReadFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.empty.expect(true.B)
       dut.io.pProtocolError.expect(false.B)
       dut.io.localProtocolError.expect(false.B)
+    }
+  }
+
+  test("arbitrates independent shared resources fairly before RF read") {
+    import OooIexDomainCapability._
+    val sharedP = p.copy(iexIssueDomainCount = 2)
+    val resources = Seq(
+      OooIexSharedResourceConfig("divide", MultiCycleAlu, Seq(0, 1)),
+      OooIexSharedResourceConfig("pointer-auth", PointerAuth, Seq(0, 1)),
+      OooIexSharedResourceConfig("system", System, Seq(0, 1)))
+
+    simulate(new OooIexSharedResourceArbiter(sharedP, resources)) { dut =>
+      dut.io.requestValid.poke(0.U)
+      dut.io.capabilities.foreach(_.poke(0.U))
+      dut.io.accepted.poke(0.U)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      dut.io.requestValid.poke("b11".U)
+      dut.io.capabilities(0).poke(mask(MultiCycleAlu).U)
+      dut.io.capabilities(1).poke(mask(MultiCycleAlu).U)
+      dut.io.eligible.expect("b01".U)
+      dut.io.conflicted.expect("b10".U)
+      dut.io.winners.expect("b01".U)
+
+      dut.io.accepted.poke("b01".U)
+      dut.clock.step()
+      dut.io.accepted.poke(0.U)
+      dut.io.roundRobin(0).expect(1.U)
+      dut.io.eligible.expect("b10".U)
+      dut.io.conflicted.expect("b01".U)
+
+      dut.io.capabilities(0).poke(mask(MultiCycleAlu).U)
+      dut.io.capabilities(1).poke(mask(PointerAuth).U)
+      dut.io.eligible.expect("b11".U)
+      dut.io.conflicted.expect(0.U)
+      dut.io.winners.expect("b11".U)
+
+      dut.io.capabilities(0).poke(mask(SimpleAlu).U)
+      dut.io.capabilities(1).poke(mask(SimpleAlu).U)
+      dut.io.eligible.expect("b11".U)
+      dut.io.conflicted.expect(0.U)
+      dut.io.winners.expect(0.U)
+
+      dut.io.capabilities(0).poke(mask(SimpleAlu, MultiCycleAlu).U)
+      dut.io.capabilities(1).poke(mask(SimpleAlu).U)
+      dut.io.malformed.expect("b01".U)
+      dut.io.eligible.expect("b10".U)
+    }
+
+    assertThrows[IllegalArgumentException] {
+      new OooIexSharedResourceArbiter(sharedP, Seq(
+        OooIexSharedResourceConfig("divide-a", MultiCycleAlu, Seq(0, 1)),
+        OooIexSharedResourceConfig("divide-b", MultiCycleAlu, Seq(0, 1))))
     }
   }
 }

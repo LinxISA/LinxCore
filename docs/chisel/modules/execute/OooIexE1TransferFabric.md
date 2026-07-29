@@ -82,7 +82,8 @@ and dispatch reservations are returned.
 
 ## Remaining gaps
 
-- add shared DIV/PAC/SYS arbitration;
+- connect shared DIV/PAC/SYS busy/latency state to issue policy and exact
+  stage-cancel; same-cycle ALU2/ALU5 arbitration is owned before RF read;
 - connect picker-specific E1 outputs to typed execution units;
 - connect retained recovery apply and physical load-cancel producers in the
   canonical top;

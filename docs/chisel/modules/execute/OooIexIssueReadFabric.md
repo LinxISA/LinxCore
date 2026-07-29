@@ -17,14 +17,27 @@ The module instantiates exactly one of each state-owning function:
 
 ```text
 OooIexIssueP1Fabric
+  -> OooIexSharedResourceArbiter
   -> OooIexAtomicReadArbiter
   -> OooIexOperandFiles
   -> retained I2 outputs
 ```
 
 The issue fabric remains the only IQ scheduling, sidecar, ready-scoreboard,
-in-flight, and retry owner. Every domain contributes one complete retained I1
-attempt to the shared atomic arbiter after exact W1/W2/W3 bypass selection.
+in-flight, and retry owner. Every picker contributes one complete retained I1
+attempt after exact W1/W2/W3 bypass selection. It also exports that row's
+one-hot recipe capability independently from the compact RF request bundle.
+
+Configured shared resources arbitrate before RF reads. The formal profile has
+three independent resources shared by ALU2 and ALU5: DIV, PAC, and SYS. Two
+requests for different resources may proceed together; two requests for the
+same resource use work-conserving round-robin. The fairness base advances only
+when the winning attempt also receives the atomic RF grant. A losing attempt
+remains in its original I1 lane, keeps its canonical IQ `inFlight` claim, and
+retries arbitration without delete/reinsert state. Invalid or non-one-hot
+capability metadata is blocked and reported separately.
+
+The surviving attempts enter the shared atomic RF arbiter.
 Bypass hits retain complete provenance in I2 and are removed from RF demand;
 an uncovered speculative source waits in I1. Selected P/T/U port requests go directly
 to the operand-file owner, and readyless responses return through the exact
@@ -44,8 +57,9 @@ errors from every physical operand namespace remain observable.
 Per-domain I1/I2 resource-cancel channels pass through unchanged to the
 private lanes. They are intentionally separate from the atomic RF grant: a
 known read-port conflict is expressed by the arbiter as an ordinary denial,
-while a structural/sidedoor/reflow/latency/result-bus conflict discovered by a
-later physical owner uses the exact retained stage token.
+same-cycle shared-resource conflict retains I1 without a read decision, while
+a structural/sidedoor/reflow/latency/result-bus conflict discovered by a later
+physical owner uses the exact retained stage token.
 
 ## Verification
 
@@ -53,7 +67,10 @@ later physical owner uses the exact retained stage token.
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabricSpec
 ```
 
-The IT publishes one ready ALU row whose generation-qualified PTag has no
+The shared-resource UT proves ALU2/ALU5 same-resource exclusion, accepted-grant
+round-robin rotation, independent DIV/PAC concurrency, ordinary-ALU bypass,
+and malformed capability rejection. The IT publishes one ready ALU row whose
+generation-qualified PTag has no
 physical data. I1 receives a complete port grant but no P response, rejects the
 attempt, and clears only that row's in-flight claim. After the exact P owner is
 initialized, the row is repicked and reaches retained I2 with the expected
@@ -65,5 +82,5 @@ requires aggregate quiescence.
 - Compose the six PC ports with `OooPcBuffer` in the canonical top.
 - Connect the implemented `OooIexLoadUnit` speculative wakeup, bypass, and
   miss/fault cancel outputs to the canonical issue ports in the static top.
-- Freeze the default class/bank/pipe map and class-specific eligibility rules.
-- Connect static E1/reflow/result-bus owners to the exact stage-cancel channels.
+- Connect execution-unit busy/latency reservations to early policy and static
+  E1/reflow/result-bus owners to the exact stage-cancel channels.

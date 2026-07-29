@@ -1,7 +1,129 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.{Decoupled, Mux1H, PopCount, PriorityEncoderOH, UIntToOH,
+  Valid}
+
+/** One physical resource shared by otherwise independent picker functions. */
+final case class OooIexSharedResourceConfig(
+    name: String,
+    capability: Int,
+    pickerFunctions: Seq[Int])
+
+object OooIexSharedResourceConfig {
+  def validate(
+      p: OooParams,
+      resources: Seq[OooIexSharedResourceConfig]): Unit = {
+    require(resources.nonEmpty,
+      "shared IEX arbitration needs at least one declared resource")
+    require(resources.map(_.name).forall(_.nonEmpty) &&
+      resources.map(_.name).distinct.length == resources.length,
+      "shared IEX resources need nonempty unique names")
+    require(resources.map(_.capability).distinct.length == resources.length,
+      "one IEX capability may name only one shared resource")
+    resources.foreach { resource =>
+      require(resource.capability >= 0 &&
+        resource.capability < OooIexDomainCapability.Count,
+        s"shared IEX resource ${resource.name} names an invalid capability")
+      require(resource.pickerFunctions.length >= 2 &&
+        resource.pickerFunctions.distinct.length ==
+          resource.pickerFunctions.length &&
+        resource.pickerFunctions.forall(index =>
+          index >= 0 && index < p.iexIssueDomainCount),
+        s"shared IEX resource ${resource.name} needs valid unique participants")
+    }
+  }
+}
+
+class OooIexSharedResourceArbiterIO(
+    val p: OooParams,
+    val resourceCount: Int) extends Bundle {
+  val requestValid = Input(UInt(p.iexIssueDomainCount.W))
+  val capabilities = Input(Vec(p.iexIssueDomainCount,
+    UInt(OooIexDomainCapability.Count.W)))
+  val accepted = Input(UInt(p.iexIssueDomainCount.W))
+
+  val eligible = Output(UInt(p.iexIssueDomainCount.W))
+  val conflicted = Output(UInt(p.iexIssueDomainCount.W))
+  val malformed = Output(UInt(p.iexIssueDomainCount.W))
+  val winners = Output(UInt(p.iexIssueDomainCount.W))
+  val roundRobin = Output(Vec(resourceCount,
+    UInt(p.iexIssueDomainWidth.W)))
+}
+
+/** Fair same-cycle arbitration for independently shared execution resources.
+  *
+  * A loser remains retained in I1; this owner never creates a retry or copies
+  * IQ state. Fairness advances only when the selected attempt also receives
+  * the downstream atomic RF grant.
+  */
+class OooIexSharedResourceArbiter(
+    val p: OooParams,
+    val resources: Seq[OooIexSharedResourceConfig]) extends Module {
+  OooIexSharedResourceConfig.validate(p, resources)
+  val io = IO(new OooIexSharedResourceArbiterIO(p, resources.length))
+
+  val roundRobin = RegInit(VecInit(Seq.fill(resources.length)(
+    0.U(p.iexIssueDomainWidth.W))))
+  val resourceRequests = Wire(Vec(resources.length,
+    UInt(p.iexIssueDomainCount.W)))
+  val resourceWinners = Wire(Vec(resources.length,
+    UInt(p.iexIssueDomainCount.W)))
+
+  for ((resource, resourceIndex) <- resources.zipWithIndex) {
+    val capability = OooIexDomainCapability.mask(resource.capability)
+      .U(OooIexDomainCapability.Count.W)
+    val participantMask = resource.pickerFunctions.foldLeft(BigInt(0))(
+      (mask, picker) => mask | (BigInt(1) << picker))
+    val requests = VecInit((0 until p.iexIssueDomainCount).map { picker =>
+      io.requestValid(picker) && participantMask.testBit(picker).B &&
+        io.capabilities(picker) === capability
+    }).asUInt
+    resourceRequests(resourceIndex) := requests
+
+    val rotatedRequests = Wire(Vec(p.iexIssueDomainCount, Bool()))
+    val rotatedPickers = Wire(Vec(p.iexIssueDomainCount,
+      UInt(p.iexIssueDomainWidth.W)))
+    for (offset <- 0 until p.iexIssueDomainCount) {
+      val sum = roundRobin(resourceIndex) +& offset.U
+      val picker = Mux(sum >= p.iexIssueDomainCount.U,
+        sum - p.iexIssueDomainCount.U, sum)(p.iexIssueDomainWidth - 1, 0)
+      rotatedPickers(offset) := picker
+      rotatedRequests(offset) := requests(picker)
+    }
+    val selectedOH = PriorityEncoderOH(rotatedRequests.asUInt)
+    val selectedValid = selectedOH.orR
+    val selectedPicker = Mux(selectedValid,
+      Mux1H(selectedOH, rotatedPickers), 0.U)
+    val winner = Mux(selectedValid,
+      UIntToOH(selectedPicker, p.iexIssueDomainCount),
+      0.U(p.iexIssueDomainCount.W))
+    resourceWinners(resourceIndex) := winner
+
+    val acceptedWinner = io.accepted & winner
+    when(acceptedWinner.orR) {
+      val acceptedPicker = chisel3.util.OHToUInt(acceptedWinner)
+      roundRobin(resourceIndex) := Mux(
+        acceptedPicker === (p.iexIssueDomainCount - 1).U,
+        0.U, acceptedPicker + 1.U)
+    }
+  }
+
+  val capabilityExact = VecInit(io.capabilities.map(capability =>
+    capability.orR && PopCount(capability) === 1.U)).asUInt
+  val sharedRequests = resourceRequests.reduce(_ | _)
+  val winners = resourceWinners.reduce(_ | _)
+  io.eligible := io.requestValid & capabilityExact &
+    (~sharedRequests | winners)
+  io.conflicted := io.requestValid & capabilityExact &
+    sharedRequests & ~winners
+  io.malformed := io.requestValid & ~capabilityExact
+  io.winners := winners
+  io.roundRobin := roundRobin
+
+  assert((io.accepted & ~io.eligible) === 0.U,
+    "shared IEX resources may accept only an eligible picker attempt")
+}
 
 class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
@@ -57,6 +179,11 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
     Decoupled(new OooIexI2Transaction(p)))
   val readAttempts = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexI1ReadAttempt(p))))
+  val readCapabilities = Output(Vec(p.iexIssueDomainCount,
+    UInt(OooIexDomainCapability.Count.W)))
+  val sharedEligibleMask = Output(UInt(p.iexIssueDomainCount.W))
+  val sharedConflictMask = Output(UInt(p.iexIssueDomainCount.W))
+  val sharedMalformedMask = Output(UInt(p.iexIssueDomainCount.W))
   val readSelectedMask = Output(UInt(p.iexIssueDomainCount.W))
   val readDeniedMask = Output(UInt(p.iexIssueDomainCount.W))
   val readShapeExact = Output(Vec(p.iexIssueDomainCount, Bool()))
@@ -116,7 +243,9 @@ class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
   */
 class OooIexIssueReadFabric(
     val p: OooParams = OooParams(),
-    val domainCapabilities: Seq[BigInt] = Seq.empty) extends Module {
+    val domainCapabilities: Seq[BigInt] = Seq.empty,
+    val sharedResources: Seq[OooIexSharedResourceConfig] = Seq.empty)
+    extends Module {
   val io = IO(new OooIexIssueReadFabricIO(p))
 
   val issue = Module(new OooIexIssueP1Fabric(p, domainCapabilities))
@@ -138,7 +267,29 @@ class OooIexIssueReadFabric(
   issue.io.stageCancels <> io.stageCancels
   issue.io.bypass := io.bypass
 
-  arbiter.io.attempts := issue.io.readAttempts
+  val arbitratedAttempts = Wire(Vec(p.iexIssueDomainCount,
+    Valid(new OooIexI1ReadAttempt(p))))
+  arbitratedAttempts := issue.io.readAttempts
+  if (sharedResources.nonEmpty) {
+    val shared = Module(new OooIexSharedResourceArbiter(p, sharedResources))
+    shared.io.requestValid := VecInit(
+      issue.io.readAttempts.map(_.valid)).asUInt
+    shared.io.capabilities := issue.io.readCapabilities
+    shared.io.accepted := arbiter.io.selectedMask
+    for (picker <- 0 until p.iexIssueDomainCount) {
+      arbitratedAttempts(picker).valid :=
+        issue.io.readAttempts(picker).valid && shared.io.eligible(picker)
+    }
+    io.sharedEligibleMask := shared.io.eligible
+    io.sharedConflictMask := shared.io.conflicted
+    io.sharedMalformedMask := shared.io.malformed
+  } else {
+    io.sharedEligibleMask := VecInit(
+      issue.io.readAttempts.map(_.valid)).asUInt
+    io.sharedConflictMask := 0.U
+    io.sharedMalformedMask := 0.U
+  }
+  arbiter.io.attempts := arbitratedAttempts
   for (domain <- 0 until p.iexIssueDomainCount) {
     issue.io.readDecisionValid(domain) := arbiter.io.decisionValid(domain)
     issue.io.readGrant(domain) := arbiter.io.grant(domain)
@@ -174,6 +325,7 @@ class OooIexIssueReadFabric(
   io.uWriteFire := operands.io.uWriteFire
 
   io.readAttempts := issue.io.readAttempts
+  io.readCapabilities := issue.io.readCapabilities
   io.readSelectedMask := arbiter.io.selectedMask
   io.readDeniedMask := arbiter.io.deniedMask
   io.readShapeExact := arbiter.io.shapeExact
