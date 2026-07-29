@@ -61,7 +61,10 @@ speculative `inFlight`, and
 generation-qualified P/T/U source/destination tags. The payload sidecar keeps
 the canonical uop key, opcode, generated recipe, split-child index, primary
 prediction, PC-buffer tokens, derived primary-parent index, and
-immediate/boundary/template/trap/close controls.
+immediate/boundary/template/trap/close controls. I0.9c also keeps the typed
+`OooMemoryControl` here, so selected AGU rows retain D1-normalized address
+mode, byte offset, access size, index transform, and child source masks without
+adding those wide controls to the wakeup/recovery scan row.
 
 The joined query view preserves the existing execution contract. Release or
 recovery invalidates only the scheduling row; stale payload memory is

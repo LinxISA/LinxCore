@@ -241,6 +241,12 @@ The `FrontendDecodeStageSpec` reference cases cover:
 `HL.ADDTPC` with the same encoded page count both produce immediate `0x1000`
 and a BRU dispatch recipe.
 
+The canonical `OooD1Decode` wrapper also converts generated scalar-load rows
+into `OooMemoryControl`: scaled immediates become byte offsets, `_U` and PCR
+offsets remain unscaled, and register index modifier/shift bits become typed
+controls. This OOO-only normalization leaves the compatibility decode payload
+unchanged while preventing the typed AGU from reading raw instruction bits.
+
 ## Open Work
 
 - Add cycle-level simulation checks once the Chisel test lane has a probe

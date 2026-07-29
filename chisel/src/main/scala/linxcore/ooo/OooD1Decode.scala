@@ -1,14 +1,15 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount}
+import chisel3.util.{Decoupled, is, PopCount, switch}
 import linxcore.common.{
   BranchPredictionSidecar,
   DestinationKind,
   InterfaceParams,
   OperandClass
 }
-import linxcore.frontend.{FrontendInstructionDecodeLane, FrontendRegAliasClassify}
+import linxcore.frontend.{FrontendInstructionDecodeLane,
+  FrontendOpcodeDecodeTable, FrontendRegAliasClassify}
 
 object OooD1TrapCause {
   val IllegalEncoding: BigInt = 2
@@ -134,6 +135,114 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
   uop.plannedChildCount := recipe.uopCountMax
   uop.immediateValid := legacy.io.out.immValid
   uop.immediate := legacy.io.out.imm
+
+  private def opcodeIs(values: Int*): Bool =
+    values.map(value => recipe.opcode === value.U(p.opcodeWidth.W))
+      .reduce(_ || _)
+
+  val scalarLoad = recipe.valid &&
+    recipe.recipeKind === OooOpcodeRecipeKind.ScalarLoad.U &&
+    recipe.dispatchClass === OooDispatchClass.Agu.U &&
+    recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U
+  val loadPcr = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LB_PCR,
+    FrontendOpcodeDecodeTable.OP_LBU_PCR,
+    FrontendOpcodeDecodeTable.OP_LD_PCR,
+    FrontendOpcodeDecodeTable.OP_LH_PCR,
+    FrontendOpcodeDecodeTable.OP_LHU_PCR,
+    FrontendOpcodeDecodeTable.OP_LW_PCR,
+    FrontendOpcodeDecodeTable.OP_LWU_PCR)
+  val loadRegister = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LB,
+    FrontendOpcodeDecodeTable.OP_LBU,
+    FrontendOpcodeDecodeTable.OP_LD,
+    FrontendOpcodeDecodeTable.OP_LH,
+    FrontendOpcodeDecodeTable.OP_LHU,
+    FrontendOpcodeDecodeTable.OP_LW,
+    FrontendOpcodeDecodeTable.OP_LWU)
+  val byteLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LB,
+    FrontendOpcodeDecodeTable.OP_LBI,
+    FrontendOpcodeDecodeTable.OP_LB_PCR,
+    FrontendOpcodeDecodeTable.OP_LBU,
+    FrontendOpcodeDecodeTable.OP_LBUI,
+    FrontendOpcodeDecodeTable.OP_LBU_PCR)
+  val halfLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LH,
+    FrontendOpcodeDecodeTable.OP_LHI,
+    FrontendOpcodeDecodeTable.OP_LHI_U,
+    FrontendOpcodeDecodeTable.OP_LH_PCR,
+    FrontendOpcodeDecodeTable.OP_LHU,
+    FrontendOpcodeDecodeTable.OP_LHUI,
+    FrontendOpcodeDecodeTable.OP_LHUI_U,
+    FrontendOpcodeDecodeTable.OP_LHU_PCR)
+  val wordLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LW,
+    FrontendOpcodeDecodeTable.OP_LWI,
+    FrontendOpcodeDecodeTable.OP_LWI_U,
+    FrontendOpcodeDecodeTable.OP_LW_PCR,
+    FrontendOpcodeDecodeTable.OP_LWU,
+    FrontendOpcodeDecodeTable.OP_LWUI,
+    FrontendOpcodeDecodeTable.OP_LWUI_U,
+    FrontendOpcodeDecodeTable.OP_LWU_PCR)
+  val unsignedLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LBU,
+    FrontendOpcodeDecodeTable.OP_LBUI,
+    FrontendOpcodeDecodeTable.OP_LBU_PCR,
+    FrontendOpcodeDecodeTable.OP_LHU,
+    FrontendOpcodeDecodeTable.OP_LHUI,
+    FrontendOpcodeDecodeTable.OP_LHUI_U,
+    FrontendOpcodeDecodeTable.OP_LHU_PCR,
+    FrontendOpcodeDecodeTable.OP_LWU,
+    FrontendOpcodeDecodeTable.OP_LWUI,
+    FrontendOpcodeDecodeTable.OP_LWUI_U,
+    FrontendOpcodeDecodeTable.OP_LWU_PCR)
+  val signedNarrowLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LB,
+    FrontendOpcodeDecodeTable.OP_LBI,
+    FrontendOpcodeDecodeTable.OP_LB_PCR,
+    FrontendOpcodeDecodeTable.OP_LH,
+    FrontendOpcodeDecodeTable.OP_LHI,
+    FrontendOpcodeDecodeTable.OP_LHI_U,
+    FrontendOpcodeDecodeTable.OP_LH_PCR,
+    FrontendOpcodeDecodeTable.OP_LW,
+    FrontendOpcodeDecodeTable.OP_LWI,
+    FrontendOpcodeDecodeTable.OP_LWI_U,
+    FrontendOpcodeDecodeTable.OP_LW_PCR)
+  val unscaledLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_LHI_U,
+    FrontendOpcodeDecodeTable.OP_LHUI_U,
+    FrontendOpcodeDecodeTable.OP_LWI_U,
+    FrontendOpcodeDecodeTable.OP_LWUI_U,
+    FrontendOpcodeDecodeTable.OP_LDI_U)
+  val accessBytes = Mux(byteLoad, 1.U, Mux(halfLoad, 2.U,
+    Mux(wordLoad, 4.U, 8.U)))
+  val accessShift = Mux(byteLoad, 0.U, Mux(halfLoad, 1.U,
+    Mux(wordLoad, 2.U, 3.U)))
+  val normalizedOffset = Mux(loadPcr || unscaledLoad,
+    legacy.io.out.imm,
+    (legacy.io.out.imm << accessShift)(p.pcWidth - 1, 0))
+
+  uop.memory.valid := scalarLoad
+  uop.memory.isLoad := scalarLoad
+  uop.memory.isStore := false.B
+  uop.memory.addressMode := Mux(loadPcr, OooMemoryAddressMode.PcOffset,
+    Mux(loadRegister, OooMemoryAddressMode.BaseIndex,
+      OooMemoryAddressMode.BaseOffset))
+  uop.memory.accessBytes := accessBytes
+  uop.memory.signExtend := scalarLoad && signedNarrowLoad && !unsignedLoad
+  uop.memory.offset := normalizedOffset
+  uop.memory.indexMode := OooMemoryIndexMode.Identity
+  switch(parent.rawInstruction(26, 25)) {
+    is(0.U) { uop.memory.indexMode := OooMemoryIndexMode.SignExtend32 }
+    is(1.U) { uop.memory.indexMode := OooMemoryIndexMode.ZeroExtend32 }
+    is(2.U) { uop.memory.indexMode := OooMemoryIndexMode.Negate }
+  }
+  uop.memory.indexShift := Mux(loadRegister,
+    parent.rawInstruction(31, 27), 0.U)
+  uop.memory.addressSourceMask := Mux(loadPcr, 0.U,
+    Mux(loadRegister, 3.U, 1.U))
+  uop.memory.dataSourceMask := 0.U
   uop.boundaryTargetValid := recipe.requiresTargetValidation && legacy.io.out.immValid
   uop.boundaryTarget := legacy.io.out.boundaryTarget
   uop.preciseTrap := effectiveIllegal
@@ -208,6 +317,7 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     uop.sources.foreach(_.valid := false.B)
     uop.destinations.foreach(_.valid := false.B)
     uop.immediateValid := false.B
+    uop.memory.valid := false.B
     uop.boundaryTargetValid := false.B
   }
 

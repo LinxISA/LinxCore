@@ -501,6 +501,7 @@ class OooIexIssue(val p: OooParams = OooParams()) extends Module {
         row.plannedChildCount := pUop.decoded.plannedChildCount
         row.immediateValid := pUop.decoded.immediateValid
         row.immediate := pUop.decoded.immediate
+        row.memory := pUop.decoded.memory
         row.boundaryTargetValid := pUop.decoded.boundaryTargetValid
         row.boundaryTarget := pUop.decoded.boundaryTarget
         row.preciseTrap := pUop.decoded.preciseTrap

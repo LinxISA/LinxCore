@@ -138,6 +138,50 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("normalizes scalar load address controls before rename") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      val ldi = encoded("OP_LDI", (31, 20, 0xffe), (19, 15, 3),
+        (11, 7, 4))
+      val lwiUnscaled = encoded("OP_LWI_U", (31, 20, 0xffe),
+        (19, 15, 5), (11, 7, 6))
+      val pcr = encoded("OP_LD_PCR", (31, 15, 3), (11, 7, 7))
+      val indexed = encoded("OP_LD", (31, 27, 3), (26, 25, 0),
+        (24, 20, 8), (19, 15, 9), (11, 7, 10))
+      drive(dut, 0, "OP_LDI", ldi, 30, 0x3000)
+      drive(dut, 1, "OP_LWI_U", lwiUnscaled, 31, 0x3004)
+      drive(dut, 2, "OP_LD_PCR", pcr, 32, 0x3008)
+      drive(dut, 3, "OP_LD", indexed, 33, 0x300c)
+      dut.io.in.bits.validMask.poke("b1111".U)
+      dut.io.in.valid.poke(true.B)
+
+      val scaled = dut.io.out.bits.uops(0).memory
+      scaled.valid.expect(true.B)
+      scaled.addressMode.expect(OooMemoryAddressMode.BaseOffset)
+      scaled.accessBytes.expect(8.U)
+      scaled.offset.expect(BigInt("fffffffffffffff0", 16).U)
+      scaled.addressSourceMask.expect(1.U)
+
+      val unscaled = dut.io.out.bits.uops(1).memory
+      unscaled.addressMode.expect(OooMemoryAddressMode.BaseOffset)
+      unscaled.accessBytes.expect(4.U)
+      unscaled.signExtend.expect(true.B)
+      unscaled.offset.expect(BigInt("fffffffffffffffe", 16).U)
+
+      val pcRelative = dut.io.out.bits.uops(2).memory
+      pcRelative.addressMode.expect(OooMemoryAddressMode.PcOffset)
+      pcRelative.offset.expect(3.U)
+      pcRelative.addressSourceMask.expect(0.U)
+
+      val register = dut.io.out.bits.uops(3).memory
+      register.addressMode.expect(OooMemoryAddressMode.BaseIndex)
+      register.indexMode.expect(OooMemoryIndexMode.SignExtend32)
+      register.indexShift.expect(3.U)
+      register.addressSourceMask.expect(3.U)
+    }
+  }
+
   test("normalizes 32 and 48-bit ADDTPC page displacements to bytes") {
     val p = OooParams()
     simulate(new OooD1Decode(p)) { dut =>

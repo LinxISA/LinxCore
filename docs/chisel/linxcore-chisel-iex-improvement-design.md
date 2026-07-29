@@ -573,6 +573,28 @@ owner；所有 redirect form 还需要 typed prediction/redirect transaction 及
 publication sink。E2 retained row 支持同拍 drain/refill，并对 grouped-ROB
 recovery 和 exact load-generation cancel 做精确抑制。
 
+### 6.8 I0.9c 已实现：D1 typed memory control 与 scalar-load AGU
+
+canonical uop 新增 `OooMemoryControl`，D1 把 scalar load 的 address mode、
+access bytes、signed extension、byte offset、register-index transform/shift，
+以及 address/data source mask 一次性规范化。scaled immediate 在 D1 转成
+byte offset；`_U` unscaled 与 PCR 保持 byte quantity；register-index 的
+sign/zero/negate/shift 不再留给 E1 解析 raw instruction。该 payload 从 D1
+经过 rename、memory-backed IQ sidecar 一直保留到 I2/E1。
+
+`OooIexAguPipeline` 覆盖 generated recipe 中全部 `ScalarLoad + AGU + LSU +
+one request` 行。E1 只根据 typed memory control 计算 byte address，并将
+address、size、sign intent、destination 与完整 execute identity 保持为一个
+retained LSU request。LSU 接受前不访问 memory、不分配 load generation、
+不 speculative wakeup、不写 RF、不完成 ROB。
+
+当前仍未实现 load-generation allocator/tracker、hit/miss return、load data
+extension、bypass/wakeup、miss cancel/replay/repick。store recipe 会 late split
+为 AGU+STD child；在实现 store AGU 前，必须先给两个 child 做 address/data
+source projection，不能继续让两者复制 parent 的全部 source payload。compact
+与部分 high-long load 仍被 generated catalog 分到 ALU/IEX，也必须先修 recipe
+ownership，不能在 AGU 中暗中接管。
+
 ## 7. `ScalarGPRFile`
 
 ### 7.1 当前实现

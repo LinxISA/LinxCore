@@ -11,6 +11,31 @@ object OooRecoveryCause extends ChiselEnum {
   val Branch, Exception, Interrupt, Nuke, Debug, CtuCancel = Value
 }
 
+/** Encoding-independent scalar memory address form emitted by D1. */
+object OooMemoryAddressMode extends ChiselEnum {
+  val None, BaseIndex, BaseOffset, PcOffset = Value
+}
+
+/** D1-normalized transformation applied to a register index before addition. */
+object OooMemoryIndexMode extends ChiselEnum {
+  val Identity, SignExtend32, ZeroExtend32, Negate = Value
+}
+
+/** Typed scalar memory controls carried with one canonical uop. */
+class OooMemoryControl(val p: OooParams = OooParams()) extends Bundle {
+  val valid = Bool()
+  val isLoad = Bool()
+  val isStore = Bool()
+  val addressMode = OooMemoryAddressMode()
+  val accessBytes = UInt(4.W)
+  val signExtend = Bool()
+  val offset = UInt(p.pcWidth.W)
+  val indexMode = OooMemoryIndexMode()
+  val indexShift = UInt(5.W)
+  val addressSourceMask = UInt(p.maxSourceOperands.W)
+  val dataSourceMask = UInt(p.maxSourceOperands.W)
+}
+
 /** Independent proof obligations used by the ROB-owned non-flush window.
   * A producer may satisfy several obligations in one exact retained event.
   */
@@ -139,6 +164,7 @@ class OooDecodedUop(val p: OooParams = OooParams()) extends Bundle {
   val destinations = Vec(p.maxDestinationOperands, new OooDecodedDestination(p))
   val immediateValid = Bool()
   val immediate = UInt(p.pcWidth.W)
+  val memory = new OooMemoryControl(p)
   val boundaryTargetValid = Bool()
   val boundaryTarget = UInt(p.pcWidth.W)
   val preciseTrap = Bool()
@@ -903,6 +929,7 @@ class OooIexPayloadSidecar(val p: OooParams = OooParams()) extends Bundle {
   val plannedChildCount = UInt(p.recipeUopCountWidth.W)
   val immediateValid = Bool()
   val immediate = UInt(p.pcWidth.W)
+  val memory = new OooMemoryControl(p)
   val boundaryTargetValid = Bool()
   val boundaryTarget = UInt(p.pcWidth.W)
   val preciseTrap = Bool()
@@ -950,6 +977,7 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def plannedChildCount = payload.plannedChildCount
   def immediateValid = payload.immediateValid
   def immediate = payload.immediate
+  def memory = payload.memory
   def boundaryTargetValid = payload.boundaryTargetValid
   def boundaryTarget = payload.boundaryTarget
   def preciseTrap = payload.preciseTrap
