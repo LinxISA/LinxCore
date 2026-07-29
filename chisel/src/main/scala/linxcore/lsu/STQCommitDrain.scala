@@ -59,6 +59,7 @@ class STQCommitDrainIO(
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
   val enqueueDuplicate = Output(Bool())
+  val enqueueMalformed = Output(Bool())
   val enqueueInsertPosition = Output(UInt(queueCountWidth.W))
 
   val issueEnable = Input(Bool())
@@ -85,6 +86,7 @@ class STQCommitDrainIO(
   val empty = Output(Bool())
   val full = Output(Bool())
   val orderError = Output(Bool())
+  val queuedIdentityError = Output(Bool())
 }
 
 object STQCommitDrain {
@@ -145,11 +147,30 @@ class STQCommitDrain(
     stqEntries = entries,
     queueEntries = queueEntries,
     issueWidth = issueWidth,
-    lsidWidth = lsidWidth))
-  queue.io.enqueueValid := io.enqueueValid
+    lsidWidth = lsidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth))
+  val enqueueRow = io.rows(io.enqueueIndex)
+  val enqueueRowExact = enqueueRow.valid &&
+    (enqueueRow.status === STQEntryStatus.Wait ||
+      enqueueRow.status === STQEntryStatus.Commit) &&
+    enqueueRow.storeType === STQStoreType.All &&
+    enqueueRow.addrReady && enqueueRow.dataReady &&
+    enqueueRow.bid.valid && io.enqueueBid.valid &&
+    ROBID.equal(enqueueRow.bid, io.enqueueBid) &&
+    enqueueRow.lsIdFull === io.enqueueLsId &&
+    enqueueRow.storeIdFullValid && enqueueRow.exactOwner.valid &&
+    enqueueRow.exactOwner.nativeBidValid &&
+    enqueueRow.exactOwner.stid === enqueueRow.stid
+  queue.io.enqueueValid := io.enqueueValid && enqueueRowExact
   queue.io.enqueueIndex := io.enqueueIndex
+  queue.io.enqueueLeaseGeneration := enqueueRow.leaseGeneration
+  queue.io.enqueueStid := enqueueRow.stid
   queue.io.enqueueBid := io.enqueueBid
   queue.io.enqueueLsId := io.enqueueLsId
+  queue.io.enqueueStoreIdValid := enqueueRow.storeIdFullValid
+  queue.io.enqueueStoreId := enqueueRow.storeIdFull
+  queue.io.enqueueExactOwner := enqueueRow.exactOwner
   queue.io.flushValid := io.flushValid
   queue.io.issueEnable := io.issueEnable
 
@@ -170,11 +191,29 @@ class STQCommitDrain(
         Mux(splitVec(idx), io.primaryReadyMask(idx) && io.secondaryReadyMask(idx), io.primaryReadyMask(idx))
   }
 
-  queue.io.readyMask := readyVec.asUInt
+  val queuedTokenExact = Wire(Vec(queueEntries, Bool()))
+  val queuedTokenReady = Wire(Vec(queueEntries, Bool()))
+  for (slot <- 0 until queueEntries) {
+    val token = queue.io.queued(slot)
+    val row = io.rows(token.stqIndex)
+    queuedTokenExact(slot) := !token.valid || (
+      row.valid && row.status === STQEntryStatus.Commit &&
+        row.storeType === STQStoreType.All && row.addrReady && row.dataReady &&
+        row.leaseGeneration === token.leaseGeneration &&
+        row.stid === token.stid && ROBID.equal(row.bid, token.bid) &&
+        row.lsIdFull === token.lsId && row.storeIdFullValid &&
+        token.storeIdValid && row.storeIdFull === token.storeId &&
+        row.exactOwner.asUInt === token.exactOwner.asUInt)
+    queuedTokenReady(slot) := token.valid && queuedTokenExact(slot) &&
+      readyVec(token.stqIndex)
+  }
+  queue.io.readyMask := queuedTokenReady.asUInt
 
-  io.enqueueReady := queue.io.enqueueReady
+  io.enqueueReady := enqueueRowExact && queue.io.enqueueReady
   io.enqueueAccepted := queue.io.enqueueAccepted
   io.enqueueDuplicate := queue.io.enqueueDuplicate
+  io.enqueueMalformed := io.enqueueValid && !io.flushValid &&
+    (!enqueueRowExact || queue.io.enqueueMalformed)
   io.enqueueInsertPosition := queue.io.enqueueInsertPosition
   io.commitEligibleMask := commitEligibleVec.asUInt
   io.splitMask := splitVec.asUInt
@@ -188,6 +227,9 @@ class STQCommitDrain(
   io.empty := queue.io.empty
   io.full := queue.io.full
   io.orderError := queue.io.orderError
+  io.queuedIdentityError := VecInit((0 until queueEntries).map { slot =>
+    queue.io.queued(slot).valid && !queuedTokenExact(slot)
+  }).asUInt.orR
 
   val commitFreeVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
@@ -221,7 +263,7 @@ class STQCommitDrain(
     val firstReq = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth, identityEntries, lsidWidth))
     firstReq := zeroReq
     firstReq.valid := issue.valid
-    firstReq.ownsStqRow := issue.valid
+    firstReq.ownsStqRow := issue.valid && !crosses
     firstReq.stqIndex := issue.stqIndex
     firstReq.split := crosses
     firstReq.segment := 0.U
@@ -254,5 +296,13 @@ class STQCommitDrain(
 
     io.memReqs(lane * 2) := firstReq
     io.memReqs(lane * 2 + 1) := secondReq
+
+    when(issue.valid) {
+      assert(row.leaseGeneration === issue.leaseGeneration &&
+        row.exactOwner.asUInt === issue.exactOwner.asUInt &&
+        row.storeIdFullValid && issue.storeIdValid &&
+        row.storeIdFull === issue.storeId,
+        "a committed store may drain only through its exact live STQ lease")
+    }
   }
 }

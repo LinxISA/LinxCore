@@ -524,6 +524,28 @@ ownsStqRow
 - flush 不删除已 commit/non-flush store；
 - MMIO store 不经过 cache coalescing。
 
+### 8.8 I0.9l 已实现：exact CommitQ drain frontier
+
+`STQCommitQueue` 不再把 `{physical index, legacy BID, LSID}` 当成足够的
+committed-store token。每个 entry 现在保存 physical STQ lease generation、完整
+`STQExactOwner`、STID、full LSID 和 full store ID；queue slot 只负责驻留，不参与
+程序顺序。每个 token 只有在同 STID 不存在更老 full store ID 时才可 issue，full
+LSID 必须给出一致的先后关系。因此老 store 下游 stalled 时年轻同-STID store不能
+跳过，peer STID仍可使用其他 issue lane。
+
+`STQCommitDrain` 在 enqueue 时允许 bank 正在完成的 WAIT→Commit 同拍转换，但在
+每次 issue 前重新比对 canonical STQ row 的 status、lease generation、exact owner、
+STID、BID、full LSID/store ID。slot reuse 或错误 identity 会让 token 保持 resident、
+禁止 issue/free，并报告 `queuedIdentityError`。ordinary branch recovery只清 speculative
+WAIT rows，不再清除 CommitQ 的 non-flush token。
+
+cross-line split 的 segment0 不再声称拥有 STQ row，只有 `last` segment带
+`ownsStqRow`；canonical composition继续只使用 SCB accepted last fragment生成 STQ
+free mask。动态 IT 已覆盖 same-edge commit snapshot、stale lease拒绝和 last-only
+ownership。I0.9l 尚未完成 retained fragment状态：当前 queue issue仍以整批 SCB credit
+为组合资格，下一包需要让 token/fragment在下游回压期间稳定保持，并把 pair store的
+最多四个 fragment归一到一个 logical completion token。
+
 ## 9. Store Coalescing Buffer（SCB）
 
 ### 9.1 当前实现

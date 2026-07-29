@@ -1,5 +1,7 @@
 package linxcore.lsu
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -88,7 +90,7 @@ object STQSCBCommitPathReference {
   }
 }
 
-class STQSCBCommitPathSpec extends AnyFunSuite {
+class STQSCBCommitPathSpec extends AnyFunSuite with ChiselSim {
   import STQEntryBankReference._
   import STQFlushPruneReference.Id
   import STQSCBCommitPathReference._
@@ -196,5 +198,88 @@ class STQSCBCommitPathSpec extends AnyFunSuite {
     assert(sv.contains("io_scbRespDecodeError"))
     assert(sv.contains("io_stqCommitFreeAcceptedMask"))
     assert(sv.contains("io_drainEarlyFreeMask"))
+  }
+
+  test("accepted WAIT-to-Commit transition snapshots one exact drain token") {
+    simulate(new STQSCBCommitPath(
+      entries = 4,
+      queueEntries = 4,
+      issueWidth = 1,
+      scbEntries = 4,
+      scbResponseBufferDepth = 2,
+      robEntries = 8,
+      stidWidth = 2,
+      lsidWidth = 40)) { dut =>
+      dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+      dut.io.insertValid.poke(false.B)
+      dut.io.insert.poke(0.U.asTypeOf(dut.io.insert))
+      dut.io.markCommitValid.poke(false.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.io.issueEnable.poke(false.B)
+      dut.io.evictEnable.poke(false.B)
+      dut.io.dcacheReady.poke(true.B)
+      dut.io.dcacheWriteHit.poke(false.B)
+      dut.io.dcacheTagHit.poke(false.B)
+      dut.io.l2RequestReady.poke(true.B)
+      dut.io.rawRespValid.poke(false.B)
+      dut.io.rawRespTxnId.poke(0.U)
+      dut.io.rawRespWrite.poke(false.B)
+      dut.io.rawRespUpgrade.poke(false.B)
+      dut.clock.step()
+
+      val request = dut.io.insert
+      request.storeType.poke(STQStoreType.All)
+      request.peId.poke(1.U)
+      request.stid.poke(0.U)
+      request.tid.poke(0.U)
+      request.bid.valid.poke(true.B)
+      request.bid.value.poke(2.U)
+      request.gid.valid.poke(true.B)
+      request.gid.value.poke(1.U)
+      request.rid.valid.poke(true.B)
+      request.rid.value.poke(3.U)
+      request.lsId.valid.poke(true.B)
+      request.lsId.value.poke(1.U)
+      request.lsIdFull.poke(9.U)
+      request.storeIdFullValid.poke(true.B)
+      request.storeIdFull.poke(4.U)
+      request.exactOwner.valid.poke(true.B)
+      request.exactOwner.peId.poke(1.U)
+      request.exactOwner.stid.poke(0.U)
+      request.exactOwner.nativeBidValid.poke(true.B)
+      request.exactOwner.nativeBid.poke(6.U)
+      request.exactOwner.brobGeneration.poke(2.U)
+      request.exactOwner.ridSlot.poke(1.U)
+      request.exactOwner.ridGeneration.poke(3.U)
+      request.exactOwner.memberIndex.poke(0.U)
+      request.exactOwner.residentGeneration.poke(4.U)
+      request.addr.poke(0x1000.U)
+      request.data.poke(BigInt("1122334455667788", 16).U)
+      request.size.poke(8.U)
+      dut.io.insertValid.poke(true.B)
+      dut.io.insertReady.expect(true.B)
+      dut.io.insertAccepted.expect(true.B)
+      val index = dut.io.insertIndex.peek().litValue
+      dut.clock.step()
+      dut.io.insertValid.poke(false.B)
+
+      dut.io.markCommitValid.poke(true.B)
+      dut.io.markCommitIndex.poke(index.U)
+      dut.io.markCommitAccepted.expect(true.B)
+      dut.io.drainEnqueueAccepted.expect(true.B)
+      dut.io.drainEnqueueMalformed.expect(false.B)
+      dut.clock.step()
+      dut.io.markCommitValid.poke(false.B)
+
+      dut.io.drainQueueCount.expect(1.U)
+      dut.io.drainQueuedIdentityError.expect(false.B)
+      dut.io.issueEnable.poke(true.B)
+      dut.io.drainIssueValidMask.expect(1.U)
+      dut.io.drainMemReqs(0).valid.expect(true.B)
+      dut.io.drainMemReqs(0).last.expect(true.B)
+      dut.io.drainMemReqs(0).ownsStqRow.expect(true.B)
+      dut.io.scbAcceptedMask.expect(1.U)
+      dut.io.scbCommitFreeMask.expect((BigInt(1) << index.toInt).U)
+    }
   }
 }

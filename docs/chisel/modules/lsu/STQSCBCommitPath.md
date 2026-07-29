@@ -85,9 +85,10 @@ The module owns no registers directly. It composes three state owners:
 The LinxCoreModel store unit calls `STQ::retire()` before `STQ::commit()` in
 `StoreUnit::GetCommitID()`. `retire()` changes ready, non-flushable stores from
 `STQ_WAIT` to `STQ_COMMIT` and appends their row indices to `storeCommitQ`.
-`commit()` then walks `storeCommitQ` from old to young, skips entries whose SCB
-target is stalled, sends one or two split fragments, and frees the STQ row only
-after the memory-side send succeeds.
+`commit()` then walks `storeCommitQ`, sends one or two split fragments, and
+frees the STQ row only after the memory-side send succeeds. The Chisel path
+strengthens the model's ready-row scan: an older stalled store blocks every
+younger same-STID token, while independent STIDs may still bypass.
 
 The Chisel composition maps that behavior into registered owner boundaries:
 
@@ -96,9 +97,8 @@ The Chisel composition maps that behavior into registered owner boundaries:
 2. `SCBRowBank.modelBatchReady` gates the drain issue path. If the row bank has
    fewer free rows than the worst-case split request batch, the drain queue does
    not issue or compact.
-3. `STQEntryBank.flushApplied` clears the drain queue and suppresses drain
-   issue so a flush-prune cycle cannot allow stale SCB insertion while the
-   bank intentionally ignores free commands.
+3. `STQEntryBank.flushApplied` suppresses drain issue for the bank-owned
+   recovery cycle, but does not clear committed/non-flush drain tokens.
 4. `STQCommitDrain` shapes selected committed rows into one or two
    `STQCommitDrainRequest` fragments.
 5. `SCBRowBank` accepts those fragments, coalesces them into line entries, and
@@ -132,7 +132,9 @@ this composition suppresses drain issue even if SCB capacity is available. That
 keeps the bank's flush-owned cycle from accepting SCB-side free commands that
 the bank is required to ignore.
 
-SCB rows are committed-store state and are not flushed by this module.
+CommitQ and SCB rows are committed-store state and are not flushed by this
+module. The child CommitQ hard-clear input is tied low; module reset remains
+the architectural abort boundary.
 
 ## Trace/Observability
 
@@ -162,9 +164,10 @@ path is composed with recovery cleanup.
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 
 Focused reference tests cover final `last`-fragment free ownership, SCB
-model-batch backpressure, split-store final free, concurrent older drain plus
-younger enqueue, and Chisel elaboration with `STQEntryBank`, `STQCommitDrain`,
-and `SCBRowBank` children.
+model-batch backpressure, split-store final free, and concurrent older drain
+plus younger enqueue. Dynamic integration additionally proves that an accepted
+WAIT-to-Commit transition snapshots one exact token and that only SCB-accepted
+last-fragment ownership frees the canonical STQ row.
 
 R670 threads one `lsidWidth` parameter through STQ residency, commit queue,
 split drain, and SCB admission. The composition keeps physical STQ/SCB sizing,

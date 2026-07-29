@@ -1,5 +1,7 @@
 package linxcore.lsu
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -82,13 +84,17 @@ object STQCommitDrainReference {
   }
 }
 
-class STQCommitDrainSpec extends AnyFunSuite {
+class STQCommitDrainSpec extends AnyFunSuite with ChiselSim {
   import STQCommitDrainReference._
   import STQCommitQueueReference.Entry
   import STQFlushPruneReference.Id
 
-  private def entry(index: Int, bid: Int, lsId: Int): Entry =
-    Entry(stqIndex = index, bid = Id(value = bid), lsId = Id(value = lsId))
+  private def entry(index: Int, bid: Int, lsId: Int, stid: Int = 0): Entry =
+    Entry(
+      stqIndex = index,
+      bid = Id(value = bid),
+      lsId = Id(value = lsId),
+      stid = stid)
 
   test("single-line committed store drains to one request and one bank free bit") {
     val drain = new Model(depth = 8, issueWidth = 2)
@@ -123,21 +129,26 @@ class STQCommitDrainSpec extends AnyFunSuite {
     ))
   }
 
-  test("older split-stalled row stays queued while younger ready row drains") {
+  test("older split-stalled row blocks a younger same-STID row while a peer drains") {
     val drain = new Model(depth = 8, issueWidth = 2)
     val rows = Seq(
       Row(index = 0, addr = 0x203e, data = BigInt("ffeeddccbbaa9988", 16), size = 8),
-      Row(index = 1, addr = 0x2080, data = BigInt("0102030405060708", 16), size = 8)
+      Row(index = 1, addr = 0x2080, data = BigInt("0102030405060708", 16), size = 8),
+      Row(index = 2, addr = 0x2100, data = BigInt("8877665544332211", 16), size = 8)
     )
 
     drain.step(enqueue = Some(entry(0, bid = 1, lsId = 0)))
     drain.step(enqueue = Some(entry(1, bid = 1, lsId = 1)))
-    val result = drain.step(rows = rows, primaryReady = Set(0, 1), secondaryReady = Set.empty)
+    drain.step(enqueue = Some(entry(2, bid = 1, lsId = 0, stid = 1)))
+    val result = drain.step(
+      rows = rows,
+      primaryReady = Set(0, 1, 2),
+      secondaryReady = Set.empty)
 
-    assert(result.issued.map(_.stqIndex) == Seq(1))
-    assert(result.freeMask == (BigInt(1) << 1))
-    assert(result.queue.map(_.stqIndex) == Seq(0))
-    assert(result.requests.map(_.addr) == Seq(BigInt(0x2080)))
+    assert(result.issued.map(_.stqIndex) == Seq(2))
+    assert(result.freeMask == (BigInt(1) << 2))
+    assert(result.queue.map(_.stqIndex) == Seq(0, 1))
+    assert(result.requests.map(_.addr) == Seq(BigInt(0x2100)))
   }
 
   test("issueEnable suppresses ready committed rows without dropping queue entries") {
@@ -152,7 +163,7 @@ class STQCommitDrainSpec extends AnyFunSuite {
     assert(result.queue.map(_.stqIndex) == Seq(0))
   }
 
-  test("flush clears queued rows before issue or enqueue") {
+  test("architectural abort clears queued rows before issue or enqueue") {
     val drain = new Model(depth = 4, issueWidth = 2)
     val rows = Seq(Row(index = 0, addr = 0x3000, data = 0x55, size = 1))
 
@@ -199,5 +210,85 @@ class STQCommitDrainSpec extends AnyFunSuite {
     assert(sv.contains("io_memReqs_0_bid_value"))
     assert(sv.contains("io_memReqs_0_gid_value"))
     assert(sv.contains("io_memReqs_0_rid_value"))
+  }
+
+  test("drain revalidates the exact STQ lease and gives ownership only to the last fragment") {
+    simulate(new STQCommitDrain(
+      entries = 4,
+      queueEntries = 4,
+      issueWidth = 2,
+      robEntries = 8,
+      stidWidth = 2,
+      lsidWidth = 40)) { dut =>
+      dut.io.rows.foreach(row => row.poke(0.U.asTypeOf(row)))
+      dut.io.enqueueValid.poke(false.B)
+      dut.io.enqueueIndex.poke(0.U)
+      dut.io.enqueueBid.poke(0.U.asTypeOf(dut.io.enqueueBid))
+      dut.io.enqueueLsId.poke(0.U)
+      dut.io.flushValid.poke(false.B)
+      dut.io.issueEnable.poke(false.B)
+      dut.io.primaryReadyMask.poke(0.U)
+      dut.io.secondaryReadyMask.poke(0.U)
+      dut.clock.step()
+
+      val row = dut.io.rows(1)
+      row.valid.poke(true.B)
+      row.status.poke(STQEntryStatus.Commit)
+      row.storeType.poke(STQStoreType.All)
+      row.stid.poke(0.U)
+      row.bid.valid.poke(true.B)
+      row.bid.value.poke(2.U)
+      row.lsIdFull.poke(9.U)
+      row.storeIdFullValid.poke(true.B)
+      row.storeIdFull.poke(4.U)
+      row.leaseGeneration.poke(7.U)
+      row.addrReady.poke(true.B)
+      row.dataReady.poke(true.B)
+      row.addr.poke(0x103e.U)
+      row.data.poke(BigInt("1122334455667788", 16).U)
+      row.size.poke(8.U)
+      row.exactOwner.valid.poke(true.B)
+      row.exactOwner.peId.poke(1.U)
+      row.exactOwner.stid.poke(0.U)
+      row.exactOwner.nativeBidValid.poke(true.B)
+      row.exactOwner.nativeBid.poke(6.U)
+      row.exactOwner.brobGeneration.poke(2.U)
+      row.exactOwner.ridSlot.poke(1.U)
+      row.exactOwner.ridGeneration.poke(3.U)
+      row.exactOwner.memberIndex.poke(0.U)
+      row.exactOwner.residentGeneration.poke(4.U)
+
+      dut.io.enqueueValid.poke(true.B)
+      dut.io.enqueueIndex.poke(1.U)
+      dut.io.enqueueBid.valid.poke(true.B)
+      dut.io.enqueueBid.value.poke(2.U)
+      dut.io.enqueueLsId.poke(9.U)
+      dut.io.enqueueReady.expect(true.B)
+      dut.io.enqueueAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.enqueueValid.poke(false.B)
+
+      // A reused or corrupted physical slot cannot satisfy the retained
+      // generation-qualified token, even when downstream is ready.
+      row.leaseGeneration.poke(8.U)
+      dut.io.issueEnable.poke(true.B)
+      dut.io.primaryReadyMask.poke("b0010".U)
+      dut.io.secondaryReadyMask.poke("b0010".U)
+      dut.io.queuedIdentityError.expect(true.B)
+      dut.io.issueValidMask.expect(0.U)
+      dut.io.commitFreeMaskValid.expect(false.B)
+
+      row.leaseGeneration.poke(7.U)
+      dut.io.queuedIdentityError.expect(false.B)
+      dut.io.issue(0).valid.expect(true.B)
+      dut.io.issue(0).leaseGeneration.expect(7.U)
+      dut.io.memReqs(0).valid.expect(true.B)
+      dut.io.memReqs(0).last.expect(false.B)
+      dut.io.memReqs(0).ownsStqRow.expect(false.B)
+      dut.io.memReqs(1).valid.expect(true.B)
+      dut.io.memReqs(1).last.expect(true.B)
+      dut.io.memReqs(1).ownsStqRow.expect(true.B)
+      dut.io.commitFreeMask.expect("b0010".U)
+    }
   }
 }

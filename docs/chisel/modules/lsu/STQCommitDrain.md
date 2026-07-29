@@ -1,159 +1,71 @@
 # STQCommitDrain
 
-## Source Mapping
-
-- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
-- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
-- LinxCoreModel evidence:
-  - `model/LinxCoreModel/model/ModelCommon/LSUUtils.cpp`
-  - `model/LinxCoreModel/model/lsu/lsu.cpp`
-  - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
-- Related Chisel contracts:
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
-  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
-- Contract IDs: `LC-CHISEL-LSU-STQ-DRAIN-001`
-
 ## Purpose
 
-`STQCommitDrain` is the first Chisel memory-side owner for committed scalar
-stores. It composes `STQCommitQueue`, checks committed STQ rows against
-downstream segment availability, emits one or two memory request descriptors,
-and drives the `STQEntryBank.commitFreeMask` boundary only for rows whose
-memory-side issue has been accepted.
+`STQCommitDrain` joins exact committed tokens with the canonical STQ row,
+applies downstream segment credit, and shapes one or two 64-byte-line
+fragments. It does not copy STQ data into another resident queue.
 
-The module owns:
+Sources and tests:
 
-- the handoff from ordered `storeCommitQ` issue selection to memory request
-  descriptors,
-- scalar 64-byte cacheline split detection matching `AddrCrossCacheline`,
-- split request shaping matching `GetCrossReq`,
-- free-mask generation for issued committed rows,
-- stalled-row skipping through the existing `STQCommitQueue` scan.
+- `chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
+- `chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
 
-It does not own SCB storage, MDB conflict updates, TTrans/tile side effects,
-BSB window slide, CHI completion, load forwarding, data-array banking, or
-global LSU arbitration. Those remain future LSU owner packets.
+## Enqueue and revalidation
 
-## Sizing Contract
+The accepted WAIT-to-Commit transition may enqueue in the same cycle in which
+the STQ row still reads WAIT; after that edge, issue requires the row to be
+Commit. The snapshot includes exact owner, physical lease generation, full
+LSID, full store ID, STID, and BID.
 
-`entries` sizes STQ indices and row/free masks, `queueEntries` sizes only the
-commit FIFO, `issueWidth` sizes issue lanes, and `robEntries` sizes BID/GID/RID
-identity carried by queued issues and split memory requests. Split-segment
-request construction must preserve `robEntries`; it may not fall back to the
-physical STQ width.
+Before exposing readiness to `STQCommitQueue`, each queue slot is revalidated
+against the current STQ row:
 
-## Interface
+- row is valid, Commit, `ST_ALL`, address/data ready;
+- lease index/generation still identify the same allocation;
+- owner, STID, BID, full LSID, and full store ID match exactly.
 
-### Inputs
+A stale token remains resident, cannot issue or free the row, and raises
+`queuedIdentityError`.
 
-| Signal | Type | Description |
-|---|---|---|
-| `enqueueValid` | `Bool` | A committed STQ row should enter the ordered commit queue. |
-| `enqueueIndex` | STQ row index | Row index from `STQEntryBank.markCommitAccepted`. |
-| `enqueueBid/enqueueLsId` | `ROBID` | Ordering identity copied from the committed row. |
-| `flushValid` | `Bool` | Clears the child commit queue and suppresses same-cycle issue/enqueue. |
-| `issueEnable` | `Bool` | Enables a commit drain scan for this cycle. |
-| `primaryReadyMask` | `UInt(entries.W)` | Per-row acceptance for the first or only memory segment. |
-| `secondaryReadyMask` | `UInt(entries.W)` | Per-row acceptance for the second memory segment of a split store. |
-| `rows` | `Vec[STQEntryBankRow]` | Current STQ row sidecars from `STQEntryBank`. |
+## Fragment shaping and free ownership
 
-### Outputs
+A store that stays within one 64-byte line emits one request with `last=1` and
+`ownsStqRow=1`. A crossing store emits two requests:
 
-| Signal | Description |
-|---|---|
-| `enqueueReady/enqueueAccepted` | Forwarded queue enqueue handshake. |
-| `enqueueDuplicate/enqueueInsertPosition` | Forwarded queue diagnostics for duplicate live row and sorted insertion. |
-| `commitEligibleMask` | Valid committed `ST_ALL` rows with address and data ready. |
-| `splitMask` | Rows whose scalar address and size cross a 64-byte cacheline. |
-| `readyMask` | Rows eligible for queue issue after downstream readiness checks. |
-| `issue/issueValidMask/issueCount` | Forwarded selected committed rows from `STQCommitQueue`. |
-| `memReqs` | Up to two request descriptors per issue lane; second descriptor is valid only for split stores. |
-| `commitFreeMaskValid/commitFreeMask/commitFreeCount` | Bank free command for rows whose request descriptors were issued. |
-| `queued/queuedValidMask/queueCount/empty/full/orderError` | Forwarded queue visibility. |
+- segment 0 carries the first-line bytes with `last=0`, `ownsStqRow=0`;
+- segment 1 carries the remainder with `last=1`, `ownsStqRow=1`.
 
-## State
+Both segment credits are required before the queue token issues. In
+`STQSCBCommitPath`, only an accepted request with `ownsStqRow`/`last` can
+generate the canonical STQ free mask. The drain's issue-derived free mask is
+diagnostic and is not wired to STQ mutation.
 
-`STQCommitDrain` owns no additional registered state. The resident ordered
-queue is the child `STQCommitQueue`; row contents remain owned by
-`STQEntryBank`.
+## Ordering and recovery
 
-## Logic Design
-
-The drain computes a per-row `readyMask`:
-
-1. The row must be valid, in `Commit` state, `ST_ALL`, address-ready, and
-   data-ready.
-2. A non-split row needs `primaryReadyMask(index)`.
-3. A split row needs both `primaryReadyMask(index)` and
-   `secondaryReadyMask(index)`.
-
-That mask feeds `STQCommitQueue`. The queue keeps model `(bid, lsId)` order,
-skips not-ready rows, and selects up to `issueWidth` rows. Each selected row
-produces:
-
-- one request when `(addr[5:0] + size) <= 64`,
-- two requests when the store crosses a 64-byte scalar cacheline.
-
-For split stores, the first descriptor keeps the original address and uses
-`64 - addr[5:0]` as size. The second descriptor uses the next 64-byte line
-base and carries the remaining size. Store data is shifted the same way as the
-model `GetCrossReq`: the second descriptor is `data >> (first_size * 8)`.
-
-`commitFreeMask` is the OR of selected issue lane indices. It is intentionally
-generated only after the downstream-ready predicate allowed issue, matching the
-model `STQ::commit` order where `free(i)` happens after `sendSimL1`.
-
-When the downstream target is the registered Chisel SCB path,
-`STQSCBCommitPath` owns final STQ frees. It gates drain issue with the
-registered `SCBRowBank` model-batch capacity rule and wires accepted
-`SCBRowBank` `last` fragments to `STQEntryBank.commitFreeMask`. Full LSU
-composition must use that SCB-side free mask rather than treating this module's
-abstract issue/free mask as final.
-
-## Timing
-
-The module is combinational around the child queue's current registered state.
-Newly enqueued rows do not issue in the same cycle because
-`STQCommitQueue` selects from its current resident queue before registering the
-next compacted queue.
-
-## Flush/Recovery
-
-`flushValid` clears the child `STQCommitQueue` and suppresses same-cycle issue
-and enqueue. `STQSCBCommitPath` drives it from `STQEntryBank.flushApplied`.
-The reduced top also asserts it on backend flush, start, restart, and while the
-optional STQ path is disabled so stale queued committed rows cannot survive
-after their STQ rows are cleared.
-
-Committed rows are not freed by `STQFlushPrune`, which only clears valid
-`STQ_WAIT` rows. Any future precise exception owner that invalidates committed
-stores before memory issue must keep this queue clear/drop policy aligned with
-the model-backed STQ row invalidation policy.
-
-## Trace/Observability
-
-`memReqs`, `readyMask`, `splitMask`, and `commitFreeMask` are the first
-observable Chisel boundary for the model `STQ::commit` memory-side handoff.
-They are not architectural commit rows and do not yet participate in the
-QEMU-vs-DUT trace compare.
+The child CommitQ enforces the per-STID oldest-token frontier. A stalled older
+store blocks younger same-STID rows, while peer STIDs may drain. Ordinary STQ
+recovery prunes speculative WAIT rows but preserves committed tokens; only
+module reset or an explicit architectural abort clears the CommitQ.
 
 ## Verification
 
-- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
-- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
-- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
-- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
-- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`
-- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
-- `python3 tools/chisel/trace_schema_adapter.py --self-test`
-- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
+```bash
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrainSpec
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueueSpec
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPathSpec
+bash tools/chisel/build_chisel.sh
+```
 
-Focused reference tests cover single-line issue/free, split stores requiring
-both segment targets, younger-row progress around an older split-stalled row,
-issue gating, flush clearing, and Chisel elaboration of the memory/free
-boundary.
+Dynamic tests cover stale lease rejection and last-fragment-only ownership.
+Reference tests cover single/split shaping, same-STID blocking, peer bypass,
+downstream gating, and independent STQ/ROB/full-serial widths.
 
-R670 carries full `lsidWidth` through enqueue, sorted issue, and both fragments
-of a split memory request. Physical STQ indices and ROB-sized BID remain
-separate fields. A 40-bit LSID/16-STQ/8-ROB contract covers this boundary.
+## Remaining gaps
+
+- Retain the selected token and fragments independently of downstream ready,
+  rather than qualifying queue issue combinationally with batch credit.
+- Group pair-store/cross-line fragments under one logical completion token.
+- Route MMIO stores to the serializer instead of SCB.
+- Replace compatibility `commitFreeMask` observability after static-top
+  migration.

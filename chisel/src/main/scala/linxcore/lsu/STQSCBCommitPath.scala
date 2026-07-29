@@ -90,6 +90,7 @@ class STQSCBCommitPathIO(
   val drainEnqueueReady = Output(Bool())
   val drainEnqueueAccepted = Output(Bool())
   val drainEnqueueDuplicate = Output(Bool())
+  val drainEnqueueMalformed = Output(Bool())
   val drainEnqueueInsertPosition = Output(UInt(queueCountWidth.W))
   val drainCommitEligibleMask = Output(UInt(entries.W))
   val drainSplitMask = Output(UInt(entries.W))
@@ -107,6 +108,7 @@ class STQSCBCommitPathIO(
   val drainEmpty = Output(Bool())
   val drainFull = Output(Bool())
   val drainOrderError = Output(Bool())
+  val drainQueuedIdentityError = Output(Bool())
 
   val scbModelBatchReady = Output(Bool())
   val scbModelFull = Output(Bool())
@@ -237,7 +239,9 @@ class STQSCBCommitPath(
   drain.io.enqueueIndex := io.markCommitIndex
   drain.io.enqueueBid := stq.io.rows(io.markCommitIndex).bid
   drain.io.enqueueLsId := stq.io.rows(io.markCommitIndex).lsIdFull
-  drain.io.flushValid := stq.io.flushApplied
+  // STQ branch recovery removes only speculative WAIT rows. CommitQ tokens
+  // are already non-flush and survive; module reset remains the hard abort.
+  drain.io.flushValid := false.B
   drain.io.rows := stq.io.rows
 
   val scbReadyForDrain = scb.io.modelBatchReady && !stq.io.flushApplied
@@ -290,6 +294,7 @@ class STQSCBCommitPath(
   io.drainEnqueueReady := drain.io.enqueueReady
   io.drainEnqueueAccepted := drain.io.enqueueAccepted
   io.drainEnqueueDuplicate := drain.io.enqueueDuplicate
+  io.drainEnqueueMalformed := drain.io.enqueueMalformed
   io.drainEnqueueInsertPosition := drain.io.enqueueInsertPosition
   io.drainCommitEligibleMask := drain.io.commitEligibleMask
   io.drainSplitMask := drain.io.splitMask
@@ -307,6 +312,7 @@ class STQSCBCommitPath(
   io.drainEmpty := drain.io.empty
   io.drainFull := drain.io.full
   io.drainOrderError := drain.io.orderError
+  io.drainQueuedIdentityError := drain.io.queuedIdentityError
 
   io.scbModelBatchReady := scb.io.modelBatchReady
   io.scbModelFull := scb.io.modelFull
