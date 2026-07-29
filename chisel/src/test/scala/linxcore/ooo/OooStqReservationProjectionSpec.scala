@@ -49,6 +49,8 @@ class OooStqReservationHarness(
   projection.io.inputValid := io.inputValid
   projection.io.input := io.input
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
+  stq.io.exactRecoveryValid := false.B
+  stq.io.exactRecoveryFreeMask := 0.U
   stq.io.insertValid := false.B
   stq.io.insert := 0.U.asTypeOf(stq.io.insert)
   stq.io.reserveValid := false.B

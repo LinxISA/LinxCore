@@ -434,7 +434,15 @@ I0.9h 结束时尚未完成的部分包括 OOO reservation 投影、pair 原子�
 
 `OooIexStorePipeline` 分别保留 STA 与 STD E1 transaction。两边可以任意先后到达，在 STQ 回压下保持完整 execute payload 和 lease；仲裁器逐 beat 发送定点 fill，实际地址/数据合流只发生在 `STQEntryBank`。地址按照 normalized memory mode 和 address-source mask 计算，pair beat 地址按 access size 递增；数据由 data-source mask 选择对应 beat。错误 child member、错误 lease/range、错误 recipe/class全部 fail closed。typed recovery 或精确 load-generation cancel 在 fill 前清除匹配 retained owner。
 
-动态 IT 使用 `STQ=4, ROB=8, LSID=40` 串接真实 projection、store pipeline 和 STQ，证明 pair reservation、STA/STD交错 fill、STD先到、连续回压、错误 child、恢复抑制、完整地址和两个独立 data beat。当前仍缺：lease set 在正式 IEX composition 中的多 store 并发 residency、ROB-owned exact STQ recovery/free、store issue/commit sliding frontier、load forwarding/visibility以及旧接口删除。
+动态 IT 使用 `STQ=4, ROB=8, LSID=40` 串接真实 projection、store pipeline 和 STQ，证明 pair reservation、STA/STD交错 fill、STD先到、连续回压、错误 child、恢复抑制、完整地址和两个独立 data beat。I0.9i结束时仍缺的 exact STQ recovery/free由下一节 I0.9j补齐；lease set 在正式 IEX composition 中的多 store 并发 residency、store issue/commit sliding frontier、load forwarding/visibility以及旧接口删除仍然开放。
+
+### 7.10 ROB-owned exact STQ recovery（I0.9j）
+
+`OooStqRecoveryProjection` 消费与 IQ/IEX 相同的 `OooResidencyRecoveryPlan`，从每个 STQ row 的 `STQExactOwner` 重建完整 `RobMemberKey`，再调用统一 `OooRecoveryMembership.memberKilled`。只有 exact owner 自洽、属于目标 PE/STID、落在 killed suffix 且仍为 speculative WAIT 的 row 才进入 free mask。被杀但已经 Commit 的 row只进入 status-blocked诊断；目标域内 owner字段与 row PE/STID矛盾时整次投影拒绝，不能做部分清理。
+
+`STQEntryBank` 增加 exact recovery mask入口，并在同拍阻止 reserve、fill、commit、free。exact recovery 与旧 FlushBus 同时出现时记录 source conflict并以 exact mask为实际 mutation authority，避免两个独立恢复集合做并集。free count按实际去重 mask更新，lease generation不回退，因此恢复后的槽复用仍拒绝旧 STA/STD。
+
+端到端 IT 现在证明同一 typed recovery 同时杀 retained STD并释放其两个 reservation row；STQ UT覆盖 WAIT/Commit混合 mask以及 exact/legacy source碰撞。尚未完成的是把这一 projection 实例化进正式静态 IEX/LSU composition、将 compatibility rows全部迁移为 exact owner、commit/non-flush sliding frontier以及 forwarding/visibility闭环。
 
 ## 8. Store CommitQ 与 drain
 

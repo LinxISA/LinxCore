@@ -180,6 +180,12 @@ class STQEntryBankIO(
   private val sourceParams = InterfaceParams(robEntries = identityEntries)
 
   val flush = Input(new FlushBus(identityEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
+  val exactRecoveryValid = Input(Bool())
+  val exactRecoveryFreeMask = Input(UInt(entries.W))
+  val exactRecoveryAcceptedMask = Output(UInt(entries.W))
+  val exactRecoveryBlockedMask = Output(UInt(entries.W))
+  val exactRecoveryFreeCount = Output(UInt(countWidth.W))
+  val recoverySourceConflict = Output(Bool())
 
   val insertValid = Input(Bool())
   val insert = Input(new STQStoreRequest(
@@ -282,6 +288,8 @@ object STQEntryBank {
     * they migrate to reservation plus exact lease fills.
     */
   def disableCanonicalPorts(io: STQEntryBankIO): Unit = {
+    io.exactRecoveryValid := false.B
+    io.exactRecoveryFreeMask := 0.U
     io.reserveValid := false.B
     io.reserve := 0.U.asTypeOf(io.reserve)
     io.reserveBatchValid := false.B
@@ -479,8 +487,27 @@ class STQEntryBank(
     flushPrune.io.rows(idx).lsIdFull := rows(idx).lsIdFull
   }
 
-  val flushApplied = flushPrune.io.freeMask.orR
-  val recoveryActive = io.flush.req.valid
+  val exactRecoveryAcceptedVec = Wire(Vec(entries, Bool()))
+  val exactRecoveryBlockedVec = Wire(Vec(entries, Bool()))
+  for (idx <- 0 until entries) {
+    val requested = io.exactRecoveryValid && io.exactRecoveryFreeMask(idx)
+    val exactRow = rows(idx).valid && rows(idx).exactOwner.valid &&
+      (rows(idx).status === STQEntryStatus.Wait)
+    exactRecoveryAcceptedVec(idx) := requested && exactRow
+    exactRecoveryBlockedVec(idx) := requested && !exactRow
+  }
+  val recoverySourceConflict =
+    io.exactRecoveryValid && io.flush.req.valid
+  val appliedRecoveryFreeMask = Mux(
+    io.exactRecoveryValid,
+    exactRecoveryAcceptedVec.asUInt,
+    flushPrune.io.freeMask)
+  val flushApplied = appliedRecoveryFreeMask.orR
+  val recoveryActive = io.flush.req.valid || io.exactRecoveryValid
+  io.exactRecoveryAcceptedMask := exactRecoveryAcceptedVec.asUInt
+  io.exactRecoveryBlockedMask := exactRecoveryBlockedVec.asUInt
+  io.exactRecoveryFreeCount := PopCount(exactRecoveryAcceptedVec)
+  io.recoverySourceConflict := recoverySourceConflict
   io.flushApplied := flushApplied
   io.flushMatchMask := flushPrune.io.matchMask
   io.flushFreeMask := flushPrune.io.freeMask
@@ -688,7 +715,7 @@ class STQEntryBank(
   io.commitFreeCount := PopCount(commitFreeAcceptedVec)
 
   for (idx <- 0 until entries) {
-    when(flushPrune.io.freeMask(idx)) {
+    when(appliedRecoveryFreeMask(idx)) {
       rows(idx) := zeroRow
     }
   }
@@ -736,7 +763,7 @@ class STQEntryBank(
     PopCount(Mux(io.reserveBatchAccepted, io.reserveBatchMask, 0.U))
   val markCommitDelta = io.markCommitAccepted.asUInt
   val commitFreeDelta = io.commitFreeCount
-  val flushFreeDelta = Mux(flushApplied, flushPrune.io.freeCount, 0.U)
+  val flushFreeDelta = PopCount(appliedRecoveryFreeMask)
 
   residentCount := residentCount + allocDelta - commitFreeDelta - flushFreeDelta
   outstandingWaitCount := outstandingWaitCount + allocDelta - markCommitDelta - flushFreeDelta

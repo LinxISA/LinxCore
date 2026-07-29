@@ -38,6 +38,7 @@ class OooIexStoreStqHarness(
     extends Module {
   val io = IO(new OooIexStoreStqHarnessIO(p, stqEntries))
   val projection = Module(new OooStqReservationProjection(p, stqEntries))
+  val recoveryProjection = Module(new OooStqRecoveryProjection(p, stqEntries))
   val pipeline = Module(new OooIexStorePipeline(p, stqEntries))
   val stq = Module(new STQEntryBank(
     entries = stqEntries,
@@ -58,6 +59,12 @@ class OooIexStoreStqHarness(
   projection.io.inputValid := io.reserveValid
   projection.io.input := io.reserveRow
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
+  recoveryProjection.io.recoveryValid := io.recoveryValid
+  recoveryProjection.io.recovery := io.recovery
+  recoveryProjection.io.rows := stq.io.rows
+  stq.io.exactRecoveryValid :=
+    io.recoveryValid && io.recovery.valid && !recoveryProjection.io.rejected
+  stq.io.exactRecoveryFreeMask := recoveryProjection.io.freeMask
   stq.io.insertValid := false.B
   stq.io.insert := 0.U.asTypeOf(stq.io.insert)
   stq.io.reserveValid := false.B
@@ -348,6 +355,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryValid.poke(true.B)
       dut.io.occupied.expect(false.B)
       dut.clock.step()
+      dut.io.residentCount.expect(0.U)
       dut.io.recoveryValid.poke(false.B)
       dut.io.fillPermit.poke(true.B)
       dut.clock.step(2)

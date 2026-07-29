@@ -486,6 +486,8 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
 
   private def clearCanonicalDut(dut: STQEntryBank): Unit = {
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
+    dut.io.exactRecoveryValid.poke(false.B)
+    dut.io.exactRecoveryFreeMask.poke(0.U)
     dut.io.insertValid.poke(false.B)
     dut.io.insert.poke(0.U.asTypeOf(dut.io.insert))
     dut.io.reserveValid.poke(false.B)
@@ -705,6 +707,64 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
       dut.io.reserveBatchValid.poke(true.B)
       dut.io.reserveBatchReady.expect(false.B)
       dut.io.reserveBatchConflict.expect(true.B)
+      dut.clock.step()
+      dut.io.residentCount.expect(0.U)
+    }
+  }
+
+  test("exact recovery frees only speculative exact-owner rows") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserveBatch(0), ridGeneration = 3,
+        residentGeneration = 4, lsid = 20, storeId = 30)
+      pokeExactRequest(dut.io.reserveBatch(1), ridGeneration = 3,
+        residentGeneration = 4, lsid = 21, storeId = 31)
+      dut.io.reserveBatchMask.poke(3.U)
+      dut.io.reserveBatchValid.poke(true.B)
+      dut.clock.step()
+      dut.io.reserveBatchValid.poke(false.B)
+
+      pokeExactRequest(dut.io.fill, ridGeneration = 3,
+        residentGeneration = 4, lsid = 20, storeId = 30)
+      dut.io.fill.storeType.poke(STQStoreType.All)
+      dut.io.fill.lease.valid.poke(true.B)
+      dut.io.fill.lease.index.poke(0.U)
+      dut.io.fill.lease.generation.poke(1.U)
+      dut.io.fillValid.poke(true.B)
+      dut.clock.step()
+      dut.io.fillValid.poke(false.B)
+      dut.io.markCommitValid.poke(true.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.clock.step()
+      dut.io.markCommitValid.poke(false.B)
+
+      dut.io.exactRecoveryValid.poke(true.B)
+      dut.io.exactRecoveryFreeMask.poke(3.U)
+      dut.io.exactRecoveryAcceptedMask.expect(2.U)
+      dut.io.exactRecoveryBlockedMask.expect(1.U)
+      dut.io.exactRecoveryFreeCount.expect(1.U)
+      dut.clock.step()
+      dut.io.exactRecoveryValid.poke(false.B)
+      dut.io.residentCount.expect(1.U)
+      dut.io.rows(0).status.expect(STQEntryStatus.Commit)
+      dut.io.rows(1).valid.expect(false.B)
+    }
+  }
+
+  test("exact recovery wins a simultaneous legacy recovery source") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserve, ridGeneration = 1,
+        residentGeneration = 1, lsid = 9, storeId = 11)
+      dut.io.reserveValid.poke(true.B)
+      dut.clock.step()
+      dut.io.reserveValid.poke(false.B)
+
+      dut.io.exactRecoveryValid.poke(true.B)
+      dut.io.exactRecoveryFreeMask.poke(1.U)
+      dut.io.flush.req.valid.poke(true.B)
+      dut.io.recoverySourceConflict.expect(true.B)
+      dut.io.exactRecoveryAcceptedMask.expect(1.U)
       dut.clock.step()
       dut.io.residentCount.expect(0.U)
     }
