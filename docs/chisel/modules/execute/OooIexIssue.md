@@ -26,6 +26,8 @@ documented in [`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
 [`OooIexIssueP1Fabric`](OooIexIssueP1Fabric.md).
 The first class-specific terminal handoff is documented in
 [`OooIexE1TransferSlot`](OooIexE1TransferSlot.md).
+Its static multi-domain topology and current single-release arbitration are
+documented in [`OooIexE1TransferFabric`](OooIexE1TransferFabric.md).
 
 ## Stage ownership
 
@@ -138,9 +140,10 @@ must quiesce those producers before prepare.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
-- Compose the implemented atomic I2/E1 handoff slot across the frozen
-  class/domain topology. The exact transfer/release rule and owner-side
-  in-flight release guard are implemented; the full router is not.
+- Select the final class/bank topology and widen the current single exact
+  release/dispatch-return path. Static class/domain composition, atomic
+  transfer/release, and owner-side in-flight release guard are implemented;
+  two simultaneous transfers still serialize.
 - O8 bank/port occupancy plus retained-inflight cost steering, PTag coupling,
   safe-mode thresholds, and default-geometry timing/area closure. The
   unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.

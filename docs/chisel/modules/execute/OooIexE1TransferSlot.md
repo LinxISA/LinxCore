@@ -33,11 +33,14 @@ old E1 output and new exact release still refer to different retained values.
 
 ## Validation and recovery
 
-Admission requires a live in-flight scheduling row, exact PE/STID group
-identity, valid BID and reservation, the configured class, a logical-source
-mask equal to all valid sources, and a bypass mask contained by that source
-mask. A malformed transaction raises `rejected` as a fail-stop diagnostic and
-cannot fire either acceptance or IQ release.
+Admission requires exact PE/STID group identity, valid BID and reservation,
+the configured class, a logical-source mask equal to all valid sources, and a
+bypass mask contained by that source mask. The I2 row is a snapshot captured
+on the earlier pick/claim edge and may still contain the pre-claim `inFlight`
+bit; only the canonical IQ release sink revalidates live in-flight ownership.
+Its `ready/fire` is coupled to slot acceptance. A malformed immutable shape
+raises `rejected` as a fail-stop diagnostic and cannot fire either acceptance
+or IQ release.
 
 Before transfer, matching grouped-ROB recovery or exact load cancel blocks the
 acceptance; the issue lane still owns cancellation. After transfer, the E1

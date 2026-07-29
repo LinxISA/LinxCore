@@ -65,7 +65,11 @@ class OooIexE1TransferSlot(
 
   val incoming = io.i2.bits
   val logicalSourceMask = VecInit(incoming.row.sources.map(_.valid)).asUInt
-  val shapeExact = incoming.row.valid && incoming.row.schedule.inFlight &&
+  // The lane captures its row on the canonical pick/claim edge, so its local
+  // schedule snapshot may still contain the pre-claim inFlight value. The IQ
+  // release sink is the sole authority that revalidates live inFlight state;
+  // its ready/fire is already coupled to this slot's acceptance.
+  val shapeExact = incoming.row.valid &&
     incoming.row.member.group.valid && incoming.row.member.bid.valid &&
     incoming.row.reservation.valid &&
     incoming.row.reservation.uopClass.asUInt === acceptedClass.U &&

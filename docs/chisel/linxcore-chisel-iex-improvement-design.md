@@ -473,20 +473,40 @@ canonical IQ 与每条 P1/I1/I2 lane：
   release identity不会混合；
 - transfer 前 matching recovery/load cancel 阻止 accept，transfer 后由
   E1 slot独立匹配并抑制输出，IQ不再承担该 row的 recovery；
-- class、member、BID、reservation、in-flight或logical-source shape不精确
-  时 fail-stop，不允许发 release，因此 malformed transaction不能误释放
-  physical IQ row。
+- class、member、BID、reservation或logical-source shape不精确时
+  fail-stop，不允许发 release；canonical `inFlight` 由 IQ release sink
+  在同一个 fire 上唯一复核，不使用 P1 claim边沿捕获的旧 schedule副本；
 
 这只关闭了单个 class/lane 的所有权协议。下一包仍需冻结 ALU/BRU/AGU
 等 class/domain 拓扑，实例化 transfer router，并把 E1 接到真实 FU 与
 LSU resolver。
 
+### 6.4.4 I0.8b 已实现：静态domain拓扑与真实release回接
+
+`OooIexIssueDomainConfig` 把每条 physical issue domain 的 uop class和
+bank mask变成 elaboration-time contract。`OooIexE1TransferFabric`：
+
+- 要求配置数量等于 `iexIssueDomainCount`，拒绝空/越界bank mask与
+  same-class bank overlap；
+- 直接产生 canonical picker的 `pickClasses/pickBankEnables`，避免运行时
+  class改变后已驻留 E1 slot失去类型；
+- 每domain实例化一个 I0.8a slot，ALU/BRU等不同class可以独立E1背压；
+- 当前 IQ/dispatch owner只有一条 exact release，因此用公平arbiter每周期
+  只授权一个 transfer，loser完整保留I2，不能提前release；
+- 真实 IQ/read/transfer IT证明 transfer fire、E1 capture、IQ row removal和
+  dispatch-slot return共享同一事务。
+
+该 IT 还确认 canonical `inFlight` 只属于 IQ：P1 在 claim边沿捕获的
+schedule副本可能仍为0，transfer不得把这个旧副本当第二份authority。
+下一步是把 release/dispatch return扩成目标吞吐，再连接typed ALU/BRU。
+
 ### 6.5 迁移与验收
 
 read group、exact token、多 domain 原子端口仲裁、P/T/U真实data owner、
 IQ-local speculative-ready、精确load generation、bypass/replay poison和
-单lane I2-to-E1 owner transfer已经完成。下一步连接正式PC owner并构成
-多class execute router。验收必须覆盖：
+单lane I2-to-E1 owner transfer、静态多class router与真实IQ release回接
+已经完成。下一步连接正式PC owner、扩展release吞吐并接入typed FU。
+验收必须覆盖：
 
 - 两 bank simultaneous pick；
 - 6R contention、全授予/全拒绝；

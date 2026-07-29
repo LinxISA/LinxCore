@@ -653,6 +653,14 @@ recovery; afterward the E1 slot independently suppresses an exact grouped-ROB
 recovery or load-generation cancel. Full class/domain router composition is a
 later IEX packet, so this leaf does not yet freeze the physical pipe map.
 
+`OooIexIssueDomainConfig` and `OooIexE1TransferFabric` make that mapping an
+elaboration-time contract: every domain has one class and nonempty bank mask,
+and same-class bank overlap is rejected before hardware generation. The
+fabric drives the canonical picker configuration and instantiates one typed
+slot per domain. The present IQ and dispatch owners still expose one release
+transaction, so a fair arbiter permits only one I2/E1 transfer per cycle;
+denied domains retain I2 without an early release.
+
 O8.1b retains one immutable `OooResidencyRecoveryPlan` and scans
 `iexRecoveryScanEntriesPerBankPerCycle` scheduling rows from every physical
 class/bank per cycle. The width must be a power-of-two divisor of
