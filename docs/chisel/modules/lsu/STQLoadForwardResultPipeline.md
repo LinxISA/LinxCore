@@ -23,16 +23,27 @@ merged valid mask.
 
 ## Contract
 
-`STQLoadForwardQuery` now carries the merged baseline line together with:
+`STQLoadForwardQuery` carries the merged baseline line together with:
 
 - `baseValidMask`;
 - `loadDataReturned`;
-- `scbReturned`.
+- `scbReturned`;
+- the canonical LIQ `loadId` lease;
+- the producer-qualified `attempt` generation;
+- the physical `returnPipeIndex`.
 
 The retained STQ response returns those fields unchanged inside `query`. A
 normal response is translated directly into `LoadForwardSelection`, so the
 canonical STQ owner is not expanded into another `LoadStoreForwardStore` CAM
 image.
+
+I0.15c-b3a registers only the minimal `{loadId, attempt, returnPipeIndex}`
+identity sidecar in parallel with the common result pipeline; it does not
+duplicate the 64-byte baseline query image. `e3Identity` and `e4Identity` are
+aligned with their corresponding valid bits under bubbles and back-to-back
+traffic, and recovery flush clears both valid stages. Downstream LIQ mutation
+can compare `{loadId, attempt}` before accepting an asynchronous forwarding
+result instead of trusting an opaque token or a bare row index.
 
 Selected data-not-ready stores are normal results. Their `waitMask` and exact
 `waitStore` identity enter E3/E4 and classify as `StoreDataNotReady` for LIQ
@@ -98,6 +109,7 @@ The directed suite proves:
 
 - byte-exact SCB-over-L1D partial merging;
 - partial baseline plus canonical STQ bytes completing one load;
+- back-to-back exact row/attempt/return-pipe identity alignment in E3/E4;
 - selected not-ready store identity reaching E4;
 - hard-block backpressure without E3/E4 leakage;
 - flush suppression;
@@ -106,8 +118,9 @@ The directed suite proves:
 ## Remaining integration gap
 
 I0.15c-b2b gives every production OOO load one exact canonical LIQ lease and
-attempt identity and removes the former duplicate retry/return owner. The next
-packet must drive these three STQ query ports from accepted canonical
-launches/relaunches, feed their retained results into the same LIQ owner, and
-connect LRET/W1/W2 hit/fault returns through the existing atomic OOO terminal
-fabric. No additional OOO request/retry/data residency may be introduced.
+attempt identity and removes the former duplicate retry/return owner.
+I0.15c-b3a now carries that identity through the STQ asynchronous result pipe.
+The next packet must drive these three ports from canonical launches/relaunches
+and apply E4 results to the same LIQ owner. Scalar-LSU two-phase recovery and
+physical memory-system integration remain separate gaps. No additional OOO
+request/retry/data residency may be introduced.

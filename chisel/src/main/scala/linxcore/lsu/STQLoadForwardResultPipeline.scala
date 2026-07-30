@@ -69,12 +69,14 @@ class STQLoadForwardResultPipelineIO(
   val hardBlockAccepted = Output(Bool())
 
   val e3Valid = Output(Bool())
+  val e3Identity = Output(new STQLoadForwardResultIdentity)
   val e3LoadByteMask = Output(UInt(lineBytes.W))
   val e3ForwardMask = Output(UInt(lineBytes.W))
   val e3WaitMask = Output(UInt(lineBytes.W))
   val e3MergedData = Output(UInt((lineBytes * 8).W))
 
   val e4Valid = Output(Bool())
+  val e4Identity = Output(new STQLoadForwardResultIdentity)
   val e4LineData = Output(UInt((lineBytes * 8).W))
   val e4ValidMask = Output(UInt(lineBytes.W))
   val e4LoadByteMask = Output(UInt(lineBytes.W))
@@ -147,12 +149,31 @@ class STQLoadForwardResultPipeline(
   result.io.e2StqReturned := io.accepted
   result.io.e2ReturnReady := io.returnReady
 
+  val acceptedIdentity = Wire(new STQLoadForwardResultIdentity)
+  acceptedIdentity.loadId := io.response.bits.query.loadId
+  acceptedIdentity.attempt := io.response.bits.query.attempt
+  acceptedIdentity.returnPipeIndex :=
+    io.response.bits.query.returnPipeIndex
+  val e3Identity = RegInit(0.U.asTypeOf(acceptedIdentity))
+  val e4Identity = RegInit(0.U.asTypeOf(acceptedIdentity))
+  when(io.flush) {
+    e3Identity := 0.U.asTypeOf(e3Identity)
+    e4Identity := 0.U.asTypeOf(e4Identity)
+  }.otherwise {
+    e4Identity := e3Identity
+    when(io.accepted) {
+      e3Identity := acceptedIdentity
+    }
+  }
+
   io.e3Valid := result.io.e3Valid
+  io.e3Identity := e3Identity
   io.e3LoadByteMask := result.io.e3LoadByteMask
   io.e3ForwardMask := result.io.e3ForwardMask
   io.e3WaitMask := result.io.e3WaitMask
   io.e3MergedData := result.io.e3MergedData
   io.e4Valid := result.io.e4Valid
+  io.e4Identity := e4Identity
   io.e4LineData := result.io.e4LineData
   io.e4ValidMask := result.io.e4ValidMask
   io.e4LoadByteMask := result.io.e4LoadByteMask

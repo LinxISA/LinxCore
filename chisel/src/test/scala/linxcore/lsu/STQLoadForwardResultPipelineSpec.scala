@@ -24,6 +24,19 @@ class STQLoadForwardResultPipelineSpec extends AnyFunSuite with ChiselSim {
       data: BigInt): Unit = {
     dut.io.response.bits.poke(0.U.asTypeOf(dut.io.response.bits))
     dut.io.response.bits.query.token.poke(token.U)
+    dut.io.response.bits.query.loadId.valid.poke(true.B)
+    dut.io.response.bits.query.loadId.slot.poke((token & 3).U)
+    dut.io.response.bits.query.loadId.generation.poke((token & 1).U)
+    dut.io.response.bits.query.attempt.valid.poke(true.B)
+    dut.io.response.bits.query.attempt.producer.valid.poke(true.B)
+    dut.io.response.bits.query.attempt.producer.nativeBidValid.poke(true.B)
+    dut.io.response.bits.query.attempt.producer.stid.poke(1.U)
+    dut.io.response.bits.query.attempt.generation.poke(token.U)
+    dut.io.response.bits.query.returnPipeIndex.poke((token % 3).U)
+    dut.io.response.bits.query.stid.poke(1.U)
+    dut.io.response.bits.query.loadBid.valid.poke(true.B)
+    dut.io.response.bits.query.loadLsIdFullValid.poke(true.B)
+    dut.io.response.bits.query.size.poke(8.U)
     dut.io.response.bits.query.baseValidMask.poke(baseMask.U)
     dut.io.response.bits.query.loadDataReturned.poke(true.B)
     dut.io.response.bits.query.scbReturned.poke(true.B)
@@ -66,17 +79,56 @@ class STQLoadForwardResultPipelineSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.response.valid.poke(false.B)
       dut.io.e3Valid.expect(true.B)
+      dut.io.e3Identity.loadId.slot.expect(1.U)
+      dut.io.e3Identity.attempt.generation.expect(17.U)
+      dut.io.e3Identity.returnPipeIndex.expect(2.U)
       dut.io.e3LoadByteMask.expect(0xf.U)
       dut.io.e3ForwardMask.expect(0xc.U)
       dut.clock.step()
 
       dut.io.e4Valid.expect(true.B)
+      dut.io.e4Identity.loadId.slot.expect(1.U)
+      dut.io.e4Identity.attempt.generation.expect(17.U)
+      dut.io.e4Identity.returnPipeIndex.expect(2.U)
       dut.io.e4ValidMask.expect(0xf.U)
       dut.io.e4DataComplete.expect(true.B)
       dut.io.e4SourcesReturned.expect(true.B)
       dut.io.e4WakeupValid.expect(true.B)
       dut.io.e4MissKind.expect(LoadForwardMissKind.NoMiss)
       dut.io.e4LineData.expect(BigInt("ddccbbaa", 16).U)
+    }
+  }
+
+  test("back to back responses keep exact canonical identities aligned") {
+    simulate(new STQLoadForwardResultPipeline(
+      robEntries = 8, stqEntries = 4, lsidWidth = 40)) { dut =>
+      clear(dut)
+      pokeBaseResponse(dut, token = 21, loadMask = 0xff,
+        baseMask = 0xff, forwardMask = 0, waitMask = 0,
+        data = BigInt("1111111111111111", 16))
+      dut.io.response.valid.poke(true.B)
+      dut.clock.step()
+
+      pokeBaseResponse(dut, token = 22, loadMask = 0xff,
+        baseMask = 0xff, forwardMask = 0, waitMask = 0,
+        data = BigInt("2222222222222222", 16))
+      dut.io.response.valid.poke(true.B)
+      dut.io.e3Identity.attempt.generation.expect(21.U)
+      dut.clock.step()
+
+      dut.io.response.valid.poke(false.B)
+      dut.io.e4Valid.expect(true.B)
+      dut.io.e4Identity.attempt.generation.expect(21.U)
+      dut.io.e3Valid.expect(true.B)
+      dut.io.e3Identity.attempt.generation.expect(22.U)
+      dut.clock.step()
+
+      dut.io.e4Valid.expect(true.B)
+      dut.io.e4Identity.attempt.generation.expect(22.U)
+      dut.io.flush.poke(true.B)
+      dut.clock.step()
+      dut.io.e3Valid.expect(false.B)
+      dut.io.e4Valid.expect(false.B)
     }
   }
 

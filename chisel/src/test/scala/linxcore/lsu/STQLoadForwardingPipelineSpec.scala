@@ -90,9 +90,19 @@ class STQLoadForwardingPipelineSpec extends AnyFunSuite with ChiselSim {
       bid: Int,
       lsid: BigInt,
       address: BigInt,
-      size: Int): Unit = {
+      size: Int,
+      pipeIndex: Int = 0): Unit = {
     query.poke(0.U.asTypeOf(query))
     query.token.poke(token.U)
+    query.loadId.valid.poke(true.B)
+    query.loadId.slot.poke((token & 3).U)
+    query.loadId.generation.poke((token & 1).U)
+    query.attempt.valid.poke(true.B)
+    query.attempt.producer.valid.poke(true.B)
+    query.attempt.producer.nativeBidValid.poke(true.B)
+    query.attempt.producer.stid.poke(1.U)
+    query.attempt.generation.poke(token.U)
+    query.returnPipeIndex.poke(pipeIndex.U)
     query.stid.poke(1.U)
     pokeId(query.loadBid, bid)
     query.loadLsIdFullValid.poke(true.B)
@@ -107,7 +117,7 @@ class STQLoadForwardingPipelineSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       for (pipe <- 0 until 3) {
         pokeQuery(dut.io.queries(pipe).bits, 0x20 + pipe, 3, 30,
-          0x1000 + pipe * 8, 8)
+          0x1000 + pipe * 8, 8, pipeIndex = pipe)
         dut.io.queries(pipe).valid.poke(true.B)
         dut.io.queries(pipe).ready.expect(true.B)
       }
@@ -219,6 +229,39 @@ class STQLoadForwardingPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.responses(0).bits.loadCrossesLine.expect(true.B)
       dut.io.responses(0).bits.blocked.expect(true.B)
       dut.io.responses(0).bits.bypassComplete.expect(false.B)
+    }
+  }
+
+  test("canonical load attempt and return pipe identity fail closed") {
+    simulate(new STQLoadForwardingPipeline(
+      loadPipes = 2, stqEntries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clear(dut)
+      pokeQuery(dut.io.queries(1).bits, 22, 3, 30, 0x4800, 8,
+        pipeIndex = 0)
+      dut.io.queries(1).valid.poke(true.B)
+      dut.clock.step()
+      dut.io.queries(1).valid.poke(false.B)
+      dut.clock.step()
+      dut.io.responses(1).bits.queryIdentityInvalid.expect(true.B)
+      dut.io.responses(1).bits.blocked.expect(true.B)
+
+      pokeQuery(dut.io.queries(0).bits, 23, 3, 30, 0x4800, 8)
+      dut.io.queries(0).bits.attempt.producer.stid.poke(2.U)
+      dut.io.queries(0).valid.poke(true.B)
+      dut.clock.step()
+      dut.io.queries(0).valid.poke(false.B)
+      dut.clock.step()
+      dut.io.responses(0).bits.queryIdentityInvalid.expect(true.B)
+      dut.io.responses(0).bits.blocked.expect(true.B)
+
+      pokeQuery(dut.io.queries(0).bits, 24, 3, 30, 0x4800, 8)
+      dut.io.queries(0).bits.loadId.valid.poke(false.B)
+      dut.io.queries(0).valid.poke(true.B)
+      dut.clock.step()
+      dut.io.queries(0).valid.poke(false.B)
+      dut.clock.step()
+      dut.io.responses(0).bits.queryIdentityInvalid.expect(true.B)
+      dut.io.responses(0).bits.blocked.expect(true.B)
     }
   }
 

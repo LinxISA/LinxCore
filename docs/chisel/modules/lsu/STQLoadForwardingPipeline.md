@@ -38,6 +38,21 @@ shared snapshot register.
    cross-line store, malformed query identity, and a cross-line load all fail
    closed through `blocked`.
 
+I0.15c-b3a makes every accepted query attempt-qualified. In addition to the
+ordering fields, the request carries:
+
+- `loadId`: the exact canonical LIQ slot-plus-wrap lease;
+- `attempt`: the complete producer-qualified load-attempt generation;
+- `returnPipeIndex`: the physical load-return pipe selected at allocation.
+
+The STQ pipe preserves all three fields without interpreting them. A malformed
+identity may occupy the elastic lookup pipe, but result qualification fails
+closed if the LIQ lease is invalid, its current bridge generation is not
+representable, the attempt is malformed, the attempt STID differs from the
+ordering STID, or the request is presented to a different physical STQ pipe.
+The upper canonical LIQ owner remains responsible for checking the slot against
+its configured capacity when the result is applied.
+
 Recovery prepare asserts `hold`, suppressing both request ready and response
 valid so neither admission nor response fire can race the store recovery
 projection. The common accepted recovery edge asserts `flush` and removes both
@@ -60,8 +75,9 @@ I0.15a adds `baseValidMask`, `loadDataReturned`, and `scbReturned` to the query
 sidecar and connects the retained response to
 `STQLoadForwardResultPipeline`. Partial L1D/SCB data and canonical STQ bytes can
 therefore share the common E3/E4 result owner without expanding STQ rows into
-a second CAM image. Exact OOO load-generation-to-LIQ binding and replay
-mutation remain the next integration packet.
+a second CAM image. I0.15c-b3a binds every asynchronous response to the exact
+canonical row, attempt generation, and physical return pipe. Direct LIQ result
+application and replay mutation remain the next integration packet.
 
 ## Verification
 
@@ -73,6 +89,7 @@ Directed UT uses unequal `STQ=4`, `ROB=8`, `LSID=40` and covers:
 - multiple unknown older addresses with nearest wait-owner selection;
 - E3 metadata reuse and physical-data generation rejection;
 - malformed identity and cross-line load rejection;
+- canonical-row, producer-attempt/STID, and physical-pipe mismatch rejection;
 - overlapping cross-line-store rejection without false non-overlap blocking;
 - retained response backpressure across recovery prepare;
 - recovery-prepare response suppression and recovery removal of residency.
