@@ -51,5 +51,10 @@ class OooO3IexStorePipelineSpec extends AnyFunSuite {
     assert(chirrtl.contains("inst iex of OooIexExecutionStorePipeline"))
     assert(chirrtl.contains("inst fastResult of OooIexFastResultPort"))
     assert(chirrtl.contains("inst storeCommit of STQSCBCommitBackend"))
+    assert(chirrtl.contains("inst scalarLoadStore of OooIexScalarLoadStorePath"))
+    assert(chirrtl.sliding("inst load of OooIexCanonicalLoadOwnership".length)
+      .count(_ == "inst load of OooIexCanonicalLoadOwnership") == 1)
+    assert(chirrtl.sliding("inst store of OooIexStoreStqFabric".length)
+      .count(_ == "inst store of OooIexStoreStqFabric") == 1)
   }
 }

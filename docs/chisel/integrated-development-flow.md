@@ -24,17 +24,18 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b3c3a focused production load/store closure.
-`OooIexScalarLoadStorePath` owns exactly one canonical OOO load metadata
-boundary, one live scalar load path, and one live store/STQ fabric. It closes
-AGU allocation, exact attempt launch, all three private STQ forwarding lanes,
-exact ROB lookup, and LRET/W2 terminal result. Store address fill now presents
-a prospective late-STA MDB candidate and cannot mutate STQ until MDB capacity
-permits the matching side effect. One local recovery transaction validates
-that the grouped-ROB plan and LSU projection produce the same kill bit for
-every resident LIQ row. Until the final all-owner projection exists, any live
-MissQ/ResolveQ/MDB/LRET/refill/forward transport also rejects prepare.
-Mismatches reject without mutation and only common fire applies either view.
+The latest LSU packet is I0.15c-b3c3b production execution/O3 installation.
+`OooIexExecutionStorePipeline` now instantiates one scalar-load attachment
+against the execution cluster's existing canonical metadata owner and the
+wrapper's existing STQ owner. `OooIexScalarLoadStorePath` owns only the live
+LIQ/L1D/MDB/LRET graph; three forwarding lanes and prospective late-STA MDB
+admission are private, and the old public load/STQ/MDB seams are removed from
+the O3 boundary. Emitted production structure proves exactly one attachment,
+one metadata owner, and one STQ. Recovery now joins execution/metadata,
+STQ/store, and scalar-load owners before one common fire. Raw launch intent is
+arbitrated independently from credit-qualified launch acceptance so replay
+rebind remains conservative without creating a terminal-backpressure ready
+loop.
 
 The preceding I0.15c-b3c2 packet provides live three-pipe forwarding.
 Every canonical LIQ launch atomically enters exactly one retained STQ query
@@ -52,7 +53,7 @@ accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
 and canonical LRET/W1/W2 completion releases metadata only on the same terminal
 fire. Recovery prepare now fences without consuming AGU producers, while only
 the common recovery fire applies the exact kill. The emitted graph contains no
-the legacy load tracker. I0.15c-b2a qualifies speculative wakeup only from the
+legacy load tracker. I0.15c-b2a qualifies speculative wakeup only from the
 exact canonical LIQ launch attempt, emits old-generation cancel on exact
 rebind, one-shot fault cancel independent of terminal backpressure, and
 lane-qualified W1 bypass on ordinary data. Same-lane fault/rebind cancel
@@ -64,13 +65,11 @@ request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
 parameter, UT, abstract memory messages, and module page are deleted. Dynamic
 cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
 P-file/ROB terminal publication.
-The next I0.15c packet must install the focused subgraph in the existing
-execution/O3 topology without duplicating its current canonical load/STQ
-owners, define structural-hard-block consumption, replace the migration BID
-projection with common BID/BROB ordering authority, and extend recovery
-projection equality to every LSU queue.
-Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
-DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
+The next I0.15c packet must define structural-hard-block consumption, replace
+the migration BID projection with common BID/BROB ordering authority, and
+extend recovery projection equality to every LSU queue. Physical SCB return,
+FSU/vector STD, cross-line split loads, DTLB/PMP/PMA/device/coherence, timing,
+and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.
 O4 P/T/U RENU, O5 dispatch/IEX residency, O6 fast resolve/non-flush, and O7

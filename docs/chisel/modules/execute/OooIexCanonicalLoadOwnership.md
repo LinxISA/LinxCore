@@ -90,12 +90,11 @@ terminal metadata owner and contains no migration tracker.
 
 ## Remaining integration gaps
 
-`OooIexScalarLoadStorePath` now closes this owner to live LIQ allocation,
-launch, three-lane STQ forwarding, exact ROB lookup, and W2 result publication
-inside a focused production subgraph. Remaining work is to:
+`OooIexExecutionStorePipeline` now installs `OooIexScalarLoadStorePath` against
+this existing owner and the existing canonical STQ. Small default OOO profiles
+cap default LIQ population to the available ROB identity domain rather than
+widening or truncating native BID projection. Remaining work is to:
 
-- install that subgraph in the full execution/O3 topology without duplicating
-  this owner or the canonical STQ;
 - extend the local LIQ recovery kill-equivalence proof to
   MissQ/ResolveQ/LRET and the final global recovery authority;
 - attempt-qualify every asynchronous cache/refill return, then add physical

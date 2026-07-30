@@ -8,25 +8,13 @@ import linxcore.lsu._
 import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
-/** External memory/control boundary of the canonical scalar load/store path.
-  *
-  * OOO load allocation, attempt launch, terminal completion, and all three
-  * STQ forwarding lanes are deliberately absent from this boundary because
-  * [[OooIexScalarLoadStorePath]] closes them internally.
-  */
-class OooIexScalarLoadStorePathIO(
+/** External memory/control boundary of the installed scalar load path. */
+class OooIexScalarLoadExternalIO(
     val p: OooParams,
     val coreParams: CoreParams,
     val stqEntries: Int) extends Bundle {
   private val lsu = coreParams.scalarLsu
   private val liqIndexWidth = log2Ceil(lsu.liqEntries)
-
-  val agu = Flipped(Vec(3, Decoupled(new OooIexAguLoadRequest(p))))
-  val storeReserve = Flipped(Decoupled(new OooIexIssueRow(p)))
-  val storeAddress = Flipped(Vec(2,
-    Decoupled(new OooIexExecuteTransaction(p))))
-  val storeData = Flipped(Vec(2,
-    Decoupled(new OooIexExecuteTransaction(p))))
 
   val rebind = Flipped(Decoupled(
     new OooIexLoadTerminalMetadataRebind(p, coreParams)))
@@ -72,21 +60,9 @@ class OooIexScalarLoadStorePathIO(
   val robLookupAttempt = Output(new LoadAttemptIdentity)
   val robRowValid = Input(Bool())
   val robRowNeedFlush = Input(Bool())
-  val result = Decoupled(new OooIexLoadResult(p))
-  val speculativeWakeup = Output(Vec(3, Valid(new OooIexWakeup(p))))
-  val loadCancel = Output(Vec(p.iexLoadCancelPorts,
-    Valid(new OooIexLoadCancel(p))))
-  val loadBypass = Output(Vec(3, Valid(new OooIexBypassCandidate(p))))
-
-  // One central transaction presents both owner-native projections.  Prepare
-  // is side-effect free; only recoveryFire applies either projection.
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val lsuRecoveryProjection = Input(new FlushBus(
     coreParams.robEntries, lsu.peIdWidth, lsu.stidWidth, lsu.tidWidth,
     coreParams.lsidWidth))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryRejected = Output(Bool())
-  val recoveryFire = Input(Bool())
   val hardFlush = Input(Bool())
 
   // Structural uncertainty is retained until a later retry/cancel policy
@@ -95,13 +71,6 @@ class OooIexScalarLoadStorePathIO(
   val hardBlock = Decoupled(new STQLoadForwardResponse(
     p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
     lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))
-
-  val markCommitValid = Input(Bool())
-  val markCommitIndex = Input(UInt(log2Ceil(stqEntries).W))
-  val markCommitAccepted = Output(Bool())
-  val commitFreeMaskValid = Input(Bool())
-  val commitFreeMask = Input(UInt(stqEntries.W))
-  val commitFreeAcceptedMask = Output(UInt(stqEntries.W))
 
   val mdbRecoveryReady = Input(Bool())
   val mdbRecoveryValid = Output(Bool())
@@ -118,14 +87,66 @@ class OooIexScalarLoadStorePathIO(
   val protocolError = Output(Bool())
 }
 
-/** Canonical scalar load/store data path shared by production OOO and LSU.
-  *
-  * The module owns exactly one OOO terminal-metadata sidecar, one canonical
-  * LIQ/load-return path, and one canonical STQ.  An accepted AGU request is
-  * atomically allocated in LIQ plus metadata; a selected LIQ launch is
-  * atomically reported back to the metadata owner; and W2 completion is one
-  * atomic event across LSU resolve/writeback/wakeup and OOO terminal result.
-  * The three STQ query/response lanes never cross this module boundary.
+/** Private attachment to the one canonical STQ already owned by the
+  * execution/store wrapper.  Forwarding and MDB capacity never escape that
+  * production boundary.
+  */
+class OooIexScalarStoreAttachIO(
+    val p: OooParams,
+    val stqEntries: Int) extends Bundle {
+  val forwardQuery = Vec(3, Decoupled(new STQLoadForwardQuery(
+    p.robGroupsPerStid, stidWidth = p.stidWidth,
+    lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
+  val forwardResponse = Flipped(Vec(3, Decoupled(
+    new STQLoadForwardResponse(
+      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
+  val rows = Input(Vec(stqEntries, new STQEntryBankRow(
+    p.robGroupsPerStid,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.stidWidth,
+    mapQDepth = p.tuMapQDepthPerStid,
+    lsidWidth = p.lsidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth)))
+  val lateStaProbe = Input(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaCandidate = Input(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaPermit = Output(Bool())
+  val occupiedMask = Input(UInt(stqEntries.W))
+  val forwardingOccupied = Input(UInt(3.W))
+}
+
+class OooIexScalarLoadStorePathIO(
+    val p: OooParams,
+    val coreParams: CoreParams,
+    val stqEntries: Int) extends Bundle {
+  val owner = Flipped(new OooIexCanonicalLoadPortIO(p, coreParams))
+  val store = new OooIexScalarStoreAttachIO(p, stqEntries)
+  val external = new OooIexScalarLoadExternalIO(p, coreParams, stqEntries)
+
+  // One central transaction presents both owner-native projections. Prepare
+  // is side-effect free; only recoveryFire applies the LSU projection.
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryRejected = Output(Bool())
+  val recoveryFire = Input(Bool())
+}
+
+/** Installed scalar load path shared by the existing OOO metadata owner and
+  * canonical STQ.  This module owns LIQ/L1D/MDB/LRET exactly once and closes
+  * the forwarding and prospective-MDB seams without allocating another OOO
+  * metadata sidecar or STQ.
   */
 class OooIexScalarLoadStorePath(
     val p: OooParams = OooParams(),
@@ -147,83 +168,70 @@ class OooIexScalarLoadStorePath(
   val io = IO(new OooIexScalarLoadStorePathIO(
     p, coreParams, stqEntries))
 
-  val ownership = Module(new OooIexCanonicalLoadOwnership(
-    p, coreParams, laneCount = 3))
   val loadPath = Module(new ScalarLSULoadPath(
     coreParams,
     useExternalStqForwarding = true,
     stqForwardRobEntries = p.robGroupsPerStid,
-    stqForwardTokenWidth = p.transactionIdWidth))
-  val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+    stqForwardTokenWidth = p.transactionIdWidth,
+    useExternalLaunchPermit = true))
   val forwarding = loadPath.stqForward.get
   val recoveryPreparing = io.recoveryPrepare.valid
 
-  ownership.io.agu <> io.agu
-  store.io.reserve <> io.storeReserve
-  store.io.storeAddress <> io.storeAddress
-  store.io.storeData <> io.storeData
-
-  loadPath.io.allocValid := ownership.io.liqAlloc.valid
-  loadPath.io.alloc := ownership.io.liqAlloc.bits
-  ownership.io.liqAlloc.ready := loadPath.io.allocReady
-  ownership.io.liqAllocLoadId := loadPath.io.allocLoadId
-  io.allocAccepted := ownership.io.allocAccepted &&
+  loadPath.io.allocValid := io.owner.liqAlloc.valid
+  loadPath.io.alloc := io.owner.liqAlloc.bits
+  io.owner.liqAlloc.ready := loadPath.io.allocReady
+  io.owner.liqAllocLoadId := loadPath.io.allocLoadId
+  io.external.allocAccepted := io.owner.liqAlloc.fire &&
     loadPath.io.allocAccepted
 
-  ownership.io.rebind <> io.rebind
-  loadPath.io.attemptRebindValid := ownership.io.liqRebind.valid
-  loadPath.io.attemptRebind := ownership.io.liqRebind.bits
-  ownership.io.liqRebind.ready := loadPath.io.attemptRebindReady
+  io.owner.rebind <> io.external.rebind
+  loadPath.io.attemptRebindValid := io.owner.liqRebind.valid
+  loadPath.io.attemptRebind := io.owner.liqRebind.bits
+  io.owner.liqRebind.ready := loadPath.io.attemptRebindReady
 
-  val launchRow = loadPath.io.liqRows(io.launch.bits)
-  ownership.io.attemptLaunch.valid := io.launch.valid &&
+  val launchRow = loadPath.io.liqRows(io.external.launch.bits)
+  io.owner.attemptLaunch.valid := io.external.launch.valid &&
     loadPath.io.launchReady
-  ownership.io.attemptLaunch.bits.loadId :=
+  io.owner.attemptLaunch.bits.loadId :=
     LoadCanonicalRowIdentity.fromRobId(launchRow.loadId)
-  ownership.io.attemptLaunch.bits.attempt := launchRow.attempt
-  loadPath.io.launchValid := io.launch.valid &&
-    ownership.io.attemptLaunchAccepted
-  loadPath.io.launchIndex := io.launch.bits
-  io.launch.ready := loadPath.io.launchReady &&
-    ownership.io.attemptLaunchAccepted
-  io.launchAccepted := loadPath.io.launchAccepted &&
-    ownership.io.attemptLaunchAccepted
+  io.owner.attemptLaunch.bits.attempt := launchRow.attempt
+  loadPath.io.launchValid := io.external.launch.valid
+  loadPath.io.launchIndex := io.external.launch.bits
+  loadPath.launchPermit.get := io.owner.attemptLaunchAccepted
+  io.external.launch.ready := loadPath.io.launchReady &&
+    io.owner.attemptLaunchAccepted
+  io.external.launchAccepted := loadPath.io.launchAccepted &&
+    io.owner.attemptLaunchAccepted
 
-  loadPath.io.pickValid := io.pick.valid && !recoveryPreparing
-  loadPath.io.pickIndex := io.pick.bits
-  io.pick.ready := loadPath.io.pickReady && !recoveryPreparing
-  loadPath.io.scbReturnValid := io.scbReturn.valid && !recoveryPreparing
-  loadPath.io.scbReturnIndex := io.scbReturn.bits
-  io.scbReturn.ready := loadPath.io.scbReturnReady && !recoveryPreparing
+  loadPath.io.pickValid := io.external.pick.valid && !recoveryPreparing
+  loadPath.io.pickIndex := io.external.pick.bits
+  io.external.pick.ready := loadPath.io.pickReady && !recoveryPreparing
+  loadPath.io.scbReturnValid := io.external.scbReturn.valid &&
+    !recoveryPreparing
+  loadPath.io.scbReturnIndex := io.external.scbReturn.bits
+  io.external.scbReturn.ready := loadPath.io.scbReturnReady &&
+    !recoveryPreparing
 
-  ownership.io.completion.valid :=
+  io.owner.completion.valid :=
     loadPath.io.loadReturn.completionCandidateValid
-  ownership.io.completion.bits := loadPath.io.loadReturn.completion
-  loadPath.io.loadReturn.resolveReady := ownership.io.completion.ready
-  loadPath.io.loadReturn.writebackReady := ownership.io.completion.ready
-  loadPath.io.loadReturn.wakeupReady := ownership.io.completion.ready
-  ownership.io.result <> io.result
-  io.speculativeWakeup := ownership.io.speculativeWakeup
-  io.loadCancel.foreach(_ := 0.U.asTypeOf(io.loadCancel.head))
-  for (lane <- 0 until 3) {
-    io.loadCancel(lane) := ownership.io.loadCancel(lane)
-  }
-  io.loadBypass := ownership.io.loadBypass
-  store.io.loadCancel := io.loadCancel
+  io.owner.completion.bits := loadPath.io.loadReturn.completion
+  loadPath.io.loadReturn.resolveReady := io.owner.completion.ready
+  loadPath.io.loadReturn.writebackReady := io.owner.completion.ready
+  loadPath.io.loadReturn.wakeupReady := io.owner.completion.ready
 
   for (pipe <- 0 until 3) {
-    store.io.loadForwardQuery(pipe).valid := forwarding.queries(pipe).valid
-    store.io.loadForwardQuery(pipe).bits := forwarding.queries(pipe).bits
-    forwarding.queries(pipe).ready := store.io.loadForwardQuery(pipe).ready
+    io.store.forwardQuery(pipe).valid := forwarding.queries(pipe).valid
+    io.store.forwardQuery(pipe).bits := forwarding.queries(pipe).bits
+    forwarding.queries(pipe).ready := io.store.forwardQuery(pipe).ready
     forwarding.responses(pipe).valid :=
-      store.io.loadForwardResponse(pipe).valid
+      io.store.forwardResponse(pipe).valid
     forwarding.responses(pipe).bits :=
-      store.io.loadForwardResponse(pipe).bits
-    store.io.loadForwardResponse(pipe).ready :=
+      io.store.forwardResponse(pipe).bits
+    io.store.forwardResponse(pipe).ready :=
       forwarding.responses(pipe).ready
   }
-  forwarding.scb := io.scbSource
-  io.hardBlock <> forwarding.hardBlock
+  forwarding.scb := io.external.scbSource
+  io.external.hardBlock <> forwarding.hardBlock
 
   private def widenRobId(target: ROBID, source: ROBID): Unit = {
     target.valid := source.valid
@@ -231,8 +239,8 @@ class OooIexScalarLoadStorePath(
     target.value := source.value
   }
 
-  val lateProbe = store.io.lateStaProbe
-  val lateCandidate = store.io.lateStaCandidate
+  val lateProbe = io.store.lateStaProbe
+  val lateCandidate = io.store.lateStaCandidate
   loadPath.mdbStore.probe := 0.U.asTypeOf(loadPath.mdbStore.probe)
   loadPath.mdbStore.probe.valid := lateCandidate.valid &&
     lateCandidate.bits.valid
@@ -252,10 +260,10 @@ class OooIexScalarLoadStorePath(
   loadPath.mdbStore.probe.addr := lateCandidate.bits.addr
   loadPath.mdbStore.probe.size := lateCandidate.bits.size
   loadPath.mdbStore.probeCommit := lateProbe.valid
-  store.io.lateStaPermit := loadPath.mdbStore.probeReady
+  io.store.lateStaPermit := loadPath.mdbStore.probeReady
 
   for (index <- 0 until stqEntries) {
-    val source = store.io.rows(index)
+    val source = io.store.rows(index)
     val target = loadPath.mdbStore.rows(index)
     target := 0.U.asTypeOf(target)
     target.valid := source.valid
@@ -273,52 +281,54 @@ class OooIexScalarLoadStorePath(
     target.isTile := !source.scalarIex
   }
 
-  loadPath.io.replayWakeValid := io.replayWake.valid && !recoveryPreparing
-  loadPath.io.replayWake := io.replayWake.bits
-  loadPath.io.refillValid := io.refill.valid && !recoveryPreparing
-  loadPath.io.refill := io.refill.bits
-  io.refill.ready := loadPath.io.refillReady && !recoveryPreparing
-  io.missRequest.valid := loadPath.io.missRequestValid && !recoveryPreparing
-  io.missRequest.bits := loadPath.io.missRequest
-  loadPath.io.missRequestReady := io.missRequest.ready && !recoveryPreparing
-  loadPath.io.missResponseValid := io.missResponse.valid && !recoveryPreparing
-  loadPath.io.missResponse := io.missResponse.bits
-  io.missResponse.ready := loadPath.io.missResponseReady && !recoveryPreparing
-  loadPath.io.resolveRetireValid := io.resolveRetireValid && !recoveryPreparing
-  loadPath.io.resolveRetireBid := io.resolveRetireBid
-  loadPath.io.resolveRetireLsId := io.resolveRetireLsId
-  loadPath.io.resolveRetireLsIdFullValid := io.resolveRetireLsIdFullValid
-  loadPath.io.resolveRetireLsIdFull := io.resolveRetireLsIdFull
+  loadPath.io.replayWakeValid := io.external.replayWake.valid &&
+    !recoveryPreparing
+  loadPath.io.replayWake := io.external.replayWake.bits
+  loadPath.io.refillValid := io.external.refill.valid && !recoveryPreparing
+  loadPath.io.refill := io.external.refill.bits
+  io.external.refill.ready := loadPath.io.refillReady && !recoveryPreparing
+  io.external.missRequest.valid := loadPath.io.missRequestValid &&
+    !recoveryPreparing
+  io.external.missRequest.bits := loadPath.io.missRequest
+  loadPath.io.missRequestReady := io.external.missRequest.ready &&
+    !recoveryPreparing
+  loadPath.io.missResponseValid := io.external.missResponse.valid &&
+    !recoveryPreparing
+  loadPath.io.missResponse := io.external.missResponse.bits
+  io.external.missResponse.ready := loadPath.io.missResponseReady &&
+    !recoveryPreparing
+  loadPath.io.resolveRetireValid := io.external.resolveRetireValid &&
+    !recoveryPreparing
+  loadPath.io.resolveRetireBid := io.external.resolveRetireBid
+  loadPath.io.resolveRetireLsId := io.external.resolveRetireLsId
+  loadPath.io.resolveRetireLsIdFullValid :=
+    io.external.resolveRetireLsIdFullValid
+  loadPath.io.resolveRetireLsIdFull := io.external.resolveRetireLsIdFull
 
-  io.l1dEviction.valid := loadPath.io.l1dEviction.valid
-  io.l1dEviction.bits := loadPath.io.l1dEviction
-  loadPath.io.l1dEvictionReady := io.l1dEviction.ready
-  loadPath.scbCache.update := io.scbCacheUpdate
-  loadPath.scbCache.lookupValid := io.scbLookupValid
-  loadPath.scbCache.lookupLineAddr := io.scbLookupLineAddr
-  loadPath.scbCache.grantWriteValid := io.scbGrantWriteValid
-  loadPath.scbCache.grantWriteLineAddr := io.scbGrantWriteLineAddr
-  io.robLookupValid := loadPath.io.loadReturn.robLookupValid
-  io.robLookupPeId := loadPath.io.loadReturn.robLookupPeId
-  io.robLookupStid := loadPath.io.loadReturn.robLookupStid
-  io.robLookupTid := loadPath.io.loadReturn.robLookupTid
-  io.robLookupBid := loadPath.io.loadReturn.robLookupBid
-  io.robLookupGid := loadPath.io.loadReturn.robLookupGid
-  io.robLookupRid := loadPath.io.loadReturn.robLookupRid
-  io.robLookupLoadLsId := loadPath.io.loadReturn.robLookupLoadLsId
-  io.robLookupLoadLsIdFullValid :=
+  io.external.l1dEviction.valid := loadPath.io.l1dEviction.valid
+  io.external.l1dEviction.bits := loadPath.io.l1dEviction
+  loadPath.io.l1dEvictionReady := io.external.l1dEviction.ready
+  loadPath.scbCache.update := io.external.scbCacheUpdate
+  loadPath.scbCache.lookupValid := io.external.scbLookupValid
+  loadPath.scbCache.lookupLineAddr := io.external.scbLookupLineAddr
+  loadPath.scbCache.grantWriteValid := io.external.scbGrantWriteValid
+  loadPath.scbCache.grantWriteLineAddr :=
+    io.external.scbGrantWriteLineAddr
+  io.external.robLookupValid := loadPath.io.loadReturn.robLookupValid
+  io.external.robLookupPeId := loadPath.io.loadReturn.robLookupPeId
+  io.external.robLookupStid := loadPath.io.loadReturn.robLookupStid
+  io.external.robLookupTid := loadPath.io.loadReturn.robLookupTid
+  io.external.robLookupBid := loadPath.io.loadReturn.robLookupBid
+  io.external.robLookupGid := loadPath.io.loadReturn.robLookupGid
+  io.external.robLookupRid := loadPath.io.loadReturn.robLookupRid
+  io.external.robLookupLoadLsId := loadPath.io.loadReturn.robLookupLoadLsId
+  io.external.robLookupLoadLsIdFullValid :=
     loadPath.io.loadReturn.robLookupLoadLsIdFullValid
-  io.robLookupLoadLsIdFull := loadPath.io.loadReturn.robLookupLoadLsIdFull
-  io.robLookupAttempt := loadPath.io.loadReturn.robLookupAttempt
-  loadPath.io.loadReturn.robRowValid := io.robRowValid
-  loadPath.io.loadReturn.robRowNeedFlush := io.robRowNeedFlush
-
-  store.io.markCommitValid := io.markCommitValid
-  store.io.markCommitIndex := io.markCommitIndex
-  io.markCommitAccepted := store.io.markCommitAccepted
-  store.io.commitFreeMaskValid := io.commitFreeMaskValid
-  store.io.commitFreeMask := io.commitFreeMask
-  io.commitFreeAcceptedMask := store.io.commitFreeAcceptedMask
+  io.external.robLookupLoadLsIdFull :=
+    loadPath.io.loadReturn.robLookupLoadLsIdFull
+  io.external.robLookupAttempt := loadPath.io.loadReturn.robLookupAttempt
+  loadPath.io.loadReturn.robRowValid := io.external.robRowValid
+  loadPath.io.loadReturn.robRowNeedFlush := io.external.robRowNeedFlush
 
   val oooLiqKill = Wire(Vec(lsu.liqEntries, Bool()))
   val lsuLiqKill = Wire(Vec(lsu.liqEntries, Bool()))
@@ -356,7 +366,7 @@ class OooIexScalarLoadStorePath(
     pruneRow.lsIdFullValid := row.loadLsIdFullValid
     pruneRow.lsIdFull := row.loadLsIdFull
     lsuLiqKill(index) := STQFlushPrune.matchesFlush(
-      io.lsuRecoveryProjection, pruneRow)
+      io.external.lsuRecoveryProjection, pruneRow)
   }
   val liqProjectionExact = oooLiqKill.asUInt === lsuLiqKill.asUInt
   val nonLiqRecoveryStateEmptyNow = loadPath.io.resolveEmpty &&
@@ -376,17 +386,19 @@ class OooIexScalarLoadStorePath(
   val recoverySnapshotValid = recoveryPrepareD1 && recoveryPrepareD2
   val recoverySnapshotStateEmpty = nonLiqRecoveryStateEmptyD1 &&
     nonLiqRecoveryStateEmptyD2
-  val lsuProjectionShapeExact = io.lsuRecoveryProjection.req.valid &&
+  val lsuProjectionShapeExact = io.external.lsuRecoveryProjection.req.valid &&
     io.recoveryPrepare.bits.valid &&
-    io.lsuRecoveryProjection.req.stid === io.recoveryPrepare.bits.oldHead.stid &&
-    io.lsuRecoveryProjection.req.peId === io.recoveryPrepare.bits.oldHead.peId &&
+    io.external.lsuRecoveryProjection.req.stid ===
+      io.recoveryPrepare.bits.oldHead.stid &&
+    io.external.lsuRecoveryProjection.req.peId ===
+      io.recoveryPrepare.bits.oldHead.peId &&
     liqProjectionExact
-  val allPrepared = ownership.io.recoveryPrepareReady &&
-    store.io.recoveryPrepareReady && lsuProjectionShapeExact &&
+  val allPrepared = lsuProjectionShapeExact &&
     recoverySnapshotValid && recoverySnapshotStateEmpty
   val recoveryPrepared = RegInit(false.B)
   val preparedPlan = Reg(chiselTypeOf(io.recoveryPrepare.bits))
-  val preparedLsuProjection = Reg(chiselTypeOf(io.lsuRecoveryProjection))
+  val preparedLsuProjection = Reg(chiselTypeOf(
+    io.external.lsuRecoveryProjection))
   io.recoveryPrepareReady := io.recoveryPrepare.valid &&
     (allPrepared || recoveryPrepared)
   val commonRecoveryFire = io.recoveryFire && io.recoveryPrepare.valid &&
@@ -396,57 +408,39 @@ class OooIexScalarLoadStorePath(
   }.elsewhen(!recoveryPrepared && allPrepared) {
     recoveryPrepared := true.B
     preparedPlan := io.recoveryPrepare.bits
-    preparedLsuProjection := io.lsuRecoveryProjection
+    preparedLsuProjection := io.external.lsuRecoveryProjection
   }
-  val appliedOooRecovery = Wire(chiselTypeOf(io.recoveryPrepare))
-  appliedOooRecovery := io.recoveryPrepare
-  when(recoveryPrepared) {
-    appliedOooRecovery.valid := true.B
-    appliedOooRecovery.bits := preparedPlan
-  }
-  ownership.io.recoveryPrepare := appliedOooRecovery
-  store.io.recoveryPrepare := appliedOooRecovery
-  ownership.io.recoveryFire := commonRecoveryFire
-  store.io.recoveryFire := commonRecoveryFire
-  val appliedLsuRecovery = Wire(chiselTypeOf(io.lsuRecoveryProjection))
+  val appliedLsuRecovery = Wire(chiselTypeOf(io.external.lsuRecoveryProjection))
   appliedLsuRecovery := preparedLsuProjection
   appliedLsuRecovery.req.valid := commonRecoveryFire
   loadPath.io.preciseFlush := appliedLsuRecovery
   io.recoveryRejected := io.recoveryPrepare.valid &&
-    (!ownership.io.recoveryPrepareReady || store.io.recoveryRejected ||
-      !lsuProjectionShapeExact ||
+    (!lsuProjectionShapeExact ||
       (recoverySnapshotValid && !recoverySnapshotStateEmpty))
 
-  loadPath.io.flush := io.hardFlush
-  ownership.io.flush := io.hardFlush
-  loadPath.recovery.ready := io.mdbRecoveryReady && !recoveryPreparing
-  io.mdbRecoveryValid := loadPath.recovery.valid
-  io.mdbRecovery := loadPath.recovery.flush
+  loadPath.io.flush := io.external.hardFlush
+  loadPath.recovery.ready := io.external.mdbRecoveryReady &&
+    !recoveryPreparing
+  io.external.mdbRecoveryValid := loadPath.recovery.valid
+  io.external.mdbRecovery := loadPath.recovery.flush
 
   // Compatibility E2 sources are structurally absent in production mode.
   loadPath.io.e2Stores := 0.U.asTypeOf(loadPath.io.e2Stores)
   loadPath.io.e2ScbReturned := false.B
   loadPath.io.e2StqReturned := false.B
 
-  io.liqOccupiedMask := loadPath.io.liqOccupiedMask
-  io.stqOccupiedMask := store.io.occupiedMask
-  io.forwardingOccupied := store.io.loadForwardOccupied
-  io.empty := ownership.io.metadataEmpty && loadPath.io.empty && store.io.empty
-  io.protocolError := forwarding.protocolError ||
+  io.external.liqOccupiedMask := loadPath.io.liqOccupiedMask
+  io.external.stqOccupiedMask := io.store.occupiedMask
+  io.external.forwardingOccupied := io.store.forwardingOccupied
+  io.external.empty := loadPath.io.empty
+  io.external.protocolError := forwarding.protocolError ||
     loadPath.io.allocAttemptMalformed ||
     loadPath.io.transferProtocolError ||
     loadPath.io.loadReturn.protocolError ||
     loadPath.io.mdbProtocolError ||
     loadPath.io.l1dProtocolError ||
     loadPath.io.missQueueProtocolError ||
-    loadPath.io.refillTransportProtocolError ||
-    ownership.io.metadataAllocRejected.valid ||
-    ownership.io.metadataRebindRejected.valid ||
-    ownership.io.attemptLaunchRejected.valid ||
-    ownership.io.completionRejected.valid ||
-    store.io.reserveRejected ||
-    store.io.leaseLookupRejected.asUInt.orR ||
-    store.io.fillConflict
+    loadPath.io.refillTransportProtocolError
 
   when(io.recoveryFire) {
     assert(io.recoveryPrepare.valid && recoveryPrepared,
@@ -454,11 +448,12 @@ class OooIexScalarLoadStorePath(
   }
   when(recoveryPrepared) {
     assert(io.recoveryPrepare.bits.asUInt === preparedPlan.asUInt &&
-      io.lsuRecoveryProjection.asUInt === preparedLsuProjection.asUInt,
+      io.external.lsuRecoveryProjection.asUInt ===
+        preparedLsuProjection.asUInt,
       "prepared scalar load/store recovery inputs must remain stable until fire")
   }
-  when(loadPath.io.launchAccepted || ownership.io.attemptLaunchAccepted) {
-    assert(loadPath.io.launchAccepted && ownership.io.attemptLaunchAccepted,
+  when(loadPath.io.launchAccepted || io.owner.attemptLaunchAccepted) {
+    assert(loadPath.io.launchAccepted && io.owner.attemptLaunchAccepted,
       "LIQ launch and OOO attempt publication must be atomic")
   }
   when(loadPath.io.loadReturn.resolveFire ||

@@ -325,7 +325,7 @@ class OooIexExecutionStoreIntegrationSpec
     owner.residentGeneration.poke(5.U)
   }
 
-  test("recovery join requires both owners and emits one common fire") {
+  test("recovery join requires execution, store, and scalar-load owners") {
     simulate(new OooIexExecutionStoreRecoveryJoin(p)) { dut =>
       dut.io.requested.poke(0.U.asTypeOf(dut.io.requested))
       dut.io.executionReady.poke(false.B)
@@ -335,6 +335,8 @@ class OooIexExecutionStoreIntegrationSpec
         0.U.asTypeOf(dut.io.executionRejected))
       dut.io.storeReady.poke(false.B)
       dut.io.storeRejected.poke(false.B)
+      dut.io.scalarLoadReady.poke(false.B)
+      dut.io.scalarLoadRejected.poke(false.B)
       dut.io.fire.poke(false.B)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -350,6 +352,8 @@ class OooIexExecutionStoreIntegrationSpec
       dut.io.commonFire.expect(false.B)
 
       dut.io.storeReady.poke(true.B)
+      dut.io.prepareReady.expect(false.B)
+      dut.io.scalarLoadReady.poke(true.B)
       dut.io.prepareReady.expect(true.B)
       dut.io.prepared.valid.expect(true.B)
       dut.io.prepared.stid.expect(1.U)
@@ -363,6 +367,11 @@ class OooIexExecutionStoreIntegrationSpec
       dut.io.rejected.valid.expect(true.B)
       dut.io.rejected.bits.residentRowsExact.expect(false.B)
       dut.io.rejected.bits.s1RowsExact.expect(true.B)
+
+      dut.io.storeRejected.poke(false.B)
+      dut.io.scalarLoadRejected.poke(true.B)
+      dut.io.rejected.valid.expect(true.B)
+      dut.io.rejected.bits.residentRowsExact.expect(false.B)
 
       dut.io.executionRejected.valid.poke(true.B)
       dut.io.executionRejected.bits.residentRowsExact.poke(true.B)

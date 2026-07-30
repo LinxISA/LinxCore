@@ -103,9 +103,6 @@ STD before reservation, after reservation, and in resident S3.
 
 - Extend the physical data bank beyond the current scalar payload contract to
   vector/FSU widths, cross-bank ECC/parity, and explicit power-gating policy.
-- Install `OooIexScalarLoadStorePath` in the full execution/O3 topology; its
-  focused subgraph already composes this STQ with live three-lane forwarding
-  and MDB admission.
 - Connect translation, PMP/PMA, MMIO classification, L1D/coherence, and
   externally visible fault publication.
 - Prove sustained two-STA pressure alongside the now-directed two-STD path,

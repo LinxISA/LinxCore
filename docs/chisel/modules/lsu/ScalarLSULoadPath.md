@@ -37,6 +37,10 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    free slots, and the row's exact `(STID, return pipe)` lane has unreserved
    capacity, and physical miss entries exceed outstanding miss reservations.
    Launch acceptance increments both return-lane and miss reservations.
+   `launchValid/launchIndex` remain the raw arbitration intent. Production OOO
+   may additionally enable a metadata permit before acceptance; same-row
+   replay rebind is conservatively excluded from the raw intent without
+   depending on the downstream credit-qualified permit.
 3. E4 releases both launch reservations on hit, miss, or replay. A data miss
    atomically enters `LoadMissQueue`; a hit extracts
    final scalar data and enters ResolveQ plus the selected LRET queue atomically;
@@ -101,12 +105,13 @@ stage entries; W1/W2 residency participates in load-path quiescence.
 
 The attempt sidecar is not an LSU ordering identity. BID/group/full-LSID and
 the LIQ slot-plus-wrap lease remain authoritative for lifecycle and recovery.
-The future OOO adapter must validate both domains and may not reconstruct the
+The installed OOO adapter validates both domains and may not reconstruct the
 producer key from legacy ROB IDs.
 
 `liqEntries` must not exceed the ROB identity domain used by replay
-diagnostics. Reduced tops with a smaller ROB therefore select a matching LIQ
-size explicitly; the production defaults remain independently configurable.
+diagnostics. Explicit configurations must satisfy that relation; the default
+OOO canonical adapter caps its default LIQ population to the available ROB
+identity domain rather than widening or truncating native BID projection.
 
 ## Recovery
 
