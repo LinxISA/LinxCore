@@ -33,22 +33,31 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- OOO O0/O1: the normative D2-virtual/D3-reserve/S1-publish
-  contract, independent `OooParams`, exact grouped/member identity bundles,
-  and four-thread retained stage shell are implemented. Decode expansion,
-  fusion, grouped ROB/BROB, RENU, dispatch, recovery, CTU, and benchmark
-  promotion remain subsequent packets.
+- OOO O0-O7: parameterized raw ingress and decode/fusion, grouped ROB/BROB/PC,
+  P/T/U RENU, dispatch/IEX residency, fast resolve/non-flush, exact global
+  recovery, and the OOO-side CTU lease/reinsertion contract are implemented
+  with focused UT/IT evidence. O8 physical banking/timing closure remains
+  active. O9 external CTU recipe-engine/top wiring, legacy reduced-owner
+  removal, and production workload promotion remain open. The authoritative
+  packet handoff is [integrated-development-flow.md](integrated-development-flow.md).
 - IFU implementation: `LinxCoreIfu` composes independent I-SIDE and
   B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
   and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide
-  output; natural CoreMark/Dhrystone run through the promoted owner graph.
+  output; recorded natural CoreMark/Dhrystone evidence ran through the promoted
+  owner graph. A fresh 2026-07-30 `LinxCoreBenchmarkAutonomousTopSpec` gate is
+  currently red because newly added replay-LIQ LRET identity/fault fields are
+  not fully initialized in the legacy trace top; do not treat the recorded
+  workload manifests as current-head elaboration proof until that wiring is
+  repaired.
   Four-row atomic D2/D3 admission, complete predictor policy, SoC PTW/L1I
   binding, and lower-memory error termination remain open.
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started
-- Backend/recovery integration: dispatch/BROB-to-ROB allocation bridge,
-  full-BID recovery handoff, and registered cleanup intent started
+- Backend/recovery integration: O7 joins ROB/D3/BROB/PC, P/T/U rename,
+  dispatch/IEX/fast residency, frontend acknowledgement, and CTU leases under
+  one retained prepare/apply/rebuild transaction. Production-top promotion
+  remains gated on O8/O9 closure.
 - LSU recovery and drain integration: first STQ flush-prune consumer, state
   bank, store-commit queue, and memory-side commit drain boundary started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top

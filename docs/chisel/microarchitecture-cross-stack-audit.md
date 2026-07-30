@@ -1,6 +1,84 @@
 # LinxCore Chisel Cross-Stack Audit
 
-Date: 2026-07-23
+Date: 2026-07-30
+
+## Production owner-graph re-audit
+
+This pass distinguishes three things that older status summaries sometimes
+mixed together: a module existing in source, focused UT/IT evidence for that
+module, and the module being the unique owner in the production elaboration
+graph. The repository contains 435 main Chisel source files and 410 Chisel
+test files across the backend, block-control, execute, frontend, LSU, OOO,
+rename, ROB, recovery, system, and top packages. That breadth is substantial,
+but file count is not production closure.
+
+The current top-level graph is:
+
+| Entry point | Hardware actually instantiated | Status |
+| --- | --- | --- |
+| `LinxCoreComposition` | `LinxCoreIfu`, `IfuLineMemoryBridge`, `D1InstructionDecodeStage`, and `IfuBackendFeedbackBridge` | Canonical production IFU boundary. Its IO explicitly leaves full rename/dispatch/issue outside the wrapper. |
+| `LinxCoreTop` | `ReducedCommitROB`, canonical `ScalarLSU`, load-completion bridge, and scalar GPR sink | Bring-up shell, not a complete core. It has no production IFU-to-OOO-to-IEX graph. |
+| `LinxCoreBenchmarkAutonomousTop` | canonical `LinxCoreComposition` plus `LinxCoreFrontendFetchRfAluTraceTop` and benchmark-only line-fill adapter | Workload-capable promotion harness. The IFU is production, while the backend is still a trace top containing reduced owners and benchmark memory/service seams. |
+
+Direct source evidence is in
+[`LinxCoreComposition.scala`](../../chisel/src/main/scala/linxcore/top/LinxCoreComposition.scala),
+[`LinxCoreTop.scala`](../../chisel/src/main/scala/linxcore/top/LinxCoreTop.scala),
+and
+[`LinxCoreBenchmarkAutonomousTop.scala`](../../chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala).
+The benchmark top selects `useProductionD1Ingress=true`, but also selects the
+reduced store dispatch and STA bridge. Its live backend instantiates
+`ReducedRobCompletionArbiter`, `ReducedScalarAluExecute`,
+`ReducedScalarWritebackArbiter`, `ReducedServiceRequestPath`, reduced template
+state, and reduced store/load replay owners. Those names describe real
+production-graph residency, not merely stale documentation.
+
+### Ranked document-to-hardware gaps
+
+| Rank | Gap | Current evidence | Closure criterion |
+| ---: | --- | --- | --- |
+| 1 | No single production core top owns IFU -> OOO -> IEX -> LSU -> commit. | The canonical IFU and canonical ScalarLSU live in different top graphs; the workload graph joins production IFU to a reduced trace backend. | One named production top elaborates the complete owner graph and becomes the default workload/trace gate. |
+| 2 | The parameterized OOO implementation is ahead of its production placement. | O0-O7 focused owners exist, including 2/4/6 ingress, grouped ROB/BROB/PC, P/T/U rename, dispatch/IEX residency, recovery, and OOO-side CTU lease/reinsertion. The benchmark still feeds `D1DecodedLaneQueue` into the legacy single-row `DecodeRenameROBPath`. | Complete O8 physical banking/timing, then replace the legacy benchmark backend with the OOO shell without a parallel shadow owner. |
+| 3 | IEX production ownership is not unique. | The workload graph still uses `ReducedScalarAluExecute`, reduced completion/writeback arbitration, and a trace-top RF/issue fabric. System/CSR/trap/interrupt execution does not have a production owner in this graph. | One D3 -> IQ -> IEX -> W2 graph owns execution, RF readiness, ROB completion, and system side effects; reduced arbiters leave production elaboration. |
+| 4 | LSU canonical islands are not yet the sole memory owner. | `ScalarLSU` contains canonical STQ/SCB/LIQ/L1D/recovery components, but the workload graph enables reduced STQ/STA, memory overlay, resident-forward, and replay state. Translation/protection, attributes, complete lower-memory/coherence, and several cross-line cases remain open. | Bind OOO/IEX load/store generation to canonical LSU identities, remove shadow state, then prove natural workload and recovery behavior through cache/MMU/lower-memory owners. |
+| 5 | CTU has an OOO-side protocol but no production recipe engine/top connection. | `OooCtuIngressBridge` owns parent claim, lease, plan, ordered child reinsertion, and recovery prepare/apply. Current handoff explicitly leaves the external recipe engine and production-top wiring to O9. | A CTU outside IFU and OOO expands `FENTRY`/`FEXIT`/template parents, writes canonical children through the retained lease, and participates in the same recovery transaction. |
+| 6 | Status documents have different freshness levels. | `integrated-development-flow.md`, `development-loop.md`, and the packet ledger describe O8/O9 accurately; the Chisel README previously still described OOO as O0/O1 with decode, fusion, RENU, and recovery wholly future work. | Keep the short README synchronized to the authoritative handoff and mark long historical ledgers as evidence history rather than current placement. |
+| 7 | The workload top is too monolithic for easy owner auditing. | `LinxCoreFrontendFetchRfAluTraceTop.scala` is roughly 12.9k lines and combines execution, template, store, replay, recovery, diagnostics, and trace adapters. | Promote bounded production modules behind stable interfaces; keep trace tops as observers/wrappers rather than state owners. |
+
+### Fresh gate status
+
+The 2026-07-30 re-audit ran the three focused top-entry suites after a clean
+`Test/compile`:
+
+| Gate | Result | Meaning |
+| --- | --- | --- |
+| `LinxCoreCompositionSpec` | 3/3 pass | The canonical IFU composition elaborates and preserves tagged line transport, B-F4 join, four-wide D1, backend validation, and canonical recovery. |
+| `LinxCoreTopSpec` | 3/3 pass | The reduced commit-ROB plus canonical ScalarLSU shell elaborates. |
+| `LinxCoreBenchmarkAutonomousTopSpec` | 12/15 pass; 3 elaboration failures | The current workload top does not elaborate. `LoadReplayReturnLretPayload` and the corresponding `LoadReplayReturnLretEntry` wire leave the new canonical load-id, attempt identity, and terminal-fault fields uninitialized in `LinxCoreFrontendFetchRfAluTraceTop.scala`. |
+
+The last result is the immediate P0 integration gap. It does not invalidate
+the recorded workload evidence at the older accepted revision, but it does
+invalidate any claim that current HEAD can reproduce those workloads without
+first repairing and revalidating the replay-LIQ LRET seam.
+
+### Maturity assessment
+
+- **IFU: high module maturity, medium system maturity.** The canonical
+  I-SIDE/B-SIDE/Instruction-Buffer/D1 graph and real-workload evidence are
+  strong. Atomic four-lane handoff into the production OOO graph, SoC PTW/L1I
+  binding, complete predictor policy, and lower-memory error handling remain.
+- **OOO: medium-high module maturity, medium integration maturity.** O0-O7 are
+  unusually complete at focused-owner level. O8 physical implementation and
+  O9 CTU/top/workload promotion are the decisive remaining steps.
+- **IEX: medium module maturity, low-medium production-placement maturity.**
+  Useful issue/RF/pipeline components exist, but the workload owner is still
+  reduced and system execution is incomplete.
+- **LSU: medium-high component maturity, medium-low unique-owner maturity.**
+  The canonical component set is broad and heavily tested; dual canonical and
+  reduced state paths are still the main architectural risk.
+- **Whole core: medium-low current-head maturity.** Natural CoreMark/Dhrystone are meaningful
+  vertical evidence, but they currently validate a hybrid production/reduced
+  graph and the fresh autonomous-top elaboration gate is red. They must not be
+  reported as proof that the final production core top is closed.
 
 ## Scope and acceptance boundary
 
