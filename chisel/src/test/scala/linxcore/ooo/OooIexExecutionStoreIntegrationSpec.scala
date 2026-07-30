@@ -101,22 +101,30 @@ class OooIexExecutionStoreHarness(
   store.io.loadForwardResponse.foreach(_.ready := true.B)
 
   store.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := store.io.recoveryPrepareReady
-  val recoveryApply = io.recoveryFire && store.io.recoveryPrepareReady
+  execute.io.recoveryPrepare := io.recoveryPrepare
+  io.recoveryPrepareReady := store.io.recoveryPrepareReady &&
+    execute.io.recoveryPrepareReady
+  val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
   store.io.recoveryFire := recoveryApply
-  execute.io.recoveryApply.valid := recoveryApply
-  execute.io.recoveryApply.bits := io.recoveryPrepare.bits
+  execute.io.recoveryFire := recoveryApply
 
   execute.io.multiCycleAlu.foreach(_.ready := true.B)
   execute.io.system.foreach(_.ready := true.B)
   execute.io.pointerAuth.foreach(_.ready := true.B)
   execute.io.floatingVector.ready := true.B
   execute.io.engineCommand.ready := true.B
-  execute.io.memoryRequest.foreach(_.ready := true.B)
-  execute.io.memoryResponse.foreach { response =>
-    response.valid := false.B
-    response.bits := 0.U.asTypeOf(response.bits)
-  }
+  execute.io.load.liqAlloc.ready := true.B
+  execute.io.load.liqAllocLoadId :=
+    0.U.asTypeOf(execute.io.load.liqAllocLoadId)
+  execute.io.load.rebind.valid := false.B
+  execute.io.load.rebind.bits := 0.U.asTypeOf(execute.io.load.rebind.bits)
+  execute.io.load.liqRebind.ready := true.B
+  execute.io.load.attemptLaunch.valid := false.B
+  execute.io.load.attemptLaunch.bits :=
+    0.U.asTypeOf(execute.io.load.attemptLaunch.bits)
+  execute.io.load.completion.valid := false.B
+  execute.io.load.completion.bits :=
+    0.U.asTypeOf(execute.io.load.completion.bits)
   execute.io.pWrite.foreach(_.ready := true.B)
   execute.io.tWrite.foreach(_.ready := true.B)
   execute.io.uWrite.foreach(_.ready := true.B)

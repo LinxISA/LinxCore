@@ -3,10 +3,55 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 
-import linxcore.common.CoreParams
+import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.lsu.{LoadAttemptRebind, LoadCanonicalRowIdentity,
   LoadInflightAlloc, ScalarLSULoadReturnEntry}
 import linxcore.rob.ROBID
+
+object OooIexCanonicalLoadOwnership {
+  def defaultCoreParams(p: OooParams): CoreParams = {
+    require(p.nativeBidWidth <= 16,
+      "default canonical LSU projection supports native BID up to 16 bits")
+    val bidProjectionEntries = 1 << (p.nativeBidWidth - 1)
+    CoreParams(
+      robEntries = math.max(p.robGroupsPerStid, bidProjectionEntries),
+      lsidWidth = p.lsidWidth,
+      scalarLsu = ScalarLsuParams(
+        stidCount = p.stidCount,
+        loadReturnPipeCount = 3,
+        peIdWidth = math.max(8, p.peIdWidth),
+        stidWidth = math.max(8, p.stidWidth),
+        tidWidth = math.max(8, p.stidWidth),
+        archRegWidth = math.max(6, p.archRegWidth),
+        physRegWidth = math.max(7, p.pTagWidth)))
+  }
+}
+
+/** Canonical LSU-facing port of the production OOO execution composition. */
+class OooIexCanonicalLoadPortIO(
+    val p: OooParams,
+    val coreParams: CoreParams) extends Bundle {
+  private val lsu = coreParams.scalarLsu
+
+  private def allocType = new LoadInflightAlloc(
+    lsu.liqEntries, coreParams.robEntries, lsu.addrWidth, lsu.pcWidth,
+    lsu.loadSizeWidth, lsu.archRegWidth, lsu.physRegWidth, lsu.peIdWidth,
+    lsu.stidWidth, lsu.tidWidth, lsu.loadReturnPipeCount,
+    coreParams.lsidWidth)
+  private def completionType = new ScalarLSULoadReturnEntry(
+    coreParams.robEntries, lsu.addrWidth, lsu.pcWidth, lsu.dataWidth,
+    lsu.loadSizeWidth, lsu.loadReturnPipeCount, lsu.archRegWidth,
+    lsu.physRegWidth, lsu.peIdWidth, lsu.stidWidth, lsu.tidWidth,
+    coreParams.lsidWidth)
+
+  val liqAlloc = Decoupled(allocType)
+  val liqAllocLoadId = Input(new ROBID(lsu.liqEntries))
+  val rebind = Flipped(Decoupled(
+    new OooIexLoadTerminalMetadataRebind(p, coreParams)))
+  val liqRebind = Decoupled(new LoadAttemptRebind(lsu.liqEntries))
+  val attemptLaunch = Flipped(Valid(new OooIexLoadAttemptLaunch))
+  val completion = Flipped(Decoupled(completionType))
+}
 
 class OooIexCanonicalLoadOwnershipIO(
     val p: OooParams,
@@ -60,6 +105,7 @@ class OooIexCanonicalLoadOwnershipIO(
 
   val completion = Flipped(Decoupled(completionType))
   val result = Decoupled(new OooIexLoadResult(p))
+  val resultLane = Output(UInt(math.max(1, log2Ceil(laneCount)).W))
   val speculativeWakeup = Output(Vec(laneCount,
     Valid(new OooIexWakeup(p))))
   val loadCancel = Output(Vec(laneCount,
@@ -170,6 +216,7 @@ class OooIexCanonicalLoadOwnership(
 
   metadata.io.completion <> io.completion
   io.result <> metadata.io.result
+  io.resultLane := metadata.io.resultLane
 
   metadata.io.flush := io.flush
   metadata.io.recoveryPrepare := io.recoveryPrepare

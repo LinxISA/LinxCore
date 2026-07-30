@@ -67,12 +67,9 @@ continuity.
 
 ## Remaining gaps
 
-- connect `alloc` and returned `loadId` to live `ScalarLSULoadPath` residency;
-- expose canonical LIQ launch/repick and bind speculative wakeup/cancel to
-  accepted attempt transitions;
+- connect the cluster's propagated `alloc` and returned `loadId` to live
+  `ScalarLSULoadPath` residency;
 - compose the three STQ snapshot/result pipes with LIQ E1/E3/E4;
-- extend LRET terminal metadata or add an immutable lease-checked sidecar so
-  LSU results can reconstruct `OooIexLoadResult` without lifecycle ownership;
-- make one recovery apply fence OOO, LIQ, MissQ, ResolveQ, LRET, and W1/W2;
-- remove the duplicate `OooIexLoadUnit` tracker only after the live path and
-  stale-return/recovery IT gates pass.
+- make one recovery prepare/fire fence OOO, LIQ, MissQ, ResolveQ, LRET, and
+  W1/W2. The immutable lease-checked terminal sidecar, launch/rebind policy,
+  and cluster cutover are implemented.

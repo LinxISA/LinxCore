@@ -306,9 +306,20 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.bits.faultValid.expect(true.B)
       dut.io.result.bits.data.expect(0.U)
       dut.io.loadBypass.foreach(_.valid.expect(false.B))
-      dut.io.result.ready.poke(true.B)
+      // Fault cancellation is a one-shot policy event.  It must not depend on
+      // the terminal sink accepting W2, otherwise terminal ready can close a
+      // combinational loop through the ALU cancel consumers.
       dut.io.loadCancel(2).valid.expect(true.B)
       dut.io.loadCancel(2).bits.load.generation.expect(faultGeneration.U)
+      dut.clock.step()
+      dut.io.result.valid.expect(true.B)
+      dut.io.loadCancel.foreach(_.valid.expect(false.B))
+
+      dut.io.result.ready.poke(true.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.io.loadCancel.foreach(_.valid.expect(false.B))
+      dut.clock.step()
+      dut.io.metadataEmpty.expect(true.B)
     }
   }
 

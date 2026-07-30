@@ -12,11 +12,14 @@ producer and the scalar LSU. I0.15b implements the first bounded packet:
 - flush, stale-token, lifecycle-race, and row-reuse rejection.
 
 I0.15b does **not** claim that the OOO load path is fully integrated. I0.15c-a
-now adds the production-width three-AGU allocation bridge, parent-PC capture,
-and exact youngest-older-store LSID tail required by canonical forwarding. The
-existing `OooIexLoadUnit` still remains a duplicate request/retry/result owner
-until I0.15c-b routes the accepted bridge transaction into
-`ScalarLSULoadPath` and returns its terminal result.
+adds the production-width three-AGU allocation bridge, parent-PC capture, and
+exact youngest-older-store LSID tail required by canonical forwarding.
+I0.15c-b1/b2a add atomic terminal metadata, exact launch-qualified wakeup,
+rebind/fault cancel, and lane-qualified bypass. I0.15c-b2b cuts the production
+execution cluster over to this canonical boundary and deletes the former
+duplicate request/retry/result tracker. The remaining integration is the live
+connection from this typed boundary to `ScalarLSULoadPath` and its three STQ
+forward-result pipes.
 
 ## 2. Ownership
 
@@ -26,7 +29,7 @@ until I0.15c-b routes the accepted bridge transaction into
 | Physical load residency and `loadId` slot/wrap lease | `LoadInflightQueue` | Allocation, Wait/Repick/L1DcMiss/L2Wait/Resolved, replay, refill, and row release. |
 | Memory ordering | Scalar LSU | Full LSID, store snapshot, wait-store, forwarding, miss, and replay rules never use the OOO attempt token as an ordering key. |
 | Terminal return residency | LRET queue and W1/W2 pipeline | Retains the exact attempt until the terminal atomic side effects fire. |
-| ROB acceptance of a returned load | Future OOO/LSU adapter | Must validate both canonical LSU row identity and the exact producer/attempt token. |
+| ROB acceptance of a returned load | `OooIexCanonicalLoadOwnership` plus atomic terminal fabric | Validates canonical row identity, exact producer/attempt, destination, and outcome before one terminal fire. |
 
 The OOO token is a sidecar. It cannot mutate LIQ status, select forwarding,
 compare load/store age, or replace full LSID authority.
@@ -157,11 +160,11 @@ criteria.
 - Allocation keeps speculative wakeup disabled until I0.15c-b supplies the
   exact wake/cancel owner in the same live composition.
 
-### I0.15c-b: make canonical residency live
+### I0.15c-b: make canonical residency live (b1/b2a/b2b implemented)
 
 - Route all three production load lanes from AGU issue into canonical LIQ
   allocation/launch and route terminal W2 results back to exact OOO completion.
-- Replace `OooIexLoadUnit`'s duplicated request/miss/retry/result residency;
+- Remove duplicated request/miss/retry/result residency;
   OOO retains only speculative dependency/cancel policy.
 - Make one common recovery plan fence OOO attempt state, LIQ state, LRET, and
   W1/W2 before apply.
@@ -183,16 +186,18 @@ copying its state into another OOO queue:
    **Implemented by I0.15c-b2a**: exact launch emits lane-qualified wakeup,
    rebind/fault emit exact cancel, ordinary terminal data emits W1 bypass, and
    same-lane cancel collisions serialize.
-3. Cut the three AGU lanes in `OooIexExecutionCluster` over to that bridge,
+3. **Implemented by I0.15c-b2b.** Cut the three AGU lanes in
+   `OooIexExecutionCluster` over to that bridge,
    join its recovery readiness into the existing common recovery fire, replace
    the three abstract memory request/response ports with canonical LSU ports,
-   and then delete `OooIexLoadUnit` plus its migration-only tests/docs.
+   and then delete the migration tracker plus its tests/docs and capacity
+   parameter.
 
-Regression order is fixed: preserve the old load-unit and execution-cluster
-tests until the replacement IT covers hit, miss/rebind, fault, terminal
-backpressure, stale return, exact recovery kill, and three-lane fairness.  The
-old owner may be deleted only in the same packet that makes those replacement
-gates green; a second dormant load tracker is forbidden.
+The replacement gates now cover three-lane allocation/fairness, exact launch,
+rebind, fault, terminal backpressure, stale completion, exact recovery kill,
+one-shot fault cancellation, W1 bypass, and a real cluster
+E1-to-P-file/ROB-terminal flow. A second dormant load tracker remains
+forbidden.
 
 ### I0.15d and later: close memory-response identity
 

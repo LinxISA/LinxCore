@@ -85,17 +85,15 @@ covers three-lane allocation, LIQ/sidecar atomicity, exact slot-wrap identity,
 terminal backpressure, ordinary data, precise fault, atomic rebind, stale
 completion rejection, exact launch wakeup, replay/fault cancellation, same-lane
 cancel serialization, W1 bypass, common recovery fencing/kill, and generated
-SystemVerilog structure. The emitted graph must contain the allocation adapter
-and terminal metadata owner and must not contain `OooIexLoadUnit`.
+SystemVerilog structure. The emitted graph contains the allocation adapter and
+terminal metadata owner and contains no migration tracker.
 
-## Remaining cutover gaps
+## Remaining integration gaps
 
-- instantiate this owner in `OooIexExecutionCluster` and join its recovery
-  readiness with IQ/execution/STQ recovery;
-- connect `ScalarLSULoadPath` allocation, launch, return, and all three
-  canonical STQ result pipes;
-- delete `OooIexLoadUnit` and its abstract request/response boundary in the
-  same packet that replacement cluster IT becomes green;
+- connect the execution-cluster canonical port to live `ScalarLSULoadPath`
+  allocation, launch, return, and all three canonical STQ result pipes;
+- join the scalar LSU's LIQ/MissQ/ResolveQ/LRET/W1/W2 recovery readiness with
+  the existing IQ/execution/store common prepare/fire;
 - attempt-qualify every asynchronous cache/refill return, then add physical
   DTLB/PMP/PMA/L1D/coherence/device and cross-line handling;
 - close synthesis timing and natural Dhrystone/CoreMark workloads.

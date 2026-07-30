@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-13
+Date: 2026-07-30
 
 ## Purpose
 
@@ -24,20 +24,28 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b1 canonical load ownership composition.
+The latest LSU packet is I0.15c-b2b canonical execution-cluster cutover.
 `OooIexCanonicalLoadOwnership` atomically joins the three-AGU LIQ allocation
 with the exact slot-plus-wrap terminal metadata sidecar; neither owner can
 accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
 and canonical LRET/W1/W2 completion releases metadata only on the same terminal
 fire. Recovery prepare now fences without consuming AGU producers, while only
 the common recovery fire applies the exact kill. The emitted graph contains no
-`OooIexLoadUnit`. I0.15c-b2a now qualifies speculative wakeup only from the
+the legacy load tracker. I0.15c-b2a qualifies speculative wakeup only from the
 exact canonical LIQ launch attempt, emits old-generation cancel on exact
-rebind, fault cancel only on terminal fire, and lane-qualified W1 bypass on
-ordinary data. Same-lane fault/rebind cancel collision serializes without loss.
-The production execution cluster still instantiates the migration owner:
-I0.15c-b2b must cut the cluster over, connect all three canonical STQ-result
-paths, join recovery readiness, and delete the duplicate tracker.
+rebind, one-shot fault cancel independent of terminal backpressure, and
+lane-qualified W1 bypass on ordinary data. Same-lane fault/rebind cancel
+collision serializes without loss. The production execution cluster now owns
+one canonical bridge for all three AGUs, exports its allocation/rebind/launch/
+completion ports through the closed OOO/IEX/store wrappers, joins its recovery
+readiness into the common execution fire, and contains no duplicate load
+request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
+parameter, UT, abstract memory messages, and module page are deleted. Dynamic
+cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
+P-file/ROB terminal publication.
+Direct live composition with `ScalarLSULoadPath`, all three canonical STQ
+forward-result pipes, and the scalar LSU's own recovery readiness remains the
+next I0.15c packet.
 Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 

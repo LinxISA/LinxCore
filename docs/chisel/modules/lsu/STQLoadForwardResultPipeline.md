@@ -105,10 +105,9 @@ The directed suite proves:
 
 ## Remaining integration gap
 
-I0.15a freezes the selector/result seam, but it does not yet claim the complete
-OOO load lifecycle. The next packet must bind an exact
-`OooIexLoadGeneration` to one canonical LIQ row, drive the three STQ query
-ports from accepted load launches/relaunches, mutate wait/miss state only in
-that LIQ owner, and return a hit/fault through the existing atomic OOO terminal
-fabric. `OooIexLoadUnit` and `ScalarLSULoadPath` must not both own retry or
-W1/W2 publication for the same production load.
+I0.15c-b2b gives every production OOO load one exact canonical LIQ lease and
+attempt identity and removes the former duplicate retry/return owner. The next
+packet must drive these three STQ query ports from accepted canonical
+launches/relaunches, feed their retained results into the same LIQ owner, and
+connect LRET/W1/W2 hit/fault returns through the existing atomic OOO terminal
+fabric. No additional OOO request/retry/data residency may be introduced.

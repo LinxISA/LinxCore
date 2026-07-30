@@ -2,6 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
+import linxcore.common.CoreParams
 
 import linxcore.lsu.{MDBConflictStoreProbe, STQEntryBankRow,
   STQLoadForwardQuery, STQLoadForwardResponse, STQMemoryAttribute,
@@ -17,6 +18,7 @@ import linxcore.lsu.{MDBConflictStoreProbe, STQEntryBankRow,
   */
 class OooIexExecutionStorePipelineIO(
     val p: OooParams,
+    val coreParams: CoreParams,
     val stqEntries: Int,
     val storeCommitQueueEntries: Int,
     val storeCommitIssueWidth: Int,
@@ -56,9 +58,7 @@ class OooIexExecutionStorePipelineIO(
   val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
-  val memoryResponse = Flipped(Vec(3,
-    Decoupled(new OooIexLoadMemoryResponse(p))))
+  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
   val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
@@ -235,14 +235,25 @@ class OooIexExecutionStorePipeline(
     val storeCommitIssueWidth: Int = 2,
     val scbEntries: Int = 16,
     val scbResponseBufferDepth: Int = 4,
-    val storeLineBytes: Int = 64) extends Module {
+    val storeLineBytes: Int = 64,
+    val coreParamsOverride: Option[CoreParams] = None) extends Module {
   val p = profile.params
+  val coreParams = coreParamsOverride.getOrElse {
+    val base = OooIexCanonicalLoadOwnership.defaultCoreParams(p)
+    base.copy(scalarLsu = base.scalarLsu.copy(
+      stqEntries = stqEntries,
+      commitQueueEntries = storeCommitQueueEntries,
+      commitIssueWidth = storeCommitIssueWidth,
+      scbEntries = scbEntries,
+      scbResponseBufferDepth = scbResponseBufferDepth,
+      lineBytes = storeLineBytes))
+  }
   val io = IO(new OooIexExecutionStorePipelineIO(
-    p, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
+    p, coreParams, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
     scbEntries))
 
   val execution = Module(new OooIexExecutionPipeline(
-    profile, requireStoreReservation = true))
+    profile, requireStoreReservation = true, Some(coreParams)))
   val store = Module(new OooIexStoreStqFabric(p, stqEntries))
   val storeCommit = Module(new STQSCBCommitBackend(
     entries = stqEntries,
@@ -310,10 +321,7 @@ class OooIexExecutionStorePipeline(
   }
   io.floatingVector <> execution.io.floatingVector
   io.engineCommand <> execution.io.engineCommand
-  for (index <- 0 until 3) {
-    io.memoryRequest(index) <> execution.io.memoryRequest(index)
-    execution.io.memoryResponse(index) <> io.memoryResponse(index)
-  }
+  io.load <> execution.io.load
   io.loadCancel := execution.io.loadCancel
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> execution.io.bctrl(lane)

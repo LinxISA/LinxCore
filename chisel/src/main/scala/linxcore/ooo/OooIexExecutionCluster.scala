@@ -1,7 +1,8 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, DecoupledIO, PopCount, Valid}
+import chisel3.util.{Decoupled, DecoupledIO, PopCount, Valid, log2Ceil}
+import linxcore.common.CoreParams
 
 class OooIexExecutionRouteReject(val p: OooParams = OooParams())
     extends Bundle {
@@ -22,12 +23,17 @@ class OooIexExecutionRouteReject(val p: OooParams = OooParams())
   * and engine-command work leave through explicit retained boundaries.  The
   * upstream E1 slot remains the owner until one of those boundaries fires.
   */
-class OooIexExecutionClusterIO(val p: OooParams) extends Bundle {
+class OooIexExecutionClusterIO(
+    val p: OooParams,
+    val coreParams: CoreParams) extends Bundle {
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
 
   val e1 = Flipped(Vec(OooIexLinxPhysicalProfile.ExecutionLaneCount,
     Decoupled(new OooIexExecuteTransaction(p))))
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryRejected = Output(Bool())
+  val recoveryFire = Input(Bool())
 
   val storeAddress = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val storeData = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
@@ -37,9 +43,7 @@ class OooIexExecutionClusterIO(val p: OooParams) extends Bundle {
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
 
-  val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
-  val memoryResponse = Flipped(Vec(3,
-    Decoupled(new OooIexLoadMemoryResponse(p))))
+  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
 
   val pWrite = Vec(terminalPorts, Decoupled(new OooIexPFileWrite(p)))
   val tWrite = Vec(terminalPorts, Decoupled(new OooIexLocalFileWrite(p)))
@@ -63,24 +67,23 @@ class OooIexExecutionClusterIO(val p: OooParams) extends Bundle {
   val aluRejected = Output(Vec(6, Valid(new OooIexAluReject(p))))
   val bruRejected = Output(Vec(2, Valid(new OooIexBruReject(p))))
   val aguRejected = Output(Vec(3, Valid(new OooIexAguReject(p))))
-  val loadAcceptRejected = Output(Vec(3,
-    Valid(new OooIexLoadAcceptReject(p))))
-  val loadResponseRejected = Output(Vec(3,
-    Valid(new OooIexLoadResponseReject(p))))
   val terminalRejected = Output(Vec(p.iexTerminalWidth,
     Vec(3, Valid(new OooIexTerminalReject(p)))))
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
-  val loadOccupied = Output(Vec(3,
-    UInt(p.countWidth(p.iexLoadTrackEntries).W)))
+  val loadMetadataOccupied = Output(UInt(
+    log2Ceil(coreParams.scalarLsu.liqEntries + 1).W))
   val empty = Output(Bool())
 }
 
 class OooIexExecutionCluster(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile())
+    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
+    val coreParamsOverride: Option[CoreParams] = None)
     extends Module {
   import OooIexDomainCapability._
 
   val p = profile.params
+  val coreParams = coreParamsOverride.getOrElse(
+    OooIexCanonicalLoadOwnership.defaultCoreParams(p))
   private val aluCount = 6
   private val bruCount = 2
   private val loadCount = 3
@@ -97,46 +100,58 @@ class OooIexExecutionCluster(
   require(p.iexLoadCancelPorts >= loadCount,
     "every scalar load pipe needs an independent cancel port")
 
-  val io = IO(new OooIexExecutionClusterIO(p))
+  val io = IO(new OooIexExecutionClusterIO(p, coreParams))
 
   val alus = Seq.fill(aluCount)(Module(new OooIexAluPipeline(p)))
   val brus = Seq.fill(bruCount)(Module(new OooIexBruPipeline(p)))
   val agus = Seq.fill(loadCount)(Module(new OooIexAguPipeline(p)))
-  val loads = Seq.fill(loadCount)(Module(new OooIexLoadUnit(p)))
+  val load = Module(new OooIexCanonicalLoadOwnership(p, coreParams))
   val terminal = Module(new OooIexTerminalFabric(
     p, aluCount, bruCount, loadCount))
 
+  val recoveryApply = Wire(Valid(new OooResidencyRecoveryPlan(p)))
+  recoveryApply.valid := io.recoveryFire && io.recoveryPrepareReady
+  recoveryApply.bits := io.recoveryPrepare.bits
+  load.io.recoveryPrepare := io.recoveryPrepare
+  io.recoveryPrepareReady := load.io.recoveryPrepareReady
+  io.recoveryRejected := load.io.recoveryRejected
+  load.io.recoveryFire := io.recoveryFire && io.recoveryPrepareReady
+  load.io.flush := false.B
+
   for (index <- 0 until aluCount) {
-    alus(index).io.recoveryApply := io.recoveryApply
+    alus(index).io.recoveryApply := recoveryApply
     alus(index).io.loadCancel := io.loadCancel
     terminal.io.alu(index) <> alus(index).io.w2
     io.aluRejected(index) := alus(index).io.rejected
   }
   for (index <- 0 until bruCount) {
-    brus(index).io.recoveryApply := io.recoveryApply
+    brus(index).io.recoveryApply := recoveryApply
     brus(index).io.loadCancel := io.loadCancel
     terminal.io.bru(index) <> brus(index).io.e2
     io.bruRejected(index) := brus(index).io.rejected
   }
   for (index <- 0 until loadCount) {
-    agus(index).io.recoveryApply := io.recoveryApply
+    agus(index).io.recoveryApply := recoveryApply
     agus(index).io.loadCancel := io.loadCancel
-    loads(index).io.recoveryApply := io.recoveryApply
-    loads(index).io.agu <> agus(index).io.request
-    terminal.io.load(index) <> loads(index).io.result
-
-    io.memoryRequest(index).valid := loads(index).io.memoryRequest.valid
-    io.memoryRequest(index).bits := loads(index).io.memoryRequest.bits
-    loads(index).io.memoryRequest.ready := io.memoryRequest(index).ready
-    loads(index).io.memoryResponse.valid := io.memoryResponse(index).valid
-    loads(index).io.memoryResponse.bits := io.memoryResponse(index).bits
-    io.memoryResponse(index).ready := loads(index).io.memoryResponse.ready
+    load.io.agu(index) <> agus(index).io.request
 
     io.aguRejected(index) := agus(index).io.rejected
-    io.loadAcceptRejected(index) := loads(index).io.acceptRejected
-    io.loadResponseRejected(index) := loads(index).io.responseRejected
-    io.loadOccupied(index) := loads(index).io.occupied
   }
+
+  io.load.liqAlloc <> load.io.liqAlloc
+  load.io.liqAllocLoadId := io.load.liqAllocLoadId
+  load.io.rebind <> io.load.rebind
+  io.load.liqRebind <> load.io.liqRebind
+  load.io.attemptLaunch := io.load.attemptLaunch
+  load.io.completion <> io.load.completion
+  for (index <- 0 until loadCount) {
+    terminal.io.load(index).valid := load.io.result.valid &&
+      load.io.resultLane === index.U
+    terminal.io.load(index).bits := load.io.result.bits
+  }
+  load.io.result.ready := VecInit(terminal.io.load.map(_.ready))(
+    load.io.resultLane)
+  io.loadMetadataOccupied := load.io.metadataOccupied
 
   for (port <- 0 until terminalPorts) {
     io.pWrite(port).valid := terminal.io.pWrite(port).valid
@@ -170,7 +185,7 @@ class OooIexExecutionCluster(
     terminal.io.wakeup(port).ready := true.B
   }
   for (index <- 0 until loadCount) {
-    io.wakeup(terminalPorts + index) := loads(index).io.speculativeWakeup
+    io.wakeup(terminalPorts + index) := load.io.speculativeWakeup(index)
   }
 
   io.bypass.foreach(_ := 0.U.asTypeOf(io.bypass.head))
@@ -198,12 +213,12 @@ class OooIexExecutionCluster(
     io.bypass(index).bits.data := writeback.data
   }
   for (index <- 0 until loadCount) {
-    io.bypass(aluCount + index) := loads(index).io.bypass
+    io.bypass(aluCount + index) := load.io.loadBypass(index)
   }
 
   io.loadCancel.foreach(_ := 0.U.asTypeOf(io.loadCancel.head))
   for (index <- 0 until loadCount) {
-    io.loadCancel(index) := loads(index).io.cancel
+    io.loadCancel(index) := load.io.loadCancel(index)
   }
 
   private def route(
@@ -280,6 +295,6 @@ class OooIexExecutionCluster(
   val internalEmpty = alus.map(_.io.empty).reduce(_ && _) &&
     brus.map(!_.io.occupied).reduce(_ && _) &&
     agus.map(!_.io.occupied).reduce(_ && _) &&
-    loads.map(_.io.occupied === 0.U).reduce(_ && _)
+    load.io.metadataEmpty
   io.empty := internalEmpty && !io.e1.map(_.valid).reduce(_ || _)
 }

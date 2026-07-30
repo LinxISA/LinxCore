@@ -91,8 +91,8 @@ requires aggregate quiescence.
 ## Remaining gaps
 
 - Compose the six PC ports with `OooPcBuffer` in the canonical top.
-- Connect the implemented `OooIexLoadUnit` speculative wakeup, bypass, and
-  miss/fault cancel outputs to the canonical issue ports in the static top.
+- Connect the execution cluster's canonical speculative wakeup, bypass, and
+  replay/fault cancel outputs to these issue ports in the final static top.
 - Connect execution-unit busy/latency reservations to early policy and static
   E1/reflow/result-bus owners to the exact stage-cancel channels.
 - `OooIexPipeline` now instantiates the specialized read and E1 fabrics from

@@ -65,6 +65,7 @@ class OooIexLoadTerminalMetadataEntry(
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
   val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
+  val faultCancelSent = Bool()
 }
 
 class OooIexLoadTerminalMetadataIO(
@@ -344,9 +345,11 @@ class OooIexLoadTerminalMetadata(
   val completionTargetsRebind = io.completion.valid && completionIdValid &&
     LoadCanonicalRowIdentity.equal(completionId, rebindId)
   val rebindExact = rebindCurrentExact && rebindNextExact
-  val cancelCollision = io.rebind.valid && rebindExact &&
-    io.completion.valid && completionExact &&
+  val faultCancelPublish = io.completion.valid && completionExact &&
     io.completion.bits.payload.faultValid &&
+    !completionEntry.faultCancelSent && !fence
+  val cancelCollision = io.rebind.valid && rebindExact &&
+    faultCancelPublish &&
     rebindEntry.lane === completionEntry.lane
   io.cancelCollision := cancelCollision
   io.rebind.ready := !fence && rebindExact && !completionTargetsRebind &&
@@ -360,7 +363,7 @@ class OooIexLoadTerminalMetadata(
       io.loadCancel(lane).bits.epoch := rebindEntry.request.execute.i2.row.epoch
       io.loadCancel(lane).bits.load := io.rebind.bits.currentLoad
     }
-    when(io.result.fire && io.result.bits.faultValid &&
+    when(faultCancelPublish &&
         completionEntry.lane === lane.U) {
       io.loadCancel(lane).valid := true.B
       io.loadCancel(lane).bits.stid :=
@@ -480,6 +483,10 @@ class OooIexLoadTerminalMetadata(
     when(io.rebind.fire) {
       entries(rebindIndex).attempt := io.rebind.bits.nextAttempt
       entries(rebindIndex).load := io.rebind.bits.nextLoad
+      entries(rebindIndex).faultCancelSent := false.B
+    }
+    when(faultCancelPublish && !io.result.fire) {
+      entries(completionIndex).faultCancelSent := true.B
     }
     when(io.alloc.fire) {
       entries(allocIndex).valid := true.B
@@ -488,6 +495,7 @@ class OooIexLoadTerminalMetadata(
       entries(allocIndex).load := io.alloc.bits.load
       entries(allocIndex).request := io.alloc.bits.request
       entries(allocIndex).lane := io.alloc.bits.lane
+      entries(allocIndex).faultCancelSent := false.B
     }
   }
 

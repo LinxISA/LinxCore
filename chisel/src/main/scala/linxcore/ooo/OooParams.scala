@@ -66,7 +66,6 @@ final case class OooParams(
     iexBypassPorts: Int = 12,
     iexLoadCancelPorts: Int = 4,
     iexTerminalWidth: Int = 2,
-    iexLoadTrackEntries: Int = 16,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
     maxDestinationOperands: Int = 2,
@@ -236,8 +235,6 @@ final case class OooParams(
   require(isPowerOfTwo(robCompletionBufferEntries) &&
     robCompletionBufferEntries >= robCompletionInputWidth,
     "ROB completion buffer must be a power of two covering every same-cycle producer")
-  require(isPowerOfTwo(iexLoadTrackEntries),
-    "load tracking entries must be a positive power of two")
   require(loadGenerationWidth > 0,
     "speculative load attempts need a positive generation width")
   require(executeSlotGenerationWidth > 0,
