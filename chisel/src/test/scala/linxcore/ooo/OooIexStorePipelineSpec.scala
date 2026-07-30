@@ -78,6 +78,7 @@ class OooIexStoreStqHarness(
   stq.io.reserveBatch := projection.io.reserve
   stq.io.fillValid := pipeline.io.fill.valid && io.fillPermit
   stq.io.fill := pipeline.io.fill.bits
+  stq.io.dataCompletions := 0.U.asTypeOf(stq.io.dataCompletions)
   pipeline.io.fill.ready := stq.io.fillReady && io.fillPermit
   stq.io.markCommitValid := false.B
   stq.io.markCommitIndex := 0.U

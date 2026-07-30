@@ -390,7 +390,8 @@ class OooIexExecutionStoreIntegrationSpec
         dut.io.e1(staLane).valid.poke(false.B)
         dut.io.e1(stdLane).valid.poke(false.B)
 
-        dut.clock.step(3)
+        // E1 capture, STD admission, mask phase, then data/completion phase.
+        dut.clock.step(4)
         dut.io.addressReadyMask.expect(1.U)
         dut.io.dataReadyMask.expect(1.U)
         dut.io.rows(0).addr.expect(0x1010.U)

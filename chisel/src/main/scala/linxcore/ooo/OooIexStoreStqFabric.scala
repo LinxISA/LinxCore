@@ -4,8 +4,8 @@ import chisel3._
 import chisel3.util.{Decoupled, Mux1H, OHToUInt, PopCount, RRArbiter, Valid,
   log2Ceil}
 
-import linxcore.lsu.{STQEntryBank, STQEntryBankRow, STQEntryStatus,
-  STQStoreRequest}
+import linxcore.lsu.{STQDataBank, STQEntryBank, STQEntryBankRow,
+  STQEntryStatus, STQStoreRequest, STQStoreType}
 
 class OooIexStoreStqFabricIO(
     val p: OooParams,
@@ -78,7 +78,7 @@ class OooIexStoreStqFabric(
   val reservation = Module(new OooStqReservationProjection(p, stqEntries))
   val recovery = Module(new OooStqRecoveryProjection(p, stqEntries))
   val stores = Seq.fill(2)(Module(new OooIexStorePipeline(p, stqEntries)))
-  val fillArbiter = Module(new RRArbiter(chiselTypeOf(
+  val addressFillArbiter = Module(new RRArbiter(chiselTypeOf(
     stores.head.io.fill.bits), stores.length))
   val stq = Module(new STQEntryBank(
     entries = stqEntries,
@@ -95,6 +95,21 @@ class OooIexStoreStqFabric(
     residentGenerationWidth = p.residentGenerationWidth,
     leaseGenerationWidth = p.executeSlotGenerationWidth,
     maxReserveBeats = p.maxMemoryRequestsPerInstruction))
+  val dataBank = Module(new STQDataBank(
+    entries = stqEntries,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.stidWidth,
+    mapQDepth = p.tuMapQDepthPerStid,
+    robEntries = p.robGroupsPerStid,
+    lsidWidth = p.lsidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth,
+    writePorts = stores.length))
 
   val recoveryFence = io.recoveryPrepare.valid
 
@@ -156,6 +171,11 @@ class OooIexStoreStqFabric(
   stq.io.commitFreeMaskValid := io.commitFreeMaskValid && !recoveryFence
   stq.io.commitFreeMask := io.commitFreeMask
   io.commitFreeAcceptedMask := stq.io.commitFreeAcceptedMask
+  dataBank.io.residentRows := stq.io.rows
+  dataBank.io.hold := recoveryFence
+  dataBank.io.clearMask := stq.io.exactRecoveryAcceptedMask |
+    stq.io.commitFreeAcceptedMask
+  stq.io.dataCompletions := dataBank.io.completions
 
   private def exactOwnerMatches(
       row: STQEntryBankRow,
@@ -244,21 +264,38 @@ class OooIexStoreStqFabric(
     stores(index).io.recoveryApply.valid := recoveryAccepted
     stores(index).io.recoveryApply.bits := io.recoveryPrepare.bits
     stores(index).io.loadCancel := io.loadCancel
-    fillArbiter.io.in(index) <> stores(index).io.fill
+    val dataFill = stores(index).io.fill.bits.storeType === STQStoreType.Data
+    dataBank.io.writes(index).valid := stores(index).io.fill.valid &&
+      dataFill && !recoveryFence
+    dataBank.io.writes(index).bits := stores(index).io.fill.bits
+    addressFillArbiter.io.in(index).valid := stores(index).io.fill.valid &&
+      !dataFill && !recoveryFence
+    addressFillArbiter.io.in(index).bits := stores(index).io.fill.bits
+    stores(index).io.fill.ready := !recoveryFence && Mux(dataFill,
+      dataBank.io.writes(index).ready,
+      addressFillArbiter.io.in(index).ready)
   }
 
-  stq.io.fillValid := fillArbiter.io.out.valid && !recoveryFence
-  stq.io.fill := fillArbiter.io.out.bits
-  fillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence
-  io.fillConflict := stq.io.fillConflict
+  stq.io.fillValid := addressFillArbiter.io.out.valid && !recoveryFence
+  stq.io.fill := addressFillArbiter.io.out.bits
+  addressFillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence
+  io.fillConflict := stq.io.fillConflict || dataBank.io.conflict.reduce(_ || _)
 
-  io.rows := stq.io.rows
+  val joinedRows = Wire(chiselTypeOf(io.rows))
+  for (index <- 0 until stqEntries) {
+    joinedRows(index) := stq.io.rows(index)
+    when(dataBank.io.rows(index).valid) {
+      joinedRows(index).data := dataBank.io.rows(index).data
+    }
+  }
+  io.rows := joinedRows
   io.occupiedMask := stq.io.occupiedMask
   io.addrReadyMask := stq.io.addrReadyMask
   io.dataReadyMask := stq.io.dataReadyMask
   io.residentCount := stq.io.residentCount
   io.storePipelinesOccupied := VecInit(stores.map(_.io.occupied)).asUInt
-  io.empty := stq.io.empty && !io.storePipelinesOccupied.orR
+  io.empty := stq.io.empty && dataBank.io.empty &&
+    !io.storePipelinesOccupied.orR
 
   when(io.recoveryFire) {
     assert(io.recoveryPrepare.valid && io.recoveryPrepareReady,
@@ -268,4 +305,6 @@ class OooIexStoreStqFabric(
     assert(stq.io.reserveBatchAccepted,
       "store reservation and canonical STQ allocation must fire atomically")
   }
+  assert(stq.io.dataReadyMask === dataBank.io.readyMask,
+    "canonical STQ dataReady state must match the physical data-bank owner")
 }

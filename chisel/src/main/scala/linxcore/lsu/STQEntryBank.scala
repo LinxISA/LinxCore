@@ -164,6 +164,30 @@ class STQEntryBankRow(
   val dataReady = Bool()
 }
 
+/** Exact proof that the physical store-data owner finished one row. */
+class STQDataCompletion(
+    val entries: Int,
+    val robEntries: Int,
+    val peIdWidth: Int,
+    val stidWidth: Int,
+    val nativeBidWidth: Int,
+    val lsidWidth: Int,
+    val ridGenerationWidth: Int,
+    val brobGenerationWidth: Int,
+    val memberIndexWidth: Int,
+    val residentGenerationWidth: Int,
+    val leaseGenerationWidth: Int)
+    extends Bundle {
+  private val ridSlotWidth = log2Ceil(robEntries)
+  val lease = new STQPhysicalLease(entries, leaseGenerationWidth)
+  val exactOwner = new STQExactOwner(
+    peIdWidth, stidWidth, nativeBidWidth, ridSlotWidth,
+    ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+    residentGenerationWidth)
+  val lsIdFull = UInt(lsidWidth.W)
+  val storeIdFull = UInt(lsidWidth.W)
+}
+
 class STQEntryBankIO(
     val entries: Int,
     val addrWidth: Int = 64,
@@ -248,6 +272,18 @@ class STQEntryBankIO(
   val fillAccepted = Output(Bool())
   val fillConflict = Output(Bool())
 
+  /** Exact completions from the physical store-data owner.  Data storage is
+    * deliberately outside this metadata/status bank; only a live matching
+    * lease may publish dataReady here.
+    */
+  val dataCompletions = Input(Vec(2,
+    Valid(new STQDataCompletion(
+      entries, identityEntries, peIdWidth, stidWidth, nativeBidWidth,
+      lsidWidth, ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
+      residentGenerationWidth, leaseGenerationWidth))))
+  val dataCompletionAccepted = Output(UInt(2.W))
+  val dataCompletionRejected = Output(UInt(2.W))
+
   val markCommitValid = Input(Bool())
   val markCommitIndex = Input(UInt(ptrWidth.W))
   val markCommitAccepted = Output(Bool())
@@ -307,6 +343,7 @@ object STQEntryBank {
     io.reserveBatch := 0.U.asTypeOf(io.reserveBatch)
     io.fillValid := false.B
     io.fill := 0.U.asTypeOf(io.fill)
+    io.dataCompletions := 0.U.asTypeOf(io.dataCompletions)
   }
 }
 
@@ -568,6 +605,33 @@ class STQEntryBank(
 
   val fillIndex = io.fill.lease.index
   val fillTarget = rows(fillIndex)
+  val dataCompletionAcceptedVec = Wire(Vec(2, Bool()))
+  val dataCompletionRejectedVec = Wire(Vec(2, Bool()))
+  for (port <- 0 until 2) {
+    val completion = io.dataCompletions(port)
+    val row = rows(completion.bits.lease.index)
+    val exact = completion.bits.lease.valid && row.valid &&
+      row.status === STQEntryStatus.Wait && !row.dataReady &&
+      completion.bits.lease.generation === row.leaseGeneration &&
+      completion.bits.exactOwner.asUInt === row.exactOwner.asUInt &&
+      completion.bits.lsIdFull === row.lsIdFull &&
+      row.storeIdFullValid &&
+      completion.bits.storeIdFull === row.storeIdFull
+    val duplicateTarget = if (port == 0) false.B else {
+      dataCompletionAcceptedVec(0) &&
+        io.dataCompletions(0).bits.lease.index === completion.bits.lease.index
+    }
+    dataCompletionAcceptedVec(port) := completion.valid && exact &&
+      !duplicateTarget && !recoveryActive
+    dataCompletionRejectedVec(port) := completion.valid &&
+      !dataCompletionAcceptedVec(port)
+  }
+  io.dataCompletionAccepted := dataCompletionAcceptedVec.asUInt
+  io.dataCompletionRejected := dataCompletionRejectedVec.asUInt
+  val dataCompletionTargetMask = VecInit((0 until 2).map { port =>
+    Mux(dataCompletionAcceptedVec(port),
+      UIntToOH(io.dataCompletions(port).bits.lease.index, entries), 0.U)
+  }).reduce(_ | _)
   val fillOwnerMatches =
     io.fill.exactOwner.valid &&
       fillTarget.exactOwner.valid &&
@@ -592,7 +656,8 @@ class STQEntryBank(
     STQStoreType.Addr -> !fillTarget.addrReady,
     STQStoreType.Data -> !fillTarget.dataReady
   ))
-  io.fillReady := !recoveryActive && fillIdentityMatches && fillPartAvailable
+  io.fillReady := !recoveryActive && fillIdentityMatches && fillPartAvailable &&
+    !dataCompletionTargetMask(fillIndex)
   io.fillAccepted := io.fillValid && io.fillReady
   io.fillConflict := io.fillValid && !io.fillReady
 
@@ -770,6 +835,15 @@ class STQEntryBank(
 
   when(io.fillAccepted) {
     rows(fillIndex) := fillRow(fillTarget, io.fill)
+  }
+
+  for (port <- 0 until 2) {
+    when(dataCompletionAcceptedVec(port)) {
+      val index = io.dataCompletions(port).bits.lease.index
+      rows(index).dataReady := true.B
+      rows(index).storeType := Mux(rows(index).addrReady,
+        STQStoreType.All, STQStoreType.Data)
+    }
   }
 
   when(io.reserveBatchAccepted) {

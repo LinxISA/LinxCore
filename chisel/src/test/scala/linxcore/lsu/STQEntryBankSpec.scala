@@ -497,6 +497,7 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserveBatch.poke(0.U.asTypeOf(dut.io.reserveBatch))
     dut.io.fillValid.poke(false.B)
     dut.io.fill.poke(0.U.asTypeOf(dut.io.fill))
+    dut.io.dataCompletions.poke(0.U.asTypeOf(dut.io.dataCompletions))
     dut.io.markCommitValid.poke(false.B)
     dut.io.markCommitIndex.poke(0.U)
     dut.io.commitFreeValid.poke(false.B)
@@ -833,6 +834,50 @@ class STQEntryBankSpec extends AnyFunSuite with ChiselSim {
       dut.io.exactRecoveryAcceptedMask.expect(1.U)
       dut.clock.step()
       dut.io.residentCount.expect(0.U)
+    }
+  }
+
+  test("physical data completion must carry the exact live owner and lease") {
+    simulate(new STQEntryBank(entries = 4, robEntries = 8, lsidWidth = 40)) { dut =>
+      clearCanonicalDut(dut)
+      pokeExactRequest(dut.io.reserve, ridGeneration = 3,
+        residentGeneration = 4, lsid = 29, storeId = 39)
+      dut.io.reserveValid.poke(true.B)
+      dut.clock.step()
+      dut.io.reserveValid.poke(false.B)
+
+      val completion = dut.io.dataCompletions(0)
+      completion.bits.poke(0.U.asTypeOf(completion.bits))
+      completion.bits.lease.valid.poke(true.B)
+      completion.bits.lease.index.poke(0.U)
+      completion.bits.lease.generation.poke(1.U)
+      completion.bits.exactOwner.valid.poke(true.B)
+      completion.bits.exactOwner.peId.poke(2.U)
+      completion.bits.exactOwner.stid.poke(1.U)
+      completion.bits.exactOwner.nativeBidValid.poke(true.B)
+      completion.bits.exactOwner.nativeBid.poke(0x93.U)
+      completion.bits.exactOwner.brobGeneration.poke(5.U)
+      completion.bits.exactOwner.ridSlot.poke(6.U)
+      completion.bits.exactOwner.ridGeneration.poke(3.U)
+      completion.bits.exactOwner.memberIndex.poke(1.U)
+      completion.bits.exactOwner.residentGeneration.poke(4.U)
+      completion.bits.lsIdFull.poke(29.U)
+      completion.bits.storeIdFull.poke(39.U)
+
+      completion.valid.poke(true.B)
+      completion.bits.exactOwner.residentGeneration.poke(5.U)
+      dut.io.dataCompletionAccepted.expect(0.U)
+      dut.io.dataCompletionRejected.expect(1.U)
+      dut.clock.step()
+      dut.io.rows(0).dataReady.expect(false.B)
+
+      completion.bits.exactOwner.residentGeneration.poke(4.U)
+      dut.io.dataCompletionAccepted.expect(1.U)
+      dut.io.dataCompletionRejected.expect(0.U)
+      dut.clock.step()
+      completion.valid.poke(false.B)
+      dut.io.rows(0).dataReady.expect(true.B)
+      dut.io.rows(0).storeType.expect(STQStoreType.Data)
     }
   }
 }

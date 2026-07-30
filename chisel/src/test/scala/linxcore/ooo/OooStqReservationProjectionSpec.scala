@@ -64,6 +64,7 @@ class OooStqReservationHarness(
   stq.io.reserveBatch := projection.io.reserve
   stq.io.fillValid := false.B
   stq.io.fill := 0.U.asTypeOf(stq.io.fill)
+  stq.io.dataCompletions := 0.U.asTypeOf(stq.io.dataCompletions)
   stq.io.markCommitValid := false.B
   stq.io.markCommitIndex := 0.U
   stq.io.commitFreeValid := false.B

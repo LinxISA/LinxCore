@@ -197,6 +197,35 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("both STD lanes write independent physical data-bank ports in one cycle") {
+    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, 2, 2, BigInt("100000011", 16),
+        BigInt("200000011", 16))
+      reserve(dut, 4, 3, BigInt("100000012", 16),
+        BigInt("200000012", 16))
+
+      pokeExecute(dut.io.storeData(0).bits, addressHalf = false,
+        2, 2, BigInt("100000011", 16), BigInt("200000011", 16))
+      pokeExecute(dut.io.storeData(1).bits, addressHalf = false,
+        4, 3, BigInt("100000012", 16), BigInt("200000012", 16))
+      dut.io.storeData(0).valid.poke(true.B)
+      dut.io.storeData(1).valid.poke(true.B)
+      dut.io.storeData(0).ready.expect(true.B)
+      dut.io.storeData(1).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeData(0).valid.poke(false.B)
+      dut.io.storeData(1).valid.poke(false.B)
+
+      dut.clock.step(4)
+      dut.io.dataReadyMask.expect(3.U)
+      dut.io.rows(0).data.expect(
+        (BigInt("1122334455667788", 16) + 2).U)
+      dut.io.rows(1).data.expect(
+        (BigInt("1122334455667788", 16) + 3).U)
+    }
+  }
+
   test("unreserved execution is retained upstream and cannot allocate by CAM") {
     simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
       defaults(dut)

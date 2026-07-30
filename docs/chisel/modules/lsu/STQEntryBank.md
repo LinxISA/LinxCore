@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQDataBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-BANK-001`
@@ -54,7 +55,7 @@ request type from executed store-dispatch queue heads.
 | `tSeq/uSeq` | T/U local-register sequence snapshots carried by model `MemReqBus`. |
 | `tuDstValid/tuDstKind` | Destination ownership sidecar used to apply `GetPrevRegSeq` when the flushed store owns T or U. |
 | `pc` | Store PC sidecar used by resident wait-store diagnostics and later `LDQInfo::handleSUWakeup` matching. |
-| `addr/data/size` | Store address, data, and byte size sidecars. |
+| `addr/data/size` | Store address, compatibility-path data, and byte size sidecars. Production OOO STD payload storage belongs to `STQDataBank`. |
 | `stackValid` | Stack marker preserved across merge. |
 | `scalarIex/simtLane` | Merge scoping: scalar stores ignore SIMT lane, vector/SIMT stores require matching lane. |
 
@@ -64,6 +65,7 @@ request type from executed store-dispatch queue heads.
 |---|---|---|
 | `flush` | `FlushBus` | Selected recovery flush consumed by the internal `STQFlushPrune`. |
 | `insertValid/insert` | valid plus `STQStoreRequest` | Store allocate or merge request. |
+| `dataCompletions` | two exact completion records | Lease generation, full owner, full LSID and full store ID returned by `STQDataBank`; a completion may set `dataReady` only while all fields still name one live `Wait` row. |
 | `markCommitValid/markCommitIndex` | command | Mark a locally ready `Wait` row as `Commit`. |
 | `commitFreeValid/commitFreeIndex` | command | Free a row that is already in `Commit` state. |
 | `commitFreeMaskValid/commitFreeMask` | command mask | Free one or more rows already in `Commit` state. In the full STQ-to-SCB path this is driven by `STQSCBCommitPath` from accepted `SCBRowBank` `last` fragments. |
@@ -75,6 +77,7 @@ request type from executed store-dispatch queue heads.
 | `insertReady` | High when the request can allocate or merge this cycle. |
 | `insertAccepted/insertAllocated/insertMerged` | Insert result classification. |
 | `insertConflict` | A split-store half matched an existing row but was not the complementary half. |
+| `dataCompletionAccepted/dataCompletionRejected` | Per-port proof that a physical data write completed against the exact live lease, or failed closed after recovery/reuse. |
 | `insertIndex` | Row allocated or merged by the accepted insert. |
 | `markCommitAccepted/markCommitIgnored` | WAIT-to-COMMIT command result. |
 | `commitFreeAccepted/commitFreeIgnored` | committed-row free command result. |
@@ -162,6 +165,15 @@ into the resident row, and later STA/STD fill must match it exactly along with
 the physical lease. This prevents two physical rows of one pair from becoming
 independent architectural stores at commit.
 
+The production OOO path no longer writes STD payload into this metadata bank.
+`STQDataBank` performs the mask and data phases, then returns one exact physical
+lease on each completion port. `STQEntryBank` revalidates row validity, `Wait`
+status, lease generation, recovery state, and duplicate targets before setting
+`dataReady`. Address fill and data completion targeting the same row are
+serialized for one cycle so whole-row address mutation cannot overwrite the
+data-ready transition. Compatibility insert/fill paths retain their existing
+inline data field until those non-production wrappers are removed.
+
 R267 extends that preservation rule to the store PC. `StoreDispatchToSTQ`
 copies `StoreSplitIssuePayload.uop.pc` into `STQStoreRequest.pc`, allocation
 copies it into the row, and complementary partial-store merge keeps the first
@@ -171,10 +183,11 @@ still belongs to a later LIQ/LDQ owner.
 
 ## Timing
 
-The bank is a single-cycle state owner. Recovery mask generation is
+The metadata bank is a single-cycle state owner. Recovery mask generation is
 combinational over the current row state, then applied in the bank update
-phase. Insert, mark-commit, and committed-row free commands are suppressed on
-a recovery-apply cycle.
+phase. Physical STD data becomes ready only after the separate data bank's
+mask-write and data-write phases. Insert, mark-commit, and committed-row free
+commands are suppressed on a recovery-apply cycle.
 
 ## Flush/Recovery
 
@@ -195,6 +208,7 @@ drive `TULinkRecoveryCleanupPath.lsuSource` without reaching into STQ internals.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only STQDataBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe`
 - `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath`
 - `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ`

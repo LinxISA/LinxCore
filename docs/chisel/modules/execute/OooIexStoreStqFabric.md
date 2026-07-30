@@ -41,10 +41,13 @@ row by CAM and there is no address/data join buffer before the STQ.
 
 ## Fill, recovery, and commit boundary
 
-Two `OooIexStorePipeline` instances retain independent STA/STD halves. Their
-fill results use fair arbitration into the single canonical STQ fill port.
-Each store pipeline preserves the full execute transaction and its exact lease
-until the corresponding address/data fills have been accepted.
+Two `OooIexStorePipeline` instances retain independent STA/STD halves. Address
+fills use fair arbitration into the canonical STQ metadata port. Data fills
+use two independent `STQDataBank` write ports and therefore no longer pass
+through the old single-fill bottleneck. Each STD write is retained for a
+byte-mask phase followed by a data phase; only the returned exact lease can set
+the metadata row's `dataReady`. Commit drain and forwarding consumers observe
+the same joined row projection, so the physical data array has one owner.
 
 The same held `OooResidencyRecoveryPlan` is prepared by both retained store
 pipelines and the STQ. Prepare is side-effect free and fences reserve, STA/STD
@@ -58,18 +61,19 @@ Issue recovery also rejects a pivot that would retain only one physical child
 of a logical split store. STA/STD recovery is therefore all-or-none while the
 store is retained before S2 and after its physical rows reach IQ residency.
 
-The fabric exposes the existing raw STQ commit-mark and mask-free controls so
-the future ROB/SCB commit adapter can be added without changing store
-execution ownership. These controls are not yet a complete architectural
-store-commit protocol.
+The fabric's commit-mark and mask-free ports are private connections in
+`OooIexExecutionStorePipeline` and `OooO3IexStorePipeline`. Semantic ROB store
+tokens are matched to exact STQ leases by `STQSCBCommitBackend`; accepted SCB
+last fragments are the terminal free authority. The remaining store path gap
+is memory-system behavior, not raw physical-index commit ownership.
 
 ## Verification
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
+bash tools/chisel/run_chisel_tests.sh --only STQDataBank
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
-sbt --server --batch --no-colors --mem 4096 \
-  'testOnly linxcore.ooo.OooIexIssueSpec -- -z canonical'
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooIexStorePipeline
 bash tools/chisel/run_chisel_tests.sh --only OooStqReservationProjection
 bash tools/chisel/run_chisel_tests.sh --only OooStqRecoveryProjection
@@ -77,7 +81,8 @@ bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 ```
 
 The focused fabric UT covers two simultaneously resident logical stores with
-crossed STA/STD lanes, refusal of unreserved execution, side-effect-free
+crossed STA/STD lanes, two simultaneous independent STD data-bank writes,
+refusal of unreserved execution, side-effect-free
 recovery prepare, mutation fencing, common-fire application, and rejection of
 a split-store partial cut after the rows have transferred from IQ. The adjacent
 execution/store IT drives the formal STA and STD lanes and observes address and
@@ -88,13 +93,13 @@ STD before reservation, after reservation, and in resident S3.
 
 ## Remaining gaps
 
-- Translate exact ROB commit tokens into STQ commit-mark/free operations and
-  close SCB ordering, exceptions, and committed-store drain semantics.
-- Add the physical two-cycle store-data bank, byte-mask generation, split and
-  unaligned handling, and ECC/parity policy.
-- Compose store-to-load forwarding, partial-overlap detection, violation
+- Extend the physical data bank beyond the current scalar payload contract to
+  vector/FSU widths, cross-bank ECC/parity, and explicit power-gating policy.
+- Compose the joined canonical STQ snapshot into store-to-load forwarding,
+  partial-overlap detection, violation
   replay, and LIQ/STQ memory-order checks.
 - Connect translation, PMP/PMA, MMIO classification, L1D/coherence, and
   externally visible fault publication.
-- Prove sustained two-STA/two-STD pressure, pair-store all-or-none behavior,
+- Prove sustained two-STA pressure alongside the now-directed two-STD path,
+  pair-store all-or-none behavior,
   default-width synthesis/timing, and O9 workload promotion.
