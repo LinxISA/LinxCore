@@ -4,9 +4,11 @@
 
 `OooIexExecutionStorePipeline` is the canonical production boundary that
 composes the formal fourteen-lane scalar/control execution pipeline with the
-generation-qualified STQ/store fabric. Store reservation, two STA lanes, two
-STD lanes, load cancellation, and store recovery are private connections.
-There is no pre-STQ address/data join owner.
+generation-qualified STQ/store fabric and committed-store backend. Store
+reservation, two STA lanes, two STD lanes, load cancellation, exact ROB commit
+resolution, CommitQ insertion, SCB/serialized drain, terminal free, and store
+recovery are private connections. There is no pre-STQ address/data join owner
+and no external physical-index commit authority.
 
 The lower-level `OooIexExecutionPipeline` and `OooIexStoreStqFabric` remain
 independently testable. A production top should instantiate this wrapper rather
@@ -24,6 +26,12 @@ cannot allocate a row by CAM.
 The canonical STQ row is the only convergence owner. A fill conflict, stale
 lease, duplicate match, or identity mismatch keeps the transaction retained
 and reports a typed diagnostic.
+
+After translation/PMA classifies the exact physical lease, the grouped ROB
+supplies a semantic `STQRobCommitToken` without an STQ index. The backend
+rediscovers one converged row, promotes it to COMMIT, and inserts its CommitQ
+token atomically. Cacheable accepted last fragments and the final exact
+serialized response are the only physical-row free sources.
 
 ## Common recovery
 
@@ -63,18 +71,21 @@ must rendezvous, and execution rejection has priority over the synthesized
 store rejection. The adjacent dynamic IT pre-reserves a scalar store, drives
 its STA through `agu0-sta` and its STD through `alu0` in the same cycle, and
 proves that the expected address and data appear in the same canonical STQ
-row. Focused fabric UT additionally proves prepare fencing, no pre-fire
-mutation, common-fire application, and split-store partial-cut rejection.
+row. The extended IT classifies that lease, commits it without a physical-index
+sideband, observes CommitQ and SCB admission, and proves terminal row release.
+Focused fabric UT additionally proves prepare fencing, no pre-fire mutation,
+common-fire application, split-store partial-cut rejection, and retained
+serialized terminal free across recovery prepare.
 
 ## Remaining gaps
 
-- Convert exact grouped-ROB commit output into retained CommitQ tokens instead
-  of exposing raw STQ row indices and free masks.
-- Connect the committed fragment owner to the canonical SCB and prove
-  last-fragment-only physical-row release.
+- Connect `OooO3RenameCoordinator.storeCommit` directly to this wrapper in the
+  next canonical O3-to-IEX top composition.
+- Replace the typed test PMA producer with the physical translation/PMP/PMA
+  result path and connect the uncached/device response fabric.
 - Add the physical store-data bank, forwarding/overlap checks, load violation
   replay, and serial-wrap quiescence.
-- Add translation, PMP/PMA, MMIO serialization, L1D/coherence, and precise
-  fault publication.
+- Add Device loads, atomics/fences, L1D/coherence, and precise fault
+  publication.
 - Close default-width generated-graph cost, synthesis timing, sustained
   two-STA/two-STD pressure, O9 top promotion, CoreMark, and Dhrystone.

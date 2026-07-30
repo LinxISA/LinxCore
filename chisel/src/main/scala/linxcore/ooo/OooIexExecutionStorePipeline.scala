@@ -3,7 +3,9 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 
-import linxcore.lsu.STQEntryBankRow
+import linxcore.lsu.{STQEntryBankRow, STQMemoryAttribute,
+  STQMemoryClassifyToken, STQRobCommitToken, STQSCBCommitBackend,
+  STQSerializedStoreRequest, STQSerializedStoreResponse}
 
 /** Canonical external boundary for the scalar/control execution cluster with
   * its production store queue owner connected.
@@ -14,7 +16,12 @@ import linxcore.lsu.STQEntryBankRow
   */
 class OooIexExecutionStorePipelineIO(
     val p: OooParams,
-    val stqEntries: Int) extends Bundle {
+    val stqEntries: Int,
+    val storeCommitQueueEntries: Int,
+    val storeCommitIssueWidth: Int,
+    val scbEntries: Int) extends Bundle {
+  private val scbResponseTxnIdWidth = math.max(1, log2Ceil(scbEntries)) + 2
+  private val storeCommitRequestCount = storeCommitIssueWidth * 2
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val dispatchReleases = Vec(p.iexReleaseWidth,
     Decoupled(new OooDispatchRelease(p)))
@@ -59,12 +66,62 @@ class OooIexExecutionStorePipelineIO(
   val completion = Vec(p.iexTerminalWidth,
     Decoupled(new OooRobMemberCompletion(p)))
 
-  val markStoreCommitValid = Input(Bool())
-  val markStoreCommitIndex = Input(UInt(log2Ceil(stqEntries).W))
-  val markStoreCommitAccepted = Output(Bool())
-  val storeCommitFreeMaskValid = Input(Bool())
-  val storeCommitFreeMask = Input(UInt(stqEntries.W))
-  val storeCommitFreeAcceptedMask = Output(UInt(stqEntries.W))
+  val robStoreCommit = Flipped(Decoupled(new STQRobCommitToken(
+    p.robGroupsPerStid, p.lsidWidth, p.peIdWidth, p.stidWidth,
+    p.nativeBidWidth, p.ridGenerationWidth, p.brobGenerationWidth,
+    p.robMemberIndexWidth, p.residentGenerationWidth)))
+  val memoryClassify = Flipped(Decoupled(new STQMemoryClassifyToken(
+    stqEntries, p.robGroupsPerStid, p.peIdWidth, p.stidWidth,
+    p.nativeBidWidth, p.ridGenerationWidth, p.brobGenerationWidth,
+    p.robMemberIndexWidth, p.residentGenerationWidth,
+    p.executeSlotGenerationWidth)))
+  val storeCommitIssueEnable = Input(Bool())
+  val storeEvictEnable = Input(Bool())
+  val storeDcacheReady = Input(Bool())
+  val storeDcacheWriteHit = Input(Bool())
+  val storeDcacheTagHit = Input(Bool())
+  val storeL2RequestReady = Input(Bool())
+  val storeRawRespValid = Input(Bool())
+  val storeRawRespTxnId = Input(UInt(scbResponseTxnIdWidth.W))
+  val storeRawRespWrite = Input(Bool())
+  val storeRawRespUpgrade = Input(Bool())
+  val storeRawRespReady = Output(Bool())
+  val serializedStoreRequest = Decoupled(new STQSerializedStoreRequest(
+    stqEntries, p.robGroupsPerStid, lsidWidth = p.lsidWidth,
+    peIdWidth = p.peIdWidth, stidWidth = p.stidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth))
+  val serializedStoreResponse = Flipped(Decoupled(
+    new STQSerializedStoreResponse()))
+
+  val robStoreCommitAccepted = Output(Bool())
+  val robStoreCommitMissing = Output(Bool())
+  val robStoreCommitMultiple = Output(Bool())
+  val robStoreCommitNotReady = Output(Bool())
+  val robStoreCommitClassificationMissing = Output(Bool())
+  val robStoreCommitClassificationFault = Output(Bool())
+  val memoryClassifyAccepted = Output(Bool())
+  val memoryClassifyMissing = Output(Bool())
+  val memoryClassifyMultiple = Output(Bool())
+  val memoryClassifyDuplicate = Output(Bool())
+  val memoryClassifyConflict = Output(Bool())
+  val memoryClassifyMalformed = Output(Bool())
+  val stqMemoryAttributes = Output(Vec(stqEntries,
+    new STQMemoryAttribute))
+  val storeCommitQueueCount = Output(UInt(
+    log2Ceil(storeCommitQueueEntries + 1).W))
+  val storeCommitDrainIssueCount = Output(UInt(
+    log2Ceil(storeCommitIssueWidth + 1).W))
+  val storeScbAcceptedMask = Output(UInt(storeCommitRequestCount.W))
+  val storeScbValidMask = Output(UInt(scbEntries.W))
+  val storeLogicalCompletionCount = Output(UInt(
+    log2Ceil(storeCommitIssueWidth + 1).W))
+  val serializedStoreBusy = Output(Bool())
+  val storeCommitProtocolError = Output(Bool())
 
   val stqRows = Output(Vec(stqEntries, new STQEntryBankRow(
     p.robGroupsPerStid,
@@ -157,13 +214,39 @@ class OooIexExecutionStoreRecoveryJoin(val p: OooParams) extends Module {
 
 class OooIexExecutionStorePipeline(
     val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
-    val stqEntries: Int = 16) extends Module {
+    val stqEntries: Int = 16,
+    val storeCommitQueueEntries: Int = 16,
+    val storeCommitIssueWidth: Int = 2,
+    val scbEntries: Int = 16,
+    val scbResponseBufferDepth: Int = 4,
+    val storeLineBytes: Int = 64) extends Module {
   val p = profile.params
-  val io = IO(new OooIexExecutionStorePipelineIO(p, stqEntries))
+  val io = IO(new OooIexExecutionStorePipelineIO(
+    p, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
+    scbEntries))
 
   val execution = Module(new OooIexExecutionPipeline(
     profile, requireStoreReservation = true))
   val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+  val storeCommit = Module(new STQSCBCommitBackend(
+    entries = stqEntries,
+    queueEntries = storeCommitQueueEntries,
+    issueWidth = storeCommitIssueWidth,
+    scbEntries = scbEntries,
+    scbResponseBufferDepth = scbResponseBufferDepth,
+    lineBytes = storeLineBytes,
+    mapQDepth = p.tuMapQDepthPerStid,
+    robEntries = p.robGroupsPerStid,
+    lsidWidth = p.lsidWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.stidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth))
 
   execution.io.s1 <> io.s1
   io.dispatchReleases <> execution.io.dispatchReleases
@@ -216,12 +299,52 @@ class OooIexExecutionStorePipeline(
     io.completion(lane) <> execution.io.completion(lane)
   }
 
-  store.io.markCommitValid := io.markStoreCommitValid
-  store.io.markCommitIndex := io.markStoreCommitIndex
-  io.markStoreCommitAccepted := store.io.markCommitAccepted
-  store.io.commitFreeMaskValid := io.storeCommitFreeMaskValid
-  store.io.commitFreeMask := io.storeCommitFreeMask
-  io.storeCommitFreeAcceptedMask := store.io.commitFreeAcceptedMask
+  storeCommit.io.rows := store.io.rows
+  storeCommit.io.recoveryActive := io.recoveryPrepare.valid
+  storeCommit.io.robStoreCommit <> io.robStoreCommit
+  storeCommit.io.memoryClassify <> io.memoryClassify
+  store.io.markCommitValid := storeCommit.io.markCommitValid
+  store.io.markCommitIndex := storeCommit.io.markCommitIndex
+  storeCommit.io.markCommitAccepted := store.io.markCommitAccepted
+  store.io.commitFreeMaskValid := storeCommit.io.commitFreeMaskValid
+  store.io.commitFreeMask := storeCommit.io.commitFreeMask
+  storeCommit.io.commitFreeAcceptedMask := store.io.commitFreeAcceptedMask
+  storeCommit.io.issueEnable := io.storeCommitIssueEnable
+  storeCommit.io.evictEnable := io.storeEvictEnable
+  storeCommit.io.dcacheReady := io.storeDcacheReady
+  storeCommit.io.dcacheWriteHit := io.storeDcacheWriteHit
+  storeCommit.io.dcacheTagHit := io.storeDcacheTagHit
+  storeCommit.io.l2RequestReady := io.storeL2RequestReady
+  storeCommit.io.rawRespValid := io.storeRawRespValid
+  storeCommit.io.rawRespTxnId := io.storeRawRespTxnId
+  storeCommit.io.rawRespWrite := io.storeRawRespWrite
+  storeCommit.io.rawRespUpgrade := io.storeRawRespUpgrade
+  io.storeRawRespReady := storeCommit.io.rawRespReady
+  io.serializedStoreRequest <> storeCommit.io.serializedRequest
+  storeCommit.io.serializedResponse <> io.serializedStoreResponse
+
+  io.robStoreCommitAccepted := storeCommit.io.robStoreCommitAccepted
+  io.robStoreCommitMissing := storeCommit.io.robStoreCommitMissing
+  io.robStoreCommitMultiple := storeCommit.io.robStoreCommitMultiple
+  io.robStoreCommitNotReady := storeCommit.io.robStoreCommitNotReady
+  io.robStoreCommitClassificationMissing :=
+    storeCommit.io.robStoreCommitClassificationMissing
+  io.robStoreCommitClassificationFault :=
+    storeCommit.io.robStoreCommitClassificationFault
+  io.memoryClassifyAccepted := storeCommit.io.memoryClassifyAccepted
+  io.memoryClassifyMissing := storeCommit.io.memoryClassifyMissing
+  io.memoryClassifyMultiple := storeCommit.io.memoryClassifyMultiple
+  io.memoryClassifyDuplicate := storeCommit.io.memoryClassifyDuplicate
+  io.memoryClassifyConflict := storeCommit.io.memoryClassifyConflict
+  io.memoryClassifyMalformed := storeCommit.io.memoryClassifyMalformed
+  io.stqMemoryAttributes := storeCommit.io.memoryAttributes
+  io.storeCommitQueueCount := storeCommit.io.drainQueueCount
+  io.storeCommitDrainIssueCount := storeCommit.io.drainIssueCount
+  io.storeScbAcceptedMask := storeCommit.io.scbAcceptedMask
+  io.storeScbValidMask := storeCommit.io.scbValidMask
+  io.storeLogicalCompletionCount := storeCommit.io.logicalCompletionCount
+  io.serializedStoreBusy := storeCommit.io.serializedBusy
+  io.storeCommitProtocolError := storeCommit.io.protocolError
 
   io.stqRows := store.io.rows
   io.stqOccupiedMask := store.io.occupiedMask
@@ -249,8 +372,8 @@ class OooIexExecutionStorePipeline(
   io.inFlightEntries := execution.io.inFlightEntries
   io.issueEmpty := execution.io.issueEmpty
   io.executionEmpty := execution.io.executionEmpty
-  io.storeEmpty := store.io.empty
-  io.empty := execution.io.empty && store.io.empty
+  io.storeEmpty := store.io.empty && storeCommit.io.empty
+  io.empty := execution.io.empty && store.io.empty && storeCommit.io.empty
   io.pProtocolError := execution.io.pProtocolError
   io.localProtocolError := execution.io.localProtocolError
 

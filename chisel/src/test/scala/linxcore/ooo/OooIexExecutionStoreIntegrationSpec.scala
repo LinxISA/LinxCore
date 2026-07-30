@@ -3,7 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.{Decoupled, Valid}
-import linxcore.lsu.STQEntryBankRow
+import linxcore.lsu.{STQEntryBankRow, STQEntryStatus, STQMemoryClass,
+  STQMemoryClassifyToken, STQRobCommitToken, STQSCBCommitBackend}
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexExecutionStoreHarnessIO(
@@ -15,6 +16,28 @@ class OooIexExecutionStoreHarnessIO(
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
   val recoveryFire = Input(Bool())
+  val robStoreCommit = Flipped(Decoupled(new STQRobCommitToken(
+    p.robGroupsPerStid, p.lsidWidth, p.peIdWidth, p.stidWidth,
+    p.nativeBidWidth, p.ridGenerationWidth, p.brobGenerationWidth,
+    p.robMemberIndexWidth, p.residentGenerationWidth)))
+  val memoryClassify = Flipped(Decoupled(new STQMemoryClassifyToken(
+    stqEntries, p.robGroupsPerStid, p.peIdWidth, p.stidWidth,
+    p.nativeBidWidth, p.ridGenerationWidth, p.brobGenerationWidth,
+    p.robMemberIndexWidth, p.residentGenerationWidth,
+    p.executeSlotGenerationWidth)))
+  val storeCommitIssueEnable = Input(Bool())
+  val serializedStoreRequestReady = Input(Bool())
+  val serializedStoreRequestValid = Output(Bool())
+  val serializedStoreRequestTxnId = Output(UInt(8.W))
+  val serializedStoreResponseValid = Input(Bool())
+  val serializedStoreResponseTxnId = Input(UInt(8.W))
+  val serializedStoreResponseError = Input(Bool())
+  val serializedStoreResponseReady = Output(Bool())
+  val robStoreCommitAccepted = Output(Bool())
+  val memoryClassifyAccepted = Output(Bool())
+  val storeCommitQueueCount = Output(UInt(3.W))
+  val scbAcceptedMask = Output(UInt(4.W))
+  val logicalCompletionCount = Output(UInt(2.W))
   val rows = Output(Vec(stqEntries, new STQEntryBankRow(
     p.robGroupsPerStid,
     peIdWidth = p.peIdWidth,
@@ -42,6 +65,24 @@ class OooIexExecutionStoreHarness(
 
   val execute = Module(new OooIexExecutionCluster(profile))
   val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+  val storeCommit = Module(new STQSCBCommitBackend(
+    entries = stqEntries,
+    queueEntries = 4,
+    issueWidth = 2,
+    scbEntries = 4,
+    scbResponseBufferDepth = 2,
+    mapQDepth = p.tuMapQDepthPerStid,
+    robEntries = p.robGroupsPerStid,
+    lsidWidth = p.lsidWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.stidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth))
 
   for (lane <- 0 until OooIexLinxPhysicalProfile.ExecutionLaneCount) {
     execute.io.e1(lane).valid := io.e1(lane).valid
@@ -78,10 +119,45 @@ class OooIexExecutionStoreHarness(
   execute.io.trace.foreach(_.ready := true.B)
   execute.io.completion.foreach(_.ready := true.B)
 
-  store.io.markCommitValid := false.B
-  store.io.markCommitIndex := 0.U
-  store.io.commitFreeMaskValid := false.B
-  store.io.commitFreeMask := 0.U
+  storeCommit.io.rows := store.io.rows
+  storeCommit.io.recoveryActive := io.recoveryPrepare.valid
+  storeCommit.io.robStoreCommit <> io.robStoreCommit
+  storeCommit.io.memoryClassify <> io.memoryClassify
+  store.io.markCommitValid := storeCommit.io.markCommitValid
+  store.io.markCommitIndex := storeCommit.io.markCommitIndex
+  storeCommit.io.markCommitAccepted := store.io.markCommitAccepted
+  store.io.commitFreeMaskValid := storeCommit.io.commitFreeMaskValid
+  store.io.commitFreeMask := storeCommit.io.commitFreeMask
+  storeCommit.io.commitFreeAcceptedMask := store.io.commitFreeAcceptedMask
+  storeCommit.io.issueEnable := io.storeCommitIssueEnable
+  storeCommit.io.evictEnable := false.B
+  storeCommit.io.dcacheReady := true.B
+  storeCommit.io.dcacheWriteHit := false.B
+  storeCommit.io.dcacheTagHit := false.B
+  storeCommit.io.l2RequestReady := true.B
+  storeCommit.io.rawRespValid := false.B
+  storeCommit.io.rawRespTxnId := 0.U
+  storeCommit.io.rawRespWrite := false.B
+  storeCommit.io.rawRespUpgrade := false.B
+  storeCommit.io.serializedRequest.ready :=
+    io.serializedStoreRequestReady
+  io.serializedStoreRequestValid := storeCommit.io.serializedRequest.valid
+  io.serializedStoreRequestTxnId :=
+    storeCommit.io.serializedRequest.bits.transactionId
+  storeCommit.io.serializedResponse.valid :=
+    io.serializedStoreResponseValid
+  storeCommit.io.serializedResponse.bits.transactionId :=
+    io.serializedStoreResponseTxnId
+  storeCommit.io.serializedResponse.bits.error :=
+    io.serializedStoreResponseError
+  io.serializedStoreResponseReady :=
+    storeCommit.io.serializedResponse.ready
+
+  io.robStoreCommitAccepted := storeCommit.io.robStoreCommitAccepted
+  io.memoryClassifyAccepted := storeCommit.io.memoryClassifyAccepted
+  io.storeCommitQueueCount := storeCommit.io.drainQueueCount
+  io.scbAcceptedMask := storeCommit.io.scbAcceptedMask
+  io.logicalCompletionCount := storeCommit.io.logicalCompletionCount
   io.rows := store.io.rows
   io.addressReadyMask := store.io.addrReadyMask
   io.dataReadyMask := store.io.dataReadyMask
@@ -198,6 +274,43 @@ class OooIexExecutionStoreIntegrationSpec
       BigInt("1122334455667788", 16).U)
   }
 
+  private def initializeHarness(dut: OooIexExecutionStoreHarness): Unit = {
+    dut.io.reserve.valid.poke(false.B)
+    dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
+    dut.io.e1.foreach { lane =>
+      lane.valid.poke(false.B)
+      lane.bits.poke(0.U.asTypeOf(lane.bits))
+    }
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
+    dut.io.robStoreCommit.valid.poke(false.B)
+    dut.io.robStoreCommit.bits.poke(
+      0.U.asTypeOf(dut.io.robStoreCommit.bits))
+    dut.io.memoryClassify.valid.poke(false.B)
+    dut.io.memoryClassify.bits.poke(
+      0.U.asTypeOf(dut.io.memoryClassify.bits))
+    dut.io.storeCommitIssueEnable.poke(false.B)
+    dut.io.serializedStoreRequestReady.poke(false.B)
+    dut.io.serializedStoreResponseValid.poke(false.B)
+    dut.io.serializedStoreResponseTxnId.poke(0.U)
+    dut.io.serializedStoreResponseError.poke(false.B)
+  }
+
+  private def pokeExactOwner(owner: linxcore.lsu.STQExactOwner): Unit = {
+    owner.valid.poke(true.B)
+    owner.peId.poke(1.U)
+    owner.stid.poke(1.U)
+    owner.nativeBidValid.poke(true.B)
+    owner.nativeBid.poke(0x81.U)
+    owner.brobGeneration.poke(4.U)
+    owner.ridSlot.poke(2.U)
+    owner.ridGeneration.poke(3.U)
+    owner.memberIndex.poke(0.U)
+    owner.residentGeneration.poke(5.U)
+  }
+
   test("recovery join requires both owners and emits one common fire") {
     simulate(new OooIexExecutionStoreRecoveryJoin(p)) { dut =>
       dut.io.requested.poke(0.U.asTypeOf(dut.io.requested))
@@ -248,16 +361,7 @@ class OooIexExecutionStoreIntegrationSpec
   test("formal STA and STD lanes fill one pre-reserved canonical STQ row") {
     simulate(new OooIexExecutionStoreHarness(profile, stqEntries = 4)) {
       dut =>
-        dut.io.reserve.valid.poke(false.B)
-        dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
-        dut.io.e1.foreach { lane =>
-          lane.valid.poke(false.B)
-          lane.bits.poke(0.U.asTypeOf(lane.bits))
-        }
-        dut.io.recoveryPrepare.valid.poke(false.B)
-        dut.io.recoveryPrepare.bits.poke(
-          0.U.asTypeOf(dut.io.recoveryPrepare.bits))
-        dut.io.recoveryFire.poke(false.B)
+        initializeHarness(dut)
         dut.reset.poke(true.B)
         dut.clock.step()
         dut.reset.poke(false.B)
@@ -292,6 +396,153 @@ class OooIexExecutionStoreIntegrationSpec
         dut.io.rows(0).addr.expect(0x1010.U)
         dut.io.rows(0).data.expect(
           BigInt("1122334455667788", 16).U)
+    }
+  }
+
+  test("formal store reaches CommitQ and SCB through the single canonical STQ") {
+    simulate(new OooIexExecutionStoreHarness(profile, stqEntries = 4)) {
+      dut =>
+        initializeHarness(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+
+        val firstLsid = BigInt("100000001", 16)
+        val firstStoreId = BigInt("200000001", 16)
+        pokeStoreRow(dut.io.reserve.bits, 0, 2, firstLsid, firstStoreId)
+        dut.io.reserve.valid.poke(true.B)
+        dut.io.reserve.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.reserve.valid.poke(false.B)
+
+        val staLane = profile.pickerIndex("agu0-sta")
+        val stdLane = profile.pickerIndex("alu0")
+        pokeStoreExecute(dut.io.e1(staLane).bits, staLane,
+          addressHalf = true, 2, firstLsid, firstStoreId)
+        pokeStoreExecute(dut.io.e1(stdLane).bits, stdLane,
+          addressHalf = false, 2, firstLsid, firstStoreId)
+        dut.io.e1(staLane).valid.poke(true.B)
+        dut.io.e1(stdLane).valid.poke(true.B)
+        dut.clock.step()
+        dut.io.e1(staLane).valid.poke(false.B)
+        dut.io.e1(stdLane).valid.poke(false.B)
+        dut.clock.step(3)
+        dut.io.rows(0).status.expect(STQEntryStatus.Wait)
+
+        val classify = dut.io.memoryClassify.bits
+        classify.poke(0.U.asTypeOf(classify))
+        classify.lease.valid.poke(true.B)
+        classify.lease.index.poke(0.U)
+        classify.lease.generation.poke(
+          dut.io.rows(0).leaseGeneration.peek())
+        pokeExactOwner(classify.exactOwner)
+        classify.logicalBeat.poke(0.U)
+        classify.memoryClass.poke(STQMemoryClass.NormalCacheable)
+        dut.io.memoryClassify.valid.poke(true.B)
+        dut.io.memoryClassify.ready.expect(true.B)
+        dut.io.memoryClassifyAccepted.expect(true.B)
+        dut.clock.step()
+        dut.io.memoryClassify.valid.poke(false.B)
+
+        val commit = dut.io.robStoreCommit.bits
+        commit.poke(0.U.asTypeOf(commit))
+        commit.logicalFirstLsid.poke(firstLsid.U)
+        commit.logicalFirstStoreId.poke(firstStoreId.U)
+        commit.logicalRequestCount.poke(1.U)
+        commit.logicalBeat.poke(0.U)
+        pokeExactOwner(commit.exactOwner)
+        dut.io.robStoreCommit.valid.poke(true.B)
+        dut.io.robStoreCommit.ready.expect(true.B)
+        dut.io.robStoreCommitAccepted.expect(true.B)
+        dut.clock.step()
+        dut.io.robStoreCommit.valid.poke(false.B)
+        dut.io.rows(0).status.expect(STQEntryStatus.Commit)
+        dut.io.storeCommitQueueCount.expect(1.U)
+
+        dut.io.storeCommitIssueEnable.poke(true.B)
+        dut.clock.step()
+        dut.io.scbAcceptedMask.expect(1.U)
+        dut.io.logicalCompletionCount.expect(1.U)
+        dut.clock.step()
+        dut.io.rows(0).valid.expect(false.B)
+    }
+  }
+
+  test("serialized terminal free is retained across recovery prepare") {
+    simulate(new OooIexExecutionStoreHarness(profile, stqEntries = 4)) {
+      dut =>
+        initializeHarness(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+
+        val firstLsid = BigInt("100000011", 16)
+        val firstStoreId = BigInt("200000011", 16)
+        pokeStoreRow(dut.io.reserve.bits, 0, 2, firstLsid, firstStoreId)
+        dut.io.reserve.valid.poke(true.B)
+        dut.clock.step()
+        dut.io.reserve.valid.poke(false.B)
+
+        val staLane = profile.pickerIndex("agu0-sta")
+        val stdLane = profile.pickerIndex("alu0")
+        pokeStoreExecute(dut.io.e1(staLane).bits, staLane,
+          addressHalf = true, 2, firstLsid, firstStoreId)
+        pokeStoreExecute(dut.io.e1(stdLane).bits, stdLane,
+          addressHalf = false, 2, firstLsid, firstStoreId)
+        dut.io.e1(staLane).valid.poke(true.B)
+        dut.io.e1(stdLane).valid.poke(true.B)
+        dut.clock.step()
+        dut.io.e1(staLane).valid.poke(false.B)
+        dut.io.e1(stdLane).valid.poke(false.B)
+        dut.clock.step(3)
+
+        val classify = dut.io.memoryClassify.bits
+        classify.poke(0.U.asTypeOf(classify))
+        classify.lease.valid.poke(true.B)
+        classify.lease.index.poke(0.U)
+        classify.lease.generation.poke(
+          dut.io.rows(0).leaseGeneration.peek())
+        pokeExactOwner(classify.exactOwner)
+        classify.logicalBeat.poke(0.U)
+        classify.memoryClass.poke(STQMemoryClass.DeviceMmio)
+        dut.io.memoryClassify.valid.poke(true.B)
+        dut.io.memoryClassify.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.memoryClassify.valid.poke(false.B)
+
+        val commit = dut.io.robStoreCommit.bits
+        commit.poke(0.U.asTypeOf(commit))
+        commit.logicalFirstLsid.poke(firstLsid.U)
+        commit.logicalFirstStoreId.poke(firstStoreId.U)
+        commit.logicalRequestCount.poke(1.U)
+        commit.logicalBeat.poke(0.U)
+        pokeExactOwner(commit.exactOwner)
+        dut.io.robStoreCommit.valid.poke(true.B)
+        dut.io.robStoreCommit.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.robStoreCommit.valid.poke(false.B)
+
+        dut.io.storeCommitIssueEnable.poke(true.B)
+        dut.clock.step(2)
+        dut.io.serializedStoreRequestValid.expect(true.B)
+        val transactionId =
+          dut.io.serializedStoreRequestTxnId.peek().litValue
+        dut.io.serializedStoreRequestReady.poke(true.B)
+        dut.clock.step()
+        dut.io.serializedStoreRequestReady.poke(false.B)
+
+        dut.io.recoveryPrepare.valid.poke(true.B)
+        dut.io.serializedStoreResponseValid.poke(true.B)
+        dut.io.serializedStoreResponseTxnId.poke(transactionId.U)
+        dut.io.serializedStoreResponseReady.expect(true.B)
+        dut.clock.step()
+        dut.io.serializedStoreResponseValid.poke(false.B)
+        dut.io.rows(0).valid.expect(true.B)
+        dut.io.rows(0).status.expect(STQEntryStatus.Commit)
+
+        dut.io.recoveryPrepare.valid.poke(false.B)
+        dut.clock.step()
+        dut.io.rows(0).valid.expect(false.B)
     }
   }
 }

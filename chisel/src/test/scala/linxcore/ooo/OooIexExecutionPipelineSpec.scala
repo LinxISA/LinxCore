@@ -43,6 +43,7 @@ class OooIexExecutionPipelineSpec extends AnyFunSuite {
     assert(systemVerilog.contains("module OooIexExecutionStorePipeline"))
     assert(systemVerilog.contains("OooIexExecutionPipeline execution"))
     assert(systemVerilog.contains("OooIexStoreStqFabric store"))
+    assert(systemVerilog.contains("STQSCBCommitBackend storeCommit"))
     assert(systemVerilog.contains("OooIexPipeline issue"))
     assert(systemVerilog.contains("OooIexExecutionCluster execute"))
   }
