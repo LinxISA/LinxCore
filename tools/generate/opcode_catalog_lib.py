@@ -77,6 +77,15 @@ LEGACY_SYMBOL_OVERRIDES = {
     "internal_c_setret": "OP_C_SETRET",
 }
 
+APPENDED_NON_PTO_OPCODE_SYMBOLS = (
+    "OP_BSTART_VPAR",
+    "OP_BSTART_VSEQ",
+    "OP_C_BSTART_VPAR",
+    "OP_C_BSTART_VSEQ",
+    "OP_V_QPOP",
+    "OP_V_QPUSH",
+)
+
 OP_ID_CATEGORY_OVERRIDES = {
     # Preserve existing opcode IDs when repairing the product category.
     "OP_HL_SDI": "ALU_INT",
@@ -884,9 +893,36 @@ def load_locked_linxisa_entries(
     release = str(lock.get("release", ""))
     if release != "0.57.1" or str(isa.get("version", "")) != release:
         raise ValueError(f"expected locked ISA release 0.57.1, got lock={release!r} isa={isa.get('version')!r}")
-    expected_commit = "b30ed3df4f1a7fd0c2d19b02a90b049cb452fd87"
+    expected_commit = "0141ec89ff1e222adfe1df55610f414ca0c8c086"
     if str(lock.get("source", {}).get("commit", "")) != expected_commit:
         raise ValueError("PTO source commit does not match the reviewed 0.57.1 lock")
+    expected_lock_identity = {
+        "content_sha256": "5d75f42d191478aef9fa1ef1d73fb18dc48cf83468dc79c9054cb4ae21387354",
+        "encoding_abi": "pto-isa-0.57.1-mode-function-v1",
+        "encoding_projection_sha256": "34f6602cf29ea6363d41d896111dad4de0f70ec36517138aa89e292857909da4",
+    }
+    for field, expected_value in expected_lock_identity.items():
+        if str(lock.get(field, "")) != expected_value:
+            raise ValueError(f"PTO {field} does not match the reviewed 0.57.1 lock")
+    expected_release_manifest = {
+        "path": "spec/release-manifest.json",
+        "sha256": "d0aa98754622d7949e55cccd576dd3da74bceb8c060e853cccf1f84c13b4438a",
+    }
+    if lock.get("release_manifest") != expected_release_manifest:
+        raise ValueError("PTO release manifest does not match the reviewed 0.57.1 lock")
+    expected_hardware_profile = {
+        "path": "spec/hardware-conformance-profile.json",
+        "profile_id": "pto-hardware-numeric-0.57.1-ieee-v1",
+        "sha256": "becfbefcc7a31408e5e5293802493f833f68a2fccebb3f9e8008d8b9f4e7658c",
+    }
+    if lock.get("hardware_conformance_profile") != expected_hardware_profile:
+        raise ValueError("PTO hardware conformance profile does not match the reviewed 0.57.1 lock")
+    expected_numeric_vectors = {
+        "path": "spec/evidence/pto-isa-0571-hardware-numeric-vectors.json",
+        "sha256": "b9f908deb9cfec412388e95f4532563cf4e462032b43d15996f0f7b4b93b4ec9",
+    }
+    if lock.get("numeric_conformance_vectors") != expected_numeric_vectors:
+        raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.57.1 lock")
     expected_hashes = {
         "command_forms": "c53db18b30fbf53676f1d733e215122f65ad681a778ae0728cc6c4a3674df61e",
         "tile_operations": "2a49616fbbd34ee4ff00b971d56de6dd7b8c1698fa7312db0b20b6119965bc26",
@@ -912,10 +948,31 @@ def load_locked_linxisa_entries(
     if sorted(operations.get("deleted_names", [])) != expected_deleted:
         raise ValueError(f"unexpected deleted PTO operations: {operations.get('deleted_names')!r}")
 
+    non_pto_command_mnemonics = {
+        "BSTART.TEPL",
+        "BSTART.VPAR",
+        "BSTART.VSEQ",
+        "C.BSTART.VPAR",
+        "C.BSTART.VSEQ",
+        "V.QPOP",
+        "V.QPUSH",
+    }
+    present_non_pto_commands = {
+        str(insn.get("mnemonic", ""))
+        for insn in isa.get("instructions", [])
+        if str(insn.get("mnemonic", "")) in non_pto_command_mnemonics
+    }
+    if present_non_pto_commands != non_pto_command_mnemonics:
+        raise ValueError(
+            "locked LinxISA non-PTO command surface mismatch: "
+            f"expected={sorted(non_pto_command_mnemonics)!r} "
+            f"actual={sorted(present_non_pto_commands)!r}"
+        )
     entries = [
         _entry_from_linx_instruction(insn)
         for insn in isa.get("instructions", [])
         if str(insn.get("uop_group", "")) not in {"CMD", "BBD"}
+        or str(insn.get("mnemonic", "")) in non_pto_command_mnemonics
     ]
     forms = list(command_forms["forms"])
     forbidden_forms = {"B.ARG", "BSTART.CUBE", "BSTART.FIXP"}
@@ -1010,6 +1067,19 @@ def load_locked_linxisa_entries(
     metadata: dict[str, object] = {
         "release": release,
         "pto_spec_commit": str(lock["source"]["commit"]),
+        "pto_spec_content_sha256": str(lock["content_sha256"]),
+        "pto_spec_encoding_abi": str(lock["encoding_abi"]),
+        "pto_spec_encoding_projection_sha256": str(lock["encoding_projection_sha256"]),
+        "pto_spec_release_manifest_sha256": str(lock["release_manifest"]["sha256"]),
+        "hardware_conformance_profile_id": str(
+            lock["hardware_conformance_profile"]["profile_id"]
+        ),
+        "hardware_conformance_profile_sha256": str(
+            lock["hardware_conformance_profile"]["sha256"]
+        ),
+        "numeric_conformance_vectors_sha256": str(
+            lock["numeric_conformance_vectors"]["sha256"]
+        ),
         "command_form_count": expected_forms,
         "tile_operation_count": expected_operations,
         "tile_family_counts": expected_families,
@@ -1062,7 +1132,11 @@ def _build_catalog_from_entries(
                 "imm_kind": imm_kind,
                 "block_kind": block_kind_for_mnemonic(mnemonic),
                 "cmd_kind": cmd_kind_for_mnemonic(mnemonic),
-                "flags": "",
+                "flags": (
+                    "DECODE_ONLY_CARRIER"
+                    if mnemonic == "bstart_tepl"
+                    else ""
+                ),
                 "source_file": e.file,
             }
             if e.source_profile:
@@ -1083,12 +1157,18 @@ def _build_catalog_from_entries(
         symbol = r["symbol"]
         sym_to_cat.setdefault(symbol, OP_ID_CATEGORY_OVERRIDES.get(symbol, r["major_cat"]))
 
+    appended_symbols = set(APPENDED_NON_PTO_OPCODE_SYMBOLS)
     ordered_symbols = sorted(
-        sym_to_cat.keys(),
+        (symbol for symbol in sym_to_cat if symbol not in appended_symbols),
         key=lambda s: (
             CATEGORY_ORDER.index(sym_to_cat[s]) if sym_to_cat[s] in CATEGORY_ORDER else len(CATEGORY_ORDER),
             s,
         ),
+    )
+    ordered_symbols.extend(
+        symbol
+        for symbol in APPENDED_NON_PTO_OPCODE_SYMBOLS
+        if symbol in sym_to_cat
     )
     sym_to_id = {sym: idx + 1 for idx, sym in enumerate(ordered_symbols)}
     sym_to_id["OP_INVALID"] = 0

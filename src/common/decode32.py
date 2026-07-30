@@ -11,6 +11,8 @@ def decode32_meta(insn: int) -> OpcodeMeta | None:
     best: OpcodeMeta | None = None
     best_bits = -1
     for meta in _DECODE32:
+        if meta.flags == "DECODE_ONLY_CARRIER":
+            continue
         if (word & meta.mask) != meta.match:
             continue
         bits = int(meta.mask).bit_count()

@@ -241,6 +241,71 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             self.assertEqual(decoded.mnemonic, mnemonic)
             self.assertEqual(decoded.symbol, symbol)
 
+    def test_v057_non_pto_command_and_boundary_forms_remain_decodable(self) -> None:
+        from common.decode16 import decode16_meta
+        from common.decode32 import decode32_meta
+        from common.decode64 import decode64_meta
+        from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
+
+        expected_forms = (
+            ("bstart_tepl", 32, 0x000FFFFF, 0x00019181),
+            ("bstart_vpar", 32, 0xF9FFFFFF, 0x00021181),
+            ("bstart_vseq", 32, 0xF9FFFFFF, 0x00029181),
+            ("c_bstart_vpar", 16, 0x0000FFFF, 0x000088C0),
+            ("c_bstart_vseq", 16, 0x0000FFFF, 0x0000C8C0),
+            ("v_qpop", 64, 0xFFF0707FFFF0707F, 0x0000207D0000007F),
+            ("v_qpush", 64, 0xFE00707FFE00707F, 0x0000107D0000007F),
+        )
+        for mnemonic, enc_len, mask, match in expected_forms:
+            forms = opcode_meta_forms_by_mnemonic(mnemonic)
+            self.assertEqual(len(forms), 1, mnemonic)
+            self.assertEqual(forms[0].insn_len, enc_len, mnemonic)
+            self.assertEqual(forms[0].mask, mask, mnemonic)
+            self.assertEqual(forms[0].match, match, mnemonic)
+
+        catalog = json.loads(
+            (ROOT / "src/common/opcode_catalog.yaml").read_text(encoding="utf-8")
+        )
+        tepl_carrier = next(
+            record
+            for record in catalog["records"]
+            if record["mnemonic"] == "bstart_tepl"
+        )
+        self.assertEqual(tepl_carrier["flags"], "DECODE_ONLY_CARRIER")
+        self.assertEqual(tepl_carrier["ooo"]["disposition"], "DISPATCH")
+
+        opcode_ids = {
+            str(record["symbol"]): int(record["op_id"])
+            for record in catalog["records"]
+        }
+        self.assertEqual(opcode_ids["OP_BSTART_TEPL"], 21)
+        self.assertEqual(opcode_ids["OP_ADD"], 50)
+        self.assertEqual(
+            {symbol: opcode_ids[symbol] for symbol in (
+                "OP_BSTART_VPAR",
+                "OP_BSTART_VSEQ",
+                "OP_C_BSTART_VPAR",
+                "OP_C_BSTART_VSEQ",
+                "OP_V_QPOP",
+                "OP_V_QPUSH",
+            )},
+            {
+                "OP_BSTART_VPAR": 731,
+                "OP_BSTART_VSEQ": 732,
+                "OP_C_BSTART_VPAR": 733,
+                "OP_C_BSTART_VSEQ": 734,
+                "OP_V_QPOP": 735,
+                "OP_V_QPUSH": 736,
+            },
+        )
+
+        self.assertEqual(decode16_meta(0x88C0).mnemonic, "c_bstart_vpar")
+        self.assertEqual(decode16_meta(0xC8C0).mnemonic, "c_bstart_vseq")
+        self.assertEqual(decode32_meta(0x00021181).mnemonic, "bstart_vpar")
+        self.assertEqual(decode32_meta(0x00029181).mnemonic, "bstart_vseq")
+        self.assertEqual(decode64_meta(0x0000207D0000007F).mnemonic, "v_qpop")
+        self.assertEqual(decode64_meta(0x0000107D0000007F).mnemonic, "v_qpush")
+
     def test_v057_locked_pto_counts_and_exact_decode_surface(self) -> None:
         from common.decode32 import decode32_meta
 
@@ -248,7 +313,27 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         self.assertEqual(catalog["source"]["release"], "0.57.1")
         self.assertEqual(
             catalog["source"]["pto_spec_commit"],
-            "b30ed3df4f1a7fd0c2d19b02a90b049cb452fd87",
+            "0141ec89ff1e222adfe1df55610f414ca0c8c086",
+        )
+        self.assertEqual(
+            catalog["source"]["pto_spec_content_sha256"],
+            "5d75f42d191478aef9fa1ef1d73fb18dc48cf83468dc79c9054cb4ae21387354",
+        )
+        self.assertEqual(
+            catalog["source"]["pto_spec_release_manifest_sha256"],
+            "d0aa98754622d7949e55cccd576dd3da74bceb8c060e853cccf1f84c13b4438a",
+        )
+        self.assertEqual(
+            catalog["source"]["hardware_conformance_profile_id"],
+            "pto-hardware-numeric-0.57.1-ieee-v1",
+        )
+        self.assertEqual(
+            catalog["source"]["hardware_conformance_profile_sha256"],
+            "becfbefcc7a31408e5e5293802493f833f68a2fccebb3f9e8008d8b9f4e7658c",
+        )
+        self.assertEqual(
+            catalog["source"]["numeric_conformance_vectors_sha256"],
+            "b9f908deb9cfec412388e95f4532563cf4e462032b43d15996f0f7b4b93b4ec9",
         )
         self.assertEqual(catalog["source"]["command_form_count"], 99)
         self.assertEqual(catalog["source"]["tile_operation_count"], 120)

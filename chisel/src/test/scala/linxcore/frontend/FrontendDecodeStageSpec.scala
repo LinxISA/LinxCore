@@ -26,6 +26,7 @@ object FrontendDecodeStageReference {
 
   def decode(word: BigInt, lenBytes: Int): Option[FrontendOpcodeDecodeTable.Rule] =
     FrontendOpcodeDecodeTable.Rules.find(rule =>
+      !FrontendOpcodeDecodeTable.isDecodeOnlyCarrier(rule) &&
       rule.lenBytes == lenBytes && ((word & rule.mask) == rule.value))
 
   private def sext(value: BigInt, width: Int): BigInt = {
@@ -403,7 +404,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 864)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 871)
     assert(FrontendOpcodeDecodeTable.OP_ADD == 50)
     assert(FrontendOpcodeDecodeTable.OP_LD == 339)
     assert(FrontendOpcodeDecodeTable.OP_SD == 378)
@@ -414,6 +415,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(FrontendOpcodeDecodeTable.OP_BSTART_TMA == 22)
     assert(FrontendOpcodeDecodeTable.OP_CASB == 64)
     assert(FrontendOpcodeDecodeTable.OP_DMA == 75)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VPAR == 731)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VSEQ == 732)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VPAR == 733)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VSEQ == 734)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPOP == 735)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPUSH == 736)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
   }

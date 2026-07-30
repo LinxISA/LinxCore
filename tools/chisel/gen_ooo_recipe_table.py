@@ -204,6 +204,15 @@ def rule_expr(record: dict) -> str:
 
 
 def emit_scala(path: Path, records: list[dict]) -> None:
+    decode_only_carrier_keys = sorted({
+        (
+            source_len_bytes(record),
+            int(record["mask"], 0),
+            int(record["match"], 0),
+        )
+        for record in records
+        if record.get("flags") == "DECODE_ONLY_CARRIER"
+    })
     rules_with_order = [
         (record, source_ordinal)
         for source_ordinal, record in enumerate(records)
@@ -267,7 +276,15 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         "  type Rule = OooOpcodeRecipeRule",
         f"  val CatalogRecordCount: Int = {len(records)}", f"  val DecodeRuleCount: Int = {len(rules)}", f"  val OpcodeCount: Int = {len(unique)}", "",
         "  val Rules: Seq[Rule] = " + " ++ ".join(f"OooOpcodeRecipeRules{idx}.Values" for idx in range(len(chunks))),
-        "", "  private def assign(meta: OooOpcodeRecipeMeta, rule: Rule): Unit = {",
+        "",
+        "  private final case class DecodeOnlyCarrierKey(lenBytes: Int, mask: BigInt, value: BigInt)",
+        "  private val DecodeOnlyCarrierKeys: Set[DecodeOnlyCarrierKey] = Set(" + ", ".join(
+            f'DecodeOnlyCarrierKey({length}, BigInt("{mask:x}", 16), BigInt("{value:x}", 16))'
+            for length, mask, value in decode_only_carrier_keys) + ")",
+        "  private def isDecodeOnlyCarrier(rule: Rule): Boolean =",
+        "    DecodeOnlyCarrierKeys.contains(DecodeOnlyCarrierKey(rule.lenBytes, rule.mask, rule.value))",
+        "",
+        "  private def assign(meta: OooOpcodeRecipeMeta, rule: Rule): Unit = {",
         "    meta.valid := true.B", "    meta.opcode := rule.opcode.U",
         "    meta.disposition := rule.disposition.U", "    meta.recipeKind := rule.recipeKind.U",
         "    meta.uopCountMin := rule.uopCountMin.U", "    meta.uopCountMax := rule.uopCountMax.U",
@@ -299,7 +316,7 @@ def emit_scala(path: Path, records: list[dict]) -> None:
         for local_idx, _ in enumerate(chunk):
             rule_idx = start + local_idx
             lines.append(f"    val rule{rule_idx} = Rules({rule_idx})")
-            lines.append(f"    val hit{rule_idx} = !matched && lenBytes === rule{rule_idx}.lenBytes.U && (insn & rule{rule_idx}.mask.U(p.instructionWidth.W)) === rule{rule_idx}.value.U(p.instructionWidth.W)")
+            lines.append(f"    val hit{rule_idx} = !matched && (!isDecodeOnlyCarrier(rule{rule_idx})).B && lenBytes === rule{rule_idx}.lenBytes.U && (insn & rule{rule_idx}.mask.U(p.instructionWidth.W)) === rule{rule_idx}.value.U(p.instructionWidth.W)")
             lines.append(f"    when(hit{rule_idx}) {{ assign(meta, rule{rule_idx}) }}")
             lines.append(f"    matched = matched || hit{rule_idx}")
         lines.extend(["    meta", "  }", ""])

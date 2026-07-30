@@ -137,6 +137,11 @@ def bool_lit(value: bool) -> str:
 
 def main() -> None:
     metas = list(OPCODE_META_FORMS)
+    decode_only_carrier_keys = sorted({
+        (source_len_bytes(meta), int(meta.mask), int(meta.match))
+        for meta in metas
+        if meta.flags == "DECODE_ONLY_CARRIER"
+    })
     rules = [
         (idx, meta)
         for idx, meta in enumerate(metas)
@@ -224,6 +229,18 @@ def main() -> None:
         "",
     ])
 
+    carrier_entries = ", ".join(
+        f'DecodeOnlyCarrierKey(lenBytes = {length}, mask = BigInt("{mask:x}", 16), value = BigInt("{value:x}", 16))'
+        for length, mask, value in decode_only_carrier_keys
+    )
+    lines.extend([
+        "  private final case class DecodeOnlyCarrierKey(lenBytes: Int, mask: BigInt, value: BigInt)",
+        f"  private val DecodeOnlyCarrierKeys: Set[DecodeOnlyCarrierKey] = Set({carrier_entries})",
+        "  private[frontend] def isDecodeOnlyCarrier(rule: Rule): Boolean =",
+        "    DecodeOnlyCarrierKeys.contains(DecodeOnlyCarrierKey(rule.lenBytes, rule.mask, rule.value))",
+        "",
+    ])
+
     for symbol, op_id in sorted(symbols.items(), key=lambda item: item[1]):
         lines.append(f"  val {symbol}: Int = {op_id}")
     lines.append("")
@@ -277,7 +294,7 @@ def main() -> None:
             "",
             "    var matched = false.B",
             "    for (rule <- Rules) {",
-            "      val hit = !matched &&",
+            "      val hit = !matched && (!isDecodeOnlyCarrier(rule)).B &&",
             "        (lenBytes === rule.lenBytes.U) &&",
             "        ((insn & rule.mask.U(p.insnWidth.W)) === rule.value.U(p.insnWidth.W))",
             "      when(hit) {",
