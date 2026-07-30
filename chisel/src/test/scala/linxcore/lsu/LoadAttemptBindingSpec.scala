@@ -390,6 +390,9 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.in.poke(0.U.asTypeOf(dut.io.in))
       dut.io.in.payload.valid.poke(true.B)
       dut.io.in.payload.rid.valid.poke(true.B)
+      dut.io.in.payload.loadId.valid.poke(true.B)
+      dut.io.in.payload.loadId.slot.poke(3.U)
+      dut.io.in.payload.loadId.generation.poke(1.U)
       pokeAttempt(dut.io.in.payload.attempt, nativeBid = 10, ridSlot = 23, generation = 0x1234)
       dut.io.robRowValid.poke(true.B)
       dut.io.robRowNeedFlush.poke(false.B)
@@ -410,6 +413,8 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.completion(0).payload.attempt.producer.nativeBid.expect(10.U)
       dut.io.completion(0).payload.attempt.producer.ridSlot.expect(23.U)
       dut.io.completion(0).payload.attempt.generation.expect(0x1234.U)
+      dut.io.completion(0).payload.loadId.slot.expect(3.U)
+      dut.io.completion(0).payload.loadId.generation.expect(1.U)
 
       dut.clock.step(2)
       dut.io.completion(0).payload.attempt.generation.expect(0x1234.U)
@@ -422,7 +427,7 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("terminal payload formatting copies exact attempts only for valid data") {
+  test("terminal payload formatting preserves row attempts and exact data-or-fault outcomes") {
     simulate(new LoadReplayReturnLretPayload(idEntries = 8, lsidWidth = 40)) { dut =>
       dut.io.enable.poke(true.B)
       dut.io.launchValid.poke(true.B)
@@ -433,6 +438,9 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.selectedLoadLsId.poke(0.U.asTypeOf(dut.io.selectedLoadLsId))
       dut.io.selectedLoadLsIdFullValid.poke(false.B)
       dut.io.selectedLoadLsIdFull.poke(0.U)
+      dut.io.selectedLoadId.valid.poke(true.B)
+      dut.io.selectedLoadId.slot.poke(3.U)
+      dut.io.selectedLoadId.generation.poke(1.U)
       pokeAttempt(dut.io.selectedAttempt, nativeBid = 12, ridSlot = 29, generation = 0x5678)
       dut.io.selectedPeId.poke(0.U)
       dut.io.selectedStid.poke(0.U)
@@ -445,6 +453,8 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.selectedSource0.poke(0.U.asTypeOf(dut.io.selectedSource0))
       dut.io.selectedSource1.poke(0.U.asTypeOf(dut.io.selectedSource1))
       dut.io.returnData.poke(0x1122334455667788L.U)
+      dut.io.faultValid.poke(false.B)
+      dut.io.faultCause.poke(0.U)
       dut.io.returnPipeIndex.poke(0.U)
       dut.io.specWakeup.poke(false.B)
       dut.io.stackValid.poke(false.B)
@@ -453,6 +463,10 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.payloadAttempt.producer.nativeBid.expect(12.U)
       dut.io.payloadAttempt.producer.ridSlot.expect(29.U)
       dut.io.payloadAttempt.generation.expect(0x5678.U)
+      dut.io.payloadLoadId.slot.expect(3.U)
+      dut.io.payloadLoadId.generation.expect(1.U)
+      dut.io.payloadFaultValid.expect(false.B)
+      dut.io.malformedOutcome.expect(false.B)
 
       dut.io.dataValid.poke(false.B)
       dut.io.payloadValid.expect(false.B)
@@ -460,7 +474,19 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.payloadAttempt.producer.nativeBid.expect(0.U)
       dut.io.payloadAttempt.generation.expect(0.U)
 
+      dut.io.faultValid.poke(true.B)
+      dut.io.faultCause.poke(0x44.U)
+      dut.io.payloadValid.expect(true.B)
+      dut.io.payloadData.expect(0.U)
+      dut.io.payloadFaultValid.expect(true.B)
+      dut.io.payloadFaultCause.expect(0x44.U)
+
       dut.io.dataValid.poke(true.B)
+      dut.io.malformedOutcome.expect(true.B)
+      dut.io.payloadValid.expect(false.B)
+      dut.io.payloadLoadId.valid.expect(false.B)
+
+      dut.io.faultValid.poke(false.B)
       dut.io.selectedAttempt.valid.poke(false.B)
       dut.io.selectedAttempt.producer.nativeBid.poke(15.U)
       dut.io.selectedAttempt.generation.poke(9.U)

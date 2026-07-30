@@ -33,6 +33,7 @@ class LoadReplayReturnLretPayloadIO(
   val selectedLoadLsId = Input(new ROBID(idEntries))
   val selectedLoadLsIdFullValid = Input(Bool())
   val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
+  val selectedLoadId = Input(new LoadCanonicalRowIdentity)
   val selectedAttempt = Input(new LoadAttemptIdentity)
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
@@ -45,6 +46,8 @@ class LoadReplayReturnLretPayloadIO(
   val selectedSource0 = Input(new CommitOperandTrace(sourceTraceParams))
   val selectedSource1 = Input(new CommitOperandTrace(sourceTraceParams))
   val returnData = Input(UInt(dataWidth.W))
+  val faultValid = Input(Bool())
+  val faultCause = Input(UInt(LoadTerminalFault.CauseWidth.W))
   val returnPipeIndex = Input(UInt(returnPipeIndexWidth.W))
   val specWakeup = Input(Bool())
   val stackValid = Input(Bool())
@@ -57,6 +60,7 @@ class LoadReplayReturnLretPayloadIO(
   val payloadLoadLsId = Output(new ROBID(idEntries))
   val payloadLoadLsIdFullValid = Output(Bool())
   val payloadLoadLsIdFull = Output(UInt(lsidWidth.W))
+  val payloadLoadId = Output(new LoadCanonicalRowIdentity)
   val payloadAttempt = Output(new LoadAttemptIdentity)
   val payloadPeId = Output(UInt(peIdWidth.W))
   val payloadStid = Output(UInt(stidWidth.W))
@@ -69,6 +73,8 @@ class LoadReplayReturnLretPayloadIO(
   val payloadSource0 = Output(new CommitOperandTrace(sourceTraceParams))
   val payloadSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val payloadData = Output(UInt(dataWidth.W))
+  val payloadFaultValid = Output(Bool())
+  val payloadFaultCause = Output(UInt(LoadTerminalFault.CauseWidth.W))
   val payloadPipeIndex = Output(UInt(returnPipeIndexWidth.W))
   val payloadSpecWakeup = Output(Bool())
   val payloadStackValid = Output(Bool())
@@ -76,6 +82,7 @@ class LoadReplayReturnLretPayloadIO(
   val blockedByDisabled = Output(Bool())
   val blockedByNoCandidate = Output(Bool())
   val blockedByData = Output(Bool())
+  val malformedOutcome = Output(Bool())
 }
 
 class LoadReplayReturnLretPayload(
@@ -118,7 +125,8 @@ class LoadReplayReturnLretPayload(
   ))
 
   val candidateValid = io.enable && io.launchValid
-  val payloadValid = candidateValid && io.dataValid
+  val outcomeExact = io.dataValid ^ io.faultValid
+  val payloadValid = candidateValid && outcomeExact
 
   io.candidateValid := candidateValid
   io.payloadValid := payloadValid
@@ -128,6 +136,7 @@ class LoadReplayReturnLretPayload(
   io.payloadLoadLsId := ROBID.disabled(idEntries)
   io.payloadLoadLsIdFullValid := false.B
   io.payloadLoadLsIdFull := 0.U
+  io.payloadLoadId := LoadCanonicalRowIdentity.none
   io.payloadAttempt := LoadAttemptIdentity.none
   io.payloadPeId := 0.U
   io.payloadStid := 0.U
@@ -140,6 +149,8 @@ class LoadReplayReturnLretPayload(
   io.payloadSource0 := 0.U.asTypeOf(io.payloadSource0)
   io.payloadSource1 := 0.U.asTypeOf(io.payloadSource1)
   io.payloadData := 0.U
+  io.payloadFaultValid := false.B
+  io.payloadFaultCause := 0.U
   io.payloadPipeIndex := 0.U(returnPipeIndexWidth.W)
   io.payloadSpecWakeup := false.B
   io.payloadStackValid := false.B
@@ -152,6 +163,7 @@ class LoadReplayReturnLretPayload(
     io.payloadLoadLsId := io.selectedLoadLsId
     io.payloadLoadLsIdFullValid := io.selectedLoadLsIdFullValid
     io.payloadLoadLsIdFull := io.selectedLoadLsIdFull
+    io.payloadLoadId := io.selectedLoadId
     io.payloadAttempt := LoadAttemptIdentity.canonical(io.selectedAttempt)
     io.payloadPeId := io.selectedPeId
     io.payloadStid := io.selectedStid
@@ -163,7 +175,9 @@ class LoadReplayReturnLretPayload(
     io.payloadSourceTraceValid := io.selectedSourceTraceValid
     io.payloadSource0 := io.selectedSource0
     io.payloadSource1 := io.selectedSource1
-    io.payloadData := io.returnData
+    io.payloadData := Mux(io.faultValid, 0.U, io.returnData)
+    io.payloadFaultValid := io.faultValid
+    io.payloadFaultCause := Mux(io.faultValid, io.faultCause, 0.U)
     io.payloadPipeIndex := io.returnPipeIndex
     io.payloadSpecWakeup := io.specWakeup
     io.payloadStackValid := io.stackValid
@@ -172,5 +186,6 @@ class LoadReplayReturnLretPayload(
 
   io.blockedByDisabled := !io.enable && io.launchValid
   io.blockedByNoCandidate := io.enable && !io.launchValid
-  io.blockedByData := candidateValid && !io.dataValid
+  io.blockedByData := candidateValid && !io.dataValid && !io.faultValid
+  io.malformedOutcome := candidateValid && !outcomeExact
 }

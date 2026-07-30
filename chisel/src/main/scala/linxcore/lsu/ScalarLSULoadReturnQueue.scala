@@ -28,6 +28,7 @@ class LoadReplayReturnLretEntry(
   val loadLsId = new ROBID(idEntries)
   val loadLsIdFullValid = Bool()
   val loadLsIdFull = UInt(lsidWidth.W)
+  val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
@@ -37,6 +38,8 @@ class LoadReplayReturnLretEntry(
   val source0 = new linxcore.commit.CommitOperandTrace(sourceTraceParams)
   val source1 = new linxcore.commit.CommitOperandTrace(sourceTraceParams)
   val data = UInt(dataWidth.W)
+  val faultValid = Bool()
+  val faultCause = UInt(LoadTerminalFault.CauseWidth.W)
   val pipeIndex = UInt(returnPipeIndexWidth.W)
   val specWakeup = Bool()
   val stackValid = Bool()
@@ -182,6 +185,7 @@ class ScalarLSULoadReturnQueue(
     entry.payload.loadLsId := ROBID.disabled(idEntries)
     entry.payload.loadLsIdFullValid := false.B
     entry.payload.loadLsIdFull := 0.U
+    entry.payload.loadId := LoadCanonicalRowIdentity.none
     entry.payload.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     entry
   }

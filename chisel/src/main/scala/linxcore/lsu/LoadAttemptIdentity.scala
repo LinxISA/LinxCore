@@ -1,6 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
+import chisel3.util.log2Ceil
 
 import linxcore.rob.ROBID
 
@@ -91,6 +92,60 @@ object LoadAttemptIdentity {
 
   def canonical(value: LoadAttemptIdentity): LoadAttemptIdentity =
     Mux(value.valid, value, none)
+}
+
+/** Canonical physical LIQ row lease carried beyond LIQ residency.
+  *
+  * A load may leave the LIQ before its retained LRET/W1/W2 transaction reaches
+  * the architectural terminal sink.  The terminal side therefore cannot use
+  * a bare slot number: it must retain the allocation wrap together with the
+  * slot and revalidate the exact load attempt before acknowledging the result.
+  * Fixed protocol capacities keep this identity independent of LIQ/ROB sizing.
+  */
+class LoadCanonicalRowIdentity extends Bundle {
+  val valid = Bool()
+  val slot = UInt(LoadAttemptIdentity.IndexWidth.W)
+  val generation = UInt(LoadAttemptIdentity.GenerationWidth.W)
+}
+
+object LoadCanonicalRowIdentity {
+  def requireBridgeFits(entries: Int): Unit = {
+    require(entries > 1 && (entries & (entries - 1)) == 0,
+      "canonical load-row bridge requires a power-of-two LIQ greater than one")
+    require(log2Ceil(entries) <= LoadAttemptIdentity.IndexWidth,
+      s"LIQ slot width ${log2Ceil(entries)} must fit the ${LoadAttemptIdentity.IndexWidth}-bit canonical row identity")
+  }
+
+  def none: LoadCanonicalRowIdentity = {
+    val out = Wire(new LoadCanonicalRowIdentity)
+    out.valid := false.B
+    out.slot := 0.U
+    out.generation := 0.U
+    out
+  }
+
+  def fromRobId(value: ROBID): LoadCanonicalRowIdentity = {
+    requireBridgeFits(value.entries)
+    val out = Wire(new LoadCanonicalRowIdentity)
+    out.valid := value.valid
+    out.slot := value.value
+    out.generation := value.wrap.asUInt
+    out
+  }
+
+  def equal(lhs: LoadCanonicalRowIdentity, rhs: LoadCanonicalRowIdentity): Bool =
+    lhs.valid === rhs.valid && lhs.slot === rhs.slot &&
+      lhs.generation === rhs.generation
+
+  def wellFormed(value: LoadCanonicalRowIdentity, entries: Int): Bool = {
+    requireBridgeFits(entries)
+    !value.valid || (value.slot < entries.U &&
+      value.generation(LoadAttemptIdentity.GenerationWidth - 1, 1) === 0.U)
+  }
+}
+
+object LoadTerminalFault {
+  val CauseWidth = 32
 }
 
 /** Generation-qualified rebinding of one still-resident LIQ row. */

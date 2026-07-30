@@ -112,6 +112,7 @@ class ScalarLSULoadReturnPipeline(
     entry.payload.loadLsId := ROBID.disabled(idEntries)
     entry.payload.loadLsIdFullValid := false.B
     entry.payload.loadLsIdFull := 0.U
+    entry.payload.loadId := LoadCanonicalRowIdentity.none
     entry.payload.dst := LoadReplayDestination.none(p.archRegWidth, p.physRegWidth)
     entry
   }
