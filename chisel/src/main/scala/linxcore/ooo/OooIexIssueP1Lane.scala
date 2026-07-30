@@ -87,6 +87,7 @@ class OooIexIssueP1Lane(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooIexIssueP1LaneIO(p))
 
   val issue = Module(new OooIexIssue(p))
+  issue.io.storeReserve.ready := true.B
   val bridge = Module(new OooIexPickP1Bridge(p))
   val lane = Module(new OooIexP1I2Lane(p))
 

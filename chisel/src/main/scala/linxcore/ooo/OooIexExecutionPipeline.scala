@@ -9,8 +9,12 @@ import chisel3.util.{Decoupled, Valid}
   * results back into its canonical P/T/U files and wakeup/bypass domains, and
   * exposes only execution families whose later owners are still external.
   */
-class OooIexExecutionPipelineIO(val p: OooParams) extends Bundle {
+class OooIexExecutionPipelineIO(
+    val p: OooParams,
+    val requireStoreReservation: Boolean = false) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val storeReserve = if (requireStoreReservation) Some(
+    Decoupled(new OooIexIssueRow(p))) else None
   val dispatchReleases = Vec(p.iexReleaseWidth,
     Decoupled(new OooDispatchRelease(p)))
   val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
@@ -44,6 +48,8 @@ class OooIexExecutionPipelineIO(val p: OooParams) extends Bundle {
   val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
   val memoryResponse = Flipped(Vec(3,
     Decoupled(new OooIexLoadMemoryResponse(p))))
+  val loadCancel = Output(Vec(p.iexLoadCancelPorts,
+    Valid(new OooIexLoadCancel(p))))
 
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
@@ -76,16 +82,20 @@ class OooIexExecutionPipelineIO(val p: OooParams) extends Bundle {
 }
 
 class OooIexExecutionPipeline(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile())
+    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
+    val requireStoreReservation: Boolean = false)
     extends Module {
   val p = profile.params
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
-  val io = IO(new OooIexExecutionPipelineIO(p))
+  val io = IO(new OooIexExecutionPipelineIO(p, requireStoreReservation))
 
-  val issue = Module(new OooIexPipeline(profile))
+  val issue = Module(new OooIexPipeline(profile, requireStoreReservation))
   val execute = Module(new OooIexExecutionCluster(profile))
 
   issue.io.s1 <> io.s1
+  if (requireStoreReservation) {
+    io.storeReserve.get <> issue.io.storeReserve.get
+  }
   io.dispatchReleases <> issue.io.dispatchReleases
   issue.io.ptagRecycle <> io.ptagRecycle
   issue.io.recoveryPrepare := io.recoveryPrepare
@@ -109,6 +119,7 @@ class OooIexExecutionPipeline(
   issue.io.wakeup := execute.io.wakeup
   issue.io.bypass := execute.io.bypass
   issue.io.loadCancel := execute.io.loadCancel
+  io.loadCancel := execute.io.loadCancel
 
   for (port <- 0 until p.iexPWritePorts) {
     if (port < terminalPorts) {

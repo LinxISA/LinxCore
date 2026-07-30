@@ -234,6 +234,12 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       logical.recipe.lateSplitKind.poke(OooLateSplitKind.StoreAddressData.U)
       logical.recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
       logical.recipe.memoryRequestCount.poke(1.U)
+      logical.recipe.dispatchDemand(OooDispatchClass.Agu - 1).poke(1.U)
+      logical.recipe.dispatchCapabilities(OooDispatchClass.Agu - 1)
+        .poke(1.U)
+      logical.recipe.dispatchDemand(OooDispatchClass.Std - 1).poke(1.U)
+      logical.recipe.dispatchCapabilities(OooDispatchClass.Std - 1)
+        .poke(2.U)
       logical.memory.valid.poke(true.B)
       logical.memory.isLoad.poke(false.B)
       logical.memory.isStore.poke(true.B)
@@ -1259,6 +1265,122 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
         tuRetireSourceDepthPerStid = 64)
       val sv = ChiselStage.emitSystemVerilog(new OooIexIssue(p))
       assert(sv.contains("module OooIexIssue"))
+    }
+  }
+
+  test("holds a store in retained S1 until canonical STQ reservation fires") {
+    val p = OooParams(
+      stidCount = 2,
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      dispatchWidth = 2,
+      retireGroupWidth = 2,
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      robRecoveryScanGroupsPerCycle = 2,
+      robNonFlushScanGroupsPerCycle = 2,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2,
+      pMapQDepthPerStid = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16,
+      lsidWidth = 40)
+    simulate(new OooIexIssue(p, requireStoreReservation = true)) { dut =>
+      clear(dut)
+      dut.io.storeReserve.ready.poke(false.B)
+      val allocations = Vector(
+        Allocation(0, 0, 2, 0, 0, 0),
+        Allocation(0, 1, 3, 0, 1, 0))
+      pokeStoreTransaction(dut, stid = 1, transactionId = 91,
+        ridSlot = 5, memberBase = 0,
+        firstLsid = BigInt("100000001", 16),
+        firstStoreId = BigInt("200000001", 16),
+        allocations = allocations)
+      val decoded = dut.io.s1.bits.o3.request.reservation.transaction
+        .decoded.uops(0)
+      val pDecoded = dut.io.s1.bits.pRename.uops(0).decoded
+      Seq(decoded, pDecoded).foreach(_.recipe.sideEffectOwner
+        .poke(OooSideEffectOwner.None.U))
+      dut.io.s1.ready.expect(false.B)
+      dut.io.s1Rejected.valid.expect(true.B)
+      dut.io.s1Rejected.bits.shapeExact.expect(false.B)
+      Seq(decoded, pDecoded).foreach(_.recipe.sideEffectOwner
+        .poke(OooSideEffectOwner.Lsu.U))
+      Seq(decoded, pDecoded).foreach(_.recipe.recipeKind
+        .poke(OooOpcodeRecipeKind.PairStore.U))
+      dut.io.s1.ready.expect(false.B)
+      dut.io.s1Rejected.valid.expect(true.B)
+      Seq(decoded, pDecoded).foreach(_.recipe.recipeKind
+        .poke(OooOpcodeRecipeKind.ScalarStore.U))
+      dut.io.s1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.s1.valid.poke(false.B)
+
+      def pokePartialStoreRecovery(): Unit = {
+        val plan = dut.io.recoveryPrepare.bits
+        plan.poke(0.U.asTypeOf(plan))
+        plan.valid.poke(true.B)
+        plan.oldHead.valid.poke(true.B)
+        plan.oldHead.peId.poke(3.U)
+        plan.oldHead.stid.poke(1.U)
+        plan.oldHead.ridSlot.poke(5.U)
+        plan.oldHead.ridGeneration.poke(2.U)
+        plan.oldOccupied.poke(1.U)
+        plan.newOccupied.poke(1.U)
+        plan.pivotOffset.poke(0.U)
+        pokeMember(plan.pivot, stid = 1, memberIndex = 0, ridSlot = 5)
+        plan.pivotPhysicalMemberCount.poke(2.U)
+        plan.survivingPivotValid.poke(true.B)
+        plan.survivingPivotPhysicalMemberCount.poke(1.U)
+        dut.io.recoveryPrepare.valid.poke(true.B)
+      }
+
+      pokePartialStoreRecovery()
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.s1RowsExact.expect(false.B)
+      dut.io.storeReserve.valid.expect(false.B)
+      dut.io.s2Bind.valid.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.storeReserve.valid.expect(true.B)
+      dut.io.storeReserve.bits.schedule.childIndex.expect(0.U)
+      dut.io.storeReserve.bits.schedule.member.memberIndex.expect(0.U)
+      dut.io.storeReserve.bits.payload.memoryOrder.firstLsid.expect(
+        BigInt("100000001", 16).U)
+      dut.io.s2Bind.valid.expect(false.B)
+      dut.clock.step(2)
+      dut.io.storeReserve.valid.expect(true.B)
+      dut.io.s2Bind.valid.expect(false.B)
+
+      dut.io.storeReserve.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.storeReserve.valid.expect(false.B)
+      pokePartialStoreRecovery()
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.valid.expect(true.B)
+      dut.io.recoveryRejected.bits.s1RowsExact.expect(false.B)
+      dut.io.s2Bind.valid.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.s2Bind.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.s3Enable.valid.expect(true.B)
+      dut.clock.step()
+
+      pokePartialStoreRecovery()
+      var recoveryCycles = 0
+      while (!dut.io.recoveryRejected.valid.peek().litToBoolean &&
+          recoveryCycles < p.iexRecoveryScanCycles + 2) {
+        dut.clock.step()
+        recoveryCycles += 1
+      }
+      assert(dut.io.recoveryRejected.valid.peek().litToBoolean,
+        "resident split-store partial recovery was not rejected")
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.clock.step()
     }
   }
 }

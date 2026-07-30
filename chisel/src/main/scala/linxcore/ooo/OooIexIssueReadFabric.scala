@@ -125,8 +125,12 @@ class OooIexSharedResourceArbiter(
     "shared IEX resources may accept only an eligible picker attempt")
 }
 
-class OooIexIssueReadFabricIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexIssueReadFabricIO(
+    val p: OooParams = OooParams(),
+    val requireStoreReservation: Boolean = false) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val storeReserve = if (requireStoreReservation) Some(
+    Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -245,7 +249,8 @@ class OooIexIssueReadFabric(
     val p: OooParams = OooParams(),
     val domainCapabilities: Seq[BigInt] = Seq.empty,
     val sharedResources: Seq[OooIexSharedResourceConfig] = Seq.empty,
-    val staticDomains: Seq[OooIexIssueDomainConfig] = Seq.empty)
+    val staticDomains: Seq[OooIexIssueDomainConfig] = Seq.empty,
+    val requireStoreReservation: Boolean = false)
     extends Module {
   if (staticDomains.nonEmpty) {
     OooIexIssueDomainConfig.validate(p, staticDomains)
@@ -276,14 +281,17 @@ class OooIexIssueReadFabric(
         s"shared IEX resource ${resource.name} names an incapable picker")
     }
   }
-  val io = IO(new OooIexIssueReadFabricIO(p))
+  val io = IO(new OooIexIssueReadFabricIO(p, requireStoreReservation))
 
   val issue = Module(new OooIexIssueP1Fabric(p,
-    effectiveDomainCapabilities))
+    effectiveDomainCapabilities, requireStoreReservation))
   val arbiter = Module(new OooIexAtomicReadArbiter(p))
   val operands = Module(new OooIexOperandFiles(p))
 
   issue.io.s1 <> io.s1
+  if (requireStoreReservation) {
+    io.storeReserve.get <> issue.io.storeReserve.get
+  }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
   issue.io.releases <> io.releases
@@ -395,9 +403,11 @@ class OooIexIssueReadFabric(
 /** Production Linx specialization with one authoritative physical profile. */
 class OooIexLinxIssueReadFabric(
     val profile: OooIexPhysicalProfile =
-      OooIexLinxPhysicalProfile())
+      OooIexLinxPhysicalProfile(),
+    override val requireStoreReservation: Boolean = false)
     extends OooIexIssueReadFabric(
       profile.params,
       profile.transferConfigs.map(_.capabilities),
       OooIexLinxPhysicalProfile.sharedReadResources(profile),
-      profile.transferConfigs)
+      profile.transferConfigs,
+      requireStoreReservation)

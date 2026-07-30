@@ -3,8 +3,12 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 
-class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexIssueP1FabricIO(
+    val p: OooParams = OooParams(),
+    val requireStoreReservation: Boolean = false) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val storeReserve = if (requireStoreReservation) Some(
+    Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -107,16 +111,23 @@ class OooIexIssueP1FabricIO(val p: OooParams = OooParams()) extends Bundle {
   */
 class OooIexIssueP1Fabric(
     val p: OooParams = OooParams(),
-    val domainCapabilities: Seq[BigInt] = Seq.empty) extends Module {
-  val io = IO(new OooIexIssueP1FabricIO(p))
+    val domainCapabilities: Seq[BigInt] = Seq.empty,
+    val requireStoreReservation: Boolean = false) extends Module {
+  val io = IO(new OooIexIssueP1FabricIO(p, requireStoreReservation))
 
-  val issue = Module(new OooIexIssue(p, domainCapabilities))
+  val issue = Module(new OooIexIssue(
+    p, domainCapabilities, requireStoreReservation))
   val bridges = Seq.fill(p.iexIssueDomainCount)(
     Module(new OooIexPickP1Bridge(p)))
   val lanes = Seq.fill(p.iexIssueDomainCount)(
     Module(new OooIexP1I2Lane(p)))
 
   issue.io.s1 <> io.s1
+  if (requireStoreReservation) {
+    io.storeReserve.get <> issue.io.storeReserve
+  } else {
+    issue.io.storeReserve.ready := true.B
+  }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
   issue.io.releases <> io.releases

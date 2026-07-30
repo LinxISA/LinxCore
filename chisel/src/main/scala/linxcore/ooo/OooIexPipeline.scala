@@ -9,8 +9,12 @@ import chisel3.util.{Decoupled, Valid}
   * caller can submit S1 work and consume typed E1 lanes, but cannot reconnect
   * IQ release independently from E1 capture.
   */
-class OooIexPipelineIO(val p: OooParams) extends Bundle {
+class OooIexPipelineIO(
+    val p: OooParams,
+    val requireStoreReservation: Boolean = false) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val storeReserve = if (requireStoreReservation) Some(
+    Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -120,15 +124,20 @@ class OooIexPipelineIO(val p: OooParams) extends Bundle {
   * and one ownership transaction by construction.
   */
 class OooIexPipeline(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile())
+    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
+    val requireStoreReservation: Boolean = false)
     extends Module {
   val p = profile.params
-  val io = IO(new OooIexPipelineIO(p))
+  val io = IO(new OooIexPipelineIO(p, requireStoreReservation))
 
-  val issue = Module(new OooIexLinxIssueReadFabric(profile))
+  val issue = Module(new OooIexLinxIssueReadFabric(
+    profile, requireStoreReservation))
   val transfer = Module(new OooIexLinxE1TransferFabric(profile))
 
   issue.io.s1 <> io.s1
+  if (requireStoreReservation) {
+    io.storeReserve.get <> issue.io.storeReserve.get
+  }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
   io.dispatchReleases <> issue.io.dispatchReleases

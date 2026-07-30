@@ -20,9 +20,11 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionCluster.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexTerminalFabric.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionClusterSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexStoreStqFabricSpec.scala`
 
 ## Static execution topology
 
@@ -44,6 +46,12 @@ load trackers are internal. Store address, store data, multicycle ALU, system,
 pointer authentication, floating/vector, and engine-command transactions are
 explicit retained outputs. An unimplemented family is therefore backpressured
 at its E1 owner; it is never silently consumed by an ALU fallback.
+
+When `requireStoreReservation` is enabled, every split store also emits an
+exact reservation request while retained in S1. Its S2 publication is blocked
+until canonical STQ allocation fires. `OooIexStoreStqFabric` is the production
+owner for that request and for the two STA/two STD retained outputs; the final
+direct wrapper connection remains an explicit I0.11 follow-up.
 
 Every route requires one generated recipe capability, the expected IQ class,
 and the exact physical owner lane. Zero/multiple capabilities, wrong class,
@@ -102,6 +110,7 @@ bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_tests.sh --only OooIexTerminalFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionClusterSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipelineSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
 ```
 
 The terminal UT covers dual publication, independent cluster backpressure, and
@@ -118,8 +127,10 @@ Verilator dependency graph; O8/O9 must close that structural compile cost.
 
 ## Remaining gaps
 
-- Instantiate retained store-address/data owners and join them to the
-  canonical STQ lease and store commit path.
+- Add the direct production wrapper between this pipeline and
+  `OooIexStoreStqFabric`; do not add a pre-STQ address/data join owner.
+- Connect exact ROB/SCB commit control, store-data banking, forwarding/replay,
+  translation, L1D/coherence, and fault publication around the canonical STQ.
 - Implement internal multicycle ALU/divide, system, pointer-authentication,
   floating/vector, and engine-command owners instead of leaving retained
   integration boundaries.

@@ -64,6 +64,7 @@ class OooO3IexIntegrationHarness(val p: OooParams) extends Module {
   }
 
   issue.io.s1 <> coordinator.io.iexS1
+  issue.io.storeReserve.ready := true.B
   coordinator.io.dispatchRelease <> issue.io.dispatchRelease
   issue.io.ptagRecycle <> coordinator.io.ptagRecycle
   issue.io.wakeup.foreach { wakeup =>
