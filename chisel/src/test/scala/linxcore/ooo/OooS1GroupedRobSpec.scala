@@ -200,8 +200,15 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       binding.memoryOrderValid.poke(true.B)
       binding.memoryBefore.lsid.poke(memoryBefore(groupIndex).U)
       binding.memoryBefore.storeId.poke(memoryBefore(groupIndex).U)
+      binding.memoryBefore.youngestStoreLsidValid
+        .poke((memoryBefore(groupIndex) > 0).B)
+      binding.memoryBefore.youngestStoreLsid
+        .poke(math.max(0, memoryBefore(groupIndex) - 1).U)
       binding.memoryAfter.lsid.poke(memoryAfter(groupIndex).U)
       binding.memoryAfter.storeId.poke(memoryAfter(groupIndex).U)
+      binding.memoryAfter.youngestStoreLsidValid.poke(true.B)
+      binding.memoryAfter.youngestStoreLsid
+        .poke((memoryAfter(groupIndex) - 1).U)
     }
 
     for (uopIndex <- 0 until 4) {
@@ -229,6 +236,8 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       val binding = dut.io.publish.bits.bindings(groupIndexes(uopIndex))
       binding.logicalMemoryAfter(uopIndex).lsid.poke((uopIndex + 1).U)
       binding.logicalMemoryAfter(uopIndex).storeId.poke((uopIndex + 1).U)
+      binding.logicalMemoryAfter(uopIndex).youngestStoreLsidValid.poke(true.B)
+      binding.logicalMemoryAfter(uopIndex).youngestStoreLsid.poke(uopIndex.U)
     }
     dut.io.publish.valid.poke(true.B)
   }
@@ -918,10 +927,13 @@ class OooS1GroupedRobSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepared.pivot.physicalMemberCount.expect(3.U)
       dut.io.recoveryPrepared.pivot.logicalUopMask.expect(3.U)
       dut.io.recoveryPrepared.pivot.memoryAfter.lsid.expect(2.U)
+      dut.io.recoveryPrepared.pivot.memoryAfter.youngestStoreLsid.expect(1.U)
       dut.io.recoveryPrepared.survivingPivotValid.expect(true.B)
       dut.io.recoveryPrepared.survivingPivot.physicalMemberCount.expect(1.U)
       dut.io.recoveryPrepared.survivingPivot.logicalUopMask.expect(1.U)
       dut.io.recoveryPrepared.survivingPivot.memoryAfter.lsid.expect(1.U)
+      dut.io.recoveryPrepared.survivingPivot.memoryAfter
+        .youngestStoreLsid.expect(0.U)
       dut.io.recoveryPrepared.survivingTailValid.expect(true.B)
       dut.io.recoveryPrepared.survivingTail.key.ridSlot.expect(0.U)
       dut.io.recoveryPrepared.survivingPivot.pMapQRows.expect(1.U)

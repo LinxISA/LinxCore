@@ -7,6 +7,11 @@ import chisel3.util.{Cat, Decoupled, Fill, is, MuxLookup, PopCount, switch,
 /** Retained scalar-load address request before LSU acceptance. */
 class OooIexAguLoadRequest(val p: OooParams = OooParams()) extends Bundle {
   val execute = new OooIexExecuteTransaction(p)
+  // Canonical LSU prediction/replay state is PC-indexed even for base/index
+  // addressing.  The issue fabric therefore reads the architectural parent
+  // PC for every scalar load, not only for PC-relative address generation.
+  val pcValid = Bool()
+  val pc = UInt(p.pcWidth.W)
   val address = UInt(p.pcWidth.W)
   val accessBytes = UInt(4.W)
   val signExtend = Bool()
@@ -104,6 +109,8 @@ class OooIexAguPipeline(val p: OooParams = OooParams()) extends Module {
     val result = Wire(new OooIexAguLoadRequest(p))
     result := 0.U.asTypeOf(result)
     result.execute := execute
+    result.pcValid := execute.i2.pcValid
+    result.pc := execute.i2.pc
     val memory = execute.i2.row.memory
     result.address := MuxLookup(memory.addressMode.asUInt, 0.U)(Seq(
       OooMemoryAddressMode.BaseIndex.asUInt ->
@@ -145,6 +152,7 @@ class OooIexAguPipeline(val p: OooParams = OooParams()) extends Module {
     pcRequired
   val operandShapeExact = row.valid && row.member.group.valid &&
     row.member.bid.valid && row.reservation.valid &&
+    incoming.i2.pcValid &&
     incoming.i2.sourceMask === logicalSourceMask &&
     incoming.i2.sourceMask === memory.addressSourceMask &&
     PopCount(incoming.i2.sourceMask) === row.recipe.pSourceCount &&

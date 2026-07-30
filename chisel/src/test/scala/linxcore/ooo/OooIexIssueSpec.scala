@@ -125,8 +125,10 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       ((BigInt(1) << allocations.length) - 1).U)
 
     activeUops.foreach { uopIndex =>
-      val childCount = allocations.filter(_.uopIndex == uopIndex)
+      val uopAllocations = allocations.filter(_.uopIndex == uopIndex)
+      val childCount = uopAllocations
         .map(_.childIndex).max + 1
+      val requiredClasses = uopAllocations.map(_.uopClass).distinct
       val decoded = transaction.decoded.uops(uopIndex)
       val pUop = request.pRename.uops(uopIndex)
       val tuUop = request.tuRename.uops(uopIndex)
@@ -155,6 +157,10 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
         logical.recipe.opcode.poke((40 + uopIndex).U)
         logical.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
         logical.recipe.pcReadRequired.poke(false.B)
+        requiredClasses.foreach { uopClass =>
+          logical.recipe.dispatchDemand(uopClass).poke(1.U)
+          logical.recipe.dispatchCapabilities(uopClass).poke(1.U)
+        }
         val parent = logical.identity.parents(0)
         parent.key.valid.poke(true.B)
         parent.key.peId.poke(3.U)
@@ -179,6 +185,9 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       pUop.destinations(0).currentPMapping.valid.poke(true.B)
       pUop.destinations(0).currentPMapping.ptag.poke((30 + uopIndex).U)
       pUop.destinations(0).currentPMapping.ptagGeneration.poke(4.U)
+      pUop.destinations(0).previousPMapping.valid.poke(true.B)
+      pUop.destinations(0).previousPMapping.ptag.poke((20 + uopIndex).U)
+      pUop.destinations(0).previousPMapping.ptagGeneration.poke(3.U)
 
       pSourceReady.foreach { ready =>
         decoded.sources(0).valid.poke(true.B)
@@ -249,6 +258,7 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       logical.destinations(0).valid.poke(false.B)
     }
     pUop.destinations(0).currentPMapping.valid.poke(false.B)
+    pUop.destinations(0).previousPMapping.valid.poke(false.B)
     transaction.plan.demand.storeIds.poke(1.U)
     transaction.decoded.demand.storeIds.poke(1.U)
 
@@ -358,6 +368,10 @@ class OooIexIssueSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRow.recipe.pcReadRequired.expect(false.B)
       dut.io.queryRow.destinations(0).valid.expect(true.B)
       dut.io.queryRow.destinations(0).ptag.expect(30.U)
+      dut.io.queryRow.payload.previousPDestinations(0).valid.expect(true.B)
+      dut.io.queryRow.payload.previousPDestinations(0).ptag.expect(20.U)
+      dut.io.queryRow.payload.previousPDestinations(0).ptagGeneration
+        .expect(3.U)
     }
   }
 

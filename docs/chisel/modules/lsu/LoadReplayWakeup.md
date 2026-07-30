@@ -36,7 +36,8 @@ path instead of waking consumers directly.
 | `wakeValid` | Qualifies one replay wakeup request. |
 | `wake.source` | `StoreUnit` or `StoreCoalescingBuffer`. |
 | `wake.storeId` | Store BID used by store-unit ordering and wait-store clear. |
-| `wake.storeLsId` | Store LSID used with `storeId` for same-BID ordering. |
+| `wake.storeLsId` | Narrow store-LSID projection retained for compatibility and diagnostics. |
+| `wake.storeLsIdFullValid` / `wake.storeLsIdFull` | Full serial-order authority for same-BID ordering and exact wait-store matching. |
 | `wake.pc` | Store PC used with `(storeId, storeLsId)` to clear wait-store diagnostics. |
 | `wake.lineAddr` | 64-byte line address/tag to match resident load rows. |
 | `wake.validMask` | Byte lanes carried by `wake.data`. |
@@ -58,6 +59,8 @@ and merged row payloads.
 | `waitStoreClearMask` | Rows whose wait-store blocker matches the store-unit wakeup. |
 | `mergeMask` | Rows that should merge wakeup byte data. |
 | `completedMask` | Merged rows whose requested load bytes are now all valid. |
+| `orderAuthorityMissingMask` | Same-BID miss candidates rejected because BID or full-LSID authority is missing. |
+| `orderAmbiguousMask` | Same-BID miss candidates rejected at the half-range serial ambiguity. |
 | `requestByteMasks` | Recomputed requested byte mask per row from `addr` and `size`. |
 | `mergedValidMasks` | `row.validMask | wake.validMask` per row. |
 | `mergedLineData` | Per-byte merge of wakeup data over row line data. |
@@ -92,9 +95,11 @@ The Chisel mapping is:
    conservative non-match; MDB waits cannot publish until native store full
    LSID resolution completes.
 3. A `StoreUnit` wakeup may merge data only into `L1DcMiss` or `L2Wait` rows
-   on the same line, and only when `(wake.storeId, wake.storeLsId)` is older
-   than or equal to the row's `(youngestStoreId, youngestStoreLsId)` snapshot
-   using `STQCommitQueue.lessEqualBidLs`.
+   on the same line. Cross-BID order uses the wrap-qualified BID projection;
+   same-BID order requires valid full 40-bit wake/snapshot LSIDs and
+   `LSIDOrder.lessEqual`. Missing authority and the serial half-range case are
+   fail-closed, independently observable, and never fall back to the narrow
+   projection.
 4. A `StoreCoalescingBuffer` wakeup may merge data into any working
    non-`Repick` row on the same line.
 5. `completedMask` is asserted when the merged valid mask covers every byte in
@@ -117,8 +122,10 @@ The helper has no internal flush state. `LoadInflightQueue` gates
 
 The output masks are debug-visible through `LoadInflightQueue` as
 `replayWakeWaitStoreClearMask`, `replayWakeMergeMask`, and
-`replayWakeCompletedMask`. They are not architectural trace rows and are not
-yet compared against QEMU or LinxCoreModel execution traces.
+`replayWakeCompletedMask`, plus
+`replayWakeOrderAuthorityMissingMask` and
+`replayWakeOrderAmbiguousMask`. They are not architectural trace rows and are
+not yet compared against QEMU or LinxCoreModel execution traces.
 
 ## Verification
 
@@ -131,8 +138,8 @@ yet compared against QEMU or LinxCoreModel execution traces.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
-Focused tests cover exact full-LSID wait-store clear, missing-authority and
-projected-alias suppression,
+Focused tests cover exact full-LSID wait-store clear, missing-authority,
+projected-alias and half-range suppression, hardware-visible order diagnostics,
 store-unit miss-byte merge, younger-store suppression, SCB partial and complete
 merges, SCB suppression for `Repick` and `Resolved` rows, and Chisel
 elaboration.

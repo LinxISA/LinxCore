@@ -57,8 +57,12 @@ class OooIexPickP1Bridge(val p: OooParams = OooParams()) extends Module {
   val safePcParentIndex = Mux(pcParentIndexInRange, row.pcParentIndex, 0.U)
   val pcToken = row.parentPcTokens(safePcParentIndex)
   val rowDispatchClass = row.reservation.uopClass.asUInt +& 1.U
-  val childPcReadRequired = row.recipe.pcReadRequired &&
-    row.recipe.pcReadClass === rowDispatchClass
+  val scalarLoadPcReadRequired =
+    row.recipe.recipeKind === OooOpcodeRecipeKind.ScalarLoad.U &&
+      row.recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U &&
+      row.reservation.uopClass === OooUopClass.Agu
+  val childPcReadRequired = scalarLoadPcReadRequired ||
+    (row.recipe.pcReadRequired && row.recipe.pcReadClass === rowDispatchClass)
   val pcMetadataExact = !childPcReadRequired ||
     (row.pcParentIndexValid && pcParentIndexInRange &&
       row.pcParentIndex < row.parentCount && pcToken.valid)

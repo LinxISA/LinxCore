@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`OooIexLoadUnit` owns scalar loads after a typed AGU request is accepted. It
+`OooIexLoadUnit` is the current migration-era scalar-load owner after a typed
+AGU request is accepted. It
 allocates an exact load attempt, retains multiple outstanding requests, emits
 speculative readiness, accepts out-of-order exact responses, retries misses,
 and retains hit/fault results for a later atomic writeback/commit sink.
@@ -16,6 +17,13 @@ The lifecycle follows the load-tracking and replay intent in `Documents/a.txt`
 and the request/response boundary in
 `tools/LinxCoreModel/model/iex/pipe/agu_pipe.cpp::runE1Load`. Linx grouped ROB,
 P/T/U tags, generated recipes, and memory semantics remain authoritative.
+
+This is no longer the target production residency. I0.15c-a adds
+`OooIexLoadLiqAllocAdapter`; I0.15c-b will move request/miss/replay/return
+ownership into the existing canonical LIQ/MissQ/ResolveQ/LRET path and then
+delete this duplicated tracker. Until that cutover, the execution cluster
+continues to instantiate this module and must not also connect the same load
+to canonical LSU residency.
 
 ## Tracking ownership
 

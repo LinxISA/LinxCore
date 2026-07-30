@@ -17,7 +17,8 @@ Source and tests:
 
 Each STID owns:
 
-- `next`: the next full `{LSID, load ID, store ID}` values;
+- `next`: the next full `{LSID, load ID, store ID}` values plus the valid exact
+  unified LSID of the youngest allocated store;
 - at most one provisional `OooMemoryOrderReservationLease` retained between
   D3 reserve and common S1 publication.
 
@@ -27,6 +28,11 @@ load/store demand, and builds consecutive before/after snapshots. An accepted
 D3 reserve claims the whole transaction or none. Common S1 publication checks
 the exact `{PE, STID, epoch, transaction, uopMask, tail}` lease and removes
 only the provisional marker; the assigned serial tail remains live.
+
+For an accepted store range, the youngest-store LSID becomes
+`before.lsid + requestCount - 1`; loads and non-memory rows preserve it. This
+is not reconstructible from `storeId - 1` after load/store interleaving and is
+therefore carried through ROB snapshots and recovery as independent state.
 
 A private cancel may rewind only its own unpublished suffix. Published state
 can move backward only through global recovery. ROB is the recovery kill-set
@@ -75,4 +81,6 @@ Directed tests cover mixed load/non-memory/scalar-store/pair-store ranges at a
 40-bit LSID width, independent STIDs, provisional cancel, same-cycle
 publish-and-replace without a bubble, malformed demand, global suffix recovery,
 partial-pivot trim, and a real D2/O3/S1/IEX load row whose full identity is
-restored with the rest of the OOO owners.
+restored with the rest of the OOO owners. The recovery cases also prove the
+youngest-store unified-LSID tail survives publication and is restored from the
+selected ROB snapshot.

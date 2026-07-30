@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{Cat, log2Ceil}
 
+import linxcore.common.LSIDOrder
 import linxcore.rob.ROBID
 
 object LoadReplayWakeSource extends ChiselEnum {
@@ -46,6 +47,8 @@ class LoadReplayWakeupIO(
   val waitStoreClearMask = Output(UInt(liqEntries.W))
   val mergeMask = Output(UInt(liqEntries.W))
   val completedMask = Output(UInt(liqEntries.W))
+  val orderAuthorityMissingMask = Output(UInt(liqEntries.W))
+  val orderAmbiguousMask = Output(UInt(liqEntries.W))
   val requestByteMasks = Output(Vec(liqEntries, UInt(lineBytes.W)))
   val mergedValidMasks = Output(Vec(liqEntries, UInt(lineBytes.W)))
   val mergedLineData = Output(Vec(liqEntries, UInt((lineBytes * 8).W)))
@@ -112,6 +115,8 @@ class LoadReplayWakeup(
 
   val mergeVec = Wire(Vec(liqEntries, Bool()))
   val completedVec = Wire(Vec(liqEntries, Bool()))
+  val orderAuthorityMissingVec = Wire(Vec(liqEntries, Bool()))
+  val orderAmbiguousVec = Wire(Vec(liqEntries, Bool()))
 
   for (idx <- 0 until liqEntries) {
     val row = io.rows(idx)
@@ -121,8 +126,25 @@ class LoadReplayWakeup(
     val completed = (requestMask =/= 0.U) && ((mergedMask & requestMask) === requestMask)
     val storeWake = io.wake.source === LoadReplayWakeSource.StoreUnit
     val scbWake = io.wake.source === LoadReplayWakeSource.StoreCoalescingBuffer
-    val wakeBeforeOrAtSnapshot =
-      STQCommitQueue.lessEqualBidLs(io.wake.storeId, io.wake.storeLsId, row.youngestStoreId, row.youngestStoreLsId)
+    val sameBid = ROBID.equal(io.wake.storeId, row.youngestStoreId)
+    val bidAuthorityValid = io.wake.storeId.valid && row.youngestStoreId.valid
+    val sameBidFullAuthority = io.wake.storeLsIdFullValid &&
+      row.youngestStoreLsIdFullValid
+    val sameBidAmbiguous = sameBid && sameBidFullAuthority &&
+      LSIDOrder.ambiguous(io.wake.storeLsIdFull,
+        row.youngestStoreLsIdFull)
+    val wakeBeforeOrAtSnapshot = bidAuthorityValid &&
+      (ROBID.less(io.wake.storeId, row.youngestStoreId) ||
+        (sameBid && sameBidFullAuthority && !sameBidAmbiguous &&
+          LSIDOrder.lessEqual(io.wake.storeLsIdFull,
+            row.youngestStoreLsIdFull)))
+    val storeMissCandidate = io.wakeValid && storeWake && row.valid &&
+      sameLine && ((row.status === LoadInflightStatus.L1DcMiss) ||
+        (row.status === LoadInflightStatus.L2Wait))
+    orderAuthorityMissingVec(idx) := storeMissCandidate &&
+      (!bidAuthorityValid || (sameBid && !sameBidFullAuthority))
+    orderAmbiguousVec(idx) := storeMissCandidate && bidAuthorityValid &&
+      sameBidAmbiguous
     val storeMissEligible =
       storeWake &&
         row.valid &&
@@ -153,4 +175,6 @@ class LoadReplayWakeup(
   io.waitStoreClearMask := waitStoreDiagnostics.io.storeUnitFullMatchMask
   io.mergeMask := mergeVec.asUInt
   io.completedMask := completedVec.asUInt
+  io.orderAuthorityMissingMask := orderAuthorityMissingVec.asUInt
+  io.orderAmbiguousMask := orderAmbiguousVec.asUInt
 }

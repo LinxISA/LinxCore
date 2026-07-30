@@ -80,6 +80,12 @@ publication; S2 copies the logical range into every physical child sidecar.
 STA and STD therefore share the same logical store range without treating an
 IQ slot or future STQ row as the full SID/LSID authority.
 
+I0.15c-a also retains each GPR destination's displaced physical mapping in the
+wide sidecar. The compact scheduling row still carries only the current PTag;
+the previous PTag is read only by the canonical load-allocation/return ABI and
+does not become a wakeup, pick, or recovery comparison key. Focused residency
+UT proves both mappings survive S1/S2/S3 publication.
+
 The joined query view preserves the existing execution contract. Release or
 recovery invalidates only the scheduling row; stale payload memory is
 unreachable until a later exact S2 bind overwrites that slot. Rename-owner

@@ -100,6 +100,11 @@ class OooMemoryOrderAllocator(val p: OooParams = OooParams()) extends Module {
       Mux(loadActive, requestCount, 0.U)
     allocation.after.storeId := allocationState(uopIndex).storeId +
       Mux(storeActive, requestCount, 0.U)
+    allocation.after.youngestStoreLsidValid :=
+      allocationState(uopIndex).youngestStoreLsidValid || storeActive
+    allocation.after.youngestStoreLsid := Mux(storeActive,
+      allocationState(uopIndex).lsid + requestCount - 1.U,
+      allocationState(uopIndex).youngestStoreLsid)
     allocationState(uopIndex + 1) := allocation.after
 
     calculatedLoadIds(uopIndex) := Mux(loadActive, requestCount, 0.U)

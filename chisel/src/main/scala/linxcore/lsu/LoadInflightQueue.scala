@@ -249,6 +249,8 @@ class LoadInflightQueueIO(
   val replayWakeWaitStoreClearMask = Output(UInt(liqEntries.W))
   val replayWakeMergeMask = Output(UInt(liqEntries.W))
   val replayWakeCompletedMask = Output(UInt(liqEntries.W))
+  val replayWakeOrderAuthorityMissingMask = Output(UInt(liqEntries.W))
+  val replayWakeOrderAmbiguousMask = Output(UInt(liqEntries.W))
 
   val refillValid = Input(Bool())
   val refill = Input(new LoadRefillWakeupRequest(addrWidth, lineBytes))
@@ -1037,6 +1039,9 @@ class LoadInflightQueue(
   io.replayWakeWaitStoreClearMask := replayWakeup.io.waitStoreClearMask
   io.replayWakeMergeMask := replayWakeup.io.mergeMask
   io.replayWakeCompletedMask := replayWakeup.io.completedMask
+  io.replayWakeOrderAuthorityMissingMask :=
+    replayWakeup.io.orderAuthorityMissingMask
+  io.replayWakeOrderAmbiguousMask := replayWakeup.io.orderAmbiguousMask
   io.refillAccepted := refillWakeup.io.refillAccepted
   io.refillWakeMask := refillWakeup.io.wakeMask
   io.e4UpdateValid := e4UpdateValid

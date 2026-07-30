@@ -29,6 +29,8 @@ object LoadInflightQueueReference {
       size: Int = 8,
       youngestStoreId: Id = Id(),
       youngestStoreLsId: Id = Id(),
+      youngestStoreLsIdFullValid: Boolean = false,
+      youngestStoreLsIdFull: BigInt = 0,
       isTile: Boolean = false,
       specWakeup: Boolean = false,
       stackValid: Boolean = false)

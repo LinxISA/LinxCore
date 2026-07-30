@@ -79,7 +79,9 @@ six-instruction window containing 12 pair destinations, dispatch writes, or
 memory requests instead of truncating the demand to the eight-wide capacity.
 
 `OooMemoryIdState` is the independent per-STID `{full LSID, full load ID,
-full store ID}` tail. `OooMemoryOrderReservationLease` assigns every active
+full store ID, exact youngest-store LSID}` tail. The youngest-store field is
+valid separately because the type-local store counter cannot reconstruct its
+unified-stream position after interleaved loads. `OooMemoryOrderReservationLease` assigns every active
 logical uop a before/after snapshot and, for memory uops, one consecutive
 request range. The full serials are program-order identities, never physical
 LHQ/STQ indices. D3 reserve, common S1 publication, private cancel, and global
@@ -649,8 +651,8 @@ The public `OooIexIssueRow` joins two physical domains. The resettable
 `OooIexScheduleRow` keeps exact ROB member/reservation identity plus physical
 P/T/U source/destination tags and is the only state scanned by wakeup, pick,
 release, and recovery. `OooIexPayloadSidecar` keeps opcode/recipe, split-child
-index, the logical uop's full memory-order allocation, primary prediction,
-PC-buffer tokens, and boundary/template/trap
+index, the logical uop's full memory-order allocation, each GPR destination's
+displaced physical mapping, primary prediction, PC-buffer tokens, and boundary/template/trap
 controls in stable-slot memory and is read only for the selected query. It
 deliberately does not copy complete P/T/U renamed uops, SMAP/CMAP, or MapQ
 state into every IQ entry. This applies the critical/uncritical separation

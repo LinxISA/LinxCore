@@ -134,6 +134,25 @@ class OooIexPickP1BridgeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("reads the architectural parent PC for every canonical scalar load") {
+    simulate(new OooIexPickP1Bridge(p)) { dut =>
+      clear(dut)
+      pokeExact(dut, pcRequired = false)
+      dut.io.queryRow.schedule.reservation.uopClass.poke(OooUopClass.Agu)
+      dut.io.pick.bits.query.uopClass.poke(OooUopClass.Agu)
+      dut.io.pick.bits.candidate.reservation.uopClass.poke(OooUopClass.Agu)
+      dut.io.queryRow.payload.recipe.recipeKind
+        .poke(OooOpcodeRecipeKind.ScalarLoad.U)
+      dut.io.queryRow.payload.recipe.sideEffectOwner
+        .poke(OooSideEffectOwner.Lsu.U)
+      dut.io.p1.ready.poke(true.B)
+
+      dut.io.p1.valid.expect(true.B)
+      dut.io.p1.bits.pcReadRequired.expect(true.B)
+      dut.io.p1.bits.pcParentIndex.expect(1.U)
+    }
+  }
+
   test("reads PC only on the generated physical child class") {
     simulate(new OooIexPickP1Bridge(p)) { dut =>
       clear(dut)

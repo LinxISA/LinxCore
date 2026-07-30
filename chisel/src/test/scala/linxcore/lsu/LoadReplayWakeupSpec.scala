@@ -1,5 +1,7 @@
 package linxcore.lsu
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -27,6 +29,8 @@ object LoadReplayWakeupReference {
       waitStoreClear: Boolean,
       merge: Boolean,
       completed: Boolean,
+      orderAuthorityMissing: Boolean,
+      orderAmbiguous: Boolean,
       requestByteMask: BigInt,
       mergedValidMask: BigInt,
       mergedLineData: BigInt)
@@ -37,8 +41,16 @@ object LoadReplayWakeupReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
-  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
-    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+  private def fullAmbiguous(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    ((rhs - lhs) & mask) == (BigInt(1) << (width - 1))
+  }
+
+  private def fullLessEqual(lhs: BigInt, rhs: BigInt, width: Int): Boolean = {
+    val mask = (BigInt(1) << width) - 1
+    val distance = (rhs - lhs) & mask
+    lhs == rhs || (distance != 0 && (distance & (BigInt(1) << (width - 1))) == 0)
+  }
 
   private def bit(mask: BigInt, lane: Int): Boolean =
     ((mask >> lane) & BigInt(1)) == BigInt(1)
@@ -70,10 +82,21 @@ object LoadReplayWakeupReference {
           wake.storeLsIdFullValid &&
           store.storeLsIdFull == wake.storeLsIdFull &&
           store.pc == wake.pc)
-    val storeMissEligible = wake.source == StoreUnit &&
-      sameLine &&
-      (row.status == L1DcMiss || row.status == L2Wait) &&
-      lessEqualBidLs(wake.storeId, wake.storeLsId, row.alloc.youngestStoreId, row.alloc.youngestStoreLsId)
+    val storeMissCandidate = wake.source == StoreUnit && sameLine &&
+      (row.status == L1DcMiss || row.status == L2Wait)
+    val sameBid = wake.storeId == row.alloc.youngestStoreId
+    val bidAuthorityValid = wake.storeId.valid && row.alloc.youngestStoreId.valid
+    val sameBidFullAuthority = wake.storeLsIdFullValid &&
+      row.alloc.youngestStoreLsIdFullValid
+    val sameBidAmbiguous = sameBid && sameBidFullAuthority &&
+      fullAmbiguous(wake.storeLsIdFull,
+        row.alloc.youngestStoreLsIdFull, width = 40)
+    val ordered = bidAuthorityValid &&
+      (less(wake.storeId, row.alloc.youngestStoreId) ||
+        (sameBid && sameBidFullAuthority && !sameBidAmbiguous &&
+          fullLessEqual(wake.storeLsIdFull,
+            row.alloc.youngestStoreLsIdFull, width = 40)))
+    val storeMissEligible = storeMissCandidate && ordered
     val scbEligible = wake.source == StoreCoalescingBuffer &&
       working(row) &&
       sameLine &&
@@ -89,6 +112,10 @@ object LoadReplayWakeupReference {
       waitStoreClear = waitStoreClear,
       merge = merge,
       completed = completed,
+      orderAuthorityMissing = storeMissCandidate &&
+        (!bidAuthorityValid || (sameBid && !sameBidFullAuthority)),
+      orderAmbiguous = storeMissCandidate && bidAuthorityValid &&
+        sameBidAmbiguous,
       requestByteMask = requestMask,
       mergedValidMask = mergedValidMask,
       mergedLineData = mergedLineData)
@@ -113,7 +140,7 @@ object LoadReplayWakeupReference {
     lineData(bytes.toMap)
 }
 
-class LoadReplayWakeupSpec extends AnyFunSuite {
+class LoadReplayWakeupSpec extends AnyFunSuite with ChiselSim {
   import LoadInflightQueueReference._
   import LoadReplayWakeupReference._
   import LoadStoreForwardingReference.byteMask
@@ -128,6 +155,8 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
       size: Int = 4,
       youngestStore: Id = id(7),
       youngestStoreLsId: Id = Id(),
+      youngestStoreLsIdFullValid: Boolean = false,
+      youngestStoreLsIdFull: BigInt = 0,
       validMask: BigInt = 0,
       lineData: BigInt = 0,
       waitStore: Option[LoadStoreForwardingReference.Store] = None,
@@ -135,7 +164,13 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
       secondSegmentActive: Boolean = false): Row =
     Row(
       status = status,
-      alloc = Alloc(addr = addr, size = size, youngestStoreId = youngestStore, youngestStoreLsId = youngestStoreLsId),
+      alloc = Alloc(
+        addr = addr,
+        size = size,
+        youngestStoreId = youngestStore,
+        youngestStoreLsId = youngestStoreLsId,
+        youngestStoreLsIdFullValid = youngestStoreLsIdFullValid,
+        youngestStoreLsIdFull = youngestStoreLsIdFull),
       lineData = lineData,
       validMask = validMask,
       waitStore = waitStore,
@@ -230,20 +265,26 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
 
   test("store-unit wakeup uses LSID for same-BID allocation snapshots") {
     val oldEnough = LoadReplayWakeupReference(
-      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3), youngestStoreLsId = id(5)),
+      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3),
+        youngestStoreLsId = id(5), youngestStoreLsIdFullValid = true,
+        youngestStoreLsIdFull = BigInt("100000005", 16)),
       Wakeup(
         source = StoreUnit,
         storeId = id(3),
         storeLsId = id(5),
+        storeLsIdFull = BigInt("100000005", 16),
         lineAddr = 0x1000,
         validMask = byteMask(0, 2),
         data = data(0 -> 0x21, 1 -> 0x22)))
     val tooYoung = LoadReplayWakeupReference(
-      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3), youngestStoreLsId = id(5)),
+      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3),
+        youngestStoreLsId = id(5), youngestStoreLsIdFullValid = true,
+        youngestStoreLsIdFull = BigInt("100000005", 16)),
       Wakeup(
         source = StoreUnit,
         storeId = id(3),
         storeLsId = id(6),
+        storeLsIdFull = BigInt("100000006", 16),
         lineAddr = 0x1000,
         validMask = byteMask(0, 2),
         data = data(0 -> 0x31, 1 -> 0x32)))
@@ -252,6 +293,105 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
     assert(oldEnough.completed)
     assert(!tooYoung.merge)
     assert(!tooYoung.completed)
+  }
+
+  test("same-BID miss wake fails closed on projected aliases and missing or ambiguous full LSID") {
+    val snapshot = row(
+      L1DcMiss,
+      addr = 0x1000,
+      size = 2,
+      youngestStore = id(3),
+      youngestStoreLsId = id(5),
+      youngestStoreLsIdFullValid = true,
+      youngestStoreLsIdFull = BigInt("100000005", 16))
+    val projectedAlias = LoadReplayWakeupReference(
+      snapshot,
+      Wakeup(
+        source = StoreUnit,
+        storeId = id(3),
+        storeLsId = id(5),
+        storeLsIdFull = BigInt("200000005", 16),
+        lineAddr = 0x1000,
+        validMask = byteMask(0, 2)))
+    val missing = LoadReplayWakeupReference(
+      snapshot,
+      Wakeup(
+        source = StoreUnit,
+        storeId = id(3),
+        storeLsId = id(5),
+        storeLsIdFullValid = false,
+        lineAddr = 0x1000,
+        validMask = byteMask(0, 2)))
+    val ambiguous = LoadReplayWakeupReference(
+      snapshot,
+      Wakeup(
+        source = StoreUnit,
+        storeId = id(3),
+        storeLsId = id(5),
+        storeLsIdFull = BigInt("8100000005", 16),
+        lineAddr = 0x1000,
+        validMask = byteMask(0, 2)))
+
+    assert(!projectedAlias.merge)
+    assert(!projectedAlias.orderAuthorityMissing)
+    assert(!projectedAlias.orderAmbiguous)
+    assert(!missing.merge)
+    assert(missing.orderAuthorityMissing)
+    assert(!ambiguous.merge)
+    assert(ambiguous.orderAmbiguous)
+  }
+
+  test("Chisel same-BID miss wake uses 40-bit LSID authority and reports fail-closed causes") {
+    simulate(new LoadReplayWakeup(
+      liqEntries = 4,
+      idEntries = 8,
+      storeEntries = 4,
+      lsidWidth = 40)) { dut =>
+      dut.io.wakeValid.poke(true.B)
+      dut.io.wake.poke(0.U.asTypeOf(dut.io.wake))
+      dut.io.rows.foreach(_.poke(0.U.asTypeOf(dut.io.rows.head)))
+
+      val row0 = dut.io.rows(0)
+      row0.valid.poke(true.B)
+      row0.status.poke(LoadInflightStatus.L1DcMiss)
+      row0.addr.poke(0x1000.U)
+      row0.size.poke(2.U)
+      row0.youngestStoreId.valid.poke(true.B)
+      row0.youngestStoreId.value.poke(3.U)
+      row0.youngestStoreLsId.valid.poke(true.B)
+      row0.youngestStoreLsId.value.poke(5.U)
+      row0.youngestStoreLsIdFullValid.poke(true.B)
+      row0.youngestStoreLsIdFull.poke(BigInt("100000005", 16).U)
+
+      dut.io.wake.source.poke(LoadReplayWakeSource.StoreUnit)
+      dut.io.wake.storeId.valid.poke(true.B)
+      dut.io.wake.storeId.value.poke(3.U)
+      dut.io.wake.storeLsId.valid.poke(true.B)
+      dut.io.wake.storeLsId.value.poke(5.U)
+      dut.io.wake.lineAddr.poke(0x1000.U)
+      dut.io.wake.validMask.poke(byteMask(0, 2).U)
+
+      dut.io.wake.storeLsIdFullValid.poke(true.B)
+      dut.io.wake.storeLsIdFull.poke(BigInt("200000005", 16).U)
+      dut.io.mergeMask.expect(0.U)
+      dut.io.orderAuthorityMissingMask.expect(0.U)
+      dut.io.orderAmbiguousMask.expect(0.U)
+
+      dut.io.wake.storeLsIdFullValid.poke(false.B)
+      dut.io.mergeMask.expect(0.U)
+      dut.io.orderAuthorityMissingMask.expect(1.U)
+
+      dut.io.wake.storeLsIdFullValid.poke(true.B)
+      dut.io.wake.storeLsIdFull.poke(BigInt("8100000005", 16).U)
+      dut.io.mergeMask.expect(0.U)
+      dut.io.orderAuthorityMissingMask.expect(0.U)
+      dut.io.orderAmbiguousMask.expect(1.U)
+
+      dut.io.wake.storeLsIdFull.poke(BigInt("100000005", 16).U)
+      dut.io.mergeMask.expect(1.U)
+      dut.io.completedMask.expect(1.U)
+      dut.io.orderAmbiguousMask.expect(0.U)
+    }
   }
 
   test("SCB wakeup merges working non-repick rows and leaves partial rows incomplete") {
@@ -318,6 +458,8 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
     assert(sv.contains("io_waitStoreClearMask"))
     assert(sv.contains("io_mergeMask"))
     assert(sv.contains("io_completedMask"))
+    assert(sv.contains("io_orderAuthorityMissingMask"))
+    assert(sv.contains("io_orderAmbiguousMask"))
     assert(sv.contains("io_mergedLineData_0"))
   }
 }

@@ -940,6 +940,8 @@ class OooIexIssue(
             pUop.decoded.destinations(destinationIndex)
           val pDestination =
             pUop.destinations(destinationIndex).currentPMapping
+          val previousPDestination =
+            pUop.destinations(destinationIndex).previousPMapping
           val localDestination = tuUop.destinations(destinationIndex)
           val destination = row.destinations(destinationIndex)
           val destinationSelected = decodedDestination.valid &&
@@ -952,6 +954,14 @@ class OooIexIssue(
           destination.ptagGeneration := pDestination.ptagGeneration
           destination.localTag := localDestination.physicalTag
           destination.localSequence := localDestination.sequence
+          row.payload.previousPDestinations(destinationIndex).valid :=
+            destinationSelected &&
+              decodedDestination.kind === DestinationKind.Gpr &&
+              previousPDestination.valid
+          row.payload.previousPDestinations(destinationIndex).ptag :=
+            previousPDestination.ptag
+          row.payload.previousPDestinations(destinationIndex).ptagGeneration :=
+            previousPDestination.ptagGeneration
           when(destinationSelected &&
               decodedDestination.kind === DestinationKind.Gpr &&
               pDestination.valid) {

@@ -11,10 +11,12 @@ producer and the scalar LSU. I0.15b implements the first bounded packet:
 - exact retention through LIQ, LHQ/ResolveQ, LRET, W1, and W2,
 - flush, stale-token, lifecycle-race, and row-reuse rejection.
 
-I0.15b does **not** claim that the OOO load path is fully integrated. The
-existing `OooIexLoadUnit` request/retry/result owner remains present until
-I0.15c replaces its duplicated memory lifecycle with an adapter to
-`ScalarLSULoadPath`.
+I0.15b does **not** claim that the OOO load path is fully integrated. I0.15c-a
+now adds the production-width three-AGU allocation bridge, parent-PC capture,
+and exact youngest-older-store LSID tail required by canonical forwarding. The
+existing `OooIexLoadUnit` still remains a duplicate request/retry/result owner
+until I0.15c-b routes the accepted bridge transaction into
+`ScalarLSULoadPath` and returns its terminal result.
 
 ## 2. Ownership
 
@@ -129,10 +131,34 @@ criteria.
 
 ## 7. Remaining gaps
 
-### I0.15c: make the seam live
+### I0.15c-a: typed allocation seam (implemented)
 
-- Add a typed OOO adapter with compile-time width-fit proofs and field-by-field
-  `RobMemberKey` mapping.
+- `OooIexLoadLiqAllocAdapter` fairly arbitrates the three physical AGU lanes
+  into one canonical LIQ allocation port without retaining a second request.
+- The adapter calls `LoadAttemptIdentity.requireBridgeFits` and maps every
+  `RobMemberKey` field, attempt generation, 40-bit full LSID, GPR destination,
+  address, access size/sign, PC, and physical return-pipe lane explicitly.
+- Every scalar load now obtains its architectural parent PC at P1/I1 even when
+  the address is base/index relative. MDB/store-set/replay indexing is not
+  allowed to depend on a zero placeholder PC.
+- `OooMemoryIdState` now retains
+  `{youngestStoreLsidValid, youngestStoreLsid}`. A type-local store counter is
+  insufficient to reconstruct the unified LSID when loads and stores
+  interleave; the allocator updates this tail on store allocation and existing
+  ROB snapshots/recovery carry it as part of the exact state.
+- Dynamic UT proves three-lane fairness, output backpressure, no generation
+  consumption on recovery, destructive draining of hard-flushed and exact
+  killed requests, fail-closed missing PC, exact producer plus displaced-PTag
+  mapping, narrow projection checks, and unequal `LIQ=4`, `ROB=8`, `STQ=4`,
+  `LSID=40` geometry.
+- Same-BID replay wake ordering now uses the 40-bit wake/snapshot LSIDs rather
+  than their ROBID projections. Missing full authority and half-range serial
+  ambiguity fail closed and are exported as LIQ diagnostic masks.
+- Allocation keeps speculative wakeup disabled until I0.15c-b supplies the
+  exact wake/cancel owner in the same live composition.
+
+### I0.15c-b: make canonical residency live
+
 - Route all three production load lanes from AGU issue into canonical LIQ
   allocation/launch and route terminal W2 results back to exact OOO completion.
 - Replace `OooIexLoadUnit`'s duplicated request/miss/retry/result residency;

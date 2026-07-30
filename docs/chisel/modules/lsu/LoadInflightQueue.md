@@ -181,10 +181,14 @@ mutate a `Repick` row.
 | `replayWakeWaitStoreClearMask` | Rows whose wait-store diagnostics were matched. |
 | `replayWakeMergeMask` | Rows selected for wakeup byte merge. |
 | `replayWakeCompletedMask` | Rows whose requested load bytes became complete. |
+| `replayWakeOrderAuthorityMissingMask` | Same-BID miss candidates rejected for missing BID/full-LSID authority. |
+| `replayWakeOrderAmbiguousMask` | Same-BID miss candidates rejected at the full-LSID half-range ambiguity. |
 
 Store-unit wakeups can clear wait-store diagnostics and can merge data into
-`L1DcMiss` or `L2Wait` rows when `(storeId, storeLsId)` is no newer than the
-row's `(youngestStoreId, youngestStoreLsId)` snapshot. SCB wakeups can merge data into working
+`L1DcMiss` or `L2Wait` rows. Cross-BID order uses wrap-qualified BID age;
+same-BID order requires full wake and youngest-store LSIDs, never their narrow
+ROBID aliases. Missing or half-range-ambiguous authority fails closed. SCB
+wakeups can merge data into working
 non-`Repick` rows on the same line. Completed rows return to `Wait` and relaunch
 through `LoadForwardPipeline`; they do not publish an LHQ record directly.
 

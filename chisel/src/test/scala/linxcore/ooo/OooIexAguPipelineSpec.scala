@@ -70,7 +70,7 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
       offset: BigInt = 0,
       accessBytes: Int = 8,
       signExtend: Boolean = false,
-      pc: Option[BigInt] = None,
+      pc: Option[BigInt] = Some(0x4000),
       indexMode: OooMemoryIndexMode.Type = OooMemoryIndexMode.Identity,
       indexShift: Int = 0,
       speculativeSource: Boolean = false): Unit = {

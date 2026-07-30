@@ -161,6 +161,7 @@ class OooIexIssueP1LaneSpec extends AnyFunSuite with ChiselSim {
       uop.recipe.dispatchClass.poke(OooDispatchClass.Bru.U)
       uop.recipe.dispatchWrites.poke(1.U)
       uop.recipe.dispatchDemand(OooDispatchClass.Bru - 1).poke(1.U)
+      uop.recipe.dispatchCapabilities(OooDispatchClass.Bru - 1).poke(1.U)
       uop.recipe.pcReadRequired.poke(true.B)
       uop.recipe.pcReadClass.poke(OooDispatchClass.Bru.U)
       uop.plannedChildCount.poke(1.U)

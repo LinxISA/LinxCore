@@ -241,6 +241,11 @@ class OooMemoryIdState(val p: OooParams = OooParams()) extends Bundle {
   val lsid = UInt(p.lsidWidth.W)
   val loadId = UInt(p.lsidWidth.W)
   val storeId = UInt(p.lsidWidth.W)
+  // The type-local store counter cannot recover the unified LSID of the
+  // youngest older store when loads and stores interleave.  Keep that exact
+  // boundary in the canonical per-STID memory tail for LIQ/STQ forwarding.
+  val youngestStoreLsidValid = Bool()
+  val youngestStoreLsid = UInt(p.lsidWidth.W)
 }
 
 /** Exact serial range assigned to one logical decoded uop.
@@ -959,6 +964,18 @@ class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
   val localSequence = new OooLocalSeq(p)
 }
 
+/** Previous physical GPR mapping retained outside the compact schedule row.
+  *
+  * Canonical LSU return metadata still carries the displaced mapping for
+  * precise writeback/diagnostics. T/U destinations do not use this P mapping.
+  */
+class OooIexPreviousPDestination(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val ptag = UInt(p.pTagWidth.W)
+  val ptagGeneration = UInt(p.pTagGenerationWidth.W)
+}
+
 /** Minimal logical-store identity required by the cross-bank issue frontier.
   *
   * Both physical children of a split store carry the same logical member and
@@ -1027,6 +1044,8 @@ class OooIexPayloadSidecar(val p: OooParams = OooParams()) extends Bundle {
   val immediate = UInt(p.pcWidth.W)
   val memory = new OooMemoryControl(p)
   val memoryOrder = new OooMemoryOrderUopAllocation(p)
+  val previousPDestinations = Vec(p.maxDestinationOperands,
+    new OooIexPreviousPDestination(p))
   val boundaryTargetValid = Bool()
   val boundaryTarget = UInt(p.pcWidth.W)
   val preciseTrap = Bool()

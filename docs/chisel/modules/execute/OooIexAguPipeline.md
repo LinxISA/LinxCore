@@ -45,7 +45,10 @@ E1 accepts only an exact AGU-class row whose generated recipe is a one-request
 immediate/PC requirements, and live member identity must all agree.
 
 The byte address is computed in E1 and retained with access size, sign-extension
-intent, destination identity, and the complete execute transaction. No memory
+intent, destination identity, architectural parent PC, and the complete
+execute transaction. Every scalar load reads its parent PC at P1/I1, including
+base/index addressing, because canonical MDB/store-set/replay indexing cannot
+use a zero placeholder. No memory
 request, load-generation allocation, speculative wakeup, RF write, ROB
 completion, or trace event occurs until a later LSU accepts this retained
 request.
@@ -83,8 +86,8 @@ and malformed memory/class rejection.
 
 ## Remaining gaps
 
-- static connection to the implemented `OooIexLoadUnit` generation/tracking
-  boundary;
+- live connection through `OooIexLoadLiqAllocAdapter` into canonical LIQ
+  allocation/launch (the typed allocation ABI is implemented);
 - load hit/miss return, size extraction, sign/zero extension, bypass, and
   speculative/committed wakeup;
 - miss cancellation, replay, poison, and exact repick;
