@@ -24,8 +24,19 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b3c3b production execution/O3 installation.
-`OooIexExecutionStorePipeline` now instantiates one scalar-load attachment
+The latest LSU packet is I0.15c-b3c3c retained structural-load ownership.
+One private `LoadStructuralBlockPolicy` now consumes the live forwarding
+fabric's raw hard-block channel. Exact unknown-older dependencies advance the
+load-attempt generation and atomically rebind OOO metadata plus LIQ state to an
+exact store wait; stale snapshots retry without a store key. Ambiguous full
+LSID authority, invalid shapes, and cross-line overlap remain retained,
+fail-closed `Unsupported` state. The production boundary exposes diagnostics,
+not another raw consumer port. Exact dual-view recovery may kill the compact
+policy record, but complete recovery still rejects while MDB or another
+non-LIQ transient owner is live.
+
+The preceding I0.15c-b3c3b production execution/O3 installation has
+`OooIexExecutionStorePipeline` instantiate one scalar-load attachment
 against the execution cluster's existing canonical metadata owner and the
 wrapper's existing STQ owner. `OooIexScalarLoadStorePath` owns only the live
 LIQ/L1D/MDB/LRET graph; three forwarding lanes and prospective late-STA MDB
@@ -65,9 +76,10 @@ request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
 parameter, UT, abstract memory messages, and module page are deleted. Dynamic
 cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
 P-file/ROB terminal publication.
-The next I0.15c packet must define structural-hard-block consumption, replace
-the migration BID projection with common BID/BROB ordering authority, and
-extend recovery projection equality to every LSU queue. Physical SCB return,
+The next I0.15c packet must replace the migration BID projection with common
+BID/BROB ordering authority and extend recovery projection equality to MDB,
+MissQ, ResolveQ, LRET, refill, and forwarding transport. Cross-line forwarding
+and execution also remains intentionally unsupported. Physical SCB return,
 FSU/vector STD, cross-line split loads, DTLB/PMP/PMA/device/coherence, timing,
 and workload promotion remain open.
 

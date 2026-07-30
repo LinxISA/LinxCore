@@ -31,9 +31,32 @@ atomic through this attachment:
   consumed: PE/STID/TID, BID/GID/RID, full LSID, and load-attempt identity.
 
 The installed production path therefore has one LIQ, one STQ, one
-forwarding-result owner, and one terminal metadata owner. Structural
-uncertainty is kept on the typed retained `hardBlock` output. The attachment
-does not silently reinterpret it as a cache miss or discard it.
+forwarding-result owner, one structural-block policy owner, and one terminal
+metadata owner. The raw forwarding `hardBlock` channel is private: the outer
+boundary exposes observation-only disposition, reason, load identity, attempt,
+and accepted-retry diagnostics rather than another consumer seam.
+
+## Structural-block ownership
+
+`LoadStructuralBlockPolicy` retains at most one exact hard-block record and
+classifies it before any load-lifecycle mutation:
+
+- an exact unknown-older store becomes `WaitStore`; the policy advances the
+  producer-qualified attempt generation, cancels the old attempt, rebinds the
+  OOO metadata owner, and atomically returns the same LIQ lease to `Wait` with
+  the exact store wait key;
+- a stale forwarding snapshot becomes `RetrySnapshot` and uses the same atomic
+  new-attempt rebind without installing a store wait key;
+- missing or ambiguous full LSID authority, invalid query/shape, and cross-line
+  store/load overlap become retained `Unsupported` state and raise
+  `protocolError` without cancel, retry, or approximate mutation.
+
+The canonical rebind owner gives a resident structural retry priority and
+blocks ordinary external rebind while any policy record is pending. Policy
+dequeue, old-generation cancel, OOO metadata rebind, and LIQ structural retry
+must fire as one transaction. `LoadInflightQueue` independently revalidates
+the exact row lease, old attempt, consecutive new attempt, physical pipe,
+`Repick + forwardPending` state, and optional store wait key before mutation.
 
 ## Store/MDB acceptance
 
@@ -69,6 +92,13 @@ is rejected without mutation. Only the execution/store wrapper's three-way
 recovery join may fire the execution metadata/IQ owner, STQ owner, and this
 LIQ/MDB/LRET owner together.
 
+A resident structural-policy record may clear on typed recovery only when its
+exact row is killed by both the grouped-ROB/member view and the LSU-native view.
+That exception does not bypass the other transient-owner fence: the directed
+cross-line case proves that an exact policy kill is still rejected while its
+MDB evidence remains live. Hard flush is the only current escape for retained
+unsupported state when the complete LSU projection is unavailable.
+
 The final global recovery adapter must derive and prove the projection across
 every LSU queue and the physical BID/BROB authority before removing this
 fail-closed empty-state restriction.
@@ -81,23 +111,29 @@ The implementation follows the queue ownership and flush behavior in:
   state through the typed flush contract;
 - `model/lsu/store_unit/stq.cpp::STQ::lookupForLoad`, which searches exact
   older stores and waits on the nearest data-not-ready store;
+- `model/lsu/load_unit/ldq.cpp::LDQInfo::waitStore`, which records the exact
+  store dependency before replaying a blocked load;
 - `model/lsu/store_unit/stq.cpp::STQ::flush`, which frees only flushable store
   rows;
 - `model/lsu/lsu.cpp::LoadStoreUnit::setFlush`, which distributes one recovery
   event to LSU owners.
 
-`Documents/a.txt` is used for the general separated load/store queue,
-backpressure, and central recovery shape. Linx full LSID, native BID/BROB,
-grouped ROB member, P/T/U, and precise-recovery contracts remain authoritative.
+The model supplies functional queue/replay evidence only. Linx full LSID,
+native BID/BROB, grouped ROB member, P/T/U, and precise-recovery contracts in
+the current Chisel specifications remain authoritative.
 
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePathSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabricSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegrationSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipelineSpec
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipelineSpec
+bash tools/chisel/run_chisel_tests.sh --only LoadStructuralBlockPolicy
+bash tools/chisel/run_chisel_tests.sh --only LoadStructuralRetry
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadForwardIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePath
+bash tools/chisel/run_chisel_tests.sh --only OooIexCanonicalLoadOwnership
+bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
+bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
 bash tools/chisel/build_chisel.sh
 ```
 
@@ -106,16 +142,24 @@ The dynamic integration test uses unequal `LIQ=4`, `ROB=8`, `STQ=4`, and
 forwarding and W2, the exact external ROB lookup, mutation-free recovery
 prepare, retained prepared authorization, LIQ-only common-fire pruning,
 post-LIQ recovery rejection, scope mismatch, and same-scope kill-mask mismatch.
+It also creates a real unknown-older address-not-ready store and proves exactly
+one old-attempt cancel plus an exact LIQ wait-store retry. A real cross-line
+overlap proves retained unsupported state, no retry/cancel, protocol error, and
+the current MDB recovery fence. Emitted CHIRRTL proves one policy instance and
+no public `external_hardBlock` port.
 The store test holds an address candidate while the side effect is not
 permitted and proves the STQ remains unchanged until permit. The MDB test
 proves a presented but uncommitted candidate may wait without protocol error.
 
 ## Remaining gaps
 
-- Define the retained structural `hardBlock` retry/cancel/recovery policy.
 - Replace the checked native-BID projection with the final shared BID/BROB age
-  adapter and extend recovery equivalence to all LSU queues.
+  authority.
+- Extend recovery equivalence to MDB, MissQ, ResolveQ, LRET, refill, and
+  forwarding transport so exact recovery does not depend on their being empty.
+- Implement cross-line store/load forwarding and normal execution; the current
+  policy deliberately fails closed.
 - Connect the physical SCB return owner, DTLB, PMP/PMA, MMIO/device ordering,
-  L1D/coherence, lower-memory faults, and cross-line policy.
+  L1D/coherence, and lower-memory faults.
 - Close default-width sustained-pressure tests, synthesis/timing, and natural
   CoreMark/Dhrystone promotion.

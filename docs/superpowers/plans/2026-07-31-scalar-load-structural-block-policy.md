@@ -265,7 +265,8 @@
   bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePath
   bash tools/chisel/run_chisel_tests.sh --only OooIexCanonicalLoadOwnership
   bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
-  bash tools/chisel/run_chisel_tests.sh --only OooIexStructure
+  bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+  bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
   ```
 
   Inspect generated SystemVerilog through the existing spec and require no
@@ -316,8 +317,9 @@
   bash tools/chisel/run_chisel_tests.sh --only STQLoadForwardResultPipeline
   bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadForwardIntegration
   bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePath
-  bash tools/chisel/run_chisel_tests.sh --only OooIexStructure
-  bash tools/chisel/run_chisel_build.sh
+  bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+  bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
+  bash tools/chisel/build_chisel.sh
   ```
 
   Expected: every selector and the Chisel build pass with no known errors.
