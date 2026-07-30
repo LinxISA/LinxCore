@@ -809,14 +809,14 @@ class LoadInflightQueue(
       io.structuralRetry.waitStoreInfo.storeLsIdFullValid,
     !io.structuralRetry.waitStoreInfo.valid)
   val structuralRetryMutationConflict =
-    (attemptRebindAccepted &&
-      (io.attemptRebind.loadId.value === structuralRetryIndex)) ||
-      (launchAccepted && (io.launchIndex === structuralRetryIndex)) ||
-      (pickAccepted && (io.pickIndex === structuralRetryIndex)) ||
-      (scbReturnAccepted && (io.scbReturnIndex === structuralRetryIndex)) ||
-      (markResolvedAccepted &&
+    (io.launchIntentValid &&
+      (io.launchIntentIndex === structuralRetryIndex)) ||
+      (io.pickValid && (io.pickIndex === structuralRetryIndex)) ||
+      (io.scbReturnValid &&
+        (io.scbReturnIndex === structuralRetryIndex)) ||
+      (io.markResolvedValid &&
         (io.markResolvedIndex === structuralRetryIndex)) ||
-      (clearResolvedAccepted &&
+      (io.clearResolvedValid &&
         (io.clearResolvedIndex === structuralRetryIndex)) ||
       (io.rowMutationValid &&
         (io.rowMutationTargetIndex === structuralRetryIndex)) ||
@@ -824,7 +824,8 @@ class LoadInflightQueue(
         (replayWakeup.io.waitStoreClearMask(structuralRetryIndex) ||
           replayWakeup.io.mergeMask(structuralRetryIndex))) ||
       (io.refillValid && refillWakeup.io.wakeMask(structuralRetryIndex)) ||
-      (e4UpdateValid && (forwardResultIndex === structuralRetryIndex))
+      (selectedForwardResultValid &&
+        (forwardResultIndex === structuralRetryIndex))
   val structuralRetryReady = !flushCycle &&
     structuralRetryLoadIdExact && structuralRetryAttemptExact &&
     structuralRetryNextExact && structuralRetryPipeExact &&
@@ -832,6 +833,8 @@ class LoadInflightQueue(
     !structuralRetryMutationConflict
   val structuralRetryAccepted =
     io.structuralRetryValid && structuralRetryReady
+  assert(!(io.structuralRetryValid && io.attemptRebindValid),
+    "ordinary and structural load rebind requests must be arbitrated upstream")
 
   val externalForwardResultActive =
     useExternalForwardResult.B && io.forwardResultValid

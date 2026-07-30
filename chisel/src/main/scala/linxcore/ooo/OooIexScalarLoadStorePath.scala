@@ -65,12 +65,12 @@ class OooIexScalarLoadExternalIO(
     coreParams.lsidWidth))
   val hardFlush = Input(Bool())
 
-  // Structural uncertainty is retained until a later retry/cancel policy
-  // accepts it.  Keeping this typed port visible is fail-closed; it is not a
-  // hidden cache miss or an unconditional drop.
-  val hardBlock = Decoupled(new STQLoadForwardResponse(
-    p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
-    lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))
+  val structuralBlockPending = Output(Bool())
+  val structuralBlockUnsupported = Output(Bool())
+  val structuralBlockDisposition = Output(LoadStructuralBlockDisposition())
+  val structuralBlockReason = Output(UInt(LoadStructuralBlockReason.Width.W))
+  val structuralBlockLoadId = Output(new LoadCanonicalRowIdentity)
+  val structuralBlockAttempt = Output(new LoadAttemptIdentity)
 
   val mdbRecoveryReady = Input(Bool())
   val mdbRecoveryValid = Output(Bool())
@@ -81,6 +81,9 @@ class OooIexScalarLoadExternalIO(
   val allocAccepted = Output(Bool())
   val launchAccepted = Output(Bool())
   val liqOccupiedMask = Output(UInt(lsu.liqEntries.W))
+  val liqRepickMask = Output(UInt(lsu.liqEntries.W))
+  val liqWaitStoreMask = Output(UInt(lsu.liqEntries.W))
+  val structuralRetryAccepted = Output(Bool())
   val stqOccupiedMask = Output(UInt(stqEntries.W))
   val forwardingOccupied = Output(UInt(3.W))
   val empty = Output(Bool())
@@ -176,6 +179,21 @@ class OooIexScalarLoadStorePath(
     useExternalLaunchPermit = true))
   val forwarding = loadPath.stqForward.get
   val recoveryPreparing = io.recoveryPrepare.valid
+  val structuralPolicy = Module(new LoadStructuralBlockPolicy(
+    robEntries = p.robGroupsPerStid,
+    liqEntries = lsu.liqEntries,
+    stqEntries = stqEntries,
+    addrWidth = lsu.addrWidth,
+    stidWidth = p.stidWidth,
+    pcWidth = lsu.pcWidth,
+    lineBytes = lsu.lineBytes,
+    lsidWidth = p.lsidWidth,
+    tokenWidth = p.transactionIdWidth))
+  val structuralRecoveryKill = Wire(Bool())
+  val structuralRecoveryFire = Wire(Bool())
+  structuralPolicy.io.hardFlush := io.external.hardFlush
+  structuralPolicy.io.recoveryKill := structuralRecoveryKill
+  structuralPolicy.io.recoveryFire := structuralRecoveryFire
 
   loadPath.io.allocValid := io.owner.liqAlloc.valid
   loadPath.io.alloc := io.owner.liqAlloc.bits
@@ -184,12 +202,119 @@ class OooIexScalarLoadStorePath(
   io.external.allocAccepted := io.owner.liqAlloc.fire &&
     loadPath.io.allocAccepted
 
-  io.owner.rebind <> io.external.rebind
-  loadPath.io.attemptRebindValid := io.owner.liqRebind.valid
+  private def producerFits(source: LoadAttemptProducer): Bool = {
+    def fits(value: UInt, width: Int): Bool =
+      if (value.getWidth > width)
+        !value(value.getWidth - 1, width).orR
+      else true.B
+    source.valid && source.nativeBidValid &&
+      fits(source.peId, p.peIdWidth) &&
+      fits(source.stid, p.stidWidth) &&
+      fits(source.nativeBid, p.nativeBidWidth) &&
+      fits(source.brobGeneration, p.brobGenerationWidth) &&
+      fits(source.ridSlot, p.ridSlotWidth) &&
+      fits(source.ridGeneration, p.ridGenerationWidth) &&
+      fits(source.memberIndex, p.robMemberIndexWidth) &&
+      fits(source.residentGeneration, p.residentGenerationWidth)
+  }
+
+  private def mapProducer(
+      target: RobMemberKey,
+      source: LoadAttemptProducer): Unit = {
+    target := 0.U.asTypeOf(target)
+    target.group.valid := source.valid
+    target.group.peId := source.peId(p.peIdWidth - 1, 0)
+    target.group.stid := source.stid(p.stidWidth - 1, 0)
+    target.group.ridSlot := source.ridSlot(p.ridSlotWidth - 1, 0)
+    target.group.ridGeneration :=
+      source.ridGeneration(p.ridGenerationWidth - 1, 0)
+    target.bid.valid := source.nativeBidValid
+    target.bid.value := source.nativeBid(p.nativeBidWidth - 1, 0)
+    target.brobGeneration :=
+      source.brobGeneration(p.brobGenerationWidth - 1, 0)
+    target.memberIndex := source.memberIndex(p.robMemberIndexWidth - 1, 0)
+    target.residentGeneration :=
+      source.residentGeneration(p.residentGenerationWidth - 1, 0)
+  }
+
+  private def generationFits(value: UInt): Bool =
+    if (value.getWidth > p.loadGenerationWidth)
+      !value(value.getWidth - 1, p.loadGenerationWidth).orR
+    else true.B
+
+  val structuralRetry = structuralPolicy.io.retry.bits
+  val structuralBridgeFits = producerFits(structuralRetry.current.producer) &&
+    producerFits(structuralRetry.next.producer) &&
+    generationFits(structuralRetry.current.generation) &&
+    generationFits(structuralRetry.next.generation)
+  val structuralMetadataRebind = Wire(
+    new OooIexLoadTerminalMetadataRebind(p, coreParams))
+  structuralMetadataRebind := 0.U.asTypeOf(structuralMetadataRebind)
+  structuralMetadataRebind.loadId := structuralRetry.loadId
+  structuralMetadataRebind.currentAttempt := structuralRetry.current
+  structuralMetadataRebind.nextAttempt := structuralRetry.next
+  structuralMetadataRebind.currentLoad.valid := structuralRetry.current.valid
+  mapProducer(structuralMetadataRebind.currentLoad.producer,
+    structuralRetry.current.producer)
+  structuralMetadataRebind.currentLoad.generation :=
+    structuralRetry.current.generation(p.loadGenerationWidth - 1, 0)
+  structuralMetadataRebind.nextLoad.valid := structuralRetry.next.valid
+  mapProducer(structuralMetadataRebind.nextLoad.producer,
+    structuralRetry.next.producer)
+  structuralMetadataRebind.nextLoad.generation :=
+    structuralRetry.next.generation(p.loadGenerationWidth - 1, 0)
+
+  val structuralLiqRetry = Wire(chiselTypeOf(loadPath.io.structuralRetry))
+  structuralLiqRetry := 0.U.asTypeOf(structuralLiqRetry)
+  structuralLiqRetry.loadId := structuralRetry.loadId
+  structuralLiqRetry.current := structuralRetry.current
+  structuralLiqRetry.next := structuralRetry.next
+  structuralLiqRetry.returnPipeIndex := structuralRetry.returnPipeIndex
+  structuralLiqRetry.waitStore := structuralRetry.waitStore
+  structuralLiqRetry.waitStoreInfo.valid :=
+    structuralRetry.waitStoreInfo.valid
+  structuralLiqRetry.waitStoreInfo.storeIndex :=
+    structuralRetry.waitStoreInfo.storeIndex
+  structuralLiqRetry.waitStoreInfo.storeId.valid :=
+    structuralRetry.waitStoreInfo.storeId.valid
+  structuralLiqRetry.waitStoreInfo.storeId.wrap :=
+    structuralRetry.waitStoreInfo.storeId.wrap
+  structuralLiqRetry.waitStoreInfo.storeId.value :=
+    structuralRetry.waitStoreInfo.storeId.value
+  structuralLiqRetry.waitStoreInfo.storeLsId.valid :=
+    structuralRetry.waitStoreInfo.storeLsId.valid
+  structuralLiqRetry.waitStoreInfo.storeLsId.wrap :=
+    structuralRetry.waitStoreInfo.storeLsId.wrap
+  structuralLiqRetry.waitStoreInfo.storeLsId.value :=
+    structuralRetry.waitStoreInfo.storeLsId.value
+  structuralLiqRetry.waitStoreInfo.storeLsIdFullValid :=
+    structuralRetry.waitStoreInfo.storeLsIdFullValid
+  structuralLiqRetry.waitStoreInfo.storeLsIdFull :=
+    structuralRetry.waitStoreInfo.storeLsIdFull
+  structuralLiqRetry.waitStoreInfo.pc := structuralRetry.waitStoreInfo.pc
+
+  val selectStructuralRetry = structuralPolicy.io.retry.valid
+  val structuralRetryAdmissible = selectStructuralRetry &&
+    structuralBridgeFits && !recoveryPreparing
+  io.owner.rebind.valid := Mux(selectStructuralRetry,
+    structuralRetryAdmissible,
+    io.external.rebind.valid && !structuralPolicy.io.pending &&
+      !recoveryPreparing)
+  io.owner.rebind.bits := Mux(selectStructuralRetry,
+    structuralMetadataRebind, io.external.rebind.bits)
+  io.external.rebind.ready := !structuralPolicy.io.pending &&
+    !recoveryPreparing && io.owner.rebind.ready
+
+  loadPath.io.attemptRebindValid := io.owner.liqRebind.valid &&
+    !selectStructuralRetry
   loadPath.io.attemptRebind := io.owner.liqRebind.bits
-  io.owner.liqRebind.ready := loadPath.io.attemptRebindReady
-  loadPath.io.structuralRetryValid := false.B
-  loadPath.io.structuralRetry := 0.U.asTypeOf(loadPath.io.structuralRetry)
+  loadPath.io.structuralRetryValid := io.owner.liqRebind.valid &&
+    selectStructuralRetry
+  loadPath.io.structuralRetry := structuralLiqRetry
+  io.owner.liqRebind.ready := Mux(selectStructuralRetry,
+    loadPath.io.structuralRetryReady, loadPath.io.attemptRebindReady)
+  structuralPolicy.io.retry.ready := structuralRetryAdmissible &&
+    io.owner.rebind.ready
 
   val launchRow = loadPath.io.liqRows(io.external.launch.bits)
   io.owner.attemptLaunch.valid := io.external.launch.valid &&
@@ -233,7 +358,23 @@ class OooIexScalarLoadStorePath(
       forwarding.responses(pipe).ready
   }
   forwarding.scb := io.external.scbSource
-  io.external.hardBlock <> forwarding.hardBlock
+  structuralPolicy.io.hardBlock <> forwarding.hardBlock
+  io.external.structuralBlockPending := structuralPolicy.io.pending
+  io.external.structuralBlockUnsupported :=
+    structuralPolicy.io.unsupported ||
+      (structuralPolicy.io.pending &&
+        !structuralPolicy.io.unsupported && !structuralBridgeFits)
+  io.external.structuralBlockDisposition := Mux(
+    structuralPolicy.io.pending && !structuralPolicy.io.unsupported &&
+      !structuralBridgeFits,
+    LoadStructuralBlockDisposition.Unsupported,
+    structuralPolicy.io.disposition)
+  io.external.structuralBlockReason := structuralPolicy.io.reason | Mux(
+    structuralPolicy.io.pending && !structuralBridgeFits,
+    (1 << LoadStructuralBlockReason.InvalidStructuralShape).U,
+    0.U)
+  io.external.structuralBlockLoadId := structuralPolicy.io.loadId
+  io.external.structuralBlockAttempt := structuralPolicy.io.attempt
 
   private def widenRobId(target: ROBID, source: ROBID): Unit = {
     target.valid := source.valid
@@ -371,6 +512,26 @@ class OooIexScalarLoadStorePath(
       io.external.lsuRecoveryProjection, pruneRow)
   }
   val liqProjectionExact = oooLiqKill.asUInt === lsuLiqKill.asUInt
+  val structuralLoadIdWellFormed = structuralPolicy.io.loadId.valid &&
+    LoadCanonicalRowIdentity.wellFormed(
+      structuralPolicy.io.loadId, lsu.liqEntries)
+  val structuralLoadIndex =
+    structuralPolicy.io.loadId.slot(log2Ceil(lsu.liqEntries) - 1, 0)
+  val structuralLoadRow = loadPath.io.liqRows(structuralLoadIndex)
+  val structuralLoadRowExact = structuralPolicy.io.pending &&
+    structuralLoadIdWellFormed && structuralLoadRow.valid &&
+    LoadCanonicalRowIdentity.equal(
+      structuralPolicy.io.loadId,
+      LoadCanonicalRowIdentity.fromRobId(structuralLoadRow.loadId)) &&
+    LoadAttemptIdentity.equal(
+      structuralPolicy.io.attempt, structuralLoadRow.attempt)
+  val structuralOooKilled = structuralLoadRowExact &&
+    oooLiqKill(structuralLoadIndex)
+  val structuralLsuKilled = structuralLoadRowExact &&
+    lsuLiqKill(structuralLoadIndex)
+  val structuralExactRecoveryKill =
+    structuralOooKilled && structuralLsuKilled
+  structuralRecoveryKill := structuralExactRecoveryKill
   val nonLiqRecoveryStateEmptyNow = loadPath.io.resolveEmpty &&
     !loadPath.io.transferPending && loadPath.io.mdbTransientEmpty &&
     loadPath.io.loadReturn.empty &&
@@ -396,7 +557,8 @@ class OooIexScalarLoadStorePath(
       io.recoveryPrepare.bits.oldHead.peId &&
     liqProjectionExact
   val allPrepared = lsuProjectionShapeExact &&
-    recoverySnapshotValid && recoverySnapshotStateEmpty
+    recoverySnapshotValid && recoverySnapshotStateEmpty &&
+    structuralPolicy.io.recoveryReady
   val recoveryPrepared = RegInit(false.B)
   val preparedPlan = Reg(chiselTypeOf(io.recoveryPrepare.bits))
   val preparedLsuProjection = Reg(chiselTypeOf(
@@ -405,6 +567,7 @@ class OooIexScalarLoadStorePath(
     (allPrepared || recoveryPrepared)
   val commonRecoveryFire = io.recoveryFire && io.recoveryPrepare.valid &&
     recoveryPrepared
+  structuralRecoveryFire := commonRecoveryFire
   when(!io.recoveryPrepare.valid || commonRecoveryFire) {
     recoveryPrepared := false.B
   }.elsewhen(!recoveryPrepared && allPrepared) {
@@ -418,7 +581,9 @@ class OooIexScalarLoadStorePath(
   loadPath.io.preciseFlush := appliedLsuRecovery
   io.recoveryRejected := io.recoveryPrepare.valid &&
     (!lsuProjectionShapeExact ||
-      (recoverySnapshotValid && !recoverySnapshotStateEmpty))
+      (recoverySnapshotValid &&
+        (!recoverySnapshotStateEmpty ||
+          !structuralPolicy.io.recoveryReady)))
 
   loadPath.io.flush := io.external.hardFlush
   loadPath.recovery.ready := io.external.mdbRecoveryReady &&
@@ -432,10 +597,16 @@ class OooIexScalarLoadStorePath(
   loadPath.io.e2StqReturned := false.B
 
   io.external.liqOccupiedMask := loadPath.io.liqOccupiedMask
+  io.external.liqRepickMask := loadPath.io.liqRepickMask
+  io.external.liqWaitStoreMask := loadPath.io.liqWaitStoreMask
+  io.external.structuralRetryAccepted :=
+    loadPath.io.structuralRetryAccepted
   io.external.stqOccupiedMask := io.store.occupiedMask
   io.external.forwardingOccupied := io.store.forwardingOccupied
-  io.external.empty := loadPath.io.empty
+  io.external.empty := loadPath.io.empty && structuralPolicy.io.empty
   io.external.protocolError := forwarding.protocolError ||
+    structuralPolicy.io.protocolError ||
+    (structuralPolicy.io.pending && !structuralBridgeFits) ||
     loadPath.io.allocAttemptMalformed ||
     loadPath.io.transferProtocolError ||
     loadPath.io.loadReturn.protocolError ||
@@ -457,6 +628,13 @@ class OooIexScalarLoadStorePath(
   when(loadPath.io.launchAccepted || io.owner.attemptLaunchAccepted) {
     assert(loadPath.io.launchAccepted && io.owner.attemptLaunchAccepted,
       "LIQ launch and OOO attempt publication must be atomic")
+  }
+  when(selectStructuralRetry &&
+      (structuralPolicy.io.retry.fire || io.owner.rebind.fire ||
+        loadPath.io.structuralRetryAccepted)) {
+    assert(structuralPolicy.io.retry.fire && io.owner.rebind.fire &&
+      io.owner.liqRebind.fire && loadPath.io.structuralRetryAccepted,
+      "structural retry must atomically rebind OOO metadata and canonical LIQ")
   }
   when(loadPath.io.loadReturn.resolveFire ||
       loadPath.io.loadReturn.writebackFire ||

@@ -3,10 +3,12 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.{Decoupled, Valid, log2Ceil}
+import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.lsu.LoadStructuralBlockDisposition
 
 class OooIexScalarLoadStorePathHarnessIO(
     val p: OooParams,
@@ -20,6 +22,7 @@ class OooIexScalarLoadStorePathHarnessIO(
   val storeData = Flipped(Vec(2,
     Decoupled(new OooIexExecuteTransaction(p))))
   val result = Decoupled(new OooIexLoadResult(p))
+  val loadCancel = Output(Vec(3, Valid(new OooIexLoadCancel(p))))
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
   val recoveryRejected = Output(Bool())
@@ -60,10 +63,18 @@ class OooIexScalarLoadStorePathHarnessIO(
   def robRowNeedFlush = external.robRowNeedFlush
   def lsuRecoveryProjection = external.lsuRecoveryProjection
   def hardFlush = external.hardFlush
-  def hardBlock = external.hardBlock
+  def structuralBlockPending = external.structuralBlockPending
+  def structuralBlockUnsupported = external.structuralBlockUnsupported
+  def structuralBlockDisposition = external.structuralBlockDisposition
+  def structuralBlockReason = external.structuralBlockReason
+  def structuralBlockLoadId = external.structuralBlockLoadId
+  def structuralBlockAttempt = external.structuralBlockAttempt
   def mdbRecoveryReady = external.mdbRecoveryReady
   def allocAccepted = external.allocAccepted
   def liqOccupiedMask = external.liqOccupiedMask
+  def liqRepickMask = external.liqRepickMask
+  def liqWaitStoreMask = external.liqWaitStoreMask
+  def structuralRetryAccepted = external.structuralRetryAccepted
   def protocolError = external.protocolError
 }
 
@@ -88,6 +99,7 @@ class OooIexScalarLoadStorePathHarness(
   path.io.owner.attemptLaunchAccepted := ownership.io.attemptLaunchAccepted
   ownership.io.completion <> path.io.owner.completion
   io.result <> ownership.io.result
+  io.loadCancel := ownership.io.loadCancel
 
   store.io.reserve <> io.storeReserve
   store.io.storeAddress <> io.storeAddress
@@ -220,7 +232,6 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.lsuRecoveryProjection))
     dut.io.recoveryFire.poke(false.B)
     dut.io.hardFlush.poke(false.B)
-    dut.io.hardBlock.ready.poke(false.B)
     dut.io.markCommitValid.poke(false.B)
     dut.io.markCommitIndex.poke(0.U)
     dut.io.commitFreeMaskValid.poke(false.B)
@@ -228,7 +239,56 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
     dut.io.mdbRecoveryReady.poke(true.B)
   }
 
-  private def pokeLoad(request: OooIexAguLoadRequest): Unit = {
+  private def pokeUnknownOlderStore(row: OooIexIssueRow): Unit = {
+    row.poke(0.U.asTypeOf(row))
+    row.schedule.valid.poke(true.B)
+    row.schedule.peId.poke(1.U)
+    row.schedule.stid.poke(1.U)
+    row.schedule.childIndex.poke(0.U)
+    row.schedule.member.group.valid.poke(true.B)
+    row.schedule.member.group.peId.poke(1.U)
+    row.schedule.member.group.stid.poke(1.U)
+    row.schedule.member.group.ridSlot.poke(1.U)
+    row.schedule.member.group.ridGeneration.poke(1.U)
+    row.schedule.member.bid.valid.poke(true.B)
+    row.schedule.member.bid.value.poke(5.U)
+    row.schedule.member.brobGeneration.poke(2.U)
+    row.schedule.member.memberIndex.poke(0.U)
+    row.schedule.member.residentGeneration.poke(4.U)
+    row.schedule.reservation.valid.poke(true.B)
+    row.schedule.reservation.uopClass.poke(OooUopClass.Agu)
+    row.payload.recipe.valid.poke(true.B)
+    row.payload.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
+    row.payload.recipe.recipeKind.poke(OooOpcodeRecipeKind.ScalarStore)
+    row.payload.recipe.sideEffectOwner.poke(OooSideEffectOwner.Lsu.U)
+    row.payload.recipe.lateSplitKind.poke(
+      OooLateSplitKind.StoreAddressData)
+    row.payload.memory.valid.poke(true.B)
+    row.payload.memory.isStore.poke(true.B)
+    row.payload.memory.addressMode.poke(OooMemoryAddressMode.BaseOffset)
+    row.payload.memory.accessBytes.poke(8.U)
+    row.payload.memory.addressSourceMask.poke(1.U)
+    row.payload.memory.dataSourceMask.poke(4.U)
+    row.payload.memoryOrder.valid.poke(true.B)
+    row.payload.memoryOrder.memoryValid.poke(true.B)
+    row.payload.memoryOrder.isStore.poke(true.B)
+    row.payload.memoryOrder.requestCount.poke(1.U)
+    row.payload.memoryOrder.firstLsid.poke(6.U)
+    row.payload.memoryOrder.firstTypeId.poke(3.U)
+  }
+
+  private def pokeCrossLineStoreAddress(
+      execute: OooIexExecuteTransaction): Unit = {
+    execute.poke(0.U.asTypeOf(execute))
+    execute.ownerClass.poke(OooUopClass.Agu)
+    pokeUnknownOlderStore(execute.i2.row)
+    execute.i2.sourceMask.poke(1.U)
+    execute.i2.sourceData(0).poke(0x103c.U)
+  }
+
+  private def pokeLoad(
+      request: OooIexAguLoadRequest,
+      address: BigInt = 0x1000): Unit = {
     request.poke(0.U.asTypeOf(request))
     val execute = request.execute
     val schedule = execute.i2.row.schedule
@@ -266,7 +326,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
     schedule.destinations(0).ptagGeneration.poke(3.U)
 
     execute.i2.sourceMask.poke(1.U)
-    execute.i2.sourceData(0).poke(0x1000.U)
+    execute.i2.sourceData(0).poke(address.U)
     execute.i2.pcValid.poke(true.B)
     execute.i2.pc.poke(0x4000.U)
     payload.opcode.poke(opcode.U)
@@ -297,7 +357,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
     payload.previousPDestinations(0).valid.poke(true.B)
     payload.previousPDestinations(0).ptag.poke(7.U)
 
-    request.address.poke(0x1000.U)
+    request.address.poke(address.U)
     request.accessBytes.poke(8.U)
     request.pcValid.poke(true.B)
     request.pc.poke(0x4000.U)
@@ -404,6 +464,151 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
       assert(resultData == BigInt("8877665544332211", 16))
       dut.io.protocolError.expect(false.B)
     }
+  }
+
+  test("unknown older store atomically cancels and rebinds the canonical load") {
+    simulate(new OooIexScalarLoadStorePathHarness(
+      p, coreParams, stqEntries = 4)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeUnknownOlderStore(dut.io.storeReserve.bits)
+      dut.io.storeReserve.valid.poke(true.B)
+      dut.io.storeReserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeReserve.valid.poke(false.B)
+
+      pokeLoad(dut.io.agu(0).bits)
+      dut.io.agu(0).valid.poke(true.B)
+      dut.io.allocAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.agu(0).valid.poke(false.B)
+
+      dut.io.launch.bits.poke(0.U)
+      dut.io.launch.valid.poke(true.B)
+      dut.io.launch.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.launch.valid.poke(false.B)
+
+      var sawPending = false
+      var sawCancel = false
+      var sawRetryAccepted = false
+      var sawWait = false
+      for (_ <- 0 until 30 if !sawWait) {
+        if (dut.io.structuralBlockPending.peek().litToBoolean) {
+          sawPending = true
+          dut.io.structuralBlockUnsupported.expect(false.B)
+          dut.io.structuralBlockDisposition.expect(
+            LoadStructuralBlockDisposition.WaitStore)
+          dut.io.structuralBlockLoadId.slot.expect(0.U)
+          dut.io.structuralBlockAttempt.generation.expect(1.U)
+        }
+        if (dut.io.loadCancel(0).valid.peek().litToBoolean) {
+          sawCancel = true
+          dut.io.loadCancel(0).bits.load.valid.expect(true.B)
+          dut.io.loadCancel(0).bits.load.generation.expect(1.U)
+        }
+        if (dut.io.structuralRetryAccepted.peek().litToBoolean) {
+          sawRetryAccepted = true
+        }
+        if ((dut.io.liqWaitStoreMask.peek().litValue & 1) != 0) {
+          sawWait = true
+          dut.io.liqRepickMask.expect(0.U)
+        }
+        dut.clock.step()
+      }
+      assert(sawPending,
+        "the structural result must enter retained policy ownership")
+      assert(sawCancel,
+        "the old speculative generation must be cancelled exactly once")
+      assert(sawRetryAccepted,
+        "OOO metadata and LIQ structural retry must share one fire")
+      assert(sawWait,
+        "the canonical LIQ row must install the exact wait-store key")
+      dut.io.protocolError.expect(false.B)
+    }
+  }
+
+  test("cross-line store uncertainty remains fail closed inside production") {
+    simulate(new OooIexScalarLoadStorePathHarness(
+      p, coreParams, stqEntries = 4)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeUnknownOlderStore(dut.io.storeReserve.bits)
+      dut.io.storeReserve.valid.poke(true.B)
+      dut.io.storeReserve.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeReserve.valid.poke(false.B)
+
+      pokeCrossLineStoreAddress(dut.io.storeAddress(0).bits)
+      dut.io.storeAddress(0).valid.poke(true.B)
+      dut.io.storeAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeAddress(0).valid.poke(false.B)
+      dut.clock.step(4)
+
+      pokeLoad(dut.io.agu(0).bits, address = 0x1038)
+      dut.io.agu(0).valid.poke(true.B)
+      dut.io.allocAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.agu(0).valid.poke(false.B)
+      dut.io.launch.bits.poke(0.U)
+      dut.io.launch.valid.poke(true.B)
+      dut.io.launch.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.launch.valid.poke(false.B)
+
+      var sawUnsupported = false
+      var sawCancel = false
+      var sawRetry = false
+      for (_ <- 0 until 30 if !sawUnsupported) {
+        sawCancel ||= dut.io.loadCancel(0).valid.peek().litToBoolean
+        sawRetry ||= dut.io.structuralRetryAccepted.peek().litToBoolean
+        sawUnsupported =
+          dut.io.structuralBlockUnsupported.peek().litToBoolean
+        if (!sawUnsupported) dut.clock.step()
+      }
+      assert(sawUnsupported,
+        "cross-line store overlap must become retained unsupported state")
+      assert(!sawCancel,
+        "unsupported structural state must not cancel as an ordinary retry")
+      assert(!sawRetry,
+        "unsupported structural state must not mutate the LIQ attempt")
+      dut.io.structuralBlockDisposition.expect(
+        LoadStructuralBlockDisposition.Unsupported)
+      dut.io.structuralBlockPending.expect(true.B)
+      dut.io.protocolError.expect(true.B)
+      dut.io.liqRepickMask.expect(1.U)
+      dut.io.liqWaitStoreMask.expect(0.U)
+
+      pokeKillingRecovery(dut)
+      dut.clock.step(4)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.expect(true.B)
+      dut.io.structuralBlockPending.expect(true.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.lsuRecoveryProjection.req.valid.poke(false.B)
+
+      dut.io.hardFlush.poke(true.B)
+      dut.clock.step()
+      dut.io.structuralBlockPending.expect(false.B)
+      dut.io.liqOccupiedMask.expect(0.U)
+    }
+  }
+
+  test("production boundary hides raw hard-block dequeue ownership") {
+    val chirrtl = ChiselStage.emitCHIRRTL(
+      new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4))
+    assert(chirrtl.contains(
+      "inst structuralPolicy of LoadStructuralBlockPolicy"))
+    assert(!chirrtl.contains("external_hardBlock"))
+    assert(chirrtl.contains("io.external.structuralBlockPending"))
+    assert(chirrtl.contains("io.external.structuralRetryAccepted"))
   }
 
   test("holds all canonical load state during prepare and prunes only on common fire") {
