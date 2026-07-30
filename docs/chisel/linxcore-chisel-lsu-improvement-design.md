@@ -22,7 +22,7 @@
 
 本文覆盖标量 load/store、L1D、地址翻译和属性分类、下级存储事务、LR/SC、MMIO、cache maintenance 与 fence。Tile/向量存储只定义共享边界，不在本文内展开。
 
-本文以源代码为事实来源，模块说明文档用于辅助理解。当前实现仍处于“canonical 岛 + reduced 顶层闭环 + helper 族”的过渡阶段，不能把单个测试通过等同于完整 memory subsystem 已闭合。
+本文以源代码为事实来源，模块说明文档用于辅助理解。当前实现仍处于“canonical 岛 + reduced 顶层闭环 + helper 族”的过渡阶段，不能把单个测试通过等同于完整 memory subsystem 已闭合。I0.15c-b3c2 已把 canonical load launch、三路 STQ 查询/响应、E3/E4 credit 和精确 LIQ 回写在 `ScalarLSULoadPath` 内闭合，但尚未把该边界与 OOO/store fabric 置于同一个 production wrapper 和 common recovery fire 下。
 
 ## 2. 当前 Chisel 实现概览
 
@@ -47,7 +47,9 @@ flowchart LR
 这条路径已经形成 load、store、共享 L1D 与 recovery boundary 的 canonical 组合点，但尚未成为完整核顶层唯一真实路径。尤其是：
 
 - frontend/AGU 到 LSU 的完整请求协议尚未闭合；
-- store row 到 load E2 查询、SCB 返回和 STQ 返回仍有外部输入痕迹；
+- production load 已有三路 retained STQ query/response 边界；该边界到
+  `OooIexStoreStqFabric` 的 closed-wrapper 连接、hard-block consumer 与
+  physical SCB source owner 仍未闭合；
 - 翻译/PMA 到属性 sidecar 的正式适配器、下级 memory/coherence 总线尚未闭合；
   exact memory-class sidecar 与 committed NC/MMIO serializer 已有独立 owner；
 - LR/SC reservation owner 仍主要组合在 reduced 路径；

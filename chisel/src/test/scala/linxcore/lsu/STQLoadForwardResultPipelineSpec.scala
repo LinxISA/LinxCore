@@ -10,6 +10,7 @@ class STQLoadForwardResultPipelineSpec extends AnyFunSuite with ChiselSim {
     dut.io.flush.poke(false.B)
     dut.io.response.valid.poke(false.B)
     dut.io.response.bits.poke(0.U.asTypeOf(dut.io.response.bits))
+    dut.io.normalReady.poke(true.B)
     dut.io.returnReady.poke(true.B)
     dut.io.hardBlock.ready.poke(true.B)
   }
@@ -93,9 +94,33 @@ class STQLoadForwardResultPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.e4ValidMask.expect(0xf.U)
       dut.io.e4DataComplete.expect(true.B)
       dut.io.e4SourcesReturned.expect(true.B)
+      dut.io.e4ScbReturned.expect(true.B)
+      dut.io.e4StqReturned.expect(true.B)
       dut.io.e4WakeupValid.expect(true.B)
       dut.io.e4MissKind.expect(LoadForwardMissKind.NoMiss)
       dut.io.e4LineData.expect(BigInt("ddccbbaa", 16).U)
+    }
+  }
+
+  test("normal result credit backpressures data responses but not hard blocks") {
+    simulate(new STQLoadForwardResultPipeline(
+      robEntries = 8, stqEntries = 4, lsidWidth = 40)) { dut =>
+      clear(dut)
+      pokeBaseResponse(dut, token = 23, loadMask = 0xff,
+        baseMask = 0xff, forwardMask = 0, waitMask = 0,
+        data = BigInt("8877665544332211", 16))
+      dut.io.normalReady.poke(false.B)
+      dut.io.response.valid.poke(true.B)
+      dut.io.response.ready.expect(false.B)
+      dut.io.accepted.expect(false.B)
+      dut.clock.step(2)
+      dut.io.e3Valid.expect(false.B)
+      dut.io.e4Valid.expect(false.B)
+
+      dut.io.response.bits.unknownOlderMask.poke(1.U)
+      dut.io.response.ready.expect(true.B)
+      dut.io.hardBlock.valid.expect(true.B)
+      dut.io.hardBlockAccepted.expect(true.B)
     }
   }
 

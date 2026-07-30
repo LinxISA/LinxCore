@@ -45,6 +45,14 @@ traffic, and recovery flush clears both valid stages. Downstream LIQ mutation
 can compare `{loadId, attempt}` before accepting an asynchronous forwarding
 result instead of trusting an opaque token or a bare row index.
 
+I0.15c-b3c2 adds an explicit `normalReady` credit boundary. Normal STQ
+responses do not enter E3 unless the downstream E3/E4 plus retained-result
+owner has capacity. Structural hard blocks use their independent ready path,
+so a full normal-result transport cannot hide or consume a hard-block record.
+The E4 boundary also carries separate `scbReturned` and `stqReturned` evidence
+into the canonical LIQ result instead of reconstructing source completion from
+the merged byte mask.
+
 Selected data-not-ready stores are normal results. Their `waitMask` and exact
 `waitStore` identity enter E3/E4 and classify as `StoreDataNotReady` for LIQ
 mutation.
@@ -112,6 +120,7 @@ The directed suite proves:
 - back-to-back exact row/attempt/return-pipe identity alignment in E3/E4;
 - selected not-ready store identity reaching E4;
 - hard-block backpressure without E3/E4 leakage;
+- independent normal-result credit backpressure without blocking hard blocks;
 - flush suppression;
 - unequal `STQ=4`, `ROB=8`, `LSID=40`, and non-default token width.
 
@@ -119,8 +128,11 @@ The directed suite proves:
 
 I0.15c-b2b gives every production OOO load one exact canonical LIQ lease and
 attempt identity and removes the former duplicate retry/return owner.
-I0.15c-b3a now carries that identity through the STQ asynchronous result pipe.
-The next packet must drive these three ports from canonical launches/relaunches
-and apply E4 results to the same LIQ owner. Scalar-LSU two-phase recovery and
-physical memory-system integration remain separate gaps. No additional OOO
-request/retry/data residency may be introduced.
+I0.15c-b3a carries that identity through the STQ asynchronous result pipe, and
+I0.15c-b3c2 now drives three retained query lanes from canonical LIQ launches,
+accepts the three retained STQ response lanes, reserves result capacity, and
+applies exact E4 results back to that LIQ owner. The remaining boundary is the
+closed OOO/store-fabric/scalar-LSU wrapper: common two-phase recovery,
+structural-hard-block policy, final BID/BROB ordering projection, physical SCB
+source ownership, and the translation/cache/coherence system still require
+integration. No additional OOO request/retry/data residency may be introduced.

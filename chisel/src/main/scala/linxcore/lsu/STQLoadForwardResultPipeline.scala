@@ -60,6 +60,7 @@ class STQLoadForwardResultPipelineIO(
   val response = Flipped(Decoupled(new STQLoadForwardResponse(
     robEntries, stqEntries, addrWidth, stidWidth, pcWidth, lineBytes,
     lsidWidth, tokenWidth)))
+  val normalReady = Input(Bool())
   val returnReady = Input(Bool())
 
   val hardBlock = Decoupled(new STQLoadForwardResponse(
@@ -84,6 +85,8 @@ class STQLoadForwardResultPipelineIO(
   val e4WaitMask = Output(UInt(lineBytes.W))
   val e4DataComplete = Output(Bool())
   val e4SourcesReturned = Output(Bool())
+  val e4ScbReturned = Output(Bool())
+  val e4StqReturned = Output(Bool())
   val e4WakeupValid = Output(Bool())
   val e4WaitStore = Output(new LoadStoreForwardWait(
     robEntries, stqEntries, pcWidth, lsidWidth))
@@ -130,7 +133,7 @@ class STQLoadForwardResultPipeline(
   io.hardBlock.valid := io.response.valid && hardBlocked && !io.flush
   io.hardBlock.bits := io.response.bits
   io.response.ready := !io.flush && Mux(hardBlocked,
-    io.hardBlock.ready, true.B)
+    io.hardBlock.ready, io.normalReady)
   io.accepted := io.response.fire && !hardBlocked
   io.hardBlockAccepted := io.hardBlock.fire
 
@@ -181,6 +184,8 @@ class STQLoadForwardResultPipeline(
   io.e4WaitMask := result.io.e4WaitMask
   io.e4DataComplete := result.io.e4DataComplete
   io.e4SourcesReturned := result.io.e4SourcesReturned
+  io.e4ScbReturned := result.io.e4ScbReturned
+  io.e4StqReturned := result.io.e4StqReturned
   io.e4WakeupValid := result.io.e4WakeupValid
   io.e4WaitStore := result.io.e4WaitStore
   io.e4MissKind := result.io.e4MissKind

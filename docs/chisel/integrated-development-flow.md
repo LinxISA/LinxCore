@@ -24,13 +24,14 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b3c1 retained forwarding-result ownership.
-`LoadInflightQueue` now distinguishes permanent stale identity/lifecycle
-rejections from retryable recovery or exact-row writer conflicts.
-`LoadForwardResultRetainer` holds the complete classified result across the
-retryable case and dequeues only on exact acceptance or permanent stale
-rejection. This closes the lossless sink policy required before live STQ E4
-traffic can replace the compatibility CAM.
+The latest LSU packet is I0.15c-b3c2 live three-pipe forwarding composition.
+Every canonical LIQ launch atomically enters exactly one retained STQ query
+queue; each queue obeys Decoupled retention under external backpressure. Hard
+flush clears the transport, while typed precise recovery fences boundary fire
+and preserves surviving query/result ownership and reservations.
+Three retained STQ response lanes arbitrate into credit-controlled E3/E4, a
+separate retained structural-hard-block boundary, and the b3c1 exact-result
+retainer. Production elaboration contains no compatibility forwarding CAM.
 
 The preceding I0.15c-b2b execution-cluster cutover has
 `OooIexCanonicalLoadOwnership` atomically join the three-AGU LIQ allocation
@@ -51,9 +52,10 @@ request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
 parameter, UT, abstract memory messages, and module page are deleted. Dynamic
 cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
 P-file/ROB terminal publication.
-Direct live composition with `ScalarLSULoadPath`, all three canonical STQ
-query/response pipes, retained E4 ingress credit, hard-block handling, and the
-scalar LSU's own recovery readiness remains the next I0.15c packet.
+The next I0.15c packet must close these scalar-LSU ports directly with the live
+OOO store fabric, define structural-hard-block consumption, replace the
+migration BID projection with common BID/BROB ordering authority, and join the
+scalar LSU's recovery readiness/apply to the same OOO common fire.
 Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 
