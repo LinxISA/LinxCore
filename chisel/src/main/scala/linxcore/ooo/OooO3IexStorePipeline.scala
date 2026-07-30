@@ -2,7 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
-import linxcore.lsu.{STQMemoryClassifyToken, STQSerializedStoreRequest,
+import linxcore.lsu.{MDBConflictStoreProbe, STQLoadForwardQuery,
+  STQLoadForwardResponse, STQMemoryClassifyToken, STQSerializedStoreRequest,
   STQSerializedStoreResponse}
 
 /** External production boundary around the retained O3, issue/execute, and
@@ -50,6 +51,19 @@ class OooO3IexStorePipelineIO(
     Decoupled(new OooIexLoadMemoryResponse(p))))
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
+  val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
+    new STQLoadForwardQuery(
+      p.robGroupsPerStid, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
+  val stqLoadForwardResponse = Vec(3, Decoupled(
+    new STQLoadForwardResponse(
+      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
+  val stqLoadForwardOccupied = Output(UInt(3.W))
+  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
@@ -186,6 +200,10 @@ class OooO3IexStorePipeline(
     iex.io.memoryResponse(index) <> io.memoryResponse(index)
   }
   io.loadCancel := iex.io.loadCancel
+  iex.io.stqLoadForwardQuery <> io.stqLoadForwardQuery
+  io.stqLoadForwardResponse <> iex.io.stqLoadForwardResponse
+  io.stqLoadForwardOccupied := iex.io.stqLoadForwardOccupied
+  io.lateStaProbe := iex.io.lateStaProbe
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> iex.io.bctrl(lane)
     io.trace(lane) <> iex.io.trace(lane)

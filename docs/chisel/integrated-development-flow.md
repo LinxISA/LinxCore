@@ -24,15 +24,17 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest store packet is I0.13 physical STQ data ownership. The canonical
-OOO store fabric now separates payload from STQ metadata/status through a
-64-byte, two-bank `STQDataBank`. Two retained STD ports execute mask then data
-phases and return full owner/lease/full-serial completions; recovery prepare
-holds pending writes and recovery/free cancels them by exact row. Address fills
-still converge only in `STQEntryBank`, while commit drain and forwarding see
-one joined row projection. The next LSU packet is the replicated E1 tag/E3 data
-forwarding snapshot plus unknown-store blocking and late-STA LHQ violation
-recovery; FSU/vector STD, DTLB/PMP/PMA/device/coherence and workload promotion
+The latest LSU packet is I0.14 production STQ load forwarding. Three replicated
+`STQLoadForwardingPipeline` ports snapshot canonical `STQEntryBank` tags at E1,
+read only generation-qualified `STQDataBank` payload at E3, and reuse
+`LoadStoreForwarding` for per-byte nearest-older selection. Unknown older store
+addresses, malformed or ambiguous full-LSID authority, stale row reuse,
+cross-line loads/stores, and selected stores without data all fail closed. The store
+fabric also publishes one typed probe only when an STA fill is accepted, so the
+existing `ScalarLSUMDBPath`/LHQ conflict owner can perform late-STA wait/nuke
+recovery without a second detector. The next LSU packet is direct
+`OooIexLoadUnit` query/response integration with LIQ replay and L1D/SCB partial
+merge; FSU/vector STD, DTLB/PMP/PMA/device/coherence and workload promotion
 remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.

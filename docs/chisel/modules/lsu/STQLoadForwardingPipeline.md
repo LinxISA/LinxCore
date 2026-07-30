@@ -1,0 +1,102 @@
+# STQLoadForwardingPipeline
+
+`STQLoadForwardingPipeline` is the production load-side query boundary of the
+canonical store queue. It does not allocate STQ rows, store payload, mutate
+LIQ/LHQ state, or own recovery policy.
+
+## Ownership
+
+- `STQEntryBank` remains the metadata, status, lease, and recovery owner.
+- `STQDataBank` remains the physical mask/data owner.
+- `STQLoadForwardingPipeline` owns replicated E1 tag snapshots and retained E3
+  query responses.
+- `LoadStoreForwarding` remains the per-byte nearest-older selector.
+- `ScalarLSUMDBPath` remains the late-STA conflict, wait mutation, learning,
+  and typed recovery owner. `OooIexStoreStqFabric.lateStaProbe` is only its
+  accepted-STA event source.
+
+There are three load pipes in the production wrapper. Each pipe has its own
+elastic request/response state and therefore does not serialize through a
+shared snapshot register.
+
+## Pipeline contract
+
+1. E1 accepts one query and snapshots every canonical STQ metadata tag for
+   that pipe.
+2. The snapshot identifies strictly older, same-STID scalar stores using
+   wrap-safe ROB order and authoritative full LSID order inside one BID.
+3. Any older row without an address becomes `unknownOlderMask`; the query is
+   blocked even if all known rows miss the load address.
+4. E3 reads the live `STQDataBank` image and revalidates the snapshotted lease
+   generation, exact semantic owner, full serial identity, address, and size
+   against the live metadata row.
+5. Stable address hits are converted to positioned 64-byte masks/data and fed
+   to `LoadStoreForwarding`, which selects the nearest older store separately
+   for every load byte.
+6. A selected store with unavailable data produces `waitMask`; row reuse,
+   changed metadata, missing full-LSID authority, half-range ambiguity, and a
+   cross-line store, malformed query identity, and a cross-line load all fail
+   closed through `blocked`.
+
+Recovery prepare asserts `hold`, suppressing both request ready and response
+valid so neither admission nor response fire can race the store recovery
+projection. The common accepted recovery edge asserts `flush` and removes both
+E1 snapshot and E3 response residency.
+
+## Result interpretation
+
+- `bypassComplete`: every requested byte comes from ready stores and no hard
+  blocker exists.
+- `forwardMask` / `mergedLineData`: ready store bytes and the store-overlaid
+  cache-line image.
+- `waitMask` / `waitStore`: the nearest selected address-known store whose data
+  is unavailable.
+- `unknownOlderMask` / `unknownWaitStore`: address-unknown older stores; these
+  are not reported as uncovered cache bytes.
+- `staleSnapshotMask`: E1/E3 identity or generation drift; the consumer must
+  replay rather than use the response.
+
+The current production top exports this typed query/response boundary. The
+next load-integration packet must connect `OooIexLoadUnit`/L1D response merge
+and LIQ replay to it; it must not add another resident-store snapshot owner.
+
+## Verification
+
+Directed UT uses unequal `STQ=4`, `ROB=8`, `LSID=40` and covers:
+
+- three simultaneous independent load-pipe snapshots;
+- per-byte nearest-older selection across two overlapping stores;
+- same-BID missing and half-range-ambiguous full-LSID rejection;
+- multiple unknown older addresses with nearest wait-owner selection;
+- E3 metadata reuse and physical-data generation rejection;
+- malformed identity and cross-line load rejection;
+- overlapping cross-line-store rejection without false non-overlap blocking;
+- retained response backpressure across recovery prepare;
+- recovery-prepare response suppression and recovery removal of residency.
+
+The `OooIexStoreStqFabric` integration test additionally drives formal
+STA/STD execution into the canonical metadata/data owners, observes the single
+accepted late-STA probe with its complete BID/GID/RID/LSID/address payload,
+proves probe suppression on rejected and recovery-fenced mutation, completes a
+load bypass through the new query port, and checks cross-line overlap at the
+production wrapper boundary.
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only STQLoadForwardingPipeline
+bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+```
+
+## Model and reference evidence
+
+- `tools/LinxCoreModel/model/lsu/store_unit/stq.cpp::STQ::lookupForLoad`:
+  address overlap, old-to-young merge, and nearest not-ready store wait.
+- `tools/LinxCoreModel/model/lsu/load_unit/ldq.cpp::LDQInfo::handleDetect`:
+  accepted store-address conflict scan, wait-store mutation, oldest resolved
+  load selection, MDB record, and recovery publication.
+- `/Users/zhoubot/Documents/a.txt` load/store section: replicated per-load-pipe
+  local STQ tags, E1 CAM, E3 mask/data read, unknown older physical-address
+  blocking, and youngest-store multi-hit behavior.

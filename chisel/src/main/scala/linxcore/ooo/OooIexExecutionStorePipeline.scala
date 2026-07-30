@@ -3,7 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 
-import linxcore.lsu.{STQEntryBankRow, STQMemoryAttribute,
+import linxcore.lsu.{MDBConflictStoreProbe, STQEntryBankRow,
+  STQLoadForwardQuery, STQLoadForwardResponse, STQMemoryAttribute,
   STQMemoryClassifyToken, STQRobCommitToken, STQSCBCommitBackend,
   STQSerializedStoreRequest, STQSerializedStoreResponse}
 
@@ -60,6 +61,19 @@ class OooIexExecutionStorePipelineIO(
     Decoupled(new OooIexLoadMemoryResponse(p))))
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
+  val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
+    new STQLoadForwardQuery(
+      p.robGroupsPerStid, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
+  val stqLoadForwardResponse = Vec(3, Decoupled(
+    new STQLoadForwardResponse(
+      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
+  val stqLoadForwardOccupied = Output(UInt(3.W))
+  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
 
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
@@ -268,6 +282,10 @@ class OooIexExecutionStorePipeline(
   store.io.storeAddress <> execution.io.storeAddress
   store.io.storeData <> execution.io.storeData
   store.io.loadCancel := execution.io.loadCancel
+  store.io.loadForwardQuery <> io.stqLoadForwardQuery
+  io.stqLoadForwardResponse <> store.io.loadForwardResponse
+  io.stqLoadForwardOccupied := store.io.loadForwardOccupied
+  io.lateStaProbe := store.io.lateStaProbe
 
   execution.io.recoveryPrepare := io.recoveryPrepare
   store.io.recoveryPrepare := io.recoveryPrepare

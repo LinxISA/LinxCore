@@ -1352,6 +1352,7 @@ canonical owner 收敛不等于删除所有 helper。纯组合变换、局部 pi
 | `STQFlushPrune` | 保留纯函数/leaf | kill-set 由 RecoveryFabric 提供 |
 | `LoadStoreForwarding` | 保留 | canonical STQ/SCB/L1D 数据合并 |
 | `LoadForwardPipeline` | 保留 pipeline leaf | 时序功能，不拥有 LIQ |
+| `STQLoadForwardingPipeline` | production query owner | 每个 load pipe 独立 E1 tag snapshot、E3 canonical data read、unknown older store fail-closed；不拥有 LIQ/MDB |
 | `LoadReplayWakeup` / `LoadRefillWakeup` | 保留 typed event leaf | mutation 统一进入 LIQ owner |
 | `LoadInflightRowMutation*` | 合并到 `LiqMutationArbiter` | 消除多 writer |
 | `LoadReplaySourceReturnStoreSnapshot*` | 迁入 `LiqSourceReturnPath` 后删除 snapshot 族 | 改为 native STQ query |

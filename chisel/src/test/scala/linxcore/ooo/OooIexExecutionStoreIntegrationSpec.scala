@@ -94,6 +94,11 @@ class OooIexExecutionStoreHarness(
   store.io.storeAddress <> execute.io.storeAddress
   store.io.storeData <> execute.io.storeData
   store.io.loadCancel := execute.io.loadCancel
+  store.io.loadForwardQuery.foreach { query =>
+    query.valid := false.B
+    query.bits := 0.U.asTypeOf(query.bits)
+  }
+  store.io.loadForwardResponse.foreach(_.ready := true.B)
 
   store.io.recoveryPrepare := io.recoveryPrepare
   io.recoveryPrepareReady := store.io.recoveryPrepareReady

@@ -4,8 +4,10 @@ import chisel3._
 import chisel3.util.{Decoupled, Mux1H, OHToUInt, PopCount, RRArbiter, Valid,
   log2Ceil}
 
-import linxcore.lsu.{STQDataBank, STQEntryBank, STQEntryBankRow,
-  STQEntryStatus, STQStoreRequest, STQStoreType}
+import linxcore.lsu.{MDBConflictStoreProbe, STQDataBank, STQEntryBank,
+  STQEntryBankRow, STQEntryStatus, STQLoadForwardQuery,
+  STQLoadForwardResponse, STQLoadForwardingPipeline, STQStoreRequest,
+  STQStoreType}
 
 class OooIexStoreStqFabricIO(
     val p: OooParams,
@@ -21,6 +23,19 @@ class OooIexStoreStqFabricIO(
   val recoveryApplied = Output(Bool())
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
+  val loadForwardQuery = Flipped(Vec(3, Decoupled(
+    new STQLoadForwardQuery(
+      p.robGroupsPerStid, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
+  val loadForwardResponse = Vec(3, Decoupled(
+    new STQLoadForwardResponse(
+      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
+      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
+  val loadForwardOccupied = Output(UInt(3.W))
+  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
 
   val markCommitValid = Input(Bool())
   val markCommitIndex = Input(UInt(log2Ceil(stqEntries).W))
@@ -110,6 +125,22 @@ class OooIexStoreStqFabric(
     residentGenerationWidth = p.residentGenerationWidth,
     leaseGenerationWidth = p.executeSlotGenerationWidth,
     writePorts = stores.length))
+  val loadForward = Module(new STQLoadForwardingPipeline(
+    loadPipes = 3,
+    stqEntries = stqEntries,
+    robEntries = p.robGroupsPerStid,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth,
+    tidWidth = p.stidWidth,
+    mapQDepth = p.tuMapQDepthPerStid,
+    lsidWidth = p.lsidWidth,
+    nativeBidWidth = p.nativeBidWidth,
+    ridGenerationWidth = p.ridGenerationWidth,
+    brobGenerationWidth = p.brobGenerationWidth,
+    memberIndexWidth = p.robMemberIndexWidth,
+    residentGenerationWidth = p.residentGenerationWidth,
+    leaseGenerationWidth = p.executeSlotGenerationWidth,
+    tokenWidth = p.transactionIdWidth))
 
   val recoveryFence = io.recoveryPrepare.valid
 
@@ -176,6 +207,13 @@ class OooIexStoreStqFabric(
   dataBank.io.clearMask := stq.io.exactRecoveryAcceptedMask |
     stq.io.commitFreeAcceptedMask
   stq.io.dataCompletions := dataBank.io.completions
+  loadForward.io.hold := recoveryFence
+  loadForward.io.flush := recoveryAccepted
+  loadForward.io.metadataRows := stq.io.rows
+  loadForward.io.dataRows := dataBank.io.rows
+  loadForward.io.queries <> io.loadForwardQuery
+  io.loadForwardResponse <> loadForward.io.responses
+  io.loadForwardOccupied := loadForward.io.occupied
 
   private def exactOwnerMatches(
       row: STQEntryBankRow,
@@ -281,6 +319,27 @@ class OooIexStoreStqFabric(
   addressFillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence
   io.fillConflict := stq.io.fillConflict || dataBank.io.conflict.reduce(_ || _)
 
+  io.lateStaProbe := 0.U.asTypeOf(io.lateStaProbe)
+  when(stq.io.fillAccepted) {
+    val accepted = addressFillArbiter.io.out.bits
+    io.lateStaProbe.valid := true.B
+    io.lateStaProbe.bits.valid := true.B
+    io.lateStaProbe.bits.addrOnly := true.B
+    io.lateStaProbe.bits.isTile := !accepted.scalarIex
+    io.lateStaProbe.bits.peId := accepted.peId
+    io.lateStaProbe.bits.stid := accepted.stid
+    io.lateStaProbe.bits.tid := accepted.tid
+    io.lateStaProbe.bits.bid := accepted.bid
+    io.lateStaProbe.bits.gid := accepted.gid
+    io.lateStaProbe.bits.rid := accepted.rid
+    io.lateStaProbe.bits.lsId := accepted.lsId
+    io.lateStaProbe.bits.lsIdFullValid := true.B
+    io.lateStaProbe.bits.lsIdFull := accepted.lsIdFull
+    io.lateStaProbe.bits.pc := accepted.pc
+    io.lateStaProbe.bits.addr := accepted.addr
+    io.lateStaProbe.bits.size := accepted.size
+  }
+
   val joinedRows = Wire(chiselTypeOf(io.rows))
   for (index <- 0 until stqEntries) {
     joinedRows(index) := stq.io.rows(index)
@@ -295,6 +354,7 @@ class OooIexStoreStqFabric(
   io.residentCount := stq.io.residentCount
   io.storePipelinesOccupied := VecInit(stores.map(_.io.occupied)).asUInt
   io.empty := stq.io.empty && dataBank.io.empty &&
+    !loadForward.io.occupied.orR &&
     !io.storePipelinesOccupied.orR
 
   when(io.recoveryFire) {
