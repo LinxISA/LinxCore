@@ -20,10 +20,12 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionCluster.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexTerminalFabric.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexExecutionStorePipeline.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionClusterSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexExecutionStoreIntegrationSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexStoreStqFabricSpec.scala`
 
 ## Static execution topology
@@ -50,8 +52,10 @@ at its E1 owner; it is never silently consumed by an ALU fallback.
 When `requireStoreReservation` is enabled, every split store also emits an
 exact reservation request while retained in S1. Its S2 publication is blocked
 until canonical STQ allocation fires. `OooIexStoreStqFabric` is the production
-owner for that request and for the two STA/two STD retained outputs; the final
-direct wrapper connection remains an explicit I0.11 follow-up.
+owner for that request and for the two STA/two STD retained outputs.
+`OooIexExecutionStorePipeline` is now the production boundary that makes all
+of those connections private; the lower-level execution pipeline retains its
+ports only for focused unit composition.
 
 Every route requires one generated recipe capability, the expected IQ class,
 and the exact physical owner lane. Zero/multiple capabilities, wrong class,
@@ -81,11 +85,14 @@ repick without modifying non-speculative RF readiness.
 
 ## Recovery and quiescence
 
-One held `OooResidencyRecoveryPlan` is prepared by the canonical issue owner.
-`recoveryFire` applies that same plan to issue/read/E1 and every internal
-execution owner on one edge. External retained transactions remain qualified
-by their complete member identity and must consume the same recovery plan in
-their later owner.
+One held `OooResidencyRecoveryPlan` is prepared by the canonical issue owner
+and the canonical STQ/store owner. The production wrapper publishes ready only
+when both projections are ready. One common `recoveryFire` then applies that
+same plan to issue/read/E1, internal execution, retained STA/STD, and exact
+WAIT-state STQ rows on one edge. Recovery prepare fences STQ reservation,
+fill, commit-mark, and free mutation. A recovery pivot that would retain only
+one child of a split store is rejected even after the children have left IQ
+residency.
 
 `empty` is true only when both the issue/read/E1 pipeline and the execution
 cluster are empty. It does not treat an empty IQ as backend quiescence while a
@@ -110,6 +117,7 @@ bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_tests.sh --only OooIexTerminalFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionClusterSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipelineSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
 ```
 
@@ -117,18 +125,18 @@ The terminal UT covers dual publication, independent cluster backpressure, and
 fire-qualified round-robin advancement. The cluster UT covers every explicit
 external family, malformed capability rejection, concurrent ALU W1 bypass,
 and two-lane W2 publication. The production-top structural IT elaborates all
-eight classes, eight banks, fourteen picker/E1 lanes, and two terminal lanes,
-then proves the canonical issue and execution owners are instantiated. It uses
-one residency entry per bank; focused issue/recovery suites cover multi-entry
-S1-to-E1 behavior, while cluster, terminal, and operand-file suites cover the
-E1-to-W2 and atomic RF/completion path. A monolithic dynamic top simulation is
-not a routine gate because the existing generated `OooIexIssue` dominates the
-Verilator dependency graph; O8/O9 must close that structural compile cost.
+eight classes, eight banks, fourteen picker/E1 lanes, two terminal lanes, and
+the canonical STQ/store fabric. The adjacent dynamic IT drives the formal STA
+and STD execution lanes and proves that both halves fill one pre-reserved STQ
+row. The structural test uses one residency entry per bank; focused
+issue/recovery suites cover multi-entry S1-to-E1 behavior, while cluster,
+terminal, store, and operand-file suites cover the E1-to-W2 and atomic
+RF/completion paths. A monolithic dynamic top simulation is not a routine gate
+because the existing generated `OooIexIssue` dominates the Verilator dependency
+graph; O8/O9 must close that structural compile cost.
 
 ## Remaining gaps
 
-- Add the direct production wrapper between this pipeline and
-  `OooIexStoreStqFabric`; do not add a pre-STQ address/data join owner.
 - Connect exact ROB/SCB commit control, store-data banking, forwarding/replay,
   translation, L1D/coherence, and fault publication around the canonical STQ.
 - Implement internal multicycle ALU/divide, system, pointer-authentication,

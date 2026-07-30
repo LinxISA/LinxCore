@@ -11,7 +11,9 @@ and converge both halves only in `STQEntryBank`.
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala`
+- `chisel/src/main/scala/linxcore/ooo/OooIexExecutionStorePipeline.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexStoreStqFabricSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexExecutionStoreIntegrationSpec.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala`
 
@@ -44,11 +46,13 @@ fill results use fair arbitration into the single canonical STQ fill port.
 Each store pipeline preserves the full execute transaction and its exact lease
 until the corresponding address/data fills have been accepted.
 
-The same `OooResidencyRecoveryPlan` is projected into both retained store
-pipelines and the STQ. Recovery can fire only when every killed STQ row is an
-exact `WAIT` row; generations never rewind. Rows that have progressed beyond
-`WAIT` block the operation and must be handled by the later commit/recovery
-owner.
+The same held `OooResidencyRecoveryPlan` is prepared by both retained store
+pipelines and the STQ. Prepare is side-effect free and fences reserve, STA/STD
+acceptance, fill, commit-mark, and free mutation. Recovery can fire only when
+every killed STQ row is an exact `WAIT` row; one common fire then cancels the
+retained halves and frees the projected rows on the same edge. Generations
+never rewind. Rows that have progressed beyond `WAIT` block the operation and
+must be handled by the later commit/recovery owner.
 
 Issue recovery also rejects a pivot that would retain only one physical child
 of a logical split store. STA/STD recovery is therefore all-or-none while the
@@ -63,6 +67,7 @@ store-commit protocol.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
 sbt --server --batch --no-colors --mem 4096 \
   'testOnly linxcore.ooo.OooIexIssueSpec -- -z canonical'
 bash tools/chisel/run_chisel_tests.sh --only OooIexStorePipeline
@@ -72,16 +77,17 @@ bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 ```
 
 The focused fabric UT covers two simultaneously resident logical stores with
-crossed STA/STD lanes, refusal of unreserved execution, and one recovery plan
-canceling retained STD state while freeing an exact two-row lease. The issue
-test proves malformed reservation recipes fail before S1, S1 residency and S2
-blocking until canonical reservation fires, and rejection of a recovery cut
-between STA and STD before reservation, after reservation, and in resident S3.
+crossed STA/STD lanes, refusal of unreserved execution, side-effect-free
+recovery prepare, mutation fencing, common-fire application, and rejection of
+a split-store partial cut after the rows have transferred from IQ. The adjacent
+execution/store IT drives the formal STA and STD lanes and observes address and
+data in one pre-reserved canonical row. The issue test proves malformed
+reservation recipes fail before S1, S1 residency and S2 blocking until
+canonical reservation fires, and rejection of a recovery cut between STA and
+STD before reservation, after reservation, and in resident S3.
 
 ## Remaining gaps
 
-- Add a production wrapper that wires `OooIexExecutionPipeline` reservation,
-  STA, STD, load-cancel, and recovery ports directly to this fabric.
 - Translate exact ROB commit tokens into STQ commit-mark/free operations and
   close SCB ordering, exceptions, and committed-store drain semantics.
 - Add the physical two-cycle store-data bank, byte-mask generation, split and

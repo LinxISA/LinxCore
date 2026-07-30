@@ -32,15 +32,17 @@ class OooIexExecutionPipelineSpec extends AnyFunSuite {
     tuMapQDepthPerStid = 4,
     tuRetireSourceDepthPerStid = 16)
 
-  test("elaborates the formal fourteen-lane S1-to-W2 composition") {
+  test("elaborates the formal fourteen-lane S1-to-W2 plus canonical STQ composition") {
     val profile = OooIexLinxPhysicalProfile(base)
     val systemVerilog = ChiselStage.emitSystemVerilog(
-      new OooIexExecutionPipeline(profile))
+      new OooIexExecutionStorePipeline(profile, stqEntries = 4))
 
     assert(profile.pickerFunctions.length == 14)
     assert(profile.params.iexReleaseWidth == 14)
     assert(profile.params.iexTerminalWidth == 2)
-    assert(systemVerilog.contains("module OooIexExecutionPipeline"))
+    assert(systemVerilog.contains("module OooIexExecutionStorePipeline"))
+    assert(systemVerilog.contains("OooIexExecutionPipeline execution"))
+    assert(systemVerilog.contains("OooIexStoreStqFabric store"))
     assert(systemVerilog.contains("OooIexPipeline issue"))
     assert(systemVerilog.contains("OooIexExecutionCluster execute"))
   }

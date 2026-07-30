@@ -22,6 +22,7 @@ class OooIexExecutionPipelineIO(
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
   val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
+  val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
   val recoveryFire = Input(Bool())
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
@@ -101,6 +102,7 @@ class OooIexExecutionPipeline(
   issue.io.recoveryPrepare := io.recoveryPrepare
   io.recoveryPrepareReady := issue.io.recoveryPrepareReady
   io.recoveryPrepared := issue.io.recoveryPrepared
+  io.recoveryRejected := issue.io.recoveryRejected
   issue.io.recoveryFire := io.recoveryFire
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels

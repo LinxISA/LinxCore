@@ -15,7 +15,10 @@ class OooIexStoreStqFabricIO(
     Decoupled(new OooIexExecuteTransaction(p))))
   val storeData = Flipped(Vec(2,
     Decoupled(new OooIexExecuteTransaction(p))))
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryFire = Input(Bool())
+  val recoveryApplied = Output(Bool())
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -30,9 +33,9 @@ class OooIexStoreStqFabricIO(
   val reserveRejected = Output(Bool())
   val leaseLookupRejected = Output(Vec(4, Bool()))
   val fillConflict = Output(Bool())
-  val recoveryReady = Output(Bool())
   val recoveryFreeMask = Output(UInt(stqEntries.W))
   val recoveryBlockedMask = Output(UInt(stqEntries.W))
+  val recoveryPartialStoreCut = Output(Bool())
   val recoveryRejected = Output(Bool())
 
   val rows = Output(Vec(stqEntries, new STQEntryBankRow(
@@ -93,39 +96,64 @@ class OooIexStoreStqFabric(
     leaseGenerationWidth = p.executeSlotGenerationWidth,
     maxReserveBeats = p.maxMemoryRequestsPerInstruction))
 
-  reservation.io.inputValid := io.reserve.valid
+  val recoveryFence = io.recoveryPrepare.valid
+
+  reservation.io.inputValid := io.reserve.valid && !recoveryFence
   reservation.io.input := io.reserve.bits
   stq.io.reserveBatchValid := reservation.io.reserveValid
   stq.io.reserveBatchMask := reservation.io.reserveMask
   stq.io.reserveBatch := reservation.io.reserve
-  io.reserve.ready := reservation.io.reserveValid &&
+  io.reserve.ready := !recoveryFence && reservation.io.reserveValid &&
     stq.io.reserveBatchReady
   io.reserveAccepted := io.reserve.fire
   io.reserveRejected := io.reserve.valid && reservation.io.rejected
 
-  recovery.io.recoveryValid := io.recoveryApply.valid
-  recovery.io.recovery := io.recoveryApply.bits
+  recovery.io.recoveryValid := io.recoveryPrepare.valid
+  recovery.io.recovery := io.recoveryPrepare.bits
   recovery.io.rows := stq.io.rows
-  io.recoveryReady := !recovery.io.rejected &&
-    !recovery.io.statusBlockedMask.orR
-  val recoveryAccepted = io.recoveryApply.valid && io.recoveryReady
+  val partialPivot = io.recoveryPrepare.bits.survivingPivotValid &&
+    io.recoveryPrepare.bits.survivingPivotPhysicalMemberCount =/= 0.U &&
+    io.recoveryPrepare.bits.survivingPivotPhysicalMemberCount <
+      io.recoveryPrepare.bits.pivotPhysicalMemberCount
+  val pivotStoreRows = VecInit(stq.io.rows.map { row =>
+    val owner = row.exactOwner
+    val pivot = io.recoveryPrepare.bits.pivot
+    io.recoveryPrepare.valid && row.valid && owner.valid &&
+      owner.nativeBidValid && pivot.group.valid && pivot.bid.valid &&
+      owner.peId === pivot.group.peId &&
+      owner.stid === pivot.group.stid &&
+      owner.nativeBid === pivot.bid.value &&
+      owner.brobGeneration === pivot.brobGeneration &&
+      owner.ridSlot === pivot.group.ridSlot &&
+      owner.ridGeneration === pivot.group.ridGeneration &&
+      owner.memberIndex === pivot.memberIndex &&
+      owner.residentGeneration === pivot.residentGeneration
+  })
+  io.recoveryPartialStoreCut := partialPivot && pivotStoreRows.asUInt.orR
+  io.recoveryPrepareReady := io.recoveryPrepare.valid &&
+    !recovery.io.rejected && !recovery.io.statusBlockedMask.orR &&
+    !io.recoveryPartialStoreCut
+  val recoveryAccepted = io.recoveryFire && io.recoveryPrepareReady
+  io.recoveryApplied := recoveryAccepted
   stq.io.exactRecoveryValid := recoveryAccepted
   stq.io.exactRecoveryFreeMask := recovery.io.freeMask
-  io.recoveryFreeMask := recovery.io.freeMask
+  io.recoveryFreeMask := Mux(io.recoveryPrepareReady,
+    recovery.io.freeMask, 0.U)
   io.recoveryBlockedMask := recovery.io.statusBlockedMask
-  io.recoveryRejected := io.recoveryApply.valid && !io.recoveryReady
+  io.recoveryRejected := io.recoveryPrepare.valid &&
+    !io.recoveryPrepareReady
 
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
   stq.io.insertValid := false.B
   stq.io.insert := 0.U.asTypeOf(stq.io.insert)
   stq.io.reserveValid := false.B
   stq.io.reserve := 0.U.asTypeOf(stq.io.reserve)
-  stq.io.markCommitValid := io.markCommitValid
+  stq.io.markCommitValid := io.markCommitValid && !recoveryFence
   stq.io.markCommitIndex := io.markCommitIndex
   io.markCommitAccepted := stq.io.markCommitAccepted
   stq.io.commitFreeValid := false.B
   stq.io.commitFreeIndex := 0.U
-  stq.io.commitFreeMaskValid := io.commitFreeMaskValid
+  stq.io.commitFreeMaskValid := io.commitFreeMaskValid && !recoveryFence
   stq.io.commitFreeMask := io.commitFreeMask
   io.commitFreeAcceptedMask := stq.io.commitFreeAcceptedMask
 
@@ -198,29 +226,30 @@ class OooIexStoreStqFabric(
     val (staLease, staLeaseExact) = leaseFor(io.storeAddress(index).bits)
     val (stdLease, stdLeaseExact) = leaseFor(io.storeData(index).bits)
     stores(index).io.sta.valid :=
-      io.storeAddress(index).valid && staLeaseExact
+      io.storeAddress(index).valid && staLeaseExact && !recoveryFence
     stores(index).io.sta.bits.execute := io.storeAddress(index).bits
     stores(index).io.sta.bits.lease := staLease
     io.storeAddress(index).ready :=
-      staLeaseExact && stores(index).io.sta.ready
-    stores(index).io.std.valid := io.storeData(index).valid && stdLeaseExact
+      !recoveryFence && staLeaseExact && stores(index).io.sta.ready
+    stores(index).io.std.valid := io.storeData(index).valid && stdLeaseExact &&
+      !recoveryFence
     stores(index).io.std.bits.execute := io.storeData(index).bits
     stores(index).io.std.bits.lease := stdLease
     io.storeData(index).ready :=
-      stdLeaseExact && stores(index).io.std.ready
+      !recoveryFence && stdLeaseExact && stores(index).io.std.ready
     io.leaseLookupRejected(index) :=
       io.storeAddress(index).valid && !staLeaseExact
     io.leaseLookupRejected(2 + index) :=
       io.storeData(index).valid && !stdLeaseExact
     stores(index).io.recoveryApply.valid := recoveryAccepted
-    stores(index).io.recoveryApply.bits := io.recoveryApply.bits
+    stores(index).io.recoveryApply.bits := io.recoveryPrepare.bits
     stores(index).io.loadCancel := io.loadCancel
     fillArbiter.io.in(index) <> stores(index).io.fill
   }
 
-  stq.io.fillValid := fillArbiter.io.out.valid
+  stq.io.fillValid := fillArbiter.io.out.valid && !recoveryFence
   stq.io.fill := fillArbiter.io.out.bits
-  fillArbiter.io.out.ready := stq.io.fillReady
+  fillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence
   io.fillConflict := stq.io.fillConflict
 
   io.rows := stq.io.rows
@@ -231,9 +260,9 @@ class OooIexStoreStqFabric(
   io.storePipelinesOccupied := VecInit(stores.map(_.io.occupied)).asUInt
   io.empty := stq.io.empty && !io.storePipelinesOccupied.orR
 
-  when(io.recoveryApply.valid) {
-    assert(io.recoveryReady,
-      "store/STQ recovery may apply only when every killed row is WAIT and exact")
+  when(io.recoveryFire) {
+    assert(io.recoveryPrepare.valid && io.recoveryPrepareReady,
+      "store/STQ recovery needs one exact prepared WAIT-only projection")
   }
   when(io.reserve.fire) {
     assert(stq.io.reserveBatchAccepted,

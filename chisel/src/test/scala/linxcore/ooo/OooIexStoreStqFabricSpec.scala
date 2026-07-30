@@ -124,9 +124,10 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeData(lane).bits.poke(
         0.U.asTypeOf(dut.io.storeData(lane).bits))
     }
-    dut.io.recoveryApply.valid.poke(false.B)
-    dut.io.recoveryApply.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryFire.poke(false.B)
     dut.io.loadCancel.foreach(_.poke(0.U.asTypeOf(
       dut.io.loadCancel.head)))
     dut.io.markCommitValid.poke(false.B)
@@ -224,7 +225,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeData(0).valid.poke(false.B)
       dut.io.storePipelinesOccupied.expect(1.U)
 
-      val plan = dut.io.recoveryApply.bits
+      val plan = dut.io.recoveryPrepare.bits
       plan.poke(0.U.asTypeOf(plan))
       plan.valid.poke(true.B)
       plan.oldHead.valid.poke(true.B)
@@ -234,15 +235,70 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       plan.oldHead.ridGeneration.poke(7.U)
       plan.oldOccupied.poke(8.U)
       plan.newOccupied.poke(2.U)
-      dut.io.recoveryApply.valid.poke(true.B)
-      dut.io.recoveryReady.expect(true.B)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepareReady.expect(true.B)
       dut.io.recoveryFreeMask.expect(3.U)
+      dut.io.recoveryApplied.expect(false.B)
       dut.clock.step()
-      dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.residentCount.expect(2.U)
+      dut.io.storePipelinesOccupied.expect(1.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.io.recoveryApplied.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
       dut.io.residentCount.expect(0.U)
       dut.io.storePipelinesOccupied.expect(0.U)
       dut.clock.step(2)
       dut.io.dataReadyMask.expect(0.U)
+    }
+  }
+
+  test("recovery prepare fences mutation and rejects a split-store partial cut") {
+    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, 0, 5, BigInt("100000020", 16),
+        BigInt("200000020", 16))
+
+      val plan = dut.io.recoveryPrepare.bits
+      plan.poke(0.U.asTypeOf(plan))
+      plan.valid.poke(true.B)
+      plan.oldHead.valid.poke(true.B)
+      plan.oldHead.peId.poke(1.U)
+      plan.oldHead.stid.poke(1.U)
+      plan.oldHead.ridSlot.poke(0.U)
+      plan.oldHead.ridGeneration.poke(7.U)
+      plan.oldOccupied.poke(8.U)
+      plan.newOccupied.poke(1.U)
+      plan.pivotOffset.poke(0.U)
+      pokeMember(plan.pivot, memberIndex = 0, ridSlot = 5)
+      plan.pivotPhysicalMemberCount.poke(2.U)
+      plan.survivingPivotValid.poke(true.B)
+      plan.survivingPivotPhysicalMemberCount.poke(1.U)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryPartialStoreCut.expect(true.B)
+      dut.io.recoveryRejected.expect(true.B)
+      dut.io.recoveryFreeMask.expect(0.U)
+
+      pokeStoreRow(dut.io.reserve.bits, 2, 6,
+        BigInt("100000021", 16), BigInt("200000021", 16))
+      dut.io.reserve.valid.poke(true.B)
+      dut.io.reserve.ready.expect(false.B)
+      dut.io.markCommitValid.poke(true.B)
+      dut.io.markCommitIndex.poke(0.U)
+      dut.io.markCommitAccepted.expect(false.B)
+      dut.io.commitFreeMaskValid.poke(true.B)
+      dut.io.commitFreeMask.poke(1.U)
+      dut.io.commitFreeAcceptedMask.expect(0.U)
+      dut.clock.step(2)
+      dut.io.residentCount.expect(1.U)
+
+      dut.io.reserve.valid.poke(false.B)
+      dut.io.markCommitValid.poke(false.B)
+      dut.io.commitFreeMaskValid.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
     }
   }
 }
