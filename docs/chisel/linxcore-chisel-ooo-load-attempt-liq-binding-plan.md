@@ -180,6 +180,9 @@ copying its state into another OOO queue:
 2. Bind canonical LIQ launch and attempt rebind events to speculative wakeup
    and cancel policy.  Launch/rebind must be qualified by the same row lease
    and attempt token; allocation is too early to publish a speculative wakeup.
+   **Implemented by I0.15c-b2a**: exact launch emits lane-qualified wakeup,
+   rebind/fault emit exact cancel, ordinary terminal data emits W1 bypass, and
+   same-lane cancel collisions serialize.
 3. Cut the three AGU lanes in `OooIexExecutionCluster` over to that bridge,
    join its recovery readiness into the existing common recovery fire, replace
    the three abstract memory request/response ports with canonical LSU ports,

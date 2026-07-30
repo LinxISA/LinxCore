@@ -40,11 +40,23 @@ LIQ and OOO sidecar to accept the same current-to-next attempt transition.
 Skipped generations, stale leases, producer mismatch, and terminal races fail
 closed in the two canonical owners.
 
+The scalar LSU reports an accepted physical attempt through
+`attemptLaunch={loadId,attempt}`. Only an exact resident sidecar match emits a
+`SpeculativeLoad` wakeup, on the original AGU lane, with the complete P/T/U
+destination and `OooIexLoadGeneration`. Allocation itself never wakes a
+consumer. An accepted rebind cancels the old generation on that lane; the next
+exact launch wakes the new generation.
+
 Canonical `ScalarLSULoadReturnEntry` completion is accepted only when its full
 row lease, attempt, producer, destination, and data/fault outcome match the
 sidecar. W2 backpressure retains that metadata until the same `result.fire`
 releases the canonical completion and sidecar. Fault results require zero data;
 ordinary data results carry no fault.
+An ordinary retained result also publishes lane-qualified W1 bypass. A fault
+publishes no bypass and emits its exact cancel only on terminal fire. If a
+fault and an unrelated rebind target the same physical load lane in one cycle,
+fault cancel wins and the rebind is held for the next cycle; neither cancel is
+merged or dropped.
 
 ## Recovery
 
@@ -71,14 +83,13 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexLoadTerminalMetadataSpec
 The IT uses unequal `LIQ=4`, `ROB=8`, `STQ=4`, and `LSID=40` geometry. It
 covers three-lane allocation, LIQ/sidecar atomicity, exact slot-wrap identity,
 terminal backpressure, ordinary data, precise fault, atomic rebind, stale
-completion rejection, common recovery fencing/kill, and generated SystemVerilog
-structure. The emitted graph must contain the allocation adapter and terminal
-metadata owner and must not contain `OooIexLoadUnit`.
+completion rejection, exact launch wakeup, replay/fault cancellation, same-lane
+cancel serialization, W1 bypass, common recovery fencing/kill, and generated
+SystemVerilog structure. The emitted graph must contain the allocation adapter
+and terminal metadata owner and must not contain `OooIexLoadUnit`.
 
 ## Remaining cutover gaps
 
-- connect canonical LIQ launch and attempt rebind events to exact speculative
-  wakeup/cancel policy;
 - instantiate this owner in `OooIexExecutionCluster` and join its recovery
   readiness with IQ/execution/STQ recovery;
 - connect `ScalarLSULoadPath` allocation, launch, return, and all three

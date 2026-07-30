@@ -31,11 +31,14 @@ accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
 and canonical LRET/W1/W2 completion releases metadata only on the same terminal
 fire. Recovery prepare now fences without consuming AGU producers, while only
 the common recovery fire applies the exact kill. The emitted graph contains no
-`OooIexLoadUnit`, but the production execution cluster still instantiates that
-migration owner: I0.15c-b2 must bind real LIQ launch/rebind events to exact
-speculative wakeup/cancel policy, cut the cluster over, connect all three
-canonical STQ-result paths, and delete the duplicate tracker. Attempt-qualified
-asynchronous returns, FSU/vector STD, cross-line split loads,
+`OooIexLoadUnit`. I0.15c-b2a now qualifies speculative wakeup only from the
+exact canonical LIQ launch attempt, emits old-generation cancel on exact
+rebind, fault cancel only on terminal fire, and lane-qualified W1 bypass on
+ordinary data. Same-lane fault/rebind cancel collision serializes without loss.
+The production execution cluster still instantiates the migration owner:
+I0.15c-b2b must cut the cluster over, connect all three canonical STQ-result
+paths, join recovery readiness, and delete the duplicate tracker.
+Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.

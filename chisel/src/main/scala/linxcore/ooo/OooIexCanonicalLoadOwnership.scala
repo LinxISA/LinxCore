@@ -55,9 +55,17 @@ class OooIexCanonicalLoadOwnershipIO(
   val rebind = Flipped(Decoupled(
     new OooIexLoadTerminalMetadataRebind(p, coreParams)))
   val liqRebind = Decoupled(new LoadAttemptRebind(lsu.liqEntries))
+  val attemptLaunch = Flipped(Valid(
+    new OooIexLoadAttemptLaunch))
 
   val completion = Flipped(Decoupled(completionType))
   val result = Decoupled(new OooIexLoadResult(p))
+  val speculativeWakeup = Output(Vec(laneCount,
+    Valid(new OooIexWakeup(p))))
+  val loadCancel = Output(Vec(laneCount,
+    Valid(new OooIexLoadCancel(p))))
+  val loadBypass = Output(Vec(laneCount,
+    Valid(new OooIexBypassCandidate(p))))
 
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
@@ -73,6 +81,9 @@ class OooIexCanonicalLoadOwnershipIO(
   val metadataAllocRejected = Output(Valid(
     new OooIexLoadTerminalMetadataReject(p, coreParams)))
   val metadataRebindRejected = Output(Valid(
+    new OooIexLoadTerminalMetadataReject(p, coreParams)))
+  val attemptLaunchAccepted = Output(Bool())
+  val attemptLaunchRejected = Output(Valid(
     new OooIexLoadTerminalMetadataReject(p, coreParams)))
   val completionRejected = Output(Valid(
     new OooIexLoadTerminalMetadataReject(p, coreParams)))
@@ -127,6 +138,7 @@ class OooIexCanonicalLoadOwnership(
   metadata.io.alloc.bits.attempt := adapter.io.alloc.bits.attempt
   metadata.io.alloc.bits.load := adapter.io.accepted.bits.load
   metadata.io.alloc.bits.request := adapter.io.accepted.bits.request
+  metadata.io.alloc.bits.lane := adapter.io.accepted.bits.lane
 
   io.allocAccepted := io.liqAlloc.fire && metadata.io.alloc.fire &&
     adapter.io.accepted.valid
@@ -148,6 +160,13 @@ class OooIexCanonicalLoadOwnership(
   io.rebind.ready := io.liqRebind.ready && metadata.io.rebind.ready
   io.rebindAccepted := io.rebind.fire && io.liqRebind.fire &&
     metadata.io.rebind.fire
+
+  metadata.io.attemptLaunch := io.attemptLaunch
+  io.attemptLaunchAccepted := metadata.io.attemptLaunchAccepted
+  io.attemptLaunchRejected := metadata.io.attemptLaunchRejected
+  io.speculativeWakeup := metadata.io.speculativeWakeup
+  io.loadCancel := metadata.io.loadCancel
+  io.loadBypass := metadata.io.loadBypass
 
   metadata.io.completion <> io.completion
   io.result <> metadata.io.result

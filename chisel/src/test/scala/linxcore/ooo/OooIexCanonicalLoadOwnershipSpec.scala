@@ -52,6 +52,9 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     dut.io.rebind.valid.poke(false.B)
     dut.io.rebind.bits.poke(0.U.asTypeOf(dut.io.rebind.bits))
     dut.io.liqRebind.ready.poke(false.B)
+    dut.io.attemptLaunch.valid.poke(false.B)
+    dut.io.attemptLaunch.bits.poke(
+      0.U.asTypeOf(dut.io.attemptLaunch.bits))
     dut.io.recoveryPrepare.valid.poke(false.B)
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
@@ -209,6 +212,41 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     attempt.generation.poke(generation.U)
   }
 
+  private def pokeAttempt(
+      attempt: linxcore.lsu.LoadAttemptIdentity,
+      ridSlot: Int,
+      generation: BigInt): Unit = {
+    attempt.poke(0.U.asTypeOf(attempt))
+    attempt.valid.poke(true.B)
+    attempt.producer.valid.poke(true.B)
+    attempt.producer.peId.poke(3.U)
+    attempt.producer.stid.poke(1.U)
+    attempt.producer.nativeBidValid.poke(true.B)
+    attempt.producer.nativeBid.poke((ridSlot + 4).U)
+    attempt.producer.brobGeneration.poke(9.U)
+    attempt.producer.ridSlot.poke(ridSlot.U)
+    attempt.producer.ridGeneration.poke(5.U)
+    attempt.producer.memberIndex.poke(1.U)
+    attempt.producer.residentGeneration.poke(11.U)
+    attempt.generation.poke(generation.U)
+  }
+
+  private def pokeLaunch(
+      dut: OooIexCanonicalLoadOwnership,
+      slot: Int,
+      wrap: Boolean,
+      ridSlot: Int,
+      generation: BigInt): Unit = {
+    dut.io.attemptLaunch.bits.poke(
+      0.U.asTypeOf(dut.io.attemptLaunch.bits))
+    dut.io.attemptLaunch.bits.loadId.valid.poke(true.B)
+    dut.io.attemptLaunch.bits.loadId.slot.poke(slot.U)
+    dut.io.attemptLaunch.bits.loadId.generation
+      .poke((if (wrap) 1 else 0).U)
+    pokeAttempt(dut.io.attemptLaunch.bits.attempt, ridSlot, generation)
+    dut.io.attemptLaunch.valid.poke(true.B)
+  }
+
   test("allocates canonical LIQ and terminal metadata on one atomic fire") {
     simulate(new OooIexCanonicalLoadOwnership(p, core)) { dut =>
       defaults(dut)
@@ -246,6 +284,10 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.valid.expect(true.B)
       dut.io.completion.ready.expect(false.B)
       dut.io.result.bits.data.expect(BigInt("1122334455667788", 16).U)
+      dut.io.loadBypass(2).valid.expect(true.B)
+      dut.io.loadBypass(2).bits.data
+        .expect(BigInt("1122334455667788", 16).U)
+      dut.io.loadCancel.foreach(_.valid.expect(false.B))
       dut.clock.step(2)
       dut.io.metadataOccupied.expect(1.U)
 
@@ -263,6 +305,36 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.valid.expect(true.B)
       dut.io.result.bits.faultValid.expect(true.B)
       dut.io.result.bits.data.expect(0.U)
+      dut.io.loadBypass.foreach(_.valid.expect(false.B))
+      dut.io.result.ready.poke(true.B)
+      dut.io.loadCancel(2).valid.expect(true.B)
+      dut.io.loadCancel(2).bits.load.generation.expect(faultGeneration.U)
+    }
+  }
+
+  test("qualifies speculative wakeup by exact LIQ launch attempt") {
+    simulate(new OooIexCanonicalLoadOwnership(p, core)) { dut =>
+      defaults(dut)
+      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 7)
+      val generation = accept(dut, lane = 2, slot = 2, wrap = true)
+
+      pokeLaunch(dut, slot = 2, wrap = true, ridSlot = 3,
+        generation = generation)
+      dut.io.attemptLaunchAccepted.expect(true.B)
+      dut.io.attemptLaunchRejected.valid.expect(false.B)
+      dut.io.speculativeWakeup(0).valid.expect(false.B)
+      dut.io.speculativeWakeup(1).valid.expect(false.B)
+      dut.io.speculativeWakeup(2).valid.expect(true.B)
+      dut.io.speculativeWakeup(2).bits.ptag.expect(33.U)
+      dut.io.speculativeWakeup(2).bits.load.generation.expect(generation.U)
+      dut.clock.step()
+
+      pokeLaunch(dut, slot = 2, wrap = true, ridSlot = 3,
+        generation = generation + 1)
+      dut.io.attemptLaunchAccepted.expect(false.B)
+      dut.io.attemptLaunchRejected.valid.expect(true.B)
+      dut.io.attemptLaunchRejected.bits.attemptExact.expect(false.B)
+      dut.io.speculativeWakeup.foreach(_.valid.expect(false.B))
     }
   }
 
@@ -293,6 +365,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.liqRebind.ready.poke(true.B)
       dut.io.rebind.ready.expect(true.B)
       dut.io.rebindAccepted.expect(true.B)
+      dut.io.loadCancel(2).valid.expect(true.B)
+      dut.io.loadCancel(2).bits.load.generation.expect(current.U)
       dut.clock.step()
       dut.io.rebind.valid.poke(false.B)
       dut.io.liqRebind.ready.poke(false.B)
@@ -305,6 +379,15 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       pokeCompletion(dut, slot = 2, wrap = true, ridSlot = 3,
         attemptGeneration = current + 1)
       dut.io.result.valid.expect(true.B)
+
+      dut.io.completion.valid.poke(false.B)
+      dut.io.result.ready.poke(false.B)
+      pokeLaunch(dut, slot = 2, wrap = true, ridSlot = 3,
+        generation = current + 1)
+      dut.io.attemptLaunchAccepted.expect(true.B)
+      dut.io.speculativeWakeup(2).valid.expect(true.B)
+      dut.io.speculativeWakeup(2).bits.load.generation
+        .expect((current + 1).U)
     }
   }
 
@@ -337,6 +420,43 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepare.valid.poke(false.B)
       dut.io.completion.valid.poke(false.B)
       dut.io.metadataEmpty.expect(true.B)
+    }
+  }
+
+  test("serializes fault and replay cancels that target one physical lane") {
+    simulate(new OooIexCanonicalLoadOwnership(p, core)) { dut =>
+      defaults(dut)
+      pokeRequest(dut, lane = 2, ridSlot = 2, lsid = 6)
+      val faultGeneration = accept(dut, lane = 2, slot = 1, wrap = false)
+      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 7)
+      val replayGeneration = accept(dut, lane = 2, slot = 2, wrap = false)
+
+      pokeCompletion(dut, slot = 1, wrap = false, ridSlot = 2,
+        attemptGeneration = faultGeneration, fault = true)
+      dut.io.result.ready.poke(true.B)
+
+      val rebind = dut.io.rebind.bits
+      rebind.loadId.valid.poke(true.B)
+      rebind.loadId.slot.poke(2.U)
+      rebind.loadId.generation.poke(0.U)
+      pokeLoadAttempt(rebind.currentLoad, rebind.currentAttempt,
+        ridSlot = 3, generation = replayGeneration)
+      pokeLoadAttempt(rebind.nextLoad, rebind.nextAttempt,
+        ridSlot = 3, generation = replayGeneration + 1)
+      dut.io.rebind.valid.poke(true.B)
+      dut.io.liqRebind.ready.poke(true.B)
+
+      dut.io.rebind.ready.expect(false.B)
+      dut.io.liqRebind.valid.expect(false.B)
+      dut.io.loadCancel(2).valid.expect(true.B)
+      dut.io.loadCancel(2).bits.load.generation.expect(faultGeneration.U)
+      dut.clock.step()
+
+      dut.io.completion.valid.poke(false.B)
+      dut.io.result.ready.poke(false.B)
+      dut.io.rebind.ready.expect(true.B)
+      dut.io.loadCancel(2).valid.expect(true.B)
+      dut.io.loadCancel(2).bits.load.generation.expect(replayGeneration.U)
     }
   }
 
