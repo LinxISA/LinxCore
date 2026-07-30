@@ -11,8 +11,9 @@ recovery are private connections. There is no pre-STQ address/data join owner
 and no external physical-index commit authority.
 
 The lower-level `OooIexExecutionPipeline` and `OooIexStoreStqFabric` remain
-independently testable. A production top should instantiate this wrapper rather
-than reconnect their store ports externally.
+independently testable. `OooO3IexStorePipeline` is the canonical upper owner;
+it instantiates this wrapper and closes O3 completion, recycle, recovery,
+PC-read, fast-result, and semantic store-commit connections.
 
 ## Store transaction ownership
 
@@ -79,8 +80,6 @@ serialized terminal free across recovery prepare.
 
 ## Remaining gaps
 
-- Connect `OooO3RenameCoordinator.storeCommit` directly to this wrapper in the
-  next canonical O3-to-IEX top composition.
 - Replace the typed test PMA producer with the physical translation/PMP/PMA
   result path and connect the uncached/device response fabric.
 - Add the physical store-data bank, forwarding/overlap checks, load violation

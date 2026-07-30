@@ -64,7 +64,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexPReadPorts == 6)
     assert(p.iexTReadPorts == 4)
     assert(p.iexUReadPorts == 4)
-    assert(p.iexPWritePorts == 4)
+    assert(p.iexPWritePorts == 5)
     assert(p.iexTWritePorts == 4)
     assert(p.iexUWritePorts == 4)
     assert(p.iexWakeupPorts == 8)

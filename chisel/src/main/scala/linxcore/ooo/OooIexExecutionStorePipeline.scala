@@ -43,6 +43,8 @@ class OooIexExecutionStorePipelineIO(
     Valid(UInt(p.pcWidth.W))))
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
   val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
+  val fastWriteback = Flipped(Decoupled(new OooFastResolveWriteback(p)))
+  val fastWakeup = Flipped(Decoupled(new OooIexWakeup(p)))
   val tClear = Flipped(Vec(p.tuAllocationWidth,
     Valid(new OooIexLocalFileKey(p))))
   val uClear = Flipped(Vec(p.tuAllocationWidth,
@@ -257,6 +259,8 @@ class OooIexExecutionStorePipeline(
   execution.io.pcReadResponses := io.pcReadResponses
   execution.io.pInit := io.pInit
   execution.io.pClear := io.pClear
+  execution.io.fastWriteback <> io.fastWriteback
+  execution.io.fastWakeup <> io.fastWakeup
   execution.io.tClear := io.tClear
   execution.io.uClear := io.uClear
 

@@ -15,8 +15,10 @@ class OooO3FastResolveIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.fastWriteback.ready.poke(true.B)
     dut.io.fastWakeup.ready.poke(true.B)
     dut.io.fastTrace.ready.poke(true.B)
-    dut.io.completion.valid.poke(false.B)
-    dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
+    dut.io.completions.foreach { completion =>
+      completion.valid.poke(false.B)
+      completion.bits.poke(0.U.asTypeOf(completion.bits))
+    }
     dut.io.nonFlushEvidence.valid.poke(false.B)
     dut.io.nonFlushEvidence.bits.poke(
       0.U.asTypeOf(dut.io.nonFlushEvidence.bits))

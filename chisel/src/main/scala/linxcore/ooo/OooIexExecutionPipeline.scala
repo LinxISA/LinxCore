@@ -34,6 +34,8 @@ class OooIexExecutionPipelineIO(
     Valid(UInt(p.pcWidth.W))))
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
   val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
+  val fastWriteback = Flipped(Decoupled(new OooFastResolveWriteback(p)))
+  val fastWakeup = Flipped(Decoupled(new OooIexWakeup(p)))
   val tClear = Flipped(Vec(p.tuAllocationWidth,
     Valid(new OooIexLocalFileKey(p))))
   val uClear = Flipped(Vec(p.tuAllocationWidth,
@@ -88,6 +90,13 @@ class OooIexExecutionPipeline(
     extends Module {
   val p = profile.params
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
+  private val fastPWritePort = terminalPorts
+  private val fastWakeupPort = p.iexWakeupPorts - 1
+  private val committedAndLoadWakeupPorts = terminalPorts + 3
+  require(p.iexPWritePorts > terminalPorts,
+    "production execution needs one dedicated fast-result P write port")
+  require(p.iexWakeupPorts > committedAndLoadWakeupPorts,
+    "production execution needs one dedicated fast-result wakeup port")
   val io = IO(new OooIexExecutionPipelineIO(p, requireStoreReservation))
 
   val issue = Module(new OooIexPipeline(profile, requireStoreReservation))
@@ -123,14 +132,27 @@ class OooIexExecutionPipeline(
   issue.io.loadCancel := execute.io.loadCancel
   io.loadCancel := execute.io.loadCancel
 
+  val fastResult = Module(new OooIexFastResultPort(p))
+  fastResult.io.writeback <> io.fastWriteback
+  fastResult.io.wakeup <> io.fastWakeup
+  fastResult.io.pWriteReady := issue.io.pWriteReady(fastPWritePort)
+  issue.io.wakeup(fastWakeupPort) := fastResult.io.issueWakeup
+
   for (port <- 0 until p.iexPWritePorts) {
     if (port < terminalPorts) {
       issue.io.pWrite(port).valid := execute.io.pWrite(port).valid
       issue.io.pWrite(port).bits := execute.io.pWrite(port).bits
       execute.io.pWrite(port).ready := issue.io.pWriteReady(port)
+    } else if (port == fastPWritePort) {
+      issue.io.pWrite(port) := fastResult.io.pWrite
     } else {
       issue.io.pWrite(port) := 0.U.asTypeOf(issue.io.pWrite(port))
     }
+  }
+
+  when(fastResult.io.accepted) {
+    assert(issue.io.pWriteFire(fastPWritePort),
+      "accepted fast result must mutate its exact PTag generation")
   }
   for (port <- 0 until p.iexTWritePorts) {
     if (port < terminalPorts) {

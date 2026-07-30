@@ -23,6 +23,13 @@ may roll back only through private same-STID cancel; a published tail may move
 back only through the grouped-ROB recovery plan and the common all-owner apply.
 Full LSID/LID/SID values are independent from RID, BID, LHQ, and STQ capacity.
 
+Execution completion is a retained vector boundary. Every physical terminal
+lane plus fast resolve may publish in the same cycle into
+`OooRobCompletionBuffer`; the buffer preserves lane/FIFO order and drains the
+current single-write grouped ROB without forcing completed producers to wait
+behind a one-result arbiter. The buffer joins the same global recovery
+prepare/apply transaction and compacts only exact surviving members.
+
 ## D3 identity and pointer domains
 
 The D3 reservation allocator owns four independent per-STID state domains:
@@ -98,6 +105,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
 bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
 bash tools/chisel/run_chisel_tests.sh --only OooMemoryOrderAllocator
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
+bash tools/chisel/run_chisel_tests.sh --only OooRobCompletionBuffer
 bash tools/chisel/build_chisel.sh
 ```
 

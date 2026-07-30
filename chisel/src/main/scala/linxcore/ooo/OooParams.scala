@@ -15,6 +15,7 @@ final case class OooParams(
     renameWidth: Int = 8,
     dispatchWidth: Int = 8,
     retireGroupWidth: Int = 4,
+    robCompletionBufferEntries: Int = 8,
     storeCommitBufferEntries: Int = 64,
     maxInstPerRobGroup: Int = 4,
     maxOrdinaryUopsPerGroup: Int = 12,
@@ -58,7 +59,7 @@ final case class OooParams(
     iexPReadPorts: Int = 6,
     iexTReadPorts: Int = 4,
     iexUReadPorts: Int = 4,
-    iexPWritePorts: Int = 4,
+    iexPWritePorts: Int = 5,
     iexTWritePorts: Int = 4,
     iexUWritePorts: Int = 4,
     iexWakeupPorts: Int = 8,
@@ -232,6 +233,9 @@ final case class OooParams(
     "the IEX boundary needs at least one load-cancel port")
   require(iexTerminalWidth > 0,
     "the IEX boundary needs at least one terminal publication lane")
+  require(isPowerOfTwo(robCompletionBufferEntries) &&
+    robCompletionBufferEntries >= robCompletionInputWidth,
+    "ROB completion buffer must be a power of two covering every same-cycle producer")
   require(isPowerOfTwo(iexLoadTrackEntries),
     "load tracking entries must be a positive power of two")
   require(loadGenerationWidth > 0,
@@ -253,6 +257,8 @@ final case class OooParams(
   require(lsidWidth >= 32, "full LSID must preserve at least 32 bits")
 
   def countWidth(maximum: Int): Int = math.max(1, log2Ceil(maximum + 1))
+  def robCompletionInputWidth: Int = iexTerminalWidth + 1
+  def robCompletionBufferCountWidth: Int = countWidth(robCompletionBufferEntries)
   def maxCommitStoreTokens: Int = retireGroupWidth * decodedUopWidth *
     maxMemoryRequestsPerInstruction
   def storeCommitBufferCountWidth: Int = countWidth(storeCommitBufferEntries)

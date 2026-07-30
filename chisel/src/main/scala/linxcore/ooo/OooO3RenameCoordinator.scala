@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, RRArbiter, Valid}
+import chisel3.util.{Decoupled, PopCount, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.lsu.STQRobCommitToken
 
@@ -28,7 +28,11 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val fastTerminalFire = Output(Bool())
   val fastS1Rejected = Valid(new OooFastResolveS1Reject(p))
 
-  val completion = Flipped(Decoupled(new OooRobMemberCompletion(p)))
+  val completions = Flipped(Vec(p.iexTerminalWidth,
+    Decoupled(new OooRobMemberCompletion(p))))
+  def completion = completions(0)
+  val completionBufferUsed = Output(UInt(p.robCompletionBufferCountWidth.W))
+  val completionBufferFree = Output(UInt(p.robCompletionBufferCountWidth.W))
   val nonFlushEvidence = Flipped(Decoupled(new OooRobNonFlushEvidence(p)))
   val interruptPending = Input(Vec(p.stidCount, Bool()))
   val nonFlushWindows = Output(Vec(p.stidCount, new NonFlushWindow(p)))
@@ -67,6 +71,8 @@ class OooO3RenameCoordinatorIO(val p: OooParams = OooParams()) extends Bundle {
   val pcRecoveryRejected = Valid(new OooPcRecoveryReject(p))
   val dispatchRecoveryRejected = Valid(new OooDispatchRecoveryReject(p))
   val fastRecoveryRejected = Valid(new OooFastResolveRecoveryReject(p))
+  val completionRecoveryRejected =
+    Valid(new OooRobCompletionBufferRecoveryReject(p))
   val memoryOrderPrepareRejected = Valid(new OooMemoryOrderPrepareReject(p))
   val memoryOrderRecoveryRejected =
     Valid(new OooMemoryOrderRecoveryReject(p))
@@ -155,6 +161,7 @@ class OooO3RenameCoordinator(
   val fast = Module(new OooFastResolve(p))
   val memoryOrder = Module(new OooMemoryOrderAllocator(p))
   val storeCommit = Module(new OooRobStoreCommitOwner(p))
+  val completionBuffer = Module(new OooRobCompletionBuffer(p))
 
   val preparedStid = o3.io.prepared.request.reservation.transaction.plan.stid
   val globalRecoveryState = RegInit(OooGlobalRecoveryState.Idle)
@@ -270,6 +277,8 @@ class OooO3RenameCoordinator(
   fast.io.recoveryPrepare.bits := residencyRecoveryPlan
   memoryOrder.io.recoveryPrepare.valid := prepareGlobalOwners
   memoryOrder.io.recoveryPrepare.bits := o3.io.recoveryPrepared
+  completionBuffer.io.recoveryPrepare.valid := prepareGlobalOwners
+  completionBuffer.io.recoveryPrepare.bits := residencyRecoveryPlan
   io.iexRecoveryPrepare.valid := prepareGlobalOwners
   io.iexRecoveryPrepare.bits := residencyRecoveryPlan
 
@@ -287,6 +296,7 @@ class OooO3RenameCoordinator(
   val allGlobalOwnersPrepared = prepareGlobalOwners &&
     dispatch.io.recoveryPrepareReady && fast.io.recoveryPrepareReady &&
     memoryOrder.io.recoveryPrepareReady &&
+    completionBuffer.io.recoveryPrepareReady &&
     iexRecoveryPreparedExact && renameRecoveryAuthorityExact &&
     renameRecoveryPrepared
   val globalRecoveryApply = allGlobalOwnersPrepared
@@ -294,13 +304,16 @@ class OooO3RenameCoordinator(
   dispatch.io.recoveryFire := globalRecoveryApply
   fast.io.recoveryFire := globalRecoveryApply
   memoryOrder.io.recoveryFire := globalRecoveryApply
+  completionBuffer.io.recoveryFire := globalRecoveryApply
   io.iexRecoveryFire := globalRecoveryApply
   io.recoveryApplied.valid := globalRecoveryApply
   io.recoveryApplied.bits := globalRecoveryRequest
   when(globalRecoveryApply) {
     assert(o3.io.recoveryApplied.valid && dispatch.io.recoveryPrepared.valid &&
       fast.io.recoveryPrepared.valid &&
-      memoryOrder.io.recoveryPrepared.valid && io.iexRecoveryPrepared.valid,
+      memoryOrder.io.recoveryPrepared.valid &&
+      completionBuffer.io.recoveryPrepared.valid &&
+      io.iexRecoveryPrepared.valid,
       "all lower and upper physical owners must share one recovery apply")
     assert(turetire.io.recoveryAuthorize.fire &&
       prename.io.recoveryAuthorize.fire && turename.io.recoveryAuthorize.fire,
@@ -317,6 +330,7 @@ class OooO3RenameCoordinator(
   val upperRecoveryRejected = turetire.io.recoveryRejected.valid ||
     dispatch.io.recoveryRejected.valid || fast.io.recoveryRejected.valid ||
     memoryOrder.io.recoveryRejected.valid ||
+    completionBuffer.io.recoveryRejected.valid ||
     io.iexRecoveryRejected.valid
   val anyGlobalRecoveryRejected = globalRecoveryActive &&
     (lowerRecoveryRejected || upperRecoveryRejected)
@@ -588,11 +602,13 @@ class OooO3RenameCoordinator(
       "O3 publication must publish the retained exact dispatch lease")
   }
 
-  val completionArbiter = Module(new RRArbiter(
-    new OooRobMemberCompletion(p), 2))
-  completionArbiter.io.in(0) <> io.completion
-  completionArbiter.io.in(1) <> fast.io.completion
-  o3.io.completion <> completionArbiter.io.out
+  for (lane <- 0 until p.iexTerminalWidth) {
+    completionBuffer.io.enqueues(lane) <> io.completions(lane)
+  }
+  completionBuffer.io.enqueues(p.iexTerminalWidth) <> fast.io.completion
+  o3.io.completion <> completionBuffer.io.dequeue
+  io.completionBufferUsed := completionBuffer.io.used
+  io.completionBufferFree := completionBuffer.io.free
 
   io.fastBoundary <> fast.io.boundary
   io.fastWriteback <> fast.io.writeback
@@ -717,6 +733,7 @@ class OooO3RenameCoordinator(
   io.pcRecoveryRejected := o3.io.pcRecoveryRejected
   io.dispatchRecoveryRejected := dispatch.io.recoveryRejected
   io.fastRecoveryRejected := fast.io.recoveryRejected
+  io.completionRecoveryRejected := completionBuffer.io.recoveryRejected
   io.memoryOrderPrepareRejected := memoryOrder.io.prepareRejected
   io.memoryOrderRecoveryRejected := memoryOrder.io.recoveryRejected
   io.memoryOrderNext := memoryOrder.io.next
