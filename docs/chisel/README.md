@@ -44,11 +44,12 @@ Current phase:
   B-SIDE owners, the final prediction join, fixed-width Instruction Buffer,
   and four-wide D1. A generated-RTL hot-cache gate proves sustained four-wide
   output; recorded natural CoreMark/Dhrystone evidence ran through the promoted
-  owner graph. A fresh 2026-07-30 `LinxCoreBenchmarkAutonomousTopSpec` gate is
-  currently red because newly added replay-LIQ LRET identity/fault fields are
-  not fully initialized in the legacy trace top; do not treat the recorded
-  workload manifests as current-head elaboration proof until that wiring is
-  repaired.
+  owner graph. The 2026-07-30 replay-LIQ LRET integration repair restores the
+  current-head `LinxCoreBenchmarkAutonomousTopSpec` gate to 15/15 and the live
+  trace-top gate to 44/44 by carrying the canonical LIQ row lease, exact load
+  attempt, and terminal data-or-fault result through the compatibility top.
+  This is elaboration/no-regression evidence for the hybrid workload graph;
+  it does not promote that graph to the final production owner.
   Four-row atomic D2/D3 admission, complete predictor policy, SoC PTW/L1I
   binding, and lower-memory error termination remain open.
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank

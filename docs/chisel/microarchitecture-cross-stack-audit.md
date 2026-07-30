@@ -53,12 +53,14 @@ The 2026-07-30 re-audit ran the three focused top-entry suites after a clean
 | --- | --- | --- |
 | `LinxCoreCompositionSpec` | 3/3 pass | The canonical IFU composition elaborates and preserves tagged line transport, B-F4 join, four-wide D1, backend validation, and canonical recovery. |
 | `LinxCoreTopSpec` | 3/3 pass | The reduced commit-ROB plus canonical ScalarLSU shell elaborates. |
-| `LinxCoreBenchmarkAutonomousTopSpec` | 12/15 pass; 3 elaboration failures | The current workload top does not elaborate. `LoadReplayReturnLretPayload` and the corresponding `LoadReplayReturnLretEntry` wire leave the new canonical load-id, attempt identity, and terminal-fault fields uninitialized in `LinxCoreFrontendFetchRfAluTraceTop.scala`. |
+| `LinxCoreBenchmarkAutonomousTopSpec` | 15/15 pass | The workload top elaborates after the replay-LIQ bridge carries the canonical LIQ row lease and exact attempt into LRET, then preserves the data-or-fault result in the retained entry. |
+| `LinxCoreFrontendFetchRfAluTraceTopSpec` | 44/44 pass | The full legacy live-top composition consumes the expanded LRET bundle without uninitialized fields. |
+| `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | pass; 3 rows, 0 mismatches | Current-head emitted RTL compiles under Verilator and matches the bounded reference stream. |
 
-The last result is the immediate P0 integration gap. It does not invalidate
-the recorded workload evidence at the older accepted revision, but it does
-invalidate any claim that current HEAD can reproduce those workloads without
-first repairing and revalidating the replay-LIQ LRET seam.
+The immediate LRET elaboration regression is closed. The repair is deliberately
+limited to migration safety: it preserves exact canonical identity through the
+hybrid workload graph but does not make the reduced trace backend a production
+owner. Natural frozen-ELF benchmark reruns remain a separate promotion gate.
 
 ### Maturity assessment
 
@@ -77,8 +79,8 @@ first repairing and revalidating the replay-LIQ LRET seam.
   reduced state paths are still the main architectural risk.
 - **Whole core: medium-low current-head maturity.** Natural CoreMark/Dhrystone are meaningful
   vertical evidence, but they currently validate a hybrid production/reduced
-  graph and the fresh autonomous-top elaboration gate is red. They must not be
-  reported as proof that the final production core top is closed.
+  graph. The autonomous top now elaborates and its bounded generated-RTL gate
+  passes; neither result proves that the final production core top is closed.
 
 ## Scope and acceptance boundary
 
