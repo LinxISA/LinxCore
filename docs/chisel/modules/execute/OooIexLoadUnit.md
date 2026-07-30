@@ -18,12 +18,13 @@ and the request/response boundary in
 `tools/LinxCoreModel/model/iex/pipe/agu_pipe.cpp::runE1Load`. Linx grouped ROB,
 P/T/U tags, generated recipes, and memory semantics remain authoritative.
 
-This is no longer the target production residency. I0.15c-a adds
-`OooIexLoadLiqAllocAdapter`; I0.15c-b will move request/miss/replay/return
-ownership into the existing canonical LIQ/MissQ/ResolveQ/LRET path and then
-delete this duplicated tracker. Until that cutover, the execution cluster
-continues to instantiate this module and must not also connect the same load
-to canonical LSU residency.
+This is no longer the target production residency. I0.15c-b1 adds
+`OooIexCanonicalLoadOwnership`, which already proves atomic canonical LIQ plus
+OOO-sidecar allocation/rebind/terminal ownership without instantiating this
+tracker. The execution cluster still instantiates this migration module until
+c-b2 binds real LIQ launch/rebind to speculative wakeup/cancel policy. The old
+tracker and its abstract memory ports must be deleted in that same cluster
+cutover packet; they must never receive a load also admitted to canonical LIQ.
 
 ## Tracking ownership
 

@@ -10,6 +10,14 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
+The active LSU priority is I0.15c-b production cutover. The c-b1 ownership
+bridge makes LIQ allocation, exact replay rebind, terminal metadata, and
+two-phase recovery atomic without introducing load lifecycle residency. The
+next c-b2 packet must connect canonical LIQ launch/rebind to speculative
+wakeup/cancel policy, replace the three `OooIexLoadUnit` instances in the
+execution cluster, and delete that migration owner only after replacement
+cluster IT is green.
+
 The active backend priority is OOO packet O8.3 physical closure. O7 global
 recovery and CTU reinsertion are packet-complete. O8.3e replaces the grouped
 ROB's full-window combinational recovery view with retained bounded find/build

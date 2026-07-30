@@ -168,6 +168,29 @@ criteria.
 - Add exact fault/exception terminal payload and prove data/fault are mutually
   exclusive.
 
+#### Cleanup and cutover sequence
+
+The duplicate `OooIexLoadUnit` tracker is removed by replacement, not by
+copying its state into another OOO queue:
+
+1. Add one non-resident production ownership bridge.  It must make canonical
+   LIQ allocation and OOO metadata-sidecar allocation one atomic ready/valid
+   transaction, retain no address/miss/replay/data state, and join only the
+   exact canonical `{loadId,attempt}` completion back to the OOO terminal.
+2. Bind canonical LIQ launch and attempt rebind events to speculative wakeup
+   and cancel policy.  Launch/rebind must be qualified by the same row lease
+   and attempt token; allocation is too early to publish a speculative wakeup.
+3. Cut the three AGU lanes in `OooIexExecutionCluster` over to that bridge,
+   join its recovery readiness into the existing common recovery fire, replace
+   the three abstract memory request/response ports with canonical LSU ports,
+   and then delete `OooIexLoadUnit` plus its migration-only tests/docs.
+
+Regression order is fixed: preserve the old load-unit and execution-cluster
+tests until the replacement IT covers hit, miss/rebind, fault, terminal
+backpressure, stale return, exact recovery kill, and three-lane fairness.  The
+old owner may be deleted only in the same packet that makes those replacement
+gates green; a second dormant load tracker is forbidden.
+
 ### I0.15d and later: close memory-response identity
 
 - E3/E4 launch tracking currently retains a LIQ index, while cache/refill and

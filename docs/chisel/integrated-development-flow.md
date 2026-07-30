@@ -24,22 +24,18 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15a production STQ-result ownership. I0.14's three
-replicated `STQLoadForwardingPipeline` ports still snapshot canonical
-`STQEntryBank` tags at E1 and read only generation-qualified `STQDataBank`
-payload at E3. I0.15a separates byte selection from the common E3/E4 result
-owner: `LoadForwardResultPipeline` consumes a typed selection, while
-`STQLoadForwardResultPipeline` consumes the canonical retained STQ response
-directly. `LoadSourceLineMerge` performs byte-exact partial L1D/SCB merge, and
-the STQ query now carries baseline valid-mask plus split source-return evidence.
-Selected data-not-ready stores enter ordinary E3/E4 replay classification;
-unknown older addresses, stale generation, missing/ambiguous full LSID, and
-cross-line/malformed queries take a separate retained hard-block boundary and
-cannot masquerade as cache misses. The next LSU packet must bind exact
-`OooIexLoadGeneration` values to canonical LIQ rows and make LIQ the sole
-wait/miss/relaunch owner before connecting the three production ports. It must
-also avoid duplicate retry or W1/W2 ownership between `OooIexLoadUnit` and
-`ScalarLSULoadPath`. FSU/vector STD, cross-line split loads,
+The latest LSU packet is I0.15c-b1 canonical load ownership composition.
+`OooIexCanonicalLoadOwnership` atomically joins the three-AGU LIQ allocation
+with the exact slot-plus-wrap terminal metadata sidecar; neither owner can
+accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
+and canonical LRET/W1/W2 completion releases metadata only on the same terminal
+fire. Recovery prepare now fences without consuming AGU producers, while only
+the common recovery fire applies the exact kill. The emitted graph contains no
+`OooIexLoadUnit`, but the production execution cluster still instantiates that
+migration owner: I0.15c-b2 must bind real LIQ launch/rebind events to exact
+speculative wakeup/cancel policy, cut the cluster over, connect all three
+canonical STQ-result paths, and delete the duplicate tracker. Attempt-qualified
+asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.

@@ -47,6 +47,7 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(
       0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryFence.poke(false.B)
     dut.io.flush.poke(false.B)
   }
 
@@ -286,6 +287,26 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
       pokeRequest(dut, lane = 1, ridSlot = 3, nativeBid = 5,
         firstLsid = 10, firstLoadId = 4, storeTail = 0)
       dut.io.alloc.bits.attempt.generation.expect(1.U)
+    }
+  }
+
+  test("holds every producer without mutation while recovery is preparing") {
+    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+      clear(dut)
+      pokeRequest(dut, lane = 0, ridSlot = 1, nativeBid = 2,
+        firstLsid = 1, firstLoadId = 1, storeTail = 0)
+      dut.io.alloc.ready.poke(true.B)
+      dut.io.recoveryFence.poke(true.B)
+
+      dut.io.alloc.valid.expect(false.B)
+      dut.io.agu(0).ready.expect(false.B)
+      dut.io.accepted.valid.expect(false.B)
+      dut.clock.step(2)
+
+      dut.io.recoveryFence.poke(false.B)
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.alloc.bits.attempt.generation.expect(1.U)
+      dut.io.agu(0).ready.expect(true.B)
     }
   }
 }
