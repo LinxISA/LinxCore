@@ -2,10 +2,128 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import chisel3.util.{Decoupled, Valid, log2Ceil}
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+
+class OooIexScalarLoadStorePathHarnessIO(
+    val p: OooParams,
+    val coreParams: CoreParams,
+    val stqEntries: Int) extends Bundle {
+  val external = new OooIexScalarLoadExternalIO(p, coreParams, stqEntries)
+  val agu = Flipped(Vec(3, Decoupled(new OooIexAguLoadRequest(p))))
+  val storeReserve = Flipped(Decoupled(new OooIexIssueRow(p)))
+  val storeAddress = Flipped(Vec(2,
+    Decoupled(new OooIexExecuteTransaction(p))))
+  val storeData = Flipped(Vec(2,
+    Decoupled(new OooIexExecuteTransaction(p))))
+  val result = Decoupled(new OooIexLoadResult(p))
+  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryPrepareReady = Output(Bool())
+  val recoveryRejected = Output(Bool())
+  val recoveryFire = Input(Bool())
+  val markCommitValid = Input(Bool())
+  val markCommitIndex = Input(UInt(log2Ceil(stqEntries).W))
+  val commitFreeMaskValid = Input(Bool())
+  val commitFreeMask = Input(UInt(stqEntries.W))
+
+  def rebind = external.rebind
+  def launch = external.launch
+  def pick = external.pick
+  def scbReturn = external.scbReturn
+  def replayWake = external.replayWake
+  def refill = external.refill
+  def missRequest = external.missRequest
+  def missResponse = external.missResponse
+  def resolveRetireValid = external.resolveRetireValid
+  def resolveRetireBid = external.resolveRetireBid
+  def resolveRetireLsId = external.resolveRetireLsId
+  def resolveRetireLsIdFullValid = external.resolveRetireLsIdFullValid
+  def resolveRetireLsIdFull = external.resolveRetireLsIdFull
+  def l1dEviction = external.l1dEviction
+  def scbSource = external.scbSource
+  def scbCacheUpdate = external.scbCacheUpdate
+  def scbLookupValid = external.scbLookupValid
+  def scbLookupLineAddr = external.scbLookupLineAddr
+  def scbGrantWriteValid = external.scbGrantWriteValid
+  def scbGrantWriteLineAddr = external.scbGrantWriteLineAddr
+  def robLookupValid = external.robLookupValid
+  def robLookupPeId = external.robLookupPeId
+  def robLookupStid = external.robLookupStid
+  def robLookupBid = external.robLookupBid
+  def robLookupLoadLsIdFullValid = external.robLookupLoadLsIdFullValid
+  def robLookupLoadLsIdFull = external.robLookupLoadLsIdFull
+  def robLookupAttempt = external.robLookupAttempt
+  def robRowValid = external.robRowValid
+  def robRowNeedFlush = external.robRowNeedFlush
+  def lsuRecoveryProjection = external.lsuRecoveryProjection
+  def hardFlush = external.hardFlush
+  def hardBlock = external.hardBlock
+  def mdbRecoveryReady = external.mdbRecoveryReady
+  def allocAccepted = external.allocAccepted
+  def liqOccupiedMask = external.liqOccupiedMask
+  def protocolError = external.protocolError
+}
+
+class OooIexScalarLoadStorePathHarness(
+    val p: OooParams,
+    val coreParams: CoreParams,
+    val stqEntries: Int) extends Module {
+  val io = IO(new OooIexScalarLoadStorePathHarnessIO(
+    p, coreParams, stqEntries))
+  val ownership = Module(new OooIexCanonicalLoadOwnership(
+    p, coreParams, laneCount = 3))
+  val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+  val path = Module(new OooIexScalarLoadStorePath(
+    p, coreParams, stqEntries))
+
+  ownership.io.agu <> io.agu
+  path.io.owner.liqAlloc <> ownership.io.liqAlloc
+  ownership.io.liqAllocLoadId := path.io.owner.liqAllocLoadId
+  ownership.io.rebind <> path.io.owner.rebind
+  path.io.owner.liqRebind <> ownership.io.liqRebind
+  ownership.io.attemptLaunch := path.io.owner.attemptLaunch
+  path.io.owner.attemptLaunchAccepted := ownership.io.attemptLaunchAccepted
+  ownership.io.completion <> path.io.owner.completion
+  io.result <> ownership.io.result
+
+  store.io.reserve <> io.storeReserve
+  store.io.storeAddress <> io.storeAddress
+  store.io.storeData <> io.storeData
+  store.io.loadCancel.foreach(_ := 0.U.asTypeOf(store.io.loadCancel.head))
+  for (lane <- 0 until 3) {
+    store.io.loadCancel(lane) := ownership.io.loadCancel(lane)
+  }
+  path.io.store.forwardQuery <> store.io.loadForwardQuery
+  store.io.loadForwardResponse <> path.io.store.forwardResponse
+  path.io.store.rows := store.io.rows
+  path.io.store.lateStaProbe := store.io.lateStaProbe
+  path.io.store.lateStaCandidate := store.io.lateStaCandidate
+  store.io.lateStaPermit := path.io.store.lateStaPermit
+  path.io.store.occupiedMask := store.io.occupiedMask
+  path.io.store.forwardingOccupied := store.io.loadForwardOccupied
+
+  path.io.external <> io.external
+  ownership.io.flush := io.external.hardFlush
+  path.io.recoveryPrepare := io.recoveryPrepare
+  ownership.io.recoveryPrepare := io.recoveryPrepare
+  store.io.recoveryPrepare := io.recoveryPrepare
+  io.recoveryPrepareReady := path.io.recoveryPrepareReady &&
+    ownership.io.recoveryPrepareReady && store.io.recoveryPrepareReady
+  io.recoveryRejected := path.io.recoveryRejected ||
+    ownership.io.recoveryRejected || store.io.recoveryRejected
+  val recoveryApply = io.recoveryFire && io.recoveryPrepareReady
+  path.io.recoveryFire := recoveryApply
+  ownership.io.recoveryFire := recoveryApply
+  store.io.recoveryFire := recoveryApply
+
+  store.io.markCommitValid := io.markCommitValid
+  store.io.markCommitIndex := io.markCommitIndex
+  store.io.commitFreeMaskValid := io.commitFreeMaskValid
+  store.io.commitFreeMask := io.commitFreeMask
+}
 
 class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   private val base = OooParams(
@@ -48,7 +166,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
       mapQDepth = 8))
   }
 
-  private def clear(dut: OooIexScalarLoadStorePath): Unit = {
+  private def clear(dut: OooIexScalarLoadStorePathHarness): Unit = {
     dut.io.agu.foreach { lane =>
       lane.valid.poke(false.B)
       lane.bits.poke(0.U.asTypeOf(lane.bits))
@@ -187,7 +305,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def pokeKillingRecovery(
-      dut: OooIexScalarLoadStorePath,
+      dut: OooIexScalarLoadStorePathHarness,
       projectionStid: Int = 1,
       projectionBid: Int = 5): Unit = {
     val plan = dut.io.recoveryPrepare.bits
@@ -232,7 +350,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("carries one AGU load through canonical LIQ and live STQ forwarding to W2") {
-    simulate(new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4)) { dut =>
+    simulate(new OooIexScalarLoadStorePathHarness(p, coreParams, stqEntries = 4)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -289,7 +407,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("holds all canonical load state during prepare and prunes only on common fire") {
-    simulate(new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4)) { dut =>
+    simulate(new OooIexScalarLoadStorePathHarness(p, coreParams, stqEntries = 4)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -325,7 +443,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects recovery while load state has advanced beyond LIQ-only residency") {
-    simulate(new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4)) { dut =>
+    simulate(new OooIexScalarLoadStorePathHarness(p, coreParams, stqEntries = 4)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -359,7 +477,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects a mismatched LSU recovery projection without mutation") {
-    simulate(new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4)) { dut =>
+    simulate(new OooIexScalarLoadStorePathHarness(p, coreParams, stqEntries = 4)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -379,7 +497,7 @@ class OooIexScalarLoadStorePathSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects a same-scope LSU projection whose LIQ kill decision disagrees") {
-    simulate(new OooIexScalarLoadStorePath(p, coreParams, stqEntries = 4)) { dut =>
+    simulate(new OooIexScalarLoadStorePathHarness(p, coreParams, stqEntries = 4)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()

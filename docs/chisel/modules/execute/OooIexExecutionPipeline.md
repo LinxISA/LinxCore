@@ -141,17 +141,13 @@ graph; O8/O9 must close that structural compile cost.
 
 ## Remaining gaps
 
-- Install `OooIexScalarLoadStorePath` behind this topology and remove the now
-  redundant externally propagated canonical-load/STQ seams without creating a
-  second load metadata or store owner.
 - Connect exact ROB/SCB commit control, store-data banking, forwarding/replay,
   translation, L1D/coherence, and fault publication around the canonical STQ.
 - Implement internal multicycle ALU/divide, system, pointer-authentication,
   floating/vector, and engine-command owners instead of leaving retained
   integration boundaries.
-- Connect the propagated canonical load port to live `ScalarLSULoadPath`, all
-  three STQ forward-result pipes, and the scalar LSU recovery owner, including
-  sidedoor/reissue and physical arbitration loss.
+- Connect sidedoor/reissue and physical memory arbitration-loss policy around
+  the now-installed scalar load port.
 - Replace cluster-local terminal modulo assignment only if synthesis shows a
   materially better fixed port map; do not introduce a global all-to-all
   result crossbar without measured timing evidence.

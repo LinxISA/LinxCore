@@ -143,6 +143,7 @@ class OooIexExecutionCluster(
   load.io.rebind <> io.load.rebind
   io.load.liqRebind <> load.io.liqRebind
   load.io.attemptLaunch := io.load.attemptLaunch
+  io.load.attemptLaunchAccepted := load.io.attemptLaunchAccepted
   load.io.completion <> io.load.completion
   for (index <- 0 until loadCount) {
     terminal.io.load(index).valid := load.io.result.valid &&

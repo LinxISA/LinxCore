@@ -335,6 +335,8 @@ class ReducedLoadReplayLiqAllocPath(
 
   liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
   liq.io.launchIndex := launchSelect.io.launchIndex
+  liq.io.launchIntentValid := io.launchEnable && launchSelect.io.launchValid
+  liq.io.launchIntentIndex := launchSelect.io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
   liq.io.scbReturnValid := io.scbReturnValid

@@ -2,11 +2,12 @@
 
 ## Purpose
 
-`OooIexScalarLoadStorePath` is the production scalar load/store subgraph that
-closes the live boundary between one `OooIexCanonicalLoadOwnership`, one
-`ScalarLSULoadPath(useExternalStqForwarding=true)`, and one
-`OooIexStoreStqFabric`. It does not add another request, replay, forwarding,
-return, or store queue.
+`OooIexScalarLoadStorePath` is the production scalar-load attachment installed
+between the existing `OooIexCanonicalLoadOwnership` and the existing
+`OooIexStoreStqFabric`. It owns one
+`ScalarLSULoadPath(useExternalStqForwarding=true)`—and therefore the one live
+LIQ/L1D/MDB/LRET graph—but deliberately owns neither another OOO metadata
+sidecar nor another STQ.
 
 Source and test owners:
 
@@ -15,7 +16,8 @@ Source and test owners:
 
 ## Closed data path
 
-The wrapper makes the following connections private and atomic:
+`OooIexExecutionStorePipeline` makes the following connections private and
+atomic through this attachment:
 
 - three retained AGU lanes allocate one canonical LIQ row and one exact OOO
   terminal-metadata row on the same fire;
@@ -28,10 +30,10 @@ The wrapper makes the following connections private and atomic:
 - the full ROB lookup key is exported before `robRowValid/robRowNeedFlush` is
   consumed: PE/STID/TID, BID/GID/RID, full LSID, and load-attempt identity.
 
-The normal path therefore has one LIQ, one STQ, one forwarding-result owner,
-and one terminal metadata owner. Structural uncertainty is kept on the typed
-retained `hardBlock` output. The wrapper does not silently reinterpret it as a
-cache miss or discard it.
+The installed production path therefore has one LIQ, one STQ, one
+forwarding-result owner, and one terminal metadata owner. Structural
+uncertainty is kept on the typed retained `hardBlock` output. The attachment
+does not silently reinterpret it as a cache miss or discard it.
 
 ## Store/MDB acceptance
 
@@ -43,9 +45,9 @@ MDB, uses `probeReady` as the permit, and asserts `probeCommit` only on the same
 accepted STQ fill. A blocked MDB therefore holds the address transaction in
 the store pipeline; no accepted STQ address can lose its conflict side effect.
 
-The candidate/permit boundary also propagates through
-`OooIexExecutionStorePipeline` and `OooO3IexStorePipeline` so an outer
-composition cannot mistake the post-accept pulse for a capacity request.
+The candidate/permit boundary is now private inside
+`OooIexExecutionStorePipeline`; neither the O3 wrapper nor another outer
+composition can bypass MDB admission or create a second forwarding owner.
 
 ## Recovery
 
@@ -63,13 +65,13 @@ ResolveQ, MDB transient state, LRET, refill, and forward transport, prepare is
 also rejected unless two consecutive prepared snapshots show all of those
 non-LIQ owners empty. The prepared authorization is retained, and both native
 views must remain bit-stable until fire. A mismatched or unsupported projection
-is rejected without mutation. Only one externally authorized common fire
-applies the OOO plan and LSU projection.
+is rejected without mutation. Only the execution/store wrapper's three-way
+recovery join may fire the execution metadata/IQ owner, STQ owner, and this
+LIQ/MDB/LRET owner together.
 
 The final global recovery adapter must derive and prove the projection across
 every LSU queue and the physical BID/BROB authority before removing this
-fail-closed empty-state restriction or installing the subgraph in the full O3
-top.
+fail-closed empty-state restriction.
 
 ## Reference evidence
 
@@ -94,6 +96,8 @@ grouped ROB member, P/T/U, and precise-recovery contracts remain authoritative.
 bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePathSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipelineSpec
+bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipelineSpec
 bash tools/chisel/build_chisel.sh
 ```
 
@@ -108,8 +112,6 @@ proves a presented but uncommitted candidate may wait without protocol error.
 
 ## Remaining gaps
 
-- Install this subgraph behind the existing execution cluster without creating
-  a second `OooIexCanonicalLoadOwnership` or `OooIexStoreStqFabric`.
 - Define the retained structural `hardBlock` retry/cancel/recovery policy.
 - Replace the checked native-BID projection with the final shared BID/BROB age
   adapter and extend recovery equivalence to all LSU queues.

@@ -215,7 +215,14 @@ class OooIexExecutionPipeline(
   io.engineCommand.bits := execute.io.engineCommand.bits
   execute.io.engineCommand.ready := io.engineCommand.ready
 
-  io.load <> execute.io.load
+  io.load.liqAlloc <> execute.io.load.liqAlloc
+  execute.io.load.liqAllocLoadId := io.load.liqAllocLoadId
+  execute.io.load.rebind <> io.load.rebind
+  io.load.liqRebind <> execute.io.load.liqRebind
+  execute.io.load.attemptLaunch := io.load.attemptLaunch
+  io.load.attemptLaunchAccepted :=
+    execute.io.load.attemptLaunchAccepted
+  execute.io.load.completion <> io.load.completion
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane).valid := execute.io.bctrl(lane).valid
     io.bctrl(lane).bits := execute.io.bctrl(lane).bits

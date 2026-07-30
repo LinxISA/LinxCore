@@ -425,7 +425,8 @@ class ScalarLSULoadPath(
     val coreParams: CoreParams = CoreParams(),
     val useExternalStqForwarding: Boolean = false,
     val stqForwardRobEntries: Int = 128,
-    val stqForwardTokenWidth: Int = 64) extends Module {
+    val stqForwardTokenWidth: Int = 64,
+    val useExternalLaunchPermit: Boolean = false) extends Module {
   private val p = coreParams.scalarLsu
   private val forwardResultDepth = p.loadReturnPipeCount + 2
   require(p.resolveQueueEntries >= 4,
@@ -448,6 +449,8 @@ class ScalarLSULoadPath(
   }
 
   val io = IO(new ScalarLSULoadPathIO(coreParams, p))
+  val launchPermit = if (useExternalLaunchPermit)
+    Some(IO(Input(Bool()))) else None
   val scbCache = IO(new ScalarL1DStorePortIO(p))
   val mdbStore = IO(new ScalarLSULoadPathStoreIO(coreParams, p))
   val recovery = IO(new ScalarLSULoadPathRecoveryIO(coreParams, p))
@@ -628,7 +631,8 @@ class ScalarLSULoadPath(
   }
   val launchForwardReady = WireDefault(true.B)
   val launchAdmissionValid =
-    io.launchValid && resolveCreditSafe && launchReturnCreditSafe &&
+    io.launchValid && launchPermit.getOrElse(true.B) &&
+      resolveCreditSafe && launchReturnCreditSafe &&
       launchMissCreditSafe && l1d.io.arrayReady && !launchRow.isTile
   if (useExternalStqForwarding) {
     val queryQueues = forwardQueryQueues.get
@@ -639,6 +643,8 @@ class ScalarLSULoadPath(
   }
   liq.io.launchValid := launchAdmissionValid && launchForwardReady
   liq.io.launchIndex := io.launchIndex
+  liq.io.launchIntentValid := io.launchValid
+  liq.io.launchIntentIndex := io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
   liq.io.scbReturnValid := io.scbReturnValid

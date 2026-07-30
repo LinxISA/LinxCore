@@ -32,7 +32,7 @@ class OooIexExecutionPipelineSpec extends AnyFunSuite {
     tuMapQDepthPerStid = 4,
     tuRetireSourceDepthPerStid = 16)
 
-  test("elaborates the formal fourteen-lane S1-to-W2 plus canonical STQ composition") {
+  test("installs one scalar load-store path without duplicating load or STQ ownership") {
     val profile = OooIexLinxPhysicalProfile(base)
     val systemVerilog = ChiselStage.emitSystemVerilog(
       new OooIexExecutionStorePipeline(profile, stqEntries = 4))
@@ -42,9 +42,15 @@ class OooIexExecutionPipelineSpec extends AnyFunSuite {
     assert(profile.params.iexTerminalWidth == 2)
     assert(systemVerilog.contains("module OooIexExecutionStorePipeline"))
     assert(systemVerilog.contains("OooIexExecutionPipeline execution"))
+    assert(systemVerilog.contains(
+      "OooIexScalarLoadStorePath scalarLoadStore"))
     assert(systemVerilog.contains("OooIexStoreStqFabric store"))
     assert(systemVerilog.contains("STQSCBCommitBackend storeCommit"))
     assert(systemVerilog.contains("OooIexPipeline issue"))
     assert(systemVerilog.contains("OooIexExecutionCluster execute"))
+    assert("OooIexCanonicalLoadOwnership load".r
+      .findAllMatchIn(systemVerilog).length == 1)
+    assert("OooIexStoreStqFabric store".r
+      .findAllMatchIn(systemVerilog).length == 1)
   }
 }

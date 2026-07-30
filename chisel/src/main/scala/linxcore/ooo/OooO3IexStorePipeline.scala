@@ -3,8 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 import linxcore.common.CoreParams
-import linxcore.lsu.{MDBConflictStoreProbe, STQLoadForwardQuery,
-  STQLoadForwardResponse, STQMemoryClassifyToken, STQSerializedStoreRequest,
+import linxcore.lsu.{STQMemoryClassifyToken, STQSerializedStoreRequest,
   STQSerializedStoreResponse}
 
 /** External production boundary around the retained O3, issue/execute, and
@@ -48,27 +47,10 @@ class OooO3IexStorePipelineIO(
   val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-  val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
-    new STQLoadForwardQuery(
-      p.robGroupsPerStid, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
-  val stqLoadForwardResponse = Vec(3, Decoupled(
-    new STQLoadForwardResponse(
-      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
-  val stqLoadForwardOccupied = Output(UInt(3.W))
-  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
-    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
-    sizeWidth = 7, lsidWidth = p.lsidWidth)))
-  val lateStaCandidate = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
-    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
-    sizeWidth = 7, lsidWidth = p.lsidWidth)))
-  val lateStaPermit = Input(Bool())
+  val scalarLoad = new OooIexScalarLoadExternalIO(
+    p, coreParams, stqEntries)
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
@@ -211,14 +193,8 @@ class OooO3IexStorePipeline(
   }
   io.floatingVector <> iex.io.floatingVector
   io.engineCommand <> iex.io.engineCommand
-  io.load <> iex.io.load
+  io.scalarLoad <> iex.io.scalarLoad
   io.loadCancel := iex.io.loadCancel
-  iex.io.stqLoadForwardQuery <> io.stqLoadForwardQuery
-  io.stqLoadForwardResponse <> iex.io.stqLoadForwardResponse
-  io.stqLoadForwardOccupied := iex.io.stqLoadForwardOccupied
-  io.lateStaProbe := iex.io.lateStaProbe
-  io.lateStaCandidate := iex.io.lateStaCandidate
-  iex.io.lateStaPermit := io.lateStaPermit
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> iex.io.bctrl(lane)
     io.trace(lane) <> iex.io.trace(lane)

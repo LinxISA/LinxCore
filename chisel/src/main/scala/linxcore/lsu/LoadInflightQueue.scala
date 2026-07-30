@@ -242,6 +242,11 @@ class LoadInflightQueueIO(
 
   val launchValid = Input(Bool())
   val launchIndex = Input(UInt(liqPtrWidth.W))
+  // Raw launch intent is kept separate from the credit-qualified launch
+  // request.  Replay rebind arbitration must conservatively exclude a
+  // same-row launch without depending on downstream return-path readiness.
+  val launchIntentValid = Input(Bool())
+  val launchIntentIndex = Input(UInt(liqPtrWidth.W))
   val launchReady = Output(Bool())
   val launchAccepted = Output(Bool())
 
@@ -664,7 +669,8 @@ class LoadInflightQueue(
       (attemptRebindRow.status === LoadInflightStatus.L1DcMiss) ||
       (attemptRebindRow.status === LoadInflightStatus.L2Wait)
   val attemptRebindLaunchConflict =
-    (launchAccepted && (io.launchIndex === io.attemptRebind.loadId.value)) ||
+    (io.launchIntentValid &&
+      (io.launchIntentIndex === io.attemptRebind.loadId.value)) ||
       (pickAccepted && (io.pickIndex === io.attemptRebind.loadId.value))
   val attemptRebindReady =
     !flushCycle &&

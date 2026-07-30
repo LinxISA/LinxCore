@@ -83,6 +83,8 @@ class LoadAttemptBindingHarness(
   liq.io.attemptRebind := io.rebind
   liq.io.launchValid := io.launchValid
   liq.io.launchIndex := 0.U
+  liq.io.launchIntentValid := io.launchValid
+  liq.io.launchIntentIndex := 0.U
   liq.io.pickValid := false.B
   liq.io.pickIndex := 0.U
   liq.io.scbReturnValid := false.B

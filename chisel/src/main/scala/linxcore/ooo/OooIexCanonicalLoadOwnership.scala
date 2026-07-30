@@ -13,17 +13,21 @@ object OooIexCanonicalLoadOwnership {
     require(p.nativeBidWidth <= 16,
       "default canonical LSU projection supports native BID up to 16 bits")
     val bidProjectionEntries = 1 << (p.nativeBidWidth - 1)
+    val robEntries = math.max(p.robGroupsPerStid, bidProjectionEntries)
+    val defaultLiqEntries = ScalarLsuParams().liqEntries
+    val scalarLsu = ScalarLsuParams(
+      stidCount = p.stidCount,
+      liqEntries = math.min(defaultLiqEntries, robEntries),
+      loadReturnPipeCount = 3,
+      peIdWidth = math.max(8, p.peIdWidth),
+      stidWidth = math.max(8, p.stidWidth),
+      tidWidth = math.max(8, p.stidWidth),
+      archRegWidth = math.max(6, p.archRegWidth),
+      physRegWidth = math.max(7, p.pTagWidth))
     CoreParams(
-      robEntries = math.max(p.robGroupsPerStid, bidProjectionEntries),
+      robEntries = robEntries,
       lsidWidth = p.lsidWidth,
-      scalarLsu = ScalarLsuParams(
-        stidCount = p.stidCount,
-        loadReturnPipeCount = 3,
-        peIdWidth = math.max(8, p.peIdWidth),
-        stidWidth = math.max(8, p.stidWidth),
-        tidWidth = math.max(8, p.stidWidth),
-        archRegWidth = math.max(6, p.archRegWidth),
-        physRegWidth = math.max(7, p.pTagWidth)))
+      scalarLsu = scalarLsu)
   }
 }
 
@@ -50,6 +54,7 @@ class OooIexCanonicalLoadPortIO(
     new OooIexLoadTerminalMetadataRebind(p, coreParams)))
   val liqRebind = Decoupled(new LoadAttemptRebind(lsu.liqEntries))
   val attemptLaunch = Flipped(Valid(new OooIexLoadAttemptLaunch))
+  val attemptLaunchAccepted = Output(Bool())
   val completion = Flipped(Decoupled(completionType))
 }
 
