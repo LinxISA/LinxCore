@@ -83,6 +83,8 @@ class ScalarLSULoadForwardIntegrationHarness extends Module {
   path.io.alloc.youngestStoreLsId := ROBID.disabled(8)
   path.io.attemptRebindValid := false.B
   path.io.attemptRebind := 0.U.asTypeOf(path.io.attemptRebind)
+  path.io.structuralRetryValid := false.B
+  path.io.structuralRetry := 0.U.asTypeOf(path.io.structuralRetry)
   path.io.launchValid := io.launchValid
   path.io.launchIndex := 0.U
   path.io.pickValid := false.B

@@ -188,6 +188,8 @@ class OooIexScalarLoadStorePath(
   loadPath.io.attemptRebindValid := io.owner.liqRebind.valid
   loadPath.io.attemptRebind := io.owner.liqRebind.bits
   io.owner.liqRebind.ready := loadPath.io.attemptRebindReady
+  loadPath.io.structuralRetryValid := false.B
+  loadPath.io.structuralRetry := 0.U.asTypeOf(loadPath.io.structuralRetry)
 
   val launchRow = loadPath.io.liqRows(io.external.launch.bits)
   io.owner.attemptLaunch.valid := io.external.launch.valid &&

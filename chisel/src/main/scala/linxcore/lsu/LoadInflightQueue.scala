@@ -240,6 +240,19 @@ class LoadInflightQueueIO(
   val attemptRebindBlockedByStaleAttempt = Output(Bool())
   val attemptRebindBlockedByNextAttempt = Output(Bool())
 
+  val structuralRetryValid = Input(Bool())
+  val structuralRetry = Input(new LoadStructuralBlockRetry(
+    idEntries, storeEntries, pcWidth, lsidWidth))
+  val structuralRetryReady = Output(Bool())
+  val structuralRetryAccepted = Output(Bool())
+  val structuralRetryBlockedByLoadId = Output(Bool())
+  val structuralRetryBlockedByAttempt = Output(Bool())
+  val structuralRetryBlockedByNextAttempt = Output(Bool())
+  val structuralRetryBlockedByPipe = Output(Bool())
+  val structuralRetryBlockedByLifecycle = Output(Bool())
+  val structuralRetryBlockedByWaitStore = Output(Bool())
+  val structuralRetryBlockedByMutation = Output(Bool())
+
   val launchValid = Input(Bool())
   val launchIndex = Input(UInt(liqPtrWidth.W))
   // Raw launch intent is kept separate from the credit-qualified launch
@@ -757,6 +770,69 @@ class LoadInflightQueue(
         (selectedForwardResult.missKind ===
           LoadForwardMissKind.ReturnPortBlocked))
 
+  val structuralRetryLoadIdWellFormed =
+    io.structuralRetry.loadId.valid &&
+      LoadCanonicalRowIdentity.wellFormed(
+        io.structuralRetry.loadId, liqEntries)
+  val structuralRetryIndex =
+    io.structuralRetry.loadId.slot(liqPtrWidth - 1, 0)
+  val structuralRetryRow = rows(structuralRetryIndex)
+  val structuralRetryLoadIdExact = structuralRetryLoadIdWellFormed &&
+    structuralRetryRow.valid && LoadCanonicalRowIdentity.equal(
+      io.structuralRetry.loadId,
+      LoadCanonicalRowIdentity.fromRobId(structuralRetryRow.loadId))
+  val structuralRetryAttemptExact =
+    io.structuralRetry.current.valid &&
+      LoadAttemptIdentity.wellFormed(io.structuralRetry.current) &&
+      structuralRetryRow.attempt.valid &&
+      LoadAttemptIdentity.equal(
+        io.structuralRetry.current, structuralRetryRow.attempt)
+  val structuralRetryNextExact =
+    io.structuralRetry.next.valid &&
+      LoadAttemptIdentity.wellFormed(io.structuralRetry.next) &&
+      (io.structuralRetry.next.producer.asUInt ===
+        io.structuralRetry.current.producer.asUInt) &&
+      (io.structuralRetry.next.generation ===
+        (io.structuralRetry.current.generation +% 1.U))
+  val structuralRetryPipeExact =
+    io.structuralRetry.returnPipeIndex ===
+      structuralRetryRow.returnPipeIndex
+  val structuralRetryLifecycleExact =
+    structuralRetryRow.valid &&
+      (structuralRetryRow.status === LoadInflightStatus.Repick) &&
+      structuralRetryRow.forwardPending
+  val structuralRetryWaitStoreExact = Mux(
+    io.structuralRetry.waitStore,
+    io.structuralRetry.waitStoreInfo.valid &&
+      io.structuralRetry.waitStoreInfo.storeId.valid &&
+      io.structuralRetry.waitStoreInfo.storeLsId.valid &&
+      io.structuralRetry.waitStoreInfo.storeLsIdFullValid,
+    !io.structuralRetry.waitStoreInfo.valid)
+  val structuralRetryMutationConflict =
+    (attemptRebindAccepted &&
+      (io.attemptRebind.loadId.value === structuralRetryIndex)) ||
+      (launchAccepted && (io.launchIndex === structuralRetryIndex)) ||
+      (pickAccepted && (io.pickIndex === structuralRetryIndex)) ||
+      (scbReturnAccepted && (io.scbReturnIndex === structuralRetryIndex)) ||
+      (markResolvedAccepted &&
+        (io.markResolvedIndex === structuralRetryIndex)) ||
+      (clearResolvedAccepted &&
+        (io.clearResolvedIndex === structuralRetryIndex)) ||
+      (io.rowMutationValid &&
+        (io.rowMutationTargetIndex === structuralRetryIndex)) ||
+      (io.replayWakeValid &&
+        (replayWakeup.io.waitStoreClearMask(structuralRetryIndex) ||
+          replayWakeup.io.mergeMask(structuralRetryIndex))) ||
+      (io.refillValid && refillWakeup.io.wakeMask(structuralRetryIndex)) ||
+      (e4UpdateValid && (forwardResultIndex === structuralRetryIndex))
+  val structuralRetryReady = !flushCycle &&
+    structuralRetryLoadIdExact && structuralRetryAttemptExact &&
+    structuralRetryNextExact && structuralRetryPipeExact &&
+    structuralRetryLifecycleExact && structuralRetryWaitStoreExact &&
+    !structuralRetryMutationConflict
+  val structuralRetryAccepted =
+    io.structuralRetryValid && structuralRetryReady
+
   val externalForwardResultActive =
     useExternalForwardResult.B && io.forwardResultValid
   val forwardResultRetryByRecovery = externalForwardResultActive &&
@@ -1109,6 +1185,29 @@ class LoadInflightQueue(
       rows(io.attemptRebind.loadId.value).attempt := io.attemptRebind.next
     }
 
+    when(structuralRetryAccepted) {
+      rows(structuralRetryIndex).status := LoadInflightStatus.Wait
+      rows(structuralRetryIndex).attempt := io.structuralRetry.next
+      rows(structuralRetryIndex).forwardPending := false.B
+      rows(structuralRetryIndex).lineData := 0.U
+      rows(structuralRetryIndex).validMask := 0.U
+      rows(structuralRetryIndex).loadByteMask := 0.U
+      rows(structuralRetryIndex).forwardMask := 0.U
+      rows(structuralRetryIndex).waitMask := 0.U
+      rows(structuralRetryIndex).waitStore := io.structuralRetry.waitStore
+      rows(structuralRetryIndex).waitStoreInfo :=
+        Mux(io.structuralRetry.waitStore,
+          io.structuralRetry.waitStoreInfo, zeroWait)
+      rows(structuralRetryIndex).storeBypass := false.B
+      rows(structuralRetryIndex).dataComplete := false.B
+      rows(structuralRetryIndex).sourcesReturned := false.B
+      rows(structuralRetryIndex).scbReturned := false.B
+      rows(structuralRetryIndex).stqReturned := false.B
+      rows(structuralRetryIndex).l1Hit := false.B
+      rows(structuralRetryIndex).l1Miss := false.B
+      rows(structuralRetryIndex).missKind := LoadForwardMissKind.NoMiss
+    }
+
     residentCount := residentCount + allocAccepted.asUInt - clearResolvedAccepted.asUInt
 
     when(io.preciseFlush.req.valid) {
@@ -1188,6 +1287,34 @@ class LoadInflightQueue(
     io.attemptRebindValid && !flushCycle && attemptRebindRow.valid &&
       attemptRebindLoadIdValid && attemptRebindLifecycleReady &&
       !attemptRebindLaunchConflict && attemptRebindCurrentExact && !attemptRebindNextExact
+  io.structuralRetryReady := structuralRetryReady
+  io.structuralRetryAccepted := structuralRetryAccepted
+  io.structuralRetryBlockedByLoadId := io.structuralRetryValid &&
+    !flushCycle && !structuralRetryLoadIdExact
+  io.structuralRetryBlockedByAttempt := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    !structuralRetryAttemptExact
+  io.structuralRetryBlockedByNextAttempt := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    structuralRetryAttemptExact && !structuralRetryNextExact
+  io.structuralRetryBlockedByPipe := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    structuralRetryAttemptExact && structuralRetryNextExact &&
+    !structuralRetryPipeExact
+  io.structuralRetryBlockedByLifecycle := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    structuralRetryAttemptExact && structuralRetryNextExact &&
+    structuralRetryPipeExact && !structuralRetryLifecycleExact
+  io.structuralRetryBlockedByWaitStore := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    structuralRetryAttemptExact && structuralRetryNextExact &&
+    structuralRetryPipeExact && structuralRetryLifecycleExact &&
+    !structuralRetryWaitStoreExact
+  io.structuralRetryBlockedByMutation := io.structuralRetryValid &&
+    !flushCycle && structuralRetryLoadIdExact &&
+    structuralRetryAttemptExact && structuralRetryNextExact &&
+    structuralRetryPipeExact && structuralRetryLifecycleExact &&
+    structuralRetryWaitStoreExact && structuralRetryMutationConflict
   io.launchReady := launchReady
   io.launchAccepted := launchAccepted
   io.pickReady := pickReady

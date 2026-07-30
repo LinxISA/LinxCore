@@ -176,6 +176,20 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val attemptRebindBlockedByStaleAttempt = Output(Bool())
   val attemptRebindBlockedByNextAttempt = Output(Bool())
 
+  val structuralRetryValid = Input(Bool())
+  val structuralRetry = Input(new LoadStructuralBlockRetry(
+    coreParams.robEntries, lsuParams.stqEntries, lsuParams.pcWidth,
+    coreParams.lsidWidth))
+  val structuralRetryReady = Output(Bool())
+  val structuralRetryAccepted = Output(Bool())
+  val structuralRetryBlockedByLoadId = Output(Bool())
+  val structuralRetryBlockedByAttempt = Output(Bool())
+  val structuralRetryBlockedByNextAttempt = Output(Bool())
+  val structuralRetryBlockedByPipe = Output(Bool())
+  val structuralRetryBlockedByLifecycle = Output(Bool())
+  val structuralRetryBlockedByWaitStore = Output(Bool())
+  val structuralRetryBlockedByMutation = Output(Bool())
+
   val launchValid = Input(Bool())
   val launchIndex = Input(UInt(liqPtrWidth.W))
   val launchReady = Output(Bool())
@@ -589,6 +603,8 @@ class ScalarLSULoadPath(
   liq.io.alloc := io.alloc
   liq.io.attemptRebindValid := io.attemptRebindValid
   liq.io.attemptRebind := io.attemptRebind
+  liq.io.structuralRetryValid := io.structuralRetryValid
+  liq.io.structuralRetry := io.structuralRetry
   val launchRow = liq.io.rows(io.launchIndex)
   private val lineOffsetWidth = log2Ceil(p.lineBytes)
   val launchBaseLineAddr =
@@ -1138,6 +1154,21 @@ class ScalarLSULoadPath(
   io.attemptRebindBlockedByLifecycle := liq.io.attemptRebindBlockedByLifecycle
   io.attemptRebindBlockedByStaleAttempt := liq.io.attemptRebindBlockedByStaleAttempt
   io.attemptRebindBlockedByNextAttempt := liq.io.attemptRebindBlockedByNextAttempt
+  io.structuralRetryReady := liq.io.structuralRetryReady
+  io.structuralRetryAccepted := liq.io.structuralRetryAccepted
+  io.structuralRetryBlockedByLoadId :=
+    liq.io.structuralRetryBlockedByLoadId
+  io.structuralRetryBlockedByAttempt :=
+    liq.io.structuralRetryBlockedByAttempt
+  io.structuralRetryBlockedByNextAttempt :=
+    liq.io.structuralRetryBlockedByNextAttempt
+  io.structuralRetryBlockedByPipe := liq.io.structuralRetryBlockedByPipe
+  io.structuralRetryBlockedByLifecycle :=
+    liq.io.structuralRetryBlockedByLifecycle
+  io.structuralRetryBlockedByWaitStore :=
+    liq.io.structuralRetryBlockedByWaitStore
+  io.structuralRetryBlockedByMutation :=
+    liq.io.structuralRetryBlockedByMutation
   io.launchReady :=
     liq.io.launchReady && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe &&
       l1d.io.arrayReady && !launchRow.isTile && launchForwardReady

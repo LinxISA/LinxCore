@@ -332,6 +332,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.alloc := adapter.io.alloc
   liq.io.attemptRebindValid := false.B
   liq.io.attemptRebind := 0.U.asTypeOf(liq.io.attemptRebind)
+  liq.io.structuralRetryValid := false.B
+  liq.io.structuralRetry := 0.U.asTypeOf(liq.io.structuralRetry)
 
   liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
   liq.io.launchIndex := launchSelect.io.launchIndex

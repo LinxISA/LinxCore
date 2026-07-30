@@ -81,6 +81,8 @@ class LoadAttemptBindingHarness(
   liq.io.alloc := io.alloc
   liq.io.attemptRebindValid := io.rebindValid
   liq.io.attemptRebind := io.rebind
+  liq.io.structuralRetryValid := false.B
+  liq.io.structuralRetry := 0.U.asTypeOf(liq.io.structuralRetry)
   liq.io.launchValid := io.launchValid
   liq.io.launchIndex := 0.U
   liq.io.launchIntentValid := io.launchValid

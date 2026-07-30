@@ -227,6 +227,9 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedLiq.io.alloc := integratedAlloc
   integratedLiq.io.attemptRebindValid := false.B
   integratedLiq.io.attemptRebind := 0.U.asTypeOf(integratedLiq.io.attemptRebind)
+  integratedLiq.io.structuralRetryValid := false.B
+  integratedLiq.io.structuralRetry :=
+    0.U.asTypeOf(integratedLiq.io.structuralRetry)
   integratedLiq.io.launchValid := false.B
   integratedLiq.io.launchIndex := 0.U
   integratedLiq.io.launchIntentValid := false.B
