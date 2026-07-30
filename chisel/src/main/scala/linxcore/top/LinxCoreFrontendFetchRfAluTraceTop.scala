@@ -12139,6 +12139,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopStoreCommitIngressWiring {
     reducedStoreCommitDrain.io.secondaryReadyMask :=
       Fill(coreParams.scalarLsu.stqEntries, reducedStoreScbReadyForDrain)
     reducedStoreCommitDrain.io.rows := path.io.storeStqRows
+    for (index <- 0 until coreParams.scalarLsu.stqEntries) {
+      reducedStoreCommitDrain.io.memoryAttributes(index).valid :=
+        useReducedStoreDispatchStq && path.io.storeStqRows(index).valid
+      reducedStoreCommitDrain.io.memoryAttributes(index).memoryClass :=
+        linxcore.lsu.STQMemoryClass.NormalCacheable
+    }
 
     reducedStoreScbReadyForDrain
   }
