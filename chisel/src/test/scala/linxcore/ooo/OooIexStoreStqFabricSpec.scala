@@ -135,10 +135,39 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       query.bits.poke(0.U.asTypeOf(query.bits))
     }
     dut.io.loadForwardResponse.foreach(_.ready.poke(true.B))
+    dut.io.lateStaPermit.poke(true.B)
     dut.io.markCommitValid.poke(false.B)
     dut.io.markCommitIndex.poke(0.U)
     dut.io.commitFreeMaskValid.poke(false.B)
     dut.io.commitFreeMask.poke(0.U)
+  }
+
+  test("retains an address fill until its late STA side effect is permitted") {
+    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, 2, 2, BigInt("100000041", 16),
+        BigInt("200000041", 16))
+
+      dut.io.lateStaPermit.poke(false.B)
+      pokeExecute(dut.io.storeAddress(0).bits, addressHalf = true,
+        2, 2, BigInt("100000041", 16), BigInt("200000041", 16))
+      dut.io.storeAddress(0).valid.poke(true.B)
+      dut.io.storeAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeAddress(0).valid.poke(false.B)
+
+      dut.io.lateStaCandidate.valid.expect(true.B)
+      dut.io.lateStaCandidate.bits.addr.expect(0x1210.U)
+      dut.io.lateStaProbe.valid.expect(false.B)
+      dut.clock.step(2)
+      dut.io.lateStaCandidate.valid.expect(true.B)
+      dut.io.addrReadyMask.expect(0.U)
+
+      dut.io.lateStaPermit.poke(true.B)
+      dut.io.lateStaProbe.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.addrReadyMask.expect(1.U)
+    }
   }
 
   private def pokeLoadIdentity(

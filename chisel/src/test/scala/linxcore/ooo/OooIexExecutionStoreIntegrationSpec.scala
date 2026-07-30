@@ -93,6 +93,7 @@ class OooIexExecutionStoreHarness(
   store.io.reserve <> io.reserve
   store.io.storeAddress <> execute.io.storeAddress
   store.io.storeData <> execute.io.storeData
+  store.io.lateStaPermit := true.B
   store.io.loadCancel := execute.io.loadCancel
   store.io.loadForwardQuery.foreach { query =>
     query.valid := false.B

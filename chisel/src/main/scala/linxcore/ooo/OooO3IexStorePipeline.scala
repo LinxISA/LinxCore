@@ -64,6 +64,11 @@ class OooO3IexStorePipelineIO(
     p.robGroupsPerStid, peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth, tidWidth = p.stidWidth,
     sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaCandidate = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaPermit = Input(Bool())
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
@@ -212,6 +217,8 @@ class OooO3IexStorePipeline(
   io.stqLoadForwardResponse <> iex.io.stqLoadForwardResponse
   io.stqLoadForwardOccupied := iex.io.stqLoadForwardOccupied
   io.lateStaProbe := iex.io.lateStaProbe
+  io.lateStaCandidate := iex.io.lateStaCandidate
+  iex.io.lateStaPermit := io.lateStaPermit
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> iex.io.bctrl(lane)
     io.trace(lane) <> iex.io.trace(lane)

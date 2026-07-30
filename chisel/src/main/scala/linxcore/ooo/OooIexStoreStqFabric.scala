@@ -36,6 +36,11 @@ class OooIexStoreStqFabricIO(
     p.robGroupsPerStid, peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth, tidWidth = p.stidWidth,
     sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaCandidate = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaPermit = Input(Bool())
 
   val markCommitValid = Input(Bool())
   val markCommitIndex = Input(UInt(log2Ceil(stqEntries).W))
@@ -314,30 +319,44 @@ class OooIexStoreStqFabric(
       addressFillArbiter.io.in(index).ready)
   }
 
-  stq.io.fillValid := addressFillArbiter.io.out.valid && !recoveryFence
+  stq.io.fillValid := addressFillArbiter.io.out.valid && !recoveryFence &&
+    io.lateStaPermit
   stq.io.fill := addressFillArbiter.io.out.bits
-  addressFillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence
+  addressFillArbiter.io.out.ready := stq.io.fillReady && !recoveryFence &&
+    io.lateStaPermit
   io.fillConflict := stq.io.fillConflict || dataBank.io.conflict.reduce(_ || _)
+
+  private def projectLateStaProbe(
+      target: MDBConflictStoreProbe,
+      accepted: STQStoreRequest): Unit = {
+    target.valid := true.B
+    target.addrOnly := true.B
+    target.isTile := !accepted.scalarIex
+    target.peId := accepted.peId
+    target.stid := accepted.stid
+    target.tid := accepted.tid
+    target.bid := accepted.bid
+    target.gid := accepted.gid
+    target.rid := accepted.rid
+    target.lsId := accepted.lsId
+    target.lsIdFullValid := true.B
+    target.lsIdFull := accepted.lsIdFull
+    target.pc := accepted.pc
+    target.addr := accepted.addr
+    target.size := accepted.size
+  }
+
+  io.lateStaCandidate := 0.U.asTypeOf(io.lateStaCandidate)
+  io.lateStaCandidate.valid := addressFillArbiter.io.out.valid &&
+    !recoveryFence
+  projectLateStaProbe(
+    io.lateStaCandidate.bits, addressFillArbiter.io.out.bits)
 
   io.lateStaProbe := 0.U.asTypeOf(io.lateStaProbe)
   when(stq.io.fillAccepted) {
     val accepted = addressFillArbiter.io.out.bits
     io.lateStaProbe.valid := true.B
-    io.lateStaProbe.bits.valid := true.B
-    io.lateStaProbe.bits.addrOnly := true.B
-    io.lateStaProbe.bits.isTile := !accepted.scalarIex
-    io.lateStaProbe.bits.peId := accepted.peId
-    io.lateStaProbe.bits.stid := accepted.stid
-    io.lateStaProbe.bits.tid := accepted.tid
-    io.lateStaProbe.bits.bid := accepted.bid
-    io.lateStaProbe.bits.gid := accepted.gid
-    io.lateStaProbe.bits.rid := accepted.rid
-    io.lateStaProbe.bits.lsId := accepted.lsId
-    io.lateStaProbe.bits.lsIdFullValid := true.B
-    io.lateStaProbe.bits.lsIdFull := accepted.lsIdFull
-    io.lateStaProbe.bits.pc := accepted.pc
-    io.lateStaProbe.bits.addr := accepted.addr
-    io.lateStaProbe.bits.size := accepted.size
+    projectLateStaProbe(io.lateStaProbe.bits, accepted)
   }
 
   val joinedRows = Wire(chiselTypeOf(io.rows))

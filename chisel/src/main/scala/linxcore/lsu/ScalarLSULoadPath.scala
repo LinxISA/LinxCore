@@ -124,6 +124,7 @@ class ScalarLSULoadForwardPortIO(
   val resultRetryRequired = Output(Bool())
   val resultCount = Output(UInt(resultCountWidth.W))
   val resultPending = Output(Bool())
+  val ownedStateEmpty = Output(Bool())
   val protocolError = Output(Bool())
 }
 
@@ -796,6 +797,9 @@ class ScalarLSULoadPath(
       !resultPipeline.io.e3Valid && !resultPipeline.io.e4Valid &&
       !resultRetainer.io.pending && (resultReservations === 0.U) &&
       !port.hardBlock.valid
+    port.ownedStateEmpty := !queryPending && !resultPipeline.io.e3Valid &&
+      !resultPipeline.io.e4Valid && !resultRetainer.io.pending &&
+      (resultReservations === 0.U)
 
     assert(!resultPipeline.io.e4Valid || io.flush || resultRetainer.io.in.ready,
       "reserved STQ E4 result must enter retained transport")

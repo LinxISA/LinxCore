@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-30
+Date: 2026-07-31
 
 ## Purpose
 
@@ -24,7 +24,19 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b3c2 live three-pipe forwarding composition.
+The latest LSU packet is I0.15c-b3c3a focused production load/store closure.
+`OooIexScalarLoadStorePath` owns exactly one canonical OOO load metadata
+boundary, one live scalar load path, and one live store/STQ fabric. It closes
+AGU allocation, exact attempt launch, all three private STQ forwarding lanes,
+exact ROB lookup, and LRET/W2 terminal result. Store address fill now presents
+a prospective late-STA MDB candidate and cannot mutate STQ until MDB capacity
+permits the matching side effect. One local recovery transaction validates
+that the grouped-ROB plan and LSU projection produce the same kill bit for
+every resident LIQ row. Until the final all-owner projection exists, any live
+MissQ/ResolveQ/MDB/LRET/refill/forward transport also rejects prepare.
+Mismatches reject without mutation and only common fire applies either view.
+
+The preceding I0.15c-b3c2 packet provides live three-pipe forwarding.
 Every canonical LIQ launch atomically enters exactly one retained STQ query
 queue; each queue obeys Decoupled retention under external backpressure. Hard
 flush clears the transport, while typed precise recovery fences boundary fire
@@ -52,10 +64,11 @@ request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
 parameter, UT, abstract memory messages, and module page are deleted. Dynamic
 cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
 P-file/ROB terminal publication.
-The next I0.15c packet must close these scalar-LSU ports directly with the live
-OOO store fabric, define structural-hard-block consumption, replace the
-migration BID projection with common BID/BROB ordering authority, and join the
-scalar LSU's recovery readiness/apply to the same OOO common fire.
+The next I0.15c packet must install the focused subgraph in the existing
+execution/O3 topology without duplicating its current canonical load/STQ
+owners, define structural-hard-block consumption, replace the migration BID
+projection with common BID/BROB ordering authority, and extend recovery
+projection equality to every LSU queue.
 Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 

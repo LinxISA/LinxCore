@@ -141,6 +141,9 @@ graph; O8/O9 must close that structural compile cost.
 
 ## Remaining gaps
 
+- Install `OooIexScalarLoadStorePath` behind this topology and remove the now
+  redundant externally propagated canonical-load/STQ seams without creating a
+  second load metadata or store owner.
 - Connect exact ROB/SCB commit control, store-data banking, forwarding/replay,
   translation, L1D/coherence, and fault publication around the canonical STQ.
 - Implement internal multicycle ALU/divide, system, pointer-authentication,

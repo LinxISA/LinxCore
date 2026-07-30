@@ -164,12 +164,20 @@ ordering type. A non-zero discarded native-BID bit blocks launch and raises
 final proof that the closed OOO wrapper and scalar LSU share one canonical
 BID/BROB ordering authority.
 
+I0.15c-b3c3a adds `OooIexScalarLoadStorePath`, which connects these three
+query/response lanes to one live `OooIexStoreStqFabric`, exports the exact ROB
+lookup key, joins OOO and LSU recovery on one local fire, and rejects LSU
+projections whose per-LIQ-row kill mask differs from grouped-ROB membership.
+It currently requires all non-LIQ load/recovery transport to be empty before
+that local fire. Canonical STQ address mutation is also conditioned on
+prospective MDB capacity.
+
 The remaining integration gaps are explicit:
 
-- connect these three query/response lanes to the live
-  `OooIexStoreStqFabric` inside one closed production wrapper;
-- join scalar-LSU prepare/readiness/apply to the already common OOO recovery
-  fire instead of relying on independent top-level wiring;
+- install the focused production subgraph in the full execution/O3 topology
+  without duplicating its load ownership or STQ;
+- extend recovery projection equality beyond resident LIQ rows to all LSU
+  queues and the final BID/BROB recovery adapter;
 - define and connect the policy consumer for retained structural `hardBlock`
   responses;
 - replace the native-BID projection with the final common BID/BROB ordering

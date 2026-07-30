@@ -74,6 +74,11 @@ class OooIexExecutionStorePipelineIO(
     p.robGroupsPerStid, peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth, tidWidth = p.stidWidth,
     sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaCandidate = Output(Valid(new MDBConflictStoreProbe(
+    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
+    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val lateStaPermit = Input(Bool())
 
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
@@ -297,6 +302,8 @@ class OooIexExecutionStorePipeline(
   io.stqLoadForwardResponse <> store.io.loadForwardResponse
   io.stqLoadForwardOccupied := store.io.loadForwardOccupied
   io.lateStaProbe := store.io.lateStaProbe
+  io.lateStaCandidate := store.io.lateStaCandidate
+  store.io.lateStaPermit := io.lateStaPermit
 
   execution.io.recoveryPrepare := io.recoveryPrepare
   store.io.recoveryPrepare := io.recoveryPrepare

@@ -90,10 +90,14 @@ terminal metadata owner and contains no migration tracker.
 
 ## Remaining integration gaps
 
-- connect the execution-cluster canonical port to live `ScalarLSULoadPath`
-  allocation, launch, return, and all three canonical STQ result pipes;
-- join the scalar LSU's LIQ/MissQ/ResolveQ/LRET/W1/W2 recovery readiness with
-  the existing IQ/execution/store common prepare/fire;
+`OooIexScalarLoadStorePath` now closes this owner to live LIQ allocation,
+launch, three-lane STQ forwarding, exact ROB lookup, and W2 result publication
+inside a focused production subgraph. Remaining work is to:
+
+- install that subgraph in the full execution/O3 topology without duplicating
+  this owner or the canonical STQ;
+- extend the local LIQ recovery kill-equivalence proof to
+  MissQ/ResolveQ/LRET and the final global recovery authority;
 - attempt-qualify every asynchronous cache/refill return, then add physical
   DTLB/PMP/PMA/L1D/coherence/device and cross-line handling;
 - close synthesis timing and natural Dhrystone/CoreMark workloads.
