@@ -12,8 +12,15 @@
                     │                        Janus v2.0                            │
                     │                                                             │
 命令接口 ──────────→│  ┌────────────────────────────────────────────────────┐   │
-(BCTRL)             │  │          命令解码和 FSM (Fractal 拆分)             │   │
-bctrl_cube_cmd_*    │  │  - 解析 tmatmul / tmatmul.acc / acccvt            │   │
+(BCC)               │  │          Tile Cmd Buffer (depth=4)                 │   │
+cube_cmd_*          │  │  - 缓冲来自 BCC 的块命令                           │   │
+                    │  │  - 反压机制：Buffer 满时 cube_cmd_ready 拉低      │   │
+                    │  └────────┬───────────────────────────────────────────┘   │
+                    │           ↓                                                │
+                    │  ┌────────────────────────────────────────────────────┐   │
+                    │  │          命令解码和 FSM (Fractal 拆分)             │   │
+                    │  │  - 从 Cmd Buffer 取块命令                          │   │
+                    │  │  - 解析 tmatmul / tmatmul.acc / acccvt            │   │
                     │  │  - 拆分为 16×16 小分形 (uop)                       │   │
                     │  │  - 生成预取请求                                     │   │
                     │  └────────┬───────────────────────────────────────────┘   │
@@ -129,7 +136,7 @@ cube_brob_rsp_*     │                                                         
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         tmatmul / tmatmul.acc                            │
 │                                                                          │
-│  BCTRL → 命令解码 → FSM Fractal 拆分                                     │
+│  BCC → 命令解码 → Tile Cmd Buffer (4-deep) → FSM Fractal 拆分           │
 │                        ↓                                                 │
 │                    计算 uop 数量                                         │
 │                    M_tiles × N_tiles × K_tiles                          │
@@ -189,7 +196,7 @@ cube_brob_rsp_*     │                                                         
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              acccvt                                      │
 │                                                                          │
-│  BCTRL → 命令解码 → acccvt 拆分                                          │
+│  BCC → 命令解码 → Tile Cmd Buffer (4-deep) → acccvt 拆分                │
 │                        ↓                                                 │
 │                    查询 ACC 映射表                                       │
 │                    slice_list = acc_mapping[chain][acc]                 │
@@ -308,5 +315,5 @@ cube_brob_rsp_*     │                                                         
 ---
 
 **文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 

@@ -17,11 +17,9 @@ Architecture planning:
   independent Instruction Buffer feeds four-wide D1 full decode.
 - [OOO improvement design](linxcore-chisel-ooo-improvement-design.md)
   covers D2/D3, rename, ROB/BROB, commit, recovery, and Template reservation.
-- [OOO upgrade plan](linxcore-chisel-ooo-upgrade-plan.md)
-  defines the D1-to-S1 module, ARM-style multi-uop/grouped-RID
-  planning, BSTART/BSTOP fusion, D2 virtual versus D3/S1 physical ROB timing,
-  four-thread RENU/dispatch, a 64-entry PC buffer, non-flush, the external CTU
-  bridge, and explicit UT/IT/coverage exit criteria.
+- [Integrated development flow](integrated-development-flow.md)
+  owns the current implementation handoff, packet status, integration order,
+  and focused verification entry points.
 - [IEX improvement design](linxcore-chisel-iex-improvement-design.md)
   covers issue/read/confirm, RF, execution units, system/service, and
   writeback/completion.

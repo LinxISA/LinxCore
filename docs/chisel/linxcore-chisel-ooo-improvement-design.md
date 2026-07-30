@@ -1,8 +1,8 @@
 # LinxCore Chisel OOO 微架构改进设计
 
-> 最新执行计划见
-> [LinxCore Chisel OOO Production Upgrade Plan](linxcore-chisel-ooo-upgrade-plan.md)。
-> 该计划采用新的模块边界：OOO 自己完成 D1 full decode 和普通 multi-uop
+> 最新执行状态和 handoff 见
+> [Integrated Development Flow](integrated-development-flow.md)。
+> 当前模块边界由 OOO 自己完成 D1 full decode 和普通 multi-uop
 > break，D2 计算 virtual RID/group 与全部资源需求，D3/S1 发布 physical
 > grouped ROB 并完成 RENU/dispatch；BSTART/BSTOP 优先融合为 uop 的
 > `start/stop` 位。外置 CTU 在 IFU-to-OOO ingress 展开模板。本文的 D3

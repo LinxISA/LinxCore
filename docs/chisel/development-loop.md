@@ -95,7 +95,9 @@ catalog has no dispatch-owned
 ordinary complex forms; unresolved macro/atomic encodings remain fail-closed.
 Do not reuse the compatibility `InterfaceParams` family as the canonical
 packet contract. Read `docs/chisel/interfaces/OooBundles.md` and the
-OOO upgrade plan before modifying backend code.
+OOO improvement design before modifying backend code, then use the
+`Current Handoff` section in `docs/chisel/integrated-development-flow.md` for
+the active packet boundary.
 
 The old "current priority" replay-LIQ retained physical-bundle replacement
 text is historical context, not the active launch directive. The authoritative
