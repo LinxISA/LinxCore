@@ -1,5 +1,21 @@
 # LoadForwardPipeline
 
+## I0.15a Selector/result ownership split
+
+`LoadForwardPipeline` is now a compatibility composition of two explicit
+owners:
+
+- `LoadStoreForwarding` performs the local E2 byte selection over an abstract
+  store vector;
+- `LoadForwardResultPipeline` retains the already-qualified
+  `LoadForwardSelection` through E3/E4 and owns source-return plus miss-kind
+  classification.
+
+Production OOO STQ queries use the same result owner through
+`STQLoadForwardResultPipeline`; they do not reconstruct canonical STQ rows as a
+second abstract store vector. Existing `LoadForwardPipeline` latency and public
+signals are unchanged.
+
 ## R672-B Full-LSID Forwarding
 
 The E2 query uses the parameterized youngest-store full snapshot for same-BID

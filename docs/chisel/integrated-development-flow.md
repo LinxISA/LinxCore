@@ -24,18 +24,23 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.14 production STQ load forwarding. Three replicated
-`STQLoadForwardingPipeline` ports snapshot canonical `STQEntryBank` tags at E1,
-read only generation-qualified `STQDataBank` payload at E3, and reuse
-`LoadStoreForwarding` for per-byte nearest-older selection. Unknown older store
-addresses, malformed or ambiguous full-LSID authority, stale row reuse,
-cross-line loads/stores, and selected stores without data all fail closed. The store
-fabric also publishes one typed probe only when an STA fill is accepted, so the
-existing `ScalarLSUMDBPath`/LHQ conflict owner can perform late-STA wait/nuke
-recovery without a second detector. The next LSU packet is direct
-`OooIexLoadUnit` query/response integration with LIQ replay and L1D/SCB partial
-merge; FSU/vector STD, DTLB/PMP/PMA/device/coherence and workload promotion
-remain open.
+The latest LSU packet is I0.15a production STQ-result ownership. I0.14's three
+replicated `STQLoadForwardingPipeline` ports still snapshot canonical
+`STQEntryBank` tags at E1 and read only generation-qualified `STQDataBank`
+payload at E3. I0.15a separates byte selection from the common E3/E4 result
+owner: `LoadForwardResultPipeline` consumes a typed selection, while
+`STQLoadForwardResultPipeline` consumes the canonical retained STQ response
+directly. `LoadSourceLineMerge` performs byte-exact partial L1D/SCB merge, and
+the STQ query now carries baseline valid-mask plus split source-return evidence.
+Selected data-not-ready stores enter ordinary E3/E4 replay classification;
+unknown older addresses, stale generation, missing/ambiguous full LSID, and
+cross-line/malformed queries take a separate retained hard-block boundary and
+cannot masquerade as cache misses. The next LSU packet must bind exact
+`OooIexLoadGeneration` values to canonical LIQ rows and make LIQ the sole
+wait/miss/relaunch owner before connecting the three production ports. It must
+also avoid duplicate retry or W1/W2 ownership between `OooIexLoadUnit` and
+`ScalarLSULoadPath`. FSU/vector STD, cross-line split loads,
+DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.
 O4 P/T/U RENU, O5 dispatch/IEX residency, O6 fast resolve/non-flush, and O7

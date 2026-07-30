@@ -1,5 +1,7 @@
 package linxcore.lsu
 
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -115,7 +117,7 @@ object LoadForwardPipelineReference {
   }
 }
 
-class LoadForwardPipelineSpec extends AnyFunSuite {
+class LoadForwardPipelineSpec extends AnyFunSuite with ChiselSim {
   import LoadForwardPipelineReference._
   import LoadStoreForwardingReference.{Query, Store, byteMask, lineData}
   import STQFlushPruneReference.Id
@@ -207,6 +209,113 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(model.step().e4.isEmpty)
   }
 
+  test("typed selection seam merges partial base bytes with canonical STQ bytes") {
+    simulate(new LoadForwardResultPipeline(
+      robEntries = 8, storeEntries = 4, lsidWidth = 40)) { dut =>
+      dut.io.flush.poke(false.B)
+      dut.io.e2Valid.poke(false.B)
+      dut.io.e2Selection.poke(0.U.asTypeOf(dut.io.e2Selection))
+      dut.io.e2BaseValidMask.poke(0.U)
+      dut.io.e2LoadDataReturned.poke(false.B)
+      dut.io.e2ScbReturned.poke(false.B)
+      dut.io.e2StqReturned.poke(false.B)
+      dut.io.e2ReturnReady.poke(false.B)
+      dut.clock.step()
+
+      val loadMask = BigInt("f0", 16)
+      val baseMask = BigInt("30", 16)
+      val forwardMask = BigInt("c0", 16)
+      val merged = BigInt("ddccbbaa", 16) << (4 * 8)
+      dut.io.e2Valid.poke(true.B)
+      dut.io.e2Selection.loadByteMask.poke(loadMask.U)
+      dut.io.e2Selection.forwardMask.poke(forwardMask.U)
+      dut.io.e2Selection.waitMask.poke(0.U)
+      dut.io.e2Selection.mergedData.poke(merged.U)
+      dut.io.e2Selection.waitStore.poke(
+        0.U.asTypeOf(dut.io.e2Selection.waitStore))
+      dut.io.e2BaseValidMask.poke(baseMask.U)
+      dut.io.e2LoadDataReturned.poke(true.B)
+      dut.io.e2ScbReturned.poke(true.B)
+      dut.io.e2StqReturned.poke(true.B)
+      dut.io.e2ReturnReady.poke(true.B)
+      dut.clock.step()
+
+      dut.io.e3Valid.expect(true.B)
+      dut.io.e3LoadByteMask.expect(loadMask.U)
+      dut.io.e3ForwardMask.expect(forwardMask.U)
+      dut.io.e2Valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.e4Valid.expect(true.B)
+      dut.io.e4ValidMask.expect((baseMask | forwardMask).U)
+      dut.io.e4DataComplete.expect(true.B)
+      dut.io.e4SourcesReturned.expect(true.B)
+      dut.io.e4WakeupValid.expect(true.B)
+      dut.io.e4MissKind.expect(LoadForwardMissKind.NoMiss)
+      dut.io.e4LineData.expect(merged.U)
+    }
+  }
+
+  test("typed selection seam preserves wait owner and source-return priority") {
+    simulate(new LoadForwardResultPipeline(
+      robEntries = 8, storeEntries = 4, lsidWidth = 40)) { dut =>
+      dut.io.flush.poke(false.B)
+      dut.io.e2Selection.poke(0.U.asTypeOf(dut.io.e2Selection))
+      dut.io.e2Valid.poke(true.B)
+      dut.io.e2Selection.loadByteMask.poke(0xf.U)
+      dut.io.e2Selection.forwardMask.poke(0x3.U)
+      dut.io.e2Selection.waitMask.poke(0xc.U)
+      dut.io.e2Selection.mergedData.poke(BigInt("44332211", 16).U)
+      dut.io.e2Selection.waitStore.valid.poke(true.B)
+      dut.io.e2Selection.waitStore.storeIndex.poke(2.U)
+      dut.io.e2Selection.waitStore.storeLsIdFullValid.poke(true.B)
+      dut.io.e2Selection.waitStore.storeLsIdFull.poke(
+        BigInt("8000000001", 16).U)
+      dut.io.e2BaseValidMask.poke(0xc.U)
+      dut.io.e2LoadDataReturned.poke(true.B)
+      dut.io.e2ScbReturned.poke(false.B)
+      dut.io.e2StqReturned.poke(true.B)
+      dut.io.e2ReturnReady.poke(true.B)
+      dut.clock.step()
+      dut.io.e2Valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.e4Valid.expect(true.B)
+      dut.io.e4DataComplete.expect(true.B)
+      dut.io.e4SourcesReturned.expect(false.B)
+      dut.io.e4WakeupValid.expect(false.B)
+      dut.io.e4MissKind.expect(LoadForwardMissKind.StoreDataNotReady)
+      dut.io.e4WaitStore.valid.expect(true.B)
+      dut.io.e4WaitStore.storeIndex.expect(2.U)
+      dut.io.e4WaitStore.storeLsIdFull.expect(
+        BigInt("8000000001", 16).U)
+    }
+  }
+
+  test("typed selection seam flushes E3 residency before E4 publication") {
+    simulate(new LoadForwardResultPipeline(
+      robEntries = 8, storeEntries = 4, lsidWidth = 40)) { dut =>
+      dut.io.flush.poke(false.B)
+      dut.io.e2Selection.poke(0.U.asTypeOf(dut.io.e2Selection))
+      dut.io.e2Selection.loadByteMask.poke(0xff.U)
+      dut.io.e2BaseValidMask.poke(0xff.U)
+      dut.io.e2LoadDataReturned.poke(true.B)
+      dut.io.e2ScbReturned.poke(true.B)
+      dut.io.e2StqReturned.poke(true.B)
+      dut.io.e2ReturnReady.poke(true.B)
+      dut.io.e2Valid.poke(true.B)
+      dut.clock.step()
+      dut.io.e3Valid.expect(true.B)
+
+      dut.io.e2Valid.poke(false.B)
+      dut.io.flush.poke(true.B)
+      dut.clock.step()
+      dut.io.e3Valid.expect(false.B)
+      dut.io.e4Valid.expect(false.B)
+      dut.io.e4WakeupValid.expect(false.B)
+    }
+  }
+
   test("Chisel LoadForwardPipeline elaborates with E3/E4 forwarding and miss-kind outputs") {
     val io = new LoadForwardPipelineIO(robEntries = 8, storeEntries = 4, lsidWidth = 40)
     assert(io.e2Stores.head.storeLsIdFull.getWidth == 40)
@@ -217,6 +326,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadForwardPipeline"))
     assert(sv.contains("LoadStoreForwarding"))
+    assert(sv.contains("LoadForwardResultPipeline"))
     assert(sv.contains("io_e3ForwardMask"))
     assert(sv.contains("io_e4WakeupValid"))
     assert(sv.contains("io_e4LoadDataReturned"))

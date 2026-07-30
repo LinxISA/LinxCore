@@ -24,6 +24,9 @@ class STQLoadForwardQuery(
   val size = UInt(7.W)
   val isTile = Bool()
   val baseLineData = UInt((lineBytes * 8).W)
+  val baseValidMask = UInt(lineBytes.W)
+  val loadDataReturned = Bool()
+  val scbReturned = Bool()
 }
 
 /** Retained E3 result from one replicated STQ load lookup pipe. */

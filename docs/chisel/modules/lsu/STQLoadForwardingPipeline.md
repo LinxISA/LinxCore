@@ -56,9 +56,12 @@ E1 snapshot and E3 response residency.
 - `staleSnapshotMask`: E1/E3 identity or generation drift; the consumer must
   replay rather than use the response.
 
-The current production top exports this typed query/response boundary. The
-next load-integration packet must connect `OooIexLoadUnit`/L1D response merge
-and LIQ replay to it; it must not add another resident-store snapshot owner.
+I0.15a adds `baseValidMask`, `loadDataReturned`, and `scbReturned` to the query
+sidecar and connects the retained response to
+`STQLoadForwardResultPipeline`. Partial L1D/SCB data and canonical STQ bytes can
+therefore share the common E3/E4 result owner without expanding STQ rows into
+a second CAM image. Exact OOO load-generation-to-LIQ binding and replay
+mutation remain the next integration packet.
 
 ## Verification
 
