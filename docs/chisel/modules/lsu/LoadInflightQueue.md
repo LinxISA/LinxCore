@@ -87,6 +87,23 @@ row reuse reject without mutation. The sidecar is copied into the LHQ/ResolveQ
 record and terminal return path but is never used for LSU ordering or replay
 selection.
 
+I0.15c-b3b adds the production external forwarding-result apply seam. With
+`useExternalForwardResult=true`, the LIQ elaborates without the compatibility
+`LoadForwardPipeline` or its abstract store CAM. A result carries the complete
+classified E4 payload plus `{canonical loadId, attempt, returnPipeIndex}`. The
+row mutates only when all three identities match the resident row, the row owns
+one accepted launch through `forwardPending`, no flush is active, and no
+competing row mutation wins that cycle. Stale row reuse, stale attempts,
+cross-pipe responses, pick-only `Repick` rows, duplicate returns, and recovery
+or mutation conflicts are rejected without changing row data.
+
+Compatibility mode remains the default for existing standalone LSU tops. It
+captures the same exact identity at launch and routes the old local forwarding
+pipeline through the common apply logic, so internal and external modes no
+longer maintain separate E4 row-mutation implementations. `forwardPending` is
+owned by the canonical LIQ row: launch sets it; the first accepted exact result
+or recovery clears it.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -142,6 +159,22 @@ resident row, even when a later slot is free.
 
 The queue derives the forwarding query from the resident row address, size,
 tile bit, and `(youngestStoreId, youngestStoreLsId)` snapshot.
+
+### Exact External Forwarding Result
+
+| Signal | Description |
+|---|---|
+| `forwardResultValid` / `forwardResult` | Presents one classified E4 result with exact canonical row, attempt, and physical return-pipe identity. The producer retains a transiently blocked result until `...Accepted` or handles a typed permanent rejection. |
+| `forwardResultAccepted` | The exact resident row owns a pending launch and will apply the result this cycle. |
+| `forwardResultRejected` | No row mutation occurred for the presented result. |
+| `forwardResultRejectedByLoadId` | The canonical slot-plus-wrap lease is malformed, out of range, stale, or nonresident. |
+| `forwardResultRejectedByAttempt` | The row lease matched but the producer-qualified attempt did not. |
+| `forwardResultRejectedByPipe` | Row and attempt matched but the physical return pipe did not. |
+| `forwardResultRejectedByLifecycle` | No accepted launch is pending, the result is a duplicate, recovery is active, or another exact row mutation owns the cycle. |
+
+External result mode is a compile-time production choice. Generated RTL for
+that mode contains neither `LoadForwardPipeline` nor `LoadStoreForwarding`;
+the three canonical STQ lookup pipes will connect to this seam in I0.15c-b3c.
 
 ### Pick Without Forwarding
 
@@ -235,7 +268,7 @@ can drive this port.
 |---|---|
 | `e4UpdateValid` | A launched row received an E4 outcome. |
 | `e4UpdateIndex` | LIQ slot updated by E4. |
-| `e4MissKind` | Local E4 outcome from `LoadForwardPipeline`. |
+| `e4MissKind` | Classified E4 outcome from the selected compatibility or external result owner. |
 | `e4WakeupValid` | E4 can wake/return the load. |
 | `lhqRecordValid` | The E4 outcome resolved as a hit and publishes an LHQ record. |
 | `lhqRecord` | Load ID, row identity including load LSID and PC, line address, byte mask, final line data, and forwarded mask. |

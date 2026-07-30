@@ -2,6 +2,7 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.ScalarLsuParams
@@ -35,6 +36,15 @@ class LoadAttemptBindingHarnessIO(
   val launchValid = Input(Bool())
   val launchAccepted = Output(Bool())
   val resolveSources = Input(Bool())
+  val forwardResultValid = Input(Bool())
+  val forwardResult = Input(new LoadInflightForwardResult(
+    idEntries = idEntries, storeEntries = 4, lsidWidth = 40))
+  val forwardResultAccepted = Output(Bool())
+  val forwardResultRejected = Output(Bool())
+  val forwardResultRejectedByLoadId = Output(Bool())
+  val forwardResultRejectedByAttempt = Output(Bool())
+  val forwardResultRejectedByPipe = Output(Bool())
+  val forwardResultRejectedByLifecycle = Output(Bool())
   val clearRow0 = Input(Bool())
   val clearAccepted = Output(Bool())
   val lhqRecordValid = Output(Bool())
@@ -42,9 +52,12 @@ class LoadAttemptBindingHarnessIO(
   val rowStatus = Output(LoadInflightStatus())
   val rowLoadId = Output(new ROBID(liqEntries))
   val rowAttempt = Output(new LoadAttemptIdentity)
+  val rowDataComplete = Output(Bool())
+  val rowLineData = Output(UInt(512.W))
 }
 
-class LoadAttemptBindingHarness extends Module {
+class LoadAttemptBindingHarness(
+    val useExternalForwardResult: Boolean = false) extends Module {
   private val liqEntries = 4
   private val idEntries = 8
   private val storeEntries = 4
@@ -55,7 +68,8 @@ class LoadAttemptBindingHarness extends Module {
     liqEntries = liqEntries,
     idEntries = idEntries,
     storeEntries = storeEntries,
-    lsidWidth = 40))
+    lsidWidth = 40,
+    useExternalForwardResult = useExternalForwardResult))
 
   liq.io.flush := io.flush
   liq.io.preciseFlush := 0.U.asTypeOf(liq.io.preciseFlush)
@@ -78,6 +92,8 @@ class LoadAttemptBindingHarness extends Module {
   liq.io.e2ScbReturned := io.resolveSources
   liq.io.e2StqReturned := io.resolveSources
   liq.io.e2ReturnReady := io.resolveSources
+  liq.io.forwardResultValid := io.forwardResultValid
+  liq.io.forwardResult := io.forwardResult
   liq.io.replayWakeValid := false.B
   liq.io.replayWake := 0.U.asTypeOf(liq.io.replayWake)
   liq.io.refillValid := false.B
@@ -115,12 +131,23 @@ class LoadAttemptBindingHarness extends Module {
   io.blockedByStaleAttempt := liq.io.attemptRebindBlockedByStaleAttempt
   io.blockedByNextAttempt := liq.io.attemptRebindBlockedByNextAttempt
   io.launchAccepted := liq.io.launchAccepted
+  io.forwardResultAccepted := liq.io.forwardResultAccepted
+  io.forwardResultRejected := liq.io.forwardResultRejected
+  io.forwardResultRejectedByLoadId :=
+    liq.io.forwardResultRejectedByLoadId
+  io.forwardResultRejectedByAttempt :=
+    liq.io.forwardResultRejectedByAttempt
+  io.forwardResultRejectedByPipe := liq.io.forwardResultRejectedByPipe
+  io.forwardResultRejectedByLifecycle :=
+    liq.io.forwardResultRejectedByLifecycle
   io.clearAccepted := liq.io.clearResolvedAccepted
   io.lhqRecordValid := liq.io.lhqRecordValid
   io.rowValid := liq.io.rows(0).valid
   io.rowStatus := liq.io.rows(0).status
   io.rowLoadId := liq.io.rows(0).loadId
   io.rowAttempt := liq.io.rows(0).attempt
+  io.rowDataComplete := liq.io.rows(0).dataComplete
+  io.rowLineData := liq.io.rows(0).lineData
 }
 
 class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
@@ -132,7 +159,97 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
     dut.io.rebind.poke(0.U.asTypeOf(dut.io.rebind))
     dut.io.launchValid.poke(false.B)
     dut.io.resolveSources.poke(false.B)
+    dut.io.forwardResultValid.poke(false.B)
+    dut.io.forwardResult.poke(0.U.asTypeOf(dut.io.forwardResult))
     dut.io.clearRow0.poke(false.B)
+  }
+
+  private def pokeForwardResult(
+      dut: LoadAttemptBindingHarness,
+      generation: BigInt,
+      data: BigInt = BigInt("8877665544332211", 16)): Unit = {
+    dut.io.forwardResult.poke(0.U.asTypeOf(dut.io.forwardResult))
+    dut.io.forwardResult.identity.loadId.valid.poke(true.B)
+    dut.io.forwardResult.identity.loadId.slot.poke(0.U)
+    dut.io.forwardResult.identity.loadId.generation.poke(0.U)
+    pokeAttempt(dut.io.forwardResult.identity.attempt,
+      nativeBid = 6, ridSlot = 17, generation = generation)
+    dut.io.forwardResult.identity.returnPipeIndex.poke(0.U)
+    dut.io.forwardResult.lineData.poke(data.U)
+    dut.io.forwardResult.validMask.poke("hffffffffffffffff".U)
+    dut.io.forwardResult.loadByteMask.poke("hff".U)
+    dut.io.forwardResult.dataComplete.poke(true.B)
+    dut.io.forwardResult.sourcesReturned.poke(true.B)
+    dut.io.forwardResult.scbReturned.poke(true.B)
+    dut.io.forwardResult.stqReturned.poke(true.B)
+    dut.io.forwardResult.wakeupValid.poke(true.B)
+    dut.io.forwardResult.missKind.poke(LoadForwardMissKind.NoMiss)
+  }
+
+  test("external forwarding applies only to the exact canonical row attempt") {
+    simulate(new LoadAttemptBindingHarness(
+      useExternalForwardResult = true)) { dut =>
+      clear(dut)
+      dut.io.allocValid.poke(true.B)
+      dut.io.alloc.size.poke(8.U)
+      pokeAttempt(dut.io.alloc.attempt,
+        nativeBid = 6, ridSlot = 17, generation = 3)
+      dut.clock.step()
+      dut.io.allocValid.poke(false.B)
+
+      dut.io.launchValid.poke(true.B)
+      dut.io.launchAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.launchValid.poke(false.B)
+      dut.io.rowStatus.expect(LoadInflightStatus.Repick)
+
+      pokeForwardResult(dut, generation = 2)
+      dut.io.forwardResultValid.poke(true.B)
+      dut.io.forwardResultAccepted.expect(false.B)
+      dut.io.forwardResultRejected.expect(true.B)
+      dut.io.forwardResultRejectedByAttempt.expect(true.B)
+      dut.clock.step()
+      dut.io.rowDataComplete.expect(false.B)
+
+      pokeForwardResult(dut, generation = 3)
+      dut.io.forwardResult.identity.loadId.generation.poke(1.U)
+      dut.io.forwardResultAccepted.expect(false.B)
+      dut.io.forwardResultRejectedByLoadId.expect(true.B)
+      dut.clock.step()
+      dut.io.rowDataComplete.expect(false.B)
+
+      pokeForwardResult(dut, generation = 3)
+      dut.io.forwardResult.identity.returnPipeIndex.poke(1.U)
+      dut.io.forwardResultAccepted.expect(false.B)
+      dut.io.forwardResultRejectedByPipe.expect(true.B)
+      dut.clock.step()
+      dut.io.rowDataComplete.expect(false.B)
+
+      val expected = BigInt("8877665544332211", 16)
+      pokeForwardResult(dut, generation = 3, data = expected)
+      dut.io.forwardResultAccepted.expect(true.B)
+      dut.io.forwardResultRejected.expect(false.B)
+      dut.io.lhqRecordValid.expect(true.B)
+      dut.clock.step()
+      dut.io.forwardResultValid.poke(false.B)
+      dut.io.rowDataComplete.expect(true.B)
+      dut.io.rowLineData.expect(expected.U)
+
+      pokeForwardResult(dut, generation = 3, data = expected)
+      dut.io.forwardResultValid.poke(true.B)
+      dut.io.forwardResultAccepted.expect(false.B)
+      dut.io.forwardResultRejected.expect(true.B)
+      dut.io.forwardResultRejectedByLifecycle.expect(true.B)
+    }
+  }
+
+  test("external forwarding mode elaborates without the compatibility CAM") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LoadAttemptBindingHarness(useExternalForwardResult = true))
+    assert(sv.contains("module LoadAttemptBindingHarness"))
+    assert(!sv.contains("module LoadForwardPipeline"))
+    assert(!sv.contains("module LoadStoreForwarding"))
+    assert(sv.contains("io_forwardResultAccepted"))
   }
 
   private def pokeAttempt(

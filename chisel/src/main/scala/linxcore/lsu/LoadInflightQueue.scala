@@ -106,6 +106,7 @@ class LoadInflightRow(
   val specWakeup = Bool()
   val stackValid = Bool()
   val returnPipeIndex = UInt(returnPipeIndexWidth.W)
+  val forwardPending = Bool()
 
   val lineData = UInt((lineBytes * 8).W)
   val validMask = UInt(lineBytes.W)
@@ -157,6 +158,30 @@ class LoadHitRecord(
   val byteMask = UInt(lineBytes.W)
   val data = UInt((lineBytes * 8).W)
   val forwardedMask = UInt(lineBytes.W)
+}
+
+/** One fully classified forwarding result presented to the canonical LIQ. */
+class LoadInflightForwardResult(
+    val idEntries: Int,
+    val storeEntries: Int,
+    val pcWidth: Int = 64,
+    val lineBytes: Int = 64,
+    val lsidWidth: Int = 32)
+    extends Bundle {
+  val identity = new STQLoadForwardResultIdentity
+  val lineData = UInt((lineBytes * 8).W)
+  val validMask = UInt(lineBytes.W)
+  val loadByteMask = UInt(lineBytes.W)
+  val forwardMask = UInt(lineBytes.W)
+  val waitMask = UInt(lineBytes.W)
+  val dataComplete = Bool()
+  val sourcesReturned = Bool()
+  val scbReturned = Bool()
+  val stqReturned = Bool()
+  val wakeupValid = Bool()
+  val waitStore = new LoadStoreForwardWait(
+    idEntries, storeEntries, pcWidth, lsidWidth)
+  val missKind = LoadForwardMissKind()
 }
 
 class LoadInflightQueueIO(
@@ -243,6 +268,16 @@ class LoadInflightQueueIO(
   val e2ScbReturned = Input(Bool())
   val e2StqReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
+
+  val forwardResultValid = Input(Bool())
+  val forwardResult = Input(new LoadInflightForwardResult(
+    idEntries, storeEntries, pcWidth, lineBytes, lsidWidth))
+  val forwardResultAccepted = Output(Bool())
+  val forwardResultRejected = Output(Bool())
+  val forwardResultRejectedByLoadId = Output(Bool())
+  val forwardResultRejectedByAttempt = Output(Bool())
+  val forwardResultRejectedByPipe = Output(Bool())
+  val forwardResultRejectedByLifecycle = Output(Bool())
 
   val replayWakeValid = Input(Bool())
   val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
@@ -351,7 +386,8 @@ class LoadInflightQueue(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val returnPipeCount: Int = 1,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val useExternalForwardResult: Boolean = false)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -477,15 +513,6 @@ class LoadInflightQueue(
   val residentCount = RegInit(0.U(countWidth.W))
   val flushCycle = io.flush || io.preciseFlush.req.valid
 
-  val pipeline = Module(new LoadForwardPipeline(
-    idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
-  pipeline.io.flush := flushCycle
-  pipeline.io.e2Stores := io.e2Stores
-  pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
-  pipeline.io.e2ScbReturned := io.e2ScbReturned
-  pipeline.io.e2StqReturned := io.e2StqReturned
-  pipeline.io.e2ReturnReady := io.e2ReturnReady
-
   val launchRow = rows(io.launchIndex)
   val launchReady =
     !flushCycle && launchRow.valid && (launchRow.status === LoadInflightStatus.Wait) && !launchRow.waitStore
@@ -514,9 +541,6 @@ class LoadInflightQueue(
       markResolvedRequestComplete
   val markResolvedAccepted = io.markResolvedValid && markResolvedReady
 
-  pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
-  pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
-
   val query = Wire(new LoadStoreForwardQuery(idEntries, addrWidth, lineBytes, sizeWidth, lsidWidth))
   query := 0.U.asTypeOf(query)
   query.valid := launchAccepted
@@ -529,8 +553,78 @@ class LoadInflightQueue(
   query.youngestStoreLsIdFull := launchRow.youngestStoreLsIdFull
   query.isTile := launchRow.isTile
 
-  pipeline.io.e2Valid := launchAccepted
-  pipeline.io.e2Query := query
+  val selectedForwardResult = Wire(new LoadInflightForwardResult(
+    idEntries, storeEntries, pcWidth, lineBytes, lsidWidth))
+  selectedForwardResult := 0.U.asTypeOf(selectedForwardResult)
+  val selectedForwardResultValid = WireDefault(false.B)
+  val forwardPipelineResidentMask = WireDefault(0.U(liqEntries.W))
+
+  if (useExternalForwardResult) {
+    selectedForwardResult := io.forwardResult
+    selectedForwardResultValid := io.forwardResultValid
+  } else {
+    val pipeline = Module(new LoadForwardPipeline(
+      idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth,
+      lsidWidth))
+    pipeline.io.flush := flushCycle
+    pipeline.io.e2Stores := io.e2Stores
+    pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
+    pipeline.io.e2ScbReturned := io.e2ScbReturned
+    pipeline.io.e2StqReturned := io.e2StqReturned
+    pipeline.io.e2ReturnReady := io.e2ReturnReady
+    pipeline.io.e2BaseData := Mux(
+      launchUsesRowData, launchRow.lineData, io.e2BaseData)
+    pipeline.io.e2BaseValidMask := Mux(
+      launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
+    pipeline.io.e2Valid := launchAccepted
+    pipeline.io.e2Query := query
+
+    val e3Identity = RegInit(0.U.asTypeOf(
+      new STQLoadForwardResultIdentity))
+    val e4Identity = RegInit(0.U.asTypeOf(
+      new STQLoadForwardResultIdentity))
+    when(flushCycle) {
+      e3Identity := 0.U.asTypeOf(e3Identity)
+      e4Identity := 0.U.asTypeOf(e4Identity)
+    }.otherwise {
+      e4Identity := e3Identity
+      when(launchAccepted) {
+        e3Identity.loadId :=
+          LoadCanonicalRowIdentity.fromRobId(launchRow.loadId)
+        e3Identity.attempt := launchRow.attempt
+        e3Identity.returnPipeIndex := launchRow.returnPipeIndex
+      }
+    }
+
+    selectedForwardResultValid := pipeline.io.e4Valid
+    selectedForwardResult.identity := e4Identity
+    selectedForwardResult.lineData := pipeline.io.e4LineData
+    selectedForwardResult.validMask := pipeline.io.e4ValidMask
+    selectedForwardResult.loadByteMask := pipeline.io.e4LoadByteMask
+    selectedForwardResult.forwardMask := pipeline.io.e4ForwardMask
+    selectedForwardResult.waitMask := pipeline.io.e4WaitMask
+    selectedForwardResult.dataComplete := pipeline.io.e4DataComplete
+    selectedForwardResult.sourcesReturned := pipeline.io.e4SourcesReturned
+    selectedForwardResult.scbReturned := pipeline.io.e4ScbReturned
+    selectedForwardResult.stqReturned := pipeline.io.e4StqReturned
+    selectedForwardResult.wakeupValid := pipeline.io.e4WakeupValid
+    selectedForwardResult.waitStore := pipeline.io.e4WaitStore
+    selectedForwardResult.missKind := pipeline.io.e4MissKind
+
+    val e3IdentityWellFormed = e3Identity.loadId.valid &&
+      LoadCanonicalRowIdentity.wellFormed(e3Identity.loadId, liqEntries)
+    val e4IdentityWellFormed = e4Identity.loadId.valid &&
+      LoadCanonicalRowIdentity.wellFormed(e4Identity.loadId, liqEntries)
+    val e3ResidentMask = Mux(
+      pipeline.io.e3Valid && e3IdentityWellFormed,
+      UIntToOH(e3Identity.loadId.slot(liqPtrWidth - 1, 0), liqEntries),
+      0.U(liqEntries.W))
+    val e4ResidentMask = Mux(
+      pipeline.io.e4Valid && e4IdentityWellFormed,
+      UIntToOH(e4Identity.loadId.slot(liqPtrWidth - 1, 0), liqEntries),
+      0.U(liqEntries.W))
+    forwardPipelineResidentMask := e3ResidentMask | e4ResidentMask
+  }
 
   val replayWakeup = Module(new LoadReplayWakeup(
     liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, lsidWidth))
@@ -542,11 +636,6 @@ class LoadInflightQueue(
   refillWakeup.io.refillValid := io.refillValid && !flushCycle
   refillWakeup.io.refill := io.refill
   refillWakeup.io.rows := rows
-
-  val e3IndexValid = RegInit(false.B)
-  val e3Index = RegInit(0.U(liqPtrWidth.W))
-  val e4IndexValid = RegInit(false.B)
-  val e4Index = RegInit(0.U(liqPtrWidth.W))
 
   val allocLoadId = currentLoadId
   val allocAttemptWellFormed = LoadAttemptIdentity.wellFormed(io.alloc.attempt)
@@ -597,39 +686,101 @@ class LoadInflightQueue(
       ((clearResolvedRow.status === LoadInflightStatus.Resolved) || clearResolvedCompleteRepick)
   val clearResolvedAccepted = io.clearResolvedValid && clearResolvedReady
 
+  val forwardResultLoadIdWellFormed =
+    selectedForwardResult.identity.loadId.valid &&
+      LoadCanonicalRowIdentity.wellFormed(
+        selectedForwardResult.identity.loadId, liqEntries)
+  val forwardResultIndex =
+    selectedForwardResult.identity.loadId.slot(liqPtrWidth - 1, 0)
+  val forwardResultRow = rows(forwardResultIndex)
+  val forwardResultLoadIdExact = forwardResultLoadIdWellFormed &&
+    forwardResultRow.valid && LoadCanonicalRowIdentity.equal(
+      selectedForwardResult.identity.loadId,
+      LoadCanonicalRowIdentity.fromRobId(forwardResultRow.loadId))
+  val forwardResultAttemptExact =
+    selectedForwardResult.identity.attempt.valid &&
+      LoadAttemptIdentity.wellFormed(
+        selectedForwardResult.identity.attempt) &&
+      forwardResultRow.attempt.valid && LoadAttemptIdentity.equal(
+        selectedForwardResult.identity.attempt, forwardResultRow.attempt)
+  val forwardResultPipeExact =
+    selectedForwardResult.identity.returnPipeIndex ===
+      forwardResultRow.returnPipeIndex
+  val forwardResultLifecycleReady =
+    (forwardResultRow.status === LoadInflightStatus.Repick) &&
+      forwardResultRow.forwardPending
+  val forwardResultExactCandidate = selectedForwardResultValid &&
+    !flushCycle &&
+    forwardResultLoadIdExact && forwardResultAttemptExact &&
+    forwardResultPipeExact && forwardResultLifecycleReady
+  val externalForwardResultMutationConflict =
+    useExternalForwardResult.B &&
+      ((clearResolvedAccepted &&
+        (io.clearResolvedIndex === forwardResultIndex)) ||
+        (io.rowMutationValid &&
+          (io.rowMutationTargetIndex === forwardResultIndex)) ||
+        (io.replayWakeValid &&
+          replayWakeup.io.waitStoreClearMask(forwardResultIndex)) ||
+        (io.replayWakeValid &&
+          replayWakeup.io.mergeMask(forwardResultIndex)) ||
+        (io.refillValid && refillWakeup.io.wakeMask(forwardResultIndex)))
   val e4UpdateValid =
-    e4IndexValid && pipeline.io.e4Valid && rows(e4Index).valid && (rows(e4Index).status === LoadInflightStatus.Repick)
+    forwardResultExactCandidate && !externalForwardResultMutationConflict
   val e4SegmentResolved =
-    e4UpdateValid && pipeline.io.e4WakeupValid && (pipeline.io.e4MissKind === LoadForwardMissKind.NoMiss)
+    e4UpdateValid && selectedForwardResult.wakeupValid &&
+      (selectedForwardResult.missKind === LoadForwardMissKind.NoMiss)
   val e4FirstSegmentResolved =
-    e4SegmentResolved && rows(e4Index).crossLine && !rows(e4Index).secondSegmentActive
+    e4SegmentResolved && forwardResultRow.crossLine &&
+      !forwardResultRow.secondSegmentActive
   val e4Resolved =
-    e4SegmentResolved && (!rows(e4Index).crossLine || rows(e4Index).secondSegmentActive)
-  val e4StoreWait = e4UpdateValid && (pipeline.io.e4MissKind === LoadForwardMissKind.StoreDataNotReady)
-  val e4DataMiss = e4UpdateValid && (pipeline.io.e4MissKind === LoadForwardMissKind.DataNotComplete)
+    e4SegmentResolved && (!forwardResultRow.crossLine ||
+      forwardResultRow.secondSegmentActive)
+  val e4StoreWait = e4UpdateValid &&
+    (selectedForwardResult.missKind ===
+      LoadForwardMissKind.StoreDataNotReady)
+  val e4DataMiss = e4UpdateValid &&
+    (selectedForwardResult.missKind === LoadForwardMissKind.DataNotComplete)
   val e4ReplayWait =
     e4UpdateValid &&
-      ((pipeline.io.e4MissKind === LoadForwardMissKind.AwaitingSources) ||
-        (pipeline.io.e4MissKind === LoadForwardMissKind.ReturnPortBlocked))
+      ((selectedForwardResult.missKind ===
+        LoadForwardMissKind.AwaitingSources) ||
+        (selectedForwardResult.missKind ===
+          LoadForwardMissKind.ReturnPortBlocked))
+
+  val externalForwardResultActive =
+    useExternalForwardResult.B && io.forwardResultValid
+  io.forwardResultAccepted := externalForwardResultActive && e4UpdateValid
+  io.forwardResultRejected := externalForwardResultActive && !e4UpdateValid
+  io.forwardResultRejectedByLoadId := externalForwardResultActive &&
+    (!forwardResultLoadIdWellFormed || !forwardResultLoadIdExact)
+  io.forwardResultRejectedByAttempt := externalForwardResultActive &&
+    forwardResultLoadIdExact && !forwardResultAttemptExact
+  io.forwardResultRejectedByPipe := externalForwardResultActive &&
+    forwardResultLoadIdExact && forwardResultAttemptExact &&
+    !forwardResultPipeExact
+  io.forwardResultRejectedByLifecycle := externalForwardResultActive &&
+    forwardResultLoadIdExact && forwardResultAttemptExact &&
+    forwardResultPipeExact && (!forwardResultLifecycleReady || flushCycle ||
+      externalForwardResultMutationConflict)
 
   val lhqRecord = Wire(new LoadHitRecord(
     liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))
   lhqRecord := zeroHitRecord
-  lhqRecord.loadId := rows(e4Index).loadId
-  lhqRecord.bid := rows(e4Index).bid
-  lhqRecord.gid := rows(e4Index).gid
-  lhqRecord.rid := rows(e4Index).rid
-  lhqRecord.loadLsId := rows(e4Index).loadLsId
-  lhqRecord.loadLsIdFullValid := rows(e4Index).loadLsIdFullValid
-  lhqRecord.loadLsIdFull := rows(e4Index).loadLsIdFull
-  lhqRecord.attempt := rows(e4Index).attempt
-  lhqRecord.pc := rows(e4Index).pc
-  lhqRecord.addr := rows(e4Index).addr
-  lhqRecord.lineAddr := lineAddr(activeAddr(rows(e4Index)))
-  lhqRecord.size := rows(e4Index).size
-  lhqRecord.byteMask := pipeline.io.e4LoadByteMask
-  lhqRecord.data := pipeline.io.e4LineData
-  lhqRecord.forwardedMask := pipeline.io.e4ForwardMask
+  lhqRecord.loadId := forwardResultRow.loadId
+  lhqRecord.bid := forwardResultRow.bid
+  lhqRecord.gid := forwardResultRow.gid
+  lhqRecord.rid := forwardResultRow.rid
+  lhqRecord.loadLsId := forwardResultRow.loadLsId
+  lhqRecord.loadLsIdFullValid := forwardResultRow.loadLsIdFullValid
+  lhqRecord.loadLsIdFull := forwardResultRow.loadLsIdFull
+  lhqRecord.attempt := forwardResultRow.attempt
+  lhqRecord.pc := forwardResultRow.pc
+  lhqRecord.addr := forwardResultRow.addr
+  lhqRecord.lineAddr := lineAddr(activeAddr(forwardResultRow))
+  lhqRecord.size := forwardResultRow.size
+  lhqRecord.byteMask := selectedForwardResult.loadByteMask
+  lhqRecord.data := selectedForwardResult.lineData
+  lhqRecord.forwardedMask := selectedForwardResult.forwardMask
 
   val rowMutationPath = Module(new LoadInflightRowMutationPath(
     liqEntries = liqEntries,
@@ -673,7 +824,8 @@ class LoadInflightQueue(
   rowMutationPath.io.nextStoreSourceReturned := io.rowMutationNextStoreSourceReturned
   rowMutationPath.io.allowWaitTarget := io.rowMutationAllowWaitTarget
   rowMutationPath.io.requireScbReturned := io.rowMutationRequireScbReturned
-  rowMutationPath.io.e4UpdateConflict := e4UpdateValid && (e4Index === io.rowMutationTargetIndex)
+  rowMutationPath.io.e4UpdateConflict :=
+    e4UpdateValid && (forwardResultIndex === io.rowMutationTargetIndex)
   rowMutationPath.io.clearResolvedConflict := clearResolvedAccepted && (io.clearResolvedIndex === io.rowMutationTargetIndex)
   rowMutationPath.io.replayWakeConflict := io.replayWakeValid && rowMutationReplayConflictVec(io.rowMutationTargetIndex)
   rowMutationPath.io.refillConflict := io.refillValid && rowMutationRefillConflictVec(io.rowMutationTargetIndex)
@@ -705,97 +857,102 @@ class LoadInflightQueue(
     residentCount := 0.U
     allocPtr := 0.U
     allocWrap := false.B
-    e3IndexValid := false.B
-    e4IndexValid := false.B
   }.otherwise {
-    e4IndexValid := e3IndexValid
-    e4Index := e3Index
-    e3IndexValid := launchAccepted
-    e3Index := io.launchIndex
-
     when(e4UpdateValid) {
-      rows(e4Index).lineData := pipeline.io.e4LineData
-      rows(e4Index).validMask := pipeline.io.e4ValidMask
-      rows(e4Index).loadByteMask := pipeline.io.e4LoadByteMask
-      rows(e4Index).forwardMask := pipeline.io.e4ForwardMask
-      rows(e4Index).waitMask := pipeline.io.e4WaitMask
-      rows(e4Index).dataComplete := pipeline.io.e4DataComplete
-      rows(e4Index).sourcesReturned := pipeline.io.e4SourcesReturned
-      rows(e4Index).scbReturned := pipeline.io.e4ScbReturned
-      rows(e4Index).stqReturned := pipeline.io.e4StqReturned
-      rows(e4Index).missKind := pipeline.io.e4MissKind
-      rows(e4Index).storeBypass := pipeline.io.e4ForwardMask.orR
+      rows(forwardResultIndex).forwardPending := false.B
+      rows(forwardResultIndex).lineData := selectedForwardResult.lineData
+      rows(forwardResultIndex).validMask := selectedForwardResult.validMask
+      rows(forwardResultIndex).loadByteMask :=
+        selectedForwardResult.loadByteMask
+      rows(forwardResultIndex).forwardMask :=
+        selectedForwardResult.forwardMask
+      rows(forwardResultIndex).waitMask := selectedForwardResult.waitMask
+      rows(forwardResultIndex).dataComplete :=
+        selectedForwardResult.dataComplete
+      rows(forwardResultIndex).sourcesReturned :=
+        selectedForwardResult.sourcesReturned
+      rows(forwardResultIndex).scbReturned :=
+        selectedForwardResult.scbReturned
+      rows(forwardResultIndex).stqReturned :=
+        selectedForwardResult.stqReturned
+      rows(forwardResultIndex).missKind := selectedForwardResult.missKind
+      rows(forwardResultIndex).storeBypass :=
+        selectedForwardResult.forwardMask.orR
 
       when(e4FirstSegmentResolved) {
-        rows(e4Index).status := LoadInflightStatus.Wait
-        rows(e4Index).secondSegmentActive := true.B
-        rows(e4Index).firstSegmentDone := true.B
-        rows(e4Index).firstLineData := pipeline.io.e4LineData
-        rows(e4Index).firstValidMask := pipeline.io.e4ValidMask
-        rows(e4Index).firstLoadByteMask := pipeline.io.e4LoadByteMask
-        rows(e4Index).firstForwardMask := pipeline.io.e4ForwardMask
-        rows(e4Index).lineData := 0.U
-        rows(e4Index).validMask := 0.U
-        rows(e4Index).loadByteMask := 0.U
-        rows(e4Index).forwardMask := 0.U
-        rows(e4Index).waitMask := 0.U
-        rows(e4Index).dataComplete := false.B
-        rows(e4Index).sourcesReturned := false.B
-        rows(e4Index).scbReturned := false.B
-        rows(e4Index).stqReturned := false.B
-        rows(e4Index).waitStore := false.B
-        rows(e4Index).waitStoreInfo := zeroWait
-        rows(e4Index).l1Hit := false.B
-        rows(e4Index).l1Miss := false.B
-        rows(e4Index).missKind := LoadForwardMissKind.NoMiss
+        rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).secondSegmentActive := true.B
+        rows(forwardResultIndex).firstSegmentDone := true.B
+        rows(forwardResultIndex).firstLineData := selectedForwardResult.lineData
+        rows(forwardResultIndex).firstValidMask :=
+          selectedForwardResult.validMask
+        rows(forwardResultIndex).firstLoadByteMask :=
+          selectedForwardResult.loadByteMask
+        rows(forwardResultIndex).firstForwardMask :=
+          selectedForwardResult.forwardMask
+        rows(forwardResultIndex).lineData := 0.U
+        rows(forwardResultIndex).validMask := 0.U
+        rows(forwardResultIndex).loadByteMask := 0.U
+        rows(forwardResultIndex).forwardMask := 0.U
+        rows(forwardResultIndex).waitMask := 0.U
+        rows(forwardResultIndex).dataComplete := false.B
+        rows(forwardResultIndex).sourcesReturned := false.B
+        rows(forwardResultIndex).scbReturned := false.B
+        rows(forwardResultIndex).stqReturned := false.B
+        rows(forwardResultIndex).waitStore := false.B
+        rows(forwardResultIndex).waitStoreInfo := zeroWait
+        rows(forwardResultIndex).l1Hit := false.B
+        rows(forwardResultIndex).l1Miss := false.B
+        rows(forwardResultIndex).missKind := LoadForwardMissKind.NoMiss
       }.elsewhen(e4Resolved) {
         // Preserve the E4 hit as Repick until the return owner publishes its
         // LRET and markResolved accepts the terminal row state.
-        rows(e4Index).status := LoadInflightStatus.Repick
-        rows(e4Index).waitStore := false.B
-        rows(e4Index).waitStoreInfo := zeroWait
-        rows(e4Index).l1Hit := false.B
-        rows(e4Index).l1Miss := false.B
+        rows(forwardResultIndex).status := LoadInflightStatus.Repick
+        rows(forwardResultIndex).waitStore := false.B
+        rows(forwardResultIndex).waitStoreInfo := zeroWait
+        rows(forwardResultIndex).l1Hit := false.B
+        rows(forwardResultIndex).l1Miss := false.B
       }.elsewhen(e4StoreWait) {
-        rows(e4Index).status := LoadInflightStatus.Wait
-        rows(e4Index).waitStore := true.B
-        rows(e4Index).waitStoreInfo := pipeline.io.e4WaitStore
-        rows(e4Index).validMask := 0.U
-        rows(e4Index).loadByteMask := 0.U
-        rows(e4Index).forwardMask := 0.U
-        rows(e4Index).waitMask := 0.U
-        rows(e4Index).dataComplete := false.B
-        rows(e4Index).sourcesReturned := false.B
-        rows(e4Index).scbReturned := false.B
-        rows(e4Index).stqReturned := false.B
-        rows(e4Index).l1Hit := false.B
+        rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).waitStore := true.B
+        rows(forwardResultIndex).waitStoreInfo :=
+          selectedForwardResult.waitStore
+        rows(forwardResultIndex).validMask := 0.U
+        rows(forwardResultIndex).loadByteMask := 0.U
+        rows(forwardResultIndex).forwardMask := 0.U
+        rows(forwardResultIndex).waitMask := 0.U
+        rows(forwardResultIndex).dataComplete := false.B
+        rows(forwardResultIndex).sourcesReturned := false.B
+        rows(forwardResultIndex).scbReturned := false.B
+        rows(forwardResultIndex).stqReturned := false.B
+        rows(forwardResultIndex).l1Hit := false.B
       }.elsewhen(e4DataMiss) {
-        rows(e4Index).status := LoadInflightStatus.L1DcMiss
-        rows(e4Index).waitStore := false.B
-        rows(e4Index).waitStoreInfo := zeroWait
-        rows(e4Index).validMask := 0.U
-        rows(e4Index).loadByteMask := 0.U
-        rows(e4Index).forwardMask := 0.U
-        rows(e4Index).waitMask := 0.U
-        rows(e4Index).dataComplete := false.B
-        rows(e4Index).sourcesReturned := false.B
-        rows(e4Index).scbReturned := false.B
-        rows(e4Index).stqReturned := false.B
-        rows(e4Index).l1Hit := false.B
-        rows(e4Index).l1Miss := true.B
+        rows(forwardResultIndex).status := LoadInflightStatus.L1DcMiss
+        rows(forwardResultIndex).waitStore := false.B
+        rows(forwardResultIndex).waitStoreInfo := zeroWait
+        rows(forwardResultIndex).validMask := 0.U
+        rows(forwardResultIndex).loadByteMask := 0.U
+        rows(forwardResultIndex).forwardMask := 0.U
+        rows(forwardResultIndex).waitMask := 0.U
+        rows(forwardResultIndex).dataComplete := false.B
+        rows(forwardResultIndex).sourcesReturned := false.B
+        rows(forwardResultIndex).scbReturned := false.B
+        rows(forwardResultIndex).stqReturned := false.B
+        rows(forwardResultIndex).l1Hit := false.B
+        rows(forwardResultIndex).l1Miss := true.B
       }.elsewhen(e4ReplayWait) {
-        rows(e4Index).status := LoadInflightStatus.Wait
-        rows(e4Index).waitStore := false.B
-        rows(e4Index).waitStoreInfo := zeroWait
-        rows(e4Index).validMask := 0.U
-        rows(e4Index).loadByteMask := 0.U
-        rows(e4Index).forwardMask := 0.U
-        rows(e4Index).waitMask := 0.U
-        rows(e4Index).dataComplete := false.B
-        rows(e4Index).sourcesReturned := false.B
-        rows(e4Index).scbReturned := false.B
-        rows(e4Index).stqReturned := false.B
-        rows(e4Index).l1Hit := false.B
+        rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).waitStore := false.B
+        rows(forwardResultIndex).waitStoreInfo := zeroWait
+        rows(forwardResultIndex).validMask := 0.U
+        rows(forwardResultIndex).loadByteMask := 0.U
+        rows(forwardResultIndex).forwardMask := 0.U
+        rows(forwardResultIndex).waitMask := 0.U
+        rows(forwardResultIndex).dataComplete := false.B
+        rows(forwardResultIndex).sourcesReturned := false.B
+        rows(forwardResultIndex).scbReturned := false.B
+        rows(forwardResultIndex).stqReturned := false.B
+        rows(forwardResultIndex).l1Hit := false.B
       }
     }
 
@@ -833,7 +990,8 @@ class LoadInflightQueue(
 
     when(io.refillValid) {
       for (idx <- 0 until liqEntries) {
-        val sameRowResolvedAtE4 = e4SegmentResolved && (e4Index === idx.U)
+        val sameRowResolvedAtE4 =
+          e4SegmentResolved && (forwardResultIndex === idx.U)
         when(refillWakeup.io.wakeMask(idx) && !sameRowResolvedAtE4) {
           rows(idx).status := LoadInflightStatus.Wait
           rows(idx).lineData := io.refill.data
@@ -855,6 +1013,7 @@ class LoadInflightQueue(
       rows(io.launchIndex).status := LoadInflightStatus.Repick
       rows(io.launchIndex).waitStore := false.B
       rows(io.launchIndex).missKind := LoadForwardMissKind.NoMiss
+      rows(io.launchIndex).forwardPending := true.B
     }
 
     when(pickAccepted && !(launchAccepted && (io.launchIndex === io.pickIndex))) {
@@ -931,12 +1090,12 @@ class LoadInflightQueue(
 
     when(io.preciseFlush.req.valid) {
       for (idx <- 0 until liqEntries) {
-        val pipelineResident =
-          (e3IndexValid && (e3Index === idx.U)) || (e4IndexValid && (e4Index === idx.U))
+        val pipelineResident = forwardPipelineResidentMask(idx)
         when(flushPruneVec(idx)) {
           rows(idx) := zeroRow
         }.elsewhen(pipelineResident && rows(idx).valid && (rows(idx).status === LoadInflightStatus.Repick)) {
           rows(idx).status := LoadInflightStatus.Wait
+          rows(idx).forwardPending := false.B
           rows(idx).dataComplete := false.B
           rows(idx).sourcesReturned := false.B
           rows(idx).scbReturned := false.B
@@ -952,8 +1111,6 @@ class LoadInflightQueue(
         }
       }
       residentCount := residentCount - flushPruneCount
-      e3IndexValid := false.B
-      e4IndexValid := false.B
       when(flushPruneMask.orR) {
         val firstPruned = PriorityEncoder(flushPruneMask)
         allocPtr := firstPruned
@@ -1045,11 +1202,12 @@ class LoadInflightQueue(
   io.refillAccepted := refillWakeup.io.refillAccepted
   io.refillWakeMask := refillWakeup.io.wakeMask
   io.e4UpdateValid := e4UpdateValid
-  io.e4UpdateIndex := e4Index
-  io.e4MissKind := pipeline.io.e4MissKind
+  io.e4UpdateIndex := forwardResultIndex
+  io.e4MissKind := selectedForwardResult.missKind
   io.e4WakeupValid := e4Resolved
   io.lhqRecordValid := e4Resolved
-  assert(!e4Resolved || !rows(e4Index).crossLine || rows(e4Index).firstSegmentDone,
+  assert(!e4Resolved || !forwardResultRow.crossLine ||
+    forwardResultRow.firstSegmentDone,
     "cross-line scalar publication requires a retained first segment")
   io.lhqRecord := lhqRecord
   io.occupiedMask := occupiedVec.asUInt

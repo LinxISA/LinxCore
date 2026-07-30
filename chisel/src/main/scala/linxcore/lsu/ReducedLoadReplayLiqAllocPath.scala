@@ -348,6 +348,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.e2ScbReturned := io.e2ScbReturned
   liq.io.e2StqReturned := io.e2StqReturned
   liq.io.e2ReturnReady := io.e2ReturnReady
+  liq.io.forwardResultValid := false.B
+  liq.io.forwardResult := 0.U.asTypeOf(liq.io.forwardResult)
   liq.io.replayWakeValid := io.replayWakeValid
   liq.io.replayWake := io.replayWake
   liq.io.refillValid := io.refillValid
