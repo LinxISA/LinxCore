@@ -24,8 +24,16 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15c-b2b canonical execution-cluster cutover.
-`OooIexCanonicalLoadOwnership` atomically joins the three-AGU LIQ allocation
+The latest LSU packet is I0.15c-b3c1 retained forwarding-result ownership.
+`LoadInflightQueue` now distinguishes permanent stale identity/lifecycle
+rejections from retryable recovery or exact-row writer conflicts.
+`LoadForwardResultRetainer` holds the complete classified result across the
+retryable case and dequeues only on exact acceptance or permanent stale
+rejection. This closes the lossless sink policy required before live STQ E4
+traffic can replace the compatibility CAM.
+
+The preceding I0.15c-b2b execution-cluster cutover has
+`OooIexCanonicalLoadOwnership` atomically join the three-AGU LIQ allocation
 with the exact slot-plus-wrap terminal metadata sidecar; neither owner can
 accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
 and canonical LRET/W1/W2 completion releases metadata only on the same terminal
@@ -44,8 +52,8 @@ parameter, UT, abstract memory messages, and module page are deleted. Dynamic
 cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
 P-file/ROB terminal publication.
 Direct live composition with `ScalarLSULoadPath`, all three canonical STQ
-forward-result pipes, and the scalar LSU's own recovery readiness remains the
-next I0.15c packet.
+query/response pipes, retained E4 ingress credit, hard-block handling, and the
+scalar LSU's own recovery readiness remains the next I0.15c packet.
 Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 

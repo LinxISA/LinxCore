@@ -278,6 +278,10 @@ class LoadInflightQueueIO(
   val forwardResultRejectedByAttempt = Output(Bool())
   val forwardResultRejectedByPipe = Output(Bool())
   val forwardResultRejectedByLifecycle = Output(Bool())
+  val forwardResultRejectedPermanent = Output(Bool())
+  val forwardResultRetryRequired = Output(Bool())
+  val forwardResultRetryByRecovery = Output(Bool())
+  val forwardResultRetryByMutationConflict = Output(Bool())
 
   val replayWakeValid = Input(Bool())
   val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes, lsidWidth))
@@ -710,7 +714,6 @@ class LoadInflightQueue(
     (forwardResultRow.status === LoadInflightStatus.Repick) &&
       forwardResultRow.forwardPending
   val forwardResultExactCandidate = selectedForwardResultValid &&
-    !flushCycle &&
     forwardResultLoadIdExact && forwardResultAttemptExact &&
     forwardResultPipeExact && forwardResultLifecycleReady
   val externalForwardResultMutationConflict =
@@ -725,7 +728,8 @@ class LoadInflightQueue(
           replayWakeup.io.mergeMask(forwardResultIndex)) ||
         (io.refillValid && refillWakeup.io.wakeMask(forwardResultIndex)))
   val e4UpdateValid =
-    forwardResultExactCandidate && !externalForwardResultMutationConflict
+    forwardResultExactCandidate && !flushCycle &&
+      !externalForwardResultMutationConflict
   val e4SegmentResolved =
     e4UpdateValid && selectedForwardResult.wakeupValid &&
       (selectedForwardResult.missKind === LoadForwardMissKind.NoMiss)
@@ -749,6 +753,13 @@ class LoadInflightQueue(
 
   val externalForwardResultActive =
     useExternalForwardResult.B && io.forwardResultValid
+  val forwardResultRetryByRecovery = externalForwardResultActive &&
+    forwardResultExactCandidate && flushCycle
+  val forwardResultRetryByMutationConflict = externalForwardResultActive &&
+    forwardResultExactCandidate && !flushCycle &&
+    externalForwardResultMutationConflict
+  val forwardResultRetryRequired =
+    forwardResultRetryByRecovery || forwardResultRetryByMutationConflict
   io.forwardResultAccepted := externalForwardResultActive && e4UpdateValid
   io.forwardResultRejected := externalForwardResultActive && !e4UpdateValid
   io.forwardResultRejectedByLoadId := externalForwardResultActive &&
@@ -762,6 +773,12 @@ class LoadInflightQueue(
     forwardResultLoadIdExact && forwardResultAttemptExact &&
     forwardResultPipeExact && (!forwardResultLifecycleReady || flushCycle ||
       externalForwardResultMutationConflict)
+  io.forwardResultRejectedPermanent := io.forwardResultRejected &&
+    !forwardResultRetryRequired
+  io.forwardResultRetryRequired := forwardResultRetryRequired
+  io.forwardResultRetryByRecovery := forwardResultRetryByRecovery
+  io.forwardResultRetryByMutationConflict :=
+    forwardResultRetryByMutationConflict
 
   val lhqRecord = Wire(new LoadHitRecord(
     liqEntries, idEntries, addrWidth, lineBytes, sizeWidth, pcWidth, lsidWidth))

@@ -10,8 +10,10 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The active LSU priority is I0.15c-b3 live scalar-LSU composition. The c-b1 ownership
-bridge makes LIQ allocation, exact replay rebind, terminal metadata, and
+The active LSU priority is I0.15c-b3 live scalar-LSU composition. The b3c1
+result owner separates permanent stale rejection from retryable recovery or
+exact-row mutation conflicts and retains every retryable E4 result until a
+terminal LIQ decision. The c-b1 ownership bridge makes LIQ allocation, exact replay rebind, terminal metadata, and
 two-phase recovery atomic without introducing load lifecycle residency. c-b2a
 now derives speculative wakeup only from exact LIQ launch, derives cancel from
 exact rebind/fault, and restores lane-qualified W1 bypass. c-b2b replaces the
@@ -19,8 +21,9 @@ three migration trackers with one canonical bridge in the execution cluster,
 propagates its typed LSU port through the closed wrappers, joins load metadata
 recovery readiness, and deletes the old tracker after replacement cluster IT
 passes. The next packet must connect this boundary to live
-`ScalarLSULoadPath` allocation/launch/return, three STQ-forward results, and
-the scalar LSU recovery owner under one common prepare/fire.
+`ScalarLSULoadPath` allocation/launch/return, three STQ query/response lanes,
+retained E4 credit and hard-block handling, and the scalar LSU recovery owner
+under one common prepare/fire.
 
 The active backend priority is OOO packet O8.3 physical closure. O7 global
 recovery and CTU reinsertion are packet-complete. O8.3e replaces the grouped

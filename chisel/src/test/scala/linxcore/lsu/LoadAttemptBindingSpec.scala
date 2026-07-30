@@ -45,6 +45,10 @@ class LoadAttemptBindingHarnessIO(
   val forwardResultRejectedByAttempt = Output(Bool())
   val forwardResultRejectedByPipe = Output(Bool())
   val forwardResultRejectedByLifecycle = Output(Bool())
+  val forwardResultRejectedPermanent = Output(Bool())
+  val forwardResultRetryRequired = Output(Bool())
+  val forwardResultRetryByRecovery = Output(Bool())
+  val forwardResultRetryByMutationConflict = Output(Bool())
   val clearRow0 = Input(Bool())
   val clearAccepted = Output(Bool())
   val lhqRecordValid = Output(Bool())
@@ -140,6 +144,12 @@ class LoadAttemptBindingHarness(
   io.forwardResultRejectedByPipe := liq.io.forwardResultRejectedByPipe
   io.forwardResultRejectedByLifecycle :=
     liq.io.forwardResultRejectedByLifecycle
+  io.forwardResultRejectedPermanent :=
+    liq.io.forwardResultRejectedPermanent
+  io.forwardResultRetryRequired := liq.io.forwardResultRetryRequired
+  io.forwardResultRetryByRecovery := liq.io.forwardResultRetryByRecovery
+  io.forwardResultRetryByMutationConflict :=
+    liq.io.forwardResultRetryByMutationConflict
   io.clearAccepted := liq.io.clearResolvedAccepted
   io.lhqRecordValid := liq.io.lhqRecordValid
   io.rowValid := liq.io.rows(0).valid
@@ -208,6 +218,8 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.forwardResultAccepted.expect(false.B)
       dut.io.forwardResultRejected.expect(true.B)
       dut.io.forwardResultRejectedByAttempt.expect(true.B)
+      dut.io.forwardResultRejectedPermanent.expect(true.B)
+      dut.io.forwardResultRetryRequired.expect(false.B)
       dut.clock.step()
       dut.io.rowDataComplete.expect(false.B)
 
@@ -240,6 +252,36 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.forwardResultAccepted.expect(false.B)
       dut.io.forwardResultRejected.expect(true.B)
       dut.io.forwardResultRejectedByLifecycle.expect(true.B)
+      dut.io.forwardResultRejectedPermanent.expect(true.B)
+      dut.io.forwardResultRetryRequired.expect(false.B)
+    }
+  }
+
+  test("recovery collision is retryable while stale lifecycle is permanent") {
+    simulate(new LoadAttemptBindingHarness(
+      useExternalForwardResult = true)) { dut =>
+      clear(dut)
+      dut.io.allocValid.poke(true.B)
+      dut.io.alloc.size.poke(8.U)
+      pokeAttempt(dut.io.alloc.attempt,
+        nativeBid = 6, ridSlot = 17, generation = 3)
+      dut.clock.step()
+      dut.io.allocValid.poke(false.B)
+
+      dut.io.launchValid.poke(true.B)
+      dut.io.launchAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.launchValid.poke(false.B)
+
+      pokeForwardResult(dut, generation = 3)
+      dut.io.forwardResultValid.poke(true.B)
+      dut.io.flush.poke(true.B)
+      dut.io.forwardResultAccepted.expect(false.B)
+      dut.io.forwardResultRejected.expect(true.B)
+      dut.io.forwardResultRejectedPermanent.expect(false.B)
+      dut.io.forwardResultRetryRequired.expect(true.B)
+      dut.io.forwardResultRetryByRecovery.expect(true.B)
+      dut.io.forwardResultRetryByMutationConflict.expect(false.B)
     }
   }
 

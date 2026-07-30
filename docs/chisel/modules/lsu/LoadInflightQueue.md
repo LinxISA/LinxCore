@@ -94,8 +94,9 @@ classified E4 payload plus `{canonical loadId, attempt, returnPipeIndex}`. The
 row mutates only when all three identities match the resident row, the row owns
 one accepted launch through `forwardPending`, no flush is active, and no
 competing row mutation wins that cycle. Stale row reuse, stale attempts,
-cross-pipe responses, pick-only `Repick` rows, duplicate returns, and recovery
-or mutation conflicts are rejected without changing row data.
+cross-pipe responses, pick-only `Repick` rows, and duplicate returns are typed
+as permanent stale results. Recovery and exact-row mutation conflicts are
+typed as retryable owner conflicts. Every rejection leaves row data unchanged.
 
 Compatibility mode remains the default for existing standalone LSU tops. It
 captures the same exact identity at launch and routes the old local forwarding
@@ -171,10 +172,16 @@ tile bit, and `(youngestStoreId, youngestStoreLsId)` snapshot.
 | `forwardResultRejectedByAttempt` | The row lease matched but the producer-qualified attempt did not. |
 | `forwardResultRejectedByPipe` | Row and attempt matched but the physical return pipe did not. |
 | `forwardResultRejectedByLifecycle` | No accepted launch is pending, the result is a duplicate, recovery is active, or another exact row mutation owns the cycle. |
+| `forwardResultRejectedPermanent` | The producer may discard the result because row, attempt, pipe, or pending-launch authority can no longer accept it. |
+| `forwardResultRetryRequired` | The exact result remains live but recovery or another exact-row writer owns this cycle; the producer must retain and retry it. |
+| `forwardResultRetryByRecovery` | Retry is required because hard or typed recovery currently fences LIQ mutation. |
+| `forwardResultRetryByMutationConflict` | Retry is required because clear, MDB mutation, replay wakeup, or refill owns the exact row this cycle. |
 
 External result mode is a compile-time production choice. Generated RTL for
-that mode contains neither `LoadForwardPipeline` nor `LoadStoreForwarding`;
-the three canonical STQ lookup pipes will connect to this seam in I0.15c-b3c.
+that mode contains neither `LoadForwardPipeline` nor `LoadStoreForwarding`.
+`LoadForwardResultRetainer` holds retryable heads and dequeues only on exact
+acceptance or permanent stale rejection. The three canonical STQ lookup pipes
+will connect to that retained seam in the next I0.15c-b3c packet.
 
 ### Pick Without Forwarding
 
