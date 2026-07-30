@@ -115,6 +115,8 @@ class ScalarLSULoadPathReturnProbe extends Module {
   alloc.returnPipeIndex := io.allocPipe
   path.io.allocValid := io.allocValid
   path.io.alloc := alloc
+  path.io.attemptRebindValid := false.B
+  path.io.attemptRebind := 0.U.asTypeOf(path.io.attemptRebind)
 
   path.io.launchValid := io.launchValid
   path.io.launchIndex := io.launchIndex

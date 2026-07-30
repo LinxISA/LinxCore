@@ -135,6 +135,7 @@ class LoadReplayResolvedRowHitRecord(
   record.loadLsId := row.loadLsId
   record.loadLsIdFullValid := row.loadLsIdFullValid
   record.loadLsIdFull := row.loadLsIdFull
+  record.attempt := row.attempt
   record.pc := row.pc
   record.addr := row.addr
   record.lineAddr := Cat(row.addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))

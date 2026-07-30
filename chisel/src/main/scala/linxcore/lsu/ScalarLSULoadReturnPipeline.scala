@@ -52,6 +52,7 @@ class ScalarLSULoadReturnPipelineIO(
   val robLookupLoadLsId = Output(new ROBID(idEntries))
   val robLookupLoadLsIdFullValid = Output(Bool())
   val robLookupLoadLsIdFull = Output(UInt(lsidWidth.W))
+  val robLookupAttempt = Output(new LoadAttemptIdentity)
   val robRowValid = Input(Bool())
   val robRowNeedFlush = Input(Bool())
 
@@ -226,6 +227,11 @@ class ScalarLSULoadReturnPipeline(
   io.robLookupLoadLsId := io.in.payload.loadLsId
   io.robLookupLoadLsIdFullValid := io.in.payload.loadLsIdFullValid
   io.robLookupLoadLsIdFull := io.in.payload.loadLsIdFull
+  io.robLookupAttempt :=
+    Mux(
+      io.robLookupValid,
+      LoadAttemptIdentity.canonical(io.in.payload.attempt),
+      LoadAttemptIdentity.none)
   io.w1ValidMask := VecInit(w1.map(_.payload.valid)).asUInt
   io.w2ValidMask := VecInit(w2.map(_.payload.valid)).asUInt
   io.w1PrecisePruneMask := w1Prune.asUInt

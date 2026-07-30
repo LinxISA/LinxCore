@@ -33,6 +33,7 @@ class LoadReplayReturnLretPayloadIO(
   val selectedLoadLsId = Input(new ROBID(idEntries))
   val selectedLoadLsIdFullValid = Input(Bool())
   val selectedLoadLsIdFull = Input(UInt(lsidWidth.W))
+  val selectedAttempt = Input(new LoadAttemptIdentity)
   val selectedPeId = Input(UInt(peIdWidth.W))
   val selectedStid = Input(UInt(stidWidth.W))
   val selectedTid = Input(UInt(tidWidth.W))
@@ -56,6 +57,7 @@ class LoadReplayReturnLretPayloadIO(
   val payloadLoadLsId = Output(new ROBID(idEntries))
   val payloadLoadLsIdFullValid = Output(Bool())
   val payloadLoadLsIdFull = Output(UInt(lsidWidth.W))
+  val payloadAttempt = Output(new LoadAttemptIdentity)
   val payloadPeId = Output(UInt(peIdWidth.W))
   val payloadStid = Output(UInt(stidWidth.W))
   val payloadTid = Output(UInt(tidWidth.W))
@@ -126,6 +128,7 @@ class LoadReplayReturnLretPayload(
   io.payloadLoadLsId := ROBID.disabled(idEntries)
   io.payloadLoadLsIdFullValid := false.B
   io.payloadLoadLsIdFull := 0.U
+  io.payloadAttempt := LoadAttemptIdentity.none
   io.payloadPeId := 0.U
   io.payloadStid := 0.U
   io.payloadTid := 0.U
@@ -149,6 +152,7 @@ class LoadReplayReturnLretPayload(
     io.payloadLoadLsId := io.selectedLoadLsId
     io.payloadLoadLsIdFullValid := io.selectedLoadLsIdFullValid
     io.payloadLoadLsIdFull := io.selectedLoadLsIdFull
+    io.payloadAttempt := LoadAttemptIdentity.canonical(io.selectedAttempt)
     io.payloadPeId := io.selectedPeId
     io.payloadStid := io.selectedStid
     io.payloadTid := io.selectedTid

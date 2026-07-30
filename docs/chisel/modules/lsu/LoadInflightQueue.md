@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala`
+  and `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadAttemptBindingSpec.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.h`
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
@@ -78,6 +79,14 @@ matching rows, cancels E3/E4 residency, returns surviving pipeline rows to
 generation. `ScalarLSULoadPath` is now the canonical parent for LIQ-to-ResolveQ
 transfer and source-row clear.
 
+I0.15b adds a producer-qualified `LoadAttemptIdentity` sidecar. Allocation
+captures it atomically with the LIQ row; an exact `{loadId,current,next}`
+rebind may advance only the attempt generation of a nonterminal resident row.
+Flush, stale producer/generation, skipped generation, launch/pick races, and
+row reuse reject without mutation. The sidecar is copied into the LHQ/ResolveQ
+record and terminal return path but is never used for LSU ordering or replay
+selection.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -95,6 +104,21 @@ memory-event trace.
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
 | `allocLoadId` | Slot-plus-wrap `LID` assigned to the row. |
+| `allocAttemptMalformed` | A valid attempt omitted required producer/native-BID validity and was rejected. |
+
+### Exact Attempt Rebind
+
+| Signal | Description |
+|---|---|
+| `attemptRebindValid` / `attemptRebind` | Requests `{loadId,current,next}` generation rebinding for one exact producer. |
+| `attemptRebindReady` / `attemptRebindAccepted` | The resident row, lifecycle, current token, and consecutive next generation all match with no flush or launch race. |
+| `attemptRebindBlockedByFlush` | Hard or precise recovery outranks the request. |
+| `attemptRebindBlockedByInvalidLoadId` / `...NonresidentRow` | The physical LIQ lease is malformed, stale, or no longer resident. |
+| `attemptRebindBlockedByLifecycle` | The row is terminal/in flight or launches/picks in the same cycle. |
+| `attemptRebindBlockedByStaleAttempt` / `...NextAttempt` | Current producer/generation mismatches or the next producer/generation is not the exact successor. |
+
+Rebind writes only `row.attempt`; full LSID, wait/miss state, address,
+destination, and source-return evidence remain owned by the canonical row.
 
 Allocation is ring-based, not first-free. This preserves the hardware
 `LID = slot + wrap` contract and stalls if the allocation pointer names a

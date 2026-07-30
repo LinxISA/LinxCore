@@ -35,6 +35,7 @@ class LoadInflightAlloc(
   val loadLsId = new ROBID(idEntries)
   val loadLsIdFullValid = Bool()
   val loadLsIdFull = UInt(lsidWidth.W)
+  val attempt = new LoadAttemptIdentity
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -85,6 +86,7 @@ class LoadInflightRow(
   val loadLsId = new ROBID(idEntries)
   val loadLsIdFullValid = Bool()
   val loadLsIdFull = UInt(lsidWidth.W)
+  val attempt = new LoadAttemptIdentity
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -147,6 +149,7 @@ class LoadHitRecord(
   val loadLsId = new ROBID(idEntries)
   val loadLsIdFullValid = Bool()
   val loadLsIdFull = UInt(lsidWidth.W)
+  val attempt = new LoadAttemptIdentity
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val lineAddr = UInt(addrWidth.W)
@@ -199,6 +202,18 @@ class LoadInflightQueueIO(
   val allocAccepted = Output(Bool())
   val allocIndex = Output(UInt(liqPtrWidth.W))
   val allocLoadId = Output(new ROBID(liqEntries))
+  val allocAttemptMalformed = Output(Bool())
+
+  val attemptRebindValid = Input(Bool())
+  val attemptRebind = Input(new LoadAttemptRebind(liqEntries))
+  val attemptRebindReady = Output(Bool())
+  val attemptRebindAccepted = Output(Bool())
+  val attemptRebindBlockedByFlush = Output(Bool())
+  val attemptRebindBlockedByInvalidLoadId = Output(Bool())
+  val attemptRebindBlockedByNonresidentRow = Output(Bool())
+  val attemptRebindBlockedByLifecycle = Output(Bool())
+  val attemptRebindBlockedByStaleAttempt = Output(Bool())
+  val attemptRebindBlockedByNextAttempt = Output(Bool())
 
   val launchValid = Input(Bool())
   val launchIndex = Input(UInt(liqPtrWidth.W))
@@ -400,6 +415,7 @@ class LoadInflightQueue(
     row.loadLsId := ROBID.disabled(idEntries)
     row.loadLsIdFullValid := false.B
     row.loadLsIdFull := 0.U
+    row.attempt := LoadAttemptIdentity.none
     row.youngestStoreId := ROBID.disabled(idEntries)
     row.youngestStoreLsId := ROBID.disabled(idEntries)
     row.youngestStoreLsIdFullValid := false.B
@@ -531,8 +547,39 @@ class LoadInflightQueue(
   val e4Index = RegInit(0.U(liqPtrWidth.W))
 
   val allocLoadId = currentLoadId
-  val allocReady = !flushCycle && !rows(allocPtr).valid
+  val allocAttemptWellFormed = LoadAttemptIdentity.wellFormed(io.alloc.attempt)
+  val allocReady =
+    !flushCycle && !rows(allocPtr).valid && (!io.allocValid || allocAttemptWellFormed)
   val allocAccepted = io.allocValid && allocReady
+  val attemptRebindRow = rows(io.attemptRebind.loadId.value)
+  val attemptRebindLoadIdValid =
+    io.attemptRebind.loadId.valid &&
+      attemptRebindRow.loadId.valid &&
+      ROBID.equal(io.attemptRebind.loadId, attemptRebindRow.loadId)
+  val attemptRebindCurrentExact =
+    io.attemptRebind.current.valid &&
+      attemptRebindRow.attempt.valid &&
+      LoadAttemptIdentity.equal(io.attemptRebind.current, attemptRebindRow.attempt)
+  val attemptRebindNextExact =
+    io.attemptRebind.next.valid &&
+      (io.attemptRebind.next.producer.asUInt === io.attemptRebind.current.producer.asUInt) &&
+      (io.attemptRebind.next.generation === (io.attemptRebind.current.generation +% 1.U))
+  val attemptRebindLifecycleReady =
+    (attemptRebindRow.status === LoadInflightStatus.Wait) ||
+      (attemptRebindRow.status === LoadInflightStatus.L1DcMiss) ||
+      (attemptRebindRow.status === LoadInflightStatus.L2Wait)
+  val attemptRebindLaunchConflict =
+    (launchAccepted && (io.launchIndex === io.attemptRebind.loadId.value)) ||
+      (pickAccepted && (io.pickIndex === io.attemptRebind.loadId.value))
+  val attemptRebindReady =
+    !flushCycle &&
+      attemptRebindRow.valid &&
+      attemptRebindLoadIdValid &&
+      attemptRebindLifecycleReady &&
+      !attemptRebindLaunchConflict &&
+      attemptRebindCurrentExact &&
+      attemptRebindNextExact
+  val attemptRebindAccepted = io.attemptRebindValid && attemptRebindReady
   val clearResolvedRow = rows(io.clearResolvedIndex)
   val clearResolvedCompleteRepick =
     clearResolvedRow.valid &&
@@ -573,6 +620,7 @@ class LoadInflightQueue(
   lhqRecord.loadLsId := rows(e4Index).loadLsId
   lhqRecord.loadLsIdFullValid := rows(e4Index).loadLsIdFullValid
   lhqRecord.loadLsIdFull := rows(e4Index).loadLsIdFull
+  lhqRecord.attempt := rows(e4Index).attempt
   lhqRecord.pc := rows(e4Index).pc
   lhqRecord.addr := rows(e4Index).addr
   lhqRecord.lineAddr := lineAddr(activeAddr(rows(e4Index)))
@@ -834,6 +882,7 @@ class LoadInflightQueue(
       rows(allocPtr).loadLsId := io.alloc.loadLsId
       rows(allocPtr).loadLsIdFullValid := io.alloc.loadLsIdFullValid
       rows(allocPtr).loadLsIdFull := io.alloc.loadLsIdFull
+      rows(allocPtr).attempt := LoadAttemptIdentity.canonical(io.alloc.attempt)
       rows(allocPtr).peId := io.alloc.peId
       rows(allocPtr).stid := io.alloc.stid
       rows(allocPtr).tid := io.alloc.tid
@@ -870,6 +919,10 @@ class LoadInflightQueue(
 
     when(rowMutationPath.io.writeEnable) {
       rows(io.rowMutationTargetIndex) := rowMutationPath.io.nextRow
+    }
+
+    when(attemptRebindAccepted) {
+      rows(io.attemptRebind.loadId.value).attempt := io.attemptRebind.next
     }
 
     residentCount := residentCount + allocAccepted.asUInt - clearResolvedAccepted.asUInt
@@ -933,6 +986,26 @@ class LoadInflightQueue(
   io.allocAccepted := allocAccepted
   io.allocIndex := allocPtr
   io.allocLoadId := allocLoadId
+  io.allocAttemptMalformed := io.allocValid && !allocAttemptWellFormed
+  io.attemptRebindReady := attemptRebindReady
+  io.attemptRebindAccepted := attemptRebindAccepted
+  io.attemptRebindBlockedByFlush := io.attemptRebindValid && flushCycle
+  io.attemptRebindBlockedByInvalidLoadId :=
+    io.attemptRebindValid && !flushCycle && !io.attemptRebind.loadId.valid
+  io.attemptRebindBlockedByNonresidentRow :=
+    io.attemptRebindValid && !flushCycle && io.attemptRebind.loadId.valid &&
+      (!attemptRebindRow.valid || !attemptRebindLoadIdValid)
+  io.attemptRebindBlockedByLifecycle :=
+    io.attemptRebindValid && !flushCycle && attemptRebindRow.valid &&
+      attemptRebindLoadIdValid && (!attemptRebindLifecycleReady || attemptRebindLaunchConflict)
+  io.attemptRebindBlockedByStaleAttempt :=
+    io.attemptRebindValid && !flushCycle && attemptRebindRow.valid &&
+      attemptRebindLoadIdValid && attemptRebindLifecycleReady &&
+      !attemptRebindLaunchConflict && !attemptRebindCurrentExact
+  io.attemptRebindBlockedByNextAttempt :=
+    io.attemptRebindValid && !flushCycle && attemptRebindRow.valid &&
+      attemptRebindLoadIdValid && attemptRebindLifecycleReady &&
+      !attemptRebindLaunchConflict && attemptRebindCurrentExact && !attemptRebindNextExact
   io.launchReady := launchReady
   io.launchAccepted := launchAccepted
   io.pickReady := pickReady

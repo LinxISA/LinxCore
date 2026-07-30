@@ -17,6 +17,10 @@
 This is the canonical registered IEX owner after the scoped scalar LRET bank.
 It replaces a raw external drain-ready boundary with exact ROB validation,
 parameterized W1/W2 residency, and one atomic W2 side-effect rendezvous.
+I0.15b retains `LoadAttemptIdentity` as part of every terminal entry and
+exposes it on `robLookupAttempt` before insertion and on the W2 completion
+payload. Backpressure and recovery movement copy the complete entry; the
+pipeline does not interpret or regenerate the attempt.
 
 ## Contract
 
@@ -30,8 +34,9 @@ parameterized W1/W2 residency, and one atomic W2 side-effect rendezvous.
 - W2 resolve is always required. GPR writeback is required for a valid GPR
   destination. Normal memory wakeup is required only for a non-speculative,
   non-stack return. The slot clears only when all required sinks are ready.
-- Every stage retains PE/STID/TID, BID/GID/RID/load-LSID, PC/address/size,
-  destination, source traces, data, selected source pipe, and wakeup state.
+- Every stage retains PE/STID/TID, BID/GID/RID/load-LSID, exact load-attempt
+  identity, PC/address/size, destination, source traces, data, selected source
+  pipe, and wakeup state.
 - Typed precise recovery freezes movement and prunes matching W1/W2 entries.
   Hard reset/start/restart clears all lanes.
 

@@ -330,6 +330,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.preciseFlush := io.preciseFlush
   liq.io.allocValid := adapter.io.allocValid && io.allocExternalReady
   liq.io.alloc := adapter.io.alloc
+  liq.io.attemptRebindValid := false.B
+  liq.io.attemptRebind := 0.U.asTypeOf(liq.io.attemptRebind)
 
   liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
   liq.io.launchIndex := launchSelect.io.launchIndex

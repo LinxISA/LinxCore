@@ -28,6 +28,7 @@ class LoadReplayReturnLretEntry(
   val loadLsId = new ROBID(idEntries)
   val loadLsIdFullValid = Bool()
   val loadLsIdFull = UInt(lsidWidth.W)
+  val attempt = new LoadAttemptIdentity
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)

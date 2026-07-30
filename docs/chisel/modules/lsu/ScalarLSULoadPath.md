@@ -11,6 +11,7 @@
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
+  and `chisel/src/test/scala/linxcore/lsu/LoadAttemptBindingSpec.scala`
 - Generated proof: `tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
   `LDQInfo::returnData`, `LDQInfo::flush`, and `LDQInfo::CheckMovRslvQ`;
@@ -61,6 +62,10 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
     dual-ingress FIFO. Miss refill is older within a simultaneous cycle, both
     packets are retained, and LIQ consumes one ordered packet per cycle. Exact
     read response retirement is backpressured until transport enqueue fires.
+12. A producer-qualified load-attempt sidecar is co-allocated with the LIQ
+    row, may be rebound only by an exact consecutive-generation transaction,
+    and survives ResolveQ/LRET plus W1/W2 retention. `robLookupAttempt` and
+    terminal `completion.payload.attempt` expose the same identity.
 
 `transferProtocolError` reports missing ResolveQ/LRET capacity, a partial sink
 acceptance, or a new accepted transfer while an older source clear is blocked.
@@ -78,6 +83,11 @@ until resolve and every required writeback/wakeup sink can fire together.
 Same-cycle W2 completion, W1 advance, and new W1 insertion are supported.
 Typed precise recovery freezes survivor movement and prunes only matching
 stage entries; W1/W2 residency participates in load-path quiescence.
+
+The attempt sidecar is not an LSU ordering identity. BID/group/full-LSID and
+the LIQ slot-plus-wrap lease remain authoritative for lifecycle and recovery.
+The future OOO adapter must validate both domains and may not reconstruct the
+producer key from legacy ROB IDs.
 
 `liqEntries` must not exceed the ROB identity domain used by replay
 diagnostics. Reduced tops with a smaller ROB therefore select a matching LIQ
