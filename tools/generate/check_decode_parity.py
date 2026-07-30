@@ -5,7 +5,7 @@ import argparse
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from opcode_catalog_lib import load_catalog, load_qemu_entries
+from opcode_catalog_lib import load_catalog, load_locked_linxisa_entries, load_qemu_entries
 
 THIS_FILE = Path(__file__).resolve()
 LINXCORE_ROOT = THIS_FILE.parents[2]
@@ -27,37 +27,39 @@ def _format_signature(signature: tuple[str, int, int, int]) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Check QEMU vs LinxCore opcode catalog parity")
-    ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
-    ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
-    ap.add_argument(
-        "--allow-source-profile",
-        action="append",
-        default=[],
-        help="Allow catalog records from this non-QEMU source_profile as additive supplements",
+    ap = argparse.ArgumentParser(
+        description="Check the LinxCore catalog against its locked source or a QEMU consumer"
     )
+    ap.add_argument(
+        "--qemu-linx-dir",
+        default=None,
+        help="Optional QEMU consumer decode directory; the locked LinxISA snapshot is the default authority",
+    )
+    ap.add_argument("--linxisa-root", default=str(LINXISA_ROOT))
+    ap.add_argument("--isa-profile", default="v0.57")
+    ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
     args = ap.parse_args()
 
-    expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))
+    if args.qemu_linx_dir:
+        expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))
+        authority = f"QEMU consumer {args.qemu_linx_dir}"
+    else:
+        expected_entries, _ = load_locked_linxisa_entries(
+            Path(args.linxisa_root), profile=args.isa_profile
+        )
+        authority = f"locked LinxISA {args.isa_profile}"
     actual = load_catalog(Path(args.catalog))
 
     expected = Counter(
         (row.mnemonic, row.enc_len, row.mask, row.match)
         for row in expected_entries
     )
-    allowed_profiles = set(args.allow_source_profile)
-    actual_qemu_records = [
+    actual_records = [
         record
         for record in actual["records"]
         if not str(record["mnemonic"]).startswith("internal_")
-        and str(record.get("source_profile", "")) not in allowed_profiles
     ]
-    actual_source_records = [
-        record
-        for record in actual["records"]
-        if str(record.get("source_profile", "")) in allowed_profiles
-    ]
-    observed = Counter(_record_signature(record) for record in actual_qemu_records)
+    observed = Counter(_record_signature(record) for record in actual_records)
 
     missing = expected - observed
     extra = observed - expected
@@ -66,7 +68,7 @@ def main() -> int:
     identities: dict[str, set[tuple[str, int]]] = defaultdict(set)
     form_indices: dict[str, list[int]] = defaultdict(list)
     form_counts: dict[str, set[int]] = defaultdict(set)
-    for record in actual_qemu_records:
+    for record in actual_records:
         mnemonic = str(record["mnemonic"])
         identities[mnemonic].add((str(record["symbol"]), int(record["op_id"])))
         form_indices[mnemonic].append(int(record.get("form_index", 0)))
@@ -116,14 +118,8 @@ def main() -> int:
 
     print(
         "decode parity check passed: "
-        f"{sum(observed.values())} forms, {len(identities)} mnemonics"
+        f"{sum(observed.values())} forms, {len(identities)} mnemonics; authority={authority}"
     )
-    if actual_source_records:
-        profiles = sorted({str(record.get("source_profile")) for record in actual_source_records})
-        print(
-            "source supplement accepted: "
-            f"{len(actual_source_records)} forms, profiles={','.join(profiles)}"
-        )
     return 0
 
 

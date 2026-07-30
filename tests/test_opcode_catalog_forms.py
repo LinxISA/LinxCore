@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,11 @@ GENERATE = ROOT / "tools" / "generate"
 sys.path.insert(0, str(GENERATE))
 sys.path.insert(0, str(ROOT / "src"))
 
-from opcode_catalog_lib import build_catalog, save_catalog  # noqa: E402
+from opcode_catalog_lib import (  # noqa: E402
+    build_catalog_from_entries,
+    load_qemu_entries,
+    save_catalog,
+)
 
 
 class OpcodeCatalogFormsTest(unittest.TestCase):
@@ -38,8 +43,11 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
+    def _fixture_catalog(self) -> dict[str, object]:
+        return build_catalog_from_entries(load_qemu_entries(self.qemu))
+
     def test_catalog_keeps_every_form_with_one_stable_opcode_id(self) -> None:
-        catalog = build_catalog(self.qemu)
+        catalog = self._fixture_catalog()
         forms = [
             record
             for record in catalog["records"]
@@ -57,7 +65,7 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
     def test_generated_consumers_expose_all_forms_and_legacy_lookup(self) -> None:
         catalog_path = self.root / "opcode_catalog.yaml"
         common = self.root / "common"
-        save_catalog(catalog_path, build_catalog(self.qemu))
+        save_catalog(catalog_path, self._fixture_catalog())
         subprocess.run(
             [
                 sys.executable,
@@ -102,7 +110,7 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         )
 
     def test_parity_rejects_a_mnemonic_collapsed_catalog(self) -> None:
-        catalog = build_catalog(self.qemu)
+        catalog = self._fixture_catalog()
         seen: set[str] = set()
         collapsed_records = []
         for record in catalog["records"]:
@@ -233,6 +241,88 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             self.assertEqual(decoded.mnemonic, mnemonic)
             self.assertEqual(decoded.symbol, symbol)
 
+    def test_v057_locked_pto_counts_and_exact_decode_surface(self) -> None:
+        from common.decode32 import decode32_meta
+
+        catalog = json.loads((ROOT / "src/common/opcode_catalog.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(catalog["source"]["release"], "0.57.1")
+        self.assertEqual(
+            catalog["source"]["pto_spec_commit"],
+            "b30ed3df4f1a7fd0c2d19b02a90b049cb452fd87",
+        )
+        self.assertEqual(catalog["source"]["command_form_count"], 99)
+        self.assertEqual(catalog["source"]["tile_operation_count"], 120)
+        expected_counts = {"TEPL": 98, "TMA": 9, "CUBE": 13}
+        actual_counts = {
+            family: len(
+                [record for record in catalog["records"] if record.get("operation_family") == family]
+            )
+            for family in expected_counts
+        }
+        self.assertEqual(actual_counts, expected_counts)
+
+        for record in catalog["records"]:
+            if record.get("operation_family") not in expected_counts:
+                continue
+            decoded = decode32_meta(int(record["match"], 0))
+            self.assertIsNotNone(decoded, record["mnemonic"])
+            self.assertEqual(decoded.mnemonic, record["mnemonic"])
+            self.assertEqual(decoded.symbol, f"OP_BSTART_{record['operation_family']}")
+
+        by_mnemonic: dict[str, list[dict[str, object]]] = {}
+        for record in catalog["records"]:
+            by_mnemonic.setdefault(str(record["mnemonic"]), []).append(record)
+        self.assertEqual(int(by_mnemonic["b_catr"][0]["mask"], 0), 0xFBF07FFF)
+        self.assertEqual(int(by_mnemonic["b_catr"][0]["match"], 0), 0x00000023)
+        self.assertEqual(int(by_mnemonic["b_datr"][0]["mask"], 0), 0x000C707F)
+        self.assertEqual(int(by_mnemonic["b_datr"][0]["match"], 0), 0x00001023)
+        self.assertEqual(len(by_mnemonic["b_iot"]), 5)
+        for record in by_mnemonic["b_iot"]:
+            decoded = decode32_meta(int(record["match"], 0))
+            self.assertIsNotNone(decoded)
+            self.assertEqual(decoded.mnemonic, "b_iot")
+
+    def test_v057_reserved_deleted_and_legacy_pto_forms_are_illegal(self) -> None:
+        from common.decode32 import decode32_meta
+        from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
+
+        reserved_raw = (
+            0x00519181,  # reserved TEPL selector 0x005
+            0x01819181,  # reserved TEPL selector range 0x018..0x019
+            0x07F19181,  # reserved TEPL selector 0x07f
+            0x00911181,  # reserved TMA function 9
+            0x00331181,  # unnamed/reserved CUBE function 3
+            0x00039181,  # deleted generic FIXP header
+        )
+        for raw in reserved_raw:
+            self.assertIsNone(decode32_meta(raw), f"reserved raw 0x{raw:08x}")
+
+        retired_raw = (
+            0x000FA023,
+            0x00003043,
+            0x020FAE23,
+            0x180221A3,
+            0x18022423,
+            0x1800A4A3,
+        )
+        for raw in retired_raw:
+            self.assertIsNone(decode32_meta(raw), f"retired B.ARG raw 0x{raw:08x}")
+
+        for mnemonic in ("b_arg", "bstart_cube", "bstart_fixp"):
+            self.assertEqual(opcode_meta_forms_by_mnemonic(mnemonic), ())
+        for deleted in (
+            "taddc",
+            "taddsc",
+            "tfma",
+            "tfmod",
+            "tfmods",
+            "tlrelu",
+            "trandom",
+            "tsubc",
+            "tsubsc",
+        ):
+            self.assertEqual(opcode_meta_forms_by_mnemonic(f"bstart_{deleted}"), ())
+
     def test_lr_sc_catalog_routes_through_lsu_not_d2_or_alu(self) -> None:
         from common.opcode_meta_gen import opcode_meta_by_mnemonic, opcode_meta_forms_by_mnemonic
 
@@ -262,11 +352,15 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             / "frontend"
             / "FrontendOpcodeDecodeTable.scala"
         ).read_text(encoding="utf-8")
+        load_category = re.search(r"val CatLOAD: Int = (\d+)", scala)
+        store_category = re.search(r"val CatSTORE: Int = (\d+)", scala)
+        self.assertIsNotNone(load_category)
+        self.assertIsNotNone(store_category)
         for symbol in ("OP_LR_B", "OP_LR_H", "OP_LR_W", "OP_LR_D"):
             needle = f'Rule(symbol = "{symbol}"'
             start = scala.index(needle)
             rule = scala[start : scala.index("\n", start)]
-            self.assertIn("category = CatLOAD", rule)
+            self.assertIn(f"category = {load_category.group(1)}", rule)
             self.assertIn("dispatch = 4", rule)
             self.assertIn("isLoad = true", rule)
             self.assertIn("isStore = false", rule)
@@ -274,21 +368,21 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             needle = f'Rule(symbol = "{symbol}"'
             start = scala.index(needle)
             rule = scala[start : scala.index("\n", start)]
-            self.assertIn("category = CatSTORE", rule)
+            self.assertIn(f"category = {store_category.group(1)}", rule)
             self.assertIn("dispatch = 4", rule)
             self.assertIn("isLoad = false", rule)
             self.assertIn("isStore = true", rule)
 
         for retired in (
-            "texract",
-            "tfill",
+            "taddc",
+            "taddsc",
+            "tfma",
             "tfmod",
             "tfmods",
             "tlrelu",
-            "tpow",
-            "tpows",
-            "tprelu",
             "trandom",
+            "tsubc",
+            "tsubsc",
         ):
             self.assertEqual(opcode_meta_forms_by_mnemonic(f"bstart_{retired}"), ())
 

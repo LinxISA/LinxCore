@@ -48,15 +48,15 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         self.assertEqual(report["excluded"]["vector_form"]["count"], 184)
         self.assertEqual(report["excluded"]["tile_pto_descriptor"]["count"], 30)
         self.assertEqual(report["excluded"]["vector_mode_block_descriptor"]["count"], 8)
-        self.assertEqual(report["scalar_denominator"], 547)
+        self.assertEqual(report["scalar_denominator"], 541)
 
     def test_reports_current_frontend_and_alu_coverage(self) -> None:
         report = report_cov.build_report().report
 
         contract = report["source_shape_contracts"]["reduced_scalar_alu_is_supported"]
         _assert_report_matches_detected_contract(self, report)
-        self.assertEqual(report["frontend_strict_decode"]["covered"], 547)
-        self.assertEqual(report["frontend_strict_decode"]["denominator"], 547)
+        self.assertEqual(report["frontend_strict_decode"]["covered"], 541)
+        self.assertEqual(report["frontend_strict_decode"]["denominator"], 541)
         self.assertEqual(
             [item["mnemonic"] for item in report["frontend_strict_decode"]["missing"]],
             [],
@@ -445,7 +445,7 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         )
         parsed = json.loads(result.stdout)
         self.assertEqual(parsed["schema_version"], "linxcore.scalar_instruction_coverage.v1")
-        self.assertEqual(parsed["scalar_denominator"], 547)
+        self.assertEqual(parsed["scalar_denominator"], 541)
         _assert_report_matches_detected_contract(self, parsed)
 
     def test_is_supported_source_shape_contract_is_fail_closed(self) -> None:

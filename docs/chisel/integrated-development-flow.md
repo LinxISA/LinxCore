@@ -78,8 +78,9 @@ identity. `LinxCoreOooShell` proves private per-STID D2/D3/S1 retained rows,
 one shared grant per stage, stable backpressure, and different-STID stage
 concurrency.
 
-The first O2 slice is implemented.  The schema-v2 opcode catalog generates a
-689-record recipe audit and a 687-rule hardware priority decoder.  Parameterized
+The first O2 slice is implemented.  The schema-v2 opcode catalog generates the
+recipe audit and hardware priority decoder recorded in the generated
+`OooOpcodeRecipeTable` metadata.  Parameterized
 `OooD1Decode` normalizes 16/32/48/64-bit instructions into canonical P/T/U
 uops, preserves two pair-load destinations and all four register-indexed
 pair-store sources, diverts CTU parents, and converts illegal/fetch-fault rows

@@ -22,10 +22,15 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       fail(s"missing generated recipe rule for $symbol"))
 
   test("generated recipes classify every encoded catalog form and fail closed explicitly") {
-    assert(OooOpcodeRecipeTable.CatalogRecordCount == 689)
-    assert(OooOpcodeRecipeTable.DecodeRuleCount == 687)
-    assert(OooOpcodeRecipeTable.OpcodeCount == 658)
+    assert(OooOpcodeRecipeTable.CatalogRecordCount == 867)
+    assert(OooOpcodeRecipeTable.DecodeRuleCount == 865)
+    assert(OooOpcodeRecipeTable.OpcodeCount == 730)
     assert(OooOpcodeRecipeTable.Rules.size == OooOpcodeRecipeTable.DecodeRuleCount)
+    val catalogOnlyRecordCount = OooOpcodeRecipeTable.CatalogRecordCount -
+      OooOpcodeRecipeTable.DecodeRuleCount
+    assert(catalogOnlyRecordCount == 2)
+    assert(OooOpcodeRecipeTable.Rules.map(_.opcode).distinct.size +
+      catalogOnlyRecordCount == OooOpcodeRecipeTable.OpcodeCount)
     assert(OooOpcodeRecipeTable.Rules.forall { entry =>
       entry.disposition >= OooOpcodeDisposition.Dispatch &&
       entry.disposition <= OooOpcodeDisposition.Illegal
