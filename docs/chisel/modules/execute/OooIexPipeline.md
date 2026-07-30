@@ -82,10 +82,12 @@ a heavyweight integration gate.
 
 - Connect the six PC request tokens and responses directly to the existing O3
   coordinator in the canonical OOO/IEX composition.
-- Connect every typed E1 lane to its implemented ALU/BRU/AGU/STD/load/FSU
-  execution owner and return W1/W2/W3 bypass/writeback/cancel traffic.
-- Connect `OooIexLoadUnit` speculative wakeup, E4 result, miss-pending, and
-  exact load-cancel paths.
+- Promote `OooIexExecutionPipeline` as the O9 canonical top consumer. It now
+  connects every typed lane to an internal ALU/BRU/scalar-load owner or an
+  explicit retained unfinished-family boundary and returns W1/load bypass,
+  speculative/committed wakeup, and exact load-cancel traffic.
+- Close the retained store/multicycle/system/PAuth/FSU/CMD boundaries with
+  their production owners; do not replace them with permissive sinks.
 - Drive early issue policy and late stage cancellation from measured
   execution-lane, reflow, latency, side-door, and result-bus reservations.
 - Run default-width synthesis/timing and natural workload activation after the

@@ -64,6 +64,7 @@ final case class OooParams(
     iexWakeupPorts: Int = 8,
     iexBypassPorts: Int = 12,
     iexLoadCancelPorts: Int = 4,
+    iexTerminalWidth: Int = 2,
     iexLoadTrackEntries: Int = 16,
     maxArchitecturalParentRefs: Int = 3,
     maxSourceOperands: Int = 4,
@@ -229,6 +230,8 @@ final case class OooParams(
     "the IEX boundary needs at least one bypass candidate")
   require(iexLoadCancelPorts > 0,
     "the IEX boundary needs at least one load-cancel port")
+  require(iexTerminalWidth > 0,
+    "the IEX boundary needs at least one terminal publication lane")
   require(isPowerOfTwo(iexLoadTrackEntries),
     "load tracking entries must be a positive power of two")
   require(loadGenerationWidth > 0,

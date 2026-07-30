@@ -70,6 +70,7 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexWakeupPorts == 8)
     assert(p.iexBypassPorts == 12)
     assert(p.iexLoadCancelPorts == 4)
+    assert(p.iexTerminalWidth == 2)
     assert(p.iexLoadTrackEntries == 16)
     assert(p.loadGenerationWidth == 8)
     assert(p.executeSlotGenerationWidth == 8)
@@ -118,12 +119,13 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(iexWakeupPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexBypassPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexLoadCancelPorts = 0))
+    assertThrows[IllegalArgumentException](OooParams(iexTerminalWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexLoadTrackEntries = 3))
     assertThrows[IllegalArgumentException](OooParams(loadGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(
       executeSlotGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 0))
-    assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 9))
+    assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 17))
     assertThrows[IllegalArgumentException](OooParams(iexReleaseWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(
       iexIssueDomainCount = 2, iexReleaseWidth = 3))
