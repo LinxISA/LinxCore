@@ -1,6 +1,8 @@
 package linxcore.lsu
 
 import circt.stage.ChiselStage
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -39,7 +41,7 @@ object ScalarLSUMDBPathReference {
   }
 }
 
-class ScalarLSUMDBPathSpec extends AnyFunSuite {
+class ScalarLSUMDBPathSpec extends AnyFunSuite with ChiselSim {
   import ScalarLSUMDBPathReference._
 
   private val lsu = ScalarLsuParams(
@@ -86,6 +88,39 @@ class ScalarLSUMDBPathSpec extends AnyFunSuite {
     assert(accepted == RecoveryState(pending = true, Some(Nuke)))
     assert(held == accepted)
     assert(consumed == RecoveryState(pending = false, None))
+  }
+
+  test("a presented but uncommitted store candidate may wait without protocol error") {
+    simulate(new ScalarLSUMDBPathProbe) { dut =>
+      dut.io.flush.poke(false.B)
+      dut.io.loadValid.poke(false.B)
+      dut.io.loadResolved.poke(false.B)
+      dut.io.loadBid.poke(0.U)
+      dut.io.loadLsId.poke(0.U)
+      dut.io.loadPc.poke(0.U)
+      dut.io.loadAddr.poke(0.U)
+      dut.io.loadSize.poke(0.U)
+      dut.io.loadWaitStore.poke(false.B)
+      dut.io.storeProbeValid.poke(false.B)
+      dut.io.storeAddrOnly.poke(false.B)
+      dut.io.storeBid.poke(0.U)
+      dut.io.storeLsId.poke(0.U)
+      dut.io.storePc.poke(0.U)
+      dut.io.storeAddr.poke(0.U)
+      dut.io.storeSize.poke(0.U)
+      dut.io.lookupValid.poke(false.B)
+      dut.io.mutationAccepted.poke(false.B)
+      dut.io.recoveryReady.poke(false.B)
+      dut.io.integratedAllocValid.poke(false.B)
+      dut.io.integratedTrainValid.poke(false.B)
+      dut.io.integratedSeedWaitValid.poke(false.B)
+      dut.io.flush.poke(true.B)
+      dut.io.storeProbeValid.poke(true.B)
+      dut.io.storeProbeReady.expect(false.B)
+      dut.io.protocolError.expect(false.B)
+      dut.clock.step(2)
+      dut.io.protocolError.expect(false.B)
+    }
   }
 
   test("MDB conflict, queue, wait, and recovery payloads retain configured full LSID width") {

@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-13
+Date: 2026-07-31
 
 ## Purpose
 
@@ -24,22 +24,52 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15a production STQ-result ownership. I0.14's three
-replicated `STQLoadForwardingPipeline` ports still snapshot canonical
-`STQEntryBank` tags at E1 and read only generation-qualified `STQDataBank`
-payload at E3. I0.15a separates byte selection from the common E3/E4 result
-owner: `LoadForwardResultPipeline` consumes a typed selection, while
-`STQLoadForwardResultPipeline` consumes the canonical retained STQ response
-directly. `LoadSourceLineMerge` performs byte-exact partial L1D/SCB merge, and
-the STQ query now carries baseline valid-mask plus split source-return evidence.
-Selected data-not-ready stores enter ordinary E3/E4 replay classification;
-unknown older addresses, stale generation, missing/ambiguous full LSID, and
-cross-line/malformed queries take a separate retained hard-block boundary and
-cannot masquerade as cache misses. The next LSU packet must bind exact
-`OooIexLoadGeneration` values to canonical LIQ rows and make LIQ the sole
-wait/miss/relaunch owner before connecting the three production ports. It must
-also avoid duplicate retry or W1/W2 ownership between `OooIexLoadUnit` and
-`ScalarLSULoadPath`. FSU/vector STD, cross-line split loads,
+The latest LSU packet is I0.15c-b3c3a focused production load/store closure.
+`OooIexScalarLoadStorePath` owns exactly one canonical OOO load metadata
+boundary, one live scalar load path, and one live store/STQ fabric. It closes
+AGU allocation, exact attempt launch, all three private STQ forwarding lanes,
+exact ROB lookup, and LRET/W2 terminal result. Store address fill now presents
+a prospective late-STA MDB candidate and cannot mutate STQ until MDB capacity
+permits the matching side effect. One local recovery transaction validates
+that the grouped-ROB plan and LSU projection produce the same kill bit for
+every resident LIQ row. Until the final all-owner projection exists, any live
+MissQ/ResolveQ/MDB/LRET/refill/forward transport also rejects prepare.
+Mismatches reject without mutation and only common fire applies either view.
+
+The preceding I0.15c-b3c2 packet provides live three-pipe forwarding.
+Every canonical LIQ launch atomically enters exactly one retained STQ query
+queue; each queue obeys Decoupled retention under external backpressure. Hard
+flush clears the transport, while typed precise recovery fences boundary fire
+and preserves surviving query/result ownership and reservations.
+Three retained STQ response lanes arbitrate into credit-controlled E3/E4, a
+separate retained structural-hard-block boundary, and the b3c1 exact-result
+retainer. Production elaboration contains no compatibility forwarding CAM.
+
+The preceding I0.15c-b2b execution-cluster cutover has
+`OooIexCanonicalLoadOwnership` atomically join the three-AGU LIQ allocation
+with the exact slot-plus-wrap terminal metadata sidecar; neither owner can
+accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
+and canonical LRET/W1/W2 completion releases metadata only on the same terminal
+fire. Recovery prepare now fences without consuming AGU producers, while only
+the common recovery fire applies the exact kill. The emitted graph contains no
+the legacy load tracker. I0.15c-b2a qualifies speculative wakeup only from the
+exact canonical LIQ launch attempt, emits old-generation cancel on exact
+rebind, one-shot fault cancel independent of terminal backpressure, and
+lane-qualified W1 bypass on ordinary data. Same-lane fault/rebind cancel
+collision serializes without loss. The production execution cluster now owns
+one canonical bridge for all three AGUs, exports its allocation/rebind/launch/
+completion ports through the closed OOO/IEX/store wrappers, joins its recovery
+readiness into the common execution fire, and contains no duplicate load
+request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
+parameter, UT, abstract memory messages, and module page are deleted. Dynamic
+cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
+P-file/ROB terminal publication.
+The next I0.15c packet must install the focused subgraph in the existing
+execution/O3 topology without duplicating its current canonical load/STQ
+owners, define structural-hard-block consumption, replace the migration BID
+projection with common BID/BROB ordering authority, and extend recovery
+projection equality to every LSU queue.
+Attempt-qualified asynchronous returns, FSU/vector STD, cross-line split loads,
 DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.

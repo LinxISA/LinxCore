@@ -28,6 +28,12 @@ The canonical STQ row is the only convergence owner. A fill conflict, stale
 lease, duplicate match, or identity mismatch keeps the transaction retained
 and reports a typed diagnostic.
 
+Address fills also expose `lateStaCandidate` before STQ mutation and accept
+only with `lateStaPermit`. `lateStaProbe` remains the accepted pulse. The
+focused `OooIexScalarLoadStorePath` closes this permit to live MDB capacity;
+other production compositions must do the same rather than treating the
+post-accept pulse as a request.
+
 After translation/PMA classifies the exact physical lease, the grouped ROB
 supplies a semantic `STQRobCommitToken` without an STQ index. The backend
 rediscovers one converged row, promotes it to COMMIT, and inserts its CommitQ
@@ -80,6 +86,9 @@ serialized terminal free across recovery prepare.
 
 ## Remaining gaps
 
+- Replace the propagated load/STQ/MDB seams with one installed
+  `OooIexScalarLoadStorePath` while preserving exactly one execution-cluster
+  metadata owner and one store fabric.
 - Replace the typed test PMA producer with the physical translation/PMP/PMA
   result path and connect the uncached/device response fabric.
 - Add the physical store-data bank, forwarding/overlap checks, load violation

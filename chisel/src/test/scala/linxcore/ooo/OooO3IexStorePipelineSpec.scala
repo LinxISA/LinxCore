@@ -37,8 +37,7 @@ class OooO3IexStorePipelineSpec extends AnyFunSuite {
       pcWritePorts = 2,
       iqEntriesPerBank = 1,
       iqWritePortsPerBank = 2,
-      iqFreeSelectLeafEntries = 1,
-      iexLoadTrackEntries = 4)
+      iqFreeSelectLeafEntries = 1)
     // The complete O3+IEX hierarchy intentionally exceeds the 4 GiB local
     // FIRRTL-to-SystemVerilog test budget.  CHIRRTL still elaborates every
     // Chisel owner and connection while the child SV gates cover lowering.

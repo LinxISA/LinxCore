@@ -595,26 +595,26 @@ source projection，不能继续让两者复制 parent 的全部 source payload�
 与部分 high-long load 仍被 generated catalog 分到 ALU/IEX，也必须先修 recipe
 ownership，不能在 AGU 中暗中接管。
 
-### 6.9 I0.9d 已实现：load generation、tracking、cancel 与 retry
+### 6.9 I0.15c-b2b 已实现：canonical load generation、cancel 与 return
 
-`OooIexLoadUnit` 在接受 typed AGU request 时分配 tracking entry 和完整
-`{producer RobMemberKey, loadGeneration}`。默认 16 entries，由参数
-`iexLoadTrackEntries` 控制。pending request 经过 fair arbiter 发往 memory；每次
-attempt 真正 fire 时才发送 `SpeculativeLoad` wakeup。consumer 可以在 IQ 中
-specReady，但 I1 必须等同 gene 的 bypass data，不能退回读取旧 RF 数据。
+早期 I0.9d 的独立 OOO load tracker 已被生产路径取代并删除。当前唯一 load
+lifecycle owner 是 canonical scalar LSU 的 LIQ/LRET/W1/W2；OOO 仅保留完成
+terminal publication 所需的 immutable metadata sidecar。三个 AGU 经 fair、
+non-resident adapter 原子申请 `{loadId, LoadAttemptIdentity}`，地址、miss、
+forwarding、replay 和 data 不在 OOO 复制。
 
-response 必须匹配处于 awaiting 状态的完整 token。hit 对 byte/half/word 做
-D1 指定的 sign/zero extension，并保持 W1 bypass 与 terminal load result；
-miss 对旧 gene 发 exact cancel，同一个 tracking owner 分配新 gene 后 retry；
-fault 同样撤回 speculation，但保留 precise fault terminal。IQ/P1/I1/I2 已有的
-cancel contract 会清 consumer 的 `specReady/inFlight`，随后新 gene wakeup +
-bypass 使其 repick。stale、duplicate、unknown 和 recovery 后迟到 response 均
-typed reject，不能命中其他 entry。
+只有 canonical LIQ 的精确 `{loadId,attempt}` launch 才发
+`SpeculativeLoad` wakeup；rebind 对旧 generation 发 cancel，fault cancel 是与
+terminal ready 解耦的一次性 policy event。普通返回提供 lane-qualified W1
+bypass，并在同一个 terminal fire 原子完成 P-file write、committed wakeup、
+ROB completion/fault 和 trace。stale completion、错误 row lease、producer、
+attempt 或 destination 均 fail-closed。
 
-load terminal 仍不直接写 P/T/U RF、不发 committed wakeup、不完成 ROB。后续
-atomic sink 必须在同一个 result accept 上完成 data write、committed readiness、
-ROB completion/fault 和 trace。physical cache/TLB、alignment/order、store
-queue/forwarding 以及多 response/bypass port 仍未实现。
+execution cluster 已接入这个唯一 owner 并删除旧 tracker 及其容量参数。尚未
+完成的是把 cluster 暴露的 canonical port 与真实 `ScalarLSULoadPath`、三条 STQ
+forward-result pipe、asynchronous cache/refill return 和整个 LSU recovery owner
+组成一个 production top；physical cache/TLB、alignment、device/coherence 和
+cross-line load 仍属于后续包。
 
 ### 6.10 I0.9e 已实现：统一 atomic terminal publication
 

@@ -9,6 +9,7 @@ import linxcore.common.{BoundaryKind, CoreParams, DestinationKind, InterfacePara
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarWritebackArbiter, ReducedTemplateContextStack, ReducedTemplateSnapshotTable, ScalarGPRFile, ScalarIssueExternalControlFence, ScalarIssueFabric, ScalarSpOrderOwner}
 import linxcore.frontend.{BackendBranchValidation, BackendBranchValidationContract, BranchValidationPoint, D1DecodedInstructionGroup, D1DecodedLaneQueue, F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, FrontendOpcodeDecodeTable, IfuInnerFlush, IfuInnerFlushReason, IfuPruneScope, BfuBodyCutArm, BfuBodyCutPredictor, BfuGeometryPredictionLatch, BfuLocalBodyWindow, BfuPendingRuntimeBodyEndCandidate, BfuRuntimeBodyEndOracle, BfuResolvedBodyEndOwner, BfuResolvedBodyEndPending, BfuResolvedBodyEndSource, BfuStaticGeometryProducer, SetcBranchValidationOwnership, SetcValidationKind}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLiveLoadLiqCapture, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, ScalarLrScReservationOwner, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.LoadCanonicalRowIdentity
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.ScalarLSULoadReturnQueueBank
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
@@ -7115,11 +7116,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopR547LretSetMemDataWiring {
     sinkEntry.loadLsId := payload.io.payloadLoadLsId
     sinkEntry.loadLsIdFullValid := payload.io.payloadLoadLsIdFullValid
     sinkEntry.loadLsIdFull := payload.io.payloadLoadLsIdFull
+    sinkEntry.loadId := payload.io.payloadLoadId
+    sinkEntry.attempt := payload.io.payloadAttempt
     sinkEntry.pc := payload.io.payloadPc
     sinkEntry.addr := payload.io.payloadAddr
     sinkEntry.size := payload.io.payloadSize
     sinkEntry.dst := payload.io.payloadDst
     sinkEntry.data := payload.io.payloadData
+    sinkEntry.faultValid := payload.io.payloadFaultValid
+    sinkEntry.faultCause := payload.io.payloadFaultCause
     sinkEntry.pipeIndex := payload.io.payloadPipeIndex
     sinkEntry.specWakeup := payload.io.payloadSpecWakeup
     sinkEntry.stackValid := payload.io.payloadStackValid
@@ -8076,6 +8081,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring 
       Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLoadLsId, allocPath.io.launchSelectedLoadLsId)
     lretPayload.io.selectedLoadLsIdFullValid := selectedScopeRow.loadLsIdFullValid
     lretPayload.io.selectedLoadLsIdFull := selectedScopeRow.loadLsIdFull
+    lretPayload.io.selectedLoadId := LoadCanonicalRowIdentity.fromRobId(selectedScopeRow.loadId)
+    lretPayload.io.selectedAttempt := selectedScopeRow.attempt
     lretPayload.io.selectedPeId := selectedScopeRow.peId
     lretPayload.io.selectedStid := selectedScopeRow.stid
     lretPayload.io.selectedTid := selectedScopeRow.tid
@@ -8084,6 +8091,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring 
     lretPayload.io.selectedSize := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSize, allocPath.io.launchSelectedSize)
     lretPayload.io.selectedDst := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedDst, allocPath.io.launchSelectedDst)
     lretPayload.io.returnData := dataExtract.io.data
+    // This reduced bridge publishes only completed data returns. Terminal
+    // load faults are owned by ScalarLSULoadPath and the production IEX path.
+    lretPayload.io.faultValid := false.B
+    lretPayload.io.faultCause := 0.U
     lretPayload.io.returnPipeIndex := returnReadiness.io.selectedPipeIndex
     lretPayload.io.specWakeup :=
       Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSpecWakeup, allocPath.io.launchSelectedSpecWakeup)

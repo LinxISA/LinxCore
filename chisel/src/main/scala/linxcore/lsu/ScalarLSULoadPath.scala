@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Mux1H, RRArbiter, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Decoupled, Fill, Mux1H, PopCount, Queue, RRArbiter, UIntToOH, log2Ceil}
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
 import linxcore.recovery.FlushBus
@@ -98,6 +98,34 @@ class ScalarL1DStorePortIO(val p: ScalarLsuParams) extends Bundle {
   val ready = Output(Bool())
   val tagHit = Output(Bool())
   val writeHit = Output(Bool())
+}
+
+class ScalarLSULoadForwardPortIO(
+    val coreParams: CoreParams,
+    val p: ScalarLsuParams,
+    val stqRobEntries: Int,
+    val tokenWidth: Int,
+    val resultDepth: Int) extends Bundle {
+  private val resultCountWidth = log2Ceil(resultDepth + 1)
+  private def queryType = new STQLoadForwardQuery(
+    stqRobEntries, p.addrWidth, p.stidWidth, p.lineBytes,
+    coreParams.lsidWidth, tokenWidth)
+  private def responseType = new STQLoadForwardResponse(
+    stqRobEntries, p.stqEntries, p.addrWidth, p.stidWidth, p.pcWidth,
+    p.lineBytes, coreParams.lsidWidth, tokenWidth)
+
+  val scb = Input(new LoadSourceLine(p.lineBytes))
+  val queries = Vec(p.loadReturnPipeCount, Decoupled(queryType))
+  val responses = Flipped(Vec(p.loadReturnPipeCount, Decoupled(responseType)))
+  val hardBlock = Decoupled(responseType)
+  val queryAccepted = Output(Bool())
+  val resultAccepted = Output(Bool())
+  val resultRejectedPermanent = Output(Bool())
+  val resultRetryRequired = Output(Bool())
+  val resultCount = Output(UInt(resultCountWidth.W))
+  val resultPending = Output(Bool())
+  val ownedStateEmpty = Output(Bool())
+  val protocolError = Output(Bool())
 }
 
 class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuParams) extends Bundle {
@@ -393,18 +421,40 @@ class ScalarLSULoadPathStoreIO(val coreParams: CoreParams, val p: ScalarLsuParam
   ))
 }
 
-class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Module {
+class ScalarLSULoadPath(
+    val coreParams: CoreParams = CoreParams(),
+    val useExternalStqForwarding: Boolean = false,
+    val stqForwardRobEntries: Int = 128,
+    val stqForwardTokenWidth: Int = 64) extends Module {
   private val p = coreParams.scalarLsu
+  private val forwardResultDepth = p.loadReturnPipeCount + 2
   require(p.resolveQueueEntries >= 4,
     "resolveQueueEntries must reserve two pipeline arrivals plus one resident row")
   require(p.liqEntries <= coreParams.robEntries,
     "liqEntries must fit the ROB identity domain used by replay diagnostics")
   require(p.lineBytes == 64, "canonical scalar load path currently requires 64-byte cache lines")
+  if (useExternalStqForwarding) {
+    require(p.loadReturnPipeCount == 3,
+      "production scalar STQ forwarding has exactly three physical load pipes")
+    require(stqForwardRobEntries > 1 &&
+      (stqForwardRobEntries & (stqForwardRobEntries - 1)) == 0,
+      "STQ forwarding ROB projection must be a power of two")
+    require(stqForwardRobEntries <= coreParams.robEntries,
+      "STQ forwarding identities must widen losslessly into canonical LSU rows")
+    require(log2Ceil(stqForwardRobEntries) <= LoadAttemptIdentity.IndexWidth,
+      "STQ forwarding BID projection must fit the producer identity")
+    require(stqForwardTokenWidth >= LoadAttemptIdentity.GenerationWidth,
+      "STQ forwarding token must carry the complete attempt generation")
+  }
 
   val io = IO(new ScalarLSULoadPathIO(coreParams, p))
   val scbCache = IO(new ScalarL1DStorePortIO(p))
   val mdbStore = IO(new ScalarLSULoadPathStoreIO(coreParams, p))
   val recovery = IO(new ScalarLSULoadPathRecoveryIO(coreParams, p))
+  val stqForward = if (useExternalStqForwarding) Some(IO(
+    new ScalarLSULoadForwardPortIO(
+      coreParams, p, stqForwardRobEntries, stqForwardTokenWidth,
+      forwardResultDepth))) else None
 
   val liq = Module(new LoadInflightQueue(
     liqEntries = p.liqEntries,
@@ -420,7 +470,8 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     stidWidth = p.stidWidth,
     tidWidth = p.tidWidth,
     returnPipeCount = p.loadReturnPipeCount,
-    lsidWidth = coreParams.lsidWidth
+    lsidWidth = coreParams.lsidWidth,
+    useExternalForwardResult = useExternalStqForwarding
   ))
   val missQueue = Module(new LoadMissQueue(
     missEntries = p.loadMissQueueEntries,
@@ -505,6 +556,16 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     coreParams.robEntries, p, coreParams.lsidWidth))
 
   val flushCycle = io.flush || io.preciseFlush.req.valid
+  val forwardQueryQueues = if (useExternalStqForwarding) Some(
+    Seq.fill(p.loadReturnPipeCount) {
+      withReset(reset.asBool || io.flush) {
+        Module(new Queue(new STQLoadForwardQuery(
+          stqForwardRobEntries, p.addrWidth, p.stidWidth, p.lineBytes,
+          coreParams.lsidWidth, stqForwardTokenWidth),
+          entries = 1, pipe = true, flow = false))
+      }
+    }) else None
+  val forwardTransportEmpty = WireDefault(true.B)
   private val returnLaneCount = p.stidCount * p.loadReturnPipeCount
   private val returnLaneWidth = math.max(1, log2Ceil(returnLaneCount))
   private val reservationWidth = log2Ceil(p.loadReturnQueueEntries + 1)
@@ -527,10 +588,19 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   liq.io.attemptRebind := io.attemptRebind
   val launchRow = liq.io.rows(io.launchIndex)
   private val lineOffsetWidth = log2Ceil(p.lineBytes)
-  val launchLineAddr = Mux(
-    launchRow.crossLine && launchRow.secondSegmentActive,
-    Cat(launchRow.addr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W)) + p.lineBytes.U,
-    Cat(launchRow.addr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W)))
+  val launchBaseLineAddr =
+    Cat(launchRow.addr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
+  val launchFirstSegmentSize =
+    p.lineBytes.U(p.loadSizeWidth.W) - launchRow.addr(lineOffsetWidth - 1, 0)
+  val launchSecondSegment = launchRow.crossLine && launchRow.secondSegmentActive
+  val launchActiveAddr = Mux(
+    launchSecondSegment, launchBaseLineAddr + p.lineBytes.U, launchRow.addr)
+  val launchActiveSize = Mux(
+    launchSecondSegment,
+    launchRow.size - launchFirstSegmentSize,
+    Mux(launchRow.crossLine, launchFirstSegmentSize, launchRow.size))
+  val launchLineAddr =
+    Cat(launchActiveAddr(p.addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
   val launchStidInRange = launchRow.stid < p.stidCount.U
   val launchPipeInRange = launchRow.returnPipeIndex < p.loadReturnPipeCount.U
   val launchTargetValid = launchStidInRange && launchPipeInRange
@@ -548,9 +618,26 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
     launchTargetValid &&
       ((launchResidentCount +& launchReservedCount) < p.loadReturnQueueEntries.U || launchDrainCredit)
   val launchMissCreditSafe = missQueue.io.freeCount > missReservations
-  liq.io.launchValid :=
-    io.launchValid && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe &&
-      l1d.io.arrayReady && !launchRow.isTile
+  private val stqForwardBidWidth = log2Ceil(stqForwardRobEntries)
+  val launchBidProjectionFits = if (useExternalStqForwarding &&
+      stqForwardBidWidth < LoadAttemptIdentity.IndexWidth) {
+    !launchRow.attempt.producer.nativeBid(
+      LoadAttemptIdentity.IndexWidth - 1, stqForwardBidWidth).orR
+  } else {
+    true.B
+  }
+  val launchForwardReady = WireDefault(true.B)
+  val launchAdmissionValid =
+    io.launchValid && resolveCreditSafe && launchReturnCreditSafe &&
+      launchMissCreditSafe && l1d.io.arrayReady && !launchRow.isTile
+  if (useExternalStqForwarding) {
+    val queryQueues = forwardQueryQueues.get
+    val selectedReady = Mux1H(
+      UIntToOH(launchRow.returnPipeIndex, p.loadReturnPipeCount),
+      queryQueues.map(_.io.enq.ready))
+    launchForwardReady := launchTargetValid && launchBidProjectionFits && selectedReady
+  }
+  liq.io.launchValid := launchAdmissionValid && launchForwardReady
   liq.io.launchIndex := io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
@@ -558,15 +645,185 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   liq.io.scbReturnIndex := io.scbReturnIndex
   liq.io.markResolvedValid := false.B
   liq.io.markResolvedIndex := 0.U
-  liq.io.e2Stores := io.e2Stores
   l1d.io.loadLookupValid := liq.io.launchAccepted
   l1d.io.loadLookupLineAddr := launchLineAddr
-  liq.io.e2BaseData := l1d.io.loadLookup.data
-  liq.io.e2BaseValidMask := Fill(p.lineBytes, l1d.io.loadLookup.readHit)
-  liq.io.e2LoadDataReturned := liq.io.launchAccepted
-  liq.io.e2ScbReturned := io.e2ScbReturned
-  liq.io.e2StqReturned := io.e2StqReturned
-  liq.io.e2ReturnReady := true.B
+  if (useExternalStqForwarding) {
+    val port = stqForward.get
+    val queryQueues = forwardQueryQueues.get
+    val sourceMerge = Module(new LoadSourceLineMerge(p.lineBytes))
+    val responseArbiter = Module(new RRArbiter(
+      chiselTypeOf(port.responses.head.bits), p.loadReturnPipeCount))
+    val resultPipeline = Module(new STQLoadForwardResultPipeline(
+      robEntries = stqForwardRobEntries,
+      stqEntries = p.stqEntries,
+      addrWidth = p.addrWidth,
+      stidWidth = p.stidWidth,
+      pcWidth = p.pcWidth,
+      lineBytes = p.lineBytes,
+      lsidWidth = coreParams.lsidWidth,
+      tokenWidth = stqForwardTokenWidth))
+    val resultRetainer = Module(new LoadForwardResultRetainer(
+      idEntries = coreParams.robEntries,
+      storeEntries = p.stqEntries,
+      pcWidth = p.pcWidth,
+      lineBytes = p.lineBytes,
+      lsidWidth = coreParams.lsidWidth,
+      depth = forwardResultDepth))
+
+    liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
+    liq.io.e2BaseData := 0.U
+    liq.io.e2BaseValidMask := 0.U
+    liq.io.e2LoadDataReturned := false.B
+    liq.io.e2ScbReturned := false.B
+    liq.io.e2StqReturned := false.B
+    liq.io.e2ReturnReady := false.B
+
+    sourceMerge.io.l1d.returned := liq.io.launchAccepted
+    sourceMerge.io.l1d.validMask :=
+      Fill(p.lineBytes, l1d.io.loadLookup.readHit)
+    sourceMerge.io.l1d.data := l1d.io.loadLookup.data
+    sourceMerge.io.scb := port.scb
+
+    for (pipe <- 0 until p.loadReturnPipeCount) {
+      val query = port.queries(pipe)
+      val queryQueue = queryQueues(pipe)
+      queryQueue.io.enq.valid := launchAdmissionValid && liq.io.launchReady &&
+        launchForwardReady && launchTargetValid &&
+        (launchRow.returnPipeIndex === pipe.U)
+      queryQueue.io.enq.bits := 0.U.asTypeOf(queryQueue.io.enq.bits)
+      queryQueue.io.enq.bits.token := launchRow.attempt.generation
+      queryQueue.io.enq.bits.loadId := LoadCanonicalRowIdentity.fromRobId(launchRow.loadId)
+      queryQueue.io.enq.bits.attempt := launchRow.attempt
+      queryQueue.io.enq.bits.returnPipeIndex := launchRow.returnPipeIndex
+      queryQueue.io.enq.bits.stid := launchRow.stid
+      queryQueue.io.enq.bits.loadBid.valid := launchRow.attempt.producer.nativeBidValid
+      queryQueue.io.enq.bits.loadBid.value :=
+        launchRow.attempt.producer.nativeBid(log2Ceil(stqForwardRobEntries) - 1, 0)
+      queryQueue.io.enq.bits.loadBid.wrap := launchRow.attempt.producer.brobGeneration(0)
+      queryQueue.io.enq.bits.loadLsIdFullValid := launchRow.loadLsIdFullValid
+      queryQueue.io.enq.bits.loadLsIdFull := launchRow.loadLsIdFull
+      queryQueue.io.enq.bits.address := launchActiveAddr
+      queryQueue.io.enq.bits.size := launchActiveSize
+      queryQueue.io.enq.bits.isTile := launchRow.isTile
+      queryQueue.io.enq.bits.baseLineData := sourceMerge.io.mergedData
+      queryQueue.io.enq.bits.baseValidMask := sourceMerge.io.mergedValidMask
+      queryQueue.io.enq.bits.loadDataReturned := sourceMerge.io.loadDataReturned
+      queryQueue.io.enq.bits.scbReturned := sourceMerge.io.scbReturned
+      query.valid := queryQueue.io.deq.valid && !flushCycle
+      query.bits := queryQueue.io.deq.bits
+      queryQueue.io.deq.ready := query.ready && !flushCycle
+      responseArbiter.io.in(pipe) <> port.responses(pipe)
+    }
+
+    resultPipeline.io.flush := io.flush
+    resultPipeline.io.response.valid :=
+      responseArbiter.io.out.valid && !io.preciseFlush.req.valid
+    resultPipeline.io.response.bits := responseArbiter.io.out.bits
+    responseArbiter.io.out.ready :=
+      resultPipeline.io.response.ready && !io.preciseFlush.req.valid
+    resultPipeline.io.returnReady := true.B
+    port.hardBlock.valid := resultPipeline.io.hardBlock.valid
+    port.hardBlock.bits := resultPipeline.io.hardBlock.bits
+    resultPipeline.io.hardBlock.ready := port.hardBlock.ready
+
+    val resultTerminal = resultRetainer.io.outValid &&
+      (liq.io.forwardResultAccepted || liq.io.forwardResultRejectedPermanent)
+    val resultReservations = RegInit(0.U(log2Ceil(forwardResultDepth + 1).W))
+    val resultCredit = resultReservations < forwardResultDepth.U || resultTerminal
+    resultPipeline.io.normalReady := resultCredit
+
+    val resultPayload = Wire(chiselTypeOf(resultRetainer.io.in.bits))
+    resultPayload := 0.U.asTypeOf(resultPayload)
+    resultPayload.identity := resultPipeline.io.e4Identity
+    resultPayload.lineData := resultPipeline.io.e4LineData
+    resultPayload.validMask := resultPipeline.io.e4ValidMask
+    resultPayload.loadByteMask := resultPipeline.io.e4LoadByteMask
+    resultPayload.forwardMask := resultPipeline.io.e4ForwardMask
+    resultPayload.waitMask := resultPipeline.io.e4WaitMask
+    resultPayload.dataComplete := resultPipeline.io.e4DataComplete
+    resultPayload.sourcesReturned := resultPipeline.io.e4SourcesReturned
+    resultPayload.scbReturned := resultPipeline.io.e4ScbReturned
+    resultPayload.stqReturned := resultPipeline.io.e4StqReturned
+    resultPayload.wakeupValid := resultPipeline.io.e4WakeupValid
+    resultPayload.waitStore.valid := resultPipeline.io.e4WaitStore.valid
+    resultPayload.waitStore.storeIndex := resultPipeline.io.e4WaitStore.storeIndex
+    resultPayload.waitStore.storeId.valid := resultPipeline.io.e4WaitStore.storeId.valid
+    resultPayload.waitStore.storeId.wrap := resultPipeline.io.e4WaitStore.storeId.wrap
+    resultPayload.waitStore.storeId.value := resultPipeline.io.e4WaitStore.storeId.value
+    resultPayload.waitStore.storeLsId.valid := resultPipeline.io.e4WaitStore.storeLsId.valid
+    resultPayload.waitStore.storeLsId.wrap := resultPipeline.io.e4WaitStore.storeLsId.wrap
+    resultPayload.waitStore.storeLsId.value := resultPipeline.io.e4WaitStore.storeLsId.value
+    resultPayload.waitStore.storeLsIdFullValid :=
+      resultPipeline.io.e4WaitStore.storeLsIdFullValid
+    resultPayload.waitStore.storeLsIdFull :=
+      resultPipeline.io.e4WaitStore.storeLsIdFull
+    resultPayload.waitStore.pc := resultPipeline.io.e4WaitStore.pc
+    resultPayload.missKind := resultPipeline.io.e4MissKind
+
+    resultRetainer.io.flush := io.flush
+    resultRetainer.io.in.valid := resultPipeline.io.e4Valid && !io.flush
+    resultRetainer.io.in.bits := resultPayload
+    resultRetainer.io.sinkAccepted := liq.io.forwardResultAccepted
+    resultRetainer.io.sinkRejectedPermanent :=
+      liq.io.forwardResultRejectedPermanent
+    resultRetainer.io.sinkRetryRequired := liq.io.forwardResultRetryRequired
+    liq.io.forwardResultValid := resultRetainer.io.outValid
+    liq.io.forwardResult := resultRetainer.io.out
+
+    when(io.flush) {
+      resultReservations := 0.U
+    }.elsewhen(resultPipeline.io.accepted && !resultTerminal) {
+      resultReservations := resultReservations + 1.U
+    }.elsewhen(!resultPipeline.io.accepted && resultTerminal) {
+      resultReservations := resultReservations - 1.U
+    }
+
+    port.queryAccepted := liq.io.launchAccepted
+    port.resultAccepted := liq.io.forwardResultAccepted
+    port.resultRejectedPermanent := liq.io.forwardResultRejectedPermanent
+    port.resultRetryRequired := liq.io.forwardResultRetryRequired
+    port.resultCount := resultRetainer.io.count
+    port.resultPending := resultRetainer.io.pending ||
+      resultPipeline.io.e3Valid || resultPipeline.io.e4Valid
+    val queryEnqueueFires = queryQueues.map(_.io.enq.fire)
+    val queryPending = queryQueues.map(_.io.deq.valid).reduce(_ || _)
+    port.protocolError := resultRetainer.io.protocolError ||
+      (resultPipeline.io.e4Valid && !io.flush && !resultRetainer.io.in.ready) ||
+      (liq.io.launchAccepted =/= queryEnqueueFires.reduce(_ || _)) ||
+      (PopCount(VecInit(queryEnqueueFires)) > 1.U) ||
+      (launchAdmissionValid && !launchBidProjectionFits)
+    forwardTransportEmpty := !queryPending && !liq.io.launchAccepted &&
+      !responseArbiter.io.out.valid && !resultPipeline.io.accepted &&
+      !resultPipeline.io.e3Valid && !resultPipeline.io.e4Valid &&
+      !resultRetainer.io.pending && (resultReservations === 0.U) &&
+      !port.hardBlock.valid
+    port.ownedStateEmpty := !queryPending && !resultPipeline.io.e3Valid &&
+      !resultPipeline.io.e4Valid && !resultRetainer.io.pending &&
+      (resultReservations === 0.U)
+
+    assert(!resultPipeline.io.e4Valid || io.flush || resultRetainer.io.in.ready,
+      "reserved STQ E4 result must enter retained transport")
+    assert(liq.io.launchAccepted === queryEnqueueFires.reduce(_ || _),
+      "canonical LIQ launch and selected STQ query enqueue must accept atomically")
+    when(resultTerminal && !io.flush) {
+      assert(resultReservations =/= 0.U,
+        "terminal retained STQ result must consume a prior reservation")
+    }
+    when(resultPipeline.io.accepted && !resultTerminal && !io.flush) {
+      assert(resultReservations < forwardResultDepth.U,
+        "accepted STQ response must own retained-result capacity")
+    }
+  } else {
+    liq.io.e2Stores := io.e2Stores
+    liq.io.e2BaseData := l1d.io.loadLookup.data
+    liq.io.e2BaseValidMask := Fill(p.lineBytes, l1d.io.loadLookup.readHit)
+    liq.io.e2LoadDataReturned := liq.io.launchAccepted
+    liq.io.e2ScbReturned := io.e2ScbReturned
+    liq.io.e2StqReturned := io.e2StqReturned
+    liq.io.e2ReturnReady := true.B
+    liq.io.forwardResultValid := false.B
+    liq.io.forwardResult := 0.U.asTypeOf(liq.io.forwardResult)
+  }
   val mdbReplayWake = Wire(chiselTypeOf(io.replayWake))
   mdbReplayWake := 0.U.asTypeOf(mdbReplayWake)
   mdbReplayWake.source := LoadReplayWakeSource.StoreUnit
@@ -801,20 +1058,43 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   val missReserve = liq.io.launchAccepted
   val missRelease = liq.io.e4UpdateValid && !flushCycle
   val missReservationUnderflow = missRelease && (missReservations === 0.U)
+  val preciseSurvivingForward = VecInit(liq.io.rows.zipWithIndex.map {
+    case (row, idx) => row.valid && row.forwardPending && !liq.io.flushPruneMask(idx)
+  })
+  val preciseMissReservations = PopCount(preciseSurvivingForward)
 
   for (lane <- 0 until returnLaneCount) {
     val reserve = liq.io.launchAccepted && launchTargetValid && (launchLane === lane.U)
     val release = releaseReservation && (releaseLane === lane.U)
-    when(flushCycle) {
+    val preciseLaneReservations = PopCount(VecInit(liq.io.rows.zipWithIndex.map {
+      case (row, idx) =>
+        preciseSurvivingForward(idx) &&
+          ((row.stid * p.loadReturnPipeCount.U + row.returnPipeIndex) === lane.U)
+    }))
+    when(io.flush) {
       returnReservations(lane) := 0.U
+    }.elsewhen(io.preciseFlush.req.valid) {
+      if (useExternalStqForwarding) {
+        returnReservations(lane) := preciseLaneReservations
+        assert(preciseLaneReservations <= p.loadReturnQueueEntries.U,
+          "precise survivor reservations must fit the physical return lane")
+      } else {
+        returnReservations(lane) := 0.U
+      }
     }.elsewhen(reserve && !release) {
       returnReservations(lane) := returnReservations(lane) + 1.U
     }.elsewhen(release && !reserve) {
       returnReservations(lane) := returnReservations(lane) - 1.U
     }
   }
-  when(flushCycle) {
+  when(io.flush) {
     missReservations := 0.U
+  }.elsewhen(io.preciseFlush.req.valid) {
+    if (useExternalStqForwarding) {
+      missReservations := preciseMissReservations
+    } else {
+      missReservations := 0.U
+    }
   }.elsewhen(missReserve && !missRelease) {
     missReservations := missReservations + 1.U
   }.elsewhen(missRelease && !missReserve) {
@@ -854,7 +1134,7 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.attemptRebindBlockedByNextAttempt := liq.io.attemptRebindBlockedByNextAttempt
   io.launchReady :=
     liq.io.launchReady && resolveCreditSafe && launchReturnCreditSafe && launchMissCreditSafe &&
-      l1d.io.arrayReady && !launchRow.isTile
+      l1d.io.arrayReady && !launchRow.isTile && launchForwardReady
   io.launchAccepted := liq.io.launchAccepted
   io.launchBlockedByResolveCredit := io.launchValid && !resolveCreditSafe
   io.launchBlockedByReturnCredit := io.launchValid && !launchReturnCreditSafe
@@ -1005,5 +1285,6 @@ class ScalarLSULoadPath(val coreParams: CoreParams = CoreParams()) extends Modul
   io.empty :=
     liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
       returnQueue.io.empty && returnPipeline.io.empty && (reservedCount === 0.U) &&
-      missQueue.io.empty && (missReservations === 0.U) && refillTransport.io.empty
+      missQueue.io.empty && (missReservations === 0.U) && refillTransport.io.empty &&
+      forwardTransportEmpty
 }

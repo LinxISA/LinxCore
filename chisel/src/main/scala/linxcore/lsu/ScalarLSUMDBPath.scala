@@ -701,7 +701,8 @@ class ScalarLSUMDBPath(val coreParams: CoreParams = CoreParams()) extends Module
       !recoveryQ.io.deq.valid &&
       !storeWakeupReg.valid
   io.protocolError :=
-    (io.storeProbe.valid && !io.storeProbeReady) ||
+    (io.storeProbeCommit &&
+      (!io.storeProbe.valid || !io.storeProbeReady)) ||
       (io.loadLookupValid && !io.loadLookupReady) ||
       (failedWaitReleaseAccepted && !fanout.io.deleteInAccepted) ||
       fanout.io.recordOverflow ||

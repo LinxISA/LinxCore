@@ -2,6 +2,7 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
+import linxcore.common.CoreParams
 
 /** Production static composition from OOO S1 through typed execution owners.
   *
@@ -11,7 +12,8 @@ import chisel3.util.{Decoupled, Valid}
   */
 class OooIexExecutionPipelineIO(
     val p: OooParams,
-    val requireStoreReservation: Boolean = false) extends Bundle {
+    val requireStoreReservation: Boolean,
+    val coreParams: CoreParams) extends Bundle {
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
@@ -48,9 +50,7 @@ class OooIexExecutionPipelineIO(
   val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
-  val memoryResponse = Flipped(Vec(3,
-    Decoupled(new OooIexLoadMemoryResponse(p))))
+  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -86,9 +86,12 @@ class OooIexExecutionPipelineIO(
 
 class OooIexExecutionPipeline(
     val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
-    val requireStoreReservation: Boolean = false)
+    val requireStoreReservation: Boolean = false,
+    val coreParamsOverride: Option[CoreParams] = None)
     extends Module {
   val p = profile.params
+  val coreParams = coreParamsOverride.getOrElse(
+    OooIexCanonicalLoadOwnership.defaultCoreParams(p))
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
   private val fastPWritePort = terminalPorts
   private val fastWakeupPort = p.iexWakeupPorts - 1
@@ -97,10 +100,11 @@ class OooIexExecutionPipeline(
     "production execution needs one dedicated fast-result P write port")
   require(p.iexWakeupPorts > committedAndLoadWakeupPorts,
     "production execution needs one dedicated fast-result wakeup port")
-  val io = IO(new OooIexExecutionPipelineIO(p, requireStoreReservation))
+  val io = IO(new OooIexExecutionPipelineIO(
+    p, requireStoreReservation, coreParams))
 
   val issue = Module(new OooIexPipeline(profile, requireStoreReservation))
-  val execute = Module(new OooIexExecutionCluster(profile))
+  val execute = Module(new OooIexExecutionCluster(profile, Some(coreParams)))
 
   issue.io.s1 <> io.s1
   if (requireStoreReservation) {
@@ -109,10 +113,26 @@ class OooIexExecutionPipeline(
   io.dispatchReleases <> issue.io.dispatchReleases
   issue.io.ptagRecycle <> io.ptagRecycle
   issue.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := issue.io.recoveryPrepareReady
+  execute.io.recoveryPrepare := io.recoveryPrepare
+  val recoveryReady = issue.io.recoveryPrepareReady &&
+    execute.io.recoveryPrepareReady
+  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryReady
   io.recoveryPrepared := issue.io.recoveryPrepared
+  io.recoveryPrepared.valid := issue.io.recoveryPrepared.valid &&
+    execute.io.recoveryPrepareReady
   io.recoveryRejected := issue.io.recoveryRejected
-  issue.io.recoveryFire := io.recoveryFire
+  when(!issue.io.recoveryRejected.valid && io.recoveryPrepare.valid &&
+      execute.io.recoveryRejected) {
+    io.recoveryRejected.valid := true.B
+    io.recoveryRejected.bits.requested := io.recoveryPrepare.bits
+    io.recoveryRejected.bits.stidInRange :=
+      io.recoveryPrepare.bits.oldHead.stid < p.stidCount.U
+    io.recoveryRejected.bits.residentRowsExact := false.B
+    io.recoveryRejected.bits.s1RowsExact := true.B
+  }
+  val commonRecoveryFire = io.recoveryFire && io.recoveryPrepareReady
+  issue.io.recoveryFire := commonRecoveryFire
+  execute.io.recoveryFire := commonRecoveryFire
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels
   io.pcReadRequests := issue.io.pcReadRequests
@@ -125,8 +145,6 @@ class OooIexExecutionPipeline(
   for (domain <- 0 until p.iexIssueDomainCount) {
     execute.io.e1(domain) <> issue.io.e1(domain)
   }
-  execute.io.recoveryApply.valid := io.recoveryFire
-  execute.io.recoveryApply.bits := io.recoveryPrepare.bits
   issue.io.wakeup := execute.io.wakeup
   issue.io.bypass := execute.io.bypass
   issue.io.loadCancel := execute.io.loadCancel
@@ -197,14 +215,7 @@ class OooIexExecutionPipeline(
   io.engineCommand.bits := execute.io.engineCommand.bits
   execute.io.engineCommand.ready := io.engineCommand.ready
 
-  for (index <- 0 until 3) {
-    io.memoryRequest(index).valid := execute.io.memoryRequest(index).valid
-    io.memoryRequest(index).bits := execute.io.memoryRequest(index).bits
-    execute.io.memoryRequest(index).ready := io.memoryRequest(index).ready
-    execute.io.memoryResponse(index).valid := io.memoryResponse(index).valid
-    execute.io.memoryResponse(index).bits := io.memoryResponse(index).bits
-    io.memoryResponse(index).ready := execute.io.memoryResponse(index).ready
-  }
+  io.load <> execute.io.load
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane).valid := execute.io.bctrl(lane).valid
     io.bctrl(lane).bits := execute.io.bctrl(lane).bits

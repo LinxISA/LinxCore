@@ -16,6 +16,7 @@
 Run from `/Users/zhoubot/linx-isa/rtl/LinxCore`.
 
 ```bash
+bash tools/setup_superpowers.sh
 cmake -S . -B build
 cmake --build build -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
 
@@ -34,4 +35,6 @@ bash tests/test_trace_schema_and_mem.sh
 - `/Users/zhoubot/linx-isa/docs/bringup/`
 - `/Users/zhoubot/linx-isa/docs/bringup/contracts/trace_schema.md`
 - `docs/chisel/integrated-development-flow.md`
+- `docs/chisel/microarchitecture-cross-stack-audit.md`
 - `docs/chisel/modules/recovery/RecoveryFabric.md`
+- `docs/flows/superpowers.md`

@@ -3,7 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, Valid, log2Ceil}
 
-import linxcore.common.{CoreParams, DestinationKind}
+import linxcore.common.{CoreParams, DestinationKind, OperandClass}
 import linxcore.lsu.{LoadAttemptIdentity, LoadCanonicalRowIdentity,
   LoadReplayDestination, LoadTerminalFault, ScalarLSULoadReturnEntry}
 
@@ -16,11 +16,19 @@ import linxcore.lsu.{LoadAttemptIdentity, LoadCanonicalRowIdentity,
   */
 class OooIexLoadTerminalMetadataAlloc(
     val p: OooParams,
-    val coreParams: CoreParams) extends Bundle {
+    val coreParams: CoreParams,
+    val laneCount: Int = 3) extends Bundle {
   val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
+  val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
+}
+
+/** Exact canonical launch event after one LIQ attempt enters execution. */
+class OooIexLoadAttemptLaunch extends Bundle {
+  val loadId = new LoadCanonicalRowIdentity
+  val attempt = new LoadAttemptIdentity
 }
 
 /** Exact replay-generation update for one still-live terminal sidecar. */
@@ -49,17 +57,21 @@ class OooIexLoadTerminalMetadataReject(
 
 class OooIexLoadTerminalMetadataEntry(
     val p: OooParams,
-    val coreParams: CoreParams) extends Bundle {
+    val coreParams: CoreParams,
+    val laneCount: Int = 3) extends Bundle {
   val valid = Bool()
   val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
+  val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
+  val faultCancelSent = Bool()
 }
 
 class OooIexLoadTerminalMetadataIO(
     val p: OooParams,
-    val coreParams: CoreParams) extends Bundle {
+    val coreParams: CoreParams,
+    val laneCount: Int = 3) extends Bundle {
   private val lsu = coreParams.scalarLsu
   private def completionType = new ScalarLSULoadReturnEntry(
     coreParams.robEntries,
@@ -77,11 +89,20 @@ class OooIexLoadTerminalMetadataIO(
 
   val flush = Input(Bool())
   val alloc = Flipped(Decoupled(
-    new OooIexLoadTerminalMetadataAlloc(p, coreParams)))
+    new OooIexLoadTerminalMetadataAlloc(p, coreParams, laneCount)))
   val rebind = Flipped(Decoupled(
     new OooIexLoadTerminalMetadataRebind(p, coreParams)))
+  val attemptLaunch = Flipped(Valid(
+    new OooIexLoadAttemptLaunch))
   val completion = Flipped(Decoupled(completionType))
   val result = Decoupled(new OooIexLoadResult(p))
+  val resultLane = Output(UInt(math.max(1, log2Ceil(laneCount)).W))
+  val speculativeWakeup = Output(Vec(laneCount,
+    Valid(new OooIexWakeup(p))))
+  val loadCancel = Output(Vec(laneCount,
+    Valid(new OooIexLoadCancel(p))))
+  val loadBypass = Output(Vec(laneCount,
+    Valid(new OooIexBypassCandidate(p))))
 
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
@@ -91,12 +112,17 @@ class OooIexLoadTerminalMetadataIO(
 
   val allocRejected = Valid(new OooIexLoadTerminalMetadataReject(p, coreParams))
   val rebindRejected = Valid(new OooIexLoadTerminalMetadataReject(p, coreParams))
+  val attemptLaunchAccepted = Output(Bool())
+  val attemptLaunchRejected = Valid(
+    new OooIexLoadTerminalMetadataReject(p, coreParams))
   val completionRejected = Valid(new OooIexLoadTerminalMetadataReject(p, coreParams))
+  val cancelCollision = Output(Bool())
   val occupied = Output(UInt(log2Ceil(lsu.liqEntries + 1).W))
   val empty = Output(Bool())
 }
 
-/** Exact metadata-only owner joining canonical LSU completion to OOO terminal.
+/** Exact metadata-only owner joining canonical LSU attempts to OOO policy and
+  * terminal publication.
   *
   * A sidecar row remains occupied after LIQ resolution and is released only
   * by the same `result.fire` that releases the LSU W2 transaction.  Therefore
@@ -107,7 +133,8 @@ class OooIexLoadTerminalMetadata(
     val p: OooParams = OooParams(),
     val coreParams: CoreParams = CoreParams(
       scalarLsu = linxcore.common.ScalarLsuParams(
-        stidCount = 4, loadReturnPipeCount = 3))) extends Module {
+        stidCount = 4, loadReturnPipeCount = 3)),
+    val laneCount: Int = 3) extends Module {
   private val lsu = coreParams.scalarLsu
   private val entriesCount = lsu.liqEntries
 
@@ -121,6 +148,8 @@ class OooIexLoadTerminalMetadata(
     "OOO terminal metadata must fit the canonical scalar LSU payload")
   require(p.trapCauseWidth <= LoadTerminalFault.CauseWidth,
     "OOO trap cause must fit the canonical load terminal fault payload")
+  require(laneCount == 3 && lsu.loadReturnPipeCount >= laneCount,
+    "terminal metadata requires the three production load lanes")
   LoadCanonicalRowIdentity.requireBridgeFits(entriesCount)
   LoadAttemptIdentity.requireBridgeFits(
     p.peIdWidth,
@@ -133,10 +162,11 @@ class OooIexLoadTerminalMetadata(
     p.residentGenerationWidth,
     p.loadGenerationWidth)
 
-  val io = IO(new OooIexLoadTerminalMetadataIO(p, coreParams))
+  val io = IO(new OooIexLoadTerminalMetadataIO(p, coreParams, laneCount))
 
   private def zeroEntry: OooIexLoadTerminalMetadataEntry = {
-    val entry = Wire(new OooIexLoadTerminalMetadataEntry(p, coreParams))
+    val entry = Wire(new OooIexLoadTerminalMetadataEntry(
+      p, coreParams, laneCount))
     entry := 0.U.asTypeOf(entry)
     entry.loadId := LoadCanonicalRowIdentity.none
     entry.attempt := LoadAttemptIdentity.none
@@ -183,12 +213,19 @@ class OooIexLoadTerminalMetadata(
       destination.oldPhysTag === previous.ptag
   }
 
+  private def operandClass(destination: OooIexDestinationState): OperandClass.Type =
+    Mux(destination.kind === DestinationKind.Gpr, OperandClass.P,
+      Mux(destination.kind === DestinationKind.T, OperandClass.T,
+        Mux(destination.kind === DestinationKind.U, OperandClass.U,
+          OperandClass.Invalid)))
+
   private def sidecarExact(
       entry: OooIexLoadTerminalMetadataEntry,
       index: Int): Bool =
     !entry.valid || (
       LoadCanonicalRowIdentity.wellFormed(entry.loadId, entriesCount) &&
       entry.loadId.valid && entry.loadId.slot === index.U &&
+      entry.lane < laneCount.U &&
       LoadAttemptIdentity.equal(entry.attempt, toAttempt(entry.load)) &&
       producerExact(entry.load, entry.request))
 
@@ -203,7 +240,9 @@ class OooIexLoadTerminalMetadata(
   val allocProducerExact = producerExact(io.alloc.bits.load, io.alloc.bits.request)
   val allocAttemptExact = LoadAttemptIdentity.equal(
     io.alloc.bits.attempt, toAttempt(io.alloc.bits.load))
-  val allocExact = allocIdValid && allocProducerExact && allocAttemptExact
+  val allocLaneExact = io.alloc.bits.lane < laneCount.U
+  val allocExact = allocIdValid && allocProducerExact && allocAttemptExact &&
+    allocLaneExact
   io.alloc.ready := !fence && allocExact && !allocResident
 
   val completionId = io.completion.bits.payload.loadId
@@ -240,6 +279,48 @@ class OooIexLoadTerminalMetadata(
   io.result.bits.faultValid := io.completion.bits.payload.faultValid
   io.result.bits.faultCause := io.completion.bits.payload.faultCause
   io.completion.ready := io.result.ready && completionExact && !fence
+  io.resultLane := completionEntry.lane
+
+  val launchId = io.attemptLaunch.bits.loadId
+  val launchIdWellFormed =
+    LoadCanonicalRowIdentity.wellFormed(launchId, entriesCount)
+  val launchIdValid = launchIdWellFormed && launchId.valid
+  val launchIndex = launchId.slot(log2Ceil(entriesCount) - 1, 0)
+  val launchEntry = entries(launchIndex)
+  val launchResident = launchIdValid && launchEntry.valid &&
+    LoadCanonicalRowIdentity.equal(launchEntry.loadId, launchId)
+  val launchAttemptExact = launchResident &&
+    LoadAttemptIdentity.equal(io.attemptLaunch.bits.attempt,
+      launchEntry.attempt)
+  val launchProducerExact = launchResident &&
+    producerExact(launchEntry.load, launchEntry.request)
+  val launchExact = launchIdValid && launchResident && launchAttemptExact &&
+    launchProducerExact
+  io.attemptLaunchAccepted := io.attemptLaunch.valid && launchExact && !fence
+
+  io.speculativeWakeup.foreach(_ := 0.U.asTypeOf(
+    io.speculativeWakeup.head))
+  for (lane <- 0 until laneCount) {
+    when(io.attemptLaunchAccepted && launchEntry.lane === lane.U) {
+      val destination = launchEntry.request.destination
+      io.speculativeWakeup(lane).valid := true.B
+      io.speculativeWakeup(lane).bits.kind :=
+        OooIexWakeupKind.SpeculativeLoad
+      io.speculativeWakeup(lane).bits.stid :=
+        launchEntry.request.execute.i2.row.stid
+      io.speculativeWakeup(lane).bits.epoch :=
+        launchEntry.request.execute.i2.row.epoch
+      io.speculativeWakeup(lane).bits.operandClass :=
+        operandClass(destination)
+      io.speculativeWakeup(lane).bits.ptag := destination.ptag
+      io.speculativeWakeup(lane).bits.ptagGeneration :=
+        destination.ptagGeneration
+      io.speculativeWakeup(lane).bits.localTag := destination.localTag
+      io.speculativeWakeup(lane).bits.localSequence :=
+        destination.localSequence
+      io.speculativeWakeup(lane).bits.load := launchEntry.load
+    }
+  }
 
   val rebindId = io.rebind.bits.loadId
   val rebindIdWellFormed =
@@ -264,7 +345,57 @@ class OooIexLoadTerminalMetadata(
   val completionTargetsRebind = io.completion.valid && completionIdValid &&
     LoadCanonicalRowIdentity.equal(completionId, rebindId)
   val rebindExact = rebindCurrentExact && rebindNextExact
-  io.rebind.ready := !fence && rebindExact && !completionTargetsRebind
+  val faultCancelPublish = io.completion.valid && completionExact &&
+    io.completion.bits.payload.faultValid &&
+    !completionEntry.faultCancelSent && !fence
+  val cancelCollision = io.rebind.valid && rebindExact &&
+    faultCancelPublish &&
+    rebindEntry.lane === completionEntry.lane
+  io.cancelCollision := cancelCollision
+  io.rebind.ready := !fence && rebindExact && !completionTargetsRebind &&
+    !cancelCollision
+
+  io.loadCancel.foreach(_ := 0.U.asTypeOf(io.loadCancel.head))
+  for (lane <- 0 until laneCount) {
+    when(io.rebind.fire && rebindEntry.lane === lane.U) {
+      io.loadCancel(lane).valid := true.B
+      io.loadCancel(lane).bits.stid := rebindEntry.request.execute.i2.row.stid
+      io.loadCancel(lane).bits.epoch := rebindEntry.request.execute.i2.row.epoch
+      io.loadCancel(lane).bits.load := io.rebind.bits.currentLoad
+    }
+    when(faultCancelPublish &&
+        completionEntry.lane === lane.U) {
+      io.loadCancel(lane).valid := true.B
+      io.loadCancel(lane).bits.stid :=
+        completionEntry.request.execute.i2.row.stid
+      io.loadCancel(lane).bits.epoch :=
+        completionEntry.request.execute.i2.row.epoch
+      io.loadCancel(lane).bits.load := completionEntry.load
+    }
+  }
+
+  io.loadBypass.foreach(_ := 0.U.asTypeOf(io.loadBypass.head))
+  for (lane <- 0 until laneCount) {
+    when(io.result.valid && !io.result.bits.faultValid &&
+        completionEntry.lane === lane.U) {
+      val destination = completionEntry.request.destination
+      io.loadBypass(lane).valid := true.B
+      io.loadBypass(lane).bits.stid :=
+        completionEntry.request.execute.i2.row.stid
+      io.loadBypass(lane).bits.epoch :=
+        completionEntry.request.execute.i2.row.epoch
+      io.loadBypass(lane).bits.producer := completionEntry.load.producer
+      io.loadBypass(lane).bits.operandClass := operandClass(destination)
+      io.loadBypass(lane).bits.ptag := destination.ptag
+      io.loadBypass(lane).bits.ptagGeneration :=
+        destination.ptagGeneration
+      io.loadBypass(lane).bits.localTag := destination.localTag
+      io.loadBypass(lane).bits.localSequence := destination.localSequence
+      io.loadBypass(lane).bits.load := completionEntry.load
+      io.loadBypass(lane).bits.stage := OooIexBypassStage.W1
+      io.loadBypass(lane).bits.data := io.result.bits.data
+    }
+  }
 
   val entryExact = VecInit(entries.zipWithIndex.map {
     case (entry, index) => sidecarExact(entry, index)
@@ -288,6 +419,7 @@ class OooIexLoadTerminalMetadata(
   }
   rejectDefaults(io.allocRejected)
   rejectDefaults(io.rebindRejected)
+  rejectDefaults(io.attemptLaunchRejected)
   rejectDefaults(io.completionRejected)
 
   io.allocRejected.valid := io.alloc.valid && !fence && !io.alloc.ready
@@ -298,7 +430,7 @@ class OooIexLoadTerminalMetadata(
   io.allocRejected.bits.producerExact := allocProducerExact
   io.allocRejected.bits.attemptExact := allocAttemptExact
   io.allocRejected.bits.destinationExact := true.B
-  io.allocRejected.bits.outcomeExact := true.B
+  io.allocRejected.bits.outcomeExact := allocLaneExact
 
   io.rebindRejected.valid := io.rebind.valid && !fence && !io.rebind.ready
   io.rebindRejected.bits.loadId := rebindId
@@ -308,7 +440,19 @@ class OooIexLoadTerminalMetadata(
   io.rebindRejected.bits.producerExact := rebindCurrentExact
   io.rebindRejected.bits.attemptExact := rebindNextExact
   io.rebindRejected.bits.destinationExact := true.B
-  io.rebindRejected.bits.outcomeExact := !completionTargetsRebind
+  io.rebindRejected.bits.outcomeExact :=
+    !completionTargetsRebind && !cancelCollision
+
+  io.attemptLaunchRejected.valid := io.attemptLaunch.valid &&
+    !fence && !launchExact
+  io.attemptLaunchRejected.bits.loadId := launchId
+  io.attemptLaunchRejected.bits.member := launchEntry.load.producer
+  io.attemptLaunchRejected.bits.rowIdExact := launchIdValid
+  io.attemptLaunchRejected.bits.resident := launchResident
+  io.attemptLaunchRejected.bits.producerExact := launchProducerExact
+  io.attemptLaunchRejected.bits.attemptExact := launchAttemptExact
+  io.attemptLaunchRejected.bits.destinationExact := true.B
+  io.attemptLaunchRejected.bits.outcomeExact := true.B
 
   io.completionRejected.valid := io.completion.valid && !fence && !completionExact
   io.completionRejected.bits.loadId := completionId
@@ -339,6 +483,10 @@ class OooIexLoadTerminalMetadata(
     when(io.rebind.fire) {
       entries(rebindIndex).attempt := io.rebind.bits.nextAttempt
       entries(rebindIndex).load := io.rebind.bits.nextLoad
+      entries(rebindIndex).faultCancelSent := false.B
+    }
+    when(faultCancelPublish && !io.result.fire) {
+      entries(completionIndex).faultCancelSent := true.B
     }
     when(io.alloc.fire) {
       entries(allocIndex).valid := true.B
@@ -346,6 +494,8 @@ class OooIexLoadTerminalMetadata(
       entries(allocIndex).attempt := io.alloc.bits.attempt
       entries(allocIndex).load := io.alloc.bits.load
       entries(allocIndex).request := io.alloc.bits.request
+      entries(allocIndex).lane := io.alloc.bits.lane
+      entries(allocIndex).faultCancelSent := false.B
     }
   }
 

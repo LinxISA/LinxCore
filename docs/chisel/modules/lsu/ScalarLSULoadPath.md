@@ -10,8 +10,13 @@
 - Refill transport: `chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala`
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
+- Production STQ result transport:
+  `chisel/src/main/scala/linxcore/lsu/STQLoadForwardResultPipeline.scala` and
+  `chisel/src/main/scala/linxcore/lsu/LoadForwardResultRetainer.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
   and `chisel/src/test/scala/linxcore/lsu/LoadAttemptBindingSpec.scala`
+- Production forwarding IT:
+  `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadForwardIntegrationSpec.scala`
 - Generated proof: `tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
   `LDQInfo::returnData`, `LDQInfo::flush`, and `LDQInfo::CheckMovRslvQ`;
@@ -66,6 +71,16 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
     row, may be rebound only by an exact consecutive-generation transaction,
     and survives ResolveQ/LRET plus W1/W2 retention. `robLookupAttempt` and
     terminal `completion.payload.attempt` expose the same identity.
+13. Production `useExternalStqForwarding` mode atomically places every
+    accepted launch into exactly one of three retained query queues. Hard flush
+    clears them; typed precise recovery fences external fire while preserving
+    surviving requests and recomputing their return/miss reservations.
+    The selected queue retains `valid` and the complete payload while the STQ
+    pipe is backpressured. Returned normal responses reserve bounded E3/E4 plus
+    result-FIFO capacity before acceptance; structural uncertainty exits on a
+    separate retained `hardBlock` port. The complete classified result then
+    remains owned by `LoadForwardResultRetainer` until the exact LIQ row accepts
+    it or classifies it as permanently stale.
 
 `transferProtocolError` reports missing ResolveQ/LRET capacity, a partial sink
 acceptance, or a new accepted transfer while an older source clear is blocked.
@@ -138,6 +153,40 @@ one little-endian extended value. The generated return-path probe covers both
 hit/hit and hit/miss/refill/hit sequences and verifies the second miss uses the
 next aligned line.
 
+I0.15c-b3c2 adds the production three-pipe STQ forwarding boundary without
+changing compatibility elaborations. Production graphs contain
+`STQLoadForwardResultPipeline`, `LoadForwardResultRetainer`, and three retained
+query lanes, but contain neither `LoadForwardPipeline` nor
+`LoadStoreForwarding`. The query's `loadBid` is presently a checked projection
+of the producer native BID plus BROB-generation parity into the existing STQ
+ordering type. A non-zero discarded native-BID bit blocks launch and raises
+`protocolError`; it cannot silently alias. This is migration evidence, not
+final proof that the closed OOO wrapper and scalar LSU share one canonical
+BID/BROB ordering authority.
+
+I0.15c-b3c3a adds `OooIexScalarLoadStorePath`, which connects these three
+query/response lanes to one live `OooIexStoreStqFabric`, exports the exact ROB
+lookup key, joins OOO and LSU recovery on one local fire, and rejects LSU
+projections whose per-LIQ-row kill mask differs from grouped-ROB membership.
+It currently requires all non-LIQ load/recovery transport to be empty before
+that local fire. Canonical STQ address mutation is also conditioned on
+prospective MDB capacity.
+
+The remaining integration gaps are explicit:
+
+- install the focused production subgraph in the full execution/O3 topology
+  without duplicating its load ownership or STQ;
+- extend recovery projection equality beyond resident LIQ rows to all LSU
+  queues and the final BID/BROB recovery adapter;
+- define and connect the policy consumer for retained structural `hardBlock`
+  responses;
+- replace the native-BID projection with the final common BID/BROB ordering
+  adapter and prove wrap/age behavior across block boundaries;
+- connect the physical SCB source-return owner, DTLB/PMP/PMA, coherence, and
+  lower-memory transactions;
+- close timing and workload promotion. Focused forwarding IT is not a
+  Dhrystone/CoreMark production claim.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
@@ -145,6 +194,7 @@ next aligned line.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPathSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadForwardIntegration`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipelineSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUMDBPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadWaitStoreTimeoutSpec`

@@ -242,6 +242,9 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedLiq.io.e2ScbReturned := false.B
   integratedLiq.io.e2StqReturned := false.B
   integratedLiq.io.e2ReturnReady := false.B
+  integratedLiq.io.forwardResultValid := false.B
+  integratedLiq.io.forwardResult :=
+    0.U.asTypeOf(integratedLiq.io.forwardResult)
   integratedLiq.io.replayWakeValid := false.B
   integratedLiq.io.replayWake := 0.U.asTypeOf(integratedLiq.io.replayWake)
   integratedLiq.io.refillValid := false.B
