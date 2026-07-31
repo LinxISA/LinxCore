@@ -384,3 +384,73 @@ Task-9 recovery source, tests, and docs.
   were run as listed above.
 - `skill-evolve: no-update` - round 5 did not add a reusable LinxCore workflow
   invariant beyond the Task-9 recovery contract/docs changes.
+
+## Fix Round 6
+
+Review round 6 identified one remaining HIGH blocker in the canonical
+Task-9 recovery request/response protocol. This round added RED-first tests
+against `da5e8500c55f4edbae73ed8f807006fe7172dc65`, then repaired only
+canonical Task-9 recovery interfaces/control, tests, docs, and this report.
+
+### Fix-Round-6 RED Evidence
+
+- The first RED attempt in
+  `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed before
+  the intended point because the new seed event fixture set trigger fields not
+  mirrored by the existing candidate-status helper. The fixture was corrected
+  before production edits.
+- The corrected RED run failed behaviorally in the new round-6 tests:
+  unsolicited `robPrepared` before `robPrepare.fire` consumed the request path
+  and cleared `robPrepare.valid`; a mismatched `WaitRob` response entered
+  target prepare; and a mismatched `WaitRobAbort` response emitted `robAbort`.
+  The failures were observed at `OOORecoverySpec.scala:1166`,
+  `OOORecoverySpec.scala:1217`, and `OOORecoverySpec.scala:1265`.
+
+### Fix-Round-6 Repairs
+
+- Added public `RecoveryPlanContract.sameRobRequest`, which requires Prepare
+  phase plus matching transaction ID, cause, full trigger identity, redirect
+  PC, and new epoch while deliberately ignoring only the ROB-authored
+  survivor-tail and killed-suffix fields.
+- `RecoveryControl` now retains the exact seed request when
+  `robPrepare.fire` occurs. In `RequestRob`, a response is accepted only when
+  it correlates to the same fired seed in the same cycle; an unsolicited or
+  mismatched response no longer consumes the request or prevents the request
+  from firing once.
+- In `WaitRob` and `WaitRobAbort`, `robPrepared` is accepted only when it
+  correlates with the retained request. Stale, unrelated, wrong-phase, and
+  mismatched responses do not overwrite the retained plan, enter target
+  prepare, or emit `robAbort`.
+- The round-6 tests cover wrong transaction ID, cause, trigger PE/STID/RID
+  slot/RID generation/member/resident generation/BID/BROB generation,
+  redirect PC, new epoch, and phase in both non-abort and abort-pending wait
+  states, plus matching progress with different ROB-authored suffix fields.
+- Recovery behavior and interface docs now describe request correlation and
+  the exact set of fields ignored from ROB-authored responses.
+
+### Fix-Round-6 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 30 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+
+### Fix-Round-6 Notes
+
+- `RecoveryPlanContract.sameRobRequest` is a public helper only; no public
+  Bundle shape changed, and the manifest check remained up to date.
+- Work-order wrappers `tools/chisel/check_interface_manifest.sh` and
+  `tools/ndf/check_ndf.sh` remain absent in this checkout; equivalent gates
+  were run as listed above.
+- `skill-evolve: no-update` - round 6 did not add a reusable LinxCore workflow
+  invariant beyond the Task-9 recovery contract/docs changes.

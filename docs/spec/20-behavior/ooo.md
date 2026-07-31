@@ -287,8 +287,14 @@ ignore mismatched acknowledgements, and emit exactly one terminal decision.
 If abort arrives before ROB accepts the request, RecoveryControl cancels the
 request locally and emits no fabricated owner terminal. If ROB has accepted
 the request but has not yet returned the ROB-authored plan, RecoveryControl
-waits for that exact response and then emits only the matching ROB abort
-terminal; target owners that never received `Prepare` observe no abort. If
+waits for a response that correlates to the exact retained request and then
+emits only the matching ROB abort terminal; target owners that never received
+`Prepare` observe no abort. Stale, unrelated, wrong-phase, or otherwise
+mismatched ROB responses MUST NOT overwrite the retained plan, enter target
+prepare, emit ROB abort, or cause the request to be reissued after it has
+already fired. Correlation matches the request phase, transaction ID, cause,
+full trigger identity, redirect PC, and new epoch while allowing only the
+ROB-authored killed-suffix and survivor-tail fields to differ. If
 abort arrives while target preparation is pending, the retained ROB-authored
 plan is broadcast as non-mutating `Abort` to every target and as the matching
 ROB abort terminal. Abort coincident with the final target acknowledgement has
@@ -335,5 +341,6 @@ holdoff behind unresolved producers, ROB recovery request/response,
 wrong-phase and duplicate apply rejection, ROB/BROB abort termination,
 one-prepare-per target barriers, mismatched acknowledgement rejection, common
 apply, request-phase ROB abort, target-prepare abort priority, visible-apply
-abort suppression, simultaneous terminal fail-closed behavior, and
+abort suppression, stale/unrelated ROB response rejection in RequestRob,
+WaitRob, and WaitRobAbort, simultaneous terminal fail-closed behavior, and
 non-mutating abort.

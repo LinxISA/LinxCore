@@ -42,6 +42,7 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   val resolvingInterruptValid = RegInit(false.B)
   val resolvingInterrupt = Reg(new RecoveryEvent(p))
   val activeEvent = RegInit(0.U.asTypeOf(new RecoveryEvent(p)))
+  val robRequest = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
   val plan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
   val sentMask = RegInit(0.U(targetCount.W))
   val ackMask = RegInit(0.U(targetCount.W))
@@ -197,10 +198,18 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
 
   io.robPrepare.valid := state === RecoveryControlState.RequestRob && !io.abort
   io.robPrepare.bits := seedPlan
-  io.robPrepared.ready :=
-    (state === RecoveryControlState.RequestRob && !io.abort) ||
-      state === RecoveryControlState.WaitRob ||
-      state === RecoveryControlState.WaitRobAbort
+  val requestMatchesSeed =
+    RecoveryPlanContract.sameRobRequest(io.robPrepared.bits, seedPlan)
+  val requestMatchesRetained =
+    RecoveryPlanContract.sameRobRequest(io.robPrepared.bits, robRequest)
+  val robPrepareFire = io.robPrepare.fire
+  val robPreparedCanFire =
+    (state === RecoveryControlState.RequestRob && !io.abort &&
+      robPrepareFire && requestMatchesSeed) ||
+      ((state === RecoveryControlState.WaitRob ||
+        state === RecoveryControlState.WaitRobAbort) &&
+        requestMatchesRetained)
+  io.robPrepared.ready := robPreparedCanFire
   io.robAbort.valid := robAbortPulse
   io.robAbort.bits := plan
   io.robAbort.bits.phase := RecoveryPhase.Abort
@@ -272,10 +281,14 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
     }
   }
 
+  when(robPrepareFire) {
+    robRequest := seedPlan
+  }
+
   when(state === RecoveryControlState.RequestRob && io.abort) {
     state := RecoveryControlState.Idle
   }.elsewhen(state === RecoveryControlState.RequestRob &&
-    io.robPrepare.fire && !io.robPrepared.fire) {
+    robPrepareFire && !io.robPrepared.fire) {
     state := RecoveryControlState.WaitRob
   }
 
@@ -286,7 +299,8 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
 
   val robPreparedFire = (state === RecoveryControlState.RequestRob ||
     state === RecoveryControlState.WaitRob ||
-    state === RecoveryControlState.WaitRobAbort) && io.robPrepared.fire
+    state === RecoveryControlState.WaitRobAbort) &&
+    io.robPrepared.valid && robPreparedCanFire
   when(robPreparedFire) {
     plan := io.robPrepared.bits
     plan.phase := RecoveryPhase.Prepare

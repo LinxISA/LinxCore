@@ -101,6 +101,15 @@ object RecoveryPlanContract {
   private def memberOrdinal(id: RobIdentity): UInt =
     Cat(id.ridGeneration, id.ridSlot, id.memberIndex)
 
+  def sameRobRequest(response: RecoveryPlan, request: RecoveryPlan): Bool =
+    response.phase === RecoveryPhase.Prepare &&
+      request.phase === RecoveryPhase.Prepare &&
+      response.transactionId === request.transactionId &&
+      response.cause === request.cause &&
+      response.trigger.asUInt === request.trigger.asUInt &&
+      response.redirectPc === request.redirectPc &&
+      response.newEpoch === request.newEpoch
+
   def sameTransactionIgnoringPhase(a: RecoveryPlan, b: RecoveryPlan): Bool =
     a.transactionId === b.transactionId &&
       a.cause === b.cause &&

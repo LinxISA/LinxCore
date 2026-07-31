@@ -177,6 +177,79 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.robPrepared.bits.killedMemberCount.poke(2.U)
   }
 
+  private def pokePreparedResponse(
+      dut: RecoveryControl,
+      transactionId: Int,
+      cause: RecoveryCause.Type,
+      peId: Int,
+      stid: Int,
+      rid: Int,
+      ridGeneration: Int,
+      member: Int,
+      residentGeneration: Int,
+      bid: Int,
+      brobGeneration: Int,
+      redirectPc: Int,
+      newEpoch: Int,
+      phase: RecoveryPhase.Type = RecoveryPhase.Prepare,
+      firstKilledRid: Int = 1,
+      lastKilledRid: Int = 2): Unit = {
+    dut.io.robPrepared.bits.poke(0.U.asTypeOf(dut.io.robPrepared.bits))
+    dut.io.robPrepared.bits.transactionId.poke(transactionId.U)
+    dut.io.robPrepared.bits.phase.poke(phase)
+    dut.io.robPrepared.bits.cause.poke(cause)
+    dut.io.robPrepared.bits.trigger.peId.poke(peId.U)
+    dut.io.robPrepared.bits.trigger.stid.poke(stid.U)
+    dut.io.robPrepared.bits.trigger.ridSlot.poke(rid.U)
+    dut.io.robPrepared.bits.trigger.ridGeneration.poke(ridGeneration.U)
+    dut.io.robPrepared.bits.trigger.memberIndex.poke(member.U)
+    dut.io.robPrepared.bits.trigger.residentGeneration.poke(residentGeneration.U)
+    dut.io.robPrepared.bits.trigger.bid.poke(bid.U)
+    dut.io.robPrepared.bits.trigger.brobGeneration.poke(brobGeneration.U)
+    dut.io.robPrepared.bits.redirectPc.poke(redirectPc.U)
+    dut.io.robPrepared.bits.newEpoch.poke(newEpoch.U)
+    dut.io.robPrepared.bits.firstKilledValid.poke(true.B)
+    dut.io.robPrepared.bits.firstKilled.peId.poke(peId.U)
+    dut.io.robPrepared.bits.firstKilled.stid.poke(stid.U)
+    dut.io.robPrepared.bits.firstKilled.ridSlot.poke(firstKilledRid.U)
+    dut.io.robPrepared.bits.firstKilled.ridGeneration.poke(ridGeneration.U)
+    dut.io.robPrepared.bits.lastKilled.peId.poke(peId.U)
+    dut.io.robPrepared.bits.lastKilled.stid.poke(stid.U)
+    dut.io.robPrepared.bits.lastKilled.ridSlot.poke(lastKilledRid.U)
+    dut.io.robPrepared.bits.lastKilled.ridGeneration.poke(ridGeneration.U)
+    dut.io.robPrepared.bits.killedGroupCount.poke(2.U)
+    dut.io.robPrepared.bits.killedMemberCount.poke(2.U)
+  }
+
+  private def pokeRound6SeedEvent(dut: RecoveryControl): Unit = {
+    driveRecoveryEvent(dut, 0, 0x160, RecoveryCause.MemoryOrder, stid = 0,
+      rid = 1, redirectPc = 0x4100)
+    authorizeCandidate(dut, 0, 0x160, stid = 0, rid = 1, age = 1)
+    dut.io.robPrepared.valid.poke(false.B)
+  }
+
+  private def pokeRound6Response(
+      dut: RecoveryControl,
+      transactionId: Int = 0x160,
+      cause: RecoveryCause.Type = RecoveryCause.MemoryOrder,
+      peId: Int = 0,
+      stid: Int = 0,
+      rid: Int = 1,
+      ridGeneration: Int = 0,
+      member: Int = 0,
+      residentGeneration: Int = 0,
+      bid: Int = 0,
+      brobGeneration: Int = 0,
+      redirectPc: Int = 0x4100,
+      newEpoch: Int = 4,
+      phase: RecoveryPhase.Type = RecoveryPhase.Prepare,
+      firstKilledRid: Int = 2,
+      lastKilledRid: Int = 3): Unit = {
+    pokePreparedResponse(dut, transactionId, cause, peId, stid, rid,
+      ridGeneration, member, residentGeneration, bid, brobGeneration,
+      redirectPc, newEpoch, phase, firstKilledRid, lastKilledRid)
+  }
+
   test("ROB recovery prepare returns the exact suffix and apply prunes only target STID") {
     simulate(new ROB(params)) { dut =>
       clearRob(dut)
@@ -1076,6 +1149,131 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.io.abort.poke(false.B)
       dut.io.targets(0).abort.valid.expect(false.B)
       dut.io.robAbort.valid.expect(false.B)
+    }
+  }
+
+  test("RecoveryControl ignores unsolicited ROB response before request fires") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      pokeRound6SeedEvent(dut)
+      dut.clock.step()
+
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepare.ready.poke(false.B)
+      dut.io.robPrepared.valid.poke(true.B)
+      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.targets(0).prepare.valid.expect(false.B)
+      dut.io.robAbort.valid.expect(false.B)
+
+      dut.io.robPrepare.ready.poke(true.B)
+      pokeRound6Response(dut, transactionId = 0x161)
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      dut.io.targets(0).prepare.valid.expect(false.B)
+      dut.io.robAbort.valid.expect(false.B)
+
+      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      dut.clock.step()
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.io.targets(0).prepare.bits.transactionId.expect(0x160.U)
+      dut.io.targets(0).prepare.bits.firstKilled.ridSlot.expect(2.U)
+    }
+  }
+
+  test("RecoveryControl waits through mismatched ROB responses in WaitRob") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      pokeRound6SeedEvent(dut)
+      dut.clock.step()
+
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepare.ready.poke(true.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+
+      val mismatches = Seq[() => Unit](
+        () => pokeRound6Response(dut, transactionId = 0x161),
+        () => pokeRound6Response(dut, cause = RecoveryCause.Branch),
+        () => pokeRound6Response(dut, peId = 1),
+        () => pokeRound6Response(dut, stid = 1),
+        () => pokeRound6Response(dut, rid = 2),
+        () => pokeRound6Response(dut, ridGeneration = 1),
+        () => pokeRound6Response(dut, member = 1),
+        () => pokeRound6Response(dut, residentGeneration = 1),
+        () => pokeRound6Response(dut, bid = 1),
+        () => pokeRound6Response(dut, brobGeneration = 1),
+        () => pokeRound6Response(dut, redirectPc = 0x4200),
+        () => pokeRound6Response(dut, newEpoch = 5),
+        () => pokeRound6Response(dut, phase = RecoveryPhase.Apply))
+      dut.io.robPrepared.valid.poke(true.B)
+      mismatches.foreach { pokeMismatch =>
+        pokeMismatch()
+        dut.clock.step()
+        dut.io.targets(0).prepare.valid.expect(false.B)
+        dut.io.robAbort.valid.expect(false.B)
+        dut.io.robPrepare.valid.expect(false.B)
+      }
+
+      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      dut.clock.step()
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.io.targets(0).prepare.bits.transactionId.expect(0x160.U)
+      dut.io.targets(0).prepare.bits.firstKilled.ridSlot.expect(2.U)
+      dut.io.targets(0).prepare.bits.lastKilled.ridSlot.expect(3.U)
+    }
+  }
+
+  test("RecoveryControl waits through mismatched ROB responses in WaitRobAbort") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      pokeRound6SeedEvent(dut)
+      dut.clock.step()
+
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepare.ready.poke(true.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.abort.poke(true.B)
+      dut.clock.step()
+
+      val mismatches = Seq[() => Unit](
+        () => pokeRound6Response(dut, transactionId = 0x161),
+        () => pokeRound6Response(dut, cause = RecoveryCause.Branch),
+        () => pokeRound6Response(dut, peId = 1),
+        () => pokeRound6Response(dut, stid = 1),
+        () => pokeRound6Response(dut, rid = 2),
+        () => pokeRound6Response(dut, ridGeneration = 1),
+        () => pokeRound6Response(dut, member = 1),
+        () => pokeRound6Response(dut, residentGeneration = 1),
+        () => pokeRound6Response(dut, bid = 1),
+        () => pokeRound6Response(dut, brobGeneration = 1),
+        () => pokeRound6Response(dut, redirectPc = 0x4200),
+        () => pokeRound6Response(dut, newEpoch = 5),
+        () => pokeRound6Response(dut, phase = RecoveryPhase.Abort))
+      dut.io.robPrepared.valid.poke(true.B)
+      mismatches.foreach { pokeMismatch =>
+        pokeMismatch()
+        dut.clock.step()
+        dut.io.targets(0).prepare.valid.expect(false.B)
+        dut.io.targets(0).abort.valid.expect(false.B)
+        dut.io.robAbort.valid.expect(false.B)
+        dut.io.robPrepare.valid.expect(false.B)
+      }
+
+      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      dut.clock.step()
+      dut.io.robAbort.valid.expect(true.B)
+      dut.io.robAbort.bits.transactionId.expect(0x160.U)
+      dut.io.robAbort.bits.phase.expect(RecoveryPhase.Abort)
+      dut.io.robAbort.bits.firstKilled.ridSlot.expect(2.U)
+      dut.io.targets(0).abort.valid.expect(false.B)
+      dut.io.targets(0).prepare.valid.expect(false.B)
     }
   }
 

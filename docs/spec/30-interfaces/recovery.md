@@ -32,7 +32,15 @@ RecoveryControl also exposes a dedicated `robAbort: Valid[RecoveryPlan]`
 terminal for the ROB request side. If abort arrives after `robPrepare.fire`
 but before `robPrepared.fire`, RecoveryControl waits for the exact
 ROB-authored response and then emits only this ROB abort terminal; it does not
-broadcast a stale or default target plan. Canonical ROB and BROB owner IOs
+broadcast a stale or default target plan. A ROB response is exact only by the
+request fields: `RecoveryPlanContract.sameRobRequest` requires Prepare phase,
+transaction ID, cause, full trigger identity, redirect PC, and new epoch to
+match the retained seed request while deliberately ignoring the ROB-authored
+survivor-tail and killed-suffix fields. Unsolicited, stale, unrelated,
+wrong-phase, or otherwise mismatched ROB responses are not accepted as the
+current plan in `RequestRob`, `WaitRob`, or `WaitRobAbort`; a same-cycle
+mismatched response does not prevent the request from firing once. Canonical
+ROB and BROB owner IOs
 consume explicit matching `RecoveryPlan` Abort inputs and clear only the
 retained transaction named by the shared transaction-equality helper. Stale,
 duplicate, mismatched, or wrong-phase Apply and Abort packets are
