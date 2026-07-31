@@ -35,6 +35,9 @@ class OOORobCommitPreviewEntry(val p: CoreParams) extends Bundle {
 class OOORobCommitPreview(val p: CoreParams) extends Bundle {
   val count = UInt(PrefixPacketContract.countWidth(p.widths.retireWidth).W)
   val entries = Vec(p.widths.retireWidth, new OOORobCommitPreviewEntry(p))
+  val headValid = Bool()
+  val head = new RobIdentity(p)
+  val headTrap = new TrapEvent(p)
 }
 
 class BROBPreparedEntry(val p: CoreParams) extends Bundle {

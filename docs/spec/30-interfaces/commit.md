@@ -6,9 +6,11 @@
 OOO shall publish architectural commit as a continuous oldest-first prefix.
 Each committed entry shall carry its complete ROB and instruction identities,
 architectural result, memory side effect summary, and precise trap state.
-Commit-side release to rename, ROB, and BROB owners shall be acknowledged as
-one retained transaction; no physical row or previous physical register may be
-freed from an unacknowledged `Valid` pulse.
+Commit-side release to rename, ROB, and BROB owners shall use side-effect-free
+readiness followed by one common fire. The visible commit transaction, rename
+release, ROB release, and BROB release are one retained boundary; no physical
+row or previous physical register may be freed from a readiness check or from
+an unacknowledged `Valid` pulse.
 
 ## Commit transaction Bundle {#MEC-COMMIT-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-COMMIT-001 -->
@@ -21,3 +23,8 @@ owner or an independent retirement decision.
 destination history. It preserves every destination slot even when the public
 `CommitEntry.destination` field carries only the primary projection for
 architectural observation.
+
+`CommitControlTxn` carries the public commit prefix plus companion rename,
+ROB, and BROB release payloads. The owner-level ready signals are not
+acknowledgements; they are exact prepare decisions used to decide whether the
+single `CommitControl.out.fire` may authorize every release side effect.

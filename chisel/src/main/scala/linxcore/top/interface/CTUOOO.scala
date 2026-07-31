@@ -55,5 +55,7 @@ class DecodedUop(val p: CoreParams) extends Bundle {
   val immediateValid = Bool()
   val immediate = UInt(p.dataWidth.W)
   val earlyComplete = Bool()
+  val blockStart = Bool()
+  val blockStop = Bool()
   val blockBoundary = Bool()
 }

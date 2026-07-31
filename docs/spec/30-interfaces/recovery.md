@@ -20,6 +20,12 @@ unique contiguous live ROB suffix without emitting a capacity-sized vector.
 Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
 exists.
 
+Recovery control requests the ROB-authored plan through an explicit
+Decoupled request/response. Targets receive the retained ROB plan in Prepare
+phase until their individual prepare fires, return one matching prepared
+transaction, and mutate only on the later common Apply broadcast. A matching
+Abort broadcast terminates the retained transaction without owner mutation.
+
 `RecoveryPlanContract` defines equality while ignoring only `phase`, exact
 membership in the compact suffix, and legal empty/non-empty suffix shape.
 Recovery targets MUST use this helper rather than private global-age

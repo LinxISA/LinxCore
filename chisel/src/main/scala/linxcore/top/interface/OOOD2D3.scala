@@ -49,6 +49,8 @@ class D3RenameLane(val p: CoreParams) extends Bundle {
   val uSeqBefore = new D3LocalSeqSnapshot(p, p.ooo.tuMapQDepthPerStid)
   val residentBound = Bool()
   val brobBound = Bool()
+  val blockStart = Bool()
+  val blockStop = Bool()
   val earlyRobComplete = Bool()
 }
 
@@ -75,6 +77,8 @@ class RENUD2D3IO(val p: CoreParams) extends Bundle {
   val fromD2 = Flipped(Decoupled(new D2AdmissionGroup(p)))
   val toD3 = Decoupled(new D3RenameGroup(p))
   val release = Flipped(Valid(new RenameCommitReleaseTxn(p)))
+  val releaseReady = Output(Bool())
+  val releaseApply = Input(Bool())
   val recovery = Flipped(new RecoveryTargetIO(p))
   val debugPMap = Output(Vec(p.ooo.stidCount,
     Vec(p.ooo.gprArchRegs,

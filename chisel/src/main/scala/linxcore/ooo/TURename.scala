@@ -164,6 +164,8 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
     io.prepared.entries(lane).trap := in.entries(lane).trap
     io.prepared.entries(lane).residentBound := in.entries(lane).residentBound
     io.prepared.entries(lane).brobBound := in.entries(lane).brobBound
+    io.prepared.entries(lane).blockStart := in.entries(lane).uop.blockStart
+    io.prepared.entries(lane).blockStop := in.entries(lane).uop.blockStop
     io.prepared.entries(lane).earlyRobComplete :=
       in.entries(lane).uop.earlyComplete || in.entries(lane).uop.blockBoundary
     io.prepared.entries(lane).uop.decoded := in.entries(lane).uop

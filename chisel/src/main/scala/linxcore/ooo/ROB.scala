@@ -11,6 +11,7 @@ object ROBState extends ChiselEnum {
 
 class ROBIO(val p: CoreParams) extends Bundle {
   val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
+  val brobPrepared = Input(new BROBPrepared(p))
   val prepared = Output(new OOORobPrepared(p))
   val publishFire = Input(Bool())
   val completion = Flipped(Decoupled(new CompletionTxn(p)))
@@ -18,6 +19,8 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val completionRejected = Valid(new RobIdentity(p))
   val commit = Decoupled(new OOORobCommitPreview(p))
   val release = Flipped(Valid(new OOORobReleaseTxn(p)))
+  val releaseReady = Output(Bool())
+  val releaseApply = Input(Bool())
   val recoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
   val recoveryPrepared = Valid(new RecoveryPlan(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
@@ -25,6 +28,8 @@ class ROBIO(val p: CoreParams) extends Bundle {
     UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
+  val ridHeadSlot = Output(Vec(p.ooo.stidCount,
+    UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
 }
 
 class ROB(val p: CoreParams) extends Module {
@@ -109,6 +114,7 @@ class ROB(val p: CoreParams) extends Module {
 
   io.ridTailSlot := tailSlot
   io.ridTailGeneration := tailGeneration
+  io.ridHeadSlot := headSlot
 
   val prepareStid = safeStid(io.prepare.bits.entries(0).uop.decoded.rob.stid)
   val prepareCountLegal =
@@ -125,8 +131,52 @@ class ROB(val p: CoreParams) extends Module {
     row.uop.decoded.valid === active &&
       (!active || row.uop.decoded.rob.stid === prepareStid)
   }.reduce(_ && _)
+  val prepareGroupStarts = Wire(Vec(d3Width, Bool()))
+  val prepareGroupOrdinal = Wire(Vec(d3Width,
+    UInt(PrefixPacketContract.countWidth(d3Width).W)))
+  for (lane <- 0 until d3Width) {
+    val active = lane.U < io.prepare.bits.count
+    val row = io.prepare.bits.entries(lane)
+    prepareGroupStarts(lane) := active && row.uop.decoded.rob.memberIndex === 0.U
+    prepareGroupOrdinal(lane) := PopCount(prepareGroupStarts.take(lane + 1)) - 1.U
+  }
+  val prepareExactRows = (0 until d3Width).map { lane =>
+    val active = lane.U < io.prepare.bits.count
+    val row = io.prepare.bits.entries(lane)
+    val ordinal = prepareGroupOrdinal(lane)
+    val (expectedSlot, expectedWrap) = slotPlus(tailSlot(prepareStid), ordinal)
+    val expectedGen = tailGeneration(prepareStid) + expectedWrap.asUInt
+    val firstLane = lane == 0
+    val prev = if (firstLane) row else io.prepare.bits.entries(lane - 1)
+    val continuousMember = if (firstLane) {
+      row.uop.decoded.rob.memberIndex === 0.U
+    } else {
+      Mux(row.uop.decoded.rob.memberIndex === 0.U,
+        row.uop.decoded.rob.ridSlot =/= prev.uop.decoded.rob.ridSlot,
+        row.uop.decoded.rob.ridSlot === prev.uop.decoded.rob.ridSlot &&
+          row.uop.decoded.rob.memberIndex ===
+            prev.uop.decoded.rob.memberIndex + 1.U)
+    }
+    !active || (
+      row.uop.decoded.rob.ridSlot === expectedSlot &&
+        row.uop.decoded.rob.ridGeneration === expectedGen &&
+        row.uop.decoded.rob.memberIndex < p.ooo.maxInstructionsPerRobGroup.U &&
+        continuousMember &&
+        !memberLive(prepareStid)(expectedSlot)(row.uop.decoded.rob.memberIndex))
+  }.reduce(_ && _)
+  val brobExact = (0 until d3Width).map { lane =>
+    val active = lane.U < io.prepare.bits.count
+    val row = io.prepare.bits.entries(lane)
+    val bound = active && row.brobBound
+    !bound || (
+      io.brobPrepared.count === io.prepare.bits.count &&
+        io.brobPrepared.entries(lane).valid &&
+        io.brobPrepared.entries(lane).stid === prepareStid)
+  }.reduce(_ && _)
   val prepareReady = prepareCountLegal && prepareGroupCountLegal &&
-    prepareCapacity
+    prepareCapacity && prepareShape && prepareExactRows &&
+    PopCount(prepareGroupStarts) === io.prepare.bits.groupCount &&
+    brobExact
   io.prepare.ready := prepareReady
 
   val prepared = Wire(new OOORobPrepared(p))
@@ -139,6 +189,11 @@ class ROB(val p: CoreParams) extends Module {
     val member = in.uop.decoded.rob.memberIndex
     prepared.entries(lane).valid := active
     prepared.entries(lane).rob := in.uop.decoded.rob
+    when(active && in.brobBound) {
+      prepared.entries(lane).rob.bid := io.brobPrepared.entries(lane).bid
+      prepared.entries(lane).rob.brobGeneration :=
+        io.brobPrepared.entries(lane).brobGeneration
+    }
     prepared.entries(lane).rob.residentGeneration :=
       residentGeneration(prepareStid)(rid)(member)
     prepared.entries(lane).commit.instruction :=
@@ -242,7 +297,15 @@ class ROB(val p: CoreParams) extends Module {
   preview := 0.U.asTypeOf(preview)
   val stidPrefixCounts = Wire(Vec(p.ooo.stidCount,
     UInt(PrefixPacketContract.countWidth(retireWidth).W)))
+  val stidHeadValid = Wire(Vec(p.ooo.stidCount, Bool()))
+  val stidHeadTrap = Wire(Vec(p.ooo.stidCount, Bool()))
   for (stid <- 0 until p.ooo.stidCount) {
+    val headIdx = orderCommitHead(stid)
+    stidHeadValid(stid) := orderCommitCount(stid) =/= 0.U &&
+      orderValid(stid)(headIdx) && orderCompleted(stid)(headIdx) &&
+      !orderRetired(stid)(headIdx)
+    stidHeadTrap(stid) := stidHeadValid(stid) &&
+      orderCommits(stid)(headIdx).trap.valid
     val counts = Wire(Vec(retireWidth + 1,
       UInt(PrefixPacketContract.countWidth(retireWidth).W)))
     counts(0) := 0.U
@@ -250,7 +313,8 @@ class ROB(val p: CoreParams) extends Module {
       val idx = orderPlus(orderCommitHead(stid), lane.U)
       val completed = lane.U < orderCommitCount(stid) &&
         orderValid(stid)(idx) && orderCompleted(stid)(idx) &&
-        !orderRetired(stid)(idx)
+        !orderRetired(stid)(idx) &&
+        !orderCommits(stid)(idx).trap.valid
       counts(lane + 1) := Mux(counts(lane) === lane.U && completed,
         (lane + 1).U,
         counts(lane))
@@ -258,7 +322,7 @@ class ROB(val p: CoreParams) extends Module {
     stidPrefixCounts(stid) := counts(retireWidth)
   }
   val eligibleStids = VecInit((0 until p.ooo.stidCount).map { stid =>
-    stidPrefixCounts(stid) =/= 0.U
+    stidPrefixCounts(stid) =/= 0.U || stidHeadTrap(stid)
   })
   val selectedStid = PriorityEncoder(eligibleStids.asUInt)
   for (lane <- 0 until retireWidth) {
@@ -268,11 +332,15 @@ class ROB(val p: CoreParams) extends Module {
     preview.entries(lane).rename := orderRenames(selectedStid)(idx)
   }
   preview.count := stidPrefixCounts(selectedStid)
+  preview.headValid := stidHeadValid(selectedStid)
+  preview.head := orderIds(selectedStid)(orderCommitHead(selectedStid))
+  preview.headTrap := orderCommits(selectedStid)(orderCommitHead(selectedStid)).trap
   val previewValid = preview.count =/= 0.U
+  val previewTxnValid = previewValid || preview.headTrap.valid
   val retainedValid = RegInit(false.B)
   val retained = Reg(new OOORobCommitPreview(p))
   val useRetained = retainedValid
-  io.commit.valid := useRetained || previewValid
+  io.commit.valid := useRetained || previewTxnValid
   io.commit.bits := Mux(useRetained, retained, preview)
   when(io.commit.valid && !io.commit.ready && !retainedValid) {
     retained := preview
@@ -303,45 +371,62 @@ class ROB(val p: CoreParams) extends Module {
     orderCommitCount(stid) := orderCommitCount(stid) - io.commit.bits.count
   }
 
+  val releasePrefixShape = (0 until retireWidth).map { lane =>
+    io.release.bits.lanes(lane).valid === (lane.U < io.release.bits.count)
+  }.reduce(_ && _)
+  val releaseFirst = io.release.bits.lanes(0).rob
+  val releaseStid = safeStid(releaseFirst.stid)
+  val releaseLaneExact = Wire(Vec(retireWidth, Bool()))
+  val releaseGroupFinished = Wire(Vec(retireWidth, Bool()))
+  for (lane <- 0 until retireWidth) {
+    val active = lane.U < io.release.bits.count
+    val id = io.release.bits.lanes(lane).rob
+    val expectedIdx = orderPlus(orderHead(releaseStid), lane.U)
+    releaseLaneExact(lane) := !active || (
+      io.release.bits.lanes(lane).valid &&
+        id.stid === releaseFirst.stid &&
+        orderValid(releaseStid)(expectedIdx) &&
+        orderRetired(releaseStid)(expectedIdx) &&
+        orderIds(releaseStid)(expectedIdx).asUInt === id.asUInt &&
+        memberLive(releaseStid)(id.ridSlot)(id.memberIndex) &&
+        identities(releaseStid)(id.ridSlot)(id.memberIndex).asUInt === id.asUInt)
+    val youngerLiveSameGroup = (0 until p.ooo.maxInstructionsPerRobGroup).map { member =>
+      member.U > id.memberIndex &&
+        memberLive(releaseStid)(id.ridSlot)(member)
+    }.reduce(_ || _)
+    releaseGroupFinished(lane) := active && releaseLaneExact(lane) &&
+      !youngerLiveSameGroup
+  }
+  io.releaseReady := io.release.valid && io.release.bits.count =/= 0.U &&
+    io.release.bits.count <= retireWidth.U &&
+    releaseFirst.stid < p.ooo.stidCount.U &&
+    releasePrefixShape && releaseLaneExact.asUInt.andR
+  val releaseFire = io.releaseReady && io.releaseApply
   when(io.release.valid) {
     assert(io.release.bits.count <= retireWidth.U)
+  }
+  when(releaseFire) {
     for (lane <- 0 until retireWidth) {
-      when(lane.U < io.release.bits.count && io.release.bits.lanes(lane).valid) {
+      when(lane.U < io.release.bits.count) {
         val id = io.release.bits.lanes(lane).rob
-        val stid = safeStid(id.stid)
-        when(memberLive(stid)(id.ridSlot)(id.memberIndex) &&
-          identities(stid)(id.ridSlot)(id.memberIndex).asUInt === id.asUInt &&
-          state(stid)(id.ridSlot)(id.memberIndex) === ROBState.Retired) {
-          memberLive(stid)(id.ridSlot)(id.memberIndex) := false.B
-          state(stid)(id.ridSlot)(id.memberIndex) := ROBState.Free
-          for (idx <- 0 until orderCapacity) {
-            when(orderValid(stid)(idx) && orderIds(stid)(idx).asUInt === id.asUInt) {
-              orderValid(stid)(idx) := false.B
-            }
+        memberLive(releaseStid)(id.ridSlot)(id.memberIndex) := false.B
+        state(releaseStid)(id.ridSlot)(id.memberIndex) := ROBState.Free
+        for (idx <- 0 until orderCapacity) {
+          when(orderValid(releaseStid)(idx) && orderIds(releaseStid)(idx).asUInt === id.asUInt) {
+            orderValid(releaseStid)(idx) := false.B
           }
-          residentGeneration(stid)(id.ridSlot)(id.memberIndex) :=
-            residentGeneration(stid)(id.ridSlot)(id.memberIndex) + 1.U
         }
+        residentGeneration(releaseStid)(id.ridSlot)(id.memberIndex) :=
+          residentGeneration(releaseStid)(id.ridSlot)(id.memberIndex) + 1.U
       }
     }
-    when(io.release.bits.count =/= 0.U) {
-      val first = io.release.bits.lanes(0).rob
-      val last = Wire(new RobIdentity(p))
-      last := io.release.bits.lanes(0).rob
-      for (lane <- 0 until retireWidth) {
-        when((lane + 1).U === io.release.bits.count) {
-          last := io.release.bits.lanes(lane).rob
-        }
-      }
-      val releasedGroups = last.ridSlot - first.ridSlot + 1.U
-      val stid = safeStid(first.stid)
-      val (nextHead, wrap) = slotPlus(headSlot(stid), releasedGroups)
-      headSlot(stid) := nextHead
-      headGeneration(stid) := headGeneration(stid) + wrap.asUInt
-      groupCount(stid) := groupCount(stid) - releasedGroups
-      orderHead(stid) := orderPlus(orderHead(stid), io.release.bits.count)
-      orderCount(stid) := orderCount(stid) - io.release.bits.count
-    }
+    val releasedGroups = PopCount(releaseGroupFinished)
+    val (nextHead, wrap) = slotPlus(headSlot(releaseStid), releasedGroups)
+    headSlot(releaseStid) := nextHead
+    headGeneration(releaseStid) := headGeneration(releaseStid) + wrap.asUInt
+    groupCount(releaseStid) := groupCount(releaseStid) - releasedGroups
+    orderHead(releaseStid) := orderPlus(orderHead(releaseStid), io.release.bits.count)
+    orderCount(releaseStid) := orderCount(releaseStid) - io.release.bits.count
   }
 
   val recoveryPending = RegInit(false.B)

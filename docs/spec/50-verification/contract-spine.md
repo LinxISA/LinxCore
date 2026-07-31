@@ -34,8 +34,11 @@ atomic rename-map transitions, and non-blocking DTU observation.
 Task-9 owner closure additionally requires `OOORobCommitSpec` and
 `OOORecoverySpec` to prove exact ROB-member ordering, same-group branch suffix
 recovery, semantic completion rejection without producer deadlock, BROB
-BID/generation release validation, retained commit/release acknowledgement,
-and a multi-target recovery prepare/apply barrier.
+BID/generation release validation, whole-prefix release rejection, final-member
+BROB release, side-effect-free owner readiness plus one common commit fire,
+typed block start/stop propagation, retained recovery source arbitration, ROB
+request/response, one-prepare-per-target barriers, mismatched acknowledgement
+rejection, and a multi-target recovery prepare/apply barrier.
 
 ## Front-end and OOO pipeline checks {#VER-ARC-006}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=ARC-TOP-030,ARC-TOP-031 -->

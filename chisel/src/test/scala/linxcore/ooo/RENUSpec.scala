@@ -25,6 +25,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     dut.io.toD3.ready.poke(true.B)
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.releaseApply.poke(true.B)
     dut.io.recovery.prepare.valid.poke(false.B)
     dut.io.recovery.prepare.bits.poke(
       0.U.asTypeOf(dut.io.recovery.prepare.bits))

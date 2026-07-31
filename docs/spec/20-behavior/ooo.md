@@ -211,32 +211,43 @@ against one worst-case rename prefix.
 
 `linxcore.ooo.ROB` MUST be the canonical grouped ROB residency owner. D3
 prepare MUST be side-effect free and MUST return exact `RobIdentity` bindings
-for the continuous accepted prefix. Only the caller-controlled publication
-fire may install resident rows, advance the RID tail, and mark early-complete
-zero-operand or boundary uops complete. Completion reports MUST be consumed at
-the inspection boundary and reported as accepted or rejected separately; stale,
-duplicate, wrong-generation, wrong-member, or wrong-BID completions MUST NOT
-mutate ROB state.
+for the continuous accepted prefix. Prepare MUST validate the ROB-owned RID
+tail, STID, group/member order, free resident rows, and any BROB-prepared
+BID/generation binding before it reports readiness. Only the caller-controlled
+publication fire may install resident rows, advance the RID tail, and mark
+early-complete zero-operand or boundary uops complete. Completion reports MUST
+be consumed at the inspection boundary and reported as accepted or rejected
+separately; stale, duplicate, wrong-generation, wrong-member, or wrong-BID
+completions MUST NOT mutate ROB state. Release readiness MUST be
+side-effect-free and MUST validate the complete retained prefix before the
+common commit fire can retire or deallocate any row.
 
 ## Own per-STID BROB residency exactly {#OOO-011}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,D-IDENTITY-001 -->
 
 `linxcore.ooo.BROB` MUST own a generation-qualified circular block table per
 STID. D3 prepare MUST walk groups older-first, allocate a native BID only at a
-block start, carry the current block across groups, and mutate table/head/tail
-state only on the common publication fire. Release and recovery MUST validate
-the exact STID, BID, and BROB generation; stale-generation release attempts
-MUST be rejected without changing unrelated STIDs.
+typed block start, carry the current block across groups, close it only at a
+typed block stop, and mutate table/head/tail state only on the common
+publication fire. Release readiness MUST validate the complete retained
+prefix and free the head block only when the exact final ROB member for that
+block is included. Recovery prepare MUST be non-mutating; recovery apply MUST
+match the retained plan and prune only the target-STID suffix. Stale BID
+generation release or recovery attempts MUST be rejected without changing
+unrelated STIDs.
 
 ## Retain in-order commit until every release owner accepts {#OOO-012}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-009,OOO-010,IFC-COMMIT-001 -->
 
 `linxcore.ooo.CommitControl` MUST retain one complete oldest-first commit
 prefix, rename-release transaction, BROB release, ROB release, and trap
-selection while any consumer backpressures or withholds acknowledgement. The
-retained prefix MUST NOT be recomputed. `Completed` and `Retired` are
-separate ROB states; physical ROB rows and previous physical registers are
-freed only after the matching rename and BROB release facts are accepted.
+selection while any consumer backpressures or withholds side-effect-free
+readiness. `CommitControl.out.valid` is the common fire candidate and MUST be
+asserted only when ROB, RENU, and BROB all report exact release readiness. The
+retained prefix MUST NOT be recomputed or repeated while a `Valid` ROB preview
+remains asserted after the common fire. `Completed` and `Retired` are separate
+ROB states; physical ROB rows and previous physical registers are freed only
+on the matching common commit fire.
 Secondary destination history MUST remain in the companion
 `RenameCommitReleaseTxn` even when `CommitEntry.destination` exposes only the
 primary projection.
@@ -245,14 +256,16 @@ primary projection.
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,IFC-RECOVERY-001 -->
 
 `linxcore.ooo.RecoveryControl` MUST be the sole global recovery event arbiter
-and plan distributor. A synchronous head trap wins over an interrupt at the
-same precise boundary; interrupts are admitted only at a precise ROB head
+and plan distributor. Producer events are retained until ROB accepts the
+selected request. A synchronous head trap wins over an interrupt at the same
+precise boundary; interrupts are admitted only at an explicit precise ROB head
 boundary. Recovery prepare MUST ask ROB for one retained `RecoveryPlan`
-containing the exact compact killed suffix, offer the identical plan to every
-target in `Prepare`, wait for every matching acknowledgement, and emit one
-common one-cycle `Apply`. Branch recovery preserves the trigger and kills
-younger members; memory-order replay recovery kills the trigger and younger
-members. Abort MUST be non-mutating.
+containing the exact compact killed suffix, offer the identical plan exactly
+once to every target in `Prepare`, wait for every matching acknowledgement,
+ignore mismatched acknowledgements, and emit one common one-cycle `Apply`.
+Branch recovery preserves the trigger and kills younger members; memory-order
+replay recovery kills the trigger and younger members. Abort MUST be
+non-mutating.
 
 ## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->
@@ -270,8 +283,10 @@ legacy `Ooo*`, `rob.*`, `bctrl.*`, or `recovery.*` owners.
 `OOORobCommitSpec` and `OOORecoverySpec` MUST cover grouped ROB publication,
 same-group member commit order, STID arbitration, exact completion acceptance
 and rejection, stale slot reuse rejection, per-STID BROB BID/generation
-checks, retained commit under backpressure, secondary-destination release
+checks, whole-prefix release rejection, final-member BROB release, retained
+commit under independent owner readiness, secondary-destination release
 history, precise trap priority, memory-order recovery, branch same-group
 younger-member kill, exact suffix membership including generation and member
-index, side-effect-free prepare, multi-target prepare barriers, common apply,
-and non-mutating abort.
+index, source arbitration, ROB recovery request/response, one-prepare-per
+target barriers, mismatched acknowledgement rejection, common apply, and
+non-mutating abort.

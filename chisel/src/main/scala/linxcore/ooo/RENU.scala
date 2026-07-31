@@ -85,9 +85,11 @@ class RENU(val p: CoreParams) extends Module {
   }
   val releaseShapeExact = io.release.bits.count <= p.widths.retireWidth.U &&
     releasePrefixShape.reduce(_ && _)
-  val releaseApply = io.release.valid && releaseShapeExact &&
+  val releaseReady = io.release.valid && releaseShapeExact &&
     !recoveryMutationFence && pRename.io.releaseExact &&
     tuRename.io.releaseExact
+  io.releaseReady := releaseReady
+  val releaseApply = releaseReady && io.releaseApply
   pRename.io.releaseApply := releaseApply
   tuRename.io.releaseApply := releaseApply
   io.recovery.prepared.valid := preparedValid
@@ -121,6 +123,10 @@ class RENU(val p: CoreParams) extends Module {
     prepared.entries(lane).residentBound :=
       io.fromD2.bits.entries(lane).residentBound
     prepared.entries(lane).brobBound := io.fromD2.bits.entries(lane).brobBound
+    prepared.entries(lane).blockStart :=
+      io.fromD2.bits.entries(lane).uop.blockStart
+    prepared.entries(lane).blockStop :=
+      io.fromD2.bits.entries(lane).uop.blockStop
     prepared.entries(lane).earlyRobComplete :=
       io.fromD2.bits.entries(lane).uop.earlyComplete ||
         io.fromD2.bits.entries(lane).uop.blockBoundary

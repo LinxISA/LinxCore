@@ -8,8 +8,11 @@ import linxcore.top.interface._
 class CommitControlIO(val p: CoreParams) extends Bundle {
   val rob = Flipped(Valid(new OOORobCommitPreview(p)))
   val interrupts = Input(Vec(p.ooo.stidCount, new InterruptRequest(p)))
-  val renameReleaseAck = Input(Bool())
-  val brobReleaseAck = Input(Bool())
+  val interruptBoundaryValid = Input(Bool())
+  val interruptBoundary = Input(new RobIdentity(p))
+  val robReleaseReady = Input(Bool())
+  val renameReleaseReady = Input(Bool())
+  val brobReleaseReady = Input(Bool())
   val out = Decoupled(new CommitControlTxn(p))
 }
 
@@ -18,6 +21,7 @@ class CommitControl(val p: CoreParams) extends Module {
 
   val heldValid = RegInit(false.B)
   val held = Reg(new CommitControlTxn(p))
+  val waitRobDrop = RegInit(false.B)
 
   val next = Wire(new CommitControlTxn(p))
   next := 0.U.asTypeOf(next)
@@ -33,29 +37,44 @@ class CommitControl(val p: CoreParams) extends Module {
       io.rob.bits.entries(lane).commit.rob
     next.brobRelease.entries(lane) := io.rob.bits.entries(lane).commit.rob
   }
-  val headTrap = io.rob.valid && io.rob.bits.count =/= 0.U &&
+  val legacyEntryTrap = io.rob.valid && io.rob.bits.count =/= 0.U &&
     io.rob.bits.entries(0).commit.trap.valid
+  val headTrap = io.rob.valid && (io.rob.bits.headTrap.valid || legacyEntryTrap)
   val anyInterrupt = io.interrupts.map(_.valid).reduce(_ || _)
   val bestInterrupt = io.interrupts.reduce { (a, b) =>
     Mux(a.valid && (!b.valid || a.priority >= b.priority), a, b)
   }
   next.trap := 0.U.asTypeOf(next.trap)
   when(headTrap) {
-    next.trap := io.rob.bits.entries(0).commit.trap
-  }.elsewhen(anyInterrupt) {
+    next.trap := Mux(io.rob.bits.headTrap.valid,
+      io.rob.bits.headTrap,
+      io.rob.bits.entries(0).commit.trap)
+  }.elsewhen(anyInterrupt && io.interruptBoundaryValid) {
     next.trap.valid := true.B
     next.trap.kind := TrapKind.Interrupt
     next.trap.cause := bestInterrupt.cause
+    next.trap.rob := io.interruptBoundary
   }
 
-  val robTxnValid = io.rob.valid && io.rob.bits.count =/= 0.U
-  io.out.valid := heldValid || robTxnValid
+  val robTxnValid = io.rob.valid && !waitRobDrop &&
+    (io.rob.bits.count =/= 0.U || io.rob.bits.headTrap.valid ||
+      (anyInterrupt && io.interruptBoundaryValid))
+  val candidateValid = heldValid || robTxnValid
+  val allReady = io.robReleaseReady && io.renameReleaseReady &&
+    io.brobReleaseReady
+  io.out.valid := candidateValid && allReady
   io.out.bits := Mux(heldValid, held, next)
-  val txnAccepted = io.out.fire && io.renameReleaseAck && io.brobReleaseAck
+  val txnAccepted = io.out.fire
   when(robTxnValid && !heldValid && !txnAccepted) {
     held := next
     heldValid := true.B
   }.elsewhen(txnAccepted) {
     heldValid := false.B
+    when(io.rob.valid) {
+      waitRobDrop := true.B
+    }
+  }
+  when(!io.rob.valid) {
+    waitRobDrop := false.B
   }
 }

@@ -56,3 +56,44 @@ Final commit SHA: reported by `git rev-parse HEAD` after commit creation; the ha
 
 - Work-order wrappers `tools/chisel/check_interface_manifest.sh --update` and `tools/ndf/check_ndf.sh` were absent in this checkout. The equivalent available gates were `python3 tools/chisel/render_top_interface_manifest.py --check` and `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`.
 - A generated side-effect diff in `src/common/opcode_meta_gen.py` was restored before staging because it was unrelated to Task 9.
+
+## Fix Round 1
+
+Review verdict `SPEC FAIL / CHANGES_REQUESTED` identified six HIGH findings plus controller blockers. This round added RED tests for the missing protocol surfaces and repaired the canonical Task-9 owners without wrapping legacy owners.
+
+### Fix-Round RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` failed at compile after RED tests because `D3RenameLane.blockStart/blockStop`, `CommitControlIO.robReleaseReady/renameReleaseReady/brobReleaseReady/interruptBoundaryValid`, `ROBIO.brobPrepared/releaseReady/releaseApply/ridHeadSlot`, and `BROBIO.releaseReady/recoveryPrepare.ready` did not exist.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed at compile after RED tests because `ROBIO.releaseApply/brobPrepared`, `RecoveryControlIO.robPrepared/interruptBoundaryValid/interruptBoundary`, and `RecoveryControl.robPrepare.valid` request semantics did not exist.
+
+### Fix-Round Repairs
+
+- Commit fire is now gated by side-effect-free ROB, RENU, and BROB release readiness; `CommitControl` retains the candidate and suppresses repeated fire while a `Valid` ROB preview remains asserted after the common fire.
+- RENU exposes exact release readiness and mutates only when the common `releaseApply` input is asserted. Existing standalone RENU specs now drive `releaseApply=true`.
+- ROB prepare validates continuous D3 shape, ROB-owned RID tail/generation, same-STID lanes, group/member order, free resident rows, and BROB prepared bindings. ROB release computes side-effect-free readiness for the whole prefix and mutates only on `releaseApply`.
+- BROB uses typed `blockStart` and `blockStop`, records closed-block final ROB member identity, rejects release until the final member is present, and makes recovery prepare non-mutating with matching apply.
+- RecoveryControl now retains producer events, arbitrates source 0/source 1/interrupt with trap priority, drives an explicit ROB prepare request, consumes the ROB-prepared plan, tracks per-target prepare-sent and matching-ack masks, ignores mismatched acknowledgements, and emits one common apply or non-mutating abort.
+- Public decoded/D3 payloads now carry typed block start/stop facts. DEC maps legacy boundary sidecar start/stop and template `VFORM`/`FINAL` facts into those fields.
+- Interface docs and NDF clauses were updated for side-effect-free readiness, typed block facts, exact release prefixes, and retained recovery request/barrier behavior.
+
+### Fix-Round Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 11 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 8 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - initially FAIL due stale generated manifest after new fields; PASS, 2 tests after `python3 tools/chisel/render_top_interface_manifest.py`.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS after the fix-round doc update, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+
+### Fix-Round Notes
+
+- `bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegrationSpec` was run as an exploratory legacy D3/S1/BROB check and failed twice at `commitValid.expect(true.B)`. That spec instantiates legacy `OooBrob` and `OooS1GroupedRob`, not the canonical Task-9 owners. It is recorded here as a legacy non-gate observation and was not repaired in this Task-9 fix scope.
+- `src/common/opcode_meta_gen.py` again acquired an unrelated generated side-effect diff during gates; it was restored before staging.

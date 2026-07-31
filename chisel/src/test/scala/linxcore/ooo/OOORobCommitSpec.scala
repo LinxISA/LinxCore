@@ -28,12 +28,14 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
   private def clearRob(dut: ROB): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.brobPrepared.poke(0.U.asTypeOf(dut.io.brobPrepared))
     dut.io.publishFire.poke(false.B)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.commit.ready.poke(true.B)
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.releaseApply.poke(false.B)
     dut.io.recoveryPrepare.valid.poke(false.B)
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
@@ -46,6 +48,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.publishFire.poke(false.B)
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.releaseApply.poke(false.B)
     dut.io.recoveryPrepare.valid.poke(false.B)
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
@@ -105,6 +108,8 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     row.earlyRobComplete.poke(early.B)
     row.residentBound.poke(false.B)
     row.brobBound.poke(false.B)
+    row.blockStart.poke(blockStart.B)
+    row.blockStop.poke(blockStop.B)
     row.uop.decoded.immediateValid.poke(blockStart.B)
     row.uop.decoded.immediate.poke((if (blockStop) 1 else 0).U)
   }
@@ -268,9 +273,16 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.rob.bits.entries(0).rename.history(1).valid.poke(true.B)
       dut.io.interrupts(0).valid.poke(true.B)
       dut.io.interrupts(0).priority.poke(7.U)
+      dut.io.interruptBoundaryValid.poke(true.B)
       dut.io.out.ready.poke(false.B)
-      dut.io.renameReleaseAck.poke(false.B)
-      dut.io.brobReleaseAck.poke(false.B)
+      dut.io.robReleaseReady.poke(false.B)
+      dut.io.renameReleaseReady.poke(false.B)
+      dut.io.brobReleaseReady.poke(false.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
       dut.clock.step()
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.commit.count.expect(1.U)
@@ -282,10 +294,121 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.out.bits.commit.count.expect(1.U)
       dut.io.out.ready.poke(true.B)
-      dut.io.renameReleaseAck.poke(true.B)
-      dut.io.brobReleaseAck.poke(true.B)
       dut.clock.step()
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("CommitControl emits exactly one common fire after all owner readiness") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.interruptBoundaryValid.poke(false.B)
+      dut.io.robReleaseReady.poke(false.B)
+      dut.io.renameReleaseReady.poke(false.B)
+      dut.io.brobReleaseReady.poke(false.B)
+      dut.io.out.valid.expect(false.B)
+      dut.clock.step(2)
+      dut.io.out.valid.expect(false.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("ROB rejects malformed D3 shape and consumes exact BROB bindings") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 50, rid = 1, member = 0,
+        early = true, groupCount = 1)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.ridSlot.poke(0.U)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.memberIndex.poke(1.U)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.memberIndex.poke(0.U)
+      dut.io.prepare.bits.entries(0).brobBound.poke(true.B)
+      dut.io.brobPrepared.count.poke(1.U)
+      dut.io.brobPrepared.entries(0).valid.poke(true.B)
+      dut.io.brobPrepared.entries(0).stid.poke(0.U)
+      dut.io.brobPrepared.entries(0).bid.poke(3.U)
+      dut.io.brobPrepared.entries(0).brobGeneration.poke(2.U)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.prepared.entries(0).rob.bid.expect(3.U)
+      dut.io.prepared.entries(0).rob.brobGeneration.expect(2.U)
+      dut.io.brobPrepared.entries(0).stid.poke(1.U)
+      dut.io.prepare.ready.expect(false.B)
+    }
+  }
+
+  test("ROB release validates the whole prefix before mutation") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 60, rid = 0, member = 0,
+        early = true, groupCount = 1)
+      val id = publish(dut, 1).head
+      dut.io.commit.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(false.B)
+      dut.io.release.bits.lanes(0).rob.poke(id)
+      dut.io.releaseReady.expect(false.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.ridTailSlot(0).expect(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.releaseReady.expect(true.B)
+      dut.clock.step()
+      dut.io.ridHeadSlot(0).expect(1.U)
+    }
+  }
+
+  test("BROB waits for final block member and validates recovery prepare") {
+    simulate(new BROB(params(4))) { dut =>
+      clearBrob(dut)
+      lane(dut.io.prepare.bits, 0, id = 70, rid = 0, member = 0,
+        blockStart = true, blockStop = false, groupCount = 1)
+      lane(dut.io.prepare.bits, 1, id = 71, rid = 0, member = 1,
+        blockStart = false, blockStop = true, groupCount = 1)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).stid.poke(0.U)
+      dut.io.release.bits.entries(0).bid.poke(0.U)
+      dut.io.release.bits.entries(0).brobGeneration.poke(0.U)
+      dut.io.release.bits.entries(0).ridSlot.poke(0.U)
+      dut.io.release.bits.entries(0).memberIndex.poke(0.U)
+      dut.io.releaseReady.expect(false.B)
+      dut.io.release.bits.count.poke(2.U)
+      dut.io.release.bits.entries(1).stid.poke(0.U)
+      dut.io.release.bits.entries(1).bid.poke(0.U)
+      dut.io.release.bits.entries(1).brobGeneration.poke(0.U)
+      dut.io.release.bits.entries(1).ridSlot.poke(0.U)
+      dut.io.release.bits.entries(1).memberIndex.poke(1.U)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.stid.poke(0.U)
+      dut.io.recoveryPrepare.bits.firstKilled.bid.poke(0.U)
+      dut.io.recoveryPrepare.bits.firstKilled.brobGeneration.poke(1.U)
+      dut.io.recoveryPrepare.ready.expect(false.B)
     }
   }
 

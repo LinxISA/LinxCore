@@ -163,6 +163,8 @@ class DEC(val p: CoreParams) extends Module {
     output.uop.immediate := legacyUop.immediate
     output.uop.earlyComplete := legacyUop.preciseTrap ||
       legacyUop.recipe.dispatchClass === OooDispatchClass.Boundary.U
+    output.uop.blockStart := legacyUop.identity.boundary.start
+    output.uop.blockStop := legacyUop.identity.boundary.stop
     output.uop.blockBoundary := legacyUop.identity.boundary.explicit
     output.trap.valid := legacyUop.preciseTrap
     output.trap.cause := legacyUop.trapCause
@@ -190,11 +192,13 @@ class DEC(val p: CoreParams) extends Module {
     }
     output.uop.immediateValid := true.B
     output.uop.immediate := input.templateImmediate
+    output.uop.blockStart := input.templateOpcode === TemplateRowKind.VFORM.asUInt
+    output.uop.blockStop := input.templateOpcode === TemplateRowKind.FINAL.asUInt
     output.uop.earlyComplete :=
       input.parent.fetchFault ||
         input.templateOpcode === TemplateRowKind.FINAL.asUInt
     output.uop.blockBoundary :=
-      input.templateOpcode === TemplateRowKind.FINAL.asUInt
+      output.uop.blockStart || output.uop.blockStop
     output.trap.valid := input.parent.fetchFault
     output.trap.cause := input.parent.fetchFaultCause
   }
