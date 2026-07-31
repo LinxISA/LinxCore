@@ -856,11 +856,11 @@ Commit intent: `Preserve absolute and relative register semantics with separate 
 - Consumes: D2 allocation, D3 rename update, IEX/LSU completion and fault events, interrupt requests.
 - Produces: commit transactions, trap selection, predictor training, recovery prepare/apply, ROB/BROB releases.
 
-- [ ] **Step 1: Write failing owner tests**
+- [x] **Step 1: Write failing owner tests**
 
 Cover grouped ROB allocation, per-STID BROB, exact completion, slot reuse rejection, in-order commit, early D3 completion for no-operand/boundary uops, interrupt at precise boundary, trap priority, branch recovery, LSU recovery, all-owner prepare barrier and apply acknowledgement.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -869,7 +869,7 @@ bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec
 bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 ```
 
-- [ ] **Step 3: Implement the single recovery plan owner**
+- [x] **Step 3: Implement the single recovery plan owner**
 
 `RecoveryEvent` is retained at producers；OOO resolves one `RecoveryPlan` containing exact kill set and redirect。TOP distributes the same plan object; no box recomputes global age.
 

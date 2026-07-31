@@ -50,13 +50,7 @@ class RENU(val p: CoreParams) extends Module {
   val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
 
   private def samePlan(candidate: RecoveryPlan): Bool =
-    candidate.transactionId === recoveryPlan.transactionId &&
-      candidate.cause === recoveryPlan.cause &&
-      candidate.trigger.asUInt === recoveryPlan.trigger.asUInt &&
-      candidate.survivingTailValid === recoveryPlan.survivingTailValid &&
-      candidate.survivingTail.asUInt === recoveryPlan.survivingTail.asUInt &&
-      candidate.redirectPc === recoveryPlan.redirectPc &&
-      candidate.newEpoch === recoveryPlan.newEpoch
+    RecoveryPlanContract.sameTransactionIgnoringPhase(candidate, recoveryPlan)
 
   val applyHit = recoveryPending && io.recovery.apply.valid &&
     samePlan(io.recovery.apply.bits) &&

@@ -12,6 +12,15 @@ transaction routed by TOP.
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-RECOVERY-001 -->
 
 `RecoveryEvent` names the exact trigger and proposed redirect.
-`RecoveryPlan` carries one transaction ID, exact cutoff identity, redirect,
-and prepare/apply phase. Box IOs reuse these types; no direct IEX- or
-LSU-to-IFU recovery-control path exists.
+`RecoveryPlan` carries one transaction ID, phase, cause, exact trigger,
+surviving tail, redirect, new epoch, and one compact ROB-authored killed
+suffix descriptor: `firstKilledValid`, `firstKilled`, `lastKilled`,
+`killedGroupCount`, and `killedMemberCount`. The descriptor identifies the
+unique contiguous live ROB suffix without emitting a capacity-sized vector.
+Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
+exists.
+
+`RecoveryPlanContract` defines equality while ignoring only `phase`, exact
+membership in the compact suffix, and legal empty/non-empty suffix shape.
+Recovery targets MUST use this helper rather than private global-age
+comparisons or partial transaction matching.

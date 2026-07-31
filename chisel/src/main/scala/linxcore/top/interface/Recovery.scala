@@ -30,6 +30,13 @@ class RecoveryPlan(val p: CoreParams) extends Bundle {
   val survivingTail = new RobIdentity(p)
   val redirectPc = UInt(p.pcWidth.W)
   val newEpoch = UInt(p.epochWidth.W)
+  val firstKilledValid = Bool()
+  val firstKilled = new RobIdentity(p)
+  val lastKilled = new RobIdentity(p)
+  val killedGroupCount =
+    UInt(PrefixPacketContract.countWidth(p.ooo.robGroupsPerStid).W)
+  val killedMemberCount =
+    UInt(PrefixPacketContract.countWidth(p.ooo.robCapacityPerStid).W)
 }
 
 /** OOO-facing recovery target protocol.

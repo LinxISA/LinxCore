@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.params.CoreParams
 
-private[interface] object InterfaceWidth {
+object InterfaceWidth {
   def index(entries: Int): Int = math.max(1, log2Ceil(entries))
 }
 

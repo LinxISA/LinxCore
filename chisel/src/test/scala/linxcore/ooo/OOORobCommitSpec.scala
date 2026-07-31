@@ -1,0 +1,300 @@
+package linxcore.ooo
+
+import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
+import linxcore.params.{CoreParams, ParamProfiles}
+import linxcore.top.interface._
+import org.scalatest.funsuite.AnyFunSuite
+
+class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
+  private def params(width: Int, stids: Int = 1): CoreParams = {
+    val base = ParamProfiles.forWidth(width)
+    val groups = Iterator.iterate(1)(_ * 2).dropWhile(_ < math.max(4, width)).next()
+    base.copy(
+      ooo = base.ooo.copy(
+        stidCount = stids,
+        robGroupsPerStid = groups,
+        maxInstructionsPerRobGroup = 2,
+        robBankCount = groups,
+        brobEntriesPerStid = 4,
+        retireWidth = base.widths.retireWidth,
+        gprPhysRegs = if (stids == 1 && width <= 4) 32 else 64,
+        gprMapQDepthPerStid = if (stids == 1 && width <= 4) 32 else 64,
+        tPhysRegs = math.max(8, groups * 2),
+        uPhysRegs = math.max(8, groups * 2),
+        tuMapQDepthPerStid = math.max(16, groups * 2)))
+  }
+
+  private def clearRob(dut: ROB): Unit = {
+    dut.io.prepare.valid.poke(false.B)
+    dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.publishFire.poke(false.B)
+    dut.io.completion.valid.poke(false.B)
+    dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
+    dut.io.commit.ready.poke(true.B)
+    dut.io.release.valid.poke(false.B)
+    dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryApply.valid.poke(false.B)
+    dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+  }
+
+  private def clearBrob(dut: BROB): Unit = {
+    dut.io.prepare.valid.poke(false.B)
+    dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.publishFire.poke(false.B)
+    dut.io.release.valid.poke(false.B)
+    dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryApply.valid.poke(false.B)
+    dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+  }
+
+  private def lane(
+      group: D3RenameGroup,
+      lane: Int,
+      id: Int,
+      rid: Int,
+      member: Int,
+      early: Boolean = false,
+      boundary: Boolean = false,
+      blockStart: Boolean = false,
+      blockStop: Boolean = false,
+      secondDest: Boolean = false,
+      groupCount: Int = -1,
+      stid: Int = 0): Unit = {
+    group.count.poke((lane + 1).U)
+    group.groupCount.poke((if (groupCount >= 0) groupCount else lane + 1).U)
+    group.groups(rid).valid.poke(true.B)
+    group.groups(rid).peId.poke(1.U)
+    group.groups(rid).stid.poke(stid.U)
+    group.groups(rid).ridSlot.poke(rid.U)
+    group.groups(rid).ridGeneration.poke(0.U)
+    val row = group.entries(lane)
+    row.uop.decoded.valid.poke(true.B)
+    row.uop.decoded.instruction.parent.identity.peId.poke(1.U)
+    row.uop.decoded.instruction.parent.identity.stid.poke(stid.U)
+    row.uop.decoded.instruction.parent.identity.instructionId.poke(id.U)
+    row.uop.decoded.instruction.parent.identity.epoch.poke(3.U)
+    row.uop.decoded.rob.peId.poke(1.U)
+    row.uop.decoded.rob.stid.poke(stid.U)
+    row.uop.decoded.rob.ridSlot.poke(rid.U)
+    row.uop.decoded.rob.ridGeneration.poke(0.U)
+    row.uop.decoded.rob.memberIndex.poke(member.U)
+    row.uop.decoded.blockBoundary.poke(boundary.B)
+    row.uop.destinations(0).valid.poke(true.B)
+    row.uop.destinations(0).kind.poke(OperandKind.Gpr)
+    row.uop.destinations(0).atag.poke(1.U)
+    row.history(0).valid.poke(true.B)
+    row.history(0).kind.poke(OperandKind.Gpr)
+    row.history(0).atag.poke(1.U)
+    row.history(0).ptag.poke(((8 + id) % 24).U)
+    row.history(0).previousPtag.poke(1.U)
+    if (secondDest) {
+      row.uop.destinations(1).valid.poke(true.B)
+      row.uop.destinations(1).kind.poke(OperandKind.Gpr)
+      row.uop.destinations(1).atag.poke(2.U)
+      row.history(1).valid.poke(true.B)
+      row.history(1).kind.poke(OperandKind.Gpr)
+      row.history(1).atag.poke(2.U)
+      row.history(1).ptag.poke(((18 + id) % 24).U)
+      row.history(1).previousPtag.poke(2.U)
+    }
+    row.earlyRobComplete.poke(early.B)
+    row.residentBound.poke(false.B)
+    row.brobBound.poke(false.B)
+    row.uop.decoded.immediateValid.poke(blockStart.B)
+    row.uop.decoded.immediate.poke((if (blockStop) 1 else 0).U)
+  }
+
+  private def publish(dut: ROB, count: Int): Seq[RobIdentity] = {
+    dut.io.prepare.valid.poke(true.B)
+    dut.io.prepare.ready.expect(true.B)
+    (0 until count).foreach { lane =>
+      dut.io.prepared.entries(lane).valid.expect(true.B)
+    }
+    val ids = (0 until count).map(lane => dut.io.prepared.entries(lane).rob.peek())
+    dut.io.publishFire.poke(true.B)
+    dut.clock.step()
+    dut.io.prepare.valid.poke(false.B)
+    dut.io.publishFire.poke(false.B)
+    ids
+  }
+
+  private def complete(dut: ROB, rob: RobIdentity, accepted: Boolean): Unit = {
+    dut.io.completion.bits.rob.poke(rob)
+    dut.io.completion.valid.poke(true.B)
+    dut.io.completion.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.completionAccepted.valid.expect(accepted.B)
+    dut.io.completionRejected.valid.expect((!accepted).B)
+    dut.io.completion.valid.poke(false.B)
+  }
+
+  test("ROB publishes grouped D3 prefix, binds exact tails, and rejects stale reuse") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 1, rid = 0, member = 0,
+        early = true, groupCount = 1)
+      lane(dut.io.prepare.bits, 1, id = 2, rid = 0, member = 1,
+        early = true, groupCount = 1)
+      val ids = publish(dut, 2)
+      assert(ids(0).ridSlot.litValue == 0)
+      assert(ids(1).memberIndex.litValue == 1)
+      dut.io.ridTailSlot(0).expect(1.U)
+
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(2.U)
+      dut.io.commit.bits.entries(0).commit.rob.memberIndex.expect(0.U)
+      dut.io.commit.bits.entries(1).commit.rob.memberIndex.expect(1.U)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(2.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(ids(0))
+      dut.io.release.bits.lanes(1).valid.poke(true.B)
+      dut.io.release.bits.lanes(1).rob.poke(ids(1))
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 3, rid = 1, member = 0,
+        groupCount = 1)
+      val reused = publish(dut, 1).head
+      complete(dut, ids.head, accepted = false)
+      complete(dut, reused, accepted = true)
+    }
+  }
+
+  test("ROB commits two members from one group before the next group") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 30, rid = 0, member = 0,
+        early = true, groupCount = 2)
+      lane(dut.io.prepare.bits, 1, id = 31, rid = 0, member = 1,
+        early = true, groupCount = 2)
+      lane(dut.io.prepare.bits, 2, id = 32, rid = 1, member = 0,
+        early = true, groupCount = 2)
+      publish(dut, 3)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(3.U)
+      dut.io.commit.bits.entries(0).commit.rob.ridSlot.expect(0.U)
+      dut.io.commit.bits.entries(0).commit.rob.memberIndex.expect(0.U)
+      dut.io.commit.bits.entries(1).commit.rob.ridSlot.expect(0.U)
+      dut.io.commit.bits.entries(1).commit.rob.memberIndex.expect(1.U)
+      dut.io.commit.bits.entries(2).commit.rob.ridSlot.expect(1.U)
+    }
+  }
+
+  test("ROB commits an eligible STID1 prefix when STID0 has no completed head") {
+    simulate(new ROB(params(4, stids = 2))) { dut =>
+      clearRob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 40, rid = 0, member = 0,
+        early = true, groupCount = 1, stid = 1)
+      publish(dut, 1)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).commit.rob.stid.expect(1.U)
+    }
+  }
+
+  test("ROB commits only the oldest continuous completed prefix and retains under backpressure") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 10, rid = 0, member = 0,
+        early = true, groupCount = 3)
+      lane(dut.io.prepare.bits, 1, id = 11, rid = 1, member = 0,
+        groupCount = 3)
+      lane(dut.io.prepare.bits, 2, id = 12, rid = 2, member = 0,
+        early = true, groupCount = 3)
+      val ids = publish(dut, 3)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.ready.poke(false.B)
+      dut.clock.step(2)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).commit.rob.ridSlot
+        .expect(ids(0).ridSlot.litValue.U)
+      complete(dut, ids(1), accepted = true)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.bits.count.expect(2.U)
+    }
+  }
+
+  test("BROB allocates per STID in order and release of one STID does not block another") {
+    simulate(new BROB(params(4, stids = 2))) { dut =>
+      clearBrob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 20, rid = 0, member = 0,
+        blockStart = true, groupCount = 1, stid = 0)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.prepared.entries(0).bid.expect(0.U)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).stid.poke(0.U)
+      dut.io.release.bits.entries(0).bid.poke(0.U)
+      dut.io.release.bits.entries(0).brobGeneration.poke(1.U)
+      dut.clock.step()
+      dut.io.releaseRejected.valid.expect(true.B)
+      dut.io.release.valid.poke(false.B)
+
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 21, rid = 0, member = 0,
+        blockStart = true, groupCount = 1, stid = 1)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.prepared.entries(0).bid.expect(0.U)
+    }
+  }
+
+  test("CommitControl preserves secondary destination history and trap beats interrupt") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.trap.valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.trap.kind.poke(TrapKind.Exception)
+      dut.io.rob.bits.entries(0).rename.history(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).rename.history(1).valid.poke(true.B)
+      dut.io.interrupts(0).valid.poke(true.B)
+      dut.io.interrupts(0).priority.poke(7.U)
+      dut.io.out.ready.poke(false.B)
+      dut.io.renameReleaseAck.poke(false.B)
+      dut.io.brobReleaseAck.poke(false.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(1.U)
+      dut.io.out.bits.trap.valid.expect(true.B)
+      dut.io.out.bits.trap.kind.expect(TrapKind.Exception)
+      dut.io.out.bits.rename.count.expect(1.U)
+      dut.io.out.bits.rename.lanes(0).history(1).valid.expect(true.B)
+      dut.io.rob.bits.count.poke(0.U)
+      dut.clock.step()
+      dut.io.out.bits.commit.count.expect(1.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.renameReleaseAck.poke(true.B)
+      dut.io.brobReleaseAck.poke(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("ROB elaborates W2 W4 W6 and W8 without fixed W4 bank assumptions") {
+    Seq(2, 4, 6, 8).foreach { width =>
+      simulate(new ROB(params(width))) { dut =>
+        clearRob(dut)
+        dut.io.ridTailSlot(0).expect(0.U)
+      }
+    }
+  }
+}

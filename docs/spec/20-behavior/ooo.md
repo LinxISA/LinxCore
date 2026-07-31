@@ -205,3 +205,73 @@ and W2/W4/W6/W8 behavioral publication.
 configured and fail closed at zero. It MUST also prove that P MapQ, T/U MapQ,
 P physical, T physical, and U physical capacities are validated independently
 against one worst-case rename prefix.
+
+## Publish grouped ROB residency and complete by exact identity {#OOO-010}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-003,OOO-008,D-IDENTITY-001 -->
+
+`linxcore.ooo.ROB` MUST be the canonical grouped ROB residency owner. D3
+prepare MUST be side-effect free and MUST return exact `RobIdentity` bindings
+for the continuous accepted prefix. Only the caller-controlled publication
+fire may install resident rows, advance the RID tail, and mark early-complete
+zero-operand or boundary uops complete. Completion reports MUST be consumed at
+the inspection boundary and reported as accepted or rejected separately; stale,
+duplicate, wrong-generation, wrong-member, or wrong-BID completions MUST NOT
+mutate ROB state.
+
+## Own per-STID BROB residency exactly {#OOO-011}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,D-IDENTITY-001 -->
+
+`linxcore.ooo.BROB` MUST own a generation-qualified circular block table per
+STID. D3 prepare MUST walk groups older-first, allocate a native BID only at a
+block start, carry the current block across groups, and mutate table/head/tail
+state only on the common publication fire. Release and recovery MUST validate
+the exact STID, BID, and BROB generation; stale-generation release attempts
+MUST be rejected without changing unrelated STIDs.
+
+## Retain in-order commit until every release owner accepts {#OOO-012}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-009,OOO-010,IFC-COMMIT-001 -->
+
+`linxcore.ooo.CommitControl` MUST retain one complete oldest-first commit
+prefix, rename-release transaction, BROB release, ROB release, and trap
+selection while any consumer backpressures or withholds acknowledgement. The
+retained prefix MUST NOT be recomputed. `Completed` and `Retired` are
+separate ROB states; physical ROB rows and previous physical registers are
+freed only after the matching rename and BROB release facts are accepted.
+Secondary destination history MUST remain in the companion
+`RenameCommitReleaseTxn` even when `CommitEntry.destination` exposes only the
+primary projection.
+
+## Select precise traps, interrupts, and recovery from one ROB plan {#OOO-013}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,IFC-RECOVERY-001 -->
+
+`linxcore.ooo.RecoveryControl` MUST be the sole global recovery event arbiter
+and plan distributor. A synchronous head trap wins over an interrupt at the
+same precise boundary; interrupts are admitted only at a precise ROB head
+boundary. Recovery prepare MUST ask ROB for one retained `RecoveryPlan`
+containing the exact compact killed suffix, offer the identical plan to every
+target in `Prepare`, wait for every matching acknowledgement, and emit one
+common one-cycle `Apply`. Branch recovery preserves the trigger and kills
+younger members; memory-order replay recovery kills the trigger and younger
+members. Abort MUST be non-mutating.
+
+## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
+<!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->
+
+The Task-9 canonical owner files are `linxcore.ooo.ROB`,
+`linxcore.ooo.BROB`, `linxcore.ooo.CommitControl`, and
+`linxcore.ooo.RecoveryControl`. Cross-owner payloads live under
+`linxcore.top.interface.OOORob` and `linxcore.top.interface.Recovery`.
+These owners use `CoreParams` directly and do not instantiate or wrap the
+legacy `Ooo*`, `rob.*`, `bctrl.*`, or `recovery.*` owners.
+
+## ROB/BROB/commit/recovery owner verification {#VER-OOO-003}
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-010,OOO-011,OOO-012,OOO-013,MEC-OOO-006 -->
+
+`OOORobCommitSpec` and `OOORecoverySpec` MUST cover grouped ROB publication,
+same-group member commit order, STID arbitration, exact completion acceptance
+and rejection, stale slot reuse rejection, per-STID BROB BID/generation
+checks, retained commit under backpressure, secondary-destination release
+history, precise trap priority, memory-order recovery, branch same-group
+younger-member kill, exact suffix membership including generation and member
+index, side-effect-free prepare, multi-target prepare barriers, common apply,
+and non-mutating abort.

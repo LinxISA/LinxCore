@@ -31,6 +31,11 @@ cross-parameter combinations.
 
 Unit and integration tests MUST prove single-owner ROB/commit/recovery,
 atomic rename-map transitions, and non-blocking DTU observation.
+Task-9 owner closure additionally requires `OOORobCommitSpec` and
+`OOORecoverySpec` to prove exact ROB-member ordering, same-group branch suffix
+recovery, semantic completion rejection without producer deadlock, BROB
+BID/generation release validation, retained commit/release acknowledgement,
+and a multi-target recovery prepare/apply barrier.
 
 ## Front-end and OOO pipeline checks {#VER-ARC-006}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=ARC-TOP-030,ARC-TOP-031 -->
