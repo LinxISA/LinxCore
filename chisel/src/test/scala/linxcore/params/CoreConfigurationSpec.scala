@@ -91,6 +91,15 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(error.getMessage.contains("IEX issue width must match WidthParams"))
   }
 
+  test("DTU trace packets cover a complete IFU transfer prefix") {
+    val base = ParamProfiles.W8
+    val error = intercept[IllegalArgumentException] {
+      base.copy(dtu = base.dtu.copy(traceWidth = 4))
+    }
+
+    assert(error.getMessage.contains("DTU trace width must cover the IFU transfer"))
+  }
+
   test("legacy parameter records convert to the central profile without state") {
     val legacyCore = linxcore.common.CoreParams(
       robEntries = 64,

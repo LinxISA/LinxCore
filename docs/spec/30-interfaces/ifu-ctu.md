@@ -14,3 +14,5 @@ prediction identity.
 `FetchedPacket` uses `count + Vec(fetchWidth, FetchedInstruction)`.
 `IFUIO.toCtu` and `CTUIO.fromIfu` use that one payload type with opposite
 directions; neither endpoint defines a sender- or receiver-specific copy.
+The payload carries architectural fetch and prediction identity, not a
+provisional ROB or BROB allocation.

@@ -218,3 +218,93 @@ push identities are filled only after the corresponding operation succeeds.
   `Make template expansion a retained boundary instead of frontend glue`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
+
+## Loop 5 — IFU I-SIDE and fixed-64-bit delivery
+
+- Scope: Task 5 only, plus a planning-only interface-refinement amendment.
+  This loop creates the public `IFU`, reuses the existing I-SIDE lookup,
+  miss/refill, cross-line, prediction-join, and epoch owners, adds the retained
+  canonical Fetch Buffer, and exposes typed instruction-memory traffic. It
+  does not extract the final B-SIDE owner or connect IFU to CTU in TOP.
+- Baselines: implementation started from LinxCore
+  `3bcbb841455b2b74be672f189ef9bbd222ed45c2`; the interface work-order
+  amendment is `31d1f98ede5e9370361781334bfae5b37184114f`;
+  superproject `54635e8cb1119e5f199228cb7db330b168bf7dc0`,
+  LinxCoreModel `31555f49dbb020c8eb9f26f7df98310a7415b69d`, and QEMU
+  `c9f9570aa70da7e193ff8857bd9bde2cf052e546`.
+- Governing clauses: `IFC-IFU-CTU-001`, `MEC-IFU-CTU-001`,
+  `IFC-MEMORY-001`, `MEC-MEMORY-001`, `IFU-001..007`,
+  `MEC-IFU-001..005`, and `D-IFU-001`. One-hop dependencies cover width
+  profiles, prefix packets, exact identity, CTU/OOO ownership, recovery, and
+  observational trace.
+- Interface fanout: producer `IFU`/`ISide`; consumers CTU and external memory;
+  canonical payloads `FetchedPacket`, `MemoryRequestTxn`,
+  `MemoryResponseTxn`, and `RecoveryTargetIO`; central checks in
+  `ParamChecks`; generated manifest and IFU/interface/CTU adjacent tests.
+  TOP wiring remains intentionally not applicable until Task 17.
+- Skills: repository-pinned `using-superpowers`, `executing-plans`,
+  `test-driven-development`, `systematic-debugging`,
+  `requesting-code-review`, `verification-before-completion`, and the
+  `linx-core` domain workflow.
+- RED evidence: `IFUISideSpec` first failed compilation with sixteen missing
+  `IFU`, `ISide`, `FetchBuffer`, and parameter symbols. A later configuration
+  test proved that a trace packet narrower than the IFU prefix had no guard.
+  The first public two-STID extension also showed that holding all older STID0
+  output prevents observing younger STID1 output; allowing the ordered prefix
+  to drain proves the intended independent forward progress. A trace-stall
+  extension then proved that the first trace implementation incorrectly
+  consumed architectural delivery credit. Finally, a directed denied-line
+  response timed out because the adapter substituted zero data instead of
+  publishing a fetch fault.
+- GREEN evidence: `IFUISideSpec` passes four checks: retained W2/W4/W6/W8
+  repacketization with stable stall and 2/4/6/8-byte lengths; scoped pruning
+  with a legal two-STID profile; W2/W4/W6/W8 public IFU elaboration; and a
+  public two-STID flow covering ITLB replay, I-cache refill, stale-response
+  rejection, cross-line assembly, exact prepare/apply, unrelated survivor
+  retention, redirected nonzero-STID progress, recovery-fence release,
+  non-blocking stable trace, and denied-line conversion to an exact
+  `fetchFault` with its original cause.
+  `CoreConfigurationSpec` passes ten checks including the new trace-width
+  constraint.
+- Adjacent evidence: the unchanged private IFU path passes all seven
+  `LinxCoreIfuSpec` scenarios; `CTUSpec` passes eleven checks;
+  `TopInterfaceSpec` passes eight; `InterfaceManifestSpec` passes two; the
+  generated manifest is exact; the Chisel build and existing-top Verilator
+  lint pass. The NDF checker tests pass ten of ten and the live profile reports
+  86 clauses, 37 L1 MUST clauses, 38 verification targets, zero open questions
+  and two pinned references.
+- Independent review: the first pass found two high-priority issues:
+  instruction-line errors were converted to zero data, and the then-current
+  trace-stall/multi-STID test was red. The line-fault owner, non-blocking trace
+  path, directed regressions, and `D-IFU-001` resolve both. The second pass
+  reports zero critical, high, medium, or low findings and independently
+  reruns `IFUISideSpec` at four of four, `CoreConfigurationSpec` at ten of ten,
+  the manifest check, and the live NDF profile.
+- Debug evidence: the first profile-elaboration test used four full simulator
+  builds and was replaced with direct SystemVerilog elaboration. The first
+  stable-payload assertion attempted `asUInt` outside a hardware module and
+  was replaced by field snapshots. A one-STID dynamic index warning was
+  removed with a static Scala branch. The final two-STID elaboration still
+  reports three pre-existing aggregate-enum cast warnings inside the retained
+  F0 prediction-context selector; Task 6 owns that B-SIDE/F0 consolidation.
+- Result: IFU now presents one retained `count + Vec` stream of complete
+  64-bit instruction containers independent of its four-lane private assembly
+  geometry. Translation and line requests have explicit access kinds and
+  exact generation-qualified response matching. A denied/corrupt line beat
+  cannot install substituted or partial L1I data and instead retains one
+  canonical fault with the original cause. Trace loss cannot consume IFU-to-CTU
+  credit. The canonical payload carries architectural fetch, prediction, and
+  fault identity only; CTU preserves it, and OOO remains the ROB/BROB
+  allocation owner.
+- Remaining gap: Task 6 must extract/consolidate B-SIDE prediction, remove the
+  retained enum-cast warnings, and close final IFU recovery integration.
+  IFU-to-CTU adjacent composition remains Task 6, and natural ELF/commit
+  evidence remains Tasks 18–19.
+- skill-evolve: no-update — exact identity, retained ready/valid,
+  generation-qualified stale rejection, scoped recovery, and single-state
+  ownership are already established LinxCore workflow rules.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Make fixed-width instruction delivery independent of fetch geometry`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded in the loop handoff after the immutable commit exists.

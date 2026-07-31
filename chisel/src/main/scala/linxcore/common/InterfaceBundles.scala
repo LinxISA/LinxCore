@@ -52,7 +52,9 @@ final case class InterfaceParams(
   require(blockUidWidth >= 64, "block UID must preserve the 64-bit DFX namespace")
   require(uopUidWidth >= 64, "uop UID must preserve the 64-bit DFX namespace")
   require(lsidWidth >= 32, "load/store ID must preserve the 32-bit backend contract")
-  require(checkpointWidth == 6, "checkpoint ID follows the current decode contract")
+  require(
+    checkpointWidth > 0 && checkpointWidth <= uopUidWidth,
+    "checkpoint ID must be positive and fit the transaction identity")
   require(peIdWidth > 0, "scalar PE id width must be positive")
   require(threadIdWidth > 0, "thread/STID width must be positive")
 

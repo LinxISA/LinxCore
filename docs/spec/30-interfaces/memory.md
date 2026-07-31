@@ -11,5 +11,8 @@ address, queue slot, or low transaction bits alone.
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-MEMORY-001 -->
 
 `MemoryRequestTxn` and `MemoryResponseTxn` share `MemoryTransactionIdentity`.
-`TOPIO` exposes separate instruction and data channels so cache, device, and
-recovery ownership cannot be inferred from an untyped shared payload.
+Each request also carries a `MemoryAccessKind` that distinguishes instruction
+line, instruction translation, ordinary data, and device traffic without
+overloading the coherence command. `TOPIO` exposes separate instruction and
+data channels so cache, device, and recovery ownership cannot be inferred from
+an untyped shared payload.

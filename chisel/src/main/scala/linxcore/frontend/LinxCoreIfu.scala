@@ -66,7 +66,8 @@ class LinxCoreIfu(
     val missEntries: Int = 8,
     val joinEntries: Int = 8,
     val maxGroupsPerTransaction: Int = 8,
-    val instructionBufferDepth: Int = 16)
+    val instructionBufferDepth: Int = 16,
+    val externalFetchBuffer: Boolean = false)
     extends Module {
   require(p.fetchWidth == 4)
   require(p.decodeWidth == 4)
@@ -99,8 +100,11 @@ class LinxCoreIfu(
   val join =
     Module(new IfuPredictionJoin(p, lineBytes, joinEntries, maxGroupsPerTransaction))
   val instructionBuffer =
-    Module(new InstructionBuffer(p, instructionBufferDepth, threadCount))
-  val d1 = Module(new D1DecodeGroupGather(p))
+    if (externalFetchBuffer) None
+    else Some(Module(new InstructionBuffer(p, instructionBufferDepth, threadCount)))
+  val d1Gather =
+    if (externalFetchBuffer) None
+    else Some(Module(new D1DecodeGroupGather(p)))
 
   val noFlush = 0.U.asTypeOf(new IfuInnerFlush(p))
   val acceptedRedirect = Wire(new IfuInnerFlush(p))
@@ -165,8 +169,8 @@ class LinxCoreIfu(
   f4.io.flush := stateFlush
   bSide.io.prune := stateFlush
   join.io.flush := stateFlush
-  instructionBuffer.io.flush := stateFlush
-  d1.io.flush := stateFlush
+  instructionBuffer.foreach(_.io.flush := stateFlush)
+  d1Gather.foreach(_.io.flush := stateFlush)
 
   itlb.io.invalidate := io.invalidateItlb
   itlb.io.refill := io.ptwRefill
@@ -468,10 +472,20 @@ class LinxCoreIfu(
     assert(!lineContexts.io.out.fire, "control prediction fence must hold younger lines before BF4")
   }
 
-  instructionBuffer.io.enq <> join.io.out
-  instructionBuffer.io.deqThreadId := io.d1ThreadId
-  d1.io.in <> instructionBuffer.io.deq
-  io.d1 <> d1.io.out
+  if (externalFetchBuffer) {
+    io.d1.valid := join.io.out.valid
+    io.d1.bits := 0.U.asTypeOf(io.d1.bits)
+    io.d1.bits.validMask := join.io.out.bits.validMask
+    io.d1.bits.entries := join.io.out.bits.entries
+    join.io.out.ready := io.d1.ready
+  } else {
+    val retained = instructionBuffer.get
+    val gather = d1Gather.get
+    retained.io.enq <> join.io.out
+    retained.io.deqThreadId := io.d1ThreadId
+    gather.io.in <> retained.io.deq
+    io.d1 <> gather.io.out
+  }
 
   // A start/restart is the same state-destroying event at every IFU seam as
   // an accepted inner redirect. Export the selected state flush so the D1

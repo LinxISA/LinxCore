@@ -102,6 +102,29 @@ object ParamChecks {
       p.ifu.iSideStages == 5 && p.ifu.bSideStages == 5,
       "IFU I-SIDE and B-SIDE each have five architectural stages")
     require(
+      isPowerOfTwo(p.ifu.lineBytes) && p.ifu.lineBytes >= p.dataWidth / 8,
+      "IFU cache line size must be a power of two covering one memory beat")
+    require(
+      isPowerOfTwo(p.ifu.pageBytes) && p.ifu.pageBytes > p.ifu.lineBytes,
+      "IFU page size must be a power of two larger than one cache line")
+    require(
+      isPowerOfTwo(p.ifu.itlbEntries),
+      "IFU ITLB entry count must be a positive power of two")
+    require(
+      isPowerOfTwo(p.ifu.l1iSets),
+      "IFU L1I set count must be a positive power of two")
+    require(
+      isPowerOfTwo(p.ifu.missEntries) &&
+        isPowerOfTwo(p.ifu.joinEntries) &&
+        p.ifu.missEntries >= p.ifu.joinEntries,
+      "IFU miss capacity must cover the power-of-two prediction join capacity")
+    require(
+      isPowerOfTwo(p.ifu.maxGroupsPerTransaction),
+      "IFU transaction group capacity must be a positive power of two")
+    require(
+      p.ifu.resetVector >= 0 && p.ifu.resetVector < (BigInt(1) << p.pcWidth),
+      "IFU reset vector must fit the PC width")
+    require(
       p.ctu.instructionBufferEntries >= p.ctu.outputWidth,
       "CTU instruction buffer must hold one output packet")
     require(p.ctu.maxTemplateUops > 0, "CTU template expansion limit must be positive")
@@ -184,6 +207,9 @@ object ParamChecks {
       "cache line size must be a positive power of two")
 
     require(p.dtu.traceWidth > 0, "DTU trace width must be positive")
+    require(
+      p.dtu.traceWidth >= p.widths.fetchWidth,
+      "DTU trace width must cover the IFU transfer")
     require(
       p.dtu.performanceCounterCount > 0,
       "DTU performance-counter count must be positive")
