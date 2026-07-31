@@ -17,6 +17,7 @@ class BROBIO(val p: CoreParams) extends Bundle {
   val recoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
   val recoveryPrepared = Valid(new RecoveryPlan(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
+  val recoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
 }
 
 class BROB(val p: CoreParams) extends Module {
@@ -240,6 +241,11 @@ class BROB(val p: CoreParams) extends Module {
     io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryApply.bits, recoveryPlan)
+  val recoveryAbortHit = recoveryPending && io.recoveryAbort.valid &&
+    io.recoveryAbort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recoveryAbort.bits, recoveryPlan)
+  assert(!(recoveryApplyHit && recoveryAbortHit))
   val recoveryApplyStid = safeStid(recoveryPlan.trigger.stid)
   when(recoveryApplyHit) {
     when(recoveryPlan.firstKilledValid) {
@@ -260,6 +266,9 @@ class BROB(val p: CoreParams) extends Module {
           recoverySurvivingTailReg
       }
     }
+    recoveryPending := false.B
+  }
+  when(recoveryAbortHit) {
     recoveryPending := false.B
   }
 }

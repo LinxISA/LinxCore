@@ -25,6 +25,7 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val recoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
   val recoveryPrepared = Valid(new RecoveryPlan(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
+  val recoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
   val recoveryCandidate = Input(Vec(2, Valid(new RecoveryCandidateLookup(p))))
   val recoveryCandidateStatus = Output(Vec(2, Valid(new RecoveryCandidateStatus(p))))
   val ridTailSlot = Output(Vec(p.ooo.stidCount,
@@ -39,6 +40,7 @@ class ROB(val p: CoreParams) extends Module {
   require(p.ooo.robBankCount > 0)
   require(p.ooo.robBankCount <= p.ooo.robGroupsPerStid)
   require(p.ooo.robGroupsPerStid % p.ooo.robBankCount == 0)
+  RecoveryAge.requireUnambiguousWindow(p)
 
   val io = IO(new ROBIO(p))
 
@@ -569,9 +571,17 @@ class ROB(val p: CoreParams) extends Module {
     recoveryPending := true.B
     recoveryPlan := preparedPlan
   }
-  when(io.recoveryApply.valid &&
+  val recoveryApplyHit = recoveryPending && io.recoveryApply.valid &&
+    io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
     RecoveryPlanContract.sameTransactionIgnoringPhase(
-      io.recoveryApply.bits, recoveryPlan)) {
+      io.recoveryApply.bits, recoveryPlan)
+  val recoveryAbortHit = recoveryPending && io.recoveryAbort.valid &&
+    io.recoveryAbort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recoveryAbort.bits, recoveryPlan)
+  assert(!(recoveryApplyHit && recoveryAbortHit))
+
+  when(recoveryApplyHit) {
     val stid = safeStid(recoveryPlan.trigger.stid)
     retainedValid := false.B
     for (slot <- 0 until p.ooo.robGroupsPerStid) {
@@ -629,6 +639,9 @@ class ROB(val p: CoreParams) extends Module {
       }
       orderCommitCount(stid) := orderCommitCount(stid) - killedCommitCount
     }
+    recoveryPending := false.B
+  }
+  when(recoveryAbortHit) {
     recoveryPending := false.B
   }
 

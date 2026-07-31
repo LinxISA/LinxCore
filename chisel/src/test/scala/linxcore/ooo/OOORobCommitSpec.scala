@@ -41,6 +41,8 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryAbort.valid.poke(false.B)
+    dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
     dut.io.recoveryCandidate.foreach { candidate =>
       candidate.valid.poke(false.B)
       candidate.bits.poke(0.U.asTypeOf(candidate.bits))
@@ -58,6 +60,8 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryAbort.valid.poke(false.B)
+    dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
   }
 
   private def lane(
@@ -307,6 +311,8 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.rename.count.expect(1.U)
       dut.io.out.bits.rename.lanes(0).history(1).valid.expect(true.B)
       dut.io.rob.bits.count.poke(0.U)
+      dut.io.interrupts(0).valid.poke(false.B)
+      dut.io.interruptBoundaryValid.poke(false.B)
       dut.clock.step()
       dut.io.out.bits.commit.count.expect(1.U)
       dut.io.out.ready.poke(true.B)
@@ -397,6 +403,134 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.commit.entries(0).rob.ridSlot.expect(1.U)
       dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("CommitControl accepts expanded prefix with the same first ROB identity") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(1.U)
+      dut.clock.step()
+
+      dut.io.rob.bits.count.poke(2.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.rob.bits.entries(1).valid.poke(true.B)
+      dut.io.rob.bits.entries(1).commit.rob.ridSlot.poke(1.U)
+      dut.io.rob.bits.entries(1).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(2.U)
+    }
+  }
+
+  test("CommitControl accepts same-head trap changes and ordinary-to-trap transitions") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.rob.bits.headValid.poke(true.B)
+      dut.io.rob.bits.head.stid.poke(0.U)
+      dut.io.rob.bits.head.ridSlot.poke(0.U)
+      dut.io.rob.bits.headTrap.valid.poke(true.B)
+      dut.io.rob.bits.headTrap.kind.poke(TrapKind.Exception)
+      dut.io.rob.bits.headTrap.cause.poke(0x10.U)
+      dut.io.rob.bits.headTrap.rob.stid.poke(0.U)
+      dut.io.rob.bits.headTrap.rob.ridSlot.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.trap.cause.expect(0x10.U)
+      dut.clock.step()
+
+      dut.io.rob.bits.headTrap.cause.poke(0x11.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.trap.cause.expect(0x11.U)
+      dut.clock.step()
+
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.stid.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(1.U)
+      dut.clock.step()
+
+      dut.io.rob.bits.count.poke(0.U)
+      dut.io.rob.bits.headValid.poke(true.B)
+      dut.io.rob.bits.head.stid.poke(0.U)
+      dut.io.rob.bits.head.ridSlot.poke(0.U)
+      dut.io.rob.bits.headTrap.valid.poke(true.B)
+      dut.io.rob.bits.headTrap.kind.poke(TrapKind.Exception)
+      dut.io.rob.bits.headTrap.cause.poke(0x12.U)
+      dut.io.rob.bits.headTrap.rob.stid.poke(0.U)
+      dut.io.rob.bits.headTrap.rob.ridSlot.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(0.U)
+      dut.io.out.bits.trap.cause.expect(0x12.U)
+    }
+  }
+
+  test("CommitControl holds a backpressured transaction and then accepts advanced preview") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.ready.poke(false.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.clock.step()
+
+      dut.io.rob.bits.count.poke(2.U)
+      dut.io.rob.bits.entries(1).valid.poke(true.B)
+      dut.io.rob.bits.entries(1).commit.rob.ridSlot.poke(1.U)
+      dut.io.rob.bits.entries(1).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(1.U)
+      dut.io.out.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(2.U)
+    }
+  }
+
+  test("CommitControl does not repeat when only inactive lanes change") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.rob.bits.entries(1).commit.rob.ridSlot.poke(1.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.clock.step()
+
+      dut.io.rob.bits.entries(1).commit.rob.ridSlot.poke(2.U)
+      dut.io.rob.bits.entries(1).rename.history(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(1).rename.history(0).ptag.poke(9.U)
       dut.io.out.valid.expect(false.B)
     }
   }
@@ -637,6 +771,25 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
         clearRob(dut)
         dut.io.ridTailSlot(0).expect(0.U)
       }
+    }
+  }
+
+  test("ROB rejects unsafe recovery age token widths") {
+    val unsafe = params(2).copy(transactionIdWidth = 4, ooo = params(2).ooo.copy(
+      stidCount = 2,
+      robGroupsPerStid = 4,
+      maxInstructionsPerRobGroup = 2,
+      robBankCount = 4,
+      gprPhysRegs = 64,
+      gprMapQDepthPerStid = 64,
+      tPhysRegs = 16,
+      uPhysRegs = 16,
+      tuMapQDepthPerStid = 16))
+    assertThrows[IllegalArgumentException] {
+      simulate(new ROB(unsafe)) { _ => }
+    }
+    assertThrows[IllegalArgumentException] {
+      simulate(new RecoveryControl(unsafe, targetCount = 1)) { _ => }
     }
   }
 }

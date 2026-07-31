@@ -28,6 +28,10 @@ Decoupled request/response. Targets receive the retained ROB plan in Prepare
 phase until their individual prepare fires, return one matching prepared
 transaction, and mutate only on the later common Apply broadcast. A matching
 Abort broadcast terminates the retained transaction without owner mutation.
+Canonical ROB and BROB owner IOs consume explicit matching `RecoveryPlan`
+Abort inputs and clear only the retained transaction named by the shared
+transaction-equality helper. Stale, duplicate, mismatched, or wrong-phase Apply
+and Abort packets are non-mutating.
 An exception event wins global arbitration only when it carries a precise trap
 payload; the `Exception` enum value alone does not outrank an older ordinary
 event.
@@ -39,6 +43,13 @@ eligible/rejected state, a globally comparable allocation-age token, and a
 head-trap bit proving synchronous trap priority. RecoveryControl selects only
 among matching eligible ROB statuses and deliberately discards matching
 rejected candidates without blocking another eligible source.
+All producer candidates admitted into one arbitration boundary remain live
+until every active producer has an exact matching eligible or rejected status;
+an interrupt candidate cannot bypass an unresolved producer. The allocation-age
+token uses `RecoveryAge.tokenWidth(CoreParams)` and is compared with the
+wrap-safe `RecoveryAge.older` relation. The token space must be more than twice
+the maximum live ROB-member window so no live producer pair can be exactly
+half-range ambiguous.
 
 `RecoveryPlanContract` defines equality while ignoring only `phase`, exact
 membership in the compact suffix, and legal empty/non-empty suffix shape.

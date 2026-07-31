@@ -32,5 +32,9 @@ acknowledgements; they are exact prepare decisions used to decide whether the
 single `CommitControl.out.fire` may authorize every release side effect. ROB
 commit preview observation is side-effect-free; ROB retirement state advances
 only on the matching common commit-apply pulse. Duplicate suppression is keyed
-to the accepted ROB/trap identity, so a held `Valid` level cannot block a
-distinct next commit prefix after ROB advances.
+to the complete accepted `CommitControlTxn` signature, not only the first ROB
+identity. A changed count, active-lane identity, companion release payload,
+trap kind, trap cause, trap identity, or ordinary/trap shape is a distinct
+transaction even when `rob.valid` remains asserted. Inactive lanes outside the
+active `count` prefix are canonical zeroes for this comparison and MUST NOT
+make an identical active transaction repeat.

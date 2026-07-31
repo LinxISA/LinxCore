@@ -79,6 +79,24 @@ class RecoveryCandidateStatus(val p: CoreParams) extends Bundle {
   val headTrap = Bool()
 }
 
+object RecoveryAge {
+  def tokenWidth(p: CoreParams): Int = p.transactionIdWidth
+
+  def requireUnambiguousWindow(p: CoreParams): Unit = {
+    val tokenSpace = BigInt(1) << tokenWidth(p)
+    val maxLiveWindow =
+      BigInt(p.ooo.stidCount) * BigInt(p.ooo.robCapacityPerStid)
+    require(
+      tokenSpace > (maxLiveWindow * 2),
+      "recovery age token space must be more than twice the global live ROB window")
+  }
+
+  def older(a: UInt, b: UInt): Bool = {
+    val diff = b - a
+    diff =/= 0.U && !diff(diff.getWidth - 1)
+  }
+}
+
 object RecoveryPlanContract {
   private def memberOrdinal(id: RobIdentity): UInt =
     Cat(id.ridGeneration, id.ridSlot, id.memberIndex)

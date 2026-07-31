@@ -22,7 +22,7 @@ class CommitControl(val p: CoreParams) extends Module {
   val heldValid = RegInit(false.B)
   val held = Reg(new CommitControlTxn(p))
   val acceptedValid = RegInit(false.B)
-  val acceptedKey = Reg(new RobIdentity(p))
+  val acceptedTxn = Reg(new CommitControlTxn(p))
 
   val next = Wire(new CommitControlTxn(p))
   next := 0.U.asTypeOf(next)
@@ -31,12 +31,14 @@ class CommitControl(val p: CoreParams) extends Module {
   next.robRelease.count := io.rob.bits.count
   next.brobRelease.count := io.rob.bits.count
   for (lane <- 0 until p.widths.retireWidth) {
-    next.commit.entries(lane) := io.rob.bits.entries(lane).commit
-    next.rename.lanes(lane) := io.rob.bits.entries(lane).rename
-    next.robRelease.lanes(lane).valid := io.rob.bits.entries(lane).valid
-    next.robRelease.lanes(lane).rob :=
-      io.rob.bits.entries(lane).commit.rob
-    next.brobRelease.entries(lane) := io.rob.bits.entries(lane).commit.rob
+    when(lane.U < io.rob.bits.count) {
+      next.commit.entries(lane) := io.rob.bits.entries(lane).commit
+      next.rename.lanes(lane) := io.rob.bits.entries(lane).rename
+      next.robRelease.lanes(lane).valid := io.rob.bits.entries(lane).valid
+      next.robRelease.lanes(lane).rob :=
+        io.rob.bits.entries(lane).commit.rob
+      next.brobRelease.entries(lane) := io.rob.bits.entries(lane).commit.rob
+    }
   }
   val legacyEntryTrap = io.rob.valid && io.rob.bits.count =/= 0.U &&
     io.rob.bits.entries(0).commit.trap.valid
@@ -59,16 +61,9 @@ class CommitControl(val p: CoreParams) extends Module {
 
   val candidate = Wire(new CommitControlTxn(p))
   candidate := Mux(heldValid, held, next)
-  val candidateKey = Wire(new RobIdentity(p))
-  candidateKey := 0.U.asTypeOf(candidateKey)
-  when(candidate.commit.count =/= 0.U) {
-    candidateKey := candidate.commit.entries(0).rob
-  }.elsewhen(candidate.trap.valid) {
-    candidateKey := candidate.trap.rob
-  }
-  val candidateHasKey = candidate.commit.count =/= 0.U || candidate.trap.valid
-  val sameAccepted = acceptedValid && candidateHasKey &&
-    candidateKey.asUInt === acceptedKey.asUInt
+  val candidateHasTxn = candidate.commit.count =/= 0.U || candidate.trap.valid
+  val sameAccepted = acceptedValid && candidateHasTxn &&
+    candidate.asUInt === acceptedTxn.asUInt
   val robTxnValid = io.rob.valid && !sameAccepted &&
     (io.rob.bits.count =/= 0.U || io.rob.bits.headTrap.valid ||
       (anyInterrupt && io.interruptBoundaryValid))
@@ -84,12 +79,12 @@ class CommitControl(val p: CoreParams) extends Module {
     heldValid := true.B
   }.elsewhen(txnAccepted) {
     heldValid := false.B
-    acceptedKey := candidateKey
+    acceptedTxn := candidate
     acceptedValid := true.B
   }
   when(!txnAccepted &&
-    (!io.rob.valid || (acceptedValid && candidateHasKey &&
-      candidateKey.asUInt =/= acceptedKey.asUInt))) {
+    (!io.rob.valid || (acceptedValid && candidateHasTxn &&
+      candidate.asUInt =/= acceptedTxn.asUInt))) {
     acceptedValid := false.B
   }
 }

@@ -6,7 +6,7 @@ import linxcore.params.CoreParams
 import linxcore.top.interface._
 
 object RecoveryControlState extends ChiselEnum {
-  val Idle, RequestRob, WaitRob, PrepareTargets, Apply = Value
+  val Idle, ResolveCandidates, RequestRob, WaitRob, PrepareTargets, Apply = Value
 }
 
 class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle {
@@ -24,6 +24,7 @@ class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle 
 
 class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   require(targetCount > 0)
+  RecoveryAge.requireUnambiguousWindow(p)
   val io = IO(new RecoveryControlIO(p, targetCount))
 
   private def preciseTrap(event: RecoveryEvent): Bool =
@@ -32,6 +33,12 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   val state = RegInit(RecoveryControlState.Idle)
   val pendingValid = RegInit(VecInit(Seq.fill(2)(false.B)))
   val pending = Reg(Vec(2, new RecoveryEvent(p)))
+  val resolvingValid = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val resolving = Reg(Vec(2, new RecoveryEvent(p)))
+  val resolvedValid = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val resolvedStatus = Reg(Vec(2, new RecoveryCandidateStatus(p)))
+  val resolvingInterruptValid = RegInit(false.B)
+  val resolvingInterrupt = Reg(new RecoveryEvent(p))
   val activeEvent = RegInit(0.U.asTypeOf(new RecoveryEvent(p)))
   val plan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
   val sentMask = RegInit(0.U(targetCount.W))
@@ -71,50 +78,110 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   candidateValid(2) := anyInterrupt && io.interruptBoundaryValid
   candidate(2) := interruptEvent
 
+  val lookupValid = Wire(Vec(2, Bool()))
+  val lookupEvent = Wire(Vec(2, new RecoveryEvent(p)))
   for (idx <- 0 until 2) {
-    io.robCandidate(idx).valid := candidateValid(idx)
-    io.robCandidate(idx).bits.event := candidate(idx)
+    lookupValid(idx) := Mux(state === RecoveryControlState.ResolveCandidates,
+      resolvingValid(idx),
+      candidateValid(idx))
+    lookupEvent(idx) := Mux(state === RecoveryControlState.ResolveCandidates,
+      resolving(idx),
+      candidate(idx))
+    io.robCandidate(idx).valid := lookupValid(idx)
+    io.robCandidate(idx).bits.event := lookupEvent(idx)
   }
 
-  val statusMatches = Wire(Vec(2, Bool()))
-  val statusEligible = Wire(Vec(2, Bool()))
+  val statusMatchesLookup = Wire(Vec(2, Bool()))
   for (idx <- 0 until 2) {
-    statusMatches(idx) := io.robCandidateStatus(idx).valid &&
+    statusMatchesLookup(idx) := io.robCandidateStatus(idx).valid &&
       io.robCandidateStatus(idx).bits.transactionId ===
-        candidate(idx).transactionId &&
+        lookupEvent(idx).transactionId &&
       io.robCandidateStatus(idx).bits.trigger.asUInt ===
-        candidate(idx).trigger.asUInt
-    statusEligible(idx) := candidateValid(idx) && statusMatches(idx) &&
+        lookupEvent(idx).trigger.asUInt
+  }
+  val effectiveResolvedValid = Wire(Vec(2, Bool()))
+  val effectiveStatus = Wire(Vec(2, new RecoveryCandidateStatus(p)))
+  val resolvedEligible = Wire(Vec(2, Bool()))
+  for (idx <- 0 until 2) {
+    val sameCycleStatus = state === RecoveryControlState.ResolveCandidates &&
+      resolvingValid(idx) && statusMatchesLookup(idx)
+    effectiveResolvedValid(idx) := resolvedValid(idx) || sameCycleStatus
+    effectiveStatus(idx) := Mux(resolvedValid(idx),
+      resolvedStatus(idx),
+      io.robCandidateStatus(idx).bits)
+    resolvedEligible(idx) := resolvingValid(idx) &&
+      effectiveResolvedValid(idx) && effectiveStatus(idx).eligible
+  }
+  val source1Older = RecoveryAge.older(
+    effectiveStatus(1).ageToken,
+    effectiveStatus(0).ageToken)
+  val idleStatusEligible = Wire(Vec(2, Bool()))
+  for (idx <- 0 until 2) {
+    idleStatusEligible(idx) := candidateValid(idx) && statusMatchesLookup(idx) &&
       io.robCandidateStatus(idx).bits.eligible
   }
-  val source1Older = io.robCandidateStatus(1).bits.ageToken <
-    io.robCandidateStatus(0).bits.ageToken
+  val idleSource1Older = RecoveryAge.older(
+    io.robCandidateStatus(1).bits.ageToken,
+    io.robCandidateStatus(0).bits.ageToken)
+  val idleSelectedEvent = Wire(new RecoveryEvent(p))
+  val idleSelectedSource = Wire(UInt(2.W))
+  idleSelectedSource := 0.U
+  idleSelectedEvent := candidate(0)
+  when(idleStatusEligible(1) && (!idleStatusEligible(0) || idleSource1Older)) {
+    idleSelectedSource := 1.U
+    idleSelectedEvent := candidate(1)
+  }
+  when(candidateValid(2) &&
+    (!idleStatusEligible(0) || !preciseTrap(candidate(0)) ||
+      !io.robCandidateStatus(0).bits.headTrap) &&
+    (!idleStatusEligible(1) || !preciseTrap(candidate(1)) ||
+      !io.robCandidateStatus(1).bits.headTrap)) {
+    idleSelectedSource := 2.U
+    idleSelectedEvent := candidate(2)
+  }
+  when(idleStatusEligible(0) && preciseTrap(candidate(0)) &&
+    io.robCandidateStatus(0).bits.headTrap) {
+    idleSelectedSource := 0.U
+    idleSelectedEvent := candidate(0)
+  }.elsewhen(idleStatusEligible(1) && preciseTrap(candidate(1)) &&
+    io.robCandidateStatus(1).bits.headTrap) {
+    idleSelectedSource := 1.U
+    idleSelectedEvent := candidate(1)
+  }
+  val idleAllResolved = (0 until 2).map { idx =>
+    !candidateValid(idx) || statusMatchesLookup(idx)
+  }.reduce(_ && _)
+  val idleSelectedValid = idleStatusEligible.asUInt.orR || candidateValid(2)
   val selectedEvent = Wire(new RecoveryEvent(p))
   val selectedSource = Wire(UInt(2.W))
   selectedSource := 0.U
-  selectedEvent := candidate(0)
-  when(statusEligible(1) && (!statusEligible(0) || source1Older)) {
+  selectedEvent := resolving(0)
+  when(resolvedEligible(1) && (!resolvedEligible(0) || source1Older)) {
     selectedSource := 1.U
-    selectedEvent := candidate(1)
+    selectedEvent := resolving(1)
   }
-  when(candidateValid(2) &&
-    (!statusEligible(0) || !preciseTrap(candidate(0)) ||
-      !io.robCandidateStatus(0).bits.headTrap) &&
-    (!statusEligible(1) || !preciseTrap(candidate(1)) ||
-      !io.robCandidateStatus(1).bits.headTrap)) {
+  when(resolvingInterruptValid &&
+    (!resolvedEligible(0) || !preciseTrap(resolving(0)) ||
+      !effectiveStatus(0).headTrap) &&
+    (!resolvedEligible(1) || !preciseTrap(resolving(1)) ||
+      !effectiveStatus(1).headTrap)) {
     selectedSource := 2.U
-    selectedEvent := candidate(2)
+    selectedEvent := resolvingInterrupt
   }
-  when(statusEligible(0) && preciseTrap(candidate(0)) &&
-    io.robCandidateStatus(0).bits.headTrap) {
+  when(resolvedEligible(0) && preciseTrap(resolving(0)) &&
+    effectiveStatus(0).headTrap) {
     selectedSource := 0.U
-    selectedEvent := candidate(0)
-  }.elsewhen(statusEligible(1) && preciseTrap(candidate(1)) &&
-    io.robCandidateStatus(1).bits.headTrap) {
+    selectedEvent := resolving(0)
+  }.elsewhen(resolvedEligible(1) && preciseTrap(resolving(1)) &&
+    effectiveStatus(1).headTrap) {
     selectedSource := 1.U
-    selectedEvent := candidate(1)
+    selectedEvent := resolving(1)
   }
-  val anyCandidate = statusEligible.asUInt.orR || candidateValid(2)
+  val producerActive = resolvingValid.asUInt.orR
+  val allResolved = (0 until 2).map { idx =>
+    !resolvingValid(idx) || effectiveResolvedValid(idx)
+  }.reduce(_ && _)
+  val selectedValid = resolvedEligible.asUInt.orR || resolvingInterruptValid
 
   val seedPlan = Wire(new RecoveryPlan(p))
   seedPlan := 0.U.asTypeOf(seedPlan)
@@ -130,22 +197,70 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   io.robPrepared.ready := state === RecoveryControlState.RequestRob ||
     state === RecoveryControlState.WaitRob
 
-  when(state === RecoveryControlState.Idle && anyCandidate) {
-    activeEvent := selectedEvent
-    state := RecoveryControlState.RequestRob
-    when(selectedSource === 0.U) {
-      pendingValid(0) := false.B
-    }.elsewhen(selectedSource === 1.U) {
-      pendingValid(1) := false.B
+  when(state === RecoveryControlState.Idle &&
+    (candidateValid(0) || candidateValid(1) || candidateValid(2))) {
+    when((!(candidateValid(0) || candidateValid(1)) ||
+      (idleAllResolved && idleSelectedValid))) {
+      activeEvent := Mux(candidateValid(0) || candidateValid(1),
+        idleSelectedEvent,
+        candidate(2))
+      state := RecoveryControlState.RequestRob
+      when(idleSelectedSource === 0.U && (candidateValid(0) || candidateValid(1))) {
+        pendingValid(0) := false.B
+      }.elsewhen(idleSelectedSource === 1.U &&
+        (candidateValid(0) || candidateValid(1))) {
+        pendingValid(1) := false.B
+      }
+      for (idx <- 0 until 2) {
+        when(candidateValid(idx) && statusMatchesLookup(idx) &&
+          io.robCandidateStatus(idx).bits.rejected) {
+          pendingValid(idx) := false.B
+        }
+        resolvingValid(idx) := false.B
+        resolvedValid(idx) := false.B
+      }
+      resolvingInterruptValid := false.B
+    }.otherwise {
+      for (idx <- 0 until 2) {
+        resolvingValid(idx) := candidateValid(idx)
+        resolving(idx) := candidate(idx)
+        resolvedValid(idx) := candidateValid(idx) && statusMatchesLookup(idx)
+        resolvedStatus(idx) := io.robCandidateStatus(idx).bits
+      }
+      resolvingInterruptValid := candidateValid(2)
+      resolvingInterrupt := candidate(2)
+      state := RecoveryControlState.ResolveCandidates
     }
   }
 
-  when(state === RecoveryControlState.Idle) {
+  when(state === RecoveryControlState.ResolveCandidates) {
     for (idx <- 0 until 2) {
-      when(candidateValid(idx) && statusMatches(idx) &&
-        io.robCandidateStatus(idx).bits.rejected) {
-        pendingValid(idx) := false.B
+      when(resolvingValid(idx) && !resolvedValid(idx) &&
+        statusMatchesLookup(idx)) {
+        resolvedValid(idx) := true.B
+        resolvedStatus(idx) := io.robCandidateStatus(idx).bits
       }
+    }
+    when(allResolved) {
+      when(selectedValid) {
+        activeEvent := selectedEvent
+        state := RecoveryControlState.RequestRob
+        when(selectedSource === 0.U) {
+          pendingValid(0) := false.B
+        }.elsewhen(selectedSource === 1.U) {
+          pendingValid(1) := false.B
+        }
+      }.otherwise {
+        state := RecoveryControlState.Idle
+      }
+      for (idx <- 0 until 2) {
+        when(resolvingValid(idx) && effectiveStatus(idx).rejected) {
+          pendingValid(idx) := false.B
+        }
+        resolvingValid(idx) := false.B
+        resolvedValid(idx) := false.B
+      }
+      resolvingInterruptValid := false.B
     }
   }
 

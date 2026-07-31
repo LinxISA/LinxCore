@@ -251,11 +251,15 @@ readiness. `CommitControl.out.valid` is the common fire candidate and MUST be
 asserted for non-empty commit prefixes only when ROB, RENU, and BROB all
 report exact release readiness. Zero-lane head trap and interrupt-boundary
 transactions MUST be allowed to fire once without fabricating ordinary release
-readiness. The
-retained prefix MUST NOT be recomputed or repeated while a `Valid` ROB preview
-remains asserted after the common fire. `Completed` and `Retired` are separate
-ROB states; physical ROB rows and previous physical registers are freed only
-on the matching common commit fire.
+readiness. Duplicate suppression MUST compare the exact accepted
+`CommitControlTxn` signature: commit count, active ROB identities, companion
+release facts, trap validity, kind, cause, and identity. A changed prefix
+length, trap cause/kind, or ordinary/trap shape is a distinct transaction even
+when the first ROB identity is unchanged. The retained prefix MUST NOT be
+recomputed or repeated while a `Valid` ROB preview remains asserted after the
+common fire. `Completed` and `Retired` are separate ROB states; physical ROB
+rows and previous physical registers are freed only on the matching common
+commit fire.
 Secondary destination history MUST remain in the companion
 `RenameCommitReleaseTxn` even when `CommitEntry.destination` exposes only the
 primary projection.
@@ -264,15 +268,18 @@ primary projection.
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,IFC-RECOVERY-001 -->
 
 `linxcore.ooo.RecoveryControl` MUST be the sole global recovery event arbiter
-and plan distributor. Producer events are retained until ROB returns matching
-candidate status. ROB candidate status is the only authority for exact
-residency, non-retired eligibility, global allocation age, and synchronous
-head-trap priority; RecoveryControl MUST NOT derive global age from STID/RID
-concatenation or drop a candidate before matching status is known. A
+and plan distributor. Producer events admitted into one arbitration boundary
+are retained as a complete contender set until every active producer has a
+matching ROB candidate status. ROB candidate status is the only authority for
+exact residency, non-retired eligibility, global allocation age, and
+synchronous head-trap priority; RecoveryControl MUST NOT derive global age from
+STID/RID concatenation, select from a partial status set, or drop a candidate
+before matching status is known. A
 synchronous head trap wins over an interrupt at the same precise boundary; an
 `Exception` cause without ROB status proving a precise head trap MUST NOT
 outrank an older ordinary recovery event. Interrupts are admitted only at an
-explicit precise ROB head boundary. Recovery prepare MUST ask ROB for one
+explicit precise ROB head boundary and cannot bypass an unresolved producer
+contender. Recovery prepare MUST ask ROB for one
 retained `RecoveryPlan`
 containing the exact compact killed suffix, offer the identical plan exactly
 once to every target in `Prepare`, wait for every matching acknowledgement,
@@ -280,7 +287,10 @@ ignore mismatched acknowledgements, and emit one common one-cycle `Apply`.
 Branch recovery preserves the trigger and kills younger members; memory-order
 replay recovery kills the trigger and younger members. ROB-authored recovery
 plans MUST distinguish killed member count from affected ROB group count and
-must identify the exact surviving ordered tail. Abort MUST be non-mutating.
+must identify the exact surviving ordered tail. ROB and BROB recovery apply
+MUST mutate only once for a retained matching `Apply` transaction; stale,
+duplicate, mismatched, or wrong-phase apply is non-mutating. Abort MUST be
+non-mutating and MUST clear only the matching retained transaction.
 BROB recovery prepare MUST retain the exact local action and apply that action
 without recomputing from mutable table state; partial recovery of an open
 current block preserves the surviving block and rewinds its last ROB owner.
@@ -306,6 +316,9 @@ commit under independent owner readiness, secondary-destination release
 history, precise trap priority, memory-order recovery, branch same-group
 younger-member kill, exact suffix membership including generation and member
 index, distinct killed member/group counts, survivor-tail repair, BROB
-survivor accounting, nontrivial ROB bank geometry, source arbitration, ROB
-recovery request/response, one-prepare-per target barriers, mismatched
-acknowledgement rejection, common apply, and non-mutating abort.
+survivor accounting, nontrivial ROB bank geometry, recovery age-token width
+guarding, source arbitration with delayed and retained ROB statuses, interrupt
+holdoff behind unresolved producers, ROB recovery request/response,
+wrong-phase and duplicate apply rejection, ROB/BROB abort termination,
+one-prepare-per target barriers, mismatched acknowledgement rejection, common
+apply, and non-mutating abort.

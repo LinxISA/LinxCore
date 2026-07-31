@@ -224,3 +224,91 @@ canonical owners without touching legacy owners or Task 10.
 - The known unrelated `src/common/opcode_meta_gen.py` generated side effect
   was restored before staging.
 - No `.ninja_lock` files were left in the worktree.
+
+## Fix Round 4
+
+Review round 4 identified four HIGH blockers and one MEDIUM age-token blocker
+in the canonical Task-9 path. This round added RED-first owner tests against
+`a0fb4ea9254609fdd1a2364097e54597bd8b716e`, then repaired only canonical
+Task-9 owners, public interfaces, tests, and docs.
+
+### Fix-Round-4 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` failed at
+  compile after the RED tests because `ROBIO.recoveryAbort` and
+  `BROBIO.recoveryAbort` did not exist. This covered the required ROB/BROB
+  abort-terminal contract before production IO was added.
+- The same RED test patch added behavior cases for delayed and retained
+  RecoveryControl ROB status arbitration, interrupt holdoff behind unresolved
+  producers, stale/wrong-phase ROB apply rejection, duplicate apply
+  non-mutation, full CommitControl transaction-signature suppression, and an
+  unsafe recovery age-token width guard. The abort compile failure was the
+  first observed failing gate and masked later behavior tests on the unmodified
+  base.
+- After the first repair exposed full-signature comparison, the added inactive
+  lane regression failed behaviorally in
+  `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec`: changing
+  only inactive lane payloads with the same active `count=1` produced
+  `out.valid=1` at `OOORobCommitSpec.scala:534`, proving inactive lanes were
+  not canonicalized.
+- The same rerun proved the standalone age guard gap: unsafe
+  `RecoveryControl` elaboration did not throw at `OOORobCommitSpec.scala:791`
+  when only ROB enforced the token-width invariant.
+
+### Fix-Round-4 Repairs
+
+- Added explicit matching `recoveryAbort: Valid[RecoveryPlan]` inputs to
+  canonical ROB and BROB owner IOs. Matching abort clears only the retained
+  transaction/action and does not mutate resident tables, previews, counts,
+  head/tail, or generation state.
+- ROB recovery apply now requires a retained pending transaction, `Apply`
+  phase, and exact transaction match; stale, duplicate, mismatched, or
+  wrong-phase apply is non-mutating.
+- BROB retains the same exact apply gating and now has a matching abort
+  terminal for retained local recovery actions.
+- RecoveryControl now snapshots the complete producer contender set for an
+  arbitration boundary, retains per-source matching eligible/rejected status,
+  waits for every active producer to resolve, retains pulsed early statuses,
+  and admits interrupts only after unresolved producers are resolved. Fully
+  resolved same-cycle contender sets still take the fast path.
+- CommitControl duplicate suppression now compares the complete accepted
+  canonical `CommitControlTxn` structural signature rather than a single ROB
+  identity. Inactive lanes are zeroed before signature comparison, while
+  expanded prefixes, changed trap cause/kind, and ordinary/trap transitions
+  are accepted exactly once.
+- Added public `RecoveryAge` helper/invariant beside the candidate-status
+  contract. ROB and standalone RecoveryControl reject configurations whose age
+  token space is not more than twice the global live ROB-member window
+  (`stidCount * robCapacityPerStid`), and RecoveryControl uses the wrap-safe
+  modular older relation.
+
+### Fix-Round-4 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+- `git diff --check` - PASS.
+
+### Fix-Round-4 Notes
+
+- Work-order wrappers `tools/chisel/check_interface_manifest.sh` and
+  `tools/ndf/check_ndf.sh` are absent in this checkout; the equivalent
+  available gates were `python3 tools/chisel/render_top_interface_manifest.py
+  --check` and `python3 tools/spec/check_ndf_profile.py
+  --verify-local-references docs/spec`.
+- The known unrelated `src/common/opcode_meta_gen.py` generated side effect
+  was restored before staging.
+- No `.ninja_lock` files were left in the worktree.
+- `skill-evolve: no-update` - round 4 did not add a reusable LinxCore workflow
+  invariant beyond the Task-9 spec/docs changes already recorded.

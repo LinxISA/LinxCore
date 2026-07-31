@@ -40,6 +40,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryAbort.valid.poke(false.B)
+    dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
     dut.io.recoveryCandidate.foreach { candidate =>
       candidate.valid.poke(false.B)
       candidate.bits.poke(0.U.asTypeOf(candidate.bits))
@@ -268,6 +270,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
         dut.io.recoveryApply.valid.poke(false.B)
         dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
       }
       def publishBlock(id: Int, rid: Int, stid: Int = 0): RobIdentity = {
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
@@ -333,6 +337,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
         dut.io.recoveryApply.valid.poke(false.B)
         dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
       }
       def publishBlock(id: Int, rid: Int): RobIdentity = {
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
@@ -383,6 +389,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
         dut.io.recoveryApply.valid.poke(false.B)
         dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
       }
       clearBrob()
       dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
@@ -685,6 +693,229 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.robPrepare.valid.expect(true.B)
       dut.io.robPrepare.bits.transactionId.expect(0xf1.U)
+    }
+  }
+
+  test("RecoveryControl waits for every active producer status before selecting") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xd0.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.events(0).bits.trigger.stid.poke(0.U)
+      dut.io.events(0).bits.trigger.ridSlot.poke(2.U)
+      dut.io.events(1).valid.poke(true.B)
+      dut.io.events(1).bits.transactionId.poke(0xd1.U)
+      dut.io.events(1).bits.cause.poke(RecoveryCause.Branch)
+      dut.io.events(1).bits.trigger.stid.poke(0.U)
+      dut.io.events(1).bits.trigger.ridSlot.poke(1.U)
+      authorizeCandidate(dut, 0, 0xd0, stid = 0, rid = 2, age = 5)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      dut.io.robCandidateStatus(0).valid.poke(false.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      authorizeCandidate(dut, 1, 0xd1, stid = 0, rid = 1, age = 1)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepare.bits.transactionId.expect(0xd1.U)
+    }
+  }
+
+  test("RecoveryControl retains an early status until a slower peer resolves") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xd2.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.events(0).bits.trigger.stid.poke(0.U)
+      dut.io.events(0).bits.trigger.ridSlot.poke(3.U)
+      dut.io.events(1).valid.poke(true.B)
+      dut.io.events(1).bits.transactionId.poke(0xd3.U)
+      dut.io.events(1).bits.cause.poke(RecoveryCause.Branch)
+      dut.io.events(1).bits.trigger.stid.poke(0.U)
+      dut.io.events(1).bits.trigger.ridSlot.poke(0.U)
+      authorizeCandidate(dut, 1, 0xd3, stid = 0, rid = 0, age = 1)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      dut.io.robCandidateStatus(1).valid.poke(false.B)
+      authorizeCandidate(dut, 0, 0xd2, stid = 0, rid = 3, age = 5)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepare.bits.transactionId.expect(0xd3.U)
+    }
+  }
+
+  test("RecoveryControl does not let interrupt bypass an unresolved producer") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xd4.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.events(0).bits.trigger.stid.poke(0.U)
+      dut.io.events(0).bits.trigger.ridSlot.poke(1.U)
+      dut.io.interrupts(0).valid.poke(true.B)
+      dut.io.interrupts(0).priority.poke(3.U)
+      dut.io.interruptBoundaryValid.poke(true.B)
+      dut.io.interruptBoundary.stid.poke(0.U)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      authorizeCandidate(dut, 0, 0xd4, stid = 0, rid = 1, age = 1,
+        eligible = false)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepare.bits.cause.expect(RecoveryCause.Interrupt)
+    }
+  }
+
+  test("ROB ignores wrong-phase and duplicate recovery apply without mutating twice") {
+    simulate(new ROB(params)) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 200, rid = 0, groupCount = 2,
+        stid = 0)
+      lane(dut.io.prepare.bits, 1, id = 201, rid = 1, groupCount = 2,
+        stid = 0)
+      val ids = publish(dut, 2)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x120.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids(1))
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x121.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids(1))
+      dut.io.recoveryPrepare.ready.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.ridTailSlot(0).expect(1.U)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.ridTailSlot(0).expect(1.U)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x122.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids(0))
+      dut.io.recoveryPrepare.ready.expect(true.B)
+    }
+  }
+
+  test("ROB abort clears only the matching retained recovery transaction") {
+    simulate(new ROB(params)) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 210, rid = 0, groupCount = 1,
+        stid = 0)
+      val id = publish(dut, 1).head
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x130.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.recoveryPrepare.bits.trigger.poke(id)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryAbort.valid.poke(true.B)
+      dut.io.recoveryAbort.bits.poke(prepared)
+      dut.io.recoveryAbort.bits.transactionId.poke(0x131.U)
+      dut.io.recoveryAbort.bits.phase.poke(RecoveryPhase.Abort)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.poke(prepared)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x132.U)
+      dut.io.recoveryPrepare.ready.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryAbort.bits.poke(prepared)
+      dut.io.recoveryAbort.bits.phase.poke(RecoveryPhase.Abort)
+      dut.clock.step()
+      dut.io.recoveryAbort.valid.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.poke(prepared)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x133.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.io.ridTailSlot(0).expect(1.U)
+    }
+  }
+
+  test("BROB abort clears matching retained recovery and leaves state releasable") {
+    simulate(new BROB(params)) { dut =>
+      def clearBrob(): Unit = {
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        dut.io.publishFire.poke(false.B)
+        dut.io.release.valid.poke(false.B)
+        dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+        dut.io.releaseApply.poke(false.B)
+        dut.io.recoveryPrepare.valid.poke(false.B)
+        dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+        dut.io.recoveryApply.valid.poke(false.B)
+        dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+      }
+      clearBrob()
+      lane(dut.io.prepare.bits, 0, id = 220, rid = 0, groupCount = 1,
+        stid = 0, member = 0, blockStart = true, blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(true.B)
+      val id = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x140.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.recoveryPrepare.bits.trigger.poke(id)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(id)
+      dut.io.recoveryPrepare.bits.lastKilled.poke(id)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(1.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(1.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryAbort.valid.poke(true.B)
+      dut.io.recoveryAbort.bits.poke(prepared)
+      dut.io.recoveryAbort.bits.transactionId.poke(0x141.U)
+      dut.io.recoveryAbort.bits.phase.poke(RecoveryPhase.Abort)
+      dut.clock.step()
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 221, rid = 1, groupCount = 1,
+        stid = 0, member = 0, blockStart = true, blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.recoveryAbort.bits.poke(prepared)
+      dut.io.recoveryAbort.bits.phase.poke(RecoveryPhase.Abort)
+      dut.clock.step()
+      dut.io.recoveryAbort.valid.poke(false.B)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).poke(id)
+      dut.io.releaseReady.expect(true.B)
     }
   }
 }
