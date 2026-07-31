@@ -42,6 +42,70 @@ push identities are filled only after the corresponding operation succeeds.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
 
+## Loop 7 — Canonical DEC and retained OOO D1/D2 admission
+
+- Scope: Task 7 only, preceded by the NDF/interface planning correction in
+  `89f081ed`. This loop adds the canonical combinational DEC and public OOO
+  D1/D2 slice. It does not allocate physical ROB/BROB state, rename registers,
+  dispatch to issue queues, or integrate the box in TOP.
+- Baseline: implementation started from LinxCore `5780f40d`; the plan pins the
+  SuperscalarNPU reference boundary and normative_language/NDF revision
+  `09cfe646931183caee82dd913f77f516b82134df`, including `option`, `default`,
+  `explore`, and `couples-with` semantics.
+- Governing clauses: `IFC-CTU-OOO-001`, `MEC-CTU-OOO-001`, `OOO-001..005`,
+  `MEC-OOO-001..002`, `D-PREFIX-001`, `D-IDENTITY-001`, `ARC-TOP-020..021`,
+  `PRM-WIDTH-001`, `VER-IFC-001`, `VER-ARC-005..006`, `VER-OOO-001`,
+  `REF-NDF-001`, and `REF-SNPU-001`.
+- RED evidence: `OOODecodeSpec` first failed to compile because `DEC`, `OOO`,
+  and `D2AdmissionGroup` did not exist. A template fetch-fault regression then
+  observed `trap.valid=0`. Independent review exposed a legal CTU repacking
+  case that combined an ordinary instruction with template children while D2
+  was occupied; the real CTU-to-OOO test timed out after 64 cycles because DEC
+  rejected the mixed tagged union and held ready low.
+- GREEN evidence: `OOODecodeSpec` passes 8/8 checks for 16/32/48/64-bit
+  normalization, template children, typed traps, mixed-lane fusion isolation,
+  full-width virtual RID identity, recovery and W2/W4/W6/W8 elaboration.
+  `CTUOOOIntegrationSpec` passes 3/3, including retained backpressure followed
+  by exact in-order draining of a repacked ordinary-plus-template prefix.
+  `OooD1DecodeSpec` passes 12/12 and proves the legacy dense-prefix assertion
+  remains the default; `CTUSpec` passes 11/11; `TopInterfaceSpec` passes 9/9;
+  and `InterfaceManifestSpec` passes 2/2.
+- Generated/spec evidence: opcode generator tests pass 6/6 and decode parity
+  covers 686 forms and 678 mnemonics. The generated interface manifest is
+  current and unchanged because the existing CTU-to-OOO endpoint remains a
+  `D1Packet`; the Task-7 slice adds no canonical TOP endpoint yet. The NDF
+  profile reports 97 clauses, 43 L1 MUST clauses, 46 verified targets, zero
+  open questions, and two verified local references.
+- Build evidence: the standard Chisel build passes. Generated TOP elaboration
+  and Verilator 5.044 lint pass. `git diff --check` passes and the opcode parity
+  generator's pre-existing `xb` row side effect was restored rather than
+  admitted into this loop.
+- Ownership result: all public D1/D2 payloads and `OOOD1D2IO` live under
+  `top/interface`. DEC owns no state. D2 retains immutable virtual RID group
+  and member intent from full-width tail snapshots but never advances the
+  tail. `residentBound` and `brobBound` remain false; BID, BROB generation and
+  resident generation are explicitly unallocated. Recovery prepare fences one
+  STID, matching apply cancels only that row, and abort releases the fence
+  without mutation.
+- Independent review: the first pass found two blocking design defects: mixed
+  CTU packets could deadlock admission, and public OOO interface types were in
+  the implementation package. The same implementer repaired both under TDD.
+  A fresh final reviewer inspected `89f081ed..b46b0e83`, independently ran the
+  NDF and diff checks, and reported 0 critical, 0 important, 0 minor findings
+  with verdict `APPROVE`.
+- Remaining gap: Task 8 owns D3 rename and resource reservation. Physical
+  P/T/U mapping, SMAP/CMAP/MAPQ, freelists, unique ROB/BROB binding, early ROB
+  completion and S1 dispatch remain absent. TOP integration remains Task 17;
+  natural Dhrystone/CoreMark and scalar linx-avs evidence remain Tasks 18–19.
+- skill-evolve: no-update — single-owner allocation, full identity retention,
+  retained ready/valid, exact recovery and generated-decode rules already
+  exist in the LinxCore domain workflow.
+- Branch: `codex/chisel-gap-superpowers`
+- Commits: plan correction `89f081ed`, initial implementation `54c05d72`, and
+  reviewed mixed-packet/interface repair `b46b0e83`.
+- Push target: `origin/codex/chisel-gap-superpowers`; controller push and
+  remote equality are the final loop handoff.
+
 ## Loop 6 — B-SIDE prediction and IFU recovery consolidation
 
 - Scope: Task 6 only. This loop creates the public `linxcore.ifu.BSide`,
