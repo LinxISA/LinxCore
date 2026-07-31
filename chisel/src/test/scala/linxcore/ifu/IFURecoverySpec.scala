@@ -85,6 +85,14 @@ class IFURecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   test("backend feedback accepts only OOO-authored validation and emits no IEX control port") {
+    simulate(new IFUBackendFeedback(p)) { dut =>
+      val ports = dut.io.elements.keySet
+      assert(ports.contains("validation"))
+      assert(ports.contains("resolve"))
+      assert(ports.contains("backendRecovery"))
+      assert(!ports.exists(_.toLowerCase.contains("iex")))
+    }
+
     val sv = circt.stage.ChiselStage.emitSystemVerilog(
       new IFUBackendFeedback(p))
     assert(sv.contains("module IFUBackendFeedback"))

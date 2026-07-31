@@ -56,42 +56,49 @@ class IFUCTUIntegrationSpec extends AnyFunSuite with ChiselSim {
     assert(cycles < limit, "IFU did not deliver a CTU packet")
   }
 
-  test("public IFU keeps one B-SIDE and one recovery authority while retaining IFU to CTU backpressure") {
-    val p = ParamProfiles.W4
-    simulate(new IFU(p)) { dut =>
-      clear(dut)
-      dut.io.memoryRequest.ready.poke(true.B)
-      serveMemoryUntilCtu(dut)
+  test("W2 W4 W6 and W8 public IFU retain fixed 64-bit CTU traffic backpressure and scoped recovery") {
+    Seq(2, 4, 6, 8).foreach { width =>
+      val p = ParamProfiles.forWidth(width)
+      assert(p.instructionWidth == 64)
+      simulate(new IFU(p)) { dut =>
+        assert(dut.io.toCtu.bits.entries.length == width)
+        assert(dut.io.toCtu.bits.entries(0).instruction.getWidth == 64)
+        clear(dut)
+        dut.io.memoryRequest.ready.poke(true.B)
+        serveMemoryUntilCtu(dut)
 
-      dut.io.toCtu.valid.expect(true.B)
-      val heldPc = dut.io.toCtu.bits.entries(0).pc.peek().litValue
-      dut.clock.step(4)
-      dut.io.toCtu.valid.expect(true.B)
-      assert(dut.io.toCtu.bits.entries(0).pc.peek().litValue == heldPc)
+        dut.io.toCtu.valid.expect(true.B)
+        val heldPc = dut.io.toCtu.bits.entries(0).pc.peek().litValue
+        val heldInstruction = dut.io.toCtu.bits.entries(0).instruction.peek().litValue
+        dut.clock.step(4)
+        dut.io.toCtu.valid.expect(true.B)
+        assert(dut.io.toCtu.bits.entries(0).pc.peek().litValue == heldPc)
+        assert(dut.io.toCtu.bits.entries(0).instruction.peek().litValue == heldInstruction)
 
-      dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))
-      dut.io.recovery.prepare.bits.transactionId.poke(99.U)
-      dut.io.recovery.prepare.bits.phase.poke(RecoveryPhase.Prepare)
-      dut.io.recovery.prepare.bits.cause.poke(RecoveryCause.Branch)
-      dut.io.recovery.prepare.bits.trigger.stid.poke(0.U)
-      dut.io.recovery.prepare.bits.redirectPc.poke(0x80.U)
-      dut.io.recovery.prepare.bits.newEpoch.poke(3.U)
-      dut.io.recovery.prepare.valid.poke(true.B)
-      dut.io.recovery.prepare.ready.expect(true.B)
-      dut.clock.step()
-      dut.io.recovery.prepare.valid.poke(false.B)
-      dut.io.toCtu.valid.expect(false.B)
+        dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))
+        dut.io.recovery.prepare.bits.transactionId.poke(99.U)
+        dut.io.recovery.prepare.bits.phase.poke(RecoveryPhase.Prepare)
+        dut.io.recovery.prepare.bits.cause.poke(RecoveryCause.Branch)
+        dut.io.recovery.prepare.bits.trigger.stid.poke(0.U)
+        dut.io.recovery.prepare.bits.redirectPc.poke(0x80.U)
+        dut.io.recovery.prepare.bits.newEpoch.poke(3.U)
+        dut.io.recovery.prepare.valid.poke(true.B)
+        dut.io.recovery.prepare.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.recovery.prepare.valid.poke(false.B)
+        dut.io.toCtu.valid.expect(false.B)
 
-      dut.io.recovery.apply.bits.poke(0.U.asTypeOf(dut.io.recovery.apply.bits))
-      dut.io.recovery.apply.bits.transactionId.poke(99.U)
-      dut.io.recovery.apply.bits.phase.poke(RecoveryPhase.Apply)
-      dut.io.recovery.apply.bits.cause.poke(RecoveryCause.Branch)
-      dut.io.recovery.apply.bits.trigger.stid.poke(0.U)
-      dut.io.recovery.apply.bits.redirectPc.poke(0x80.U)
-      dut.io.recovery.apply.bits.newEpoch.poke(3.U)
-      dut.io.recovery.apply.valid.poke(true.B)
-      dut.clock.step()
-      dut.io.recovery.apply.valid.poke(false.B)
+        dut.io.recovery.apply.bits.poke(0.U.asTypeOf(dut.io.recovery.apply.bits))
+        dut.io.recovery.apply.bits.transactionId.poke(99.U)
+        dut.io.recovery.apply.bits.phase.poke(RecoveryPhase.Apply)
+        dut.io.recovery.apply.bits.cause.poke(RecoveryCause.Branch)
+        dut.io.recovery.apply.bits.trigger.stid.poke(0.U)
+        dut.io.recovery.apply.bits.redirectPc.poke(0x80.U)
+        dut.io.recovery.apply.bits.newEpoch.poke(3.U)
+        dut.io.recovery.apply.valid.poke(true.B)
+        dut.clock.step()
+        dut.io.recovery.apply.valid.poke(false.B)
+      }
     }
   }
 

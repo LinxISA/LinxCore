@@ -73,3 +73,38 @@ Prediction now has a public `linxcore.ifu.BSide` boundary that reuses the existi
 ## Skill-Evolve Decision
 
 No skill update is required. The reusable invariants exercised here are already covered by the LinxCore workflow: exact identity matching, single state owner, retained ready/valid behavior, and OOO-owned recovery authority.
+
+## Review Fixes
+
+Round 1 Important findings are fixed in the follow-up coverage commit.
+
+- `IFUPredictionSpec` now keeps the original provider-order requirement but proves more than the prior B-F4-only body:
+  - Public `Prediction.providerRank` is asserted for Sequential=0, B-F0=1, B-F1=2, B-F2=3, B-F3=4, and B-F4=5.
+  - Sequential behavior is driven with an explicit no-boundary B-F4 completion.
+  - B-F0, B-F1, and B-F2 are isolated with trained-table and table-conflict cases.
+  - B-F4 final LongTAGE-over-static behavior remains covered.
+- `IFUPredictionSpec` now adds public B-SIDE checkpoint/state coverage:
+  - Exact keyed canonical prune restores older GHR state and kills younger history.
+  - RAS state remains unchanged until canonical prune, then feeds a later B-F4 return prediction.
+  - BTB/TAGE/BIM/loop state is trained only through exact public B-SIDE resolution, and an inexact follow-up resolve is rejected as stale without changing the later loop prediction.
+- `IFUCTUIntegrationSpec` now runs the traffic, retained backpressure, scoped recovery fence/apply, and fixed 64-bit instruction payload checks across W2, W4, W6, and W8.
+- Minor no-IEX issue: `IFURecoverySpec` now checks the public `IFUBackendFeedback` IO element names structurally (`validation`, `resolve`, `backendRecovery`, and no IO name containing `iex`) before keeping the emitted-SystemVerilog substring sanity check as secondary evidence.
+
+Review-fix RED evidence:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1 on the first review-fix run. The new loop/BTB/TAGE exact-training test failed at `IFUPredictionSpec.scala:475` because stale training was injected while a final correction was still pending; observed `staleTraining=0`, expected `1`. The test was corrected to apply the canonical prune before injecting the inexact resolve.
+
+Review-fix GREEN evidence:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 0; 6 tests passed:
+  - Provider rank/order, stale training, checkpoint-owned GHR recovery, canonical RAS recovery, exact public B-SIDE training, and public B-SIDE elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only IFURecoverySpec` -> exit 0; 4 tests passed:
+  - Includes the structural public-IO no-IEX assertion.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUCTUIntegrationSpec` -> exit 0; 2 tests passed in 4 minutes 57 seconds:
+  - W2/W4/W6/W8 traffic/backpressure/scoped-recovery behavior and W2/W4/W6/W8 elaboration both passed.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUISideSpec` -> exit 0; 4 tests passed.
+- `bash tools/chisel/run_chisel_tests.sh --only CTUSpec` -> exit 0; 11 tests passed.
+- `bash tools/chisel/build_chisel.sh` -> exit 0; Chisel build completed successfully.
+- `git diff --check` -> exit 0; no whitespace errors.
+
+No production code changed in the review-fix round. The remaining TOP/OOO backend-validation wiring gap is unchanged and remains deferred to the later integration packet.
