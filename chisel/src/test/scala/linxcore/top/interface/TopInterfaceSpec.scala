@@ -127,6 +127,12 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(renamed.sources.head.ptag.getWidth == log2Ceil(p.ooo.gprPhysRegs))
     assert(renamed.sources.head.ttag.getWidth == log2Ceil(p.ooo.tPhysRegs))
     assert(renamed.sources.head.utag.getWidth == log2Ceil(p.ooo.uPhysRegs))
+    assert(renamed.sources.head.tSeqIndex.getWidth ==
+      log2Ceil(p.ooo.tuMapQDepthPerStid))
+    assert(renamed.sources.head.tSeqGeneration.getWidth ==
+      p.ooo.localSeqGenerationWidth)
+    assert(renamed.sources.head.uSeqGeneration.getWidth ==
+      p.ooo.localSeqGenerationWidth)
     assert(renamed.destinations.head.previousPtag.getWidth ==
       log2Ceil(p.ooo.gprPhysRegs))
   }
@@ -134,14 +140,39 @@ class TopInterfaceSpec extends AnyFunSuite {
   test("the public OOO D1 D2 slice contract lives with the TOP interfaces") {
     profiles.foreach { case (width, p) =>
       val slice = new OOOD1D2IO(p)
+      val rename = new RENUD2D3IO(p)
       assert(slice.fromCtu.bits.getClass == new D1Packet(p).getClass)
       assert(slice.d2.bits.entries.length == width)
       assert(slice.d2.bits.groups.length == width)
+      assert(rename.toD3.bits.entries.length == width)
+      assert(rename.toD3.bits.groups.length == width)
       assert(slice.d2.bits.count.getWidth == log2Ceil(width + 1))
+      assert(rename.toD3.bits.count.getWidth == log2Ceil(width + 1))
       assert(slice.d2.bits.entries.head.uop.rob.ridGeneration.getWidth ==
         p.ridGenerationWidth)
+      assert(rename.toD3.bits.entries.head.history.head.pGeneration.getWidth ==
+        p.ooo.gprTagGenerationWidth)
+      assert(rename.toD3.bits.entries.head.history.head.previousPGeneration.getWidth ==
+        p.ooo.gprTagGenerationWidth)
+      assert(rename.toD3.bits.entries.head.history.head.pMapQIndex.getWidth ==
+        log2Ceil(p.ooo.gprMapQDepthPerStid))
+      assert(rename.toD3.bits.entries.head.history.head.pMapQGeneration.getWidth ==
+        p.ooo.gprTagGenerationWidth)
+      assert(rename.toD3.bits.entries.head.history.head.tMapQIndex.getWidth ==
+        log2Ceil(p.ooo.tuMapQDepthPerStid))
+      assert(rename.toD3.bits.entries.head.history.head.tMapQGeneration.getWidth ==
+        p.ooo.localSeqGenerationWidth)
+      assert(rename.toD3.bits.entries.head.history.head.tGeneration.getWidth ==
+        p.ooo.localSeqGenerationWidth)
+      assert(rename.toD3.bits.entries.head.uop.destinations.head.previousPGeneration.getWidth ==
+        p.ooo.gprTagGenerationWidth)
+      assert(rename.toD3.bits.entries.head.tSeqBefore.generation.getWidth ==
+        p.ooo.localSeqGenerationWidth)
+      assert(rename.toD3.bits.entries.head.tSeqBefore.tag.getWidth ==
+        log2Ceil(p.ooo.tuMapQDepthPerStid))
       assert(slice.ridTailGeneration.head.getWidth == p.ridGenerationWidth)
       assert(!slice.d2.bits.elements.contains("validMask"))
+      assert(!rename.toD3.bits.elements.contains("validMask"))
     }
   }
 

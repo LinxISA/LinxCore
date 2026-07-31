@@ -3,6 +3,19 @@ package linxcore.ooo
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooParamsSpec extends AnyFunSuite {
+  test("central adapters preserve rename generation widths exactly") {
+    val base = linxcore.params.ParamProfiles.W4
+    val mainline = base.copy(ooo = base.ooo.copy(
+      gprTagGenerationWidth = 13,
+      localSeqGenerationWidth = 11))
+    val adapted = OooParams.fromCoreParams(mainline)
+
+    assert(adapted.pTagGenerationWidth == 13)
+    assert(adapted.localSeqGenerationWidth == 11)
+    assert(adapted.toMainline.gprTagGenerationWidth == 13)
+    assert(adapted.toMainline.localSeqGenerationWidth == 11)
+  }
+
   test("defaults keep fetch-independent OOO widths and native identity domains") {
     val p = OooParams()
 

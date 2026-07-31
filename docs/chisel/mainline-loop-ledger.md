@@ -106,6 +106,67 @@ push identities are filled only after the corresponding operation succeeds.
 - Push target: `origin/codex/chisel-gap-superpowers`; controller push and
   remote equality are the final loop handoff.
 
+## Loop 8 — D2/D3 rename with separate P and T/U owners
+
+- Scope: Task 8 only. This loop adds the D2-to-D3 RENU slice, public
+  `OOOD2D3` payloads, and central rename generation parameters. It does not
+  instantiate ROB/BROB physical binding, S1 dispatch, issue queues, LSU
+  allocation, or TOP end-to-end benchmark flow.
+- Reference/contract boundary: NDF revision
+  `09cfe646931183caee82dd913f77f516b82134df` supplies stable clause identity,
+  L0-L3 refinement, typed graph edges, history and verification coverage.
+  SuperscalarNPU supplies only typed-interface grouping and reviewable TOP
+  wiring patterns. Neither source defines Linx payload semantics or RTL.
+- Governing clauses: `ARC-TOP-021`, `OOO-006..009`, `PRM-RENAME-001`,
+  `MEC-OOO-003..005`, `VER-OOO-002`, `VER-PRM-004`, plus the Task-7 D1/D2
+  clauses and continuous-prefix identity rules.
+- RED evidence: the expanded rename suite first ran 15 checks with 10 passing
+  and 5 failing. It exposed relative-source underflow acceptance, incorrect
+  same-uop WAW history, non-survivor recovery, missing cross-domain release
+  atomicity, and conflated physical/MapQ generations. Later directed REDs
+  exposed malformed release and D2 prefixes, and the final backpressure RED
+  observed `recovery.prepare.ready=1` where a held target D3 row required 0.
+- GREEN evidence: `RENUSpec` passes 15/15 checks, `RENUAtomicSpec` passes 7/7,
+  and `TURenameSequenceSpec` passes 4/4. Together they cover D3-only
+  publication, P RAW/WAW forwarding, independent T/U physical and sequence
+  domains, exact all-or-none release, capacity exhaustion, stale generations,
+  zero-destination sidecars, STID-scoped survivor recovery, held-target
+  irrevocability, unrelated-STID progress, unequal capacities and behavioral
+  W2/W4/W6/W8 publication. `OOODecodeSpec` passes 8/8 and
+  `CTUOOOIntegrationSpec` passes 3/3 without integrating RENU into the OOO box.
+- Interface/parameter evidence: `TopInterfaceSpec` passes 9/9,
+  `CoreConfigurationSpec` passes 12/12, `OooParamsSpec` passes 4/4,
+  `CoreParamsInterfaceClosureSpec` passes 2/2, and `InterfaceManifestSpec`
+  passes 2/2. The generated TOP interface manifest is an exact current
+  projection. The NDF profile reports 107 clauses, 48 L1 MUST clauses, 54
+  verified targets, zero open questions, and two verified local references.
+  The forbidden external-architecture-name scan under `docs/spec` is empty.
+- Build evidence: `bash tools/chisel/build_chisel.sh` passes. Generated TOP
+  elaboration and Verilator 5.044 lint pass. `git diff --check` is clean.
+- Ownership result: `PRename` is the P SMAP/CMAP/free/generation/MapQ owner.
+  `TURename` separately owns T and U physical cursors, sequence generations
+  and MapQs. `RENU` owns only per-STID provisional D3 retention, exact
+  cross-owner publication/release coordination and the recovery handshake.
+  The public D2/D3 payload and per-uop release history live in `top/interface`.
+- Independent review: the first final review blocked recovery because prepare
+  could switch a target D3 payload held under backpressure and found a vacuous
+  recovery test with mismatched plans. The repaired version blocks prepare
+  until the irrevocable target fires, keeps unrelated STIDs live, and performs
+  observable suffix pruning with an exact plan. A fresh read-only reviewer
+  returned `APPROVE` with no remaining correctness or scope blocker.
+- Remaining gap: this is a standalone RENU slice. ROB/BROB identity remains
+  virtual, release has no real commit producer, and dispatch/S1 is absent.
+  Task 9 must establish ROB/BROB, commit and precise-recovery authority; Task
+  10 must join rename publication to real ROB/BROB and dispatch readiness.
+- skill-evolve: no-update — this reinforces existing LinxCore invariants
+  around single state owner, exact identity, retained ready/valid, and
+  recovery scope; no shared skill change is needed.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Preserve absolute and relative register semantics with separate owners`.
+- Push target: `origin/codex/chisel-gap-superpowers`; controller push and
+  remote equality are the final loop handoff.
+
 ## Loop 6 — B-SIDE prediction and IFU recovery consolidation
 
 - Scope: Task 6 only. This loop creates the public `linxcore.ifu.BSide`,

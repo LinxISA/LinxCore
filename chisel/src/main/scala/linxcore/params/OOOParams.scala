@@ -13,9 +13,11 @@ final case class OOOParams(
     brobEntriesPerStid: Int = 256,
     gprArchRegs: Int = 24,
     gprPhysRegs: Int = 128,
+    gprTagGenerationWidth: Int = 16,
     gprMapQDepthPerStid: Int = 256,
     tPhysRegs: Int = 32,
     uPhysRegs: Int = 32,
+    localSeqGenerationWidth: Int = 16,
     tuMapQDepthPerStid: Int = 32) {
   def robCapacityPerStid: Int =
     robGroupsPerStid * maxInstructionsPerRobGroup

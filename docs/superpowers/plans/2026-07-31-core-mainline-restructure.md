@@ -280,6 +280,12 @@ L1/L2 文档不得复制 Scala 字段表。Scala Bundle elaboration 是字段名
 嵌套和方向的可执行来源；生成的 JSON/Markdown manifest 是其可评审投影。
 NDF 条款规定语义、所有权和协议不变量，并链接 manifest 和测试证据。
 
+两份外部参考承担不同职责：superscalarNPU 只帮助确定 typed transaction、
+方向分组和 TOP 连线的代码组织；NDF 只帮助确定接口契约如何被稳定 ID、精化边、
+版本历史和可执行证据追踪。前者不能定义 Linx payload 语义，后者不能替代 Scala
+Bundle 或 RTL。最终唯一真值仍是 Linx `docs/spec` 条款、中央参数、可 elaboration
+Bundle 以及由 Bundle 生成的 manifest。
+
 ### 4.2 Interface boundary matrix
 
 Task 3 必须先冻结以下边界，再允许 box 实现依赖它们：
@@ -758,10 +764,17 @@ Commit intent: `Normalize every instruction form before speculative ownership be
 ### Task 8: Build RENU with separate P and T/U rename machines
 
 **Files:**
+- Create: `chisel/src/main/scala/linxcore/top/interface/OOOD2D3.scala`
 - Create: `chisel/src/main/scala/linxcore/ooo/RENU.scala`
 - Create: `chisel/src/main/scala/linxcore/ooo/PRename.scala`
 - Create: `chisel/src/main/scala/linxcore/ooo/TURename.scala`
 - Create: `chisel/src/test/scala/linxcore/ooo/RENUSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/OooParams.scala`
+- Modify: `chisel/src/main/scala/linxcore/params/OOOParams.scala`
+- Modify: `chisel/src/main/scala/linxcore/params/ParamChecks.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/OOOIEX.scala`
 - Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooPRename.scala`
 - Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooTURename.scala`
 - Migrate mechanisms from: `chisel/src/main/scala/linxcore/rename/*.scala`
@@ -770,30 +783,59 @@ Commit intent: `Normalize every instruction form before speculative ownership be
 - Consumes: D2 `DecodedUop` prefix, commit releases, recovery plan.
 - Produces: D3 `RenamedUop` prefix with atag plus ptag/ttag/utag and reservation claims.
 
-- [ ] **Step 1: Write failing rename tests**
+`OOOD2D3.scala` is the canonical public internal-stage contract and defines
+`RENUD2D3IO`, `RenameCommitReleaseEntry`, and `RenameCommitReleaseTxn`.
+Each D3 lane preserves the Task-7 virtual ROB/group/member intent,
+generation-qualified P/T/U rename history, separate T/U physical-tag and
+MapQ-sequence generations, and wrap-qualified T/U sequences. Commit release
+is a continuous, cross-domain all-or-none prefix; it is per uop and can carry
+every destination history row, including zero-destination boundary uops. It
+does not reuse the single-destination external `CommitEntry` shape.
+
+RENU is two-phase. D2 acceptance may retain one exact provisional P/T/U lease
+per STID, but SMAP, CMAP, MapQ and visible physical ownership change only on the
+common D3 publication fire. Task 10 later joins that fire with ROB/BROB and
+dispatch readiness. Task 8 MUST NOT advance the physical RID tail, bind BID or
+resident generations, allocate issue/LSU state, or choose commit/trap order.
+Recovery prepare cannot revoke a D3 transaction already presented under
+backpressure: it waits for that target transaction to fire, while an unrelated
+presented STID and unrelated admissions remain eligible.
+
+- [x] **Step 1: Write failing rename tests**
 
 Cover 24 architectural P registers, free-list exhaustion, same-cycle dependency forwarding, SMAP/CMAP/MAPQ updates, T/U relative source lookup, sequential T/U allocation, block checkpoint, commit, wrap, replay and scoped recovery.
 
-- [ ] **Step 2: Run failing tests**
+Also cover W2/W4/W6/W8 behavioral publication, unequal P MapQ/T/U MapQ/ROB and
+T/U physical capacities, generation-qualified stale release rejection,
+provisional cancellation, stable D3 backpressure, and recovery that rebuilds P
+SMAP from CMAP plus survivors while rewinding only the target STID's T/U suffix.
+The backpressure test MUST hold one target-STID D3 row, present recovery prepare,
+prove `prepare.ready == false` and bit-for-bit D3 stability, then prove prepare
+acceptance only after that row fires. A separate two-STID test MUST cancel an
+unpublished target lease while an unrelated row remains presented.
+
+- [x] **Step 2: Run failing tests**
 
 Run: `bash tools/chisel/run_chisel_tests.sh --only RENUSpec`
 
-- [ ] **Step 3: Implement independent rename owners**
+- [x] **Step 3: Implement independent rename owners**
 
-P uses free-list physical allocation；T/U use ordered relative allocation。Shared wrapper performs one atomic prefix acceptance but never merges their internal maps.
+P uses free-list physical allocation；T/U use ordered relative allocation。Shared wrapper performs one atomic prefix preparation and one common publication but never merges their internal maps. Central parameters own PTag and local-sequence generation widths plus independent queue/capacity checks; adapters cannot fall back to historical eight-bit generations.
 
-- [ ] **Step 4: Run unequal-capacity and width profile tests**
+- [x] **Step 4: Run unequal-capacity and width profile tests**
 
 Run:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only RENUSpec
 bash tools/chisel/run_chisel_tests.sh --only CoreConfigurationSpec
+bash tools/chisel/run_chisel_tests.sh --only OooParamsSpec
+bash tools/chisel/run_chisel_tests.sh --only CoreParamsInterfaceClosureSpec
 ```
 
 Expected: tests include unequal P MapQ/TU MapQ/ROB capacities and W2/W4/W6/W8.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit intent: `Preserve absolute and relative register semantics with separate owners`
 

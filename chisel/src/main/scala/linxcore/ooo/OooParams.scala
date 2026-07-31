@@ -375,9 +375,11 @@ final case class OooParams(
       brobEntriesPerStid = brobEntriesPerStid,
       gprArchRegs = pArchRegs,
       gprPhysRegs = pPhysRegs,
+      gprTagGenerationWidth = pTagGenerationWidth,
       gprMapQDepthPerStid = pMapQDepthPerStid,
       tPhysRegs = tPhysRegs,
       uPhysRegs = uPhysRegs,
+      localSeqGenerationWidth = localSeqGenerationWidth,
       tuMapQDepthPerStid = tuMapQDepthPerStid)
 }
 
@@ -407,9 +409,11 @@ object OooParams {
       pcBankCount = nextPowerOfTwo(math.max(4, p.retireWidth)),
       pArchRegs = p.gprArchRegs,
       pPhysRegs = p.gprPhysRegs,
+      pTagGenerationWidth = p.gprTagGenerationWidth,
       pMapQDepthPerStid = p.gprMapQDepthPerStid,
       tPhysRegs = p.tPhysRegs,
       uPhysRegs = p.uPhysRegs,
+      localSeqGenerationWidth = p.localSeqGenerationWidth,
       tuMapQDepthPerStid = p.tuMapQDepthPerStid)
   }
 

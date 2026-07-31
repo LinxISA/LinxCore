@@ -156,16 +156,34 @@ object ParamChecks {
       isPowerOfTwo(p.ooo.gprPhysRegs) &&
         p.ooo.gprPhysRegs > p.ooo.stidCount * p.ooo.gprArchRegs,
       "physical GPR capacity must cover committed and speculative mappings")
+    val renameDestinationDemand =
+      p.ooo.renameWidth * p.maxDestinationOperands
+    require(
+      p.ooo.gprPhysRegs - p.ooo.stidCount * p.ooo.gprArchRegs >=
+        renameDestinationDemand,
+      "speculative GPR capacity must cover one maximum rename prefix")
+    require(
+      p.ooo.gprTagGenerationWidth > 0,
+      "GPR physical tag generation width must be positive")
     require(
       isPowerOfTwo(p.ooo.gprMapQDepthPerStid) &&
-        p.ooo.gprMapQDepthPerStid >= p.ooo.gprPhysRegs,
-      "GPR MapQ depth must be a power of two covering the physical namespace")
+        p.ooo.gprMapQDepthPerStid >=
+          p.ooo.renameWidth * p.maxDestinationOperands,
+      "GPR MapQ depth must be a power of two covering one rename prefix")
     require(
       isPowerOfTwo(p.ooo.tPhysRegs) && isPowerOfTwo(p.ooo.uPhysRegs),
       "T and U physical namespaces must be powers of two")
     require(
-      isPowerOfTwo(p.ooo.tuMapQDepthPerStid),
-      "T/U MapQ depth must be a positive power of two")
+      p.ooo.tPhysRegs >= renameDestinationDemand &&
+        p.ooo.uPhysRegs >= renameDestinationDemand,
+      "T and U physical namespaces must independently cover one maximum rename prefix")
+    require(
+      p.ooo.localSeqGenerationWidth > 0,
+      "T/U local sequence generation width must be positive")
+    require(
+      isPowerOfTwo(p.ooo.tuMapQDepthPerStid) &&
+        p.ooo.tuMapQDepthPerStid >= renameDestinationDemand,
+      "T/U MapQ depth must be a power of two covering one maximum rename prefix")
 
     require(p.iex.aluPipes > 0, "ALU pipe count must be positive")
     require(p.iex.bruPipes > 0, "BRU pipe count must be positive")

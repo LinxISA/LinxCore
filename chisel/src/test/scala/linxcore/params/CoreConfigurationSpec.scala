@@ -36,6 +36,8 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(p.iex.cmdIssueQueues == 1)
     assert(p.lsu.loadPipes == 2)
     assert(p.lsu.storePipes == 2)
+    assert(p.ooo.gprTagGenerationWidth == 16)
+    assert(p.ooo.localSeqGenerationWidth == 16)
   }
 
   test("unsupported profile width fails before a configuration is published") {
@@ -91,6 +93,46 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(error.getMessage.contains("IEX issue width must match WidthParams"))
   }
 
+  test("rename generation widths are centrally configured and fail closed") {
+    val base = ParamProfiles.W4
+    val custom = base.copy(ooo = base.ooo.copy(
+      gprTagGenerationWidth = 12,
+      localSeqGenerationWidth = 10,
+      gprPhysRegs = 128,
+      gprMapQDepthPerStid = 16))
+
+    assert(custom.ooo.gprTagGenerationWidth == 12)
+    assert(custom.ooo.localSeqGenerationWidth == 10)
+    assert(custom.ooo.gprPhysRegs == 128)
+    assert(custom.ooo.gprMapQDepthPerStid == 16)
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(gprTagGenerationWidth = 0))
+    }
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(localSeqGenerationWidth = 0))
+    }
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(gprMapQDepthPerStid = 4))
+    }
+  }
+
+  test("rename physical and MapQ capacities independently cover one prefix") {
+    val wide = ParamProfiles.W8
+
+    assertThrows[IllegalArgumentException] {
+      wide.copy(ooo = wide.ooo.copy(stidCount = 1, gprPhysRegs = 32))
+    }
+    assertThrows[IllegalArgumentException] {
+      wide.copy(ooo = wide.ooo.copy(tPhysRegs = 8))
+    }
+    assertThrows[IllegalArgumentException] {
+      wide.copy(ooo = wide.ooo.copy(uPhysRegs = 8))
+    }
+    assertThrows[IllegalArgumentException] {
+      wide.copy(ooo = wide.ooo.copy(tuMapQDepthPerStid = 8))
+    }
+  }
+
   test("DTU trace packets cover a complete IFU transfer prefix") {
     val base = ParamProfiles.W8
     val error = intercept[IllegalArgumentException] {
@@ -111,7 +153,9 @@ class CoreConfigurationSpec extends AnyFunSuite {
       instructionDecodeWidth = 2,
       decodedUopWidth = 4,
       renameWidth = 4,
-      dispatchWidth = 4)
+      dispatchWidth = 4,
+      pTagGenerationWidth = 13,
+      localSeqGenerationWidth = 11)
     val convertedOoo = legacyOoo.toMainline
 
     assert(convertedCore.widths.decodeWidth == 2)
@@ -122,6 +166,8 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(convertedOoo.decodeWidth == 2)
     assert(convertedOoo.renameWidth == 4)
     assert(convertedOoo.dispatchWidth == 4)
+    assert(convertedOoo.gprTagGenerationWidth == 13)
+    assert(convertedOoo.localSeqGenerationWidth == 11)
   }
 
   test("central parameters construct value-only legacy adapters") {
@@ -138,6 +184,10 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(legacyOoo.instructionDecodeWidth == mainline.ooo.decodeWidth)
     assert(legacyOoo.renameWidth == mainline.ooo.renameWidth)
     assert(legacyOoo.dispatchWidth == mainline.ooo.dispatchWidth)
+    assert(legacyOoo.pTagGenerationWidth ==
+      mainline.ooo.gprTagGenerationWidth)
+    assert(legacyOoo.localSeqGenerationWidth ==
+      mainline.ooo.localSeqGenerationWidth)
     assert(legacyWideOoo.instructionDecodeWidth == 8)
   }
 }
