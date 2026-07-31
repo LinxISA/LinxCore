@@ -1,0 +1,235 @@
+package linxcore.ooo
+
+import chisel3._
+import chisel3.util.{Decoupled, PriorityEncoder}
+import linxcore.params.CoreParams
+import linxcore.top.interface._
+
+class VirtualRobGroupIntent(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val stid = UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.stidCount)).W)
+  val ridSlot = UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid)).W)
+  val ridGeneration = UInt(p.ridGenerationWidth.W)
+}
+
+class D2AdmissionLane(val p: CoreParams) extends Bundle {
+  val uop = new DecodedUop(p)
+  val trap = new DecodeTrapIntent(p)
+  val residentBound = Bool()
+  val brobBound = Bool()
+}
+
+/** Immutable D2 virtual allocation transaction. Physical ROB/BROB publication
+  * is deliberately absent; D3 remains the unique tail mutator.
+  */
+class D2AdmissionGroup(val p: CoreParams) extends Bundle {
+  val count = UInt(PrefixPacketContract.countWidth(p.widths.decodeWidth).W)
+  val groupCount = UInt(PrefixPacketContract.countWidth(p.widths.decodeWidth).W)
+  val groups = Vec(p.widths.decodeWidth, new VirtualRobGroupIntent(p))
+  val entries = Vec(p.widths.decodeWidth, new D2AdmissionLane(p))
+}
+
+class OOOD1D2IO(val p: CoreParams) extends Bundle {
+  val fromCtu = Flipped(Decoupled(new D1Packet(p)))
+  val ridTailSlot = Input(Vec(p.ooo.stidCount,
+    UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid)).W)))
+  val ridTailGeneration = Input(Vec(p.ooo.stidCount,
+    UInt(p.ridGenerationWidth.W)))
+  val recovery = Flipped(new RecoveryTargetIO(p))
+  val d2 = Decoupled(new D2AdmissionGroup(p))
+}
+
+/** Public OOO box, Task-7 slice: D1 decode plus retained D2 virtual admission. */
+class OOO(val p: CoreParams) extends Module {
+  val io = IO(new OOOD1D2IO(p))
+  private val width = p.widths.decodeWidth
+  private val stidWidth = math.max(1, chisel3.util.log2Ceil(p.ooo.stidCount))
+  private val ridSlotWidth =
+    math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid))
+  private def select[T <: Data](values: Vec[T], index: UInt): T =
+    if (p.ooo.stidCount == 1) values(0) else values(index)
+
+  val dec = Module(new DEC(p))
+  dec.io.in <> io.fromCtu
+
+  val valid = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(false.B)))
+  val rows = Reg(Vec(p.ooo.stidCount, new D2AdmissionGroup(p)))
+
+  val recoveryPending = RegInit(false.B)
+  val preparedValid = RegInit(false.B)
+  val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
+  val recoveryStid = recoveryPlan.trigger.stid
+  val prepareStid = io.recovery.prepare.bits.trigger.stid
+
+  private def terminalMatches(candidate: RecoveryPlan): Bool =
+    candidate.transactionId === recoveryPlan.transactionId &&
+      candidate.cause === recoveryPlan.cause &&
+      candidate.trigger.asUInt === recoveryPlan.trigger.asUInt &&
+      candidate.survivingTailValid === recoveryPlan.survivingTailValid &&
+      candidate.survivingTail.asUInt === recoveryPlan.survivingTail.asUInt &&
+      candidate.redirectPc === recoveryPlan.redirectPc &&
+      candidate.newEpoch === recoveryPlan.newEpoch
+
+  val preparedCompletes = !preparedValid || io.recovery.prepared.fire
+  val applyHit = recoveryPending && io.recovery.apply.valid &&
+    preparedCompletes && terminalMatches(io.recovery.apply.bits) &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply
+  val abortHit = recoveryPending && io.recovery.abort.valid &&
+    preparedCompletes && terminalMatches(io.recovery.abort.bits) &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort
+  val prepareFire = io.recovery.prepare.fire
+
+  io.recovery.prepare.ready := !recoveryPending &&
+    io.recovery.prepare.bits.trigger.stid < p.ooo.stidCount.U
+  io.recovery.prepared.valid := preparedValid
+  io.recovery.prepared.bits := recoveryPlan
+  when(prepareFire) {
+    recoveryPending := true.B
+    preparedValid := true.B
+    recoveryPlan := io.recovery.prepare.bits
+  }.elsewhen(applyHit || abortHit) {
+    recoveryPending := false.B
+    preparedValid := false.B
+  }.elsewhen(io.recovery.prepared.fire) {
+    preparedValid := false.B
+  }
+
+  val fence = Wire(Vec(p.ooo.stidCount, Bool()))
+  val cancel = Wire(Vec(p.ooo.stidCount, Bool()))
+  for (stid <- 0 until p.ooo.stidCount) {
+    fence(stid) := (recoveryPending && recoveryStid === stid.U) ||
+      (prepareFire && prepareStid === stid.U)
+    cancel(stid) := applyHit && recoveryStid === stid.U
+  }
+
+  val inputStid = dec.io.out.bits.entries(0).uop.instruction.parent.identity.stid
+  val inputInRange = inputStid < p.ooo.stidCount.U
+  val inputOccupied = Mux(inputInRange, select(valid, inputStid), true.B)
+  val inputFenced = Mux(inputInRange, select(fence, inputStid), true.B)
+
+  val admission = Wire(new D2AdmissionGroup(p))
+  admission := 0.U.asTypeOf(admission)
+  admission.count := dec.io.out.bits.count
+  val stateGroup = Wire(Vec(width + 1,
+    UInt(PrefixPacketContract.countWidth(width).W)))
+  val stateMembers = Wire(Vec(width + 1,
+    UInt(PrefixPacketContract.countWidth(
+      p.ooo.maxInstructionsPerRobGroup).W)))
+  val stateClosed = Wire(Vec(width + 1, Bool()))
+  val assignedGroup = Wire(Vec(width,
+    UInt(PrefixPacketContract.countWidth(width).W)))
+  val assignedMember = Wire(Vec(width,
+    UInt(math.max(1, chisel3.util.log2Ceil(
+      p.ooo.maxInstructionsPerRobGroup)).W)))
+  stateGroup(0) := 0.U
+  stateMembers(0) := 0.U
+  stateClosed(0) := false.B
+  for (lane <- 0 until width) {
+    val laneActive = lane.U < dec.io.out.bits.count
+    val needNewGroup = laneActive && stateMembers(lane).orR &&
+      (stateClosed(lane) ||
+        dec.io.out.bits.entries(lane).uop.blockBoundary ||
+        stateMembers(lane) === p.ooo.maxInstructionsPerRobGroup.U)
+    assignedGroup(lane) := stateGroup(lane) + needNewGroup.asUInt
+    assignedMember(lane) := Mux(needNewGroup, 0.U, stateMembers(lane))
+    stateGroup(lane + 1) := Mux(
+      laneActive, assignedGroup(lane), stateGroup(lane))
+    stateMembers(lane + 1) := Mux(
+      laneActive,
+      Mux(needNewGroup, 1.U, stateMembers(lane) + 1.U),
+      stateMembers(lane))
+    stateClosed(lane + 1) := Mux(
+      laneActive,
+      dec.io.out.bits.entries(lane).uop.blockBoundary,
+      stateClosed(lane))
+  }
+  val groupCount = Mux(
+    dec.io.out.bits.count.orR,
+    stateGroup(width) + 1.U,
+    0.U)
+  admission.groupCount := groupCount
+  for (group <- 0 until width) {
+    val activeGroup = group.U < groupCount
+    val slotSum = select(io.ridTailSlot, inputStid) +& group.U
+    val wraps = slotSum >= p.ooo.robGroupsPerStid.U
+    admission.groups(group).valid := activeGroup
+    admission.groups(group).peId :=
+      dec.io.out.bits.entries(0).uop.instruction.parent.identity.peId
+    admission.groups(group).stid := inputStid
+    admission.groups(group).ridSlot := slotSum(ridSlotWidth - 1, 0)
+    admission.groups(group).ridGeneration :=
+      select(io.ridTailGeneration, inputStid) + wraps.asUInt
+  }
+  for (lane <- 0 until width) {
+    val slotSum = select(io.ridTailSlot, inputStid) +& assignedGroup(lane)
+    val wraps = slotSum >= p.ooo.robGroupsPerStid.U
+    admission.entries(lane).uop := dec.io.out.bits.entries(lane).uop
+    admission.entries(lane).trap := dec.io.out.bits.entries(lane).trap
+    admission.entries(lane).uop.rob.peId :=
+      dec.io.out.bits.entries(lane).uop.instruction.parent.identity.peId
+    admission.entries(lane).uop.rob.stid :=
+      dec.io.out.bits.entries(lane).uop.instruction.parent.identity.stid
+    admission.entries(lane).uop.rob.ridSlot := slotSum(ridSlotWidth - 1, 0)
+    admission.entries(lane).uop.rob.ridGeneration :=
+      select(io.ridTailGeneration, inputStid) + wraps.asUInt
+    admission.entries(lane).uop.rob.memberIndex := assignedMember(lane)
+    admission.entries(lane).uop.rob.residentGeneration := 0.U
+    admission.entries(lane).uop.rob.bid := 0.U
+    admission.entries(lane).uop.rob.brobGeneration := 0.U
+    admission.entries(lane).residentBound := false.B
+    admission.entries(lane).brobBound := false.B
+  }
+
+  dec.io.out.ready := inputInRange && !inputOccupied && !inputFenced
+  when(dec.io.out.fire) {
+    for (stid <- 0 until p.ooo.stidCount) {
+      when(inputStid === stid.U) {
+        rows(stid) := admission
+        valid(stid) := true.B
+      }
+    }
+  }
+
+  val heldGrantValid = RegInit(false.B)
+  val heldGrantStid = RegInit(0.U(stidWidth.W))
+  val eligible = Wire(Vec(p.ooo.stidCount, Bool()))
+  for (stid <- 0 until p.ooo.stidCount) {
+    eligible(stid) := valid(stid) && !fence(stid) && !cancel(stid)
+  }
+  val selectedNew = if (p.ooo.stidCount == 1) 0.U(stidWidth.W)
+    else PriorityEncoder(eligible.asUInt)
+  val heldBlocked = heldGrantValid &&
+    (select(fence, heldGrantStid) || select(cancel, heldGrantStid) ||
+      !select(valid, heldGrantStid))
+  val useHeld = heldGrantValid && !heldBlocked
+  val selected = Mux(useHeld, heldGrantStid, selectedNew)
+  io.d2.valid := Mux(useHeld, select(valid, selected), eligible.asUInt.orR)
+  io.d2.bits := select(rows, selected)
+
+  when(io.d2.valid && !io.d2.ready && !useHeld) {
+    heldGrantValid := true.B
+    heldGrantStid := selected
+  }
+  when(heldBlocked) {
+    heldGrantValid := false.B
+  }
+  when(io.d2.fire) {
+    for (stid <- 0 until p.ooo.stidCount) {
+      when(selected === stid.U) {
+        valid(stid) := false.B
+      }
+    }
+    heldGrantValid := false.B
+  }
+  for (stid <- 0 until p.ooo.stidCount) {
+    when(cancel(stid)) {
+      valid(stid) := false.B
+    }
+  }
+
+  when(dec.io.out.fire) {
+    assert(dec.io.out.bits.count.orR)
+    assert(dec.io.out.bits.count <= width.U)
+  }
+}

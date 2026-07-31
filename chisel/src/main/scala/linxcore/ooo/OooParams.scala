@@ -412,4 +412,26 @@ object OooParams {
       uPhysRegs = p.uPhysRegs,
       tuMapQDepthPerStid = p.tuMapQDepthPerStid)
   }
+
+  /** Width-exact bridge for public modules that still reuse validated OOO
+    * mechanisms. Identity and generation widths come from CoreParams rather
+    * than the historical eight-bit defaults.
+    */
+  def fromCoreParams(p: linxcore.params.CoreParams): OooParams =
+    fromMainline(p.ooo).copy(
+      peIdWidth = p.peIdWidth,
+      pcWidth = p.pcWidth,
+      instructionWidth = p.instructionWidth,
+      opcodeWidth = p.opcodeWidth,
+      archRegWidth = p.archRegWidth,
+      trapCauseWidth = p.trapCauseWidth,
+      lsidWidth = p.lsidWidth,
+      transactionIdWidth = p.transactionIdWidth,
+      instructionIdWidth = p.instructionIdWidth,
+      predictionTagWidth = p.transactionIdWidth,
+      epochWidth = p.epochWidth,
+      ridGenerationWidth = p.ridGenerationWidth,
+      brobGenerationWidth = p.brobGenerationWidth,
+      residentGenerationWidth = p.residentGenerationWidth,
+      reservationEpochWidth = p.ridGenerationWidth)
 }

@@ -35,7 +35,7 @@ private[ooo] class OooD1DecodeLaneIO(val p: OooParams = OooParams()) extends Bun
 
 /** Exact decode and operand-normalization leaf for one architectural parent. */
 private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Module {
-  private val legacyP = InterfaceParams()
+  private val legacyP = InterfaceParams(blockEpochWidth = p.epochWidth)
   require(legacyP.insnWidth == p.instructionWidth)
   require(legacyP.opcodeWidth == p.opcodeWidth)
   require(legacyP.archRegWidth == p.archRegWidth)
