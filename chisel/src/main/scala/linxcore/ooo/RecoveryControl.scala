@@ -25,7 +25,10 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   val io = IO(new RecoveryControlIO(p, targetCount))
 
   private def memberOrdinal(id: RobIdentity): UInt =
-    Cat(id.ridGeneration, id.ridSlot, id.memberIndex)
+    Cat(id.stid, id.ridGeneration, id.ridSlot, id.memberIndex)
+
+  private def preciseTrap(event: RecoveryEvent): Bool =
+    event.cause === RecoveryCause.Exception && event.trap.valid
 
   val state = RegInit(RecoveryControlState.Idle)
   val pendingValid = RegInit(VecInit(Seq.fill(2)(false.B)))
@@ -80,16 +83,15 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
     selectedEvent := candidate(1)
   }
   when(candidateValid(2) &&
-    (!candidateValid(0) || candidate(0).cause =/= RecoveryCause.Exception) &&
-    (!candidateValid(1) || candidate(1).cause =/= RecoveryCause.Exception)) {
+    (!candidateValid(0) || !preciseTrap(candidate(0))) &&
+    (!candidateValid(1) || !preciseTrap(candidate(1)))) {
     selectedSource := 2.U
     selectedEvent := candidate(2)
   }
-  when(candidateValid(0) && candidate(0).cause === RecoveryCause.Exception) {
+  when(candidateValid(0) && preciseTrap(candidate(0))) {
     selectedSource := 0.U
     selectedEvent := candidate(0)
-  }.elsewhen(candidateValid(1) &&
-    candidate(1).cause === RecoveryCause.Exception) {
+  }.elsewhen(candidateValid(1) && preciseTrap(candidate(1))) {
     selectedSource := 1.U
     selectedEvent := candidate(1)
   }

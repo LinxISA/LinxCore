@@ -17,6 +17,9 @@ surviving tail, redirect, new epoch, and one compact ROB-authored killed
 suffix descriptor: `firstKilledValid`, `firstKilled`, `lastKilled`,
 `killedGroupCount`, and `killedMemberCount`. The descriptor identifies the
 unique contiguous live ROB suffix without emitting a capacity-sized vector.
+`killedGroupCount` counts affected ROB groups, not killed members, and the
+surviving tail names the exact ordered live member immediately before the
+suffix when one exists.
 Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
 exists.
 
@@ -25,6 +28,9 @@ Decoupled request/response. Targets receive the retained ROB plan in Prepare
 phase until their individual prepare fires, return one matching prepared
 transaction, and mutate only on the later common Apply broadcast. A matching
 Abort broadcast terminates the retained transaction without owner mutation.
+An exception event wins global arbitration only when it carries a precise trap
+payload; the `Exception` enum value alone does not outrank an older ordinary
+event.
 
 `RecoveryPlanContract` defines equality while ignoring only `phase`, exact
 membership in the compact suffix, and legal empty/non-empty suffix shape.

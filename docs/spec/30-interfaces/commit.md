@@ -10,7 +10,9 @@ Commit-side release to rename, ROB, and BROB owners shall use side-effect-free
 readiness followed by one common fire. The visible commit transaction, rename
 release, ROB release, and BROB release are one retained boundary; no physical
 row or previous physical register may be freed from a readiness check or from
-an unacknowledged `Valid` pulse.
+an unacknowledged `Valid` pulse. A zero-lane precise trap or interrupt
+boundary carries no ordinary release lanes and may fire once without requiring
+ROB, rename, or BROB release readiness.
 
 ## Commit transaction Bundle {#MEC-COMMIT-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-COMMIT-001 -->
@@ -27,4 +29,6 @@ architectural observation.
 `CommitControlTxn` carries the public commit prefix plus companion rename,
 ROB, and BROB release payloads. The owner-level ready signals are not
 acknowledgements; they are exact prepare decisions used to decide whether the
-single `CommitControl.out.fire` may authorize every release side effect.
+single `CommitControl.out.fire` may authorize every release side effect. ROB
+commit preview observation is side-effect-free; ROB retirement state advances
+only on the matching common commit-apply pulse.

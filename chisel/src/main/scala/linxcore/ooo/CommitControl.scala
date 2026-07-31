@@ -60,10 +60,13 @@ class CommitControl(val p: CoreParams) extends Module {
     (io.rob.bits.count =/= 0.U || io.rob.bits.headTrap.valid ||
       (anyInterrupt && io.interruptBoundaryValid))
   val candidateValid = heldValid || robTxnValid
-  val allReady = io.robReleaseReady && io.renameReleaseReady &&
+  val candidate = Wire(new CommitControlTxn(p))
+  candidate := Mux(heldValid, held, next)
+  val hasReleaseLanes = candidate.commit.count =/= 0.U
+  val releaseReady = io.robReleaseReady && io.renameReleaseReady &&
     io.brobReleaseReady
-  io.out.valid := candidateValid && allReady
-  io.out.bits := Mux(heldValid, held, next)
+  io.out.valid := candidateValid && (!hasReleaseLanes || releaseReady)
+  io.out.bits := candidate
   val txnAccepted = io.out.fire
   when(robTxnValid && !heldValid && !txnAccepted) {
     held := next

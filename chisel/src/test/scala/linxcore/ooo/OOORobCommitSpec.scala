@@ -33,6 +33,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.commit.ready.poke(true.B)
+    dut.io.commitApply.poke(false.B)
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.releaseApply.poke(false.B)
@@ -138,6 +139,13 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.completion.valid.poke(false.B)
   }
 
+  private def retirePreview(dut: ROB): Unit = {
+    dut.io.commit.valid.expect(true.B)
+    dut.io.commitApply.poke(true.B)
+    dut.clock.step()
+    dut.io.commitApply.poke(false.B)
+  }
+
   test("ROB publishes grouped D3 prefix, binds exact tails, and rejects stale reuse") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
@@ -155,6 +163,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.bits.count.expect(2.U)
       dut.io.commit.bits.entries(0).commit.rob.memberIndex.expect(0.U)
       dut.io.commit.bits.entries(1).commit.rob.memberIndex.expect(1.U)
+      retirePreview(dut)
       dut.io.release.valid.poke(true.B)
       dut.io.release.bits.count.poke(2.U)
       dut.io.release.bits.lanes(0).valid.poke(true.B)
@@ -163,6 +172,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.bits.lanes(1).rob.poke(ids(1))
       dut.clock.step()
       dut.io.release.valid.poke(false.B)
+      dut.io.releaseApply.poke(false.B)
 
       dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
       lane(dut.io.prepare.bits, 0, id = 3, rid = 1, member = 0,
@@ -226,7 +236,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       complete(dut, ids(1), accepted = true)
       dut.io.commit.bits.count.expect(1.U)
       dut.io.commit.ready.poke(true.B)
-      dut.clock.step()
+      retirePreview(dut)
       dut.io.commit.bits.count.expect(2.U)
     }
   }
@@ -325,6 +335,59 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("CommitControl zero-lane trap and interrupt bypass ordinary release readiness") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.headValid.poke(true.B)
+      dut.io.rob.bits.head.stid.poke(0.U)
+      dut.io.rob.bits.headTrap.valid.poke(true.B)
+      dut.io.rob.bits.headTrap.kind.poke(TrapKind.Exception)
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(false.B)
+      dut.io.renameReleaseReady.poke(false.B)
+      dut.io.brobReleaseReady.poke(false.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(0.U)
+      dut.io.out.bits.trap.kind.expect(TrapKind.Exception)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+      dut.io.rob.valid.poke(false.B)
+      dut.clock.step()
+
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.interruptBoundaryValid.poke(true.B)
+      dut.io.interruptBoundary.stid.poke(0.U)
+      dut.io.interrupts(0).valid.poke(true.B)
+      dut.io.interrupts(0).priority.poke(1.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.count.expect(0.U)
+      dut.io.out.bits.trap.kind.expect(TrapKind.Interrupt)
+    }
+  }
+
+  test("ROB preview observation does not retire before common commit apply") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 80, rid = 0, member = 0,
+        early = true, groupCount = 1)
+      val id = publish(dut, 1).head
+      dut.io.commit.ready.poke(true.B)
+      dut.io.commit.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(id)
+      dut.io.releaseReady.expect(false.B)
+      dut.io.commitApply.poke(true.B)
+      dut.clock.step()
+      dut.io.commitApply.poke(false.B)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
   test("ROB rejects malformed D3 shape and consumes exact BROB bindings") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
@@ -357,8 +420,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 60, rid = 0, member = 0,
         early = true, groupCount = 1)
       val id = publish(dut, 1).head
-      dut.io.commit.valid.expect(true.B)
-      dut.clock.step()
+      retirePreview(dut)
       dut.io.release.valid.poke(true.B)
       dut.io.release.bits.count.poke(1.U)
       dut.io.release.bits.lanes(0).valid.poke(false.B)
@@ -409,6 +471,36 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepare.bits.firstKilled.bid.poke(0.U)
       dut.io.recoveryPrepare.bits.firstKilled.brobGeneration.poke(1.U)
       dut.io.recoveryPrepare.ready.expect(false.B)
+    }
+  }
+
+  test("ROB rejects unsupported bank geometry and maps nontrivial bank profiles") {
+    val base = params(2).copy(ooo = params(2).ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 2))
+    simulate(new ROB(base)) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 90, rid = 0, member = 0,
+        early = true, groupCount = 1)
+      val id = publish(dut, 1).head
+      retirePreview(dut)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(id)
+      dut.io.releaseReady.expect(true.B)
+    }
+    val w4Base = params(4).copy(ooo = params(4).ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 4))
+    simulate(new ROB(w4Base)) { dut =>
+      clearRob(dut)
+      dut.io.ridTailSlot(0).expect(0.U)
+    }
+    assertThrows[IllegalArgumentException] {
+      simulate(new ROB(base.copy(ooo = base.ooo.copy(
+        robGroupsPerStid = 6,
+        robBankCount = 4)))) { _ => }
     }
   }
 

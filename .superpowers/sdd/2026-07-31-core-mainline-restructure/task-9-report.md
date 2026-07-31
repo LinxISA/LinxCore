@@ -97,3 +97,67 @@ Review verdict `SPEC FAIL / CHANGES_REQUESTED` identified six HIGH findings plus
 
 - `bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegrationSpec` was run as an exploratory legacy D3/S1/BROB check and failed twice at `commitValid.expect(true.B)`. That spec instantiates legacy `OooBrob` and `OooS1GroupedRob`, not the canonical Task-9 owners. It is recorded here as a legacy non-gate observation and was not repaired in this Task-9 fix scope.
 - `src/common/opcode_meta_gen.py` again acquired an unrelated generated side-effect diff during gates; it was restored before staging.
+
+## Fix Round 2
+
+Review round 2 identified six HIGH blockers in the canonical owners. This
+round added behavior RED tests against commit
+`95126c0e290b04a36dec013dcf3128ff7ad514d6` and repaired only the Task-9
+canonical owner path. The legacy `OooD3S1BrobIntegration` path remains outside
+this fix scope.
+
+### Fix-Round-2 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` failed
+  behaviorally after the new tests: zero-lane trap/interrupt transactions did
+  not assert `out.valid` without ordinary release readiness, and observing a
+  ROB preview made `releaseReady` true before any common commit-apply boundary.
+- The initial nontrivial-bank RED test used an illegal W4/2 parameter profile
+  and failed during `CoreParams` validation; it was corrected to legal W2/2
+  and W4/4 profiles while preserving unsupported-geometry coverage.
+
+### Fix-Round-2 Repairs
+
+- `CommitControl` now bypasses ordinary release readiness only for zero-lane
+  trap/interrupt transactions, so head traps and interrupt boundaries can fire
+  exactly once without fabricated owner releases.
+- `ROB` exposes `commitApply` and mutates `Completed -> Retired`,
+  `orderCommitHead`, and `orderCommitCount` only on that common apply pulse.
+  A preview handshake remains side-effect-free.
+- `ROB` storage is physically banked by `robBankCount` with bank/row helpers
+  and a divisible geometry guard. The tests cover legal 8/2 and 8/4 profiles
+  and an unsupported geometry.
+- `ROB` recovery prepare derives killed members and killed groups from the
+  ordered live-member suffix, preserves the exact survivor tail, and recovery
+  apply invalidates the matching order suffix before repairing tail/count
+  state.
+- `BROB` recovery apply uses an exact suffix kill mask, subtracts only the
+  killed blocks from `used`, preserves older blocks and unrelated STIDs, and
+  clears the current block only when that current block is killed.
+- `RecoveryControl` no longer lets the `Exception` enum value outrank an older
+  event unless the exception event carries a precise trap. Its age key now
+  includes STID.
+
+### Fix-Round-2 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 14 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 12 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+- `git diff --check` - PASS.
+
+### Fix-Round-2 Notes
+
+- `src/common/opcode_meta_gen.py` acquired the known unrelated generated
+  side-effect diff during gates; it was restored before staging.
+- No `.ninja_lock` files were left in the worktree.

@@ -18,6 +18,7 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val completionAccepted = Valid(new RobIdentity(p))
   val completionRejected = Valid(new RobIdentity(p))
   val commit = Decoupled(new OOORobCommitPreview(p))
+  val commitApply = Input(Bool())
   val release = Flipped(Valid(new OOORobReleaseTxn(p)))
   val releaseReady = Output(Bool())
   val releaseApply = Input(Bool())
@@ -35,6 +36,7 @@ class ROBIO(val p: CoreParams) extends Bundle {
 class ROB(val p: CoreParams) extends Module {
   require(p.ooo.robBankCount > 0)
   require(p.ooo.robBankCount <= p.ooo.robGroupsPerStid)
+  require(p.ooo.robGroupsPerStid % p.ooo.robBankCount == 0)
 
   val io = IO(new ROBIO(p))
 
@@ -43,6 +45,21 @@ class ROB(val p: CoreParams) extends Module {
   private val memberWidth = InterfaceWidth.index(p.ooo.maxInstructionsPerRobGroup)
   private val retireWidth = p.widths.retireWidth
   private val d3Width = p.ooo.d3PrefixWidth
+  private val robRowsPerBank = p.ooo.robGroupsPerStid / p.ooo.robBankCount
+
+  private def fitIndex(value: UInt, size: Int): UInt = {
+    val width = log2Ceil(size)
+    if (size == 1) 0.U(0.W) else Cat(0.U(width.W), value)(width - 1, 0)
+  }
+
+  private def stidIndex(stid: UInt): UInt =
+    fitIndex(stid, p.ooo.stidCount)
+
+  private def robBank(slot: UInt): UInt =
+    fitIndex(slot % p.ooo.robBankCount.U, p.ooo.robBankCount)
+
+  private def robRow(slot: UInt): UInt =
+    fitIndex(slot / p.ooo.robBankCount.U, robRowsPerBank)
 
   private def safeStid(stid: UInt): UInt =
     if (p.ooo.stidCount == 1) 0.U(stidWidth.W) else stid
@@ -53,21 +70,32 @@ class ROB(val p: CoreParams) extends Module {
     (sum(slotWidth - 1, 0), wrap)
   }
 
-  val state = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
-    VecInit(Seq.fill(p.ooo.robGroupsPerStid)(
-      VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup)(ROBState.Free)))))))
-  val memberLive = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
-    VecInit(Seq.fill(p.ooo.robGroupsPerStid)(
-      VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup)(false.B)))))))
+  val state = RegInit(VecInit(Seq.fill(p.ooo.stidCount) {
+    VecInit(Seq.fill(p.ooo.robBankCount) {
+      VecInit(Seq.fill(robRowsPerBank) {
+        VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup) { ROBState.Free })
+      })
+    })
+  }))
+  val memberLive = RegInit(VecInit(Seq.fill(p.ooo.stidCount) {
+    VecInit(Seq.fill(p.ooo.robBankCount) {
+      VecInit(Seq.fill(robRowsPerBank) {
+        VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup) { false.B })
+      })
+    })
+  }))
   val identities = Reg(Vec(p.ooo.stidCount,
-    Vec(p.ooo.robGroupsPerStid,
-      Vec(p.ooo.maxInstructionsPerRobGroup, new RobIdentity(p)))))
+    Vec(p.ooo.robBankCount,
+      Vec(robRowsPerBank,
+        Vec(p.ooo.maxInstructionsPerRobGroup, new RobIdentity(p))))))
   val commits = Reg(Vec(p.ooo.stidCount,
-    Vec(p.ooo.robGroupsPerStid,
-      Vec(p.ooo.maxInstructionsPerRobGroup, new CommitEntry(p)))))
+    Vec(p.ooo.robBankCount,
+      Vec(robRowsPerBank,
+        Vec(p.ooo.maxInstructionsPerRobGroup, new CommitEntry(p))))))
   val renames = Reg(Vec(p.ooo.stidCount,
-    Vec(p.ooo.robGroupsPerStid,
-      Vec(p.ooo.maxInstructionsPerRobGroup, new RenameCommitReleaseEntry(p)))))
+    Vec(p.ooo.robBankCount,
+      Vec(robRowsPerBank,
+        Vec(p.ooo.maxInstructionsPerRobGroup, new RenameCommitReleaseEntry(p))))))
 
   val headSlot = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(slotWidth.W))))
   val headGeneration =
@@ -80,10 +108,28 @@ class ROB(val p: CoreParams) extends Module {
     RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(p.ridGenerationWidth.W))))
   val groupCount = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(PrefixPacketContract.countWidth(p.ooo.robGroupsPerStid).W))))
-  val residentGeneration = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
-    VecInit(Seq.fill(p.ooo.robGroupsPerStid)(
-      VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup)(
-        0.U(p.residentGenerationWidth.W))))))))
+  val residentGeneration = RegInit(VecInit(Seq.fill(p.ooo.stidCount) {
+    VecInit(Seq.fill(p.ooo.robBankCount) {
+      VecInit(Seq.fill(robRowsPerBank) {
+        VecInit(Seq.fill(p.ooo.maxInstructionsPerRobGroup) {
+          0.U(p.residentGenerationWidth.W)
+        })
+      })
+    })
+  }))
+
+  private def stateAt(stid: UInt, slot: UInt, member: UInt) =
+    state(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+  private def memberLiveAt(stid: UInt, slot: UInt, member: UInt) =
+    memberLive(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+  private def identityAt(stid: UInt, slot: UInt, member: UInt) =
+    identities(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+  private def commitAt(stid: UInt, slot: UInt, member: UInt) =
+    commits(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+  private def renameAt(stid: UInt, slot: UInt, member: UInt) =
+    renames(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+  private def residentGenerationAt(stid: UInt, slot: UInt, member: UInt) =
+    residentGeneration(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
   private val orderCapacity = p.ooo.robCapacityPerStid
   private val orderPtrWidth = InterfaceWidth.index(orderCapacity)
   val orderIds = Reg(Vec(p.ooo.stidCount,
@@ -162,7 +208,7 @@ class ROB(val p: CoreParams) extends Module {
         row.uop.decoded.rob.ridGeneration === expectedGen &&
         row.uop.decoded.rob.memberIndex < p.ooo.maxInstructionsPerRobGroup.U &&
         continuousMember &&
-        !memberLive(prepareStid)(expectedSlot)(row.uop.decoded.rob.memberIndex))
+        !memberLiveAt(prepareStid, expectedSlot, row.uop.decoded.rob.memberIndex))
   }.reduce(_ && _)
   val brobExact = (0 until d3Width).map { lane =>
     val active = lane.U < io.prepare.bits.count
@@ -195,7 +241,7 @@ class ROB(val p: CoreParams) extends Module {
         io.brobPrepared.entries(lane).brobGeneration
     }
     prepared.entries(lane).rob.residentGeneration :=
-      residentGeneration(prepareStid)(rid)(member)
+      residentGenerationAt(prepareStid, rid, member)
     prepared.entries(lane).commit.instruction :=
       in.uop.decoded.instruction.parent.identity
     prepared.entries(lane).commit.rob := prepared.entries(lane).rob
@@ -225,11 +271,11 @@ class ROB(val p: CoreParams) extends Module {
         val stid = safeStid(id.stid)
         val slot = id.ridSlot
         val member = id.memberIndex
-        identities(stid)(slot)(member) := id
-        commits(stid)(slot)(member) := prepared.entries(lane).commit
-        renames(stid)(slot)(member) := prepared.entries(lane).rename
-        memberLive(stid)(slot)(member) := true.B
-        state(stid)(slot)(member) := Mux(
+        identityAt(stid, slot, member) := id
+        commitAt(stid, slot, member) := prepared.entries(lane).commit
+        renameAt(stid, slot, member) := prepared.entries(lane).rename
+        memberLiveAt(stid, slot, member) := true.B
+        stateAt(stid, slot, member) := Mux(
           io.prepare.bits.entries(lane).earlyRobComplete,
           ROBState.Completed,
           ROBState.Live)
@@ -283,12 +329,12 @@ class ROB(val p: CoreParams) extends Module {
     completionRejectedReg := !compHit
     when(compHit) {
       orderCompleted(compStid)(compIndex) := true.B
-      state(compStid)(comp.ridSlot)(comp.memberIndex) := ROBState.Completed
-      commits(compStid)(comp.ridSlot)(comp.memberIndex).resultValid :=
+      stateAt(compStid, comp.ridSlot, comp.memberIndex) := ROBState.Completed
+      commitAt(compStid, comp.ridSlot, comp.memberIndex).resultValid :=
         io.completion.bits.destinationValid
-      commits(compStid)(comp.ridSlot)(comp.memberIndex).result :=
+      commitAt(compStid, comp.ridSlot, comp.memberIndex).result :=
         io.completion.bits.value
-      commits(compStid)(comp.ridSlot)(comp.memberIndex).trap :=
+      commitAt(compStid, comp.ridSlot, comp.memberIndex).trap :=
         io.completion.bits.trap
     }
   }
@@ -342,18 +388,19 @@ class ROB(val p: CoreParams) extends Module {
   val useRetained = retainedValid
   io.commit.valid := useRetained || previewTxnValid
   io.commit.bits := Mux(useRetained, retained, preview)
+  val commitApplyFire = io.commit.valid && io.commitApply
   when(io.commit.valid && !io.commit.ready && !retainedValid) {
     retained := preview
     retainedValid := true.B
-  }.elsewhen(io.commit.fire && retainedValid) {
+  }.elsewhen(commitApplyFire && retainedValid) {
     retainedValid := false.B
   }
-  when(io.commit.fire) {
+  when(commitApplyFire) {
     for (lane <- 0 until retireWidth) {
       when(lane.U < io.commit.bits.count) {
         val id = io.commit.bits.entries(lane).commit.rob
         val stid = safeStid(id.stid)
-        state(stid)(id.ridSlot)(id.memberIndex) := ROBState.Retired
+        stateAt(stid, id.ridSlot, id.memberIndex) := ROBState.Retired
         for (idx <- 0 until orderCapacity) {
           when(orderValid(stid)(idx) && orderIds(stid)(idx).asUInt === id.asUInt) {
             orderRetired(stid)(idx) := true.B
@@ -388,11 +435,11 @@ class ROB(val p: CoreParams) extends Module {
         orderValid(releaseStid)(expectedIdx) &&
         orderRetired(releaseStid)(expectedIdx) &&
         orderIds(releaseStid)(expectedIdx).asUInt === id.asUInt &&
-        memberLive(releaseStid)(id.ridSlot)(id.memberIndex) &&
-        identities(releaseStid)(id.ridSlot)(id.memberIndex).asUInt === id.asUInt)
+        memberLiveAt(releaseStid, id.ridSlot, id.memberIndex) &&
+        identityAt(releaseStid, id.ridSlot, id.memberIndex).asUInt === id.asUInt)
     val youngerLiveSameGroup = (0 until p.ooo.maxInstructionsPerRobGroup).map { member =>
       member.U > id.memberIndex &&
-        memberLive(releaseStid)(id.ridSlot)(member)
+        memberLiveAt(releaseStid, id.ridSlot, member.U)
     }.reduce(_ || _)
     releaseGroupFinished(lane) := active && releaseLaneExact(lane) &&
       !youngerLiveSameGroup
@@ -409,15 +456,15 @@ class ROB(val p: CoreParams) extends Module {
     for (lane <- 0 until retireWidth) {
       when(lane.U < io.release.bits.count) {
         val id = io.release.bits.lanes(lane).rob
-        memberLive(releaseStid)(id.ridSlot)(id.memberIndex) := false.B
-        state(releaseStid)(id.ridSlot)(id.memberIndex) := ROBState.Free
+        memberLiveAt(releaseStid, id.ridSlot, id.memberIndex) := false.B
+        stateAt(releaseStid, id.ridSlot, id.memberIndex) := ROBState.Free
         for (idx <- 0 until orderCapacity) {
           when(orderValid(releaseStid)(idx) && orderIds(releaseStid)(idx).asUInt === id.asUInt) {
             orderValid(releaseStid)(idx) := false.B
           }
         }
-        residentGeneration(releaseStid)(id.ridSlot)(id.memberIndex) :=
-          residentGeneration(releaseStid)(id.ridSlot)(id.memberIndex) + 1.U
+        residentGenerationAt(releaseStid, id.ridSlot, id.memberIndex) :=
+          residentGenerationAt(releaseStid, id.ridSlot, id.memberIndex) + 1.U
       }
     }
     val releasedGroups = PopCount(releaseGroupFinished)
@@ -457,13 +504,27 @@ class ROB(val p: CoreParams) extends Module {
   preparedPlan.firstKilledValid := recHit && firstOffset < orderCount(recStid)
   preparedPlan.firstKilled := orderIds(recStid)(firstIdx)
   preparedPlan.lastKilled := orderIds(recStid)(lastIdx)
-  val killedFromTrigger = groupCount(recStid) - recOffset
   val killedMembers = orderCount(recStid) - firstOffset
-  preparedPlan.killedGroupCount := killedMembers
+  val killedGroupStarts = Wire(Vec(orderCapacity, Bool()))
+  for (off <- 0 until orderCapacity) {
+    val active = recHit && off.U >= firstOffset && off.U < orderCount(recStid)
+    val idx = orderPlus(orderHead(recStid), off.U)
+    val prevOff = Mux(off.U === 0.U, 0.U, off.U - 1.U)
+    val prevIdx = orderPlus(orderHead(recStid), prevOff)
+    val startsSuffix = off.U === firstOffset
+    val startsNewGroup =
+      orderIds(recStid)(idx).ridGeneration =/=
+        orderIds(recStid)(prevIdx).ridGeneration ||
+        orderIds(recStid)(idx).ridSlot =/=
+          orderIds(recStid)(prevIdx).ridSlot
+    killedGroupStarts(off) := active && (startsSuffix || startsNewGroup)
+  }
+  preparedPlan.killedGroupCount := PopCount(killedGroupStarts)
   preparedPlan.killedMemberCount := killedMembers
-  preparedPlan.survivingTailValid := recOffset =/= 0.U
-  preparedPlan.survivingTail := recIn.trigger
-  preparedPlan.survivingTail.ridSlot := recIn.trigger.ridSlot - 1.U
+  preparedPlan.survivingTailValid := recHit && firstOffset =/= 0.U
+  val survivingTailOffset = Mux(firstOffset === 0.U, 0.U, firstOffset - 1.U)
+  val survivingTailIdx = orderPlus(orderHead(recStid), survivingTailOffset)
+  preparedPlan.survivingTail := orderIds(recStid)(survivingTailIdx)
 
   io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.ready
   io.recoveryPrepared.bits := Mux(recoveryPending, recoveryPlan, preparedPlan)
@@ -477,17 +538,26 @@ class ROB(val p: CoreParams) extends Module {
     val stid = safeStid(recoveryPlan.trigger.stid)
     for (slot <- 0 until p.ooo.robGroupsPerStid) {
       for (member <- 0 until p.ooo.maxInstructionsPerRobGroup) {
-        val id = identities(stid)(slot)(member)
+        val id = identityAt(stid, slot.U, member.U)
         when(RecoveryPlanContract.suffixMember(recoveryPlan, id) &&
-          memberLive(stid)(slot)(member)) {
-          memberLive(stid)(slot)(member) := false.B
-          state(stid)(slot)(member) := ROBState.Free
-          residentGeneration(stid)(slot)(member) :=
-            residentGeneration(stid)(slot)(member) + 1.U
+          memberLiveAt(stid, slot.U, member.U)) {
+          memberLiveAt(stid, slot.U, member.U) := false.B
+          stateAt(stid, slot.U, member.U) := ROBState.Free
+          residentGenerationAt(stid, slot.U, member.U) :=
+            residentGenerationAt(stid, slot.U, member.U) + 1.U
         }
       }
     }
     when(recoveryPlan.firstKilledValid) {
+      for (off <- 0 until orderCapacity) {
+        val idx = orderPlus(orderHead(stid), off.U)
+        when(off.U < orderCount(stid) && orderValid(stid)(idx) &&
+          RecoveryPlanContract.suffixMember(recoveryPlan, orderIds(stid)(idx))) {
+          orderValid(stid)(idx) := false.B
+          orderCompleted(stid)(idx) := false.B
+          orderRetired(stid)(idx) := false.B
+        }
+      }
       val (afterPartialSlot, afterPartialWrap) =
         slotPlus(recoveryPlan.firstKilled.ridSlot, 1.U)
       val killsWholeFirstGroup = recoveryPlan.firstKilled.memberIndex === 0.U
@@ -511,6 +581,9 @@ class ROB(val p: CoreParams) extends Module {
   when(io.prepare.valid) {
     assert(io.prepare.bits.count <= d3Width.U)
     assert(io.prepare.bits.groupCount <= io.prepare.bits.count)
+  }
+  when(io.commitApply) {
+    assert(io.commit.valid)
   }
   assert(!(completionAcceptedReg && completionRejectedReg))
 }

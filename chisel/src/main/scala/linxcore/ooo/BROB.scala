@@ -185,22 +185,31 @@ class BROB(val p: CoreParams) extends Module {
     io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryApply.bits, recoveryPlan)
+  val recoveryApplyStid = safeStid(recoveryPlan.trigger.stid)
+  val recoveryKilledMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
+  for (bid <- 0 until p.ooo.brobEntriesPerStid) {
+    recoveryKilledMask(bid) := recoveryPlan.firstKilledValid &&
+      tableValid(recoveryApplyStid)(bid) &&
+      tableLastRob(recoveryApplyStid)(bid).stid === recoveryPlan.trigger.stid &&
+      RecoveryPlanContract.suffixMember(
+        recoveryPlan, tableLastRob(recoveryApplyStid)(bid))
+  }
+  val recoveryKilledCount = PopCount(recoveryKilledMask)
   when(recoveryApplyHit) {
-    val recSt = safeStid(recoveryPlan.trigger.stid)
     when(recoveryPlan.firstKilledValid) {
       for (bid <- 0 until p.ooo.brobEntriesPerStid) {
-        when(tableValid(recSt)(bid) &&
-          tableLastRob(recSt)(bid).stid === recoveryPlan.trigger.stid &&
-          RecoveryPlanContract.suffixMember(
-            recoveryPlan, tableLastRob(recSt)(bid))) {
-          tableValid(recSt)(bid) := false.B
-          tableClosed(recSt)(bid) := false.B
+        when(recoveryKilledMask(bid)) {
+          tableValid(recoveryApplyStid)(bid) := false.B
+          tableClosed(recoveryApplyStid)(bid) := false.B
         }
       }
-      tail(recSt) := recoveryPlan.firstKilled.bid
-      generation(recSt) := recoveryPlan.firstKilled.brobGeneration
-      used(recSt) := 0.U
-      currentValid(recSt) := false.B
+      tail(recoveryApplyStid) := recoveryPlan.firstKilled.bid
+      generation(recoveryApplyStid) := recoveryPlan.firstKilled.brobGeneration
+      used(recoveryApplyStid) := used(recoveryApplyStid) - recoveryKilledCount
+      when(currentValid(recoveryApplyStid) &&
+        recoveryKilledMask(currentBid(recoveryApplyStid))) {
+        currentValid(recoveryApplyStid) := false.B
+      }
     }
     recoveryPending := false.B
   }

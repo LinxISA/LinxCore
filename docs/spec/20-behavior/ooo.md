@@ -220,7 +220,11 @@ be consumed at the inspection boundary and reported as accepted or rejected
 separately; stale, duplicate, wrong-generation, wrong-member, or wrong-BID
 completions MUST NOT mutate ROB state. Release readiness MUST be
 side-effect-free and MUST validate the complete retained prefix before the
-common commit fire can retire or deallocate any row.
+common commit fire can retire or deallocate any row. ROB commit preview
+observation MUST NOT move an entry from `Completed` to `Retired`; that state
+transition is owned by the explicit common commit-apply boundary. ROB resident
+member state is physically indexed by `robBankCount` bank/row geometry, and
+unsupported non-divisible bank profiles MUST fail closed.
 
 ## Own per-STID BROB residency exactly {#OOO-011}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,D-IDENTITY-001 -->
@@ -232,9 +236,10 @@ typed block stop, and mutate table/head/tail state only on the common
 publication fire. Release readiness MUST validate the complete retained
 prefix and free the head block only when the exact final ROB member for that
 block is included. Recovery prepare MUST be non-mutating; recovery apply MUST
-match the retained plan and prune only the target-STID suffix. Stale BID
-generation release or recovery attempts MUST be rejected without changing
-unrelated STIDs.
+match the retained plan and prune only the target-STID suffix while preserving
+older blocks, current surviving blocks, exact `used` accounting, and unrelated
+STIDs. Stale BID generation release or recovery attempts MUST be rejected
+without changing unrelated STIDs.
 
 ## Retain in-order commit until every release owner accepts {#OOO-012}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-009,OOO-010,IFC-COMMIT-001 -->
@@ -243,7 +248,10 @@ unrelated STIDs.
 prefix, rename-release transaction, BROB release, ROB release, and trap
 selection while any consumer backpressures or withholds side-effect-free
 readiness. `CommitControl.out.valid` is the common fire candidate and MUST be
-asserted only when ROB, RENU, and BROB all report exact release readiness. The
+asserted for non-empty commit prefixes only when ROB, RENU, and BROB all
+report exact release readiness. Zero-lane head trap and interrupt-boundary
+transactions MUST be allowed to fire once without fabricating ordinary release
+readiness. The
 retained prefix MUST NOT be recomputed or repeated while a `Valid` ROB preview
 remains asserted after the common fire. `Completed` and `Retired` are separate
 ROB states; physical ROB rows and previous physical registers are freed only
@@ -258,14 +266,17 @@ primary projection.
 `linxcore.ooo.RecoveryControl` MUST be the sole global recovery event arbiter
 and plan distributor. Producer events are retained until ROB accepts the
 selected request. A synchronous head trap wins over an interrupt at the same
-precise boundary; interrupts are admitted only at an explicit precise ROB head
-boundary. Recovery prepare MUST ask ROB for one retained `RecoveryPlan`
+precise boundary; an `Exception` cause without a precise trap payload MUST NOT
+outrank an older ordinary recovery event. Interrupts are admitted only at an
+explicit precise ROB head boundary. Recovery prepare MUST ask ROB for one
+retained `RecoveryPlan`
 containing the exact compact killed suffix, offer the identical plan exactly
 once to every target in `Prepare`, wait for every matching acknowledgement,
 ignore mismatched acknowledgements, and emit one common one-cycle `Apply`.
 Branch recovery preserves the trigger and kills younger members; memory-order
-replay recovery kills the trigger and younger members. Abort MUST be
-non-mutating.
+replay recovery kills the trigger and younger members. ROB-authored recovery
+plans MUST distinguish killed member count from affected ROB group count and
+must identify the exact surviving ordered tail. Abort MUST be non-mutating.
 
 ## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->
@@ -287,6 +298,7 @@ checks, whole-prefix release rejection, final-member BROB release, retained
 commit under independent owner readiness, secondary-destination release
 history, precise trap priority, memory-order recovery, branch same-group
 younger-member kill, exact suffix membership including generation and member
-index, source arbitration, ROB recovery request/response, one-prepare-per
-target barriers, mismatched acknowledgement rejection, common apply, and
-non-mutating abort.
+index, distinct killed member/group counts, survivor-tail repair, BROB
+survivor accounting, nontrivial ROB bank geometry, source arbitration, ROB
+recovery request/response, one-prepare-per target barriers, mismatched
+acknowledgement rejection, common apply, and non-mutating abort.
