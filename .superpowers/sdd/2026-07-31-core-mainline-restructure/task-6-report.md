@@ -108,3 +108,28 @@ Review-fix GREEN evidence:
 - `git diff --check` -> exit 0; no whitespace errors.
 
 No production code changed in the review-fix round. The remaining TOP/OOO backend-validation wiring gap is unchanged and remains deferred to the later integration packet.
+
+## Review Fixes Round 2
+
+Round 2 found one remaining Important issue: BF3 was still covered only by `Prediction.providerRank`, not by a real public `BSide` simulation.
+
+I attempted to add that simulation without production-only hooks. The public behavior did not produce an observable BF3 response under multiple real and public-path setups, so I stopped test tweaking per instruction and did not leave a failing test in the branch.
+
+Round-2 RED evidence:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1; compile failed because the first reset helper used nonexistent `IfuInnerFlushReason.Start`.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1; BF3 setup with trained ShortTage, overwritten lower BTBs, and seeded BF2 sidecar produced no response within 24 cycles.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1; manual epoch-0 ShortTage training then drain failed the existing assertion `prediction correction must restore an exact B-F0 history checkpoint`, proving the training request had already released its checkpoint before a late correction.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1; normal public training plus alias/seeded sidecar produced no response within 24 cycles.
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1; real-pipeline BF2/BIM-then-BF3 setup produced no response within 128 cycles.
+
+Round-2 conclusion:
+
+- The seeded-sidecar attempts were invalid because `BSidePredictionPipeline` deliberately overwrites incoming request prediction with the Sequential initial payload.
+- The real-pipeline attempt should have left pBTB/BIM trained for B-F2 and ShortTage trained for B-F3 through public `BSide` behavior, then reset GHR before a new target request. The request still produced no progressive response within 128 cycles.
+- This is no longer just a coverage-gap edit. It needs a production investigation/fix lane for BF3 observability/arbitration before a passing BF3 simulation can be committed.
+
+Round-2 GREEN evidence after removing the failing exploratory test edits:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 0; 6 tests passed.
+- `bash tools/chisel/build_chisel.sh` -> exit 0; Chisel build completed successfully.
