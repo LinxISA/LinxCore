@@ -42,6 +42,16 @@ the canonical Fetch Buffer until its transaction has a final prediction
 sidecar or an explicit sequential result. Later prediction correction MUST use
 the same recovery path as every other IFU redirect.
 
+## Keep B-SIDE prediction speculative {#IFU-008}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=IFU-005,IFU-004,D-IDENTITY-001 -->
+
+B-SIDE MUST be the only IFU predictor state owner. I-SIDE and B-SIDE are
+independent and non-lockstep; matching across the engines MUST use STID,
+request identity, generation or epoch, and checkpoint identity. Speculative
+provider order is B-F4, B-F3, B-F2, B-F1, B-F0, then sequential. Backend typed
+recovery is not a prediction provider and MUST override any unpublished
+prediction correction through the recovery path.
+
 ## Leave backend identity allocation to OOO {#IFU-006}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=IFC-IFU-CTU-001,IFC-CTU-OOO-001,ARC-TOP-031 -->
 
@@ -85,6 +95,17 @@ The prediction join retains I-SIDE groups and prediction updates under the
 same fetch transaction. It publishes groups in order only after I-SIDE
 completion and final prediction availability. Correction and terminal steering
 remain explicit events rather than edits to already transferred packets.
+
+## B-SIDE prediction mechanism {#MEC-IFU-006}
+<!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFU-008 -->
+
+`linxcore.ifu.BSide` is the public owner boundary for B-F0 through B-F4 and
+reuses the existing retained predictor/history implementation as its body.
+BTB, BIM, TAGE, loop, RAS, GHR, response, training, and checkpoint recovery
+state MUST remain below that one boundary. `linxcore.ifu.IFURecovery` is the
+canonical redirect arbiter, and `linxcore.ifu.IFUBackendFeedback` converts
+OOO-authored validation into paired training and typed backend recovery. IFU
+MUST NOT expose a direct IEX control input.
 
 ## IFU recovery mechanism {#MEC-IFU-004}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFU-004,IFU-006 -->

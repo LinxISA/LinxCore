@@ -42,6 +42,56 @@ push identities are filled only after the corresponding operation succeeds.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
 
+## Loop 6 — B-SIDE prediction and IFU recovery consolidation
+
+- Scope: Task 6 only. This loop creates the public `linxcore.ifu.BSide`,
+  `Prediction`, and `IFURecovery`/`IFUBackendFeedback` boundaries, wires
+  `LinxCoreIfu` through those names, and keeps the public `IFU` W2/W4/W6/W8
+  fixed-64-bit delivery surface unchanged. It does not add a second predictor,
+  history queue, redirect arbiter, or backend feedback state owner.
+- Baselines: implementation started from LinxCore
+  `833c354cb38a3e3d2d47226a62c4b4e2b2f03dbb`; superproject
+  `54635e8cb1119e5f199228cb7db330b168bf7dc0`; LinxCoreModel
+  `31555f49dbb020c8eb9f26f7df98310a7415b69d`; QEMU
+  `c9f9570aa70da7e193ff8857bd9bde2cf052e546`.
+- Governing clauses: `IFU-001..008`, `MEC-IFU-001..006`,
+  `IFC-IFU-CTU-001`, `MEC-IFU-CTU-001`, `IFC-RECOVERY-001`,
+  `VER-IFU-001..005`, and the interface manifest clause. Interface Bundle
+  shapes did not change, so the generated top-interface manifest is a check
+  input rather than a regenerated artifact.
+- Interface fanout: producer `IFU`/`ISide`/`BSide`; consumers CTU, external
+  memory, and OOO-authored recovery/validation producers. Backend facts enter
+  IFU only as OOO-authored validation or typed recovery data; there is no
+  direct IEX-to-IFU control input.
+- RED evidence: `IFUPredictionSpec` and `IFURecoverySpec` first failed
+  compilation with missing `BSide`, `IFURecovery`, and `IFUBackendFeedback`
+  symbols, proving that the public boundary did not exist.
+- GREEN evidence: `IFUPredictionSpec` passes three checks covering B-F4 rank
+  over lower speculative providers, stale training rejection without predictor
+  mutation, and public B-SIDE elaboration. `IFURecoverySpec` passes four checks
+  covering backend-over-prediction priority, retained redirect hold under
+  backpressure, OOO-authored feedback with no IEX control port, and atomic
+  mispredict training plus backend recovery. `IFUCTUIntegrationSpec` passes two
+  checks covering retained IFU-to-CTU backpressure, scoped recovery fence/apply,
+  and W2/W4/W6/W8 public IFU elaboration with explicit B-SIDE/recovery modules.
+- Adjacent evidence: `IFUISideSpec`, `CTUSpec`, interface/manifest/NDF checks,
+  Chisel build, Verilator lint, and diff hygiene are recorded in the Task 6
+  report after the full wrapper ladder completes.
+- Result: prediction remains speculative and owned below one B-SIDE boundary;
+  typed recovery remains singular and overrides unpublished prediction
+  corrections through the canonical redirect owner. The IFU-to-CTU payload
+  remains the same complete fixed-64-bit fetched-packet interface from Loop 5.
+- Remaining gap: public IFU exposes typed recovery today; live backend
+  validation/training waits for the later TOP/OOO integration packet to supply
+  the OOO-authored producer. Natural ELF/commit evidence remains Tasks 18–19.
+- skill-evolve: no-update — the reusable invariants are already covered by the
+  existing LinxCore workflow: single state owner, exact identity matching,
+  retained ready/valid, and OOO-owned recovery authority.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Keep prediction speculative while recovery authority remains singular`.
+- Push target: `origin/codex/chisel-gap-superpowers`; controller will push.
+
 ## Loop 2 — Central parameters and configurable profiles
 
 - Scope: Task 2 plus the NDF interface-contract refinement requested while the

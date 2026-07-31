@@ -77,7 +77,7 @@ twice while multiple cachelines are in flight.
 
 ## Redirect and Epoch Ownership
 
-`IfuRedirectArbiter` is the sole canonical epoch allocator. Proposal priority
+`linxcore.ifu.IFURecovery` wraps the sole canonical epoch allocator. Proposal priority
 is:
 
 ```text
@@ -97,10 +97,12 @@ when accepted. The returned canonical prune restores the request-owned B-F0
 GHR and complete RAS snapshots, then applies each delta once. ITLB miss carries
 unkeyed GHR/RAS restore actions so B-SIDE can use the trigger row or oldest
 killed snapshot; start carries explicit GHR/RAS reset.
-`IfuBackendFeedbackBridge` constructs backend BRU recovery with the retained
-mispredict row key plus actual conditional and RAS deltas. The accepted event
-still enters through `backendRedirect`; the bridge never bypasses canonical
-epoch allocation.
+`linxcore.ifu.IFUBackendFeedback` constructs backend BRU recovery with the
+retained mispredict row key plus actual conditional and RAS deltas. The
+accepted event still enters through `backendRedirect`; the bridge never
+bypasses canonical epoch allocation and has no direct IEX control port. The
+public `IFU` shell does not instantiate this queue without a live OOO-authored
+producer.
 Non-branch OOO exception/nuke/debug/CTU recovery uses the typed
 `OooRecovery` reason. It follows the same canonical epoch owner and broadcast
 path; only the proposal source and prune metadata differ.
@@ -134,9 +136,10 @@ The canonical production owner graph is deliberately small:
 | Boundary | Production owner |
 |---|---|
 | I-SIDE | `ISideF0PcSelect` through `ISideF4Predecode`, `ISideITLB`, `ISideL1I`, `ISideFetchMissTable`, `ISideLineContextQueue` |
-| B-SIDE | `BSidePredictionPipeline`, `BSideHistoryQueue` |
+| B-SIDE | `linxcore.ifu.BSide` over `BSidePredictionPipeline`, `BSideHistoryQueue` |
 | Join and queue | `IfuPredictionJoin`, `InstructionBuffer`, `D1DecodeGroupGather` |
-| External transport | `IfuLineMemoryBridge`, `IfuBackendFeedbackBridge` |
+| Recovery and feedback | `linxcore.ifu.IFURecovery`, `linxcore.ifu.IFUBackendFeedback` |
+| External transport | `IfuLineMemoryBridge` |
 | Production composition | `LinxCoreComposition` |
 
 The historical body-geometry helpers were renamed from migration-era
@@ -204,6 +207,15 @@ The R682 identity/rank packet additionally proves that I-F2 rejects a
 checkpoint collision, I-F3 rejects a continuation collision despite matching
 transaction/STID/epoch, B-F4 keeps long-TAGE above static fallback, and
 non-conditional resolutions do not train BIM/TAGE.
+
+The Loop 6 public-boundary packet additionally proves that the new
+`linxcore.ifu` B-SIDE wrapper preserves B-F4 provider rank and stale-training
+rejection, `IFURecovery` gives backend typed recovery priority over a held
+prediction correction while retaining redirect backpressure, `IFUBackendFeedback`
+pairs mispredict training with backend recovery atomically and exposes no IEX
+control port, and public `IFU` W2/W4/W6/W8 elaboration contains the explicit
+B-SIDE and redirect-recovery boundaries without changing the fixed-64-bit IFU-to-CTU
+payload.
 
 Run:
 

@@ -31,3 +31,15 @@ or BROB identity allocation from the IFU-to-CTU payload.
 `IFUISideSpec` shall hold the trace consumer not ready across multiple
 IFU-to-CTU transfers, prove that instruction delivery continues, and prove
 that the already-presented trace packet remains stable.
+
+## B-SIDE and recovery conformance {#VER-IFU-005}
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=IFU-008,MEC-IFU-006,MEC-IFU-004 -->
+
+`IFUPredictionSpec` shall check public B-SIDE provider rank behavior,
+checkpoint-owned stale training rejection, and elaboration under the
+`linxcore.ifu` package. `IFURecoverySpec` shall check backend-over-prediction
+redirect priority, retained redirect hold under backpressure, atomic
+mispredict training plus recovery, and the absence of a direct IEX control
+port. `IFUCTUIntegrationSpec` shall check retained IFU-to-CTU backpressure,
+scoped recovery fencing, and W2/W4/W6/W8 public IFU elaboration with explicit
+B-SIDE and redirect-recovery boundaries.

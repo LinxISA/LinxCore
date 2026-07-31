@@ -11,6 +11,38 @@ private object ISideMemoryKind extends ChiselEnum {
   val Line, Translation = Value
 }
 
+object ISide {
+  def interfaceParams(p: CoreParams): InterfaceParams = {
+    val ingressWidth = 4
+    val checkpointWidth =
+      math.max(1, log2Ceil(p.ifu.predictionCheckpointEntries))
+    val threadWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+    InterfaceParams(
+      fetchWidth = ingressWidth,
+      decodeWidth = ingressWidth,
+      issueWidth = 4,
+      commitWidth = 4,
+      pcWidth = p.pcWidth,
+      windowWidth = 64,
+      opcodeWidth = p.opcodeWidth,
+      insnWidth = p.instructionWidth,
+      lenWidth = 4,
+      archRegWidth = p.archRegWidth,
+      physRegWidth = math.max(6, log2Ceil(p.ooo.gprPhysRegs)),
+      robEntries = p.ooo.robGroupsPerStid,
+      iqEntries = p.iex.scalarIssueEntries,
+      blockBidWidth = 64,
+      blockUidWidth = p.instructionIdWidth,
+      uopUidWidth = p.transactionIdWidth,
+      lsidWidth = p.lsidWidth,
+      checkpointWidth = checkpointWidth,
+      peIdWidth = p.peIdWidth,
+      threadIdWidth = threadWidth,
+      trapCauseWidth = p.trapCauseWidth,
+      blockEpochWidth = p.epochWidth)
+  }
+}
+
 private class ISideMemoryFault(
     val p: CoreParams,
     val fp: InterfaceParams)
@@ -206,32 +238,7 @@ private class ISideMemoryAdapter(
 /** Canonical IFU I-SIDE owner and fixed-64-bit delivery boundary. */
 class ISide(val p: CoreParams) extends Module {
   private val ingressWidth = 4
-  private val checkpointWidth =
-    math.max(1, log2Ceil(p.ifu.predictionCheckpointEntries))
-  private val threadWidth = math.max(1, log2Ceil(p.ooo.stidCount))
-  private val fp = InterfaceParams(
-    fetchWidth = ingressWidth,
-    decodeWidth = ingressWidth,
-    issueWidth = 4,
-    commitWidth = 4,
-    pcWidth = p.pcWidth,
-    windowWidth = 64,
-    opcodeWidth = p.opcodeWidth,
-    insnWidth = p.instructionWidth,
-    lenWidth = 4,
-    archRegWidth = p.archRegWidth,
-    physRegWidth = math.max(6, log2Ceil(p.ooo.gprPhysRegs)),
-    robEntries = p.ooo.robGroupsPerStid,
-    iqEntries = p.iex.scalarIssueEntries,
-    blockBidWidth = 64,
-    blockUidWidth = p.instructionIdWidth,
-    uopUidWidth = p.transactionIdWidth,
-    lsidWidth = p.lsidWidth,
-    checkpointWidth = checkpointWidth,
-    peIdWidth = p.peIdWidth,
-    threadIdWidth = threadWidth,
-    trapCauseWidth = p.trapCauseWidth,
-    blockEpochWidth = p.epochWidth)
+  private val fp = ISide.interfaceParams(p)
 
   val io = IO(new IFUIO(p))
 

@@ -3,6 +3,7 @@ package linxcore.frontend
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 import linxcore.common.InterfaceParams
+import linxcore.ifu.{BSide, IFURecovery}
 
 class LinxCoreIfuIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -95,8 +96,8 @@ class LinxCoreIfu(
   val lineContexts = Module(new ISideLineContextQueue(p, lineBytes, joinEntries))
   val f3 = Module(new ISideF3LineAssembler(p, lineBytes))
   val f4 = Module(new ISideF4Predecode(p, threadCount))
-  val bSide = Module(new BSidePredictionPipeline(p, lineBytes, threadCount))
-  val redirects = Module(new IfuRedirectArbiter(p, threadCount))
+  val bSide = Module(new BSide(p, lineBytes, threadCount))
+  val redirects = Module(new IFURecovery(p, threadCount))
   val join =
     Module(new IfuPredictionJoin(p, lineBytes, joinEntries, maxGroupsPerTransaction))
   val instructionBuffer =

@@ -108,12 +108,15 @@ class ISideF0PcSelect(
       Mux1H(
         (0 until threadCount).map(thread =>
           (selectedThread === thread.U) -> predictionContextValid(thread)))
-  val selectedPredictionContext =
-    if (threadCount == 1) predictionContexts(0)
-    else
-      Mux1H(
-        (0 until threadCount).map(thread =>
-          (selectedThread === thread.U) -> predictionContexts(thread)))
+  val selectedPredictionContext = Wire(new BranchPredictionRecord(p))
+  selectedPredictionContext := predictionContexts(0)
+  if (threadCount > 1) {
+    for (thread <- 1 until threadCount) {
+      when(selectedThread === thread.U) {
+        selectedPredictionContext := predictionContexts(thread)
+      }
+    }
+  }
 
   val predictionQueue =
     Module(new Queue(new ISideFetchRequest(p, lineBytes), predictionQueueDepth, pipe = true, flow = false))
