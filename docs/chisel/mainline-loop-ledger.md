@@ -87,3 +87,65 @@ push identities are filled only after the corresponding operation succeeds.
   `Keep every width and resource choice explicit at one boundary`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
+
+## Loop 3 — Typed TOP interfaces and generated manifest
+
+- Scope: Task 3 only, plus the smallest wrapper repair needed to execute the
+  required generated-RTL lint; no box state or datapath was migrated.
+- Skills: repository-pinned `using-superpowers`, `executing-plans`,
+  `using-git-worktrees`, `test-driven-development`,
+  `systematic-debugging`, `requesting-code-review`,
+  `verification-before-completion`, and the `linx-core` domain workflow.
+- Workflow: establish eight interface contract homes; observe the missing-L3
+  coverage failure; add Bundle tests and observe the missing-type compile
+  failure; implement canonical transactions and box IOs; generate JSON and
+  Markdown projections from the canonical payload Bundles; run focused,
+  compatibility, build, NDF, generated-file, and Verilator gates; resolve an
+  independent code review before closeout.
+- RED evidence: the NDF checker reported exactly eight missing verification
+  edges for the new L1 interface requirements. `TopInterfaceSpec` then failed
+  because `FetchedPacket`, `D1Packet`, identities, uops, boundary IOs, and the
+  manifest model did not exist.
+- GREEN evidence: the interface suite passes eight checks across W2/W4/W6/W8,
+  count-only prefixes, 64-bit instruction containers, generation-qualified
+  identities, configurable native BID slots, P/T/U rename tags, independent
+  CMD and LDA/STA/STD paths, prepare/prepared/apply/abort recovery, retained
+  payload assertions, and aggregate IO elaboration. The manifest suite passes
+  two checks and `render_top_interface_manifest.py --check` reports exact
+  generated JSON/Markdown parity. The NDF profile reports 58 clauses, 25 L1
+  MUST clauses, 26 verified targets, zero open questions, and two pinned
+  references.
+- Compatibility evidence: the existing `InterfaceBundles` suite passes nine
+  tests and `CoreConfigurationSpec` passes nine tests. The standard Chisel
+  build and full existing-top Verilator lint pass. These are no-regression and
+  structural evidence only; this loop does not claim new-mainline composition
+  or workload replacement.
+- Debug evidence: the first full lint attempt exhausted a 1 GiB JVM because
+  `emit_verilog.sh` did not consume the validated
+  `LINX_CHISEL_SBT_MEM_MB` boundary used by the build and test wrappers. The
+  wrapper now sources the shared environment and passes the configured heap to
+  the server invocation. After one clean cache restoration, elaboration and
+  Verilator lint complete successfully.
+- Review evidence: independent review found that the first manifest omitted
+  recovery `prepared` and `abort`, and that native BID was fixed at eight bits.
+  The manifest now covers the complete recovery target protocol and guards its
+  channel set against `RecoveryTargetIO`; native BID width derives from the
+  configurable per-STID BROB slot count while BROB generation remains
+  independent. Directed 64- and 512-slot tests prove six- and nine-bit BID
+  shapes.
+- Result: every cross-box payload has one canonical class under
+  `top/interface`; each box and TOP has one directioned IO aggregate; every
+  manifest endpoint names an NDF contract home; and checked-in generated
+  projections are rejected when they drift from the Scala model.
+- Remaining gap: the new IO classes are not yet connected to box
+  implementations. Task 4 owns CTU and its retained Instruction Buffer before
+  IFU/OOO composition begins.
+- skill-evolve: no-update — exact identity separation, recovery
+  prepare/apply, retained ready/valid payloads, and the 4 GiB wrapper contract
+  are already present in the LinxCore workflow; this loop applies them to the
+  new interface boundary.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Give every box one typed contract and one direction of authority`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded in the loop handoff after the immutable commit exists.

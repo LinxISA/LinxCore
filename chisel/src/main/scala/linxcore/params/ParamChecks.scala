@@ -68,8 +68,29 @@ object ParamChecks {
     require(p.ctu.instructionBits == 64, "CTU instruction container must be 64 bits")
     require(p.instructionWidth == 64, "core instruction container must be 64 bits")
     require(p.pcWidth == 64, "LinxCore PC width must be 64 bits")
+    require(p.opcodeWidth == 12, "canonical opcode identity must preserve 12 bits")
     require(p.archRegWidth >= 6, "architectural register width must cover reg6")
     require(p.lsidWidth >= 32, "LSID width must preserve at least 32 bits")
+    require(p.peIdWidth > 0, "PE identity width must be positive")
+    require(p.instructionIdWidth > 0, "instruction identity width must be positive")
+    require(p.transactionIdWidth > 0, "transaction identity width must be positive")
+    require(p.epochWidth > 0, "instruction epoch width must be positive")
+    require(p.brobGenerationWidth > 0, "BROB generation width must be positive")
+    require(p.ridGenerationWidth > 0, "ROB generation width must be positive")
+    require(
+      p.residentGenerationWidth > 0,
+      "resident generation width must be positive")
+    require(
+      p.memoryTransactionIdWidth > 0 &&
+        p.memoryTransactionGenerationWidth > 0 &&
+        p.memoryAttemptGenerationWidth > 0,
+      "memory identities must carry transaction, generation, and attempt domains")
+    require(p.trapCauseWidth > 0, "trap cause width must be positive")
+    require(
+      p.physicalAddressWidth == 64 && p.dataWidth == 64,
+      "mainline scalar memory boundary is 64-bit")
+    require(p.maxSourceOperands > 0, "source operand count must be positive")
+    require(p.maxDestinationOperands > 0, "destination operand count must be positive")
 
     require(
       p.ifu.fetchBufferEntries >= p.ifu.fetchWidth,
