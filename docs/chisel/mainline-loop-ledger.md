@@ -149,3 +149,72 @@ push identities are filled only after the corresponding operation succeeds.
   `Give every box one typed contract and one direction of authority`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
+
+## Loop 4 — CTU template descriptions and retained Instruction Buffer
+
+- Scope: Task 4 only. This loop creates the new CTU box, canonical template
+  child descriptions, retained D1 buffering, CTU behavior clauses, and focused
+  verification. It does not connect IFU or OOO and does not migrate ROB,
+  BROB, rename, issue, or LSU state.
+- Baselines: LinxCore `34e337d393893e095361457eb639a7eb2c572694`,
+  superproject `54635e8cb1119e5f199228cb7db330b168bf7dc0`,
+  LinxCoreModel `31555f49dbb020c8eb9f26f7df98310a7415b69d`, and
+  QEMU `c9f9570aa70da7e193ff8857bd9bde2cf052e546`.
+- Skills: repository-pinned `using-superpowers`, `executing-plans`,
+  `test-driven-development`, `systematic-debugging`,
+  `requesting-code-review`, `verification-before-completion`, and the
+  `linx-core` domain workflow.
+- Workflow: inspect the generated opcode catalog and existing canonical
+  template row definitions; add CTU and Instruction Buffer tests first;
+  observe the missing-module RED; implement catalog-backed template
+  recognition, child descriptors, retained packetization, scoped recovery and
+  trace; replace an expensive square compaction network with ordered sparse
+  slots; add L1/L2 behavior clauses, observe missing L3 coverage, then add
+  executable conformance edges; run focused, adjacent, build, profile and
+  generated-RTL gates; resolve independent review before closeout.
+- RED evidence: `CTUSpec` and `InstructionBufferSpec` first failed compilation
+  because `CTU`, `TemplateDecode`, `TemplateExpand`, and the retained
+  `InstructionBuffer` did not exist. The NDF checker later reported five
+  missing `verifies` edges for `CTU-001..005` and exposed one misspelled
+  ownership reference.
+- GREEN evidence: `CTUSpec` passes eleven checks covering width-wide ordinary
+  transfer, complete identity/prediction retention, FENTRY/FEXIT/FRET recipes,
+  malformed-range fallback, multi-packet expansion, cross-parent ordering,
+  stable backpressure, exact prepare/apply and abort recovery, retained trace,
+  W2/W4/W6/W8 packetization, and absence of backend state owners.
+  `InstructionBufferSpec` passes four new checks; its wildcard gate also keeps
+  thirteen existing frontend buffer checks green. `TopInterfaceSpec` passes
+  eight checks. The standard Chisel build and existing-top Verilator lint pass.
+  The NDF profile reports 69 clauses, 30 L1 MUST clauses, 31 verified targets,
+  zero open questions and two pinned references.
+- Independent review: a separate code-review pass inspected all four CTU RTL
+  owners, both focused test suites, both NDF documents, and the adjacent opcode
+  metadata state. It reported zero blocker, high, or medium findings and
+  independently reran `CTUSpec` at eleven of eleven and `TopInterfaceSpec` at
+  eight of eight.
+- Debug evidence: the first implementation used a self-referential decode
+  match wire, which FIRRTL correctly rejected as a combinational cycle. A
+  catalog-order expression chain removed the cycle. The first exact recovery
+  compactor selected every destination from every retained 64-bit operation
+  and made one CTU test run take almost sixteen minutes. Ordered sparse slots
+  with one 64-bit enqueue order per entry reduce selection to
+  `ctuOutputWidth × instructionBufferEntries`; the same suite completes in
+  under two minutes while preserving target-STID invalidation and unrelated
+  order.
+- Result: ordinary and template-derived operations share one retained D1
+  stream. Template children retain their raw parent and describe only row
+  identity, ordinal, count and child immediate; OOO remains responsible for
+  D1/D2 validation and D3 resource reservation. IFU readiness is registered
+  away from OOO readiness through packet retention and pre-cycle buffer
+  credit.
+- Remaining gap: CTU is not yet connected to the new IFU and OOO boxes.
+  Tasks 5–7 own I-SIDE delivery, B-SIDE/recovery composition, and D1/D2
+  validation plus ROB admission.
+- skill-evolve: no-update — this loop applies existing generated-decode,
+  retained ready/valid, exact recovery, and single-owner rules. It adds no
+  reusable invariant beyond the installed LinxCore workflow.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Make template expansion a retained boundary instead of frontend glue`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded in the loop handoff after the immutable commit exists.
