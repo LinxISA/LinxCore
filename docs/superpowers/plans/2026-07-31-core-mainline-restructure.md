@@ -302,6 +302,47 @@ decode/rename/dispatch、IEX issue 和 packet manifest。执行单元数、LSU p
 `ParamChecks`。已选默认值与仍允许 elaboration 的集合都保留在条款中，
 避免把当前默认拓扑误写成不可配置常量。
 
+### 4.4 IFU -> CTU -> OOO refinement chain
+
+前端接口不以一张扁平字段表作为设计源，而是按可观察行为、实现机制和验证证据
+形成一条可追踪的精化链：
+
+| Refinement layer | IFU -> CTU | CTU -> OOO |
+|---|---|---|
+| L1 observable contract | `IFC-IFU-CTU-001`: IFU 交付按程序序排列的完整指令前缀；stall 时保持稳定；恢复后不泄漏被清理指令 | `IFC-CTU-OOO-001`: CTU 交付保序的 encoded/template-op 前缀；OOO admission 反压不得丢失或重复成员 |
+| L2 mechanism | `MEC-IFU-CTU-001`: `FetchedPacket(count, entries)`，每项携带完整 64-bit 容器、原始长度、fetch/prediction/fault identity；不携带临时 ROB/BROB allocation | `MEC-CTU-OOO-001`: `D1Packet(count, entries)`，成员为 `FrontEndOp` tagged union；模板展开成员保留 parent/member identity |
+| L3 executable check | `IFUISideSpec`、`IFUCTUIntegrationSpec`、W2/W4/W6/W8 manifest、stall/recovery assertions | `CTUSpec`、`CTUOOOIntegrationSpec`、W2/W4/W6/W8 admission、identity round trip 和 recovery pruning |
+
+状态所有权沿该链只向前移动一次：IFU `FetchBuffer` 拥有已拼接
+`FetchedInstruction`；CTU `InstructionBuffer` 拥有已分类/展开的
+`FrontEndOp`；OOO D1/D2 才执行统一 decode、uop classification 和
+ROB/BROB identity admission。预测 checkpoint、fetch fault 和 instruction
+identity 必须穿过 CTU 保持原值；CTU 不得预分配 ROB/BROB，也不得根据 IEX
+资源限制裁剪 uop。恢复使用独立 typed transaction，不把 flush、redirect 或
+commit 掩码塞进数据 payload。
+
+### 4.5 Interface change work order
+
+Task 3 之后的每个接口相关 implementation loop 必须以一份可复现工作单开始：
+
+1. 记录 `docs/spec` 所在 LinxCore commit 作为 spec baseline，并列出本任务
+   直接修改或实现的 L1/L2 clause ID。
+2. 读取这些 clause 在 `refines`、`depends-on`、`couples-with` 和
+   `verifies` 图上的一跳邻域；禁止只看 Scala Bundle 后猜测语义。
+3. 在写 RTL 前列出 producer、consumer、TOP wiring、parameter check、
+   recovery/commit handling、generated manifest 和 adjacent-box test 的
+   fanout。任何一项不适用都要写出理由。
+4. 新字段或新通道必须先归入现有 contract home；若改变 observable
+   contract，则同一提交增加 decision record。替换既有条款时保留原 ID 并用
+   `superseded-by` 指向新条款，不静默删除。
+5. 提交前运行 NDF checker、Bundle/manifest check 和被影响的 adjacent-box
+   integration test，并在 loop ledger 中记录 clause delta 与剩余未覆盖边界。
+
+接口评审使用“语义 diff”而不只看文本 diff：逐项检查条款新增/修改/替代、
+typed edge 变化、L1 coverage 变化、Bundle leaf 变化及 endpoint fanout。
+测试发现的歧义先落为 `Q-*` open clause，再由 decision record 关闭；不得只在
+测试或会话记录中保留未决设计。
+
 ## 5. Execution Tasks
 
 ### Task 1: Establish the contract spine and reference boundary
