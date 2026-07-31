@@ -579,9 +579,8 @@ class ROB(val p: CoreParams) extends Module {
     io.recoveryAbort.bits.phase === RecoveryPhase.Abort &&
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryAbort.bits, recoveryPlan)
-  assert(!(recoveryApplyHit && recoveryAbortHit))
 
-  when(recoveryApplyHit) {
+  when(recoveryApplyHit && !recoveryAbortHit) {
     val stid = safeStid(recoveryPlan.trigger.stid)
     retainedValid := false.B
     for (slot <- 0 until p.ooo.robGroupsPerStid) {

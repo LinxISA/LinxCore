@@ -312,3 +312,75 @@ Task-9 owners, public interfaces, tests, and docs.
 - No `.ninja_lock` files were left in the worktree.
 - `skill-evolve: no-update` - round 4 did not add a reusable LinxCore workflow
   invariant beyond the Task-9 spec/docs changes already recorded.
+
+## Fix Round 5
+
+Review round 5 identified two remaining HIGH blockers in the canonical
+Task-9 recovery terminal protocol. This round added RED-first tests against
+`0ccbd2d5a29444870998ca4754361f634c4c2d74`, then repaired only canonical
+Task-9 recovery source, tests, and docs.
+
+### Fix-Round-5 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed at
+  compile after the RED tests because `RecoveryControlIO.robAbort` did not
+  exist. This proved the missing exact ROB request-abort terminal before
+  production IO was added.
+- The same RED patch added behavior cases for abort before `robPrepare.fire`,
+  abort after `robPrepare.fire` while waiting for `robPrepared`, final target
+  acknowledgement with same-cycle abort, abort during visible Apply, and
+  simultaneous matching Apply/Abort on ROB and BROB.
+- After adding the IO and first production repair, the owner spec exposed
+  test/setup and behavior timing gaps: the old retained-abort test had not
+  actually reached target-prepare state, the new event helper mismatched ROB
+  status `peId`, and the round-5 regressions then passed after the fixtures
+  targeted the intended protocol phases.
+
+### Fix-Round-5 Repairs
+
+- `RecoveryControlIO` now exposes `robAbort: Valid[RecoveryPlan]` for the ROB
+  request side of the recovery protocol.
+- Abort in `RequestRob` before `robPrepare.fire` cancels locally with no ROB
+  or target terminal. Abort after `robPrepare.fire` but before
+  `robPrepared.fire` moves to a retained wait state, accepts only the exact
+  ROB response, and emits the matching ROB abort without broadcasting a
+  default or stale target plan.
+- Abort after the ROB-authored plan is retained emits the exact retained plan
+  to target abort ports and the ROB abort port exactly once. Abort coincident
+  with the final target acknowledgement has non-mutating priority over Apply,
+  while abort during an already visible Apply is ignored for that committed
+  plan.
+- ROB and BROB standalone terminal arbitration now gate suffix mutation with
+  `!recoveryAbortHit`; simultaneous matching Apply and Abort clears the
+  retained transaction through Abort without mutating resident state.
+- Recovery interface and OOO behavior docs now describe the request-side ROB
+  abort terminal, abort priority at target-prepare completion, visible-Apply
+  irrevocability, and fail-closed simultaneous terminal behavior.
+
+### Fix-Round-5 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 27 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+
+### Fix-Round-5 Notes
+
+- `python3 tools/chisel/render_top_interface_manifest.py` was run after adding
+  `robAbort`; the emitted top-interface manifest had no diff because
+  `RecoveryControlIO` is not part of that manifest surface.
+- Work-order wrappers `tools/chisel/check_interface_manifest.sh` and
+  `tools/ndf/check_ndf.sh` remain absent in this checkout; equivalent gates
+  were run as listed above.
+- `skill-evolve: no-update` - round 5 did not add a reusable LinxCore workflow
+  invariant beyond the Task-9 recovery contract/docs changes.

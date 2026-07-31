@@ -245,9 +245,8 @@ class BROB(val p: CoreParams) extends Module {
     io.recoveryAbort.bits.phase === RecoveryPhase.Abort &&
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryAbort.bits, recoveryPlan)
-  assert(!(recoveryApplyHit && recoveryAbortHit))
   val recoveryApplyStid = safeStid(recoveryPlan.trigger.stid)
-  when(recoveryApplyHit) {
+  when(recoveryApplyHit && !recoveryAbortHit) {
     when(recoveryPlan.firstKilledValid) {
       for (bid <- 0 until p.ooo.brobEntriesPerStid) {
         when(recoveryKilledMaskReg(bid)) {

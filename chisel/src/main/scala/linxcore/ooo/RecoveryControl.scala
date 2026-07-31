@@ -6,7 +6,8 @@ import linxcore.params.CoreParams
 import linxcore.top.interface._
 
 object RecoveryControlState extends ChiselEnum {
-  val Idle, ResolveCandidates, RequestRob, WaitRob, PrepareTargets, Apply = Value
+  val Idle, ResolveCandidates, RequestRob, WaitRob, WaitRobAbort,
+    PrepareTargets, Apply = Value
 }
 
 class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle {
@@ -19,6 +20,7 @@ class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle 
   val robCandidateStatus = Input(Vec(2, Valid(new RecoveryCandidateStatus(p))))
   val robPrepare = Decoupled(new RecoveryPlan(p))
   val robPrepared = Flipped(Decoupled(new RecoveryPlan(p)))
+  val robAbort = Valid(new RecoveryPlan(p))
   val targets = Vec(targetCount, new RecoveryTargetIO(p))
 }
 
@@ -45,6 +47,7 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   val ackMask = RegInit(0.U(targetCount.W))
   val applyPulse = RegInit(false.B)
   val abortPulse = RegInit(false.B)
+  val robAbortPulse = RegInit(false.B)
 
   val interruptEvent = Wire(new RecoveryEvent(p))
   interruptEvent := 0.U.asTypeOf(interruptEvent)
@@ -192,10 +195,15 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   seedPlan.redirectPc := activeEvent.redirectPc
   seedPlan.newEpoch := activeEvent.instruction.epoch + 1.U
 
-  io.robPrepare.valid := state === RecoveryControlState.RequestRob
+  io.robPrepare.valid := state === RecoveryControlState.RequestRob && !io.abort
   io.robPrepare.bits := seedPlan
-  io.robPrepared.ready := state === RecoveryControlState.RequestRob ||
-    state === RecoveryControlState.WaitRob
+  io.robPrepared.ready :=
+    (state === RecoveryControlState.RequestRob && !io.abort) ||
+      state === RecoveryControlState.WaitRob ||
+      state === RecoveryControlState.WaitRobAbort
+  io.robAbort.valid := robAbortPulse
+  io.robAbort.bits := plan
+  io.robAbort.bits.phase := RecoveryPhase.Abort
 
   when(state === RecoveryControlState.Idle &&
     (candidateValid(0) || candidateValid(1) || candidateValid(2))) {
@@ -264,18 +272,33 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
     }
   }
 
-  when(state === RecoveryControlState.RequestRob && io.robPrepare.fire &&
-    !io.robPrepared.fire) {
+  when(state === RecoveryControlState.RequestRob && io.abort) {
+    state := RecoveryControlState.Idle
+  }.elsewhen(state === RecoveryControlState.RequestRob &&
+    io.robPrepare.fire && !io.robPrepared.fire) {
     state := RecoveryControlState.WaitRob
   }
 
-  when((state === RecoveryControlState.RequestRob ||
-    state === RecoveryControlState.WaitRob) && io.robPrepared.fire) {
+  when(state === RecoveryControlState.WaitRob && io.abort &&
+    !io.robPrepared.fire) {
+    state := RecoveryControlState.WaitRobAbort
+  }
+
+  val robPreparedFire = (state === RecoveryControlState.RequestRob ||
+    state === RecoveryControlState.WaitRob ||
+    state === RecoveryControlState.WaitRobAbort) && io.robPrepared.fire
+  when(robPreparedFire) {
     plan := io.robPrepared.bits
     plan.phase := RecoveryPhase.Prepare
     sentMask := 0.U
     ackMask := 0.U
-    state := RecoveryControlState.PrepareTargets
+    when(state === RecoveryControlState.WaitRobAbort ||
+      (state === RecoveryControlState.WaitRob && io.abort)) {
+      robAbortPulse := true.B
+      state := RecoveryControlState.Idle
+    }.otherwise {
+      state := RecoveryControlState.PrepareTargets
+    }
   }
 
   val sentHits = Wire(Vec(targetCount, Bool()))
@@ -306,8 +329,12 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
     sentMask := nextSent
     ackMask := nextAck
   }
-  when(state === RecoveryControlState.PrepareTargets && nextSent.andR &&
-    nextAck.andR) {
+  when(state === RecoveryControlState.PrepareTargets && io.abort) {
+    abortPulse := true.B
+    robAbortPulse := true.B
+    state := RecoveryControlState.Idle
+  }.elsewhen(state === RecoveryControlState.PrepareTargets &&
+    nextSent.andR && nextAck.andR) {
     applyPulse := true.B
     state := RecoveryControlState.Apply
   }.elsewhen(state === RecoveryControlState.Apply) {
@@ -317,10 +344,20 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
     applyPulse := false.B
   }
 
-  when(io.abort && state =/= RecoveryControlState.Idle) {
-    abortPulse := true.B
+  when(state === RecoveryControlState.ResolveCandidates && io.abort) {
+    for (idx <- 0 until 2) {
+      resolvingValid(idx) := false.B
+      resolvedValid(idx) := false.B
+    }
+    resolvingInterruptValid := false.B
     state := RecoveryControlState.Idle
-  }.elsewhen(abortPulse) {
+  }
+
+  when(abortPulse) {
     abortPulse := false.B
   }
+  when(robAbortPulse) {
+    robAbortPulse := false.B
+  }
+  assert(!(applyPulse && abortPulse))
 }

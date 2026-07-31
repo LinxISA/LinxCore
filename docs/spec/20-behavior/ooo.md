@@ -283,14 +283,27 @@ contender. Recovery prepare MUST ask ROB for one
 retained `RecoveryPlan`
 containing the exact compact killed suffix, offer the identical plan exactly
 once to every target in `Prepare`, wait for every matching acknowledgement,
-ignore mismatched acknowledgements, and emit one common one-cycle `Apply`.
+ignore mismatched acknowledgements, and emit exactly one terminal decision.
+If abort arrives before ROB accepts the request, RecoveryControl cancels the
+request locally and emits no fabricated owner terminal. If ROB has accepted
+the request but has not yet returned the ROB-authored plan, RecoveryControl
+waits for that exact response and then emits only the matching ROB abort
+terminal; target owners that never received `Prepare` observe no abort. If
+abort arrives while target preparation is pending, the retained ROB-authored
+plan is broadcast as non-mutating `Abort` to every target and as the matching
+ROB abort terminal. Abort coincident with the final target acknowledgement has
+non-mutating priority over `Apply`. Once the common one-cycle `Apply` is
+visible, it is irrevocably committed and a same-cycle abort request MUST NOT
+schedule a later abort for the same plan.
 Branch recovery preserves the trigger and kills younger members; memory-order
 replay recovery kills the trigger and younger members. ROB-authored recovery
 plans MUST distinguish killed member count from affected ROB group count and
 must identify the exact surviving ordered tail. ROB and BROB recovery apply
 MUST mutate only once for a retained matching `Apply` transaction; stale,
 duplicate, mismatched, or wrong-phase apply is non-mutating. Abort MUST be
-non-mutating and MUST clear only the matching retained transaction.
+non-mutating and MUST clear only the matching retained transaction. If a ROB
+or BROB owner observes simultaneous matching `Apply` and `Abort`, it MUST
+choose the non-mutating abort path and perform no suffix mutation.
 BROB recovery prepare MUST retain the exact local action and apply that action
 without recomputing from mutable table state; partial recovery of an open
 current block preserves the surviving block and rewinds its last ROB owner.
@@ -321,4 +334,6 @@ guarding, source arbitration with delayed and retained ROB statuses, interrupt
 holdoff behind unresolved producers, ROB recovery request/response,
 wrong-phase and duplicate apply rejection, ROB/BROB abort termination,
 one-prepare-per target barriers, mismatched acknowledgement rejection, common
-apply, and non-mutating abort.
+apply, request-phase ROB abort, target-prepare abort priority, visible-apply
+abort suppression, simultaneous terminal fail-closed behavior, and
+non-mutating abort.

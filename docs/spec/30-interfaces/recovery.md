@@ -28,10 +28,21 @@ Decoupled request/response. Targets receive the retained ROB plan in Prepare
 phase until their individual prepare fires, return one matching prepared
 transaction, and mutate only on the later common Apply broadcast. A matching
 Abort broadcast terminates the retained transaction without owner mutation.
-Canonical ROB and BROB owner IOs consume explicit matching `RecoveryPlan`
-Abort inputs and clear only the retained transaction named by the shared
-transaction-equality helper. Stale, duplicate, mismatched, or wrong-phase Apply
-and Abort packets are non-mutating.
+RecoveryControl also exposes a dedicated `robAbort: Valid[RecoveryPlan]`
+terminal for the ROB request side. If abort arrives after `robPrepare.fire`
+but before `robPrepared.fire`, RecoveryControl waits for the exact
+ROB-authored response and then emits only this ROB abort terminal; it does not
+broadcast a stale or default target plan. Canonical ROB and BROB owner IOs
+consume explicit matching `RecoveryPlan` Abort inputs and clear only the
+retained transaction named by the shared transaction-equality helper. Stale,
+duplicate, mismatched, or wrong-phase Apply and Abort packets are
+non-mutating. Simultaneous matching Apply and Abort fail closed by taking the
+non-mutating Abort path; owner mutation is gated off before any assertion or
+diagnostic.
+Abort during target preparation is a single terminal decision: if it coincides
+with the final target acknowledgement barrier, Abort wins and Apply is not
+registered. Once Apply is already visible to targets, the plan is committed and
+RecoveryControl must not schedule a later Abort for that same plan.
 An exception event wins global arbitration only when it carries a precise trap
 payload; the `Exception` enum value alone does not outrank an older ordinary
 event.
