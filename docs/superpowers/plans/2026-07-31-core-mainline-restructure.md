@@ -206,14 +206,21 @@ object FrontEndOpKind extends ChiselEnum {
 
 class FrontEndOp(p: CoreParams) extends Bundle {
   val kind = FrontEndOpKind()
-  val identity = new InstructionIdentity(p)
-  val prediction = new PredictionMeta(p)
-  val encoded = UInt(64.W)
-  val decoded = new DecodedUop(p)
+  val parent = new FetchedInstruction(p)
+  val templateOrdinal = UInt(8.W)
+  val templateCount = UInt(8.W)
+  val templateOpcode = UInt(p.opcodeWidth.W)
+  val templateImmediate = UInt(p.dataWidth.W)
 }
 ```
 
-`Encoded64` 在 OOO DEC 中完成 decode；`TemplateUop` 已由 CTU 展开，但仍经过 D1/D2 的统一合法性、ROB identity 和反压处理。
+`Encoded64` 的 64-bit 指令容器、原始 2/4/6/8-byte 长度、预测、fault 和
+architectural identity 都由 `parent` 携带，并在 OOO DEC 中完成 decode。
+`TemplateUop` 由 CTU 用显式的 ordinal/count/opcode/immediate 描述，禁止在
+`FrontEndOp` 中嵌套 `DecodedUop` 或递归解码 parent；它仍经过 D1/D2 的统一
+合法性、ROB identity intent 和反压处理，随后与 encoded 路径汇合成唯一的
+`DecodedUop`。本节的 Scala 名称必须与生成 interface manifest 一致；字段表
+以 Bundle elaboration 为准，计划和 NDF 条款不得维护另一份冲突的宽度真值。
 
 ## 4. NDF-Style Contract Spine
 
@@ -714,7 +721,8 @@ Commit intent: `Keep prediction speculative while recovery authority remains sin
 
 **Interfaces:**
 - Consumes: `Decoupled[D1Packet]` from CTU.
-- Produces: retained D2 decoded group carrying complete ROB allocation intent.
+- Produces: retained D2 decoded group carrying complete virtual ROB allocation
+  intent；physical ROB/BROB publication 仍由后续唯一 owner 完成。
 
 - [ ] **Step 1: Write failing decode tests**
 
@@ -726,7 +734,12 @@ Run: `bash tools/chisel/run_chisel_tests.sh --only OOODecodeSpec`
 
 - [ ] **Step 3: Implement DEC and D1/D2 stage records**
 
-DEC outputs exactly one common `DecodedUop` shape for encoded and CTU-expanded inputs。ROB ID is reserved only when the entire accepted lane prefix can proceed into D2.
+DEC outputs exactly one common `DecodedUop` shape for encoded and CTU-expanded
+inputs。D2 只有在整个连续 lane prefix 能被原子保留时才生成完整 RID/group/member
+intent；D2 preview 不发布 physical ROB row，也不分配 BROB。已验证的 D3 allocator
+保持 RID tail 的唯一可变 owner，BROB 在后续任务绑定 BID/generation。任何 legacy
+adapter 都不得把 `CoreParams` 的 16-bit epoch/RID/BROB/resident generation
+截断到旧的 8-bit 默认值。
 
 - [ ] **Step 4: Run opcode parity and decode integration**
 
