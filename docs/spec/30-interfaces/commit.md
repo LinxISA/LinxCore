@@ -31,4 +31,6 @@ ROB, and BROB release payloads. The owner-level ready signals are not
 acknowledgements; they are exact prepare decisions used to decide whether the
 single `CommitControl.out.fire` may authorize every release side effect. ROB
 commit preview observation is side-effect-free; ROB retirement state advances
-only on the matching common commit-apply pulse.
+only on the matching common commit-apply pulse. Duplicate suppression is keyed
+to the accepted ROB/trap identity, so a held `Valid` level cannot block a
+distinct next commit prefix after ROB advances.

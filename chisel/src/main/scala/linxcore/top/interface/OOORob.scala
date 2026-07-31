@@ -66,6 +66,19 @@ class CommitControlTxn(val p: CoreParams) extends Bundle {
   val trap = new TrapEvent(p)
 }
 
+class RecoveryCandidateLookup(val p: CoreParams) extends Bundle {
+  val event = new RecoveryEvent(p)
+}
+
+class RecoveryCandidateStatus(val p: CoreParams) extends Bundle {
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val trigger = new RobIdentity(p)
+  val eligible = Bool()
+  val rejected = Bool()
+  val ageToken = UInt(p.transactionIdWidth.W)
+  val headTrap = Bool()
+}
+
 object RecoveryPlanContract {
   private def memberOrdinal(id: RobIdentity): UInt =
     Cat(id.ridGeneration, id.ridSlot, id.memberIndex)

@@ -264,9 +264,13 @@ primary projection.
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,IFC-RECOVERY-001 -->
 
 `linxcore.ooo.RecoveryControl` MUST be the sole global recovery event arbiter
-and plan distributor. Producer events are retained until ROB accepts the
-selected request. A synchronous head trap wins over an interrupt at the same
-precise boundary; an `Exception` cause without a precise trap payload MUST NOT
+and plan distributor. Producer events are retained until ROB returns matching
+candidate status. ROB candidate status is the only authority for exact
+residency, non-retired eligibility, global allocation age, and synchronous
+head-trap priority; RecoveryControl MUST NOT derive global age from STID/RID
+concatenation or drop a candidate before matching status is known. A
+synchronous head trap wins over an interrupt at the same precise boundary; an
+`Exception` cause without ROB status proving a precise head trap MUST NOT
 outrank an older ordinary recovery event. Interrupts are admitted only at an
 explicit precise ROB head boundary. Recovery prepare MUST ask ROB for one
 retained `RecoveryPlan`
@@ -277,6 +281,9 @@ Branch recovery preserves the trigger and kills younger members; memory-order
 replay recovery kills the trigger and younger members. ROB-authored recovery
 plans MUST distinguish killed member count from affected ROB group count and
 must identify the exact surviving ordered tail. Abort MUST be non-mutating.
+BROB recovery prepare MUST retain the exact local action and apply that action
+without recomputing from mutable table state; partial recovery of an open
+current block preserves the surviving block and rewinds its last ROB owner.
 
 ## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->

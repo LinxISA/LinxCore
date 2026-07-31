@@ -41,6 +41,10 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
     dut.io.recoveryApply.valid.poke(false.B)
     dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryCandidate.foreach { candidate =>
+      candidate.valid.poke(false.B)
+      candidate.bits.poke(0.U.asTypeOf(candidate.bits))
+    }
   }
 
   private def clearBrob(dut: BROB): Unit = {
@@ -71,11 +75,13 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       stid: Int = 0): Unit = {
     group.count.poke((lane + 1).U)
     group.groupCount.poke((if (groupCount >= 0) groupCount else lane + 1).U)
-    group.groups(rid).valid.poke(true.B)
-    group.groups(rid).peId.poke(1.U)
-    group.groups(rid).stid.poke(stid.U)
-    group.groups(rid).ridSlot.poke(rid.U)
-    group.groups(rid).ridGeneration.poke(0.U)
+    if (rid < group.groups.length) {
+      group.groups(rid).valid.poke(true.B)
+      group.groups(rid).peId.poke(1.U)
+      group.groups(rid).stid.poke(stid.U)
+      group.groups(rid).ridSlot.poke(rid.U)
+      group.groups(rid).ridGeneration.poke(0.U)
+    }
     val row = group.entries(lane)
     row.uop.decoded.valid.poke(true.B)
     row.uop.decoded.instruction.parent.identity.peId.poke(1.U)
@@ -367,6 +373,34 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("CommitControl accepts distinct back-to-back previews while ROB valid stays high") {
+    simulate(new CommitControl(params(4))) { dut =>
+      dut.io.rob.valid.poke(true.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.entries(0).rob.ridSlot.expect(0.U)
+      dut.clock.step()
+
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(1.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.commit.entries(0).rob.ridSlot.expect(1.U)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+    }
+  }
+
   test("ROB preview observation does not retire before common commit apply") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
@@ -384,6 +418,45 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.commitApply.poke(true.B)
       dut.clock.step()
       dut.io.commitApply.poke(false.B)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
+  test("ROB recovery clears retained commit preview over killed suffix") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 100, rid = 0, member = 0,
+        early = true, groupCount = 2)
+      lane(dut.io.prepare.bits, 1, id = 101, rid = 1, member = 0,
+        early = true, groupCount = 2)
+      val ids = publish(dut, 2)
+      dut.io.commit.ready.poke(false.B)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(2.U)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x71.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids(0))
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(dut.io.recoveryPrepared.bits.peek())
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+      dut.io.commit.ready.poke(true.B)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).commit.rob.ridSlot.expect(0.U)
+      dut.io.commit.bits.entries(0).commit.rob.memberIndex.expect(0.U)
+      retirePreview(dut)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(ids(0))
       dut.io.releaseReady.expect(true.B)
     }
   }
@@ -475,6 +548,67 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("ROB rejects unsupported bank geometry and maps nontrivial bank profiles") {
+    def exercise(width: Int, banks: Int, sameBankSlot: Int): Unit = {
+      val base = params(width).copy(ooo = params(width).ooo.copy(
+        robGroupsPerStid = 8,
+        robBankCount = banks))
+      simulate(new ROB(base)) { dut =>
+        clearRob(dut)
+        def publishOne(idValue: Int, rid: Int, early: Boolean = false): RobIdentity = {
+          dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+          lane(dut.io.prepare.bits, 0, id = idValue, rid = rid, member = 0,
+            early = early, groupCount = 1)
+          dut.io.prepare.valid.poke(true.B)
+          dut.io.prepare.ready.expect(true.B)
+          val rob = dut.io.prepared.entries(0).rob.peek()
+          dut.io.publishFire.poke(true.B)
+          dut.clock.step()
+          dut.io.prepare.valid.poke(false.B)
+          dut.io.publishFire.poke(false.B)
+          rob
+        }
+        val first = publishOne(90, 0, early = true)
+        val middle = (1 until sameBankSlot).map(rid => publishOne(90 + rid, rid))
+        val sameBank = publishOne(100 + sameBankSlot, sameBankSlot)
+        complete(dut, sameBank, accepted = true)
+        retirePreview(dut)
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.bits.count.poke(1.U)
+        dut.io.release.bits.lanes(0).valid.poke(true.B)
+        dut.io.release.bits.lanes(0).rob.poke(first)
+        dut.io.releaseReady.expect(true.B)
+        dut.io.releaseApply.poke(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+        dut.io.releaseApply.poke(false.B)
+        complete(dut, first, accepted = false)
+        complete(dut, sameBank, accepted = false)
+
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = 130, rid = sameBankSlot,
+          member = 0, groupCount = 1)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(false.B)
+        dut.io.prepare.valid.poke(false.B)
+        middle.foreach(_ => ())
+        ((sameBankSlot + 1) until 8).foreach { rid =>
+          publishOne(140 + rid, rid)
+        }
+        dut.io.ridTailSlot(0).expect(0.U)
+        dut.io.ridTailGeneration(0).expect(1.U)
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = 180, rid = 0, member = 0,
+          groupCount = 1)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.ridGeneration.poke(1.U)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).rob.ridSlot.expect(0.U)
+        dut.io.prepared.entries(0).rob.ridGeneration.expect(1.U)
+        dut.io.prepared.entries(0).rob.residentGeneration.expect(1.U)
+      }
+    }
+    exercise(width = 2, banks = 2, sameBankSlot = 2)
+    exercise(width = 4, banks = 4, sameBankSlot = 4)
     val base = params(2).copy(ooo = params(2).ooo.copy(
       robGroupsPerStid = 8,
       robBankCount = 2))
@@ -489,13 +623,6 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.bits.lanes(0).valid.poke(true.B)
       dut.io.release.bits.lanes(0).rob.poke(id)
       dut.io.releaseReady.expect(true.B)
-    }
-    val w4Base = params(4).copy(ooo = params(4).ooo.copy(
-      robGroupsPerStid = 8,
-      robBankCount = 4))
-    simulate(new ROB(w4Base)) { dut =>
-      clearRob(dut)
-      dut.io.ridTailSlot(0).expect(0.U)
     }
     assertThrows[IllegalArgumentException] {
       simulate(new ROB(base.copy(ooo = base.ooo.copy(

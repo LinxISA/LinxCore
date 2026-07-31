@@ -15,6 +15,8 @@ class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle 
   val interruptBoundaryValid = Input(Bool())
   val interruptBoundary = Input(new RobIdentity(p))
   val abort = Input(Bool())
+  val robCandidate = Output(Vec(2, Valid(new RecoveryCandidateLookup(p))))
+  val robCandidateStatus = Input(Vec(2, Valid(new RecoveryCandidateStatus(p))))
   val robPrepare = Decoupled(new RecoveryPlan(p))
   val robPrepared = Flipped(Decoupled(new RecoveryPlan(p)))
   val targets = Vec(targetCount, new RecoveryTargetIO(p))
@@ -23,9 +25,6 @@ class RecoveryControlIO(val p: CoreParams, val targetCount: Int) extends Bundle 
 class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   require(targetCount > 0)
   val io = IO(new RecoveryControlIO(p, targetCount))
-
-  private def memberOrdinal(id: RobIdentity): UInt =
-    Cat(id.stid, id.ridGeneration, id.ridSlot, id.memberIndex)
 
   private def preciseTrap(event: RecoveryEvent): Bool =
     event.cause === RecoveryCause.Exception && event.trap.valid
@@ -72,30 +71,50 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   candidateValid(2) := anyInterrupt && io.interruptBoundaryValid
   candidate(2) := interruptEvent
 
-  val source1Older = memberOrdinal(candidate(1).trigger) <
-    memberOrdinal(candidate(0).trigger)
+  for (idx <- 0 until 2) {
+    io.robCandidate(idx).valid := candidateValid(idx)
+    io.robCandidate(idx).bits.event := candidate(idx)
+  }
+
+  val statusMatches = Wire(Vec(2, Bool()))
+  val statusEligible = Wire(Vec(2, Bool()))
+  for (idx <- 0 until 2) {
+    statusMatches(idx) := io.robCandidateStatus(idx).valid &&
+      io.robCandidateStatus(idx).bits.transactionId ===
+        candidate(idx).transactionId &&
+      io.robCandidateStatus(idx).bits.trigger.asUInt ===
+        candidate(idx).trigger.asUInt
+    statusEligible(idx) := candidateValid(idx) && statusMatches(idx) &&
+      io.robCandidateStatus(idx).bits.eligible
+  }
+  val source1Older = io.robCandidateStatus(1).bits.ageToken <
+    io.robCandidateStatus(0).bits.ageToken
   val selectedEvent = Wire(new RecoveryEvent(p))
   val selectedSource = Wire(UInt(2.W))
   selectedSource := 0.U
   selectedEvent := candidate(0)
-  when(candidateValid(1) && (!candidateValid(0) || source1Older)) {
+  when(statusEligible(1) && (!statusEligible(0) || source1Older)) {
     selectedSource := 1.U
     selectedEvent := candidate(1)
   }
   when(candidateValid(2) &&
-    (!candidateValid(0) || !preciseTrap(candidate(0))) &&
-    (!candidateValid(1) || !preciseTrap(candidate(1)))) {
+    (!statusEligible(0) || !preciseTrap(candidate(0)) ||
+      !io.robCandidateStatus(0).bits.headTrap) &&
+    (!statusEligible(1) || !preciseTrap(candidate(1)) ||
+      !io.robCandidateStatus(1).bits.headTrap)) {
     selectedSource := 2.U
     selectedEvent := candidate(2)
   }
-  when(candidateValid(0) && preciseTrap(candidate(0))) {
+  when(statusEligible(0) && preciseTrap(candidate(0)) &&
+    io.robCandidateStatus(0).bits.headTrap) {
     selectedSource := 0.U
     selectedEvent := candidate(0)
-  }.elsewhen(candidateValid(1) && preciseTrap(candidate(1))) {
+  }.elsewhen(statusEligible(1) && preciseTrap(candidate(1)) &&
+    io.robCandidateStatus(1).bits.headTrap) {
     selectedSource := 1.U
     selectedEvent := candidate(1)
   }
-  val anyCandidate = candidateValid.asUInt.orR
+  val anyCandidate = statusEligible.asUInt.orR || candidateValid(2)
 
   val seedPlan = Wire(new RecoveryPlan(p))
   seedPlan := 0.U.asTypeOf(seedPlan)
@@ -118,6 +137,15 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
       pendingValid(0) := false.B
     }.elsewhen(selectedSource === 1.U) {
       pendingValid(1) := false.B
+    }
+  }
+
+  when(state === RecoveryControlState.Idle) {
+    for (idx <- 0 until 2) {
+      when(candidateValid(idx) && statusMatches(idx) &&
+        io.robCandidateStatus(idx).bits.rejected) {
+        pendingValid(idx) := false.B
+      }
     }
   }
 

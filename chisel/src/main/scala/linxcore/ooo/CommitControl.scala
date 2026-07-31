@@ -21,7 +21,8 @@ class CommitControl(val p: CoreParams) extends Module {
 
   val heldValid = RegInit(false.B)
   val held = Reg(new CommitControlTxn(p))
-  val waitRobDrop = RegInit(false.B)
+  val acceptedValid = RegInit(false.B)
+  val acceptedKey = Reg(new RobIdentity(p))
 
   val next = Wire(new CommitControlTxn(p))
   next := 0.U.asTypeOf(next)
@@ -56,12 +57,22 @@ class CommitControl(val p: CoreParams) extends Module {
     next.trap.rob := io.interruptBoundary
   }
 
-  val robTxnValid = io.rob.valid && !waitRobDrop &&
+  val candidate = Wire(new CommitControlTxn(p))
+  candidate := Mux(heldValid, held, next)
+  val candidateKey = Wire(new RobIdentity(p))
+  candidateKey := 0.U.asTypeOf(candidateKey)
+  when(candidate.commit.count =/= 0.U) {
+    candidateKey := candidate.commit.entries(0).rob
+  }.elsewhen(candidate.trap.valid) {
+    candidateKey := candidate.trap.rob
+  }
+  val candidateHasKey = candidate.commit.count =/= 0.U || candidate.trap.valid
+  val sameAccepted = acceptedValid && candidateHasKey &&
+    candidateKey.asUInt === acceptedKey.asUInt
+  val robTxnValid = io.rob.valid && !sameAccepted &&
     (io.rob.bits.count =/= 0.U || io.rob.bits.headTrap.valid ||
       (anyInterrupt && io.interruptBoundaryValid))
   val candidateValid = heldValid || robTxnValid
-  val candidate = Wire(new CommitControlTxn(p))
-  candidate := Mux(heldValid, held, next)
   val hasReleaseLanes = candidate.commit.count =/= 0.U
   val releaseReady = io.robReleaseReady && io.renameReleaseReady &&
     io.brobReleaseReady
@@ -73,11 +84,12 @@ class CommitControl(val p: CoreParams) extends Module {
     heldValid := true.B
   }.elsewhen(txnAccepted) {
     heldValid := false.B
-    when(io.rob.valid) {
-      waitRobDrop := true.B
-    }
+    acceptedKey := candidateKey
+    acceptedValid := true.B
   }
-  when(!io.rob.valid) {
-    waitRobDrop := false.B
+  when(!txnAccepted &&
+    (!io.rob.valid || (acceptedValid && candidateHasKey &&
+      candidateKey.asUInt =/= acceptedKey.asUInt))) {
+    acceptedValid := false.B
   }
 }

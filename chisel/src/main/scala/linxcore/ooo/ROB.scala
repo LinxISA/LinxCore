@@ -25,6 +25,8 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val recoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
   val recoveryPrepared = Valid(new RecoveryPlan(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
+  val recoveryCandidate = Input(Vec(2, Valid(new RecoveryCandidateLookup(p))))
+  val recoveryCandidateStatus = Output(Vec(2, Valid(new RecoveryCandidateStatus(p))))
   val ridTailSlot = Output(Vec(p.ooo.stidCount,
     UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
@@ -144,6 +146,9 @@ class ROB(val p: CoreParams) extends Module {
     VecInit(Seq.fill(orderCapacity)(false.B)))))
   val orderRetired = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     VecInit(Seq.fill(orderCapacity)(false.B)))))
+  val orderAge = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
+    VecInit(Seq.fill(orderCapacity)(0.U(p.transactionIdWidth.W))))))
+  val nextAllocationAge = RegInit(0.U(p.transactionIdWidth.W))
   val orderHead = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(orderPtrWidth.W))))
   val orderCommitHead =
     RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(orderPtrWidth.W))))
@@ -287,6 +292,7 @@ class ROB(val p: CoreParams) extends Module {
         orderCompleted(stid)(orderIndex) :=
           io.prepare.bits.entries(lane).earlyRobComplete
         orderRetired(stid)(orderIndex) := false.B
+        orderAge(stid)(orderIndex) := nextAllocationAge + lane.U
       }
     }
     val (nextTail, wrap) = slotPlus(tailSlot(prepareStid),
@@ -300,6 +306,7 @@ class ROB(val p: CoreParams) extends Module {
     orderCount(prepareStid) := orderCount(prepareStid) + io.prepare.bits.count
     orderCommitCount(prepareStid) :=
       orderCommitCount(prepareStid) + io.prepare.bits.count
+    nextAllocationAge := nextAllocationAge + io.prepare.bits.count
   }
 
   val comp = io.completion.bits.rob
@@ -478,6 +485,36 @@ class ROB(val p: CoreParams) extends Module {
 
   val recoveryPending = RegInit(false.B)
   val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
+  for (source <- 0 until 2) {
+    val lookup = io.recoveryCandidate(source).bits.event
+    val lookupStid = safeStid(lookup.trigger.stid)
+    val matches = Wire(Vec(orderCapacity, Bool()))
+    for (idx <- 0 until orderCapacity) {
+      matches(idx) := io.recoveryCandidate(source).valid &&
+        lookup.trigger.stid < p.ooo.stidCount.U &&
+        orderValid(lookupStid)(idx) &&
+        orderIds(lookupStid)(idx).asUInt === lookup.trigger.asUInt &&
+        memberLiveAt(lookupStid, lookup.trigger.ridSlot,
+          lookup.trigger.memberIndex) &&
+        !orderRetired(lookupStid)(idx)
+    }
+    val hit = matches.asUInt.orR
+    val idx = PriorityEncoder(matches.asUInt)
+    io.recoveryCandidateStatus(source).valid := io.recoveryCandidate(source).valid
+    io.recoveryCandidateStatus(source).bits := 0.U.asTypeOf(
+      io.recoveryCandidateStatus(source).bits)
+    io.recoveryCandidateStatus(source).bits.transactionId := lookup.transactionId
+    io.recoveryCandidateStatus(source).bits.trigger := lookup.trigger
+    io.recoveryCandidateStatus(source).bits.eligible := hit
+    io.recoveryCandidateStatus(source).bits.rejected :=
+      io.recoveryCandidate(source).valid && !hit
+    io.recoveryCandidateStatus(source).bits.ageToken := orderAge(lookupStid)(idx)
+    io.recoveryCandidateStatus(source).bits.headTrap := hit &&
+      idx === orderCommitHead(lookupStid) &&
+      orderCompleted(lookupStid)(idx) &&
+      !orderRetired(lookupStid)(idx) &&
+      orderCommits(lookupStid)(idx).trap.valid
+  }
   val recIn = io.recoveryPrepare.bits
   val recStid = safeStid(recIn.trigger.stid)
   val recMatches = Wire(Vec(orderCapacity, Bool()))
@@ -536,6 +573,7 @@ class ROB(val p: CoreParams) extends Module {
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryApply.bits, recoveryPlan)) {
     val stid = safeStid(recoveryPlan.trigger.stid)
+    retainedValid := false.B
     for (slot <- 0 until p.ooo.robGroupsPerStid) {
       for (member <- 0 until p.ooo.maxInstructionsPerRobGroup) {
         val id = identityAt(stid, slot.U, member.U)
@@ -574,6 +612,22 @@ class ROB(val p: CoreParams) extends Module {
       groupCount(stid) := groupCount(stid) - prunedWholeGroups
       orderTail(stid) := orderPlus(orderTail(stid), 0.U - recoveryPlan.killedMemberCount)
       orderCount(stid) := orderCount(stid) - recoveryPlan.killedMemberCount
+      val killedCommitEntries = Wire(Vec(orderCapacity, Bool()))
+      for (off <- 0 until orderCapacity) {
+        val idx = orderPlus(orderCommitHead(stid), off.U)
+        killedCommitEntries(off) := off.U < orderCommitCount(stid) &&
+          orderValid(stid)(idx) &&
+          RecoveryPlanContract.suffixMember(recoveryPlan, orderIds(stid)(idx))
+      }
+      val killedCommitCount = PopCount(killedCommitEntries)
+      val commitHeadKilled = orderCommitCount(stid) =/= 0.U &&
+        RecoveryPlanContract.suffixMember(
+          recoveryPlan, orderIds(stid)(orderCommitHead(stid)))
+      when(commitHeadKilled) {
+        orderCommitHead(stid) := orderPlus(orderTail(stid),
+          0.U - recoveryPlan.killedMemberCount)
+      }
+      orderCommitCount(stid) := orderCommitCount(stid) - killedCommitCount
     }
     recoveryPending := false.B
   }

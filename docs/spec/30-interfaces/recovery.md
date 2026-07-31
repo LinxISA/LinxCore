@@ -32,6 +32,14 @@ An exception event wins global arbitration only when it carries a precise trap
 payload; the `Exception` enum value alone does not outrank an older ordinary
 event.
 
+`RecoveryCandidateLookup` and `RecoveryCandidateStatus` are public ROB-facing
+candidate arbitration payloads. RecoveryControl publishes retained producer
+events as lookup candidates. ROB returns matching status with exact
+eligible/rejected state, a globally comparable allocation-age token, and a
+head-trap bit proving synchronous trap priority. RecoveryControl selects only
+among matching eligible ROB statuses and deliberately discards matching
+rejected candidates without blocking another eligible source.
+
 `RecoveryPlanContract` defines equality while ignoring only `phase`, exact
 membership in the compact suffix, and legal empty/non-empty suffix shape.
 Recovery targets MUST use this helper rather than private global-age

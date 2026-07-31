@@ -43,6 +43,8 @@ class BROB(val p: CoreParams) extends Module {
       0.U(p.brobGenerationWidth.W))))))
   val tableClosed = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     VecInit(Seq.fill(p.ooo.brobEntriesPerStid)(false.B)))))
+  val tableFirstRob = Reg(Vec(p.ooo.stidCount,
+    Vec(p.ooo.brobEntriesPerStid, new RobIdentity(p))))
   val tableLastRob = Reg(Vec(p.ooo.stidCount,
     Vec(p.ooo.brobEntriesPerStid, new RobIdentity(p))))
   val head = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(p.nativeBidWidth.W))))
@@ -87,7 +89,24 @@ class BROB(val p: CoreParams) extends Module {
     allocCount(lane + 1) := allocCount(lane) + startsBlock.asUInt
   }
   io.prepared := prepared
-  io.prepare.ready := io.prepare.bits.count <= p.ooo.d3PrefixWidth.U &&
+  val recoveryPending = RegInit(false.B)
+  val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
+  val recoveryKilledMaskReg = RegInit(VecInit(Seq.fill(p.ooo.brobEntriesPerStid)(
+    false.B)))
+  val recoveryKilledCountReg =
+    RegInit(0.U(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W))
+  val recoveryPartialCurrentReg = RegInit(false.B)
+  val recoveryCurrentValidReg = RegInit(false.B)
+  val recoveryCurrentBidReg = RegInit(0.U(p.nativeBidWidth.W))
+  val recoveryCurrentGenerationReg = RegInit(0.U(p.brobGenerationWidth.W))
+  val recoveryUsedReg =
+    RegInit(0.U(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W))
+  val recoveryTailReg = RegInit(0.U(p.nativeBidWidth.W))
+  val recoveryGenerationReg = RegInit(0.U(p.brobGenerationWidth.W))
+  val recoverySurvivingTailReg = Reg(new RobIdentity(p))
+
+  io.prepare.ready := !recoveryPending &&
+    io.prepare.bits.count <= p.ooo.d3PrefixWidth.U &&
     used(stid) + allocCount(p.ooo.d3PrefixWidth) <= p.ooo.brobEntriesPerStid.U
 
   when(io.prepare.valid && io.publishFire && io.prepare.ready) {
@@ -103,6 +122,13 @@ class BROB(val p: CoreParams) extends Module {
         tableGeneration(stid)(prepared.entries(lane).bid) :=
           prepared.entries(lane).brobGeneration
         tableClosed(stid)(prepared.entries(lane).bid) := false.B
+        tableFirstRob(stid)(prepared.entries(lane).bid) :=
+          io.prepare.bits.entries(lane).uop.decoded.rob
+        tableLastRob(stid)(prepared.entries(lane).bid) :=
+          io.prepare.bits.entries(lane).uop.decoded.rob
+      }
+      when(prepared.entries(lane).valid &&
+        tableValid(stid)(prepared.entries(lane).bid)) {
         tableLastRob(stid)(prepared.entries(lane).bid) :=
           io.prepare.bits.entries(lane).uop.decoded.rob
       }
@@ -135,7 +161,8 @@ class BROB(val p: CoreParams) extends Module {
       id.bid === last.bid &&
       id.brobGeneration === last.brobGeneration
   }.reduce(_ || _)
-  val releaseExact = io.release.valid && io.release.bits.count =/= 0.U &&
+  val releaseExact = !recoveryPending &&
+    io.release.valid && io.release.bits.count =/= 0.U &&
     rel.stid < p.ooo.stidCount.U &&
     rel.bid === head(relStid) &&
     rel.brobGeneration === headGeneration(relStid) &&
@@ -163,8 +190,6 @@ class BROB(val p: CoreParams) extends Module {
     }
   }
 
-  val recoveryPending = RegInit(false.B)
-  val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
   val recIn = io.recoveryPrepare.bits
   val recStid = safeStid(recIn.trigger.stid)
   val recBidExact = !recIn.firstKilledValid || (
@@ -177,8 +202,38 @@ class BROB(val p: CoreParams) extends Module {
   io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.ready
   io.recoveryPrepared.bits := Mux(recoveryPending, recoveryPlan, recIn)
   when(io.recoveryPrepare.fire) {
+    val partialCurrent = Wire(Bool())
+    val killedMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
+    val killedCount = Wire(UInt(PrefixPacketContract.countWidth(
+      p.ooo.brobEntriesPerStid).W))
+    for (bid <- 0 until p.ooo.brobEntriesPerStid) {
+      val firstKilled = tableValid(recStid)(bid) &&
+        tableFirstRob(recStid)(bid).stid === recIn.trigger.stid &&
+        RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(bid))
+      killedMask(bid) := recIn.firstKilledValid && firstKilled
+    }
+    killedCount := PopCount(killedMask)
+    partialCurrent := recIn.firstKilledValid && currentValid(recStid) &&
+      tableValid(recStid)(currentBid(recStid)) &&
+      !killedMask(currentBid(recStid)) &&
+      RecoveryPlanContract.suffixMember(
+        recIn, tableLastRob(recStid)(currentBid(recStid)))
     recoveryPending := true.B
     recoveryPlan := recIn
+    recoveryKilledMaskReg := killedMask
+    recoveryKilledCountReg := killedCount
+    recoveryPartialCurrentReg := partialCurrent
+    recoveryCurrentValidReg := Mux(partialCurrent,
+      true.B,
+      currentValid(recStid) && !killedMask(currentBid(recStid)))
+    recoveryCurrentBidReg := currentBid(recStid)
+    recoveryCurrentGenerationReg := currentGeneration(recStid)
+    recoveryUsedReg := used(recStid) - killedCount
+    recoveryTailReg := Mux(partialCurrent, tail(recStid), recIn.firstKilled.bid)
+    recoveryGenerationReg := Mux(partialCurrent,
+      generation(recStid),
+      recIn.firstKilled.brobGeneration)
+    recoverySurvivingTailReg := recIn.survivingTail
   }
 
   val recoveryApplyHit = recoveryPending && io.recoveryApply.valid &&
@@ -186,29 +241,23 @@ class BROB(val p: CoreParams) extends Module {
     RecoveryPlanContract.sameTransactionIgnoringPhase(
       io.recoveryApply.bits, recoveryPlan)
   val recoveryApplyStid = safeStid(recoveryPlan.trigger.stid)
-  val recoveryKilledMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
-  for (bid <- 0 until p.ooo.brobEntriesPerStid) {
-    recoveryKilledMask(bid) := recoveryPlan.firstKilledValid &&
-      tableValid(recoveryApplyStid)(bid) &&
-      tableLastRob(recoveryApplyStid)(bid).stid === recoveryPlan.trigger.stid &&
-      RecoveryPlanContract.suffixMember(
-        recoveryPlan, tableLastRob(recoveryApplyStid)(bid))
-  }
-  val recoveryKilledCount = PopCount(recoveryKilledMask)
   when(recoveryApplyHit) {
     when(recoveryPlan.firstKilledValid) {
       for (bid <- 0 until p.ooo.brobEntriesPerStid) {
-        when(recoveryKilledMask(bid)) {
+        when(recoveryKilledMaskReg(bid)) {
           tableValid(recoveryApplyStid)(bid) := false.B
           tableClosed(recoveryApplyStid)(bid) := false.B
         }
       }
-      tail(recoveryApplyStid) := recoveryPlan.firstKilled.bid
-      generation(recoveryApplyStid) := recoveryPlan.firstKilled.brobGeneration
-      used(recoveryApplyStid) := used(recoveryApplyStid) - recoveryKilledCount
-      when(currentValid(recoveryApplyStid) &&
-        recoveryKilledMask(currentBid(recoveryApplyStid))) {
-        currentValid(recoveryApplyStid) := false.B
+      tail(recoveryApplyStid) := recoveryTailReg
+      generation(recoveryApplyStid) := recoveryGenerationReg
+      used(recoveryApplyStid) := recoveryUsedReg
+      currentValid(recoveryApplyStid) := recoveryCurrentValidReg
+      currentBid(recoveryApplyStid) := recoveryCurrentBidReg
+      currentGeneration(recoveryApplyStid) := recoveryCurrentGenerationReg
+      when(recoveryPartialCurrentReg) {
+        tableLastRob(recoveryApplyStid)(recoveryCurrentBidReg) :=
+          recoverySurvivingTailReg
       }
     }
     recoveryPending := false.B

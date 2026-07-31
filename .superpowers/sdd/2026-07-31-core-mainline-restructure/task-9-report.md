@@ -161,3 +161,66 @@ this fix scope.
 - `src/common/opcode_meta_gen.py` acquired the known unrelated generated
   side-effect diff during gates; it was restored before staging.
 - No `.ninja_lock` files were left in the worktree.
+
+## Fix Round 3
+
+Review round 3 identified five HIGH blockers and one MEDIUM bank-coverage
+blocker in the Task-9 canonical path. This round added behavior RED tests
+against `01e8dc4b7c4da8a22df5fc0909c98ee69a2a5356`, then repaired the
+canonical owners without touching legacy owners or Task 10.
+
+### Fix-Round-3 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` failed
+  behaviorally after the new tests: CommitControl suppressed a distinct second
+  preview while `rob.valid` stayed high, and ROB kept a retained two-entry
+  commit preview after recovery killed its suffix.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed
+  behaviorally after the new tests: BROB allowed release between recovery
+  prepare and apply, and RecoveryControl remained stuck on stale source 0
+  instead of progressing with an eligible source 1.
+
+### Fix-Round-3 Repairs
+
+- Added public `RecoveryCandidateLookup` and `RecoveryCandidateStatus` Bundles
+  under `linxcore.top.interface`.
+- ROB now answers candidate status with exact live/non-retired residency,
+  rejected state, synchronous head-trap proof, and a monotonically assigned
+  global allocation-age token.
+- RecoveryControl selects only among matching eligible ROB statuses, discards
+  matching rejected statuses, and no longer derives global age from STID/RID.
+- ROB recovery apply conservatively clears retained commit previews and repairs
+  commit-view count/head state for killed suffix entries.
+- BROB recovery prepare retains an exact local action: full-block kill mask,
+  killed count, repaired used/tail/current state, and partial-current rewind
+  state. Prepare/release are blocked while the retained action is pending, and
+  apply uses only the retained action.
+- CommitControl duplicate suppression is keyed to the accepted ROB/trap
+  identity, allowing a distinct next prefix while `rob.valid` remains asserted.
+- Bank coverage now exercises 8/2 and 8/4 same-bank/different-row behavior,
+  stale completion rejection, occupied-slot rejection, wrap, and
+  resident-generation reuse.
+
+### Fix-Round-3 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS, 16 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS, 9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS, `top-interface-manifest: up to date`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS, `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS, `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests; `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests; `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS 9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test; `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec` - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+- `git diff --check` - PASS.
+
+### Fix-Round-3 Notes
+
+- The known unrelated `src/common/opcode_meta_gen.py` generated side effect
+  was restored before staging.
+- No `.ninja_lock` files were left in the worktree.
