@@ -5,7 +5,8 @@ import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.Decoupled
 import linxcore.ctu.CTU
 import linxcore.params.{CoreParams, ParamProfiles}
-import linxcore.top.interface.{FetchedPacket, RecoveryTargetIO}
+import linxcore.top.interface.{D2AdmissionGroup, FetchedPacket,
+  FrontEndOpKind, RecoveryTargetIO}
 import org.scalatest.funsuite.AnyFunSuite
 
 private class CTUOOOHarnessIO(val p: CoreParams) extends Bundle {
@@ -48,19 +49,27 @@ class CTUOOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def send(dut: CTUOOOHarness, raw: BigInt, len: Int, id: Int): Unit = {
+    sendPacket(dut, Seq((raw, len, id)))
+  }
+
+  private def sendPacket(
+      dut: CTUOOOHarness,
+      instructions: Seq[(BigInt, Int, Int)]): Unit = {
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
-    dut.io.in.bits.count.poke(1.U)
-    val entry = dut.io.in.bits.entries(0)
-    entry.identity.peId.poke(1.U)
-    entry.identity.stid.poke(0.U)
-    entry.identity.instructionId.poke(id.U)
-    entry.identity.epoch.poke(4.U)
-    entry.pc.poke(0x1000.U)
-    entry.instruction.poke(raw.U)
-    entry.lengthBytes.poke(len.U)
-    entry.prediction.valid.poke(true.B)
-    entry.prediction.transactionId.poke((0x500 + id).U)
-    entry.prediction.epoch.poke(4.U)
+    dut.io.in.bits.count.poke(instructions.size.U)
+    instructions.zipWithIndex.foreach { case ((raw, len, id), lane) =>
+      val entry = dut.io.in.bits.entries(lane)
+      entry.identity.peId.poke(1.U)
+      entry.identity.stid.poke(0.U)
+      entry.identity.instructionId.poke(id.U)
+      entry.identity.epoch.poke(4.U)
+      entry.pc.poke((0x1000 + lane * 8).U)
+      entry.instruction.poke(raw.U)
+      entry.lengthBytes.poke(len.U)
+      entry.prediction.valid.poke(true.B)
+      entry.prediction.transactionId.poke((0x500 + id).U)
+      entry.prediction.epoch.poke(4.U)
+    }
     dut.io.in.valid.poke(true.B)
     var cycles = 0
     while (!dut.io.in.ready.peek().litToBoolean && cycles < 32) {
@@ -125,6 +134,50 @@ class CTUOOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         dut.clock.step()
       }
       assert(seen == 5)
+    }
+  }
+
+  test("a repacked ordinary plus template prefix drains in order after OOO backpressure") {
+    simulate(new CTUOOOHarness(ParamProfiles.W4)) { dut =>
+      clear(dut)
+
+      // Occupy the per-STID D2 row so CTU's InstructionBuffer must retain and
+      // repack the following ordinary instruction and expanded template rows.
+      send(dut, rule("OP_ADD").value, rule("OP_ADD").lenBytes, 5)
+      waitD2(dut)
+
+      val fentry = rule("OP_FENTRY").value |
+        (BigInt(2) << 15) | (BigInt(3) << 20)
+      sendPacket(dut, Seq(
+        (rule("OP_ADD").value, rule("OP_ADD").lenBytes, 41),
+        (fentry, rule("OP_FENTRY").lenBytes, 77)))
+      dut.clock.step(8)
+
+      // Drain the older row, then hold each following row while inspecting it.
+      dut.io.d2.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.d2.ready.poke(false.B)
+
+      val observed = scala.collection.mutable.ArrayBuffer.empty[(BigInt, BigInt, BigInt)]
+      while (observed.size < 6) {
+        waitD2(dut)
+        val count = dut.io.d2.bits.count.peek().litValue.toInt
+        (0 until count).foreach { lane =>
+          val row = dut.io.d2.bits.entries(lane).uop.instruction
+          observed += ((
+            row.parent.identity.instructionId.peek().litValue,
+            row.kind.peek().litValue,
+            row.templateOrdinal.peek().litValue))
+        }
+        dut.io.d2.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.d2.ready.poke(false.B)
+      }
+
+      assert(observed.map(_._1) == Seq(41, 77, 77, 77, 77, 77))
+      assert(observed.head._2 == FrontEndOpKind.Encoded64.asUInt.litValue)
+      assert(observed.tail.forall(_._2 == FrontEndOpKind.TemplateUop.asUInt.litValue))
+      assert(observed.tail.map(_._3) == Seq(0, 1, 2, 3, 4))
     }
   }
 }

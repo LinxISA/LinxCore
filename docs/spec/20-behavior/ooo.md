@@ -8,7 +8,9 @@ non-recursive CTU `TemplateUop` into the same `DecodedUop` shape. Encoded
 decode MUST retain the original 2-, 4-, 6-, or 8-byte length when selecting a
 generated opcode recipe. Template children MUST bypass encoded decode and
 retain their parent, ordinal, count, row kind, immediate, prediction, fault,
-and instruction identity.
+and instruction identity. A continuous packet MAY contain both operation
+kinds after Instruction Buffer repacking; OOO MUST normalize it per lane and
+preserve the original order.
 
 ## Admit one complete D1 prefix atomically {#OOO-002}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-001,D-PREFIX-001,PRM-WIDTH-001 -->
@@ -54,7 +56,11 @@ uses the generated, length-qualified `OooOpcodeRecipeTable` decode path and
 maps the resulting opcode, dispatch class, operand classes, architectural
 tags, immediate, boundary, and trap state into the top-level interface
 `DecodedUop`. For template traffic it maps `TemplateRowKind` directly to a
-named uop class and never decodes the parent instruction again. The exact
+named uop class and never decodes the parent instruction again. A sparse
+encoded-lane projection preserves encoded fusion and compaction only across
+adjacent encoded lanes; a template lane is an ordering and fusion boundary.
+The encoded results and direct template results are then compacted together
+in original input-lane order. The exact
 canonical `FrontEndOp` is copied from CTU after decode selection so 16-bit
 legacy generation defaults cannot narrow architectural identity or prediction
 metadata.
@@ -62,7 +68,9 @@ metadata.
 ## Retained D2 admission mechanism {#MEC-OOO-002}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-002,OOO-003,OOO-005 -->
 
-`linxcore.ooo.OOO` holds at most one immutable `D2AdmissionGroup` per STID.
+The public D1/D2 payloads and complete slice IO live in
+`linxcore.top.interface.OOOD1D2`, while `linxcore.ooo.OOO` holds at most one
+immutable `D2AdmissionGroup` per STID.
 Each transaction carries `count`, virtual group count and keys, decoded rows,
 typed trap intent, and explicit false `residentBound` and `brobBound` state.
 Group and member indices are assigned older-first from the D3-owned tail
@@ -74,8 +82,10 @@ operation.
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-001,OOO-002,OOO-003,OOO-004,OOO-005 -->
 
 `OOODecodeSpec` MUST cover all four instruction lengths, template bypass,
+mixed encoded/template ordering and fusion isolation,
 operand and prediction metadata, illegal and fetch-fault traps, W2/W4/W6/W8
 elaboration, atomic stall behavior, RID wrap with non-zero high generation
 bits, and STID-scoped recovery. `CTUOOOIntegrationSpec` MUST cover ordinary
-and expanded template traffic through the adjacent boxes with backpressure and
-without loss, duplication, reordering, or recursive expansion.
+and expanded template traffic, including an Instruction Buffer-repacked mixed
+prefix, through the adjacent boxes with backpressure and without loss,
+duplication, reordering, or recursive expansion.

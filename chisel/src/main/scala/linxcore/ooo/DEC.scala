@@ -7,25 +7,6 @@ import linxcore.common.{BoundaryKind, DestinationKind, OperandClass,
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
-/** Typed precise-trap intent attached to the canonical D1 decode result. */
-class DecodeTrapIntent(val p: CoreParams) extends Bundle {
-  val valid = Bool()
-  val cause = UInt(p.trapCauseWidth.W)
-}
-
-/** One normalized D1 result. Encoded instructions and CTU template children
-  * deliberately share this record.
-  */
-class DecodedLane(val p: CoreParams) extends Bundle {
-  val uop = new DecodedUop(p)
-  val trap = new DecodeTrapIntent(p)
-}
-
-class DecodedPacket(val p: CoreParams) extends Bundle {
-  val count = UInt(PrefixPacketContract.countWidth(p.widths.decodeWidth).W)
-  val entries = Vec(p.widths.decodeWidth, new DecodedLane(p))
-}
-
 class DECIO(val p: CoreParams) extends Bundle {
   val in = Flipped(Decoupled(new D1Packet(p)))
   val out = Decoupled(new DecodedPacket(p))
@@ -46,27 +27,23 @@ class DEC(val p: CoreParams) extends Module {
   require(width == legacyP.instructionDecodeWidth)
   require(width <= legacyP.decodedUopWidth)
 
-  private def denseMask(count: UInt): UInt =
-    ((1.U((width + 1).W) << count) - 1.U)(width - 1, 0)
-
   val inputCountValid = io.in.bits.count.orR && io.in.bits.count <= width.U
   val active = Wire(Vec(width, Bool()))
   val template = Wire(Vec(width, Bool()))
+  val encoded = Wire(Vec(width, Bool()))
   for (lane <- 0 until width) {
     active(lane) := lane.U < io.in.bits.count
     template(lane) := active(lane) &&
       io.in.bits.entries(lane).kind === FrontEndOpKind.TemplateUop
+    encoded(lane) := active(lane) && !template(lane)
   }
-  val allTemplate = inputCountValid &&
-    (0 until width).map(lane => !active(lane) || template(lane)).reduce(_ && _)
-  val allEncoded = inputCountValid &&
-    (0 until width).map(lane => !active(lane) || !template(lane)).reduce(_ && _)
-  val shapeValid = allTemplate || allEncoded
+  val encodedMask = encoded.asUInt
+  val encodedAny = encodedMask.orR
 
-  val legacy = Module(new OooD1Decode(legacyP))
-  legacy.io.in.valid := io.in.valid && allEncoded
+  val legacy = Module(new OooD1Decode(legacyP, allowSparseInput = true))
+  legacy.io.in.valid := io.in.valid && inputCountValid && encodedAny
   legacy.io.in.bits := 0.U.asTypeOf(legacy.io.in.bits)
-  legacy.io.in.bits.validMask := denseMask(io.in.bits.count)
+  legacy.io.in.bits.validMask := encodedMask
   legacy.io.in.bits.peId := io.in.bits.entries(0).parent.identity.peId
   legacy.io.in.bits.stid := io.in.bits.entries(0).parent.identity.stid
   legacy.io.in.bits.epoch := io.in.bits.entries(0).parent.identity.epoch
@@ -123,7 +100,6 @@ class DEC(val p: CoreParams) extends Module {
   val result = Wire(new DecodedPacket(p))
   result := 0.U.asTypeOf(result)
   val encodedCount = PopCount(legacy.io.out.bits.uopMask)
-  result.count := Mux(allTemplate, io.in.bits.count, encodedCount)
 
   private def mapSource(
       target: DecodedSource,
@@ -167,82 +143,107 @@ class DEC(val p: CoreParams) extends Module {
     }
   }
 
-  for (slot <- 0 until width) {
-    val output = result.entries(slot)
-    val legacyUop = legacy.io.out.bits.uops(slot)
-    when(allEncoded) {
-      output.uop.valid := legacy.io.out.bits.uopMask(slot)
-      output.uop.opcode := legacyUop.opcode
-      mapClass(legacyUop.recipe.dispatchClass, output.uop.uopClass)
-      for (source <- 0 until p.maxSourceOperands) {
-        mapSource(output.uop.sources(source), legacyUop.sources(source))
-      }
-      for (destination <- 0 until p.maxDestinationOperands) {
-        mapDestination(
-          output.uop.destinations(destination),
-          legacyUop.destinations(destination))
-      }
-      output.uop.immediateValid := legacyUop.immediateValid
-      output.uop.immediate := legacyUop.immediate
-      output.uop.earlyComplete := legacyUop.preciseTrap ||
-        legacyUop.recipe.dispatchClass === OooDispatchClass.Boundary.U
-      output.uop.blockBoundary := legacyUop.identity.boundary.explicit
-      output.trap.valid := legacyUop.preciseTrap
-      output.trap.cause := legacyUop.trapCause
+  private def mapLegacy(
+      output: DecodedLane,
+      legacyUop: OooDecodedUop,
+      input: FrontEndOp): Unit = {
+    output.uop.valid := true.B
+    output.uop.instruction := input
+    output.uop.opcode := legacyUop.opcode
+    mapClass(legacyUop.recipe.dispatchClass, output.uop.uopClass)
+    for (source <- 0 until p.maxSourceOperands) {
+      mapSource(output.uop.sources(source), legacyUop.sources(source))
+    }
+    for (destination <- 0 until p.maxDestinationOperands) {
+      mapDestination(
+        output.uop.destinations(destination),
+        legacyUop.destinations(destination))
+    }
+    output.uop.immediateValid := legacyUop.immediateValid
+    output.uop.immediate := legacyUop.immediate
+    output.uop.earlyComplete := legacyUop.preciseTrap ||
+      legacyUop.recipe.dispatchClass === OooDispatchClass.Boundary.U
+    output.uop.blockBoundary := legacyUop.identity.boundary.explicit
+    output.trap.valid := legacyUop.preciseTrap
+    output.trap.cause := legacyUop.trapCause
+  }
 
-      // Recover the exact canonical parent rather than narrowing and then
-      // reconstructing identity/prediction fields through a legacy bundle.
-      for (inputLane <- 0 until width) {
-        when(active(inputLane) &&
-          io.in.bits.entries(inputLane).parent.identity.instructionId ===
-            legacyUop.identity.key.primaryParent.instructionId) {
-          output.uop.instruction := io.in.bits.entries(inputLane)
-        }
+  private def mapTemplate(output: DecodedLane, input: FrontEndOp): Unit = {
+    output.uop.valid := true.B
+    output.uop.instruction := input
+    output.uop.opcode := input.templateOpcode
+    output.uop.uopClass := UopClass.System
+    switch(input.templateOpcode) {
+      is(TemplateRowKind.SP_SUB.asUInt) { output.uop.uopClass := UopClass.Alu }
+      is(TemplateRowKind.SP_ADD.asUInt) { output.uop.uopClass := UopClass.Alu }
+      is(TemplateRowKind.RESTORE_R10.asUInt) { output.uop.uopClass := UopClass.Alu }
+      is(TemplateRowKind.STORE.asUInt) { output.uop.uopClass := UopClass.Std }
+      is(TemplateRowKind.LOAD.asUInt) { output.uop.uopClass := UopClass.Agu }
+      is(TemplateRowKind.VLOAD.asUInt) { output.uop.uopClass := UopClass.Agu }
+      is(TemplateRowKind.VTGT.asUInt) { output.uop.uopClass := UopClass.Bru }
+      is(TemplateRowKind.TARGET_PUBLISH.asUInt) {
+        output.uop.uopClass := UopClass.Bru
+      }
+      is(TemplateRowKind.FINAL.asUInt) {
+        output.uop.uopClass := UopClass.Boundary
       }
     }
+    output.uop.immediateValid := true.B
+    output.uop.immediate := input.templateImmediate
+    output.uop.earlyComplete :=
+      input.parent.fetchFault ||
+        input.templateOpcode === TemplateRowKind.FINAL.asUInt
+    output.uop.blockBoundary :=
+      input.templateOpcode === TemplateRowKind.FINAL.asUInt
+    output.trap.valid := input.parent.fetchFault
+    output.trap.cause := input.parent.fetchFaultCause
+  }
 
-    when(allTemplate && active(slot)) {
-      val input = io.in.bits.entries(slot)
-      output.uop.valid := true.B
-      output.uop.instruction := input
-      output.uop.opcode := input.templateOpcode
-      output.uop.uopClass := UopClass.System
-      switch(input.templateOpcode) {
-        is(TemplateRowKind.SP_SUB.asUInt) { output.uop.uopClass := UopClass.Alu }
-        is(TemplateRowKind.SP_ADD.asUInt) { output.uop.uopClass := UopClass.Alu }
-        is(TemplateRowKind.RESTORE_R10.asUInt) { output.uop.uopClass := UopClass.Alu }
-        is(TemplateRowKind.STORE.asUInt) { output.uop.uopClass := UopClass.Std }
-        is(TemplateRowKind.LOAD.asUInt) { output.uop.uopClass := UopClass.Agu }
-        is(TemplateRowKind.VLOAD.asUInt) { output.uop.uopClass := UopClass.Agu }
-        is(TemplateRowKind.VTGT.asUInt) { output.uop.uopClass := UopClass.Bru }
-        is(TemplateRowKind.TARGET_PUBLISH.asUInt) {
-          output.uop.uopClass := UopClass.Bru
+  val legacyMatch = Wire(Vec(width, Vec(width, Bool())))
+  val encodedEmit = Wire(Vec(width, Bool()))
+  val emit = Wire(Vec(width, Bool()))
+  for (inputLane <- 0 until width) {
+    for (legacySlot <- 0 until width) {
+      legacyMatch(inputLane)(legacySlot) := encoded(inputLane) &&
+        legacy.io.out.bits.uopMask(legacySlot) &&
+        io.in.bits.entries(inputLane).parent.identity.instructionId ===
+          legacy.io.out.bits.uops(legacySlot).identity.key.primaryParent.instructionId
+    }
+    encodedEmit(inputLane) := legacyMatch(inputLane).asUInt.orR
+    emit(inputLane) := template(inputLane) || encodedEmit(inputLane)
+  }
+  val outputCount = PopCount(emit)
+  result.count := outputCount
+  for (inputLane <- 0 until width) {
+    val outputIndex = if (inputLane == 0) 0.U else PopCount(emit.take(inputLane))
+    for (outputSlot <- 0 until width) {
+      when(emit(inputLane) && outputIndex === outputSlot.U) {
+        when(template(inputLane)) {
+          mapTemplate(result.entries(outputSlot), io.in.bits.entries(inputLane))
         }
-        is(TemplateRowKind.FINAL.asUInt) {
-          output.uop.uopClass := UopClass.Boundary
+        for (legacySlot <- 0 until width) {
+          when(legacyMatch(inputLane)(legacySlot)) {
+            mapLegacy(
+              result.entries(outputSlot),
+              legacy.io.out.bits.uops(legacySlot),
+              io.in.bits.entries(inputLane))
+          }
         }
       }
-      output.uop.immediateValid := true.B
-      output.uop.immediate := input.templateImmediate
-      output.uop.earlyComplete :=
-        input.parent.fetchFault ||
-          input.templateOpcode === TemplateRowKind.FINAL.asUInt
-      output.uop.blockBoundary :=
-        input.templateOpcode === TemplateRowKind.FINAL.asUInt
-      output.trap.valid := input.parent.fetchFault
-      output.trap.cause := input.parent.fetchFaultCause
     }
   }
 
-  val encodedHasOutput = legacy.io.out.valid && encodedCount.orR
-  io.out.valid := io.in.valid && shapeValid &&
-    Mux(allTemplate, inputCountValid, encodedHasOutput)
+  val encodedShapeValid = !encodedAny ||
+    (legacy.io.out.valid && !legacy.io.out.bits.ctuParentMask.orR &&
+      !legacy.io.out.bits.complexParentMask.orR &&
+      encodedCount === PopCount(encodedEmit))
+  io.out.valid := io.in.valid && inputCountValid && encodedShapeValid &&
+    outputCount.orR
   io.out.bits := result
-  legacy.io.out.ready := io.out.ready && allEncoded
-  io.in.ready := shapeValid &&
-    Mux(allTemplate, io.out.ready, encodedHasOutput && io.out.ready)
+  legacy.io.out.ready := io.out.ready
+  io.in.ready := inputCountValid && encodedShapeValid && io.out.ready
 
-  when(io.in.valid && shapeValid) {
+  when(io.in.valid && inputCountValid) {
     for (lane <- 0 until width) {
       when(active(lane)) {
         assert(io.in.bits.entries(lane).parent.identity.peId ===

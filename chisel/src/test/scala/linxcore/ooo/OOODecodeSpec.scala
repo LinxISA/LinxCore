@@ -160,6 +160,36 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("merges mixed encoded and template lanes without fusing across the tag boundary") {
+    simulate(new DEC(ParamProfiles.W4)) { dut =>
+      clearDec(dut)
+      dut.io.in.bits.count.poke(3.U)
+      pokeEncoded(dut.io.in.bits, 0, "OP_BSTART_FALL", 20)
+      val template = dut.io.in.bits.entries(1)
+      template.kind.poke(FrontEndOpKind.TemplateUop)
+      template.parent.identity.peId.poke(3.U)
+      template.parent.identity.stid.poke(0.U)
+      template.parent.identity.instructionId.poke(21.U)
+      template.parent.identity.epoch.poke(1.U)
+      template.templateOrdinal.poke(0.U)
+      template.templateCount.poke(1.U)
+      template.templateOpcode.poke(TemplateRowKind.VFORM.asUInt)
+      pokeEncoded(dut.io.in.bits, 2, "OP_ADD", 22)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.count.expect(3.U)
+      Seq(20, 21, 22).zipWithIndex.foreach { case (id, lane) =>
+        dut.io.out.bits.entries(lane).uop.instruction.parent.identity
+          .instructionId.expect(id.U)
+      }
+      dut.io.out.bits.entries(0).uop.blockBoundary.expect(true.B)
+      dut.io.out.bits.entries(1).uop.instruction.kind
+        .expect(FrontEndOpKind.TemplateUop)
+      dut.io.out.bits.entries(2).uop.opcode.expect(rule("OP_ADD").opcode.U)
+    }
+  }
+
   test("preserves operands and produces typed precise traps") {
     simulate(new DEC(ParamProfiles.W2)) { dut =>
       clearDec(dut)

@@ -131,6 +131,20 @@ class TopInterfaceSpec extends AnyFunSuite {
       log2Ceil(p.ooo.gprPhysRegs))
   }
 
+  test("the public OOO D1 D2 slice contract lives with the TOP interfaces") {
+    profiles.foreach { case (width, p) =>
+      val slice = new OOOD1D2IO(p)
+      assert(slice.fromCtu.bits.getClass == new D1Packet(p).getClass)
+      assert(slice.d2.bits.entries.length == width)
+      assert(slice.d2.bits.groups.length == width)
+      assert(slice.d2.bits.count.getWidth == log2Ceil(width + 1))
+      assert(slice.d2.bits.entries.head.uop.rob.ridGeneration.getWidth ==
+        p.ridGenerationWidth)
+      assert(slice.ridTailGeneration.head.getWidth == p.ridGenerationWidth)
+      assert(!slice.d2.bits.elements.contains("validMask"))
+    }
+  }
+
   test("OOO IEX and LSU boundaries preserve independent resource channels") {
     val p = ParamProfiles.W4
     val oooIex = new OOOIEXIO(p)

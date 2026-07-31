@@ -471,7 +471,9 @@ class OooD1DecodeIO(val p: OooParams = OooParams()) extends Bundle {
 }
 
 /** Parameterized same-cycle D1 decode, operand normalization, fusion, and compaction. */
-class OooD1Decode(val p: OooParams = OooParams()) extends Module {
+class OooD1Decode(
+    val p: OooParams = OooParams(),
+    val allowSparseInput: Boolean = false) extends Module {
   val io = IO(new OooD1DecodeIO(p))
   val laneResults = Wire(Vec(p.instructionDecodeWidth, new OooD1LaneResult(p)))
 
@@ -616,10 +618,13 @@ class OooD1Decode(val p: OooParams = OooParams()) extends Module {
   io.in.ready := Mux(io.in.bits.validMask.orR || io.in.bits.endOfStream, io.out.ready, true.B)
 
   when(io.in.valid) {
-    val denseInput =
-      ((1.U((p.instructionDecodeWidth + 1).W) << PopCount(io.in.bits.validMask)) - 1.U)(
-        p.instructionDecodeWidth - 1, 0)
-    assert(io.in.bits.validMask === denseInput, "OOO D1 accepts only a dense instruction prefix")
+    if (!allowSparseInput) {
+      val denseInput =
+        ((1.U((p.instructionDecodeWidth + 1).W) << PopCount(io.in.bits.validMask)) - 1.U)(
+          p.instructionDecodeWidth - 1, 0)
+      assert(io.in.bits.validMask === denseInput,
+        "OOO D1 accepts only a dense instruction prefix")
+    }
     for (lane <- 0 until p.instructionDecodeWidth) {
       when(io.in.bits.validMask(lane)) {
         assert(

@@ -1,44 +1,9 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PriorityEncoder}
+import chisel3.util.PriorityEncoder
 import linxcore.params.CoreParams
 import linxcore.top.interface._
-
-class VirtualRobGroupIntent(val p: CoreParams) extends Bundle {
-  val valid = Bool()
-  val peId = UInt(p.peIdWidth.W)
-  val stid = UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.stidCount)).W)
-  val ridSlot = UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid)).W)
-  val ridGeneration = UInt(p.ridGenerationWidth.W)
-}
-
-class D2AdmissionLane(val p: CoreParams) extends Bundle {
-  val uop = new DecodedUop(p)
-  val trap = new DecodeTrapIntent(p)
-  val residentBound = Bool()
-  val brobBound = Bool()
-}
-
-/** Immutable D2 virtual allocation transaction. Physical ROB/BROB publication
-  * is deliberately absent; D3 remains the unique tail mutator.
-  */
-class D2AdmissionGroup(val p: CoreParams) extends Bundle {
-  val count = UInt(PrefixPacketContract.countWidth(p.widths.decodeWidth).W)
-  val groupCount = UInt(PrefixPacketContract.countWidth(p.widths.decodeWidth).W)
-  val groups = Vec(p.widths.decodeWidth, new VirtualRobGroupIntent(p))
-  val entries = Vec(p.widths.decodeWidth, new D2AdmissionLane(p))
-}
-
-class OOOD1D2IO(val p: CoreParams) extends Bundle {
-  val fromCtu = Flipped(Decoupled(new D1Packet(p)))
-  val ridTailSlot = Input(Vec(p.ooo.stidCount,
-    UInt(math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid)).W)))
-  val ridTailGeneration = Input(Vec(p.ooo.stidCount,
-    UInt(p.ridGenerationWidth.W)))
-  val recovery = Flipped(new RecoveryTargetIO(p))
-  val d2 = Decoupled(new D2AdmissionGroup(p))
-}
 
 /** Public OOO box, Task-7 slice: D1 decode plus retained D2 virtual admission. */
 class OOO(val p: CoreParams) extends Module {
