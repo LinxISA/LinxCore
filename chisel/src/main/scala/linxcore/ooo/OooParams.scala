@@ -99,8 +99,8 @@ final case class OooParams(
     (stidCount * pArchRegs until pPhysRegs).count(_ % pTagBanks == bank)
 
   require(isPowerOfTwo(stidCount), "stidCount must be a positive power of two")
-  require(Set(2, 4, 6).contains(instructionDecodeWidth),
-    "instructionDecodeWidth must be one of 2, 4, or 6")
+  require(Set(2, 4, 6, 8).contains(instructionDecodeWidth),
+    "instructionDecodeWidth must be one of 2, 4, 6, or 8")
   require(decodedUopWidth >= instructionDecodeWidth,
     "decodedUopWidth must contain the instruction decode prefix")
   require(renameWidth > 0 && dispatchWidth > 0 && retireGroupWidth > 0,
@@ -359,4 +359,57 @@ final case class OooParams(
     countWidth(decodedUopWidth * maxDispatchWritesPerInstruction)
   def memoryDemandWidth: Int =
     countWidth(decodedUopWidth * maxMemoryRequestsPerInstruction)
+
+  /** Temporary value-only bridge into the centralized OOO parameter record. */
+  def toMainline: linxcore.params.OOOParams =
+    linxcore.params.OOOParams(
+      stidCount = stidCount,
+      decodeWidth = instructionDecodeWidth,
+      renameWidth = renameWidth,
+      dispatchWidth = dispatchWidth,
+      d3PrefixWidth = math.min(renameWidth, dispatchWidth),
+      retireWidth = retireGroupWidth,
+      robGroupsPerStid = robGroupsPerStid,
+      maxInstructionsPerRobGroup = maxInstPerRobGroup,
+      robBankCount = robBankCount,
+      brobEntriesPerStid = brobEntriesPerStid,
+      gprArchRegs = pArchRegs,
+      gprPhysRegs = pPhysRegs,
+      gprMapQDepthPerStid = pMapQDepthPerStid,
+      tPhysRegs = tPhysRegs,
+      uPhysRegs = uPhysRegs,
+      tuMapQDepthPerStid = tuMapQDepthPerStid)
+}
+
+object OooParams {
+  private def nextPowerOfTwo(value: Int): Int =
+    if (value <= 1) 1
+    else 1 << (32 - Integer.numberOfLeadingZeros(value - 1))
+
+  /** Temporary constructor bridge for OOO modules awaiting migration. */
+  def fromMainline(p: linxcore.params.OOOParams): OooParams = {
+    val decodedWidth = math.max(p.decodeWidth, p.renameWidth)
+    val commitBufferEntries = nextPowerOfTwo(
+      math.max(64, p.retireWidth * decodedWidth * 2))
+
+    OooParams(
+      stidCount = p.stidCount,
+      instructionDecodeWidth = p.decodeWidth,
+      decodedUopWidth = decodedWidth,
+      renameWidth = p.renameWidth,
+      dispatchWidth = p.dispatchWidth,
+      retireGroupWidth = p.retireWidth,
+      storeCommitBufferEntries = commitBufferEntries,
+      maxInstPerRobGroup = p.maxInstructionsPerRobGroup,
+      robGroupsPerStid = p.robGroupsPerStid,
+      robBankCount = p.robBankCount,
+      brobEntriesPerStid = p.brobEntriesPerStid,
+      pcBankCount = nextPowerOfTwo(math.max(4, p.retireWidth)),
+      pArchRegs = p.gprArchRegs,
+      pPhysRegs = p.gprPhysRegs,
+      pMapQDepthPerStid = p.gprMapQDepthPerStid,
+      tPhysRegs = p.tPhysRegs,
+      uPhysRegs = p.uPhysRegs,
+      tuMapQDepthPerStid = p.tuMapQDepthPerStid)
+  }
 }

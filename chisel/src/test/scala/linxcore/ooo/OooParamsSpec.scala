@@ -75,8 +75,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.executeSlotGenerationWidth == 8)
   }
 
-  test("instruction decode widths 2 4 and 6 are independent elaboration points") {
-    Seq(2, 4, 6).foreach { width =>
+  test("instruction decode widths 2 4 6 and 8 are independent elaboration points") {
+    Seq(2, 4, 6, 8).foreach { width =>
       val p = OooParams(instructionDecodeWidth = width)
       assert(p.instructionDecodeWidth == width)
       assert(p.decodedUopWidth >= width)

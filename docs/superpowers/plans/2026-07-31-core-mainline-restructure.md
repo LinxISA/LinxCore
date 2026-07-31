@@ -245,6 +245,63 @@ REF-NDF
 
 层次固定为 L0 intent、L1 observable contract、L2 mechanism、L3 executable check。每个 `level=must layer=L1` 条款在主链启用前必须被至少一个 `VER-*` 条款通过 `verifies=` 覆盖。
 
+### 4.1 Interface contracts as an NDF refinement graph
+
+接口设计同时维护三种结构：
+
+1. **Tree:** 每个跨 box 边界只有一个 `docs/spec/30-interfaces/*.md`
+   归属文件，每个 payload 和完整 box IO 只有一个
+   `linxcore/top/interface/*.scala` 定义位置。
+2. **Graph:** L2 Bundle/协议条款通过 `refines=` 指向 L1 可观察契约，
+   通过 `depends-on=` 指向 identity、parameter、recovery 或 ownership 条款；
+   L3 检查通过 `verifies=` 指回被覆盖条款。跨边界宽度和资源耦合使用
+   `couples-with=`，不在散文中隐式表达。
+3. **History:** 接口条款 ID 跨文件移动和标题重命名保持稳定。破坏性字段、
+   方向或时序变更必须在同一提交中更新 Bundle、所有 producer/consumer、
+   generated manifest、验证条款和 `decisions/` 记录；被替代条款使用
+   `superseded-by`，不得静默删除或复用 ID。
+
+每个接口文件必须按以下精化层组织：
+
+| Layer | Required content | Acceptance evidence |
+|---|---|---|
+| L1 observable contract | producer、consumer、顺序、原子 fire、反压、恢复后的可观察结果 | adjacent-box IT |
+| L2 mechanism | 唯一 Bundle 类型、方向、`count + Vec` 形状、完整 identity、owner、prepare/apply 处理 | Bundle shape UT、protocol assertions |
+| L3 executable check | W2/W4/W6/W8 elaboration、stall stability、identity round trip、stale response rejection | ScalaTest/chiseltest + generated manifest check |
+
+L1/L2 文档不得复制 Scala 字段表。Scala Bundle elaboration 是字段名、位宽、
+嵌套和方向的可执行来源；生成的 JSON/Markdown manifest 是其可评审投影。
+NDF 条款规定语义、所有权和协议不变量，并链接 manifest 和测试证据。
+
+### 4.2 Interface boundary matrix
+
+Task 3 必须先冻结以下边界，再允许 box 实现依赖它们：
+
+| Contract home | Producer -> consumer | Data plane | Control/return plane | Required identity |
+|---|---|---|---|---|
+| `ifu-ctu.md` | IFU -> CTU | fixed-64-bit `FetchedPacket` continuous prefix | CTU backpressure; OOO-authored recovery routed through TOP | fetch generation, `stid`, block/instruction identity, prediction checkpoint |
+| `ctu-ooo.md` | CTU -> OOO | `D1Packet[FrontEndOp]` after Instruction Buffer retention | OOO admission backpressure and recovery pruning | original instruction identity plus expansion member identity |
+| `ooo-iex.md` | OOO -> IEX | atomic `DispatchTxn` routed by uop class | completion, fault and redirect events return to OOO | full ROB generation, `bid/rid/uid`, renamed tags |
+| `iex-lsu.md` | IEX -> LSU | separate load-address, store-address and store-data transactions | load result, memory fault, retry/replay event | ROB identity plus LSID generation and split/access member |
+| `recovery.md` | OOO -> all owners | typed `RecoveryPlan` prepare/apply phases | per-owner acknowledgement and stale-work rejection | recovery generation and precise cutoff identity |
+| `commit.md` | OOO -> owners/TOP | ordered `CommitTxn` prefix and side-effect authorization | completion/ack only where architecturally required | ROB generation and architectural parent identity |
+| `dtu.md` | boxes/TOP -> DTU | loss-tolerant trace/performance events | debug requests enter through typed TOP/OOO control path | event sequence plus originating instruction identity when applicable |
+| `memory.md` | IFU/LSU <-> TOP memory adapters | independent instruction/data request and response channels | credit/backpressure/error return | transaction generation; never address-only matching |
+
+所有 Decoupled payload 都遵守 `valid && !ready` 全字段稳定；`fire` 之前
+receiver 不得消费或分配状态。数据流与 recovery/commit/debug 控制流使用不同
+transaction 类型，禁止用复用 opcode 或 sideband boolean 创建第二套隐式协议。
+IEX/LSU 只能报告事件给 OOO，不能形成直达 IFU 的恢复控制路径。
+
+### 4.3 Parameter options and interface coupling
+
+主要宽度使用 NDF `option` 条款记录 `default=4`、`explore=2,4,6,8`，
+并以 `couples-with` 显式连接 IFU transfer、CTU output、OOO
+decode/rename/dispatch、IEX issue 和 packet manifest。执行单元数、LSU pipe
+数、队列深度及 identity 位宽是独立参数，但任何组合必须在生成接口之前通过
+`ParamChecks`。已选默认值与仍允许 elaboration 的集合都保留在条款中，
+避免把当前默认拓扑误写成不可配置常量。
+
 ## 5. Execution Tasks
 
 ### Task 1: Establish the contract spine and reference boundary
@@ -325,6 +382,8 @@ Commit intent: `Make the core contract independently reviewable before RTL moves
 - Create: `chisel/src/main/scala/linxcore/params/ParamProfiles.scala`
 - Create: `chisel/src/main/scala/linxcore/params/ParamChecks.scala`
 - Create: `chisel/src/test/scala/linxcore/params/CoreConfigurationSpec.scala`
+- Create: `docs/spec/40-constraints/parameters.md`
+- Create: `docs/spec/50-verification/parameter-profiles.md`
 - Modify: `chisel/src/main/scala/linxcore/common/CoreParams.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/OooParams.scala`
 
@@ -407,7 +466,14 @@ Commit intent: `Keep every width and resource choice explicit at one boundary`
 - Consumes: `CoreParams`, Section 3 transaction names, `IFC-*` clauses.
 - Produces: all cross-box payloads, all box IO classes, generated interface manifest and protocol assertions.
 
-- [ ] **Step 1: Write failing Bundle shape and protocol tests**
+- [ ] **Step 1: Write L1/L2 interface clauses and the failing coverage check**
+
+为 Section 4.2 的八个边界分别建立唯一归属文件。每个文件至少包含一个
+L1 observable contract、一个 `refines=` 该契约的 L2 mechanism 条款，
+以及预先声明的 L3 `VER-*` 覆盖边。先运行 NDF checker，确认缺少对应
+Bundle/manifest evidence 时 Task 3 仍未满足验收条件。
+
+- [ ] **Step 2: Write failing Bundle shape and protocol tests**
 
 Tests覆盖四种 width、64-bit instruction、continuous-prefix count、complete identities、CMD 独立通道、2 LDA/2 STA/2 STD 通路、recovery prepare/apply，以及 stall 时 payload 稳定。
 
@@ -421,17 +487,22 @@ test(new InterfaceHoldProbe(ParamProfiles.W4)) { dut =>
 }
 ```
 
-- [ ] **Step 2: Run the failing tests**
+- [ ] **Step 3: Run the failing tests**
 
 Run: `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec`
 
 Expected: FAIL because interface classes do not exist.
 
-- [ ] **Step 3: Implement transaction and box IO types**
+- [ ] **Step 4: Implement transaction and box IO types**
 
 每个 transaction 只定义一次。`IFUIO`、`CTUIO`、`OOOIO`、`IEXIO`、`LSUIO`、`DTUIO` 组合这些 transaction；禁止复制字段形成 sender/receiver 两套类。
 
-- [ ] **Step 4: Generate and verify manifests**
+每个端口必须能追溯到一个 Section 4.2 contract home。producer 与 consumer
+复用同一个 payload 类型，只在 IO 组合处改变方向。所有 packet 使用
+`count + Vec(maxWidth, payload)`；recovery、commit、trace、memory
+response 使用各自 transaction，完整 identity 不得被 adapter 截断。
+
+- [ ] **Step 5: Generate and verify manifests**
 
 Run:
 
@@ -444,7 +515,15 @@ python3 tools/spec/check_ndf_profile.py docs/spec
 
 Expected: PASS；JSON/Markdown 与 Bundle elaboration 一致，手工修改生成文件会被 `--check` 拒绝。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Review the NDF trace and interface fanout**
+
+对每个 L1 `IFC-*` 条款检查至少一个 L2 `refines=` 和一个 L3
+`verifies=`；检查每个 manifest endpoint 都有 contract home，且没有
+sender/receiver 同义 Bundle、无直接 IEX/LSU-to-IFU 控制、无 slot-only
+或 address-only 返回匹配。接口变更 fanout 必须覆盖所有 producer、
+consumer、TOP wiring、manifest 和验证条款。
+
+- [ ] **Step 7: Commit**
 
 Commit intent: `Give every box one typed contract and one direction of authority`
 

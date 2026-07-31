@@ -114,6 +114,22 @@ class NdfProfileCheckerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("dangling reference IFC-MISSING-001", result.stderr)
 
+    def test_rejects_dangling_parameter_coupling(self):
+        option = """
+        ## Decode width option {#PRM-WIDTH-001}
+        <!-- ndf: kind=option level=may layer=L2 status=stable since=0.1 -->
+        <!-- ndf: default=4 explore=2,4,6,8 couples-with=PRM-MISSING-001 -->
+
+        Decode width MAY select one supported profile value.
+        """
+        temporary = self.make_spec({"40-constraints/parameters.md": option})
+        self.addCleanup(temporary.cleanup)
+
+        result = self.run_checker(Path(temporary.name))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dangling reference PRM-MISSING-001", result.stderr)
+
     def test_rejects_missing_required_metadata(self):
         missing = """
         ## Incomplete owner clause {#ARC-TOP-001}

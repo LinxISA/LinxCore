@@ -41,3 +41,49 @@ push identities are filled only after the corresponding operation succeeds.
   `Make the core contract independently reviewable before RTL moves`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
+
+## Loop 2 — Central parameters and configurable profiles
+
+- Scope: Task 2 plus the NDF interface-contract refinement requested while the
+  loop was active; no box state or datapath was migrated.
+- Skills: repository-pinned `using-superpowers`, `executing-plans`,
+  `test-driven-development`, `verification-before-completion`, and the
+  `linx-core` domain workflow.
+- Workflow: add the W2/W4/W6/W8 profile test first; observe missing central
+  parameter types; implement immutable module records and cross-parameter
+  checks; add value-only legacy adapters behind their own RED/GREEN cycle;
+  expose and close the old OOO W8 sizing gaps; project parameter options,
+  coupling and verification into the local NDF profile; expand Task 3 with
+  boundary homes and L1/L2/L3 interface acceptance.
+- RED evidence: `CoreConfigurationSpec` first failed because
+  `linxcore.params`, profiles and adapters did not exist. A later adapter test
+  failed first on the old 2/4/6 decode-width restriction, then on W8
+  store-commit and PC-bank capacity. The new NDF coupling test failed because
+  `couples-with` was not yet a checked edge.
+- GREEN evidence: `CoreConfigurationSpec` passes 9 tests, including all four
+  profiles, invalid combinations, topology defaults and value-only adapters.
+  `OooParamsSpec` passes 3 tests including W8 decode construction.
+  `CoreParamsInterfaceClosureSpec` passes 2 compatibility tests.
+  The 10 NDF-checker tests pass; the live profile reports 37 clauses, 17 L1
+  MUST clauses, 18 verification targets, zero open questions and two pinned
+  references under both ordinary and strict local-reference checks.
+  `bash tools/chisel/build_chisel.sh` completes successfully.
+- Result: the central parameter boundary now owns principal widths, module
+  resources and validation. W4 preserves the requested IEX/LSU topology;
+  W2/W4/W6/W8 are constructible profiles. Temporary adapters derive dependent
+  legacy capacities but own no state.
+- Interface-plan refinement: Task 3 now freezes eight contract homes
+  (IFU–CTU, CTU–OOO, OOO–IEX, IEX–LSU, recovery, commit, DTU and memory),
+  requires stable NDF IDs and typed edges, and separates L1 observable
+  contracts, L2 Bundle mechanisms and L3 executable checks. Generated
+  manifests remain projections of elaborated Bundles rather than a competing
+  field source.
+- Remaining gap: the typed Bundles, complete box IOs and generated manifest do
+  not exist yet. Task 3 owns that implementation.
+- skill-evolve: no-update — width/resource coupling is specific to this core;
+  no new reusable invariant is needed in the shared LinxCore skill.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Keep every width and resource choice explicit at one boundary`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded in the loop handoff after the immutable commit exists.

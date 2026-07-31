@@ -23,6 +23,7 @@ EDGE_KEYS = (
     "refines",
     "depends-on",
     "conflicts-with",
+    "couples-with",
     "verifies",
     "affects",
     "blocks",

@@ -11,6 +11,65 @@ final case class CoreParams(
   require((robEntries & (robEntries - 1)) == 0, "robEntries must be a power of two")
   require(commitWidth > 0, "commitWidth must be positive")
   require(lsidWidth >= 32, "lsidWidth must preserve the Linx 32-bit memory-order contract")
+
+  /** Temporary value-only bridge into the centralized parameter hierarchy.
+    *
+    * This preserves legacy sizing where an equivalent field exists. It owns no
+    * hardware state and is removed with the old top chain.
+    */
+  def toMainline(profileWidth: Int = 4): linxcore.params.CoreParams = {
+    val base = linxcore.params.ParamProfiles.forWidth(profileWidth)
+    base.copy(
+      widths = base.widths.copy(retireWidth = commitWidth),
+      ooo = base.ooo.copy(
+        stidCount = scalarLsu.stidCount,
+        retireWidth = commitWidth,
+        robGroupsPerStid = robEntries,
+        maxInstructionsPerRobGroup = 1,
+        gprArchRegs = scalarBackend.gprArchRegs,
+        gprPhysRegs = scalarBackend.gprPhysRegs,
+        gprMapQDepthPerStid = scalarBackend.gprMapQDepth,
+        tuMapQDepthPerStid = scalarLsu.mapQDepth),
+      iex = base.iex.copy(
+        scalarIssueBanks = scalarBackend.scalarIssueBanks,
+        integerReadPorts = scalarBackend.gprReadPorts,
+        integerWritePorts = scalarBackend.gprWritePorts),
+      lsu = base.lsu.copy(
+        loadQueueEntries = scalarLsu.liqEntries,
+        storeQueueEntries = scalarLsu.stqEntries,
+        loadReturnQueueEntries = scalarLsu.loadReturnQueueEntries,
+        storeCommitQueueEntries = scalarLsu.commitQueueEntries,
+        scbEntries = scalarLsu.scbEntries,
+        lineBytes = scalarLsu.lineBytes),
+      lsidWidth = lsidWidth)
+  }
+}
+
+object CoreParams {
+  /** Temporary constructor bridge for legacy modules awaiting migration. */
+  def fromMainline(p: linxcore.params.CoreParams): CoreParams =
+    CoreParams(
+      robEntries = p.ooo.robCapacityPerStid,
+      commitWidth = p.widths.retireWidth,
+      scalarLsu = ScalarLsuParams(
+        stqEntries = p.lsu.storeQueueEntries,
+        commitQueueEntries = p.lsu.storeCommitQueueEntries,
+        commitIssueWidth = p.lsu.storePipes,
+        scbEntries = p.lsu.scbEntries,
+        liqEntries = p.lsu.loadQueueEntries,
+        loadReturnQueueEntries = p.lsu.loadReturnQueueEntries,
+        loadReturnPipeCount = p.lsu.loadPipes,
+        lineBytes = p.lsu.lineBytes,
+        mapQDepth = p.ooo.tuMapQDepthPerStid,
+        stidCount = p.ooo.stidCount),
+      scalarBackend = ScalarBackendParams(
+        gprArchRegs = p.ooo.gprArchRegs,
+        gprPhysRegs = p.ooo.gprPhysRegs,
+        gprMapQDepth = p.ooo.gprMapQDepthPerStid,
+        gprWritePorts = p.iex.integerWritePorts,
+        scalarIssueBanks = p.iex.scalarIssueBanks,
+        gprReadPorts = p.iex.integerReadPorts),
+      lsidWidth = p.lsidWidth)
 }
 
 final case class ScalarBackendParams(
