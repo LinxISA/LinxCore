@@ -191,6 +191,17 @@ class IFUPredictionSpec extends AnyFunSuite with ChiselSim {
     dut.io.prune.valid.poke(false.B)
   }
 
+  private def resetSpeculativeHistory(dut: BSide): Unit = {
+    dut.io.prune.poke(0.U.asTypeOf(dut.io.prune))
+    dut.io.prune.valid.poke(true.B)
+    dut.io.prune.reason.poke(IfuInnerFlushReason.FetchReplay)
+    dut.io.prune.scope.poke(IfuPruneScope.KillAllThreadState)
+    dut.io.prune.ghrAction.poke(GhrRecoveryAction.Reset)
+    dut.io.prune.rasAction.poke(RasRecoveryAction.Reset)
+    dut.clock.step()
+    dut.io.prune.valid.poke(false.B)
+  }
+
   private def trainPrediction(
       dut: BSide,
       transactionId: Int,
@@ -246,7 +257,7 @@ class IFUPredictionSpec extends AnyFunSuite with ChiselSim {
     io(5) := Prediction.providerRank(BSideStage.BF4)
   }
 
-  private def bSideWithTables(nano: Int, ub: Int, pb: Int, tage: Int = 8): BSide =
+  private def bSideWithTables(nano: Int, ub: Int, pb: Int, bim: Int = -1, tage: Int = 8): BSide =
     new BSide(
       p = p,
       lineBytes = lineBytes,
@@ -257,7 +268,7 @@ class IFUPredictionSpec extends AnyFunSuite with ChiselSim {
       nanoEntries = nano,
       ubtbEntries = ub,
       pbtbEntries = pb,
-      bimEntries = pb,
+      bimEntries = if (bim < 0) pb else bim,
       tageEntries = tage,
       ibtbEntries = 8,
       loopEntries = 8,
@@ -328,6 +339,34 @@ class IFUPredictionSpec extends AnyFunSuite with ChiselSim {
       dut.io.response.bits.finalResponse.expect(false.B)
       dut.io.response.bits.prediction.provider.expect(PredictionProvider.Bim)
       dut.io.response.bits.prediction.stage.expect(BSideStage.BF2)
+    }
+
+    simulate(bSideWithTables(nano = 1, ub = 1, pb = 16, bim = 1)) { dut =>
+      clear(dut)
+      trainPrediction(dut, 80, 0x5300, 0x5304, 0x5700, 0x5306, BoundaryKind.Cond, taken = false)
+      trainPrediction(dut, 81, 0x5310, 0x5314, 0x5710, 0x5316, BoundaryKind.Cond, taken = true)
+      trainPrediction(dut, 82, 0x5330, 0x5334, 0x5730, 0x5336, BoundaryKind.Cond, taken = true)
+      trainPrediction(dut, 83, 0x5350, 0x5354, 0x5750, 0x5356, BoundaryKind.Cond, taken = true)
+      resetSpeculativeHistory(dut)
+
+      sendBoundary(dut, 6, 0x5300, 0x5304, 0x5700, 0x5306, BoundaryKind.Cond, staticTaken = true)
+      sendRequest(dut, 6, 0x5300)
+      waitForResponse(dut, limit = 32)
+      dut.io.response.bits.finalResponse.expect(false.B)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.Bim)
+      dut.io.response.bits.prediction.stage.expect(BSideStage.BF2)
+      dut.io.response.bits.prediction.taken.expect(true.B)
+      val bf2Tag = dut.io.response.bits.prediction.predictionTag.peek().litValue.toInt
+      dut.io.response.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.response.ready.poke(false.B)
+      applyCanonicalCorrection(dut, 6, bf2Tag, taken = true, BoundaryKind.Cond)
+
+      waitForResponse(dut, limit = 32)
+      dut.io.response.bits.finalResponse.expect(false.B)
+      dut.io.response.bits.prediction.provider.expect(PredictionProvider.ShortTage)
+      dut.io.response.bits.prediction.stage.expect(BSideStage.BF3)
+      dut.io.response.bits.prediction.taken.expect(false.B)
     }
 
     simulate(module) { dut =>

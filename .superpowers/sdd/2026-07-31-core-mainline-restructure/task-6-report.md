@@ -133,3 +133,41 @@ Round-2 GREEN evidence after removing the failing exploratory test edits:
 
 - `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 0; 6 tests passed.
 - `bash tools/chisel/build_chisel.sh` -> exit 0; Chisel build completed successfully.
+
+## Review Fixes Round 2 Correction
+
+This section supersedes the earlier Round 2 conclusion and commit
+`983abd8f`. The earlier "production observability gap" conclusion was wrong:
+BF3 is intentionally silent when ShortTage agrees with the current effective
+tuple, and BF4 waits for an exact boundary/no-boundary event.
+
+The authentic public `BSide` BF3 regression is now committed in
+`IFUPredictionSpec`:
+
+- Target conditional `0x5300` is first trained not-taken at request-owned
+  GHR 0, establishing the target ShortTage tag/counter.
+- Alias conditionals `0x5310`, `0x5330`, and `0x5350` share a one-entry BIM
+  but use different pBTB and ShortTage slots, driving BIM taken without
+  overwriting the target ShortTage slot.
+- A public `KillAllThreadState` prune with GHR/RAS reset returns the target
+  request's future `ghrBefore` to 0 while predictor tables remain intact.
+- The target request then observes a real BF2/BIM taken progressive response,
+  accepts the canonical prune for that correction, and then observes a real
+  BF3/ShortTage not-taken progressive response with `finalResponse=false`.
+
+Round-2 correction RED evidence:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 1
+  with the first authentic stimulus attempt. BF2/BIM was observed, but the next
+  response was BF4 final rather than BF3 because alias `0x5320` evicted the
+  target ShortTage slot. The alias set was corrected to avoid the target
+  ShortTage index for each current GHR value.
+
+Round-2 correction GREEN evidence:
+
+- `bash tools/chisel/run_chisel_tests.sh --only IFUPredictionSpec` -> exit 0;
+  6 tests passed, including the authentic BF3/ShortTage public `BSide`
+  simulation.
+- `bash tools/chisel/build_chisel.sh` -> exit 0; Chisel build completed
+  successfully.
+- `git diff --check` -> exit 0; no whitespace errors.
