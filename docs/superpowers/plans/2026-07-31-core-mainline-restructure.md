@@ -22,7 +22,9 @@
 - OOO 范围固定为 D1、D2、D3、S1，以及 DEC、RENU、ROB、BROB；S1 后的 issue/read/execute 属于 IEX。
 - RENU 必须保留 atag，并分别输出 ptag、ttag、utag；P 绝对索引和 T/U 相对索引使用两套不同的 SMAP/CMAP/MAPQ 机制。
 - DTU 仅拥有 debug、trace 和性能观测；精确恢复、interrupt/trap 和 commit control 分布在 OOO、相关 box 与 TOP 路由中。
-- `a.txt`、`b.txt`、`superscalarNPU` 只提供机制、拓扑和接口组织参考，不定义 Linx ISA 语义，不得复制 ARM 常量、异常模型、寄存器分类或内存序语义。
+- `a.txt`、`b.txt`、`superscalarNPU` 只提供机制、拓扑和接口组织参考，
+  不定义 Linx ISA 语义。机制进入 `docs/spec/` 时必须改写为项目自身条款，
+  不保留来源文件名或外部架构叙事。
 - NDF 只作为规范组织方法；不增加外部 NDF 工具依赖。
 - 不新增第三方依赖。规范检查器只使用 Python 3 标准库。
 - 每个状态只有一个 owner；迁移期 adapter 不得复制队列、map、ROB、cache、predictor 或恢复状态。
@@ -61,7 +63,8 @@
 - 不复制 superscalarNPU 的 32-bit `inst + is_upper` 跨槽协议；IFU 边界为完整 64-bit 容器。
 - 不复制 IEX 直接控制 IFU 的第二条恢复路径；IEX/LSU 报告事件，OOO 裁决，TOP 分发。
 - 不复制按目的 box 重复展开的 flush wire；使用统一 typed recovery transaction。
-- 不复制 `a.txt`、`b.txt` 中的 ARM 指令、异常级、condition flags、barrier、exclusive monitor 或寄存器命名。
+- 不复制 `a.txt`、`b.txt` 中的外部 ISA 指令、异常级、condition flags、
+  barrier、exclusive monitor 或寄存器命名。
 - 不把外部资料的固定资源数当作本项目常量；所有采纳值必须进入 `params/` 并通过本项目约束检查。
 
 ## 2. Target Source Layout
@@ -227,7 +230,7 @@ docs/spec/
 ├── 50-verification/{interface-conformance.md,module-coverage.md,benchmark-acceptance.md}
 ├── decisions/
 ├── open/
-└── refs/{a-reference.md,b-reference.md,superscalar-npu.md,ndf.md}
+└── refs/{superscalar-npu.md,ndf.md}
 ```
 
 条款前缀固定为：
@@ -236,7 +239,8 @@ docs/spec/
 ARC-TOP  IFC-IFU-CTU  IFC-CTU-OOO  IFC-OOO-IEX  IFC-IEX-LSU
 IFU      CTU          OOO          IEX          LSU
 DTU      REC          CMT          PRM          VER
-D        Q
+D        Q            REF-SNPU
+REF-NDF
 ```
 
 层次固定为 L0 intent、L1 observable contract、L2 mechanism、L3 executable check。每个 `level=must layer=L1` 条款在主链启用前必须被至少一个 `VER-*` 条款通过 `verifies=` 覆盖。
@@ -252,15 +256,15 @@ D        Q
 - Create: `docs/spec/10-architecture/top.md`
 - Create: `docs/spec/10-architecture/ownership.md`
 - Create: `docs/spec/10-architecture/pipeline.md`
-- Create: `docs/spec/refs/a-reference.md`
-- Create: `docs/spec/refs/b-reference.md`
+- Create: `docs/spec/50-verification/contract-spine.md`
 - Create: `docs/spec/refs/superscalar-npu.md`
 - Create: `docs/spec/refs/ndf.md`
 - Create: `tools/spec/check_ndf_profile.py`
 - Create: `tests/test_ndf_profile.py`
+- Create: `docs/chisel/mainline-loop-ledger.md`
 
 **Interfaces:**
-- Consumes: 本计划、仓内架构文档、冻结的四个 reference identity。
+- Consumes: 本计划、仓内架构文档和两个结构方法 reference identity。
 - Produces: 稳定 clause ID、owner 词汇表、外部参考投影规则和 `check_ndf_profile.py` CI 入口。
 
 - [ ] **Step 1: Write failing checker tests**
@@ -282,18 +286,15 @@ Expected: FAIL because `tools/spec/check_ndf_profile.py` does not exist.
 
 - [ ] **Step 3: Implement the minimal checker and contract files**
 
-Checker API 固定为 `parse_clauses(spec_root: pathlib.Path) -> dict[str,
-Clause]`、`validate_ids(clauses: dict[str, Clause]) -> list[str]`、
-`validate_links(clauses: dict[str, Clause]) -> list[str]`、
-`validate_verification_coverage(clauses: dict[str, Clause]) -> list[str]`、
-`validate_reference_identities(spec_root: pathlib.Path) -> list[str]` 和
-`main(argv: list[str]) -> int`。
+Checker CLI 固定为
+`python3 tools/spec/check_ndf_profile.py docs/spec [--verify-local-references]`。
+内部保持 clause parse、ID/link、L1 coverage 和 reference identity
+validation 可独立测试，不把 Markdown 或 YAML parser 暴露为仓外 API。
 
 只实现本计划使用的 metadata 子集；禁止引入 YAML/Markdown parser 依赖。
 普通 CI 只检查 reference revision/SHA-256 的格式与必填性，不要求
-`/Users/zhoubot/Documents` 存在。开发机可显式传
-`--verify-local-references`，此时才读取 `a.txt`、`b.txt` 和本地
-superscalarNPU checkout 并核对冻结 identity。
+本地 checkout 存在。开发机可显式传 `--verify-local-references`，
+此时核对可用 checkout 中冻结的 identity。
 
 - [ ] **Step 4: Run checker tests and the live spec check**
 
@@ -1285,6 +1286,14 @@ handshake 约束 `Directive:`、本次真正运行的命令 `Tested:`，以及�
 
 Task 1–18 不得删除唯一旧实现；Task 19 给出替换证据；Task 20 才删除旧链。最终合入 LinxCore 主分支后，更新 LinxISA superproject 的 `rtl/LinxCore` gitlink，并在 superproject 侧完成独立提交和远端推送。
 
+每个执行 loop 还必须：
+
+1. 追加 `docs/chisel/mainline-loop-ledger.md`，记录本轮使用的技能、实际工作流、验证证据、发现的缺口和下一轮边界；
+2. 明确记录 `skill-evolve: update` 或 `skill-evolve: no-update` 及理由；
+3. 完成一个符合 Lore protocol 的 commit；
+4. 将当前分支 push 到 upstream；台账记录 branch、enclosing commit intent
+   和 push target，loop handoff 在 commit 已存在后记录 exact SHA 与远端相等性。
+
 ## 9. Final Definition of Done
 
 只有同时满足以下条件，整个计划才完成：
@@ -1297,5 +1306,7 @@ Task 1–18 不得删除唯一旧实现；Task 19 给出替换证据；Task 20 �
 6. OOO 是唯一 ROB、commit、精确 trap/interrupt 和全局 recovery plan owner。
 7. Dhrystone、CoreMark 都从真实 ELF 取指开始自然结束，并通过限定提交对比。
 8. live source、tests、emitters、harnesses 和 current docs 中不存在旧顶层或 `Reduced*` 链。
-9. 完整 LinxCore closure suite 通过。
-10. LinxCore 工作树干净，提交遵循 Lore protocol；合入后 superproject gitlink 已更新。
+9. `docs/spec/` 只使用 Linx 术语与项目内条款，不保留外部来源文件名或
+   外部架构叙事。
+10. 完整 LinxCore closure suite 通过。
+11. LinxCore 工作树干净，提交遵循 Lore protocol；合入后 superproject gitlink 已更新。
