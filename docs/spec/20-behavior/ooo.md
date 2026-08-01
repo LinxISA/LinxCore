@@ -240,6 +240,10 @@ match the retained plan and prune only the target-STID suffix while preserving
 older blocks, current surviving blocks, exact `used` accounting, and unrelated
 STIDs. Stale BID generation release or recovery attempts MUST be rejected
 without changing unrelated STIDs.
+If a valid block's first member survives but its recorded last member lies in
+the killed suffix, recovery apply MUST retain the exact BID/generation and
+table occupancy for that block, preserve closed/open/current semantics, and
+shorten only the block's recorded last ROB identity to the surviving tail.
 
 ## Retain in-order commit until every release owner accepts {#OOO-012}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-009,OOO-010,IFC-COMMIT-001 -->
@@ -315,8 +319,9 @@ non-mutating and MUST clear only the matching retained transaction. If a ROB
 or BROB owner observes simultaneous matching `Apply` and `Abort`, it MUST
 choose the non-mutating abort path and perform no suffix mutation.
 BROB recovery prepare MUST retain the exact local action and apply that action
-without recomputing from mutable table state; partial recovery of an open
-current block preserves the surviving block and rewinds its last ROB owner.
+without recomputing from mutable table state; partial recovery of any open or
+closed block that straddles the killed suffix preserves the surviving block and
+rewinds its last ROB owner.
 
 ## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->
@@ -342,7 +347,8 @@ index, distinct killed member/group counts, survivor-tail repair, BROB
 survivor accounting, nontrivial ROB bank geometry, recovery age-token width
 guarding, source arbitration with delayed and retained ROB statuses, interrupt
 holdoff behind unresolved producers, ROB recovery request/response,
-wrong-phase and duplicate apply rejection, ROB/BROB abort termination,
+wrong-phase and duplicate apply rejection, ROB/BROB abort termination, closed
+BROB straddling-block survivor shortening,
 one-prepare-per target barriers, mismatched acknowledgement rejection, common
 apply, request-phase ROB abort, target-prepare abort priority, visible-apply
 abort suppression, legal Decoupled drain without semantic acceptance for

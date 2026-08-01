@@ -96,7 +96,9 @@ class BROB(val p: CoreParams) extends Module {
     false.B)))
   val recoveryKilledCountReg =
     RegInit(0.U(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W))
-  val recoveryPartialCurrentReg = RegInit(false.B)
+  val recoveryStraddlingBlockReg = RegInit(false.B)
+  val recoveryStraddlingBidReg = RegInit(0.U(p.nativeBidWidth.W))
+  val recoveryStraddlingGenerationReg = RegInit(0.U(p.brobGenerationWidth.W))
   val recoveryCurrentValidReg = RegInit(false.B)
   val recoveryCurrentBidReg = RegInit(0.U(p.nativeBidWidth.W))
   val recoveryCurrentGenerationReg = RegInit(0.U(p.brobGenerationWidth.W))
@@ -205,6 +207,7 @@ class BROB(val p: CoreParams) extends Module {
   when(io.recoveryPrepare.fire) {
     val partialCurrent = Wire(Bool())
     val killedMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
+    val straddlingMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
     val killedCount = Wire(UInt(PrefixPacketContract.countWidth(
       p.ooo.brobEntriesPerStid).W))
     for (bid <- 0 until p.ooo.brobEntriesPerStid) {
@@ -212,26 +215,35 @@ class BROB(val p: CoreParams) extends Module {
         tableFirstRob(recStid)(bid).stid === recIn.trigger.stid &&
         RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(bid))
       killedMask(bid) := recIn.firstKilledValid && firstKilled
+      val lastKilled = tableValid(recStid)(bid) &&
+        tableLastRob(recStid)(bid).stid === recIn.trigger.stid &&
+        RecoveryPlanContract.suffixMember(recIn, tableLastRob(recStid)(bid))
+      straddlingMask(bid) := recIn.firstKilledValid && !firstKilled && lastKilled
     }
     killedCount := PopCount(killedMask)
-    partialCurrent := recIn.firstKilledValid && currentValid(recStid) &&
+    val straddlingBlock = straddlingMask.asUInt.orR
+    val straddlingBid = PriorityEncoder(straddlingMask)
+    assert(PopCount(straddlingMask) <= 1.U)
+    partialCurrent := straddlingBlock && currentValid(recStid) &&
+      currentBid(recStid) === straddlingBid
+    val currentSurvives = currentValid(recStid) &&
       tableValid(recStid)(currentBid(recStid)) &&
-      !killedMask(currentBid(recStid)) &&
-      RecoveryPlanContract.suffixMember(
-        recIn, tableLastRob(recStid)(currentBid(recStid)))
+      !killedMask(currentBid(recStid))
     recoveryPending := true.B
     recoveryPlan := recIn
     recoveryKilledMaskReg := killedMask
     recoveryKilledCountReg := killedCount
-    recoveryPartialCurrentReg := partialCurrent
+    recoveryStraddlingBlockReg := straddlingBlock
+    recoveryStraddlingBidReg := straddlingBid
+    recoveryStraddlingGenerationReg := tableGeneration(recStid)(straddlingBid)
     recoveryCurrentValidReg := Mux(partialCurrent,
       true.B,
-      currentValid(recStid) && !killedMask(currentBid(recStid)))
+      currentSurvives)
     recoveryCurrentBidReg := currentBid(recStid)
     recoveryCurrentGenerationReg := currentGeneration(recStid)
     recoveryUsedReg := used(recStid) - killedCount
-    recoveryTailReg := Mux(partialCurrent, tail(recStid), recIn.firstKilled.bid)
-    recoveryGenerationReg := Mux(partialCurrent,
+    recoveryTailReg := Mux(straddlingBlock, tail(recStid), recIn.firstKilled.bid)
+    recoveryGenerationReg := Mux(straddlingBlock,
       generation(recStid),
       recIn.firstKilled.brobGeneration)
     recoverySurvivingTailReg := recIn.survivingTail
@@ -260,8 +272,10 @@ class BROB(val p: CoreParams) extends Module {
       currentValid(recoveryApplyStid) := recoveryCurrentValidReg
       currentBid(recoveryApplyStid) := recoveryCurrentBidReg
       currentGeneration(recoveryApplyStid) := recoveryCurrentGenerationReg
-      when(recoveryPartialCurrentReg) {
-        tableLastRob(recoveryApplyStid)(recoveryCurrentBidReg) :=
+      when(recoveryStraddlingBlockReg) {
+        assert(tableGeneration(recoveryApplyStid)(recoveryStraddlingBidReg) ===
+          recoveryStraddlingGenerationReg)
+        tableLastRob(recoveryApplyStid)(recoveryStraddlingBidReg) :=
           recoverySurvivingTailReg
       }
     }

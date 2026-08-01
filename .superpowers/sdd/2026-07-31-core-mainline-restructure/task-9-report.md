@@ -605,3 +605,73 @@ Task-9 RecoveryControl, recovery tests, docs, and this report.
 - No `.ninja_lock` files were left in the worktree.
 - `skill-evolve: no-update` - round 8 did not add a reusable LinxCore workflow
   invariant beyond the Task-9 recovery Decoupled contract/docs changes.
+
+## Fix Round 9
+
+Review round 9 identified one remaining HIGH blocker in canonical `BROB`
+recovery. A closed block could straddle the recovery suffix, with its first
+member surviving and its recorded last member killed, but the retained BROB
+action only shortened open current blocks. This round added RED-first
+closed-block straddling coverage against
+`c92ff9e8ab73afb046d065d3a11c1b911de3c2f1`, then repaired only canonical
+`BROB`, affected recovery tests, docs, and this report.
+
+### Fix-Round-9 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed
+  behaviorally after the RED test:
+  `BROB recovery shortens a closed block that straddles the killed suffix`.
+  The next allocation reused BID `0` where the survivor block still owned BID
+  `0`, failing at `OOORecoverySpec.scala:645` with expected BID `1`.
+- RED run summary: 33 tests run, 32 passed, 1 failed.
+
+### Fix-Round-9 Repairs
+
+- `BROB` recovery prepare now detects any valid target-STID block whose first
+  member survives and whose recorded last member lies in the compact killed
+  suffix, whether the block is closed or currently open.
+- The retained recovery action preserves the exact straddling BID/generation,
+  preserves `used`, tail, and generation state for the live block, and on
+  matching Apply shortens only `tableLastRob` to the ROB-authored surviving
+  tail. Whole blocks whose first member is killed are still invalidated and
+  counted as killed.
+- Abort remains non-mutating for a prepared straddling closed block; matching
+  abort clears the retained transaction and leaves the original two-member
+  release ready.
+- Behavior and interface docs now state the owner-local straddling-block
+  contract for compact suffix recovery.
+
+### Fix-Round-9 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  34 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS,
+  `brob-order-state-probe: PASS`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS,
+  `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS,
+  9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` -
+  PASS, 2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS,
+  7 tests.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests;
+  `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests;
+  `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS
+  9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test;
+  `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+
+### Fix-Round-9 Notes
+
+- `skill-evolve: no-update` - round 9 did not add a reusable LinxCore
+  workflow invariant beyond the Task-9 BROB compact-suffix recovery contract.

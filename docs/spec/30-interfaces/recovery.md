@@ -20,6 +20,11 @@ unique contiguous live ROB suffix without emitting a capacity-sized vector.
 `killedGroupCount` counts affected ROB groups, not killed members, and the
 surviving tail names the exact ordered live member immediately before the
 suffix when one exists.
+Owner-local structures that coalesce multiple ROB members into one entry must
+derive their exact local action from this compact suffix. In particular, a BROB
+block whose first member survives while its recorded last member lies in the
+suffix remains the same BID/generation and is shortened to the surviving tail
+on matching Apply.
 Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
 exists.
 
