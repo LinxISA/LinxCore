@@ -968,7 +968,7 @@ python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec
 git diff --check
 ```
 
-- [ ] **Step 5: Commit and push before starting Task 11**
+- [x] **Step 5: Commit and push before starting Task 11**
 
 Commit intent: `Freeze one production owner before changing another boundary`
 
