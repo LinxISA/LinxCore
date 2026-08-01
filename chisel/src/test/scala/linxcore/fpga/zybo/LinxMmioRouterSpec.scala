@@ -65,11 +65,33 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
     dut.io.response.bits.last.expect(last.B)
   }
 
-  private def consumeResponse(dut: LinxMmioRouter): Unit = {
+  private def consumeMatchingResponseExactlyOnce(
+      dut: LinxMmioRouter,
+      id: Long,
+      rdata: BigInt,
+      fault: LinxMemFault.Type,
+      last: Boolean = true): Unit = {
+    var handshakes = 0
+    for (_ <- 0 until 3) {
+      expectResponse(dut, id, rdata, fault, last)
+      dut.io.response.ready.expect(false.B)
+      dut.clock.step()
+    }
     dut.io.response.ready.poke(true.B)
-    dut.clock.step()
+    for (_ <- 0 until 3) {
+      if (dut.io.response.valid.peek().litToBoolean &&
+          dut.io.response.ready.peek().litToBoolean) {
+        expectResponse(dut, id, rdata, fault, last)
+        handshakes += 1
+      }
+      dut.clock.step()
+    }
     dut.io.response.ready.poke(false.B)
-    dut.io.response.valid.expect(false.B)
+    for (_ <- 0 until 3) {
+      dut.io.response.valid.expect(false.B)
+      dut.clock.step()
+    }
+    assert(handshakes == 1)
     dut.io.request.ready.expect(true.B)
   }
 
@@ -116,6 +138,10 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
     assert(LinxMemSource.Load.litValue == 1)
     assert(LinxMemSource.Store.litValue == 2)
     assert(LinxMemSource.Device.litValue == 3)
+    assert(LinxMmioKind.UartTx.litValue == 0)
+    assert(LinxMmioKind.UartRx.litValue == 1)
+    assert(LinxMmioKind.UartStatus.litValue == 2)
+    assert(LinxMmioKind.Virtio.litValue == 3)
   }
 
   test("DDR request is retained at exactly one destination under backpressure") {
@@ -141,7 +167,12 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
       dut.io.linuxExit.valid.expect(false.B)
       dut.io.testFinisher.valid.expect(false.B)
       dut.io.ddrRequest.bits.id.expect(0x80000021L.U)
+      dut.io.ddrRequest.bits.source.expect(LinxMemSource.Instruction)
       dut.io.ddrRequest.bits.addr.expect(BigInt("00102000", 16).U)
+      dut.io.ddrRequest.bits.write.expect(false.B)
+      dut.io.ddrRequest.bits.size.expect(6.U)
+      dut.io.ddrRequest.bits.wdata.expect(0.U)
+      dut.io.ddrRequest.bits.wstrb.expect(0.U)
       dut.io.ddrRequest.bits.line.expect(true.B)
       dut.io.ddrRequest.bits.last.expect(false.B)
 
@@ -152,19 +183,39 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         write = true,
         size = 0,
         wdata = 0xaa,
-        wstrb = 1)
+        wstrb = 1,
+        line = false,
+        last = true,
+        source = LinxMemSource.Device)
       for (_ <- 0 until 4) {
-        dut.clock.step()
+        dut.io.request.ready.expect(false.B)
         dut.io.ddrRequest.valid.expect(true.B)
         dut.io.ddrRequest.bits.id.expect(0x80000021L.U)
+        dut.io.ddrRequest.bits.source.expect(LinxMemSource.Instruction)
         dut.io.ddrRequest.bits.addr.expect(BigInt("00102000", 16).U)
+        dut.io.ddrRequest.bits.write.expect(false.B)
+        dut.io.ddrRequest.bits.size.expect(6.U)
+        dut.io.ddrRequest.bits.wdata.expect(0.U)
+        dut.io.ddrRequest.bits.wstrb.expect(0.U)
+        dut.io.ddrRequest.bits.line.expect(true.B)
+        dut.io.ddrRequest.bits.last.expect(false.B)
         dut.io.mmioRequest.valid.expect(false.B)
+        dut.io.linuxExit.valid.expect(false.B)
+        dut.io.testFinisher.valid.expect(false.B)
+        dut.clock.step()
       }
 
+      var ddrRequestHandshakes = 0
       dut.io.ddrRequest.ready.poke(true.B)
-      dut.clock.step()
+      for (_ <- 0 until 3) {
+        if (dut.io.ddrRequest.valid.peek().litToBoolean &&
+            dut.io.ddrRequest.ready.peek().litToBoolean)
+          ddrRequestHandshakes += 1
+        dut.clock.step()
+      }
       dut.io.ddrRequest.ready.poke(false.B)
       dut.io.ddrRequest.valid.expect(false.B)
+      assert(ddrRequestHandshakes == 1)
 
       dut.io.ddrResponse.valid.poke(true.B)
       dut.io.ddrResponse.bits.id.poke(0x80000021L.U)
@@ -174,17 +225,16 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
       dut.io.ddrResponse.ready.expect(true.B)
       dut.clock.step()
       dut.io.ddrResponse.valid.poke(false.B)
-
-      for (_ <- 0 until 3) {
-        expectResponse(
-          dut,
-          id = 0x80000021L,
-          rdata = lineResponse,
-          fault = LinxMemFault.NoFault,
-          last = false)
-        dut.clock.step()
-      }
-      consumeResponse(dut)
+      dut.io.ddrResponse.bits.id.poke(0x77.U)
+      dut.io.ddrResponse.bits.rdata.poke(0x55.U)
+      dut.io.ddrResponse.bits.fault.poke(LinxMemFault.Protocol)
+      dut.io.ddrResponse.bits.last.poke(true.B)
+      consumeMatchingResponseExactlyOnce(
+        dut,
+        id = 0x80000021L,
+        rdata = lineResponse,
+        fault = LinxMemFault.NoFault,
+        last = false)
 
       def checkDdrBoundary(id: Long, addr: BigInt): Unit = {
         pokeRequest(dut, id = id, addr = addr, write = false, size = 0)
@@ -202,8 +252,7 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         dut.io.ddrResponse.bits.last.poke(true.B)
         dut.clock.step()
         dut.io.ddrResponse.valid.poke(false.B)
-        expectResponse(dut, id, 0, LinxMemFault.NoFault)
-        consumeResponse(dut)
+        consumeMatchingResponseExactlyOnce(dut, id, 0, LinxMemFault.NoFault)
       }
 
       checkDdrBoundary(0x41, ZyboZ720Generated.LinxMemoryBase)
@@ -228,9 +277,22 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         source = LinxMemSource.Store)
       acceptRequest(dut)
 
+      pokeRequest(
+        dut,
+        id = 0x90000009L,
+        addr = BigInt("00102000", 16),
+        write = false,
+        size = 6,
+        wdata = BigInt("1122334455667788", 16),
+        wstrb = 0,
+        line = true,
+        last = true,
+        source = LinxMemSource.Device)
       for (_ <- 0 until 3) {
+        dut.io.request.ready.expect(false.B)
         dut.io.mmioRequest.valid.expect(true.B)
         dut.io.mmioRequest.bits.id.expect(9.U)
+        dut.io.mmioRequest.bits.source.expect(LinxMemSource.Store)
         dut.io.mmioRequest.bits.target.expect(LinxMmioKind.UartTx)
         dut.io.mmioRequest.bits.addr.expect(ZyboZ720Generated.UartData.U)
         dut.io.mmioRequest.bits.write.expect(true.B)
@@ -239,12 +301,22 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         dut.io.mmioRequest.bits.wstrb.expect(1.U)
         dut.io.mmioRequest.bits.last.expect(false.B)
         dut.io.ddrRequest.valid.expect(false.B)
+        dut.io.linuxExit.valid.expect(false.B)
+        dut.io.testFinisher.valid.expect(false.B)
         dut.clock.step()
       }
 
+      var mmioRequestHandshakes = 0
       dut.io.mmioRequest.ready.poke(true.B)
-      dut.clock.step()
+      for (_ <- 0 until 3) {
+        if (dut.io.mmioRequest.valid.peek().litToBoolean &&
+            dut.io.mmioRequest.ready.peek().litToBoolean)
+          mmioRequestHandshakes += 1
+        dut.clock.step()
+      }
       dut.io.mmioRequest.ready.poke(false.B)
+      dut.io.mmioRequest.valid.expect(false.B)
+      assert(mmioRequestHandshakes == 1)
 
       dut.io.mmioResponse.valid.poke(true.B)
       dut.io.mmioResponse.bits.id.poke(9.U)
@@ -254,9 +326,12 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
       dut.io.mmioResponse.ready.expect(true.B)
       dut.clock.step()
       dut.io.mmioResponse.valid.poke(false.B)
-
-      expectResponse(dut, 9, 0x55, LinxMemFault.Bus, last = false)
-      consumeResponse(dut)
+      dut.io.mmioResponse.bits.id.poke(0x66.U)
+      dut.io.mmioResponse.bits.rdata.poke(0xaa.U)
+      dut.io.mmioResponse.bits.fault.poke(LinxMemFault.Access)
+      dut.io.mmioResponse.bits.last.poke(true.B)
+      consumeMatchingResponseExactlyOnce(
+        dut, 9, 0x55, LinxMemFault.Bus, last = false)
 
       def checkRead(
           id: Long,
@@ -265,9 +340,13 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
           target: LinxMmioKind.Type): Unit = {
         pokeRequest(dut, id = id, addr = addr, write = false, size = size)
         acceptRequest(dut)
+        dut.io.request.ready.expect(false.B)
         dut.io.mmioRequest.valid.expect(true.B)
         dut.io.mmioRequest.bits.target.expect(target)
         dut.io.mmioRequest.bits.wstrb.expect(0.U)
+        dut.io.ddrRequest.valid.expect(false.B)
+        dut.io.linuxExit.valid.expect(false.B)
+        dut.io.testFinisher.valid.expect(false.B)
         dut.io.mmioRequest.ready.poke(true.B)
         dut.clock.step()
         dut.io.mmioRequest.ready.poke(false.B)
@@ -278,13 +357,39 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         dut.io.mmioResponse.bits.last.poke(true.B)
         dut.clock.step()
         dut.io.mmioResponse.valid.poke(false.B)
-        expectResponse(dut, id, 0x40L + id, LinxMemFault.NoFault)
-        consumeResponse(dut)
+        consumeMatchingResponseExactlyOnce(
+          dut, id, 0x40L + id, LinxMemFault.NoFault)
       }
 
       checkRead(4, ZyboZ720Generated.UartData, 0, LinxMmioKind.UartRx)
       checkRead(5, ZyboZ720Generated.UartStatusLinuxExit, 2, LinxMmioKind.UartStatus)
       checkRead(6, ZyboZ720Generated.VirtioBase, 3, LinxMmioKind.Virtio)
+      checkRead(7, BigInt("300017ff", 16), 0, LinxMmioKind.Virtio)
+
+      pokeRequest(
+        dut,
+        id = 8,
+        addr = BigInt("30001800", 16),
+        write = false,
+        size = 0)
+      acceptRequest(dut)
+      pokeRequest(
+        dut,
+        id = 0x80000008L,
+        addr = ZyboZ720Generated.VirtioBase,
+        write = true,
+        size = 3,
+        wdata = BigInt("8877665544332211", 16),
+        wstrb = 0xff,
+        line = true,
+        last = false,
+        source = LinxMemSource.Device)
+      dut.io.request.ready.expect(false.B)
+      dut.io.ddrRequest.valid.expect(false.B)
+      dut.io.mmioRequest.valid.expect(false.B)
+      dut.io.linuxExit.valid.expect(false.B)
+      dut.io.testFinisher.valid.expect(false.B)
+      consumeMatchingResponseExactlyOnce(dut, 8, 0, LinxMemFault.Decode)
     }
   }
 
@@ -307,7 +412,8 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
       expectResponse(dut, 3, 0, LinxMemFault.Decode, last = false)
       dut.clock.step(3)
       expectResponse(dut, 3, 0, LinxMemFault.Decode, last = false)
-      consumeResponse(dut)
+      consumeMatchingResponseExactlyOnce(
+        dut, 3, 0, LinxMemFault.Decode, last = false)
 
       val accessCases = Seq(
         (ZyboZ720Generated.UartData, false, 6, BigInt(0), true),
@@ -332,8 +438,8 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         dut.io.mmioRequest.valid.expect(false.B)
         dut.io.linuxExit.valid.expect(false.B)
         dut.io.testFinisher.valid.expect(false.B)
-        expectResponse(dut, 0x12 + index, 0, LinxMemFault.Access)
-        consumeResponse(dut)
+        consumeMatchingResponseExactlyOnce(
+          dut, 0x12 + index, 0, LinxMemFault.Access)
       }
 
       pokeRequest(
@@ -347,6 +453,7 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
       dut.io.ddrRequest.valid.expect(false.B)
       dut.io.mmioRequest.valid.expect(false.B)
       dut.io.testFinisher.valid.expect(false.B)
+      consumeMatchingResponseExactlyOnce(dut, 0x13, 0, LinxMemFault.Decode)
     }
   }
 
@@ -364,25 +471,45 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         last = false)
       acceptRequest(dut)
 
+      pokeRequest(
+        dut,
+        id = 0x80000031L,
+        addr = BigInt("00102000", 16),
+        write = false,
+        size = 6,
+        wdata = BigInt("0123456789abcdef", 16),
+        wstrb = 0,
+        line = true,
+        last = true,
+        source = LinxMemSource.Device)
       for (_ <- 0 until 5) {
+        dut.io.request.ready.expect(false.B)
         dut.io.linuxExit.valid.expect(true.B)
         dut.io.linuxExit.bits.id.expect(0x31.U)
         dut.io.linuxExit.bits.payload.expect(BigInt("deadbeef", 16).U)
         dut.io.linuxExit.bits.last.expect(false.B)
+        dut.io.ddrRequest.valid.expect(false.B)
+        dut.io.mmioRequest.valid.expect(false.B)
         dut.io.testFinisher.valid.expect(false.B)
         dut.io.response.valid.expect(false.B)
         dut.clock.step()
       }
 
+      var linuxExitHandshakes = 0
       dut.io.linuxExit.ready.poke(true.B)
-      dut.clock.step()
+      for (_ <- 0 until 3) {
+        if (dut.io.linuxExit.valid.peek().litToBoolean &&
+            dut.io.linuxExit.ready.peek().litToBoolean)
+          linuxExitHandshakes += 1
+        dut.clock.step()
+      }
       dut.io.linuxExit.ready.poke(false.B)
       dut.io.linuxExit.valid.expect(false.B)
-      expectResponse(dut, 0x31, 0, LinxMemFault.NoFault, last = false)
-      dut.clock.step(3)
+      assert(linuxExitHandshakes == 1)
       dut.io.linuxExit.valid.expect(false.B)
       dut.io.testFinisher.valid.expect(false.B)
-      consumeResponse(dut)
+      consumeMatchingResponseExactlyOnce(
+        dut, 0x31, 0, LinxMemFault.NoFault, last = false)
 
       pokeRequest(
         dut,
@@ -394,15 +521,42 @@ class LinxMmioRouterSpec extends AnyFunSuite with ChiselSim {
         wstrb = 0xf)
       acceptRequest(dut)
 
-      dut.io.testFinisher.valid.expect(true.B)
-      dut.io.testFinisher.bits.id.expect(0x32.U)
-      dut.io.testFinisher.bits.payload.expect(BigInt("1234abcd", 16).U)
-      dut.io.linuxExit.valid.expect(false.B)
+      pokeRequest(
+        dut,
+        id = 0x80000032L,
+        addr = ZyboZ720Generated.UartData,
+        write = false,
+        size = 0,
+        wdata = BigInt("fedcba9876543210", 16),
+        wstrb = 0,
+        line = true,
+        last = false,
+        source = LinxMemSource.Device)
+      for (_ <- 0 until 4) {
+        dut.io.request.ready.expect(false.B)
+        dut.io.testFinisher.valid.expect(true.B)
+        dut.io.testFinisher.bits.id.expect(0x32.U)
+        dut.io.testFinisher.bits.payload.expect(BigInt("1234abcd", 16).U)
+        dut.io.testFinisher.bits.last.expect(true.B)
+        dut.io.ddrRequest.valid.expect(false.B)
+        dut.io.mmioRequest.valid.expect(false.B)
+        dut.io.linuxExit.valid.expect(false.B)
+        dut.io.response.valid.expect(false.B)
+        dut.clock.step()
+      }
+      var testFinisherHandshakes = 0
       dut.io.testFinisher.ready.poke(true.B)
-      dut.clock.step()
+      for (_ <- 0 until 3) {
+        if (dut.io.testFinisher.valid.peek().litToBoolean &&
+            dut.io.testFinisher.ready.peek().litToBoolean)
+          testFinisherHandshakes += 1
+        dut.clock.step()
+      }
       dut.io.testFinisher.ready.poke(false.B)
       dut.io.testFinisher.valid.expect(false.B)
-      expectResponse(dut, 0x32, 0, LinxMemFault.NoFault)
+      assert(testFinisherHandshakes == 1)
+      consumeMatchingResponseExactlyOnce(
+        dut, 0x32, 0, LinxMemFault.NoFault)
     }
   }
 }
