@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Fail-fast preflight checks for the Zybo Z7-20 platform framework."""
+"""Fail-fast preflight checks for the Zybo Z7-20 platform framework.
+
+For artifact-free package execution, invoke this module as:
+``python3 -B -m tools.fpga.zybo_z7_20.check_framework --mode <mode>``.
+"""
 
 from __future__ import annotations
 

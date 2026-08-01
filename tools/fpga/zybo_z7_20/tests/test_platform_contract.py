@@ -121,6 +121,7 @@ class PlatformContractTest(unittest.TestCase):
         data = load_manifest(MANIFEST)
         invalid_cases = (
             ("axi line float", ("axi", "line_bytes"), 64.0),
+            ("axi line hex string", ("axi", "line_bytes"), "0x00000040"),
             ("outstanding bool", ("axi", "max_outstanding"), True),
             ("artifact base float", ("artifact_regions", "kernel", "base"), 65536.0),
             ("artifact base integer", ("artifact_regions", "kernel", "base"), 65536),
@@ -136,6 +137,64 @@ class PlatformContractTest(unittest.TestCase):
                     target = target[key]
                 target[path[-1]] = value
                 self.assertTrue(validate_manifest(invalid), name)
+
+    def test_rejects_hex_encoded_line_bytes_before_rendering(self):
+        """The AXI geometry is an integer field, not an address-style hex string."""
+        data = load_manifest(MANIFEST)
+        data["axi"]["line_bytes"] = "0x00000040"
+        generator = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/generate_platform.py"
+        checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            invalid_manifest = Path(temporary_directory) / "platform.json"
+            invalid_manifest.write_text(json.dumps(data), encoding="utf-8")
+            commands = (
+                ["python3", str(generator), "--manifest", str(invalid_manifest), "--check"],
+                ["python3", str(checker), "--mode", "source", "--manifest", str(invalid_manifest)],
+                ["python3", str(checker), "--mode", "generated", "--manifest", str(invalid_manifest)],
+                ["python3", str(checker), "--mode", "all", "--manifest", str(invalid_manifest)],
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    result = subprocess.run(
+                        command,
+                        cwd=REPOSITORY_ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("axi.line_bytes", result.stderr)
+                    self.assertNotIn("stale", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_unknown_keys_in_every_schema_object(self):
+        """Schema version 1 must fail fast instead of silently ignoring typos."""
+        data = load_manifest(MANIFEST)
+        invalid_cases = (
+            ("top level", (), "typo"),
+            ("board", ("board",), "typo"),
+            ("clock profiles", ("clock_profiles_hz",), "typo"),
+            ("axi", ("axi",), "typo"),
+            ("memory", ("linx_memory",), "typo"),
+            ("mmio", ("mmio",), "uart_dat"),
+            ("routing", ("routing",), "typo"),
+            ("boot profiles", ("boot_profiles",), "linx_nommu_typo"),
+            ("smoke profile", ("boot_profiles", "smoke"), "typo"),
+            ("linux profile", ("boot_profiles", "linux_nommu"), "typo"),
+            ("artifact regions", ("artifact_regions",), "kernel_typo"),
+            ("kernel artifact", ("artifact_regions", "kernel"), "end"),
+            ("resource budget", ("resource_budget",), "typo"),
+        )
+        for name, path, key in invalid_cases:
+            with self.subTest(name=name):
+                invalid = copy.deepcopy(data)
+                target = invalid
+                for component in path:
+                    target = target[component]
+                target[key] = 1
+                errors = validate_manifest(invalid)
+                expected_path = ".".join((*path, key)) if path else key
+                self.assertTrue(any(expected_path in error for error in errors), errors)
 
     def test_invalid_manifest_fails_all_preflight_modes_and_generator_cleanly(self):
         """Malformed source must fail before rendering in every public command mode."""
@@ -176,12 +235,12 @@ class PlatformContractTest(unittest.TestCase):
                     self.assertIn("artifact_regions.kernel.base", result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
 
-    def test_preflight_supports_direct_and_module_invocation(self):
-        """Both public checker invocation forms must run the same source validation."""
+    def test_preflight_supports_direct_and_bytecode_free_module_invocation(self):
+        """The supported package form uses -B so it remains artifact-free."""
         checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
         commands = (
             ["python3", str(checker), "--mode", "source"],
-            ["python3", "-m", "tools.fpga.zybo_z7_20.check_framework", "--mode", "source"],
+            ["python3", "-B", "-m", "tools.fpga.zybo_z7_20.check_framework", "--mode", "source"],
         )
         for command in commands:
             with self.subTest(command=command):
@@ -199,16 +258,21 @@ class PlatformContractTest(unittest.TestCase):
         checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
         platform_directory = checker.parent
         before = sorted(path.relative_to(platform_directory) for path in platform_directory.rglob("*"))
-        for mode in ("tools", "all"):
-            with self.subTest(mode=mode):
-                result = subprocess.run(
-                    ["python3", str(checker), "--mode", mode],
-                    cwd=REPOSITORY_ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
+        command_prefixes = (
+            ("direct", ["python3", str(checker)]),
+            ("module", ["python3", "-B", "-m", "tools.fpga.zybo_z7_20.check_framework"]),
+        )
+        for invocation, prefix in command_prefixes:
+            for mode in ("tools", "all"):
+                with self.subTest(invocation=invocation, mode=mode):
+                    result = subprocess.run(
+                        [*prefix, "--mode", mode],
+                        cwd=REPOSITORY_ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
         after = sorted(path.relative_to(platform_directory) for path in platform_directory.rglob("*"))
         self.assertEqual(after, before)
 

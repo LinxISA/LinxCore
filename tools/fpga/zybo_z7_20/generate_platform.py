@@ -58,6 +58,10 @@ def _integer(value: Any) -> int | None:
     return None
 
 
+def _strict_integer(value: Any) -> int | None:
+    return value if type(value) is int else None
+
+
 def _is_canonical_hex(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"0x[0-9a-f]{8}", value) is not None
 
@@ -66,6 +70,16 @@ def _expect(data: dict, errors: list[str], path: tuple[str, ...], value: Any) ->
     actual = _nested(data, *path)
     if type(actual) is not type(value) or actual != value:
         errors.append(f"{'.'.join(path)} must be {value!r}")
+
+
+def _reject_unknown_keys(data: dict, path: tuple[str, ...], allowed: set[str], errors: list[str]) -> None:
+    value = data if not path else _nested(data, *path)
+    display_path = ".".join(path) or "platform manifest"
+    if not isinstance(value, dict):
+        errors.append(f"{display_path} must be an object")
+        return
+    for key in sorted(set(value) - allowed):
+        errors.append(f"{'.'.join((*path, key))} is not permitted by schema_version 1")
 
 
 def _half_open_region(data: dict, name: str, errors: list[str]) -> tuple[int, int] | None:
@@ -91,6 +105,25 @@ def validate_manifest(data: dict) -> list[str]:
     missing_keys = EXPECTED_TOP_LEVEL_KEYS - data.keys()
     if missing_keys:
         errors.append(f"missing top-level keys: {', '.join(sorted(missing_keys))}")
+    object_schemas = (
+        ((), EXPECTED_TOP_LEVEL_KEYS),
+        (("board",), {"name", "part"}),
+        (("clock_profiles_hz",), {"safe_50", "balanced_75", "stretch_100"}),
+        (("axi",), {"control_base", "control_size", "data_width", "line_bytes", "max_outstanding"}),
+        (("linx_memory",), {"base", "size"}),
+        (("mmio",), {"uart_data", "uart_status_linux_exit", "test_finisher", "virtio_base"}),
+        (("routing",), {"priority"}),
+        (("boot_profiles",), {"smoke", "linux_nommu"}),
+        (("boot_profiles", "smoke"), {"pc", "sp", "a0", "a1"}),
+        (("boot_profiles", "linux_nommu"), {"pc", "sp", "a0", "a1", "initramfs"}),
+        (("artifact_regions",), {"kernel", "initramfs", "dtb"}),
+        (("artifact_regions", "kernel"), {"base", "size"}),
+        (("artifact_regions", "initramfs"), {"base", "size"}),
+        (("artifact_regions", "dtb"), {"base", "size"}),
+        (("resource_budget",), {"lut", "ff", "bram36", "dsp48"}),
+    )
+    for path, allowed in object_schemas:
+        _reject_unknown_keys(data, path, allowed, errors)
 
     _expect(data, errors, ("schema_version",), 1)
     _expect(data, errors, ("board", "name"), "zybo_z7_20")
@@ -106,8 +139,10 @@ def validate_manifest(data: dict) -> list[str]:
     _expect(data, errors, ("axi", "control_base"), "0x43c00000")
     _expect(data, errors, ("axi", "control_size"), "0x00010000")
     _expect(data, errors, ("axi", "data_width"), 64)
-    line_bytes = _integer(_nested(data, "axi", "line_bytes"))
-    if line_bytes is None or line_bytes <= 0 or line_bytes & (line_bytes - 1):
+    line_bytes = _strict_integer(_nested(data, "axi", "line_bytes"))
+    if line_bytes is None:
+        errors.append("axi.line_bytes must be an integer")
+    elif line_bytes <= 0 or line_bytes & (line_bytes - 1):
         errors.append("axi.line_bytes must be a positive power of two")
     elif line_bytes != 64:
         errors.append("axi.line_bytes must be 64")
