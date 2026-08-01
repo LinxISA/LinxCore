@@ -84,6 +84,19 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(storeError.getMessage.contains("store pipe count must be positive"))
   }
 
+  test("BROB entries per STID must preserve a nonzero BID width") {
+    val base = ParamProfiles.W4
+
+    val singletonError = intercept[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 1))
+    }
+
+    assert(singletonError.getMessage.contains(
+      "BROB entries per STID must be a power of two and at least 2"))
+    assert(base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 4)).nativeBidWidth == 2)
+    assert(base.nativeBidWidth == 8)
+  }
+
   test("module-local widths cannot drift from the central width contract") {
     val base = ParamProfiles.W6
     val error = intercept[IllegalArgumentException] {

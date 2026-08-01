@@ -675,3 +675,96 @@ closed-block straddling coverage against
 
 - `skill-evolve: no-update` - round 9 did not add a reusable LinxCore
   workflow invariant beyond the Task-9 BROB compact-suffix recovery contract.
+
+## Fix Round 10
+
+Review round 10 identified three remaining HIGH blockers in canonical Task-9
+BROB recovery and parameter validation. This round added RED-first coverage
+against `ae2fb07144368a70b3aa1c83fd90fff8a0773085`, then repaired only
+canonical `BROB`, central parameter validation, affected tests, docs, and this
+report.
+
+### Fix-Round-10 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only CoreConfigurationSpec` failed
+  after the singleton-BROB RED test because `brobEntriesPerStid = 1` threw no
+  configuration error at `CoreConfigurationSpec.scala:90`. RED summary:
+  13 tests run, 12 passed, 1 failed.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed after
+  the BROB RED tests in four places:
+  - non-wrap closed straddler plus a wholly killed younger block selected BID
+    `2` instead of expected BID `1` at `OOORecoverySpec.scala:705`;
+  - wrapped closed straddler selected BID `1` instead of expected BID `0` at
+    `OOORecoverySpec.scala:790`;
+  - malformed first/last BID or generation plans still reported
+    `recoveryPrepare.ready = 1` at `OOORecoverySpec.scala:939`;
+  - stale reused-BID last generation after wrap still reported
+    `recoveryPrepare.ready = 1` at `OOORecoverySpec.scala:1035`.
+  RED summary: 38 tests run, 34 passed, 4 failed.
+
+### Fix-Round-10 Repairs
+
+- `BROB` recovery prepare now validates the compact suffix against the exact
+  live local projection before asserting ready: legal suffix shape, target
+  STID, endpoint BID/generation, stored endpoint ROB identities, and selected
+  whole-kill or straddling entry identity.
+- Straddling-block recovery now restores the next-free tail to the modulo
+  successor of the retained straddling BID and increments generation exactly
+  when that successor wraps. Whole killed younger blocks are removed from
+  `used` and become reachable allocation slots without selecting the live
+  survivor slot.
+- Same-prefix publication now records `tableLastRob` for a block opened earlier
+  in the same D3 prefix, preserving the existing open-current partial recovery
+  behavior under the stricter endpoint validation.
+- `ParamChecks` now rejects singleton BROB rings centrally so native BID width
+  remains nonzero. `CoreConfigurationSpec` covers the rejection, a legal
+  4-entry ring, and the default 256-entry ring.
+- Behavior, recovery-interface, and parameter docs now state exact BROB suffix
+  validation, straddler successor-tail repair, and the non-singleton BROB
+  parameter contract.
+
+### Fix-Round-10 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only CoreConfigurationSpec` - PASS,
+  13 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  38 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS,
+  `brob-order-state-probe: PASS`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS,
+  `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS,
+  9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS,
+  2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  `top-interface-manifest: up to date`. An earlier parallel attempt collided
+  with an sbt boot socket; the sequential rerun passed.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS,
+  7 tests.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests;
+  `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests;
+  `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS
+  9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test;
+  `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+- `bash tests/test_chisel_architecture_adapter.sh` - PASS,
+  `ok: Chisel architecture evidence adapter passed`.
+- `python3 tools/generate/lint_stage_spec_ownership.py` - PASS,
+  `stage spec ownership lint passed`.
+- `python3 tools/generate/lint_engine_ownership.py` - PASS,
+  `engine ownership lint passed`.
+
+### Fix-Round-10 Notes
+
+- `skill-evolve: no-update` - round 10 added Task-9-specific compact-suffix
+  BROB recovery detail and a central parameter guard already captured by the
+  local docs and existing LinxCore BID guidance; no reusable skill edit was in
+  scope.

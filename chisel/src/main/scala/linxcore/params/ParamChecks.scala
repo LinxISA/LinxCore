@@ -149,8 +149,9 @@ object ParamChecks {
       p.ooo.dispatchWidth <= p.ooo.robBankCount,
       "ROB banks must cover one dispatch prefix")
     require(
-      isPowerOfTwo(p.ooo.brobEntriesPerStid),
-      "BROB entries per STID must be a positive power of two")
+      isPowerOfTwo(p.ooo.brobEntriesPerStid) &&
+        p.ooo.brobEntriesPerStid >= 2,
+      "BROB entries per STID must be a power of two and at least 2")
     require(p.ooo.gprArchRegs == 24, "Linx scalar GPR namespace contains 24 registers")
     require(
       isPowerOfTwo(p.ooo.gprPhysRegs) &&

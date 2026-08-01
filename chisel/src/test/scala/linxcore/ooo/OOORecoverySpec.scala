@@ -662,6 +662,393 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("BROB recovery reuses wholly killed younger slots after a closed straddler") {
+    simulate(new BROB(params)) { dut =>
+      def clearBrob(): Unit = {
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        dut.io.publishFire.poke(false.B)
+        dut.io.release.valid.poke(false.B)
+        dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+        dut.io.releaseApply.poke(false.B)
+        dut.io.recoveryPrepare.valid.poke(false.B)
+        dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+        dut.io.recoveryApply.valid.poke(false.B)
+        dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+      }
+      def publishClosedBlock(baseId: Int, bid: Int): Seq[RobIdentity] = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = baseId, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = false)
+        lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
+          stid = 0, member = 1, blockStart = false, blockStop = true)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).bid.expect(bid.U)
+        val ids = (0 until 2).map { lane =>
+          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
+        }
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        ids
+      }
+      def publishSingleBlock(id: Int, bid: Int): RobIdentity = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = true)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).bid.expect(bid.U)
+        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        rob
+      }
+
+      clearBrob()
+      val straddler = publishClosedBlock(baseId = 90, bid = 0)
+      val younger = publishSingleBlock(id = 92, bid = 1)
+      val survivor = straddler(0)
+      val killedInsideStraddler = straddler(1)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x65.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(survivor)
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.survivingTail.poke(survivor)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(killedInsideStraddler)
+      dut.io.recoveryPrepare.bits.lastKilled.poke(younger)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      val first = publishSingleBlock(id = 93, bid = 1)
+      val second = publishSingleBlock(id = 94, bid = 2)
+      val third = publishSingleBlock(id = 95, bid = 3)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 96, rid = 0, groupCount = 1,
+        stid = 0, member = 0, blockStart = true, blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.valid.poke(false.B)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).poke(survivor)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.releaseApply.poke(false.B)
+      dut.io.release.bits.entries(0).poke(first)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.release.bits.entries(0).poke(second)
+      dut.io.releaseReady.expect(false.B)
+      dut.io.release.bits.entries(0).poke(third)
+      dut.io.releaseReady.expect(false.B)
+    }
+  }
+
+  test("BROB recovery computes wrapped straddler successor generation") {
+    simulate(new BROB(params)) { dut =>
+      def clearBrob(): Unit = {
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        dut.io.publishFire.poke(false.B)
+        dut.io.release.valid.poke(false.B)
+        dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+        dut.io.releaseApply.poke(false.B)
+        dut.io.recoveryPrepare.valid.poke(false.B)
+        dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+        dut.io.recoveryApply.valid.poke(false.B)
+        dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+      }
+      def publishSingleBlock(id: Int, bid: Int, gen: Int): RobIdentity = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = true)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).bid.expect(bid.U)
+        dut.io.prepared.entries(0).brobGeneration.expect(gen.U)
+        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        rob
+      }
+      def releaseOne(rob: RobIdentity): Unit = {
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.bits.count.poke(1.U)
+        dut.io.release.bits.entries(0).poke(rob)
+        dut.io.releaseReady.expect(true.B)
+        dut.io.releaseApply.poke(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+        dut.io.releaseApply.poke(false.B)
+      }
+      def publishClosedBlock(baseId: Int, bid: Int, gen: Int): Seq[RobIdentity] = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = baseId, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = false)
+        lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
+          stid = 0, member = 1, blockStart = false, blockStop = true)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.bits.entries(1).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).bid.expect(bid.U)
+        dut.io.prepared.entries(0).brobGeneration.expect(gen.U)
+        val ids = (0 until 2).map { lane =>
+          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
+        }
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        ids
+      }
+
+      clearBrob()
+      releaseOne(publishSingleBlock(id = 100, bid = 0, gen = 0))
+      releaseOne(publishSingleBlock(id = 101, bid = 1, gen = 0))
+      releaseOne(publishSingleBlock(id = 102, bid = 2, gen = 0))
+      val straddler = publishClosedBlock(baseId = 103, bid = 3, gen = 0)
+      val younger = publishSingleBlock(id = 105, bid = 0, gen = 1)
+      val survivor = straddler(0)
+      val killedInsideStraddler = straddler(1)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x66.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(survivor)
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.survivingTail.poke(survivor)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(killedInsideStraddler)
+      dut.io.recoveryPrepare.bits.lastKilled.poke(younger)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      val next = publishSingleBlock(id = 106, bid = 0, gen = 1)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).poke(survivor)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.releaseApply.poke(false.B)
+      dut.io.release.bits.entries(0).poke(next)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
+  test("BROB recovery rejects malformed suffix BID and generation identities") {
+    def expectRejected(corrupt: BROB => Unit): Unit = {
+      simulate(new BROB(params)) { dut =>
+        def clearBrob(): Unit = {
+          dut.io.prepare.valid.poke(false.B)
+          dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+          dut.io.publishFire.poke(false.B)
+          dut.io.release.valid.poke(false.B)
+          dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+          dut.io.releaseApply.poke(false.B)
+          dut.io.recoveryPrepare.valid.poke(false.B)
+          dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+          dut.io.recoveryApply.valid.poke(false.B)
+          dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+          dut.io.recoveryAbort.valid.poke(false.B)
+          dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+        }
+        def publishClosedBlock(baseId: Int, bid: Int): Seq[RobIdentity] = {
+          dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+          lane(dut.io.prepare.bits, 0, id = baseId, rid = bid, groupCount = 1,
+            stid = 0, member = 0, blockStart = true, blockStop = false)
+          lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
+            stid = 0, member = 1, blockStart = false, blockStop = true)
+          dut.io.prepare.valid.poke(true.B)
+          dut.io.prepare.ready.expect(true.B)
+          val ids = (0 until 2).map { lane =>
+            dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
+          }
+          dut.io.publishFire.poke(true.B)
+          dut.clock.step()
+          dut.io.prepare.valid.poke(false.B)
+          dut.io.publishFire.poke(false.B)
+          ids
+        }
+        def publishSingleBlock(id: Int, bid: Int): RobIdentity = {
+          dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+          lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
+            stid = 0, member = 0, blockStart = true, blockStop = true)
+          dut.io.prepare.valid.poke(true.B)
+          dut.io.prepare.ready.expect(true.B)
+          val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+          dut.io.publishFire.poke(true.B)
+          dut.clock.step()
+          dut.io.prepare.valid.poke(false.B)
+          dut.io.publishFire.poke(false.B)
+          rob
+        }
+
+        clearBrob()
+        val straddler = publishClosedBlock(baseId = 110, bid = 0)
+        val younger = publishSingleBlock(id = 112, bid = 1)
+        dut.io.recoveryPrepare.valid.poke(true.B)
+        dut.io.recoveryPrepare.bits.transactionId.poke(0x67.U)
+        dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+        dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+        dut.io.recoveryPrepare.bits.trigger.poke(straddler(0))
+        dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+        dut.io.recoveryPrepare.bits.survivingTail.poke(straddler(0))
+        dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+        dut.io.recoveryPrepare.bits.firstKilled.poke(straddler(1))
+        dut.io.recoveryPrepare.bits.lastKilled.poke(younger)
+        dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+        dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+        corrupt(dut)
+        dut.io.recoveryPrepare.ready.expect(false.B)
+        dut.io.recoveryPrepare.valid.poke(false.B)
+
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.bits.count.poke(2.U)
+        dut.io.release.bits.entries(0).poke(straddler(0))
+        dut.io.release.bits.entries(1).poke(straddler(1))
+        dut.io.releaseReady.expect(true.B)
+      }
+    }
+
+    expectRejected(_.io.recoveryPrepare.bits.firstKilled.bid.poke(1.U))
+    expectRejected(_.io.recoveryPrepare.bits.firstKilled.brobGeneration.poke(1.U))
+    expectRejected(_.io.recoveryPrepare.bits.lastKilled.bid.poke(0.U))
+    expectRejected(_.io.recoveryPrepare.bits.lastKilled.brobGeneration.poke(1.U))
+  }
+
+  test("BROB recovery rejects stale reused-BID generation after wrap") {
+    simulate(new BROB(params)) { dut =>
+      def clearBrob(): Unit = {
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        dut.io.publishFire.poke(false.B)
+        dut.io.release.valid.poke(false.B)
+        dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+        dut.io.releaseApply.poke(false.B)
+        dut.io.recoveryPrepare.valid.poke(false.B)
+        dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+        dut.io.recoveryApply.valid.poke(false.B)
+        dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+        dut.io.recoveryAbort.valid.poke(false.B)
+        dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+      }
+      def publishSingleBlock(id: Int, bid: Int, gen: Int): RobIdentity = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = true)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        rob
+      }
+      def releaseOne(rob: RobIdentity): Unit = {
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.bits.count.poke(1.U)
+        dut.io.release.bits.entries(0).poke(rob)
+        dut.io.releaseReady.expect(true.B)
+        dut.io.releaseApply.poke(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+        dut.io.releaseApply.poke(false.B)
+      }
+      def publishClosedBlock(baseId: Int, bid: Int, gen: Int): Seq[RobIdentity] = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = baseId, rid = bid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = false)
+        lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
+          stid = 0, member = 1, blockStart = false, blockStop = true)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.bits.entries(1).uop.decoded.rob.brobGeneration.poke(gen.U)
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        val ids = (0 until 2).map { lane =>
+          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
+        }
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        ids
+      }
+
+      clearBrob()
+      releaseOne(publishSingleBlock(id = 120, bid = 0, gen = 0))
+      releaseOne(publishSingleBlock(id = 121, bid = 1, gen = 0))
+      releaseOne(publishSingleBlock(id = 122, bid = 2, gen = 0))
+      val straddler = publishClosedBlock(baseId = 123, bid = 3, gen = 0)
+      val younger = publishSingleBlock(id = 125, bid = 0, gen = 1)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x68.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(straddler(0))
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.survivingTail.poke(straddler(0))
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(straddler(1))
+      dut.io.recoveryPrepare.bits.lastKilled.poke(younger)
+      dut.io.recoveryPrepare.bits.lastKilled.brobGeneration.poke(0.U)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+      dut.io.recoveryPrepare.ready.expect(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(2.U)
+      dut.io.release.bits.entries(0).poke(straddler(0))
+      dut.io.release.bits.entries(1).poke(straddler(1))
+      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.releaseApply.poke(false.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries(0).poke(younger)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
   test("BROB abort preserves a closed block that straddles recovery") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {

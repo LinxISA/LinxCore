@@ -45,8 +45,9 @@ two load pipes and two store pipes.
 A `CoreParams` value MUST pass centralized width, identity, storage and
 resource validation before it is published to a module or interface
 generator. Invalid widths, zero physical paths, insufficient queue capacity,
-non-power-of-two identity stores and incompatible adjacent widths MUST fail
-with a configuration error.
+non-power-of-two identity stores, singleton BROB rings, and incompatible
+adjacent widths MUST fail with a configuration error. BROB entries per STID
+MUST be a power of two and at least two so native BID width is nonzero.
 
 ## Migration adapters are value-only {#PRM-ADAPTER-001}
 <!-- ndf: kind=arch level=must layer=L2 status=draft since=0.1 depends-on=PRM-VALIDATION-001 -->

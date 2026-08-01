@@ -24,7 +24,11 @@ Owner-local structures that coalesce multiple ROB members into one entry must
 derive their exact local action from this compact suffix. In particular, a BROB
 block whose first member survives while its recorded last member lies in the
 suffix remains the same BID/generation and is shortened to the surviving tail
-on matching Apply.
+on matching Apply; the owner restores its next-free pointer to the modulo
+successor of that retained BID/generation rather than the old pre-recovery
+tail. BROB targets must reject Prepare when the compact suffix endpoints do not
+match the live endpoint BID, BROB generation, and stored ROB identities for the
+owner-local projection.
 Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
 exists.
 

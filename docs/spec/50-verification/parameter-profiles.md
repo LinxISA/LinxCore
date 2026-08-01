@@ -12,7 +12,10 @@ under-provisioned combinations before elaboration.
 
 `CoreConfigurationSpec` MUST check the complete default IEX and LSU topology
 and MUST exercise failure cases for invalid profile width, adjacent-width
-capacity, D3-prefix dispatch capacity, and zero load/store pipe counts.
+capacity, D3-prefix dispatch capacity, zero load/store pipe counts, and a
+singleton BROB ring that would otherwise publish zero-width native BID fields.
+It MUST keep small legal BROB rings and the default 256-entry ring as explicit
+native BID width checks.
 
 ## Adapter round-trip check {#VER-PRM-003}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=PRM-ADAPTER-001 -->

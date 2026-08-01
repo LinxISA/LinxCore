@@ -238,12 +238,17 @@ prefix and free the head block only when the exact final ROB member for that
 block is included. Recovery prepare MUST be non-mutating; recovery apply MUST
 match the retained plan and prune only the target-STID suffix while preserving
 older blocks, current surviving blocks, exact `used` accounting, and unrelated
-STIDs. Stale BID generation release or recovery attempts MUST be rejected
-without changing unrelated STIDs.
+STIDs. Recovery prepare MUST validate the exact local BROB projection of the
+ROB-authored suffix, including first/last endpoint BID and BROB generation,
+before retaining an action. Stale BID generation release or recovery attempts
+MUST be rejected without changing unrelated STIDs.
 If a valid block's first member survives but its recorded last member lies in
 the killed suffix, recovery apply MUST retain the exact BID/generation and
 table occupancy for that block, preserve closed/open/current semantics, and
-shorten only the block's recorded last ROB identity to the surviving tail.
+shorten only the block's recorded last ROB identity to the surviving tail. The
+recovered next-free pointer MUST be the modulo successor of that retained BID,
+with generation incremented exactly on successor wrap, so wholly killed younger
+slots become reachable without selecting the live survivor slot.
 
 ## Retain in-order commit until every release owner accepts {#OOO-012}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-009,OOO-010,IFC-COMMIT-001 -->
@@ -321,7 +326,9 @@ choose the non-mutating abort path and perform no suffix mutation.
 BROB recovery prepare MUST retain the exact local action and apply that action
 without recomputing from mutable table state; partial recovery of any open or
 closed block that straddles the killed suffix preserves the surviving block and
-rewinds its last ROB owner.
+rewinds its last ROB owner. A malformed compact suffix whose first or last
+endpoint does not name the live BROB BID/generation and stored endpoint
+identity MUST be rejected during prepare.
 
 ## ROB/BROB/commit/recovery owner mechanisms {#MEC-OOO-006}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-010,OOO-011,OOO-012,OOO-013 -->

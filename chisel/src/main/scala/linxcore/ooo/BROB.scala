@@ -130,8 +130,12 @@ class BROB(val p: CoreParams) extends Module {
         tableLastRob(stid)(prepared.entries(lane).bid) :=
           io.prepare.bits.entries(lane).uop.decoded.rob
       }
+      val currentBlockInPrefix = scanCurrentValid(lane) &&
+        scanCurrentBid(lane) === prepared.entries(lane).bid
       when(prepared.entries(lane).valid &&
-        tableValid(stid)(prepared.entries(lane).bid)) {
+        (prepared.entries(lane).allocated ||
+          tableValid(stid)(prepared.entries(lane).bid) ||
+          currentBlockInPrefix)) {
         tableLastRob(stid)(prepared.entries(lane).bid) :=
           io.prepare.bits.entries(lane).uop.decoded.rob
       }
@@ -195,43 +199,77 @@ class BROB(val p: CoreParams) extends Module {
 
   val recIn = io.recoveryPrepare.bits
   val recStid = safeStid(recIn.trigger.stid)
-  val recBidExact = !recIn.firstKilledValid || (
-    recIn.firstKilled.stid < p.ooo.stidCount.U &&
-      tableValid(recStid)(recIn.firstKilled.bid) &&
-      tableGeneration(recStid)(recIn.firstKilled.bid) ===
-        recIn.firstKilled.brobGeneration)
+  val recSuffixLegal = RecoveryPlanContract.legalSuffixWindow(recIn)
+  val recTargetValid = recIn.trigger.stid < p.ooo.stidCount.U
+  val recFirstBid = recIn.firstKilled.bid
+  val recLastBid = recIn.lastKilled.bid
+  val recFirstSlotValid = recIn.firstKilledValid &&
+    tableValid(recStid)(recFirstBid) &&
+    tableGeneration(recStid)(recFirstBid) === recIn.firstKilled.brobGeneration
+  val recLastSlotValid = recIn.firstKilledValid &&
+    tableValid(recStid)(recLastBid) &&
+    tableGeneration(recStid)(recLastBid) === recIn.lastKilled.brobGeneration
+  val recFirstSlotFirstKilled = recFirstSlotValid &&
+    RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(recFirstBid))
+  val recFirstSlotStraddles = recFirstSlotValid &&
+    !RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(recFirstBid)) &&
+    RecoveryPlanContract.suffixMember(recIn, tableLastRob(recStid)(recFirstBid))
+  val recFirstEndpointExact = !recIn.firstKilledValid || (
+    (recFirstSlotFirstKilled &&
+      tableFirstRob(recStid)(recFirstBid).asUInt === recIn.firstKilled.asUInt) ||
+      (recFirstSlotStraddles &&
+        RecoveryPlanContract.suffixMember(recIn, recIn.firstKilled)))
+  val recLastEndpointExact = !recIn.firstKilledValid || (
+    recLastSlotValid &&
+      tableLastRob(recStid)(recLastBid).asUInt === recIn.lastKilled.asUInt)
+  val prepareKilledMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
+  val prepareStraddlingMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
+  for (bid <- 0 until p.ooo.brobEntriesPerStid) {
+    val entryExact = tableValid(recStid)(bid) &&
+      tableFirstRob(recStid)(bid).peId === recIn.trigger.peId &&
+      tableFirstRob(recStid)(bid).stid === recIn.trigger.stid &&
+      tableFirstRob(recStid)(bid).bid === bid.U &&
+      tableFirstRob(recStid)(bid).brobGeneration === tableGeneration(recStid)(bid) &&
+      tableLastRob(recStid)(bid).peId === recIn.trigger.peId &&
+      tableLastRob(recStid)(bid).stid === recIn.trigger.stid &&
+      tableLastRob(recStid)(bid).bid === bid.U &&
+      tableLastRob(recStid)(bid).brobGeneration === tableGeneration(recStid)(bid)
+    val firstKilled = entryExact &&
+      RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(bid))
+    val lastKilled = entryExact &&
+      RecoveryPlanContract.suffixMember(recIn, tableLastRob(recStid)(bid))
+    prepareKilledMask(bid) := recIn.firstKilledValid && firstKilled
+    prepareStraddlingMask(bid) := recIn.firstKilledValid && !firstKilled && lastKilled
+  }
+  val prepareStraddlingCount = PopCount(prepareStraddlingMask)
+  val recLocalProjectionExact =
+    !recIn.firstKilledValid || prepareKilledMask.asUInt.orR ||
+      prepareStraddlingMask.asUInt.orR
+  val recBidExact = recSuffixLegal && recTargetValid &&
+    recFirstEndpointExact && recLastEndpointExact &&
+    recLocalProjectionExact && prepareStraddlingCount <= 1.U
   io.recoveryPrepare.ready := !recoveryPending &&
     recIn.phase === RecoveryPhase.Prepare && recBidExact
   io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.ready
   io.recoveryPrepared.bits := Mux(recoveryPending, recoveryPlan, recIn)
   when(io.recoveryPrepare.fire) {
     val partialCurrent = Wire(Bool())
-    val killedMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
-    val straddlingMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
     val killedCount = Wire(UInt(PrefixPacketContract.countWidth(
       p.ooo.brobEntriesPerStid).W))
-    for (bid <- 0 until p.ooo.brobEntriesPerStid) {
-      val firstKilled = tableValid(recStid)(bid) &&
-        tableFirstRob(recStid)(bid).stid === recIn.trigger.stid &&
-        RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(bid))
-      killedMask(bid) := recIn.firstKilledValid && firstKilled
-      val lastKilled = tableValid(recStid)(bid) &&
-        tableLastRob(recStid)(bid).stid === recIn.trigger.stid &&
-        RecoveryPlanContract.suffixMember(recIn, tableLastRob(recStid)(bid))
-      straddlingMask(bid) := recIn.firstKilledValid && !firstKilled && lastKilled
-    }
-    killedCount := PopCount(killedMask)
-    val straddlingBlock = straddlingMask.asUInt.orR
-    val straddlingBid = PriorityEncoder(straddlingMask)
-    assert(PopCount(straddlingMask) <= 1.U)
+    killedCount := PopCount(prepareKilledMask)
+    val straddlingBlock = prepareStraddlingMask.asUInt.orR
+    val straddlingBid = PriorityEncoder(prepareStraddlingMask)
+    val straddlingTailWide = straddlingBid +& 1.U
+    val straddlingTailWrap = straddlingTailWide >= p.ooo.brobEntriesPerStid.U
+    assert(prepareStraddlingCount <= 1.U)
     partialCurrent := straddlingBlock && currentValid(recStid) &&
       currentBid(recStid) === straddlingBid
     val currentSurvives = currentValid(recStid) &&
       tableValid(recStid)(currentBid(recStid)) &&
-      !killedMask(currentBid(recStid))
+      !prepareKilledMask(currentBid(recStid))
     recoveryPending := true.B
     recoveryPlan := recIn
-    recoveryKilledMaskReg := killedMask
+    recoveryKilledMaskReg := prepareKilledMask
     recoveryKilledCountReg := killedCount
     recoveryStraddlingBlockReg := straddlingBlock
     recoveryStraddlingBidReg := straddlingBid
@@ -242,9 +280,11 @@ class BROB(val p: CoreParams) extends Module {
     recoveryCurrentBidReg := currentBid(recStid)
     recoveryCurrentGenerationReg := currentGeneration(recStid)
     recoveryUsedReg := used(recStid) - killedCount
-    recoveryTailReg := Mux(straddlingBlock, tail(recStid), recIn.firstKilled.bid)
+    recoveryTailReg := Mux(straddlingBlock,
+      straddlingTailWide(p.nativeBidWidth - 1, 0),
+      recIn.firstKilled.bid)
     recoveryGenerationReg := Mux(straddlingBlock,
-      generation(recStid),
+      tableGeneration(recStid)(straddlingBid) + straddlingTailWrap.asUInt,
       recIn.firstKilled.brobGeneration)
     recoverySurvivingTailReg := recIn.survivingTail
   }
