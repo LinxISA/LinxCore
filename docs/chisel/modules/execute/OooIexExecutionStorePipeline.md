@@ -12,9 +12,10 @@ recovery are private connections. There is no pre-STQ address/data join owner
 and no external physical-index commit authority.
 
 The lower-level `OooIexExecutionPipeline` and `OooIexStoreStqFabric` remain
-independently testable. `OooO3IexStorePipeline` is the canonical upper owner;
-it instantiates this wrapper and closes O3 completion, recycle, recovery,
-PC-read, fast-result, and semantic store-commit connections.
+independently testable. Until Task 13 creates public `IEX`, this surviving
+mechanism wrapper is the integration boundary for execution/store tests; it is
+not yet a public-box owner. Public `OOO` now ends at typed dispatch,
+completion, and recovery interfaces rather than a private O3/IEX wrapper.
 
 ## Store transaction ownership
 

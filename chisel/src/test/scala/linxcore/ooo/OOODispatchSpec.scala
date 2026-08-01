@@ -12,7 +12,6 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
     dut.io.brobPrepared.poke(0.U.asTypeOf(dut.io.brobPrepared))
-    dut.io.publishFire.poke(false.B)
     dut.io.recovery.prepare.valid.poke(false.B)
     dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))
     dut.io.recovery.prepared.ready.poke(true.B)
@@ -23,7 +22,7 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.aluDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.bruDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.aguDispatch.foreach(_.ready.poke(true.B))
-    dut.io.iex.stdDispatch.foreach(_.ready.poke(true.B))
+    dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
   }
@@ -75,11 +74,9 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.brobPrepared.entries(lane).brobGeneration.poke(3.U)
     }
     dut.io.in.valid.poke(true.B)
-    dut.io.publishFire.poke(true.B)
     dut.io.in.ready.expect(true.B)
     dut.clock.step()
     dut.io.in.valid.poke(false.B)
-    dut.io.publishFire.poke(false.B)
   }
 
   test("maps every canonical D3 field and keeps STA plus STD and CMD classing exact") {
@@ -97,14 +94,13 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.bid.expect(9.U)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.brobGeneration.expect(3.U)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.residentGeneration.expect(5.U)
-      dut.io.iex.aguDispatch(0).valid.expect(true.B)
-      dut.io.iex.stdDispatch(0).valid.expect(true.B)
-      dut.io.iex.aguDispatch(0).bits.transactionId.expect(
-        dut.io.iex.stdDispatch(0).bits.transactionId.peek())
-      dut.io.iex.aguDispatch(0).bits.uop.decoded.opcode.expect(
-        dut.io.iex.stdDispatch(0).bits.uop.decoded.opcode.peek())
-      dut.io.iex.aguDispatch(0).bits.uop.decoded.rob.bid.expect(
-        dut.io.iex.stdDispatch(0).bits.uop.decoded.rob.bid.peek())
+      dut.io.iex.storeDispatch(0).valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.sta.transactionId.expect(
+        dut.io.iex.storeDispatch(0).bits.std.transactionId.peek())
+      dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.opcode.expect(
+        dut.io.iex.storeDispatch(0).bits.std.uop.decoded.opcode.peek())
+      dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.rob.bid.expect(
+        dut.io.iex.storeDispatch(0).bits.std.uop.decoded.rob.bid.peek())
       dut.io.iex.cmdDispatch(0).valid.expect(true.B)
       dut.io.iex.systemDispatch(0).valid.expect(false.B)
       dut.clock.step()
@@ -129,17 +125,39 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("holds valid and payload stable until a wait-for-valid consumer accepts") {
+    simulate(new Dispatch(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      dut.io.iex.aluDispatch.foreach(_.ready.poke(false.B))
+      publish(dut, Seq(UopClass.Alu))
+
+      dut.io.iex.aluDispatch(0).valid.expect(true.B)
+      val held = dut.io.iex.aluDispatch(0).bits.peek()
+      dut.clock.step(3)
+      dut.io.iex.aluDispatch(0).valid.expect(true.B)
+      dut.io.iex.aluDispatch(0).bits.expect(held)
+
+      dut.io.iex.aluDispatch(0).ready.poke(true.B)
+      dut.clock.step()
+      dut.io.pending.expect(false.B)
+    }
+  }
+
   test("requires atomic AGU and STD credit and suppresses recovery-coincident dispatch") {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
-      dut.io.iex.stdDispatch.foreach(_.ready.poke(false.B))
+      dut.io.iex.storeDispatch.foreach(_.ready.poke(false.B))
       publish(dut, Seq(UopClass.Std))
       dut.io.iex.aguDispatch(0).valid.expect(false.B)
-      dut.io.iex.stdDispatch(0).valid.expect(false.B)
+      dut.io.iex.storeDispatch(0).valid.expect(true.B)
+      val held = dut.io.iex.storeDispatch(0).bits.peek()
       dut.clock.step()
       dut.io.pending.expect(true.B)
+      dut.io.iex.aguDispatch(0).valid.expect(false.B)
+      dut.io.iex.storeDispatch(0).valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.expect(held)
 
-      dut.io.iex.stdDispatch.foreach(_.ready.poke(true.B))
+      dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
       dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))
       dut.io.recovery.prepare.bits.phase.poke(RecoveryPhase.Prepare)
       dut.io.recovery.prepare.bits.transactionId.poke(17.U)
@@ -152,10 +170,32 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.recovery.apply.bits.phase.poke(RecoveryPhase.Apply)
       dut.io.recovery.apply.valid.poke(true.B)
       dut.io.iex.aguDispatch(0).valid.expect(false.B)
-      dut.io.iex.stdDispatch(0).valid.expect(false.B)
+      dut.io.iex.storeDispatch(0).valid.expect(false.B)
       dut.clock.step()
       dut.io.recovery.apply.valid.poke(false.B)
       dut.io.pending.expect(false.B)
+    }
+  }
+
+  test("every accepted input is retained even without a separate publication pulse") {
+    simulate(new Dispatch(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      dut.io.iex.aluDispatch.foreach(_.ready.poke(false.B))
+      dut.io.in.bits.count.poke(1.U)
+      dut.io.in.bits.groupCount.poke(1.U)
+      dut.io.in.bits.groups(0).valid.poke(true.B)
+      dut.io.in.bits.entries(0).uop.decoded.valid.poke(true.B)
+      dut.io.in.bits.entries(0).uop.decoded.uopClass.poke(UopClass.Alu)
+      dut.io.robPrepared.count.poke(1.U)
+      dut.io.robPrepared.entries(0).valid.poke(true.B)
+      dut.io.brobPrepared.count.poke(1.U)
+      dut.io.brobPrepared.entries(0).valid.poke(true.B)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.in.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.in.valid.poke(false.B)
+      dut.io.pending.expect(true.B)
     }
   }
 
@@ -172,7 +212,6 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.robPrepared.entries(0).valid.poke(true.B)
       dut.io.brobPrepared.entries(0).valid.poke(true.B)
       dut.io.in.valid.poke(true.B)
-      dut.io.publishFire.poke(true.B)
 
       dut.io.in.ready.expect(false.B)
       dut.clock.step()
@@ -185,7 +224,6 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.in.ready.expect(true.B)
       dut.clock.step()
       dut.io.in.valid.poke(false.B)
-      dut.io.publishFire.poke(false.B)
       dut.io.pending.expect(true.B)
 
       dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))

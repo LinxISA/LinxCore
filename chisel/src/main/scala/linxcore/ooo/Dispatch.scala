@@ -9,7 +9,6 @@ class DispatchIO(val p: CoreParams) extends Bundle {
   val in = Flipped(Decoupled(new D3RenameGroup(p)))
   val robPrepared = Input(new OOORobPrepared(p))
   val brobPrepared = Input(new BROBPrepared(p))
-  val publishFire = Input(Bool())
   val iex = new OOODispatchChannels(p)
   val recovery = Flipped(new RecoveryTargetIO(p))
   val pending = Output(Bool())
@@ -24,7 +23,6 @@ class Dispatch(val p: CoreParams) extends Module {
   allocator.io.in <> io.in
   allocator.io.robPrepared := io.robPrepared
   allocator.io.brobPrepared := io.brobPrepared
-  allocator.io.publishFire := io.publishFire
   allocator.io.advance := classify.io.advance
   allocator.io.recovery.prepare.valid := io.recovery.prepare.valid
   allocator.io.recovery.prepare.bits := io.recovery.prepare.bits

@@ -116,6 +116,27 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("production-owner-manifest: 23 closed owners", result.stdout)
 
+    def test_rejects_declared_canonical_caller_that_does_not_construct_owner(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        row = self.owner("rob", manifest)
+        fake = "chisel/src/main/scala/linxcore/ooo/FakeRobCaller.scala"
+        self._write_file(fake, "package linxcore.ooo\nclass FakeRobCaller\n")
+        row["active_callers"].append(fake)
+        self.assert_rejected(
+            manifest,
+            "canonical owner linxcore.ooo.ROB caller declaration mismatch",
+        )
+
+    def test_rejects_undeclared_main_caller_of_canonical_owner(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/ooo/ExtraRobCaller.scala",
+            "package linxcore.ooo\nclass ExtraRobCaller { val rob = new ROB(null) }\n",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "canonical owner linxcore.ooo.ROB caller declaration mismatch",
+        )
+
     def test_rejects_real_deletion_caller_omitted_from_manifest(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         target = self.owner("recovery", manifest)["deletion_targets"][0]

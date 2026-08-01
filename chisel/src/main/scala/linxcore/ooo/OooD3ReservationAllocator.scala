@@ -9,7 +9,6 @@ class OooD3ReservationAllocatorIO(val p: CoreParams) extends Bundle {
   val in = Flipped(Decoupled(new D3RenameGroup(p)))
   val robPrepared = Input(new OOORobPrepared(p))
   val brobPrepared = Input(new BROBPrepared(p))
-  val publishFire = Input(Bool())
   val advance = Input(UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W))
   val pendingValid = Output(Bool())
   val pending = Output(new D3RenameGroup(p))
@@ -85,7 +84,7 @@ class OooD3ReservationAllocator(val p: CoreParams) extends Module {
   io.in.ready := !heldValid && !recoveryBlocksInput &&
     inputCountExact && preparedExact
 
-  val published = io.in.valid && io.in.ready && io.publishFire
+  val published = io.in.fire
   when(published) {
     held := io.in.bits
     for (lane <- 0 until p.ooo.d3PrefixWidth) {

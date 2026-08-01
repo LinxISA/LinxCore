@@ -69,7 +69,7 @@ class RENU(val p: CoreParams) extends Module {
   val prepareTargetStid = safeStid(io.recovery.prepare.bits.trigger.stid)
   val prepareConflictsWithIrrevocable = rawAnyPending &&
     rawPresentedStid === prepareTargetStid &&
-    (heldGrantValid || !io.toD3.ready)
+    heldGrantValid
 
   io.recovery.prepare.ready := !recoveryPending &&
     io.recovery.prepare.bits.phase === RecoveryPhase.Prepare &&

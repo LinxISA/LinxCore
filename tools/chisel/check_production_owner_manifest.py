@@ -1545,7 +1545,41 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
         if owner.get("public_box") != subsystem:
             errors.append(f"public box mismatch for {state_key}")
         validate_public_box(owner, root, errors)
-        path_list(root, owner.get("active_callers"), f"active callers for {state_key}", errors)
+        declared_callers = path_list(
+            root,
+            owner.get("active_callers"),
+            f"active callers for {state_key}",
+            errors,
+        )
+        primary = contained_path(
+            root,
+            _primary_file,
+            f"primary mechanism for {state_key}",
+            errors,
+        )
+        canonical_definitions = {
+            definition.fqcn: definition
+            for definition in index.definitions_by_path.get(primary, [])
+            if definition.simple == canonical_symbol
+        } if primary else {}
+        if len(canonical_definitions) != 1:
+            errors.append(
+                f"canonical owner definition mismatch for {state_key}: "
+                f"{canonical_symbol}"
+            )
+        else:
+            canonical_fqcn = next(iter(canonical_definitions))
+            discovered_callers = discover_callers(
+                root,
+                canonical_fqcn,
+                sources,
+                index,
+            )
+            if declared_callers != discovered_callers:
+                errors.append(
+                    f"canonical owner {canonical_fqcn} caller declaration mismatch: "
+                    f"declared={declared_callers}, discovered={discovered_callers}"
+                )
         path_list(
             root,
             owner.get("verification_fixtures"),

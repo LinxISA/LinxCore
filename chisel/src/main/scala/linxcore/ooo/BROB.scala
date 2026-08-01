@@ -19,6 +19,8 @@ class BROBIO(val p: CoreParams) extends Bundle {
   val recoveryPrepared = Valid(new RecoveryPlan(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
   val recoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
+  val debugUsed = Output(Vec(p.ooo.stidCount,
+    UInt(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W)))
 }
 
 class BROB(val p: CoreParams) extends Module {
@@ -30,6 +32,7 @@ class BROB(val p: CoreParams) extends Module {
 
   val used = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W))))
+  io.debugUsed := used
   val tail = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(p.nativeBidWidth.W))))
   val generation = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(p.brobGenerationWidth.W))))

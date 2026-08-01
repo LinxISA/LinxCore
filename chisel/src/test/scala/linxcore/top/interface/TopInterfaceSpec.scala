@@ -184,7 +184,9 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(oooIex.aluDispatch.length == p.iex.aluPipes)
     assert(oooIex.bruDispatch.length == p.iex.bruPipes)
     assert(oooIex.aguDispatch.length == p.iex.aguPipes)
-    assert(oooIex.stdDispatch.length == p.iex.stdPipes)
+    assert(oooIex.storeDispatch.length == p.iex.stdPipes)
+    assert(oooIex.storeDispatch.head.bits.sta.getClass ==
+      oooIex.storeDispatch.head.bits.std.getClass)
     assert(oooIex.systemDispatch.length == p.iex.systemMulticycleQueues)
     assert(oooIex.cmdDispatch.length == p.iex.cmdIssueQueues)
     assert(oooIex.cmdDispatch.head.bits.getClass !=

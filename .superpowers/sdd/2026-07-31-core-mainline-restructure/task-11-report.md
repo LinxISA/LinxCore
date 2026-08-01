@@ -100,3 +100,75 @@ listed above; no legacy public owner is kept solely for test compatibility.
   dependency, or unrelated source change remains.
 - `skill-evolve: no-update` - the canonical ownership and verification rules
   are already captured by the LinxCore skill and Task-11 NDF clauses.
+
+## Fix Round 1
+
+This round supersedes the original dispatch-handshake, production-evidence,
+and test-count statements above where they conflict.
+
+### RED evidence
+
+- New valid-independent dispatch checks failed because ALU/store `valid` was
+  suppressed while `ready` was low, and the retained packet was not observable
+  to a wait-for-valid consumer.
+- A focused allocator check failed because an accepted `io.in.fire` could be
+  discarded when the separate `publishFire` input was false.
+- The four-STID integration test initially failed to compile because no
+  canonical D3-through-S1 production graph existed as a reusable test target;
+  subsequent runs exposed and removed a RENU ready/recovery combinational cycle
+  and corrected the external recovery-target test handshake.
+- Two new manifest-checker tests failed because invented declared callers and
+  undeclared real main-Scala constructors were both accepted.
+- A bounded documentation search found the deleted
+  `OooO3RenameCoordinator` and `OooO3IexStorePipeline` still described as live
+  production owners with commands for deleted suites.
+
+### Corrections
+
+- Every dispatch output now asserts `valid` from retained state independently
+  of its own `ready` and keeps payload stable until acceptance. Stores use one
+  paired `StoreDispatchTxn` acceptance carrying identical STA/STD transactions
+  and selected AGU/STD pipe indices, so no partial store side effect is visible
+  at the OOO/IEX boundary.
+- `OooD3ReservationAllocator` retains exactly on `io.in.fire`; the redundant
+  `publishFire` qualifier was removed. The canonical graph exposes Dispatch
+  input only after side-effect-free ROB/BROB prepare readiness, so that one
+  Decoupled fire is also the common D3 publication fire.
+- `OOOD3S1Graph` is the exact production child instantiated by public `OOO` and
+  by the bounded behavioral integration test. The test publishes two
+  operations on each of four STIDs across P/T/U/zero destinations, checks
+  owner snapshots, applies Branch survivor and MemoryOrder trigger-kill
+  recovery, and proves unrelated-STID isolation. Public `OOO` elaboration at
+  W2/W4/W6/W8 proves every canonical owner is reachable and displaced owners
+  are absent.
+- The production-owner checker now discovers the exact main-Scala constructor
+  callers for each canonical owner, including companion class/object
+  definitions. Test fixtures remain only under `verification_fixtures`.
+  Standalone rename evidence is reported as `standalone-verified`.
+- The displaced wrapper pages and module-index row were deleted or rewritten;
+  Task-12 handoff now points at the surviving execution/store mechanisms until
+  public `IEX` exists.
+
+### Verification
+
+- `LINX_CHISEL_SBT_MEM_MB=4096 ... --only OOOIntegrationSpec` - PASS, 5 total:
+  `OOOIntegrationSpec` 2 and separately selected adjacent
+  `CTUOOOIntegrationSpec` 3.
+- `... --only OOODispatchSpec` - PASS, 7 tests.
+- `... --only OOORecoverySpec` - PASS, 43 tests.
+- `... --only OOORobCommitSpec` - PASS, 21 tests.
+- `... --only RENUAtomicSpec` - PASS, 7 tests.
+- `... --only RENUSpec` - PASS, 15 tests.
+- `... --only OooHierarchicalFreeSlotSelectSpec` - PASS, 3 tests.
+- `... --only TopInterfaceSpec` - PASS, 9 tests.
+- `... --only InterfaceManifestSpec` - PASS, 2 tests.
+- `python3 -m unittest tests.test_production_owner_manifest` - PASS, 42 tests.
+- `python3 tools/chisel/check_production_owner_manifest.py` - PASS, 23 closed
+  owners, 40 classified emitters, 10 declared adapters.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=116 l1_must=53 verified=61 open_questions=0 references=2`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
+  67 modules, zero errors.
+- `git diff --check` - PASS.

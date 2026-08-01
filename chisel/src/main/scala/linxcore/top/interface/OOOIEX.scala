@@ -62,6 +62,16 @@ class DispatchTxn(val p: CoreParams) extends Bundle {
   val uop = new RenamedUop(p)
 }
 
+/** One atomic store issue request. IEX accepts this beat once, then performs
+  * the internal STA/STD fork without exposing partial side effects to OOO.
+  */
+class StoreDispatchTxn(val p: CoreParams) extends Bundle {
+  val sta = new DispatchTxn(p)
+  val std = new DispatchTxn(p)
+  val aguPipe = UInt(InterfaceWidth.index(p.iex.aguPipes).W)
+  val stdPipe = UInt(InterfaceWidth.index(p.iex.stdPipes).W)
+}
+
 class CompletionTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val rob = new RobIdentity(p)
@@ -80,8 +90,8 @@ class OOOIEXIO(val p: CoreParams) extends Bundle {
     Vec(p.iex.bruPipes, Decoupled(new DispatchTxn(p)))
   val aguDispatch =
     Vec(p.iex.aguPipes, Decoupled(new DispatchTxn(p)))
-  val stdDispatch =
-    Vec(p.iex.stdPipes, Decoupled(new DispatchTxn(p)))
+  val storeDispatch =
+    Vec(p.iex.stdPipes, Decoupled(new StoreDispatchTxn(p)))
   val systemDispatch =
     Vec(p.iex.systemMulticycleQueues, Decoupled(new DispatchTxn(p)))
   val cmdDispatch =
