@@ -420,3 +420,55 @@ is changed.
 `skill-evolve: no-update` — this is a local evidence-completeness correction;
 the existing LinxCore retained-owner and atomic-publication invariants already
 cover the reusable rule.
+
+## Fix Round 4/5
+
+### Status
+
+COMPLETE — the terminal fire cycle now has full literal payload evidence.
+The change remains test-only and does not modify production RTL, the manifest,
+the parent plan, or a public boundary.
+
+### RED
+
+- Round 3 proved atomic endpoint validity and retained ownership but checked
+  only a subset of each fire-cycle payload. A wrong commit bit, scope, wakeup
+  class, empty load token, trace opcode, trace writeback, or trap payload could
+  still pass.
+
+### GREEN
+
+- Completion checks valid, the complete member key, `faultValid=false`, and
+  `faultCause=0`.
+- P-write checks valid, literal `commit=true` as assigned by the terminal
+  publisher, STID 1, epoch 9, PTAG 37, generation 3, and data 42.
+- Wakeup checks `Committed`, STID 1, epoch 9, operand class P, PTAG 37,
+  generation 3, zero local tag/sequence, and a fully empty load identity.
+- Trace checks source ALU, the complete member, primary-parent valid/PE/STID/
+  instruction ID/epoch, uop ordinal/count, literal opcode 62, the complete
+  first destination and data 42, every remaining writeback invalid, an empty
+  load identity, and disabled zero trap state.
+- Round 3 blocked-cycle and two-cycle no-duplicate assertions remain intact.
+  Every expected value is a handwritten literal; no DUT output constructs an
+  expectation.
+
+### Verification
+
+- `OooIexTerminalFabricSpec`: 4/4 passed in 31.21s.
+- `bash tools/chisel/build_chisel.sh`: passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh`: passed with Verilator
+  5.044 over 67 generated modules.
+- `python3 tools/chisel/check_production_owner_manifest.py`: passed with 23
+  closed owners, 40 classified emitters, 10 declared adapters, and all NDF
+  L1/L2/L3 roles mapped.
+- `git diff --check` and `git diff --cached --check`: passed.
+
+### Warnings and self-review
+
+- The only tool warning is sbt's existing `multiple main classes detected`.
+- The diff is limited to `OooIexTerminalFabricSpec.scala` and this report.
+
+### Skill Evolution
+
+`skill-evolve: no-update` — this is a local test-evidence refinement; no new
+cross-module LinxCore invariant or verification gate was discovered.
