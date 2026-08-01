@@ -250,6 +250,16 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       redirectPc, newEpoch, phase, firstKilledRid, lastKilledRid)
   }
 
+  private def fireStableRound6Response(
+      dut: RecoveryControl,
+      pokeResponse: () => Unit): Unit = {
+    dut.io.robPrepared.valid.poke(true.B)
+    pokeResponse()
+    dut.io.robPrepared.ready.expect(true.B)
+    dut.clock.step()
+    dut.io.robPrepared.valid.poke(false.B)
+  }
+
   test("ROB recovery prepare returns the exact suffix and apply prunes only target STID") {
     simulate(new ROB(params)) { dut =>
       clearRob(dut)
@@ -1162,21 +1172,50 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.io.robPrepare.ready.poke(false.B)
       dut.io.robPrepared.valid.poke(true.B)
       pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      dut.io.robPrepared.ready.expect(false.B)
       dut.clock.step()
       dut.io.robPrepare.valid.expect(true.B)
       dut.io.targets(0).prepare.valid.expect(false.B)
       dut.io.robAbort.valid.expect(false.B)
 
       dut.io.robPrepare.ready.poke(true.B)
-      pokeRound6Response(dut, transactionId = 0x161)
-      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepared.valid.poke(false.B)
       dut.clock.step()
       dut.io.robPrepare.valid.expect(false.B)
       dut.io.targets(0).prepare.valid.expect(false.B)
       dut.io.robAbort.valid.expect(false.B)
 
-      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
+      fireStableRound6Response(dut,
+        () => pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3))
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.io.targets(0).prepare.bits.transactionId.expect(0x160.U)
+      dut.io.targets(0).prepare.bits.firstKilled.ridSlot.expect(2.U)
+    }
+  }
+
+  test("RecoveryControl drains same-cycle mismatched ROB response while request fires once") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      pokeRound6SeedEvent(dut)
       dut.clock.step()
+
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepare.ready.poke(true.B)
+      dut.io.robPrepared.valid.poke(true.B)
+      pokeRound6Response(dut, transactionId = 0x161)
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepared.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+      dut.io.targets(0).prepare.valid.expect(false.B)
+      dut.io.robAbort.valid.expect(false.B)
+
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(false.B)
+
+      fireStableRound6Response(dut,
+        () => pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3))
       dut.io.targets(0).prepare.valid.expect(true.B)
       dut.io.targets(0).prepare.bits.transactionId.expect(0x160.U)
       dut.io.targets(0).prepare.bits.firstKilled.ridSlot.expect(2.U)
@@ -1210,17 +1249,15 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         () => pokeRound6Response(dut, redirectPc = 0x4200),
         () => pokeRound6Response(dut, newEpoch = 5),
         () => pokeRound6Response(dut, phase = RecoveryPhase.Apply))
-      dut.io.robPrepared.valid.poke(true.B)
       mismatches.foreach { pokeMismatch =>
-        pokeMismatch()
-        dut.clock.step()
+        fireStableRound6Response(dut, pokeMismatch)
         dut.io.targets(0).prepare.valid.expect(false.B)
         dut.io.robAbort.valid.expect(false.B)
         dut.io.robPrepare.valid.expect(false.B)
       }
 
-      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
-      dut.clock.step()
+      fireStableRound6Response(dut,
+        () => pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3))
       dut.io.targets(0).prepare.valid.expect(true.B)
       dut.io.targets(0).prepare.bits.transactionId.expect(0x160.U)
       dut.io.targets(0).prepare.bits.firstKilled.ridSlot.expect(2.U)
@@ -1256,18 +1293,16 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         () => pokeRound6Response(dut, redirectPc = 0x4200),
         () => pokeRound6Response(dut, newEpoch = 5),
         () => pokeRound6Response(dut, phase = RecoveryPhase.Abort))
-      dut.io.robPrepared.valid.poke(true.B)
       mismatches.foreach { pokeMismatch =>
-        pokeMismatch()
-        dut.clock.step()
+        fireStableRound6Response(dut, pokeMismatch)
         dut.io.targets(0).prepare.valid.expect(false.B)
         dut.io.targets(0).abort.valid.expect(false.B)
         dut.io.robAbort.valid.expect(false.B)
         dut.io.robPrepare.valid.expect(false.B)
       }
 
-      pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3)
-      dut.clock.step()
+      fireStableRound6Response(dut,
+        () => pokeRound6Response(dut, firstKilledRid = 2, lastKilledRid = 3))
       dut.io.robAbort.valid.expect(true.B)
       dut.io.robAbort.bits.transactionId.expect(0x160.U)
       dut.io.robAbort.bits.phase.expect(RecoveryPhase.Abort)

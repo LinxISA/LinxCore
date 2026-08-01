@@ -205,10 +205,15 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   val robPrepareFire = io.robPrepare.fire
   val robPreparedCanFire =
     (state === RecoveryControlState.RequestRob && !io.abort &&
-      robPrepareFire && requestMatchesSeed) ||
-      ((state === RecoveryControlState.WaitRob ||
-        state === RecoveryControlState.WaitRobAbort) &&
-        requestMatchesRetained)
+      robPrepareFire) ||
+      state === RecoveryControlState.WaitRob ||
+      state === RecoveryControlState.WaitRobAbort
+  val robPreparedFire = io.robPrepared.valid && robPreparedCanFire
+  val robPreparedMatchesRequest =
+    Mux(state === RecoveryControlState.RequestRob,
+      requestMatchesSeed,
+      requestMatchesRetained)
+  val robPreparedAccepted = robPreparedFire && robPreparedMatchesRequest
   io.robPrepared.ready := robPreparedCanFire
   io.robAbort.valid := robAbortPulse
   io.robAbort.bits := plan
@@ -288,20 +293,16 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
   when(state === RecoveryControlState.RequestRob && io.abort) {
     state := RecoveryControlState.Idle
   }.elsewhen(state === RecoveryControlState.RequestRob &&
-    robPrepareFire && !io.robPrepared.fire) {
+    robPrepareFire && !robPreparedAccepted) {
     state := RecoveryControlState.WaitRob
   }
 
   when(state === RecoveryControlState.WaitRob && io.abort &&
-    !io.robPrepared.fire) {
+    !robPreparedAccepted) {
     state := RecoveryControlState.WaitRobAbort
   }
 
-  val robPreparedFire = (state === RecoveryControlState.RequestRob ||
-    state === RecoveryControlState.WaitRob ||
-    state === RecoveryControlState.WaitRobAbort) &&
-    io.robPrepared.valid && robPreparedCanFire
-  when(robPreparedFire) {
+  when(robPreparedAccepted) {
     plan := io.robPrepared.bits
     plan.phase := RecoveryPhase.Prepare
     sentMask := 0.U
