@@ -125,6 +125,32 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     target.residentGeneration.poke(4.U)
   }
 
+  private def expectRetainedMember(target: RobMemberKey): Unit = {
+    target.group.valid.expect(true.B)
+    target.group.peId.expect(3.U)
+    target.group.stid.expect(1.U)
+    target.group.ridSlot.expect(3.U)
+    target.group.ridGeneration.expect(1.U)
+    target.bid.valid.expect(true.B)
+    target.bid.value.expect(5.U)
+    target.brobGeneration.expect(2.U)
+    target.memberIndex.expect(0.U)
+    target.residentGeneration.expect(4.U)
+  }
+
+  private def expectRetainedDestination(
+      destination: OooIexDestinationState): Unit = {
+    destination.valid.expect(true.B)
+    destination.kind.expect(DestinationKind.Gpr)
+    destination.atag.expect(6.U)
+    destination.ptag.expect(37.U)
+    destination.ptagGeneration.expect(3.U)
+    destination.localTag.expect(0.U)
+    destination.localSequence.valid.expect(false.B)
+    destination.localSequence.index.expect(0.U)
+    destination.localSequence.generation.expect(0.U)
+  }
+
   private def pokeAlu(
       dut: OooIexTerminalFabric,
       source: Int,
@@ -312,53 +338,68 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
         dut.io.terminalFireMask.expect(0.U)
         dut.io.completion(0).valid.expect(true.B)
         dut.io.completion(0).ready.expect(false.B)
-        dut.io.completion(0).bits.key.group.peId.expect(3.U)
-        dut.io.completion(0).bits.key.group.stid.expect(1.U)
-        dut.io.completion(0).bits.key.group.ridSlot.expect(3.U)
-        dut.io.completion(0).bits.key.group.ridGeneration.expect(1.U)
-        dut.io.completion(0).bits.key.bid.value.expect(5.U)
-        dut.io.completion(0).bits.key.brobGeneration.expect(2.U)
-        dut.io.completion(0).bits.key.memberIndex.expect(0.U)
-        dut.io.completion(0).bits.key.residentGeneration.expect(4.U)
+        expectRetainedMember(dut.io.completion(0).bits.key)
+        dut.io.completion.drop(1).foreach(_.valid.expect(false.B))
         dut.io.retainedW2.valid.expect(true.B)
-        val destination = dut.io.retainedW2.bits.execute.i2.row
-          .schedule.destinations(0)
-        destination.valid.expect(true.B)
-        destination.kind.expect(DestinationKind.Gpr)
-        destination.atag.expect(6.U)
-        destination.ptag.expect(37.U)
-        destination.ptagGeneration.expect(3.U)
-        destination.localTag.expect(0.U)
-        destination.localSequence.valid.expect(false.B)
-        dut.io.pWrite(0).valid.expect(false.B)
-        dut.io.tWrite(0).valid.expect(false.B)
-        dut.io.uWrite(0).valid.expect(false.B)
-        dut.io.wakeup(0).valid.expect(false.B)
-        dut.io.trace(0).valid.expect(false.B)
-        dut.io.bctrl(0).valid.expect(false.B)
-        dut.io.pWrite(0).bits.key.ptag.expect(37.U)
-        dut.io.pWrite(0).bits.key.generation.expect(3.U)
-        dut.io.pWrite(0).bits.data.expect(42.U)
+        expectRetainedMember(dut.io.retainedW2.bits.execute.i2.row
+          .schedule.member)
+        expectRetainedDestination(dut.io.retainedW2.bits.execute.i2.row
+          .schedule.destinations(0))
+        dut.io.retainedW2.bits.writebacks(0).valid.expect(true.B)
+        expectRetainedDestination(
+          dut.io.retainedW2.bits.writebacks(0).destination)
+        dut.io.retainedW2.bits.writebacks(0).data.expect(42.U)
+        dut.io.pWrite.foreach(_.valid.expect(false.B))
+        dut.io.tWrite.foreach(_.valid.expect(false.B))
+        dut.io.uWrite.foreach(_.valid.expect(false.B))
+        dut.io.wakeup.foreach(_.valid.expect(false.B))
+        dut.io.trace.foreach(_.valid.expect(false.B))
+        dut.io.bctrl.foreach(_.valid.expect(false.B))
         dut.io.w2Occupied.expect(true.B)
         dut.clock.step()
       }
 
       dut.io.completion(0).ready.poke(true.B)
       dut.io.terminalFireMask.expect(1.U)
+      dut.io.completion(0).valid.expect(true.B)
+      expectRetainedMember(dut.io.completion(0).bits.key)
+      dut.io.completion.drop(1).foreach(_.valid.expect(false.B))
       dut.io.pWrite(0).valid.expect(true.B)
       dut.io.pWrite(0).bits.key.ptag.expect(37.U)
       dut.io.pWrite(0).bits.key.generation.expect(3.U)
       dut.io.pWrite(0).bits.data.expect(42.U)
+      dut.io.pWrite.drop(1).foreach(_.valid.expect(false.B))
+      dut.io.wakeup(0).valid.expect(true.B)
+      dut.io.wakeup(0).bits.ptag.expect(37.U)
+      dut.io.wakeup(0).bits.ptagGeneration.expect(3.U)
+      dut.io.wakeup.drop(1).foreach(_.valid.expect(false.B))
       dut.io.trace(0).valid.expect(true.B)
       dut.io.trace(0).bits.uopKey.primaryParent.instructionId.expect(43.U)
+      dut.io.trace.drop(1).foreach(_.valid.expect(false.B))
+      dut.io.tWrite.foreach(_.valid.expect(false.B))
+      dut.io.uWrite.foreach(_.valid.expect(false.B))
+      dut.io.bctrl.foreach(_.valid.expect(false.B))
+      dut.io.retainedW2.valid.expect(true.B)
+      expectRetainedMember(dut.io.retainedW2.bits.execute.i2.row
+        .schedule.member)
+      expectRetainedDestination(
+        dut.io.retainedW2.bits.writebacks(0).destination)
+      dut.io.retainedW2.bits.writebacks(0).data.expect(42.U)
       dut.clock.step()
 
-      dut.io.w2Occupied.expect(false.B)
-      dut.io.terminalFireMask.expect(0.U)
-      dut.io.completion(0).valid.expect(false.B)
-      dut.io.pWrite(0).valid.expect(false.B)
-      dut.clock.step(2)
-      dut.io.terminalFireMask.expect(0.U)
+      for (_ <- 0 until 2) {
+        dut.io.w2Occupied.expect(false.B)
+        dut.io.retainedW2.valid.expect(false.B)
+        dut.io.terminalFireMask.expect(0.U)
+        dut.io.completion.foreach(_.valid.expect(false.B))
+        dut.io.pWrite.foreach(_.valid.expect(false.B))
+        dut.io.wakeup.foreach(_.valid.expect(false.B))
+        dut.io.trace.foreach(_.valid.expect(false.B))
+        dut.io.tWrite.foreach(_.valid.expect(false.B))
+        dut.io.uWrite.foreach(_.valid.expect(false.B))
+        dut.io.bctrl.foreach(_.valid.expect(false.B))
+        dut.clock.step()
+      }
     }
   }
 }

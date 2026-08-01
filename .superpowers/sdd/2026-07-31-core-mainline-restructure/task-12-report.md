@@ -360,3 +360,63 @@ GREEN:
 
 `skill-evolve: no-update` — this round strengthens local tests but introduces
 no new reusable LinxCore ownership, identity, recovery, or gate invariant.
+
+## Fix Round 3/5
+
+### Status
+
+COMPLETE — the remaining terminal-retention evidence gap is closed in the
+test-only harness. No production RTL, manifest, parent plan, or public boundary
+is changed.
+
+### RED
+
+- Round 2 checked the completion member directly but did not independently
+  inspect the retained W2 member on every blocked cycle.
+- Completion omitted explicit `group.valid` and `bid.valid` checks. The fire
+  cycle and two post-fire cycles did not enumerate every applicable endpoint,
+  leaving room for a partial or duplicate publication to escape the fixture.
+
+### GREEN
+
+- Each of three blocked cycles now checks the complete retained W2 and
+  completion identity: group validity, PE/STID, RID slot/generation, BID
+  validity/value, BROB generation, member index, and resident generation.
+- The retained W2 writeback checks destination valid/kind, atag, PTAG,
+  PTAG generation, local tag, local-sequence valid/index/generation, and data
+  `42` every blocked cycle.
+- Blocked cycles require zero terminal fire and zero P/T/U write, wakeup,
+  trace, or BCTRL publication on every exposed port. Only the blocked
+  completion advertises valid, with ready low; peer completion lanes are
+  invalid.
+- The release cycle explicitly proves completion, P-write, wakeup, and trace
+  valid together with the full completion identity, retained W2 identity,
+  destination, and data. All peer P-write/wakeup/trace lanes and every T/U and
+  BCTRL endpoint remain invalid.
+- Both following cycles require W2 empty, retained W2 invalid, terminal fire
+  zero, and every completion/write/wakeup/trace/BCTRL endpoint invalid. This
+  is the direct exactly-once/no-duplicate proof.
+
+### Verification
+
+- `OooIexTerminalFabricSpec`: 4/4 passed in 29.96s.
+- `bash tools/chisel/build_chisel.sh`: passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh`: passed with Verilator
+  5.044 over 67 generated modules.
+- `python3 tools/chisel/check_production_owner_manifest.py`: passed with 23
+  closed owners, 40 classified emitters, 10 declared adapters, and all NDF
+  L1/L2/L3 roles mapped.
+- `git diff --check` and `git diff --cached --check`: passed.
+
+### Warnings and self-review
+
+- The only tool warning is sbt's existing `multiple main classes detected`.
+- The diff is limited to `OooIexTerminalFabricSpec.scala` and this report.
+- No expected identity or data field is read back from the DUT to construct an
+  expected value.
+
+### Skill Evolution
+
+`skill-evolve: no-update` — this is a local evidence-completeness correction;
+the existing LinxCore retained-owner and atomic-publication invariants already
+cover the reusable rule.
