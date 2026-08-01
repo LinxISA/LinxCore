@@ -4,24 +4,25 @@
 from __future__ import annotations
 
 import argparse
-import py_compile
 import sys
 from pathlib import Path
 
-from generate_platform import (
-    DEFAULT_MANIFEST,
-    REPOSITORY_ROOT,
-    generated_file_differences,
-    load_manifest,
-    validate_manifest,
-)
+sys.dont_write_bytecode = True
 
-
-def _source_errors(manifest: Path) -> list[str]:
-    try:
-        return validate_manifest(load_manifest(manifest))
-    except (OSError, ValueError) as error:
-        return [f"platform manifest error: {error}"]
+if __package__:
+    from .generate_platform import (
+        DEFAULT_MANIFEST,
+        generated_file_differences,
+        load_manifest,
+        validate_manifest,
+    )
+else:
+    from generate_platform import (
+        DEFAULT_MANIFEST,
+        generated_file_differences,
+        load_manifest,
+        validate_manifest,
+    )
 
 
 def _tool_errors() -> list[str]:
@@ -30,9 +31,10 @@ def _tool_errors() -> list[str]:
         errors.append("Python 3.10 or newer is required")
     for script_name in ("generate_platform.py", "check_framework.py"):
         try:
-            py_compile.compile(Path(__file__).with_name(script_name), doraise=True)
-        except py_compile.PyCompileError as error:
-            errors.append(f"cannot compile {script_name}: {error.msg}")
+            script_path = Path(__file__).with_name(script_name)
+            compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec")
+        except (OSError, SyntaxError) as error:
+            errors.append(f"cannot compile {script_name}: {error}")
     return errors
 
 

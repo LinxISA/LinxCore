@@ -116,6 +116,102 @@ class PlatformContractTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("line_bytes", result.stderr)
 
+    def test_rejects_noncanonical_numeric_manifest_values(self):
+        """Coercing floats or bools would make generation fail after preflight passes."""
+        data = load_manifest(MANIFEST)
+        invalid_cases = (
+            ("axi line float", ("axi", "line_bytes"), 64.0),
+            ("outstanding bool", ("axi", "max_outstanding"), True),
+            ("artifact base float", ("artifact_regions", "kernel", "base"), 65536.0),
+            ("artifact base integer", ("artifact_regions", "kernel", "base"), 65536),
+            ("artifact size float", ("artifact_regions", "kernel", "size"), 16777216.5),
+            ("resource float", ("resource_budget", "lut"), 40000.0),
+            ("artifact size decimal", ("artifact_regions", "kernel", "size"), "16777216"),
+        )
+        for name, path, value in invalid_cases:
+            with self.subTest(name=name):
+                invalid = copy.deepcopy(data)
+                target = invalid
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                self.assertTrue(validate_manifest(invalid), name)
+
+    def test_invalid_manifest_fails_all_preflight_modes_and_generator_cleanly(self):
+        """Malformed source must fail before rendering in every public command mode."""
+        data = load_manifest(MANIFEST)
+        data["artifact_regions"]["kernel"]["base"] = 65536.0
+        generator = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/generate_platform.py"
+        checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            invalid_manifest = Path(temporary_directory) / "platform.json"
+            invalid_manifest.write_text(json.dumps(data), encoding="utf-8")
+            generator_result = subprocess.run(
+                ["python3", str(generator), "--manifest", str(invalid_manifest), "--check"],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(generator_result.returncode, 0)
+            self.assertIn("platform manifest validation failed", generator_result.stderr)
+            self.assertNotIn("Traceback", generator_result.stderr)
+            for mode in ("source", "generated", "all"):
+                with self.subTest(mode=mode):
+                    result = subprocess.run(
+                        [
+                            "python3",
+                            str(checker),
+                            "--mode",
+                            mode,
+                            "--manifest",
+                            str(invalid_manifest),
+                        ],
+                        cwd=REPOSITORY_ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("artifact_regions.kernel.base", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+
+    def test_preflight_supports_direct_and_module_invocation(self):
+        """Both public checker invocation forms must run the same source validation."""
+        checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
+        commands = (
+            ["python3", str(checker), "--mode", "source"],
+            ["python3", "-m", "tools.fpga.zybo_z7_20.check_framework", "--mode", "source"],
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                result = subprocess.run(
+                    command,
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_preflight_does_not_create_repository_files_in_tools_or_all_mode(self):
+        """Read-only preflights must not leave Python bytecode or other artifacts behind."""
+        checker = REPOSITORY_ROOT / "tools/fpga/zybo_z7_20/check_framework.py"
+        platform_directory = checker.parent
+        before = sorted(path.relative_to(platform_directory) for path in platform_directory.rglob("*"))
+        for mode in ("tools", "all"):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    ["python3", str(checker), "--mode", mode],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+        after = sorted(path.relative_to(platform_directory) for path in platform_directory.rglob("*"))
+        self.assertEqual(after, before)
+
     def assert_validation_error(self, data: dict, expected: str) -> None:
         errors = validate_manifest(data)
         self.assertTrue(errors, "expected invalid platform data to be rejected")

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from itertools import combinations
 from pathlib import Path
@@ -50,24 +51,33 @@ def _nested(data: dict, *keys: str) -> Any:
 
 
 def _integer(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        return int(value, 0) if isinstance(value, str) else int(value)
-    except (TypeError, ValueError):
-        return None
+    if type(value) is int:
+        return value
+    if _is_canonical_hex(value):
+        return int(value, 16)
+    return None
+
+
+def _is_canonical_hex(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"0x[0-9a-f]{8}", value) is not None
 
 
 def _expect(data: dict, errors: list[str], path: tuple[str, ...], value: Any) -> None:
-    if _nested(data, *path) != value:
+    actual = _nested(data, *path)
+    if type(actual) is not type(value) or actual != value:
         errors.append(f"{'.'.join(path)} must be {value!r}")
 
 
 def _half_open_region(data: dict, name: str, errors: list[str]) -> tuple[int, int] | None:
-    base = _integer(_nested(data, "artifact_regions", name, "base"))
-    size = _integer(_nested(data, "artifact_regions", name, "size"))
-    if base is None or size is None or size <= 0:
-        errors.append(f"artifact_regions.{name} must define a positive base and size")
+    base_value = _nested(data, "artifact_regions", name, "base")
+    size_value = _nested(data, "artifact_regions", name, "size")
+    base = _integer(base_value)
+    size = _integer(size_value)
+    if not _is_canonical_hex(base_value):
+        errors.append(f"artifact_regions.{name}.base must be a canonical 32-bit hexadecimal string")
+    if not _is_canonical_hex(size_value) or size is None or size <= 0:
+        errors.append(f"artifact_regions.{name}.size must be a positive canonical 32-bit hexadecimal string")
+    if not _is_canonical_hex(base_value) or not _is_canonical_hex(size_value) or base is None or size is None or size <= 0:
         return None
     return base, base + size
 
@@ -101,7 +111,10 @@ def validate_manifest(data: dict) -> list[str]:
         errors.append("axi.line_bytes must be a positive power of two")
     elif line_bytes != 64:
         errors.append("axi.line_bytes must be 64")
-    if _nested(data, "axi", "max_outstanding") != 1:
+    if (
+        type(_nested(data, "axi", "max_outstanding")) is not int
+        or _nested(data, "axi", "max_outstanding") != 1
+    ):
         errors.append("axi.max_outstanding must be 1 for the first profile")
 
     _expect(data, errors, ("linx_memory", "base"), "0x00000000")
