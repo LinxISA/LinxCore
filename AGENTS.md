@@ -13,6 +13,8 @@ At the start of every agent session, before responding or taking an action:
 4. For Chisel/LinxCore work, also invoke the installed `linx-core` domain
    skill. Its ownership, identity, verification, cross-model, and
    superproject-pin gates remain authoritative for hardware acceptance.
+5. For Zybo Z7-20, Zynq PS/PL, Vivado, HP0, or Linx FPGA/Linux bring-up,
+   invoke the repository-local `linxcore-zybo-linux` skill.
 
 Direct user instructions and parent-repository instructions take precedence.
 Do not edit the vendored Superpowers checkout in a LinxCore change. Update it

@@ -150,7 +150,7 @@ git commit -m "fpga: add generated Zybo platform contract"
 - Consumes: `platform.json`, this plan, the design specification, and existing Linx architecture/RTL gates.
 - Produces: a discoverable skill triggered by Zybo, Zynq, Vivado, FPGA Linux, PS/PL, HP0, or Linx board bring-up work.
 
-- [ ] **Step 1: Record three failing baseline scenarios**
+- [x] **Step 1: Record three failing baseline scenarios**
 
 Run three fresh-context agents without the skill. Give them the scenarios
 below and record whether they violate the named invariant:
@@ -168,7 +168,7 @@ At least one baseline failure is required. If every baseline passes, do not
 create a redundant skill; move the board-specific requirements into `AGENTS.md`
 and retain the deterministic scripts.
 
-- [ ] **Step 2: Scaffold the skill**
+- [x] **Step 2: Scaffold the skill**
 
 ```bash
 python3 /mnt/c/Users/zhoub/.codex/skills/.system/skill-creator/scripts/init_skill.py \
@@ -180,7 +180,7 @@ python3 /mnt/c/Users/zhoub/.codex/skills/.system/skill-creator/scripts/init_skil
   --interface default_prompt="Plan and verify a compact LinxCore Zybo Z7-20 FPGA/Linux milestone."
 ```
 
-- [ ] **Step 3: Write the minimal skill against observed failures**
+- [x] **Step 3: Write the minimal skill against observed failures**
 
 Use this frontmatter and workflow order:
 
@@ -196,7 +196,7 @@ red gate, preserve Linx block/trace contracts, reject silent Vivado board
 automation failure, record tool/resource/timing provenance, and stop Linux
 claims before real memory, trap, timer, and boot-register gates pass.
 
-- [ ] **Step 4: Validate GREEN with the skill loaded**
+- [x] **Step 4: Validate GREEN with the skill loaded**
 
 Run the same three scenarios with the skill loaded and require all three
 expected decisions. Then run:
@@ -208,7 +208,7 @@ python3 /mnt/c/Users/zhoub/.codex/skills/.system/skill-creator/scripts/quick_val
 
 Expected: `Skill is valid!` and pressure scenarios preserve all named gates.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .agents/skills/linxcore-zybo-linux AGENTS.md

@@ -1,0 +1,4 @@
+interface:
+  display_name: "LinxCore Zybo Linux"
+  short_description: "Bring up compact LinxCore Chisel designs on Zybo Z7-20"
+  default_prompt: "Use $linxcore-zybo-linux to plan and verify a compact LinxCore Zybo Z7-20 FPGA/Linux milestone."
