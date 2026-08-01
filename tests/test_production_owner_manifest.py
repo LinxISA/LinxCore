@@ -189,6 +189,58 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "deletion target fixture.LegacyOwner caller declaration mismatch",
         )
 
+    def test_rejects_root_qualified_multiline_alias_deletion_caller_omission(
+        self,
+    ) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target.update(
+            {
+                "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
+                "symbol": "fixture.LegacyOwner",
+                "status": "deletion-ready",
+                "active_callers": [],
+            }
+        )
+        self._write_file(target["path"], "package fixture\nclass LegacyOwner\n")
+        self._write_file(
+            "chisel/src/main/scala/client/RootAliasCaller.scala",
+            "package client\n"
+            "import _root_.fixture.{\n"
+            "  LegacyOwner =>\n"
+            "    Alias\n"
+            "}\n"
+            "class RootAliasCaller { val owner = new Alias }\n",
+        )
+        self.assert_rejected(
+            manifest,
+            "deletion target fixture.LegacyOwner caller declaration mismatch",
+        )
+
+    def test_rejects_unresolved_qualified_deletion_reference(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target.update(
+            {
+                "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
+                "symbol": "fixture.LegacyOwner",
+                "status": "deletion-ready",
+                "active_callers": [],
+            }
+        )
+        self._write_file(target["path"], "package fixture\nclass LegacyOwner\n")
+        self._write_file(
+            "chisel/src/main/scala/client/UnknownQualifiedCaller.scala",
+            "package client\n"
+            "class UnknownQualifiedCaller {\n"
+            "  val owner = new unresolved.namespace.LegacyOwner\n"
+            "}\n",
+        )
+        self.assert_rejected(
+            manifest,
+            "deletion-ready target fixture.LegacyOwner has unresolved Scala references",
+        )
+
     def test_ignores_deletion_references_inside_comments_and_strings(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
@@ -416,6 +468,49 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "adapter HiddenAliasedWrapper stateful declaration mismatch",
         )
 
+    def test_rejects_scoped_alias_collision_hiding_stateful_wrapper_child(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        stateful_child = "chisel/src/main/scala/linxcore/lsu/HiddenStateOwner.scala"
+        stateless_child = "chisel/src/main/scala/linxcore/ifu/StatelessChild.scala"
+        wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenScopedWrapper.scala"
+        self._write_file(
+            stateful_child,
+            "package linxcore.lsu\n"
+            "import chisel3._\n"
+            "class HiddenStateOwner extends Module { val held = RegInit(false.B) }\n",
+        )
+        self._write_file(
+            stateless_child,
+            "package linxcore.ifu\n"
+            "import chisel3._\n"
+            "class StatelessChild extends Module\n",
+        )
+        self._write_file(
+            wrapper,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenScopedWrapper extends Module {\n"
+            "  import linxcore.lsu.{HiddenStateOwner => Child}\n"
+            "  val child = Module(new Child)\n"
+            "}\n"
+            "class LaterScope extends Module {\n"
+            "  import linxcore.ifu.{StatelessChild => Child}\n"
+            "  val child = Module(new Child)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenScopedWrapper",
+                "path": wrapper,
+                "role": "compatibility",
+                "stateful": False,
+            }
+        )
+        self.assert_rejected(
+            manifest,
+            "adapter HiddenScopedWrapper stateful declaration mismatch",
+        )
+
     def test_rejects_unresolved_child_of_compatibility_wrapper(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenUnresolvedWrapper.scala"
@@ -600,6 +695,46 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self.assert_rejected(
             self.manifest,
             "unknown emitter linxcore.top.EmitCrossFileApplyWrapper",
+        )
+
+    def test_rejects_unknown_cross_file_imported_nullary_emitter(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/NullaryEmitSink.scala",
+            "package linxcore.top\n"
+            "object NullaryEmitSink {\n"
+            "  def emitFixture: Unit =\n"
+            "    circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}\n",
+        )
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitImportedNullary.scala",
+            "package linxcore.top\n"
+            "import linxcore.top.NullaryEmitSink.emitFixture\n"
+            "object EmitImportedNullary extends App { emitFixture }\n",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "unknown emitter linxcore.top.EmitImportedNullary",
+        )
+
+    def test_rejects_unknown_cross_file_aliased_nullary_emitter(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/AliasedNullaryEmitSink.scala",
+            "package linxcore.top\n"
+            "object AliasedNullaryEmitSink {\n"
+            "  def emitFixture: Unit =\n"
+            "    circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}\n",
+        )
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitAliasedNullary.scala",
+            "package linxcore.top\n"
+            "import linxcore.top.AliasedNullaryEmitSink.{emitFixture => runEmitter}\n"
+            "object EmitAliasedNullary extends App { runEmitter }\n",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "unknown emitter linxcore.top.EmitAliasedNullary",
         )
 
     def test_rejects_unregistered_emitter_with_misleading_reduced_name(self) -> None:

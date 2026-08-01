@@ -328,6 +328,12 @@ class ScalaDefinition:
     path: Path
     relative: str
     body: str
+    start: int
+    body_start: int
+    end: int
+    imports: dict[str, str]
+    wildcard_imports: tuple[str, ...]
+    import_errors: tuple[str, ...]
 
 
 @dataclass
@@ -340,6 +346,20 @@ class ScalaIndex:
     module_edges: dict[str, set[str]]
     unresolved_module_edges: dict[str, set[str]]
     direct_stateful: set[str]
+
+
+CallableKey = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class ScalaCallable:
+    key: CallableKey
+    body: str
+    path: Path
+    relative: str
+    imports: dict[str, str]
+    wildcard_imports: tuple[str, ...]
+    definition: ScalaDefinition | None
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -506,6 +526,11 @@ def _split_import_selectors(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def canonical_scala_name(value: str) -> str:
+    normalized = re.sub(r"\s*\.\s*", ".", value.strip())
+    return normalized.removeprefix("_root_.")
+
+
 def parse_imports(text: str) -> tuple[dict[str, str], tuple[str, ...], tuple[str, ...]]:
     imports: dict[str, str] = {}
     wildcards: list[str] = []
@@ -528,6 +553,7 @@ def parse_imports(text: str) -> tuple[dict[str, str], tuple[str, ...], tuple[str
         braced = re.fullmatch(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.\{(.*)\}", expression, re.DOTALL)
         if braced:
             prefix, selectors = braced.groups()
+            prefix = canonical_scala_name(prefix)
             for selector in _split_import_selectors(selectors):
                 renamed = re.fullmatch(
                     r"([A-Za-z_]\w*)\s*(?:=>|\bas\b)\s*([A-Za-z_]\w*|_)",
@@ -549,14 +575,24 @@ def parse_imports(text: str) -> tuple[dict[str, str], tuple[str, ...], tuple[str
             r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.(?:_|\*)", expression
         )
         if wildcard:
-            wildcards.append(wildcard.group(1))
+            wildcards.append(canonical_scala_name(wildcard.group(1)))
             continue
         exact = re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", expression)
         if exact:
-            imports[expression.rsplit(".", 1)[-1]] = expression
+            canonical = canonical_scala_name(expression)
+            imports[canonical.rsplit(".", 1)[-1]] = canonical
         elif expression:
             errors.append(expression)
     return imports, tuple(wildcards), tuple(errors)
+
+
+def _mask_ranges(text: str, ranges: list[tuple[int, int]]) -> str:
+    result = list(text)
+    for start, end in ranges:
+        for index in range(max(start, 0), min(end, len(result))):
+            if result[index] != "\n":
+                result[index] = " "
+    return "".join(result)
 
 
 def _definition_bodies(unit: ScalaUnit) -> list[ScalaDefinition]:
@@ -566,6 +602,8 @@ def _definition_bodies(unit: ScalaUnit) -> list[ScalaDefinition]:
         limit = matches[position + 1].start() if position + 1 < len(matches) else len(unit.text)
         brace = unit.text.find("{", match.end(), limit)
         body = ""
+        body_start = match.end()
+        end = match.end()
         if brace >= 0:
             depth = 0
             end = len(unit.text)
@@ -578,6 +616,7 @@ def _definition_bodies(unit: ScalaUnit) -> list[ScalaDefinition]:
                         end = index + 1
                         break
             body = unit.text[brace:end]
+            body_start = brace
         simple = match.group("name")
         fqcn = f"{unit.package}.{simple}" if unit.package else simple
         result.append(
@@ -588,33 +627,74 @@ def _definition_bodies(unit: ScalaUnit) -> list[ScalaDefinition]:
                 path=unit.path,
                 relative=unit.relative,
                 body=body,
+                start=match.start(),
+                body_start=body_start,
+                end=end,
+                imports={},
+                wildcard_imports=(),
+                import_errors=(),
             )
         )
-    return result
+    scoped: list[ScalaDefinition] = []
+    for definition in result:
+        prior_bodies = [
+            (item.body_start, item.end)
+            for item in result
+            if item.start < definition.start
+        ]
+        prefix = _mask_ranges(unit.text[: definition.start], prior_bodies)
+        outer_imports, outer_wildcards, outer_errors = parse_imports(prefix)
+        nested_bodies = [
+            (item.body_start - definition.body_start, item.end - definition.body_start)
+            for item in result
+            if definition.start < item.start and item.end <= definition.end
+        ]
+        local = _mask_ranges(definition.body, nested_bodies)
+        local_imports, local_wildcards, local_errors = parse_imports(local)
+        scoped.append(
+            ScalaDefinition(
+                fqcn=definition.fqcn,
+                simple=definition.simple,
+                kind=definition.kind,
+                path=definition.path,
+                relative=definition.relative,
+                body=definition.body,
+                start=definition.start,
+                body_start=definition.body_start,
+                end=definition.end,
+                imports={**outer_imports, **local_imports},
+                wildcard_imports=tuple(dict.fromkeys((*outer_wildcards, *local_wildcards))),
+                import_errors=(*outer_errors, *local_errors),
+            )
+        )
+    return scoped
 
 
 def resolve_scala_name(
     raw: str,
     unit: ScalaUnit,
     definitions: dict[str, ScalaDefinition],
+    definition: ScalaDefinition | None = None,
 ) -> str | None:
-    normalized = re.sub(r"\s*\.\s*", ".", raw.strip())
+    normalized = canonical_scala_name(raw)
+    imports = definition.imports if definition is not None else unit.imports
+    wildcard_imports = (
+        definition.wildcard_imports if definition is not None else unit.wildcard_imports
+    )
     if "." in normalized:
         head, tail = normalized.split(".", 1)
-        if head in unit.imports:
-            return f"{unit.imports[head]}.{tail}"
-        if normalized in definitions or normalized[0].islower():
-            return normalized
-        return None
-    imported = unit.imports.get(normalized)
-    if imported:
+        if head in imports:
+            normalized = f"{imports[head]}.{tail}"
+        return normalized if normalized in definitions else None
+    imported = imports.get(normalized)
+    if imported and imported in definitions:
         return imported
     same_package = f"{unit.package}.{normalized}" if unit.package else normalized
     if same_package in definitions:
         return same_package
     wildcard_matches = [
         f"{package}.{normalized}"
-        for package in unit.wildcard_imports
+        for package in wildcard_imports
         if f"{package}.{normalized}" in definitions
     ]
     if len(wildcard_matches) == 1:
@@ -630,10 +710,24 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
     for path, text in sources.items():
         package_match = PACKAGE_DECLARATION.search(text)
         package = package_match.group("name") if package_match else ""
-        imports, wildcards, import_errors = parse_imports(text)
-        unit = ScalaUnit(
+        preliminary = ScalaUnit(
             path=path,
             relative=path.relative_to(root).as_posix(),
+            package=package,
+            text=text,
+            imports={},
+            wildcard_imports=(),
+            import_errors=(),
+        )
+        unit_definitions = _definition_bodies(preliminary)
+        top_level = _mask_ranges(
+            text,
+            [(definition.body_start, definition.end) for definition in unit_definitions],
+        )
+        imports, wildcards, import_errors = parse_imports(top_level)
+        unit = ScalaUnit(
+            path=preliminary.path,
+            relative=preliminary.relative,
             package=package,
             text=text,
             imports=imports,
@@ -641,7 +735,6 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
             import_errors=import_errors,
         )
         units[path] = unit
-        unit_definitions = _definition_bodies(unit)
         definitions_by_path[path] = unit_definitions
         for definition in unit_definitions:
             previous = definitions.get(definition.fqcn)
@@ -655,6 +748,16 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
                     path=definition.path,
                     relative=definition.relative,
                     body=f"{previous.body}\n{definition.body}",
+                    start=min(previous.start, definition.start),
+                    body_start=min(previous.body_start, definition.body_start),
+                    end=max(previous.end, definition.end),
+                    imports={**previous.imports, **definition.imports},
+                    wildcard_imports=tuple(
+                        dict.fromkeys(
+                            (*previous.wildcard_imports, *definition.wildcard_imports)
+                        )
+                    ),
+                    import_errors=(*previous.import_errors, *definition.import_errors),
                 )
 
     constructor_callers: dict[str, set[str]] = {}
@@ -665,9 +768,17 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
     for path, unit in units.items():
         for match in INSTANTIATION.finditer(unit.text):
             raw = match.group("name")
-            resolved = resolve_scala_name(raw, unit, definitions)
-            if resolved is None:
-                unresolved_constructors.setdefault(path, set()).add(raw)
+            scopes = [
+                definition
+                for definition in definitions_by_path[path]
+                if definition.body_start <= match.start() < definition.end
+            ]
+            scope = min(scopes, key=lambda item: item.end - item.start) if scopes else None
+            resolved = resolve_scala_name(raw, unit, definitions, scope)
+            if resolved is None or resolved not in definitions:
+                unresolved_constructors.setdefault(path, set()).add(
+                    canonical_scala_name(raw)
+                )
             else:
                 constructor_callers.setdefault(resolved, set()).add(unit.relative)
         for definition in definitions_by_path[path]:
@@ -675,7 +786,7 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
                 direct_stateful.add(definition.fqcn)
             for match in MODULE_INSTANTIATION.finditer(definition.body):
                 raw = match.group("name")
-                resolved = resolve_scala_name(raw, unit, definitions)
+                resolved = resolve_scala_name(raw, unit, definitions, definition)
                 if resolved is None or resolved not in definitions:
                     unresolved_module_edges.setdefault(definition.fqcn, set()).add(raw)
                 else:
@@ -692,27 +803,234 @@ def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> Sca
     )
 
 
-def _resolved_object_references(
-    text: str,
-    unit: ScalaUnit,
-    index: ScalaIndex,
-) -> set[str]:
-    raw_references = set(re.findall(r"\b[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+", text))
-    raw_references.update(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))
-    resolved: set[str] = set()
-    for raw in raw_references:
-        normalized = re.sub(r"\s*\.\s*", ".", raw)
-        parts = normalized.split(".")
-        if parts[0] in unit.imports:
-            parts = unit.imports[parts[0]].split(".") + parts[1:]
-        for length in range(len(parts), 0, -1):
-            candidate_raw = ".".join(parts[:length])
-            candidate = resolve_scala_name(candidate_raw, unit, index.definitions)
-            definition = index.definitions.get(candidate or "")
-            if definition is not None and definition.kind in {"object", "companion"}:
-                resolved.add(definition.fqcn)
+CALLABLE_DEFINITION = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)(?:@[A-Za-z_]\w*(?:\([^\n)]*\))?[ \t]+)*"
+    r"(?:private(?:\[[^\]]+\])?[ \t]+)?"
+    r"(?:final[ \t]+)?def[ \t]+(?P<name>[A-Za-z_]\w*)\b"
+)
+
+
+def _callable_regions(text: str) -> list[tuple[str, int, int]]:
+    matches = list(CALLABLE_DEFINITION.finditer(text))
+    result: list[tuple[str, int, int]] = []
+    for match in matches:
+        next_start = next(
+            (item.start() for item in matches if item.start() > match.start()),
+            len(text),
+        )
+        equals = text.find("=", match.end(), next_start)
+        if equals < 0:
+            continue
+        base_indent = len(match.group("indent").expandtabs(2))
+        depth = 0
+        end = len(text)
+        index = equals + 1
+        while index < len(text):
+            char = text[index]
+            if char in "([{":
+                depth += 1
+            elif char in ")]}" and depth:
+                depth -= 1
+            if char == "\n" and depth == 0:
+                line_start = index + 1
+                line_end = text.find("\n", line_start)
+                line_end = len(text) if line_end < 0 else line_end
+                line = text[line_start:line_end]
+                if line.strip():
+                    indent = len(line) - len(line.lstrip(" \t"))
+                    if indent <= base_indent:
+                        end = line_start
+                        break
+            index += 1
+        result.append((match.group("name"), match.start(), end))
+    return result
+
+
+def _without_imports(text: str) -> str:
+    ranges: list[tuple[int, int]] = []
+    for match in re.finditer(r"(?m)^[ \t]*import[ \t]+", text):
+        index = match.end()
+        depth = 0
+        while index < len(text):
+            char = text[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            elif char in "\n;" and depth == 0:
                 break
-    return resolved
+            index += 1
+        ranges.append((match.start(), index))
+    return _mask_ranges(text, ranges)
+
+
+def _merge_callable(
+    callables: dict[CallableKey, ScalaCallable],
+    callable_: ScalaCallable,
+) -> None:
+    previous = callables.get(callable_.key)
+    if previous is None:
+        callables[callable_.key] = callable_
+        return
+    callables[callable_.key] = ScalaCallable(
+        key=callable_.key,
+        body=f"{previous.body}\n{callable_.body}",
+        path=callable_.path,
+        relative=callable_.relative,
+        imports={**previous.imports, **callable_.imports},
+        wildcard_imports=tuple(
+            dict.fromkeys((*previous.wildcard_imports, *callable_.wildcard_imports))
+        ),
+        definition=callable_.definition or previous.definition,
+    )
+
+
+def build_callable_graph(
+    index: ScalaIndex,
+) -> tuple[
+    dict[CallableKey, ScalaCallable],
+    dict[CallableKey, set[CallableKey]],
+    set[CallableKey],
+]:
+    callables: dict[CallableKey, ScalaCallable] = {}
+    for path, unit in index.units.items():
+        definitions = index.definitions_by_path[path]
+        for definition in definitions:
+            if definition.kind != "object":
+                continue
+            regions = _callable_regions(definition.body)
+            object_body = _mask_ranges(
+                definition.body,
+                [(start, end) for _, start, end in regions],
+            )
+            object_imports, object_wildcards, _ = parse_imports(object_body)
+            outer_imports = {
+                **unit.imports,
+                **object_imports,
+            }
+            outer_wildcards = tuple(
+                dict.fromkeys((*unit.wildcard_imports, *object_wildcards))
+            )
+            _merge_callable(
+                callables,
+                ScalaCallable(
+                    key=(definition.fqcn, "<body>"),
+                    body=object_body,
+                    path=path,
+                    relative=unit.relative,
+                    imports=outer_imports,
+                    wildcard_imports=outer_wildcards,
+                    definition=definition,
+                ),
+            )
+            for name, start, end in regions:
+                body = definition.body[start:end]
+                local_imports, local_wildcards, _ = parse_imports(body)
+                _merge_callable(
+                    callables,
+                    ScalaCallable(
+                        key=(definition.fqcn, name),
+                        body=body,
+                        path=path,
+                        relative=unit.relative,
+                        imports={**outer_imports, **local_imports},
+                        wildcard_imports=tuple(
+                            dict.fromkeys((*outer_wildcards, *local_wildcards))
+                        ),
+                        definition=definition,
+                    ),
+                )
+
+        top_level = _mask_ranges(
+            unit.text,
+            [(definition.start, definition.end) for definition in definitions],
+        )
+        for name, start, end in _callable_regions(top_level):
+            body = unit.text[start:end]
+            local_imports, local_wildcards, _ = parse_imports(body)
+            _merge_callable(
+                callables,
+                ScalaCallable(
+                    key=(unit.package, name),
+                    body=body,
+                    path=path,
+                    relative=unit.relative,
+                    imports={**unit.imports, **local_imports},
+                    wildcard_imports=tuple(
+                        dict.fromkeys((*unit.wildcard_imports, *local_wildcards))
+                    ),
+                    definition=None,
+                ),
+            )
+
+    full_names = {
+        f"{owner}.{name}" if owner else name: key
+        for key in callables
+        for owner, name in [key]
+        if not name.startswith("<")
+    }
+
+    def resolve_reference(raw: str, caller: ScalaCallable) -> CallableKey | None:
+        unit = index.units[caller.path]
+        normalized = canonical_scala_name(raw)
+        imported = caller.imports.get(normalized)
+        if imported in full_names:
+            return full_names[imported]
+        if "." in normalized:
+            head, tail = normalized.split(".", 1)
+            if head in caller.imports:
+                normalized = f"{caller.imports[head]}.{tail}"
+                if normalized in full_names:
+                    return full_names[normalized]
+            owner_raw, name = normalized.rsplit(".", 1)
+            owner = resolve_scala_name(
+                owner_raw,
+                unit,
+                index.definitions,
+                caller.definition,
+            )
+            return (owner, name) if owner is not None and (owner, name) in callables else None
+        local = (caller.key[0], normalized)
+        if local in callables:
+            return local
+        package_local = (unit.package, normalized)
+        if package_local in callables:
+            return package_local
+        owner = resolve_scala_name(
+            normalized,
+            unit,
+            index.definitions,
+            caller.definition,
+        )
+        apply = (owner, "apply") if owner is not None else None
+        return apply if apply in callables else None
+
+    edges: dict[CallableKey, set[CallableKey]] = {}
+    sinks: set[CallableKey] = set()
+    for key, callable_ in callables.items():
+        code = _without_imports(callable_.body)
+        if "emitSystemVerilog" in code or "emitVerilog" in code:
+            sinks.add(key)
+        references = set(
+            re.findall(r"\b[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+", code)
+        )
+        references.update(re.findall(r"\b([A-Za-z_]\w*)\s*\(", code))
+        nullary_names = {
+            name
+            for name, target in callable_.imports.items()
+            if target in full_names
+        }
+        nullary_names.update(
+            name for owner, name in callables if owner == callable_.key[0]
+        )
+        for name in nullary_names:
+            if re.search(rf"\b{re.escape(name)}\b", code):
+                references.add(name)
+        for raw in references:
+            resolved = resolve_reference(raw, callable_)
+            if resolved is not None and resolved != key:
+                edges.setdefault(key, set()).add(resolved)
+    return callables, edges, sinks
 
 
 def scan_emitters(
@@ -722,49 +1040,31 @@ def scan_emitters(
 ) -> list[tuple[str, str]]:
     sources = sources if sources is not None else source_texts(root)
     index = index if index is not None else build_scala_index(root, sources)
-    objects = {
-        definition.fqcn: definition
-        for definition in index.definitions.values()
-        if definition.kind in {"object", "companion"}
-    }
-    edges = {
-        fqcn: _resolved_object_references(definition.body, index.units[definition.path], index)
-        for fqcn, definition in objects.items()
-    }
-    emitting_objects = {
-        fqcn
-        for fqcn, definition in objects.items()
-        if "emitSystemVerilog" in definition.body or "emitVerilog" in definition.body
-    }
+    callables, edges, emitting_callables = build_callable_graph(index)
     changed = True
     while changed:
         changed = False
-        for owner, callees in edges.items():
-            if owner not in emitting_objects and callees & emitting_objects:
-                emitting_objects.add(owner)
+        for caller, callees in edges.items():
+            if caller not in emitting_callables and callees & emitting_callables:
+                emitting_callables.add(caller)
                 changed = True
 
     emitters: set[tuple[str, str]] = set()
     for path, unit in index.units.items():
-        directly_emitting = "emitSystemVerilog" in unit.text or "emitVerilog" in unit.text
         relative = unit.relative
         qualified = lambda name: f"{unit.package}.{name}" if unit.package else name
         for match in APP_ENTRY.finditer(unit.text):
             fqcn = qualified(match.group("name"))
-            if directly_emitting or fqcn in emitting_objects:
+            if (fqcn, "<body>") in emitting_callables:
                 emitters.add((fqcn, relative))
-        object_declarations = list(OBJECT_DECLARATION.finditer(unit.text))
-        for main in DEF_MAIN.finditer(unit.text):
-            owners = [item for item in object_declarations if item.start() < main.start()]
-            if owners:
-                fqcn = qualified(owners[-1].group("name"))
-                if directly_emitting or fqcn in emitting_objects:
-                    emitters.add((fqcn, relative))
-        unit_reaches_sink = bool(
-            _resolved_object_references(unit.text, unit, index) & emitting_objects
-        )
+        for definition in index.definitions_by_path[path]:
+            if definition.kind == "object" and (
+                definition.fqcn,
+                "main",
+            ) in emitting_callables:
+                emitters.add((definition.fqcn, relative))
         for match in AT_MAIN_ENTRY.finditer(unit.text):
-            if directly_emitting or unit_reaches_sink:
+            if (unit.package, match.group("name")) in emitting_callables:
                 emitters.add((qualified(match.group("name")), relative))
     return sorted(emitters)
 
@@ -1021,7 +1321,10 @@ def validate_deletion_targets(
                 if any(symbol in item or simple in item for item in unit.import_errors):
                     uncertain.add(unit.relative)
                 unresolved = index.unresolved_constructors.get(unit.path, set())
-                if simple in unresolved or symbol in unresolved:
+                if any(
+                    reference == symbol or reference.rsplit(".", 1)[-1] == simple
+                    for reference in unresolved
+                ):
                     uncertain.add(unit.relative)
             if uncertain:
                 errors.append(
