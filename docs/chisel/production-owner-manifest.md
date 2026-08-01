@@ -180,20 +180,6 @@ evidence.
       "deletion_target": "linxcore.lsu.SCBCommitBridge"
     },
     {
-      "symbol": "linxcore.ooo.OooCtuIngressBridge",
-      "path": "chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala",
-      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
-      "owner_domain": "dispatch_reservation", "cutover_task": 11,
-      "deletion_target": "linxcore.ooo.OooCtuIngressBridge"
-    },
-    {
-      "symbol": "linxcore.ooo.OooFrontendRecoveryBridge",
-      "path": "chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala",
-      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
-      "owner_domain": "recovery", "cutover_task": 11,
-      "deletion_target": "linxcore.ooo.OooFrontendRecoveryBridge"
-    },
-    {
       "symbol": "linxcore.rename.ScalarDecodeRenameBridge",
       "path": "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala",
       "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
@@ -299,10 +285,9 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/RENU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
       "deletion_targets": [
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooPRename.scala", "symbol": "linxcore.ooo.OooPRename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]},
         {"path": "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala", "symbol": "linxcore.rename.ScalarDecodeRenameBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala"]}
       ],
       "adapters": []
@@ -318,10 +303,9 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/RENU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
       "deletion_targets": [
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooTURename.scala", "symbol": "linxcore.ooo.OooTURename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]},
         {"path": "chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala", "symbol": "linxcore.rename.ScalarTURenameBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala"]}
       ],
       "adapters": []
@@ -335,11 +319,11 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
-      "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOO.scala", "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooS1GroupedRob.scala", "symbol": "linxcore.ooo.OooS1GroupedRob", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooRobBrobPcCoordinator.scala"]}],
+      "deletion_targets": [],
       "adapters": []
     },
     {
@@ -351,11 +335,11 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
-      "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOO.scala", "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooBrob.scala", "symbol": "linxcore.ooo.OooBrob", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooRobBrobPcCoordinator.scala"]}],
+      "deletion_targets": [],
       "adapters": []
     },
     {
@@ -367,11 +351,11 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
-      "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOO.scala", "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooRobStoreCommitOwner.scala", "symbol": "linxcore.ooo.OooRobStoreCommitOwner", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
+      "deletion_targets": [],
       "adapters": []
     },
     {
@@ -383,13 +367,12 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
-      "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala", "level": "L3", "status": "standalone-verified"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOO.scala", "chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
       "deletion_targets": [
-        {"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "symbol": "linxcore.recovery.RecoveryCleanupControl", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]},
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala", "symbol": "linxcore.ooo.OooFrontendRecoveryBridge", "status": "deletion-ready", "active_callers": []}
+        {"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "symbol": "linxcore.recovery.RecoveryCleanupControl", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}
       ],
       "adapters": []
     },
@@ -402,14 +385,11 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/Dispatch.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOODispatchSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala", "symbol": "linxcore.ooo.OooO3RenameCoordinator", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3IexStorePipeline.scala"]},
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala", "symbol": "linxcore.ooo.OooCtuIngressBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIfuD1Ingress.scala"]}
-      ],
+      "deletion_targets": [],
       "adapters": []
     },
     {

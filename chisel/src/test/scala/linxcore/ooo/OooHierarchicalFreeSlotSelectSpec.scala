@@ -37,4 +37,13 @@ class OooHierarchicalFreeSlotSelectSpec extends AnyFunSuite with ChiselSim {
       dut.io.selectedIndex.expect(5.U)
     }
   }
+
+  test("supports a non-power-of-two canonical dispatch width") {
+    simulate(new OooHierarchicalFreeSlotSelect(entries = 6,
+      groupEntries = 1)) { dut =>
+      dut.io.available.poke("b101000".U)
+      dut.io.selectedValid.expect(true.B)
+      dut.io.selectedIndex.expect(3.U)
+    }
+  }
 }

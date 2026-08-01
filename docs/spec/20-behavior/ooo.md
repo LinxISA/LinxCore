@@ -389,3 +389,45 @@ including a matching beat held before Prepare followed by same-transaction
 abort and retry,
 simultaneous terminal fail-closed behavior, and
 non-mutating abort.
+
+## Dispatch one atomic canonical D3 prefix {#OOO-014}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-008,OOO-010,OOO-011,IFC-OOO-IEX-001 -->
+
+The public `linxcore.ooo.OOO` graph MUST publish one RENU-authored D3 prefix
+to ROB, BROB, and dispatch on one common fire. Dispatch readiness MUST require
+the exact side-effect-free ROB and BROB prepared identities for every active
+lane; a count or identity mismatch MUST backpressure publication without
+retaining or mutating dispatch state. The retained published packet MUST drain
+oldest-first as one continuous prefix and MUST retry only its undispatched
+suffix under class-channel backpressure. ALU, BRU, AGU, system, and CMD credit
+are independent; CMD MUST NOT consume system credit. A store MUST consume AGU
+and STD credit atomically and publish an identical `DispatchTxn` to both
+channels. Early-complete and boundary lanes MUST consume neither IEX credit nor
+an output channel because completion is already represented by the canonical
+ROB publication. A matching recovery apply MUST suppress same-cycle output
+and discard only a retained suffix for the target STID; abort MUST be
+non-mutating.
+
+## Canonical D3/S1 dispatch mechanisms {#MEC-OOO-007}
+<!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-014 -->
+
+`linxcore.ooo.Dispatch` is the canonical D3/S1 boundary.
+`OooD3ReservationAllocator` retains at most one already-published canonical
+packet and its suffix cursor; it does not own ROB, BROB, rename, commit, or
+global recovery state. `OooDispatch` performs stateless class and credit
+mapping, and `OooHierarchicalFreeSlotSelect` selects the oldest active slot at
+the continuous-prefix boundary for widths W2, W4, W6, and W8. The production
+`OOO` graph directly instantiates RENU, ROB, BROB, Dispatch, CommitControl, and
+RecoveryControl and MUST NOT instantiate the displaced O3 coordinator or a
+second owner for any of those states.
+
+## Canonical D3/S1 dispatch verification {#VER-OOO-004}
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-014,MEC-OOO-007 -->
+
+`OOODispatchSpec` MUST cover complete payload mapping, exact prepared-owner
+rejection without mutation, continuous-prefix suffix retry, atomic STA+STD
+credit, CMD separation, early-complete no-output behavior, recovery-coincident
+suppression, abort preservation, and W2/W4/W6/W8 elaboration.
+`OOOIntegrationSpec` MUST elaborate the public canonical owner graph at all
+four widths, while `OOORecoverySpec` retains the recovery barrier and terminal
+transaction coverage.

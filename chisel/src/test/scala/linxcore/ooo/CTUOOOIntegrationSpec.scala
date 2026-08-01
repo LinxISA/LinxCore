@@ -17,7 +17,7 @@ private class CTUOOOHarnessIO(val p: CoreParams) extends Bundle {
 private class CTUOOOHarness(val p: CoreParams) extends Module {
   val io = IO(new CTUOOOHarnessIO(p))
   val ctu = Module(new CTU(p))
-  val ooo = Module(new OOO(p))
+  val ooo = Module(new OOOD1D2Stage(p))
   ctu.io.fromIfu <> io.in
   ooo.io.fromCtu <> ctu.io.toOoo
   io.d2 <> ooo.io.d2

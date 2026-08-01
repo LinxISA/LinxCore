@@ -18,8 +18,8 @@ class OooHierarchicalFreeSlotSelectIO(val entries: Int) extends Bundle {
 class OooHierarchicalFreeSlotSelect(
     val entries: Int,
     val groupEntries: Int) extends Module {
-  require(entries > 0 && (entries & (entries - 1)) == 0,
-    "hierarchical selector entries must be a positive power of two")
+  require(entries > 0,
+    "hierarchical selector entries must be positive")
   require(groupEntries > 0 && (groupEntries & (groupEntries - 1)) == 0 &&
     groupEntries <= entries && entries % groupEntries == 0,
     "hierarchical selector group size must be a power-of-two divisor of entries")

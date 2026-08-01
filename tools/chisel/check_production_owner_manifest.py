@@ -255,8 +255,6 @@ MANAGED_BOUNDARIES: tuple[tuple[str, str, str, bool, str, int, str], ...] = (
     ("linxcore.frontend.IfuBackendFeedbackBridge", "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridge.scala", "legacy-state-owner", True, "ifu_recovery_redirect", 17, "linxcore.frontend.IfuBackendFeedbackBridge"),
     ("linxcore.lsu.ReducedStoreExecResultBridge", "chisel/src/main/scala/linxcore/lsu/ReducedStoreExecResultBridge.scala", "legacy-state-owner", True, "store_queue", 15, "linxcore.lsu.ReducedStoreExecResultBridge"),
     ("linxcore.lsu.SCBCommitBridge", "chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala", "legacy-state-owner", True, "store_commit_buffer", 15, "linxcore.lsu.SCBCommitBridge"),
-    ("linxcore.ooo.OooCtuIngressBridge", "chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala", "legacy-state-owner", True, "dispatch_reservation", 11, "linxcore.ooo.OooCtuIngressBridge"),
-    ("linxcore.ooo.OooFrontendRecoveryBridge", "chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala", "legacy-state-owner", True, "recovery", 11, "linxcore.ooo.OooFrontendRecoveryBridge"),
     ("linxcore.rename.ScalarDecodeRenameBridge", "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala", "legacy-state-owner", True, "rename_p", 11, "linxcore.rename.ScalarDecodeRenameBridge"),
     ("linxcore.rename.ScalarTURenameBridge", "chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala", "legacy-state-owner", True, "rename_tu", 11, "linxcore.rename.ScalarTURenameBridge"),
     ("linxcore.top.IfuLineMemoryBridge", "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridge.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.top.IfuLineMemoryBridge"),

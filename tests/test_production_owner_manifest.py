@@ -118,7 +118,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
 
     def test_rejects_real_deletion_caller_omitted_from_manifest(self) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
@@ -142,7 +142,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
 
     def test_rejects_alias_import_deletion_caller_omission(self) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
@@ -165,7 +165,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
 
     def test_rejects_multiline_alias_import_deletion_caller_omission(self) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
@@ -193,7 +193,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self,
     ) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
@@ -219,7 +219,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
 
     def test_rejects_unresolved_qualified_deletion_reference(self) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
@@ -243,7 +243,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
 
     def test_ignores_deletion_references_inside_comments_and_strings(self) -> None:
         manifest = copy.deepcopy(self.manifest)
-        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target = self.owner("recovery", manifest)["deletion_targets"][0]
         target.update(
             {
                 "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",

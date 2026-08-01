@@ -19,7 +19,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
     dut.io.out.ready.poke(true.B)
   }
 
-  private def clearOoo(dut: OOO): Unit = {
+  private def clearOoo(dut: OOOD1D2Stage): Unit = {
     dut.io.fromCtu.valid.poke(false.B)
     dut.io.fromCtu.bits.poke(0.U.asTypeOf(dut.io.fromCtu.bits))
     dut.io.d2.ready.poke(true.B)
@@ -217,7 +217,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
   test("retains an atomic D2 prefix with full-width virtual RID intent") {
     val p = ParamProfiles.W8.copy(
       ooo = ParamProfiles.W8.ooo.copy(robGroupsPerStid = 8))
-    simulate(new OOO(p)) { dut =>
+    simulate(new OOOD1D2Stage(p)) { dut =>
       clearOoo(dut)
       dut.io.ridTailSlot(0).poke(7.U)
       dut.io.ridTailGeneration(0).poke(0x8001.U)
@@ -257,7 +257,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
 
   test("elaborates W2 W4 W6 and W8 without fixed lane assumptions") {
     Seq(2, 4, 6, 8).foreach { width =>
-      simulate(new OOO(ParamProfiles.forWidth(width))) { dut =>
+      simulate(new OOOD1D2Stage(ParamProfiles.forWidth(width))) { dut =>
         clearOoo(dut)
         dut.io.fromCtu.bits.count.poke(width.U)
         (0 until width).foreach { lane =>
@@ -275,7 +275,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
   test("prepare fences one STID and matching apply cancels only its retained row") {
     val p = ParamProfiles.W2.copy(
       ooo = ParamProfiles.W2.ooo.copy(stidCount = 2))
-    simulate(new OOO(p)) { dut =>
+    simulate(new OOOD1D2Stage(p)) { dut =>
       clearOoo(dut)
       dut.io.d2.ready.poke(false.B)
 
