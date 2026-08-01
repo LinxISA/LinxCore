@@ -13,9 +13,9 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooDispatch.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooHierarchicalFreeSlotSelect.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooParams.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooDispatchSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OOODispatchSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooHierarchicalFreeSlotSelectSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
 
 The behavioral reference is
 `tools/LinxCoreModel/model/iex/iex_dispatch.cpp::DispatchUnit::dispatch`. The
@@ -82,9 +82,8 @@ generation update are unchanged.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooHierarchicalFreeSlotSelect
-bash tools/chisel/run_chisel_tests.sh --only OooDispatch
+bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 

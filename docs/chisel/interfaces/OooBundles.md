@@ -13,17 +13,17 @@
 - Canonical typed fast-resolve owner:
   `chisel/src/main/scala/linxcore/ooo/OooFastResolve.scala`
 - Frontend recovery R4 bridge:
-  `chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala`
+  `chisel/src/main/scala/linxcore/ooo/RecoveryControl.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooParamsSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooBundlesSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooThreadStageBufferSpec.scala`
 - Tests: `chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala`
 - Integration tests:
-  `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
+  `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
 - Fast-resolve tests:
   `chisel/src/test/scala/linxcore/ooo/OooFastResolveSpec.scala`
 - Fast-resolve integration tests:
-  `chisel/src/test/scala/linxcore/ooo/OooO3FastResolveIntegrationSpec.scala`
+  `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
 - Contract IDs: `LC-IF-CHISEL-OOO-001`, `LC-MA-PIPE-001`,
   `LC-MA-ROB-001`
 
@@ -121,7 +121,7 @@ fallback while retrying the input unchanged.
 
 ## IFU raw ingress and CTU diversion
 
-`OooIfuRawIngress` is the canonical width adapter. It consumes the existing
+`OOOD1D2Stage` is the canonical width adapter. It consumes the existing
 fixed-four-wide `D1InstructionGroup`, keeps a power-of-two raw reservoir per
 STID, and emits the selected STID as a dense 2/4/6-wide
 `OooRawInstructionGroup`. It copies PE/STID/instruction/transaction/fetch,
@@ -132,14 +132,14 @@ The reservoir supports same-bank enqueue/dequeue, partial prefixes, six-wide
 gather, stable backpressure, targeted exact pruning, and four-STID isolation.
 A canonical flush is a one-cycle publication barrier: only the addressed bank
 is mutated, and every unaffected bank resumes with the same head on the next
-cycle. `OooIfuD1Ingress` composes this reservoir with
+cycle. `OOOD1D2Stage` composes this reservoir with
 `OooD1FusionDecode`; its thread hint scans IFU banks while OOO independently
 selects the STID presented to D1.
 
 `OooD1DecodedPacket` carries `ctuParents` and `complexParents` alongside their
 masks. Every diverted lane therefore retains the exact raw parent and complete
 prediction record needed by the external CTU/complex owner. Masks are never an
-authority to reconstruct identity. `OooCtuIngressBridge` retains one decoded
+authority to reconstruct identity. `CTU` retains one decoded
 packet and at most one active lease per STID, emits any older ordinary prefix,
 then transfers the exact diverted parent through `OooCtuParentClaim`.
 
@@ -226,7 +226,7 @@ has already completed. BROB, PC, rename, and IEX owners may prepare their
 resources independently, but no binding is architecturally visible before the
 single S1 publication handshake.
 
-`OooS1GroupedRob` revalidates the dense group mask, plan/decoded PE/STID/epoch,
+`ROB` revalidates the dense group mask, plan/decoded PE/STID/epoch,
 first RID, every consecutive slot/generation, member/parent bounds, binding
 valid-vector shape, initial completion mask, and vacancy of every target row.
 It writes all groups or none. A rejected or blocked request does not create a
@@ -244,12 +244,12 @@ batch bounded by independent `retireGroupWidth`. The batch remains stable under
 backpressure. Only `commit.fire` clears rows, advances the physical head and
 epoch, and supplies the exact `OooRobGroupRelease` token that the D3 allocator
 will accept. BROB/PC commit authorization is not bypassed:
-`OooRobBrobPcCoordinator` holds external `commit.valid` until every owner has
+`OOOD3S1Graph` holds external `commit.valid` until every owner has
 validated the retained batch, then lets all four owners fire atomically.
 
 ## Canonical BROB
 
-`OooBrob` is the sole native block-order owner for canonical OOO.
+`BROB` is the sole native block-order owner for canonical OOO.
 Each STID has an independent 256-entry default ring. The architectural BID is
 only the ring slot; `BrobPointer.generation` is separate wrap state and neither
 allocation nor commit uses unsigned BID magnitude as age.
@@ -336,7 +336,7 @@ multirow metadata-write realization; those remain explicit macro work.
 
 ## O3 ROB/BROB/PC coordinator
 
-`OooRobBrobPcCoordinator` is the terminal O3 owner composition. It retains D3
+`OOOD3S1Graph` is the terminal O3 owner composition. It retains D3
 reservations, asks BROB and PC for side-effect-free bindings, adds the next
 per-ROB-slot resident generation, and presents the fully bound grouped-ROB
 publication to later RENU/dispatch owners. `preparedValid` is an immutable
@@ -396,7 +396,7 @@ and validates count, range, uniqueness, bank, generation, and current live
 ownership before changing any bit. A cycle-by-cycle checker proves the entire
 128-tag namespace remains in exactly one lifecycle location.
 
-`OooPRename` is the O4.2 P-map owner. It consumes the immutable O3
+`PRename` is the O4.2 P-map owner. It consumes the immutable O3
 prepared publication together with the matching retained PTag lease. For every
 active P source it reads the selected STID's 24-entry SMAP and then applies all
 older destinations in the same transaction from oldest to youngest. A WAW
@@ -424,7 +424,7 @@ for a later two-cycle pointer-update loop; it does not itself add a cycle or
 relax commit/recovery exclusion.
 
 O4.3 adds the P architectural commit walk. Every physical ROB group carries its
-exact `pMapQRows` obligation. `OooPRename` validates the retained ROB
+exact `pMapQRows` obligation. `PRename` validates the retained ROB
 batch against the dense MapQ-head prefix using RID/native-BID/BROB/resident
 generations, transaction ID, member index, uop membership, queue index, and
 old/new mapping chain. It then drains at most `pTagReturnWidth` rows per cycle.
@@ -448,7 +448,7 @@ P architectural commit is no longer a sealed seam.
 
 ## T/U sequential rename boundary
 
-`OooTURename` is the O4.4 local-register owner. T and U have separate
+`TURename` is the O4.4 local-register owner. T and U have separate
 per-STID sequence tails, physical-tag cursors, capacity counters, MapQ rings,
 and provisional leases. A relative source resolves `tail - (relativeIndex+1)`
 in its own namespace. The D3 preview walks expanded uops oldest-to-youngest, so
@@ -483,7 +483,7 @@ retained `OooRobCommitBatch` is accepted only when each group and each logical-
 uop bit matches exactly at the per-STID source head.
 
 The owner emits serialized `OooTURetireCommand` operations in T-before-U
-pre-release, mark, and pressure-release order. `OooTURename` validates
+pre-release, mark, and pressure-release order. `TURename` validates
 the full local sequence generation, exact ROB member, namespace, and physical
 deallocation head before mutating its MapQ. After exact-block relation cleanup,
 `OooTULocalBlockCommit` releases only the retired MapQ head prefix whose native
@@ -513,7 +513,7 @@ input is exposed only by the atomic coordinator described below; no individual
 owner is a legal canonical recovery entry point.
 
 O4.4.3b adds the P recovery owner behind that authorization. For every killed
-logical source, `OooPRename` proves that `pDestinationCount` exact
+logical source, `PRename` proves that `pDestinationCount` exact
 rows occupy the P MapQ tail and belong to the source's full member,
 transaction, uop, STID, and epoch identity. It then returns each killed row's
 `current` PTag through the existing generation-qualified return channel before
@@ -530,7 +530,7 @@ direct P-owner UT proves killed current-tag order, survivor replay, unchanged
 CMAP, unrelated-STID rename, and that the surviving MapQ prefix remains
 committable. O4.4.3c still owns T/U MapQ and sequence-cursor rollback.
 
-O4.4.3c makes `OooTURename` consume the same authorized source
+O4.4.3c makes `TURename` consume the same authorized source
 stream. A killed logical uop is accepted only when its `tSeqBefore` and
 `uSeqBefore`, destination sequences, wrap generations, physical tags, full ROB
 member, transaction, STID, and epoch describe the exact current T/U MapQ
@@ -733,7 +733,7 @@ authorization.
 
 ## O6.2 exact non-flush window
 
-`OooS1GroupedRob` is the only canonical OOO non-flush owner. Every published
+`ROB` is the only canonical OOO non-flush owner. Every published
 group stores independent required and observed proof masks:
 
 - `ExceptionSafe` for a potentially trapping group after its defined
@@ -764,7 +764,7 @@ legacy `bctrl.BrobNonFlushFrontier` is not this canonical authority.
 
 ## O7.1 exact grouped-ROB suffix recovery owner
 
-`OooS1GroupedRob` exposes a direct owner-local prepare/apply interface for the
+`ROB` exposes a direct owner-local prepare/apply interface for the
 future global recovery coordinator. `OooGlobalRecoveryRequest` wraps the
 existing exact rename key with `triggerMemberCount`; the trigger member must be
 the first physical child of exactly one retained logical uop. The ROB scans the
@@ -789,7 +789,7 @@ A previously retained same-STID commit drains before prepare can become ready.
 The direct `recoveryFire` clears the exact suffix, optionally rewrites the
 partial pivot, updates occupancy, and resets the affected non-flush window.
 It is never exposed as an independent composed fire. O7.2d1 lets
-`OooRobBrobPcCoordinator` drive it only as part of one retained common
+`OOOD3S1Graph` drive it only as part of one retained common
 ROB/D3/BROB/PC apply. The public O3 seam remains closed until P/T/U rename,
 dispatch, IEX, fast resolve, frontend stages, and CTU join the same global
 transaction.
@@ -815,7 +815,7 @@ same retained lower-owner transaction together with BROB and PC; O7.2d2 lets
 the enclosing O3 rename coordinator authorize that lower apply only after its
 core-physical upper owners prepare.
 
-O7.2b1 adds `OooBrob` as the next independent owner. Prepare proves
+O7.2b1 adds `BROB` as the next independent owner. Prepare proves
 that every killed row names an exact live native-BID/BROB-generation entry,
 that every killed block allocation is a contiguous suffix ending at the live
 BROB tail, and that per-block killed counts do not exceed live ROB-group counts.
@@ -865,7 +865,7 @@ and CTU remain typed external recovery targets of public `OOO`.
 
 ## O7.2d1 retained ROB/D3/BROB/PC recovery subtransaction
 
-`OooRobBrobPcCoordinator` retains one `OooGlobalRecoveryRequest` through
+`OOOD3S1Graph` retains one `OooGlobalRecoveryRequest` through
 `Idle`, `Preparing`, and `Prepared`. R0 capture is backpressured when the target
 STID already exposes a D3 `Decoupled` publication or owns a retained ROB commit;
 those obligations must drain because an exposed valid cannot be retracted.
@@ -917,13 +917,13 @@ legacy external PTag-return input.
 
 ## O7.2e frontend fence and canonical restart join
 
-`OooFrontendRecoveryBridge` is the sole join between an applied O3 recovery
+`RecoveryControl` is the sole join between an applied O3 recovery
 and the canonical IFU restart. Its input combines `OooGlobalRecoveryRequest`
 with one `IfuInnerFlush`. The bridge rejects a missing group/native BID,
 cross-PE/STID/epoch proposal, zero physical trigger extent, mismatched prune
 scope, or recovery-cause/reason mismatch before requesting O3.
 
-Capture fences the target STID without mutation. `OooIfuRawIngress`,
+Capture fences the target STID without mutation. `OOOD1D2Stage`,
 `OooD2ThreadStageBuffer`, and the O1 D2/D3/S1 stage buffer exclude a fenced row
 from selection and intake while preserving its payload and occupancy. A
 blocked old grant immediately falls forward to another eligible STID. The
@@ -945,7 +945,7 @@ different queued feedback event remains retained.
 ## O7.3 CTU prepare and common apply
 
 The frontend bridge admits the retained global request to O3 only after
-`OooCtuIngressBridge` has accepted and echoed the same request through
+`CTU` has accepted and echoed the same request through
 `OooCtuRecoveryPrepared`. The CTU snapshot records target packet and lease
 occupancy but does not clear either. A CTU reject returns the composite command
 before O3 can mutate; an O3 abort drives CTU abort. Exact O3 apply drives
@@ -973,32 +973,23 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreOooShell
 bash tools/chisel/run_chisel_tests.sh --only OooOpcodeRecipeTable
 bash tools/chisel/run_chisel_tests.sh --only OooD1Decode
 bash tools/chisel/run_chisel_tests.sh --only OooD1FusionHistory
-bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
-bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
-bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
+bash tools/chisel/run_chisel_tests.sh --only OOODecodeSpec
+bash tools/chisel/run_chisel_tests.sh --only CTUSpec
 bash tools/chisel/run_chisel_tests.sh --only OooD2GroupPlanner
 bash tools/chisel/run_chisel_tests.sh --only OooD2Stage
-bash tools/chisel/run_chisel_tests.sh --only OooD3ReservationAllocator
-bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
-bash tools/chisel/run_chisel_tests.sh --only OooD3S1GroupedRobIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooBrob
-bash tools/chisel/run_chisel_tests.sh --only OooD3S1BrobIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooPcBuffer
-bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
-bash tools/chisel/run_chisel_tests.sh --only OooFrontendRecoveryBridge
-bash tools/chisel/run_chisel_tests.sh --only OooFrontendIfuRecoveryIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooFrontendCtuRecoveryIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
-bash tools/chisel/run_chisel_tests.sh --only OooPRename
-bash tools/chisel/run_chisel_tests.sh --only OooTURename
-bash tools/chisel/run_chisel_tests.sh --only OooTURetire
-bash tools/chisel/run_chisel_tests.sh --only OooDispatch
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooFastResolve
-bash tools/chisel/run_chisel_tests.sh --only OooO3FastResolveIntegration
+bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OooPcBuffer
 bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
+bash tools/chisel/run_chisel_tests.sh --only CTUOOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OooPTagStagingPool
+bash tools/chisel/run_chisel_tests.sh --only RENUSpec
+bash tools/chisel/run_chisel_tests.sh --only TURenameSequenceSpec
+bash tools/chisel/run_chisel_tests.sh --only OooTURetire
+bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
+bash tools/chisel/run_chisel_tests.sh --only OooFastResolve
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three

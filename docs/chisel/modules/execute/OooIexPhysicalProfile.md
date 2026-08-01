@@ -102,7 +102,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexPhysicalProfileSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexAtomicReadArbiterSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPickerSpec
-bash tools/chisel/run_chisel_tests.sh --only OooDispatchSpec
+bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1FabricSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferSlotSpec
 ```

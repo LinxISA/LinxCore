@@ -11,7 +11,7 @@ Source and tests:
 
 - `chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooMemoryOrderAllocatorSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
 
 ## State and owner events
 
@@ -70,9 +70,8 @@ and queue wrap must not alter serial identity.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooMemoryOrderAllocator
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooRobBrobPcCoordinator
-bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRob
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreIssueFrontier
 bash tools/chisel/build_chisel.sh
 ```

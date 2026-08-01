@@ -120,7 +120,7 @@ ordinary recovery. Reset remains the architectural abort boundary.
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrainSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBankSpec`
-- `bash tools/chisel/run_chisel_tests.sh --only OooRobStoreCommitStqIntegrationSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegrationSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSUSpec`
 - `bash tools/chisel/build_chisel.sh`
 - `bash tests/test_microarchitecture_contract.sh`

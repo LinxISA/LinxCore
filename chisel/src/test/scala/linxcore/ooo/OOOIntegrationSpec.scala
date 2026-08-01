@@ -9,10 +9,16 @@ import org.scalatest.funsuite.AnyFunSuite
 
 private object OOOIntegrationSpec {
   final case class Shape(p: Boolean, t: Boolean, u: Boolean)
+  final case class PhysicalTag(index: BigInt, generation: BigInt)
+  final case class Published(
+      identity: RobIdentity,
+      p: Option[PhysicalTag],
+      t: Option[PhysicalTag],
+      u: Option[PhysicalTag])
 }
 
 class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
-  import OOOIntegrationSpec.Shape
+  import OOOIntegrationSpec.{PhysicalTag, Published, Shape}
   test("elaborates the canonical owner graph at W2 W4 W6 and W8") {
     Seq(2, 4, 6, 8).foreach { width =>
       val p: CoreParams = ParamProfiles.forWidth(width)
@@ -68,7 +74,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   private def publish(
       dut: OOOD3S1Graph,
       stid: Int,
-      shapes: Seq[Shape]): Seq[RobIdentity] = {
+      shapes: Seq[Shape]): Seq[Published] = {
     require(shapes.nonEmpty)
     val tail = dut.io.ridTailSlot(stid).peek().litValue.toInt
     val generation = dut.io.ridTailGeneration(stid).peek().litValue
@@ -128,21 +134,92 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     assert(cycles < 32)
     dut.clock.step()
     dut.io.fromD2.valid.poke(false.B)
-    val identities = shapes.indices.map { _ =>
+    val published = shapes.indices.map { lane =>
       cycles = 0
       while (!dut.io.iex.aluDispatch(0).valid.peek().litToBoolean && cycles < 16) {
         dut.clock.step(); cycles += 1
       }
       assert(cycles < 16)
-      val identity = dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.peek()
+      val held = dut.io.iex.aluDispatch(0).bits.peek()
+      dut.clock.step()
+      dut.io.iex.aluDispatch(0).valid.expect(true.B)
+      dut.io.iex.aluDispatch(0).bits.expect(held)
+      var destination = 0
+      def nextTag(kind: OperandKind.Type): PhysicalTag = {
+        val row = held.uop.destinations(destination)
+        destination += 1
+        kind match {
+          case OperandKind.Gpr => PhysicalTag(
+            row.ptag.litValue,
+            row.pGeneration.litValue,
+          )
+          case OperandKind.T => PhysicalTag(
+            row.ttag.litValue,
+            row.tGeneration.litValue,
+          )
+          case OperandKind.U => PhysicalTag(
+            row.utag.litValue,
+            row.uGeneration.litValue,
+          )
+        }
+      }
+      val shape = shapes(lane)
+      val observation = Published(
+        held.uop.decoded.rob,
+        if (shape.p) Some(nextTag(OperandKind.Gpr)) else None,
+        if (shape.t) Some(nextTag(OperandKind.T)) else None,
+        if (shape.u) Some(nextTag(OperandKind.U)) else None,
+      )
       dut.io.iex.aluDispatch(0).ready.poke(true.B)
       dut.clock.step()
       dut.io.iex.aluDispatch(0).ready.poke(false.B)
-      identity
+      observation
     }
-    dut.io.debugDispatchPending.expect(false.B)
     dut.io.iex.aluDispatch.foreach(_.ready.poke(true.B))
-    identities
+    published
+  }
+
+  private def complete(dut: OOOD3S1Graph, identity: RobIdentity): Unit = {
+    dut.io.commit.ready.poke(false.B)
+    val completion = dut.io.iex.completion(0)
+    completion.bits.poke(0.U.asTypeOf(completion.bits))
+    completion.bits.rob.poke(identity)
+    completion.valid.poke(true.B)
+    completion.ready.expect(true.B)
+    dut.clock.step()
+    completion.valid.poke(false.B)
+  }
+
+  private def expectCommit(
+      dut: OOOD3S1Graph,
+      identities: Seq[RobIdentity],
+      label: String): Unit = {
+    dut.io.commit.ready.poke(false.B)
+    var cycles = 0
+    while (!dut.io.commit.valid.peek().litToBoolean && cycles < 64) {
+      dut.clock.step()
+      cycles += 1
+    }
+    assert(cycles < 64, s"timed out waiting for $label commit")
+    dut.io.commit.bits.count.expect(identities.length.U)
+    identities.zipWithIndex.foreach { case (identity, lane) =>
+      dut.io.commit.bits.entries(lane).rob.expect(identity)
+    }
+    val held = dut.io.commit.bits.peek()
+    dut.clock.step(2)
+    dut.io.commit.valid.expect(true.B)
+    dut.io.commit.bits.expect(held)
+    dut.io.commit.ready.poke(true.B)
+    dut.clock.step()
+    dut.io.commit.valid.expect(false.B)
+  }
+
+  private def expectNoCommit(dut: OOOD3S1Graph, cycles: Int = 3): Unit = {
+    dut.io.commit.ready.poke(false.B)
+    (0 until cycles).foreach { _ =>
+      dut.io.commit.valid.expect(false.B)
+      dut.clock.step()
+    }
   }
 
   private def recover(
@@ -190,7 +267,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         dut,
         stid = 0,
         Seq(Shape(p = true, t = false, u = false)),
-      ).head
+      ).head.identity
       dut.io.commit.valid.expect(false.B)
 
       val completion = dut.io.iex.completion(0)
@@ -236,43 +313,51 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         Seq(Shape(p = false, t = false, u = true), Shape(p = false, t = false, u = false)),
         Seq(Shape(p = true, t = true, u = false), Shape(p = false, t = false, u = true)),
         Seq(Shape(p = false, t = true, u = true), Shape(p = false, t = false, u = false)))
-      val ids = shapes.indices.map(stid => publish(dut, stid, shapes(stid)))
+      val rows = shapes.indices.map(stid => publish(dut, stid, shapes(stid)))
 
       (0 until 4).foreach { stid =>
         dut.io.ridTailSlot(stid).expect(2.U)
-        dut.io.debugBrobUsed(stid).expect(2.U)
       }
-      dut.io.debugTCount(0).expect(1.U)
-      dut.io.debugUCount(1).expect(1.U)
-      dut.io.debugTCount(2).expect(1.U)
-      dut.io.debugUCount(2).expect(1.U)
-      dut.io.debugTCount(3).expect(1.U)
-      dut.io.debugUCount(3).expect(1.U)
-      val stid0P = dut.io.debugPMap(0)(1).peek()
-      assert(stid0P.litValue != 1)
+      complete(dut, rows(1).head.identity)
+      expectCommit(dut, Seq(rows(1).head.identity), "unrelated STID1 head")
+      complete(dut, rows(1)(1).identity)
+      expectCommit(dut, Seq(rows(1)(1).identity), "unrelated STID1 younger")
+      complete(dut, rows(2).head.identity)
+      expectCommit(dut, Seq(rows(2).head.identity), "unrelated STID2 head")
       val stid1Tail = dut.io.ridTailSlot(1).peek()
       val stid2Tail = dut.io.ridTailSlot(2).peek()
-      val stid1U = dut.io.debugUCount(1).peek()
-      val stid2T = dut.io.debugTCount(2).peek()
 
-      recover(dut, RecoveryCause.Branch, ids(0).head, transactionId = 0x51)
+      recover(dut, RecoveryCause.Branch, rows(0).head.identity, transactionId = 0x51)
       dut.io.ridTailSlot(0).expect(1.U)
-      dut.io.debugBrobUsed(0).expect(1.U)
-      dut.io.debugTCount(0).expect(0.U)
-      dut.io.debugPMap(0)(1).expect(stid0P)
       dut.io.ridTailSlot(1).expect(stid1Tail)
       dut.io.ridTailSlot(2).expect(stid2Tail)
 
-      recover(dut, RecoveryCause.MemoryOrder, ids(3).head, transactionId = 0x52)
+      complete(dut, rows(0)(1).identity)
+      expectNoCommit(dut)
+      complete(dut, rows(0).head.identity)
+      expectCommit(dut, Seq(rows(0).head.identity), "STID0 survivor")
+      val stid0Probe = publish(
+        dut,
+        stid = 0,
+        Seq(Shape(p = false, t = true, u = false)),
+      ).head
+      assert(stid0Probe.t == rows(0)(1).t)
+
+      recover(dut, RecoveryCause.MemoryOrder, rows(3).head.identity,
+        transactionId = 0x52)
       dut.io.ridTailSlot(3).expect(0.U)
-      dut.io.debugBrobUsed(3).expect(0.U)
-      dut.io.debugTCount(3).expect(0.U)
-      dut.io.debugUCount(3).expect(0.U)
       dut.io.ridTailSlot(1).expect(stid1Tail)
       dut.io.ridTailSlot(2).expect(stid2Tail)
-      dut.io.debugUCount(1).expect(stid1U)
-      dut.io.debugTCount(2).expect(stid2T)
-      dut.io.debugDispatchPending.expect(false.B)
+
+      rows(3).foreach(row => complete(dut, row.identity))
+      expectNoCommit(dut)
+      val stid3Probe = publish(
+        dut,
+        stid = 3,
+        Seq(Shape(p = false, t = true, u = true)),
+      ).head
+      assert(stid3Probe.t == rows(3).head.t)
+      assert(stid3Probe.u == rows(3).head.u)
     }
   }
 }

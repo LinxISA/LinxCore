@@ -128,9 +128,9 @@ into one precise trap. `OooD1FusionHistory` retains one eligible tail per STID,
 supports same/cross-cycle forward-BSTART and backward-BSTOP fusion with up to
 three ordered parent references, and cancels only the recovered STID.
 
-O2 is packet-complete. `OooIfuRawIngress` keeps the IFU four-wide while
+O2 is packet-complete. `OOOD1D2Stage` keeps the IFU four-wide while
 reservoirs exact raw rows per STID and emits independent 2/4/6-wide prefixes;
-`OooIfuD1Ingress` composes that adapter with canonical decode/fusion. CTU and
+`OOOD1D2Stage` composes that adapter with canonical decode/fusion. CTU and
 complex parents retain their full raw identity/prediction sideband, rather
 than only a diversion mask. The current catalog deliberately has zero
 dispatch-owned complex forms, with CTU forms diverted and unresolved
@@ -138,7 +138,7 @@ macro/atomic forms failing closed. O3 now implements D2 virtual grouping,
 retained D3 provisional allocation, atomic S1 grouped ROB publication and exact
 member completion, native BID/generation BROB ownership, a fixed-partition
 64-entry PC-base buffer with byte-granular offsets, exact close ownership, and
-wrap-qualified read/commit tokens. `OooRobBrobPcCoordinator` completes O3 by
+wrap-qualified read/commit tokens. `OOOD3S1Graph` completes O3 by
 binding the immutable D3/BROB/PC view and driving one common publication and
 commit fire across every owner. O4 adds independent absolute P rename and
 relative T/U rename preparation without weakening that common-fire contract.
@@ -182,7 +182,7 @@ dispatch cancels target provisional and exact killed published reservations,
 IEX prunes S1/S3 and frees killed S2/S3 rows with generation-qualified ready
 cleanup, and fast resolve cancels exact killed pending entries while unrelated
 STIDs continue. O7.2d1 retains one lower request inside
-`OooRobBrobPcCoordinator`, waits out exposed D3 and retained-commit
+`OOOD3S1Graph`, waits out exposed D3 and retained-commit
 obligations, captures the sole ROB plan after lower-owner validation, and
 applies ROB/D3/BROB/PC together. The canonical replacement is public `OOO`
 through `OOOD3S1Graph`: `RecoveryControl` retains the selected ROB plan,

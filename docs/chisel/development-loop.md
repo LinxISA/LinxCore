@@ -72,7 +72,7 @@ O7.2c dispatch/IEX/fast direct owners are now complete: exact published member
 identity, target-STID provisional cancellation, S1/S2/S3 pruning, local
 generation-qualified ready cleanup, and retained-fast cancellation all consume
 one compact ROB-authorized recovery window. O7.2d1 retains the lower physical
-subtransaction in `OooRobBrobPcCoordinator`. The live composition is public
+subtransaction in `OOOD3S1Graph`. The live composition is public
 `OOO` through `OOOD3S1Graph`, where `RecoveryControl` prepares RENU, BROB,
 Dispatch, and typed external recovery targets. All participating owners
 apply on one cycle; R4 waits for rename-source drain and P/T/U rebuild. A
@@ -91,7 +91,7 @@ metadata, canonical 2/4/6-wide D1 decode, exact P/T/U and pair operand
 normalization, precise-trap conversion, same/cross-cycle boundary fusion, and
 the fixed-four-wide IFU to per-STID 2/4/6 raw ingress. CTU and complex rows
 carry exact diverted parents rather than mask-only identity; CTU child
-reinsertion now uses the O7 `OooCtuIngressBridge` before D2. O3 now has virtual grouping,
+reinsertion now uses the O7 `CTU` before D2. O3 now has virtual grouping,
 retained D2/D3 allocation, atomic grouped ROB publication/completion, native
 BID/generation BROB ownership, a fixed-partition 64-entry byte-offset PC
 buffer, and the shared ROB/BROB/PC reserve/publish/commit coordinator. O4 owns

@@ -896,10 +896,10 @@ resolve；consumer 也尚无 all-owner prepare/ack。
 
 Production O7.2d2/d2e 已经实现本节核心事务：O3 对 ROB/D3/BROB/PC、
 P/T/U、dispatch、IEX、fast resolve 做一次 exact common apply；外层
-`OooFrontendRecoveryBridge` 在 prepare 期间只 fence STID，apply 后才清
+`RecoveryControl` 在 prepare 期间只 fence STID，apply 后才清
 D1/D2/S1，并等待 typed rebuild completion 与 IFU `canonicalFlush`。
-O7.3 已把 CTU 纳入该原子边界：`OooFrontendRecoveryBridge` 先要求
-`OooCtuIngressBridge` 对目标 STID 做 side-effect-free prepare/fence，随后
+O7.3 已把 CTU 纳入该原子边界：`RecoveryControl` 先要求
+`CTU` 对目标 STID 做 side-effect-free prepare/fence，随后
 才向 O3 提交请求；O3 exact apply 同拍取消 CTU retained packet/lease 与
 D1/D2/S1，abort 则只释放 fence。剩余缺口主要是 LSU/global producer
 接入、跨 source arbitration，以及 O9 外部 CTU recipe engine/top wiring，

@@ -111,8 +111,7 @@ It is not evidence for a bank count or port realization.
   commit clear, exact recovery clear, and surviving-row coherence;
 - 1/2/4-bank elaboration paired with 2/4/6 decode widths.
 
-`OooRobBrobPcCoordinatorSpec`, `OOORecoverySpec`, `OOOIntegrationSpec`, and
-`OooFrontendIfuRecoveryIntegrationSpec` cover
+`OOORecoverySpec` and `OOOIntegrationSpec` cover
 the common O3 publication/commit/recovery transaction and both adjacent
 IEX and real-IFU recovery boundaries.
 

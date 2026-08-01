@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Arbiter, Decoupled, Valid, log2Ceil}
+import chisel3.util.{Arbiter, Decoupled, Valid}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -14,16 +14,6 @@ class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
     UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
-  val debugPMap = Output(Vec(p.ooo.stidCount,
-    Vec(p.ooo.gprArchRegs,
-      UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W))))
-  val debugTCount = Output(Vec(p.ooo.stidCount,
-    UInt(log2Ceil(p.ooo.tuMapQDepthPerStid + 1).W)))
-  val debugUCount = Output(Vec(p.ooo.stidCount,
-    UInt(log2Ceil(p.ooo.tuMapQDepthPerStid + 1).W)))
-  val debugBrobUsed = Output(Vec(p.ooo.stidCount,
-    UInt(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W)))
-  val debugDispatchPending = Output(Bool())
   val iex = new OOOIEXIO(p)
   val commit = Decoupled(new CommitTxn(p))
   val trap = Decoupled(new TrapEvent(p))
@@ -49,11 +39,6 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   renu.io.fromD2 <> io.fromD2
   io.ridTailSlot := rob.io.ridTailSlot
   io.ridTailGeneration := rob.io.ridTailGeneration
-  io.debugPMap := renu.io.debugPMap
-  io.debugTCount := renu.io.debugTCount
-  io.debugUCount := renu.io.debugUCount
-  io.debugBrobUsed := brob.io.debugUsed
-  io.debugDispatchPending := dispatch.io.pending
 
   rob.io.prepare.valid := renu.io.toD3.valid
   rob.io.prepare.bits := renu.io.toD3.bits

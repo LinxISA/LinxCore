@@ -70,7 +70,7 @@ multi-destination terminal fork.
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexTerminalPublishSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexOperandFilesSpec
-bash tools/chisel/run_chisel_tests.sh --only OooS1GroupedRobFaultSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexAluPipelineSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexBruPipelineSpec
 ```

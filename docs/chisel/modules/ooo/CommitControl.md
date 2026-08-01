@@ -1,6 +1,6 @@
-# OooRobStoreCommitOwner
+# CommitControl
 
-`OooRobStoreCommitOwner` is the OOO-side owner of ROB-authorized scalar-store
+`CommitControl` is the OOO-side owner of ROB-authorized scalar-store
 tokens. It participates in the same terminal commit transaction as grouped
 ROB/BROB/PC deallocation and P/T/U retirement.
 
@@ -30,7 +30,7 @@ maxMemoryRequestsPerInstruction`.
 
 ## Verification
 
-`OooRobStoreCommitOwnerSpec` checks atomic scalar-plus-pair capture, output
+`OOORobCommitSpec` checks atomic scalar-plus-pair capture, output
 stability under backpressure, exact beat ordering, broken cross-group chain
 rejection, and modular full-serial wrap. The end-to-end store integration test
 connects this owner to the physical STQ matcher and SCB path.

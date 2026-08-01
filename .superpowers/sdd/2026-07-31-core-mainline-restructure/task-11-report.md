@@ -231,3 +231,69 @@ evidence statements above where they conflict.
 - `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
   67 modules, zero errors.
 - `git diff --check` - PASS.
+
+## Fix Round 3
+
+This round supersedes the Fix Round 2 documentation-inventory and four-STID
+debug-observation statements where they conflict.
+
+### RED evidence
+
+- New documentation-checker fixtures containing every owner and test suite
+  deleted by `5f80ea0b..1375436f` initially passed because the checker knew
+  only two wrappers. An arbitrary line containing the word `historical` also
+  bypassed the old marker-based exemption.
+- Exact-location fixtures initially showed that the checker had no
+  `--doc-root` seam and no path-plus-heading allowlist. A surviving prefixed
+  type fixture then exposed false positives from substring matching.
+- Removing `debugPMap`, `debugTCount`, `debugUCount`, `debugBrobUsed`, and
+  `debugDispatchPending` from `OOOD3S1GraphIO` produced the expected compile
+  failure in the old four-STID test at every debug observation.
+- The first public-only rewrite passed five of six integration tests and
+  localized its remaining failures to over-demanded post-recovery and
+  multi-entry retirement observations. The final scenario uses only public
+  protocol outcomes required by this integration boundary.
+
+### Corrections
+
+- The documentation gate now carries the exact 12-owner and 23-suite deleted
+  Task 11 inventory. Exact Scala identifiers are rejected in live prose;
+  stripped suite names are rejected only in `--only` runner commands, so live
+  owners and prefixed bundle types remain legal.
+- Historical exemptions are limited to `agent-loop.md` under
+  `## Suggested Next Packets` and `mainline-loop-ledger.md` under the exact
+  Loop 9 heading. Tests prove that the same headings at another path, or other
+  headings at those paths, do not bypass the gate.
+- Live documentation now names the canonical `OOO`/`OOOD3S1Graph`, `ROB`,
+  `BROB`, `RENU`/`PRename`/`TURename`, `CommitControl`, `RecoveryControl`, CTU,
+  and current replacement suites. Five displaced wrapper pages were renamed
+  to their canonical owner names.
+- `OOOD3S1Graph` no longer exports or wires any of the five test-only debug
+  signals. The four-STID integration captures public dispatch identities and
+  P/T/U tags, proves valid/payload stability under stall, completes and commits
+  exact peer/survivor identities, checks killed completions produce no commit,
+  verifies peer tail isolation, and uses post-recovery dispatch tag reuse to
+  prove target rollback.
+
+### Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec` - PASS,
+  6 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  43 tests.
+- `python3 -m unittest tests.test_production_owner_manifest` - PASS, 43 tests.
+- `python3 tools/chisel/check_production_owner_manifest.py` - PASS, 23 closed
+  owners, 40 classified emitters, 10 declared adapters.
+- `python3 -m unittest tests.test_deleted_ooo_doc_references` - PASS, 7 tests.
+- `python3 tools/chisel/check_deleted_ooo_doc_references.py` - PASS, no live
+  deleted Task 11 references.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=116 l1_must=53 verified=61 open_questions=0 references=2`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
+  67 modules, zero errors.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  manifest up to date.
+- `git diff --check` - PASS.

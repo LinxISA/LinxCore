@@ -13,7 +13,7 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooBundles.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexRecoverySpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooO3IexIntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
 
 The first downstream read-stage packet is documented separately in
 [`OooIexP1I2Lane`](OooIexP1I2Lane.md). It consumes a selected joined row but
@@ -228,7 +228,6 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Fabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1Integration
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 

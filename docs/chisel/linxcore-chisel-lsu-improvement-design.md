@@ -586,7 +586,7 @@ ingress、MMIO serializer和静态top组合。
 
 ### 8.11 I0.9o 已实现：exact ROB commit-token ingress
 
-`OooRobStoreCommitOwner`加入 grouped ROB、BROB/PC、P rename 和 T/U retire 的共同
+`CommitControl`加入 grouped ROB、BROB/PC、P rename 和 T/U retire 的共同
 commit事务。它从 ROB row保存的每个logical uop memory-order tail重建store范围，验证
 release head、RID/BROB/resident generation、member extent、组内和跨组memory chain，
 然后把scalar/pair展开成一/两个有序beat token。prepare阶段无副作用；只有共同commit

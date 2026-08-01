@@ -1,8 +1,8 @@
-# OooPRename
+# PRename
 
 ## Purpose
 
-`OooPRename` is the absolute-index P-register rename
+`PRename` is the absolute-index P-register rename
 owner. Each STID owns a 24-entry speculative map (SMAP), a 24-entry committed
 map (CMAP), and one logically ordered P MapQ. Prepare resolves sources and
 performs oldest-to-youngest same-bundle RAW/WAW forwarding without mutation.
@@ -74,7 +74,7 @@ exact identity rules.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooParams
-bash tools/chisel/run_chisel_tests.sh --only OooPRename
+bash tools/chisel/run_chisel_tests.sh --only RENUSpec
 bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec
 bash tools/chisel/build_chisel.sh
 ```

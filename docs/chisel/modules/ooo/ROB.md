@@ -1,6 +1,6 @@
-# OooS1GroupedRob
+# ROB
 
-`OooS1GroupedRob` owns published grouped-ROB state, exact member completion,
+`ROB` owns published grouped-ROB state, exact member completion,
 non-flush evidence, retained commit batches, and exact suffix recovery for all
 STIDs.
 
@@ -93,7 +93,7 @@ commit-selection policy work.
 
 ## Verification
 
-`OooS1GroupedRobSpec` covers:
+`OOORobCommitSpec` covers:
 
 - atomic publication and retained ordered commit;
 - separate head-token and payload-read stages, stable retained output, and
@@ -110,7 +110,7 @@ commit-selection policy work.
   then the odd subbank, followed by exact completion reads at RID slots 0 and
   8.
 
-`OooS1GroupedRobFaultSpec` separately covers exact runtime fault/cause
+`OOORecoverySpec` separately covers exact runtime fault/cause
 retention at commit and killed-member fault/cause pruning in a surviving
 intra-group recovery pivot.
 

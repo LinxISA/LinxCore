@@ -1,8 +1,8 @@
-# OooCtuIngressBridge
+# CTU
 
 ## Purpose
 
-`OooCtuIngressBridge` is the production OOO-side boundary for the external
+`CTU` is the production OOO-side boundary for the external
 Code Template Unit. It sits after D1 decode/fusion and before D2 grouping.
 It owns ingress ordering and lease lifetime, but not template recipe
 computation, physical-resource allocation, execution, or architectural effects.
@@ -51,9 +51,9 @@ apply must be the same event as O3 common apply.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
-bash tools/chisel/run_chisel_tests.sh --only OooIfuD1Ingress
-bash tools/chisel/run_chisel_tests.sh --only OooFrontendCtuRecoveryIntegration
+bash tools/chisel/run_chisel_tests.sh --only CTUSpec
+bash tools/chisel/run_chisel_tests.sh --only OOODecodeSpec
+bash tools/chisel/run_chisel_tests.sh --only CTUOOOIntegrationSpec
 ```
 
 The tests cover mixed normal/template/normal order, six-child multi-RID
