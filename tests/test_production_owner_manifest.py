@@ -697,6 +697,27 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "unknown emitter linxcore.top.EmitCrossFileApplyWrapper",
         )
 
+    def test_rejects_unknown_fully_qualified_cross_package_object_apply_emitter(
+        self,
+    ) -> None:
+        self._write_file(
+            "chisel/src/main/scala/sink/ApplyEmitSink.scala",
+            "package sink\n"
+            "object ApplyEmitSink {\n"
+            "  def apply(): Unit =\n"
+            "    circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}\n",
+        )
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitFullyQualifiedApply.scala",
+            "package linxcore.top\n"
+            "object EmitFullyQualifiedApply extends App { sink.ApplyEmitSink() }\n",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "unknown emitter linxcore.top.EmitFullyQualifiedApply",
+        )
+
     def test_rejects_unknown_cross_file_imported_nullary_emitter(self) -> None:
         self._write_file(
             "chisel/src/main/scala/linxcore/top/NullaryEmitSink.scala",

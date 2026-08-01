@@ -989,7 +989,17 @@ def build_callable_graph(
                 index.definitions,
                 caller.definition,
             )
-            return (owner, name) if owner is not None and (owner, name) in callables else None
+            qualified = (owner, name) if owner is not None else None
+            if qualified in callables:
+                return qualified
+            object_owner = resolve_scala_name(
+                normalized,
+                unit,
+                index.definitions,
+                caller.definition,
+            )
+            apply = (object_owner, "apply") if object_owner is not None else None
+            return apply if apply in callables else None
         local = (caller.key[0], normalized)
         if local in callables:
             return local
