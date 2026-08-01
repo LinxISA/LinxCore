@@ -68,8 +68,8 @@ class OooTURetireIO(val p: OooParams = OooParams()) extends Bundle {
   *   release -> exact-block relation cleanup -> local block commit.
   *
   * This module owns only retire-source and relation-CMAP state.  The T/U MapQ
-  * and physical tags remain owned by [[OooTURename]], which accepts
-  * the generated exact mark/deallocation and post-clean block commands.
+  * and physical tags remain owned by [[TURename]], which accepts the generated
+  * exact mark/deallocation and post-clean block commands.
   */
 class OooTURetire(val p: OooParams = OooParams()) extends Module {
   val io = IO(new OooTURetireIO(p))

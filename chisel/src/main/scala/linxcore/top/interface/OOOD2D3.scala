@@ -76,6 +76,7 @@ class RenameCommitReleaseTxn(val p: CoreParams) extends Bundle {
 class RENUD2D3IO(val p: CoreParams) extends Bundle {
   val fromD2 = Flipped(Decoupled(new D2AdmissionGroup(p)))
   val toD3 = Decoupled(new D3RenameGroup(p))
+  val publicationIdentity = Input(Valid(new OOORobPrepared(p)))
   val release = Flipped(Valid(new RenameCommitReleaseTxn(p)))
   val releaseReady = Output(Bool())
   val releaseApply = Input(Bool())

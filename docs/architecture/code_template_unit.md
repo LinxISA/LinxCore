@@ -8,9 +8,9 @@ Canonical contract summary:
 
 `CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`,
 `FRET_STK`) into an ordered canonical-child stream for the owning STID. It is
-external to IFU and OOO. `OooCtuIngressBridge` claims one D1-classified raw
-parent exactly once, retains an expansion lease, and inserts CTU children into
-the OOO ingress before D2; CTU is not a post-D3 allocator or
+external to IFU and OOO. The canonical `CTU` owner claims one I-F4 packet,
+retains an expansion lease, and inserts CTU children through
+`OOOD1D2Stage` before D2; CTU is not a post-D3 allocator or
 architectural-effect owner.
 
 Source:
@@ -121,8 +121,8 @@ Canonical target integration is:
 
 1. OOO D1 decodes only far enough to classify the fixed-64-bit template parent
    and retains the complete raw parent/prediction sideband. The production
-   `OooCtuIngressBridge` claims it after D1 and before D2. I-F4 predecode
-   remains limited to BSTART/BSTOP.
+   canonical `CTU` claims it before `OOOD1D2Stage`. I-F4 predecode remains
+   limited to BSTART/BSTOP.
 2. CTU computes the exact ordered child recipe and resource envelope. The
    bridge assigns a retained
    `{PE,STID,parent,templateGroupId,generation}` ingress lease before the first
@@ -141,12 +141,14 @@ Canonical target integration is:
    directly.
 7. CTU backpressure is per STID; it must not stall unrelated STIDs.
 
-The production OOO-side claim/lease/reinsertion and recovery boundary is now
-implemented in `chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala`
-and composed by `OooIfuD1Ingress`. `OooS1GroupedRob` permits a zero-parent row
-only for an exact nonfinal template continuation and requires the final child
-to own the single parent. Focused UT/IT cover six-child multi-RID expansion,
-stale/order rejects, STID isolation, and common recovery apply.
+The production OOO-side claim/lease/reinsertion boundary is implemented by
+`chisel/src/main/scala/linxcore/ctu/CTU.scala` and composed with
+`OOOD1D2Stage`; its typed recovery target joins the canonical
+`RecoveryControl` apply. Canonical `ROB` permits a zero-parent row only for an
+exact nonfinal template continuation and requires the final child to own the
+single parent. `CTUSpec`, `OOODecodeSpec`, and `CTUOOOIntegrationSpec` cover
+six-child multi-RID expansion, stale/order rejects, STID isolation, and common
+recovery apply.
 
 The external recipe engine and its production-top connection remain O9 work.
 Until that promotion, the legacy `LinxCoreBackend` integration uses CTU outputs
@@ -160,7 +162,7 @@ to:
 
 Those direct-write/global-block paths and the current Template-D3 reservation
 modules are migration oracles only. They are forbidden from the production
-composition once the external producer is connected to `OooCtuIngressBridge`.
+composition once the external recipe producer is connected to `CTU`.
 
 Integration point:
 

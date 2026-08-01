@@ -23,6 +23,9 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     dut.io.fromD2.valid.poke(false.B)
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
     dut.io.toD3.ready.poke(true.B)
+    dut.io.publicationIdentity.valid.poke(false.B)
+    dut.io.publicationIdentity.bits.poke(
+      0.U.asTypeOf(dut.io.publicationIdentity.bits))
     dut.io.release.valid.poke(false.B)
     dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
     dut.io.releaseApply.poke(true.B)

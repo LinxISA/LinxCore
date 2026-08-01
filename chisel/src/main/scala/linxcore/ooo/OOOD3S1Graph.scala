@@ -49,6 +49,9 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   dispatch.io.in.bits := renu.io.toD3.bits
   rob.io.brobPrepared := brob.io.prepared
   brob.io.robPrepared := rob.io.prepared
+  renu.io.publicationIdentity.valid :=
+    renu.io.toD3.valid && residencyPreviewReady
+  renu.io.publicationIdentity.bits := rob.io.prepared
   dispatch.io.robPrepared := rob.io.prepared
   dispatch.io.brobPrepared := brob.io.prepared
   val d3Ready = residencyPreviewReady && dispatch.io.in.ready
@@ -56,6 +59,10 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   renu.io.toD3.ready := d3Ready
   rob.io.publishFire := d3Fire
   brob.io.publishFire := d3Fire
+  when(d3Fire) {
+    assert(renu.io.publicationIdentity.valid,
+      "canonical RENU publication requires ROB-prepared full identities")
+  }
 
   io.iex.aluDispatch <> dispatch.io.iex.aluDispatch
   io.iex.bruDispatch <> dispatch.io.iex.bruDispatch
@@ -70,7 +77,6 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   }
   rob.io.completion <> completionArb.io.out
 
-  rob.io.commit.ready := true.B
   commitControl.io.rob.valid := rob.io.commit.valid
   commitControl.io.rob.bits := rob.io.commit.bits
   val interrupts = Wire(Vec(p.ooo.stidCount, new InterruptRequest(p)))
@@ -103,6 +109,7 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   commitControl.io.out.ready :=
     (!io.commit.valid || io.commit.ready) && (!io.trap.valid || io.trap.ready)
   val commitFire = commitControl.io.out.fire
+  rob.io.commit.ready := true.B
   rob.io.commitApply := commitFire
   rob.io.releaseApply := commitFire
   renu.io.releaseApply := commitFire
@@ -110,6 +117,26 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   when(commitFire && commitControl.io.out.bits.commit.count =/= 0.U) {
     assert(rob.io.releaseReady && renu.io.releaseReady && brob.io.releaseReady,
       "canonical commit must atomically apply every owner release")
+    assert(commitControl.io.out.bits.rename.count ===
+      commitControl.io.out.bits.commit.count)
+    assert(commitControl.io.out.bits.robRelease.count ===
+      commitControl.io.out.bits.commit.count)
+    assert(commitControl.io.out.bits.brobRelease.count ===
+      commitControl.io.out.bits.commit.count)
+    for (lane <- 0 until p.widths.retireWidth) {
+      when(lane.U < commitControl.io.out.bits.commit.count) {
+        val identity = commitControl.io.out.bits.commit.entries(lane).rob
+        assert(commitControl.io.out.bits.rename.lanes(lane).rob.asUInt ===
+          identity.asUInt,
+          "canonical rename release must use the retained commit identity")
+        assert(commitControl.io.out.bits.robRelease.lanes(lane).rob.asUInt ===
+          identity.asUInt,
+          "canonical ROB release must use the retained commit identity")
+        assert(commitControl.io.out.bits.brobRelease.entries(lane).asUInt ===
+          identity.asUInt,
+          "canonical BROB release must use the retained commit identity")
+      }
+    }
   }
 
   recovery.io.events(0) <> io.iex.recoveryEvent

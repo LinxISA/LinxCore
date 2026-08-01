@@ -300,6 +300,62 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("retains one authoritative commit while the ROB preview expands") {
+    val base = ParamProfiles.W2
+    val p = base.copy(ooo = base.ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      brobEntriesPerStid = 8,
+      gprPhysRegs = 64,
+      gprMapQDepthPerStid = 8,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8,
+    ))
+    simulate(new OOOD3S1Graph(p)) { dut =>
+      clear(dut)
+      dut.io.commit.ready.poke(false.B)
+      val rows = publish(
+        dut,
+        stid = 0,
+        Seq(
+          Shape(p = true, t = false, u = false),
+          Shape(p = true, t = false, u = false),
+        ),
+      )
+
+      complete(dut, rows.head.identity)
+      var cycles = 0
+      while (!dut.io.commit.valid.peek().litToBoolean && cycles < 64) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).rob.expect(rows.head.identity)
+
+      complete(dut, rows(1).identity)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).rob.expect(rows.head.identity)
+
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.ready.poke(false.B)
+      cycles = 0
+      while (!dut.io.commit.valid.peek().litToBoolean && cycles < 64) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).rob.expect(rows(1).identity)
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.commit.valid.expect(false.B)
+    }
+  }
+
   test("matches a four-STID reference across canonical publish and recovery") {
     val base = ParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(stidCount = 4,
@@ -318,12 +374,6 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       (0 until 4).foreach { stid =>
         dut.io.ridTailSlot(stid).expect(2.U)
       }
-      complete(dut, rows(1).head.identity)
-      expectCommit(dut, Seq(rows(1).head.identity), "unrelated STID1 head")
-      complete(dut, rows(1)(1).identity)
-      expectCommit(dut, Seq(rows(1)(1).identity), "unrelated STID1 younger")
-      complete(dut, rows(2).head.identity)
-      expectCommit(dut, Seq(rows(2).head.identity), "unrelated STID2 head")
       val stid1Tail = dut.io.ridTailSlot(1).peek()
       val stid2Tail = dut.io.ridTailSlot(2).peek()
 
@@ -331,6 +381,17 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.ridTailSlot(0).expect(1.U)
       dut.io.ridTailSlot(1).expect(stid1Tail)
       dut.io.ridTailSlot(2).expect(stid2Tail)
+
+      complete(dut, rows(1).head.identity)
+      expectCommit(dut, Seq(rows(1).head.identity),
+        "peer STID1 head after Branch recovery")
+      val stid1PeerProbe = publish(
+        dut,
+        stid = 1,
+        Seq(Shape(p = false, t = false, u = true)),
+      ).head
+      assert(stid1PeerProbe.u != rows(1)(1).u)
+      val stid1TailAfterProbe = dut.io.ridTailSlot(1).peek()
 
       complete(dut, rows(0)(1).identity)
       expectNoCommit(dut)
@@ -346,8 +407,18 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       recover(dut, RecoveryCause.MemoryOrder, rows(3).head.identity,
         transactionId = 0x52)
       dut.io.ridTailSlot(3).expect(0.U)
-      dut.io.ridTailSlot(1).expect(stid1Tail)
+      dut.io.ridTailSlot(1).expect(stid1TailAfterProbe)
       dut.io.ridTailSlot(2).expect(stid2Tail)
+
+      complete(dut, rows(2).head.identity)
+      expectCommit(dut, Seq(rows(2).head.identity),
+        "peer STID2 head after MemoryOrder recovery")
+      val stid2PeerProbe = publish(
+        dut,
+        stid = 2,
+        Seq(Shape(p = false, t = false, u = true)),
+      ).head
+      assert(stid2PeerProbe.u != rows(2)(1).u)
 
       rows(3).foreach(row => complete(dut, row.identity))
       expectNoCommit(dut)

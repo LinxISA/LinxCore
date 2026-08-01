@@ -297,3 +297,99 @@ debug-observation statements where they conflict.
 - `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
   manifest up to date.
 - `git diff --check` - PASS.
+
+## Fix Round 4
+
+This round supersedes the Fix Round 2 commit-coherency evidence and the Fix
+Round 3 documentation-scope and four-STID peer-survival evidence where they
+conflict.
+
+### RED evidence
+
+- The new canonical graph regression completed row 0, held its one-row public
+  commit under backpressure, completed row 1 while stalled, and then timed out
+  waiting for row 1 after accepting row 0 (`64 was not less than 64`). The live
+  ROB preview had expanded to two rows while `CommitControl` retained one row,
+  and ROB apply consumed the live count instead of the retained transaction.
+- After ROB apply was switched to the retained release prefix, the same test
+  localized a second coherency defect: ROB and BROB release preflights were
+  ready, but RENU remained blocked. Bounded diagnostic evidence showed the P
+  MapQ retained row 1 with row 0's provisional BID identity while the retained
+  commit carried row 1's ROB/BROB-prepared full identity. Temporary diagnostic
+  prints were removed before GREEN.
+- The nested `docs/architecture` unit fixture failed with checker argument
+  status 2 because the gate had no repository-root/default `docs/**` scan and
+  still defaulted to `docs/chisel`.
+- The first peer-survival rewrite caught its own stale tail expectation after
+  publishing a post-recovery peer probe; the corrected scenario snapshots the
+  peer tail after that accepted publication.
+
+### Corrections
+
+- `CommitControl`'s retained `CommitControlTxn` is the authoritative public and
+  owner-apply transaction. ROB retirement uses its exact ROB release prefix
+  when the canonical common apply is present, rather than the possibly newer
+  live preview count. Standalone ROB tests retain their direct-preview fallback.
+  The graph asserts equal commit/rename/ROB/BROB release counts and full
+  `RobIdentity` equality for every active lane; ROB additionally asserts that
+  the authoritative prefix is an exact live-preview prefix before mutation.
+- RENU now receives the ROB-prepared publication identity sidecar at canonical
+  D3 fire and publishes those full identities into both P and T/U MapQ owners.
+  This closes the provisional-BID mismatch without adding another owner or
+  changing standalone RENU semantics.
+- `OOOIntegrationSpec` proves the canonical failure sequence end to end:
+  complete row 0, stall its one-row commit, complete row 1, accept row 0, then
+  accept row 1 exactly once. The same public graph proves synchronized ROB,
+  RENU, and BROB release through the absence of a stranded row.
+- The four-STID scenario now leaves peer rows resident across both Branch and
+  MemoryOrder recovery. After each recovery it completes and commits the
+  captured peer head, publishes another peer row, and proves the still-resident
+  peer tail's physical tag was not rolled back or reallocated.
+- The deleted-reference gate defaults to all `docs/**`, supports a repository
+  root seam for nested fixtures, and keeps exemptions limited to exact
+  path-plus-heading historical allowlists. Live
+  `docs/architecture/code_template_unit.md` now names `CTU`, `OOOD1D2Stage`,
+  `RecoveryControl`, and `ROB`; the stale `OooTURename` ownership comment now
+  names `TURename`. Exact identifier boundaries continue to allow surviving
+  current and prefixed names.
+
+### Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec` - PASS,
+  7 tests total: 4 canonical OOO integration tests plus 3 adjacent CTU tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec` - PASS, 7 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  43 tests.
+- `python3 -m unittest tests.test_production_owner_manifest` - PASS, 43 tests.
+- `python3 tools/chisel/check_production_owner_manifest.py` - PASS, 23 closed
+  owners, 40 classified emitters, 10 declared adapters, NDF roles mapped.
+- `python3 -m unittest tests.test_deleted_ooo_doc_references` - PASS, 8 tests.
+- `python3 tools/chisel/check_deleted_ooo_doc_references.py` - PASS, no live
+  deleted Task 11 references under `docs/**`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=116 l1_must=53 verified=61 open_questions=0 references=2`.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  manifest up to date.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
+  67 modules, zero errors.
+- `git diff --check` - PASS.
+
+### Self-review
+
+- Public dispatch valid remains independent of ready and stable until fire;
+  every allocator `in.fire` remains retained; paired stores remain one atomic
+  `StoreDispatchTxn`; exact caller/evidence checking remains enforced.
+- The only new identity seam is a side-effect-free ROB-prepared publication
+  sidecar into the existing RENU owner. It adds no ROB, BROB, rename, commit,
+  recovery, or dispatch residency owner.
+- No debug/test-only production IO or diagnostic print remains. The parent-owned
+  unstaged NDF plan was not edited or staged by this round.
+- `skill-evolve: no-update` - the LinxCore skill already requires exact retained
+  identity, atomic terminal publication, target-only recovery, focused owner
+  gates, and wrapper-based verification; this fix adds no reusable workflow
+  rule beyond those contracts.

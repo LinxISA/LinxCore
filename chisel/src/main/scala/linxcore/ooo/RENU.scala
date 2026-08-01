@@ -288,14 +288,27 @@ class RENU(val p: CoreParams) extends Module {
     }
   }
 
+  val publication = Wire(new D3RenameGroup(p))
+  publication := selectedPending
+  when(io.toD3.valid && io.publicationIdentity.valid) {
+    assert(io.publicationIdentity.bits.count === selectedPending.count,
+      "RENU publication identities must cover the exact retained D3 prefix")
+    for (lane <- 0 until width) {
+      when(lane.U < selectedPending.count) {
+        assert(io.publicationIdentity.bits.entries(lane).valid)
+        publication.entries(lane).uop.decoded.rob :=
+          io.publicationIdentity.bits.entries(lane).rob
+      }
+    }
+  }
   pRename.io.publish.valid := io.toD3.fire
-  pRename.io.publish.bits := selectedPending
+  pRename.io.publish.bits := publication
   pRename.io.reserve.valid := io.fromD2.fire
   pRename.io.reserve.bits := prepared
   pRename.io.cancel.valid := applyHit
   pRename.io.cancel.bits := recoveryTargetStid
   tuRename.io.publish.valid := io.toD3.fire
-  tuRename.io.publish.bits := selectedPending
+  tuRename.io.publish.bits := publication
 
   when(io.fromD2.fire) {
     assert(io.fromD2.bits.count.orR)

@@ -424,9 +424,12 @@ class ROB(val p: CoreParams) extends Module {
     retainedValid := false.B
   }
   when(commitApplyFire) {
+    val applyCount = Mux(io.release.valid, io.release.bits.count,
+      io.commit.bits.count)
     for (lane <- 0 until retireWidth) {
-      when(lane.U < io.commit.bits.count) {
-        val id = io.commit.bits.entries(lane).commit.rob
+      when(lane.U < applyCount) {
+        val id = Mux(io.release.valid, io.release.bits.lanes(lane).rob,
+          io.commit.bits.entries(lane).commit.rob)
         val stid = safeStid(id.stid)
         stateAt(stid, id.ridSlot, id.memberIndex) := ROBState.Retired
         for (idx <- 0 until orderCapacity) {
@@ -436,14 +439,30 @@ class ROB(val p: CoreParams) extends Module {
         }
       }
     }
-    val stid = safeStid(io.commit.bits.entries(0).commit.rob.stid)
+    val firstId = Mux(io.release.valid, io.release.bits.lanes(0).rob,
+      io.commit.bits.entries(0).commit.rob)
+    val stid = safeStid(firstId.stid)
     val (nextRetire, wrap) = slotPlus(retireSlot(stid),
-      io.commit.bits.count)
+      applyCount)
     retireSlot(stid) := nextRetire
     retireGeneration(stid) := retireGeneration(stid) + wrap.asUInt
     orderCommitHead(stid) := orderPlus(orderCommitHead(stid),
-      io.commit.bits.count)
-    orderCommitCount(stid) := orderCommitCount(stid) - io.commit.bits.count
+      applyCount)
+    orderCommitCount(stid) := orderCommitCount(stid) - applyCount
+    when(io.release.valid) {
+      assert(io.releaseApply && io.releaseReady,
+        "ROB commit must apply the authoritative retained release transaction")
+      assert(io.release.bits.count <= io.commit.bits.count,
+        "ROB authoritative apply count cannot exceed the live preview")
+      for (lane <- 0 until retireWidth) {
+        when(lane.U < io.release.bits.count) {
+          assert(io.release.bits.lanes(lane).valid)
+          assert(io.release.bits.lanes(lane).rob.asUInt ===
+            io.commit.bits.entries(lane).commit.rob.asUInt,
+            "ROB authoritative apply identity must match the live preview prefix")
+        }
+      }
+    }
   }
 
   val releasePrefixShape = (0 until retireWidth).map { lane =>

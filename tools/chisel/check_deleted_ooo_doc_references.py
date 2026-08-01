@@ -10,7 +10,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DOC_ROOT = ROOT / "docs/chisel"
 # Exact deleted Scala basenames from 5f80ea0b..1375436f. Keep owners and
 # suites separate because only test-runner command lines may omit `Spec`.
 DELETED_TASK11_OWNERS = (
@@ -64,6 +63,34 @@ HISTORICAL_SECTION_ALLOWLIST = {
         "mainline-loop-ledger.md",
         "## Loop 9 — Canonical ROB, BROB, commit, and precise recovery authority",
     ),
+    (
+        "chisel/agent-loop.md",
+        "## Suggested Next Packets",
+    ),
+    (
+        "chisel/mainline-loop-ledger.md",
+        "## Loop 9 — Canonical ROB, BROB, commit, and precise recovery authority",
+    ),
+    (
+        "superpowers/plans/2026-07-31-core-mainline-restructure.md",
+        "### Task 8: Build RENU with separate P and T/U rename machines",
+    ),
+    (
+        "superpowers/plans/2026-07-31-core-mainline-restructure.md",
+        "### Task 11: Atomically cut canonical OOO onto production D3/S1 mechanisms",
+    ),
+    (
+        "superpowers/plans/2026-07-31-scalar-load-structural-block-policy.md",
+        "### Task 3: Install policy behind the OOO/IEX production boundary",
+    ),
+    (
+        "superpowers/plans/2026-07-31-scalar-load-structural-block-policy.md",
+        "### Task 4: Documentation, full gates, push, and superproject pin",
+    ),
+    (
+        "superpowers/specs/2026-08-01-production-owner-atomic-cutover-design.md",
+        "### 2.1 Preserve Tasks 1-9",
+    ),
 }
 
 
@@ -79,8 +106,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--doc-root",
         type=Path,
-        default=DEFAULT_DOC_ROOT,
-        help="documentation tree to scan (defaults to docs/chisel)",
+        help="documentation tree to scan (defaults to <repo-root>/docs)",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=ROOT,
+        help="repository root used by the default documentation scan",
     )
     return parser.parse_args()
 
@@ -116,7 +148,9 @@ def find_stale_references(doc_root: Path) -> list[str]:
 
 
 def main() -> int:
-    stale = find_stale_references(parse_args().doc_root.resolve())
+    args = parse_args()
+    doc_root = args.doc_root or args.repo_root / "docs"
+    stale = find_stale_references(doc_root.resolve())
     if stale:
         for item in stale:
             print(f"deleted-ooo-doc-reference: ERROR: {item}")

@@ -66,6 +66,34 @@ class DeletedOooDocReferencesTest(unittest.TestCase):
             check=False,
         )
 
+    def run_checker_for_repo(
+        self, repo_root: Path
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(CHECKER), "--repo-root", str(repo_root)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_default_docs_scan_rejects_nested_architecture_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            architecture = repo_root / "docs" / "architecture"
+            architecture.mkdir(parents=True)
+            (architecture / "nested.md").write_text(
+                "OooCtuIngressBridge is the live owner.\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_checker_for_repo(repo_root)
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "architecture/nested.md:1: [OooCtuIngressBridge]", result.stdout
+        )
+
     def test_rejects_every_deleted_task11_owner_and_suite_in_live_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             doc_root = Path(tmp)
