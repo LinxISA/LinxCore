@@ -106,6 +106,50 @@ push identities are filled only after the corresponding operation succeeds.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded after the immutable commit exists.
 
+## Loop 10 — Checked production-owner cutover manifest
+
+- Scope: Task 10 Steps 2–4 only. Task 9 Step 1 is already closed by pushed
+  commit `2758fb00`; this loop does not modify `ROB.scala`, `BROB.scala`,
+  `RecoveryControl.scala`, or `OOORecoverySpec.scala` and does not begin the
+  Task-11 OOO dispatch cutover.
+- RED evidence: the exact command
+  `python3 -m unittest tests.test_production_owner_manifest -v` first failed
+  with `ModuleNotFoundError: No module named
+  'tests.test_production_owner_manifest'`. After the fixture suite was added,
+  the same command failed because
+  `tools/chisel/check_production_owner_manifest.py` did not exist.
+- GREEN evidence: seven real CLI/temporary-repository tests pass. They prove
+  acceptance of a complete manifest and rejection of duplicate ROB, rename,
+  IQ, LSU-pipeline, cache, and recovery owners; an unknown scanned Scala
+  emitter; missing production evidence; a stateful adapter; a deletion target
+  with active callers; and missing NDF L1/L2/L3/interface-manifest homes.
+- Checked baseline: the repository manifest records 23 IFU/CTU/OOO/IEX/LSU/
+  DTU state categories and classifies all 40 scanned Chisel emitters. The
+  checker reports one owner per state key and an executable NDF L1/L2/L3
+  mapping. The generated TOP interface manifest is current. Strict NDF local
+  reference verification reports 113 clauses, 52 L1 MUST clauses, 59 verified
+  targets, zero open questions, and two references. `git diff --check` passes.
+- Ownership result: Task-9 `PRename`, `TURename`, `ROB`, `BROB`,
+  `CommitControl`, and `RecoveryControl` stay canonical but standalone until
+  Task 11. Production IEX and LSU mechanisms are named in place rather than
+  copied behind new stateful boxes. Evidence status distinguishes public-box,
+  standalone, and mechanism-only proof from later canonical-TOP promotion.
+- Entry-point result: `Reduced*`, `*Probe`, and old `LinxCore*Top` emitters are
+  executable fixtures or legacy paths, never production entry points. No
+  production `TOP` emitter is claimed before Task 17.
+- Remaining boundary: Task 11 must update this manifest in the same atomic
+  commit that changes OOO D3/S1 call sites and deletes the displaced legacy
+  owner chain. The controller owns push and remote-equality confirmation before
+  Task 11 begins.
+- skill-evolve: no-update — the loop makes the existing single-owner,
+  no-stateful-adapter, production-evidence, and NDF-layer rules executable; it
+  introduces no new reusable LinxCore hardware invariant.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit has intent
+  `Freeze one production owner before changing another boundary`.
+- Push target: `origin/codex/chisel-gap-superpowers`; controller review and
+  push are pending.
+
 ## Loop 7 — Canonical DEC and retained OOO D1/D2 admission
 
 - Scope: Task 7 only, preceded by the NDF/interface planning correction in
