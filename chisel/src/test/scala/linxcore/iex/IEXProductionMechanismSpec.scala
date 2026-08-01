@@ -287,7 +287,7 @@ class IEXProductionMechanismSpec extends AnyFunSuite with ChiselSim {
     assert(pipelineChirrtl.contains("inst execute of OooIexExecutionCluster"))
   }
 
-  test("real issue state keeps class residency disjoint and retries one exact AGU row") {
+  test("real issue state exercises every canonical capability through retained claim and exact retry") {
     val canonical = OooIexProductionPhysicalProfile(ParamProfiles.W4).physical
     val p = canonical.params.copy(
       stidCount = 2,
@@ -302,68 +302,102 @@ class IEXProductionMechanismSpec extends AnyFunSuite with ChiselSim {
       iqFreeSelectLeafEntries = 2,
       iexIssueDomainCount = 1,
       iexReleaseWidth = 1)
-    val behaviorCapabilities = OooIexDomainCapability.mask(
-      OooIexDomainCapability.LoadAddress,
-      OooIexDomainCapability.StoreAddress,
-      OooIexDomainCapability.StoreData,
-      OooIexDomainCapability.System,
-      OooIexDomainCapability.EngineCommand)
+    val pickerCapabilityUnion = canonical.pickerFunctions
+      .foldLeft(BigInt(0))(_ | _.capabilities)
+    val residencyCapabilityUnion = canonical.residencyOwners
+      .foldLeft(BigInt(0))(_ | _.capabilities)
+    assert(pickerCapabilityUnion == OooIexDomainCapability.ValidMask)
+    assert(residencyCapabilityUnion == OooIexDomainCapability.ValidMask)
+    assert(pickerCapabilityUnion == residencyCapabilityUnion)
+    val behaviorCapabilities = pickerCapabilityUnion
     simulate(new OooIexIssue(p, Seq(behaviorCapabilities))) { dut =>
       clearIssue(dut)
       val allBanks = (BigInt(1) << p.iqBankCount) - 1
       dut.io.pickBankEnables(0).foreach(_.poke(allBanks.U))
       val rows = Seq(
-        (0, 11, 1, IssueAllocation(OooDispatchClass.Agu - 1, 0, 0,
+        (0, 11, 0, IssueAllocation(OooDispatchClass.Alu - 1, 0, 0,
+          OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu))),
+        (0, 12, 1, IssueAllocation(OooDispatchClass.Alu - 1, 0, 1,
+          OooIexDomainCapability.mask(OooIexDomainCapability.MultiCycleAlu))),
+        (0, 13, 2, IssueAllocation(OooDispatchClass.Bru - 1, 0, 0,
+          OooIexDomainCapability.mask(OooIexDomainCapability.Branch))),
+        (0, 14, 3, IssueAllocation(OooDispatchClass.Agu - 1, 0, 0,
           OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress))),
-        (1, 12, 2, IssueAllocation(OooDispatchClass.Agu - 1, 0, 3,
+        (1, 15, 0, IssueAllocation(OooDispatchClass.Agu - 1, 0, 1,
           OooIexDomainCapability.mask(OooIexDomainCapability.StoreAddress))),
-        (0, 13, 3, IssueAllocation(OooDispatchClass.Std - 1, 0, 1,
+        (1, 16, 1, IssueAllocation(OooDispatchClass.Std - 1, 0, 0,
           OooIexDomainCapability.mask(OooIexDomainCapability.StoreData))),
-        (0, 14, 4, IssueAllocation(OooDispatchClass.Sys - 1, 0, 2,
+        (1, 17, 2, IssueAllocation(OooDispatchClass.Fsu - 1, 0, 0,
+          OooIexDomainCapability.mask(OooIexDomainCapability.FloatingVector))),
+        (1, 18, 3, IssueAllocation(OooDispatchClass.Sys - 1, 0, 0,
           OooIexDomainCapability.mask(OooIexDomainCapability.System))),
-        (1, 15, 5, IssueAllocation(OooDispatchClass.Cmd - 1, 1, 2,
+        (0, 19, 4, IssueAllocation(OooDispatchClass.Sys - 1, 0, 1,
+          OooIexDomainCapability.mask(OooIexDomainCapability.PointerAuth))),
+        (1, 20, 4, IssueAllocation(OooDispatchClass.Cmd - 1, 0, 0,
           OooIexDomainCapability.mask(OooIexDomainCapability.EngineCommand))))
       rows.foreach { case (stid, transactionId, ridSlot, allocation) =>
         pokeIssueTransaction(dut, stid, transactionId, ridSlot, allocation)
         advanceIssueToS3(dut)
+        dut.io.residentEntries(allocation.uopClass)(allocation.bank).expect(1.U)
+
+        dut.clock.step()
+        for (_ <- 0 until 3) {
+          dut.io.pick.valid.expect(true.B)
+          dut.io.pick.bits.candidate.member.group.stid.expect(stid.U)
+          dut.io.pick.bits.candidate.member.group.ridSlot.expect(ridSlot.U)
+          dut.io.pick.ready.expect(false.B)
+          dut.clock.step()
+        }
+        dut.io.pick.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.pick.ready.poke(false.B)
+        dut.io.inFlightEntries(allocation.uopClass)(allocation.bank).expect(1.U)
+
+        val retry = dut.io.pickRetry.bits
+        retry.poke(0.U.asTypeOf(retry))
+        pokeMember(retry.member, stid = stid, ridSlot = ridSlot)
+        retry.reservation.valid.poke(true.B)
+        pokeClass(retry.reservation.uopClass, allocation.uopClass)
+        retry.reservation.bank.poke(allocation.bank.U)
+        retry.reservation.writePort.poke(0.U)
+        retry.reservation.speculativeSlot.poke(allocation.entry.U)
+        retry.reservation.reservationEpoch.poke(1.U)
+        dut.io.pickRetry.valid.poke(true.B)
+        dut.io.pickRetryRejected.valid.expect(false.B)
+        dut.clock.step()
+        dut.io.pickRetry.valid.poke(false.B)
+        dut.io.inFlightEntries(allocation.uopClass)(allocation.bank).expect(0.U)
+
+        dut.clock.step()
+        dut.io.pick.valid.expect(true.B)
+        dut.io.pick.bits.candidate.member.group.stid.expect(stid.U)
+        dut.io.pick.bits.candidate.member.group.ridSlot.expect(ridSlot.U)
+        dut.io.pick.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.pick.ready.poke(false.B)
+
+        val release = dut.io.release.bits
+        release.poke(0.U.asTypeOf(release))
+        pokeMember(release.member, stid = stid, ridSlot = ridSlot)
+        pokeMember(release.dispatch.member, stid = stid, ridSlot = ridSlot)
+        release.dispatch.peId.poke(3.U)
+        release.dispatch.stid.poke(stid.U)
+        release.dispatch.epoch.poke(6.U)
+        release.dispatch.transactionId.poke(transactionId.U)
+        release.dispatch.reservation.valid.poke(true.B)
+        pokeClass(release.dispatch.reservation.uopClass, allocation.uopClass)
+        release.dispatch.reservation.bank.poke(allocation.bank.U)
+        release.dispatch.reservation.writePort.poke(0.U)
+        release.dispatch.reservation.speculativeSlot.poke(allocation.entry.U)
+        release.dispatch.reservation.reservationEpoch.poke(1.U)
+        dut.io.dispatchRelease.ready.poke(true.B)
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+        dut.io.dispatchRelease.ready.poke(false.B)
+        dut.io.residentEntries(allocation.uopClass)(allocation.bank).expect(0.U)
       }
-
-      dut.io.residentEntries(OooDispatchClass.Agu - 1)(0).expect(2.U)
-      dut.io.residentEntries(OooDispatchClass.Agu - 1)(1).expect(0.U)
-      dut.io.residentEntries(OooDispatchClass.Std - 1)(0).expect(1.U)
-      dut.io.residentEntries(OooDispatchClass.Std - 1)(1).expect(0.U)
-      dut.io.residentEntries(OooDispatchClass.Sys - 1)(0).expect(1.U)
-      dut.io.residentEntries(OooDispatchClass.Sys - 1)(1).expect(0.U)
-      dut.io.residentEntries(OooDispatchClass.Cmd - 1)(0).expect(0.U)
-      dut.io.residentEntries(OooDispatchClass.Cmd - 1)(1).expect(1.U)
-
-      dut.clock.step()
-      dut.io.pick.valid.expect(true.B)
-      dut.io.pick.bits.candidate.member.group.ridSlot.expect(1.U)
-      dut.clock.step(2)
-      dut.io.inFlightEntries(OooDispatchClass.Agu - 1)(0).expect(0.U)
-      dut.io.pick.ready.poke(true.B)
-      dut.clock.step()
-      dut.io.pick.ready.poke(false.B)
-      dut.io.inFlightEntries(OooDispatchClass.Agu - 1)(0).expect(1.U)
-
-      val retry = dut.io.pickRetry.bits
-      retry.poke(0.U.asTypeOf(retry))
-      pokeMember(retry.member, stid = 0, ridSlot = 1)
-      retry.reservation.valid.poke(true.B)
-      retry.reservation.uopClass.poke(OooUopClass.Agu)
-      retry.reservation.bank.poke(0.U)
-      retry.reservation.writePort.poke(0.U)
-      retry.reservation.speculativeSlot.poke(0.U)
-      retry.reservation.reservationEpoch.poke(1.U)
-      dut.io.pickRetry.valid.poke(true.B)
-      dut.io.pickRetryRejected.valid.expect(false.B)
-      dut.clock.step()
-      dut.io.pickRetry.valid.poke(false.B)
-      dut.io.inFlightEntries(OooDispatchClass.Agu - 1)(0).expect(0.U)
-      dut.clock.step()
-      dut.io.pick.valid.expect(true.B)
-      dut.io.pick.bits.candidate.member.group.ridSlot.expect(2.U)
     }
   }
 

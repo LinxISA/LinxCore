@@ -6,8 +6,93 @@ import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, ScalarLsuParams}
+import linxcore.lsu.LoadAttemptIdentity
 
 class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
+  private final class ExpectedLease(
+      val lane: Int,
+      val slot: Int,
+      val rowGeneration: Int,
+      val ridSlot: Int,
+      val lsid: BigInt,
+      val returnPipe: Int,
+      val attemptGeneration: Int,
+      val destinationPhysTag: Int,
+      val destinationOldPhysTag: Int) {
+    val peId = 3
+    val stid = 1
+    val nativeBid = ridSlot + 4
+    val brobGeneration = 9
+    val ridGeneration = 5
+    val memberIndex = 1
+    val residentGeneration = 11
+  }
+
+  private def expectMember(
+      member: RobMemberKey,
+      expected: ExpectedLease): Unit = {
+    member.group.valid.expect(true.B)
+    member.group.peId.expect(expected.peId.U)
+    member.group.stid.expect(expected.stid.U)
+    member.group.ridSlot.expect(expected.ridSlot.U)
+    member.group.ridGeneration.expect(expected.ridGeneration.U)
+    member.bid.valid.expect(true.B)
+    member.bid.value.expect(expected.nativeBid.U)
+    member.brobGeneration.expect(expected.brobGeneration.U)
+    member.memberIndex.expect(expected.memberIndex.U)
+    member.residentGeneration.expect(expected.residentGeneration.U)
+  }
+
+  private def expectAttempt(
+      attempt: LoadAttemptIdentity,
+      expected: ExpectedLease): Unit = {
+    attempt.valid.expect(true.B)
+    attempt.producer.valid.expect(true.B)
+    attempt.producer.peId.expect(expected.peId.U)
+    attempt.producer.stid.expect(expected.stid.U)
+    attempt.producer.nativeBidValid.expect(true.B)
+    attempt.producer.nativeBid.expect(expected.nativeBid.U)
+    attempt.producer.brobGeneration.expect(expected.brobGeneration.U)
+    attempt.producer.ridSlot.expect(expected.ridSlot.U)
+    attempt.producer.ridGeneration.expect(expected.ridGeneration.U)
+    attempt.producer.memberIndex.expect(expected.memberIndex.U)
+    attempt.producer.residentGeneration.expect(expected.residentGeneration.U)
+    assert(attempt.generation.peek().litValue == expected.attemptGeneration,
+      s"attempt generation for literal RID ${expected.ridSlot}")
+  }
+
+  private def expectLoad(
+      load: OooIexLoadGeneration,
+      expected: ExpectedLease): Unit = {
+    load.valid.expect(true.B)
+    expectMember(load.producer, expected)
+    load.generation.expect(expected.attemptGeneration.U)
+  }
+
+  private def expectAlloc(
+      dut: OooIexCanonicalLoadOwnership,
+      expected: ExpectedLease): Unit = {
+    dut.io.liqAlloc.bits.returnPipeIndex.expect(expected.returnPipe.U)
+    dut.io.liqAlloc.bits.loadLsIdFullValid.expect(true.B)
+    dut.io.liqAlloc.bits.loadLsIdFull.expect(expected.lsid.U)
+    expectAttempt(dut.io.liqAlloc.bits.attempt, expected)
+  }
+
+  private def expectResult(
+      dut: OooIexCanonicalLoadOwnership,
+      expected: ExpectedLease): Unit = {
+    dut.io.result.valid.expect(true.B)
+    dut.io.resultLane.expect(expected.returnPipe.U)
+    expectMember(dut.io.result.bits.agu.execute.i2.row.schedule.member,
+      expected)
+    expectLoad(dut.io.result.bits.load, expected)
+    dut.io.result.bits.agu.execute.i2.row.payload.memoryOrder.firstLsid
+      .expect(expected.lsid.U)
+    dut.io.result.bits.agu.destination.ptag
+      .expect(expected.destinationPhysTag.U)
+    dut.io.result.bits.agu.execute.i2.row.payload.previousPDestinations(0).ptag
+      .expect(expected.destinationOldPhysTag.U)
+  }
   private val p = OooParams(
     stidCount = 4,
     instructionDecodeWidth = 2,
@@ -484,34 +569,30 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
         lsid = BigInt("100000002", 16))
       pokeRequest(dut, lane = 1, ridSlot = 3,
         lsid = BigInt("200000003", 16))
+      val lane1 = new ExpectedLease(lane = 1, slot = 0, rowGeneration = 0,
+        ridSlot = 3, lsid = BigInt("200000003", 16), returnPipe = 1,
+        attemptGeneration = 1, destinationPhysTag = 32,
+        destinationOldPhysTag = 22)
+      val lane0Initial = new ExpectedLease(lane = 0, slot = 1,
+        rowGeneration = 0, ridSlot = 2, lsid = BigInt("100000002", 16),
+        returnPipe = 0, attemptGeneration = 2, destinationPhysTag = 31,
+        destinationOldPhysTag = 21)
+      val lane0Rebound = new ExpectedLease(lane = 0, slot = 1,
+        rowGeneration = 0, ridSlot = 2, lsid = BigInt("100000002", 16),
+        returnPipe = 0, attemptGeneration = 3, destinationPhysTag = 31,
+        destinationOldPhysTag = 21)
       dut.io.liqAllocLoadId.valid.poke(true.B)
       dut.io.liqAllocLoadId.value.poke(0.U)
       dut.io.liqAlloc.ready.poke(true.B)
       dut.io.agu(0).ready.expect(false.B)
       dut.io.agu(1).ready.expect(true.B)
-      dut.io.liqAlloc.bits.returnPipeIndex.expect(1.U)
-      dut.io.liqAlloc.bits.loadLsIdFullValid.expect(true.B)
-      dut.io.liqAlloc.bits.loadLsIdFull.expect(BigInt("200000003", 16).U)
-      dut.io.liqAlloc.bits.attempt.producer.ridSlot.expect(3.U)
-      dut.io.liqAlloc.bits.attempt.producer.ridGeneration.expect(5.U)
-      dut.io.liqAlloc.bits.attempt.producer.nativeBid.expect(7.U)
-      dut.io.liqAlloc.bits.attempt.producer.brobGeneration.expect(9.U)
-      dut.io.liqAlloc.bits.attempt.producer.memberIndex.expect(1.U)
-      dut.io.liqAlloc.bits.attempt.producer.residentGeneration.expect(11.U)
-      val lane1Generation = dut.io.liqAlloc.bits.attempt.generation
-        .peek().litValue
+      expectAlloc(dut, lane1)
       dut.clock.step()
       dut.io.agu(1).valid.poke(false.B)
 
       dut.io.liqAllocLoadId.value.poke(1.U)
       dut.io.agu(0).ready.expect(true.B)
-      dut.io.liqAlloc.bits.returnPipeIndex.expect(0.U)
-      dut.io.liqAlloc.bits.loadLsIdFullValid.expect(true.B)
-      dut.io.liqAlloc.bits.loadLsIdFull.expect(BigInt("100000002", 16).U)
-      dut.io.liqAlloc.bits.attempt.producer.ridSlot.expect(2.U)
-      dut.io.liqAlloc.bits.attempt.producer.nativeBid.expect(6.U)
-      val lane0Generation = dut.io.liqAlloc.bits.attempt.generation
-        .peek().litValue
+      expectAlloc(dut, lane0Initial)
       dut.clock.step()
       dut.io.agu(0).valid.poke(false.B)
       dut.io.liqAlloc.ready.poke(false.B)
@@ -522,9 +603,9 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       rebind.loadId.slot.poke(1.U)
       rebind.loadId.generation.poke(0.U)
       pokeLoadAttempt(rebind.currentLoad, rebind.currentAttempt,
-        ridSlot = 2, generation = lane0Generation)
+        ridSlot = 2, generation = lane0Initial.attemptGeneration)
       pokeLoadAttempt(rebind.nextLoad, rebind.nextAttempt,
-        ridSlot = 2, generation = lane0Generation + 1)
+        ridSlot = 2, generation = lane0Rebound.attemptGeneration)
       dut.io.rebind.valid.poke(true.B)
       dut.io.liqRebind.ready.poke(false.B)
       for (_ <- 0 until 2) {
@@ -532,40 +613,47 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
         dut.io.rebindAccepted.expect(false.B)
         dut.io.loadCancel.foreach(_.valid.expect(false.B))
         dut.io.metadataOccupied.expect(2.U)
+        dut.io.liqRebind.valid.expect(true.B)
+        dut.io.liqRebind.bits.loadId.valid.expect(true.B)
+        dut.io.liqRebind.bits.loadId.value.expect(lane0Initial.slot.U)
+        dut.io.liqRebind.bits.loadId.wrap.expect(false.B)
+        expectAttempt(dut.io.liqRebind.bits.current, lane0Initial)
+        expectAttempt(dut.io.liqRebind.bits.next, lane0Rebound)
         dut.clock.step()
       }
       dut.io.liqRebind.ready.poke(true.B)
       dut.io.rebind.ready.expect(true.B)
       dut.io.rebindAccepted.expect(true.B)
       dut.io.loadCancel(0).valid.expect(true.B)
-      dut.io.loadCancel(0).bits.load.producer.group.ridSlot.expect(2.U)
-      dut.io.loadCancel(0).bits.load.generation.expect(lane0Generation.U)
+      dut.io.loadCancel(0).bits.stid.expect(lane0Initial.stid.U)
+      expectLoad(dut.io.loadCancel(0).bits.load, lane0Initial)
       dut.io.loadCancel(1).valid.expect(false.B)
       dut.clock.step()
       dut.io.rebind.valid.poke(false.B)
       dut.io.liqRebind.ready.poke(false.B)
 
       pokeCompletion(dut, slot = 1, wrap = false, ridSlot = 2,
-        attemptGeneration = lane0Generation, destinationPhysTag = 31,
+        attemptGeneration = lane0Initial.attemptGeneration,
+        destinationPhysTag = 31,
         destinationOldPhysTag = 21)
       dut.io.completionRejected.valid.expect(true.B)
+      expectMember(dut.io.completionRejected.bits.member, lane0Rebound)
       dut.io.result.valid.expect(false.B)
       dut.io.completion.valid.poke(false.B)
 
       pokeCompletion(dut, slot = 0, wrap = false, ridSlot = 3,
-        attemptGeneration = lane1Generation, destinationPhysTag = 32,
+        attemptGeneration = lane1.attemptGeneration, destinationPhysTag = 32,
         destinationOldPhysTag = 22)
-      dut.io.resultLane.expect(1.U)
-      dut.io.result.bits.agu.execute.i2.row.schedule.member.group.ridSlot
-        .expect(3.U)
-      dut.io.result.bits.load.producer.group.ridSlot.expect(3.U)
-      dut.io.result.bits.load.generation.expect(lane1Generation.U)
+      expectResult(dut, lane1)
       dut.io.result.ready.poke(false.B)
-      dut.clock.step(2)
-      dut.io.result.valid.expect(true.B)
-      dut.io.resultLane.expect(1.U)
-      dut.io.result.bits.load.producer.group.ridSlot.expect(3.U)
+      for (_ <- 0 until 3) {
+        expectResult(dut, lane1)
+        dut.io.completion.ready.expect(false.B)
+        dut.clock.step()
+      }
       dut.io.result.ready.poke(true.B)
+      expectResult(dut, lane1)
+      dut.io.completion.ready.expect(true.B)
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
       dut.io.result.ready.poke(false.B)

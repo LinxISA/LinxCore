@@ -261,3 +261,102 @@ GREEN:
 `skill-evolve: no-update` — the existing `linx-core` workflow already requires
 explicit parameter domains, sole state ownership, full generation-qualified
 identity, honest evidence levels, retained backpressure, and common recovery.
+
+## Fix Round 2/5
+
+### Status
+
+COMPLETE — the three rereview findings are closed with test-only evidence.
+No production RTL, manifest path, parent plan, public boundary, or live owner
+was changed.
+
+### Finding 1 — complete canonical capability behavior
+
+RED:
+
+- The real one-domain `OooIexIssue` fixture advertised only load address,
+  store address, store data, system, and engine-command capabilities. It did
+  not behaviorally exercise simple ALU, multicycle ALU, pointer-auth, branch,
+  or floating/vector residency.
+- The first expanded fixture still claimed and retried only the first selected
+  row. Final diff review rejected that partial proof before commit.
+
+GREEN:
+
+- The sustainable one-domain fixture derives its capability mask from the OR
+  of every canonical picker and independently checks it against the OR of
+  every canonical residency owner and the full ten-bit valid mask.
+- Literal representative rows cover simple ALU, multicycle ALU, BRU, AGU LDA,
+  AGU STA, STD, FSU, system, pointer-auth, and CMD. Each row independently
+  allocates into real `OooIexIssue` state, remains stable for three blocked
+  cycles, claims atomically, accepts an exact retry, reclaims, and releases by
+  exact identity. The separate ten-domain structural proof remains unchanged.
+
+### Finding 2 — literal two-AGU identity proof
+
+RED:
+
+- The prior two-AGU fixture checked only selected RID/LSID fields and derived
+  attempt generations by peeking the DUT. It therefore could not prove full
+  identity stability during rebind or retained return.
+- Literal-first assertions exposed the actual global attempt-generation order:
+  lane 1 allocates generation 1, lane 0 allocates generation 2, and lane 0
+  rebinds to generation 3.
+
+GREEN:
+
+- A hand-authored expected-lease helper checks PE/STID, native BID validity and
+  value, BROB generation, RID slot and generation, member index, resident
+  generation, full LSID, load/attempt generation, return pipe, and destination
+  tags without constructing expected values from DUT outputs.
+- Both rebind-stall cycles verify current and next canonical identities. The
+  accepted cancel, stale-return rejection, and every peer-return backpressure
+  cycle preserve the corresponding full literal identity.
+
+### Finding 3 — real ALU pipeline to terminal retention
+
+RED:
+
+- The prior terminal testbench held `OooIexTerminalFabric.alu` directly. It did
+  not prove that a real `OooIexAluPipeline` W1/W2 owner retained the row.
+- The first real-pipeline run rejected the old direct-fixture data constant
+  `0x103`; the real `ADDI 41, 1` transaction correctly produced `42`.
+
+GREEN:
+
+- A test-only harness connects real `OooIexAluPipeline.w2` directly to
+  `OooIexTerminalFabric.alu(0)` and ties off the unused BRU/load families.
+- Completion backpressure is held for three cycles. Every cycle checks the
+  full ROB-member identity, retained destination atag/PTAG/generation/local
+  identity, writeback data, W2 ownership, zero terminal fire, and zero partial
+  P/T/U write, wakeup, trace, or BCTRL publication.
+- Releasing completion produces exactly one atomic fire. W2 then withdraws,
+  and later cycles show no duplicate completion or writeback.
+
+### Verification
+
+- `IEXProductionMechanismSpec`: 7/7 passed in 4m47s after the final per-row
+  claim/retry/release tightening.
+- `OooIexCanonicalLoadOwnershipSpec`: 8/8 passed in 44.1s.
+- `OooIexTerminalFabricSpec`: 4/4 passed in 32.1s.
+- `OooIexPhysicalProfileSpec`: 4/4 passed.
+- `python3 tools/chisel/check_production_owner_manifest.py`: passed with 23
+  closed owners, 40 classified emitters, 10 declared adapters, and all NDF
+  L1/L2/L3 roles mapped.
+- `bash tools/chisel/build_chisel.sh`: passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh`: passed with Verilator
+  5.044 over 67 generated modules.
+- `git diff --check` and `git diff --cached --check`: passed.
+
+### Warnings and self-review
+
+- The only tool warning is sbt's existing `multiple main classes detected`.
+- No production source, manifest, parent plan, public `IEX`, live boundary,
+  `Reduced*` source, or generated artifact is modified.
+- All three expected-value surfaces are literal or independently derived from
+  canonical topology; none reconstructs expected identity from DUT output.
+
+### Skill Evolution
+
+`skill-evolve: no-update` — this round strengthens local tests but introduces
+no new reusable LinxCore ownership, identity, recovery, or gate invariant.
