@@ -225,7 +225,7 @@ git commit -m "docs: add LinxCore Zybo Linux workflow skill"
 - Consumes: `CoreParams`, `ScalarBackendParams`, `ScalarLsuParams`, and `OooParams`.
 - Produces: `ZyboZ720PlatformParams.LinuxMinCore`, `LinuxMinOoo`, `Smoke`, `LinuxNommu`, and constructor/ownership summaries.
 
-- [ ] **Step 1: Write failing parameter tests**
+- [x] **Step 1: Write failing parameter tests**
 
 ```scala
 test("Linux-min profile preserves architecture widths while reducing storage") {
@@ -250,7 +250,7 @@ test("Linux-min OOO profile satisfies all constructor constraints") {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ZyboZ720PlatformParamsSpec
@@ -258,7 +258,7 @@ bash tools/chisel/run_chisel_tests.sh --only ZyboZ720PlatformParamsSpec
 
 Expected: compile failure because `ZyboZ720PlatformParams` does not exist.
 
-- [ ] **Step 3: Implement exact profiles**
+- [x] **Step 3: Implement exact profiles**
 
 Construct `LinuxMinCore` with the values in design section 6.1. Construct
 `LinuxMinOoo` with one STID, 2/4/2/2/2 ingress widths, 16 ROB groups, four ROB
@@ -268,7 +268,7 @@ with eight entries, a four-entry completion buffer, and 16 store tokens.
 Add `require` checks that the benchmark ROB can contain 16 body uops plus a
 closing marker and that Scala and generated manifest values match.
 
-- [ ] **Step 4: Verify GREEN and elaboration ownership**
+- [x] **Step 4: Verify GREEN and elaboration ownership**
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ZyboZ720PlatformParamsSpec
@@ -279,7 +279,7 @@ Expected: tests and compile pass. Record the generated hierarchy locations
 that consume every reduced value; mark unconsumed OOO values as unpromoted in
 the test report rather than claiming a resource reduction.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chisel/src/main/scala/linxcore/fpga/zybo/ZyboZ720PlatformParams.scala \
