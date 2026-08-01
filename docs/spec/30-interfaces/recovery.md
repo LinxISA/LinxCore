@@ -35,8 +35,14 @@ exists.
 Recovery control requests the ROB-authored plan through an explicit
 Decoupled request/response. Targets receive the retained ROB plan in Prepare
 phase until their individual prepare fires, return one matching prepared
-transaction, and mutate only on the later common Apply broadcast. A matching
-Abort broadcast terminates the retained transaction without owner mutation.
+transaction, and mutate only on the later common Apply broadcast. Recovery
+control counts a target prepared transaction only when that target's Prepare
+request has already fired or fires in the same cycle, the response fires in
+Prepare phase, and the transaction matches the retained plan. Stale,
+pre-prepare, wrong-phase, or otherwise mismatched target responses are
+drainable Decoupled beats, but they are not target acknowledgement authority.
+A matching Abort broadcast terminates the retained transaction without owner
+mutation.
 RecoveryControl also exposes a dedicated `robAbort: Valid[RecoveryPlan]`
 terminal for the ROB request side. If abort arrives after `robPrepare.fire`
 but before `robPrepared.fire`, RecoveryControl waits for the exact

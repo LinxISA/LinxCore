@@ -238,7 +238,11 @@ prefix and free the head block only when the exact final ROB member for that
 block is included. Recovery prepare MUST be non-mutating; recovery apply MUST
 match the retained plan and prune only the target-STID suffix while preserving
 older blocks, current surviving blocks, exact `used` accounting, and unrelated
-STIDs. Recovery prepare MUST validate the exact local BROB projection of the
+STIDs. BROB publication MUST store the ROB-prepared, allocator-bound ROB
+identity for each active lane, not the provisional D3 ROB identity, and MUST
+reject publication unless every active ROB-prepared lane matches the raw D3
+PE/STID/RID/member fields and the BROB-prepared BID/BROB generation for that
+lane. Recovery prepare MUST validate the exact local BROB projection of the
 ROB-authored suffix, including first/last endpoint BID and BROB generation,
 before retaining an action. Stale BID generation release or recovery attempts
 MUST be rejected without changing unrelated STIDs.
@@ -291,8 +295,12 @@ explicit precise ROB head boundary and cannot bypass an unresolved producer
 contender. Recovery prepare MUST ask ROB for one
 retained `RecoveryPlan`
 containing the exact compact killed suffix, offer the identical plan exactly
-once to every target in `Prepare`, wait for every matching acknowledgement,
-ignore mismatched acknowledgements, and emit exactly one terminal decision.
+once to every target in `Prepare`, wait for every causal matching
+acknowledgement, ignore stale, pre-prepare, wrong-phase, or otherwise
+mismatched acknowledgements, and emit exactly one terminal decision. A target
+acknowledgement is causal only when the target `prepared` beat fires in
+`Prepare` phase for the same transaction and the corresponding target
+`Prepare` request already fired or fires in the same cycle.
 If abort arrives before ROB accepts the request, RecoveryControl cancels the
 request locally and emits no fabricated owner terminal. A held `robPrepared`
 beat observed before ROB accepts the request MUST drain without becoming that
@@ -356,10 +364,12 @@ guarding, source arbitration with delayed and retained ROB statuses, interrupt
 holdoff behind unresolved producers, ROB recovery request/response,
 wrong-phase and duplicate apply rejection, ROB/BROB abort termination, closed
 BROB straddling-block survivor shortening,
-one-prepare-per target barriers, mismatched acknowledgement rejection, common
-apply, request-phase ROB abort, target-prepare abort priority, visible-apply
-abort suppression, legal Decoupled drain without semantic acceptance for
-pre-request and stale/unrelated ROB responses in RequestRob, WaitRob, and
-WaitRobAbort,
+ROB-prepared BROB publication identity binding for unbound D3 residency,
+one-prepare-per target barriers, pre-prepare target acknowledgement rejection,
+wrong-phase target acknowledgement rejection, mismatched acknowledgement
+rejection, common apply, request-phase ROB abort, target-prepare abort
+priority, visible-apply abort suppression, legal Decoupled drain without
+semantic acceptance for pre-request and stale/unrelated ROB responses in
+RequestRob, WaitRob, and WaitRobAbort,
 simultaneous terminal fail-closed behavior, and
 non-mutating abort.

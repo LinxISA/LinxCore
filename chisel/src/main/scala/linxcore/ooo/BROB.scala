@@ -7,6 +7,7 @@ import linxcore.top.interface._
 
 class BROBIO(val p: CoreParams) extends Bundle {
   val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
+  val robPrepared = Input(new OOORobPrepared(p))
   val prepared = Output(new BROBPrepared(p))
   val publishFire = Input(Bool())
   val release = Flipped(Valid(new BROBReleaseTxn(p)))
@@ -90,6 +91,21 @@ class BROB(val p: CoreParams) extends Module {
     allocCount(lane + 1) := allocCount(lane) + startsBlock.asUInt
   }
   io.prepared := prepared
+  val publicationExact = io.robPrepared.count === io.prepare.bits.count &&
+    (0 until p.ooo.d3PrefixWidth).map { lane =>
+      val active = lane.U < io.prepare.bits.count
+      val raw = io.prepare.bits.entries(lane).uop.decoded.rob
+      val bound = io.robPrepared.entries(lane).rob
+      !active || (
+        io.robPrepared.entries(lane).valid &&
+          bound.peId === raw.peId &&
+          bound.stid === raw.stid &&
+          bound.ridSlot === raw.ridSlot &&
+          bound.ridGeneration === raw.ridGeneration &&
+          bound.memberIndex === raw.memberIndex &&
+          bound.bid === prepared.entries(lane).bid &&
+          bound.brobGeneration === prepared.entries(lane).brobGeneration)
+    }.reduce(_ && _)
   val recoveryPending = RegInit(false.B)
   val recoveryPlan = RegInit(0.U.asTypeOf(new RecoveryPlan(p)))
   val recoveryKilledMaskReg = RegInit(VecInit(Seq.fill(p.ooo.brobEntriesPerStid)(
@@ -110,7 +126,8 @@ class BROB(val p: CoreParams) extends Module {
 
   io.prepare.ready := !recoveryPending &&
     io.prepare.bits.count <= p.ooo.d3PrefixWidth.U &&
-    used(stid) + allocCount(p.ooo.d3PrefixWidth) <= p.ooo.brobEntriesPerStid.U
+    used(stid) + allocCount(p.ooo.d3PrefixWidth) <= p.ooo.brobEntriesPerStid.U &&
+    publicationExact
 
   when(io.prepare.valid && io.publishFire && io.prepare.ready) {
     tail(stid) := scanTail(p.ooo.d3PrefixWidth)
@@ -121,14 +138,15 @@ class BROB(val p: CoreParams) extends Module {
     used(stid) := used(stid) + allocCount(p.ooo.d3PrefixWidth)
     for (lane <- 0 until p.ooo.d3PrefixWidth) {
       when(prepared.entries(lane).valid && prepared.entries(lane).allocated) {
+        val boundRob = io.robPrepared.entries(lane).rob
         tableValid(stid)(prepared.entries(lane).bid) := true.B
         tableGeneration(stid)(prepared.entries(lane).bid) :=
           prepared.entries(lane).brobGeneration
         tableClosed(stid)(prepared.entries(lane).bid) := false.B
         tableFirstRob(stid)(prepared.entries(lane).bid) :=
-          io.prepare.bits.entries(lane).uop.decoded.rob
+          boundRob
         tableLastRob(stid)(prepared.entries(lane).bid) :=
-          io.prepare.bits.entries(lane).uop.decoded.rob
+          boundRob
       }
       val currentBlockInPrefix = scanCurrentValid(lane) &&
         scanCurrentBid(lane) === prepared.entries(lane).bid
@@ -136,13 +154,15 @@ class BROB(val p: CoreParams) extends Module {
         (prepared.entries(lane).allocated ||
           tableValid(stid)(prepared.entries(lane).bid) ||
           currentBlockInPrefix)) {
+        val boundRob = io.robPrepared.entries(lane).rob
         tableLastRob(stid)(prepared.entries(lane).bid) :=
-          io.prepare.bits.entries(lane).uop.decoded.rob
+          boundRob
       }
       when(prepared.entries(lane).valid && io.prepare.bits.entries(lane).blockStop) {
+        val boundRob = io.robPrepared.entries(lane).rob
         tableClosed(stid)(prepared.entries(lane).bid) := true.B
         tableLastRob(stid)(prepared.entries(lane).bid) :=
-          io.prepare.bits.entries(lane).uop.decoded.rob
+          boundRob
       }
     }
   }

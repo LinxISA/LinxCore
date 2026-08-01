@@ -768,3 +768,86 @@ report.
   BROB recovery detail and a central parameter guard already captured by the
   local docs and existing LinxCore BID guidance; no reusable skill edit was in
   scope.
+
+## Fix Round 11
+
+Review round 11 identified two HIGH blockers in canonical Task-9 ownership:
+`BROB` stored raw D3 ROB identities after computing allocator-bound
+BID/generation values, leaving resident generation and BROB identity fields
+unbound for later release/recovery checks; and `RecoveryControl` let stale or
+wrong-phase target `prepared` beats satisfy the target acknowledgement barrier
+before the corresponding target Prepare request had fired. The fix scope stayed
+within canonical `BROB`, `RecoveryControl`, directly affected tests, behavior
+and recovery-interface docs, and this report.
+
+### Fix-Round-11 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed after
+  the RED tests with 41 tests run, 38 passed, 3 failed:
+  - `BROB publishes allocator-bound identities when D3 residency is unbound`
+    observed `releaseReady = 0` after recovery even though the bound survivor
+    endpoint was live.
+  - `RecoveryControl ignores target acknowledgements before prepare fires`
+    observed `apply.valid = 1` before the target Prepare request fired.
+  - `RecoveryControl does not carry stale target acknowledgements across abort
+    retry` initially exposed a stale-ack retry gap, then was narrowed to a
+    corrected retry trigger after the RTL fixes showed the remaining failure was
+    in the test harness setup.
+
+### Fix-Round-11 Repairs
+
+- `BROB` now receives the ROB-prepared publication row explicitly, validates
+  every active lane against the raw D3 PE/STID/RID/member fields and the
+  BROB-prepared BID/BROB generation, and stores the bound ROB identity in the
+  block table. Publication backpressures instead of recording unbound D3
+  BID/BROB/resident defaults.
+- `RecoveryControl` now counts a target acknowledgement only when the target
+  `prepared` beat fires in `Prepare` phase, the retained transaction matches,
+  and that target's Prepare request already fired or fires in the same cycle.
+  Stale, pre-prepare, wrong-phase, and mismatched target beats continue to
+  drain without setting the acknowledgement mask.
+- `OOORecoverySpec` covers unbound D3 residency with ROB-prepared BROB
+  publication identities, pre-prepare target acknowledgement rejection,
+  wrong-phase target acknowledgement rejection, and stale acknowledgement
+  isolation across an abort/retry. `OOORobCommitSpec` standalone BROB tests now
+  publish through the same ROB-prepared binding helper.
+- Behavior and recovery-interface docs now state the ROB-prepared BROB
+  publication authority and causal target acknowledgement contract.
+
+### Fix-Round-11 Verification
+
+- RED baseline: `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec`
+  - FAIL, 41 tests, 38 passed, 3 failed before the round-11 repairs.
+- `source tools/chisel/chisel_env.sh && cd chisel && sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" 'testOnly linxcore.ooo.OOORecoverySpec -- -z stale'`
+  - PASS, 3 tests, including the stale target-ack retry regression after the
+  final test-only trigger correction.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS,
+  9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS,
+  2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS,
+  `brob-order-state-probe: PASS`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS,
+  `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+
+The latest full `OOORecoverySpec` rerun after the RTL fixes reached 40/41
+passing with only the retry-harness trigger mismatch remaining. After the
+test-only correction, the narrowed stale subset passed; the full
+`OOORecoverySpec` was not rerun again per the round-11 instruction to avoid
+another full rerun without RTL changes.
+
+### Fix-Round-11 Notes
+
+- `skill-evolve: no-update` - round 11 reinforced existing LinxCore identity
+  and recovery sequencing invariants already captured in the domain skill:
+  BROB table authority comes from the ROB-prepared exact identity, and recovery
+  barriers must be causally tied to owner prepare ownership. No reusable skill
+  update was required.

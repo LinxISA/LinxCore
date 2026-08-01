@@ -119,6 +119,58 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  private def clearBrob(dut: BROB): Unit = {
+    dut.io.prepare.valid.poke(false.B)
+    dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
+    dut.io.publishFire.poke(false.B)
+    dut.io.release.valid.poke(false.B)
+    dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+    dut.io.releaseApply.poke(false.B)
+    dut.io.recoveryPrepare.valid.poke(false.B)
+    dut.io.recoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+    dut.io.recoveryApply.valid.poke(false.B)
+    dut.io.recoveryApply.bits.poke(0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryAbort.valid.poke(false.B)
+    dut.io.recoveryAbort.bits.poke(0.U.asTypeOf(dut.io.recoveryAbort.bits))
+  }
+
+  private def bindBrobPrepared(
+      dut: BROB,
+      count: Int,
+      residentGenerations: Seq[Int] = Seq.empty): Seq[RobIdentity] = {
+    dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
+    dut.io.robPrepared.count.poke(count.U)
+    (0 until count).foreach { laneIndex =>
+      dut.io.robPrepared.entries(laneIndex).valid.poke(true.B)
+      dut.io.robPrepared.entries(laneIndex).rob.poke(
+        dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.peek())
+      dut.io.robPrepared.entries(laneIndex).rob.bid.poke(
+        dut.io.prepared.entries(laneIndex).bid.peek())
+      dut.io.robPrepared.entries(laneIndex).rob.brobGeneration.poke(
+        dut.io.prepared.entries(laneIndex).brobGeneration.peek())
+      val residentGeneration =
+        if (laneIndex < residentGenerations.length) residentGenerations(laneIndex)
+        else 0
+      dut.io.robPrepared.entries(laneIndex).rob.residentGeneration.poke(
+        residentGeneration.U)
+    }
+    (0 until count).map(laneIndex =>
+      dut.io.robPrepared.entries(laneIndex).rob.peek())
+  }
+
+  private def pokeBoundRob(
+      target: RobIdentity,
+      raw: RobIdentity,
+      bid: Int,
+      brobGeneration: Int,
+      residentGeneration: Int): Unit = {
+    target.poke(raw)
+    target.bid.poke(bid.U)
+    target.brobGeneration.poke(brobGeneration.U)
+    target.residentGeneration.poke(residentGeneration.U)
+  }
+
   private def authorizeCandidate(
       dut: RecoveryControl,
       source: Int,
@@ -403,13 +455,13 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 0, id = id, rid = rid, groupCount = 1,
           stid = stid, member = 0, blockStart = true, blockStop = true)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 1)
         dut.io.prepare.ready.expect(true.B)
-        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
         dut.io.publishFire.poke(false.B)
-        rob
+        ids(0)
       }
       clearBrob()
       val older = publishBlock(40, 0)
@@ -445,6 +497,7 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 43, rid = 1, groupCount = 1,
         stid = 0, member = 0, blockStart = true, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      bindBrobPrepared(dut, 1)
       dut.io.prepare.ready.expect(true.B)
     }
   }
@@ -470,13 +523,13 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 0, id = id, rid = rid, groupCount = 1,
           stid = 0, member = 0, blockStart = true, blockStop = true)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 1)
         dut.io.prepare.ready.expect(true.B)
-        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
         dut.io.publishFire.poke(false.B)
-        rob
+        ids(0)
       }
       clearBrob()
       val older = publishBlock(50, 0)
@@ -524,9 +577,10 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 1, id = 61, rid = 0, groupCount = 1,
         stid = 0, member = 1, blockStart = false, blockStop = false)
       dut.io.prepare.valid.poke(true.B)
+      val openIds = bindBrobPrepared(dut, 2)
       dut.io.prepare.ready.expect(true.B)
-      val survivor = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
-      val killed = dut.io.prepare.bits.entries(1).uop.decoded.rob.peek()
+      val survivor = openIds(0)
+      val killed = openIds(1)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
@@ -557,8 +611,9 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 62, rid = 0, groupCount = 1,
         stid = 0, member = 1, blockStart = false, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      val closingIds = bindBrobPrepared(dut, 1)
       dut.io.prepare.ready.expect(true.B)
-      val closing = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+      val closing = closingIds(0)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
@@ -598,12 +653,10 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = rid, groupCount = 1,
           stid = stid, member = 1, blockStart = false, blockStop = true)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 2)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).bid.expect(rid.U)
         dut.io.prepared.entries(1).bid.expect(rid.U)
-        val ids = (0 until 2).map { lane =>
-          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
-        }
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
@@ -641,10 +694,11 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 72, rid = 1, groupCount = 1,
         stid = 0, member = 0, blockStart = true, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      val nextIds = bindBrobPrepared(dut, 1)
       dut.io.prepare.ready.expect(true.B)
       dut.io.prepared.entries(0).bid.expect(1.U)
       dut.io.prepared.entries(0).brobGeneration.expect(0.U)
-      val next = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+      val next = nextIds(0)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
@@ -685,11 +739,9 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
           stid = 0, member = 1, blockStart = false, blockStop = true)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 2)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).bid.expect(bid.U)
-        val ids = (0 until 2).map { lane =>
-          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
-        }
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
@@ -701,14 +753,14 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
           stid = 0, member = 0, blockStart = true, blockStop = true)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 1)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).bid.expect(bid.U)
-        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
         dut.io.publishFire.poke(false.B)
-        rob
+        ids(0)
       }
 
       clearBrob()
@@ -786,15 +838,15 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
           stid = 0, member = 0, blockStart = true, blockStop = true)
         dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 1)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).bid.expect(bid.U)
         dut.io.prepared.entries(0).brobGeneration.expect(gen.U)
-        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
         dut.io.publishFire.poke(false.B)
-        rob
+        ids(0)
       }
       def releaseOne(rob: RobIdentity): Unit = {
         dut.io.release.valid.poke(true.B)
@@ -815,12 +867,10 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.bits.entries(1).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 2)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).bid.expect(bid.U)
         dut.io.prepared.entries(0).brobGeneration.expect(gen.U)
-        val ids = (0 until 2).map { lane =>
-          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
-        }
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
@@ -896,10 +946,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
           lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = bid, groupCount = 1,
             stid = 0, member = 1, blockStart = false, blockStop = true)
           dut.io.prepare.valid.poke(true.B)
+          val ids = bindBrobPrepared(dut, 2)
           dut.io.prepare.ready.expect(true.B)
-          val ids = (0 until 2).map { lane =>
-            dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
-          }
           dut.io.publishFire.poke(true.B)
           dut.clock.step()
           dut.io.prepare.valid.poke(false.B)
@@ -911,13 +959,13 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
           lane(dut.io.prepare.bits, 0, id = id, rid = bid, groupCount = 1,
             stid = 0, member = 0, blockStart = true, blockStop = true)
           dut.io.prepare.valid.poke(true.B)
+          val ids = bindBrobPrepared(dut, 1)
           dut.io.prepare.ready.expect(true.B)
-          val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
           dut.io.publishFire.poke(true.B)
           dut.clock.step()
           dut.io.prepare.valid.poke(false.B)
           dut.io.publishFire.poke(false.B)
-          rob
+          ids(0)
         }
 
         clearBrob()
@@ -975,13 +1023,13 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
           stid = 0, member = 0, blockStart = true, blockStop = true)
         dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 1)
         dut.io.prepare.ready.expect(true.B)
-        val rob = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
         dut.io.publishFire.poke(false.B)
-        rob
+        ids(0)
       }
       def releaseOne(rob: RobIdentity): Unit = {
         dut.io.release.valid.poke(true.B)
@@ -1002,10 +1050,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
         dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.bits.entries(1).uop.decoded.rob.brobGeneration.poke(gen.U)
         dut.io.prepare.valid.poke(true.B)
+        val ids = bindBrobPrepared(dut, 2)
         dut.io.prepare.ready.expect(true.B)
-        val ids = (0 until 2).map { lane =>
-          dut.io.prepare.bits.entries(lane).uop.decoded.rob.peek()
-        }
         dut.io.publishFire.poke(true.B)
         dut.clock.step()
         dut.io.prepare.valid.poke(false.B)
@@ -1049,6 +1095,116 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("BROB publishes allocator-bound identities when D3 residency is unbound") {
+    simulate(new BROB(params)) { dut =>
+      def publishRawSingle(
+          id: Int,
+          rid: Int,
+          ridGeneration: Int = 0,
+          residentGeneration: Int = 1): (RobIdentity, Int, Int) = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = id, rid = rid, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = true)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.ridGeneration.poke(
+          ridGeneration.U)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.bid.poke(0.U)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(0.U)
+        dut.io.prepare.bits.entries(0).uop.decoded.rob.residentGeneration.poke(0.U)
+        dut.io.prepare.valid.poke(true.B)
+        val bound = bindBrobPrepared(dut, 1, Seq(residentGeneration))
+        dut.io.prepare.ready.expect(true.B)
+        val bid = dut.io.prepared.entries(0).bid.peek().litValue.toInt
+        val gen = dut.io.prepared.entries(0).brobGeneration.peek().litValue.toInt
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        (bound(0), bid, gen)
+      }
+      def releaseOne(raw: RobIdentity, bid: Int, gen: Int): Unit = {
+        dut.io.release.valid.poke(true.B)
+        dut.io.release.bits.count.poke(1.U)
+        pokeBoundRob(dut.io.release.bits.entries(0), raw, bid, gen,
+          residentGeneration = 1)
+        dut.io.releaseReady.expect(true.B)
+        dut.io.releaseApply.poke(true.B)
+        dut.clock.step()
+        dut.io.release.valid.poke(false.B)
+        dut.io.releaseApply.poke(false.B)
+      }
+      def publishRawClosed(baseId: Int): (RobIdentity, RobIdentity, Int, Int) = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        lane(dut.io.prepare.bits, 0, id = baseId, rid = 3, groupCount = 1,
+          stid = 0, member = 0, blockStart = true, blockStop = false)
+        lane(dut.io.prepare.bits, 1, id = baseId + 1, rid = 3, groupCount = 1,
+          stid = 0, member = 1, blockStart = false, blockStop = true)
+        for (laneIndex <- 0 until 2) {
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.bid.poke(0.U)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.brobGeneration.poke(0.U)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.residentGeneration.poke(0.U)
+        }
+        dut.io.prepare.valid.poke(true.B)
+        val bound = bindBrobPrepared(dut, 2, Seq(7, 8))
+        dut.io.prepare.ready.expect(true.B)
+        dut.io.prepared.entries(0).bid.expect(3.U)
+        dut.io.prepared.entries(1).bid.expect(3.U)
+        val gen = dut.io.prepared.entries(0).brobGeneration.peek().litValue.toInt
+        dut.io.publishFire.poke(true.B)
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        dut.io.publishFire.poke(false.B)
+        (bound(0), bound(1), 3, gen)
+      }
+
+      clearBrob(dut)
+      val prefill0 = publishRawSingle(130, rid = 0)
+      releaseOne(prefill0._1, prefill0._2, prefill0._3)
+      val prefill1 = publishRawSingle(131, rid = 1)
+      releaseOne(prefill1._1, prefill1._2, prefill1._3)
+      val prefill2 = publishRawSingle(132, rid = 2)
+      releaseOne(prefill2._1, prefill2._2, prefill2._3)
+      val (survivorRaw, killedRaw, straddlerBid, straddlerGen) =
+        publishRawClosed(133)
+      val (youngerRaw, youngerBid, youngerGen) =
+        publishRawSingle(135, rid = 0, ridGeneration = 1,
+          residentGeneration = 9)
+      assert(youngerBid == 0)
+      assert(youngerGen == 1)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x169.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      pokeBoundRob(dut.io.recoveryPrepare.bits.trigger, survivorRaw,
+        straddlerBid, straddlerGen, residentGeneration = 7)
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      pokeBoundRob(dut.io.recoveryPrepare.bits.survivingTail, survivorRaw,
+        straddlerBid, straddlerGen, residentGeneration = 7)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      pokeBoundRob(dut.io.recoveryPrepare.bits.firstKilled, killedRaw,
+        straddlerBid, straddlerGen, residentGeneration = 8)
+      pokeBoundRob(dut.io.recoveryPrepare.bits.lastKilled, youngerRaw,
+        youngerBid, youngerGen, residentGeneration = 9)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      pokeBoundRob(dut.io.release.bits.entries(0), survivorRaw, straddlerBid,
+        straddlerGen, residentGeneration = 7)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
   test("BROB abort preserves a closed block that straddles recovery") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
@@ -1072,9 +1228,10 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 1, id = 81, rid = 0, groupCount = 1,
         stid = 0, member = 1, blockStart = false, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      val ids = bindBrobPrepared(dut, 2)
       dut.io.prepare.ready.expect(true.B)
-      val survivor = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
-      val killed = dut.io.prepare.bits.entries(1).uop.decoded.rob.peek()
+      val survivor = ids(0)
+      val killed = ids(1)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
@@ -1279,6 +1436,98 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.io.targets(0).prepared.bits.transactionId.poke(0xb0.U)
       dut.io.targets(2).prepared.valid.poke(true.B)
       dut.io.targets(2).prepared.bits.poke(dut.io.targets(2).prepare.bits.peek())
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(true.B)
+    }
+  }
+
+  test("RecoveryControl ignores target acknowledgements before prepare fires") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xb1.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      authorizeCandidate(dut, 0, 0xb1, stid = 0, rid = 0, age = 1)
+      dut.io.targets(0).prepare.ready.poke(false.B)
+      dut.clock.step()
+      dut.io.robPrepared.valid.poke(true.B)
+      dut.io.robPrepared.bits.poke(dut.io.robPrepare.bits.peek())
+      dut.clock.step()
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.io.targets(0).prepared.valid.poke(true.B)
+      dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.io.targets(0).prepare.ready.poke(true.B)
+      dut.io.targets(0).prepared.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.io.targets(0).prepared.valid.poke(true.B)
+      dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
+      dut.io.targets(0).prepared.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.io.targets(0).prepared.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(true.B)
+    }
+  }
+
+  test("RecoveryControl does not carry stale target acknowledgements across abort retry") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xb2.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      authorizeCandidate(dut, 0, 0xb2, stid = 0, rid = 0, age = 1)
+      dut.io.targets(0).prepare.ready.poke(false.B)
+      dut.clock.step()
+      dut.io.robPrepared.valid.poke(true.B)
+      dut.io.robPrepared.bits.poke(dut.io.robPrepare.bits.peek())
+      dut.clock.step()
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.targets(0).prepared.valid.poke(true.B)
+      dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
+      dut.clock.step()
+      dut.io.abort.poke(true.B)
+      dut.clock.step()
+      dut.io.abort.poke(false.B)
+      dut.io.targets(0).prepared.valid.poke(false.B)
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+    }
+
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      clearRecoveryControl(dut)
+      dut.io.robPrepare.ready.poke(false.B)
+      dut.io.events(0).valid.poke(true.B)
+      dut.io.events(0).bits.transactionId.poke(0xb3.U)
+      dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+      dut.io.events(0).bits.trigger.stid.poke(0.U)
+      dut.io.events(0).bits.trigger.ridSlot.poke(1.U)
+      authorizeCandidate(dut, 0, 0xb3, stid = 0, rid = 1, age = 1)
+      dut.io.targets(0).prepare.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.robPrepare.valid.expect(true.B)
+      dut.io.robPrepared.valid.poke(true.B)
+      dut.io.robPrepared.bits.poke(dut.io.robPrepare.bits.peek())
+      dut.io.robPrepare.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.io.targets(0).prepared.valid.poke(true.B)
+      dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
+      dut.io.targets(0).prepared.bits.transactionId.poke(0xb2.U)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.targets(0).prepared.valid.poke(true.B)
+      dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
       dut.clock.step()
       dut.io.targets(0).apply.valid.expect(true.B)
     }
@@ -1540,8 +1789,9 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 220, rid = 0, groupCount = 1,
         stid = 0, member = 0, blockStart = true, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      val ids = bindBrobPrepared(dut, 1)
       dut.io.prepare.ready.expect(true.B)
-      val id = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+      val id = ids(0)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
@@ -1943,8 +2193,9 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       lane(dut.io.prepare.bits, 0, id = 240, rid = 0, groupCount = 1,
         stid = 0, member = 0, blockStart = true, blockStop = true)
       dut.io.prepare.valid.poke(true.B)
+      val ids = bindBrobPrepared(dut, 1)
       dut.io.prepare.ready.expect(true.B)
-      val id = dut.io.prepare.bits.entries(0).uop.decoded.rob.peek()
+      val id = ids(0)
       dut.io.publishFire.poke(true.B)
       dut.clock.step()
       dut.io.prepare.valid.poke(false.B)
