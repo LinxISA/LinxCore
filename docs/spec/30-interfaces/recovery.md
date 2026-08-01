@@ -40,7 +40,11 @@ control counts a target prepared transaction only when that target's Prepare
 request has already fired or fires in the same cycle, the response fires in
 Prepare phase, and the transaction matches the retained plan. Stale,
 pre-prepare, wrong-phase, or otherwise mismatched target responses are
-drainable Decoupled beats, but they are not target acknowledgement authority.
+drainable Decoupled beats in every controller state, but they are not target
+acknowledgement authority outside `PrepareTargets`. In particular, a matching
+beat already held before the controller enters target preparation MUST fire
+and drain before the target Prepare request becomes visible; it cannot satisfy
+that request later and cannot survive an abort into a same-transaction retry.
 A matching Abort broadcast terminates the retained transaction without owner
 mutation.
 RecoveryControl also exposes a dedicated `robAbort: Valid[RecoveryPlan]`

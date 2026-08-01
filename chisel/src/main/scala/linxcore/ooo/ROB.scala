@@ -199,6 +199,8 @@ class ROB(val p: CoreParams) extends Module {
     val ordinal = prepareGroupOrdinal(lane)
     val (expectedSlot, expectedWrap) = slotPlus(tailSlot(prepareStid), ordinal)
     val expectedGen = tailGeneration(prepareStid) + expectedWrap.asUInt
+    val expectedResidentGeneration = residentGenerationAt(
+      prepareStid, expectedSlot, row.uop.decoded.rob.memberIndex)
     val firstLane = lane == 0
     val prev = if (firstLane) row else io.prepare.bits.entries(lane - 1)
     val continuousMember = if (firstLane) {
@@ -214,17 +216,34 @@ class ROB(val p: CoreParams) extends Module {
       row.uop.decoded.rob.ridSlot === expectedSlot &&
         row.uop.decoded.rob.ridGeneration === expectedGen &&
         row.uop.decoded.rob.memberIndex < p.ooo.maxInstructionsPerRobGroup.U &&
+        (!row.residentBound ||
+          row.uop.decoded.rob.residentGeneration === expectedResidentGeneration) &&
         continuousMember &&
         !memberLiveAt(prepareStid, expectedSlot, row.uop.decoded.rob.memberIndex))
   }.reduce(_ && _)
   val brobExact = (0 until d3Width).map { lane =>
     val active = lane.U < io.prepare.bits.count
     val row = io.prepare.bits.entries(lane)
-    val bound = active && row.brobBound
-    !bound || (
+    val binding = io.brobPrepared.entries(lane)
+    val rawBindingExact = !row.brobBound || (
+      row.uop.decoded.rob.bid === binding.bid &&
+        row.uop.decoded.rob.brobGeneration === binding.brobGeneration)
+    val previousBindingExact = if (lane == 0) {
+      true.B
+    } else {
+      val previousActive = (lane - 1).U < io.prepare.bits.count
+      val previous = io.brobPrepared.entries(lane - 1)
+      !previousActive || row.blockStart || (
+        binding.bid === previous.bid &&
+          binding.brobGeneration === previous.brobGeneration)
+    }
+    Mux(active,
       io.brobPrepared.count === io.prepare.bits.count &&
-        io.brobPrepared.entries(lane).valid &&
-        io.brobPrepared.entries(lane).stid === prepareStid)
+        binding.valid &&
+        binding.stid === prepareStid &&
+        binding.allocated === row.blockStart &&
+        rawBindingExact && previousBindingExact,
+      !binding.valid)
   }.reduce(_ && _)
   val prepareReady = prepareCountLegal && prepareGroupCountLegal &&
     prepareCapacity && prepareShape && prepareExactRows &&
@@ -242,7 +261,7 @@ class ROB(val p: CoreParams) extends Module {
     val member = in.uop.decoded.rob.memberIndex
     prepared.entries(lane).valid := active
     prepared.entries(lane).rob := in.uop.decoded.rob
-    when(active && in.brobBound) {
+    when(active) {
       prepared.entries(lane).rob.bid := io.brobPrepared.entries(lane).bid
       prepared.entries(lane).rob.brobGeneration :=
         io.brobPrepared.entries(lane).brobGeneration

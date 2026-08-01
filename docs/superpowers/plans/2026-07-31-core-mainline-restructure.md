@@ -889,7 +889,7 @@ bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 
 `RecoveryEvent` is retained at producers；OOO resolves one `RecoveryPlan` containing exact kill set and redirect。TOP distributes the same plan object; no box recomputes global age.
 
-- [ ] **Step 4: Run ROB, BROB and recovery cross-gates**
+- [x] **Step 4: Run ROB, BROB and recovery cross-gates**
 
 Run:
 
@@ -900,13 +900,14 @@ bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 bash tests/test_rob_bookkeeping.sh
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit intent: `Make one ROB decision govern commit, traps, and precise cleanup`
 
 ### Task 10: Close Task 9 and freeze the production-owner cutover manifest
 
 **Files:**
+- Modify: `chisel/src/main/scala/linxcore/ooo/ROB.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/BROB.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/RecoveryControl.scala`
 - Modify: `chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala`
@@ -921,10 +922,13 @@ Commit intent: `Make one ROB decision govern commit, traps, and precise cleanup`
 - Produces: a checked one-owner/call-site/deletion manifest that every later
   atomic cutover must update.
 
-- [ ] **Step 1: Close the current Task-9 RED cases**
+- [x] **Step 1: Close the current Task-9 RED cases**
 
-Require `BROB` to publish allocator-bound resident identity and require
-`RecoveryControl` to forget target acknowledgements on abort before retry.
+Require `ROB` to consume and stamp allocator-authored BROB identity on every
+active D3 lane, including initially unbound lanes, while `BROB` stores only the
+resulting ROB-prepared resident identity. Require `RecoveryControl` to drain a
+target prepared beat outside `PrepareTargets` without acknowledgement so a
+beat held before Prepare cannot survive abort into a same-transaction retry.
 
 Run:
 

@@ -348,6 +348,17 @@ The Task-9 canonical owner files are `linxcore.ooo.ROB`,
 These owners use `CoreParams` directly and do not instantiate or wrap the
 legacy `Ooo*`, `rob.*`, `bctrl.*`, or `recovery.*` owners.
 
+ROB and BROB publication is one combinational prepare followed by one common
+mutation fire. Every active D3 lane MUST receive allocator-authored BID and
+BROB generation plus matching STID from `BROBPrepared`, including a lane whose
+raw D3 payload has `brobBound = false`; ROB MUST stamp BID/generation plus its
+own resident generation into the exact prepared ROB identity. A lane already
+marked `brobBound` MUST match the allocator binding, and a lane already marked
+`residentBound` MUST match the ROB-owned resident generation. Count,
+active/inactive lane shape, STID, block-allocation marker, same-block
+BID/generation continuity, RID/member identity, and generation mismatches MUST
+backpressure the common publication before either owner mutates.
+
 ## ROB/BROB/commit/recovery owner verification {#VER-OOO-003}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-010,OOO-011,OOO-012,OOO-013,MEC-OOO-006 -->
 
@@ -365,11 +376,16 @@ holdoff behind unresolved producers, ROB recovery request/response,
 wrong-phase and duplicate apply rejection, ROB/BROB abort termination, closed
 BROB straddling-block survivor shortening,
 ROB-prepared BROB publication identity binding for unbound D3 residency,
+real ROB/BROB coordinated publication across nonzero BID, BID wrap,
+resident-generation reuse, release, and suffix recovery,
 one-prepare-per target barriers, pre-prepare target acknowledgement rejection,
 wrong-phase target acknowledgement rejection, mismatched acknowledgement
 rejection, common apply, request-phase ROB abort, target-prepare abort
 priority, visible-apply abort suppression, legal Decoupled drain without
 semantic acceptance for pre-request and stale/unrelated ROB responses in
 RequestRob, WaitRob, and WaitRobAbort,
+target prepared-beat drain outside target preparation without acknowledgement,
+including a matching beat held before Prepare followed by same-transaction
+abort and retry,
 simultaneous terminal fail-closed behavior, and
 non-mutating abort.

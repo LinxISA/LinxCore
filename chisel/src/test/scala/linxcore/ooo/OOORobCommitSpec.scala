@@ -145,6 +145,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def publish(dut: ROB, count: Int): Seq[RobIdentity] = {
+    bindBrobPrepared(dut, count)
     dut.io.prepare.valid.poke(true.B)
     dut.io.prepare.ready.expect(true.B)
     (0 until count).foreach { lane =>
@@ -156,6 +157,29 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(false.B)
     dut.io.publishFire.poke(false.B)
     ids
+  }
+
+  private def bindBrobPrepared(dut: ROB, count: Int): Unit = {
+    dut.io.brobPrepared.poke(0.U.asTypeOf(dut.io.brobPrepared))
+    dut.io.brobPrepared.count.poke(count.U)
+    (0 until count).foreach { laneIndex =>
+      val row = dut.io.prepare.bits.entries(laneIndex)
+      val continuesPreviousBlock = laneIndex > 0 &&
+        !row.blockStart.peek().litToBoolean
+      dut.io.brobPrepared.entries(laneIndex).valid.poke(true.B)
+      dut.io.brobPrepared.entries(laneIndex).stid.poke(
+        row.uop.decoded.rob.stid.peek())
+      dut.io.brobPrepared.entries(laneIndex).bid.poke(
+        if (continuesPreviousBlock)
+          dut.io.brobPrepared.entries(laneIndex - 1).bid.peek()
+        else row.uop.decoded.rob.bid.peek())
+      dut.io.brobPrepared.entries(laneIndex).brobGeneration.poke(
+        if (continuesPreviousBlock)
+          dut.io.brobPrepared.entries(laneIndex - 1).brobGeneration.peek()
+        else row.uop.decoded.rob.brobGeneration.peek())
+      dut.io.brobPrepared.entries(laneIndex).allocated.poke(
+        row.blockStart.peek())
+    }
   }
 
   private def complete(dut: ROB, rob: RobIdentity, accepted: Boolean): Unit = {
@@ -634,6 +658,13 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.brobPrepared.entries(0).stid.poke(0.U)
       dut.io.brobPrepared.entries(0).bid.poke(3.U)
       dut.io.brobPrepared.entries(0).brobGeneration.poke(2.U)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.bid.poke(3.U)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.brobGeneration.poke(2.U)
+      dut.io.prepare.bits.entries(0).residentBound.poke(true.B)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.residentGeneration.poke(1.U)
+      dut.io.prepare.ready.expect(false.B)
+      dut.io.prepare.bits.entries(0).uop.decoded.rob.residentGeneration.poke(0.U)
       dut.io.prepare.ready.expect(true.B)
       dut.io.prepared.entries(0).rob.bid.expect(3.U)
       dut.io.prepared.entries(0).rob.brobGeneration.expect(2.U)
@@ -714,6 +745,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
           dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
           lane(dut.io.prepare.bits, 0, id = idValue, rid = rid, member = 0,
             early = early, groupCount = 1)
+          bindBrobPrepared(dut, 1)
           dut.io.prepare.valid.poke(true.B)
           dut.io.prepare.ready.expect(true.B)
           val rob = dut.io.prepared.entries(0).rob.peek()
@@ -756,6 +788,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
         lane(dut.io.prepare.bits, 0, id = 180, rid = 0, member = 0,
           groupCount = 1)
         dut.io.prepare.bits.entries(0).uop.decoded.rob.ridGeneration.poke(1.U)
+        bindBrobPrepared(dut, 1)
         dut.io.prepare.valid.poke(true.B)
         dut.io.prepare.ready.expect(true.B)
         dut.io.prepared.entries(0).rob.ridSlot.expect(0.U)

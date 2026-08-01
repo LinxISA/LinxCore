@@ -42,6 +42,70 @@ push identities are filled only after the corresponding operation succeeds.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
 
+## Loop 9 — Canonical ROB, BROB, commit, and precise recovery authority
+
+- Scope: Task 9 only, including twelve review/fix rounds needed to close the
+  canonical owner semantics before any Task-10 dispatch or TOP cutover. The
+  loop adds `linxcore.ooo.ROB`, `BROB`, `CommitControl`, and
+  `RecoveryControl`; it does not integrate the old `OooO3RenameCoordinator`
+  or change live TOP ownership.
+- Baseline and references: the final round starts from the reviewed round-11
+  commit `83c86230` plus the atomic-cutover plan commit `989fc583`. NDF
+  revision `09cfe646931183caee82dd913f77f516b82134df` supplies stable clause
+  identity and L1/L2/L3 verification edges; Linx semantics remain repository
+  owned.
+- Governing clauses: `OOO-010..013`, `MEC-OOO-006`, `VER-OOO-003`,
+  `IFC-RECOVERY-001`, `MEC-RECOVERY-001`, `IFC-COMMIT-001`, and
+  `MEC-COMMIT-001`, together with the exact identity and continuous-prefix
+  contracts.
+- RED evidence: initial Task-9 tests failed because the four canonical owners
+  did not exist. Review rounds then exposed release-before-apply, preview
+  mutation, bank geometry, age-token ambiguity, stale/mismatched recovery
+  responses, compact-suffix endpoint errors, closed-block straddling, wrapped
+  tail repair, unbound BROB publication, and non-causal target acknowledgements.
+  Round 12 finally observed real ROB/BROB coordinated publication blocked at
+  the first unbound D3 packet and a matching target beat held before Prepare
+  incorrectly triggering Apply on retry.
+- GREEN evidence: `OOORobCommitSpec` passes 21/21 and `OOORecoverySpec`
+  passes 43/43. The latter uses a real ROB/BROB coordinator to prove
+  allocator-authored BID 0/1/2/3, same-packet members, BID wrap and BROB
+  generation, resident-generation reuse, release, and suffix recovery. A
+  same-DUT held-beat/abort/retry test proves only a fresh causal target response
+  can authorize Apply.
+- Cross-gate evidence: ROBID passes 3/3; the generated BROB order-state probe
+  passes; ROB bookkeeping commits 4623 rows; `TopInterfaceSpec` passes 9/9;
+  `InterfaceManifestSpec` passes 2/2; the generated interface manifest is
+  exact; the NDF profile reports 113 clauses, 52 L1 MUST clauses, 59 verified
+  targets, zero open questions, and two verified references. The forbidden
+  external-narrative scan is empty. Standard Chisel build and Verilator 5.044
+  lint pass.
+- Ownership result: ROB owns grouped resident identity, exact completion,
+  ordered preview/retire/release, candidate status, and compact suffix
+  recovery. BROB owns per-STID BID/generation allocation and block lifecycle.
+  Their prepare graph exchanges allocator-authored BROB binding and
+  ROB-authored resident identity, then mutates only on one common fire.
+  CommitControl owns the retained all-owner commit authorization.
+  RecoveryControl owns the single ROB-authored plan and causal all-target
+  prepare barrier; stale/early beats are drainable but never acknowledgement
+  authority.
+- Independent review: the first round-12 pass found one HIGH test-strength
+  issue because the held target beat regression adapted to ready instead of
+  requiring pre-Prepare drain. The corrected test asserts ready before the
+  state transition, proves the drain, and passes its 3/3 focused subset. Final
+  re-review reports zero remaining findings and verdict `APPROVE`.
+- Remaining gap: these owners remain standalone. Task 10 freezes the checked
+  production-owner/call-site/deletion manifest; Task 11 then atomically cuts
+  RENU D3/S1 dispatch onto these owners without importing the duplicate O3
+  coordinator.
+- skill-evolve: no-update — all twelve rounds apply existing exact-identity,
+  single-owner, retained ready/valid, causal recovery, parameterization, and
+  verification rules already captured by the LinxCore skill.
+- Branch: `codex/chisel-gap-superpowers`
+- Commits: Task-9 history is retained in the branch; the round-12 Lore commit
+  has intent `Bind every ROB resident to causal BROB and recovery authority`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded after the immutable commit exists.
+
 ## Loop 7 — Canonical DEC and retained OOO D1/D2 admission
 
 - Scope: Task 7 only, preceded by the NDF/interface planning correction in

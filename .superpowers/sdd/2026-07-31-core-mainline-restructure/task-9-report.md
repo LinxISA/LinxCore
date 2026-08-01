@@ -851,3 +851,102 @@ another full rerun without RTL changes.
   BROB table authority comes from the ROB-prepared exact identity, and recovery
   barriers must be causally tied to owner prepare ownership. No reusable skill
   update was required.
+
+## Fix Round 12
+
+Review round 12 found two HIGH blockers left by round 11. Canonical ROB stamped
+BROB BID/generation only when the incoming D3 row already asserted
+`brobBound`, although the real OOO D3 producer deliberately publishes unbound
+rows. The standalone BROB test fabricated `robPrepared`, so it did not expose
+the resulting first-nonzero-BID backpressure. RecoveryControl also accepted
+target prepared beats only in `PrepareTargets`; a matching beat held before
+that state could remain valid and be counted on entry or after an abort/retry.
+
+### Fix-Round-12 RED Evidence
+
+- The real ROB/BROB coordinator test first failed behaviorally with
+  `prepare.ready = 0` on an unbound D3 publication. After repairing test-only
+  compile/literal issues, the RED was observed at
+  `OOORecoverySpec.scala:1373` before RTL changes.
+- The held-target regression failed behaviorally with `apply.valid = 1` where
+  no causal target acknowledgement had occurred, at the then-current
+  `OOORecoverySpec.scala:1835`.
+- A final bound-residency negative test observed `prepare.ready = 1` for a D3
+  row with `residentBound = true` and a stale resident generation. The focused
+  malformed-binding test turned RED before the ROB validation was added.
+- The first full-suite rerun correctly exposed seven old standalone ROB cases
+  whose fixtures did not provide any BROB binding. After adding explicit
+  binding, six cases still exposed a fixture error that assigned different
+  BIDs to different ROB groups inside one block. The fixture now follows the
+  real BROB rule: only `blockStart` allocates a new BID; later lanes retain the
+  block binding.
+
+### Fix-Round-12 Repairs
+
+- ROB now validates `BROBPrepared` for every active lane, independent of raw
+  `brobBound`, and stamps allocator-authored BID/BROB generation plus
+  ROB-owned resident generation into every prepared identity. Count,
+  active/inactive lane validity, STID, allocation marker, already-bound raw
+  BID/generation, already-bound resident generation, and same-block continuity
+  mismatches all backpressure before the common publication fire.
+- The focused coordinator wires the real `BROB.prepared -> ROB.brobPrepared`
+  and `ROB.prepared -> BROB.robPrepared` graph. It proves BID 0/1/2/3,
+  same-packet first/last members, BID3-to-BID0 generation wrap, resident
+  generation reuse, commit/release, and compact suffix recovery without a
+  fabricated ROB-prepared helper.
+- RecoveryControl now keeps every target `prepared.ready` open so stale or
+  early Decoupled beats drain in all states. An acknowledgement can set its
+  mask only while the controller is already in `PrepareTargets`, after or in
+  the same cycle as the corresponding target Prepare fire, and with exact
+  transaction/phase equality.
+- The same-DUT abort/retry regression holds a matching target beat before
+  Prepare, proves it drains without acknowledgement, aborts, retries the same
+  transaction identity, and requires a fresh causal target response before
+  Apply.
+- Behavior and recovery-interface NDF clauses now state both contracts.
+
+### Fix-Round-12 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  43 tests in 3 minutes 41 seconds.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests in 3 minutes 46 seconds after the final bound-resident-generation
+  validation.
+- Focused RED-to-GREEN filters for coordinator publication, held drain,
+  suffix, member, and apply/abort behavior all pass.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS,
+  `ROBID semantic check: ok`, 3 tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS,
+  `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS,
+  `rob bookkeeping ok: commits=4623`.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS,
+  9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS,
+  2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- Forbidden external-narrative scan under `docs/spec` - PASS, no matches.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS with Verilator 5.044.
+- `bash tests/test_chisel_architecture_adapter.sh` - PASS.
+- `python3 tools/generate/lint_stage_spec_ownership.py` - PASS,
+  39 trace stages and 37 canonical coordinates.
+- `python3 tools/generate/lint_engine_ownership.py` - PASS.
+- `git diff --check` - PASS.
+
+### Fix-Round-12 Notes
+
+- Independent review initially found one HIGH test-strength blocker: the held
+  target beat helper adapted to `prepared.ready` instead of asserting the
+  outside-`PrepareTargets` drain contract. The helper now requires ready before
+  the transition, steps the exact drain, and unconditionally withdraws the
+  consumed beat. The focused drain subset passes 3/3, and re-review reports
+  zero remaining findings with verdict `APPROVE`.
+- The standard build again removed the generated `xb` opcode row as an
+  unrelated side effect; the row was restored before staging.
+- `skill-evolve: no-update` - round 12 applies existing exact-identity,
+  allocator-authority, causal-handshake, and retained-Decoupled rules already
+  present in the LinxCore domain skill. No reusable workflow invariant changed.

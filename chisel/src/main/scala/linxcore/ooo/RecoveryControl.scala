@@ -326,9 +326,9 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
       state === RecoveryControlState.PrepareTargets && !sent
     io.targets(target).prepare.bits := plan
     sentHits(target) := io.targets(target).prepare.fire
-    io.targets(target).prepared.ready :=
-      state === RecoveryControlState.PrepareTargets
-    ackHits(target) := io.targets(target).prepared.fire &&
+    io.targets(target).prepared.ready := true.B
+    ackHits(target) := state === RecoveryControlState.PrepareTargets &&
+      io.targets(target).prepared.fire &&
       io.targets(target).prepared.bits.phase === RecoveryPhase.Prepare &&
       (sent || sentHits(target)) &&
       RecoveryPlanContract.sameTransactionIgnoringPhase(

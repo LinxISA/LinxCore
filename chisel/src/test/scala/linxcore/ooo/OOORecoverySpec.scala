@@ -2,9 +2,93 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import chisel3.util.{Decoupled, Valid}
 import linxcore.params.{CoreParams, ParamProfiles}
 import linxcore.top.interface._
 import org.scalatest.funsuite.AnyFunSuite
+
+class RobBrobPublicationCoordinatorIO(val p: CoreParams) extends Bundle {
+  val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
+  val robPrepared = Output(new OOORobPrepared(p))
+  val brobPrepared = Output(new BROBPrepared(p))
+  val robCommitReady = Input(Bool())
+  val robCommit = Output(new OOORobCommitPreview(p))
+  val robCommitValid = Output(Bool())
+  val robCommitApply = Input(Bool())
+  val robRelease = Flipped(Valid(new OOORobReleaseTxn(p)))
+  val robReleaseReady = Output(Bool())
+  val robReleaseApply = Input(Bool())
+  val brobRelease = Flipped(Valid(new BROBReleaseTxn(p)))
+  val brobReleaseReady = Output(Bool())
+  val brobReleaseApply = Input(Bool())
+  val robRecoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
+  val robRecoveryPrepared = Valid(new RecoveryPlan(p))
+  val robRecoveryApply = Flipped(Valid(new RecoveryPlan(p)))
+  val robRecoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
+  val brobRecoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
+  val brobRecoveryPrepared = Valid(new RecoveryPlan(p))
+  val brobRecoveryApply = Flipped(Valid(new RecoveryPlan(p)))
+  val brobRecoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
+}
+
+class RobBrobPublicationCoordinator(val p: CoreParams) extends Module {
+  val io = IO(new RobBrobPublicationCoordinatorIO(p))
+
+  private val rob = Module(new ROB(p))
+  private val brob = Module(new BROB(p))
+
+  rob.io.prepare.valid := io.prepare.valid
+  rob.io.prepare.bits := io.prepare.bits
+  brob.io.prepare.valid := io.prepare.valid
+  brob.io.prepare.bits := io.prepare.bits
+  rob.io.brobPrepared := brob.io.prepared
+  brob.io.robPrepared := rob.io.prepared
+  io.prepare.ready := rob.io.prepare.ready && brob.io.prepare.ready
+  val publishFire = io.prepare.valid && io.prepare.ready
+  rob.io.publishFire := publishFire
+  brob.io.publishFire := publishFire
+  io.robPrepared := rob.io.prepared
+  io.brobPrepared := brob.io.prepared
+
+  rob.io.completion.valid := false.B
+  rob.io.completion.bits := 0.U.asTypeOf(rob.io.completion.bits)
+  rob.io.commit.ready := io.robCommitReady
+  io.robCommitValid := rob.io.commit.valid
+  io.robCommit := rob.io.commit.bits
+  rob.io.commitApply := io.robCommitApply
+
+  rob.io.release.valid := io.robRelease.valid
+  rob.io.release.bits := io.robRelease.bits
+  io.robReleaseReady := rob.io.releaseReady
+  rob.io.releaseApply := io.robReleaseApply
+  brob.io.release.valid := io.brobRelease.valid
+  brob.io.release.bits := io.brobRelease.bits
+  io.brobReleaseReady := brob.io.releaseReady
+  brob.io.releaseApply := io.brobReleaseApply
+
+  rob.io.recoveryPrepare.valid := io.robRecoveryPrepare.valid
+  rob.io.recoveryPrepare.bits := io.robRecoveryPrepare.bits
+  io.robRecoveryPrepare.ready := rob.io.recoveryPrepare.ready
+  io.robRecoveryPrepared := rob.io.recoveryPrepared
+  rob.io.recoveryApply.valid := io.robRecoveryApply.valid
+  rob.io.recoveryApply.bits := io.robRecoveryApply.bits
+  rob.io.recoveryAbort.valid := io.robRecoveryAbort.valid
+  rob.io.recoveryAbort.bits := io.robRecoveryAbort.bits
+  for (source <- 0 until 2) {
+    rob.io.recoveryCandidate(source).valid := false.B
+    rob.io.recoveryCandidate(source).bits := 0.U.asTypeOf(
+      rob.io.recoveryCandidate(source).bits)
+  }
+
+  brob.io.recoveryPrepare.valid := io.brobRecoveryPrepare.valid
+  brob.io.recoveryPrepare.bits := io.brobRecoveryPrepare.bits
+  io.brobRecoveryPrepare.ready := brob.io.recoveryPrepare.ready
+  io.brobRecoveryPrepared := brob.io.recoveryPrepared
+  brob.io.recoveryApply.valid := io.brobRecoveryApply.valid
+  brob.io.recoveryApply.bits := io.brobRecoveryApply.bits
+  brob.io.recoveryAbort.valid := io.brobRecoveryAbort.valid
+  brob.io.recoveryAbort.bits := io.brobRecoveryAbort.bits
+}
 
 class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   private def params: CoreParams = {
@@ -84,6 +168,26 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def publish(dut: ROB, count: Int): Seq[RobIdentity] = {
+    dut.io.brobPrepared.poke(0.U.asTypeOf(dut.io.brobPrepared))
+    dut.io.brobPrepared.count.poke(count.U)
+    (0 until count).foreach { laneIndex =>
+      val row = dut.io.prepare.bits.entries(laneIndex)
+      val continuesPreviousBlock = laneIndex > 0 &&
+        !row.blockStart.peek().litToBoolean
+      dut.io.brobPrepared.entries(laneIndex).valid.poke(true.B)
+      dut.io.brobPrepared.entries(laneIndex).stid.poke(
+        row.uop.decoded.rob.stid.peek())
+      dut.io.brobPrepared.entries(laneIndex).bid.poke(
+        if (continuesPreviousBlock)
+          dut.io.brobPrepared.entries(laneIndex - 1).bid.peek()
+        else row.uop.decoded.rob.bid.peek())
+      dut.io.brobPrepared.entries(laneIndex).brobGeneration.poke(
+        if (continuesPreviousBlock)
+          dut.io.brobPrepared.entries(laneIndex - 1).brobGeneration.peek()
+        else row.uop.decoded.rob.brobGeneration.peek())
+      dut.io.brobPrepared.entries(laneIndex).allocated.poke(
+        row.blockStart.peek())
+    }
     dut.io.prepare.valid.poke(true.B)
     dut.io.prepare.ready.expect(true.B)
     val ids = (0 until count).map(lane => dut.io.prepared.entries(lane).rob.peek())
@@ -169,6 +273,65 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     target.bid.poke(bid.U)
     target.brobGeneration.poke(brobGeneration.U)
     target.residentGeneration.poke(residentGeneration.U)
+  }
+
+  private def clearCoordinator(dut: RobBrobPublicationCoordinator): Unit = {
+    dut.io.prepare.valid.poke(false.B)
+    dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.robCommitReady.poke(true.B)
+    dut.io.robCommitApply.poke(false.B)
+    dut.io.robRelease.valid.poke(false.B)
+    dut.io.robRelease.bits.poke(0.U.asTypeOf(dut.io.robRelease.bits))
+    dut.io.robReleaseApply.poke(false.B)
+    dut.io.brobRelease.valid.poke(false.B)
+    dut.io.brobRelease.bits.poke(0.U.asTypeOf(dut.io.brobRelease.bits))
+    dut.io.brobReleaseApply.poke(false.B)
+    dut.io.robRecoveryPrepare.valid.poke(false.B)
+    dut.io.robRecoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.robRecoveryPrepare.bits))
+    dut.io.robRecoveryApply.valid.poke(false.B)
+    dut.io.robRecoveryApply.bits.poke(0.U.asTypeOf(dut.io.robRecoveryApply.bits))
+    dut.io.robRecoveryAbort.valid.poke(false.B)
+    dut.io.robRecoveryAbort.bits.poke(0.U.asTypeOf(dut.io.robRecoveryAbort.bits))
+    dut.io.brobRecoveryPrepare.valid.poke(false.B)
+    dut.io.brobRecoveryPrepare.bits.poke(0.U.asTypeOf(dut.io.brobRecoveryPrepare.bits))
+    dut.io.brobRecoveryApply.valid.poke(false.B)
+    dut.io.brobRecoveryApply.bits.poke(0.U.asTypeOf(dut.io.brobRecoveryApply.bits))
+    dut.io.brobRecoveryAbort.valid.poke(false.B)
+    dut.io.brobRecoveryAbort.bits.poke(0.U.asTypeOf(dut.io.brobRecoveryAbort.bits))
+  }
+
+  private def retireCoordinatorHead(
+      dut: RobBrobPublicationCoordinator,
+      count: Int): Unit = {
+    dut.io.robCommitReady.poke(true.B)
+    dut.io.robCommitValid.expect(true.B)
+    dut.io.robCommit.count.expect(count.U)
+    dut.io.robCommitApply.poke(true.B)
+    dut.clock.step()
+    dut.io.robCommitApply.poke(false.B)
+  }
+
+  private def releaseCoordinator(
+      dut: RobBrobPublicationCoordinator,
+      ids: Seq[RobIdentity]): Unit = {
+    dut.io.robRelease.valid.poke(true.B)
+    dut.io.robRelease.bits.count.poke(ids.length.U)
+    dut.io.brobRelease.valid.poke(true.B)
+    dut.io.brobRelease.bits.count.poke(ids.length.U)
+    ids.zipWithIndex.foreach { case (id, laneIndex) =>
+      dut.io.robRelease.bits.lanes(laneIndex).valid.poke(true.B)
+      dut.io.robRelease.bits.lanes(laneIndex).rob.poke(id)
+      dut.io.brobRelease.bits.entries(laneIndex).poke(id)
+    }
+    dut.io.robReleaseReady.expect(true.B)
+    dut.io.brobReleaseReady.expect(true.B)
+    dut.io.robReleaseApply.poke(true.B)
+    dut.io.brobReleaseApply.poke(true.B)
+    dut.clock.step()
+    dut.io.robRelease.valid.poke(false.B)
+    dut.io.robReleaseApply.poke(false.B)
+    dut.io.brobRelease.valid.poke(false.B)
+    dut.io.brobReleaseApply.poke(false.B)
   }
 
   private def authorizeCandidate(
@@ -1205,6 +1368,114 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("ROB and BROB coordinate bound publication for unbound D3 residency") {
+    simulate(new RobBrobPublicationCoordinator(params)) { dut =>
+      def publishUnbound(
+          baseId: Int,
+          rid: Int,
+          ridGeneration: Int,
+          count: Int,
+          blockStopLast: Boolean): Seq[RobIdentity] = {
+        dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+        for (laneIndex <- 0 until count) {
+          lane(dut.io.prepare.bits, laneIndex, id = baseId + laneIndex, rid = rid,
+            groupCount = 1, stid = 0, member = laneIndex,
+            blockStart = laneIndex == 0, blockStop = blockStopLast && laneIndex == count - 1)
+          dut.io.prepare.bits.entries(laneIndex).earlyRobComplete.poke(true.B)
+          dut.io.prepare.bits.entries(laneIndex).brobBound.poke(false.B)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.ridGeneration.poke(
+            ridGeneration.U)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.bid.poke(0.U)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.brobGeneration.poke(0.U)
+          dut.io.prepare.bits.entries(laneIndex).uop.decoded.rob.residentGeneration.poke(0.U)
+        }
+        dut.io.prepare.valid.poke(true.B)
+        dut.io.prepare.ready.expect(true.B)
+        val ids = (0 until count).map(laneIndex =>
+          dut.io.robPrepared.entries(laneIndex).rob.peek())
+        dut.clock.step()
+        dut.io.prepare.valid.poke(false.B)
+        ids
+      }
+
+      def publishRetireReleaseSingle(
+          baseId: Int,
+          rid: Int,
+          expectedBid: Int,
+          expectedBrobGeneration: Int,
+          expectedResidentGeneration: Int): Unit = {
+        val ids = publishUnbound(baseId, rid = rid, ridGeneration = 0,
+          count = 1, blockStopLast = true)
+        assert(ids.head.bid.litValue == expectedBid)
+        assert(ids.head.brobGeneration.litValue == expectedBrobGeneration)
+        assert(ids.head.residentGeneration.litValue == expectedResidentGeneration)
+        retireCoordinatorHead(dut, 1)
+        releaseCoordinator(dut, ids)
+      }
+
+      clearCoordinator(dut)
+      publishRetireReleaseSingle(140, rid = 0, expectedBid = 0,
+        expectedBrobGeneration = 0, expectedResidentGeneration = 0)
+      publishRetireReleaseSingle(141, rid = 1, expectedBid = 1,
+        expectedBrobGeneration = 0, expectedResidentGeneration = 0)
+      publishRetireReleaseSingle(142, rid = 2, expectedBid = 2,
+        expectedBrobGeneration = 0, expectedResidentGeneration = 0)
+
+      val straddler = publishUnbound(143, rid = 3, ridGeneration = 0,
+        count = 2, blockStopLast = true)
+      assert(straddler(0).bid.litValue == 3)
+      assert(straddler(1).bid.litValue == 3)
+      assert(straddler(0).brobGeneration.litValue == 0)
+      assert(straddler(1).brobGeneration.litValue == 0)
+      assert(straddler(0).residentGeneration.litValue == 0)
+      assert(straddler(1).residentGeneration.litValue == 0)
+      retireCoordinatorHead(dut, 2)
+
+      val younger = publishUnbound(145, rid = 0, ridGeneration = 1,
+        count = 1, blockStopLast = true)
+      assert(younger.head.bid.litValue == 0)
+      assert(younger.head.brobGeneration.litValue == 1)
+      assert(younger.head.residentGeneration.litValue == 1)
+      retireCoordinatorHead(dut, 1)
+
+      dut.io.robRecoveryPrepare.valid.poke(true.B)
+      dut.io.robRecoveryPrepare.bits.transactionId.poke(0x16a.U)
+      dut.io.robRecoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.robRecoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.robRecoveryPrepare.bits.trigger.poke(straddler(0))
+      dut.io.robRecoveryPrepare.bits.redirectPc.poke(0x6000.U)
+      dut.io.robRecoveryPrepare.bits.newEpoch.poke(4.U)
+      dut.io.robRecoveryPrepare.ready.expect(true.B)
+      dut.io.robRecoveryPrepared.valid.expect(true.B)
+      dut.io.robRecoveryPrepared.bits.firstKilledValid.expect(true.B)
+      assert(dut.io.robRecoveryPrepared.bits.firstKilled.peek().litValue ===
+        straddler(1).litValue)
+      assert(dut.io.robRecoveryPrepared.bits.lastKilled.peek().litValue ===
+        younger.head.litValue)
+      assert(dut.io.robRecoveryPrepared.bits.survivingTail.peek().litValue ===
+        straddler(0).litValue)
+
+      dut.io.brobRecoveryPrepare.valid.poke(true.B)
+      dut.io.brobRecoveryPrepare.bits.poke(dut.io.robRecoveryPrepared.bits.peek())
+      dut.io.brobRecoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val plan = dut.io.robRecoveryPrepared.bits.peek()
+      dut.io.robRecoveryPrepare.valid.poke(false.B)
+      dut.io.brobRecoveryPrepare.valid.poke(false.B)
+      dut.io.robRecoveryApply.valid.poke(true.B)
+      dut.io.robRecoveryApply.bits.poke(plan)
+      dut.io.robRecoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.io.brobRecoveryApply.valid.poke(true.B)
+      dut.io.brobRecoveryApply.bits.poke(plan)
+      dut.io.brobRecoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.robRecoveryApply.valid.poke(false.B)
+      dut.io.brobRecoveryApply.valid.poke(false.B)
+
+      releaseCoordinator(dut, Seq(straddler(0)))
+    }
+  }
+
   test("BROB abort preserves a closed block that straddles recovery") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
@@ -1528,6 +1799,79 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.targets(0).prepared.valid.poke(true.B)
       dut.io.targets(0).prepared.bits.poke(dut.io.targets(0).prepare.bits.peek())
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(true.B)
+    }
+  }
+
+  test("RecoveryControl drains held matching target acknowledgements before retry") {
+    simulate(new RecoveryControl(params, targetCount = 1)) { dut =>
+      def startAttempt(): Unit = {
+        dut.io.events(0).valid.poke(true.B)
+        dut.io.events(0).bits.transactionId.poke(0xb4.U)
+        dut.io.events(0).bits.cause.poke(RecoveryCause.MemoryOrder)
+        dut.io.events(0).bits.trigger.stid.poke(0.U)
+        dut.io.events(0).bits.trigger.ridSlot.poke(0.U)
+        authorizeCandidate(dut, 0, 0xb4, stid = 0, rid = 0, age = 1)
+        dut.clock.step()
+        dut.io.robPrepare.valid.expect(true.B)
+      }
+
+      def preparedPlanFromRequest(): RecoveryPlan = {
+        dut.io.robPrepared.valid.poke(true.B)
+        dut.io.robPrepared.bits.poke(dut.io.robPrepare.bits.peek())
+        dut.io.robPrepared.bits.phase.poke(RecoveryPhase.Prepare)
+        dut.io.robPrepared.bits.firstKilledValid.poke(true.B)
+        dut.io.robPrepared.bits.firstKilled.poke(dut.io.robPrepare.bits.trigger.peek())
+        dut.io.robPrepared.bits.firstKilled.ridSlot.poke(0.U)
+        dut.io.robPrepared.bits.lastKilled.poke(dut.io.robPrepare.bits.trigger.peek())
+        dut.io.robPrepared.bits.lastKilled.ridSlot.poke(0.U)
+        dut.io.robPrepared.bits.killedGroupCount.poke(1.U)
+        dut.io.robPrepared.bits.killedMemberCount.poke(1.U)
+        dut.io.robPrepared.bits.peek()
+      }
+
+      def holdMatchingTargetPrepared(plan: RecoveryPlan): Unit = {
+        dut.io.targets(0).prepared.valid.poke(true.B)
+        dut.io.targets(0).prepared.bits.poke(plan)
+        dut.io.targets(0).prepared.bits.phase.poke(RecoveryPhase.Prepare)
+      }
+
+      def acceptRobPlanWhileHoldingTarget(plan: RecoveryPlan): Unit = {
+        holdMatchingTargetPrepared(plan)
+        dut.io.targets(0).prepared.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.targets(0).prepared.valid.poke(false.B)
+      }
+
+      clearRecoveryControl(dut)
+      startAttempt()
+      val firstPlan = preparedPlanFromRequest()
+      acceptRobPlanWhileHoldingTarget(firstPlan)
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.io.targets(0).prepare.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.io.abort.poke(true.B)
+      dut.clock.step()
+      dut.io.abort.poke(false.B)
+      dut.io.targets(0).prepared.valid.poke(false.B)
+      dut.io.targets(0).apply.valid.expect(false.B)
+      dut.clock.step()
+
+      startAttempt()
+      val retryPlan = preparedPlanFromRequest()
+      acceptRobPlanWhileHoldingTarget(retryPlan)
+      dut.io.events(0).valid.poke(false.B)
+      dut.io.robPrepared.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+
+      dut.io.targets(0).prepared.valid.poke(false.B)
+      dut.clock.step()
+      dut.io.targets(0).apply.valid.expect(false.B)
+      holdMatchingTargetPrepared(retryPlan)
       dut.clock.step()
       dut.io.targets(0).apply.valid.expect(true.B)
     }
