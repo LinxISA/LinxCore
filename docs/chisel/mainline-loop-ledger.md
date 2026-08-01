@@ -147,6 +147,20 @@ push identities are filled only after the corresponding operation succeeds.
   boxes, checks evidence/reachability obligations, owns emitter classification
   across App/`def main`/`@main`/wrapper forms, and enforces repo-contained typed
   NDF layer roles without path reuse.
+- Independent-review fix round 2: 29 real CLI tests close the six remaining
+  bypasses. Scala caller discovery strips comments and literals and resolves
+  braced import aliases. Every state domain now has an exact checker-owned
+  `(symbol, path)` mechanism set. Twelve exact managed boundaries cover
+  Adapter, Wrapper, and state-owning Bridge classes, including transitive
+  stateful children; each legacy exception is tied to a domain, cutover task,
+  and exact deletion target. `production-promoted` fails closed until Task 17
+  owns its activation-artifact schema. All 40 emitters have exact FQCN/path/
+  classification registrations, including cross-file wrapper reachability;
+  names cannot self-grant an exemption. NDF roles reject symlinks and detect
+  hard-linked identity reuse by device/inode. The live checker passes in 6.6
+  seconds after emitter propagation was reduced to one definitions/calls index
+  per Scala source. A final regression also proves a registered non-production
+  emitter cannot be moved into the production list without Task-17 authority.
 - Remaining boundary: Task 11 must update this manifest in the same atomic
   commit that changes OOO D3/S1 call sites and deletes the displaced legacy
   owner chain. The controller owns push and remote-equality confirmation before

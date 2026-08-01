@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -139,6 +140,53 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "deletion target fixture.LegacyOwner caller declaration mismatch",
         )
 
+    def test_rejects_alias_import_deletion_caller_omission(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target.update(
+            {
+                "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
+                "symbol": "fixture.LegacyOwner",
+                "status": "deletion-ready",
+                "active_callers": [],
+            }
+        )
+        self._write_file(target["path"], "package fixture\nclass LegacyOwner\n")
+        self._write_file(
+            "chisel/src/main/scala/client/AliasCaller.scala",
+            "package client\n"
+            "import fixture.{LegacyOwner => Alias}\n"
+            "class AliasCaller { val owner = new Alias }\n",
+        )
+        self.assert_rejected(
+            manifest,
+            "deletion target fixture.LegacyOwner caller declaration mismatch",
+        )
+
+    def test_ignores_deletion_references_inside_comments_and_strings(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target.update(
+            {
+                "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
+                "symbol": "fixture.LegacyOwner",
+                "status": "deletion-ready",
+                "active_callers": [],
+            }
+        )
+        self._write_file(target["path"], "package fixture\nclass LegacyOwner\n")
+        self._write_file(
+            "chisel/src/main/scala/fixture/CommentOnly.scala",
+            "package fixture\n"
+            "// val fake = new LegacyOwner\n"
+            "class CommentOnly {\n"
+            "  val text = \"new LegacyOwner\"\n"
+            "  /* new LegacyOwner */\n"
+            "}\n",
+        )
+        result = self._run(manifest)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_rejects_missing_closed_state_domain(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         manifest["owners"] = [
@@ -161,13 +209,18 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         manifest["owners"].append(duplicate)
         self.assert_rejected(manifest, "unknown state domain rob_shadow")
 
-    def test_rejects_second_mechanism_defining_canonical_owner(self) -> None:
+    def test_rejects_distinct_symbol_second_mechanism_owner(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         row = self.owner("rob", manifest)
         second = "chisel/src/main/scala/linxcore/ooo/ROBSecondOwner.scala"
         row["mechanism_files"].append(second)
-        self._write_file(second, "package linxcore.ooo\nclass ROB\n")
-        self.assert_rejected(manifest, "canonical symbol ROB must be defined exactly once")
+        self._write_file(
+            second,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class ROBShadow extends Module { val held = RegInit(false.B) }\n",
+        )
+        self.assert_rejected(manifest, "mechanism set mismatch for rob")
 
     def test_rejects_undeclared_real_stateful_adapter(self) -> None:
         path = "chisel/src/main/scala/linxcore/ooo/HiddenCompatibilityAdapter.scala"
@@ -180,6 +233,99 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "}\n",
         )
         self.assert_rejected(self.manifest, "undeclared adapter HiddenCompatibilityAdapter")
+
+    def test_rejects_regnext_and_regenable_in_declared_compatibility_adapter(self) -> None:
+        for primitive in ("RegNext(false.B)", "RegEnable(false.B, true.B)"):
+            with self.subTest(primitive=primitive):
+                manifest = copy.deepcopy(self.manifest)
+                path = "chisel/src/main/scala/linxcore/ooo/HiddenCompatibilityAdapter.scala"
+                self._write_file(
+                    path,
+                    "package linxcore.ooo\n"
+                    "import chisel3._\n"
+                    "class HiddenCompatibilityAdapter extends Module {\n"
+                    f"  val held = {primitive}\n"
+                    "}\n",
+                )
+                manifest["adapters"].append(
+                    {
+                        "symbol": "HiddenCompatibilityAdapter",
+                        "path": path,
+                        "role": "compatibility",
+                        "stateful": False,
+                    }
+                )
+                self.assert_rejected(
+                    manifest,
+                    "adapter HiddenCompatibilityAdapter stateful declaration mismatch",
+                )
+
+    def test_rejects_undeclared_stateful_bridge(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/ooo/HiddenCompatibilityBridge.scala",
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenCompatibilityBridge extends Module {\n"
+            "  val held = RegInit(false.B)\n"
+            "}\n",
+        )
+        self.assert_rejected(self.manifest, "undeclared managed boundary HiddenCompatibilityBridge")
+
+    def test_rejects_manifest_relabel_as_legacy_state_owner(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        path = "chisel/src/main/scala/linxcore/ooo/HiddenCompatibilityAdapter.scala"
+        self._write_file(
+            path,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenCompatibilityAdapter extends Module {\n"
+            "  val held = RegInit(false.B)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenCompatibilityAdapter",
+                "path": path,
+                "role": "legacy-state-owner",
+                "stateful": True,
+                "status": "planned-deletion",
+                "owner_domain": "rob",
+                "cutover_task": 11,
+                "deletion_target": "linxcore.ooo.OooS1GroupedRob",
+            }
+        )
+        self.assert_rejected(manifest, "managed boundary inventory mismatch")
+
+    def test_rejects_stateful_child_hidden_behind_wrapper(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        child = "chisel/src/main/scala/linxcore/ooo/HiddenStateOwner.scala"
+        wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenCompatibilityWrapper.scala"
+        self._write_file(
+            child,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenStateOwner extends Module { val held = RegNext(false.B) }\n",
+        )
+        self._write_file(
+            wrapper,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenCompatibilityWrapper extends Module {\n"
+            "  val child = Module(new HiddenStateOwner)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenCompatibilityWrapper",
+                "path": wrapper,
+                "role": "compatibility",
+                "stateful": False,
+            }
+        )
+        self.assert_rejected(
+            manifest,
+            "adapter HiddenCompatibilityWrapper stateful declaration mismatch",
+        )
 
     def test_rejects_io_bundle_pretending_to_be_public_module_box(self) -> None:
         manifest = copy.deepcopy(self.manifest)
@@ -215,6 +361,35 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         ]
         self.assert_rejected(manifest, "production-promoted evidence for rob lacks")
 
+    def test_rejects_reachable_unit_only_promotion_with_label_proofs(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        row = self.owner("instruction_cache", manifest)
+        evidence = row["production_evidence"][0]
+        evidence["status"] = "production-promoted"
+        evidence["proof_kinds"] = ["generated-rtl-activation", "bounded-workload"]
+        emitter_path = "chisel/src/main/scala/linxcore/top/EmitReachableIFU.scala"
+        self._write_file(
+            emitter_path,
+            "package linxcore.top\n"
+            "import linxcore.ifu.IFU\n"
+            "object EmitReachableIFU extends App {\n"
+            "  circt.stage.ChiselStage.emitSystemVerilogFile(new IFU(null))\n"
+            "}\n",
+        )
+        manifest["entry_points"]["production"] = [
+            {
+                "name": "EmitReachableIFU",
+                "path": emitter_path,
+                "root_symbol": "IFU",
+                "boxes": ["IFU"],
+                "production_evidence": ["unrelated-non-empty-label"],
+            }
+        ]
+        self.assert_rejected(
+            manifest,
+            "production-promoted is disabled until Task 17 artifact schema is checker-owned",
+        )
+
     def test_rejects_evidence_fixture_not_in_verification_fixtures(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         row = self.owner("rob", manifest)
@@ -239,6 +414,16 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "}",
         )
         self.assert_rejected(manifest, "manifest-controlled emitter patterns are forbidden")
+
+    def test_rejects_reclassifying_known_emitter_as_production(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        emitter = manifest["entry_points"]["non_production"].pop(0)
+        emitter["production_evidence"] = ["self-authored-label"]
+        manifest["entry_points"]["production"].append(emitter)
+        self.assert_rejected(
+            manifest,
+            "checker-owned non-production emitter cannot be promoted",
+        )
 
     def test_rejects_unknown_def_main_emitter(self) -> None:
         self._add_unknown_emitter(
@@ -269,6 +454,34 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         )
         self.assert_rejected(self.manifest, "unknown emitter EmitUnknownWrapper")
 
+    def test_rejects_unknown_cross_file_wrapper_emitter(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitSink.scala",
+            "package linxcore.top\n"
+            "object EmitSink {\n"
+            "  def emitFixture(): Unit =\n"
+            "    circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}\n",
+        )
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitCrossFileWrapper.scala",
+            "package linxcore.top\n"
+            "object EmitCrossFileWrapper extends App { EmitSink.emitFixture() }\n",
+        )
+        self.assert_rejected(self.manifest, "unknown emitter linxcore.top.EmitCrossFileWrapper")
+
+    def test_rejects_unregistered_emitter_with_misleading_reduced_name(self) -> None:
+        self._add_unknown_emitter(
+            "EmitProductionReducedEscape",
+            "object EmitProductionReducedEscape extends App {\n"
+            "  circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "unknown emitter linxcore.top.EmitProductionReducedEscape",
+        )
+
     def test_rejects_external_and_traversal_paths(self) -> None:
         external = Path(self.temporary.name) / "outside.md"
         external.write_text("outside\n", encoding="utf-8")
@@ -298,6 +511,24 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "chisel/src/main/scala/linxcore/top/interface/TOPIO.scala"
         ]
         self.assert_rejected(manifest, "interface manifest must be an NDF L2 member")
+
+    def test_rejects_ndf_symlink_alias_across_roles(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        source = self.root / manifest["ndf"]["L1"][0]
+        alias = self.root / "tests/ownership_alias.py"
+        alias.parent.mkdir(parents=True, exist_ok=True)
+        alias.symlink_to(source)
+        manifest["ndf"]["L3"].append("tests/ownership_alias.py")
+        self.assert_rejected(manifest, "NDF normative path must not be a symlink")
+
+    def test_rejects_ndf_hardlink_identity_across_roles(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        source = self.root / manifest["ndf"]["L1"][0]
+        alias = self.root / "tests/ownership_hardlink.py"
+        alias.parent.mkdir(parents=True, exist_ok=True)
+        os.link(source, alias)
+        manifest["ndf"]["L3"].append("tests/ownership_hardlink.py")
+        self.assert_rejected(manifest, "NDF file identity reused across layer roles")
 
 
 if __name__ == "__main__":

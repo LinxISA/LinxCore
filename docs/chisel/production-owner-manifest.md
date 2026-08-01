@@ -75,56 +75,144 @@ evidence.
   "entry_points": {
     "production": [],
     "non_production": [
-      {
-        "name": "EmitD1DecodeRenameROBIngress",
-        "path": "chisel/src/main/scala/linxcore/backend/D1DecodeRenameROBIngress.scala"
-      },
-      {
-        "name": "Elaborate",
-        "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"
-      },
-      {
-        "name": "EmitLinxCoreTopXcheck",
-        "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"
-      }
+      {"name": "linxcore.top.Elaborate", "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.execute.ElaborateScalarIssueFabricProbe", "path": "chisel/src/main/scala/linxcore/execute/ScalarIssueFabricProbe.scala", "classification": "probe"},
+      {"name": "linxcore.bctrl.EmitBrobOrderStateProbe", "path": "chisel/src/main/scala/linxcore/bctrl/BrobOrderStateProbe.scala", "classification": "probe"},
+      {"name": "linxcore.bctrl.EmitBrobStoreCountPublisherProbe", "path": "chisel/src/main/scala/linxcore/bctrl/BrobStoreCountPublisherProbe.scala", "classification": "probe"},
+      {"name": "linxcore.bctrl.EmitBrobStoreRangeStateProbe", "path": "chisel/src/main/scala/linxcore/bctrl/BrobStoreRangeStateProbe.scala", "classification": "probe"},
+      {"name": "linxcore.backend.EmitD1DecodeRenameROBIngress", "path": "chisel/src/main/scala/linxcore/backend/D1DecodeRenameROBIngress.scala", "classification": "fixture"},
+      {"name": "linxcore.frontend.EmitD1InstructionDecodeProbe", "path": "chisel/src/main/scala/linxcore/frontend/D1InstructionDecodeProbe.scala", "classification": "probe"},
+      {"name": "linxcore.backend.EmitDecodeLoadStoreIdAssignProbe", "path": "chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssignProbe.scala", "classification": "probe"},
+      {"name": "linxcore.rename.EmitGPRRenameStidProbe", "path": "chisel/src/main/scala/linxcore/rename/GPRRenameStidProbe.scala", "classification": "probe"},
+      {"name": "linxcore.frontend.EmitIfuBackendFeedbackBridgeProbe", "path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "classification": "probe"},
+      {"name": "linxcore.top.EmitIfuLineMemoryBridgeProbe", "path": "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridgeProbe.scala", "classification": "probe"},
+      {"name": "linxcore.top.EmitLinxCoreBenchmarkAutonomousTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreCompositionProbe", "path": "chisel/src/main/scala/linxcore/top/LinxCoreCompositionProbe.scala", "classification": "probe"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendAluTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendAluTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchRfAluMarkerRowsTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluMarkerRowsTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchRfAluTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendFetchTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendRfAluTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.top.EmitLinxCoreFrontendTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.frontend.EmitLinxCoreIfuThroughputProbe", "path": "chisel/src/main/scala/linxcore/frontend/LinxCoreIfuThroughputProbe.scala", "classification": "probe"},
+      {"name": "linxcore.top.EmitLinxCoreTopXcheck", "path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "classification": "legacy-top"},
+      {"name": "linxcore.lsu.EmitLoadMissQueueProbe", "path": "chisel/src/main/scala/linxcore/lsu/LoadMissQueueProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitLoadRefillTransportProbe", "path": "chisel/src/main/scala/linxcore/lsu/LoadRefillTransportProbe.scala", "classification": "probe"},
+      {"name": "linxcore.recovery.EmitRecoveryClassMergeProbe", "path": "chisel/src/main/scala/linxcore/recovery/RecoveryClassMergeProbe.scala", "classification": "probe"},
+      {"name": "linxcore.recovery.EmitRecoveryCleanupROBProbe", "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala", "classification": "probe"},
+      {"name": "linxcore.recovery.EmitRecoveryProducerProbe", "path": "chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala", "classification": "probe"},
+      {"name": "linxcore.rob.EmitReducedCommitROB", "path": "chisel/src/main/scala/linxcore/rob/EmitReducedCommitROB.scala", "classification": "reduced"},
+      {"name": "linxcore.lsu.EmitReducedStoreNonFlushGateProbe", "path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreNonFlushGateProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitReducedStoreWaitReplayChiselPathProbe", "path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "classification": "probe"},
+      {"name": "linxcore.execute.EmitScalarGPRIssueWakeupProbe", "path": "chisel/src/main/scala/linxcore/execute/ScalarGPRIssueWakeupProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitScalarL1DProbe", "path": "chisel/src/main/scala/linxcore/lsu/ScalarL1DProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitScalarL1DScbProbe", "path": "chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitScalarLSULoadPathReturnProbe", "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPathReturnProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitScalarLSULoadReturnQueueProbe", "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueueProbe.scala", "classification": "probe"},
+      {"name": "linxcore.lsu.EmitScalarLSUMDBPathProbe", "path": "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala", "classification": "probe"},
+      {"name": "linxcore.top.EmitScalarLoadCompletionROBProbe", "path": "chisel/src/main/scala/linxcore/top/ScalarLoadCompletionROBProbe.scala", "classification": "probe"},
+      {"name": "linxcore.recovery.EmitScalarRedirectRecoverySourceProbe", "path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySourceProbe.scala", "classification": "probe"}
     ]
   },
   "adapters": [
     {
-      "symbol": "ReducedLoadReplayLiqAllocAdapter",
+      "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter",
       "path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala",
-      "role": "legacy-state-owner",
+      "role": "compatibility",
       "stateful": false,
-      "status": "planned-deletion",
+      "status": "active",
       "owner_domain": "load_inflight_queue",
-      "cutover_task": 15
+      "cutover_task": 15,
+      "deletion_target": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter"
     },
     {
-      "symbol": "OooIexLoadLiqAllocAdapter",
+      "symbol": "linxcore.ooo.OooIexLoadLiqAllocAdapter",
       "path": "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala",
       "role": "legacy-state-owner",
       "stateful": true,
       "status": "planned-deletion",
       "owner_domain": "load_inflight_queue",
-      "cutover_task": 15
+      "cutover_task": 15,
+      "deletion_target": "linxcore.ooo.OooIexLoadLiqAllocAdapter"
     },
     {
-      "symbol": "IfuWindowLineFillAdapter",
+      "symbol": "linxcore.top.IfuWindowLineFillAdapter",
       "path": "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala",
       "role": "legacy-state-owner",
       "stateful": true,
       "status": "planned-deletion",
       "owner_domain": "instruction_cache",
-      "cutover_task": 17
+      "cutover_task": 17,
+      "deletion_target": "linxcore.top.IfuWindowLineFillAdapter"
     },
     {
-      "symbol": "ISideMemoryAdapter",
+      "symbol": "linxcore.ifu.ISideMemoryAdapter",
       "path": "chisel/src/main/scala/linxcore/ifu/ISide.scala",
       "role": "legacy-state-owner",
       "stateful": true,
       "status": "planned-deletion",
       "owner_domain": "instruction_cache",
-      "cutover_task": 17
+      "cutover_task": 17,
+      "deletion_target": "linxcore.ifu.ISideMemoryAdapter"
+    },
+    {
+      "symbol": "linxcore.frontend.IfuBackendFeedbackBridge",
+      "path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "ifu_recovery_redirect", "cutover_task": 17,
+      "deletion_target": "linxcore.frontend.IfuBackendFeedbackBridge"
+    },
+    {
+      "symbol": "linxcore.lsu.ReducedStoreExecResultBridge",
+      "path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreExecResultBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "store_queue", "cutover_task": 15,
+      "deletion_target": "linxcore.lsu.ReducedStoreExecResultBridge"
+    },
+    {
+      "symbol": "linxcore.lsu.SCBCommitBridge",
+      "path": "chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "store_commit_buffer", "cutover_task": 15,
+      "deletion_target": "linxcore.lsu.SCBCommitBridge"
+    },
+    {
+      "symbol": "linxcore.ooo.OooCtuIngressBridge",
+      "path": "chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "dispatch_reservation", "cutover_task": 11,
+      "deletion_target": "linxcore.ooo.OooCtuIngressBridge"
+    },
+    {
+      "symbol": "linxcore.ooo.OooFrontendRecoveryBridge",
+      "path": "chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "recovery", "cutover_task": 11,
+      "deletion_target": "linxcore.ooo.OooFrontendRecoveryBridge"
+    },
+    {
+      "symbol": "linxcore.rename.ScalarDecodeRenameBridge",
+      "path": "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "rename_p", "cutover_task": 11,
+      "deletion_target": "linxcore.rename.ScalarDecodeRenameBridge"
+    },
+    {
+      "symbol": "linxcore.rename.ScalarTURenameBridge",
+      "path": "chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "rename_tu", "cutover_task": 11,
+      "deletion_target": "linxcore.rename.ScalarTURenameBridge"
+    },
+    {
+      "symbol": "linxcore.top.IfuLineMemoryBridge",
+      "path": "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridge.scala",
+      "role": "legacy-state-owner", "stateful": true, "status": "planned-deletion",
+      "owner_domain": "instruction_cache", "cutover_task": 17,
+      "deletion_target": "linxcore.top.IfuLineMemoryBridge"
     }
   ],
   "owners": [
@@ -141,7 +229,12 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFUISideSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFUISideSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "symbol": "linxcore.top.LinxCoreTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "symbol": "linxcore.top.LinxCoreTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala", "symbol": "linxcore.top.IfuWindowLineFillAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/ifu/ISide.scala", "symbol": "linxcore.ifu.ISideMemoryAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ifu/ISide.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridge.scala", "symbol": "linxcore.top.IfuLineMemoryBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/IfuLineMemoryBridgeProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreComposition.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -173,7 +266,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFURecoverySpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFURecoverySpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "symbol": "linxcore.frontend.IfuBackendFeedbackBridgeProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "symbol": "linxcore.frontend.IfuBackendFeedbackBridgeProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridge.scala", "symbol": "linxcore.frontend.IfuBackendFeedbackBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreComposition.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -205,7 +301,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooPRename.scala", "symbol": "linxcore.ooo.OooPRename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooPRename.scala", "symbol": "linxcore.ooo.OooPRename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala", "symbol": "linxcore.rename.ScalarDecodeRenameBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -221,7 +320,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooTURename.scala", "symbol": "linxcore.ooo.OooTURename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooTURename.scala", "symbol": "linxcore.ooo.OooTURename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala", "symbol": "linxcore.rename.ScalarTURenameBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -285,7 +387,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "symbol": "linxcore.recovery.RecoveryCleanupControl", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "symbol": "linxcore.recovery.RecoveryCleanupControl", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooFrontendRecoveryBridge.scala", "symbol": "linxcore.ooo.OooFrontendRecoveryBridge", "status": "deletion-ready", "active_callers": []}
+      ],
       "adapters": []
     },
     {
@@ -301,7 +406,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala", "symbol": "linxcore.ooo.OooO3RenameCoordinator", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3IexStorePipeline.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala", "symbol": "linxcore.ooo.OooO3RenameCoordinator", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3IexStorePipeline.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooCtuIngressBridge.scala", "symbol": "linxcore.ooo.OooCtuIngressBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIfuD1Ingress.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -381,7 +489,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala", "symbol": "linxcore.lsu.ReducedStoreCommitFreeOwner", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreNonFlushGateProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala", "symbol": "linxcore.lsu.ReducedStoreCommitFreeOwner", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreNonFlushGateProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreExecResultBridge.scala", "symbol": "linxcore.lsu.ReducedStoreExecResultBridge", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}
+      ],
       "adapters": []
     },
     {
@@ -397,7 +508,10 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala", "symbol": "linxcore.lsu.ReducedStoreResidentForward", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala", "symbol": "linxcore.lsu.ReducedStoreResidentForward", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala", "symbol": "linxcore.lsu.SCBCommitBridge", "status": "deletion-ready", "active_callers": []}
+      ],
       "adapters": []
     },
     {
@@ -413,7 +527,11 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocPath", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
+      "deletion_targets": [
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocPath", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala"]},
+        {"path": "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala", "symbol": "linxcore.ooo.OooIexLoadLiqAllocAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala"]}
+      ],
       "adapters": []
     },
     {
