@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,14 +23,17 @@ APP_ENTRY = re.compile(r"\bobject\s+(?P<name>[A-Za-z_]\w*)\s+extends\s+App\b")
 OBJECT_DECLARATION = re.compile(r"\bobject\s+(?P<name>[A-Za-z_]\w*)\b")
 DEF_MAIN = re.compile(r"\bdef\s+main\s*\(")
 AT_MAIN_ENTRY = re.compile(r"@main\s+def\s+(?P<name>[A-Za-z_]\w*)\s*\(")
-MANAGED_BOUNDARY_CLASS = re.compile(
-    r"\bclass\s+(?P<name>[A-Za-z_]\w*(?:Adapter|Wrapper|Bridge))\b"
-)
 ANY_DEFINITION = re.compile(
     r"(?m)^[ \t]*(?:private(?:\[[^\]]+\])?[ \t]+)?(?:final[ \t]+)?"
-    r"(?:class|object)\s+(?P<name>[A-Za-z_]\w*)\b"
+    r"(?P<kind>class|object)\s+(?P<name>[A-Za-z_]\w*)\b"
 )
-INSTANTIATION = re.compile(r"\bnew\s+(?P<name>[A-Za-z_]\w*)\b")
+INSTANTIATION = re.compile(
+    r"\bnew\s+(?P<name>[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\b"
+)
+MODULE_INSTANTIATION = re.compile(
+    r"\bModule\s*\(\s*new\s+"
+    r"(?P<name>[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\b"
+)
 PACKAGE_DECLARATION = re.compile(r"(?m)^[ \t]*package[ \t]+(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)")
 STATE_TOKEN = re.compile(
     r"\b(?:Reg|RegInit|RegNext|RegEnable|Mem|SyncReadMem)\s*\(|\bQueue\s*\("
@@ -305,6 +309,39 @@ EMITTER_INVENTORY: dict[tuple[str, str], str] = {
 }
 
 
+@dataclass(frozen=True)
+class ScalaUnit:
+    path: Path
+    relative: str
+    package: str
+    text: str
+    imports: dict[str, str]
+    wildcard_imports: tuple[str, ...]
+    import_errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ScalaDefinition:
+    fqcn: str
+    simple: str
+    kind: str
+    path: Path
+    relative: str
+    body: str
+
+
+@dataclass
+class ScalaIndex:
+    units: dict[Path, ScalaUnit]
+    definitions: dict[str, ScalaDefinition]
+    definitions_by_path: dict[Path, list[ScalaDefinition]]
+    constructor_callers: dict[str, set[str]]
+    unresolved_constructors: dict[Path, set[str]]
+    module_edges: dict[str, set[str]]
+    unresolved_module_edges: dict[str, set[str]]
+    direct_stateful: set[str]
+
+
 def load_manifest(path: Path) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -465,107 +502,300 @@ def source_texts(root: Path) -> dict[Path, str]:
     }
 
 
-def scan_emitters(root: Path, sources: dict[Path, str] | None = None) -> list[tuple[str, str]]:
+def _split_import_selectors(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def parse_imports(text: str) -> tuple[dict[str, str], tuple[str, ...], tuple[str, ...]]:
+    imports: dict[str, str] = {}
+    wildcards: list[str] = []
+    errors: list[str] = []
+    for match in re.finditer(r"(?m)^[ \t]*import[ \t]+", text):
+        index = match.end()
+        depth = 0
+        while index < len(text):
+            char = text[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth < 0:
+                    break
+            elif char in "\n;" and depth == 0:
+                break
+            index += 1
+        expression = text[match.end() : index].strip()
+        braced = re.fullmatch(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.\{(.*)\}", expression, re.DOTALL)
+        if braced:
+            prefix, selectors = braced.groups()
+            for selector in _split_import_selectors(selectors):
+                renamed = re.fullmatch(
+                    r"([A-Za-z_]\w*)\s*(?:=>|\bas\b)\s*([A-Za-z_]\w*|_)",
+                    selector,
+                )
+                if renamed:
+                    original, alias = renamed.groups()
+                    if alias != "_":
+                        imports[alias] = f"{prefix}.{original}"
+                    continue
+                if re.fullmatch(r"[A-Za-z_]\w*", selector):
+                    imports[selector] = f"{prefix}.{selector}"
+                elif selector in {"_", "*"}:
+                    wildcards.append(prefix)
+                else:
+                    errors.append(expression)
+            continue
+        wildcard = re.fullmatch(
+            r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.(?:_|\*)", expression
+        )
+        if wildcard:
+            wildcards.append(wildcard.group(1))
+            continue
+        exact = re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", expression)
+        if exact:
+            imports[expression.rsplit(".", 1)[-1]] = expression
+        elif expression:
+            errors.append(expression)
+    return imports, tuple(wildcards), tuple(errors)
+
+
+def _definition_bodies(unit: ScalaUnit) -> list[ScalaDefinition]:
+    matches = list(ANY_DEFINITION.finditer(unit.text))
+    result: list[ScalaDefinition] = []
+    for position, match in enumerate(matches):
+        limit = matches[position + 1].start() if position + 1 < len(matches) else len(unit.text)
+        brace = unit.text.find("{", match.end(), limit)
+        body = ""
+        if brace >= 0:
+            depth = 0
+            end = len(unit.text)
+            for index in range(brace, len(unit.text)):
+                if unit.text[index] == "{":
+                    depth += 1
+                elif unit.text[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = index + 1
+                        break
+            body = unit.text[brace:end]
+        simple = match.group("name")
+        fqcn = f"{unit.package}.{simple}" if unit.package else simple
+        result.append(
+            ScalaDefinition(
+                fqcn=fqcn,
+                simple=simple,
+                kind=match.group("kind"),
+                path=unit.path,
+                relative=unit.relative,
+                body=body,
+            )
+        )
+    return result
+
+
+def resolve_scala_name(
+    raw: str,
+    unit: ScalaUnit,
+    definitions: dict[str, ScalaDefinition],
+) -> str | None:
+    normalized = re.sub(r"\s*\.\s*", ".", raw.strip())
+    if "." in normalized:
+        head, tail = normalized.split(".", 1)
+        if head in unit.imports:
+            return f"{unit.imports[head]}.{tail}"
+        if normalized in definitions or normalized[0].islower():
+            return normalized
+        return None
+    imported = unit.imports.get(normalized)
+    if imported:
+        return imported
+    same_package = f"{unit.package}.{normalized}" if unit.package else normalized
+    if same_package in definitions:
+        return same_package
+    wildcard_matches = [
+        f"{package}.{normalized}"
+        for package in unit.wildcard_imports
+        if f"{package}.{normalized}" in definitions
+    ]
+    if len(wildcard_matches) == 1:
+        return wildcard_matches[0]
+    return None
+
+
+def build_scala_index(root: Path, sources: dict[Path, str] | None = None) -> ScalaIndex:
     sources = sources if sources is not None else source_texts(root)
-    emitters: set[tuple[str, str]] = set()
-    emitting_files = {
-        path
-        for path, text in sources.items()
-        if "emitSystemVerilog" in text or "emitVerilog" in text
-    }
-    definitions_by_file = {
-        path: {
-            match.group(1)
-            for match in re.finditer(r"\bdef\s+([A-Za-z_]\w*)\s*\(", text)
-            if match.group(1) != "main"
-        }
-        for path, text in sources.items()
-    }
-    calls_by_file = {
-        path: set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))
-        for path, text in sources.items()
-    }
-    sink_methods: set[str] = set()
-    while True:
-        for path in emitting_files:
-            sink_methods.update(definitions_by_file[path])
-        newly_emitting = {
-            path
-            for path in sources
-            if path not in emitting_files
-            and bool(calls_by_file[path] & sink_methods)
-        }
-        if not newly_emitting:
-            break
-        emitting_files.update(newly_emitting)
-    for path in emitting_files:
-        text = sources[path]
-        relative = path.relative_to(root).as_posix()
+    units: dict[Path, ScalaUnit] = {}
+    definitions_by_path: dict[Path, list[ScalaDefinition]] = {}
+    definitions: dict[str, ScalaDefinition] = {}
+    for path, text in sources.items():
         package_match = PACKAGE_DECLARATION.search(text)
         package = package_match.group("name") if package_match else ""
-        qualified = lambda name: f"{package}.{name}" if package else name
-        for pattern in (APP_ENTRY, AT_MAIN_ENTRY):
-            emitters.update((qualified(match.group("name")), relative) for match in pattern.finditer(text))
-        object_declarations = list(OBJECT_DECLARATION.finditer(text))
-        for main in DEF_MAIN.finditer(text):
+        imports, wildcards, import_errors = parse_imports(text)
+        unit = ScalaUnit(
+            path=path,
+            relative=path.relative_to(root).as_posix(),
+            package=package,
+            text=text,
+            imports=imports,
+            wildcard_imports=wildcards,
+            import_errors=import_errors,
+        )
+        units[path] = unit
+        unit_definitions = _definition_bodies(unit)
+        definitions_by_path[path] = unit_definitions
+        for definition in unit_definitions:
+            previous = definitions.get(definition.fqcn)
+            if previous is None:
+                definitions[definition.fqcn] = definition
+            else:
+                definitions[definition.fqcn] = ScalaDefinition(
+                    fqcn=definition.fqcn,
+                    simple=definition.simple,
+                    kind="companion",
+                    path=definition.path,
+                    relative=definition.relative,
+                    body=f"{previous.body}\n{definition.body}",
+                )
+
+    constructor_callers: dict[str, set[str]] = {}
+    unresolved_constructors: dict[Path, set[str]] = {}
+    module_edges: dict[str, set[str]] = {}
+    unresolved_module_edges: dict[str, set[str]] = {}
+    direct_stateful: set[str] = set()
+    for path, unit in units.items():
+        for match in INSTANTIATION.finditer(unit.text):
+            raw = match.group("name")
+            resolved = resolve_scala_name(raw, unit, definitions)
+            if resolved is None:
+                unresolved_constructors.setdefault(path, set()).add(raw)
+            else:
+                constructor_callers.setdefault(resolved, set()).add(unit.relative)
+        for definition in definitions_by_path[path]:
+            if STATE_TOKEN.search(definition.body):
+                direct_stateful.add(definition.fqcn)
+            for match in MODULE_INSTANTIATION.finditer(definition.body):
+                raw = match.group("name")
+                resolved = resolve_scala_name(raw, unit, definitions)
+                if resolved is None or resolved not in definitions:
+                    unresolved_module_edges.setdefault(definition.fqcn, set()).add(raw)
+                else:
+                    module_edges.setdefault(definition.fqcn, set()).add(resolved)
+    return ScalaIndex(
+        units=units,
+        definitions=definitions,
+        definitions_by_path=definitions_by_path,
+        constructor_callers=constructor_callers,
+        unresolved_constructors=unresolved_constructors,
+        module_edges=module_edges,
+        unresolved_module_edges=unresolved_module_edges,
+        direct_stateful=direct_stateful,
+    )
+
+
+def _resolved_object_references(
+    text: str,
+    unit: ScalaUnit,
+    index: ScalaIndex,
+) -> set[str]:
+    raw_references = set(re.findall(r"\b[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+", text))
+    raw_references.update(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))
+    resolved: set[str] = set()
+    for raw in raw_references:
+        normalized = re.sub(r"\s*\.\s*", ".", raw)
+        parts = normalized.split(".")
+        if parts[0] in unit.imports:
+            parts = unit.imports[parts[0]].split(".") + parts[1:]
+        for length in range(len(parts), 0, -1):
+            candidate_raw = ".".join(parts[:length])
+            candidate = resolve_scala_name(candidate_raw, unit, index.definitions)
+            definition = index.definitions.get(candidate or "")
+            if definition is not None and definition.kind in {"object", "companion"}:
+                resolved.add(definition.fqcn)
+                break
+    return resolved
+
+
+def scan_emitters(
+    root: Path,
+    sources: dict[Path, str] | None = None,
+    index: ScalaIndex | None = None,
+) -> list[tuple[str, str]]:
+    sources = sources if sources is not None else source_texts(root)
+    index = index if index is not None else build_scala_index(root, sources)
+    objects = {
+        definition.fqcn: definition
+        for definition in index.definitions.values()
+        if definition.kind in {"object", "companion"}
+    }
+    edges = {
+        fqcn: _resolved_object_references(definition.body, index.units[definition.path], index)
+        for fqcn, definition in objects.items()
+    }
+    emitting_objects = {
+        fqcn
+        for fqcn, definition in objects.items()
+        if "emitSystemVerilog" in definition.body or "emitVerilog" in definition.body
+    }
+    changed = True
+    while changed:
+        changed = False
+        for owner, callees in edges.items():
+            if owner not in emitting_objects and callees & emitting_objects:
+                emitting_objects.add(owner)
+                changed = True
+
+    emitters: set[tuple[str, str]] = set()
+    for path, unit in index.units.items():
+        directly_emitting = "emitSystemVerilog" in unit.text or "emitVerilog" in unit.text
+        relative = unit.relative
+        qualified = lambda name: f"{unit.package}.{name}" if unit.package else name
+        for match in APP_ENTRY.finditer(unit.text):
+            fqcn = qualified(match.group("name"))
+            if directly_emitting or fqcn in emitting_objects:
+                emitters.add((fqcn, relative))
+        object_declarations = list(OBJECT_DECLARATION.finditer(unit.text))
+        for main in DEF_MAIN.finditer(unit.text):
             owners = [item for item in object_declarations if item.start() < main.start()]
             if owners:
-                emitters.add((qualified(owners[-1].group("name")), relative))
+                fqcn = qualified(owners[-1].group("name"))
+                if directly_emitting or fqcn in emitting_objects:
+                    emitters.add((fqcn, relative))
+        unit_reaches_sink = bool(
+            _resolved_object_references(unit.text, unit, index) & emitting_objects
+        )
+        for match in AT_MAIN_ENTRY.finditer(unit.text):
+            if directly_emitting or unit_reaches_sink:
+                emitters.add((qualified(match.group("name")), relative))
     return sorted(emitters)
 
 
 def scan_adapters(
     root: Path,
     sources: dict[Path, str] | None = None,
+    index: ScalaIndex | None = None,
 ) -> dict[tuple[str, str], bool]:
-    sources = sources if sources is not None else source_texts(root)
+    index = index if index is not None else build_scala_index(root, sources)
     result: dict[tuple[str, str], bool] = {}
     managed_root = root / "chisel/src/main/scala/linxcore"
-    graph: dict[str, set[str]] = {}
-    direct_stateful: set[str] = set()
-    candidates: list[tuple[str, str, str, bool]] = []
-    for path, text in sources.items():
-        if not path.is_relative_to(managed_root):
-            continue
-        relative = path.relative_to(root).as_posix()
-        package_match = PACKAGE_DECLARATION.search(text)
-        package = package_match.group("name") if package_match else ""
-        for definition in ANY_DEFINITION.finditer(text):
-            simple = definition.group("name")
-            brace = text.find("{", definition.end())
-            if brace < 0:
-                body = ""
-            else:
-                depth = 0
-                end = len(text)
-                for index in range(brace, len(text)):
-                    if text[index] == "{":
-                        depth += 1
-                    elif text[index] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            end = index + 1
-                            break
-                body = text[brace:end]
-            if STATE_TOKEN.search(body):
-                direct_stateful.add(simple)
-            graph.setdefault(simple, set()).update(INSTANTIATION.findall(body))
-        for match in MANAGED_BOUNDARY_CLASS.finditer(text):
-            simple = match.group("name")
-            fqcn = f"{package}.{simple}" if package else simple
-            candidates.append((fqcn, simple, relative, simple.endswith("Bridge")))
-    stateful_symbols = set(direct_stateful)
+    candidates = [
+        definition
+        for definitions in index.definitions_by_path.values()
+        for definition in definitions
+        if definition.path.is_relative_to(managed_root)
+        and re.fullmatch(r"[A-Za-z_]\w*(?:Adapter|Wrapper|Bridge)", definition.simple)
+    ]
+    stateful_symbols = set(index.direct_stateful)
     changed = True
     while changed:
         changed = False
-        for owner, children in graph.items():
+        for owner, children in index.module_edges.items():
             if owner not in stateful_symbols and children & stateful_symbols:
                 stateful_symbols.add(owner)
                 changed = True
-    for fqcn, simple, relative, bridge in candidates:
-        stateful = simple in stateful_symbols
-        if not bridge or stateful:
-            result[(fqcn, relative)] = stateful
+    for definition in candidates:
+        stateful = definition.fqcn in stateful_symbols
+        if not definition.simple.endswith("Bridge") or stateful:
+            result[(definition.fqcn, definition.relative)] = stateful
     return result
 
 
@@ -573,46 +803,10 @@ def discover_callers(
     root: Path,
     symbol: str,
     sources: dict[Path, str] | None = None,
+    index: ScalaIndex | None = None,
 ) -> list[str]:
-    sources = sources if sources is not None else source_texts(root)
-    if "." not in symbol:
-        return []
-    target_package, simple = symbol.rsplit(".", 1)
-    simple_new = re.compile(r"\bnew\s+" + re.escape(simple) + r"\b")
-    fq_new = re.compile(r"\bnew\s+" + re.escape(symbol) + r"\b")
-    exact_import = re.compile(r"(?m)^[ \t]*import[ \t]+" + re.escape(symbol) + r"[ \t]*$")
-    wildcard_import = re.compile(
-        r"(?m)^[ \t]*import[ \t]+" + re.escape(target_package) + r"\.(?:_|\*)[ \t]*$"
-    )
-    braced_import = re.compile(
-        r"(?m)^[ \t]*import[ \t]+"
-        + re.escape(target_package)
-        + r"\.\{[^}]*\b"
-        + re.escape(simple)
-        + r"\b[^}]*\}"
-    )
-    callers = []
-    for path, text in sources.items():
-        package_match = PACKAGE_DECLARATION.search(text)
-        same_package = package_match is not None and package_match.group("name") == target_package
-        simple_visible = (
-            same_package
-            or bool(exact_import.search(text))
-            or bool(wildcard_import.search(text))
-            or bool(braced_import.search(text))
-        )
-        aliases = re.findall(
-            r"(?m)^[ \t]*import[ \t]+"
-            + re.escape(target_package)
-            + r"\.\{[^}\n]*\b"
-            + re.escape(simple)
-            + r"\s*(?:=>|\bas\b)\s*([A-Za-z_]\w*)[^}\n]*\}",
-            text,
-        )
-        alias_used = any(re.search(r"\bnew\s+" + re.escape(alias) + r"\b", text) for alias in aliases)
-        if fq_new.search(text) or alias_used or (simple_visible and simple_new.search(text)):
-            callers.append(path.relative_to(root).as_posix())
-    return callers
+    index = index if index is not None else build_scala_index(root, sources)
+    return sorted(index.constructor_callers.get(symbol, set()))
 
 
 def instantiation_graph(sources: dict[Path, str]) -> dict[str, set[str]]:
@@ -782,6 +976,7 @@ def validate_deletion_targets(
     owner: dict[str, Any],
     root: Path,
     sources: dict[Path, str],
+    index: ScalaIndex,
     errors: list[str],
 ) -> None:
     state_key = owner["state_key"]
@@ -807,7 +1002,7 @@ def validate_deletion_targets(
             continue
         for caller in declared:
             contained_path(root, caller, f"declared caller for {symbol}", errors)
-        discovered = discover_callers(root, symbol, sources)
+        discovered = discover_callers(root, symbol, sources, index)
         if sorted(declared) != discovered:
             errors.append(
                 f"deletion target {symbol} caller declaration mismatch: "
@@ -820,6 +1015,19 @@ def validate_deletion_targets(
         elif status == "deletion-ready":
             if discovered:
                 errors.append(f"deletion-ready target {symbol} still has discovered callers")
+            simple = symbol.rsplit(".", 1)[-1]
+            uncertain: set[str] = set()
+            for unit in index.units.values():
+                if any(symbol in item or simple in item for item in unit.import_errors):
+                    uncertain.add(unit.relative)
+                unresolved = index.unresolved_constructors.get(unit.path, set())
+                if simple in unresolved or symbol in unresolved:
+                    uncertain.add(unit.relative)
+            if uncertain:
+                errors.append(
+                    f"deletion-ready target {symbol} has unresolved Scala references: "
+                    f"{sorted(uncertain)}"
+                )
         else:
             errors.append(f"invalid deletion status for {symbol}")
 
@@ -828,9 +1036,10 @@ def validate_adapters(
     manifest: dict[str, Any],
     root: Path,
     sources: dict[Path, str],
+    index: ScalaIndex,
     errors: list[str],
 ) -> None:
-    discovered = scan_adapters(root, sources)
+    discovered = scan_adapters(root, sources, index)
     declared_items = manifest.get("adapters")
     if not isinstance(declared_items, list):
         errors.append("adapters must be a root-level list")
@@ -903,6 +1112,8 @@ def validate_adapters(
         if role == "compatibility":
             if stateful:
                 errors.append(f"stateful adapter {key[0]}")
+            for child in sorted(index.unresolved_module_edges.get(key[0], set())):
+                errors.append(f"adapter {simple} has unresolved child {child}")
         elif role == "legacy-state-owner":
             if item.get("status") != "planned-deletion":
                 errors.append(f"legacy adapter {key[0]} must be planned for deletion")
@@ -920,6 +1131,7 @@ def validate_entry_points(
     manifest: dict[str, Any],
     root: Path,
     sources: dict[Path, str],
+    index: ScalaIndex,
     errors: list[str],
 ) -> dict[str, Any]:
     entry_points = manifest.get("entry_points")
@@ -949,7 +1161,7 @@ def validate_entry_points(
                     )
             if classification == "production" and not entry.get("production_evidence"):
                 errors.append(f"missing production evidence for emitter {name}")
-    discovered_emitters = set(scan_emitters(root, sources))
+    discovered_emitters = set(scan_emitters(root, sources, index))
     for name, path in discovered_emitters:
         expected_class = EMITTER_INVENTORY.get((name, path))
         registration = registrations.get((name, path))
@@ -971,11 +1183,12 @@ def validate_entry_points(
 def validate(manifest: dict[str, Any], root: Path) -> list[str]:
     errors: list[str] = []
     sources = source_texts(root)
+    index = build_scala_index(root, sources)
     graph = instantiation_graph(sources)
     if manifest.get("schema_version") != 2:
         errors.append("schema_version must be 2")
     validate_ndf(manifest.get("ndf"), root, errors)
-    entry_points = validate_entry_points(manifest, root, sources, errors)
+    entry_points = validate_entry_points(manifest, root, sources, index, errors)
 
     owners = manifest.get("owners")
     if not isinstance(owners, list) or not owners:
@@ -990,9 +1203,9 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
     for state_key in sorted(set(state_keys) - set(STATE_DOMAINS)):
         errors.append(f"unknown state domain {state_key}")
 
-    for index, owner in enumerate(owners):
+    for owner_index, owner in enumerate(owners):
         if not isinstance(owner, dict):
-            errors.append(f"owner[{index}] must be an object")
+            errors.append(f"owner[{owner_index}] must be an object")
             continue
         state_key = owner.get("state_key")
         if state_key not in STATE_DOMAINS:
@@ -1033,13 +1246,13 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
             errors.append(f"missing cutover task for {state_key}")
         if owner.get("adapters") not in (None, []):
             errors.append(f"owner-local adapters must be empty for {state_key}")
-        validate_deletion_targets(owner, root, sources, errors)
+        validate_deletion_targets(owner, root, sources, index, errors)
 
     subsystems = {owner.get("subsystem") for owner in owners if isinstance(owner, dict)}
     missing_subsystems = sorted(REQUIRED_SUBSYSTEMS - subsystems)
     if missing_subsystems:
         errors.append(f"missing subsystem state categories: {', '.join(missing_subsystems)}")
-    validate_adapters(manifest, root, sources, errors)
+    validate_adapters(manifest, root, sources, index, errors)
     return errors
 
 
@@ -1065,11 +1278,11 @@ def main() -> int:
             print(f"production-owner-manifest: ERROR: {error}", file=sys.stderr)
         return 1
     owners = manifest["owners"]
-    emitters = scan_emitters(root)
-    adapters = scan_adapters(root)
+    emitters = sum(len(items) for items in manifest["entry_points"].values())
+    adapters = len(manifest["adapters"])
     print(
         f"production-owner-manifest: {len(owners)} closed owners, "
-        f"{len(emitters)} classified emitters, {len(adapters)} declared adapters, "
+        f"{emitters} classified emitters, {adapters} declared adapters, "
         "NDF L1/L2/L3 roles mapped"
     )
     return 0

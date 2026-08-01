@@ -163,6 +163,32 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "deletion target fixture.LegacyOwner caller declaration mismatch",
         )
 
+    def test_rejects_multiline_alias_import_deletion_caller_omission(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
+        target.update(
+            {
+                "path": "chisel/src/main/scala/fixture/LegacyOwner.scala",
+                "symbol": "fixture.LegacyOwner",
+                "status": "deletion-ready",
+                "active_callers": [],
+            }
+        )
+        self._write_file(target["path"], "package fixture\nclass LegacyOwner\n")
+        self._write_file(
+            "chisel/src/main/scala/client/MultilineAliasCaller.scala",
+            "package client\n"
+            "import fixture.{\n"
+            "  LegacyOwner =>\n"
+            "    Alias\n"
+            "}\n"
+            "class MultilineAliasCaller { val owner = new Alias }\n",
+        )
+        self.assert_rejected(
+            manifest,
+            "deletion target fixture.LegacyOwner caller declaration mismatch",
+        )
+
     def test_ignores_deletion_references_inside_comments_and_strings(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         target = self.owner("dispatch_reservation", manifest)["deletion_targets"][0]
@@ -327,6 +353,93 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "adapter HiddenCompatibilityWrapper stateful declaration mismatch",
         )
 
+    def test_rejects_qualified_stateful_child_hidden_behind_wrapper(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        child = "chisel/src/main/scala/linxcore/lsu/HiddenStateOwner.scala"
+        wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenQualifiedWrapper.scala"
+        self._write_file(
+            child,
+            "package linxcore.lsu\n"
+            "import chisel3._\n"
+            "class HiddenStateOwner extends Module { val held = RegNext(false.B) }\n",
+        )
+        self._write_file(
+            wrapper,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenQualifiedWrapper extends Module {\n"
+            "  val child = Module(new linxcore.lsu.HiddenStateOwner)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenQualifiedWrapper",
+                "path": wrapper,
+                "role": "compatibility",
+                "stateful": False,
+            }
+        )
+        self.assert_rejected(
+            manifest,
+            "adapter HiddenQualifiedWrapper stateful declaration mismatch",
+        )
+
+    def test_rejects_import_aliased_stateful_child_hidden_behind_wrapper(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        child = "chisel/src/main/scala/linxcore/lsu/HiddenStateOwner.scala"
+        wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenAliasedWrapper.scala"
+        self._write_file(
+            child,
+            "package linxcore.lsu\n"
+            "import chisel3._\n"
+            "class HiddenStateOwner extends Module { val held = RegEnable(false.B, true.B) }\n",
+        )
+        self._write_file(
+            wrapper,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "import linxcore.lsu.{HiddenStateOwner => Child}\n"
+            "class HiddenAliasedWrapper extends Module {\n"
+            "  val child = Module(new Child)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenAliasedWrapper",
+                "path": wrapper,
+                "role": "compatibility",
+                "stateful": False,
+            }
+        )
+        self.assert_rejected(
+            manifest,
+            "adapter HiddenAliasedWrapper stateful declaration mismatch",
+        )
+
+    def test_rejects_unresolved_child_of_compatibility_wrapper(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        wrapper = "chisel/src/main/scala/linxcore/ooo/HiddenUnresolvedWrapper.scala"
+        self._write_file(
+            wrapper,
+            "package linxcore.ooo\n"
+            "import chisel3._\n"
+            "class HiddenUnresolvedWrapper extends Module {\n"
+            "  val child = Module(new MissingStateOwner)\n"
+            "}\n",
+        )
+        manifest["adapters"].append(
+            {
+                "symbol": "HiddenUnresolvedWrapper",
+                "path": wrapper,
+                "role": "compatibility",
+                "stateful": False,
+            }
+        )
+        self.assert_rejected(
+            manifest,
+            "adapter HiddenUnresolvedWrapper has unresolved child MissingStateOwner",
+        )
+
     def test_rejects_io_bundle_pretending_to_be_public_module_box(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         row = self.owner("instruction_cache", manifest)
@@ -469,6 +582,25 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "object EmitCrossFileWrapper extends App { EmitSink.emitFixture() }\n",
         )
         self.assert_rejected(self.manifest, "unknown emitter linxcore.top.EmitCrossFileWrapper")
+
+    def test_rejects_unknown_cross_file_object_apply_emitter(self) -> None:
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/ApplyEmitSink.scala",
+            "package linxcore.top\n"
+            "object ApplyEmitSink {\n"
+            "  def apply(): Unit =\n"
+            "    circt.stage.ChiselStage.emitSystemVerilogFile(new Object)\n"
+            "}\n",
+        )
+        self._write_file(
+            "chisel/src/main/scala/linxcore/top/EmitCrossFileApplyWrapper.scala",
+            "package linxcore.top\n"
+            "object EmitCrossFileApplyWrapper extends App { ApplyEmitSink() }\n",
+        )
+        self.assert_rejected(
+            self.manifest,
+            "unknown emitter linxcore.top.EmitCrossFileApplyWrapper",
+        )
 
     def test_rejects_unregistered_emitter_with_misleading_reduced_name(self) -> None:
         self._add_unknown_emitter(

@@ -161,6 +161,18 @@ push identities are filled only after the corresponding operation succeeds.
   seconds after emitter propagation was reduced to one definitions/calls index
   per Scala source. A final regression also proves a registered non-production
   emitter cannot be moved into the production list without Task-17 authority.
+- Independent-review fix round 3: five new RED probes close the remaining
+  repository-identity gaps. Multiline braced alias imports now resolve exact
+  deletion callers. A shared Scala index resolves package-qualified and
+  import-aliased constructor edges by FQCN, propagates retained state through
+  exact `Module(new ...)` children, and makes a compatibility boundary with an
+  unresolved child fail closed. Emitter reachability resolves object identity
+  across files, including object `apply`, qualified helpers, and nullary
+  qualified calls, rather than matching bare method names. All 34 focused
+  tests pass; the unchanged live manifest remains 23 owners, 40 emitters, and
+  12 adapters. The successful CLI reuses validation results for its summary
+  and completes in 3.40 seconds on the recorded run, below the ten-second
+  review bound.
 - Remaining boundary: Task 11 must update this manifest in the same atomic
   commit that changes OOO D3/S1 call sites and deletes the displaced legacy
   owner chain. The controller owns push and remote-equality confirmation before
