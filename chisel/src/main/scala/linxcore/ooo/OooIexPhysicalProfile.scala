@@ -1,6 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
+import linxcore.params.CoreParams
 
 /** Stable execution capabilities used to separate IQ residency from the
   * physical operation that a picker/pipe can accept.
@@ -92,6 +93,8 @@ final case class OooIexPickerFunction(
     classBankEnables: Seq[BigInt],
     capabilities: BigInt,
     releasePort: Int) {
+  def hasCapability(capability: Int): Boolean =
+    (capabilities & (BigInt(1) << capability)) != 0
   def transferConfig: OooIexIssueDomainConfig =
     OooIexIssueDomainConfig(classBankEnables, releasePort, name, capabilities)
 }
@@ -289,15 +292,14 @@ object OooIexLinxPhysicalProfile {
 
   def sharedReadResources(
       profile: OooIexPhysicalProfile): Seq[OooIexSharedResourceConfig] = {
-    val symmetricAluPickers = Seq(
-      profile.pickerIndex("alu2"), profile.pickerIndex("alu5"))
-    Seq(
-      OooIexSharedResourceConfig("divide", MultiCycleAlu,
-        symmetricAluPickers),
-      OooIexSharedResourceConfig("pointer-auth", PointerAuth,
-        symmetricAluPickers),
-      OooIexSharedResourceConfig("system", System,
-        symmetricAluPickers))
+    Seq("divide" -> MultiCycleAlu, "pointer-auth" -> PointerAuth,
+      "system" -> System).flatMap { case (name, capability) =>
+      val pickers = profile.pickerFunctions.zipWithIndex.collect {
+        case (picker, index) if picker.hasCapability(capability) => index
+      }
+      Option.when(pickers.length > 1)(
+        OooIexSharedResourceConfig(name, capability, pickers))
+    }
   }
 
   def apply(base: OooParams = OooParams()): OooIexPhysicalProfile = {
@@ -426,5 +428,148 @@ object OooIexLinxPhysicalProfile {
       profile.ownersOf(cmdClass).map(_.name) == Seq("fsu0"),
       "the external FSU domain owns FSU and engine-command residency")
     profile
+  }
+}
+
+/** Value-only bridge from the canonical core parameters to the private IEX
+  * mechanism profile used by the Task-13 cutover.  This object owns no
+  * hardware state and does not activate the public `IEX` box.
+  */
+final case class OooIexProductionPhysicalProfile(
+    physical: OooIexPhysicalProfile,
+    aluCount: Int,
+    bruCount: Int,
+    aguCount: Int,
+    stdCount: Int,
+    systemMulticycleCount: Int,
+    commandCount: Int)
+
+object OooIexProductionPhysicalProfile {
+  import OooIexDomainCapability._
+
+  private def bankMask(bankCount: Int, lane: Int, laneCount: Int): BigInt =
+    (0 until bankCount).filter(_ % laneCount == lane).foldLeft(BigInt(0))(
+      (mask, bank) => mask | (BigInt(1) << bank))
+
+  private def partitionMask(source: BigInt, bankCount: Int,
+      lane: Int, laneCount: Int): BigInt =
+    (0 until bankCount).filter(bank =>
+      (source & (BigInt(1) << bank)) != 0 && bank % laneCount == lane)
+      .foldLeft(BigInt(0))((result, bank) =>
+        result | (BigInt(1) << bank))
+
+  def apply(core: CoreParams): OooIexProductionPhysicalProfile = {
+    val iex = core.iex
+    require(iex.aluPipes == 2 && iex.bruPipes == 1 && iex.aguPipes == 2 &&
+      iex.stdPipes == 2 && iex.systemMulticycleQueues == 1 &&
+      iex.cmdIssueQueues == 1,
+      "private production IEX currently supports the canonical 2/1/2/2/1/1 topology")
+
+    val base = OooParams.fromCoreParams(core)
+    val pickerCount = iex.aluPipes + iex.bruPipes +
+      2 * iex.aguPipes + iex.systemMulticycleQueues +
+      iex.cmdIssueQueues + 1 // one floating/vector owner
+    val p = base.copy(
+      iexIssueDomainCount = pickerCount,
+      iexReleaseWidth = pickerCount)
+    val allBanks = (BigInt(1) << p.iqBankCount) - 1
+    val aluClass = OooDispatchClass.Alu - 1
+    val bruClass = OooDispatchClass.Bru - 1
+    val aguClass = OooDispatchClass.Agu - 1
+    val stdClass = OooDispatchClass.Std - 1
+    val fsuClass = OooDispatchClass.Fsu - 1
+    val sysClass = OooDispatchClass.Sys - 1
+    val cmdClass = OooDispatchClass.Cmd - 1
+    val boundaryClass = OooDispatchClass.Boundary - 1
+    val systemAluBanks = BigInt(1) << (p.iqBankCount - 1)
+    val simpleAluBanks = allBanks ^ systemAluBanks
+
+    def classes(entries: (Int, BigInt)*): Seq[BigInt] = {
+      val result = Array.fill[BigInt](p.iqClassCount)(BigInt(0))
+      entries.foreach { case (classIndex, mask) =>
+        result(classIndex) = mask
+      }
+      result.toSeq
+    }
+
+    val aluOwners = (0 until iex.aluPipes).map { lane =>
+      val aluMaskForLane = partitionMask(simpleAluBanks, p.iqBankCount,
+        lane, iex.aluPipes)
+      val stdMaskForLane = bankMask(p.iqBankCount, lane, iex.stdPipes)
+      OooIexResidencyOwner(s"alu$lane",
+        classes(aluClass -> aluMaskForLane, stdClass -> stdMaskForLane),
+        mask(SimpleAlu, StoreData))
+    }
+    val aguOwners = (0 until iex.aguPipes).map { lane =>
+      OooIexResidencyOwner(s"agu$lane",
+        classes(aguClass -> bankMask(p.iqBankCount, lane, iex.aguPipes)),
+        mask(LoadAddress, StoreAddress))
+    }
+    val bruOwners = (0 until iex.bruPipes).map { lane =>
+      OooIexResidencyOwner(s"bru$lane", classes(bruClass -> allBanks),
+        mask(Branch))
+    }
+    val systemOwners = (0 until iex.systemMulticycleQueues).map { lane =>
+      OooIexResidencyOwner(s"sys$lane",
+        classes(aluClass -> systemAluBanks, sysClass -> allBanks),
+        mask(MultiCycleAlu, System, PointerAuth))
+    }
+    val fsuOwner = OooIexResidencyOwner("fsu0", classes(fsuClass -> allBanks),
+      mask(FloatingVector))
+    val commandOwners = (0 until iex.cmdIssueQueues).map { lane =>
+      OooIexResidencyOwner(s"cmd$lane", classes(cmdClass -> allBanks),
+        mask(EngineCommand))
+    }
+    val owners = aluOwners ++ aguOwners ++ bruOwners ++ systemOwners ++
+      Seq(fsuOwner) ++ commandOwners
+
+    def picker(
+        name: String,
+        owner: OooIexResidencyOwner,
+        capabilities: BigInt,
+        releasePort: Int): OooIexPickerFunction =
+      OooIexPickerFunction(name, owner.name, name, owner.classBankEnables,
+        capabilities, releasePort)
+
+    val pickerBuffer = scala.collection.mutable.ArrayBuffer.empty[
+      OooIexPickerFunction]
+    def append(name: String, owner: OooIexResidencyOwner,
+        capabilities: BigInt): Unit =
+      pickerBuffer += picker(name, owner, capabilities, pickerBuffer.length)
+    aluOwners.foreach(owner => append(owner.name, owner,
+      mask(SimpleAlu, StoreData)))
+    aguOwners.foreach { owner =>
+      append(s"${owner.name}-lda", owner, mask(LoadAddress))
+      append(s"${owner.name}-sta", owner, mask(StoreAddress))
+    }
+    bruOwners.foreach(owner => append(owner.name, owner, mask(Branch)))
+    systemOwners.foreach(owner => append(owner.name, owner,
+      mask(MultiCycleAlu, System, PointerAuth)))
+    append(fsuOwner.name, fsuOwner, mask(FloatingVector))
+    commandOwners.foreach(owner => append(owner.name, owner,
+      mask(EngineCommand)))
+    val pickers = pickerBuffer.toSeq
+    require(pickers.length == pickerCount,
+      "canonical IEX topology must derive one exact picker count")
+    val lanes = pickers.map(entry =>
+      OooIexExecutionLane(entry.executionLane, entry.capabilities))
+    val physical = OooIexPhysicalProfile(
+      name = s"linx-canonical-w${core.widths.issueWidth}-private-v1",
+      params = p,
+      residencyOwners = owners,
+      pickerFunctions = pickers,
+      executionLanes = lanes,
+      dispatchableClasses = Set(aluClass, bruClass, aguClass, stdClass,
+        fsuClass, sysClass, cmdClass),
+      fastResolvedClasses = Set(boundaryClass))
+
+    OooIexProductionPhysicalProfile(
+      physical = physical,
+      aluCount = iex.aluPipes,
+      bruCount = iex.bruPipes,
+      aguCount = iex.aguPipes,
+      stdCount = iex.stdPipes,
+      systemMulticycleCount = iex.systemMulticycleQueues,
+      commandCount = iex.cmdIssueQueues)
   }
 }

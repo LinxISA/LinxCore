@@ -158,8 +158,8 @@ class OooIexCanonicalLoadOwnership(
     val laneCount: Int = 3) extends Module {
   private val lsu = coreParams.scalarLsu
 
-  require(laneCount == 3,
-    "the Linx scalar production profile has exactly three AGU load lanes")
+  require(laneCount > 0,
+    "the Linx scalar production profile needs at least one AGU load lane")
   require(lsu.loadReturnPipeCount >= laneCount,
     "canonical LSU return-pipe identities must cover every AGU load lane")
   LoadCanonicalRowIdentity.requireBridgeFits(lsu.liqEntries)
@@ -169,7 +169,8 @@ class OooIexCanonicalLoadOwnership(
 
   val adapter = Module(new OooIexLoadLiqAllocAdapter(
     p, coreParams, laneCount))
-  val metadata = Module(new OooIexLoadTerminalMetadata(p, coreParams))
+  val metadata = Module(new OooIexLoadTerminalMetadata(
+    p, coreParams, laneCount = laneCount))
 
   adapter.io.agu <> io.agu
   adapter.io.flush := io.flush

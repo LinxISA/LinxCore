@@ -53,9 +53,8 @@ class OooIexTerminalFabric(
   private val width = p.iexTerminalWidth
   private val publicationPorts = width * p.maxDestinationOperands
 
-  require(aluSourceCount >= width && bruSourceCount >= width &&
-    loadSourceCount >= width,
-    "every terminal lane needs at least one ALU, BRU, and load source owner")
+  require(aluSourceCount > 0 && bruSourceCount > 0 && loadSourceCount > 0,
+    "terminal topology needs at least one ALU, BRU, and load source owner")
   require(p.iexPWritePorts >= publicationPorts &&
     p.iexTWritePorts >= publicationPorts &&
     p.iexUWritePorts >= publicationPorts,
@@ -71,16 +70,19 @@ class OooIexTerminalFabric(
 
   val publishers = Seq.fill(width)(Module(new OooIexTerminalPublish(p)))
   val aluArbiters = Seq.tabulate(width) { lane =>
-    Module(new RRArbiter(new OooIexAluTerminalTransaction(p),
-      ownedSources(aluSourceCount, lane).length))
+    val count = ownedSources(aluSourceCount, lane).length
+    Option.when(count > 0)(Module(new RRArbiter(
+      new OooIexAluTerminalTransaction(p), count)))
   }
   val bruArbiters = Seq.tabulate(width) { lane =>
-    Module(new RRArbiter(new OooIexBruTerminalTransaction(p),
-      ownedSources(bruSourceCount, lane).length))
+    val count = ownedSources(bruSourceCount, lane).length
+    Option.when(count > 0)(Module(new RRArbiter(
+      new OooIexBruTerminalTransaction(p), count)))
   }
   val loadArbiters = Seq.tabulate(width) { lane =>
-    Module(new RRArbiter(new OooIexLoadResult(p),
-      ownedSources(loadSourceCount, lane).length))
+    val count = ownedSources(loadSourceCount, lane).length
+    Option.when(count > 0)(Module(new RRArbiter(
+      new OooIexLoadResult(p), count)))
   }
 
   for (lane <- 0 until width) {
@@ -89,24 +91,42 @@ class OooIexTerminalFabric(
     val loadSources = ownedSources(loadSourceCount, lane)
 
     aluSources.zipWithIndex.foreach { case (source, local) =>
-      aluArbiters(lane).io.in(local).valid := io.alu(source).valid
-      aluArbiters(lane).io.in(local).bits := io.alu(source).bits
-      io.alu(source).ready := aluArbiters(lane).io.in(local).ready
+      aluArbiters(lane).get.io.in(local).valid := io.alu(source).valid
+      aluArbiters(lane).get.io.in(local).bits := io.alu(source).bits
+      io.alu(source).ready := aluArbiters(lane).get.io.in(local).ready
     }
     bruSources.zipWithIndex.foreach { case (source, local) =>
-      bruArbiters(lane).io.in(local).valid := io.bru(source).valid
-      bruArbiters(lane).io.in(local).bits := io.bru(source).bits
-      io.bru(source).ready := bruArbiters(lane).io.in(local).ready
+      bruArbiters(lane).get.io.in(local).valid := io.bru(source).valid
+      bruArbiters(lane).get.io.in(local).bits := io.bru(source).bits
+      io.bru(source).ready := bruArbiters(lane).get.io.in(local).ready
     }
     loadSources.zipWithIndex.foreach { case (source, local) =>
-      loadArbiters(lane).io.in(local).valid := io.load(source).valid
-      loadArbiters(lane).io.in(local).bits := io.load(source).bits
-      io.load(source).ready := loadArbiters(lane).io.in(local).ready
+      loadArbiters(lane).get.io.in(local).valid := io.load(source).valid
+      loadArbiters(lane).get.io.in(local).bits := io.load(source).bits
+      io.load(source).ready := loadArbiters(lane).get.io.in(local).ready
     }
 
-    publishers(lane).io.alu <> aluArbiters(lane).io.out
-    publishers(lane).io.bru <> bruArbiters(lane).io.out
-    publishers(lane).io.load <> loadArbiters(lane).io.out
+    aluArbiters(lane) match {
+      case Some(arbiter) => publishers(lane).io.alu <> arbiter.io.out
+      case None =>
+        publishers(lane).io.alu.valid := false.B
+        publishers(lane).io.alu.bits :=
+          0.U.asTypeOf(publishers(lane).io.alu.bits)
+    }
+    bruArbiters(lane) match {
+      case Some(arbiter) => publishers(lane).io.bru <> arbiter.io.out
+      case None =>
+        publishers(lane).io.bru.valid := false.B
+        publishers(lane).io.bru.bits :=
+          0.U.asTypeOf(publishers(lane).io.bru.bits)
+    }
+    loadArbiters(lane) match {
+      case Some(arbiter) => publishers(lane).io.load <> arbiter.io.out
+      case None =>
+        publishers(lane).io.load.valid := false.B
+        publishers(lane).io.load.bits :=
+          0.U.asTypeOf(publishers(lane).io.load.bits)
+    }
 
     for (destination <- 0 until p.maxDestinationOperands) {
       val port = lane * p.maxDestinationOperands + destination

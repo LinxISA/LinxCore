@@ -63,7 +63,7 @@ class OooIexLoadLiqAllocAdapterIO(
     Valid(new OooIexLoadLiqAllocReject(p))))
 }
 
-/** Three-AGU to one-canonical-LIQ allocation bridge.
+/** Multi-AGU to one-canonical-LIQ allocation bridge.
   *
   * The bridge is deliberately non-resident: AGU lanes retain their requests
   * under backpressure and the canonical LIQ becomes the sole load-lifecycle
@@ -78,8 +78,8 @@ class OooIexLoadLiqAllocAdapter(
     val laneCount: Int = 3) extends Module {
   private val lsu = coreParams.scalarLsu
 
-  require(laneCount == 3,
-    "the Linx scalar execution profile has exactly three load-address lanes")
+  require(laneCount > 0,
+    "the Linx scalar execution profile needs at least one load-address lane")
   require(lsu.loadReturnPipeCount >= laneCount,
     "each physical load lane needs a canonical LSU return-pipe identity")
   require(p.robGroupsPerStid <= coreParams.robEntries,

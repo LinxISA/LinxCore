@@ -11,9 +11,12 @@ import linxcore.common.CoreParams
   * exposes only execution families whose later owners are still external.
   */
 class OooIexExecutionPipelineIO(
-    val p: OooParams,
+    val profile: OooIexPhysicalProfile,
     val requireStoreReservation: Boolean,
     val coreParams: CoreParams) extends Bundle {
+  val p = profile.params
+  private def capabilityCount(capability: Int): Int =
+    profile.pickerFunctions.count(_.hasCapability(capability))
   val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
@@ -43,11 +46,19 @@ class OooIexExecutionPipelineIO(
   val uClear = Flipped(Vec(p.tuAllocationWidth,
     Valid(new OooIexLocalFileKey(p))))
 
-  val storeAddress = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val storeData = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val multiCycleAlu = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val system = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
+  val storeAddress = Vec(capabilityCount(
+    OooIexDomainCapability.StoreAddress),
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val storeData = Vec(capabilityCount(OooIexDomainCapability.StoreData),
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val multiCycleAlu = Vec(capabilityCount(
+    OooIexDomainCapability.MultiCycleAlu),
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val system = Vec(capabilityCount(OooIexDomainCapability.System),
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val pointerAuth = Vec(capabilityCount(
+    OooIexDomainCapability.PointerAuth),
+    Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
   val load = new OooIexCanonicalLoadPortIO(p, coreParams)
@@ -66,8 +77,7 @@ class OooIexExecutionPipelineIO(
   val pWriteFire = Output(Vec(p.iexPWritePorts, Bool()))
   val tWriteFire = Output(Vec(p.iexTWritePorts, Bool()))
   val uWriteFire = Output(Vec(p.iexUWritePorts, Bool()))
-  val routeRejected = Output(Vec(
-    OooIexLinxPhysicalProfile.ExecutionLaneCount,
+  val routeRejected = Output(Vec(profile.pickerFunctions.length,
     Valid(new OooIexExecutionRouteReject(p))))
   val terminalRejected = Output(Vec(p.iexTerminalWidth,
     Vec(3, Valid(new OooIexTerminalReject(p)))))
@@ -95,13 +105,15 @@ class OooIexExecutionPipeline(
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
   private val fastPWritePort = terminalPorts
   private val fastWakeupPort = p.iexWakeupPorts - 1
-  private val committedAndLoadWakeupPorts = terminalPorts + 3
+  private val loadCount = profile.pickerFunctions.count(
+    _.hasCapability(OooIexDomainCapability.LoadAddress))
+  private val committedAndLoadWakeupPorts = terminalPorts + loadCount
   require(p.iexPWritePorts > terminalPorts,
     "production execution needs one dedicated fast-result P write port")
   require(p.iexWakeupPorts > committedAndLoadWakeupPorts,
     "production execution needs one dedicated fast-result wakeup port")
   val io = IO(new OooIexExecutionPipelineIO(
-    p, requireStoreReservation, coreParams))
+    profile, requireStoreReservation, coreParams))
 
   val issue = Module(new OooIexPipeline(profile, requireStoreReservation))
   val execute = Module(new OooIexExecutionCluster(profile, Some(coreParams)))
@@ -191,19 +203,27 @@ class OooIexExecutionPipeline(
     }
   }
 
-  for (index <- 0 until 2) {
+  for (index <- io.storeAddress.indices) {
     io.storeAddress(index).valid := execute.io.storeAddress(index).valid
     io.storeAddress(index).bits := execute.io.storeAddress(index).bits
     execute.io.storeAddress(index).ready := io.storeAddress(index).ready
+  }
+  for (index <- io.storeData.indices) {
     io.storeData(index).valid := execute.io.storeData(index).valid
     io.storeData(index).bits := execute.io.storeData(index).bits
     execute.io.storeData(index).ready := io.storeData(index).ready
+  }
+  for (index <- io.multiCycleAlu.indices) {
     io.multiCycleAlu(index).valid := execute.io.multiCycleAlu(index).valid
     io.multiCycleAlu(index).bits := execute.io.multiCycleAlu(index).bits
     execute.io.multiCycleAlu(index).ready := io.multiCycleAlu(index).ready
+  }
+  for (index <- io.system.indices) {
     io.system(index).valid := execute.io.system(index).valid
     io.system(index).bits := execute.io.system(index).bits
     execute.io.system(index).ready := io.system(index).ready
+  }
+  for (index <- io.pointerAuth.indices) {
     io.pointerAuth(index).valid := execute.io.pointerAuth(index).valid
     io.pointerAuth(index).bits := execute.io.pointerAuth(index).bits
     execute.io.pointerAuth(index).ready := io.pointerAuth(index).ready

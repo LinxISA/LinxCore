@@ -24,22 +24,40 @@ class OooIexExecutionRouteReject(val p: OooParams = OooParams())
   * upstream E1 slot remains the owner until one of those boundaries fires.
   */
 class OooIexExecutionClusterIO(
-    val p: OooParams,
+    val profile: OooIexPhysicalProfile,
     val coreParams: CoreParams) extends Bundle {
+  val p = profile.params
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
+  private def capabilityCount(capability: Int): Int =
+    profile.pickerFunctions.count(_.hasCapability(capability))
+  private val aluCount = capabilityCount(OooIexDomainCapability.SimpleAlu)
+  private val bruCount = capabilityCount(OooIexDomainCapability.Branch)
+  private val loadCount = capabilityCount(OooIexDomainCapability.LoadAddress)
+  private val storeAddressCount =
+    capabilityCount(OooIexDomainCapability.StoreAddress)
+  private val storeDataCount = capabilityCount(OooIexDomainCapability.StoreData)
+  private val multiCycleCount =
+    capabilityCount(OooIexDomainCapability.MultiCycleAlu)
+  private val systemCount = capabilityCount(OooIexDomainCapability.System)
+  private val pointerAuthCount =
+    capabilityCount(OooIexDomainCapability.PointerAuth)
 
-  val e1 = Flipped(Vec(OooIexLinxPhysicalProfile.ExecutionLaneCount,
+  val e1 = Flipped(Vec(profile.pickerFunctions.length,
     Decoupled(new OooIexExecuteTransaction(p))))
   val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
   val recoveryPrepareReady = Output(Bool())
   val recoveryRejected = Output(Bool())
   val recoveryFire = Input(Bool())
 
-  val storeAddress = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val storeData = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val multiCycleAlu = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val system = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
-  val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
+  val storeAddress = Vec(storeAddressCount,
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val storeData = Vec(storeDataCount,
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val multiCycleAlu = Vec(multiCycleCount,
+    Decoupled(new OooIexExecuteTransaction(p)))
+  val system = Vec(systemCount, Decoupled(new OooIexExecuteTransaction(p)))
+  val pointerAuth = Vec(pointerAuthCount,
+    Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
 
@@ -61,12 +79,11 @@ class OooIexExecutionClusterIO(
   val completion = Vec(p.iexTerminalWidth,
     Decoupled(new OooRobMemberCompletion(p)))
 
-  val routeRejected = Output(Vec(
-    OooIexLinxPhysicalProfile.ExecutionLaneCount,
+  val routeRejected = Output(Vec(profile.pickerFunctions.length,
     Valid(new OooIexExecutionRouteReject(p))))
-  val aluRejected = Output(Vec(6, Valid(new OooIexAluReject(p))))
-  val bruRejected = Output(Vec(2, Valid(new OooIexBruReject(p))))
-  val aguRejected = Output(Vec(3, Valid(new OooIexAguReject(p))))
+  val aluRejected = Output(Vec(aluCount, Valid(new OooIexAluReject(p))))
+  val bruRejected = Output(Vec(bruCount, Valid(new OooIexBruReject(p))))
+  val aguRejected = Output(Vec(loadCount, Valid(new OooIexAguReject(p))))
   val terminalRejected = Output(Vec(p.iexTerminalWidth,
     Vec(3, Valid(new OooIexTerminalReject(p)))))
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
@@ -84,15 +101,29 @@ class OooIexExecutionCluster(
   val p = profile.params
   val coreParams = coreParamsOverride.getOrElse(
     OooIexCanonicalLoadOwnership.defaultCoreParams(p))
-  private val aluCount = 6
-  private val bruCount = 2
-  private val loadCount = 3
+  private def pickerIndices(capability: Int): Seq[Int] =
+    profile.pickerFunctions.zipWithIndex.collect {
+      case (picker, index) if picker.hasCapability(capability) => index
+    }
+  private val aluLanes = pickerIndices(SimpleAlu)
+  private val bruLanes = pickerIndices(Branch)
+  private val loadLanes = pickerIndices(LoadAddress)
+  private val storeAddressLanes = pickerIndices(StoreAddress)
+  private val storeDataLanes = pickerIndices(StoreData)
+  private val multiCycleLanes = pickerIndices(MultiCycleAlu)
+  private val systemLanes = pickerIndices(System)
+  private val pointerAuthLanes = pickerIndices(PointerAuth)
+  private val floatingVectorLanes = pickerIndices(FloatingVector)
+  private val engineCommandLanes = pickerIndices(EngineCommand)
+  private val aluCount = aluLanes.length
+  private val bruCount = bruLanes.length
+  private val loadCount = loadLanes.length
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
 
-  require(profile.name == "linx-scalar-control-v2" &&
-    profile.pickerFunctions.length ==
-      OooIexLinxPhysicalProfile.PickerFunctionCount,
-    "execution cluster requires the formal Linx scalar/control profile")
+  require(aluCount > 0 && bruCount > 0 && loadCount > 0,
+    "execution cluster requires ALU, BRU, and load-address mechanisms")
+  require(floatingVectorLanes.length == 1 && engineCommandLanes.length == 1,
+    "execution cluster retains one floating/vector and one command boundary")
   require(p.iexWakeupPorts >= terminalPorts + loadCount,
     "committed and speculative load wakeups need independent ports")
   require(p.iexBypassPorts >= aluCount + loadCount,
@@ -100,12 +131,13 @@ class OooIexExecutionCluster(
   require(p.iexLoadCancelPorts >= loadCount,
     "every scalar load pipe needs an independent cancel port")
 
-  val io = IO(new OooIexExecutionClusterIO(p, coreParams))
+  val io = IO(new OooIexExecutionClusterIO(profile, coreParams))
 
   val alus = Seq.fill(aluCount)(Module(new OooIexAluPipeline(p)))
   val brus = Seq.fill(bruCount)(Module(new OooIexBruPipeline(p)))
   val agus = Seq.fill(loadCount)(Module(new OooIexAguPipeline(p)))
-  val load = Module(new OooIexCanonicalLoadOwnership(p, coreParams))
+  val load = Module(new OooIexCanonicalLoadOwnership(
+    p, coreParams, laneCount = loadCount))
   val terminal = Module(new OooIexTerminalFabric(
     p, aluCount, bruCount, loadCount))
 
@@ -262,36 +294,30 @@ class OooIexExecutionCluster(
       "one E1 owner must select at most one typed execution destination")
   }
 
-  val aluLanes = (0 until aluCount).map(index =>
-    profile.pickerIndex(s"alu$index"))
-  route(aluLanes(0), Seq(SimpleAlu -> alus(0).io.e1,
-    StoreData -> io.storeData(0)))
-  route(aluLanes(1), Seq(SimpleAlu -> alus(1).io.e1))
-  route(aluLanes(2), Seq(SimpleAlu -> alus(2).io.e1,
-    MultiCycleAlu -> io.multiCycleAlu(0), System -> io.system(0),
-    PointerAuth -> io.pointerAuth(0)))
-  route(aluLanes(3), Seq(SimpleAlu -> alus(3).io.e1,
-    StoreData -> io.storeData(1)))
-  route(aluLanes(4), Seq(SimpleAlu -> alus(4).io.e1))
-  route(aluLanes(5), Seq(SimpleAlu -> alus(5).io.e1,
-    MultiCycleAlu -> io.multiCycleAlu(1), System -> io.system(1),
-    PointerAuth -> io.pointerAuth(1)))
-
-  route(profile.pickerIndex("agu0-lda"),
-    Seq(LoadAddress -> agus(0).io.e1))
-  route(profile.pickerIndex("agu0-sta"),
-    Seq(StoreAddress -> io.storeAddress(0)))
-  route(profile.pickerIndex("agu1-lda"),
-    Seq(LoadAddress -> agus(1).io.e1))
-  route(profile.pickerIndex("agu1-sta"),
-    Seq(StoreAddress -> io.storeAddress(1)))
-  route(profile.pickerIndex("agu2-lda"),
-    Seq(LoadAddress -> agus(2).io.e1))
-  route(profile.pickerIndex("bru0"), Seq(Branch -> brus(0).io.e1))
-  route(profile.pickerIndex("bru1"), Seq(Branch -> brus(1).io.e1))
-  route(profile.pickerIndex("fsu0"), Seq(
-    FloatingVector -> io.floatingVector,
-    EngineCommand -> io.engineCommand))
+  for (domain <- profile.pickerFunctions.indices) {
+    val destinations = scala.collection.mutable.ArrayBuffer.empty[
+      (Int, DecoupledIO[OooIexExecuteTransaction])]
+    def append(capability: Int, lanes: Seq[Int],
+        outputs: Seq[DecoupledIO[OooIexExecuteTransaction]]): Unit = {
+      val ordinal = lanes.indexOf(domain)
+      if (ordinal >= 0) destinations += capability -> outputs(ordinal)
+    }
+    append(SimpleAlu, aluLanes, alus.map(_.io.e1))
+    append(StoreData, storeDataLanes, io.storeData.toSeq)
+    append(LoadAddress, loadLanes, agus.map(_.io.e1))
+    append(StoreAddress, storeAddressLanes, io.storeAddress.toSeq)
+    append(Branch, bruLanes, brus.map(_.io.e1))
+    append(MultiCycleAlu, multiCycleLanes, io.multiCycleAlu.toSeq)
+    append(System, systemLanes, io.system.toSeq)
+    append(PointerAuth, pointerAuthLanes, io.pointerAuth.toSeq)
+    if (floatingVectorLanes.contains(domain))
+      destinations += FloatingVector -> io.floatingVector
+    if (engineCommandLanes.contains(domain))
+      destinations += EngineCommand -> io.engineCommand
+    require(destinations.nonEmpty,
+      s"IEX picker ${profile.pickerFunctions(domain).name} has no execution destination")
+    route(domain, destinations.toSeq)
+  }
 
   val internalEmpty = alus.map(_.io.empty).reduce(_ && _) &&
     brus.map(!_.io.occupied).reduce(_ && _) &&

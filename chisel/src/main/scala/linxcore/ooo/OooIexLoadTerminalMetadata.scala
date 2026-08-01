@@ -148,8 +148,8 @@ class OooIexLoadTerminalMetadata(
     "OOO terminal metadata must fit the canonical scalar LSU payload")
   require(p.trapCauseWidth <= LoadTerminalFault.CauseWidth,
     "OOO trap cause must fit the canonical load terminal fault payload")
-  require(laneCount == 3 && lsu.loadReturnPipeCount >= laneCount,
-    "terminal metadata requires the three production load lanes")
+  require(laneCount > 0 && lsu.loadReturnPipeCount >= laneCount,
+    "terminal metadata requires every configured production load lane")
   LoadCanonicalRowIdentity.requireBridgeFits(entriesCount)
   LoadAttemptIdentity.requireBridgeFits(
     p.peIdWidth,
