@@ -62,7 +62,7 @@
 - Consumes: the addresses, clocks, boot profiles, AXI geometry, resource limits, and board identity frozen in the design specification.
 - Produces: `load_manifest(path: Path) -> dict`, `validate_manifest(data: dict) -> list[str]`, deterministic generated files, and `check_framework.py --mode source|tools|generated|all`.
 
-- [ ] **Step 1: Write the failing manifest-contract tests**
+- [x] **Step 1: Write the failing manifest-contract tests**
 
 ```python
 class PlatformContractTest(unittest.TestCase):
@@ -82,7 +82,7 @@ class PlatformContractTest(unittest.TestCase):
         self.assertEqual(linux["a1"], "0x0f000000")
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -92,7 +92,7 @@ python3 -m unittest tools.fpga.zybo_z7_20.tests.test_platform_contract -v
 
 Expected: import or file-not-found failure because the manifest loader and manifest do not exist.
 
-- [ ] **Step 3: Implement the manifest and validator**
+- [x] **Step 3: Implement the manifest and validator**
 
 The manifest must contain these top-level keys and values:
 
@@ -117,7 +117,7 @@ Validation must reject non-power-of-two line sizes, unsupported parts,
 overlapping boot artifacts, MMIO inside the declared Linx RAM range, more
 than one first-profile outstanding transaction, or a non-MMIO-first priority.
 
-- [ ] **Step 4: Verify GREEN and deterministic generation**
+- [x] **Step 4: Verify GREEN and deterministic generation**
 
 Run:
 
@@ -129,7 +129,7 @@ python3 tools/fpga/zybo_z7_20/check_framework.py --mode source
 
 Expected: all tests pass and generated files match the manifest.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/fpga/zybo_z7_20 chisel/src/main/scala/linxcore/fpga/zybo/ZyboZ720Generated.scala

@@ -1,0 +1,12 @@
+// GENERATED FILE - DO NOT EDIT.
+/ {
+  memory@0 {
+    device_type = "memory";
+    reg = <0x0 0x00000000 0x0 0x10000000>;
+  };
+
+  chosen {
+    linux,initrd-start = <0x0 0x08000000>;
+    bootargs = "console=linx-uart";
+  };
+};

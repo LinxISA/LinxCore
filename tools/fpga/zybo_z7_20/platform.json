@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "board": {
+    "name": "zybo_z7_20",
+    "part": "xc7z020clg400-1"
+  },
+  "clock_profiles_hz": {
+    "safe_50": 50000000,
+    "balanced_75": 75000000,
+    "stretch_100": 100000000
+  },
+  "axi": {
+    "control_base": "0x43c00000",
+    "control_size": "0x00010000",
+    "data_width": 64,
+    "line_bytes": 64,
+    "max_outstanding": 1
+  },
+  "linx_memory": {
+    "base": "0x00000000",
+    "size": "0x10000000"
+  },
+  "mmio": {
+    "uart_data": "0x10000000",
+    "uart_status_linux_exit": "0x10000004",
+    "test_finisher": "0x10009000",
+    "virtio_base": "0x30001000"
+  },
+  "routing": {
+    "priority": [
+      "mmio",
+      "ddr",
+      "fault"
+    ]
+  },
+  "boot_profiles": {
+    "smoke": {
+      "pc": "0x00010000",
+      "sp": "0x0003ff00",
+      "a0": "0x00000000",
+      "a1": "0x00000000"
+    },
+    "linux_nommu": {
+      "pc": "0x00010000",
+      "sp": "0x0ffef000",
+      "a0": "0x00000000",
+      "a1": "0x0f000000",
+      "initramfs": "0x08000000"
+    }
+  },
+  "artifact_regions": {
+    "kernel": {
+      "base": "0x00010000",
+      "size": "0x01000000"
+    },
+    "initramfs": {
+      "base": "0x08000000",
+      "size": "0x04000000"
+    },
+    "dtb": {
+      "base": "0x0f000000",
+      "size": "0x00010000"
+    }
+  },
+  "resource_budget": {
+    "lut": 40000,
+    "ff": 80000,
+    "bram36": 100,
+    "dsp48": 64
+  }
+}
