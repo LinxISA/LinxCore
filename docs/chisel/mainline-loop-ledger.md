@@ -173,6 +173,23 @@ push identities are filled only after the corresponding operation succeeds.
   12 adapters. The successful CLI reuses validation results for its summary
   and completes in 3.40 seconds on the recorded run, below the ten-second
   review bound.
+- Independent-review fix round 4: the shared Scala index now canonicalizes
+  `_root_`, rejects unresolved qualified deletion references, scopes imports
+  to the owning definition, and propagates child state over exact FQCN edges.
+  Its callable graph is keyed by owner FQCN and callable identity, covering
+  App bodies, `main`, `@main`, imported or aliased nullary calls, qualified
+  helpers, and object `apply`. Thirty-nine real CLI tests pass; the live
+  23-owner/40-emitter/12-boundary checker remains below the ten-second bound.
+- Independent-review fix round 5: one final RED proved that a fully-qualified
+  cross-package object invocation such as `sink.ApplyEmitSink()` bypassed the
+  callable graph. Qualified-call lookup now falls back to resolving the full
+  object FQCN and its `apply` callable. The focused emitter subset passes
+  11/11, the full checker suite passes 40/40, and final scoped re-review finds
+  the issue addressed with no new Critical or Important finding.
+- Final checked baseline: `py_compile`, Ruff, the strict NDF profile, generated
+  TOP interface-manifest parity, protected Task-9 file comparison, and
+  `git diff --check` pass. The final live checker completes in 5.82 seconds.
+  Review round 5 reports no open finding.
 - Remaining boundary: Task 11 must update this manifest in the same atomic
   commit that changes OOO D3/S1 call sites and deletes the displaced legacy
   owner chain. The controller owns push and remote-equality confirmation before

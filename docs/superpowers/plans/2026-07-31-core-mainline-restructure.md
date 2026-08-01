@@ -940,7 +940,7 @@ bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 Expected: both suites pass with zero failures; no Task-10 dispatch change is
 mixed into this repair.
 
-- [ ] **Step 2: Write the owner-manifest checker RED**
+- [x] **Step 2: Write the owner-manifest checker RED**
 
 Fixtures must reject duplicate ROB/rename/IQ/LSU/cache/recovery owners,
 unknown emitters, missing production evidence, stateful adapters and legacy
@@ -950,14 +950,14 @@ Run: `python3 -m unittest tests.test_production_owner_manifest -v`
 
 Expected: FAIL because the checker and manifest do not exist.
 
-- [ ] **Step 3: Record exact owner and call-site decisions**
+- [x] **Step 3: Record exact owner and call-site decisions**
 
 For every IFU、CTU、OOO、IEX、LSU、DTU state category record：canonical
 owner、production mechanism files、public box、active callers、verification
 fixtures、cutover task and files deleted at cutover。Classify `Reduced*`、
 `*Probe` and old `LinxCore*Top` as non-production entry points.
 
-- [ ] **Step 4: Prove the checked baseline**
+- [x] **Step 4: Prove the checked baseline**
 
 Run:
 
