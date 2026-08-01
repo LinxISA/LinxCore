@@ -157,6 +157,19 @@ chisel/src/main/scala/linxcore/
 
 Box 私有实现可以继续拆分成小文件；上表给出必须存在的 owner 文件和目录边界，不要求把现有经过验证的小模块重新合并成大文件。
 
+本计划的 Task 10–20 受
+[`2026-08-01-production-owner-atomic-cutover-design.md`](../specs/2026-08-01-production-owner-atomic-cutover-design.md)
+约束。目标文件名定义 public box 和 owner 边界，不要求为了匹配文件名重写
+已经通过 production 证据的内部机制。IFU、OOO、IEX、LSU 的后续工作必须
+优先原地升级仓内 production mechanism；禁止创建第二个有状态 owner 再长期
+并行验证。
+
+每个 subsystem 在 public interface 切换前可以执行 behavior-preserving preparation，
+但 preparation 不得改变 active boundary、不得增加第二个状态 owner。interface
+cutover 必须在一个 loop 内同时完成 production mechanism 改造、所有调用者更新、
+canonical box 接线、同层级 replacement evidence、旧入口删除、commit 和 push。
+临时 adapter 只能存在于未提交工作树，必须无状态且不得进入 cutover commit。
+
 ## 3. Canonical Transaction Shapes
 
 以下类型名由 Task 3 创建，后续任务不得另造同义类型：
@@ -486,7 +499,10 @@ final case class LSUParams(
 )
 ```
 
-把现有 `common.CoreParams` 和 `ooo.OooParams` 改成临时 type/constructor adapter；adapter 只转换参数，不能拥有状态，并在 Task 20 删除。
+把现有 `common.CoreParams` 和 `ooo.OooParams` 改成临时 value-only
+type/constructor adapter；adapter 只转换参数，不能拥有状态。每个 subsystem
+cutover 必须在最后一个调用者迁移后立即删除对应 adapter；Task 20 只允许清理
+无 active caller 的 residual adapter。
 
 - [ ] **Step 4: Run profile tests and compile**
 
@@ -888,279 +904,433 @@ bash tests/test_rob_bookkeeping.sh
 
 Commit intent: `Make one ROB decision govern commit, traps, and precise cleanup`
 
-### Task 10: Build D3 reservation and S1 dispatch
+### Task 10: Close Task 9 and freeze the production-owner cutover manifest
 
 **Files:**
-- Create: `chisel/src/main/scala/linxcore/ooo/Dispatch.scala`
-- Create: `chisel/src/test/scala/linxcore/ooo/OOODispatchSpec.scala`
-- Create: `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooD3ReservationAllocator.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooDispatch.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooHierarchicalFreeSlotSelect.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/BROB.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/RecoveryControl.scala`
+- Modify: `chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala`
+- Create: `docs/chisel/production-owner-manifest.md`
+- Create: `tools/chisel/check_production_owner_manifest.py`
+- Create: `tests/test_production_owner_manifest.py`
+- Modify: `docs/chisel/mainline-loop-ledger.md`
 
 **Interfaces:**
-- Consumes: D3 renamed prefix and IEX/LSU reservation credits.
-- Produces: classed S1 `DispatchTxn` to ALU, BRU, LDA, STA, STD, system/multicycle and CMD destinations.
+- Consumes: reviewed Task-9 ROB/BROB/commit/recovery owners and all live
+  Chisel emitters.
+- Produces: a checked one-owner/call-site/deletion manifest that every later
+  atomic cutover must update.
 
-- [ ] **Step 1: Write failing dispatch tests**
+- [ ] **Step 1: Close the current Task-9 RED cases**
 
-Cover classification, maximum continuous prefix, atomic multi-destination claims, split store STA+STD, pair memory operations, CMD separation, suffix retry, no-op early completion and recovery-coincident suppression.
+Require `BROB` to publish allocator-bound resident identity and require
+`RecoveryControl` to forget target acknowledgements on abort before retry.
 
-- [ ] **Step 2: Run failing tests**
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
+```
+
+Expected: both suites pass with zero failures; no Task-10 dispatch change is
+mixed into this repair.
+
+- [ ] **Step 2: Write the owner-manifest checker RED**
+
+Fixtures must reject duplicate ROB/rename/IQ/LSU/cache/recovery owners,
+unknown emitters, missing production evidence, stateful adapters and legacy
+deletion targets with active callers.
+
+Run: `python3 -m unittest tests.test_production_owner_manifest -v`
+
+Expected: FAIL because the checker and manifest do not exist.
+
+- [ ] **Step 3: Record exact owner and call-site decisions**
+
+For every IFU、CTU、OOO、IEX、LSU、DTU state category record：canonical
+owner、production mechanism files、public box、active callers、verification
+fixtures、cutover task and files deleted at cutover。Classify `Reduced*`、
+`*Probe` and old `LinxCore*Top` as non-production entry points.
+
+- [ ] **Step 4: Prove the checked baseline**
+
+Run:
+
+```bash
+python3 -m unittest tests.test_production_owner_manifest -v
+python3 tools/chisel/check_production_owner_manifest.py
+python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec
+git diff --check
+```
+
+- [ ] **Step 5: Commit and push before starting Task 11**
+
+Commit intent: `Freeze one production owner before changing another boundary`
+
+The branch must report zero commits ahead of its configured upstream after the
+push. If push is unavailable, stop before Task 11 and record the exact remote
+blocker in the ledger.
+
+### Task 11: Atomically cut canonical OOO onto production D3/S1 mechanisms
+
+**Files:**
+- Modify: `chisel/src/main/scala/linxcore/ooo/OOO.scala`
+- Create or modify: `chisel/src/main/scala/linxcore/ooo/Dispatch.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooD3ReservationAllocator.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooDispatch.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooHierarchicalFreeSlotSelect.scala`
+- Modify: `chisel/src/test/scala/linxcore/ooo/OOODispatchSpec.scala`
+- Modify: `chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Delete: displaced old D3/S1 public wrappers and tests named by the manifest.
+
+**Interfaces:**
+- Consumes: canonical RENU D3 prefix, ROB/BROB prepared identities and
+  side-effect-free IEX/LSU credit previews.
+- Produces: classed canonical `DispatchTxn` traffic plus exact early-completion
+  publication through the Task-9 ROB owner.
+
+- [ ] **Step 1: Freeze the D3/S1 mapping and write RED tests**
+
+Map every field from the proven reservation/dispatch mechanisms to
+`D3RenameGroup` and `DispatchTxn`. Cover continuous-prefix admission, atomic
+multi-owner credit, split STA+STD, CMD separation, no-op early completion,
+suffix retry and recovery-coincident suppression.
 
 Run: `bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec`
 
-- [ ] **Step 3: Implement reservation-backed dispatch**
+- [ ] **Step 2: Prepare mechanisms without adding owners**
 
-Preview all mandatory credits first；mutate ROB/rename/IQ/LSU reservations only on one accepted prefix fire。D3 early-complete uops publish completion into ROB without consuming IEX credit.
+Refactor the existing selectors/classifiers in place. They may calculate
+previews but may not own ROB、BROB、rename、commit or global recovery state.
+Do not instantiate `OooO3RenameCoordinator` inside canonical `OOO`.
 
-- [ ] **Step 4: Run OOO composition**
+- [ ] **Step 3: Perform the single OOO cutover**
 
-Run: `bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec`
+In one working-tree transaction update `OOO`、all IEX/LSU credit callers、
+tests、emitters and docs to the canonical payloads. Any temporary payload
+adapter must be removed before the GREEN run.
 
-Expected: CTU input through S1 dispatch/early completion passes W2/W4/W6/W8.
+- [ ] **Step 4: Delete displaced OOO entry points and prove one owner**
 
-- [ ] **Step 5: Commit**
+Run:
 
-Commit intent: `Make D3 publication atomic across every downstream owner`
+```bash
+bash tools/chisel/run_chisel_tests.sh --only OOODispatchSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
+python3 tools/chisel/check_production_owner_manifest.py
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
 
-### Task 11: Build IEX issue queues, register files and wakeup
+Expected: CTU through canonical D3/S1 passes W2/W4/W6/W8; the active graph has
+one ROB/BROB/rename/recovery owner and no old O3 public wrapper.
+
+- [ ] **Step 5: Commit and push**
+
+Commit intent: `Cut production dispatch onto one canonical OOO owner graph`
+
+### Task 12: Prepare production IEX mechanisms without changing the live boundary
+
+**Files:**
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexIssue*.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIex*Pipeline.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXProductionMechanismSpec.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
+
+**Interfaces:**
+- Consumes: existing production `OooParams`/grouped-S1 behavior and the frozen
+  canonical `CoreParams`/`DispatchTxn` mapping.
+- Produces: behavior-preserving IEX internals ready for one public-interface
+  cutover in Task 13; no new public IEX owner is activated in this task.
+
+- [ ] **Step 1: Characterize the production baseline**
+
+Add tests for per-class IQ residency、same-STID age、cross-STID fairness、P/T/U
+atomic reads、retry、two ALU、one BRU、two AGU、two STD、terminal retention and
+scoped recovery. Record which production child owns each state category.
+
+- [ ] **Step 2: Run the production-mechanism baseline**
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
+```
+
+- [ ] **Step 3: Refactor only private boundaries**
+
+Centralize value-only parameter conversion and split oversized private files
+only where needed. Preserve the current public boundary for this task; create
+no `IEX` state owner and no persistent canonical-to-old payload adapter.
+
+- [ ] **Step 4: Prove behavior preservation and topology**
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexPhysicalProfileSpec
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+python3 tools/chisel/check_production_owner_manifest.py
+```
+
+- [ ] **Step 5: Commit and push**
+
+Commit intent: `Prepare production IEX owners without creating a second core`
+
+### Task 13: Atomically cut OOO-IEX onto the canonical typed boundary
 
 **Files:**
 - Create: `chisel/src/main/scala/linxcore/iex/IEX.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/IssueFabric.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/RegisterFiles.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/SystemMulticycleQueue.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/CMDIssueQueue.scala`
 - Create: `chisel/src/test/scala/linxcore/iex/IEXIssueSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXPipesSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXTerminalSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/iex/OOOIEXIntegrationSpec.scala`
 - Create: `docs/spec/20-behavior/iex.md`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooIexIssue*.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/OOO.scala`
+- Modify in place: production IEX files prepared by Task 12.
+- Delete: `chisel/src/main/scala/linxcore/execute/ReducedScalar*.scala`
+- Delete: displaced old IEX composition wrappers、emitters、tests and docs named
+  by `production-owner-manifest.md`.
 
 **Interfaces:**
-- Consumes: classed S1 dispatch, wakeup/writeback, recovery plan.
-- Produces: P1/I1/I2 issued operations and reservation credits.
+- Consumes: canonical classed `DispatchTxn`、typed recovery and LSU
+  `LoadResultTxn`.
+- Produces: canonical IEX-LSU requests、atomic `CompletionTxn`、
+  `RecoveryEvent`、RF writeback and wakeup through one public `IEX` box.
 
-- [ ] **Step 1: Write failing issue tests**
+- [ ] **Step 1: Write the canonical boundary RED**
 
-Cover per-class IQ residency, oldest-ready within one STID, round-robin across STIDs, unresolved-control frontier, store-order frontier, P/T/U atomic reads, delayed denial retry, CMD independence, system/multicycle serialization, wakeup timing and scoped recovery pruning.
-
-- [ ] **Step 2: Run failing tests**
-
-Run: `bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec`
-
-- [ ] **Step 3: Implement issue and RF owners**
-
-IQ release means ownership transfer to a retained execution slot, not completion。Physical P RF data/readiness lives only in `RegisterFiles`; T/U remain separate local-link storage/readiness.
-
-- [ ] **Step 4: Run width and contention gates**
+Cover all Task-12 production behavior plus stable `DispatchTxn` backpressure、
+exact identity translation、CMD/system independence、load-return retention and
+one atomic ROB/RF/wakeup completion fire.
 
 Run:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
-bash tools/chisel/run_chisel_tests.sh --only OOOIEXIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 2: Perform the one-time OOO-IEX interface change**
 
-Commit intent: `Retain issue ownership until operands and execution slots agree`
+Change the production mechanisms and all live callers directly to canonical
+types. `IEX` composes the production children but owns no duplicate IQ、RF、
+pipeline、terminal or recovery state. Remove every temporary adapter before
+running GREEN.
 
-### Task 12: Build IEX ALU, BRU, AGU and STD pipes
+- [ ] **Step 3: Delete the displaced reduced IEX chain**
 
-**Files:**
-- Create: `chisel/src/main/scala/linxcore/iex/ALUPipes.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/BRUPipe.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/AGUPipes.scala`
-- Create: `chisel/src/main/scala/linxcore/iex/STDPipes.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXPipesSpec.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooIex*Pipeline.scala`
+Delete reduced issue、RF、ALU、completion bridges and old IEX public wrappers
+once their active callers have moved. Preserve only production private helpers
+reachable from `IEX` and verification fixtures that exercise that graph.
 
-**Interfaces:**
-- Consumes: I1/I2 issued operations.
-- Produces: ALU/BRU completion, 2 AGU load/store-address requests and 2 STD data requests.
-
-- [ ] **Step 1: Write failing pipe tests**
-
-Cover two simultaneous ALU operations, one BRU resolution, two AGU operations, two STD operations, branch target/direction facts, address/data split identity, backpressure retention, cancel/retry and recovery-coincident side-effect suppression.
-
-- [ ] **Step 2: Run failing tests**
-
-Run: `bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec`
-
-- [ ] **Step 3: Implement the requested physical topology**
-
-Instantiate exactly the default 2/1/2/2 topology from `IEXParams` profile W4；W2/W6/W8 change ingress/issue widths without silently changing FU counts.
-
-- [ ] **Step 4: Run generated RTL lint**
+- [ ] **Step 4: Run cutover promotion**
 
 Run:
 
 ```bash
+bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
 bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIEXIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+python3 tools/chisel/check_production_owner_manifest.py
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 ```
 
-- [ ] **Step 5: Commit**
+Expected: W2/W4/W6/W8 elaborate; W4 activates 2 ALU、1 BRU、2 AGU、2 STD、
+independent system/multicycle and CMD queues; no `ReducedScalar*` active owner
+remains.
 
-Commit intent: `Separate issue width from the physical execution topology`
+- [ ] **Step 5: Commit and push**
 
-### Task 13: Build IEX terminal, CMD and system/multicycle completion
+Commit intent: `Switch OOO and IEX once and remove the reduced execution chain`
+
+### Task 14: Prepare production LSU mechanisms and resolve the two-pipe contract
 
 **Files:**
-- Create: `chisel/src/main/scala/linxcore/iex/TerminalFabric.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXTerminalSpec.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXIntegrationSpec.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/backend/ExecuteCompletionRetainer.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/ooo/OooIexTerminal*.scala`
-- Migrate mechanisms from: `chisel/src/main/scala/linxcore/system/*.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala`
+- Modify in place: existing `STQ*`、`SCB*`、LIQ、ResolveQ、MDB、MissQ、
+  refill、load-return and `ScalarL1D` production files.
+- Create: `chisel/src/test/scala/linxcore/lsu/LSUProductionMechanismSpec.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Modify: `docs/spec/40-constraints/parameters.md`
 
 **Interfaces:**
-- Consumes: ALU/BRU/system/multicycle/CMD results and LSU `LoadResultTxn`.
-- Produces: atomic RF writeback, wakeup and OOO `CompletionTxn`/`RecoveryEvent`.
+- Consumes: existing `ScalarLSUIO` behavior and the frozen canonical
+  `IEXLSUIO`/`LSUIO` mapping.
+- Produces: production LSU internals ready for one public-boundary cutover in
+  Task 15, with independent physical queue, ROB identity and full-LSID sizes.
 
-- [ ] **Step 1: Write failing terminal tests**
+- [ ] **Step 1: Freeze and test the production baseline**
 
-Cover retained result under ROB/RF/wakeup contention, same-tag serialization, independent write ports, divider/system latency, CMD completion, precise service trap, branch event retention and load-return completion.
+Cover two STA、two STD、two load launches、STQ/SCB commit、LIQ/MDB/replay、
+miss/refill、load return、L1D update and typed recovery. Add unequal-capacity
+W2/W4/W6/W8 elaboration with 16 STQ rows、8 ROB entries and 40-bit LSID.
 
-- [ ] **Step 2: Run failing tests**
+- [ ] **Step 2: Resolve the three-load-pipe assumption before cutover**
 
-Run: `bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec`
+Remove any production-helper requirement that derives a three-pipe topology
+from the old external-forwarding shape. The W4 contract is exactly two load
+pipes; queue depth、return-pipe count and ROB identity capacity remain
+independent parameters.
 
-- [ ] **Step 3: Implement atomic terminal publication**
+- [ ] **Step 3: Refactor private LSU mechanisms only**
 
-ROB completion、RF write and wakeup occur on one `completeFire`。A blocked sink retains the full transaction；no request/grant may mutate architectural state early.
+Centralize value-only parameter conversion and canonical identity helpers
+without changing the live `ScalarLSU` public boundary and without adding a
+second STQ、SCB、LIQ、MDB、L1D or recovery owner.
 
-- [ ] **Step 4: Run IEX integration**
+- [ ] **Step 4: Prove behavior preservation**
 
-Run: `bash tools/chisel/run_chisel_tests.sh --only IEXIntegrationSpec`
+Run:
 
-- [ ] **Step 5: Commit**
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LSUProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSU
+bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarL1D
+bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh
+bash tools/chisel/run_chisel_brob_store_range_state_probe.sh
+python3 tools/chisel/check_production_owner_manifest.py
+```
 
-Commit intent: `Publish every execution result once at the final side-effect boundary`
+- [ ] **Step 5: Commit and push**
 
-### Task 14: Build the LSU store side
+Commit intent: `Prepare the production LSU without cloning its state owners`
+
+### Task 15: Atomically cut IEX-LSU onto the canonical typed boundary
 
 **Files:**
 - Create: `chisel/src/main/scala/linxcore/lsu/LSU.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/StorePipes.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/StoreQueues.scala`
 - Create: `chisel/src/test/scala/linxcore/lsu/LSUStoreSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/lsu/IEXLSUIntegrationSpec.scala`
 - Create: `docs/spec/20-behavior/lsu.md`
-- Consolidate: existing `STQ*`, `SCB*`, `StoreDispatch*` modules.
+- Modify: `chisel/src/main/scala/linxcore/iex/IEX.scala`
+- Modify in place: production LSU mechanisms prepared by Task 14.
+- Delete: old `ScalarLSU` outer public boundary after its production children
+  are composed by `LSU`.
+- Delete: displaced `Reduced*` LSU owners、old wrappers、emitters、tests and docs
+  named by the owner manifest.
 
 **Interfaces:**
-- Consumes: 2 STA, 2 STD, commit authorization and recovery plan.
-- Produces: store completion/fault, committed memory requests, forwarding snapshots and reservation credits.
+- Consumes: exactly 2 canonical load-address、2 store-address、2 store-data
+  transactions、OOO commit authorization、lower-memory responses and recovery.
+- Produces: retained `LoadResultTxn`、store/load completion or fault、committed
+  memory requests、reservation credits and recovery acknowledgement.
 
-- [ ] **Step 1: Write failing store tests**
+- [ ] **Step 1: Write canonical store/load boundary RED tests**
 
-Cover address/data split merge, two store pipes, pair store, STQ full, commit queue, SCB retry, store-to-load snapshot, store ordering, MMIO serialization, fault before visibility, recovery pruning and committed-store non-flush behavior.
-
-- [ ] **Step 2: Run failing tests**
-
-Run: `bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec`
-
-- [ ] **Step 3: Compose the single store owner**
-
-Reuse proven STQ/CommitQ/SCB helpers under `LSU`。Store becomes externally visible only after OOO commit authorization and local ordering conditions pass.
-
-- [ ] **Step 4: Run store cross-gates**
+Cover address/data merge、pair operations、two-pipe independence、forwarding、
+unresolved older store、MDB replay、miss/refill、stale response rejection、
+lane-local backpressure、committed-store visibility and scoped recovery.
 
 Run:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec
+bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
+```
+
+- [ ] **Step 2: Perform the one-time IEX-LSU interface change**
+
+Change the selected production mechanisms and every live caller directly to
+`IEXLSUIO`/`LSUIO`. `LSU` composes the existing stateful children and owns no
+duplicate queue/cache state. Remove temporary conversion Bundles before GREEN.
+
+- [ ] **Step 3: Delete the displaced LSU chain**
+
+Delete the old `ScalarLSU` public shell and all reduced LSU owners with no
+canonical caller. Retain production STQ/SCB/LIQ/MDB/cache helpers even when
+their historical class names remain; class-name cleanup is not a reason to
+rewrite state.
+
+- [ ] **Step 4: Run cutover promotion**
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec
+bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXLSUIntegrationSpec
 bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh
 bash tools/chisel/run_chisel_brob_store_range_state_probe.sh
-```
-
-- [ ] **Step 5: Commit**
-
-Commit intent: `Keep speculative stores resident until commit authorizes visibility`
-
-### Task 15: Build the LSU load side with two pipes
-
-**Files:**
-- Create: `chisel/src/main/scala/linxcore/lsu/LoadPipes.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/LoadQueues.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/MemoryDependency.scala`
-- Create: `chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala`
-- Consolidate: existing LIQ/ResolveQ/MDB/forward/replay/miss/refill/load-return modules.
-
-**Interfaces:**
-- Consumes: 2 LDA requests, store snapshots, refill/memory responses and recovery plan.
-- Produces: retained `LoadResultTxn`, replay/fault events and load reservation credits.
-
-- [ ] **Step 1: Write failing load tests**
-
-Cover two independent load pipes, byte forwarding, partial forwarding, unresolved older store, MDB conflict, replay, translation replay, cache miss/refill, stale response rejection, lane-local backpressure, W1 retention and scoped recovery.
-
-- [ ] **Step 2: Run failing tests**
-
-Run: `bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec`
-
-- [ ] **Step 3: Compose two load-pipe owners**
-
-LIQ/MDB/ResolveQ are shared ordered structures；each load pipe has independent retained launch/return state。A return enters IEX only through `LoadResultTxn`.
-
-- [ ] **Step 4: Run load cross-gates**
-
-Run:
-
-```bash
-bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
-bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPath
-bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnPipeline
-```
-
-- [ ] **Step 5: Commit**
-
-Commit intent: `Give two load pipes independent progress under one memory-order owner`
-
-### Task 16: Complete LSU translation, cache, lower memory and recovery
-
-**Files:**
-- Create: `chisel/src/main/scala/linxcore/lsu/Translation.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/L1D.scala`
-- Create: `chisel/src/main/scala/linxcore/lsu/LSURecovery.scala`
-- Create: `chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala`
-- Create: `chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala`
-- Consolidate: `ScalarL1D`, DTLB/PMP/PMA, MissQ/refill and lower-memory bridges.
-
-**Interfaces:**
-- Consumes: virtual requests, lower-memory responses, commit/recovery control.
-- Produces: physical memory requests, precise access faults and LSU quiescence.
-
-- [ ] **Step 1: Write failing memory-system tests**
-
-Cover DTLB hit/miss/refill, access classification, alignment faults, PMP/PMA denial, cacheable/device routing, LR/SC identity, fence drain, miss retry, response generation mismatch and recovery quiescence.
-
-- [ ] **Step 2: Run failing tests**
-
-Run: `bash tools/chisel/run_chisel_tests.sh --only LSUMemorySpec`
-
-- [ ] **Step 3: Implement memory and recovery boundaries**
-
-Translation replay and data replay remain distinct。Recovery quiescence includes queues, pipe reservations, MissQ/refill state, load returns, store commit/drain and outstanding lower-memory transactions.
-
-- [ ] **Step 4: Run LSU integration and lint**
-
-Run:
-
-```bash
-bash tools/chisel/run_chisel_tests.sh --only LSUIntegrationSpec
+python3 tools/chisel/check_production_owner_manifest.py
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit and push**
 
-Commit intent: `Close memory ordering, translation, and recovery at one LSU boundary`
+Commit intent: `Switch IEX and LSU once and retire the reduced memory chain`
+
+### Task 16: Close translation, cache, lower memory and recovery inside the live LSU
+
+**Files:**
+- Create or modify: `chisel/src/main/scala/linxcore/lsu/Translation.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/lsu/ScalarL1D.scala`
+- Create or modify: `chisel/src/main/scala/linxcore/lsu/LSURecovery.scala`
+- Modify: `chisel/src/main/scala/linxcore/lsu/LSU.scala`
+- Create: `chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala`
+- Create: `chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Delete: residual displaced DTLB/cache/lower-memory/recovery wrappers named by
+  the manifest after equivalent evidence passes.
+
+**Interfaces:**
+- Consumes: canonical virtual requests、lower-memory responses、commit and the
+  common prepare/prepared/apply/abort recovery transaction.
+- Produces: physical memory requests、precise access faults、retained responses
+  and LSU quiescence from the already-live Task-15 LSU box.
+
+- [ ] **Step 1: Write memory-system RED tests**
+
+Cover DTLB hit/miss/refill、access classification、alignment、PMP/PMA、
+cacheable/device routing、LR/SC identity、fence drain、miss retry、response
+generation mismatch and complete recovery quiescence.
+
+- [ ] **Step 2: Extend the live LSU without creating a side implementation**
+
+Reuse `ScalarL1D` and existing miss/refill/lower-memory mechanisms in place.
+Translation replay and data replay remain separate. Recovery quiescence covers
+queues、pipe reservations、MissQ/refill、load returns、store drain and all
+outstanding lower-memory transactions.
+
+- [ ] **Step 3: Delete residual displaced memory wrappers**
+
+Update all callers in this loop and remove wrappers that no longer own a live
+path. Do not create `L1D.scala` as a copy of `ScalarL1D`; rename only if the
+same commit updates every caller and preserves the owner.
+
+- [ ] **Step 4: Run LSU promotion**
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LSUMemorySpec
+bash tools/chisel/run_chisel_tests.sh --only LSUIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXLSUIntegrationSpec
+python3 tools/chisel/check_production_owner_manifest.py
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+- [ ] **Step 5: Commit and push**
+
+Commit intent: `Close memory and recovery inside the one live LSU owner`
 
 ### Task 17: Integrate distributed trap, interrupt, commit and DTU
 
@@ -1174,6 +1344,9 @@ Commit intent: `Close memory ordering, translation, and recovery at one LSU boun
 - Create: `docs/spec/20-behavior/dtu.md`
 - Create: `docs/spec/20-behavior/recovery.md`
 - Create: `docs/spec/20-behavior/commit-trap.md`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Delete: displaced debug/trace/system-control wrappers after canonical DTU
+  observation and request paths pass equivalent evidence.
 
 **Interfaces:**
 - Consumes: commit/trace events, debug requests, interrupt inputs and distributed recovery acknowledgement.
@@ -1196,6 +1369,10 @@ bash tools/chisel/run_chisel_tests.sh --only RecoveryIntegrationSpec
 
 OOO selects the architectural action；each box applies local cleanup；TOP routes；DTU observes and may request debug state changes through typed interfaces.
 
+Integrate existing production trace、counter and system-control mechanisms in
+place. DTU may not become a second commit/recovery state machine; temporary
+old-to-new control adapters must be absent from the Task-17 commit.
+
 - [ ] **Step 4: Run trace schema gates**
 
 Run:
@@ -1204,9 +1381,10 @@ Run:
 bash tests/test_trace_schema_and_mem.sh
 python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_tests.sh --only DTUSpec
+python3 tools/chisel/check_production_owner_manifest.py
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Delete displaced control wrappers, commit and push**
 
 Commit intent: `Keep debug observable without creating a second control machine`
 
@@ -1223,6 +1401,10 @@ Commit intent: `Keep debug observable without creating a second control machine`
 - Create: `tests/test_top_natural.py`
 - Modify: `docs/spec/10-architecture/top.md`
 - Modify: `docs/spec/50-verification/benchmark-acceptance.md`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Delete: `chisel/src/main/scala/linxcore/top/LinxCore*Top.scala`
+- Delete: corresponding old top emitters、harness entry points and top-only
+  tests after the canonical TOP smoke and bounded comparison pass.
 
 **Interfaces:**
 - Consumes: all box IOs, external memory, interrupt and debug pins.
@@ -1245,6 +1427,10 @@ bash tools/chisel/run_chisel_tests.sh --only TOPWidthProfilesSpec
 
 `TOP` instantiates exactly one IFU、CTU、OOO、IEX、LSU、DTU。Harness owns ELF memory loading、UART、finisher 和 manifest formatting but no instruction/commit oracle.
 
+This is the one active top-emitter cutover. Update build、CI、Verilator、trace
+and benchmark callers in the same loop. No old top may remain callable after
+the cutover commit.
+
 - [ ] **Step 4: Run elaboration, lint and harness self-tests**
 
 Run:
@@ -1257,7 +1443,17 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 python3 -m unittest tests.test_top_natural -v
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run bounded canonical smoke, delete old tops, commit and push**
+
+Run a bounded scalar linx-avs ELF through emitted W4 `TOP` and require nonzero
+IFU/CTU/OOO/IEX/LSU activation plus zero architectural mismatch for the
+captured prefix. Then delete the old tops and rerun:
+
+```bash
+python3 tools/chisel/check_production_owner_manifest.py
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
 
 Commit intent: `Expose one routable core without moving ownership into TOP`
 
@@ -1266,6 +1462,7 @@ Commit intent: `Expose one routable core without moving ownership into TOP`
 **Files:**
 - Modify: `tools/chisel/run_top_natural.sh`
 - Modify: `tools/chisel/run_dual_benchmark_gate.sh`
+- Create or modify: `tools/chisel/run_scalar_linx_avs_gate.sh`
 - Modify: `tests/test_dhrystone_crosscheck_1000.sh`
 - Modify: `tests/test_coremark_crosscheck_1000.sh`
 - Create: `tools/chisel/run_top_recovery_stress.sh`
@@ -1279,9 +1476,20 @@ Commit intent: `Expose one routable core without moving ownership into TOP`
 
 - [ ] **Step 1: Freeze workload identities**
 
-Record exact ELF paths, SHA-256 values, runner SHA-256, TOP git SHA, superproject SHA, reset PC/SP and completion signature before running.
+Record exact scalar linx-avs、Dhrystone and CoreMark ELF paths、SHA-256 values、
+runner SHA-256、TOP git SHA、superproject SHA、reset PC/SP and completion
+signature before running. All workloads must use the Task-18 active TOP;
+reduced replay or old-top evidence is rejected.
 
-- [ ] **Step 2: Run Dhrystone without oracle or replay**
+- [ ] **Step 2: Run scalar linx-avs promotion first**
+
+Run: `bash tools/chisel/run_scalar_linx_avs_gate.sh --top TOP --profile W4`
+
+Expected: every selected scalar AVS ELF starts from real fetch, terminates
+naturally, reports nonzero activation for all required boxes and has zero
+bounded architectural mismatch.
+
+- [ ] **Step 3: Run Dhrystone without oracle or replay**
 
 Run:
 
@@ -1294,7 +1502,7 @@ bash tools/chisel/run_top_natural.sh \
 
 Expected: exit 0, `terminal_status=finisher_pass`, no unsupported service, no unexpected trap, nonzero commit count, and nonzero IFU/CTU/OOO/IEX/LSU activation.
 
-- [ ] **Step 3: Run CoreMark without oracle or replay**
+- [ ] **Step 4: Run CoreMark without oracle or replay**
 
 Run:
 
@@ -1307,7 +1515,7 @@ bash tools/chisel/run_top_natural.sh \
 
 Expected: same functional conditions as Dhrystone.
 
-- [ ] **Step 4: Run bounded architectural cross-checks**
+- [ ] **Step 5: Run bounded architectural cross-checks**
 
 Run:
 
@@ -1318,7 +1526,7 @@ bash tests/test_coremark_crosscheck_1000.sh
 
 Expected: 1000 compared architectural commits with zero mismatch for each workload；manifests identify the same ELF bytes used by natural runs.
 
-- [ ] **Step 5: Run the dual benchmark gate**
+- [ ] **Step 6: Run the dual benchmark gate**
 
 Run:
 
@@ -1329,23 +1537,25 @@ bash tools/chisel/run_dual_benchmark_gate.sh \
 
 Expected: both functional runs pass。IPC is recorded as a baseline and is not allowed to be omitted；a later performance campaign may raise a numerical IPC threshold without changing functional acceptance.
 
-- [ ] **Step 6: Run recovery and long-latency stress**
+- [ ] **Step 7: Run recovery and long-latency stress**
 
 Run: `bash tools/chisel/run_top_recovery_stress.sh --profile W4 --seed-count 100`
 
 Expected: all seeds terminate, no duplicate commit, no stale writeback, no lost recovery ack, no committed wrong-path memory side effect.
 
-- [ ] **Step 7: Commit evidence**
+- [ ] **Step 8: Check the unique owner graph, commit and push evidence**
+
+Run: `python3 tools/chisel/check_production_owner_manifest.py`
 
 Commit intent: `Prove the new core chain with natural workloads and exact commits`
 
-### Task 20: Delete the old chain and close the repository
+### Task 20: Remove residual orphans and close the repository
 
 **Files:**
-- Delete: `chisel/src/main/scala/linxcore/top/LinxCore*Top.scala`
-- Delete: `chisel/src/main/scala/linxcore/**/Reduced*.scala`
-- Delete: corresponding `Reduced*Spec.scala` and old top specs.
-- Delete: superseded frontend/backend/execute/system adapters after their mechanisms are owned by IFU/CTU/OOO/IEX/LSU.
+- Delete: residual unreachable `Reduced*`、old top、compatibility adapter、probe
+  and test files that earlier subsystem cutovers were unable to remove only
+  because another not-yet-cut caller still existed.
+- Delete: parameter/interface migration helpers with no canonical caller.
 - Delete: `docs/chisel/linxcore-chisel-ifu-improvement-design.md`
 - Delete: `docs/chisel/linxcore-chisel-ooo-improvement-design.md`
 - Delete: `docs/chisel/linxcore-chisel-iex-improvement-design.md`
@@ -1356,17 +1566,20 @@ Commit intent: `Prove the new core chain with natural workloads and exact commit
 - Modify: `docs/chisel/module-index.md`
 - Modify: `docs/architecture/linxcore_top_design.md`
 - Modify: `docs/architecture/interfaces.md`
+- Modify: `docs/chisel/production-owner-manifest.md`
 - Modify: build/test file lists and CI entry points.
 
 **Interfaces:**
 - Consumes: passing Task 19 evidence.
 - Produces: one live implementation chain, no compatibility owner and current documentation pointing only to TOP/IFU/CTU/OOO/IEX/LSU/DTU.
 
-- [ ] **Step 1: Lock the deletion gate before deleting**
+- [ ] **Step 1: Prove earlier cutovers already removed active legacy owners**
 
-Add a repository test that rejects live old-chain identifiers:
+Run the owner manifest checker and add a repository gate that rejects live
+old-chain identifiers:
 
 ```bash
+python3 tools/chisel/check_production_owner_manifest.py
 if rg -n '(class|object|new)[[:space:]]+(Reduced[A-Za-z0-9_]*|LinxCore[A-Za-z0-9_]*Top)' \
   chisel/src/main/scala chisel/src/test/scala; then
   echo "old Chisel chain remains" >&2
@@ -1374,15 +1587,22 @@ if rg -n '(class|object|new)[[:space:]]+(Reduced[A-Za-z0-9_]*|LinxCore[A-Za-z0-9
 fi
 ```
 
-The gate may allow historical commit text, but not live source, tests, emitters, harnesses or current architecture pages.
+The gate may allow historical commit text, but not live source、tests、emitters、
+harnesses or current architecture pages. Any stateful legacy owner discovered
+here is a failed earlier cutover: repair that subsystem and rerun its promotion
+gate before continuing Task 20.
 
-- [ ] **Step 2: Delete only after replacement evidence exists**
+- [ ] **Step 2: Delete residual non-stateful orphans**
 
-Verify both Task 19 natural manifests and cross-check reports are present and passing before removing any old stateful implementation.
+Verify Task-19 natural manifests and cross-check reports, then delete only
+unreachable residual wrappers、aliases、fixtures、docs and tool entries. Task 20
+must not be the first deletion point for an active state owner.
 
 - [ ] **Step 3: Remove adapters and duplicate owners**
 
-Delete parameter adapters from Task 2, old interface aliases from Task 3 and migration wrappers from Tasks 4–18。Do not keep dead code under an archive source directory.
+Delete parameter adapters from Task 2、old interface aliases from Task 3 and
+any remaining temporary migration wrapper from Tasks 4–18。Do not keep dead
+code under an archive source directory；Git history is the archive.
 
 - [ ] **Step 4: Run the complete closure suite**
 
@@ -1411,7 +1631,7 @@ Expected: all commands pass；old-chain grep returns no matches；`git status --
 
 Current architecture pages must point to `docs/spec/` clauses and generated interface manifest。Historical rationale remains in Git；过期改进计划不保留为并列权威。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Commit, push and update the superproject gitlink**
 
 Commit intent: `Leave one maintained core after replacement evidence closes`
 
@@ -1429,7 +1649,12 @@ Stop and repair the current task when any of the following occurs：
 - a reference mechanism introduces non-Linx architectural semantics；
 - W2/W4/W6/W8 中任一 profile 无法 elaboration；
 - natural benchmark uses expected rows、commit replay、instruction injection 或 QEMU oracle；
-- a deletion removes the only passing implementation before its replacement has equivalent evidence。
+- a preparation task changes the public interface or creates a second state owner；
+- a cutover commit retains a temporary adapter、old callable emitter or displaced
+  state owner；
+- a deletion removes the only passing implementation before its replacement has
+  equivalent same-level evidence；
+- a green loop ends with local commits not pushed to the configured upstream。
 
 ## 7. Completion Evidence Matrix
 
@@ -1446,6 +1671,8 @@ Stop and repair the current task when any of the following occurs：
 | Precise recovery | exact identity reuse、all-owner prepare/apply、trap/interrupt/debug tests |
 | DTU scope | trace cannot block commit and DTU owns no ROB/recovery state |
 | TOP routing only | structural connectivity test and source review gate |
+| Production-owner reuse | checked owner manifest, active-emitter reachability, no duplicate state owner and no stateful adapter |
+| Scalar linx-avs | natural finisher pass, nonzero box activation and bounded zero-mismatch report through emitted TOP |
 | Dhrystone | natural finisher pass + 1000-commit zero-mismatch report |
 | CoreMark | natural finisher pass + 1000-commit zero-mismatch report |
 | Old chain removed | source/test/tool/doc grep gate and full closure suite |
@@ -1459,7 +1686,13 @@ Stop and repair the current task when any of the following occurs：
 handshake 约束 `Directive:`、本次真正运行的命令 `Tested:`，以及明确由
 后续 task 承接的门禁 `Not-tested:`。禁止照抄字段说明或填写虚构测试。
 
-Task 1–18 不得删除唯一旧实现；Task 19 给出替换证据；Task 20 才删除旧链。最终合入 LinxCore 主分支后，更新 LinxISA superproject 的 `rtl/LinxCore` gitlink，并在 superproject 侧完成独立提交和远端推送。
+Task 10 冻结 production-owner manifest。Task 11、13、15、16、17、18 是
+subsystem cutover task：同层级 replacement evidence 通过后，必须在本 task
+删除已被替代的旧入口，不得将删除统一推迟到 Task 20。Task 12 和 Task 14
+是 preparation task，只允许 behavior-preserving private refactor，不得改变
+active public interface 或增加第二个 owner。Task 20 只删除 residual orphan。
+最终合入 LinxCore 主分支后，更新 LinxISA superproject 的 `rtl/LinxCore`
+gitlink，并在 superproject 侧完成独立提交和远端推送。
 
 每个执行 loop 还必须：
 
@@ -1479,9 +1712,13 @@ Task 1–18 不得删除唯一旧实现；Task 19 给出替换证据；Task 20 �
 4. W2/W4/W6/W8 全部通过 elaboration、接口和结构测试。
 5. W4 默认 profile 具有 2 ALU、1 BRU、2 AGU、2 STD、独立 system/multicycle 和 CMD IQ、2 load pipe、2 store pipe。
 6. OOO 是唯一 ROB、commit、精确 trap/interrupt 和全局 recovery plan owner。
-7. Dhrystone、CoreMark 都从真实 ELF 取指开始自然结束，并通过限定提交对比。
-8. live source、tests、emitters、harnesses 和 current docs 中不存在旧顶层或 `Reduced*` 链。
-9. `docs/spec/` 只使用 Linx 术语与项目内条款，不保留外部来源文件名或
+7. production mechanisms 直接位于 canonical box owner graph 中；不存在
+   committed compatibility adapter、重复状态 owner 或仅为匹配目标文件名而
+   重写的平行机制。
+8. scalar linx-avs、Dhrystone、CoreMark 都从真实 ELF 取指开始自然结束，
+   并通过限定提交对比。
+9. live source、tests、emitters、harnesses 和 current docs 中不存在旧顶层或 `Reduced*` 链。
+10. `docs/spec/` 只使用 Linx 术语与项目内条款，不保留外部来源文件名或
    外部架构叙事。
-10. 完整 LinxCore closure suite 通过。
-11. LinxCore 工作树干净，提交遵循 Lore protocol；合入后 superproject gitlink 已更新。
+11. 完整 LinxCore closure suite 通过。
+12. LinxCore 工作树干净，提交遵循 Lore protocol；合入后 superproject gitlink 已更新。
