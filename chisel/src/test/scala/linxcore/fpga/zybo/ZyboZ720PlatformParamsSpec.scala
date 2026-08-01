@@ -117,22 +117,126 @@ class ZyboZ720PlatformParamsSpec extends AnyFunSuite {
     assert(linux.boot.initramfs.contains(BigInt("08000000", 16)))
   }
 
-  test("ownership summary claims reductions only for parameters with current consumers") {
+  test("ownership summary leaves every configured reduction unpromoted without hierarchy evidence") {
     val ownership = ZyboZ720PlatformParams.Smoke.ownership
+    val expectedUnpromoted = Set(
+      "core.commitWidth",
+      "core.lsidWidth",
+      "core.robEntries",
+      "core.scalarBackend.gprMapQDepth",
+      "core.scalarBackend.gprPhysRegs",
+      "core.scalarBackend.gprReadPorts",
+      "core.scalarBackend.gprWritePorts",
+      "core.scalarBackend.scalarIssueBanks",
+      "core.scalarLsu.addrWidth",
+      "core.scalarLsu.commitIssueWidth",
+      "core.scalarLsu.commitQueueEntries",
+      "core.scalarLsu.dataWidth",
+      "core.scalarLsu.l1dSets",
+      "core.scalarLsu.l1dWays",
+      "core.scalarLsu.lineBytes",
+      "core.scalarLsu.liqEntries",
+      "core.scalarLsu.loadMissQueueEntries",
+      "core.scalarLsu.loadRefillQueueEntries",
+      "core.scalarLsu.loadReturnPipeCount",
+      "core.scalarLsu.loadReturnQueueEntries",
+      "core.scalarLsu.mapQDepth",
+      "core.scalarLsu.mdbCommandQueueEntries",
+      "core.scalarLsu.mdbOutputQueueEntries",
+      "core.scalarLsu.mdbRecoveryQueueEntries",
+      "core.scalarLsu.mdbSsitEntries",
+      "core.scalarLsu.mdbWaitPlanQueueEntries",
+      "core.scalarLsu.pcWidth",
+      "core.scalarLsu.resolveQueueEntries",
+      "core.scalarLsu.scbEntries",
+      "core.scalarLsu.scbResponseBufferDepth",
+      "core.scalarLsu.stidCount",
+      "core.scalarLsu.stqEntries",
+      "ooo.brobEntriesPerStid",
+      "ooo.decodedUopWidth",
+      "ooo.dispatchWidth",
+      "ooo.iexBypassPorts",
+      "ooo.iexLoadCancelPorts",
+      "ooo.iexPReadPorts",
+      "ooo.iexPWritePorts",
+      "ooo.iexTReadPorts",
+      "ooo.iexTWritePorts",
+      "ooo.iexTerminalWidth",
+      "ooo.iexUReadPorts",
+      "ooo.iexUWritePorts",
+      "ooo.iexWakeupPorts",
+      "ooo.instructionDecodeWidth",
+      "ooo.iqBankCount",
+      "ooo.iqClassCount",
+      "ooo.iqEntriesPerBank",
+      "ooo.iqWritePortsPerBank",
+      "ooo.maxCommitStoreTokens",
+      "ooo.pMapQDepthPerStid",
+      "ooo.pPhysRegs",
+      "ooo.pTagBanks",
+      "ooo.pTagReturnWidth",
+      "ooo.pTagStagingDepthPerBank",
+      "ooo.pcBankCount",
+      "ooo.pcBufferEntries",
+      "ooo.pcReadPorts",
+      "ooo.pcReadReplicaCount",
+      "ooo.pcRecoveryScanGroupsPerCycle",
+      "ooo.pcWritePorts",
+      "ooo.renameWidth",
+      "ooo.retireGroupWidth",
+      "ooo.robBankCount",
+      "ooo.robCompletionBufferEntries",
+      "ooo.robGroupsPerStid",
+      "ooo.robNonFlushScanGroupsPerCycle",
+      "ooo.robRecoveryScanGroupsPerCycle",
+      "ooo.robSubbankCount",
+      "ooo.stidCount",
+      "ooo.storeCommitBufferEntries",
+      "ooo.tPhysRegs",
+      "ooo.tuMapQDepthPerStid",
+      "ooo.tuRetireSourceDepthPerStid",
+      "ooo.uPhysRegs"
+    )
 
-    assert(ownership.claimsHardwareReduction("core.robEntries"))
-    assert(ownership.consumersOf("core.robEntries").nonEmpty)
-    assert(ownership.claimsHardwareReduction("core.scalarLsu.stqEntries"))
-
-    assert(!ownership.claimsHardwareReduction("core.scalarBackend.gprWritePorts"))
-    assert(ownership.consumersOf("core.scalarBackend.gprWritePorts").isEmpty)
-    assert(!ownership.claimsHardwareReduction("core.scalarLsu.l1dSets"))
-    assert(!ownership.claimsHardwareReduction("ooo.robGroupsPerStid"))
-    assert(ownership.unpromotedParameters.contains("ooo.robGroupsPerStid"))
-    assert(ownership.unpromotedParameters.contains("ooo.iqEntriesPerBank"))
-    assert(ownership.unpromotedParameters.contains("ooo.storeCommitBufferEntries"))
+    assert(ownership.parameterNames.toSet == expectedUnpromoted)
+    assert(ownership.unpromotedParameters.toSet == expectedUnpromoted)
+    assert(expectedUnpromoted.forall(parameter =>
+      !ownership.claimsHardwareReduction(parameter)))
     assert(ownership.parameterNames == ownership.parameterNames.sorted)
     assert(ownership.parameterNames.distinct == ownership.parameterNames)
-    assert(ZyboZ720PlatformParams.LinuxNommu.ownership == ownership)
+    assert(ZyboZ720PlatformParams.LinuxNommu.ownership.parameterNames ==
+      ownership.parameterNames)
+    assert(ZyboZ720PlatformParams.LinuxNommu.ownership.unpromotedParameters ==
+      ownership.unpromotedParameters)
+  }
+
+  test("advisory consumer hints cannot promote a parameter") {
+    val ownership = ZyboZ720PlatformParams.OwnershipSummary
+    val entriesWithHints = ownership.entries.filter(_.consumers.nonEmpty)
+
+    assert(entriesWithHints.nonEmpty)
+    assert(entriesWithHints.forall(_.status ==
+      ZyboZ720PlatformParams.OwnershipStatus.Unpromoted))
+    assert(entriesWithHints.forall(entry =>
+      !ownership.claimsHardwareReduction(entry.parameter)))
+  }
+
+  test("hierarchy evidence must match the exact profile intent Core and OOO values") {
+    val smoke = ZyboZ720PlatformParams.Smoke.ownership
+    val core = ZyboZ720PlatformParams.LinuxMinCore
+    val ooo = ZyboZ720PlatformParams.LinuxMinOoo
+
+    assert(smoke.matchesExactProfile(
+      ZyboZ720PlatformParams.ProfileIntent.Smoke, core, ooo))
+    assert(!smoke.matchesExactProfile(
+      ZyboZ720PlatformParams.ProfileIntent.LinuxNommu, core, ooo))
+    assert(!smoke.matchesExactProfile(
+      ZyboZ720PlatformParams.ProfileIntent.Smoke,
+      core.copy(robEntries = 64),
+      ooo))
+    assert(!smoke.matchesExactProfile(
+      ZyboZ720PlatformParams.ProfileIntent.Smoke,
+      core,
+      ooo.copy(robGroupsPerStid = 32, tuRetireSourceDepthPerStid = 128)))
   }
 }

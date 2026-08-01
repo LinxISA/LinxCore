@@ -29,15 +29,51 @@ object ZyboZ720PlatformParams {
     }
   }
 
-  final case class ParameterOwnership(
-      parameter: String,
-      configuredValue: Int,
-      consumers: Vector[String]) {
-    val status: OwnershipStatus =
-      if (consumers.nonEmpty) OwnershipStatus.Consumed else OwnershipStatus.Unpromoted
+  /** A source-level design hint, not proof that this profile reached hardware. */
+  final case class AdvisoryConsumerAnchor(
+      ownerClass: String,
+      constructorArgument: String,
+      sourcePath: String)
+
+  /** Evidence capable of promoting a parameter must be backed by an exact-profile
+    * Chisel elaboration and its generated hierarchy. Task 3 deliberately defines
+    * no implementation: a later promotion must add a typed, validated evidence
+    * owner rather than supplying a boolean or source filename.
+    */
+  sealed trait GeneratedHierarchyArtifact
+  sealed trait ExactProfileHierarchyEvidence {
+    def intent: ProfileIntent
+    def core: CoreParams
+    def ooo: OooParams
+    def generatedHierarchy: GeneratedHierarchyArtifact
+    def parameterNames: Set[String]
   }
 
-  final case class OwnershipReport private (entries: Vector[ParameterOwnership]) {
+  final case class ParameterOwnership private (
+      parameter: String,
+      configuredValue: Int,
+      consumers: Vector[AdvisoryConsumerAnchor],
+      private val expectedIntent: ProfileIntent,
+      private val expectedCore: CoreParams,
+      private val expectedOoo: OooParams,
+      hierarchyEvidence: Option[ExactProfileHierarchyEvidence]) {
+    val status: OwnershipStatus =
+      if (hierarchyEvidence.exists { evidence =>
+        evidence.intent == expectedIntent &&
+          evidence.core == expectedCore &&
+          evidence.ooo == expectedOoo &&
+          evidence.generatedHierarchy != null &&
+          evidence.parameterNames.contains(parameter)
+      })
+        OwnershipStatus.Consumed
+      else OwnershipStatus.Unpromoted
+  }
+
+  final case class OwnershipReport private (
+      profileIntent: ProfileIntent,
+      exactCore: CoreParams,
+      exactOoo: OooParams,
+      entries: Vector[ParameterOwnership]) {
     require(entries.map(_.parameter) == entries.map(_.parameter).sorted,
       "ownership entries must have deterministic parameter ordering")
     require(entries.map(_.parameter).distinct == entries.map(_.parameter),
@@ -47,11 +83,17 @@ object ZyboZ720PlatformParams {
     val unpromotedParameters: Vector[String] =
       entries.collect { case entry if entry.status == OwnershipStatus.Unpromoted => entry.parameter }
 
-    def consumersOf(parameter: String): Vector[String] =
+    def consumersOf(parameter: String): Vector[AdvisoryConsumerAnchor] =
       entries.find(_.parameter == parameter).map(_.consumers).getOrElse(Vector.empty)
 
     def claimsHardwareReduction(parameter: String): Boolean =
       entries.find(_.parameter == parameter).exists(_.status.claimsHardwareReduction)
+
+    def matchesExactProfile(
+        candidateIntent: ProfileIntent,
+        candidateCore: CoreParams,
+        candidateOoo: OooParams): Boolean =
+      candidateIntent == profileIntent && candidateCore == exactCore && candidateOoo == exactOoo
   }
 
   final case class ConstructorCheckSummary(
@@ -232,37 +274,53 @@ object ZyboZ720PlatformParams {
     "compact Scala boot addresses must agree with the generated platform manifest")
 
   private object ConsumerSources {
-    val BenchmarkTop =
-      "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"
-    val ReducedBackendTop =
-      "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"
+    val BenchmarkTop = AdvisoryConsumerAnchor(
+      ownerClass = "linxcore.top.LinxCoreBenchmarkAutonomousTop",
+      constructorArgument = "coreParams",
+      sourcePath =
+        "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"
+    )
+    val ReducedBackendTop = AdvisoryConsumerAnchor(
+      ownerClass = "linxcore.top.LinxCoreFrontendFetchRfAluTraceTop",
+      constructorArgument = "coreParams",
+      sourcePath =
+        "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"
+    )
   }
 
-  private def consumed(parameter: String, configuredValue: Int, consumers: String*) =
-    ParameterOwnership(parameter, configuredValue, consumers.toVector)
+  private final case class OwnershipIntent(
+      parameter: String,
+      configuredValue: Int,
+      consumers: Vector[AdvisoryConsumerAnchor])
+
+  private def advisory(
+      parameter: String,
+      configuredValue: Int,
+      consumers: AdvisoryConsumerAnchor*) =
+    OwnershipIntent(parameter, configuredValue, consumers.toVector)
   private def unpromoted(parameter: String, configuredValue: Int) =
-    ParameterOwnership(parameter, configuredValue, Vector.empty)
+    OwnershipIntent(parameter, configuredValue, Vector.empty)
 
   private val CoreOwnership = Vector(
-    consumed("core.commitWidth", LinuxMinCore.commitWidth,
+    advisory("core.commitWidth", LinuxMinCore.commitWidth,
       ConsumerSources.BenchmarkTop, ConsumerSources.ReducedBackendTop),
-    consumed("core.lsidWidth", LinuxMinCore.lsidWidth,
+    advisory("core.lsidWidth", LinuxMinCore.lsidWidth,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.robEntries", LinuxMinCore.robEntries,
+    advisory("core.robEntries", LinuxMinCore.robEntries,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarBackend.gprMapQDepth", LinuxMinCore.scalarBackend.gprMapQDepth,
+    advisory("core.scalarBackend.gprMapQDepth", LinuxMinCore.scalarBackend.gprMapQDepth,
       ConsumerSources.BenchmarkTop),
-    consumed("core.scalarBackend.gprPhysRegs", LinuxMinCore.scalarBackend.gprPhysRegs,
+    advisory("core.scalarBackend.gprPhysRegs", LinuxMinCore.scalarBackend.gprPhysRegs,
       ConsumerSources.BenchmarkTop),
-    consumed("core.scalarBackend.gprReadPorts", LinuxMinCore.scalarBackend.gprReadPorts,
+    advisory("core.scalarBackend.gprReadPorts", LinuxMinCore.scalarBackend.gprReadPorts,
       ConsumerSources.ReducedBackendTop),
     unpromoted("core.scalarBackend.gprWritePorts", LinuxMinCore.scalarBackend.gprWritePorts),
-    consumed("core.scalarBackend.scalarIssueBanks", LinuxMinCore.scalarBackend.scalarIssueBanks,
+    advisory("core.scalarBackend.scalarIssueBanks", LinuxMinCore.scalarBackend.scalarIssueBanks,
       ConsumerSources.ReducedBackendTop),
     unpromoted("core.scalarLsu.addrWidth", LinuxMinCore.scalarLsu.addrWidth),
-    consumed("core.scalarLsu.commitIssueWidth", LinuxMinCore.scalarLsu.commitIssueWidth,
+    advisory("core.scalarLsu.commitIssueWidth", LinuxMinCore.scalarLsu.commitIssueWidth,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarLsu.commitQueueEntries", LinuxMinCore.scalarLsu.commitQueueEntries,
+    advisory("core.scalarLsu.commitQueueEntries", LinuxMinCore.scalarLsu.commitQueueEntries,
       ConsumerSources.ReducedBackendTop),
     unpromoted("core.scalarLsu.dataWidth", LinuxMinCore.scalarLsu.dataWidth),
     unpromoted("core.scalarLsu.l1dSets", LinuxMinCore.scalarLsu.l1dSets),
@@ -271,11 +329,11 @@ object ZyboZ720PlatformParams {
     unpromoted("core.scalarLsu.liqEntries", LinuxMinCore.scalarLsu.liqEntries),
     unpromoted("core.scalarLsu.loadMissQueueEntries", LinuxMinCore.scalarLsu.loadMissQueueEntries),
     unpromoted("core.scalarLsu.loadRefillQueueEntries", LinuxMinCore.scalarLsu.loadRefillQueueEntries),
-    consumed("core.scalarLsu.loadReturnPipeCount", LinuxMinCore.scalarLsu.loadReturnPipeCount,
+    advisory("core.scalarLsu.loadReturnPipeCount", LinuxMinCore.scalarLsu.loadReturnPipeCount,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarLsu.loadReturnQueueEntries", LinuxMinCore.scalarLsu.loadReturnQueueEntries,
+    advisory("core.scalarLsu.loadReturnQueueEntries", LinuxMinCore.scalarLsu.loadReturnQueueEntries,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarLsu.mapQDepth", LinuxMinCore.scalarLsu.mapQDepth,
+    advisory("core.scalarLsu.mapQDepth", LinuxMinCore.scalarLsu.mapQDepth,
       ConsumerSources.BenchmarkTop),
     unpromoted("core.scalarLsu.mdbCommandQueueEntries", LinuxMinCore.scalarLsu.mdbCommandQueueEntries),
     unpromoted("core.scalarLsu.mdbOutputQueueEntries", LinuxMinCore.scalarLsu.mdbOutputQueueEntries),
@@ -284,13 +342,13 @@ object ZyboZ720PlatformParams {
     unpromoted("core.scalarLsu.mdbWaitPlanQueueEntries", LinuxMinCore.scalarLsu.mdbWaitPlanQueueEntries),
     unpromoted("core.scalarLsu.pcWidth", LinuxMinCore.scalarLsu.pcWidth),
     unpromoted("core.scalarLsu.resolveQueueEntries", LinuxMinCore.scalarLsu.resolveQueueEntries),
-    consumed("core.scalarLsu.scbEntries", LinuxMinCore.scalarLsu.scbEntries,
+    advisory("core.scalarLsu.scbEntries", LinuxMinCore.scalarLsu.scbEntries,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarLsu.scbResponseBufferDepth", LinuxMinCore.scalarLsu.scbResponseBufferDepth,
+    advisory("core.scalarLsu.scbResponseBufferDepth", LinuxMinCore.scalarLsu.scbResponseBufferDepth,
       ConsumerSources.ReducedBackendTop),
-    consumed("core.scalarLsu.stidCount", LinuxMinCore.scalarLsu.stidCount,
+    advisory("core.scalarLsu.stidCount", LinuxMinCore.scalarLsu.stidCount,
       ConsumerSources.BenchmarkTop),
-    consumed("core.scalarLsu.stqEntries", LinuxMinCore.scalarLsu.stqEntries,
+    advisory("core.scalarLsu.stqEntries", LinuxMinCore.scalarLsu.stqEntries,
       ConsumerSources.ReducedBackendTop)
   )
 
@@ -341,8 +399,22 @@ object ZyboZ720PlatformParams {
     "uPhysRegs" -> LinuxMinOoo.uPhysRegs
   ).map { case (parameter, value) => unpromoted(s"ooo.$parameter", value) }
 
-  val OwnershipSummary: OwnershipReport =
-    OwnershipReport((CoreOwnership ++ OooOwnership).sortBy(_.parameter))
+  private def ownershipFor(intent: ProfileIntent): OwnershipReport = {
+    val entries = (CoreOwnership ++ OooOwnership).sortBy(_.parameter).map { entry =>
+      ParameterOwnership(
+        parameter = entry.parameter,
+        configuredValue = entry.configuredValue,
+        consumers = entry.consumers,
+        expectedIntent = intent,
+        expectedCore = LinuxMinCore,
+        expectedOoo = LinuxMinOoo,
+        hierarchyEvidence = None
+      )
+    }
+    OwnershipReport(intent, LinuxMinCore, LinuxMinOoo, entries)
+  }
+
+  val OwnershipSummary: OwnershipReport = ownershipFor(ProfileIntent.Smoke)
 
   val Smoke: PlatformProfile = PlatformProfile(
     intent = ProfileIntent.Smoke,
@@ -359,6 +431,6 @@ object ZyboZ720PlatformParams {
     ooo = LinuxMinOoo,
     boot = LinuxNommuBoot,
     constructor = ConstructorSummary,
-    ownership = OwnershipSummary
+    ownership = ownershipFor(ProfileIntent.LinuxNommu)
   )
 }
