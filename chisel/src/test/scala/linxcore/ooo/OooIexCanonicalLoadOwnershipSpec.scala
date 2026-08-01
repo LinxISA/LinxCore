@@ -154,7 +154,9 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       wrap: Boolean,
       ridSlot: Int,
       attemptGeneration: BigInt,
-      fault: Boolean = false): Unit = {
+      fault: Boolean = false,
+      destinationPhysTag: Int = 33,
+      destinationOldPhysTag: Int = 23): Unit = {
     val completion = dut.io.completion.bits
     completion.poke(0.U.asTypeOf(completion))
     completion.peId.poke(3.U)
@@ -179,8 +181,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     completion.payload.dst.valid.poke(true.B)
     completion.payload.dst.kind.poke(DestinationKind.Gpr)
     completion.payload.dst.archTag.poke(6.U)
-    completion.payload.dst.physTag.poke(33.U)
-    completion.payload.dst.oldPhysTag.poke(23.U)
+    completion.payload.dst.physTag.poke(destinationPhysTag.U)
+    completion.payload.dst.oldPhysTag.poke(destinationOldPhysTag.U)
     completion.payload.data.poke(
       (if (fault) BigInt(0) else BigInt("1122334455667788", 16)).U)
     completion.payload.faultValid.poke(fault.B)
@@ -468,6 +470,123 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.rebind.ready.expect(true.B)
       dut.io.loadCancel(2).valid.expect(true.B)
       dut.io.loadCancel(2).bits.load.generation.expect(replayGeneration.U)
+    }
+  }
+
+  test("keeps two canonical AGU leases disjoint through retry rebind return and recovery") {
+    val twoPipeCore = core.copy(
+      scalarLsu = core.scalarLsu.copy(loadReturnPipeCount = 2))
+    simulate(new OooIexCanonicalLoadOwnership(
+      p, twoPipeCore, laneCount = 2)) { dut =>
+      defaults(dut)
+
+      pokeRequest(dut, lane = 0, ridSlot = 2,
+        lsid = BigInt("100000002", 16))
+      pokeRequest(dut, lane = 1, ridSlot = 3,
+        lsid = BigInt("200000003", 16))
+      dut.io.liqAllocLoadId.valid.poke(true.B)
+      dut.io.liqAllocLoadId.value.poke(0.U)
+      dut.io.liqAlloc.ready.poke(true.B)
+      dut.io.agu(0).ready.expect(false.B)
+      dut.io.agu(1).ready.expect(true.B)
+      dut.io.liqAlloc.bits.returnPipeIndex.expect(1.U)
+      dut.io.liqAlloc.bits.loadLsIdFullValid.expect(true.B)
+      dut.io.liqAlloc.bits.loadLsIdFull.expect(BigInt("200000003", 16).U)
+      dut.io.liqAlloc.bits.attempt.producer.ridSlot.expect(3.U)
+      dut.io.liqAlloc.bits.attempt.producer.ridGeneration.expect(5.U)
+      dut.io.liqAlloc.bits.attempt.producer.nativeBid.expect(7.U)
+      dut.io.liqAlloc.bits.attempt.producer.brobGeneration.expect(9.U)
+      dut.io.liqAlloc.bits.attempt.producer.memberIndex.expect(1.U)
+      dut.io.liqAlloc.bits.attempt.producer.residentGeneration.expect(11.U)
+      val lane1Generation = dut.io.liqAlloc.bits.attempt.generation
+        .peek().litValue
+      dut.clock.step()
+      dut.io.agu(1).valid.poke(false.B)
+
+      dut.io.liqAllocLoadId.value.poke(1.U)
+      dut.io.agu(0).ready.expect(true.B)
+      dut.io.liqAlloc.bits.returnPipeIndex.expect(0.U)
+      dut.io.liqAlloc.bits.loadLsIdFullValid.expect(true.B)
+      dut.io.liqAlloc.bits.loadLsIdFull.expect(BigInt("100000002", 16).U)
+      dut.io.liqAlloc.bits.attempt.producer.ridSlot.expect(2.U)
+      dut.io.liqAlloc.bits.attempt.producer.nativeBid.expect(6.U)
+      val lane0Generation = dut.io.liqAlloc.bits.attempt.generation
+        .peek().litValue
+      dut.clock.step()
+      dut.io.agu(0).valid.poke(false.B)
+      dut.io.liqAlloc.ready.poke(false.B)
+      dut.io.metadataOccupied.expect(2.U)
+
+      val rebind = dut.io.rebind.bits
+      rebind.loadId.valid.poke(true.B)
+      rebind.loadId.slot.poke(1.U)
+      rebind.loadId.generation.poke(0.U)
+      pokeLoadAttempt(rebind.currentLoad, rebind.currentAttempt,
+        ridSlot = 2, generation = lane0Generation)
+      pokeLoadAttempt(rebind.nextLoad, rebind.nextAttempt,
+        ridSlot = 2, generation = lane0Generation + 1)
+      dut.io.rebind.valid.poke(true.B)
+      dut.io.liqRebind.ready.poke(false.B)
+      for (_ <- 0 until 2) {
+        dut.io.rebind.ready.expect(false.B)
+        dut.io.rebindAccepted.expect(false.B)
+        dut.io.loadCancel.foreach(_.valid.expect(false.B))
+        dut.io.metadataOccupied.expect(2.U)
+        dut.clock.step()
+      }
+      dut.io.liqRebind.ready.poke(true.B)
+      dut.io.rebind.ready.expect(true.B)
+      dut.io.rebindAccepted.expect(true.B)
+      dut.io.loadCancel(0).valid.expect(true.B)
+      dut.io.loadCancel(0).bits.load.producer.group.ridSlot.expect(2.U)
+      dut.io.loadCancel(0).bits.load.generation.expect(lane0Generation.U)
+      dut.io.loadCancel(1).valid.expect(false.B)
+      dut.clock.step()
+      dut.io.rebind.valid.poke(false.B)
+      dut.io.liqRebind.ready.poke(false.B)
+
+      pokeCompletion(dut, slot = 1, wrap = false, ridSlot = 2,
+        attemptGeneration = lane0Generation, destinationPhysTag = 31,
+        destinationOldPhysTag = 21)
+      dut.io.completionRejected.valid.expect(true.B)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.valid.poke(false.B)
+
+      pokeCompletion(dut, slot = 0, wrap = false, ridSlot = 3,
+        attemptGeneration = lane1Generation, destinationPhysTag = 32,
+        destinationOldPhysTag = 22)
+      dut.io.resultLane.expect(1.U)
+      dut.io.result.bits.agu.execute.i2.row.schedule.member.group.ridSlot
+        .expect(3.U)
+      dut.io.result.bits.load.producer.group.ridSlot.expect(3.U)
+      dut.io.result.bits.load.generation.expect(lane1Generation.U)
+      dut.io.result.ready.poke(false.B)
+      dut.clock.step(2)
+      dut.io.result.valid.expect(true.B)
+      dut.io.resultLane.expect(1.U)
+      dut.io.result.bits.load.producer.group.ridSlot.expect(3.U)
+      dut.io.result.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
+      dut.io.result.ready.poke(false.B)
+      dut.io.metadataOccupied.expect(1.U)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.oldHead.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.oldHead.peId.poke(3.U)
+      dut.io.recoveryPrepare.bits.oldHead.stid.poke(1.U)
+      dut.io.recoveryPrepare.bits.oldHead.ridSlot.poke(2.U)
+      dut.io.recoveryPrepare.bits.oldHead.ridGeneration.poke(5.U)
+      dut.io.recoveryPrepare.bits.oldOccupied.poke(1.U)
+      dut.io.recoveryPrepare.bits.newOccupied.poke(0.U)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.io.recoveryKilledMask.expect(2.U)
+      dut.io.recoveryFire.poke(true.B)
+      dut.clock.step()
+      dut.io.recoveryFire.poke(false.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.metadataEmpty.expect(true.B)
     }
   }
 

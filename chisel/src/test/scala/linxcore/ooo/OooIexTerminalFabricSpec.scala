@@ -165,4 +165,49 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.completion(0).bits.key.group.ridSlot.expect(3.U)
     }
   }
+
+  test("retains one full W-stage identity across multi-cycle terminal backpressure") {
+    simulate(new OooIexTerminalFabric(
+      p, aluSourceCount = 2, bruSourceCount = 1, loadSourceCount = 2)) { dut =>
+      clear(dut)
+      pokeAlu(dut, source = 0, ridSlot = 3, ptag = 37)
+      dut.io.completion(0).ready.poke(false.B)
+
+      for (_ <- 0 until 3) {
+        dut.io.terminalFireMask.expect(0.U)
+        dut.io.alu(0).ready.expect(false.B)
+        dut.io.completion(0).valid.expect(true.B)
+        dut.io.completion(0).ready.expect(false.B)
+        dut.io.completion(0).bits.key.group.peId.expect(3.U)
+        dut.io.completion(0).bits.key.group.stid.expect(1.U)
+        dut.io.completion(0).bits.key.group.ridSlot.expect(3.U)
+        dut.io.completion(0).bits.key.group.ridGeneration.expect(1.U)
+        dut.io.completion(0).bits.key.bid.value.expect(5.U)
+        dut.io.completion(0).bits.key.brobGeneration.expect(2.U)
+        dut.io.completion(0).bits.key.residentGeneration.expect(4.U)
+        dut.io.pWrite(0).valid.expect(false.B)
+        dut.io.trace(0).valid.expect(false.B)
+        dut.io.bctrl(0).valid.expect(false.B)
+        dut.clock.step()
+      }
+
+      dut.io.completion(0).ready.poke(true.B)
+      dut.io.terminalFireMask.expect(1.U)
+      dut.io.alu(0).ready.expect(true.B)
+      dut.io.pWrite(0).valid.expect(true.B)
+      dut.io.pWrite(0).bits.key.ptag.expect(37.U)
+      dut.io.pWrite(0).bits.key.generation.expect(3.U)
+      dut.io.pWrite(0).bits.data.expect(0x103.U)
+      dut.io.trace(0).valid.expect(true.B)
+      dut.io.trace(0).bits.uopKey.primaryParent.instructionId.expect(43.U)
+      dut.clock.step()
+
+      dut.io.alu(0).valid.poke(false.B)
+      dut.io.terminalFireMask.expect(0.U)
+      dut.io.completion(0).valid.expect(false.B)
+      dut.io.pWrite(0).valid.expect(false.B)
+      dut.clock.step(2)
+      dut.io.terminalFireMask.expect(0.U)
+    }
+  }
 }

@@ -161,10 +161,13 @@ final case class OooIexPhysicalProfile(
 
   for (left <- residencyOwners.indices;
        right <- left + 1 until residencyOwners.length) {
-    require(residencyOwners(left).classBankEnables
-      .zip(residencyOwners(right).classBankEnables)
-      .forall { case (leftMask, rightMask) => (leftMask & rightMask) == 0 },
-      s"IEX residency owners $left and $right overlap one class/bank")
+    val capabilityOverlap = residencyOwners(left).capabilities &
+      residencyOwners(right).capabilities
+    require(capabilityOverlap == 0 ||
+      residencyOwners(left).classBankEnables
+        .zip(residencyOwners(right).classBankEnables)
+        .forall { case (leftMask, rightMask) => (leftMask & rightMask) == 0 },
+      s"IEX residency owners $left and $right overlap one class/bank/capability")
   }
 
   dispatchableClasses.foreach { classIndex =>
@@ -447,16 +450,36 @@ final case class OooIexProductionPhysicalProfile(
 object OooIexProductionPhysicalProfile {
   import OooIexDomainCapability._
 
+  /** Exact canonical-IEX projection into the private OOO mechanism record.
+    *
+    * `issueWidth` is the canonical S1 admission prefix: today that prefix is
+    * required to equal both WidthParams.issueWidth and the OOO dispatch
+    * prefix.  It is deliberately not used as the number of physical picker
+    * functions; LDA and STA share each AGU residency owner but require
+    * distinct functions, while system/multicycle and CMD have independent
+    * owners.  `scalarIssueEntries` is total scalar IQ capacity and is divided
+    * evenly across `scalarIssueBanks`.
+    */
+  private def canonicalIexParams(core: CoreParams): OooParams = {
+    val iex = core.iex
+    require(iex.issueWidth == core.widths.issueWidth,
+      "canonical IEX issue width must match WidthParams")
+    require(iex.issueWidth == core.widths.dispatchWidth &&
+      iex.issueWidth == core.ooo.dispatchWidth,
+      "canonical IEX admission must equal the OOO dispatch prefix")
+    require(iex.scalarIssueEntries % iex.scalarIssueBanks == 0,
+      "canonical scalar issue capacity must divide evenly across IQ banks")
+
+    OooParams.fromCoreParams(core).copy(
+      iqBankCount = iex.scalarIssueBanks,
+      iqEntriesPerBank = iex.scalarIssueEntries / iex.scalarIssueBanks,
+      iexPReadPorts = iex.integerReadPorts,
+      iexPWritePorts = iex.integerWritePorts)
+  }
+
   private def bankMask(bankCount: Int, lane: Int, laneCount: Int): BigInt =
     (0 until bankCount).filter(_ % laneCount == lane).foldLeft(BigInt(0))(
       (mask, bank) => mask | (BigInt(1) << bank))
-
-  private def partitionMask(source: BigInt, bankCount: Int,
-      lane: Int, laneCount: Int): BigInt =
-    (0 until bankCount).filter(bank =>
-      (source & (BigInt(1) << bank)) != 0 && bank % laneCount == lane)
-      .foldLeft(BigInt(0))((result, bank) =>
-        result | (BigInt(1) << bank))
 
   def apply(core: CoreParams): OooIexProductionPhysicalProfile = {
     val iex = core.iex
@@ -465,7 +488,7 @@ object OooIexProductionPhysicalProfile {
       iex.cmdIssueQueues == 1,
       "private production IEX currently supports the canonical 2/1/2/2/1/1 topology")
 
-    val base = OooParams.fromCoreParams(core)
+    val base = canonicalIexParams(core)
     val pickerCount = iex.aluPipes + iex.bruPipes +
       2 * iex.aguPipes + iex.systemMulticycleQueues +
       iex.cmdIssueQueues + 1 // one floating/vector owner
@@ -481,9 +504,6 @@ object OooIexProductionPhysicalProfile {
     val sysClass = OooDispatchClass.Sys - 1
     val cmdClass = OooDispatchClass.Cmd - 1
     val boundaryClass = OooDispatchClass.Boundary - 1
-    val systemAluBanks = BigInt(1) << (p.iqBankCount - 1)
-    val simpleAluBanks = allBanks ^ systemAluBanks
-
     def classes(entries: (Int, BigInt)*): Seq[BigInt] = {
       val result = Array.fill[BigInt](p.iqClassCount)(BigInt(0))
       entries.foreach { case (classIndex, mask) =>
@@ -493,11 +513,10 @@ object OooIexProductionPhysicalProfile {
     }
 
     val aluOwners = (0 until iex.aluPipes).map { lane =>
-      val aluMaskForLane = partitionMask(simpleAluBanks, p.iqBankCount,
-        lane, iex.aluPipes)
-      val stdMaskForLane = bankMask(p.iqBankCount, lane, iex.stdPipes)
       OooIexResidencyOwner(s"alu$lane",
-        classes(aluClass -> aluMaskForLane, stdClass -> stdMaskForLane),
+        classes(
+          aluClass -> bankMask(p.iqBankCount, lane, iex.aluPipes),
+          stdClass -> bankMask(p.iqBankCount, lane, iex.stdPipes)),
         mask(SimpleAlu, StoreData))
     }
     val aguOwners = (0 until iex.aguPipes).map { lane =>
@@ -511,7 +530,7 @@ object OooIexProductionPhysicalProfile {
     }
     val systemOwners = (0 until iex.systemMulticycleQueues).map { lane =>
       OooIexResidencyOwner(s"sys$lane",
-        classes(aluClass -> systemAluBanks, sysClass -> allBanks),
+        classes(aluClass -> allBanks, sysClass -> allBanks),
         mask(MultiCycleAlu, System, PointerAuth))
     }
     val fsuOwner = OooIexResidencyOwner("fsu0", classes(fsuClass -> allBanks),

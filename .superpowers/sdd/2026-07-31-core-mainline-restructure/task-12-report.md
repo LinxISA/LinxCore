@@ -118,3 +118,146 @@ passed 1/1 after the implementation in 2 minutes 25 seconds.
 explicit physical topology, sole state ownership, generation-qualified load
 identity, retained backpressure, common recovery, and honest separation of
 standalone mechanism evidence from public-box promotion.
+
+## Fix Round 1/5
+
+### Status
+
+COMPLETE — all four independent-review findings are addressed without a
+public `IEX` owner, public-boundary cutover, `Reduced*` deletion, parent-plan
+edit, or push.
+
+### Finding 1 — canonical IEX conversion
+
+RED:
+
+- Literal W2/W4/W6/W8 assertions observed the inherited legacy geometry
+  `iqBankCount=8` instead of canonical `scalarIssueBanks=2`; the aggregate
+  suite failed 5/6 at the exact bank-count assertion.
+- Restoring multicycle ALU coverage after the 2-bank mapping initially failed
+  profile construction because the old validator rejected even
+  capability-disjoint logical owner projections on the same class/bank.
+
+GREEN:
+
+- `canonicalIexParams` is the dedicated value-only canonical IEX projection.
+  `issueWidth` must equal `WidthParams.issueWidth`, `WidthParams.dispatchWidth`,
+  and `OOOParams.dispatchWidth`; it defines S1/dispatch admission rather than
+  physical picker count.
+- `scalarIssueEntries` is total capacity, must divide evenly by
+  `scalarIssueBanks`, and maps to
+  `iqBankCount=scalarIssueBanks` plus
+  `iqEntriesPerBank=scalarIssueEntries/scalarIssueBanks`.
+- `integerReadPorts` and `integerWritePorts` map exactly to `iexPReadPorts`
+  and `iexPWritePorts`.
+- Every remaining `IEXParams` field is explicit: 2 ALU, 1 BRU, 2 AGU, 2 STD,
+  1 system/multicycle, and 1 CMD are required and used to construct distinct
+  owners/pickers. No canonical IEX field is silently ignored.
+- With only two physical IQ banks, simple-ALU and multicycle owners may project
+  the same class/bank only when their capability masks are disjoint. The
+  profile still rejects every class/bank/capability overlap. This preserves
+  ALU-class DIV/REM routing while keeping system/multicycle ownership separate.
+- W2/W4/W6/W8 assert exact `2 x 32 = 64` IQ geometry, 6 P-read ports, 5
+  P-write ports, 10 picker domains, and 2/1/2/2/1/1 topology.
+
+### Finding 2 — real owner behavior and honest L3 evidence
+
+RED:
+
+- The original aggregate suite instantiated `OooIexOldestReadyPicker`, not
+  the real `OooIexIssue`; it also contained no two-AGU canonical load-owner
+  lifecycle.
+- A full 10-domain `OooIexIssue` behavioral model remained in Verilator
+  generation for more than 15 minutes at about 3.5 GiB RSS. A 5-domain retry
+  still took 15m35s and exposed a test bug: AGU required-capability bit 0 was
+  `SimpleAlu`, so the real LDA picker correctly remained invalid.
+- The first two-AGU test assumed lane 0 won reset arbitration; `RRArbiter`
+  correctly selected lane 1 first. A later return was also rejected because
+  the fixture reused lane-2 destination tags for lane 1.
+
+GREEN:
+
+- Evidence is deliberately split. Exact 10-domain structural assertions prove
+  the canonical LDA/STA/STD/system/CMD owner and capability projections.
+  A sustainable real `OooIexIssue` fixture uses their exact capability union
+  and proves AGU load/store-address rows, STD, system, and CMD allocate into
+  disjoint real rows, retain under backpressure, claim atomically, and accept
+  one exact retry. It does not claim cross-domain arbitration.
+- `OooIexCanonicalLoadOwnership(..., laneCount=2)` now receives both AGUs
+  simultaneously, accepts the real RR order, and proves return-pipe 1/0
+  separation, full LSID, PE/STID, native BID, BROB generation, RID slot and
+  generation, member index, resident generation, and attempt generation.
+  Rebind backpressure holds both leases, stale completion is rejected, the
+  peer lane returns without identity confusion, and scoped recovery removes
+  only the remaining lease.
+- The manifest retains aggregate L3 only for real issue behavior. The previous
+  aggregate claims for operand-file and execution ownership were removed;
+  execution L3 now cites the real terminal and canonical load-owner fixtures.
+
+### Finding 3 — multi-cycle terminal retention
+
+RED:
+
+- The original aggregate test drove `OooIexTerminalPublish` combinationally
+  and released backpressure in the same cycle; it did not cross
+  `OooIexTerminalFabric` or retain a W-stage owner for multiple clocks.
+
+GREEN:
+
+- `OooIexTerminalFabricSpec` drives a real ALU W-stage transaction through the
+  fabric for three backpressured cycles. Every cycle preserves full PE/STID,
+  RID slot/generation, BID/BROB generation, member/resident generation and
+  destination identity; terminal fire is zero and no P-write, trace, or BCTRL
+  endpoint partially publishes.
+- Releasing completion backpressure produces exactly one atomic terminal fire,
+  P-write, wake/trace/completion publication; removing producer valid yields
+  no duplicate fire over the following cycles.
+
+### Finding 4 — width warnings
+
+RED:
+
+- The initial aggregate elaboration reported 100 W002/W004 warnings from
+  singleton `stidCount=1` and `iqEntriesPerBank=1` fixture geometry.
+
+GREEN:
+
+- The aggregate fixture now uses `stidCount=2`, `iqBankCount=2`, and
+  `iqEntriesPerBank=4`. Final aggregate and focused-owner runs report zero
+  W002/W004 hardware warnings. The only remaining warning is sbt's existing
+  `multiple main classes detected` message.
+
+### Verification
+
+- `IEXProductionMechanismSpec`: 7/7 passed in 4m36s after the final
+  class/bank/capability fix.
+- `OooIexCanonicalLoadOwnershipSpec`: 8/8 passed.
+- `OooIexTerminalFabricSpec`: 4/4 passed.
+- `OooIexPhysicalProfileSpec`: 4/4 passed.
+- `OooIexExecutionClusterSpec`: 4/4 passed.
+- `OooIexLoadLiqAllocAdapterSpec`: 5/5 passed.
+- `OooIexLoadTerminalMetadataSpec`: 3/3 passed.
+- `OooOpcodeRecipeTableSpec`: 4/4 passed after the final profile fix.
+- `bash tools/chisel/build_chisel.sh`: passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh`: passed with Verilator
+  5.044 over 67 generated modules.
+- `python3 tools/chisel/check_production_owner_manifest.py`: passed with 23
+  closed owners, 40 classified emitters, 10 declared adapters, and all NDF
+  L1/L2/L3 roles mapped.
+- `git diff --check` and `git diff --cached --check`: passed.
+
+### Self-review
+
+- The canonical profile no longer self-proves against legacy IQ defaults.
+- Logical owner overlap is permitted only when capability-disjoint; hardware
+  residency remains solely in `OooIexIssue`.
+- Test expected identities are lane-specific literals, not values derived by
+  the implementation under test.
+- No public `IEX`, public emitter, live-boundary rewiring, `Reduced*` deletion,
+  parent-plan edit, or push is present.
+
+### Skill Evolution
+
+`skill-evolve: no-update` — the existing `linx-core` workflow already requires
+explicit parameter domains, sole state ownership, full generation-qualified
+identity, honest evidence levels, retained backpressure, and common recovery.

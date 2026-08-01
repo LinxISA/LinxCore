@@ -1,6 +1,7 @@
 package linxcore.ooo
 
 import circt.stage.ChiselStage
+import linxcore.params.ParamProfiles
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexPhysicalProfileSpec extends AnyFunSuite {
@@ -135,5 +136,21 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
       firtoolOpts = Array("--disable-all-randomization"))
     assert(sharedSystemVerilog.contains("module OooIexSharedResourceArbiter"))
     assert(sharedSystemVerilog.contains("io_conflicted"))
+  }
+
+  test("canonical profile permits only capability-disjoint logical owner overlap") {
+    val profile = OooIexProductionPhysicalProfile(ParamProfiles.W4).physical
+    val aluClass = OooDispatchClass.Alu - 1
+    val simpleOwners = profile.ownersOf(aluClass).filter(
+      _.hasCapability(SimpleAlu))
+    val systemOwner = profile.ownersOf(aluClass).find(
+      _.hasCapability(MultiCycleAlu)).get
+
+    assert(simpleOwners.size == 2)
+    assert(simpleOwners.forall(owner =>
+      (owner.classBankEnables(aluClass) &
+        systemOwner.classBankEnables(aluClass)) != 0))
+    assert(simpleOwners.forall(owner =>
+      (owner.capabilities & systemOwner.capabilities) == 0))
   }
 }
