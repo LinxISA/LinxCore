@@ -393,3 +393,40 @@ conflict.
   identity, atomic terminal publication, target-only recovery, focused owner
   gates, and wrapper-based verification; this fix adds no reusable workflow
   rule beyond those contracts.
+
+## Fix Round 5
+
+This round corrects only the Branch unrelated-peer U-tag evidence in the
+four-STID public integration scenario. All Task 11 production behavior and the
+existing peer residency completion/commit and MemoryOrder proofs are unchanged.
+
+### RED evidence
+
+- The old assertion compared `stid1PeerProbe.u` against `rows(1)(1).u`.
+  `stid1PeerProbe.u` is present because the probe shape allocates U, while
+  `rows(1)(1).u` is necessarily absent because that retained row's shape has
+  `u = false`; `Some != None` therefore passed independently of Branch recovery
+  correctness.
+- Replacing that comparison with the missing baseline presence requirement and
+  running `bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec`
+  produced the expected RED result: 7 tests ran, 6 passed, and the four-STID
+  case failed at `OOOIntegrationSpec.scala:393` with `None was empty`.
+
+### Correction
+
+- The scenario now captures `rows(1).head.u` before recovery, explicitly
+  requires that pre-recovery peer U tag and the post-Branch peer probe U tag to
+  both be present, and compares their concrete tag values.
+- A Branch recovery bug that rolls back unrelated STID1 U rename state can now
+  reallocate the captured tag to the probe and fail the assertion. No production
+  file, public IO, residency/commit sequence, or MemoryOrder peer proof changed.
+
+### Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec` - PASS,
+  7 tests total across 2 suites: 4 canonical OOO integration tests and 3
+  adjacent CTU integration tests.
+- `git diff --check` - PASS.
+- `skill-evolve: no-update` - this is a test-evidence correction already
+  covered by the LinxCore requirement for exact recovery and public integration
+  proof; it adds no reusable domain workflow rule.

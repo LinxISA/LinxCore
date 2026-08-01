@@ -376,6 +376,8 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       }
       val stid1Tail = dut.io.ridTailSlot(1).peek()
       val stid2Tail = dut.io.ridTailSlot(2).peek()
+      val stid1PreRecoveryPeerU = rows(1).head.u
+      assert(stid1PreRecoveryPeerU.nonEmpty)
 
       recover(dut, RecoveryCause.Branch, rows(0).head.identity, transactionId = 0x51)
       dut.io.ridTailSlot(0).expect(1.U)
@@ -390,7 +392,8 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         stid = 1,
         Seq(Shape(p = false, t = false, u = true)),
       ).head
-      assert(stid1PeerProbe.u != rows(1)(1).u)
+      assert(stid1PeerProbe.u.nonEmpty)
+      assert(stid1PeerProbe.u.get != stid1PreRecoveryPeerU.get)
       val stid1TailAfterProbe = dut.io.ridTailSlot(1).peek()
 
       complete(dut, rows(0)(1).identity)
