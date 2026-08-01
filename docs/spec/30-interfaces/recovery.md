@@ -37,9 +37,10 @@ request fields: `RecoveryPlanContract.sameRobRequest` requires Prepare phase,
 transaction ID, cause, full trigger identity, redirect PC, and new epoch to
 match the retained seed request while deliberately ignoring the ROB-authored
 survivor-tail and killed-suffix fields. Unsolicited responses before
-`robPrepare.fire` remain outside the legal response window and are not accepted
-as the current plan. Stale, unrelated, wrong-phase, or otherwise mismatched ROB
-responses inside `RequestRob`, `WaitRob`, or `WaitRobAbort` are Decoupled
+`robPrepare.fire` are drainable stale Decoupled transactions and are not
+accepted as the current plan, even if the held beat matches a later seed
+request. Stale, unrelated, wrong-phase, or otherwise mismatched ROB responses
+inside `RequestRob`, `WaitRob`, or `WaitRobAbort` are also Decoupled
 transactions: RecoveryControl drains them when the response window is legal,
 but they are not semantically accepted as the current plan. A same-cycle
 mismatched response does not prevent the request from firing once. Canonical

@@ -285,8 +285,11 @@ containing the exact compact killed suffix, offer the identical plan exactly
 once to every target in `Prepare`, wait for every matching acknowledgement,
 ignore mismatched acknowledgements, and emit exactly one terminal decision.
 If abort arrives before ROB accepts the request, RecoveryControl cancels the
-request locally and emits no fabricated owner terminal. If ROB has accepted
-the request but has not yet returned the ROB-authored plan, RecoveryControl
+request locally and emits no fabricated owner terminal. A held `robPrepared`
+beat observed before ROB accepts the request MUST drain without becoming that
+request's plan, and abort-suppressed requests MUST NOT let such a beat attach
+to a later request. If ROB has accepted the request but has not yet returned
+the ROB-authored plan, RecoveryControl
 waits for a response that correlates to the exact retained request and then
 emits only the matching ROB abort terminal; target owners that never received
 `Prepare` observe no abort. Stale, unrelated, wrong-phase, or otherwise
@@ -296,10 +299,9 @@ prepare, emit ROB abort, clear abort-pending state, or cause the request to be
 reissued after it has already fired. Correlation matches the request phase,
 transaction ID, cause, full trigger identity, redirect PC, and new epoch while
 allowing only the ROB-authored killed-suffix and survivor-tail fields to
-differ. If
-abort arrives while target preparation is pending, the retained ROB-authored
-plan is broadcast as non-mutating `Abort` to every target and as the matching
-ROB abort terminal. Abort coincident with the final target acknowledgement has
+differ. If abort arrives while target preparation is pending, the retained
+ROB-authored plan is broadcast as non-mutating `Abort` to every target and as
+the matching ROB abort terminal. Abort coincident with the final target acknowledgement has
 non-mutating priority over `Apply`. Once the common one-cycle `Apply` is
 visible, it is irrevocably committed and a same-cycle abort request MUST NOT
 schedule a later abort for the same plan.
@@ -344,6 +346,7 @@ wrong-phase and duplicate apply rejection, ROB/BROB abort termination,
 one-prepare-per target barriers, mismatched acknowledgement rejection, common
 apply, request-phase ROB abort, target-prepare abort priority, visible-apply
 abort suppression, legal Decoupled drain without semantic acceptance for
-stale/unrelated ROB responses in RequestRob, WaitRob, and WaitRobAbort,
+pre-request and stale/unrelated ROB responses in RequestRob, WaitRob, and
+WaitRobAbort,
 simultaneous terminal fail-closed behavior, and
 non-mutating abort.

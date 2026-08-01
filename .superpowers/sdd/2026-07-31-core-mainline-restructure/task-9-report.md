@@ -530,3 +530,78 @@ Task-9 RecoveryControl, recovery tests, docs, and this report.
 - No `.ninja_lock` files were left in the worktree.
 - `skill-evolve: no-update` - round 7 did not add a reusable LinxCore workflow
   invariant beyond the Task-9 recovery Decoupled contract/docs changes.
+
+## Fix Round 8
+
+Review round 8 identified one remaining HIGH blocker in the canonical
+Task-9 recovery request/response Decoupled protocol. This round added
+RED-first stable pre-request response tests against
+`f46c6a44a7912350ee8d29e96a1c5c5cdec3628f`, then repaired only canonical
+Task-9 RecoveryControl, recovery tests, docs, and this report.
+
+### Fix-Round-8 RED Evidence
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` failed
+  behaviorally after the RED tests because the stable pre-request
+  `robPrepared` response saw `ready=0` at the bounded helper assertion
+  `OOORecoverySpec.scala:258`.
+- The same RED run failed for the abort-before-request held response at the
+  same bounded helper assertion, proving the beat could not legally drain
+  without being withdrawn or changed by the producer.
+
+### Fix-Round-8 Repairs
+
+- `RecoveryControl` now drains `robPrepared` beats in no-request states,
+  `RequestRob`, `WaitRob`, and `WaitRobAbort`, while semantic acceptance still
+  requires either same-cycle `robPrepare.fire` plus `sameRobRequest(...)` or a
+  retained wait-state correlated response.
+- A response held before `robPrepare.fire` drains as stale and cannot become
+  the later request's ROB-authored plan, even if its fields match that seed.
+  If abort suppresses the request, the held beat drains without any target
+  prepare, ROB abort, state advance, or association with a later request.
+- The stable response helper now uses a bounded wait while holding
+  `robPrepared.valid` and `bits` unchanged, so future tests cannot silently
+  withdraw or mutate an unaccepted Decoupled beat.
+- Recovery behavior and interface docs now distinguish pre-request drain from
+  later legal response-window semantic acceptance.
+
+### Fix-Round-8 Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec` - PASS,
+  32 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only OOORobCommitSpec` - PASS,
+  21 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec` - PASS,
+  9 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec` - PASS,
+  2 tests.
+- `python3 tools/chisel/render_top_interface_manifest.py --check` - PASS,
+  `top-interface-manifest: up to date`.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=113 l1_must=52 verified=59 open_questions=0 references=2`.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUSpec` - PASS, 15 tests.
+- `bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec` - PASS,
+  7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` - PASS,
+  `ROBID semantic check: ok`, 3 ROBID tests.
+- `bash tools/chisel/run_chisel_brob_order_state_probe.sh` - PASS,
+  `brob-order-state-probe: PASS`.
+- `bash tests/test_rob_bookkeeping.sh` - PASS, `rob bookkeeping test: ok`.
+- Affected decode/D1-D3/config checks: `OOODecodeSpec` PASS 8 tests;
+  `OooD1DecodeSpec` PASS 12 tests; `OooD2GroupPlannerSpec` PASS 6 tests;
+  `OooD2StageSpec` PASS 3 tests; `OooD3ReservationAllocatorSpec` PASS
+  9 tests; `OooD3S1GroupedRobIntegrationSpec` PASS 1 test;
+  `OooParamsSpec` PASS 4 tests; `OooIexPhysicalProfileSpec` PASS 3 tests.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS.
+- `git diff --check` - PASS.
+- Forbidden external-reference scan over `docs/spec` and this report - PASS,
+  no matches.
+
+### Fix-Round-8 Notes
+
+- The known unrelated `src/common/opcode_meta_gen.py` generated side effect
+  was restored before staging.
+- No `.ninja_lock` files were left in the worktree.
+- `skill-evolve: no-update` - round 8 did not add a reusable LinxCore workflow
+  invariant beyond the Task-9 recovery Decoupled contract/docs changes.
