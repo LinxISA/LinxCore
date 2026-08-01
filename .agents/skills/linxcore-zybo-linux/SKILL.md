@@ -17,11 +17,12 @@ architectural correctness for fit or claim a later milestone from a proxy.
    the earliest unmet predecessor. Run that predecessor's red gate first;
    stop at its first failure.
 3. Keep the live Linx contracts while sizing: BSTART/BSTOP and marker-only
-   blocking, CARG/header adjacency, FENTRY/FEXIT/FRET, 32-bit LSID ordering,
-   precise traps and committed stores, accepted-owner recovery retention, and
-   full commit-trace fields. A compact profile must prove that the benchmark
-   ROB holds 16 `_start_c` body uops **plus its closing marker**; do not cut
-   block metadata or call an unowned OOO parameter a physical reduction.
+   blocking, CARG lifetime and call-header adjacency, and standalone FENTRY,
+   FEXIT, and FRET behavior; 32-bit LSID ordering; precise traps and committed
+   stores; accepted-owner recovery retention; and full commit-trace fields. A standalone execution-domain BSTOP remains an architectural marker and must not truncate already formed same-cacheline followers; only a BSTOP closing resident control context may terminate the stream. A compact profile must
+   prove that the benchmark ROB holds 16 `_start_c` body uops **plus its
+   closing marker**; do not cut block metadata or call an unowned OOO parameter
+   a physical reduction.
 4. Keep the platform contract exact: `xc7z020clg400-1`, 50 MHz `FCLK_CLK0`,
    one outstanding 64-bit AXI transaction, 64-byte lines, MMIO before DDR,
    GP0 control, and HP0 data. Do not fabricate successful unsupported core

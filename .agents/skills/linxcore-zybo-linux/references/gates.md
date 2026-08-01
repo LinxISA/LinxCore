@@ -22,12 +22,13 @@ claim.
 | Z13 | Ten cold boots with archived logs and manifests |
 | Z14 | PTW/TLB/page faults after NOMMU stability |
 
-For fit changes, preserve BSTART/BSTOP safety, CARG lifetime, FENTRY/FEXIT/FRET,
-32-bit LSID ordering, precise committed side effects, recovery ownership, and
-the complete trace. The actual benchmark ROB must accommodate 16 `_start_c`
-body uops plus a closing marker. For Linux handoff, verify PS cache clean to
-the point of coherency, PS invalidation before inspection, boot PC/SP/`a0`/
-`a1`, real fetch/load/committed-store DDR traffic, trap, and timer gates.
+For fit changes, preserve BSTART/BSTOP safety, CARG lifetime and call-header
+adjacency, and standalone FENTRY/FEXIT/FRET behavior; 32-bit LSID ordering,
+precise committed side effects, recovery ownership, and the complete trace. A standalone execution-domain BSTOP remains an architectural marker and must not truncate already formed same-cacheline followers; only a BSTOP closing resident control context may terminate the stream. The actual benchmark ROB must
+accommodate 16 `_start_c` body uops plus a closing marker. For Linux handoff,
+verify PS cache clean to the point of coherency, PS invalidation before
+inspection, boot PC/SP/`a0`/`a1`, real fetch/load/committed-store DDR traffic,
+trap, and timer gates.
 
 A valid Vivado result records Git revision/dirty state, manifest checksum,
 Vivado and board-part versions, strategy, utilization, timing, DRC, and

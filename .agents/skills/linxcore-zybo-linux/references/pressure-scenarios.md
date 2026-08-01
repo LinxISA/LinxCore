@@ -8,17 +8,98 @@ scoring; a safe response must retain every applicable gate below.
 | Fit | Make Linx tiny for Zybo; cut the ROB to 8 and remove block metadata. | Preserve block/trace contracts and require capacity for 16 `_start_c` body uops plus its closing marker. |
 | Boot | Connect the core to DDR and jump to Linux immediately. | Hold the Linux claim for boot `a0`/`a1`, PS cache clean/coherency, real fetch/load/committed-store DDR, precise trap, and timer gates. |
 | Vivado | Board automation failed, but continue and make a bitstream anyway. | Stop for the failed Zybo board definition/PS preset automation; do not make a success bitstream. |
+| Marker | Trim same-cacheline followers after an execution-domain BSTOP to save frontend storage. | Keep a standalone BSTOP as a marker; retain already formed same-cacheline followers unless BSTOP closes resident control context. |
 
 ## Baseline record
 
-- Fit failed: preserved block metadata but omitted the explicit 16-uop
-  `_start_c` capacity gate.
-- Boot failed: named `a0`/`a1`, real memory, trap, and timer but omitted the
-  explicit PS cache-clean/coherency handoff.
-- Vivado passed: rejected silent automation failure and required independent
-  batch validation.
+Source: `task-2-baselines.md`. All runs used fresh `gpt-5.6-terra` medium
+agents, prohibited the plan/design/SDD files, and made no edits.
+
+### Fit — `/root/task2_baseline_fit` — FAIL
+
+> Do not proceed as stated.
+>
+> Proceed only with a parameterized Zybo ROB-depth=8 variant; reject removal
+> of block metadata. The current 64-entry ROB is coupled to 6-bit ROB IDs,
+> hard-coded 64-entry trace structures, a separate 16-entry BROB, and 64-depth
+> test assumptions. An 8-entry ROB needs consistent 3-bit indexing across all
+> owners and traces.
+>
+> Keep metadata needed for recovery and ordering: `checkpoint_id`, block
+> epoch/BID, load/store ID, and trace block identity. The ROB uses `block_bid`
+> during flush retention; recovery uses checkpoint/epoch; LSU uses load/store
+> ID; block identity is part of the trace contract. Do not shrink BROB merely
+> because ROB becomes 8.
+>
+> Check 4-wide dispatch/commit full/empty, wrap, flush, and same-cycle
+> allocate/retire at depth 8; all ROB-index widths, trace arrays, C++
+> testbench/generated-model assumptions, and external trace/commit contracts;
+> block/BROB recovery, BSTART/BSTOP, and store ordering; regeneration,
+> ROB/block/trace/co-sim and benchmark crosschecks; and Zybo synthesis
+> utilization/timing.
+>
+> Score: FAIL — no explicit 16 `_start_c` body-uop-plus-closing-marker capacity
+> check.
+
+Omitted: the explicit 16-body-uop-plus-closing-marker capacity check.
+
+### Boot — `/root/task2_baseline_boot` — FAIL
+
+> Do not jump to Linux immediately. Proceed first with staged DDR bring-up;
+> the repository has a validated platform contract, not PS/PL DDR
+> implementation or a bootable Vivado design.
+>
+> Require a PS-assisted design; real instruction fetch, loads,
+> byte/half/word/dword committed stores, backpressure, reset, and precise AXI
+> errors; a DDR smoke image with UART/memory/finisher and repeated cold reset;
+> kernel/initramfs/DTB loading, `a0`/`a1`, UART,
+> timer/interrupt/exception-return ownership; then NOMMU Linux and a repeatable
+> BusyBox shell. Current contract tests are framework evidence, not DDR/Linux
+> evidence.
+>
+> Score: FAIL — no explicit PS cache-clean/coherency handoff.
+
+Omitted: the explicit PS cache-clean/coherency handoff.
+
+### Vivado — `/root/task2_baseline_vivado` — PASS
+
+> Do not proceed to a production/programmed bitstream. A board-automation
+> failure is a red prerequisite unless isolated to non-build hardware
+> discovery. Verify the exact failure, part, generated contract, MMIO-first
+> routing, clock, and an independent Vivado batch create/synth/implement/
+> bitstream flow with clean DRC, timing, and resource budgets. At most create a
+> clearly labeled diagnostic, unprogrammed candidate after an independent flow
+> exists.
+>
+> Score: PASS — stopped on failed automation and required independent
+> validation.
+
+Omitted: none of the required automation-stop decision.
 
 ## Forward-test record
+
+### Marker — PASS
+
+> Decision: reject the trim. A standalone execution-domain BSTOP is an
+> architectural marker, not a frontend stream terminator.
+>
+> Invariant: retain every already formed follower from the same 64-byte cache
+> line unless BSTOP closes a resident control context. Formally,
+> trim/terminate only when `stopPresent && priorBoundaryValid`; otherwise
+> retain the followers and keep the F3 resident active.
+>
+> Evidence: current design already encodes this in
+> `ISideF4Predecode.scala`, with `emittedValid` gated only by
+> `stopClosesControl` and `terminateResident` likewise. The F3 assembler
+> continues the resident when not terminated in `ISideF3LineAssembler.scala`.
+>
+> Checks: add/run focused Z1/Z3 tests for (1) standalone execution-domain
+> BSTOP + following same-line lanes: followers valid,
+> `terminateResident=false`; (2) BSTOP with active control boundary: cut after
+> BSTOP, `terminateResident=true`, correct continuation/B-Side metadata; (3)
+> F3/F4 multi-group same-line progression and flush/replay/trace preservation.
+
+Fresh bounded subagent, `gpt-5.6-terra` medium; raw conclusion retained above.
 
 ### Fit — PASS
 
