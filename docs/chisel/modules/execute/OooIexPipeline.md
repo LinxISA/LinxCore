@@ -47,8 +47,8 @@ event. An assertion rejects an unprepared or withdrawn recovery fire.
 
 `OooIexPipeline` does not duplicate other canonical owners:
 
-- PC requests remain six readyless token reads to the `OooPcBuffer` already
-  owned by `OooO3RenameCoordinator`;
+- PC requests remain six readyless typed inputs at this Task-12 mechanism
+  boundary; public `OOO` does not claim a private execution PC-buffer owner;
 - P/T/U initialization, allocation clears, and terminal writes remain public
   connections to rename/writeback owners;
 - load cancellation, bypass, issue policy, and exact I1/I2 late cancellation

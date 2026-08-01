@@ -461,7 +461,7 @@ class ROB(val p: CoreParams) extends Module {
       io.release.bits.lanes(lane).valid &&
         id.stid === releaseFirst.stid &&
         orderValid(releaseStid)(expectedIdx) &&
-        orderRetired(releaseStid)(expectedIdx) &&
+        orderCompleted(releaseStid)(expectedIdx) &&
         orderIds(releaseStid)(expectedIdx).asUInt === id.asUInt &&
         memberLiveAt(releaseStid, id.ridSlot, id.memberIndex) &&
         identityAt(releaseStid, id.ridSlot, id.memberIndex).asUInt === id.asUInt)

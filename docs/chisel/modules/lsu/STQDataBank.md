@@ -75,7 +75,7 @@ while the current scalar commit interface uses the low parameterized payload.
 bash tools/chisel/run_chisel_tests.sh --only STQDataBank
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
 bash tools/chisel/build_chisel.sh
 ```
 

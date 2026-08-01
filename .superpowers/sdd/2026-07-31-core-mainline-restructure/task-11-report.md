@@ -172,3 +172,62 @@ and test-count statements above where they conflict.
 - `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
   67 modules, zero errors.
 - `git diff --check` - PASS.
+
+## Fix Round 2
+
+This round supersedes the original documentation-reference and commit-control
+evidence statements above where they conflict.
+
+### RED evidence
+
+- `python3 tools/chisel/check_deleted_ooo_doc_references.py` initially found 23
+  live documentation lines that still named deleted
+  `OooO3RenameCoordinator` or `OooO3IexStorePipeline` wrappers.
+- A new manifest unit test failed because the checker accepted an invented
+  behavioral evidence case that did not exist in its declared fixture.
+- The new canonical completion-to-commit integration case first exposed a
+  one-uop fixture bug: the generalized publisher still advertised a two-row
+  packet. After that was corrected, exact completion was accepted and ROB
+  produced a commit preview, but public commit remained blocked because ROB
+  release preflight required the row to be retired before the common commit
+  fire that performs retirement.
+- An earlier oversized W2 simulation was terminated as a resource-only run and
+  is excluded from behavioral evidence; every result below is from a fresh
+  bounded run.
+
+### Corrections
+
+- All requested live documentation now routes through public `OOO`,
+  `OOOD3S1Graph`, `RecoveryControl`, RENU/Dispatch, or the surviving
+  `OooIexExecutionStorePipeline`. Historical `agent-loop.md` records remain
+  unchanged. The persistent documentation gate rejects future live references
+  to either deleted wrapper while allowing explicitly historical records.
+- Production evidence may name an exact ScalaTest case. The owner checker now
+  verifies that the declared fixture contains the exact `test("...")`, and
+  CommitControl L3 evidence names the canonical behavioral integration case.
+- `OOOIntegrationSpec` publishes one ordinary GPR-destination ALU uop through
+  `OOOD3S1Graph`, supplies its exact dispatched ROB identity on the public
+  completion port, proves the commit is stable under backpressure, accepts one
+  ordered commit, and proves no duplicate appears.
+- ROB release preflight now validates the exact live completed head instead of
+  requiring a retirement that cannot occur until the same common fire.
+  `OOOD3S1Graph` asserts that every non-empty commit fire has ROB, rename, and
+  BROB release readiness, and the ROB unit test proves preflight is
+  non-mutating before simultaneous commit/release apply.
+
+### Verification
+
+- `LINX_CHISEL_SBT_MEM_MB=4096 ... --only OOOIntegrationSpec` - PASS, 6 tests.
+- `LINX_CHISEL_SBT_MEM_MB=4096 ... --only OOORobCommitSpec` - PASS, 21 tests.
+- `LINX_CHISEL_SBT_MEM_MB=4096 ... --only OOORecoverySpec` - PASS, 43 tests.
+- `python3 -m unittest tests.test_production_owner_manifest` - PASS, 43 tests.
+- `python3 tools/chisel/check_production_owner_manifest.py` - PASS, 23 closed
+  owners, 40 classified emitters, 10 declared adapters.
+- `python3 tools/chisel/check_deleted_ooo_doc_references.py` - PASS, no live
+  deleted-wrapper references.
+- `python3 tools/spec/check_ndf_profile.py --verify-local-references docs/spec`
+  - PASS, `clauses=116 l1_must=53 verified=61 open_questions=0 references=2`.
+- `bash tools/chisel/build_chisel.sh` - PASS.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` - PASS, Verilator 5.044,
+  67 modules, zero errors.
+- `git diff --check` - PASS.

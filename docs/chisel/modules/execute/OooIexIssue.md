@@ -229,7 +229,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1Integration
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 
 The focused UT covers retained-stage timing, fair STID arbitration, target

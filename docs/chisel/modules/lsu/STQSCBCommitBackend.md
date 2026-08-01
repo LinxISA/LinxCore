@@ -79,8 +79,8 @@ drops.
 
 ## Remaining gaps
 
-- connect `OooO3RenameCoordinator.storeCommit` directly at the next canonical
-  O3-to-IEX top boundary;
+- connect the surviving `OooIexExecutionStorePipeline` semantic store-commit
+  boundary when Task 13 creates public `IEX`;
 - replace the test PMA producer with the physical DTLB/PMP/PMA result owner;
 - connect the serialized request/response transport and precise terminal error
   publication;

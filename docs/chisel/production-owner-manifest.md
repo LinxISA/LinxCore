@@ -353,7 +353,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "case": "commits one completed canonical OOO publication exactly once", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
       "deletion_targets": [],
       "adapters": []

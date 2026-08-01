@@ -68,8 +68,8 @@ Issue recovery also rejects a pivot that would retain only one physical child
 of a logical split store. STA/STD recovery is therefore all-or-none while the
 store is retained before S2 and after its physical rows reach IQ residency.
 
-The fabric's commit-mark and mask-free ports are private connections in
-`OooIexExecutionStorePipeline` and `OooO3IexStorePipeline`. Semantic ROB store
+The fabric's commit-mark and mask-free ports are private connections in the
+surviving `OooIexExecutionStorePipeline`. Semantic ROB store
 tokens are matched to exact STQ leases by `STQSCBCommitBackend`; accepted SCB
 last fragments are the terminal free authority. The remaining store path gap
 is memory-system behavior, not raw physical-index commit ownership.

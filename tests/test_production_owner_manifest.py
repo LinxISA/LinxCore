@@ -137,6 +137,15 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "canonical owner linxcore.ooo.ROB caller declaration mismatch",
         )
 
+    def test_rejects_missing_claimed_evidence_case(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        evidence = self.owner("commit", manifest)["production_evidence"][0]
+        evidence["case"] = "this claimed behavioral case does not exist"
+        self.assert_rejected(
+            manifest,
+            "evidence case for commit not found",
+        )
+
     def test_rejects_real_deletion_caller_omitted_from_manifest(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         target = self.owner("recovery", manifest)["deletion_targets"][0]

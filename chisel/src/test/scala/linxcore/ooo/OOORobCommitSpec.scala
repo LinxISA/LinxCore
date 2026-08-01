@@ -580,7 +580,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("ROB preview observation does not retire before common commit apply") {
+  test("ROB release preflight does not mutate before common commit apply") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
       lane(dut.io.prepare.bits, 0, id = 80, rid = 0, member = 0,
@@ -593,11 +593,17 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.bits.count.poke(1.U)
       dut.io.release.bits.lanes(0).valid.poke(true.B)
       dut.io.release.bits.lanes(0).rob.poke(id)
-      dut.io.releaseReady.expect(false.B)
+      dut.io.releaseReady.expect(true.B)
+      dut.clock.step()
+      dut.io.commit.valid.expect(true.B)
+      dut.io.releaseReady.expect(true.B)
       dut.io.commitApply.poke(true.B)
+      dut.io.releaseApply.poke(true.B)
       dut.clock.step()
       dut.io.commitApply.poke(false.B)
-      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(false.B)
+      dut.io.commit.valid.expect(false.B)
+      dut.io.releaseReady.expect(false.B)
     }
   }
 

@@ -23,9 +23,9 @@ malformed row rejects the common recovery. On the common apply edge, only
 killed members are removed; survivors from the target STID and all rows from
 other STIDs are compacted in original FIFO order.
 
-This owner participates in `OooO3RenameCoordinator`'s global prepare/apply
-rendezvous. Completion state therefore cannot escape suffix recovery or be
-dropped by a local flush shortcut.
+This remains an independently tested Task-12 mechanism. Public
+`OOOD3S1Graph` currently routes typed completion through its arbitration into
+ROB, whose canonical recovery removes the authorized suffix.
 
 ## Verification
 
@@ -33,7 +33,7 @@ dropped by a local flush shortcut.
 env LINX_CHISEL_SBT_MEM_MB=4096 \
   bash tools/chisel/run_chisel_tests.sh --only OooRobCompletionBuffer
 env LINX_CHISEL_SBT_MEM_MB=4096 \
-  bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+  bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 
 The focused UT covers three-producer same-cycle admission and ordered drain,

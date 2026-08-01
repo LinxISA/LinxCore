@@ -59,7 +59,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooCtuIngressBridge
 bash tools/chisel/run_chisel_tests.sh --only OooIfuRawIngress
 bash tools/chisel/run_chisel_tests.sh --only OooD2Stage
 bash tools/chisel/run_chisel_tests.sh --only OooThreadStageBuffer
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 ```
 
 The tests cover retained request/redirect backpressure, both R4 terminal

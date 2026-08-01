@@ -408,9 +408,9 @@ false until O5 supplies the exact IQ reservation.
 Prepare is side-effect free. `OooPMapQEntry` records exact ROB member identity,
 transaction/uop/destination order, old mapping, and new mapping. The per-STID
 MapQ is an ordered ring, not a search-allocated collection. SMAP and MapQ mutate
-only on the common O3 publication fire. `OooO3RenameCoordinator` joins D3 and
-PTag claim on one reserve handshake, then joins ROB/BROB/PC publication, PTag
-publication, SMAP update, and MapQ insertion on one terminal fire.
+only on the common D3 publication fire. `OOOD3S1Graph` joins RENU preparation
+with side-effect-free ROB/BROB preparation and Dispatch acceptance; one D3 fire
+publishes ROB/BROB residency and the P/T/U rename state together.
 
 The ordered ring has a parameterized physical subbank layout. For logical
 index `q`, low `log2(pMapQSubbankCount)` bits select the subbank and the
@@ -470,10 +470,10 @@ independent T/U input. `OooTURenamePreparedTransaction` returns the
 pre-destination T/U sequence snapshots, resolved local sources, destination
 mappings, and exact MapQ rows used by later dispatch/recovery owners.
 
-`OooO3RenameCoordinator` gates D3 admission on both PTag and T/U preparation,
-cancels both leases by STID, and requires both P and T/U publication views
-before asserting the shared permit. One terminal fire therefore publishes all
-ROB/BROB/PC/P/T/U owners.
+`RENU` gates D3 admission on both P and T/U preparation, cancels both leases by
+STID, and requires both publication views before presenting the retained D3
+group. `OOOD3S1Graph` accepts that group only when ROB, BROB, and Dispatch can
+share the same publication fire.
 
 O4.4.2 adds `OooTURetire` as the separate retire-source and relation-
 CMAP owner. `OooTURetirePublication` retains one exact source per logical uop,
@@ -544,8 +544,8 @@ blocks same-STID reserve, publication, retire commands, and block commit until
 common finish. Unrelated STIDs continue. Direct UT covers mixed T/U rollback,
 sequence-generation wrap, physical-tag reuse, transaction-zero and
 zero-destination suffix rows, malformed authorization, and retire priority.
-O4.4.3d exposes `OooO3RenameCoordinator.recoveryRequest` as the sole canonical
-rename-recovery entry point. A request cannot enter while the target STID owns
+The live rename-recovery entry point is RENU's typed `RecoveryTargetIO`, driven
+by `RecoveryControl` inside `OOOD3S1Graph`. A request cannot enter while the target STID owns
 an already-retained D3 prepared row. From request capture through common finish,
 the retire-source scanner fences new reserve and publication only for that
 STID; other STIDs retain D3/S1 progress.
@@ -598,14 +598,12 @@ epoch selected for generated child zero. Uops without a dispatch producer keep
 that binding invalid. Class is part of the identity because bank/entry numbers
 are class-local.
 
-`OooO3RenameCoordinator` now joins dispatch prepare, reserve, and publication
-with D3, ROB, BROB, PC, and P/T/U rename. No owner publishes unless every owner
-accepts the same transaction. Its terminal output is an exact Decoupled
-`OooIexS1Transaction`; the IEX S1 transfer and every O3/O4/O5.1 publication
-owner share one fire. There is no Boolean permission seam that can publish the
-owners without transferring the matching payload. Rename-local recovery
-deliberately refuses a STID that still owns published dispatch rows; O7 must add one global
-ROB/BROB/PC/IQ cancellation transaction before that fence can be removed.
+`OOOD3S1Graph` joins Dispatch acceptance with D3, ROB, BROB, and P/T/U rename.
+No owner publishes unless every owner accepts the same group. Its typed
+`OOOIEXIO` outputs are retained Decoupled transactions; there is no Boolean
+permission seam that can publish an owner without transferring the matching
+payload. Recovery uses the same graph's prepare/apply protocol to remove only
+the authorized target-STID suffix.
 
 The complete per-class/per-bank bitmap remains the lifecycle-conservation and
 diagnostic state view, but O8.2 no longer feeds it to a bank-wide first-free
@@ -862,8 +860,8 @@ removes exact killed `BoundS2`/`ResidentS3` rows, and clears their matching
 P/T/U ready records. Fast resolve removes exact killed retained entries and
 excludes only the recovering STID from terminal arbitration. Each owner exposes
 a typed prepared count and a typed fail-closed reject.
-`OooO3RenameCoordinator` consumes these direct ports in O7.2d2; frontend and
-CTU owners still remain outside this core-physical recovery boundary.
+`RecoveryControl` consumes these direct ports through `OOOD3S1Graph`; frontend
+and CTU remain typed external recovery targets of public `OOO`.
 
 ## O7.2d1 retained ROB/D3/BROB/PC recovery subtransaction
 
@@ -889,12 +887,10 @@ history, frontend restart, and CTU remain later enclosing owners.
 
 ## O7.2d2 retained O3 core-physical recovery transaction
 
-`OooO3RenameCoordinator.recoveryRequest` accepts the complete
-`OooGlobalRecoveryRequest`. The coordinator retains that packet through
-`CaptureOwners`, `PrepareOwners`, `Rebuild`, or `AbortOwners`; the selected
-STID is fenced while unrelated STIDs retain reserve/publication progress.
-The lower coordinator and T/U suffix scanner may handshake independently, but
-no owner mutates during capture or prepare.
+Public `OOO` accepts execution recovery events through `OOOIEXIO`, and
+`RecoveryControl` obtains the sole exact plan from ROB before preparing every
+internal and external target. The selected STID is fenced while unrelated
+STIDs retain reserve/publication progress. No owner mutates during prepare.
 
 Once both retained authorities are ready, the sole ROB plan is projected to
 one `OooResidencyRecoveryPlan` for dispatch, fast resolve, and the external IEX
@@ -935,7 +931,7 @@ fence begins on the command-offer cycle and remains through R4.
 
 The exact typed O3 apply emits one target-only `stageCancel` and enables the
 retained IFU redirect. IFU enqueue readiness is not an acknowledgement.
-Completion requires both `OooO3RenameCoordinator.recoveryCompleted` and a
+Completion requires the public OOO recovery-target apply and a
 `LinxCoreIfu.canonicalFlush` whose entire proposal matches except for
 `newEpoch`, which only IFU may allocate. Either terminal event may arrive
 first. An exact pre-apply O3 abort emits no cancel or redirect and releases the
@@ -1001,8 +997,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooFastResolve
 bash tools/chisel/run_chisel_tests.sh --only OooO3FastResolveIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameRandomized
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 ```
 
 The tests cover 2/4/6 decode widths, 1/2/4 STIDs, exact field widths, three

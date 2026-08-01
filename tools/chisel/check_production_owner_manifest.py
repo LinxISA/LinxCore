@@ -1251,9 +1251,24 @@ def validate_evidence(
             errors.append(f"production evidence for {state_key} must be an object")
             continue
         fixture = item.get("fixture")
-        contained_path(root, fixture, f"production evidence fixture for {state_key}", errors)
+        resolved_fixture = contained_path(
+            root,
+            fixture,
+            f"production evidence fixture for {state_key}",
+            errors,
+        )
         if fixture not in fixtures:
             errors.append(f"evidence fixture for {state_key} is not a verification fixture")
+        case = item.get("case")
+        if case is not None:
+            if not isinstance(case, str) or not case:
+                errors.append(f"evidence case for {state_key} must be a non-empty string")
+            elif resolved_fixture:
+                pattern = re.compile(
+                    rf'\btest\s*\(\s*"{re.escape(case)}"\s*\)'
+                )
+                if not pattern.search(resolved_fixture.read_text(encoding="utf-8")):
+                    errors.append(f"evidence case for {state_key} not found: {case}")
         if item.get("level") != "L3":
             errors.append(f"production evidence for {state_key} must be L3")
         status = item.get("status")

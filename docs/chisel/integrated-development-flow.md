@@ -184,11 +184,10 @@ cleanup, and fast resolve cancels exact killed pending entries while unrelated
 STIDs continue. O7.2d1 retains one lower request inside
 `OooRobBrobPcCoordinator`, waits out exposed D3 and retained-commit
 obligations, captures the sole ROB plan after lower-owner validation, and
-applies ROB/D3/BROB/PC together. O7.2d2 now lifts that transaction into
-`OooO3RenameCoordinator`: one retained request captures the lower owner and
-T/U suffix scanner, projects the sole ROB plan to dispatch, fast resolve, and
-the external IEX owner, then fires lower recovery, all residency owners, and
-P/T/U authorization on one apply. R4 completion waits for the complete
+applies ROB/D3/BROB/PC together. The canonical replacement is public `OOO`
+through `OOOD3S1Graph`: `RecoveryControl` retains the selected ROB plan,
+prepares RENU, BROB, Dispatch, and the typed external recovery targets, then
+fires one common apply. R4 completion waits for the complete
 youngest-to-oldest rename-source stream, killed-PTag returns, P survivor replay,
 and T/U cursor rebuild. Every PTag return, including commit and recovery, now
 invalidates the matching IEX ready generation on the same handshake before

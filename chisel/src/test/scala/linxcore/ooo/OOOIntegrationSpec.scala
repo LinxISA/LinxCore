@@ -69,14 +69,14 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut: OOOD3S1Graph,
       stid: Int,
       shapes: Seq[Shape]): Seq[RobIdentity] = {
-    require(shapes.size == 2)
+    require(shapes.nonEmpty)
     val tail = dut.io.ridTailSlot(stid).peek().litValue.toInt
     val generation = dut.io.ridTailGeneration(stid).peek().litValue
     val capacity = dut.p.ooo.robGroupsPerStid
     dut.io.iex.aluDispatch.foreach(_.ready.poke(false.B))
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
-    dut.io.fromD2.bits.count.poke(2.U)
-    dut.io.fromD2.bits.groupCount.poke(2.U)
+    dut.io.fromD2.bits.count.poke(shapes.length.U)
+    dut.io.fromD2.bits.groupCount.poke(shapes.length.U)
     shapes.zipWithIndex.foreach { case (shape, lane) =>
       val absolute = tail + lane
       val slot = absolute % capacity
@@ -128,7 +128,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     assert(cycles < 32)
     dut.clock.step()
     dut.io.fromD2.valid.poke(false.B)
-    val identities = (0 until 2).map { _ =>
+    val identities = shapes.indices.map { _ =>
       cycles = 0
       while (!dut.io.iex.aluDispatch(0).valid.peek().litToBoolean && cycles < 16) {
         dut.clock.step(); cycles += 1
@@ -169,6 +169,58 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     assert(applied, s"recovery $transactionId timed out")
     driveTargetAcks(dut)
     dut.clock.step()
+  }
+
+  test("commits one completed canonical OOO publication exactly once") {
+    val base = ParamProfiles.W2
+    val p = base.copy(ooo = base.ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      brobEntriesPerStid = 8,
+      gprPhysRegs = 64,
+      gprMapQDepthPerStid = 8,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8,
+    ))
+    simulate(new OOOD3S1Graph(p)) { dut =>
+      clear(dut)
+      dut.io.commit.ready.poke(false.B)
+      val identity = publish(
+        dut,
+        stid = 0,
+        Seq(Shape(p = true, t = false, u = false)),
+      ).head
+      dut.io.commit.valid.expect(false.B)
+
+      val completion = dut.io.iex.completion(0)
+      completion.bits.poke(0.U.asTypeOf(completion.bits))
+      completion.bits.rob.poke(identity)
+      completion.valid.poke(true.B)
+      completion.ready.expect(true.B)
+      dut.clock.step()
+      completion.valid.poke(false.B)
+
+      var cycles = 0
+      while (!dut.io.commit.valid.peek().litToBoolean && cycles < 64) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).rob.expect(identity)
+      val heldCommit = dut.io.commit.bits.peek()
+      dut.clock.step(2)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.expect(heldCommit)
+
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      (0 until 3).foreach { _ =>
+        dut.io.commit.valid.expect(false.B)
+        dut.clock.step()
+      }
+    }
   }
 
   test("matches a four-STID reference across canonical publish and recovery") {

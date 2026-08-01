@@ -122,6 +122,10 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   rob.io.releaseApply := commitFire
   renu.io.releaseApply := commitFire
   brob.io.releaseApply := commitFire
+  when(commitFire && commitControl.io.out.bits.commit.count =/= 0.U) {
+    assert(rob.io.releaseReady && renu.io.releaseReady && brob.io.releaseReady,
+      "canonical commit must atomically apply every owner release")
+  }
 
   recovery.io.events(0) <> io.iex.recoveryEvent
   recovery.io.events(1).valid := false.B

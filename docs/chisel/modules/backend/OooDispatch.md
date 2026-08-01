@@ -85,7 +85,7 @@ bash tools/chisel/run_chisel_tests.sh --only OooHierarchicalFreeSlotSelect
 bash tools/chisel/run_chisel_tests.sh --only OooDispatch
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only OooO3IexIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 
 The selector UT covers empty, first/last, cross-leaf, one-entry-leaf, and

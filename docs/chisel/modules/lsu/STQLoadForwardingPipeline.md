@@ -107,7 +107,6 @@ Run:
 bash tools/chisel/run_chisel_tests.sh --only STQLoadForwardingPipeline
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
 ```
 
 ## Model and reference evidence

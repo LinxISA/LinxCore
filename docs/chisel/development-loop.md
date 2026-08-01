@@ -72,9 +72,9 @@ O7.2c dispatch/IEX/fast direct owners are now complete: exact published member
 identity, target-STID provisional cancellation, S1/S2/S3 pruning, local
 generation-qualified ready cleanup, and retained-fast cancellation all consume
 one compact ROB-authorized recovery window. O7.2d1 retains the lower physical
-subtransaction in `OooRobBrobPcCoordinator`. O7.2d2 now composes it in
-`OooO3RenameCoordinator` with the exact P/T/U suffix authority, dispatch, fast
-resolve, and an external typed IEX prepare/fire interface. All physical owners
+subtransaction in `OooRobBrobPcCoordinator`. The live composition is public
+`OOO` through `OOOD3S1Graph`, where `RecoveryControl` prepares RENU, BROB,
+Dispatch, and typed external recovery targets. All participating owners
 apply on one cycle; R4 waits for rename-source drain and P/T/U rebuild. A
 retained abort state prevents a late owner acceptance from surviving another
 owner's rejection. PTag return and external IEX ready-generation invalidation

@@ -132,7 +132,7 @@ bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadForwardIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooIexScalarLoadStorePath
 bash tools/chisel/run_chisel_tests.sh --only OooIexCanonicalLoadOwnership
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
-bash tools/chisel/run_chisel_tests.sh --only OooO3IexStorePipeline
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
 bash tools/chisel/build_chisel.sh
 ```

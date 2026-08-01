@@ -75,7 +75,7 @@ exact identity rules.
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooParams
 bash tools/chisel/run_chisel_tests.sh --only OooPRename
-bash tools/chisel/run_chisel_tests.sh --only OooO3RenameCoordinator
+bash tools/chisel/run_chisel_tests.sh --only RENUAtomicSpec
 bash tools/chisel/build_chisel.sh
 ```
 
