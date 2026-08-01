@@ -245,7 +245,7 @@ docs/spec/
 ├── 00-charter/{scope.md,glossary.md}
 ├── 10-architecture/{top.md,ownership.md,pipeline.md}
 ├── 20-behavior/{ifu.md,ctu.md,ooo.md,iex.md,lsu.md,dtu.md,recovery.md,commit-trap.md}
-├── 30-interfaces/{ifu-ctu.md,ctu-ooo.md,ooo-iex.md,iex-lsu.md,recovery.md,commit.md,dtu.md,memory.md}
+├── 30-interfaces/{top-external.md,ifu-ctu.md,ctu-ooo.md,ooo-iex.md,iex-lsu.md,recovery.md,commit.md,dtu.md,memory.md}
 ├── 40-constraints/{parameters.md,resources.md,timing.md}
 ├── 50-verification/{interface-conformance.md,module-coverage.md,benchmark-acceptance.md}
 ├── decisions/
@@ -256,11 +256,10 @@ docs/spec/
 条款前缀固定为：
 
 ```text
-ARC-TOP  IFC-IFU-CTU  IFC-CTU-OOO  IFC-OOO-IEX  IFC-IEX-LSU
-IFU      CTU          OOO          IEX          LSU
-DTU      REC          CMT          PRM          VER
-D        Q            REF-SNPU
-REF-NDF
+ARC-TOP     IFC-TOP-EXT  IFC-IFU-CTU  IFC-CTU-OOO  IFC-OOO-IEX
+IFC-IEX-LSU IFU          CTU          OOO          IEX
+LSU         DTU          REC          CMT          PRM
+VER         D            Q            REF-SNPU     REF-NDF
 ```
 
 层次固定为 L0 intent、L1 observable contract、L2 mechanism、L3 executable check。每个 `level=must layer=L1` 条款在主链启用前必须被至少一个 `VER-*` 条款通过 `verifies=` 覆盖。
@@ -289,6 +288,26 @@ REF-NDF
 | L2 mechanism | 唯一 Bundle 类型、方向、`count + Vec` 形状、完整 identity、owner、prepare/apply 处理 | Bundle shape UT、protocol assertions |
 | L3 executable check | W2/W4/W6/W8 elaboration、stall stability、identity round trip、stale response rejection | ScalaTest/chiseltest + generated manifest check |
 
+每个 L1 公共接口契约都必须记录以下 NDF 风格事实。这些内容是语义要求，
+不是第二份手工维护的端口表：
+
+| 契约事实 | 必须明确的决策 |
+|---|---|
+| 稳定身份 | 永久 clause ID、状态、`since`，以及被替代时的 `superseded-by` |
+| 端点 | 精确 producer、consumer、方向和唯一 contract-home 文件 |
+| 时钟域 | 时钟域、reset 置位/释放语义，以及输入是否为 raw/asynchronous |
+| 传输 | handshake、原子 `fire`、顺序、反压保持、取消和重试行为 |
+| 所有权 | 接受时分配或修改的状态，以及负责该变化的唯一 owner |
+| 架构控制 | recovery、commit、trap/interrupt 和 debug 影响，包括适用处的 prepare/apply |
+| 身份 | 拒绝 stale work 所需的完整 transaction identity 和 generation/wrap 字段 |
+| 参数耦合 | 决定 lane 或位宽的中央参数；固定协议事实不得写成 `option` 条款 |
+| 证据 | L2 Bundle/owner 投影，以及至少一个 L3 elaboration、assertion、UT 或 adjacent-box IT |
+
+初始 canonical core 只使用一个同步 clock/reset domain。未来任何 raw 或
+asynchronous 外部输入都必须在 `IFC-TOP-EXT-*` 中显式标注，由 TOP 边界上
+唯一、明确归属的 conditioner 终止，并在进入 box owner 前完成验证。
+仅有 `Flipped`、`Valid` 或 `Decoupled` 声明不能替代 CDC 契约。
+
 L1/L2 文档不得复制 Scala 字段表。Scala Bundle elaboration 是字段名、位宽、
 嵌套和方向的可执行来源；生成的 JSON/Markdown manifest 是其可评审投影。
 NDF 条款规定语义、所有权和协议不变量，并链接 manifest 和测试证据。
@@ -301,10 +320,12 @@ Bundle 以及由 Bundle 生成的 manifest。
 
 ### 4.2 Interface boundary matrix
 
-Task 3 必须先冻结以下边界，再允许 box 实现依赖它们：
+Task 3 先冻结八个 box/owner 边界，再允许 box 实现依赖它们；
+Task 18 在唯一 `TOP` 切换时冻结 `top-external.md` 组合边界：
 
 | Contract home | Producer -> consumer | Data plane | Control/return plane | Required identity |
 |---|---|---|---|---|
+| `top-external.md` | Platform/harness <-> TOP | `TOPIO` composition of instruction/data memory, interrupt/debug ingress, commit/trap/trace egress | per-channel handshake plus declared clock/reset/CDC policy; no architectural state in TOP | each leaf retains the complete identity required by its home contract |
 | `ifu-ctu.md` | IFU -> CTU | fixed-64-bit `FetchedPacket` continuous prefix | CTU backpressure; OOO-authored recovery routed through TOP | fetch generation, `stid`, block/instruction identity, prediction checkpoint |
 | `ctu-ooo.md` | CTU -> OOO | `D1Packet[FrontEndOp]` after Instruction Buffer retention | OOO admission backpressure and recovery pruning | original instruction identity plus expansion member identity |
 | `ooo-iex.md` | OOO -> IEX | atomic `DispatchTxn` routed by uop class | completion, fault and redirect events return to OOO | full ROB generation, `bid/rid/uid`, renamed tags |
@@ -356,7 +377,7 @@ Task 3 之后的每个接口相关 implementation loop 必须以一份可复现�
 2. 读取这些 clause 在 `refines`、`depends-on`、`couples-with` 和
    `verifies` 图上的一跳邻域；禁止只看 Scala Bundle 后猜测语义。
 3. 在写 RTL 前列出 producer、consumer、TOP wiring、parameter check、
-   recovery/commit handling、generated manifest 和 adjacent-box test 的
+   clock/reset/CDC policy、recovery/commit handling、generated manifest 和 adjacent-box test 的
    fanout。任何一项不适用都要写出理由。
 4. 新字段或新通道必须先归入现有 contract home；若改变 observable
    contract，则同一提交增加 decision record。替换既有条款时保留原 ID 并用
@@ -538,7 +559,8 @@ Commit intent: `Keep every width and resource choice explicit at one boundary`
 
 - [ ] **Step 1: Write L1/L2 interface clauses and the failing coverage check**
 
-为 Section 4.2 的八个边界分别建立唯一归属文件。每个文件至少包含一个
+为 Section 4.2 的八个 box/owner 边界分别建立唯一归属文件。
+每个文件至少包含一个
 L1 observable contract、一个 `refines=` 该契约的 L2 mechanism 条款，
 以及预先声明的 L3 `VER-*` 覆盖边。先运行 NDF checker，确认缺少对应
 Bundle/manifest evidence 时 Task 3 仍未满足验收条件。
@@ -1403,20 +1425,30 @@ Commit intent: `Keep debug observable without creating a second control machine`
 - Create: `tools/chisel/run_top_natural.sh`
 - Create: `tools/chisel/run_dual_benchmark_gate.sh`
 - Create: `tests/test_top_natural.py`
+- Create: `docs/spec/30-interfaces/top-external.md`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/EmitInterfaceManifest.scala`
+- Modify: `chisel/src/test/scala/linxcore/top/interface/TopInterfaceSpec.scala`
+- Modify: `chisel/src/test/scala/linxcore/top/interface/InterfaceManifestSpec.scala`
+- Modify: `tools/chisel/render_top_interface_manifest.py`
+- Modify: `docs/chisel/generated/top-interface-manifest.json`
+- Modify: `docs/chisel/generated/top-interface-manifest.md`
 - Modify: `docs/spec/10-architecture/top.md`
+- Modify: `docs/spec/50-verification/interface-conformance.md`
 - Modify: `docs/spec/50-verification/benchmark-acceptance.md`
 - Modify: `docs/chisel/production-owner-manifest.md`
+- Modify: `tools/chisel/check_production_owner_manifest.py`
 - Delete: `chisel/src/main/scala/linxcore/top/LinxCore*Top.scala`
 - Delete: corresponding old top emitters、harness entry points and top-only
   tests after the canonical TOP smoke and bounded comparison pass.
 
 **Interfaces:**
 - Consumes: all box IOs, external memory, interrupt and debug pins.
-- Produces: emitted `TOP.sv`, commit/trace output, UART/finisher and natural-run manifests.
+- Produces: emitted `TOP.sv`, the manifested external `TOPIO` contract,
+  commit/trace output, UART/finisher and natural-run manifests.
 
 - [ ] **Step 1: Write failing TOP connectivity tests**
 
-Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking.
+Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking. Add a failing manifest assertion that `TOPIO` is present as the external composition endpoint and every leaf resolves to `IFC-TOP-EXT-*`; that clause may depend on the existing memory、commit and DTU leaf contracts without copying their payload definitions. The contract test must also assert the single core clock/reset domain and reject an unqualified raw/asynchronous input.
 
 - [ ] **Step 2: Run failing tests**
 
@@ -1425,6 +1457,8 @@ Run:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only TOPSpec
 bash tools/chisel/run_chisel_tests.sh --only TOPWidthProfilesSpec
+bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec
+bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec
 ```
 
 - [ ] **Step 3: Implement TOP and harness**
@@ -1432,7 +1466,9 @@ bash tools/chisel/run_chisel_tests.sh --only TOPWidthProfilesSpec
 `TOP` instantiates exactly one IFU、CTU、OOO、IEX、LSU、DTU。Harness owns ELF memory loading、UART、finisher 和 manifest formatting but no instruction/commit oracle.
 
 This is the one active top-emitter cutover. Update build、CI、Verilator、trace
-and benchmark callers in the same loop. No old top may remain callable after
+and benchmark callers、the owner checker inventory、the machine-readable
+production entry-point row and its exact evidence in the same loop. The owner
+manifest must refer to this as Task 18. No old top may remain callable after
 the cutover commit.
 
 - [ ] **Step 4: Run elaboration, lint and harness self-tests**
@@ -1442,6 +1478,11 @@ Run:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only TOPSpec
 bash tools/chisel/run_chisel_tests.sh --only TOPWidthProfilesSpec
+bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec
+bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec
+python3 tools/chisel/render_top_interface_manifest.py --check
+python3 tools/spec/check_ndf_profile.py docs/spec
+python3 tools/chisel/check_production_owner_manifest.py
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 python3 -m unittest tests.test_top_natural -v
