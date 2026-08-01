@@ -36,13 +36,18 @@ chain atomically.
 
 ## Machine-readable manifest
 
-The JSON block is normative for the checker. `deletion_targets.active_callers`
-must remain empty; a target with a caller is not deletable and fails the gate.
-Adapters must explicitly declare `stateful: false`.
+The JSON block is normative for the checker. Every deletion target names an
+exact Scala symbol. A `planned-active` target must declare exactly the callers
+discovered in main Scala; a `deletion-ready` target is accepted only when both
+sets are empty. Compatibility adapters must be stateless. Pre-cutover legacy
+state owners whose historical names end in `Adapter` are recorded separately
+as `legacy-state-owner`, must report their discovered state honestly, and must
+carry a deletion task; they are never compatibility adapters or promotion
+evidence.
 
 ```json production-owner-manifest
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "ndf": {
     "L1": [
       "docs/spec/10-architecture/ownership.md",
@@ -69,11 +74,6 @@ Adapters must explicitly declare `stateful: false`.
   },
   "entry_points": {
     "production": [],
-    "non_production_patterns": [
-      "*Reduced*",
-      "*Probe*",
-      "EmitLinxCore*Top"
-    ],
     "non_production": [
       {
         "name": "EmitD1DecodeRenameROBIngress",
@@ -89,6 +89,44 @@ Adapters must explicitly declare `stateful: false`.
       }
     ]
   },
+  "adapters": [
+    {
+      "symbol": "ReducedLoadReplayLiqAllocAdapter",
+      "path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala",
+      "role": "legacy-state-owner",
+      "stateful": false,
+      "status": "planned-deletion",
+      "owner_domain": "load_inflight_queue",
+      "cutover_task": 15
+    },
+    {
+      "symbol": "OooIexLoadLiqAllocAdapter",
+      "path": "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala",
+      "role": "legacy-state-owner",
+      "stateful": true,
+      "status": "planned-deletion",
+      "owner_domain": "load_inflight_queue",
+      "cutover_task": 15
+    },
+    {
+      "symbol": "IfuWindowLineFillAdapter",
+      "path": "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala",
+      "role": "legacy-state-owner",
+      "stateful": true,
+      "status": "planned-deletion",
+      "owner_domain": "instruction_cache",
+      "cutover_task": 17
+    },
+    {
+      "symbol": "ISideMemoryAdapter",
+      "path": "chisel/src/main/scala/linxcore/ifu/ISide.scala",
+      "role": "legacy-state-owner",
+      "stateful": true,
+      "status": "planned-deletion",
+      "owner_domain": "instruction_cache",
+      "cutover_task": 17
+    }
+  ],
   "owners": [
     {
       "subsystem": "IFU",
@@ -96,12 +134,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ISideL1I",
       "mechanism_files": ["chisel/src/main/scala/linxcore/frontend/ISideL1I.scala"],
       "public_box": "IFU",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ifu/IFU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IFUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/frontend/LinxCoreIfu.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFUISideSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFUISideSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala", "symbol": "linxcore.top.LinxCoreTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"]}],
       "adapters": []
     },
     {
@@ -110,12 +150,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "BSide",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ifu/BSide.scala", "chisel/src/main/scala/linxcore/frontend/BSideHistoryQueue.scala", "chisel/src/main/scala/linxcore/frontend/BSidePredictionPipeline.scala"],
       "public_box": "IFU",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ifu/IFU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IFUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/frontend/LinxCoreIfu.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFUPredictionSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFUPredictionSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala", "symbol": "linxcore.top.LinxCoreFrontendTraceTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -124,26 +166,30 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "IFURecovery",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ifu/IFURecovery.scala", "chisel/src/main/scala/linxcore/frontend/IfuRedirectArbiter.scala"],
       "public_box": "IFU",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ifu/IFU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IFUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/frontend/LinxCoreIfu.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFURecoverySpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFURecoverySpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "symbol": "linxcore.frontend.IfuBackendFeedbackBridgeProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala"]}],
       "adapters": []
     },
     {
       "subsystem": "CTU",
       "state_key": "instruction_buffer",
-      "canonical_owner": "linxcore.ctu.InstructionBuffer",
+      "canonical_owner": "InstructionBuffer",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ctu/InstructionBuffer.scala", "chisel/src/main/scala/linxcore/ctu/TemplateDecode.scala", "chisel/src/main/scala/linxcore/ctu/TemplateExpand.scala"],
       "public_box": "CTU",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ctu/CTU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/CTUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ctu/CTU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ctu/CTUSpec.scala", "chisel/src/test/scala/linxcore/ctu/InstructionBufferSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ctu/CTUSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/frontend/InstructionBuffer.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/frontend/InstructionBuffer.scala", "symbol": "linxcore.frontend.InstructionBuffer", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/frontend/LinxCoreIfu.scala"]}],
       "adapters": []
     },
     {
@@ -152,12 +198,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "PRename",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/PRename.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/RENU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/RENUAtomicSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooPRename.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooPRename.scala", "symbol": "linxcore.ooo.OooPRename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
       "adapters": []
     },
     {
@@ -166,12 +214,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "TURename",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/TURename.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/RENU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/RENUSpec.scala", "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/TURenameSequenceSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooTURename.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooTURename.scala", "symbol": "linxcore.ooo.OooTURename", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
       "adapters": []
     },
     {
@@ -180,12 +230,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ROB",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/ROB.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooS1GroupedRob.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooS1GroupedRob.scala", "symbol": "linxcore.ooo.OooS1GroupedRob", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooRobBrobPcCoordinator.scala"]}],
       "adapters": []
     },
     {
@@ -194,12 +246,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "BROB",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/BROB.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooBrob.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooBrob.scala", "symbol": "linxcore.ooo.OooBrob", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooRobBrobPcCoordinator.scala"]}],
       "adapters": []
     },
     {
@@ -208,12 +262,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "CommitControl",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/CommitControl.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooRobStoreCommitOwner.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooRobStoreCommitOwner.scala", "symbol": "linxcore.ooo.OooRobStoreCommitOwner", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"]}],
       "adapters": []
     },
     {
@@ -222,12 +278,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "RecoveryControl",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/RecoveryControl.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala", "symbol": "linxcore.recovery.RecoveryCleanupControl", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/RecoveryFabric.scala"]}],
       "adapters": []
     },
     {
@@ -236,12 +294,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "OooD3ReservationAllocator",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooD3ReservationAllocator.scala", "chisel/src/main/scala/linxcore/ooo/OooHierarchicalFreeSlotSelect.scala", "chisel/src/main/scala/linxcore/ooo/OooDispatch.scala"],
       "public_box": "OOO",
+      "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooD3ReservationAllocatorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 11,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/ooo/OooO3RenameCoordinator.scala", "symbol": "linxcore.ooo.OooO3RenameCoordinator", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooO3IexStorePipeline.scala"]}],
       "adapters": []
     },
     {
@@ -250,12 +310,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "OooIexIssue",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala", "chisel/src/main/scala/linxcore/ooo/OooIexIssueBlockMatrix.scala"],
       "public_box": "IEX",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexPipeline.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 13,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "symbol": "linxcore.execute.ReducedScalarIssueQueue", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/execute/ScalarGPRIssueWakeupProbe.scala", "chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala"]}],
       "adapters": []
     },
     {
@@ -264,12 +326,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "OooIexOperandFiles",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala", "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala"],
       "public_box": "IEX",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexPipeline.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexOperandFilesSpec.scala", "chisel/src/test/scala/linxcore/execute/ScalarGPRFileSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexOperandFilesSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 13,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala", "symbol": "linxcore.execute.ScalarGPRFile", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/execute/ScalarGPRIssueWakeupProbe.scala", "chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/ScalarLoadGPRCompletionSink.scala"]}],
       "adapters": []
     },
     {
@@ -278,12 +342,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "OooIexExecutionPipeline",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala", "chisel/src/main/scala/linxcore/ooo/OooIexTerminalFabric.scala"],
       "public_box": "IEX",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexPipeline.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 13,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala", "symbol": "linxcore.execute.ReducedScalarAluExecute", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreFrontendAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -292,12 +358,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ScalarLSU",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexScalarLoadStorePath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala", "symbol": "linxcore.lsu.ScalarLSU", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"]}],
       "adapters": []
     },
     {
@@ -306,12 +374,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "STQEntryBank",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala", "chisel/src/main/scala/linxcore/lsu/STQDataBank.scala", "chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreCommitFreeOwner.scala", "symbol": "linxcore.lsu.ReducedStoreCommitFreeOwner", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreNonFlushGateProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -320,12 +390,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "SCBRowBank",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala", "chisel/src/main/scala/linxcore/lsu/STQSCBCommitBackend.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala", "symbol": "linxcore.lsu.ReducedStoreResidentForward", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -334,12 +406,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "LoadInflightQueue",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocPath", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -348,12 +422,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "LoadResolveQueue",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadResolveQueueSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LoadResolveQueueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala", "symbol": "linxcore.lsu.ReducedLoadReplayRelaunchQueue", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]}],
       "adapters": []
     },
     {
@@ -362,12 +438,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ScalarLSUMDBPath",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPath.scala", "chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala", "chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "symbol": "linxcore.lsu.ReducedStoreWaitReplayChiselPathProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala"]}],
       "adapters": []
     },
     {
@@ -376,12 +454,14 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ScalarL1D",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/ScalarL1D.scala", "chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala", "chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ScalarL1DProbe.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ScalarL1DProbe.scala", "symbol": "linxcore.lsu.ScalarL1DProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarL1DProbe.scala"]}],
       "adapters": []
     },
     {
@@ -390,26 +470,30 @@ Adapters must explicitly declare `stateful: false`.
       "canonical_owner": "ScalarLSURecoveryBoundary",
       "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala"],
       "public_box": "LSU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySourceProbe.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySourceProbe.scala", "symbol": "linxcore.recovery.ScalarRedirectRecoverySourceProbe", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySourceProbe.scala"]}],
       "adapters": []
     },
     {
       "subsystem": "DTU",
       "state_key": "trace_debug_performance_observation",
-      "canonical_owner": "DTU",
+      "canonical_owner": "CommitTraceMonitor",
       "mechanism_files": ["chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala", "chisel/src/main/scala/linxcore/top/interface/DTU.scala"],
       "public_box": "DTU",
-      "public_box_file": "chisel/src/main/scala/linxcore/top/interface/DTUIO.scala",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/DTUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala", "level": "L3", "status": "observation-mechanism-verified-cutover-pending"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 16,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala", "active_callers": []}],
+      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala", "symbol": "linxcore.top.LinxCoreBenchmarkAutonomousTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"]}],
       "adapters": []
     }
   ]
@@ -421,5 +505,7 @@ Adapters must explicitly declare `stateful: false`.
 A later task may change an owner only by updating its production mechanism,
 public-box reachability, all active callers, L3 evidence, and deletion targets
 atomically. A `standalone-verified` or `mechanism-verified-cutover-pending` row
-is not production replacement evidence. No adapter may retain a queue, map,
-ROB, cache, predictor, readiness table, or recovery transaction.
+is not production replacement evidence. A compatibility adapter may retain no
+queue, map, ROB, cache, predictor, readiness table, or recovery transaction.
+Any pre-existing stateful legacy owner named `Adapter` stays planned for the
+same atomic deletion as its closed state domain.

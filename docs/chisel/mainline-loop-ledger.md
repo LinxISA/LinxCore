@@ -137,6 +137,16 @@ push identities are filled only after the corresponding operation succeeds.
 - Entry-point result: `Reduced*`, `*Probe`, and old `LinxCore*Top` emitters are
   executable fixtures or legacy paths, never production entry points. No
   production `TOP` emitter is claimed before Task 17.
+- Independent-review fix round 1: 17 real CLI tests now close six manifest
+  bypass classes. Schema v2 uses a checker-owned closed inventory for all 23
+  state domains and exact canonical symbols/primary mechanisms. It discovers
+  deletion-target callers and accepts live pre-cutover targets only as
+  `planned-active` with an exact caller set; only caller-free targets may be
+  `deletion-ready`. It also discovers and classifies four existing adapter-
+  named mechanisms, distinguishes public Modules from pending IEX/LSU/DTU
+  boxes, checks evidence/reachability obligations, owns emitter classification
+  across App/`def main`/`@main`/wrapper forms, and enforces repo-contained typed
+  NDF layer roles without path reuse.
 - Remaining boundary: Task 11 must update this manifest in the same atomic
   commit that changes OOO D3/S1 call sites and deletes the displaced legacy
   owner chain. The controller owns push and remote-equality confirmation before
