@@ -359,7 +359,7 @@ git commit -m "chisel: add Linx FPGA memory and MMIO contract"
 - Consumes: retained `LinxMemRequest` DDR transactions.
 - Produces: AXI4 AW/W/B and AR/R channels with 32-bit addresses, 64-bit data, 8-bit strobes, and one ID.
 
-- [ ] **Step 1: Write failing burst-reference tests**
+- [x] **Step 1: Write failing burst-reference tests**
 
 ```scala
 test("64-byte line maps to eight 64-bit beats") {
@@ -376,13 +376,13 @@ test("burst crossing 4 KiB is rejected") {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LinxAxi4MasterSpec
 ```
 
-- [ ] **Step 3: Implement the one-outstanding AXI FSM**
+- [x] **Step 3: Implement the one-outstanding AXI FSM**
 
 States are `Idle`, `SendAr`, `ReceiveR`, `SendAw`, `SendW`, `ReceiveB`, and
 `Respond`. The request is retained from acceptance through response. The read
@@ -390,7 +390,7 @@ path validates `RID`, `RLAST`, and beat count. The write path validates `BID`.
 `SLVERR`, `DECERR`, ID mismatch, early/late `RLAST`, or beat overflow maps to a
 retained `LinxMemFault.Protocol` or `LinxMemFault.Bus` response.
 
-- [ ] **Step 4: Verify GREEN with randomized stalls**
+- [x] **Step 4: Verify GREEN with randomized stalls**
 
 Exercise every AXI channel with independent ready/valid stalls, then run:
 
@@ -401,7 +401,7 @@ bash tools/chisel/run_chisel_zybo_axi_probe.sh
 
 Expected: focused tests pass and emitted AXI probe passes Verilator lint.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chisel/src/main/scala/linxcore/fpga/zybo/LinxAxi4.scala \
