@@ -1,8 +1,11 @@
 # LinxCore Zybo Z7-20 Linux Bring-up Design
 
-**Status:** Approved in the 2026-08-01 design review  
-**Target repository revision:** `294542ffb5c9a65915af34fa38abc32e2eec134f`  
-**Target board:** Digilent Zybo Z7-20, `xc7z020clg400-1`  
+**Status:** Approved in the 2026-08-01 design review
+
+**Target repository revision:** `294542ffb5c9a65915af34fa38abc32e2eec134f`
+
+**Target board:** Digilent Zybo Z7-20, `xc7z020clg400-1`
+
 **Primary tools:** Scala 2.13.17, Chisel 7.3.0, CIRCT, Vivado 2025.2
 
 ## 1. Objective

@@ -1018,4 +1018,3 @@ before pushing the pin update.
   explicit gates.
 - Scope: this plan ends at NOMMU BusyBox and board-profile expansion. MMU/PTW,
   SMP, and direct Linx device ownership require a subsequent design and plan.
-
