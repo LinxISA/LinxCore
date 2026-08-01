@@ -299,7 +299,7 @@ git commit -m "chisel: add compact Zybo core profiles"
 - Request fields: `id`, `source`, `addr`, `write`, `size`, `wdata`, `wstrb`, `line`, and `last`.
 - Response fields: `id`, `rdata`, `fault`, and `last`.
 
-- [ ] **Step 1: Write failing routing tests**
+- [x] **Step 1: Write failing routing tests**
 
 ```scala
 test("write at 0x10000004 is Linux exit while read is UART status") {
@@ -313,7 +313,7 @@ test("test finisher and DDR never alias") {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LinxMmioRouterSpec
@@ -321,7 +321,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxMmioRouterSpec
 
 Expected: compile failure because the protocol and router do not exist.
 
-- [ ] **Step 3: Implement the protocol and router**
+- [x] **Step 3: Implement the protocol and router**
 
 The router accepts a request only when the selected destination can retain it.
 It never issues the same request to MMIO and DDR. Unsupported addresses return
@@ -329,7 +329,7 @@ It never issues the same request to MMIO and DDR. Unsupported addresses return
 `LinxMemFault.Access`. Linux exit and test-finisher writes emit separate
 sideband events with the original 32-bit payload.
 
-- [ ] **Step 4: Verify GREEN under backpressure**
+- [x] **Step 4: Verify GREEN under backpressure**
 
 Add tests for request stability, response stability, byte strobes, unmapped
 faults, UART TX/RX status, and destination backpressure. Run:
@@ -338,7 +338,7 @@ faults, UART TX/RX status, and destination backpressure. Run:
 bash tools/chisel/run_chisel_tests.sh --only LinxMmioRouterSpec
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chisel/src/main/scala/linxcore/fpga/zybo/LinxPlatformMemory.scala \
