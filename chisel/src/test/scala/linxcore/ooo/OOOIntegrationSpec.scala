@@ -43,7 +43,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
-    dut.io.iex.completion.foreach { in =>
+    dut.io.iex.robResolve.foreach { in =>
       in.valid.poke(false.B)
       in.bits.poke(0.U.asTypeOf(in.bits))
     }
@@ -181,7 +181,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
 
   private def complete(dut: OOOD3S1Graph, identity: RobIdentity): Unit = {
     dut.io.commit.ready.poke(false.B)
-    val completion = dut.io.iex.completion(0)
+    val completion = dut.io.iex.robResolve(0)
     completion.bits.poke(0.U.asTypeOf(completion.bits))
     completion.bits.rob.poke(identity)
     completion.valid.poke(true.B)
@@ -270,7 +270,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       ).head.identity
       dut.io.commit.valid.expect(false.B)
 
-      val completion = dut.io.iex.completion(0)
+      val completion = dut.io.iex.robResolve(0)
       completion.bits.poke(0.U.asTypeOf(completion.bits))
       completion.bits.rob.poke(identity)
       completion.valid.poke(true.B)

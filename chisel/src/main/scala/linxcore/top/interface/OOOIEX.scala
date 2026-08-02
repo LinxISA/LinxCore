@@ -57,9 +57,21 @@ class RenamedUop(val p: CoreParams) extends Bundle {
     Vec(p.maxDestinationOperands, new RenamedDestination(p))
 }
 
+/** Stable program-order allocation metadata; never a physical residency ID. */
+class MemoryOrderMeta(val p: CoreParams) extends Bundle {
+  val requestCount = UInt(
+    PrefixPacketContract.countWidth(p.maxMemoryRequestsPerInstruction).W)
+  val firstLsid = UInt(p.lsidWidth.W)
+  val firstTypeId = UInt(p.lsidWidth.W)
+  val youngestStoreValid = Bool()
+  val youngestStoreLsid = UInt(p.lsidWidth.W)
+  val youngestStoreId = UInt(p.lsidWidth.W)
+}
+
 class DispatchTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val uop = new RenamedUop(p)
+  val memoryOrder = new MemoryOrderMeta(p)
 }
 
 /** One atomic store issue request. IEX accepts this beat once, then performs
@@ -72,7 +84,7 @@ class StoreDispatchTxn(val p: CoreParams) extends Bundle {
   val stdPipe = UInt(InterfaceWidth.index(p.iex.stdPipes).W)
 }
 
-class CompletionTxn(val p: CoreParams) extends Bundle {
+class RobResolveTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val rob = new RobIdentity(p)
   val destinationValid = Bool()
@@ -80,6 +92,32 @@ class CompletionTxn(val p: CoreParams) extends Bundle {
     UInt(InterfaceWidth.index(p.maxDestinationOperands).W)
   val value = UInt(p.dataWidth.W)
   val trap = new TrapEvent(p)
+}
+
+/** Exact ROB-head authorization for one resident system or CMD side effect. */
+class RobNoflushTxn(val p: CoreParams) extends Bundle {
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+}
+
+/** Commit-control-owned no-destination system side effect. */
+class SystemIssueTxn(val p: CoreParams) extends Bundle {
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val immediate = UInt(p.dataWidth.W)
+}
+
+/** Independently backpressured external CMD transaction. */
+class CmdIssueTxn(val p: CoreParams) extends Bundle {
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+  val opcode = UInt(p.opcodeWidth.W)
+  val sourceValid = UInt(p.maxSourceOperands.W)
+  val sourceValues = Vec(p.maxSourceOperands, UInt(p.dataWidth.W))
 }
 
 /** OOO-facing view of the OOO/IEX boundary. */
@@ -96,8 +134,11 @@ class OOOIEXIO(val p: CoreParams) extends Bundle {
     Vec(p.iex.systemMulticycleQueues, Decoupled(new DispatchTxn(p)))
   val cmdDispatch =
     Vec(p.iex.cmdIssueQueues, Decoupled(new DispatchTxn(p)))
-  val completion =
-    Flipped(Vec(p.widths.issueWidth, Decoupled(new CompletionTxn(p))))
+  val robNoflush = Decoupled(new RobNoflushTxn(p))
+  val robResolve =
+    Flipped(Vec(p.widths.issueWidth, Decoupled(new RobResolveTxn(p))))
+  val systemIssue = Flipped(Vec(p.iex.systemMulticycleQueues,
+    Decoupled(new SystemIssueTxn(p))))
   val recoveryEvent = Flipped(Decoupled(new RecoveryEvent(p)))
   val recovery = new RecoveryTargetIO(p)
 }

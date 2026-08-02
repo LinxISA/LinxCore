@@ -3,6 +3,7 @@ package linxcore.top.interface
 import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
+import java.nio.file.{Files, Paths}
 import linxcore.params.{CoreParams, ParamProfiles}
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -53,6 +54,7 @@ class BoxIOElaborationProbe(val p: CoreParams) extends Module {
 }
 
 class TopInterfaceSpec extends AnyFunSuite {
+  private val repoRoot = Paths.get("..").toAbsolutePath.normalize
   private val profiles = Seq(
     2 -> ParamProfiles.W2,
     4 -> ParamProfiles.W4,
@@ -137,6 +139,90 @@ class TopInterfaceSpec extends AnyFunSuite {
       log2Ceil(p.ooo.gprPhysRegs))
   }
 
+  test("decoded memory controls and dispatch order metadata are canonical logical payloads") {
+    val p = ParamProfiles.W4
+    val decoded = new DecodedUop(p)
+    val memory = decoded.memory
+    val order = new DispatchTxn(p).memoryOrder
+
+    assert(memory.elements.keySet == Set(
+      "valid", "isLoad", "isStore", "addressMode", "accessBytes",
+      "signExtend", "offset", "indexMode", "indexShift",
+      "addressSourceMask", "dataSourceMask", "writebackValid",
+      "writebackPreIndex", "requestCount"))
+    assert(memory.addressMode.getWidth == MemoryAddressMode.getWidth)
+    assert(memory.accessBytes.getWidth == 4)
+    assert(memory.offset.getWidth == p.pcWidth)
+    assert(memory.indexMode.getWidth == MemoryIndexMode.getWidth)
+    assert(memory.indexShift.getWidth == 5)
+    assert(memory.addressSourceMask.getWidth == p.maxSourceOperands)
+    assert(memory.dataSourceMask.getWidth == p.maxSourceOperands)
+    assert(memory.requestCount.getWidth == order.requestCount.getWidth)
+
+    assert(order.elements.keySet == Set(
+      "requestCount", "firstLsid", "firstTypeId",
+      "youngestStoreValid", "youngestStoreLsid", "youngestStoreId"))
+    assert(order.requestCount.getWidth ==
+      log2Ceil(p.maxMemoryRequestsPerInstruction + 1))
+    assert(order.firstLsid.getWidth == p.lsidWidth)
+    assert(order.firstTypeId.getWidth == p.lsidWidth)
+    assert(order.youngestStoreLsid.getWidth == p.lsidWidth)
+    assert(order.youngestStoreId.getWidth == p.lsidWidth)
+    assert(!order.elements.keySet.exists(name =>
+      name.toLowerCase.contains("transaction") ||
+        name.toLowerCase.contains("attempt") ||
+        name.toLowerCase.contains("pipe") ||
+        name.toLowerCase.contains("slot") ||
+        name.toLowerCase.contains("lane")))
+
+    val wider = p.copy(maxMemoryRequestsPerInstruction = 7)
+    assert(new MemoryOrderMeta(wider).requestCount.getWidth == log2Ceil(7 + 1))
+    assert(new DecodedMemoryControl(wider).requestCount.getWidth ==
+      new MemoryOrderMeta(wider).requestCount.getWidth)
+  }
+
+  test("resolve load lifecycle system and CMD transactions use exact canonical identities") {
+    val p = ParamProfiles.W4
+    val resolve = new RobResolveTxn(p)
+    val reissue = new LoadReissueTxn(p)
+    val repick = new LoadRepickTxn(p)
+    val cancel = new LoadCancelTxn(p)
+    val noflush = new RobNoflushTxn(p)
+    val system = new SystemIssueTxn(p)
+    val cmd = new CmdIssueTxn(p)
+
+    assert(resolve.rob.getClass == new RobIdentity(p).getClass)
+    assert(resolve.destinationIndex.getWidth ==
+      InterfaceWidth.index(p.maxDestinationOperands))
+    assert(resolve.value.getWidth == p.dataWidth)
+
+    def checkTransition(current: MemoryIdentity, next: MemoryIdentity): Unit = {
+      assert(current.getClass == new MemoryIdentity(p).getClass)
+      assert(next.getClass == new MemoryIdentity(p).getClass)
+      assert(current.rob.getClass == next.rob.getClass)
+      assert(current.transaction.getClass == next.transaction.getClass)
+      assert(current.lsid.getWidth == p.lsidWidth)
+      assert(next.attemptGeneration.getWidth ==
+        p.memoryAttemptGenerationWidth)
+    }
+    checkTransition(reissue.currentIdentity, reissue.nextIdentity)
+    checkTransition(repick.currentIdentity, repick.nextIdentity)
+    assert(reissue.address.getWidth == p.physicalAddressWidth)
+    assert(cancel.elements.keySet == Set("currentIdentity"))
+    assert(cancel.currentIdentity.getClass == new MemoryIdentity(p).getClass)
+
+    Seq(noflush, system, cmd).foreach { transaction =>
+      assert(transaction.elements.contains("instruction"))
+      assert(transaction.elements.contains("rob"))
+    }
+    assert(system.opcode.getWidth == p.opcodeWidth)
+    assert(system.immediate.getWidth == p.dataWidth)
+    assert(cmd.opcode.getWidth == p.opcodeWidth)
+    assert(cmd.sourceValid.getWidth == p.maxSourceOperands)
+    assert(cmd.sourceValues.length == p.maxSourceOperands)
+    assert(cmd.sourceValues.forall(_.getWidth == p.dataWidth))
+  }
+
   test("the public OOO D1 D2 slice contract lives with the TOP interfaces") {
     profiles.foreach { case (width, p) =>
       val slice = new OOOD1D2IO(p)
@@ -193,10 +279,23 @@ class TopInterfaceSpec extends AnyFunSuite {
       oooIex.systemDispatch.head.bits.getClass ||
       (oooIex.cmdDispatch ne oooIex.systemDispatch))
 
+    assert(oooIex.robNoflush.bits.getClass == new RobNoflushTxn(p).getClass)
+    assert(oooIex.robResolve.length == p.widths.issueWidth)
+    assert(oooIex.robResolve.head.bits.getClass == new RobResolveTxn(p).getClass)
+    assert(oooIex.systemIssue.length == p.iex.systemMulticycleQueues)
+    assert(oooIex.systemIssue.head.bits.getClass == new SystemIssueTxn(p).getClass)
+
     assert(iexLsu.loadAddress.length == 2)
     assert(iexLsu.storeAddress.length == 2)
     assert(iexLsu.storeData.length == 2)
     assert(iexLsu.loadResult.length == 2)
+    assert(iexLsu.loadAddress.head.bits.getClass == new LoadIssueTxn(p).getClass)
+    assert(iexLsu.loadReissue.length == 2)
+    assert(iexLsu.loadRepick.length == 2)
+    assert(iexLsu.loadCancel.length == 2)
+    assert(iexLsu.loadReissue.head.bits.getClass == new LoadReissueTxn(p).getClass)
+    assert(iexLsu.loadRepick.head.bits.getClass == new LoadRepickTxn(p).getClass)
+    assert(iexLsu.loadCancel.head.bits.getClass == new LoadCancelTxn(p).getClass)
   }
 
   test("box IOs share typed payloads and expose prepare then apply recovery") {
@@ -215,6 +314,7 @@ class TopInterfaceSpec extends AnyFunSuite {
       iex.ooo.aluDispatch.head.bits.getClass)
     assert(iex.lsu.loadAddress.head.bits.getClass ==
       lsu.iex.loadAddress.head.bits.getClass)
+    assert(iex.cmdIssue.bits.getClass == top.cmdIssue.bits.getClass)
 
     Seq(
       ifu.recovery,
@@ -250,5 +350,16 @@ class TopInterfaceSpec extends AnyFunSuite {
       assert(chirrtl.contains(s"UInt<${p.instructionWidth}>"))
       assert(width == p.widths.decodeWidth)
     }
+  }
+
+  test("canonical public transaction names displace the legacy names") {
+    val interfaceRoot = repoRoot.resolve(
+      "chisel/src/main/scala/linxcore/top/interface")
+    val sources = Seq("OOOIEX.scala", "IEXLSU.scala", "EmitInterfaceManifest.scala")
+      .map(name => Files.readString(interfaceRoot.resolve(name)))
+      .mkString("\n")
+
+    assert(!sources.contains("Completion" + "Txn"))
+    assert(!sources.contains("Load" + "RequestTxn"))
   }
 }

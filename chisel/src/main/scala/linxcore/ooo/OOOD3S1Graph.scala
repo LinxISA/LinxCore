@@ -71,9 +71,9 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   io.iex.systemDispatch <> dispatch.io.iex.systemDispatch
   io.iex.cmdDispatch <> dispatch.io.iex.cmdDispatch
 
-  val completionArb = Module(new Arbiter(new CompletionTxn(p), p.widths.issueWidth))
+  val completionArb = Module(new Arbiter(new RobResolveTxn(p), p.widths.issueWidth))
   for (lane <- 0 until p.widths.issueWidth) {
-    completionArb.io.in(lane) <> io.iex.completion(lane)
+    completionArb.io.in(lane) <> io.iex.robResolve(lane)
   }
   rob.io.completion <> completionArb.io.out
 

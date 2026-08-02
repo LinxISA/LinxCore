@@ -15,6 +15,7 @@ final case class CoreParams(
     opcodeWidth: Int = 12,
     archRegWidth: Int = 6,
     lsidWidth: Int = 32,
+    maxMemoryRequestsPerInstruction: Int = 2,
     peIdWidth: Int = 8,
     instructionIdWidth: Int = 64,
     transactionIdWidth: Int = 64,

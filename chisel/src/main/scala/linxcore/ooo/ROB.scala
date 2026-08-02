@@ -14,7 +14,7 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val brobPrepared = Input(new BROBPrepared(p))
   val prepared = Output(new OOORobPrepared(p))
   val publishFire = Input(Bool())
-  val completion = Flipped(Decoupled(new CompletionTxn(p)))
+  val completion = Flipped(Decoupled(new RobResolveTxn(p)))
   val completionAccepted = Valid(new RobIdentity(p))
   val completionRejected = Valid(new RobIdentity(p))
   val commit = Decoupled(new OOORobCommitPreview(p))

@@ -45,4 +45,67 @@ class InterfaceManifestSpec extends AnyFunSuite {
       "ooo_recovery_apply",
       "ooo_recovery_abort"))
   }
+
+  test("backend profiles freeze lane multiplicity canonical payload names and identities") {
+    InterfaceManifest.model.profiles.foreach { profile =>
+      val endpoints = profile.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
+      val width = profile.width
+
+      assert(endpoints("ooo_to_iex_alu").lanes == 2)
+      assert(endpoints("ooo_to_iex_bru").lanes == 1)
+      assert(endpoints("ooo_to_iex_agu").lanes == 2)
+      assert(endpoints("ooo_to_iex_std").lanes == 2)
+      assert(endpoints("iex_to_ooo_rob_resolve").lanes == width)
+      assert(endpoints("iex_to_lsu_load_issue").lanes == 2)
+      assert(endpoints("iex_to_lsu_store_address").lanes == 2)
+      assert(endpoints("iex_to_lsu_store_data").lanes == 2)
+      assert(endpoints("lsu_to_iex_load_reissue").lanes == 2)
+      assert(endpoints("lsu_to_iex_load_repick").lanes == 2)
+      assert(endpoints("lsu_to_iex_load_cancel").lanes == 2)
+      assert(endpoints("external_cmd_issue").lanes == 1)
+
+      assert(endpoints("iex_to_ooo_rob_resolve").payload == "RobResolveTxn")
+      assert(endpoints("iex_to_lsu_load_issue").payload == "LoadIssueTxn")
+      assert(endpoints("lsu_to_iex_load_reissue").payload == "LoadReissueTxn")
+      assert(endpoints("lsu_to_iex_load_repick").payload == "LoadRepickTxn")
+      assert(endpoints("lsu_to_iex_load_cancel").payload == "LoadCancelTxn")
+      assert(endpoints("ooo_to_iex_rob_noflush").payload == "RobNoflushTxn")
+      assert(endpoints("iex_to_ooo_system_issue").payload == "SystemIssueTxn")
+      assert(endpoints("external_cmd_issue").payload == "CmdIssueTxn")
+
+      val orderPorts = endpoints("ooo_to_iex_alu").ports
+        .filter(_.name.startsWith("memoryOrder_"))
+        .map(_.name)
+        .toSet
+      assert(orderPorts == Set(
+        "memoryOrder_requestCount", "memoryOrder_firstLsid",
+        "memoryOrder_firstTypeId", "memoryOrder_youngestStoreValid",
+        "memoryOrder_youngestStoreLsid", "memoryOrder_youngestStoreId"))
+      assert(!orderPorts.exists(name =>
+        name.toLowerCase.contains("transaction") ||
+          name.toLowerCase.contains("attempt") ||
+          name.toLowerCase.contains("pipe") ||
+          name.toLowerCase.contains("slot") ||
+          name.toLowerCase.contains("lane")))
+
+      val issueIdentityPorts = endpoints("iex_to_lsu_load_issue").ports
+        .filter(_.name.startsWith("identity_"))
+        .map(_.name)
+        .toSet
+      assert(issueIdentityPorts.contains("identity_transaction_value"))
+      assert(issueIdentityPorts.contains("identity_transaction_generation"))
+      assert(issueIdentityPorts.contains("identity_lsid"))
+      assert(issueIdentityPorts.contains("identity_attemptGeneration"))
+      assert(issueIdentityPorts.contains("identity_pipeId"))
+    }
+
+    val w4 = InterfaceManifest.model.profiles.find(_.name == "W4").get
+    val endpoints = w4.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
+    assert(endpoints("ooo_to_iex_alu").lanes == 2)
+    assert(endpoints("ooo_to_iex_agu").lanes == 2)
+    assert(endpoints("ooo_to_iex_std").lanes == 2)
+    assert(endpoints("iex_to_lsu_load_issue").lanes == 2)
+    assert(endpoints("iex_to_lsu_store_address").lanes == 2)
+    assert(endpoints("iex_to_lsu_store_data").lanes == 2)
+  }
 }

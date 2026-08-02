@@ -15,6 +15,35 @@ object UopClass extends ChiselEnum {
   val Alu, Bru, Agu, Std, System, Cmd, Boundary = Value
 }
 
+/** Encoding-independent scalar memory address form emitted by D1. */
+object MemoryAddressMode extends ChiselEnum {
+  val None, BaseIndex, BaseOffset, PcOffset = Value
+}
+
+/** D1-normalized transformation applied to a register index before addition. */
+object MemoryIndexMode extends ChiselEnum {
+  val Identity, SignExtend32, ZeroExtend32, Negate = Value
+}
+
+/** Canonical decoded scalar memory controls. */
+class DecodedMemoryControl(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val isLoad = Bool()
+  val isStore = Bool()
+  val addressMode = MemoryAddressMode()
+  val accessBytes = UInt(4.W)
+  val signExtend = Bool()
+  val offset = UInt(p.pcWidth.W)
+  val indexMode = MemoryIndexMode()
+  val indexShift = UInt(5.W)
+  val addressSourceMask = UInt(p.maxSourceOperands.W)
+  val dataSourceMask = UInt(p.maxSourceOperands.W)
+  val writebackValid = Bool()
+  val writebackPreIndex = Bool()
+  val requestCount = UInt(
+    PrefixPacketContract.countWidth(p.maxMemoryRequestsPerInstruction).W)
+}
+
 class FrontEndOp(val p: CoreParams) extends Bundle {
   val kind = FrontEndOpKind()
   val parent = new FetchedInstruction(p)
@@ -52,6 +81,7 @@ class DecodedUop(val p: CoreParams) extends Bundle {
   val sources = Vec(p.maxSourceOperands, new DecodedSource(p))
   val destinations =
     Vec(p.maxDestinationOperands, new DecodedDestination(p))
+  val memory = new DecodedMemoryControl(p)
   val immediateValid = Bool()
   val immediate = UInt(p.dataWidth.W)
   val earlyComplete = Bool()

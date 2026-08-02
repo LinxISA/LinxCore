@@ -71,6 +71,9 @@ object ParamChecks {
     require(p.opcodeWidth == 12, "canonical opcode identity must preserve 12 bits")
     require(p.archRegWidth >= 6, "architectural register width must cover reg6")
     require(p.lsidWidth >= 32, "LSID width must preserve at least 32 bits")
+    require(
+      p.maxMemoryRequestsPerInstruction >= 2,
+      "memory request count must cover scalar pair operations")
     require(p.peIdWidth > 0, "PE identity width must be positive")
     require(p.instructionIdWidth > 0, "instruction identity width must be positive")
     require(p.transactionIdWidth > 0, "transaction identity width must be positive")
