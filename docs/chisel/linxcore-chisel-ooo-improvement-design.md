@@ -692,7 +692,7 @@ key 中也缺少独立 BROB pointer/generation。
 它是 OOO completion ingress retention 边界，仅负责：
 
 - 保留 IEX W2 或 external-engine exact-validation owner 已产生的
-  `CompletionTxn`；LSU load 不直接进入该 retainer；
+  `RobResolveTxn`；LSU load 不直接进入该 retainer；
 - 进行 exact identity、duplicate 和 stale-residency qualification；
 - 在 ROB backpressure 下稳定输出；
 - 接受 central recovery 对 pending completion 的清除。
@@ -1115,7 +1115,7 @@ token、ROB issue/completion bookkeeping 和 completion retention。
 
 ScalarLSU 拥有 LIQ/STQ/SCB/MDB/MissQ/RefillQ/L1D、full LSID memory age、
 store visibility 和 retained load-result payload。load result 先进入 IEX
-统一 W2 network，再由 IEX 发布 source-qualified exact `CompletionTxn`；
+统一 W2 network，再由 IEX 发布 source-qualified exact `RobResolveTxn`；
 OOO 不直接驱动 load RF/wakeup，也不维护第二条 LSU completion shortcut。
 OOO 只协调 D3 reservation、保存 row memory sidecar、接受统一 completion
 和 LSU recovery candidate，并把 central recovery transaction fanout 给

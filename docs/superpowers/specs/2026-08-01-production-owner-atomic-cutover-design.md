@@ -47,10 +47,10 @@ composition boundaries; they are not compatibility adapters.
 
 Normally one subsystem boundary is one cutover. When a typed identity is
 allocated across two adjacent owners and neither side can become live without
-the other's retained lease protocol, prepare both sides independently and cut
+the other's retained LIQ replay protocol, prepare both sides independently and cut
 the closed adjacent graph in one loop. The OOO-IEX-LSU switch uses this joint
 exception: Task 13 closes private canonical prerequisites, Task 14 prepares the
-matching LSU lease owner, and Task 15 activates both public boxes together.
+matching LSU replay owner, and Task 15 activates both public boxes together.
 
 A cutover loop must finish all of the following before its commit:
 
@@ -81,6 +81,25 @@ evidence through the canonical graph, delete the displaced live chain in that
 same loop. The final cleanup task removes only residual orphans and proves the
 absence of old active identifiers.
 
+### 2.6 Freeze Task-13 issue and resolve terminology
+
+OOO allocates program-order `lsid`, `loadId`, `storeId`, and older-memory-order
+metadata. IEX allocates one memory transaction for each retained memory uop,
+shares it across one store's STA/STD children, and allocates the initial load
+attempt when it retains `LoadIssueTxn`. LSU owns LIQ reissue, LIQ repick, and
+every later attempt rebind. `LoadReissueTxn` is reserved for a load that still needs address
+translation; `LoadRepickTxn` is reserved for a translated load returning to the
+load-result path; `LoadCancelTxn` flows from LSU to IEX only to cancel
+speculative dependents. OOO `RecoveryPlan`, not load cancel, terminates killed
+IEX and LSU residency.
+
+IEX reports one `RobResolveTxn` for one ROB member. System/multicycle and CMD
+retain separate resident queues. `RobNoflushTxn` authorizes one precise
+head-member side effect, `SystemIssueTxn` carries system work, and `CmdIssueTxn`
+is the independently backpressured TOP external CMD transaction. Task 13
+removes the displaced completion/request/adapter names in the same change that
+introduces these interfaces; aliases do not survive the cutover.
+
 ## 3. Canonical Owner Rules
 
 Maintain a checked owner manifest for architectural state, including ROB,
@@ -107,8 +126,8 @@ fixture when it exists only to support a displaced implementation.
 3. Prepare the production IEX mechanisms without changing their live boundary.
 4. Close canonical OOO-IEX prerequisites: D1 memory controls, the unique OOO
    memory-order/recovery owner, private IEX canonical ingress/terminal and the
-   approved IEX-LSU attempt lifecycle; keep public `IEX` absent.
-5. Prepare the production LSU internals, implement the matching typed attempt
+   approved IEX-LSU issue/reissue/repick lifecycle; keep public `IEX` absent.
+5. Prepare the production LSU internals, implement the matching typed load
    lifecycle and resolve the two-load-pipe contract without a public cutover.
 6. Atomically activate the canonical OOO-IEX-LSU graph, then delete the reduced
    issue/execute/completion chain, old `ScalarLSU` boundary and displaced LSU

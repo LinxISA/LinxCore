@@ -166,7 +166,7 @@ flowchart LR
   OOO -->|"IssueDispatchTxn"| IEX["IEX IQ + RF + FU"]
   OOO -->|"LsuReservation/Dispatch"| LSU["LSU + L1D + Memory"]
   IEX -->|"AguRequest"| LSU
-  IEX -->|"CompletionTxn"| OOO
+  IEX -->|"RobResolveTxn"| OOO
   LSU -->|"LoadResultTxn"| IEX
   LSU -->|"RecoveryEvent"| REC["OOO RecoveryFabric"]
   IEX -->|"RecoveryEvent"| REC
@@ -313,7 +313,7 @@ LID/SID width；cache set/way/line/bank/latency。
 | `D3ReservationTxn` | OOO | OOO/IEX/LSU | 最大连续 prefix，multi-owner 原子 token |
 | `IssueDispatchTxn` | OOO | IEX | exact identity、operand qtag/version、recovery context |
 | `AguRequest` | IEX | LSU | VA、size/mask、ordering class、full instruction identity |
-| `CompletionTxn` | IEX | OOO | retained exact-key terminal transaction |
+| `RobResolveTxn` | IEX | OOO | retained exact-key terminal resolve transaction |
 | `LoadResultTxn` | LSU | IEX W2 | retained full identity/LSID/result；accept 后返回 `LSU_RETURN_ACK` |
 | `RecoveryEvent` | IEX/LSU | OOO recovery | typed、retained、带 class/provenance；IFU fault 只走 D1 fault row |
 | `RecoveryResolvedTxn` | OOO recovery | 四域 | 单次 canonical resolve、prepare/commit/ack |

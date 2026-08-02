@@ -6,12 +6,18 @@
 IEX shall provide independently backpressured load-address, store-address, and
 store-data transactions. The default topology shall expose two paths of each
 kind, and LSU responses shall match complete memory and ROB identities rather
-than address or queue slot alone.
+than address or queue slot alone. OOO shall allocate program-order memory IDs,
+IEX shall allocate each memory transaction and initial load attempt, and LSU
+shall own LIQ reissue, repick, and later attempt rebind.
 
 ## LSU request and result Bundles {#MEC-IEX-LSU-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-IEX-LSU-001 -->
 
-`IEXLSUIO` uses parameterized vectors of `LoadRequestTxn`,
-`StoreAddressTxn`, and `StoreDataTxn`; `LoadResultTxn` carries the original
-`MemoryIdentity`. Store address and data remain separate transactions until the
-LSU-owned join accepts both exact identities.
+`IEXLSUIO` uses parameterized vectors of `LoadIssueTxn`, `StoreAddressTxn`, and
+`StoreDataTxn`; `LoadResultTxn` carries the latest accepted `MemoryIdentity`.
+The same load-pipe count sizes independent LSU-to-IEX `LoadReissueTxn`,
+`LoadRepickTxn`, and `LoadCancelTxn` vectors. Reissue and repick carry exact
+current/next attempt identities; load cancel is retained under backpressure and
+cancels speculative dependents without freeing LIQ residency. Store address
+and data remain separate transactions until the LSU-owned join accepts both
+exact identities.

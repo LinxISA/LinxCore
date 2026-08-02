@@ -201,18 +201,17 @@ class DecodedUop(p: CoreParams) extends Bundle
 class RenamedUop(p: CoreParams) extends Bundle
 class MemoryOrderMeta(p: CoreParams) extends Bundle
 class DispatchTxn(p: CoreParams) extends Bundle
-class CompletionTxn(p: CoreParams) extends Bundle
-class LoadRequestTxn(p: CoreParams) extends Bundle
+class RobResolveTxn(p: CoreParams) extends Bundle
+class LoadIssueTxn(p: CoreParams) extends Bundle
 class StoreAddressTxn(p: CoreParams) extends Bundle
 class StoreDataTxn(p: CoreParams) extends Bundle
 class LoadResultTxn(p: CoreParams) extends Bundle
-class LoadAttemptRebindTxn(p: CoreParams) extends Bundle
-class LoadAttemptLaunchTxn(p: CoreParams) extends Bundle
-object LoadAttemptCancelReason extends ChiselEnum
-class LoadAttemptCancelTxn(p: CoreParams) extends Bundle
-class CommitSideEffectPermitTxn(p: CoreParams) extends Bundle
-class SystemCommitRequestTxn(p: CoreParams) extends Bundle
-class EngineCommandTxn(p: CoreParams) extends Bundle
+class LoadReissueTxn(p: CoreParams) extends Bundle
+class LoadRepickTxn(p: CoreParams) extends Bundle
+class LoadCancelTxn(p: CoreParams) extends Bundle
+class RobNoflushTxn(p: CoreParams) extends Bundle
+class SystemIssueTxn(p: CoreParams) extends Bundle
+class CmdIssueTxn(p: CoreParams) extends Bundle
 class RecoveryEvent(p: CoreParams) extends Bundle
 class RecoveryPlan(p: CoreParams) extends Bundle
 class CommitTxn(p: CoreParams) extends Bundle
@@ -1131,11 +1130,11 @@ RED exposed three missing contracts: canonical D1 memory controls, a live
 `OooMemoryOrderAllocator`/ROB recovery-tail join, and an IEX-LSU attempt
 lifecycle.  This task closes those prerequisites while the public `IEX` box
 remains absent.  The one-time public switch moves to the joint Task-15 cutover,
-after LSU has prepared the matching lease owner.
+after LSU has prepared the matching LIQ replay owner.
 
 **Files:**
-- Create: `docs/spec/decisions/D-IEX-LSU-LEASE-001.md`
-- Create: `docs/spec/decisions/D-IEX-COMPLETION-001.md`
+- Create: `docs/spec/decisions/D-IEX-LSU-LOAD-001.md`
+- Create: `docs/spec/decisions/D-IEX-ROB-RESOLVE-001.md`
 - Create: `docs/spec/decisions/D-IEX-SYS-CMD-001.md`
 - Modify: `chisel/src/main/scala/linxcore/top/interface/CTUOOO.scala`
 - Modify: `chisel/src/main/scala/linxcore/top/interface/OOOIEX.scala`
@@ -1150,6 +1149,9 @@ after LSU has prepared the matching lease owner.
 - Modify: `docs/spec/30-interfaces/ooo-iex.md`
 - Modify: `docs/spec/30-interfaces/iex-lsu.md`
 - Create: `docs/spec/30-interfaces/top-external.md`
+- Modify: `docs/chisel/linxcore-chisel-microarchitecture-improvement-design.md`
+- Modify: `docs/chisel/linxcore-chisel-ooo-improvement-design.md`
+- Modify: `docs/chisel/linxcore-chisel-iex-improvement-design.md`
 - Modify: `chisel/src/main/scala/linxcore/ooo/DEC.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala`
@@ -1159,8 +1161,8 @@ after LSU has prepared the matching lease owner.
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexTerminal*.scala`
-- Create: `chisel/src/main/scala/linxcore/ooo/OooIexMemoryTransactionAllocator.scala`
-- Delete: `chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala`
+- Rename in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala`
+  to `chisel/src/main/scala/linxcore/iex/LoadIexIssuePipeline.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadTerminalMetadata.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexBruPipeline.scala`
@@ -1177,101 +1179,114 @@ after LSU has prepared the matching lease owner.
   that are directly composable by Task 15; it produces no public `IEX` module
   and changes no live TOP boundary.
 
-- [ ] **Step 1: Approve and record the three load-bearing decisions**
+- [x] **Step 1: Approve and record the three load-bearing decisions**
+
+Decision gate closed on 2026-08-02 with option A for IEX/LSU load-attempt
+ownership and the resolve/system/CMD contracts below.
 
 Write the decision records with stable NDF identities and supersession rules.
 The recommended contract is:
 
-1. `D-IEX-LSU-LEASE-001`: IEX owns a non-resetting, generation-qualified
-   logical memory-transaction allocator and the initial load-attempt identity;
-   LSU binds that exact identity to LIQ/STQ residency. `IEXLSUIO` gains typed
-   rebind、launch and cancel events carrying the previous and next complete
-   `MemoryIdentity`; no queue slot or ROB generation may synthesize them.
-2. `D-IEX-COMPLETION-001`: one `CompletionTxn` completes one ROB member.
+1. `D-IEX-LSU-LOAD-001`: OOO allocates program-order `lsid`、`loadId` and
+   `storeId`; IEX allocates a non-reused transaction for each retained memory
+   uop, shares it across one store's STA/STD children, and allocates the initial
+   load attempt when `LoadIssueTxn` is retained; LSU owns LIQ residency and
+   every later reissue、repick and attempt rebind. No physical LIQ/STQ row, pipe lane
+   or ROB generation may synthesize any of these identities.
+2. `D-IEX-ROB-RESOLVE-001`: one `RobResolveTxn` resolves one ROB member.
    `destinationIndex/value` describe destination ordinal zero only when it is
    architecturally useful; every P/T/U destination still writes and wakes in
-   the same terminal rendezvous, while ROB stores completion/trap rather than
-   a multi-destination value array.
+   the same terminal rendezvous, while ROB stores resolved/trap state rather
+   than a multi-destination value array.
 3. `D-IEX-SYS-CMD-001`: system/multicycle and CMD remain separate resident
    queues. Unsupported operations stay resident/fail closed. OOO grants an
-   exact head-only `CommitSideEffectPermitTxn`; a system side effect executes
-   through `SystemCommitRequestTxn`, while CMD leaves IEX only through
-   `EngineCommandTxn` on the TOP external projection. Neither class may be
-   replaced by immediate-value completion or an always-ready sink. This
+   exact head-only `RobNoflushTxn`; a system side effect executes through
+   `SystemIssueTxn`, while CMD leaves IEX only through `CmdIssueTxn` on the TOP
+   external projection. Neither class may be replaced by immediate-value
+   resolve or an always-ready sink. This
    decision refines `IFC-TOP-EXT` and must name the external engine-command
    endpoint before Task 15.
 
-The lease decision fixes these event rules:
+The load-issue decision fixes these event rules:
 
-- IEX allocates one transaction and initial attempt when its retained logical
-  load/store request owner accepts the uop, before any LSU sink fire. The
-  candidate identity remains bit-stable under backpressure and the
-  non-resetting serial advances once; cancellation never reuses it.
-- `LoadAttemptRebindTxn` is LSU-to-IEX `Decoupled` and carries `current` and
-  `next` complete identities. All fields except attempt generation are equal;
-  next generation is current generation plus one. Rebind fire atomically
-  performs `LSU LIQ current->next`、`IEX metadata current->next` and an internal
-  speculative-dependent cancel for current. It does not terminate or free the
-  LSU lease.
-- `LoadAttemptLaunchTxn` is LSU-to-IEX `Decoupled` and names the exact current
-  identity. IEX accepts only a matching resident attempt.
-- `LoadAttemptCancelTxn` is IEX-to-LSU `Decoupled`, carries the exact current
-  identity plus `LoadAttemptCancelReason`, and is used only to terminate the
-  current lease. Its fire atomically cancels IEX speculative dependents and
-  removes both IEX metadata and LSU residency. Recovery fencing blocks new
-  lifecycle fires until apply/abort.
+- IEX allocates one transaction for each retained memory uop, with one store
+  transaction shared by its STA/STD children. It also allocates the initial
+  attempt for a retained load, before any LSU sink fire. The
+  candidate identity remains bit-stable under backpressure and the non-resetting
+  serial advances once; cancellation never reuses it.
+- `LoadReissueTxn` is LSU-to-IEX `Decoupled` for a LIQ load that still requires
+  address translation. It carries the previous and next complete identities;
+  ROB identity、transaction and `lsid` remain equal, attempt generation
+  advances exactly once, and `pipeId` may change only to the route retained by
+  this transition. Fire atomically rebinds the LIQ and retained IEX metadata,
+  then reuses the load-address pipe. The colliding normal IEX issue remains unpicked
+  or is retained for a later pick.
+- `LoadRepickTxn` is LSU-to-IEX `Decoupled` for a LIQ load whose physical
+  address is already available. It carries the same current/next identity rule,
+  selects and retains its `pipeId` on fire, and uses the load-result pipe
+  without consuming the address-translation resource. IEX accepts only a
+  matching resident load attempt.
+- `LoadCancelTxn` is LSU-to-IEX `Decoupled` and names the exact current attempt whose
+  speculative wakeup cannot produce a result. It clears dependent source-ready
+  state and cancels dependent pipes, but it does not remove LIQ residency or
+  allocate an attempt. The later reissue or repick performs the rebind.
+- Recovery termination is not a point-to-point load-cancel protocol. OOO's
+  `RecoveryPlan` fences the affected STID during Prepare and prunes the exact
+  IEX metadata and LSU residency set only on Apply; Abort preserves both.
 - stale、unknown and skipped-generation lifecycle inputs are consumed once into
   a typed rejection event so they cannot deadlock a shared channel; they change
-  no owner state and cannot produce completion、wakeup or memory traffic.
+  no owner state and cannot produce resolve、wakeup or memory traffic.
 - `LoadResultTxn` must match the latest retained identity after every accepted
   rebind. Return-pipe index, LIQ slot and ROB generation are never substitutes
   for that comparison.
-- recovery prepare fences lifecycle traffic only for the affected STID and
+- recovery Prepare fences lifecycle traffic only for the affected STID and
   computes the exact killed identity set without mutation. Apply emits one
-  cancel for each killed current identity and prunes both IEX metadata and LSU
-  lease state on the common edge; abort changes neither. Transaction and
-  attempt serial allocators never roll back, and peer-STID leases survive.
+  common recovery mutation that prunes both IEX metadata and LSU LIQ state;
+  Abort changes neither. Transaction and attempt serial allocators never roll
+  back, and peer-STID LIQ rows survive.
 
-The unique identity owner is `OooIexMemoryTransactionAllocator`. Task 13 moves
-the existing non-resetting generation state out of
-`OooIexLoadLiqAllocAdapter` into that owner, updates every private caller, and
-deletes the old class in the same commit; the two classes may never coexist in
-a committed tree. Core reset initializes the transaction value/generation and
-initial-attempt serials; recovery prepare/apply/abort never rewinds them. The
+The unique IEX identity owner is `LoadIexIssuePipeline`, renamed in place from
+`OooIexLoadLiqAllocAdapter` and moved under the IEX package in the same commit.
+Task 13 updates every private caller and leaves no alias, wrapper or old class.
+Core reset initializes the transaction value/generation and initial-attempt
+serials; recovery Prepare/Apply/Abort never rewinds them. The
 owner manifest gains state key `memory_transaction_and_initial_attempt_serial`
 with private-mechanism cutover Task 13 and public-box activation Task 15.
 
-The completion decision fixes every case:
+The ROB resolve decision fixes every case:
 
-| Case | `CompletionTxn.fire` | ROB transition | Destination fields | RF/wakeup | Trap/recovery |
+| Case | `RobResolveTxn.fire` | ROB transition | Destination fields | RF/wakeup | Trap/recovery |
 |---|---|---|---|---|---|
-| ordinary, destination 0 valid | once at terminal rendezvous | incomplete to completed | `valid=true,index=0,value=writeback(0)` | every valid destination fires atomically | none |
-| ordinary, no destination | once at terminal rendezvous | incomplete to completed | `valid=false,index=0,value=0` | none | none |
-| multiple destinations | one member completion | incomplete to completed | ordinal 0 only | every valid P/T/U destination fires atomically | none |
-| early-complete | no terminal completion | marked completed by ROB admission | all zero/not emitted | none | none |
-| precise trap | once at terminal rendezvous | completed with trap | `valid=false,index=0,value=0` | none | exact `TrapEvent` |
+| ordinary, destination 0 valid | once at terminal rendezvous | unresolved to resolved | `valid=true,index=0,value=writeback(0)` | every valid destination fires atomically | none |
+| ordinary, no destination | once at terminal rendezvous | unresolved to resolved | `valid=false,index=0,value=0` | none | none |
+| multiple destinations | one member resolve | unresolved to resolved | ordinal 0 only | every valid P/T/U destination fires atomically | none |
+| early-resolved | no terminal resolve | marked resolved by ROB admission | all zero/not emitted | none | none |
+| precise trap | once at terminal rendezvous | resolved with trap | `valid=false,index=0,value=0` | none | exact `TrapEvent` |
 | recovery-killed before fire | never | cleared by recovery apply | not emitted | none | recovery event/plan only |
 
-ROB retains completed/trap state only and does not treat `value` as a rename or
+ROB retains resolved/trap state only and does not treat `value` as a rename or
 retirement data owner.
 
 The system/CMD decision fixes ownership and backpressure:
 
-- `CommitSideEffectPermitTxn` carries the exact ROB/instruction identity and is
-  valid only while that unresolved member is the ROB head, every older effect
-  is drained and no recovery prepare targets its STID. It is authorization, not
-  a second completion or retained queue owner.
-- `SystemCommitRequestTxn` carries the same exact identity, opcode and
+- `RobNoflushTxn` carries the exact ROB/instruction identity and is
+  valid only while that unresolved member is the ROB head, all input and
+  legality checks have completed without a pending trap, every older effect is
+  drained and no recovery prepare targets its STID. It is authorization, not
+  a second resolve or retained queue owner. The transaction names one member
+  proven safe for the requested side effect; it is not the scalar
+  `NOFLUSHRID` boundary itself.
+- `SystemIssueTxn` carries the same exact identity, opcode and
   immediate, and is legal only for a no-destination recipe whose side effect is
   owned by commit control. IEX keeps the system row resident and the request
   stable until the matching permit and CommitControl ready are present; system
-  request fire, side-effect application and the IEX no-value completion fire
+  issue fire, side-effect application and the IEX no-value resolve fire
   form one atomic rendezvous. Any destination-producing system opcode fails
   closed until a response-bearing ISA contract is added.
-- `EngineCommandTxn` carries exact ROB/instruction identity, opcode and source
+- `CmdIssueTxn` carries exact ROB/instruction identity, opcode and source
   values. IEX asserts it only while the matching head-only permit is valid and
   keeps the CMD row resident until the TOP external command sink accepts it;
-  permit consumption、engine-command fire and no-value completion form one
+  noflush authorization consumption、CMD issue fire and no-value resolve form one
   atomic rendezvous. Recovery before that fire cancels the permit and preserves
   external side-effect precision. An absent sink backpressures the CMD queue
   rather than dropping or auto-completing the command.
@@ -1279,7 +1294,7 @@ The system/CMD decision fixes ownership and backpressure:
   system/CMD request. Apply removes a killed resident system/CMD row and any
   unconsumed permit; abort preserves both. Once a head-authorized system or CMD
   atomic rendezvous has fired, the external/commit side effect and ROB
-  completion are exactly once and cannot be undone by a younger recovery.
+  resolve are exactly once and cannot be undone by a younger recovery.
 
 Do not begin Steps 2-5 until these three decisions are accepted.  If the
 accepted alternative differs, update the Bundle schemas and tests in this task
@@ -1294,10 +1309,10 @@ address/data source masks and writeback controls. Add `MemoryOrderMeta` to
 `firstLsid`、`firstTypeId` and the older-store forwarding boundary), never
 `MemoryTransactionIdentity`、attempt generation or physical pipe identity.
 
-Extend `IEXLSUIO` with `LoadAttemptRebindTxn`、`LoadAttemptLaunchTxn` and
-`LoadAttemptCancelTxn` from Step 1. Add `SystemCommitRequestTxn` to the
-OOO-IEX return direction, `CommitSideEffectPermitTxn` to its OOO-to-IEX
-direction, and `EngineCommandTxn` to `IEXIO`/the external TOP projection. Add interface
+Rename the displaced `LoadRequestTxn` to `LoadIssueTxn` and extend `IEXLSUIO`
+with `LoadReissueTxn`、`LoadRepickTxn` and `LoadCancelTxn` from Step 1. Add
+`SystemIssueTxn` to the OOO-IEX return direction, `RobNoflushTxn` to its
+OOO-to-IEX direction, and `CmdIssueTxn` to `IEXIO`/the external TOP projection. Add interface
 manifest assertions proving exact field widths, directions, W2/W4/W6/W8 vector
 sizes, stable IDs and that `MemoryIdentity` fields are never derived from ROB,
 RID, queue slot or lane ordinal.
@@ -1341,14 +1356,14 @@ shadow. A single accepted `StoreDispatchTxn` creates STA/STD children
 atomically with one logical memory-order identity.
 
 Retain existing ALU/BRU/AGU and terminal state. Change terminal publication in
-place to canonical `CompletionTxn` and `RecoveryEvent`; RF writes、wakeup、trace、
-completion and any recovery event still rendezvous on one terminal fire.
+place to canonical `RobResolveTxn` and `RecoveryEvent`; RF writes、wakeup、trace、
+resolve and any recovery event still rendezvous on one terminal fire.
 Recovery consumers use canonical `RecoveryPlan` directly and match apply/abort
 with the complete transaction, never through an `OooResidencyRecoveryPlan`
 projection. Private fixtures must cover initial identity allocation exactly
 once, blocked rebind stability, atomic LSU/IEX rebind, launch of only the latest
 attempt, common-edge recovery cancel/prune, abort preservation, peer-STID
-survival, ordinal-zero/no-destination/trap/killed completion cases and
+survival, ordinal-zero/no-destination/trap/killed resolve cases and
 head-authorized system/CMD side-effect fire.
 
 Run:
@@ -1391,15 +1406,15 @@ Commit intent: `Close the canonical prerequisites for the joint IEX LSU cutover`
 
 **Interfaces:**
 - Consumes: existing `ScalarLSUIO` behavior and the Task-13 approved
-  `IEXLSUIO` lease/rebind/launch/cancel contract plus `LSUIO` mapping.
+  `IEXLSUIO` issue/reissue/repick/cancel contract plus `LSUIO` mapping.
 - Produces: production LSU internals ready for one public-boundary cutover in
   Task 15, with independent physical queue, ROB identity and full-LSID sizes;
   no public `LSU` or `IEX` module becomes live in this task.
 
 - [ ] **Step 1: Freeze and test the production baseline**
 
-Cover two STA、two STD、two load launches、typed initial lease binding、exact
-attempt rebind/launch/cancel、STQ/SCB commit、LIQ/MDB/replay、miss/refill、load
+Cover two STA、two STD、two load issues、typed initial attempt binding、exact
+reissue/repick rebind and load cancel、STQ/SCB commit、LIQ/MDB/replay、miss/refill、load
 return、L1D update and typed recovery. Add unequal-capacity W2/W4/W6/W8
 elaboration with 16 STQ rows、8 ROB entries and 40-bit LSID.
 
@@ -1468,7 +1483,7 @@ Commit intent: `Prepare the production LSU without cloning its state owners`
   approved attempt lifecycle、OOO commit authorization、lower-memory responses
   and canonical recovery.
 - Produces: one public `IEX` and one public `LSU`; retained `LoadResultTxn`、
-  atomic `CompletionTxn`/RF write/wakeup、store/load completion or fault、
+  atomic `RobResolveTxn`/RF write/wakeup、store/load resolve or fault、
   committed memory requests、reservation credits and recovery acknowledgement.
 
 - [ ] **Step 1: Write both public boundaries RED**
@@ -1707,7 +1722,7 @@ Commit intent: `Keep debug observable without creating a second control machine`
 
 - [ ] **Step 1: Write failing TOP connectivity tests**
 
-Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking. Add a failing manifest assertion that `TOPIO` is present as the external composition endpoint and every leaf resolves to `IFC-TOP-EXT-*`; that clause may depend on the existing memory、commit and DTU leaf contracts without copying their payload definitions. The contract test must also assert the single core clock/reset domain, preserve the Task-13 `EngineCommandTxn` ready/valid endpoint without an always-ready sink, and reject an unqualified raw/asynchronous input.
+Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking. Add a failing manifest assertion that `TOPIO` is present as the external composition endpoint and every leaf resolves to `IFC-TOP-EXT-*`; that clause may depend on the existing memory、commit and DTU leaf contracts without copying their payload definitions. The contract test must also assert the single core clock/reset domain, preserve the Task-13 `CmdIssueTxn` ready/valid endpoint without an always-ready sink, and reject an unqualified raw/asynchronous input.
 
 - [ ] **Step 2: Run failing tests**
 

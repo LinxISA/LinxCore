@@ -32,6 +32,12 @@ owner-local projection.
 Box IOs reuse these types; no direct IEX- or LSU-to-IFU recovery-control path
 exists.
 
+For an affected load, Prepare fences new issue, reissue, repick, cancel, and
+result fires without changing the retained attempt. Apply removes the exact
+matching IEX metadata and LSU LIQ residency; Abort preserves both. Point-to-
+point `LoadCancelTxn` is only a speculative-dependent cancellation and MUST NOT
+be used as a recovery, residency-release, or transaction-reuse protocol.
+
 Recovery control requests the ROB-authored plan through an explicit
 Decoupled request/response. Targets receive the retained ROB plan in Prepare
 phase until their individual prepare fires, return one matching prepared

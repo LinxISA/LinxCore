@@ -146,7 +146,7 @@ IEX 只消费一次解析后的 `RecoveryResolvedTxn`：
 | `ExecuteTxn` | `ExactCompletionKey`、`IssueRowId`、FU class、operand provenance、destination ownership、recovery generation |
 | `IssueRelease` | `IssueRowId`、execute owner ID、execute slot、execute slot generation、`ExactCompletionKey` |
 | `WritebackTxn` | exact key、destination class/tag/data、producer ID、exception metadata |
-| `CompletionTxn` | exact key、supported/trap/result metadata、required-side-effect mask |
+| `RobResolveTxn` | exact key、supported/trap/result metadata、required-side-effect mask |
 | `FuKill` | exact key或 resolved killed bit、owner slot generation |
 
 所有跨 owner 请求采用 `Decoupled` 或等价 retained protocol。任何 producer
@@ -1225,7 +1225,7 @@ top后续还叠加 service/template等选择；输出核心接口是
    - accepted write同时驱动 RF data/ready/wakeup。
 2. `RobCompletionNetwork`
    - 参数化 completion lanes；
-   - full `CompletionTxn` 送 ROB；
+   - full `RobResolveTxn` 送 ROB；
    - exact residency lookup；
    - duplicate full identity检测；
    - fair arbitration与 producer credit。
