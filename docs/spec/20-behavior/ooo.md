@@ -431,3 +431,60 @@ suppression, abort preservation, and W2/W4/W6/W8 elaboration.
 `OOOIntegrationSpec` MUST elaborate the public canonical owner graph at all
 four widths, while `OOORecoverySpec` retains the recovery barrier and terminal
 transaction coverage.
+
+## Allocate memory order on the common D3 publication {#OOO-015}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-008,OOO-010,OOO-013,OOO-014,IFC-OOO-IEX-001 -->
+
+OOO MUST be the sole owner of each STID's full LSID, load-only LID, store-only
+SID, YOST, and YOLD program-order state. DEC MUST normalize each uop's memory
+request count before allocation. The allocator MUST prepare the complete D3
+prefix without mutation and publish its per-lane `MemoryOrderMeta` only on the
+same common fire that publishes RENU, ROB, BROB, and dispatch state. Dispatch
+transaction IDs, ROB generations, prefix lanes, and physical queue rows MUST
+NOT synthesize any memory-order identity. ROB MUST retain the exact before and
+after state associated with each resident member. Recovery prepare MUST be
+non-mutating; matching apply MUST restore only the target STID from the
+ROB-authored survivor snapshot, while abort and peer-STID recovery preserve
+the state.
+
+## Authorize exact unresolved noflush head work {#OOO-016}
+<!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,OOO-013,IFC-COMMIT-001,IFC-OOO-IEX-001 -->
+
+ROB MUST expose a noflush candidate only for a live, unresolved, unretired,
+trap-free resident head whose recipe is a no-destination system or CMD uop.
+CommitControl MUST require an exact matching `RobNoflushReadyTxn` NFRDY proof
+from the execution/side-effect owners before it presents authorization. The
+proof means input and legality checks completed without a local trap and every
+older effect drained. CommitControl MUST preserve the candidate's exact
+dispatch transaction, instruction identity, and ROB identity under
+backpressure, continuously revalidate per-STID head residency and eligibility,
+and authorize it at most once while that member remains resident. Recovery
+prepare for the same STID MUST withdraw an unconsumed authorization; peer-STID
+recovery and arbitration MUST NOT mutate or re-enable it. The authorization
+alone MUST NOT retire, resolve, or apply the side effect.
+
+## Memory-order and noflush owner mechanisms {#MEC-OOO-008}
+<!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=OOO-015,OOO-016 -->
+
+`linxcore.ooo.OooMemoryOrderAllocator` is the unique per-STID memory-order
+owner. `linxcore.ooo.OOOD3S1Graph` joins its prepare and publication decisions
+to the existing common D3 fire. `linxcore.ooo.ROB` retains memory-order
+snapshots and publishes the exact resident-head preview;
+`linxcore.ooo.CommitControl` retains and publishes `RobNoflushTxn`. The
+canonical payload homes are `linxcore.top.interface.OOOD2D3`, `OOOIEX`, and
+`OOORob`.
+
+## Memory-order and noflush verification {#VER-OOO-005}
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-015,OOO-016,MEC-OOO-008 -->
+
+`OooMemoryOrderAllocatorSpec` MUST cover mixed load/store prefixes,
+multi-request uops, exact LSID/LID/SID assignment, YOST/YOLD boundaries,
+unpublished-suffix cancellation, recovery preview, and abort preservation.
+`OOOMemoryOrderIntegrationSpec` MUST cover common-fire backpressure stability,
+target-STID restore, peer-STID survival, exact graph-level NFRDY proof, and
+exactly-once authorization. `OOORobCommitSpec` MUST cover head-only ROB
+eligibility, stale-proof drain, stable identity under backpressure, same-STID
+recovery withdrawal, peer-STID arbitration, resident-head exactly-once
+suppression, and loss-of-head invalidation. `OOORecoverySpec` MUST cover a
+full-capacity youngest branch with zero killed members and unchanged memory
+tail.

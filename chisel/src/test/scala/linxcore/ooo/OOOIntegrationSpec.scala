@@ -29,8 +29,8 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         assert(chirrtl.contains(s"module $owner")))
       assert(chirrtl.contains("module OooD3ReservationAllocator"))
       Seq("OooO3RenameCoordinator", "OooS1GroupedRob", "OooBrob",
-        "OooPRename", "OooTURename").foreach(legacy =>
-        assert(!chirrtl.contains(s"module $legacy")))
+        "OooPRename", "OooTURename").foreach(displacedModule =>
+        assert(!chirrtl.contains(s"module $displacedModule")))
     }
   }
 
@@ -43,6 +43,10 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
+    dut.io.iex.robNoflushReady.valid.poke(false.B)
+    dut.io.iex.robNoflushReady.bits.poke(
+      0.U.asTypeOf(dut.io.iex.robNoflushReady.bits))
+    dut.io.iex.robNoflush.ready.poke(true.B)
     dut.io.iex.robResolve.foreach { in =>
       in.valid.poke(false.B)
       in.bits.poke(0.U.asTypeOf(in.bits))

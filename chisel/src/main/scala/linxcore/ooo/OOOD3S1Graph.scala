@@ -27,8 +27,11 @@ class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
 
 class OOOD3S1Graph(val p: CoreParams) extends Module {
   val io = IO(new OOOD3S1GraphIO(p))
+  private def select[T <: Data](values: Vec[T], index: UInt): T =
+    if (p.ooo.stidCount == 1) values(0) else values(index)
 
   val renu = Module(new RENU(p))
+  val memoryOrder = Module(new OooMemoryOrderAllocator(p))
   val rob = Module(new ROB(p))
   val brob = Module(new BROB(p))
   val dispatch = Module(new Dispatch(p))
@@ -36,17 +39,45 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   private val recoveryTargetCount = 8
   val recovery = Module(new RecoveryControl(p, recoveryTargetCount))
 
-  renu.io.fromD2 <> io.fromD2
+  val d2Stid = io.fromD2.bits.entries(0).uop.rob.stid
+  val earlyRecoveryValid = recovery.io.robPrepare.valid ||
+    rob.io.recoveryPrepared.valid
+  val earlyRecoveryStid = Mux(recovery.io.robPrepare.valid,
+    recovery.io.robPrepare.bits.trigger.stid,
+    rob.io.recoveryPrepared.bits.trigger.stid)
+  val d2RecoveryFenced = earlyRecoveryValid && d2Stid === earlyRecoveryStid
+  memoryOrder.io.prepare.valid := io.fromD2.valid && !d2RecoveryFenced
+  memoryOrder.io.prepare.bits := io.fromD2.bits
+  renu.io.fromD2.valid := io.fromD2.valid && !d2RecoveryFenced &&
+    memoryOrder.io.prepareReady
+  renu.io.fromD2.bits := io.fromD2.bits
+  io.fromD2.ready := !d2RecoveryFenced && renu.io.fromD2.ready &&
+    memoryOrder.io.prepareReady
+  memoryOrder.io.reserveFire := io.fromD2.fire
+  memoryOrder.io.cancel := VecInit(Seq.fill(p.ooo.stidCount)(false.B))
   io.ridTailSlot := rob.io.ridTailSlot
   io.ridTailGeneration := rob.io.ridTailGeneration
 
+  val d3StidRaw = renu.io.toD3.bits.entries(0).uop.decoded.rob.stid
+  val d3Stid = Mux(d3StidRaw < p.ooo.stidCount.U, d3StidRaw, 0.U)
+  val d3WithMemory = Wire(new D3RenameGroup(p))
+  d3WithMemory := renu.io.toD3.bits
+  d3WithMemory.memoryOrder := select(memoryOrder.io.provisional, d3Stid)
+  for (lane <- 0 until p.ooo.d3PrefixWidth) {
+    d3WithMemory.entries(lane).memoryOrder :=
+      select(memoryOrder.io.provisionalLanes, d3Stid)(lane)
+  }
+  memoryOrder.io.publishPrepare.valid := renu.io.toD3.valid
+  memoryOrder.io.publishPrepare.bits := d3WithMemory
   rob.io.prepare.valid := renu.io.toD3.valid
-  rob.io.prepare.bits := renu.io.toD3.bits
+  rob.io.prepare.bits := d3WithMemory
   brob.io.prepare.valid := renu.io.toD3.valid
-  brob.io.prepare.bits := renu.io.toD3.bits
+  brob.io.prepare.bits := d3WithMemory
   val residencyPreviewReady = rob.io.prepare.ready && brob.io.prepare.ready
-  dispatch.io.in.valid := renu.io.toD3.valid && residencyPreviewReady
-  dispatch.io.in.bits := renu.io.toD3.bits
+  val d3RecoveryFenced = earlyRecoveryValid && d3StidRaw === earlyRecoveryStid
+  dispatch.io.in.valid := renu.io.toD3.valid && residencyPreviewReady &&
+    memoryOrder.io.publishReady && !d3RecoveryFenced
+  dispatch.io.in.bits := d3WithMemory
   rob.io.brobPrepared := brob.io.prepared
   brob.io.robPrepared := rob.io.prepared
   renu.io.publicationIdentity.valid :=
@@ -54,15 +85,20 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   renu.io.publicationIdentity.bits := rob.io.prepared
   dispatch.io.robPrepared := rob.io.prepared
   dispatch.io.brobPrepared := brob.io.prepared
-  val d3Ready = residencyPreviewReady && dispatch.io.in.ready
+  val d3Ready = !d3RecoveryFenced && residencyPreviewReady &&
+    dispatch.io.in.ready && memoryOrder.io.publishReady
   val d3Fire = renu.io.toD3.valid && d3Ready
   renu.io.toD3.ready := d3Ready
   rob.io.publishFire := d3Fire
   brob.io.publishFire := d3Fire
+  memoryOrder.io.publishFire := d3Fire
+  rob.io.publicationTransactionBase := dispatch.io.publicationTransactionBase
   when(d3Fire) {
     assert(renu.io.publicationIdentity.valid,
       "canonical RENU publication requires ROB-prepared full identities")
   }
+  assert(dispatch.io.in.fire === d3Fire,
+    "Dispatch reservation must share the unique D3 publication fire")
 
   io.iex.aluDispatch <> dispatch.io.iex.aluDispatch
   io.iex.bruDispatch <> dispatch.io.iex.bruDispatch
@@ -79,6 +115,7 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
 
   commitControl.io.rob.valid := rob.io.commit.valid
   commitControl.io.rob.bits := rob.io.commit.bits
+  commitControl.io.residentHeads := rob.io.residentHeads
   val interrupts = Wire(Vec(p.ooo.stidCount, new InterruptRequest(p)))
   for (stid <- 0 until p.ooo.stidCount) {
     interrupts(stid) := io.interrupt.bits
@@ -88,6 +125,16 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   commitControl.io.interrupts := interrupts
   commitControl.io.interruptBoundaryValid := rob.io.commit.bits.headValid
   commitControl.io.interruptBoundary := rob.io.commit.bits.head
+  for (stid <- 0 until p.ooo.stidCount) {
+    commitControl.io.recoveryFence(stid) :=
+      (recovery.io.robPrepare.valid &&
+        recovery.io.robPrepare.bits.trigger.stid === stid.U) ||
+      (rob.io.recoveryPrepared.valid &&
+        rob.io.recoveryPrepared.bits.trigger.stid === stid.U)
+  }
+  commitControl.io.robNoflushReady <> io.iex.robNoflushReady
+  io.iex.robNoflush <> commitControl.io.robNoflush
+  io.iex.systemIssue.foreach(_.ready := false.B)
 
   val releaseProbe = rob.io.commit.valid && rob.io.commit.bits.count =/= 0.U
   rob.io.release.valid := releaseProbe
@@ -151,11 +198,21 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   rob.io.recoveryPrepare.valid := recovery.io.robPrepare.valid
   rob.io.recoveryPrepare.bits := recovery.io.robPrepare.bits
   recovery.io.robPrepare.ready := rob.io.recoveryPrepare.ready
-  recovery.io.robPrepared.valid := rob.io.recoveryPrepared.valid
+  memoryOrder.io.recoveryPrepare.valid := rob.io.recoveryPrepared.valid
+  memoryOrder.io.recoveryPrepare.bits := rob.io.memoryRecoveryPrepared
+  recovery.io.robPrepared.valid := rob.io.recoveryPrepared.valid &&
+    memoryOrder.io.recoveryPrepareReady
   recovery.io.robPrepared.bits := rob.io.recoveryPrepared.bits
   rob.io.recoveryAbort := recovery.io.robAbort
   rob.io.recoveryApply.valid := recovery.io.targets(0).apply.valid
   rob.io.recoveryApply.bits := recovery.io.targets(0).apply.bits
+  memoryOrder.io.recoveryFire := recovery.io.targets(0).apply.valid &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      recovery.io.targets(0).apply.bits, rob.io.recoveryPrepared.bits)
+  when(rob.io.recoveryPrepared.valid) {
+    assert(memoryOrder.io.recoveryPrepareReady,
+      "ROB recovery memory snapshots must match the live OOO serial tail")
+  }
 
   private def connectTarget(
       controller: RecoveryTargetIO,

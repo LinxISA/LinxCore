@@ -52,6 +52,30 @@ class D3RenameLane(val p: CoreParams) extends Bundle {
   val blockStart = Bool()
   val blockStop = Bool()
   val earlyRobComplete = Bool()
+  val memoryOrder = new MemoryOrderMeta(p)
+}
+
+/** Full per-STID serial tail. This is program-order identity, never a
+  * physical LIQ/STQ index or a retry-attempt generation.
+  */
+class MemoryOrderState(val p: CoreParams) extends Bundle {
+  val lsid = UInt(p.lsidWidth.W)
+  val lid = UInt(p.lsidWidth.W)
+  val sid = UInt(p.lsidWidth.W)
+  val yostValid = Bool()
+  val yostLsid = UInt(p.lsidWidth.W)
+  val yostSid = UInt(p.lsidWidth.W)
+  val yoldValid = Bool()
+  val yoldLsid = UInt(p.lsidWidth.W)
+  val yoldLid = UInt(p.lsidWidth.W)
+}
+
+class MemoryOrderReservation(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val count = UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)
+  val before = new MemoryOrderState(p)
+  val after = new MemoryOrderState(p)
 }
 
 class D3RenameGroup(val p: CoreParams) extends Bundle {
@@ -59,6 +83,7 @@ class D3RenameGroup(val p: CoreParams) extends Bundle {
   val groupCount = UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)
   val groups = Vec(p.ooo.d3PrefixWidth, new VirtualRobGroupIntent(p))
   val entries = Vec(p.ooo.d3PrefixWidth, new D3RenameLane(p))
+  val memoryOrder = new MemoryOrderReservation(p)
 }
 
 class RenameCommitReleaseEntry(val p: CoreParams) extends Bundle {

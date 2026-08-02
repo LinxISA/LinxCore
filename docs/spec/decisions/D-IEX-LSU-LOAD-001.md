@@ -8,8 +8,9 @@ through IEX, and physical residency inside LSU. Giving all three identities to
 one queue row would couple architectural age to a reusable physical index and
 would make replay, backpressure, and precise recovery ambiguous.
 
-**Decision.** OOO allocates `lsid`, `loadId`, `storeId`, and older-memory-order
-metadata in program order. IEX allocates a non-reused memory transaction for
+**Decision.** OOO allocates the full program-order `LSID`, the load-only `LID`,
+the store-only `SID`, and the `YOST`/`YOLD` older-memory boundaries. IEX
+allocates a non-reused memory transaction for
 each retained memory uop; the independently issued STA and STD children of one
 store share that transaction. IEX also allocates the initial load attempt when
 it retains a new `LoadIssueTxn`. Every complete candidate remains stable until

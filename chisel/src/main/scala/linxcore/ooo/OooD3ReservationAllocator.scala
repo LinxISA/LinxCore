@@ -14,6 +14,7 @@ class OooD3ReservationAllocatorIO(val p: CoreParams) extends Bundle {
   val pending = Output(new D3RenameGroup(p))
   val cursor = Output(UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W))
   val transactionBase = Output(UInt(p.transactionIdWidth.W))
+  val publicationTransactionBase = Output(UInt(p.transactionIdWidth.W))
   val recovery = Flipped(new RecoveryTargetIO(p))
 }
 
@@ -118,4 +119,5 @@ class OooD3ReservationAllocator(val p: CoreParams) extends Module {
   io.pending := held
   io.cursor := cursor
   io.transactionBase := heldTransactionBase
+  io.publicationTransactionBase := nextTransaction
 }

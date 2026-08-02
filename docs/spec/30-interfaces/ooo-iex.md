@@ -16,5 +16,24 @@ consumer readiness participate in the same resolve rendezvous.
 without flattening fixed lane names. `RobResolveTxn` echoes `RobIdentity`;
 backpressure never authorizes identity or payload mutation. `RobNoflushTxn`
 authorizes one exact head member and is not a retained queue owner.
+`RobNoflushReadyTxn` is the exact IEX-to-OOO NFRDY proof for the same member;
+its `valid` means operand and legality checks are complete without a local
+trap and the authoritative side-effect owners report every older effect
+drained. OOO accepts a matching proof only while the same unresolved member is
+the per-STID ROB resident head. A stale or mismatched proof is drained without
+authorization, while a matching proof and authorization remain one retained
+ready/valid rendezvous. Recovery fencing holds `ready` low for an exact,
+unaccepted proof; Abort therefore resumes the same proof instead of requiring
+the producer to regenerate it.
 `SystemIssueTxn` and the TOP-projected `CmdIssueTxn` remain separate
 backpressured transactions.
+
+`DispatchTxn.memoryOrder` is stable logical order metadata. `requestCount`
+states the number of memory requests represented by the uop; `firstLsid`,
+`firstLid`, and `firstSid` are respectively the first full memory-order, load,
+and store serials assigned to that uop. `YOST` identifies the youngest older
+store by full LSID and SID, while `YOLD` identifies the youngest older load by
+full LSID and LID. Invalid `YOST` or `YOLD` fields are canonical zeroes. These
+fields are program-order identities only: they never contain a dispatch
+transaction, IEX memory transaction, load-attempt generation, pipe route, or
+physical LIQ/STQ row.

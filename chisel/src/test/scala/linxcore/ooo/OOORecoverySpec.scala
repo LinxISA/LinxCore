@@ -39,6 +39,7 @@ class RobBrobPublicationCoordinator(val p: CoreParams) extends Module {
 
   rob.io.prepare.valid := io.prepare.valid
   rob.io.prepare.bits := io.prepare.bits
+  rob.io.publicationTransactionBase := 0.U
   brob.io.prepare.valid := io.prepare.valid
   brob.io.prepare.bits := io.prepare.bits
   rob.io.brobPrepared := brob.io.prepared
@@ -112,6 +113,7 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.publishFire.poke(false.B)
+    dut.io.publicationTransactionBase.poke(0.U)
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.commit.ready.poke(false.B)
@@ -143,6 +145,9 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       blockStart: Boolean = false,
       blockStop: Boolean = false): Unit = {
     group.count.poke((lane + 1).U)
+    group.memoryOrder.valid.poke(true.B)
+    group.memoryOrder.stid.poke(stid.U)
+    group.memoryOrder.count.poke((lane + 1).U)
     group.groupCount.poke((if (groupCount >= 0) groupCount else lane + 1).U)
     group.groups(lane).valid.poke(true.B)
     group.groups(lane).peId.poke(1.U)
@@ -536,6 +541,49 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.io.recoveryPrepared.bits.firstKilled.memberIndex.expect(1.U)
       dut.io.recoveryPrepared.bits.firstKilled.ridSlot.expect(0.U)
       dut.io.recoveryPrepared.bits.killedMemberCount.expect(2.U)
+    }
+  }
+
+  test("full ROB branch recovery at the youngest member preserves the memory tail") {
+    val base = params
+    val p = base.copy(ooo = base.ooo.copy(
+      robGroupsPerStid = 4,
+      maxInstructionsPerRobGroup = 1,
+      robBankCount = 4,
+      brobEntriesPerStid = 4))
+    simulate(new ROB(p)) { dut =>
+      clearRob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      for (laneIndex <- 0 until 4) {
+        lane(dut.io.prepare.bits, laneIndex, id = 80 + laneIndex,
+          rid = laneIndex, groupCount = 4, stid = 0, member = 0)
+        val row = dut.io.prepare.bits.entries(laneIndex)
+        row.uop.decoded.memory.valid.poke(true.B)
+        row.uop.decoded.memory.isLoad.poke(true.B)
+        row.uop.decoded.memory.requestCount.poke(1.U)
+        row.memoryOrder.requestCount.poke(1.U)
+        row.memoryOrder.firstLsid.poke(laneIndex.U)
+        row.memoryOrder.firstLid.poke(laneIndex.U)
+      }
+      dut.io.prepare.bits.memoryOrder.after.lsid.poke(4.U)
+      dut.io.prepare.bits.memoryOrder.after.lid.poke(4.U)
+      val ids = publish(dut, 4)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x4f.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids.last)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.bits.firstKilledValid.expect(false.B)
+      dut.io.recoveryPrepared.bits.killedMemberCount.expect(0.U)
+      dut.io.recoveryPrepared.bits.killedGroupCount.expect(0.U)
+      dut.io.recoveryPrepared.bits.survivingTail.expect(ids.last)
+      dut.io.memoryRecoveryPrepared.oldTail.lsid.expect(4.U)
+      dut.io.memoryRecoveryPrepared.newTail.lsid.expect(4.U)
+      dut.io.memoryRecoveryPrepared.oldTail.lid.expect(4.U)
+      dut.io.memoryRecoveryPrepared.newTail.lid.expect(4.U)
     }
   }
 

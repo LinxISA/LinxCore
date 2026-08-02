@@ -188,14 +188,18 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(memory.requestCount.getWidth == order.requestCount.getWidth)
 
     assert(order.elements.keySet == Set(
-      "requestCount", "firstLsid", "firstTypeId",
-      "youngestStoreValid", "youngestStoreLsid", "youngestStoreId"))
+      "requestCount", "firstLsid", "firstLid", "firstSid",
+      "yostValid", "yostLsid", "yostSid",
+      "yoldValid", "yoldLsid", "yoldLid"))
     assert(order.requestCount.getWidth ==
       log2Ceil(p.maxMemoryRequestsPerInstruction + 1))
     assert(order.firstLsid.getWidth == p.lsidWidth)
-    assert(order.firstTypeId.getWidth == p.lsidWidth)
-    assert(order.youngestStoreLsid.getWidth == p.lsidWidth)
-    assert(order.youngestStoreId.getWidth == p.lsidWidth)
+    assert(order.firstLid.getWidth == p.lsidWidth)
+    assert(order.firstSid.getWidth == p.lsidWidth)
+    assert(order.yostLsid.getWidth == p.lsidWidth)
+    assert(order.yostSid.getWidth == p.lsidWidth)
+    assert(order.yoldLsid.getWidth == p.lsidWidth)
+    assert(order.yoldLid.getWidth == p.lsidWidth)
     assert(!order.elements.keySet.exists(name =>
       name.toLowerCase.contains("transaction") ||
         name.toLowerCase.contains("attempt") ||
@@ -230,6 +234,7 @@ class TopInterfaceSpec extends AnyFunSuite {
     val repick = new LoadRepickTxn(p)
     val cancel = new LoadCancelTxn(p)
     val noflush = new RobNoflushTxn(p)
+    val noflushReady = new RobNoflushReadyTxn(p)
     val system = new SystemIssueTxn(p)
     val cmd = new CmdIssueTxn(p)
 
@@ -272,10 +277,13 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(cancel.currentIdentity.elements.keySet == expectedMemoryFields)
     checkTransition(cancel.currentIdentity, cancel.currentIdentity)
 
-    Seq(noflush, system, cmd).foreach { transaction =>
+    Seq(noflush, noflushReady, system, cmd).foreach { transaction =>
       assert(transaction.elements.contains("instruction"))
       assert(transaction.elements.contains("rob"))
     }
+    assert(noflush.elements.keySet == Set("transactionId", "instruction", "rob"))
+    assert(noflushReady.elements.keySet ==
+      Set("transactionId", "instruction", "rob"))
     assert(system.opcode.getWidth == p.opcodeWidth)
     assert(system.immediate.getWidth == p.dataWidth)
     assert(cmd.opcode.getWidth == p.opcodeWidth)
@@ -341,6 +349,8 @@ class TopInterfaceSpec extends AnyFunSuite {
       (oooIex.cmdDispatch ne oooIex.systemDispatch))
 
     assert(oooIex.robNoflush.bits.getClass == new RobNoflushTxn(p).getClass)
+    assert(oooIex.robNoflushReady.bits.getClass ==
+      new RobNoflushReadyTxn(p).getClass)
     assert(oooIex.robResolve.length == p.widths.issueWidth)
     assert(oooIex.robResolve.head.bits.getClass == new RobResolveTxn(p).getClass)
     assert(oooIex.systemIssue.length == p.iex.systemMulticycleQueues)
@@ -415,7 +425,7 @@ class TopInterfaceSpec extends AnyFunSuite {
     }
   }
 
-  test("canonical public transaction names displace the legacy names") {
+  test("canonical public transaction names displace old transaction names") {
     val scalaRoots = Seq(
       repoRoot.resolve("chisel/src/main"),
       repoRoot.resolve("chisel/src/test"))

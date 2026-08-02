@@ -73,7 +73,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
     simulate(new DEC(ParamProfiles.W4)) { dut =>
       clearDec(dut)
       dut.io.in.bits.count.poke(4.U)
-      Seq("OP_C_SETRET", "OP_ADD", "OP_HL_LDIP", "OP_V_ADD")
+      Seq("OP_C_SETRET", "OP_ADD", "OP_LD", "OP_V_ADD")
         .zipWithIndex.foreach { case (symbol, lane) =>
           pokeEncoded(dut.io.in.bits, lane, symbol, 10 + lane)
         }
@@ -81,7 +81,7 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.count.expect(4.U)
-      Seq("OP_C_SETRET", "OP_ADD", "OP_HL_LDIP", "OP_V_ADD")
+      Seq("OP_C_SETRET", "OP_ADD", "OP_LD", "OP_V_ADD")
         .zipWithIndex.foreach { case (symbol, lane) =>
           val decoded = dut.io.out.bits.entries(lane)
           decoded.uop.opcode.expect(rule(symbol).opcode.U)
@@ -94,6 +94,10 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
           decoded.trap.valid.expect(false.B)
         }
       dut.io.out.bits.entries(1).uop.uopClass.expect(UopClass.Alu)
+      val encodedLoad = dut.io.out.bits.entries(2).uop.memory
+      encodedLoad.valid.expect(true.B)
+      encodedLoad.isLoad.expect(true.B)
+      encodedLoad.requestCount.expect(rule("OP_LD").memoryRequestCount.U)
     }
   }
 
@@ -126,6 +130,9 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
       decoded.uop.instruction.templateCount.expect(9.U)
       decoded.uop.opcode.expect(TemplateRowKind.STORE.asUInt)
       decoded.uop.uopClass.expect(UopClass.Std)
+      decoded.uop.memory.valid.expect(true.B)
+      decoded.uop.memory.isStore.expect(true.B)
+      decoded.uop.memory.requestCount.expect(1.U)
       decoded.uop.immediateValid.expect(true.B)
       decoded.uop.immediate.expect(23.U)
       decoded.uop.instruction.parent.identity.instructionId.expect(91.U)

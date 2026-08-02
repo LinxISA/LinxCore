@@ -13,17 +13,21 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
   val brobPrepared = Input(new BROBPrepared(p))
   val prepared = Output(new OOORobPrepared(p))
+  val publicationTransactionBase = Input(UInt(p.transactionIdWidth.W))
   val publishFire = Input(Bool())
   val completion = Flipped(Decoupled(new RobResolveTxn(p)))
   val completionAccepted = Valid(new RobIdentity(p))
   val completionRejected = Valid(new RobIdentity(p))
   val commit = Decoupled(new OOORobCommitPreview(p))
+  val residentHeads = Output(Vec(p.ooo.stidCount,
+    new OOORobResidentHeadPreview(p)))
   val commitApply = Input(Bool())
   val release = Flipped(Valid(new OOORobReleaseTxn(p)))
   val releaseReady = Output(Bool())
   val releaseApply = Input(Bool())
   val recoveryPrepare = Flipped(Decoupled(new RecoveryPlan(p)))
   val recoveryPrepared = Valid(new RecoveryPlan(p))
+  val memoryRecoveryPrepared = Output(new OOORobMemoryRecovery(p))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(p)))
   val recoveryAbort = Flipped(Valid(new RecoveryPlan(p)))
   val recoveryCandidate = Input(Vec(2, Valid(new RecoveryCandidateLookup(p))))
@@ -142,6 +146,12 @@ class ROB(val p: CoreParams) extends Module {
     Vec(orderCapacity, new CommitEntry(p))))
   val orderRenames = Reg(Vec(p.ooo.stidCount,
     Vec(orderCapacity, new RenameCommitReleaseEntry(p))))
+  val orderMemoryBefore = Reg(Vec(p.ooo.stidCount,
+    Vec(orderCapacity, new MemoryOrderState(p))))
+  val orderMemoryAfter = Reg(Vec(p.ooo.stidCount,
+    Vec(orderCapacity, new MemoryOrderState(p))))
+  val orderNoflushEligible = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
+    VecInit(Seq.fill(orderCapacity)(false.B)))))
   val orderValid = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     VecInit(Seq.fill(orderCapacity)(false.B)))))
   val orderCompleted = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
@@ -149,6 +159,8 @@ class ROB(val p: CoreParams) extends Module {
   val orderRetired = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     VecInit(Seq.fill(orderCapacity)(false.B)))))
   val orderAge = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
+    VecInit(Seq.fill(orderCapacity)(0.U(p.transactionIdWidth.W))))))
+  val orderTransactionId = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     VecInit(Seq.fill(orderCapacity)(0.U(p.transactionIdWidth.W))))))
   val nextAllocationAge = RegInit(0.U(p.transactionIdWidth.W))
   val orderHead = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(orderPtrWidth.W))))
@@ -245,10 +257,13 @@ class ROB(val p: CoreParams) extends Module {
         rawBindingExact && previousBindingExact,
       !binding.valid)
   }.reduce(_ && _)
+  val memoryReservationExact = io.prepare.bits.memoryOrder.valid &&
+    io.prepare.bits.memoryOrder.stid === prepareStid &&
+    io.prepare.bits.memoryOrder.count === io.prepare.bits.count
   val prepareReady = prepareCountLegal && prepareGroupCountLegal &&
     prepareCapacity && prepareShape && prepareExactRows &&
     PopCount(prepareGroupStarts) === io.prepare.bits.groupCount &&
-    brobExact
+    brobExact && memoryReservationExact
   io.prepare.ready := prepareReady
 
   val prepared = Wire(new OOORobPrepared(p))
@@ -290,6 +305,35 @@ class ROB(val p: CoreParams) extends Module {
   }
   io.prepared := prepared
 
+  val prepareMemoryState = Wire(Vec(d3Width + 1, new MemoryOrderState(p)))
+  prepareMemoryState(0) := io.prepare.bits.memoryOrder.before
+  for (lane <- 0 until d3Width) {
+    val meta = io.prepare.bits.entries(lane).memoryOrder
+    val decoded = io.prepare.bits.entries(lane).uop.decoded
+    val active = lane.U < io.prepare.bits.count && meta.requestCount.orR
+    prepareMemoryState(lane + 1) := prepareMemoryState(lane)
+    prepareMemoryState(lane + 1).lsid := prepareMemoryState(lane).lsid +
+      Mux(active, meta.requestCount, 0.U)
+    prepareMemoryState(lane + 1).lid := prepareMemoryState(lane).lid +
+      Mux(active && decoded.memory.isLoad, meta.requestCount, 0.U)
+    prepareMemoryState(lane + 1).sid := prepareMemoryState(lane).sid +
+      Mux(active && decoded.memory.isStore, meta.requestCount, 0.U)
+    when(active && decoded.memory.isLoad) {
+      prepareMemoryState(lane + 1).yoldValid := true.B
+      prepareMemoryState(lane + 1).yoldLsid :=
+        meta.firstLsid + meta.requestCount - 1.U
+      prepareMemoryState(lane + 1).yoldLid :=
+        meta.firstLid + meta.requestCount - 1.U
+    }
+    when(active && decoded.memory.isStore) {
+      prepareMemoryState(lane + 1).yostValid := true.B
+      prepareMemoryState(lane + 1).yostLsid :=
+        meta.firstLsid + meta.requestCount - 1.U
+      prepareMemoryState(lane + 1).yostSid :=
+        meta.firstSid + meta.requestCount - 1.U
+    }
+  }
+
   when(io.prepare.valid && io.publishFire && prepareReady) {
     for (lane <- 0 until d3Width) {
       when(lane.U < io.prepare.bits.count) {
@@ -309,11 +353,19 @@ class ROB(val p: CoreParams) extends Module {
         orderIds(stid)(orderIndex) := id
         orderCommits(stid)(orderIndex) := prepared.entries(lane).commit
         orderRenames(stid)(orderIndex) := prepared.entries(lane).rename
+        orderMemoryBefore(stid)(orderIndex) := prepareMemoryState(lane)
+        orderMemoryAfter(stid)(orderIndex) := prepareMemoryState(lane + 1)
+        orderNoflushEligible(stid)(orderIndex) :=
+          (io.prepare.bits.entries(lane).uop.decoded.uopClass === UopClass.System ||
+            io.prepare.bits.entries(lane).uop.decoded.uopClass === UopClass.Cmd) &&
+          !io.prepare.bits.entries(lane).uop.destinations.map(_.valid).reduce(_ || _)
         orderValid(stid)(orderIndex) := true.B
         orderCompleted(stid)(orderIndex) :=
           io.prepare.bits.entries(lane).earlyRobComplete
         orderRetired(stid)(orderIndex) := false.B
         orderAge(stid)(orderIndex) := nextAllocationAge + lane.U
+        orderTransactionId(stid)(orderIndex) :=
+          io.publicationTransactionBase + lane.U
       }
     }
     val (nextTail, wrap) = slotPlus(tailSlot(prepareStid),
@@ -409,6 +461,20 @@ class ROB(val p: CoreParams) extends Module {
   preview.headValid := stidHeadValid(selectedStid)
   preview.head := orderIds(selectedStid)(orderCommitHead(selectedStid))
   preview.headTrap := orderCommits(selectedStid)(orderCommitHead(selectedStid)).trap
+  for (stid <- 0 until p.ooo.stidCount) {
+    val idx = orderHead(stid)
+    val eligible = orderCount(stid).orR && orderValid(stid)(idx) &&
+      memberLiveAt(stid.U, orderIds(stid)(idx).ridSlot,
+        orderIds(stid)(idx).memberIndex) &&
+      !orderRetired(stid)(idx) && !orderCompleted(stid)(idx) &&
+      !orderCommits(stid)(idx).trap.valid && orderNoflushEligible(stid)(idx)
+    io.residentHeads(stid) := 0.U.asTypeOf(io.residentHeads(stid))
+    io.residentHeads(stid).valid := eligible
+    io.residentHeads(stid).transactionId := orderTransactionId(stid)(idx)
+    io.residentHeads(stid).instruction := orderCommits(stid)(idx).instruction
+    io.residentHeads(stid).rob := orderIds(stid)(idx)
+    io.residentHeads(stid).noflushEligible := eligible
+  }
   val previewValid = preview.count =/= 0.U
   val previewTxnValid = previewValid || preview.headTrap.valid
   val retainedValid = RegInit(false.B)
@@ -568,13 +634,17 @@ class ROB(val p: CoreParams) extends Module {
       orderIds(recStid)(idx).asUInt === recIn.trigger.asUInt
   }
   val recHit = recIn.trigger.stid < p.ooo.stidCount.U && recMatches.asUInt.orR
-  val recOffset = PriorityEncoder(recMatches.asUInt)
+  private val recoveryCountWidth =
+    PrefixPacketContract.countWidth(orderCapacity)
+  val recOffset = Wire(UInt(recoveryCountWidth.W))
+  recOffset := PriorityEncoder(recMatches.asUInt)
   io.recoveryPrepare.ready := !recoveryPending && recHit &&
     recIn.phase === RecoveryPhase.Prepare
   val preparedPlan = Wire(new RecoveryPlan(p))
   preparedPlan := recIn
   val branchSkipsTrigger = recIn.cause === RecoveryCause.Branch
-  val firstOffset = Mux(branchSkipsTrigger, recOffset + 1.U, recOffset)
+  val firstOffset = Mux(branchSkipsTrigger,
+    recOffset + 1.U(recoveryCountWidth.W), recOffset)
   val lastOffset = orderCount(recStid) - 1.U
   val firstIdx = orderPlus(orderHead(recStid), firstOffset)
   val lastIdx = orderPlus(orderHead(recStid), lastOffset)
@@ -603,11 +673,25 @@ class ROB(val p: CoreParams) extends Module {
   val survivingTailIdx = orderPlus(orderHead(recStid), survivingTailOffset)
   preparedPlan.survivingTail := orderIds(recStid)(survivingTailIdx)
 
+  val preparedMemoryRecovery = Wire(new OOORobMemoryRecovery(p))
+  preparedMemoryRecovery := 0.U.asTypeOf(preparedMemoryRecovery)
+  preparedMemoryRecovery.valid := recHit
+  preparedMemoryRecovery.transactionId := recIn.transactionId
+  preparedMemoryRecovery.stid := recIn.trigger.stid
+  preparedMemoryRecovery.oldTail := orderMemoryAfter(recStid)(lastIdx)
+  preparedMemoryRecovery.newTail := Mux(firstOffset === 0.U,
+    orderMemoryBefore(recStid)(firstIdx),
+    orderMemoryAfter(recStid)(survivingTailIdx))
+  val recoveryMemoryPlan = Reg(new OOORobMemoryRecovery(p))
+  io.memoryRecoveryPrepared := Mux(recoveryPending,
+    recoveryMemoryPlan, preparedMemoryRecovery)
+
   io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.ready
   io.recoveryPrepared.bits := Mux(recoveryPending, recoveryPlan, preparedPlan)
   when(io.recoveryPrepare.fire) {
     recoveryPending := true.B
     recoveryPlan := preparedPlan
+    recoveryMemoryPlan := preparedMemoryRecovery
   }
   val recoveryApplyHit = recoveryPending && io.recoveryApply.valid &&
     io.recoveryApply.bits.phase === RecoveryPhase.Apply &&

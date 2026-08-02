@@ -1187,8 +1187,9 @@ ownership and the resolve/system/CMD contracts below.
 Write the decision records with stable NDF identities and supersession rules.
 The recommended contract is:
 
-1. `D-IEX-LSU-LOAD-001`: OOO allocates program-order `lsid`、`loadId` and
-   `storeId`; IEX allocates a non-reused transaction for each retained memory
+1. `D-IEX-LSU-LOAD-001`: OOO allocates the full program-order `LSID`, the
+   load-only `LID`, the store-only `SID`, and the `YOST`/`YOLD` older-memory
+   boundaries; IEX allocates a non-reused transaction for each retained memory
    uop, shares it across one store's STA/STD children, and allocates the initial
    load attempt when `LoadIssueTxn` is retained; LSU owns LIQ residency and
    every later reissue、repick and attempt rebind. No physical LIQ/STQ row, pipe lane
@@ -1276,6 +1277,11 @@ The system/CMD decision fixes ownership and backpressure:
   a second resolve or retained queue owner. The transaction names one member
   proven safe for the requested side effect; it is not the scalar
   `NOFLUSHRID` boundary itself.
+- `RobNoflushReadyTxn` is the exact NFRDY proof from the execution and
+  side-effect owners. Its transaction, instruction and ROB identities match
+  the per-STID resident head; a stale proof drains without authorization.
+  Fired suppression remains attached to that STID and exact resident head, so
+  peer-STID arbitration cannot reauthorize it.
 - `SystemIssueTxn` carries the same exact identity, opcode and
   immediate, and is legal only for a no-destination recipe whose side effect is
   owned by commit control. IEX keeps the system row resident and the request
@@ -1300,14 +1306,14 @@ Do not begin Steps 2-5 until these three decisions are accepted.  If the
 accepted alternative differs, update the Bundle schemas and tests in this task
 before implementation; never preserve two protocol variants.
 
-- [ ] **Step 2: Add canonical memory control and order payloads test-first**
+- [x] **Step 2: Add canonical memory control and order payloads test-first**
 
 Add `DecodedMemoryControl` to `DecodedUop`; its fields are `valid`、`isLoad`、
 `isStore`、address mode、access bytes、sign extension、offset、index transform、
 address/data source masks、writeback controls and normalized `requestCount`.
 Add `MemoryOrderMeta` to
 `DispatchTxn`; it carries only stable logical order (`requestCount`、
-`firstLsid`、`firstTypeId` and the older-store forwarding boundary), never
+`firstLsid`、`firstLid`、`firstSid`、`YOST` and `YOLD`), never
 `MemoryTransactionIdentity`、attempt generation or physical pipe identity.
 
 Rename the displaced `LoadRequestTxn` to `LoadIssueTxn` and extend `IEXLSUIO`
@@ -1327,17 +1333,18 @@ python3 tools/chisel/render_top_interface_manifest.py --check
 python3 tools/spec/check_ndf_profile.py docs/spec
 ```
 
-- [ ] **Step 3: Restore the unique OOO memory-order owner**
+- [x] **Step 3: Restore the unique OOO memory-order owner**
 
 Migrate `OooMemoryOrderAllocator` in place to canonical D2/D3 payloads and
 connect it to `OOOD3S1Graph`. DEC supplies normalized demand; allocator prepare,
 ROB/BROB/RENU preparation and dispatch credit participate in one D3 fire.
 Publication stores memory-before/after snapshots in ROB; recovery restores the
 same per-STID tail from the canonical suffix plan. Do not add a serial counter
-to `OooDispatch`. Extend the integration fixture with a head-only system/CMD
-permit, denial for a non-head or recovery-fenced member, exact permit identity
-stability under backpressure and permit withdrawal before any side effect when
-recovery prepare wins.
+to `OooDispatch`. Add the exact `RobNoflushReadyTxn` NFRDY proof and extend the
+integration fixture with a head-only system/CMD permit, denial for a non-head,
+stale proof or recovery-fenced member, exact permit identity stability under
+backpressure, per-STID exactly-once suppression and permit withdrawal before
+any side effect when recovery prepare wins.
 
 Run:
 

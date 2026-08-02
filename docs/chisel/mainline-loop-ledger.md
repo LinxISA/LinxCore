@@ -659,3 +659,70 @@ push identities are filled only after the corresponding operation succeeds.
   `Make fixed-width instruction delivery independent of fetch geometry`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded in the loop handoff after the immutable commit exists.
+
+## Loop 11 — Canonical OOO memory order and exact NFRDY authorization
+
+- Scope: Task 13 Steps 2–3 only. This loop closes the canonical OOO-to-IEX
+  memory-control payload, the unique OOO memory-order owner, ROB recovery
+  snapshots, and the exact noflush-ready authorization prerequisite. It does
+  not activate the public IEX box; private IEX ingress and terminal conversion
+  remain Step 4.
+- Skills: repository-pinned `using-superpowers`, `executing-plans`,
+  `test-driven-development`, `requesting-code-review`,
+  `verification-before-completion`, and the `linx-core` domain workflow.
+- Owner decision: `OooMemoryOrderAllocator` is the sole per-STID owner of the
+  full program-order LSID, load-only LID, store-only SID, YOST, and YOLD tails.
+  IEX owns each memory transaction and its initial attempt; LSU owns replay,
+  reissue, repick, rebind, and every later attempt. Dispatch transaction IDs,
+  ROB identities, prefix lanes, and physical queue rows never synthesize
+  memory identity.
+- Interface mapping: DEC normalizes `DecodedMemoryControl`; one common D3 fire
+  publishes `MemoryOrderMeta` with `DispatchTxn` while ROB retains the exact
+  before/after `MemoryOrderState`. IEX presents one exact
+  `RobNoflushReadyTxn` NFRDY proof; CommitControl continuously matches it to a
+  live per-STID ROB head before emitting `RobNoflushTxn` authorization.
+- RED and debug evidence: the first integration run exposed nine stale fixture
+  expectations after memory order became mandatory. Independent review then
+  found four important gaps: the proof did not encode completed legality and
+  drain authority, per-STID suppression could be lost, the recovery suffix
+  offset could wrap at full ROB capacity, and L3 coverage omitted the common
+  graph. The first fix review found one further gap: an exact proof was still
+  consumed while its STID was recovery-fenced. Generated interface projections
+  also correctly failed until regenerated.
+- GREEN evidence: `TopInterfaceSpec` passes 12/12 and
+  `InterfaceManifestSpec` passes 5/5. `OooMemoryOrderAllocatorSpec` passes 4/4;
+  `OOOMemoryOrderIntegrationSpec` passes 3/3; `OOORecoverySpec` passes 44/44;
+  `OOORobCommitSpec` passes 23/23; `OOODecodeSpec` passes 8/8; and the combined
+  OOO/CTU adjacent suite passes 7/7, including W2/W4/W6/W8 elaboration. The
+  standard Chisel build and Verilator 5.044 lint pass. The generated interface
+  manifest is exact; the owner checker reports 24 closed owners, 40 classified
+  emitters, and 10 declared adapters; the NDF profile reports 126 clauses, 56
+  L1 MUST clauses, 65 verified targets, zero open questions, and two verified
+  references.
+- Recovery and authorization result: provisional memory state cancels without
+  publication; target apply restores the ROB-authored survivor tail while
+  abort and peer STIDs preserve state. A full-capacity youngest branch kills
+  zero members without wrapping its suffix count. Stale or mismatched NFRDY
+  proofs drain without authorization; an exact unaccepted proof is retained
+  across a recovery fence; and fired suppression remains attached to the exact
+  resident head so peer arbitration cannot duplicate it.
+- Deletion and adapter result: no stateful adapter or parallel memory-order
+  owner was added. This prerequisite loop deletes no live private IEX
+  mechanism; Step 4 converts those mechanisms in place and removes displaced
+  private ingress, lease, readiness-shadow, terminal, and recovery-projection
+  surfaces in the same atomic cutover.
+- Independent review: the second fix review reports every previous important
+  finding addressed, zero new critical or important findings, and verdict
+  `APPROVE`.
+- Remaining gap: Task 13 Step 4 owns private IEX ingress, IQ and terminal
+  conversion; Step 5 then closes the Task-14 LSU prerequisite graph and commits
+  the joint prerequisite boundary. No public IEX/LSU activation is claimed by
+  this loop.
+- skill-evolve: no-update — this loop applies existing single-owner, exact
+  identity, retained ready/valid, common-fire, recovery-fence, and
+  generation-qualified protocol rules already captured by the LinxCore skill.
+- Branch: `codex/chisel-gap-superpowers`
+- Commit: the enclosing Lore commit with intent
+  `Bind OOO memory order and NFRDY to one publication`.
+- Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
+  equality are recorded after the immutable commit exists.

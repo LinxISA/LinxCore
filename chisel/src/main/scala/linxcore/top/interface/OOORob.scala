@@ -40,6 +40,22 @@ class OOORobCommitPreview(val p: CoreParams) extends Bundle {
   val headTrap = new TrapEvent(p)
 }
 
+class OOORobResidentHeadPreview(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+  val noflushEligible = Bool()
+}
+
+class OOORobMemoryRecovery(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val oldTail = new MemoryOrderState(p)
+  val newTail = new MemoryOrderState(p)
+}
+
 class BROBPreparedEntry(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)

@@ -104,6 +104,7 @@ class OooDispatch(val p: CoreParams) extends Module {
     val txn = Wire(new DispatchTxn(p))
     txn.transactionId := io.transactionBase + index
     txn.uop := lane.uop
+    txn.memoryOrder := lane.memoryOrder
     val allowed = prefixComplete(offset) && inRange && !early
     val cls = lane.uop.decoded.uopClass
     val aluComplete = olderAlu < p.iex.aluPipes.U &&

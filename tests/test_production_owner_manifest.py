@@ -114,7 +114,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
     def test_accepts_complete_manifest_through_real_cli(self) -> None:
         result = self._run()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("production-owner-manifest: 23 closed owners", result.stdout)
+        self.assertIn("production-owner-manifest: 24 closed owners", result.stdout)
 
     def test_rejects_declared_canonical_caller_that_does_not_construct_owner(self) -> None:
         manifest = copy.deepcopy(self.manifest)

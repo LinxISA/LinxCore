@@ -60,6 +60,8 @@ class InterfaceManifestSpec extends AnyFunSuite {
         "ooo_to_iex_system" -> ("OOO", "IEX", 1, "DispatchTxn"),
         "ooo_to_iex_cmd" -> ("OOO", "IEX", 1, "DispatchTxn"),
         "ooo_to_iex_rob_noflush" -> ("OOO", "IEX", 1, "RobNoflushTxn"),
+        "iex_to_ooo_rob_noflush_ready" ->
+          ("IEX", "OOO", 1, "RobNoflushReadyTxn"),
         "iex_to_ooo_rob_resolve" -> ("IEX", "OOO", width, "RobResolveTxn"),
         "iex_to_ooo_system_issue" -> ("IEX", "OOO", 1, "SystemIssueTxn"),
         "iex_to_lsu_load_issue" -> ("IEX", "LSU", 2, "LoadIssueTxn"),
@@ -85,8 +87,10 @@ class InterfaceManifestSpec extends AnyFunSuite {
         .toSet
       assert(orderPorts == Set(
         "memoryOrder_requestCount", "memoryOrder_firstLsid",
-        "memoryOrder_firstTypeId", "memoryOrder_youngestStoreValid",
-        "memoryOrder_youngestStoreLsid", "memoryOrder_youngestStoreId"))
+        "memoryOrder_firstLid", "memoryOrder_firstSid",
+        "memoryOrder_yostValid", "memoryOrder_yostLsid",
+        "memoryOrder_yostSid", "memoryOrder_yoldValid",
+        "memoryOrder_yoldLsid", "memoryOrder_yoldLid"))
       assert(!orderPorts.exists(name =>
         name.toLowerCase.contains("transaction") ||
           name.toLowerCase.contains("attempt") ||

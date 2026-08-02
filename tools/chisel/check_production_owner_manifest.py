@@ -92,6 +92,11 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
         "TURename",
         "chisel/src/main/scala/linxcore/ooo/TURename.scala",
     ),
+    "memory_order": (
+        "OOO",
+        "OooMemoryOrderAllocator",
+        "chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala",
+    ),
     "rob": ("OOO", "ROB", "chisel/src/main/scala/linxcore/ooo/ROB.scala"),
     "brob": ("OOO", "BROB", "chisel/src/main/scala/linxcore/ooo/BROB.scala"),
     "commit": (
@@ -191,6 +196,7 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "rename_p": (("PRename", "chisel/src/main/scala/linxcore/ooo/PRename.scala"),),
     "rename_tu": (("TURename", "chisel/src/main/scala/linxcore/ooo/TURename.scala"),),
+    "memory_order": (("OooMemoryOrderAllocator", "chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala"),),
     "rob": (("ROB", "chisel/src/main/scala/linxcore/ooo/ROB.scala"),),
     "brob": (("BROB", "chisel/src/main/scala/linxcore/ooo/BROB.scala"),),
     "commit": (("CommitControl", "chisel/src/main/scala/linxcore/ooo/CommitControl.scala"),),

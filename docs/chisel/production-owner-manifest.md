@@ -312,6 +312,22 @@ evidence.
     },
     {
       "subsystem": "OOO",
+      "state_key": "memory_order",
+      "canonical_owner": "OooMemoryOrderAllocator",
+      "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala"],
+      "public_box": "OOO",
+      "public_box_status": "module",
+      "public_box_file": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooMemoryOrderAllocatorSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOMemoryOrderIntegrationSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOORecoverySpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOMemoryOrderIntegrationSpec.scala", "case": "publishes DEC memory demand as stable full-order metadata", "level": "L3", "status": "public-box-verified"}],
+      "cutover_task": 13,
+      "deletion_targets": [],
+      "adapters": []
+    },
+    {
+      "subsystem": "OOO",
       "state_key": "rob",
       "canonical_owner": "ROB",
       "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/ROB.scala"],
@@ -353,7 +369,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/OOOIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "case": "commits one completed canonical OOO publication exactly once", "level": "L3", "status": "public-box-verified"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OOOIntegrationSpec.scala", "case": "commits one completed canonical OOO publication exactly once", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OOORobCommitSpec.scala", "case": "CommitControl requires exact NFRDY and never repeats a resident head", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 11,
       "deletion_targets": [],
       "adapters": []

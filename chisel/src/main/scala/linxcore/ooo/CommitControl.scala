@@ -7,6 +7,9 @@ import linxcore.top.interface._
 
 class CommitControlIO(val p: CoreParams) extends Bundle {
   val rob = Flipped(Valid(new OOORobCommitPreview(p)))
+  val residentHeads = Input(Vec(p.ooo.stidCount,
+    new OOORobResidentHeadPreview(p)))
+  val recoveryFence = Input(Vec(p.ooo.stidCount, Bool()))
   val interrupts = Input(Vec(p.ooo.stidCount, new InterruptRequest(p)))
   val interruptBoundaryValid = Input(Bool())
   val interruptBoundary = Input(new RobIdentity(p))
@@ -14,10 +17,14 @@ class CommitControlIO(val p: CoreParams) extends Bundle {
   val renameReleaseReady = Input(Bool())
   val brobReleaseReady = Input(Bool())
   val out = Decoupled(new CommitControlTxn(p))
+  val robNoflushReady = Flipped(Decoupled(new RobNoflushReadyTxn(p)))
+  val robNoflush = Decoupled(new RobNoflushTxn(p))
 }
 
 class CommitControl(val p: CoreParams) extends Module {
   val io = IO(new CommitControlIO(p))
+  private def recoveryFenced(stid: UInt): Bool =
+    if (p.ooo.stidCount == 1) io.recoveryFence(0) else io.recoveryFence(stid)
 
   val heldValid = RegInit(false.B)
   val held = Reg(new CommitControlTxn(p))
@@ -40,9 +47,9 @@ class CommitControl(val p: CoreParams) extends Module {
       next.brobRelease.entries(lane) := io.rob.bits.entries(lane).commit.rob
     }
   }
-  val legacyEntryTrap = io.rob.valid && io.rob.bits.count =/= 0.U &&
+  val firstEntryTrap = io.rob.valid && io.rob.bits.count =/= 0.U &&
     io.rob.bits.entries(0).commit.trap.valid
-  val headTrap = io.rob.valid && (io.rob.bits.headTrap.valid || legacyEntryTrap)
+  val headTrap = io.rob.valid && (io.rob.bits.headTrap.valid || firstEntryTrap)
   val anyInterrupt = io.interrupts.map(_.valid).reduce(_ || _)
   val bestInterrupt = io.interrupts.reduce { (a, b) =>
     Mux(a.valid && (!b.valid || a.priority >= b.priority), a, b)
@@ -86,5 +93,52 @@ class CommitControl(val p: CoreParams) extends Module {
     (!io.rob.valid || (acceptedValid && candidateHasTxn &&
       candidate.asUInt =/= acceptedTxn.asUInt))) {
     acceptedValid := false.B
+  }
+
+  val noflushAcceptedValid = RegInit(VecInit(
+    Seq.fill(p.ooo.stidCount)(false.B)))
+  val noflushAcceptedRob = Reg(Vec(p.ooo.stidCount, new RobIdentity(p)))
+  for (stid <- 0 until p.ooo.stidCount) {
+    when(!io.residentHeads(stid).valid ||
+      io.residentHeads(stid).rob.asUInt =/= noflushAcceptedRob(stid).asUInt) {
+      noflushAcceptedValid(stid) := false.B
+    }
+  }
+
+  val readyStidRaw = io.robNoflushReady.bits.rob.stid
+  val readyStidInRange = readyStidRaw < p.ooo.stidCount.U
+  val readyStid = Mux(readyStidInRange, readyStidRaw, 0.U)
+  val readyHead = if (p.ooo.stidCount == 1) io.residentHeads(0)
+    else io.residentHeads(readyStid)
+  val readyIdentityExact = readyStidInRange && readyHead.valid &&
+    readyHead.noflushEligible &&
+    readyHead.transactionId === io.robNoflushReady.bits.transactionId &&
+    readyHead.instruction.asUInt === io.robNoflushReady.bits.instruction.asUInt &&
+    readyHead.rob.asUInt === io.robNoflushReady.bits.rob.asUInt
+  val readyAlreadyAccepted = readyStidInRange &&
+    (if (p.ooo.stidCount == 1) noflushAcceptedValid(0)
+      else noflushAcceptedValid(readyStid)) &&
+    (if (p.ooo.stidCount == 1)
+      noflushAcceptedRob(0).asUInt === readyHead.rob.asUInt
+    else noflushAcceptedRob(readyStid).asUInt === readyHead.rob.asUInt)
+  val readyFenced = readyStidInRange && recoveryFenced(readyStid)
+  val noflushCandidate = io.robNoflushReady.valid && readyIdentityExact &&
+    !readyAlreadyAccepted && !readyFenced
+
+  io.robNoflush.valid := noflushCandidate
+  io.robNoflush.bits := 0.U.asTypeOf(io.robNoflush.bits)
+  io.robNoflush.bits.transactionId := io.robNoflushReady.bits.transactionId
+  io.robNoflush.bits.instruction := io.robNoflushReady.bits.instruction
+  io.robNoflush.bits.rob := io.robNoflushReady.bits.rob
+  io.robNoflushReady.ready := !readyIdentityExact || readyAlreadyAccepted ||
+    (!readyFenced && io.robNoflush.ready)
+  when(io.robNoflush.fire) {
+    if (p.ooo.stidCount == 1) {
+      noflushAcceptedValid(0) := true.B
+      noflushAcceptedRob(0) := io.robNoflush.bits.rob
+    } else {
+      noflushAcceptedValid(readyStid) := true.B
+      noflushAcceptedRob(readyStid) := io.robNoflush.bits.rob
+    }
   }
 }

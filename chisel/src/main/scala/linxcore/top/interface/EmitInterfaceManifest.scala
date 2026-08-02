@@ -53,6 +53,8 @@ object InterfaceManifest {
       _.iex.cmdIssueQueues, p => new DispatchTxn(p)),
     EndpointDefinition("ooo_to_iex_rob_noflush", "IFC-OOO-IEX-001", "OOO", "IEX",
       _ => 1, p => new RobNoflushTxn(p)),
+    EndpointDefinition("iex_to_ooo_rob_noflush_ready", "IFC-OOO-IEX-001", "IEX", "OOO",
+      _ => 1, p => new RobNoflushReadyTxn(p)),
     EndpointDefinition("iex_to_ooo_rob_resolve", "IFC-OOO-IEX-001", "IEX", "OOO",
       _.widths.issueWidth, p => new RobResolveTxn(p)),
     EndpointDefinition("iex_to_ooo_system_issue", "IFC-OOO-IEX-001", "IEX", "OOO",

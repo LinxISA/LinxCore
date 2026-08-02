@@ -16,6 +16,13 @@ effects are drained, and no recovery Prepare targets its STID. This transaction
 authorizes one named side effect; it is not the scalar noflush window boundary
 and is not a second resolve owner.
 
+IEX presents those completed checks as one exact `RobNoflushReadyTxn`. Its
+valid beat is the NFRDY proof and must match the per-STID resident ROB head in
+transaction, instruction, and ROB identity. OOO drains stale proofs without
+granting authorization, preserves a matching proof under backpressure, and
+suppresses a fired member until that exact head leaves residency. Arbitration
+or progress on another STID cannot clear or duplicate that suppression.
+
 A no-destination system side effect uses `SystemIssueTxn`. The matching
 noflush authorization, system issue, side-effect application, and no-value
 `RobResolveTxn` form one atomic rendezvous. A CMD operation uses `CmdIssueTxn`

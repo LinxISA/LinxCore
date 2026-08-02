@@ -12,6 +12,7 @@ class DispatchIO(val p: CoreParams) extends Bundle {
   val iex = new OOODispatchChannels(p)
   val recovery = Flipped(new RecoveryTargetIO(p))
   val pending = Output(Bool())
+  val publicationTransactionBase = Output(UInt(p.transactionIdWidth.W))
 }
 
 /** Canonical D3/S1 composition boundary. */
@@ -42,4 +43,5 @@ class Dispatch(val p: CoreParams) extends Module {
   classify.io.suppress := io.recovery.apply.valid
   io.iex <> classify.io.iex
   io.pending := allocator.io.pendingValid
+  io.publicationTransactionBase := allocator.io.publicationTransactionBase
 }

@@ -83,8 +83,9 @@ absence of old active identifiers.
 
 ### 2.6 Freeze Task-13 issue and resolve terminology
 
-OOO allocates program-order `lsid`, `loadId`, `storeId`, and older-memory-order
-metadata. IEX allocates one memory transaction for each retained memory uop,
+OOO allocates the full program-order `LSID`, the load-only `LID`, the
+store-only `SID`, and the `YOST`/`YOLD` older-memory boundaries. IEX allocates
+one memory transaction for each retained memory uop,
 shares it across one store's STA/STD children, and allocates the initial load
 attempt when it retains `LoadIssueTxn`. LSU owns LIQ reissue, LIQ repick, and
 every later attempt rebind. `LoadReissueTxn` is reserved for a load that still needs address
@@ -94,11 +95,14 @@ speculative dependents. OOO `RecoveryPlan`, not load cancel, terminates killed
 IEX and LSU residency.
 
 IEX reports one `RobResolveTxn` for one ROB member. System/multicycle and CMD
-retain separate resident queues. `RobNoflushTxn` authorizes one precise
-head-member side effect, `SystemIssueTxn` carries system work, and `CmdIssueTxn`
-is the independently backpressured TOP external CMD transaction. Task 13
-removes the displaced completion/request/adapter names in the same change that
-introduces these interfaces; aliases do not survive the cutover.
+retain separate resident queues. `RobNoflushReadyTxn` carries the exact NFRDY
+proof that legality checks have completed without a local trap and every older
+effect has drained. Commit control matches that proof to the exact per-STID
+resident head before `RobNoflushTxn` authorizes one precise head-member side
+effect. `SystemIssueTxn` carries system work, and `CmdIssueTxn` is the
+independently backpressured TOP external CMD transaction. Task 13 removes the
+displaced completion/request/adapter names in the same change that introduces
+these interfaces; aliases do not survive the cutover.
 
 ## 3. Canonical Owner Rules
 

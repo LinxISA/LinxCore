@@ -28,6 +28,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
   private def clearRob(dut: ROB): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.publicationTransactionBase.poke(0.U)
     dut.io.brobPrepared.poke(0.U.asTypeOf(dut.io.brobPrepared))
     dut.io.publishFire.poke(false.B)
     dut.io.completion.valid.poke(false.B)
@@ -47,6 +48,14 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       candidate.valid.poke(false.B)
       candidate.bits.poke(0.U.asTypeOf(candidate.bits))
     }
+  }
+
+  private def clearCommitControlExtensions(dut: CommitControl): Unit = {
+    dut.io.residentHeads.foreach(_.poke(0.U.asTypeOf(dut.io.residentHeads.head)))
+    dut.io.recoveryFence.foreach(_.poke(false.B))
+    dut.io.robNoflushReady.valid.poke(false.B)
+    dut.io.robNoflushReady.bits.poke(0.U.asTypeOf(dut.io.robNoflushReady.bits))
+    dut.io.robNoflush.ready.poke(false.B)
   }
 
   private def clearBrob(dut: BROB): Unit = {
@@ -98,6 +107,9 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       stid: Int = 0): Unit = {
     group.count.poke((lane + 1).U)
     group.groupCount.poke((if (groupCount >= 0) groupCount else lane + 1).U)
+    group.memoryOrder.valid.poke(true.B)
+    group.memoryOrder.stid.poke(stid.U)
+    group.memoryOrder.count.poke((lane + 1).U)
     if (rid < group.groups.length) {
       group.groups(rid).valid.poke(true.B)
       group.groups(rid).peId.poke(1.U)
@@ -236,6 +248,47 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("ROB exposes NFRDY shape only for the exact unresolved resident head") {
+    simulate(new ROB(params(4))) { dut =>
+      clearRob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 10, rid = 0, member = 0,
+        groupCount = 2)
+      lane(dut.io.prepare.bits, 1, id = 11, rid = 1, member = 0,
+        groupCount = 2)
+      dut.io.prepare.bits.entries(1).uop.decoded.uopClass.poke(UopClass.System)
+      dut.io.prepare.bits.entries(1).uop.destinations.foreach(_.valid.poke(false.B))
+      val ids = publish(dut, 2)
+
+      dut.io.residentHeads(0).valid.expect(false.B,
+        "a younger system row is not the resident head")
+      complete(dut, ids.head, accepted = true)
+      dut.io.commit.ready.poke(true.B)
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commitApply.poke(true.B)
+      dut.clock.step()
+      dut.io.commitApply.poke(false.B)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(ids.head)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+      dut.io.releaseApply.poke(false.B)
+
+      dut.io.residentHeads(0).valid.expect(true.B)
+      dut.io.residentHeads(0).rob.expect(ids(1))
+      dut.io.residentHeads(0).transactionId.expect(1.U)
+      dut.io.residentHeads(0).noflushEligible.expect(true.B)
+
+      complete(dut, ids(1), accepted = true)
+      dut.io.residentHeads(0).valid.expect(false.B,
+        "a resolved system row cannot remain NFRDY-authorizable")
+    }
+  }
+
   test("ROB commits two members from one group before the next group") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
@@ -329,6 +382,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl preserves secondary destination history and trap beats interrupt") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.count.poke(1.U)
       dut.io.rob.bits.entries(0).valid.poke(true.B)
@@ -368,6 +422,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl emits exactly one common fire after all owner readiness") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.count.poke(1.U)
       dut.io.rob.bits.entries(0).valid.poke(true.B)
@@ -394,6 +449,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl zero-lane trap and interrupt bypass ordinary release readiness") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.rob.bits.headValid.poke(true.B)
@@ -426,6 +482,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl accepts distinct back-to-back previews while ROB valid stays high") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.rob.bits.count.poke(1.U)
@@ -454,6 +511,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl accepts expanded prefix with the same first ROB identity") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.rob.bits.count.poke(1.U)
@@ -482,6 +540,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl accepts same-head trap changes and ordinary-to-trap transitions") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.out.ready.poke(true.B)
@@ -532,6 +591,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl holds a backpressured transaction and then accepts advanced preview") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.rob.bits.count.poke(1.U)
@@ -559,6 +619,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
 
   test("CommitControl does not repeat when only inactive lanes change") {
     simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
       dut.io.rob.valid.poke(true.B)
       dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
       dut.io.rob.bits.count.poke(1.U)
@@ -577,6 +638,106 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.rob.bits.entries(1).rename.history(0).valid.poke(true.B)
       dut.io.rob.bits.entries(1).rename.history(0).ptag.poke(9.U)
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("CommitControl requires exact NFRDY and never repeats a resident head") {
+    simulate(new CommitControl(params(4, stids = 2))) { dut =>
+      dut.io.rob.valid.poke(false.B)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.interrupts.foreach(_.poke(0.U.asTypeOf(dut.io.interrupts.head)))
+      dut.io.interruptBoundaryValid.poke(false.B)
+      dut.io.interruptBoundary.poke(0.U.asTypeOf(dut.io.interruptBoundary))
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.ready.poke(true.B)
+      clearCommitControlExtensions(dut)
+
+      def pokeHead(stid: Int, transactionId: Int, instructionId: Int,
+          ridSlot: Int): Unit = {
+        val head = dut.io.residentHeads(stid)
+        head.valid.poke(true.B)
+        head.noflushEligible.poke(true.B)
+        head.transactionId.poke(transactionId.U)
+        head.instruction.peId.poke(3.U)
+        head.instruction.stid.poke(stid.U)
+        head.instruction.instructionId.poke(instructionId.U)
+        head.rob.peId.poke(3.U)
+        head.rob.stid.poke(stid.U)
+        head.rob.ridSlot.poke(ridSlot.U)
+        head.rob.ridGeneration.poke(2.U)
+        head.rob.memberIndex.poke(0.U)
+      }
+      def pokeNfrdy(stid: Int, transactionId: Int, instructionId: Int,
+          ridSlot: Int): Unit = {
+        val ready = dut.io.robNoflushReady
+        ready.valid.poke(true.B)
+        ready.bits.transactionId.poke(transactionId.U)
+        ready.bits.instruction.peId.poke(3.U)
+        ready.bits.instruction.stid.poke(stid.U)
+        ready.bits.instruction.instructionId.poke(instructionId.U)
+        ready.bits.rob.peId.poke(3.U)
+        ready.bits.rob.stid.poke(stid.U)
+        ready.bits.rob.ridSlot.poke(ridSlot.U)
+        ready.bits.rob.ridGeneration.poke(2.U)
+        ready.bits.rob.memberIndex.poke(0.U)
+      }
+
+      pokeHead(0, 0x123, 0x456, 1)
+      dut.io.robNoflush.valid.expect(false.B,
+        "ROB shape alone is not legality/drain authority")
+      pokeNfrdy(0, 0x122, 0x456, 1)
+      dut.io.robNoflush.valid.expect(false.B)
+      dut.io.robNoflushReady.ready.expect(true.B,
+        "a stale NFRDY proof must drain without granting authorization")
+      pokeNfrdy(0, 0x123, 0x456, 1)
+      dut.io.robNoflush.valid.expect(true.B)
+      dut.io.robNoflush.bits.transactionId.expect(0x123.U)
+      dut.io.robNoflush.bits.instruction.instructionId.expect(0x456.U)
+      dut.io.robNoflush.bits.rob.ridSlot.expect(1.U)
+      val retained = dut.io.robNoflush.bits.peek()
+      dut.clock.step(2)
+      dut.io.robNoflush.valid.expect(true.B)
+      dut.io.robNoflush.bits.expect(retained)
+
+      dut.io.recoveryFence(1).poke(true.B)
+      dut.io.robNoflush.valid.expect(true.B)
+      dut.io.recoveryFence(1).poke(false.B)
+      dut.io.recoveryFence(0).poke(true.B)
+      dut.io.robNoflush.valid.expect(false.B)
+      dut.io.robNoflushReady.ready.expect(false.B,
+        "recovery fencing must not consume an exact unaccepted NFRDY proof")
+      dut.clock.step()
+      dut.io.recoveryFence(0).poke(false.B)
+      dut.io.robNoflush.valid.expect(true.B)
+
+      dut.io.residentHeads(0).noflushEligible.poke(false.B)
+      dut.io.robNoflush.valid.expect(false.B,
+        "a stalled authorization must not outlive head eligibility")
+      dut.io.residentHeads(0).noflushEligible.poke(true.B)
+      dut.io.robNoflush.valid.expect(true.B)
+
+      dut.io.robNoflush.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.robNoflush.valid.expect(false.B)
+
+      pokeHead(1, 0x220, 0x550, 2)
+      pokeNfrdy(1, 0x220, 0x550, 2)
+      dut.io.robNoflush.valid.expect(true.B)
+      dut.io.robNoflush.bits.transactionId.expect(0x220.U)
+      dut.clock.step()
+      dut.io.robNoflush.valid.expect(false.B)
+
+      pokeNfrdy(0, 0x123, 0x456, 1)
+      dut.io.robNoflush.valid.expect(false.B,
+        "an accepted member remains suppressed after another STID wins")
+
+      dut.io.residentHeads(0).valid.poke(false.B)
+      dut.clock.step()
+      pokeHead(0, 0x124, 0x457, 3)
+      pokeNfrdy(0, 0x124, 0x457, 3)
+      dut.io.robNoflush.valid.expect(true.B)
     }
   }
 

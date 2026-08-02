@@ -62,10 +62,14 @@ class MemoryOrderMeta(val p: CoreParams) extends Bundle {
   val requestCount = UInt(
     PrefixPacketContract.countWidth(p.maxMemoryRequestsPerInstruction).W)
   val firstLsid = UInt(p.lsidWidth.W)
-  val firstTypeId = UInt(p.lsidWidth.W)
-  val youngestStoreValid = Bool()
-  val youngestStoreLsid = UInt(p.lsidWidth.W)
-  val youngestStoreId = UInt(p.lsidWidth.W)
+  val firstLid = UInt(p.lsidWidth.W)
+  val firstSid = UInt(p.lsidWidth.W)
+  val yostValid = Bool()
+  val yostLsid = UInt(p.lsidWidth.W)
+  val yostSid = UInt(p.lsidWidth.W)
+  val yoldValid = Bool()
+  val yoldLsid = UInt(p.lsidWidth.W)
+  val yoldLid = UInt(p.lsidWidth.W)
 }
 
 class DispatchTxn(val p: CoreParams) extends Bundle {
@@ -96,6 +100,13 @@ class RobResolveTxn(val p: CoreParams) extends Bundle {
 
 /** Exact ROB-head authorization for one resident system or CMD side effect. */
 class RobNoflushTxn(val p: CoreParams) extends Bundle {
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+}
+
+/** Exact NFRDY proof: legality is complete and every older effect is drained. */
+class RobNoflushReadyTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val instruction = new InstructionIdentity(p)
   val rob = new RobIdentity(p)
@@ -134,6 +145,7 @@ class OOOIEXIO(val p: CoreParams) extends Bundle {
     Vec(p.iex.systemMulticycleQueues, Decoupled(new DispatchTxn(p)))
   val cmdDispatch =
     Vec(p.iex.cmdIssueQueues, Decoupled(new DispatchTxn(p)))
+  val robNoflushReady = Flipped(Decoupled(new RobNoflushReadyTxn(p)))
   val robNoflush = Decoupled(new RobNoflushTxn(p))
   val robResolve =
     Flipped(Vec(p.widths.issueWidth, Decoupled(new RobResolveTxn(p))))
