@@ -43,7 +43,14 @@ Do not create a second stateful implementation merely to satisfy a target
 class or filename. Public `OOO`, `IEX`, and `LSU` boxes are permanent typed
 composition boundaries; they are not compatibility adapters.
 
-### 2.3 Use one atomic cutover per subsystem boundary
+### 2.3 Use one atomic cutover per closed owner graph
+
+Normally one subsystem boundary is one cutover. When a typed identity is
+allocated across two adjacent owners and neither side can become live without
+the other's retained lease protocol, prepare both sides independently and cut
+the closed adjacent graph in one loop. The OOO-IEX-LSU switch uses this joint
+exception: Task 13 closes private canonical prerequisites, Task 14 prepares the
+matching LSU lease owner, and Task 15 activates both public boxes together.
 
 A cutover loop must finish all of the following before its commit:
 
@@ -97,12 +104,15 @@ fixture when it exists only to support a displaced implementation.
 
 1. Close Task 9 and freeze the owner/call-site manifest.
 2. Cut OOO D3/S1 dispatch onto the canonical RENU/ROB/BROB owners.
-3. Prepare the production IEX internals without changing their live boundary.
-4. Atomically switch OOO-IEX to the canonical typed interface and delete the
-   reduced issue/execute/completion entry points.
-5. Prepare the production LSU internals and resolve the two-load-pipe contract.
-6. Atomically switch IEX-LSU and memory/recovery interfaces, then delete the
-   old `ScalarLSU` outer boundary and reduced LSU entry points.
+3. Prepare the production IEX mechanisms without changing their live boundary.
+4. Close canonical OOO-IEX prerequisites: D1 memory controls, the unique OOO
+   memory-order/recovery owner, private IEX canonical ingress/terminal and the
+   approved IEX-LSU attempt lifecycle; keep public `IEX` absent.
+5. Prepare the production LSU internals, implement the matching typed attempt
+   lifecycle and resolve the two-load-pipe contract without a public cutover.
+6. Atomically activate the canonical OOO-IEX-LSU graph, then delete the reduced
+   issue/execute/completion chain, old `ScalarLSU` boundary and displaced LSU
+   entry points in the same loop.
 7. Integrate DTU, distributed recovery, trap, interrupt, and commit observation.
 8. Promote one active `TOP` emitter and natural ELF harness; delete old tops.
 9. Run natural scalar linx-avs, Dhrystone, CoreMark, bounded commit comparison,

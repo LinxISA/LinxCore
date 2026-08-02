@@ -172,7 +172,10 @@ canonical box 接线、同层级 replacement evidence、旧入口删除、commit
 
 ## 3. Canonical Transaction Shapes
 
-以下类型名由 Task 3 创建，后续任务不得另造同义类型：
+以下类型名构成唯一 canonical vocabulary。基础类型由 Task 3 创建；
+`DecodedMemoryControl`、`MemoryOrderMeta`、load-attempt lifecycle、system
+commit 和 engine-command 类型由 Task 13 在对应决策获批后追加。后续任务
+不得另造同义类型：
 
 ```scala
 final case class WidthParams(
@@ -193,14 +196,23 @@ class FetchedInstruction(p: CoreParams) extends Bundle
 class FetchedPacket(p: CoreParams) extends Bundle
 class FrontEndOp(p: CoreParams) extends Bundle
 class D1Packet(p: CoreParams) extends Bundle
+class DecodedMemoryControl(p: CoreParams) extends Bundle
 class DecodedUop(p: CoreParams) extends Bundle
 class RenamedUop(p: CoreParams) extends Bundle
+class MemoryOrderMeta(p: CoreParams) extends Bundle
 class DispatchTxn(p: CoreParams) extends Bundle
 class CompletionTxn(p: CoreParams) extends Bundle
 class LoadRequestTxn(p: CoreParams) extends Bundle
 class StoreAddressTxn(p: CoreParams) extends Bundle
 class StoreDataTxn(p: CoreParams) extends Bundle
 class LoadResultTxn(p: CoreParams) extends Bundle
+class LoadAttemptRebindTxn(p: CoreParams) extends Bundle
+class LoadAttemptLaunchTxn(p: CoreParams) extends Bundle
+object LoadAttemptCancelReason extends ChiselEnum
+class LoadAttemptCancelTxn(p: CoreParams) extends Bundle
+class CommitSideEffectPermitTxn(p: CoreParams) extends Bundle
+class SystemCommitRequestTxn(p: CoreParams) extends Bundle
+class EngineCommandTxn(p: CoreParams) extends Bundle
 class RecoveryEvent(p: CoreParams) extends Bundle
 class RecoveryPlan(p: CoreParams) extends Bundle
 class CommitTxn(p: CoreParams) extends Bundle
@@ -1073,7 +1085,7 @@ Commit intent: `Cut production dispatch onto one canonical OOO owner graph`
 - Consumes: existing production `OooParams`/grouped-S1 behavior and the frozen
   canonical `CoreParams`/`DispatchTxn` mapping.
 - Produces: behavior-preserving IEX internals ready for one public-interface
-  cutover in Task 13; no new public IEX owner is activated in this task.
+  cutover in joint Task 15; no new public IEX owner is activated in this task.
 
 - [ ] **Step 1: Characterize the production baseline**
 
@@ -1112,76 +1124,259 @@ python3 tools/chisel/check_production_owner_manifest.py
 
 Commit intent: `Prepare production IEX owners without creating a second core`
 
-### Task 13: Atomically cut OOO-IEX onto the canonical typed boundary
+### Task 13: Close the canonical OOO-IEX prerequisites without a live cutover
+
+Task-12 review proved the private IEX mechanisms, but the first public-cutover
+RED exposed three missing contracts: canonical D1 memory controls, a live
+`OooMemoryOrderAllocator`/ROB recovery-tail join, and an IEX-LSU attempt
+lifecycle.  This task closes those prerequisites while the public `IEX` box
+remains absent.  The one-time public switch moves to the joint Task-15 cutover,
+after LSU has prepared the matching lease owner.
 
 **Files:**
-- Create: `chisel/src/main/scala/linxcore/iex/IEX.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXIssueSpec.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXPipesSpec.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXTerminalSpec.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/OOOIEXIntegrationSpec.scala`
-- Create: `docs/spec/20-behavior/iex.md`
-- Modify: `chisel/src/main/scala/linxcore/ooo/OOO.scala`
-- Modify in place: production IEX files prepared by Task 12.
-- Delete: `chisel/src/main/scala/linxcore/execute/ReducedScalar*.scala`
-- Delete: displaced old IEX composition wrappers、emitters、tests and docs named
-  by `production-owner-manifest.md`.
+- Create: `docs/spec/decisions/D-IEX-LSU-LEASE-001.md`
+- Create: `docs/spec/decisions/D-IEX-COMPLETION-001.md`
+- Create: `docs/spec/decisions/D-IEX-SYS-CMD-001.md`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/CTUOOO.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/OOOIEX.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/IEXLSU.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/IEXIO.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/TOPIO.scala`
+- Modify: `chisel/src/main/scala/linxcore/top/interface/EmitInterfaceManifest.scala`
+- Modify: `chisel/src/test/scala/linxcore/top/interface/TopInterfaceSpec.scala`
+- Modify: `chisel/src/test/scala/linxcore/top/interface/InterfaceManifestSpec.scala`
+- Modify: `docs/chisel/generated/top-interface-manifest.json`
+- Modify: `docs/chisel/generated/top-interface-manifest.md`
+- Modify: `docs/spec/30-interfaces/ooo-iex.md`
+- Modify: `docs/spec/30-interfaces/iex-lsu.md`
+- Create: `docs/spec/30-interfaces/top-external.md`
+- Modify: `chisel/src/main/scala/linxcore/ooo/DEC.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/ROB.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/CommitControl.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexIssue*.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexTerminal*.scala`
+- Create: `chisel/src/main/scala/linxcore/ooo/OooIexMemoryTransactionAllocator.scala`
+- Delete: `chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadTerminalMetadata.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexBruPipeline.scala`
+- Create: `chisel/src/test/scala/linxcore/ooo/OOOMemoryOrderIntegrationSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXPrivateTerminalSpec.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
+- Modify: `docs/superpowers/specs/2026-08-01-production-owner-atomic-cutover-design.md`
 
 **Interfaces:**
-- Consumes: canonical classed `DispatchTxn`、typed recovery and LSU
-  `LoadResultTxn`.
-- Produces: canonical IEX-LSU requests、atomic `CompletionTxn`、
-  `RecoveryEvent`、RF writeback and wakeup through one public `IEX` box.
+- Consumes: Task-11 canonical `DecodedUop`/`DispatchTxn`, Task-12 production
+  IEX owners and the common canonical `RecoveryPlan`.
+- Produces: frozen memory/order/attempt contracts and private production owners
+  that are directly composable by Task 15; it produces no public `IEX` module
+  and changes no live TOP boundary.
 
-- [ ] **Step 1: Write the canonical boundary RED**
+- [ ] **Step 1: Approve and record the three load-bearing decisions**
 
-Cover all Task-12 production behavior plus stable `DispatchTxn` backpressure、
-exact identity translation、CMD/system independence、load-return retention and
-one atomic ROB/RF/wakeup completion fire.
+Write the decision records with stable NDF identities and supersession rules.
+The recommended contract is:
+
+1. `D-IEX-LSU-LEASE-001`: IEX owns a non-resetting, generation-qualified
+   logical memory-transaction allocator and the initial load-attempt identity;
+   LSU binds that exact identity to LIQ/STQ residency. `IEXLSUIO` gains typed
+   rebind、launch and cancel events carrying the previous and next complete
+   `MemoryIdentity`; no queue slot or ROB generation may synthesize them.
+2. `D-IEX-COMPLETION-001`: one `CompletionTxn` completes one ROB member.
+   `destinationIndex/value` describe destination ordinal zero only when it is
+   architecturally useful; every P/T/U destination still writes and wakes in
+   the same terminal rendezvous, while ROB stores completion/trap rather than
+   a multi-destination value array.
+3. `D-IEX-SYS-CMD-001`: system/multicycle and CMD remain separate resident
+   queues. Unsupported operations stay resident/fail closed. OOO grants an
+   exact head-only `CommitSideEffectPermitTxn`; a system side effect executes
+   through `SystemCommitRequestTxn`, while CMD leaves IEX only through
+   `EngineCommandTxn` on the TOP external projection. Neither class may be
+   replaced by immediate-value completion or an always-ready sink. This
+   decision refines `IFC-TOP-EXT` and must name the external engine-command
+   endpoint before Task 15.
+
+The lease decision fixes these event rules:
+
+- IEX allocates one transaction and initial attempt when its retained logical
+  load/store request owner accepts the uop, before any LSU sink fire. The
+  candidate identity remains bit-stable under backpressure and the
+  non-resetting serial advances once; cancellation never reuses it.
+- `LoadAttemptRebindTxn` is LSU-to-IEX `Decoupled` and carries `current` and
+  `next` complete identities. All fields except attempt generation are equal;
+  next generation is current generation plus one. Rebind fire atomically
+  performs `LSU LIQ current->next`、`IEX metadata current->next` and an internal
+  speculative-dependent cancel for current. It does not terminate or free the
+  LSU lease.
+- `LoadAttemptLaunchTxn` is LSU-to-IEX `Decoupled` and names the exact current
+  identity. IEX accepts only a matching resident attempt.
+- `LoadAttemptCancelTxn` is IEX-to-LSU `Decoupled`, carries the exact current
+  identity plus `LoadAttemptCancelReason`, and is used only to terminate the
+  current lease. Its fire atomically cancels IEX speculative dependents and
+  removes both IEX metadata and LSU residency. Recovery fencing blocks new
+  lifecycle fires until apply/abort.
+- stale、unknown and skipped-generation lifecycle inputs are consumed once into
+  a typed rejection event so they cannot deadlock a shared channel; they change
+  no owner state and cannot produce completion、wakeup or memory traffic.
+- `LoadResultTxn` must match the latest retained identity after every accepted
+  rebind. Return-pipe index, LIQ slot and ROB generation are never substitutes
+  for that comparison.
+- recovery prepare fences lifecycle traffic only for the affected STID and
+  computes the exact killed identity set without mutation. Apply emits one
+  cancel for each killed current identity and prunes both IEX metadata and LSU
+  lease state on the common edge; abort changes neither. Transaction and
+  attempt serial allocators never roll back, and peer-STID leases survive.
+
+The unique identity owner is `OooIexMemoryTransactionAllocator`. Task 13 moves
+the existing non-resetting generation state out of
+`OooIexLoadLiqAllocAdapter` into that owner, updates every private caller, and
+deletes the old class in the same commit; the two classes may never coexist in
+a committed tree. Core reset initializes the transaction value/generation and
+initial-attempt serials; recovery prepare/apply/abort never rewinds them. The
+owner manifest gains state key `memory_transaction_and_initial_attempt_serial`
+with private-mechanism cutover Task 13 and public-box activation Task 15.
+
+The completion decision fixes every case:
+
+| Case | `CompletionTxn.fire` | ROB transition | Destination fields | RF/wakeup | Trap/recovery |
+|---|---|---|---|---|---|
+| ordinary, destination 0 valid | once at terminal rendezvous | incomplete to completed | `valid=true,index=0,value=writeback(0)` | every valid destination fires atomically | none |
+| ordinary, no destination | once at terminal rendezvous | incomplete to completed | `valid=false,index=0,value=0` | none | none |
+| multiple destinations | one member completion | incomplete to completed | ordinal 0 only | every valid P/T/U destination fires atomically | none |
+| early-complete | no terminal completion | marked completed by ROB admission | all zero/not emitted | none | none |
+| precise trap | once at terminal rendezvous | completed with trap | `valid=false,index=0,value=0` | none | exact `TrapEvent` |
+| recovery-killed before fire | never | cleared by recovery apply | not emitted | none | recovery event/plan only |
+
+ROB retains completed/trap state only and does not treat `value` as a rename or
+retirement data owner.
+
+The system/CMD decision fixes ownership and backpressure:
+
+- `CommitSideEffectPermitTxn` carries the exact ROB/instruction identity and is
+  valid only while that unresolved member is the ROB head, every older effect
+  is drained and no recovery prepare targets its STID. It is authorization, not
+  a second completion or retained queue owner.
+- `SystemCommitRequestTxn` carries the same exact identity, opcode and
+  immediate, and is legal only for a no-destination recipe whose side effect is
+  owned by commit control. IEX keeps the system row resident and the request
+  stable until the matching permit and CommitControl ready are present; system
+  request fire, side-effect application and the IEX no-value completion fire
+  form one atomic rendezvous. Any destination-producing system opcode fails
+  closed until a response-bearing ISA contract is added.
+- `EngineCommandTxn` carries exact ROB/instruction identity, opcode and source
+  values. IEX asserts it only while the matching head-only permit is valid and
+  keeps the CMD row resident until the TOP external command sink accepts it;
+  permit consumption、engine-command fire and no-value completion form one
+  atomic rendezvous. Recovery before that fire cancels the permit and preserves
+  external side-effect precision. An absent sink backpressures the CMD queue
+  rather than dropping or auto-completing the command.
+- recovery prepare has priority over issuing a new permit or consuming a
+  system/CMD request. Apply removes a killed resident system/CMD row and any
+  unconsumed permit; abort preserves both. Once a head-authorized system or CMD
+  atomic rendezvous has fired, the external/commit side effect and ROB
+  completion are exactly once and cannot be undone by a younger recovery.
+
+Do not begin Steps 2-5 until these three decisions are accepted.  If the
+accepted alternative differs, update the Bundle schemas and tests in this task
+before implementation; never preserve two protocol variants.
+
+- [ ] **Step 2: Add canonical memory control and order payloads test-first**
+
+Add `DecodedMemoryControl` to `DecodedUop`; its fields are `valid`、`isLoad`、
+`isStore`、address mode、access bytes、sign extension、offset、index transform、
+address/data source masks and writeback controls. Add `MemoryOrderMeta` to
+`DispatchTxn`; it carries only stable logical order (`requestCount`、
+`firstLsid`、`firstTypeId` and the older-store forwarding boundary), never
+`MemoryTransactionIdentity`、attempt generation or physical pipe identity.
+
+Extend `IEXLSUIO` with `LoadAttemptRebindTxn`、`LoadAttemptLaunchTxn` and
+`LoadAttemptCancelTxn` from Step 1. Add `SystemCommitRequestTxn` to the
+OOO-IEX return direction, `CommitSideEffectPermitTxn` to its OOO-to-IEX
+direction, and `EngineCommandTxn` to `IEXIO`/the external TOP projection. Add interface
+manifest assertions proving exact field widths, directions, W2/W4/W6/W8 vector
+sizes, stable IDs and that `MemoryIdentity` fields are never derived from ROB,
+RID, queue slot or lane ordinal.
 
 Run:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
-bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
-bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
+bash tools/chisel/run_chisel_tests.sh --only TopInterfaceSpec
+bash tools/chisel/run_chisel_tests.sh --only InterfaceManifestSpec
+python3 tools/chisel/render_top_interface_manifest.py --check
+python3 tools/spec/check_ndf_profile.py docs/spec
 ```
 
-- [ ] **Step 2: Perform the one-time OOO-IEX interface change**
+- [ ] **Step 3: Restore the unique OOO memory-order owner**
 
-Change the production mechanisms and all live callers directly to canonical
-types. `IEX` composes the production children but owns no duplicate IQ、RF、
-pipeline、terminal or recovery state. Remove every temporary adapter before
-running GREEN.
-
-- [ ] **Step 3: Delete the displaced reduced IEX chain**
-
-Delete reduced issue、RF、ALU、completion bridges and old IEX public wrappers
-once their active callers have moved. Preserve only production private helpers
-reachable from `IEX` and verification fixtures that exercise that graph.
-
-- [ ] **Step 4: Run cutover promotion**
+Migrate `OooMemoryOrderAllocator` in place to canonical D2/D3 payloads and
+connect it to `OOOD3S1Graph`. DEC supplies normalized demand; allocator prepare,
+ROB/BROB/RENU preparation and dispatch credit participate in one D3 fire.
+Publication stores memory-before/after snapshots in ROB; recovery restores the
+same per-STID tail from the canonical suffix plan. Do not add a serial counter
+to `OooDispatch`. Extend the integration fixture with a head-only system/CMD
+permit, denial for a non-head or recovery-fenced member, exact permit identity
+stability under backpressure and permit withdrawal before any side effect when
+recovery prepare wins.
 
 Run:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
-bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
-bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
-bash tools/chisel/run_chisel_tests.sh --only OOOIEXIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOMemoryOrderIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+```
+
+- [ ] **Step 4: Convert private IEX ingress and terminal owners in place**
+
+Change the private IEX admission path to consume classed canonical dispatch
+directly. Preserve `OooIexIssue` as the only IQ owner and
+`OooIexOperandFiles` as the only P/T/U data/readiness owner; delete the old
+grouped-S1 lease, dispatch-release dependency and global P/T/U readiness
+shadow. A single accepted `StoreDispatchTxn` creates STA/STD children
+atomically with one logical memory-order identity.
+
+Retain existing ALU/BRU/AGU and terminal state. Change terminal publication in
+place to canonical `CompletionTxn` and `RecoveryEvent`; RF writes、wakeup、trace、
+completion and any recovery event still rendezvous on one terminal fire.
+Recovery consumers use canonical `RecoveryPlan` directly and match apply/abort
+with the complete transaction, never through an `OooResidencyRecoveryPlan`
+projection. Private fixtures must cover initial identity allocation exactly
+once, blocked rebind stability, atomic LSU/IEX rebind, launch of only the latest
+attempt, common-edge recovery cancel/prune, abort preservation, peer-STID
+survival, ordinal-zero/no-destination/trap/killed completion cases and
+head-authorized system/CMD side-effect fire.
+
+Run:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only IEXPrivateIngressSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXPrivateTerminalSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexTerminalFabricSpec
+```
+
+- [ ] **Step 5: Prove the prerequisite graph and commit**
+
+Verify no public `IEX` module and no new IQ、RF、terminal、recovery or
+memory-order owner exists. W2/W4/W6/W8 must elaborate the private production
+graph; W4 remains 2 ALU、1 BRU、2 AGU、2 STD、1 system/multicycle queue and
+1 CMD queue.
+
+Run:
+
+```bash
 python3 tools/chisel/check_production_owner_manifest.py
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
+git diff --check
 ```
 
-Expected: W2/W4/W6/W8 elaborate; W4 activates 2 ALU、1 BRU、2 AGU、2 STD、
-independent system/multicycle and CMD queues; no `ReducedScalar*` active owner
-remains.
-
-- [ ] **Step 5: Commit and push**
-
-Commit intent: `Switch OOO and IEX once and remove the reduced execution chain`
+Commit intent: `Close the canonical prerequisites for the joint IEX LSU cutover`
 
 ### Task 14: Prepare production LSU mechanisms and resolve the two-pipe contract
 
@@ -1195,16 +1390,18 @@ Commit intent: `Switch OOO and IEX once and remove the reduced execution chain`
 - Modify: `docs/spec/40-constraints/parameters.md`
 
 **Interfaces:**
-- Consumes: existing `ScalarLSUIO` behavior and the frozen canonical
-  `IEXLSUIO`/`LSUIO` mapping.
+- Consumes: existing `ScalarLSUIO` behavior and the Task-13 approved
+  `IEXLSUIO` lease/rebind/launch/cancel contract plus `LSUIO` mapping.
 - Produces: production LSU internals ready for one public-boundary cutover in
-  Task 15, with independent physical queue, ROB identity and full-LSID sizes.
+  Task 15, with independent physical queue, ROB identity and full-LSID sizes;
+  no public `LSU` or `IEX` module becomes live in this task.
 
 - [ ] **Step 1: Freeze and test the production baseline**
 
-Cover two STA、two STD、two load launches、STQ/SCB commit、LIQ/MDB/replay、
-miss/refill、load return、L1D update and typed recovery. Add unequal-capacity
-W2/W4/W6/W8 elaboration with 16 STQ rows、8 ROB entries and 40-bit LSID.
+Cover two STA、two STD、two load launches、typed initial lease binding、exact
+attempt rebind/launch/cancel、STQ/SCB commit、LIQ/MDB/replay、miss/refill、load
+return、L1D update and typed recovery. Add unequal-capacity W2/W4/W6/W8
+elaboration with 16 STQ rows、8 ROB entries and 40-bit LSID.
 
 - [ ] **Step 2: Resolve the three-load-pipe assumption before cutover**
 
@@ -1237,71 +1434,133 @@ python3 tools/chisel/check_production_owner_manifest.py
 
 Commit intent: `Prepare the production LSU without cloning its state owners`
 
-### Task 15: Atomically cut IEX-LSU onto the canonical typed boundary
+### Task 15: Atomically cut OOO-IEX-LSU onto the canonical typed boundaries
 
 **Files:**
+- Create: `chisel/src/main/scala/linxcore/iex/IEX.scala`
 - Create: `chisel/src/main/scala/linxcore/lsu/LSU.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXIssueSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXPipesSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXTerminalSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/OOOIEXIntegrationSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/lsu/LSUStoreSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/lsu/IEXLSUIntegrationSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala`
+- Create: `chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala`
+- Create: `tools/chisel/ooo_iex_lsu_activation_tb.cpp`
+- Create: `tools/chisel/run_ooo_iex_lsu_activation_probe.sh`
+- Create: `docs/spec/20-behavior/iex.md`
 - Create: `docs/spec/20-behavior/lsu.md`
-- Modify: `chisel/src/main/scala/linxcore/iex/IEX.scala`
+- Modify: `chisel/src/main/scala/linxcore/ooo/OOO.scala`
+- Modify: `docs/chisel/production-owner-manifest.md`
 - Modify in place: production LSU mechanisms prepared by Task 14.
+- Modify in place: production IEX mechanisms prepared by Task 13.
 - Delete: old `ScalarLSU` outer public boundary after its production children
   are composed by `LSU`.
-- Delete: displaced `Reduced*` LSU owners、old wrappers、emitters、tests and docs
-  named by the owner manifest.
+- Delete: displaced `ReducedScalar*` and `Reduced*` LSU owners、old IEX/LSU
+  wrappers、emitters、tests and docs named by the owner manifest after every
+  active caller moves in this same cutover.
 
 **Interfaces:**
-- Consumes: exactly 2 canonical load-address、2 store-address、2 store-data
-  transactions、OOO commit authorization、lower-memory responses and recovery.
-- Produces: retained `LoadResultTxn`、store/load completion or fault、committed
-  memory requests、reservation credits and recovery acknowledgement.
+- Consumes: canonical classed `DispatchTxn`/`StoreDispatchTxn`, exactly 2
+  canonical load-address、2 store-address、2 store-data transactions, the
+  approved attempt lifecycle、OOO commit authorization、lower-memory responses
+  and canonical recovery.
+- Produces: one public `IEX` and one public `LSU`; retained `LoadResultTxn`、
+  atomic `CompletionTxn`/RF write/wakeup、store/load completion or fault、
+  committed memory requests、reservation credits and recovery acknowledgement.
 
-- [ ] **Step 1: Write canonical store/load boundary RED tests**
+- [ ] **Step 1: Write both public boundaries RED**
 
-Cover address/data merge、pair operations、two-pipe independence、forwarding、
+IEX RED covers stable classed-dispatch backpressure、exact identity retention、
+CMD/system independence、load-attempt rebind、two ALU、one BRU、two AGU、two
+STD and one atomic completion/RF/wakeup/recovery terminal fire. LSU RED covers
+address/data merge、pair operations、two-pipe independence、forwarding、
 unresolved older store、MDB replay、miss/refill、stale response rejection、
 lane-local backpressure、committed-store visibility and scoped recovery.
+Add collisions for `rebind + cancel`, stale lifecycle events, affected-STID
+recovery with a peer STID live, `CMD stalled + older BRU recovery`, system/CMD
+head-permit withdrawal, and exactly-once head side-effect fire.
 
 Run:
 
 ```bash
+bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
 bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec
 bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
 ```
 
-- [ ] **Step 2: Perform the one-time IEX-LSU interface change**
+- [ ] **Step 2: Perform one joint public-owner change**
 
-Change the selected production mechanisms and every live caller directly to
-`IEXLSUIO`/`LSUIO`. `LSU` composes the existing stateful children and owns no
-duplicate queue/cache state. Remove temporary conversion Bundles before GREEN.
+Create state-free composition shells `IEX` and `LSU`; change OOO, the prepared
+private IEX graph, the prepared private LSU graph and every live caller directly
+to canonical `OOOIEXIO`、`IEXLSUIO` and `LSUIO`. `IEX` owns no duplicate IQ、
+RF、FU、terminal or recovery state. `LSU` owns no duplicate STQ、SCB、LIQ、MDB、
+cache or recovery state. Initial identity binding and every rebind/launch/cancel
+must use the approved typed lifecycle; remove every temporary conversion Bundle
+before GREEN.
 
-- [ ] **Step 3: Delete the displaced LSU chain**
-
-Delete the old `ScalarLSU` public shell and all reduced LSU owners with no
-canonical caller. Retain production STQ/SCB/LIQ/MDB/cache helpers even when
-their historical class names remain; class-name cleanup is not a reason to
-rewrite state.
-
-- [ ] **Step 4: Run cutover promotion**
+- [ ] **Step 3: Run pre-deletion cutover promotion**
 
 Run:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec
 bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXIssueSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIEXIntegrationSpec
 bash tools/chisel/run_chisel_tests.sh --only IEXLSUIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIEXLSUActivationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh
 bash tools/chisel/run_chisel_brob_store_range_state_probe.sh
+bash tools/chisel/run_ooo_iex_lsu_activation_probe.sh
 python3 tools/chisel/check_production_owner_manifest.py
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 ```
 
+Expected: W2/W4/W6/W8 elaborate the one live OOO-IEX-LSU graph. W4 contains
+2 ALU、1 BRU、2 AGU、2 STD、1 system/multicycle queue、1 CMD queue、2 load
+pipes and 2 store pipes. No active `ReducedScalar*` IEX owner or displaced LSU
+owner remains.
+
+The emitted-RTL activation probe is a retained subsystem harness, not a second
+core. It drives a bounded canonical uop program through the emitted public
+graph, compares completion、RF write、branch target and memory transactions to
+literal reference results with zero mismatch, and requires nonzero ALU、BRU、
+AGU、STD、load、store、system and CMD activation. It also observes independent
+backpressure, performs one exact rebind, and proves one affected-STID recovery
+while a peer STID progresses. Old-chain deletion is forbidden unless this
+generated-RTL bounded-reference evidence is GREEN.
+
+- [ ] **Step 4: Delete both displaced chains and rerun closure**
+
+Only after every Step-3 gate is GREEN, delete the old reduced issue/RF/ALU/
+completion graph, old IEX public wrappers, the old `ScalarLSU` public shell and
+reduced LSU owners after `rg` proves no active caller. Retain production IEX
+helpers and production STQ/SCB/LIQ/MDB/cache helpers even when a historical
+private class name remains; naming alone is not authority to rewrite state.
+
+Rerun the generated-RTL reference and structural closure on the post-deletion
+tree:
+
+```bash
+bash tools/chisel/run_ooo_iex_lsu_activation_probe.sh
+python3 tools/chisel/check_production_owner_manifest.py
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+git diff --check
+```
+
 - [ ] **Step 5: Commit and push**
 
-Commit intent: `Switch IEX and LSU once and retire the reduced memory chain`
+Commit intent: `Switch OOO IEX and LSU once and retire both reduced chains`
 
 ### Task 16: Close translation, cache, lower memory and recovery inside the live LSU
 
@@ -1425,7 +1684,7 @@ Commit intent: `Keep debug observable without creating a second control machine`
 - Create: `tools/chisel/run_top_natural.sh`
 - Create: `tools/chisel/run_dual_benchmark_gate.sh`
 - Create: `tests/test_top_natural.py`
-- Create: `docs/spec/30-interfaces/top-external.md`
+- Modify: `docs/spec/30-interfaces/top-external.md`
 - Modify: `chisel/src/main/scala/linxcore/top/interface/EmitInterfaceManifest.scala`
 - Modify: `chisel/src/test/scala/linxcore/top/interface/TopInterfaceSpec.scala`
 - Modify: `chisel/src/test/scala/linxcore/top/interface/InterfaceManifestSpec.scala`
@@ -1448,7 +1707,7 @@ Commit intent: `Keep debug observable without creating a second control machine`
 
 - [ ] **Step 1: Write failing TOP connectivity tests**
 
-Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking. Add a failing manifest assertion that `TOPIO` is present as the external composition endpoint and every leaf resolves to `IFC-TOP-EXT-*`; that clause may depend on the existing memory、commit and DTU leaf contracts without copying their payload definitions. The contract test must also assert the single core clock/reset domain and reject an unqualified raw/asynchronous input.
+Tests instantiate W2/W4/W6/W8 and assert every cross-box field is driven once, no box IO is tied off in W4, no direct IEX-to-IFU control exists, TOP contains no Queue/Reg-based architectural owner and all trace channels are non-blocking. Add a failing manifest assertion that `TOPIO` is present as the external composition endpoint and every leaf resolves to `IFC-TOP-EXT-*`; that clause may depend on the existing memory、commit and DTU leaf contracts without copying their payload definitions. The contract test must also assert the single core clock/reset domain, preserve the Task-13 `EngineCommandTxn` ready/valid endpoint without an always-ready sink, and reject an unqualified raw/asynchronous input.
 
 - [ ] **Step 2: Run failing tests**
 
