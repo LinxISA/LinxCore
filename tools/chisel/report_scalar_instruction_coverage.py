@@ -54,7 +54,8 @@ EXPECTED_CATALOG_FORMS = 769
 EXPECTED_VECTOR_FORMS = 184
 EXPECTED_TILE_PTO_DESCRIPTORS = 30
 EXPECTED_VECTOR_MODE_BLOCK_DESCRIPTORS = 8
-EXPECTED_SCALAR_DENOMINATOR = 547
+EXPECTED_RETIRED_LOCKED_FORMS = 6
+EXPECTED_SCALAR_DENOMINATOR = 541
 
 TILE_PTO_PREFIXES = (
     "BSTART.ACCCVT",
@@ -181,6 +182,10 @@ def is_vector_mode_block_descriptor(insn: dict[str, Any]) -> bool:
     return str(insn["mnemonic"]) in VECTOR_MODE_BLOCK_MNEMONICS
 
 
+def is_retired_locked_form(insn: dict[str, Any]) -> bool:
+    return str(insn["mnemonic"]) == "B.ARG"
+
+
 def _excluded_reason(insn: dict[str, Any]) -> str | None:
     reasons = []
     if is_vector_form(insn):
@@ -189,6 +194,8 @@ def _excluded_reason(insn: dict[str, Any]) -> str | None:
         reasons.append("tile_pto_descriptor")
     if is_vector_mode_block_descriptor(insn):
         reasons.append("vector_mode_block_descriptor")
+    if is_retired_locked_form(insn):
+        reasons.append("retired_locked_form")
     if len(reasons) > 1:
         raise ValueError(f"{insn['id']}: non-disjoint exclusion predicates: {reasons}")
     return reasons[0] if reasons else None
@@ -325,9 +332,9 @@ SOURCE_SHAPE_CONTRACTS = {
             "end_signature": EXPANDED_END_SIGNATURE,
             "forbidden_private_def_between_markers": True,
             "expected": {
-                "frontend_strict_decode": {"covered": 547, "denominator": 547},
-                "reduced_scalar_alu_support": {"covered": 207, "denominator": 547},
-                "cross_stack_aligned_support": {"covered": 207, "denominator": 547},
+                "frontend_strict_decode": {"covered": 541, "denominator": 541},
+                "reduced_scalar_alu_support": {"covered": 207, "denominator": 541},
+                "cross_stack_aligned_support": {"covered": 207, "denominator": 541},
             },
         },
         "legacy_clean_head": {
@@ -336,9 +343,9 @@ SOURCE_SHAPE_CONTRACTS = {
             "forbidden_private_def_between_markers": True,
             "forbidden_signature_after_start": EXPANDED_END_SIGNATURE,
             "expected": {
-                "frontend_strict_decode": {"covered": 547, "denominator": 547},
-                "reduced_scalar_alu_support": {"covered": 58, "denominator": 547},
-                "cross_stack_aligned_support": {"covered": 58, "denominator": 547},
+                "frontend_strict_decode": {"covered": 541, "denominator": 541},
+                "reduced_scalar_alu_support": {"covered": 58, "denominator": 541},
+                "cross_stack_aligned_support": {"covered": 58, "denominator": 541},
             },
         },
 }
@@ -420,6 +427,7 @@ def build_report(
         "vector_form": [],
         "tile_pto_descriptor": [],
         "vector_mode_block_descriptor": [],
+        "retired_locked_form": [],
     }
     scalar_forms: list[dict[str, Any]] = []
     for insn in instructions:
@@ -442,6 +450,10 @@ def build_report(
         raise ValueError(
             "vector-mode block descriptor count drifted: "
             f"{len(by_reason['vector_mode_block_descriptor'])}"
+        )
+    if len(by_reason["retired_locked_form"]) != EXPECTED_RETIRED_LOCKED_FORMS:
+        raise ValueError(
+            f"retired locked-form count drifted: {len(by_reason['retired_locked_form'])}"
         )
     if len(scalar_forms) != EXPECTED_SCALAR_DENOMINATOR:
         raise ValueError(f"scalar denominator drifted: {len(scalar_forms)}")

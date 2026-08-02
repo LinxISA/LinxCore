@@ -23,7 +23,7 @@ import sys
 catalog = json.load(open(sys.argv[1], encoding="utf-8"))
 assert catalog["version"] == 2
 rows = catalog["records"]
-assert len(rows) == 689
+assert len(rows) == 874
 allowed = {"DISPATCH", "FAST_RESOLVE", "CTU", "ILLEGAL"}
 assert all(row["ooo"]["disposition"] in allowed for row in rows)
 assert all(
@@ -58,6 +58,19 @@ assert by_symbol["OP_HL_SD_PCR"]["pc_read_parent"] == "PRIMARY"
 assert by_symbol["OP_HL_SD_PCR"]["pc_read_class"] == "ALU"
 assert by_symbol["OP_ACRC"]["disposition"] == "DISPATCH"
 assert by_symbol["OP_BSTART_TMA"]["recipe_kind"] == "ENGINE_CMD"
+for symbol in (
+    "OP_BSTART_VPAR",
+    "OP_BSTART_VSEQ",
+    "OP_C_BSTART_VPAR",
+    "OP_C_BSTART_VSEQ",
+    "OP_V_QPOP",
+    "OP_V_QPUSH",
+):
+    assert symbol in by_symbol
+
+tepl_carrier = next(row for row in rows if row["mnemonic"] == "bstart_tepl")
+assert tepl_carrier["flags"] == "DECODE_ONLY_CARRIER"
+assert tepl_carrier["ooo"]["recipe_kind"] == "ENGINE_CMD"
 PY
 
-echo "ooo-opcode-recipes: pass records=689 deterministic=yes"
+echo "ooo-opcode-recipes: pass records=874 deterministic=yes"

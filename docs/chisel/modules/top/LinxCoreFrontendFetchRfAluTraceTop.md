@@ -130,7 +130,9 @@ Linx memory ordering, block recovery, or architectural state.
 
 Returned line data passes source readiness, consumer readiness, return-pipe
 budget, pipe permit/select, byte extraction, and publish control. Publication
-is atomic with enqueue into `ScalarLSULoadReturnQueueBank`.
+is atomic with enqueue into `ScalarLSULoadReturnQueueBank`. The payload carries
+the canonical LIQ slot/generation lease and exact replay-attempt identity; the
+retained entry also preserves an exclusive data-or-terminal-fault result.
 
 The queue-bank admission split is deliberate:
 
@@ -153,6 +155,8 @@ to queue readiness.
   BID/GID/LSID entries while preserving older and independent entries.
 - Queue-head validity, ROB row status, and E4 residency are checked before
   drain.
+- LIQ slot reuse or replay generation change cannot authorize an older retained
+  attempt at the terminal side-effect point.
 
 ### E4, W1, and W2
 

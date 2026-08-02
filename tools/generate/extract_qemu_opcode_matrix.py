@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from opcode_catalog_lib import build_catalog, save_catalog
+from opcode_catalog_lib import build_locked_catalog, save_catalog
 
 THIS_FILE = Path(__file__).resolve()
 LINXCORE_ROOT = THIS_FILE.parents[2]
@@ -12,11 +12,13 @@ LINXISA_ROOT = THIS_FILE.parents[4]
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Extract Linx opcode catalog from QEMU decodetree files")
+    ap = argparse.ArgumentParser(
+        description="Generate the LinxCore opcode catalog from the locked LinxISA/PTO snapshot"
+    )
     ap.add_argument(
-        "--qemu-linx-dir",
-        default=str(LINXISA_ROOT / "emulator/qemu/target/linx"),
-        help="Path to qemu/target/linx directory",
+        "--linxisa-root",
+        default=str(LINXISA_ROOT),
+        help="Path to the LinxISA superproject containing isa/v0.57",
     )
     ap.add_argument(
         "--out",
@@ -25,20 +27,23 @@ def main() -> int:
     )
     ap.add_argument(
         "--isa-profile",
-        default=None,
-        help="Optional LinxISA profile supplement, e.g. v0.57 for source-golden forms not yet in QEMU",
+        default="v0.57",
+        help="Locked LinxISA profile (default: v0.57)",
     )
     args = ap.parse_args()
 
-    qemu_dir = Path(args.qemu_linx_dir)
     out = Path(args.out)
-    catalog = build_catalog(qemu_dir, isa_profile=args.isa_profile)
+    catalog = build_locked_catalog(Path(args.linxisa_root), profile=args.isa_profile)
     save_catalog(out, catalog)
 
     records = catalog["records"]
     syms = {r["symbol"] for r in records}
     print(f"wrote {out}")
-    print(f"mnemonics={len(records)} unique_symbols={len(syms)}")
+    family_counts = catalog["source"]["tile_family_counts"]
+    print(
+        f"forms={len(records)} unique_symbols={len(syms)} "
+        f"TEPL={family_counts['TEPL']} TMA={family_counts['TMA']} CUBE={family_counts['CUBE']}"
+    )
     return 0
 
 

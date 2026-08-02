@@ -229,6 +229,8 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedLiq.io.attemptRebind := 0.U.asTypeOf(integratedLiq.io.attemptRebind)
   integratedLiq.io.launchValid := false.B
   integratedLiq.io.launchIndex := 0.U
+  integratedLiq.io.launchIntentValid := false.B
+  integratedLiq.io.launchIntentIndex := 0.U
   integratedLiq.io.pickValid := false.B
   integratedLiq.io.pickIndex := 0.U
   integratedLiq.io.scbReturnValid := false.B
@@ -242,6 +244,9 @@ class ScalarLSUMDBPathProbe extends Module {
   integratedLiq.io.e2ScbReturned := false.B
   integratedLiq.io.e2StqReturned := false.B
   integratedLiq.io.e2ReturnReady := false.B
+  integratedLiq.io.forwardResultValid := false.B
+  integratedLiq.io.forwardResult :=
+    0.U.asTypeOf(integratedLiq.io.forwardResult)
   integratedLiq.io.replayWakeValid := false.B
   integratedLiq.io.replayWake := 0.U.asTypeOf(integratedLiq.io.replayWake)
   integratedLiq.io.refillValid := false.B

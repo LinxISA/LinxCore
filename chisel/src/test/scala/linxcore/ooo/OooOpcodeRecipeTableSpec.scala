@@ -22,10 +22,15 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       fail(s"missing generated recipe rule for $symbol"))
 
   test("generated recipes classify every encoded catalog form and fail closed explicitly") {
-    assert(OooOpcodeRecipeTable.CatalogRecordCount == 689)
-    assert(OooOpcodeRecipeTable.DecodeRuleCount == 687)
-    assert(OooOpcodeRecipeTable.OpcodeCount == 658)
+    assert(OooOpcodeRecipeTable.CatalogRecordCount == 874)
+    assert(OooOpcodeRecipeTable.DecodeRuleCount == 872)
+    assert(OooOpcodeRecipeTable.OpcodeCount == 736)
     assert(OooOpcodeRecipeTable.Rules.size == OooOpcodeRecipeTable.DecodeRuleCount)
+    val catalogOnlyRecordCount = OooOpcodeRecipeTable.CatalogRecordCount -
+      OooOpcodeRecipeTable.DecodeRuleCount
+    assert(catalogOnlyRecordCount == 2)
+    assert(OooOpcodeRecipeTable.Rules.map(_.opcode).distinct.size +
+      catalogOnlyRecordCount == OooOpcodeRecipeTable.OpcodeCount)
     assert(OooOpcodeRecipeTable.Rules.forall { entry =>
       entry.disposition >= OooOpcodeDisposition.Dispatch &&
       entry.disposition <= OooOpcodeDisposition.Illegal
@@ -69,6 +74,11 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_EBREAK").fastResolveClass == OooFastResolveClass.PreciseTrapRecord)
     assert(rule("OP_ACRC").dispatchClass == OooDispatchClass.Sys)
     assert(rule("OP_BSTART_TMA").recipeKind == OooOpcodeRecipeKind.EngineCmd)
+    val teplCarrier = OooOpcodeRecipeTable.Rules.find { entry =>
+      entry.symbol == "OP_BSTART_TEPL" && entry.mask == BigInt("fffff", 16)
+    }.getOrElse(fail("missing generic BSTART.TEPL structural decode carrier"))
+    assert(teplCarrier.disposition == OooOpcodeDisposition.Dispatch)
+    assert(teplCarrier.recipeKind == OooOpcodeRecipeKind.EngineCmd)
     assert(rule("OP_ADD").pcReadRequired == false)
     assert(rule("OP_B_Z").pcReadRequired)
     assert(rule("OP_JR").pcReadRequired)
@@ -131,6 +141,25 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.meta.valid.expect(false.B)
       dut.io.meta.disposition.expect(OooOpcodeDisposition.Illegal.U)
+    }
+  }
+
+  test("generic TEPL carrier traps reserved selectors behind named direct operations") {
+    val p = OooParams()
+    simulate(new OooOpcodeRecipeProbe(p)) { dut =>
+      dut.io.insn.poke("h00019181".U)
+      dut.io.lenBytes.poke(4.U)
+      dut.clock.step()
+      dut.io.meta.valid.expect(true.B)
+      dut.io.meta.disposition.expect(OooOpcodeDisposition.Dispatch.U)
+      dut.io.meta.recipeKind.expect(OooOpcodeRecipeKind.EngineCmd.U)
+
+      dut.io.insn.poke("h00519181".U)
+      dut.clock.step()
+      dut.io.meta.valid.expect(false.B)
+      dut.io.meta.disposition.expect(OooOpcodeDisposition.Illegal.U)
+      dut.io.meta.recipeKind.expect(OooOpcodeRecipeKind.Illegal.U)
+      dut.io.meta.dispatchWrites.expect(0.U)
     }
   }
 

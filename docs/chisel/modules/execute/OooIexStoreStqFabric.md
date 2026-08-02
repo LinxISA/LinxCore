@@ -49,6 +49,13 @@ byte-mask phase followed by a data phase; only the returned exact lease can set
 the metadata row's `dataReady`. Commit drain and forwarding consumers observe
 the same joined row projection, so the physical data array has one owner.
 
+Before an address fill mutates STQ, `lateStaCandidate` exposes its complete MDB
+probe and remains stable while `lateStaPermit` is false. `lateStaProbe` is the
+accepted side-effect pulse, not the capacity request. This permits a composed
+MDB owner to reserve record/wait/recovery capacity before STQ acceptance and
+prevents a store address from becoming visible without its conflict side
+effect.
+
 The same held `OooResidencyRecoveryPlan` is prepared by both retained store
 pipelines and the STQ. Prepare is side-effect free and fences reserve, STA/STD
 acceptance, fill, commit-mark, and free mutation. Recovery can fire only when
@@ -81,7 +88,8 @@ bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 ```
 
 The focused fabric UT covers two simultaneously resident logical stores with
-crossed STA/STD lanes, two simultaneous independent STD data-bank writes,
+crossed STA/STD lanes, retained late-STA capacity backpressure, two
+simultaneous independent STD data-bank writes,
 refusal of unreserved execution, side-effect-free
 recovery prepare, mutation fencing, common-fire application, and rejection of
 a split-store partial cut after the rows have transferred from IQ. The adjacent
@@ -95,9 +103,6 @@ STD before reservation, after reservation, and in resident S3.
 
 - Extend the physical data bank beyond the current scalar payload contract to
   vector/FSU widths, cross-bank ECC/parity, and explicit power-gating policy.
-- Compose the joined canonical STQ snapshot into store-to-load forwarding,
-  partial-overlap detection, violation
-  replay, and LIQ/STQ memory-order checks.
 - Connect translation, PMP/PMA, MMIO classification, L1D/coherence, and
   externally visible fault publication.
 - Prove sustained two-STA pressure alongside the now-directed two-STD path,

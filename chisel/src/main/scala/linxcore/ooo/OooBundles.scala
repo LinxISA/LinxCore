@@ -892,6 +892,15 @@ class OooIexLoadGeneration(val p: OooParams = OooParams()) extends Bundle {
   val generation = UInt(p.loadGenerationWidth.W)
 }
 
+/** Retained canonical LSU return before atomic RF/wakeup/ROB publication. */
+class OooIexLoadResult(val p: OooParams = OooParams()) extends Bundle {
+  val agu = new OooIexAguLoadRequest(p)
+  val load = new OooIexLoadGeneration(p)
+  val data = UInt(p.pcWidth.W)
+  val faultValid = Bool()
+  val faultCause = UInt(p.trapCauseWidth.W)
+}
+
 /** Producer-relative result age carried by the data bypass network. */
 object OooIexBypassStage extends ChiselEnum {
   val W1, W2, W3 = Value

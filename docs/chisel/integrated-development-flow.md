@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-13
+Date: 2026-07-31
 
 ## Purpose
 
@@ -24,23 +24,52 @@ as final correction point, provider rank, and retained training; a reduced
 
 ## Current Handoff
 
-The latest LSU packet is I0.15a production STQ-result ownership. I0.14's three
-replicated `STQLoadForwardingPipeline` ports still snapshot canonical
-`STQEntryBank` tags at E1 and read only generation-qualified `STQDataBank`
-payload at E3. I0.15a separates byte selection from the common E3/E4 result
-owner: `LoadForwardResultPipeline` consumes a typed selection, while
-`STQLoadForwardResultPipeline` consumes the canonical retained STQ response
-directly. `LoadSourceLineMerge` performs byte-exact partial L1D/SCB merge, and
-the STQ query now carries baseline valid-mask plus split source-return evidence.
-Selected data-not-ready stores enter ordinary E3/E4 replay classification;
-unknown older addresses, stale generation, missing/ambiguous full LSID, and
-cross-line/malformed queries take a separate retained hard-block boundary and
-cannot masquerade as cache misses. The next LSU packet must bind exact
-`OooIexLoadGeneration` values to canonical LIQ rows and make LIQ the sole
-wait/miss/relaunch owner before connecting the three production ports. It must
-also avoid duplicate retry or W1/W2 ownership between `OooIexLoadUnit` and
-`ScalarLSULoadPath`. FSU/vector STD, cross-line split loads,
-DTLB/PMP/PMA/device/coherence, timing, and workload promotion remain open.
+The latest LSU packet is I0.15c-b3c3b production execution/O3 installation.
+`OooIexExecutionStorePipeline` now instantiates one scalar-load attachment
+against the execution cluster's existing canonical metadata owner and the
+wrapper's existing STQ owner. `OooIexScalarLoadStorePath` owns only the live
+LIQ/L1D/MDB/LRET graph; three forwarding lanes and prospective late-STA MDB
+admission are private, and the old public load/STQ/MDB seams are removed from
+the O3 boundary. Emitted production structure proves exactly one attachment,
+one metadata owner, and one STQ. Recovery now joins execution/metadata,
+STQ/store, and scalar-load owners before one common fire. Raw launch intent is
+arbitrated independently from credit-qualified launch acceptance so replay
+rebind remains conservative without creating a terminal-backpressure ready
+loop.
+
+The preceding I0.15c-b3c2 packet provides live three-pipe forwarding.
+Every canonical LIQ launch atomically enters exactly one retained STQ query
+queue; each queue obeys Decoupled retention under external backpressure. Hard
+flush clears the transport, while typed precise recovery fences boundary fire
+and preserves surviving query/result ownership and reservations.
+Three retained STQ response lanes arbitrate into credit-controlled E3/E4, a
+separate retained structural-hard-block boundary, and the b3c1 exact-result
+retainer. Production elaboration contains no compatibility forwarding CAM.
+
+The preceding I0.15c-b2b execution-cluster cutover has
+`OooIexCanonicalLoadOwnership` atomically join the three-AGU LIQ allocation
+with the exact slot-plus-wrap terminal metadata sidecar; neither owner can
+accept alone. Exact replay rebind is likewise one common LIQ/OOO transaction,
+and canonical LRET/W1/W2 completion releases metadata only on the same terminal
+fire. Recovery prepare now fences without consuming AGU producers, while only
+the common recovery fire applies the exact kill. The emitted graph contains no
+legacy load tracker. I0.15c-b2a qualifies speculative wakeup only from the
+exact canonical LIQ launch attempt, emits old-generation cancel on exact
+rebind, one-shot fault cancel independent of terminal backpressure, and
+lane-qualified W1 bypass on ordinary data. Same-lane fault/rebind cancel
+collision serializes without loss. The production execution cluster now owns
+one canonical bridge for all three AGUs, exports its allocation/rebind/launch/
+completion ports through the closed OOO/IEX/store wrappers, joins its recovery
+readiness into the common execution fire, and contains no duplicate load
+request/retry/result owner. The obsolete `OooIexLoadUnit`, its capacity
+parameter, UT, abstract memory messages, and module page are deleted. Dynamic
+cluster IT proves E1 -> AGU -> canonical allocation -> launch wakeup -> atomic
+P-file/ROB terminal publication.
+The next I0.15c packet must define structural-hard-block consumption, replace
+the migration BID projection with common BID/BROB ordering authority, and
+extend recovery projection equality to every LSU queue. Physical SCB return,
+FSU/vector STD, cross-line split loads, DTLB/PMP/PMA/device/coherence, timing,
+and workload promotion remain open.
 
 The active backend handoff is OOO packet O8.3 physical closure.
 O4 P/T/U RENU, O5 dispatch/IEX residency, O6 fast resolve/non-flush, and O7
@@ -78,8 +107,9 @@ identity. `LinxCoreOooShell` proves private per-STID D2/D3/S1 retained rows,
 one shared grant per stage, stable backpressure, and different-STID stage
 concurrency.
 
-The first O2 slice is implemented.  The schema-v2 opcode catalog generates a
-689-record recipe audit and a 687-rule hardware priority decoder.  Parameterized
+The first O2 slice is implemented.  The schema-v2 opcode catalog generates the
+recipe audit and hardware priority decoder recorded in the generated
+`OooOpcodeRecipeTable` metadata.  Parameterized
 `OooD1Decode` normalizes 16/32/48/64-bit instructions into canonical P/T/U
 uops, preserves two pair-load destinations and all four register-indexed
 pair-store sources, diverts CTU parents, and converts illegal/fetch-fault rows

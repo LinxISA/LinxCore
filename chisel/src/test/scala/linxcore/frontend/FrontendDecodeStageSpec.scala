@@ -26,6 +26,7 @@ object FrontendDecodeStageReference {
 
   def decode(word: BigInt, lenBytes: Int): Option[FrontendOpcodeDecodeTable.Rule] =
     FrontendOpcodeDecodeTable.Rules.find(rule =>
+      !FrontendOpcodeDecodeTable.isDecodeOnlyCarrier(rule) &&
       rule.lenBytes == lenBytes && ((word & rule.mask) == rule.value))
 
   private def sext(value: BigInt, width: Int): BigInt = {
@@ -43,9 +44,9 @@ object FrontendDecodeStageReference {
     values.contains(rule.opcode)
 
   def operands(word: BigInt, lenBytes: Int): Option[OperandShape] = decode(word, lenBytes).map { rule =>
-    val cSetretAlias =
+    val cSetret =
       lenBytes == 2 &&
-        rule.opcode == FrontendOpcodeDecodeTable.OP_C_MOVI &&
+        rule.opcode == FrontendOpcodeDecodeTable.OP_C_SETRET &&
         ((word & BigInt("f83f", 16)) == BigInt("5016", 16))
     val src = Array.fill[Option[Int]](3)(None)
     var dst: Option[Int] = None
@@ -186,7 +187,7 @@ object FrontendDecodeStageReference {
     if (opcodeIs(
       rule,
       FrontendOpcodeDecodeTable.OP_SETRET,
-      FrontendOpcodeDecodeTable.OP_HL_SETRET) || cSetretAlias) {
+      FrontendOpcodeDecodeTable.OP_HL_SETRET) || cSetret) {
       dst = Some(10)
     }
     if (opcodeIs(rule,
@@ -227,12 +228,13 @@ object FrontendDecodeStageReference {
         }
       case FrontendOpcodeDecodeTable.ImmSIMM5_11_S5 => imm = Some(sext(bitRange(word, 15, 11), 5))
       case FrontendOpcodeDecodeTable.ImmSIMM5_6_S5 =>
-        if (cSetretAlias) {
+        if (cSetret) {
           imm = Some((bitRange(word, 10, 6) << 1) & Mask64)
         } else {
           imm = Some(sext(bitRange(word, 10, 6), 5))
         }
-      case FrontendOpcodeDecodeTable.ImmUIMM5 => imm = Some(bitRange(word, 10, 6))
+      case FrontendOpcodeDecodeTable.ImmUIMM5 =>
+        imm = Some(if (cSetret) (bitRange(word, 10, 6) << 1) & Mask64 else bitRange(word, 10, 6))
       case FrontendOpcodeDecodeTable.ImmFENTRY_UIMM_HI =>
         imm = Some((bitRange(word, 11, 7) << 10) | (bitRange(word, 31, 25) << 3))
       case FrontendOpcodeDecodeTable.ImmIMM32 =>
@@ -402,17 +404,23 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 687)
-    assert(FrontendOpcodeDecodeTable.OP_ADD == 61)
-    assert(FrontendOpcodeDecodeTable.OP_LD == 350)
-    assert(FrontendOpcodeDecodeTable.OP_SD == 389)
-    assert(FrontendOpcodeDecodeTable.OP_BIOR == 424)
-    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 41)
-    assert(FrontendOpcodeDecodeTable.OP_BSTOP == 591)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 871)
+    assert(FrontendOpcodeDecodeTable.OP_ADD == 50)
+    assert(FrontendOpcodeDecodeTable.OP_LD == 339)
+    assert(FrontendOpcodeDecodeTable.OP_SD == 378)
+    assert(FrontendOpcodeDecodeTable.OP_BIOR == 413)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 36)
+    assert(FrontendOpcodeDecodeTable.OP_BSTOP == 663)
     assert(FrontendOpcodeDecodeTable.OP_BSTART_CUBE == 1)
-    assert(FrontendOpcodeDecodeTable.OP_BSTART_TMA == 23)
-    assert(FrontendOpcodeDecodeTable.OP_CASB == 75)
-    assert(FrontendOpcodeDecodeTable.OP_DMA == 86)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_TMA == 22)
+    assert(FrontendOpcodeDecodeTable.OP_CASB == 64)
+    assert(FrontendOpcodeDecodeTable.OP_DMA == 75)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VPAR == 731)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VSEQ == 732)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VPAR == 733)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VSEQ == 734)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPOP == 735)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPUSH == 736)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
   }
@@ -480,7 +488,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   test("reference decode uses the pyCircuit most-specific mask rule") {
     assert(decode(0x0000, lenBytes = 2).map(_.symbol).contains("OP_C_BSTOP"))
     assert(decode(0x0002, lenBytes = 2).map(_.symbol).contains("OP_C_BSTART_DIRECT"))
-    assert(decode(0x5096, lenBytes = 2).map(_.symbol).contains("OP_C_MOVI"))
+    assert(decode(0x5096, lenBytes = 2).map(_.symbol).contains("OP_C_SETRET"))
     assert(decode(0x00000001L, lenBytes = 4).map(_.symbol).contains("OP_BSTOP"))
     assert(decode(0x00002001L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_STD_DIRECT"))
     assert(decode(0x00000005L, lenBytes = 4).map(_.symbol).contains("OP_ADD"))
@@ -491,6 +499,13 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(decode(0x00811181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TMA"))
     assert(decode(0x00131181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
     assert(decode(0x00631181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
+    assert(decode(0x00019181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TEPL"))
+    assert(decode(0x07d19181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TEPL"))
+    assert(decode(0x00519181L, lenBytes = 4).isEmpty)
+    assert(decode(0x00911181L, lenBytes = 4).isEmpty)
+    assert(decode(0x00331181L, lenBytes = 4).isEmpty)
+    assert(decode(0x00039181L, lenBytes = 4).isEmpty)
+    assert(decode(0x000fa023L, lenBytes = 4).isEmpty)
     assert(decode(0x0000001BL, lenBytes = 4).map(_.symbol).contains("OP_CASB"))
     assert(decode(0x0000101BL, lenBytes = 4).map(_.symbol).contains("OP_CASH"))
     assert(decode(0x0000201BL, lenBytes = 4).map(_.symbol).contains("OP_CASW"))

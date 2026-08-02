@@ -135,10 +135,54 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       query.bits.poke(0.U.asTypeOf(query.bits))
     }
     dut.io.loadForwardResponse.foreach(_.ready.poke(true.B))
+    dut.io.lateStaPermit.poke(true.B)
     dut.io.markCommitValid.poke(false.B)
     dut.io.markCommitIndex.poke(0.U)
     dut.io.commitFreeMaskValid.poke(false.B)
     dut.io.commitFreeMask.poke(0.U)
+  }
+
+  test("retains an address fill until its late STA side effect is permitted") {
+    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, 2, 2, BigInt("100000041", 16),
+        BigInt("200000041", 16))
+
+      dut.io.lateStaPermit.poke(false.B)
+      pokeExecute(dut.io.storeAddress(0).bits, addressHalf = true,
+        2, 2, BigInt("100000041", 16), BigInt("200000041", 16))
+      dut.io.storeAddress(0).valid.poke(true.B)
+      dut.io.storeAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeAddress(0).valid.poke(false.B)
+
+      dut.io.lateStaCandidate.valid.expect(true.B)
+      dut.io.lateStaCandidate.bits.addr.expect(0x1210.U)
+      dut.io.lateStaProbe.valid.expect(false.B)
+      dut.clock.step(2)
+      dut.io.lateStaCandidate.valid.expect(true.B)
+      dut.io.addrReadyMask.expect(0.U)
+
+      dut.io.lateStaPermit.poke(true.B)
+      dut.io.lateStaProbe.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.addrReadyMask.expect(1.U)
+    }
+  }
+
+  private def pokeLoadIdentity(
+      query: linxcore.lsu.STQLoadForwardQuery,
+      token: Int,
+      pipeIndex: Int): Unit = {
+    query.loadId.valid.poke(true.B)
+    query.loadId.slot.poke((token & 3).U)
+    query.loadId.generation.poke((token & 1).U)
+    query.attempt.valid.poke(true.B)
+    query.attempt.producer.valid.poke(true.B)
+    query.attempt.producer.nativeBidValid.poke(true.B)
+    query.attempt.producer.stid.poke(1.U)
+    query.attempt.generation.poke(token.U)
+    query.returnPipeIndex.poke(pipeIndex.U)
   }
 
   private def reserve(
@@ -212,6 +256,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       val loadQuery = dut.io.loadForwardQuery(0)
       loadQuery.bits.poke(0.U.asTypeOf(loadQuery.bits))
       loadQuery.bits.token.poke(0x55.U)
+      pokeLoadIdentity(loadQuery.bits, 0x55, pipeIndex = 0)
       loadQuery.bits.stid.poke(1.U)
       loadQuery.bits.loadBid.valid.poke(true.B)
       loadQuery.bits.loadBid.wrap.poke(false.B)
@@ -410,6 +455,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       val query = dut.io.loadForwardQuery(0)
       query.bits.poke(0.U.asTypeOf(query.bits))
       query.bits.token.poke(0x61.U)
+      pokeLoadIdentity(query.bits, 0x61, pipeIndex = 0)
       query.bits.stid.poke(1.U)
       query.bits.loadBid.valid.poke(true.B)
       query.bits.loadBid.value.poke(4.U)
@@ -427,6 +473,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.loadForwardResponse(0).bits.blocked.expect(true.B)
 
       query.bits.token.poke(0x62.U)
+      pokeLoadIdentity(query.bits, 0x62, pipeIndex = 0)
       query.bits.address.poke(0x1200.U)
       query.bits.size.poke(8.U)
       query.valid.poke(true.B)

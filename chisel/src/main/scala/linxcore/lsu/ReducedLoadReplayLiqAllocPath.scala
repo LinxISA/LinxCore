@@ -335,6 +335,8 @@ class ReducedLoadReplayLiqAllocPath(
 
   liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
   liq.io.launchIndex := launchSelect.io.launchIndex
+  liq.io.launchIntentValid := io.launchEnable && launchSelect.io.launchValid
+  liq.io.launchIntentIndex := launchSelect.io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
   liq.io.scbReturnValid := io.scbReturnValid
@@ -348,6 +350,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.e2ScbReturned := io.e2ScbReturned
   liq.io.e2StqReturned := io.e2StqReturned
   liq.io.e2ReturnReady := io.e2ReturnReady
+  liq.io.forwardResultValid := false.B
+  liq.io.forwardResult := 0.U.asTypeOf(liq.io.forwardResult)
   liq.io.replayWakeValid := io.replayWakeValid
   liq.io.replayWake := io.replayWake
   liq.io.refillValid := io.refillValid

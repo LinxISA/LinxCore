@@ -157,6 +157,37 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadMissQueue"))
   }
 
+  test("production load path elaborates three canonical STQ result lanes without the compatibility CAM") {
+    val lsu = ScalarLsuParams(
+      stqEntries = 8,
+      commitQueueEntries = 4,
+      commitIssueWidth = 1,
+      scbEntries = 4,
+      liqEntries = 4,
+      loadMissQueueEntries = 2,
+      resolveQueueEntries = 8,
+      loadReturnQueueEntries = 2,
+      loadReturnPipeCount = 3,
+      mapQDepth = 8
+    )
+    val sv = ChiselStage.emitSystemVerilog(new ScalarLSULoadPath(
+      CoreParams(robEntries = 8, lsidWidth = 40, scalarLsu = lsu),
+      useExternalStqForwarding = true,
+      stqForwardRobEntries = 8,
+      stqForwardTokenWidth = 40))
+
+    assert(sv.contains("module STQLoadForwardResultPipeline"))
+    assert(sv.contains("module LoadForwardResultRetainer"))
+    assert(sv.contains("module LoadSourceLineMerge"))
+    assert(!sv.contains("module LoadForwardPipeline"))
+    assert(!sv.contains("module LoadStoreForwarding"))
+    assert(sv.contains("stqForward_queries_2_valid"))
+    assert(sv.contains("stqForward_responses_2_valid"))
+    assert(sv.contains("stqForward_hardBlock_valid"))
+    assert(sv.contains("stqForward_resultPending"))
+    assert(sv.contains("stqForward_protocolError"))
+  }
+
   test("load-return launch credit is reserved independently per STID and pipe") {
     val depth = 2
     val lanes = Array.fill(4)((0, 0)) // resident, reserved

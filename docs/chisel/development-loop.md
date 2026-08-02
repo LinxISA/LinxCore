@@ -1,6 +1,6 @@
 # LinxCore Chisel Development Loop
 
-Date: 2026-07-28
+Date: 2026-07-31
 
 ## Purpose
 
@@ -9,6 +9,33 @@ Start with `docs/chisel/integrated-development-flow.md` for the optimized
 compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
+
+The active LSU priority is I0.15c-b3 live scalar-LSU composition. The b3c3b
+production wrapper now installs the b3c3a scalar-load attachment against the
+existing execution-cluster metadata owner and existing STQ owner. It keeps all
+three forwarding lanes and prospective MDB admission private, proves exactly
+one metadata/LIQ/STQ owner graph, and joins execution, store, and scalar-load
+recovery on one common fire. Raw launch intent is separate from downstream
+credit-qualified acceptance so same-row rebind exclusion does not form a
+terminal-ready loop.
+The b3c2
+packet now atomically queues every canonical LIQ launch onto one of three
+physical STQ lanes, retains queries under backpressure, reserves normal-result
+E3/E4/FIFO capacity, routes structural uncertainty separately, and applies the
+retained exact result without a production compatibility CAM. Hard flush
+clears transport; typed precise recovery fences external fire and preserves
+survivor reservations for post-recovery exact apply. The b3c1 result
+owner separates permanent stale rejection from retryable recovery or exact-row
+mutation conflicts. The c-b1 ownership bridge makes LIQ allocation, exact replay rebind, terminal metadata, and
+two-phase recovery atomic without introducing load lifecycle residency. c-b2a
+now derives speculative wakeup only from exact LIQ launch, derives cancel from
+exact rebind/fault, and restores lane-qualified W1 bypass. c-b2b replaces the
+three migration trackers with one canonical bridge in the execution cluster,
+propagates its typed LSU port through the closed wrappers, joins load metadata
+recovery readiness, and deletes the old tracker after replacement cluster IT
+passes. The next packet must define the retained hard-block consumer, replace
+the migration BID projection, and extend recovery projection equality to the
+remaining LSU owners.
 
 The active backend priority is OOO packet O8.3 physical closure. O7 global
 recovery and CTU reinsertion are packet-complete. O8.3e replaces the grouped

@@ -5,12 +5,9 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
 LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
 
-QEMU_LINX_DIR="${QEMU_LINX_DIR:-$(linxcore_resolve_qemu_linx_dir "${ROOT_DIR}" || true)}"
-if [[ ! -d "${QEMU_LINX_DIR}" ]]; then
-  echo "error: QEMU Linx decode tree not found: ${QEMU_LINX_DIR}" >&2
-  echo "hint: set QEMU_LINX_DIR=/abs/path/to/qemu/target/linx" >&2
-  echo "hint: or set LINXCORE_QEMU_ROOT=/abs/path/to/qemu" >&2
-  echo "hint: or set LINXISA_ROOT=/abs/path/to/linx-isa" >&2
+if [[ ! -d "${LINXISA_ROOT}/isa/v0.57" ]]; then
+  echo "error: locked LinxISA v0.57 snapshot not found under: ${LINXISA_ROOT}" >&2
+  echo "hint: set LINXISA_ROOT=/abs/path/to/linx-isa" >&2
   exit 1
 fi
 
@@ -21,7 +18,7 @@ if [[ ! -d "${PYC_ROOT}" ]]; then
   exit 1
 fi
 CALLFRAME_SIZE_RAW="${LINXCORE_CALLFRAME_SIZE:-0}"
-ISA_PROFILE="${LINXCORE_ISA_PROFILE:-}"
+ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.57}"
 CALLFRAME_SIZE="$(
 python3 - <<'PY' "${CALLFRAME_SIZE_RAW}"
 import sys
@@ -36,26 +33,23 @@ print(v & ((1 << 64) - 1))
 PY
 )"
 
-# Keep opcode ids/meta synchronized with QEMU decode trees. When
-# LINXCORE_ISA_PROFILE is set, add source-golden forms that QEMU has not
-# imported yet (v0.57 tile aliases and scalar 32-bit CAS/DMA).
+# The locked LinxISA/PTO snapshot is the sole opcode-generation authority.
+# QEMU consumes the resulting contract through its own parity gate/PR.
 extract_args=(
-  --qemu-linx-dir "${QEMU_LINX_DIR}"
+  --linxisa-root "${LINXISA_ROOT}"
+  --isa-profile "${ISA_PROFILE}"
   --out "${ROOT_DIR}/src/common/opcode_catalog.yaml"
 )
 parity_args=(
-  --qemu-linx-dir "${QEMU_LINX_DIR}"
+  --linxisa-root "${LINXISA_ROOT}"
+  --isa-profile "${ISA_PROFILE}"
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
 )
-if [[ -n "${ISA_PROFILE}" ]]; then
-  extract_args+=(--isa-profile "${ISA_PROFILE}")
-  parity_args+=(--allow-source-profile "${ISA_PROFILE}")
-fi
 python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" "${extract_args[@]}"
 python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --linxcore-common "${ROOT_DIR}/src/common" \
-  --qemu-linx-dir "${QEMU_LINX_DIR}"
+  --no-qemu-output
 python3 "${ROOT_DIR}/tools/chisel/gen_ooo_recipe_table.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --scala-out "${ROOT_DIR}/chisel/src/main/scala/linxcore/ooo/OooOpcodeRecipeTable.scala" \

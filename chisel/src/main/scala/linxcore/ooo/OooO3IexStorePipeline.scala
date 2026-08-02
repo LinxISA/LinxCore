@@ -2,8 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
-import linxcore.lsu.{MDBConflictStoreProbe, STQLoadForwardQuery,
-  STQLoadForwardResponse, STQMemoryClassifyToken, STQSerializedStoreRequest,
+import linxcore.common.CoreParams
+import linxcore.lsu.{STQMemoryClassifyToken, STQSerializedStoreRequest,
   STQSerializedStoreResponse}
 
 /** External production boundary around the retained O3, issue/execute, and
@@ -12,6 +12,7 @@ import linxcore.lsu.{MDBConflictStoreProbe, STQLoadForwardQuery,
   */
 class OooO3IexStorePipelineIO(
     val p: OooParams,
+    val coreParams: CoreParams,
     val stqEntries: Int,
     val storeCommitQueueEntries: Int,
     val scbEntries: Int) extends Bundle {
@@ -46,24 +47,10 @@ class OooO3IexStorePipelineIO(
   val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
-  val memoryResponse = Flipped(Vec(3,
-    Decoupled(new OooIexLoadMemoryResponse(p))))
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-  val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
-    new STQLoadForwardQuery(
-      p.robGroupsPerStid, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
-  val stqLoadForwardResponse = Vec(3, Decoupled(
-    new STQLoadForwardResponse(
-      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
-  val stqLoadForwardOccupied = Output(UInt(3.W))
-  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
-    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
-    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val scalarLoad = new OooIexScalarLoadExternalIO(
+    p, coreParams, stqEntries)
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
@@ -134,16 +121,27 @@ class OooO3IexStorePipeline(
     val storeCommitIssueWidth: Int = 2,
     val scbEntries: Int = 16,
     val scbResponseBufferDepth: Int = 4,
-    val storeLineBytes: Int = 64) extends Module {
+    val storeLineBytes: Int = 64,
+    val coreParamsOverride: Option[CoreParams] = None) extends Module {
   val p = profile.params
+  val coreParams = coreParamsOverride.getOrElse {
+    val base = OooIexCanonicalLoadOwnership.defaultCoreParams(p)
+    base.copy(scalarLsu = base.scalarLsu.copy(
+      stqEntries = stqEntries,
+      commitQueueEntries = storeCommitQueueEntries,
+      commitIssueWidth = storeCommitIssueWidth,
+      scbEntries = scbEntries,
+      scbResponseBufferDepth = scbResponseBufferDepth,
+      lineBytes = storeLineBytes))
+  }
   val io = IO(new OooO3IexStorePipelineIO(
-    p, stqEntries, storeCommitQueueEntries, scbEntries))
+    p, coreParams, stqEntries, storeCommitQueueEntries, scbEntries))
 
   val o3 = Module(new OooO3RenameCoordinator(
     p, profile.capabilityTopology))
   val iex = Module(new OooIexExecutionStorePipeline(
     profile, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
-    scbEntries, scbResponseBufferDepth, storeLineBytes))
+    scbEntries, scbResponseBufferDepth, storeLineBytes, Some(coreParams)))
 
   o3.io.reserve <> io.reserve
   o3.io.cancel := io.cancel
@@ -195,15 +193,8 @@ class OooO3IexStorePipeline(
   }
   io.floatingVector <> iex.io.floatingVector
   io.engineCommand <> iex.io.engineCommand
-  for (index <- 0 until 3) {
-    io.memoryRequest(index) <> iex.io.memoryRequest(index)
-    iex.io.memoryResponse(index) <> io.memoryResponse(index)
-  }
+  io.scalarLoad <> iex.io.scalarLoad
   io.loadCancel := iex.io.loadCancel
-  iex.io.stqLoadForwardQuery <> io.stqLoadForwardQuery
-  io.stqLoadForwardResponse <> iex.io.stqLoadForwardResponse
-  io.stqLoadForwardOccupied := iex.io.stqLoadForwardOccupied
-  io.lateStaProbe := iex.io.lateStaProbe
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> iex.io.bctrl(lane)
     io.trace(lane) <> iex.io.trace(lane)

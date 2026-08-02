@@ -6,6 +6,11 @@ import chisel3.util.{Cat, Decoupled, log2Ceil}
 import linxcore.common.LSIDOrder
 import linxcore.rob.ROBID
 
+object STQLoadForwardQuery {
+  // Protocol width, deliberately independent of a concrete LSU pipe count.
+  val ReturnPipeIndexWidth = 8
+}
+
 /** One production load lookup presented to the canonical STQ image. */
 class STQLoadForwardQuery(
     val robEntries: Int,
@@ -16,6 +21,9 @@ class STQLoadForwardQuery(
     val tokenWidth: Int = 64)
     extends Bundle {
   val token = UInt(tokenWidth.W)
+  val loadId = new LoadCanonicalRowIdentity
+  val attempt = new LoadAttemptIdentity
+  val returnPipeIndex = UInt(STQLoadForwardQuery.ReturnPipeIndexWidth.W)
   val stid = UInt(stidWidth.W)
   val loadBid = new ROBID(robEntries)
   val loadLsIdFullValid = Bool()
@@ -27,6 +35,13 @@ class STQLoadForwardQuery(
   val baseValidMask = UInt(lineBytes.W)
   val loadDataReturned = Bool()
   val scbReturned = Bool()
+}
+
+/** Minimal identity retained beside one asynchronous forwarding result. */
+class STQLoadForwardResultIdentity extends Bundle {
+  val loadId = new LoadCanonicalRowIdentity
+  val attempt = new LoadAttemptIdentity
+  val returnPipeIndex = UInt(STQLoadForwardQuery.ReturnPipeIndexWidth.W)
 }
 
 /** Retained E3 result from one replicated STQ load lookup pipe. */
@@ -146,6 +161,10 @@ class STQLoadForwardingPipeline(
     "production scalar STQ forwarding currently consumes 64-bit stores")
   require(lsidWidth >= 2,
     "full LSID must support modular serial ordering")
+  require(stidWidth <= LoadAttemptIdentity.ScopeWidth,
+    "STQ query STID must fit the canonical load-attempt producer scope")
+  require(loadPipes <= (1 << STQLoadForwardQuery.ReturnPipeIndexWidth),
+    "STQ load-pipe index must fit the canonical query protocol field")
 
   private val lineOffsetWidth = log2Ceil(lineBytes)
 
@@ -298,7 +317,14 @@ class STQLoadForwardingPipeline(
     unknownWait.pc := unknownPc
 
     val computed = Wire(chiselTypeOf(io.responses(pipe).bits))
-    val queryIdentityInvalid = !query.loadBid.valid ||
+    val loadIdInvalid = !query.loadId.valid ||
+      query.loadId.generation(
+        LoadAttemptIdentity.GenerationWidth - 1, 1).orR
+    val attemptInvalid = !query.attempt.valid ||
+      !LoadAttemptIdentity.wellFormed(query.attempt) ||
+      query.attempt.producer.stid =/= query.stid
+    val queryIdentityInvalid = loadIdInvalid || attemptInvalid ||
+      query.returnPipeIndex =/= pipe.U || !query.loadBid.valid ||
       !query.loadLsIdFullValid || query.size === 0.U
     val loadCrossesLine =
       (query.address(lineOffsetWidth - 1, 0) +& query.size) > lineBytes.U

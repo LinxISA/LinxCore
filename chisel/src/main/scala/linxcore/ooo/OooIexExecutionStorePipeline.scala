@@ -2,9 +2,9 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
+import linxcore.common.CoreParams
 
-import linxcore.lsu.{MDBConflictStoreProbe, STQEntryBankRow,
-  STQLoadForwardQuery, STQLoadForwardResponse, STQMemoryAttribute,
+import linxcore.lsu.{STQEntryBankRow, STQMemoryAttribute,
   STQMemoryClassifyToken, STQRobCommitToken, STQSCBCommitBackend,
   STQSerializedStoreRequest, STQSerializedStoreResponse}
 
@@ -17,6 +17,7 @@ import linxcore.lsu.{MDBConflictStoreProbe, STQEntryBankRow,
   */
 class OooIexExecutionStorePipelineIO(
     val p: OooParams,
+    val coreParams: CoreParams,
     val stqEntries: Int,
     val storeCommitQueueEntries: Int,
     val storeCommitIssueWidth: Int,
@@ -56,24 +57,10 @@ class OooIexExecutionStorePipelineIO(
   val pointerAuth = Vec(2, Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
   val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val memoryRequest = Vec(3, Decoupled(new OooIexLoadMemoryRequest(p)))
-  val memoryResponse = Flipped(Vec(3,
-    Decoupled(new OooIexLoadMemoryResponse(p))))
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-  val stqLoadForwardQuery = Flipped(Vec(3, Decoupled(
-    new STQLoadForwardQuery(
-      p.robGroupsPerStid, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
-  val stqLoadForwardResponse = Vec(3, Decoupled(
-    new STQLoadForwardResponse(
-      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
-      lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
-  val stqLoadForwardOccupied = Output(UInt(3.W))
-  val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
-    stidWidth = p.stidWidth, tidWidth = p.stidWidth,
-    sizeWidth = 7, lsidWidth = p.lsidWidth)))
+  val scalarLoad = new OooIexScalarLoadExternalIO(
+    p, coreParams, stqEntries)
 
   val bctrl = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalBctrl(p)))
@@ -196,6 +183,8 @@ class OooIexExecutionStoreRecoveryJoinIO(val p: OooParams) extends Bundle {
   val executionRejected = Input(Valid(new OooIexRecoveryReject(p)))
   val storeReady = Input(Bool())
   val storeRejected = Input(Bool())
+  val scalarLoadReady = Input(Bool())
+  val scalarLoadRejected = Input(Bool())
   val fire = Input(Bool())
 
   val prepareReady = Output(Bool())
@@ -212,13 +201,22 @@ class OooIexExecutionStoreRecoveryJoin(val p: OooParams) extends Module {
   val io = IO(new OooIexExecutionStoreRecoveryJoinIO(p))
 
   io.prepareReady := io.requested.valid && io.executionReady &&
-    io.executionPrepared.valid && io.storeReady
+    io.executionPrepared.valid && io.storeReady && io.scalarLoadReady
   io.prepared := io.executionPrepared
   io.prepared.valid := io.prepareReady
   io.commonFire := io.fire && io.prepareReady
 
   io.rejected := io.executionRejected
   when(!io.executionRejected.valid && io.requested.valid && io.storeRejected) {
+    io.rejected.valid := true.B
+    io.rejected.bits.requested := io.requested.bits
+    io.rejected.bits.stidInRange :=
+      io.requested.bits.oldHead.stid < p.stidCount.U
+    io.rejected.bits.residentRowsExact := false.B
+    io.rejected.bits.s1RowsExact := true.B
+  }
+  when(!io.executionRejected.valid && !io.storeRejected &&
+      io.requested.valid && io.scalarLoadRejected) {
     io.rejected.valid := true.B
     io.rejected.bits.requested := io.requested.bits
     io.rejected.bits.stidInRange :=
@@ -235,15 +233,28 @@ class OooIexExecutionStorePipeline(
     val storeCommitIssueWidth: Int = 2,
     val scbEntries: Int = 16,
     val scbResponseBufferDepth: Int = 4,
-    val storeLineBytes: Int = 64) extends Module {
+    val storeLineBytes: Int = 64,
+    val coreParamsOverride: Option[CoreParams] = None) extends Module {
   val p = profile.params
+  val coreParams = coreParamsOverride.getOrElse {
+    val base = OooIexCanonicalLoadOwnership.defaultCoreParams(p)
+    base.copy(scalarLsu = base.scalarLsu.copy(
+      stqEntries = stqEntries,
+      commitQueueEntries = storeCommitQueueEntries,
+      commitIssueWidth = storeCommitIssueWidth,
+      scbEntries = scbEntries,
+      scbResponseBufferDepth = scbResponseBufferDepth,
+      lineBytes = storeLineBytes))
+  }
   val io = IO(new OooIexExecutionStorePipelineIO(
-    p, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
+    p, coreParams, stqEntries, storeCommitQueueEntries, storeCommitIssueWidth,
     scbEntries))
 
   val execution = Module(new OooIexExecutionPipeline(
-    profile, requireStoreReservation = true))
+    profile, requireStoreReservation = true, Some(coreParams)))
   val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+  val scalarLoadStore = Module(new OooIexScalarLoadStorePath(
+    p, coreParams, stqEntries))
   val storeCommit = Module(new STQSCBCommitBackend(
     entries = stqEntries,
     queueEntries = storeCommitQueueEntries,
@@ -282,13 +293,30 @@ class OooIexExecutionStorePipeline(
   store.io.storeAddress <> execution.io.storeAddress
   store.io.storeData <> execution.io.storeData
   store.io.loadCancel := execution.io.loadCancel
-  store.io.loadForwardQuery <> io.stqLoadForwardQuery
-  io.stqLoadForwardResponse <> store.io.loadForwardResponse
-  io.stqLoadForwardOccupied := store.io.loadForwardOccupied
-  io.lateStaProbe := store.io.lateStaProbe
+  scalarLoadStore.io.owner.liqAlloc <> execution.io.load.liqAlloc
+  execution.io.load.liqAllocLoadId :=
+    scalarLoadStore.io.owner.liqAllocLoadId
+  execution.io.load.rebind <> scalarLoadStore.io.owner.rebind
+  scalarLoadStore.io.owner.liqRebind <> execution.io.load.liqRebind
+  execution.io.load.attemptLaunch :=
+    scalarLoadStore.io.owner.attemptLaunch
+  scalarLoadStore.io.owner.attemptLaunchAccepted :=
+    execution.io.load.attemptLaunchAccepted
+  execution.io.load.completion <> scalarLoadStore.io.owner.completion
+  scalarLoadStore.io.store.forwardQuery <> store.io.loadForwardQuery
+  store.io.loadForwardResponse <> scalarLoadStore.io.store.forwardResponse
+  scalarLoadStore.io.store.rows := store.io.rows
+  scalarLoadStore.io.store.lateStaProbe := store.io.lateStaProbe
+  scalarLoadStore.io.store.lateStaCandidate := store.io.lateStaCandidate
+  store.io.lateStaPermit := scalarLoadStore.io.store.lateStaPermit
+  scalarLoadStore.io.store.occupiedMask := store.io.occupiedMask
+  scalarLoadStore.io.store.forwardingOccupied :=
+    store.io.loadForwardOccupied
+  scalarLoadStore.io.external <> io.scalarLoad
 
   execution.io.recoveryPrepare := io.recoveryPrepare
   store.io.recoveryPrepare := io.recoveryPrepare
+  scalarLoadStore.io.recoveryPrepare := io.recoveryPrepare
   val recoveryJoin = Module(new OooIexExecutionStoreRecoveryJoin(p))
   recoveryJoin.io.requested := io.recoveryPrepare
   recoveryJoin.io.executionReady := execution.io.recoveryPrepareReady
@@ -296,12 +324,17 @@ class OooIexExecutionStorePipeline(
   recoveryJoin.io.executionRejected := execution.io.recoveryRejected
   recoveryJoin.io.storeReady := store.io.recoveryPrepareReady
   recoveryJoin.io.storeRejected := store.io.recoveryRejected
+  recoveryJoin.io.scalarLoadReady :=
+    scalarLoadStore.io.recoveryPrepareReady
+  recoveryJoin.io.scalarLoadRejected :=
+    scalarLoadStore.io.recoveryRejected
   recoveryJoin.io.fire := io.recoveryFire
   io.recoveryPrepareReady := recoveryJoin.io.prepareReady
   io.recoveryPrepared := recoveryJoin.io.prepared
   io.recoveryRejected := recoveryJoin.io.rejected
   execution.io.recoveryFire := recoveryJoin.io.commonFire
   store.io.recoveryFire := recoveryJoin.io.commonFire
+  scalarLoadStore.io.recoveryFire := recoveryJoin.io.commonFire
 
   for (index <- 0 until 2) {
     io.multiCycleAlu(index) <> execution.io.multiCycleAlu(index)
@@ -310,10 +343,6 @@ class OooIexExecutionStorePipeline(
   }
   io.floatingVector <> execution.io.floatingVector
   io.engineCommand <> execution.io.engineCommand
-  for (index <- 0 until 3) {
-    io.memoryRequest(index) <> execution.io.memoryRequest(index)
-    execution.io.memoryResponse(index) <> io.memoryResponse(index)
-  }
   io.loadCancel := execution.io.loadCancel
   for (lane <- 0 until p.iexTerminalWidth) {
     io.bctrl(lane) <> execution.io.bctrl(lane)
@@ -395,8 +424,10 @@ class OooIexExecutionStorePipeline(
   io.issueEmpty := execution.io.issueEmpty
   io.executionEmpty := execution.io.executionEmpty
   io.storeEmpty := store.io.empty && storeCommit.io.empty
-  io.empty := execution.io.empty && store.io.empty && storeCommit.io.empty
-  io.pProtocolError := execution.io.pProtocolError
+  io.empty := execution.io.empty && scalarLoadStore.io.external.empty &&
+    store.io.empty && storeCommit.io.empty
+  io.pProtocolError := execution.io.pProtocolError ||
+    scalarLoadStore.io.external.protocolError
   io.localProtocolError := execution.io.localProtocolError
 
   when(io.recoveryFire) {

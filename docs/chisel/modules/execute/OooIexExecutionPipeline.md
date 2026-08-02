@@ -43,8 +43,9 @@ expand to fourteen capability-disjoint picker/execution lanes:
 | BRU0 / BRU1 | branch/control |
 | FSU0 | floating/vector or engine command |
 
-Six simple ALU pipes, two BRU pipes, three load-address AGUs, and three scalar
-load trackers are internal. Store address, store data, multicycle ALU, system,
+Six simple ALU pipes, two BRU pipes, three load-address AGUs, and one canonical
+three-lane load ownership bridge are internal. Store address, store data,
+multicycle ALU, system,
 pointer authentication, floating/vector, and engine-command transactions are
 explicit retained outputs. An unimplemented family is therefore backpressured
 at its E1 owner; it is never silently consumed by an ALU fallback.
@@ -85,18 +86,20 @@ repick without modifying non-speculative RF readiness.
 
 ## Recovery and quiescence
 
-One held `OooResidencyRecoveryPlan` is prepared by the canonical issue owner
-and the canonical STQ/store owner. The production wrapper publishes ready only
-when both projections are ready. One common `recoveryFire` then applies that
-same plan to issue/read/E1, internal execution, retained STA/STD, and exact
-WAIT-state STQ rows on one edge. Recovery prepare fences STQ reservation,
+One held `OooResidencyRecoveryPlan` is prepared by the canonical issue owner,
+the execution-cluster load metadata owner, and the canonical STQ/store owner.
+The production wrapper publishes ready only when every connected projection is
+ready. One common `recoveryFire` then applies that same plan to issue/read/E1,
+internal execution/load metadata, retained STA/STD, and exact WAIT-state STQ
+rows on one edge. Recovery prepare fences load allocation/terminal publication
+and STQ reservation,
 fill, commit-mark, and free mutation. A recovery pivot that would retain only
 one child of a split store is rejected even after the children have left IQ
 residency.
 
 `empty` is true only when both the issue/read/E1 pipeline and the execution
 cluster are empty. It does not treat an empty IQ as backend quiescence while a
-W1/W2/load-tracker or retained external transaction still owns work.
+W1/W2/load-metadata or retained external transaction still owns work.
 
 ## Reference alignment
 
@@ -124,7 +127,8 @@ bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
 The terminal UT covers dual publication, independent cluster backpressure, and
 fire-qualified round-robin advancement. The cluster UT covers every explicit
 external family, malformed capability rejection, concurrent ALU W1 bypass,
-and two-lane W2 publication. The production-top structural IT elaborates all
+two-lane W2 publication, and one complete E1/AGU/canonical-allocation/launch/
+load-terminal transaction. The production-top structural IT elaborates all
 eight classes, eight banks, fourteen picker/E1 lanes, two terminal lanes, and
 the canonical STQ/store fabric. The adjacent dynamic IT drives the formal STA
 and STD execution lanes and proves that both halves fill one pre-reserved STQ
@@ -142,8 +146,8 @@ graph; O8/O9 must close that structural compile cost.
 - Implement internal multicycle ALU/divide, system, pointer-authentication,
   floating/vector, and engine-command owners instead of leaving retained
   integration boundaries.
-- Connect the three scalar-load memory ports to the canonical TLB/L1D/LIQ
-  adapter, including sidedoor/reissue and physical arbitration loss.
+- Connect sidedoor/reissue and physical memory arbitration-loss policy around
+  the now-installed scalar load port.
 - Replace cluster-local terminal modulo assignment only if synthesis shows a
   materially better fixed port map; do not introduce a global all-to-all
   result crossbar without measured timing evidence.

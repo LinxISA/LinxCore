@@ -44,6 +44,9 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     dut.io.alloc.bits.poke(0.U.asTypeOf(dut.io.alloc.bits))
     dut.io.rebind.valid.poke(false.B)
     dut.io.rebind.bits.poke(0.U.asTypeOf(dut.io.rebind.bits))
+    dut.io.attemptLaunch.valid.poke(false.B)
+    dut.io.attemptLaunch.bits.poke(
+      0.U.asTypeOf(dut.io.attemptLaunch.bits))
     dut.io.completion.valid.poke(false.B)
     dut.io.completion.bits.poke(0.U.asTypeOf(dut.io.completion.bits))
     dut.io.result.ready.poke(false.B)

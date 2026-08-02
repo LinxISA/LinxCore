@@ -77,6 +77,15 @@ LEGACY_SYMBOL_OVERRIDES = {
     "internal_c_setret": "OP_C_SETRET",
 }
 
+APPENDED_NON_PTO_OPCODE_SYMBOLS = (
+    "OP_BSTART_VPAR",
+    "OP_BSTART_VSEQ",
+    "OP_C_BSTART_VPAR",
+    "OP_C_BSTART_VSEQ",
+    "OP_V_QPOP",
+    "OP_V_QPUSH",
+)
+
 OP_ID_CATEGORY_OVERRIDES = {
     # Preserve existing opcode IDs when repairing the product category.
     "OP_HL_SDI": "ALU_INT",
@@ -106,6 +115,10 @@ class DecodeEntry:
     match: int
     fields: List[str]
     source_profile: str = ""
+    symbol_override: str = ""
+    operation_family: str = ""
+    operation_name: str = ""
+    imm_kind_override: str = ""
 
 
 def _pattern_to_mask_match(bits: str) -> tuple[int, int]:
@@ -119,6 +132,13 @@ def _pattern_to_mask_match(bits: str) -> tuple[int, int]:
             if ch == "1":
                 match |= 1
     return mask, match
+
+
+def _mask_match_to_pattern(mask: int, match: int, width: int) -> str:
+    return "".join(
+        "1" if (match >> bit) & 1 else "0" if (mask >> bit) & 1 else "."
+        for bit in range(width - 1, -1, -1)
+    )
 
 
 def _normalize_qemu_pattern(bits: str, enc_len: int, file_name: str) -> str | None:
@@ -288,8 +308,12 @@ def cmd_kind_for_mnemonic(mnemonic: str) -> str:
 def block_kind_for_mnemonic(mnemonic: str) -> str:
     m = mnemonic.lower()
     if "bstart" in m:
+        if "icall" in m:
+            return "ICALL"
         if "call" in m:
             return "CALL"
+        if m.endswith("_ind"):
+            return "IND"
         if "cond" in m:
             return "COND"
         if "direct" in m:
@@ -676,95 +700,397 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
 
 
 def _camel_to_decode_name(name: str) -> str:
-    return name.lower().replace(".", "_")
+    return re.sub(r"_+", "_", name.lower().replace(".", "_").replace(" ", "_")).strip("_")
 
 
-def _field_tokens_from_linxisa_instruction(insn: dict) -> list[str]:
-    fields = []
-    enc = insn.get("encoding", {})
-    parts = enc.get("parts", [])
-    if not parts:
-        return fields
-    for field in parts[0].get("fields", []):
-        name = str(field.get("name", ""))
-        if name:
-            fields.append(f"%{name}")
+def _field_tokens(parts: Iterable[dict]) -> list[str]:
+    fields: list[str] = []
+    for part in parts:
+        for field in part.get("fields", []):
+            name = str(field.get("name", ""))
+            token = f"%{name}" if name else ""
+            if token and token not in fields:
+                fields.append(token)
     return fields
 
 
-def load_linxisa_v057_supplement(linxisa_json: Path) -> list[DecodeEntry]:
-    data = json.loads(linxisa_json.read_text(encoding="utf-8"))
-    wanted = {
-        "BSTART.TPREFETCH",
-        "BSTART.MGATHER",
-        "BSTART.MSCATTER",
-        "BSTART.MGATHER.MASK",
-        "BSTART.MSCATTER.MASK",
-        "BSTART.MGATHER.CAS",
-        "BSTART.TMATMUL",
-        "BSTART.TMATMUL.BIAS",
-        "BSTART.TMATMUL.ACC",
-        "BSTART.TMATMULMX",
-        "BSTART.TMATMULMX.BIAS",
-        "BSTART.TMATMULMX.ACC",
-        "BSTART.TGEMV",
-        "BSTART.TGEMV.BIAS",
-        "BSTART.TGEMV.ACC",
-        "BSTART.TGEMVMX",
-        "BSTART.TGEMVMX.BIAS",
-        "BSTART.TGEMVMX.ACC",
-        "CASB",
-        "CASH",
-        "CASW",
-        "CASD",
-        "DMA",
+def _immediate_kind_from_fields(parts: list[dict]) -> str:
+    """Recover the stable frontend immediate-layout name from locked field pieces."""
+    for part in parts:
+        part_shift = 32 * int(part.get("index", 0)) if len(parts) > 1 else 0
+        for field in part.get("fields", []):
+            name = str(field.get("name", ""))
+            if "imm" not in name.lower():
+                continue
+            pieces = []
+            for piece in field.get("pieces", []):
+                lsb = int(piece.get("insn_lsb", piece.get("instruction_lsb", 0))) + part_shift
+                if "insn_msb" in piece:
+                    width = int(piece["insn_msb"]) - int(piece["insn_lsb"]) + 1
+                else:
+                    width = int(piece["width"])
+                pieces.append((lsb, width))
+            layout = tuple(sorted(pieces))
+            specialized = {
+                ("simm12", ((20, 12),)): "SIMM12_20_S12",
+                ("simm12", ((7, 5), (25, 7))): "SIMM12_7_S5_25_7",
+                ("simm5", ((11, 5),)): "SIMM5_11_S5",
+                ("simm5", ((6, 5),)): "SIMM5_6_S5",
+                ("simm17", ((6, 5), (36, 12))): "SIMM17_6_S5_36_12",
+                ("simm17", ((6, 5), (23, 5), (41, 7))): "SIMM17_6_S5_23_5_41_7",
+                ("simm17", ((11, 5), (23, 5), (41, 7))): "SIMM17_11_S5_23_5_41_7",
+                ("simm22", ((6, 10), (36, 12))): "SIMM22_6_S10_36_12",
+                ("simm22", ((6, 10), (23, 5), (41, 7))): "SIMM22_6_S10_23_5_41_7",
+                ("simm", ((7, 5), (20, 12))): "UIMM17_20_12_7_5",
+                ("simm", ((4, 12), (31, 17))): "SIMM_4_S12_31_17",
+                ("simm", ((4, 12), (23, 5), (36, 12))): "SIMM_4_S12_23_5_36_12",
+                ("simm", ((7, 25), (47, 17))): "SIMM42_7_S25_47_17",
+                ("uimm17", ((7, 5), (20, 12))): "UIMM17_20_12_7_5",
+                ("uimm", ((7, 5), (25, 7))): "FENTRY_UIMM_HI",
+                ("uimm32", ((4, 12), (28, 20))): "IMM32",
+                ("imm", ((4, 12), (28, 20))): "IMM32",
+            }
+            return specialized.get((name.lower(), layout), name.upper())
+    return "NONE"
+
+
+def _source_file_and_width(length_bits: int) -> tuple[str, int]:
+    if length_bits == 16:
+        return "insn16.decode", 16
+    if length_bits == 32:
+        return "insn32.decode", 32
+    if length_bits == 48:
+        return "insn48.decode", 64
+    if length_bits == 64:
+        return "insn64.decode", 64
+    raise ValueError(f"unsupported instruction length: {length_bits}")
+
+
+def _combine_encoding(parts: list[dict], length_bits: int) -> tuple[int, int, str, int, str]:
+    if not parts:
+        raise ValueError("instruction has no encoding parts")
+    mask = 0
+    match = 0
+    for part in parts:
+        index = int(part.get("index", 0))
+        width = int(part.get("width_bits", length_bits))
+        shift = 32 * index if len(parts) > 1 and width == 32 else 0
+        mask |= int(str(part["mask"]), 0) << shift
+        match |= int(str(part["match"]), 0) << shift
+    source_file, enc_len = _source_file_and_width(length_bits)
+    if length_bits == 48:
+        # Frontend/QEMU carry 48-bit instructions in a zero-extended 64-bit word.
+        mask |= 0xFFFF << 48
+    return mask, match, _mask_match_to_pattern(mask, match, enc_len), enc_len, source_file
+
+
+def _command_decode_name(form: dict) -> str:
+    mnemonic = str(form["mnemonic"])
+    asm = str(form.get("asm", "")).upper()
+    base = _camel_to_decode_name(mnemonic)
+    if mnemonic == "B.DIM":
+        match = re.search(r"->LB([0-2])", asm)
+        return f"b_dim_lb{match.group(1)}" if match else base
+    if mnemonic == "B.HINT" and "TRACE" in asm:
+        return "b_hint_trace"
+    if mnemonic == "BSTART":
+        return "bstart_split_cond" if " COND" in asm else "bstart_split_direct"
+    if mnemonic == "BSTART CALL":
+        return "start_call_32"
+    if mnemonic == "HL.BSTART CALL":
+        return "start_call_48"
+    if mnemonic == "C.BSTART":
+        return "c_bstart_cond" if " COND" in asm else "c_bstart_direct"
+    variants = ("FALL", "DIRECT", "COND", "CALL", "IND", "ICALL", "RET")
+    variant = next((name.lower() for name in variants if f" {name}" in asm), "")
+    if variant and mnemonic in {"BSTART.STD", "BSTART.FP", "HL.BSTART.STD", "HL.BSTART.FP"}:
+        prefix = "bstart" if mnemonic == "BSTART.STD" else base
+        return f"{prefix}_{variant}"
+    return base
+
+
+def _entry_from_linx_instruction(insn: dict) -> DecodeEntry:
+    parts = list(insn.get("encoding", {}).get("parts", []))
+    length_bits = int(insn["length_bits"])
+    mask, match, pattern, enc_len, source_file = _combine_encoding(parts, length_bits)
+    return DecodeEntry(
+        mnemonic=_camel_to_decode_name(str(insn["mnemonic"])),
+        file=source_file,
+        enc_len=enc_len,
+        pattern=pattern,
+        mask=mask,
+        match=match,
+        fields=_field_tokens(parts),
+        source_profile="v0.57.1",
+        imm_kind_override=_immediate_kind_from_fields(parts),
+    )
+
+
+def _entry_from_command_form(
+    form: dict,
+    *,
+    mnemonic: str | None = None,
+    mask: int | None = None,
+    match: int | None = None,
+    symbol_override: str = "",
+    operation_family: str = "",
+    operation_name: str = "",
+    imm_kind_override: str = "",
+) -> DecodeEntry:
+    encodings = list(form.get("encoding", []))
+    length_bits = int(form["length_bits"])
+    form_mask, form_match, pattern, enc_len, source_file = _combine_encoding(encodings, length_bits)
+    if mask is not None or match is not None:
+        form_mask = form_mask if mask is None else mask
+        form_match = form_match if match is None else match
+        pattern = _mask_match_to_pattern(form_mask, form_match, enc_len)
+    return DecodeEntry(
+        mnemonic=mnemonic or _command_decode_name(form),
+        file=source_file,
+        enc_len=enc_len,
+        pattern=pattern,
+        mask=form_mask,
+        match=form_match,
+        fields=[f"%{field['name']}" for field in form.get("fields", [])],
+        source_profile="v0.57.1",
+        symbol_override=symbol_override,
+        operation_family=operation_family,
+        operation_name=operation_name,
+        imm_kind_override=imm_kind_override
+        or _immediate_kind_from_fields([{"fields": list(form.get("fields", []))}]),
+    )
+
+
+def _resolve_snapshot_root(linxisa_root: Path | None = None, profile: str = "v0.57") -> Path:
+    root = linxisa_root
+    if root is None:
+        configured = os.environ.get("LINXISA_ROOT") or os.environ.get("LINXISA_DIR")
+        root = Path(configured) if configured else Path(__file__).resolve().parents[4]
+    snapshot = root / "isa" / profile
+    required = (
+        snapshot / f"linxisa-{profile}.json",
+        snapshot / "pto-spec.lock.json",
+        snapshot / "state" / "pto_command_forms.json",
+        snapshot / "state" / "pto_ops.json",
+    )
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("locked LinxISA snapshot is incomplete: " + ", ".join(missing))
+    return snapshot
+
+
+def load_locked_linxisa_entries(
+    linxisa_root: Path | None = None, *, profile: str = "v0.57"
+) -> tuple[list[DecodeEntry], dict[str, object]]:
+    snapshot = _resolve_snapshot_root(linxisa_root, profile)
+    isa = json.loads((snapshot / f"linxisa-{profile}.json").read_text(encoding="utf-8"))
+    lock = json.loads((snapshot / "pto-spec.lock.json").read_text(encoding="utf-8"))
+    command_forms = json.loads(
+        (snapshot / "state" / "pto_command_forms.json").read_text(encoding="utf-8")
+    )
+    operations = json.loads((snapshot / "state" / "pto_ops.json").read_text(encoding="utf-8"))
+
+    release = str(lock.get("release", ""))
+    if release != "0.57.1" or str(isa.get("version", "")) != release:
+        raise ValueError(f"expected locked ISA release 0.57.1, got lock={release!r} isa={isa.get('version')!r}")
+    expected_commit = "2f3f605e289b09d56ef5a9ba39fc80b52948a5f5"
+    if str(lock.get("source", {}).get("commit", "")) != expected_commit:
+        raise ValueError("PTO source commit does not match the reviewed 0.57.1 lock")
+    expected_lock_identity = {
+        "content_sha256": "748c1c6ac1bd5482d219cd08b8f0a871c7eda2b8f8afb1e81d498ec742e8abe8",
+        "encoding_abi": "pto-isa-0.57.1-mode-function-v1",
+        "encoding_projection_sha256": "9705a984e2e48e0d4e856d3fbcfa07041c8578dd326d81f1c90279e826354c32",
     }
-    out: list[DecodeEntry] = []
-    for insn in data.get("instructions", []):
-        mnemonic = str(insn.get("mnemonic", ""))
-        if mnemonic not in wanted:
+    for field, expected_value in expected_lock_identity.items():
+        if str(lock.get(field, "")) != expected_value:
+            raise ValueError(f"PTO {field} does not match the reviewed 0.57.1 lock")
+    expected_release_manifest = {
+        "path": "spec/release-manifest.json",
+        "sha256": "d85ee1cfcd51b1b86184ba015e9fb24ee61371165cf4691a5794f79618f7e273",
+    }
+    if lock.get("release_manifest") != expected_release_manifest:
+        raise ValueError("PTO release manifest does not match the reviewed 0.57.1 lock")
+    expected_hardware_profile = {
+        "path": "spec/hardware-conformance-profile.json",
+        "profile_id": "pto-hardware-numeric-0.57.1-ieee-v1",
+        "sha256": "becfbefcc7a31408e5e5293802493f833f68a2fccebb3f9e8008d8b9f4e7658c",
+    }
+    if lock.get("hardware_conformance_profile") != expected_hardware_profile:
+        raise ValueError("PTO hardware conformance profile does not match the reviewed 0.57.1 lock")
+    expected_numeric_vectors = {
+        "path": "spec/evidence/pto-isa-0571-hardware-numeric-vectors.json",
+        "sha256": "b9f908deb9cfec412388e95f4532563cf4e462032b43d15996f0f7b4b93b4ec9",
+    }
+    if lock.get("numeric_conformance_vectors") != expected_numeric_vectors:
+        raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.57.1 lock")
+    expected_hashes = {
+        "command_forms": "e5a98441098fdd88c0f5837bb3e1367d7b272ebc2ba506275e9e2be1b4c1978a",
+        "tile_operations": "e77c762122dd776ea8b1b2113e6d095b2db0fe24b5b98d0c26012db9fb98e64e",
+    }
+    for catalog_name, expected_hash in expected_hashes.items():
+        if str(lock["catalogs"][catalog_name].get("sha256", "")) != expected_hash:
+            raise ValueError(f"{catalog_name} hash does not match the reviewed 0.57.1 lock")
+    for projection in (command_forms, operations):
+        if projection.get("source_lock") != "isa/v0.57/pto-spec.lock.json":
+            raise ValueError("PTO projection is not bound to isa/v0.57/pto-spec.lock.json")
+    expected_forms = int(lock["catalogs"]["command_forms"]["count"])
+    expected_operations = int(lock["catalogs"]["tile_operations"]["count"])
+    if int(command_forms.get("form_count", -1)) != expected_forms or len(command_forms.get("forms", [])) != expected_forms:
+        raise ValueError("PTO command-form count does not match pto-spec.lock.json")
+    if int(operations.get("operation_count", -1)) != expected_operations or len(operations.get("operations", [])) != expected_operations:
+        raise ValueError("PTO operation count does not match pto-spec.lock.json")
+    expected_families = {"TEPL": 98, "TMA": 9, "CUBE": 13}
+    if operations.get("family_counts") != expected_families:
+        raise ValueError(f"unexpected PTO operation families: {operations.get('family_counts')!r}")
+    expected_deleted = [
+        "TADDC", "TADDSC", "TFMA", "TFMOD", "TFMODS", "TLRELU", "TRANDOM", "TSUBC", "TSUBSC"
+    ]
+    if sorted(operations.get("deleted_names", [])) != expected_deleted:
+        raise ValueError(f"unexpected deleted PTO operations: {operations.get('deleted_names')!r}")
+
+    non_pto_command_mnemonics = {
+        "BSTART.TEPL",
+        "BSTART.VPAR",
+        "BSTART.VSEQ",
+        "C.BSTART.VPAR",
+        "C.BSTART.VSEQ",
+        "V.QPOP",
+        "V.QPUSH",
+    }
+    present_non_pto_commands = {
+        str(insn.get("mnemonic", ""))
+        for insn in isa.get("instructions", [])
+        if str(insn.get("mnemonic", "")) in non_pto_command_mnemonics
+    }
+    if present_non_pto_commands != non_pto_command_mnemonics:
+        raise ValueError(
+            "locked LinxISA non-PTO command surface mismatch: "
+            f"expected={sorted(non_pto_command_mnemonics)!r} "
+            f"actual={sorted(present_non_pto_commands)!r}"
+        )
+    entries = [
+        _entry_from_linx_instruction(insn)
+        for insn in isa.get("instructions", [])
+        if str(insn.get("uop_group", "")) not in {"CMD", "BBD"}
+        or str(insn.get("mnemonic", "")) in non_pto_command_mnemonics
+    ]
+    forms = list(command_forms["forms"])
+    forbidden_forms = {"B.ARG", "BSTART.CUBE", "BSTART.FIXP"}
+    present_forbidden = sorted(
+        forbidden_forms.intersection(str(form.get("mnemonic", "")) for form in forms)
+    )
+    if present_forbidden:
+        raise ValueError(f"retired/generic PTO forms remain active: {present_forbidden}")
+    exact_command_encodings = {
+        "B.CATR": {(0xFBF07FFF, 0x00000023)},
+        "B.DATR": {(0x000C707F, 0x00001023)},
+        "B.IOT": {
+            (0xFC00787F, 0x00005013),
+            (0x0000707F, 0x00004013),
+            (0xFC07FBFF, 0x00005013),
+            (0xFFF07C7F, 0x00006013),
+            (0x0007F3FF, 0x00004013),
+        },
+    }
+    for mnemonic, expected_encodings in exact_command_encodings.items():
+        observed_encodings = {
+            (int(form["encoding"][0]["mask"], 0), int(form["encoding"][0]["match"], 0))
+            for form in forms
+            if form.get("mnemonic") == mnemonic
+        }
+        if observed_encodings != expected_encodings:
+            raise ValueError(f"unexpected locked encodings for {mnemonic}: {observed_encodings!r}")
+    generic_tepl = [form for form in forms if form.get("mnemonic") == "BSTART.TEPL"]
+    if len(generic_tepl) != 1:
+        raise ValueError(f"expected one generic BSTART.TEPL form, got {len(generic_tepl)}")
+    tepl_form = generic_tepl[0]
+    operation_by_command = {
+        str(operation.get("command_mnemonic")): operation
+        for operation in operations["operations"]
+        if operation.get("family") in {"TMA", "CUBE"}
+    }
+    for form in forms:
+        command_mnemonic = str(form["mnemonic"])
+        if command_mnemonic == "BSTART.TEPL":
             continue
-        enc_parts = insn.get("encoding", {}).get("parts", [])
-        if not enc_parts:
+        if command_mnemonic in {"C.BSTART.STD", "C.BSTART.FP"}:
+            base_mask = int(str(form["encoding"][0]["mask"]), 0)
+            base_match = int(str(form["encoding"][0]["match"]), 0)
+            variants = ("fall", "direct", "cond", "call", "ind", "icall", "ret")
+            for br_type, variant in enumerate(variants, start=1):
+                entries.append(
+                    _entry_from_command_form(
+                        form,
+                        mnemonic=(
+                            f"c_bstart_std_{variant}"
+                            if command_mnemonic == "C.BSTART.STD"
+                            else "c_bstart_fp"
+                        ),
+                        mask=base_mask | (0x7 << 11),
+                        match=base_match | (br_type << 11),
+                    )
+                )
             continue
-        enc = enc_parts[0]
-        out.append(
-            DecodeEntry(
-                mnemonic=_camel_to_decode_name(mnemonic),
-                file="insn32.decode",
-                enc_len=int(insn.get("length_bits", enc.get("length_bits", 32))),
-                pattern=str(enc["pattern"]),
-                mask=int(str(enc["mask"]), 0),
-                match=int(str(enc["match"]), 0),
-                fields=_field_tokens_from_linxisa_instruction(insn),
-                source_profile="v0.57",
+        operation = operation_by_command.get(command_mnemonic)
+        family = str(operation.get("family", "")) if operation else ""
+        command_imm_kind = {
+            "B.IOT": "IOTIMM4",
+            "BSTART CALL": "FUSED_CALL_SIMM12",
+            "HL.BSTART CALL": "FUSED_CALL_SIMM25",
+        }.get(command_mnemonic, "")
+        entries.append(
+            _entry_from_command_form(
+                form,
+                symbol_override=f"OP_BSTART_{family}" if family else "",
+                operation_family=family,
+                operation_name=str(operation.get("name", "")) if operation else "",
+                imm_kind_override=command_imm_kind,
             )
         )
-    return out
+    for operation in operations["operations"]:
+        if operation.get("family") != "TEPL":
+            continue
+        selector = int(str(operation["selector"]), 0)
+        base_mask = int(str(tepl_form["encoding"][0]["mask"]), 0)
+        base_match = int(str(tepl_form["encoding"][0]["match"]), 0)
+        entries.append(
+            _entry_from_command_form(
+                tepl_form,
+                mnemonic=f"bstart_{str(operation['name']).lower()}",
+                mask=base_mask | (0x7F << 20),
+                match=base_match | (selector << 20),
+                symbol_override="OP_BSTART_TEPL",
+                operation_family="TEPL",
+                operation_name=str(operation["name"]),
+            )
+        )
+    metadata: dict[str, object] = {
+        "release": release,
+        "pto_spec_commit": str(lock["source"]["commit"]),
+        "pto_spec_content_sha256": str(lock["content_sha256"]),
+        "pto_spec_encoding_abi": str(lock["encoding_abi"]),
+        "pto_spec_encoding_projection_sha256": str(lock["encoding_projection_sha256"]),
+        "pto_spec_release_manifest_sha256": str(lock["release_manifest"]["sha256"]),
+        "hardware_conformance_profile_id": str(
+            lock["hardware_conformance_profile"]["profile_id"]
+        ),
+        "hardware_conformance_profile_sha256": str(
+            lock["hardware_conformance_profile"]["sha256"]
+        ),
+        "numeric_conformance_vectors_sha256": str(
+            lock["numeric_conformance_vectors"]["sha256"]
+        ),
+        "command_form_count": expected_forms,
+        "tile_operation_count": expected_operations,
+        "tile_family_counts": expected_families,
+        "deleted_tile_operations": expected_deleted,
+    }
+    return entries, metadata
 
 
-def _resolve_linxisa_json(profile: str | None) -> Path | None:
-    if not profile:
-        return None
-    root = os.environ.get("LINXISA_ROOT") or os.environ.get("LINXISA_DIR")
-    if root:
-        candidate = Path(root) / "isa" / profile / f"linxisa-{profile}.json"
-    else:
-        candidate = Path(__file__).resolve().parents[4] / "isa" / profile / f"linxisa-{profile}.json"
-    return candidate if candidate.exists() else None
-
-
-def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dict[str, object]:
-    entries = load_qemu_entries(qemu_linx_dir)
-    supplement_json = _resolve_linxisa_json(isa_profile)
-    if supplement_json is not None:
-        seen = {(entry.mnemonic, entry.enc_len, entry.mask, entry.match) for entry in entries}
-        for entry in load_linxisa_v057_supplement(supplement_json):
-            signature = (entry.mnemonic, entry.enc_len, entry.mask, entry.match)
-            if signature in seen:
-                continue
-            seen.add(signature)
-            entries.append(entry)
+def _build_catalog_from_entries(
+    entries: list[DecodeEntry], *, source_metadata: dict[str, object] | None = None
+) -> Dict[str, object]:
     by_mnemonic: Dict[str, List[DecodeEntry]] = {}
     for e in entries:
         by_mnemonic.setdefault(e.mnemonic, []).append(e)
@@ -789,9 +1115,11 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
         for form_index, e in enumerate(forms):
             major, minor = classify_major_minor(mnemonic)
             rd_kind, rs1_kind, rs2_kind, imm_kind = classify_fields(e.fields)
+            if e.imm_kind_override and e.imm_kind_override != "NONE":
+                imm_kind = e.imm_kind_override
             record = {
                 "mnemonic": mnemonic,
-                "symbol": mnemonic_to_symbol(mnemonic),
+                "symbol": e.symbol_override or mnemonic_to_symbol(mnemonic),
                 "enc_len": e.enc_len,
                 "pattern": e.pattern,
                 "mask": f"0x{e.mask:x}",
@@ -804,11 +1132,18 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
                 "imm_kind": imm_kind,
                 "block_kind": block_kind_for_mnemonic(mnemonic),
                 "cmd_kind": cmd_kind_for_mnemonic(mnemonic),
-                "flags": "",
+                "flags": (
+                    "DECODE_ONLY_CARRIER"
+                    if mnemonic == "bstart_tepl"
+                    else ""
+                ),
                 "source_file": e.file,
             }
             if e.source_profile:
                 record["source_profile"] = e.source_profile
+            if e.operation_family:
+                record["operation_family"] = e.operation_family
+                record["operation_name"] = e.operation_name
             if len(forms) > 1:
                 # Additive schema extension: legacy single-form records keep
                 # their original shape, while repeated mnemonic forms expose
@@ -822,12 +1157,18 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
         symbol = r["symbol"]
         sym_to_cat.setdefault(symbol, OP_ID_CATEGORY_OVERRIDES.get(symbol, r["major_cat"]))
 
+    appended_symbols = set(APPENDED_NON_PTO_OPCODE_SYMBOLS)
     ordered_symbols = sorted(
-        sym_to_cat.keys(),
+        (symbol for symbol in sym_to_cat if symbol not in appended_symbols),
         key=lambda s: (
             CATEGORY_ORDER.index(sym_to_cat[s]) if sym_to_cat[s] in CATEGORY_ORDER else len(CATEGORY_ORDER),
             s,
         ),
+    )
+    ordered_symbols.extend(
+        symbol
+        for symbol in APPENDED_NON_PTO_OPCODE_SYMBOLS
+        if symbol in sym_to_cat
     )
     sym_to_id = {sym: idx + 1 for idx, sym in enumerate(ordered_symbols)}
     sym_to_id["OP_INVALID"] = 0
@@ -836,11 +1177,26 @@ def build_catalog(qemu_linx_dir: Path, *, isa_profile: str | None = None) -> Dic
         r["op_id"] = sym_to_id[r["symbol"]]
         r["ooo"] = derive_ooo_metadata(r)
 
-    return {
+    catalog: Dict[str, object] = {
         "version": 2,
         "category_order": CATEGORY_ORDER,
         "records": records,
     }
+    if source_metadata:
+        catalog["source"] = source_metadata
+    return catalog
+
+
+def build_catalog_from_entries(entries: list[DecodeEntry]) -> Dict[str, object]:
+    """Build a catalog from explicit entries (used by parser/parity unit tests)."""
+    return _build_catalog_from_entries(entries)
+
+
+def build_locked_catalog(
+    linxisa_root: Path | None = None, *, profile: str = "v0.57"
+) -> Dict[str, object]:
+    entries, metadata = load_locked_linxisa_entries(linxisa_root, profile=profile)
+    return _build_catalog_from_entries(entries, source_metadata=metadata)
 
 
 def load_catalog(path: Path) -> Dict[str, object]:

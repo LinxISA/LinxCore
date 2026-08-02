@@ -56,6 +56,7 @@ class OooIexLoadLiqAllocAdapterIO(
     coreParams.lsidWidth))
 
   val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryFence = Input(Bool())
   val flush = Input(Bool())
   val accepted = Valid(new OooIexLoadLiqAllocAccepted(p, laneCount))
   val rejected = Output(Vec(laneCount,
@@ -176,14 +177,17 @@ class OooIexLoadLiqAllocAdapter(
     exact(lane) := identity && shape && order && destination && pc
 
     val drop = killedLane(lane) || io.flush
-    arbiter.io.in(lane).valid := io.agu(lane).valid && exact(lane) && !drop
+    val fenced = io.recoveryFence || io.recoveryApply.valid
+    arbiter.io.in(lane).valid :=
+      io.agu(lane).valid && exact(lane) && !drop && !fenced
     arbiter.io.in(lane).bits := request
     // Recovery is a destructive cancellation handshake at this non-resident
     // boundary.  Draining the visible producer request while allocation is
     // masked prevents the same pre-recovery request from allocating after the
     // recovery pulse disappears.  Malformed non-killed requests remain held
     // for fail-closed diagnostics.
-    io.agu(lane).ready := drop || (arbiter.io.in(lane).ready && exact(lane))
+    io.agu(lane).ready := drop ||
+      (!fenced && arbiter.io.in(lane).ready && exact(lane))
 
     io.rejected(lane).valid := io.agu(lane).valid &&
       (!exact(lane) || killedLane(lane) || io.flush)
@@ -281,7 +285,11 @@ class OooIexLoadLiqAllocAdapter(
   arbiter.io.out.ready := io.alloc.ready
   io.accepted.valid := io.alloc.fire
   io.accepted.bits.lane := selectedLane
-  io.accepted.bits.load.valid := io.alloc.fire
+  // Candidate bits remain well formed before ready so a downstream atomic
+  // composition can include its own readiness without a combinational
+  // `fire -> valid -> ready` cycle.  `accepted.valid` still denotes the only
+  // architecturally accepted allocation event.
+  io.accepted.bits.load.valid := arbiter.io.out.valid
   io.accepted.bits.load.producer := member
   io.accepted.bits.load.generation := attemptGeneration
   io.accepted.bits.request := request

@@ -37,8 +37,7 @@ class OooO3IexStorePipelineSpec extends AnyFunSuite {
       pcWritePorts = 2,
       iqEntriesPerBank = 1,
       iqWritePortsPerBank = 2,
-      iqFreeSelectLeafEntries = 1,
-      iexLoadTrackEntries = 4)
+      iqFreeSelectLeafEntries = 1)
     // The complete O3+IEX hierarchy intentionally exceeds the 4 GiB local
     // FIRRTL-to-SystemVerilog test budget.  CHIRRTL still elaborates every
     // Chisel owner and connection while the child SV gates cover lowering.
@@ -52,5 +51,10 @@ class OooO3IexStorePipelineSpec extends AnyFunSuite {
     assert(chirrtl.contains("inst iex of OooIexExecutionStorePipeline"))
     assert(chirrtl.contains("inst fastResult of OooIexFastResultPort"))
     assert(chirrtl.contains("inst storeCommit of STQSCBCommitBackend"))
+    assert(chirrtl.contains("inst scalarLoadStore of OooIexScalarLoadStorePath"))
+    assert(chirrtl.sliding("inst load of OooIexCanonicalLoadOwnership".length)
+      .count(_ == "inst load of OooIexCanonicalLoadOwnership") == 1)
+    assert(chirrtl.sliding("inst store of OooIexStoreStqFabric".length)
+      .count(_ == "inst store of OooIexStoreStqFabric") == 1)
   }
 }
