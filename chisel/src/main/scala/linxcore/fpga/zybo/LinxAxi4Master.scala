@@ -34,6 +34,8 @@ class LinxAxi4Master extends Module {
   private val readBeatCount = RegInit(0.U(9.W))
   private val readProtocolError = RegInit(false.B)
   private val readBusError = RegInit(false.B)
+  private val writeAwAccepted = RegInit(false.B)
+  private val writeWAccepted = RegInit(false.B)
 
   private val liveAddr = io.request.bits.addr
   private val scalarSizeSupported = io.request.bits.size <= 3.U
@@ -89,14 +91,16 @@ class LinxAxi4Master extends Module {
 
   io.axi.r.ready := state === ReceiveR
 
-  io.axi.aw.valid := state === SendAw
+  private val writeIssueActive = state === SendAw || state === SendW
+
+  io.axi.aw.valid := writeIssueActive && !writeAwAccepted
   io.axi.aw.bits.id := LinxAxi4.SupportedId.U
   io.axi.aw.bits.addr := retainedRequest.addr
   io.axi.aw.bits.len := 0.U
   io.axi.aw.bits.size := retainedRequest.size
   io.axi.aw.bits.burst := LinxAxi4.BurstIncr.U
 
-  io.axi.w.valid := state === SendW
+  io.axi.w.valid := writeIssueActive && !writeWAccepted
   io.axi.w.bits.data := retainedRequest.wdata
   io.axi.w.bits.strb := retainedRequest.wstrb
   io.axi.w.bits.last := true.B
@@ -116,6 +120,8 @@ class LinxAxi4Master extends Module {
     readBeatCount := 0.U
     readProtocolError := false.B
     readBusError := false.B
+    writeAwAccepted := false.B
+    writeWAccepted := false.B
     for (beat <- 0 until lineBeats) readBeats(beat) := 0.U
 
     when(shapeProtocolError) {
@@ -153,7 +159,7 @@ class LinxAxi4Master extends Module {
     readProtocolError := nextProtocolError
     readBusError := nextBusError
 
-    when(io.axi.r.bits.last) {
+    when(io.axi.r.bits.last || readBeatCount === expectedLastBeat) {
       retainedResponse.rdata := Mux(
         retainedRequest.line,
         terminalLineData,
@@ -171,12 +177,24 @@ class LinxAxi4Master extends Module {
     }
   }
 
-  when(io.axi.aw.fire) {
-    state := SendW
-  }
+  when(writeIssueActive) {
+    val nextAwAccepted = writeAwAccepted || io.axi.aw.fire
+    val nextWAccepted = writeWAccepted || io.axi.w.fire
 
-  when(io.axi.w.fire) {
-    state := ReceiveB
+    when(io.axi.aw.fire) {
+      writeAwAccepted := true.B
+    }
+    when(io.axi.w.fire) {
+      writeWAccepted := true.B
+    }
+
+    when(nextAwAccepted && nextWAccepted) {
+      state := ReceiveB
+    }.elsewhen(nextAwAccepted) {
+      state := SendW
+    }.otherwise {
+      state := SendAw
+    }
   }
 
   when(io.axi.b.fire) {

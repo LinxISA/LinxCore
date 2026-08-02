@@ -234,11 +234,22 @@ class LinxAxi4MasterSpec extends AnyFunSuite with ChiselSim {
     dut.io.axi.b.bits.resp.poke(resp.U)
     dut.io.axi.b.valid.poke(true.B)
     dut.io.axi.b.ready.expect(true.B)
-    val handshakes = 1
+    var handshakes = 0
+    if (dut.io.axi.b.valid.peek().litToBoolean &&
+        dut.io.axi.b.ready.peek().litToBoolean) handshakes += 1
     dut.clock.step()
-    dut.io.axi.b.valid.poke(false.B)
     dut.io.axi.b.bits.id.poke((id ^ 1).U)
     dut.io.axi.b.bits.resp.poke(((resp + 1) & 3).U)
+    for (_ <- 0 until 3) {
+      dut.io.axi.b.valid.expect(true.B)
+      dut.io.axi.b.ready.expect(false.B)
+      dut.io.response.ready.expect(false.B)
+      if (dut.io.axi.b.valid.peek().litToBoolean &&
+          dut.io.axi.b.ready.peek().litToBoolean) handshakes += 1
+      dut.clock.step()
+    }
+    dut.io.axi.b.valid.poke(false.B)
+    assert(handshakes == 1)
     handshakes
   }
 
@@ -378,47 +389,183 @@ class LinxAxi4MasterSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("scalar read and write preserve address lanes and transfer exactly once") {
+  test("write address and data channels make independent progress in either order") {
+    simulate(new LinxAxi4Master) { dut =>
+      init(dut)
+      val random = new Random(0x4a571defL)
+
+      def runCase(id: Int, order: String): Unit = {
+        val addr = BigInt("00030000", 16) + id * 8
+        val data = BigInt("cafe000000000000", 16) | id
+        pokeRequest(
+          dut, id, addr, write = true, size = 3, wdata = data, wstrb = 0xff,
+          last = false, source = LinxMemSource.Store)
+        acceptRequest(dut)
+        pokeRequest(
+          dut, BigInt("80000000", 16) | id, BigInt("0ffffff8", 16),
+          write = false, size = 0, wdata = BigInt("0123456789abcdef", 16),
+          wstrb = 0, line = true, last = true,
+          source = LinxMemSource.Instruction)
+
+        var awHandshakes = 0
+        var wHandshakes = 0
+        def sample(): Unit = {
+          if (dut.io.axi.aw.valid.peek().litToBoolean &&
+              dut.io.axi.aw.ready.peek().litToBoolean) awHandshakes += 1
+          if (dut.io.axi.w.valid.peek().litToBoolean &&
+              dut.io.axi.w.ready.peek().litToBoolean) wHandshakes += 1
+        }
+
+        for (_ <- 0 until 4) {
+          dut.io.axi.aw.ready.poke(false.B)
+          dut.io.axi.w.ready.poke(false.B)
+          expectAw(dut, addr, 3)
+          expectW(dut, data, 0xff)
+          sample()
+          dut.clock.step()
+        }
+
+        order match {
+          case "w-first" =>
+            dut.io.axi.aw.ready.poke(false.B)
+            dut.io.axi.w.ready.poke(true.B)
+            expectAw(dut, addr, 3)
+            expectW(dut, data, 0xff)
+            sample()
+            dut.clock.step()
+            for (_ <- 0 until 3) {
+              dut.io.axi.aw.ready.poke(false.B)
+              dut.io.axi.w.ready.poke(true.B)
+              expectAw(dut, addr, 3)
+              dut.io.axi.w.valid.expect(false.B)
+              sample()
+              dut.clock.step()
+            }
+            dut.io.axi.aw.ready.poke(true.B)
+            expectAw(dut, addr, 3)
+            dut.io.axi.w.valid.expect(false.B)
+            sample()
+            dut.clock.step()
+          case "aw-first" =>
+            dut.io.axi.aw.ready.poke(true.B)
+            dut.io.axi.w.ready.poke(false.B)
+            expectAw(dut, addr, 3)
+            expectW(dut, data, 0xff)
+            sample()
+            dut.clock.step()
+            for (_ <- 0 until 3) {
+              dut.io.axi.aw.ready.poke(true.B)
+              dut.io.axi.w.ready.poke(false.B)
+              dut.io.axi.aw.valid.expect(false.B)
+              expectW(dut, data, 0xff)
+              sample()
+              dut.clock.step()
+            }
+            dut.io.axi.w.ready.poke(true.B)
+            dut.io.axi.aw.valid.expect(false.B)
+            expectW(dut, data, 0xff)
+            sample()
+            dut.clock.step()
+          case "simultaneous" =>
+            dut.io.axi.aw.ready.poke(true.B)
+            dut.io.axi.w.ready.poke(true.B)
+            expectAw(dut, addr, 3)
+            expectW(dut, data, 0xff)
+            sample()
+            dut.clock.step()
+          case _ => fail(s"unknown write order: $order")
+        }
+
+        dut.io.axi.aw.ready.poke(true.B)
+        dut.io.axi.w.ready.poke(true.B)
+        dut.io.axi.aw.valid.expect(false.B)
+        dut.io.axi.w.valid.expect(false.B)
+        dut.io.axi.b.ready.expect(true.B)
+        for (_ <- 0 until 2) {
+          sample()
+          dut.clock.step()
+        }
+        assert((awHandshakes, wHandshakes) == (1, 1))
+        dut.io.axi.aw.ready.poke(false.B)
+        dut.io.axi.w.ready.poke(false.B)
+
+        assert(sendWriteResponse(dut, Okay, id = 0, random) == 1)
+        consumeResponse(
+          dut, id, 0, LinxMemFault.NoFault, last = false, random,
+          minimumStalls = 2)
+      }
+
+      runCase(61, "w-first")
+      runCase(62, "aw-first")
+      runCase(63, "simultaneous")
+    }
+  }
+
+  test("scalar reads and writes cover exact RAM endpoints and every legal lane") {
     simulate(new LinxAxi4Master) { dut =>
       init(dut)
       val random = new Random(0x13579bdfL)
 
-      val readId = BigInt("80000042", 16)
-      val readAddr = BigInt("0fffffff", 16)
-      val readData = BigInt("8877665544332211", 16)
-      pokeRequest(dut, readId, readAddr, write = false, size = 0, last = false)
-      acceptRequest(dut)
-      val readAr = handshakeAr(
-        dut, readAddr, len = 0, size = 0, random, minimumStalls = 5)
-      val readR = sendReadBeat(dut, readData, Okay, last = true, id = 0, random)
-      val readResponse = consumeResponse(
-        dut, readId, readData, LinxMemFault.NoFault, last = false, random,
-        minimumStalls = 5)
-      assert((readAr, readR, readResponse) == (1, 1, 1))
+      val readCases = Seq(
+        (BigInt("80000040", 16), BigInt("00000000", 16), 0,
+          BigInt("000000000000005a", 16)),
+        (BigInt("80000041", 16), BigInt("0fffffff", 16), 0,
+          BigInt("a500000000000000", 16)),
+        (BigInt("80000042", 16), BigInt("0ffffffe", 16), 1,
+          BigInt("b6c7000000000000", 16)),
+        (BigInt("80000043", 16), BigInt("0ffffffc", 16), 2,
+          BigInt("d8e9fa0b00000000", 16)),
+        (BigInt("80000044", 16), BigInt("0ffffff8", 16), 3,
+          BigInt("1122334455667788", 16)))
 
-      val writeId = BigInt("f0000043", 16)
-      val writeAddr = BigInt("00102004", 16)
-      val writeData = BigInt("aabbccdd00000000", 16)
-      val writeStrobe = BigInt("f0", 16)
-      pokeRequest(
-        dut, writeId, writeAddr, write = true, size = 2,
-        wdata = writeData, wstrb = writeStrobe, last = true,
-        source = LinxMemSource.Store)
-      acceptRequest(dut)
-      pokeRequest(
-        dut, BigInt("00000009", 16), BigInt("0ffffff8", 16),
-        write = false, size = 3, wdata = BigInt("1122334455667788", 16),
-        wstrb = 0, line = true, last = false,
-        source = LinxMemSource.Instruction)
-      val awCount = handshakeAw(
-        dut, writeAddr, size = 2, random, minimumStalls = 8)
-      val wCount = handshakeW(
-        dut, writeData, writeStrobe, random, minimumStalls = 9)
-      val bCount = sendWriteResponse(dut, Okay, id = 0, random)
-      val writeResponse = consumeResponse(
-        dut, writeId, 0, LinxMemFault.NoFault, last = true, random,
-        minimumStalls = 8)
-      assert((awCount, wCount, bCount, writeResponse) == (1, 1, 1, 1))
+      for ((id, addr, size, data) <- readCases) {
+        pokeRequest(
+          dut, id, addr, write = false, size = size,
+          last = id != BigInt("80000042", 16))
+        acceptRequest(dut)
+        val arCount = handshakeAr(
+          dut, addr, len = 0, size = size, random, minimumStalls = 2)
+        val rCount = sendReadBeat(
+          dut, data, Okay, last = true, id = 0, random)
+        val responseCount = consumeResponse(
+          dut, id, data, LinxMemFault.NoFault,
+          last = id != BigInt("80000042", 16), random, minimumStalls = 2)
+        assert((arCount, rCount, responseCount) == (1, 1, 1))
+      }
+
+      val writeCases = Seq(
+        (BigInt("f0000050", 16), BigInt("00000000", 16), 0,
+          BigInt("000000000000005a", 16), BigInt("01", 16)),
+        (BigInt("f0000051", 16), BigInt("0fffffff", 16), 0,
+          BigInt("a500000000000000", 16), BigInt("80", 16)),
+        (BigInt("f0000052", 16), BigInt("0ffffffe", 16), 1,
+          BigInt("b6c7000000000000", 16), BigInt("c0", 16)),
+        (BigInt("f0000053", 16), BigInt("0ffffffc", 16), 2,
+          BigInt("d8e9fa0b00000000", 16), BigInt("f0", 16)),
+        (BigInt("f0000054", 16), BigInt("0ffffff8", 16), 3,
+          BigInt("1122334455667788", 16), BigInt("ff", 16)))
+
+      for ((id, addr, size, data, strobe) <- writeCases) {
+        pokeRequest(
+          dut, id, addr, write = true, size = size,
+          wdata = data, wstrb = strobe, last = id != BigInt("f0000052", 16),
+          source = LinxMemSource.Store)
+        acceptRequest(dut)
+        pokeRequest(
+          dut, BigInt("00000009", 16), BigInt("00001000", 16),
+          write = false, size = 6, wdata = BigInt("deadbeefdeadbeef", 16),
+          wstrb = 0, line = true, last = true,
+          source = LinxMemSource.Instruction)
+        val awCount = handshakeAw(
+          dut, addr, size = size, random, minimumStalls = 2)
+        val wCount = handshakeW(
+          dut, data, strobe, random, minimumStalls = 2)
+        val bCount = sendWriteResponse(dut, Okay, id = 0, random)
+        val responseCount = consumeResponse(
+          dut, id, 0, LinxMemFault.NoFault,
+          last = id != BigInt("f0000052", 16), random, minimumStalls = 2)
+        assert((awCount, wCount, bCount, responseCount) == (1, 1, 1, 1))
+      }
     }
   }
 
@@ -472,7 +619,7 @@ class LinxAxi4MasterSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("early and late RLAST and beat overflow produce one retained protocol fault") {
+  test("early or missing RLAST terminates once and rejects a late overflow beat") {
     simulate(new LinxAxi4Master) { dut =>
       init(dut)
       val random = new Random(0x10203040L)
@@ -503,21 +650,24 @@ class LinxAxi4MasterSpec extends AnyFunSuite with ChiselSim {
       handshakeAr(dut, BigInt("00008000", 16), 7, 3, random)
       for (index <- 0 until 8)
         sendReadBeat(dut, index + 1, Okay, last = false, id = 0, random)
-      for (_ <- 0 until 5) {
-        dut.io.response.valid.expect(false.B)
-        dut.io.axi.r.ready.expect(true.B)
-        dut.clock.step()
-      }
-      sendReadBeat(dut, 9, Okay, last = false, id = 0, random)
-      sendReadBeat(dut, 10, Okay, last = true, id = 0, random)
-      dut.io.axi.r.valid.poke(true.B)
+      dut.io.response.valid.expect(true.B)
+      dut.io.response.bits.fault.expect(LinxMemFault.Protocol)
       dut.io.axi.r.ready.expect(false.B)
-      val lateData = BigInt(
+      dut.clock.step(2)
+
+      dut.io.axi.r.valid.poke(true.B)
+      dut.io.axi.r.bits.id.poke(1.U)
+      dut.io.axi.r.bits.data.poke(BigInt("ffffffffffffffff", 16).U)
+      dut.io.axi.r.bits.resp.poke(DecErr.U)
+      dut.io.axi.r.bits.last.poke(true.B)
+      dut.io.axi.r.ready.expect(false.B)
+      val missingLastData = BigInt(
         "0000000000000008000000000000000700000000000000060000000000000005" +
           "0000000000000004000000000000000300000000000000020000000000000001",
         16)
       consumeResponse(
-        dut, 12, lateData, LinxMemFault.Protocol, last = false, random)
+        dut, 12, missingLastData, LinxMemFault.Protocol, last = false, random,
+        minimumStalls = 3)
       dut.io.axi.r.valid.poke(false.B)
     }
   }
