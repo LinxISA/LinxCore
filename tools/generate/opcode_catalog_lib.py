@@ -893,20 +893,20 @@ def load_locked_linxisa_entries(
     release = str(lock.get("release", ""))
     if release != "0.57.1" or str(isa.get("version", "")) != release:
         raise ValueError(f"expected locked ISA release 0.57.1, got lock={release!r} isa={isa.get('version')!r}")
-    expected_commit = "0141ec89ff1e222adfe1df55610f414ca0c8c086"
+    expected_commit = "2f3f605e289b09d56ef5a9ba39fc80b52948a5f5"
     if str(lock.get("source", {}).get("commit", "")) != expected_commit:
         raise ValueError("PTO source commit does not match the reviewed 0.57.1 lock")
     expected_lock_identity = {
-        "content_sha256": "5d75f42d191478aef9fa1ef1d73fb18dc48cf83468dc79c9054cb4ae21387354",
+        "content_sha256": "748c1c6ac1bd5482d219cd08b8f0a871c7eda2b8f8afb1e81d498ec742e8abe8",
         "encoding_abi": "pto-isa-0.57.1-mode-function-v1",
-        "encoding_projection_sha256": "34f6602cf29ea6363d41d896111dad4de0f70ec36517138aa89e292857909da4",
+        "encoding_projection_sha256": "9705a984e2e48e0d4e856d3fbcfa07041c8578dd326d81f1c90279e826354c32",
     }
     for field, expected_value in expected_lock_identity.items():
         if str(lock.get(field, "")) != expected_value:
             raise ValueError(f"PTO {field} does not match the reviewed 0.57.1 lock")
     expected_release_manifest = {
         "path": "spec/release-manifest.json",
-        "sha256": "d0aa98754622d7949e55cccd576dd3da74bceb8c060e853cccf1f84c13b4438a",
+        "sha256": "d85ee1cfcd51b1b86184ba015e9fb24ee61371165cf4691a5794f79618f7e273",
     }
     if lock.get("release_manifest") != expected_release_manifest:
         raise ValueError("PTO release manifest does not match the reviewed 0.57.1 lock")
@@ -924,8 +924,8 @@ def load_locked_linxisa_entries(
     if lock.get("numeric_conformance_vectors") != expected_numeric_vectors:
         raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.57.1 lock")
     expected_hashes = {
-        "command_forms": "c53db18b30fbf53676f1d733e215122f65ad681a778ae0728cc6c4a3674df61e",
-        "tile_operations": "2a49616fbbd34ee4ff00b971d56de6dd7b8c1698fa7312db0b20b6119965bc26",
+        "command_forms": "e5a98441098fdd88c0f5837bb3e1367d7b272ebc2ba506275e9e2be1b4c1978a",
+        "tile_operations": "e77c762122dd776ea8b1b2113e6d095b2db0fe24b5b98d0c26012db9fb98e64e",
     }
     for catalog_name, expected_hash in expected_hashes.items():
         if str(lock["catalogs"][catalog_name].get("sha256", "")) != expected_hash:

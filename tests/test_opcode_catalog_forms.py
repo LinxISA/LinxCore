@@ -313,15 +313,15 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         self.assertEqual(catalog["source"]["release"], "0.57.1")
         self.assertEqual(
             catalog["source"]["pto_spec_commit"],
-            "0141ec89ff1e222adfe1df55610f414ca0c8c086",
+            "2f3f605e289b09d56ef5a9ba39fc80b52948a5f5",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_content_sha256"],
-            "5d75f42d191478aef9fa1ef1d73fb18dc48cf83468dc79c9054cb4ae21387354",
+            "748c1c6ac1bd5482d219cd08b8f0a871c7eda2b8f8afb1e81d498ec742e8abe8",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_release_manifest_sha256"],
-            "d0aa98754622d7949e55cccd576dd3da74bceb8c060e853cccf1f84c13b4438a",
+            "d85ee1cfcd51b1b86184ba015e9fb24ee61371165cf4691a5794f79618f7e273",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_id"],
