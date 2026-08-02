@@ -72,7 +72,7 @@ object InterfaceManifest {
     EndpointDefinition("lsu_to_iex_load_cancel", "IFC-IEX-LSU-001", "LSU", "IEX",
       _.lsu.loadPipes, p => new LoadCancelTxn(p)),
     EndpointDefinition("external_cmd_issue", "IFC-TOP-EXT-001", "IEX", "External CMD",
-      _.iex.cmdIssueQueues, p => new CmdIssueTxn(p)),
+      _ => 1, p => new CmdIssueTxn(p)),
     EndpointDefinition("owner_to_ooo_recovery_event", "IFC-RECOVERY-001", "IEX/LSU",
       "OOO", _ => 1, p => new RecoveryEvent(p)),
     EndpointDefinition("ooo_recovery_prepare", "IFC-RECOVERY-001", "OOO", "IFU/CTU/IEX/LSU",
@@ -111,7 +111,7 @@ object InterfaceManifest {
         Seq(ManifestPort(prefix, element.getWidth))
     }
 
-  private def profile(name: String, p: CoreParams): ManifestProfile =
+  private[interface] def profileFor(name: String, p: CoreParams): ManifestProfile =
     {
       require(
         new RecoveryTargetIO(p).elements.keySet ==
@@ -137,10 +137,10 @@ object InterfaceManifest {
     InterfaceManifestModel(
       schema = 1,
       profiles = Seq(
-        profile("W2", ParamProfiles.W2),
-        profile("W4", ParamProfiles.W4),
-        profile("W6", ParamProfiles.W6),
-        profile("W8", ParamProfiles.W8)))
+        profileFor("W2", ParamProfiles.W2),
+        profileFor("W4", ParamProfiles.W4),
+        profileFor("W6", ParamProfiles.W6),
+        profileFor("W8", ParamProfiles.W8)))
 
   private def jsonString(value: String): String = {
     val escaped = value.flatMap {

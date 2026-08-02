@@ -1304,7 +1304,8 @@ before implementation; never preserve two protocol variants.
 
 Add `DecodedMemoryControl` to `DecodedUop`; its fields are `valid`、`isLoad`、
 `isStore`、address mode、access bytes、sign extension、offset、index transform、
-address/data source masks and writeback controls. Add `MemoryOrderMeta` to
+address/data source masks、writeback controls and normalized `requestCount`.
+Add `MemoryOrderMeta` to
 `DispatchTxn`; it carries only stable logical order (`requestCount`、
 `firstLsid`、`firstTypeId` and the older-store forwarding boundary), never
 `MemoryTransactionIdentity`、attempt generation or physical pipe identity.

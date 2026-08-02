@@ -2,6 +2,7 @@ package linxcore.top.interface
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
+import linxcore.params.ParamProfiles
 import org.scalatest.funsuite.AnyFunSuite
 
 class InterfaceManifestSpec extends AnyFunSuite {
@@ -51,27 +52,32 @@ class InterfaceManifestSpec extends AnyFunSuite {
       val endpoints = profile.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
       val width = profile.width
 
-      assert(endpoints("ooo_to_iex_alu").lanes == 2)
-      assert(endpoints("ooo_to_iex_bru").lanes == 1)
-      assert(endpoints("ooo_to_iex_agu").lanes == 2)
-      assert(endpoints("ooo_to_iex_std").lanes == 2)
-      assert(endpoints("iex_to_ooo_rob_resolve").lanes == width)
-      assert(endpoints("iex_to_lsu_load_issue").lanes == 2)
-      assert(endpoints("iex_to_lsu_store_address").lanes == 2)
-      assert(endpoints("iex_to_lsu_store_data").lanes == 2)
-      assert(endpoints("lsu_to_iex_load_reissue").lanes == 2)
-      assert(endpoints("lsu_to_iex_load_repick").lanes == 2)
-      assert(endpoints("lsu_to_iex_load_cancel").lanes == 2)
-      assert(endpoints("external_cmd_issue").lanes == 1)
+      val expected = Map(
+        "ooo_to_iex_alu" -> ("OOO", "IEX", 2, "DispatchTxn"),
+        "ooo_to_iex_bru" -> ("OOO", "IEX", 1, "DispatchTxn"),
+        "ooo_to_iex_agu" -> ("OOO", "IEX", 2, "DispatchTxn"),
+        "ooo_to_iex_std" -> ("OOO", "IEX", 2, "StoreDispatchTxn"),
+        "ooo_to_iex_system" -> ("OOO", "IEX", 1, "DispatchTxn"),
+        "ooo_to_iex_cmd" -> ("OOO", "IEX", 1, "DispatchTxn"),
+        "ooo_to_iex_rob_noflush" -> ("OOO", "IEX", 1, "RobNoflushTxn"),
+        "iex_to_ooo_rob_resolve" -> ("IEX", "OOO", width, "RobResolveTxn"),
+        "iex_to_ooo_system_issue" -> ("IEX", "OOO", 1, "SystemIssueTxn"),
+        "iex_to_lsu_load_issue" -> ("IEX", "LSU", 2, "LoadIssueTxn"),
+        "iex_to_lsu_store_address" -> ("IEX", "LSU", 2, "StoreAddressTxn"),
+        "iex_to_lsu_store_data" -> ("IEX", "LSU", 2, "StoreDataTxn"),
+        "lsu_to_iex_load_result" -> ("LSU", "IEX", 2, "LoadResultTxn"),
+        "lsu_to_iex_load_reissue" -> ("LSU", "IEX", 2, "LoadReissueTxn"),
+        "lsu_to_iex_load_repick" -> ("LSU", "IEX", 2, "LoadRepickTxn"),
+        "lsu_to_iex_load_cancel" -> ("LSU", "IEX", 2, "LoadCancelTxn"),
+        "external_cmd_issue" -> ("IEX", "External CMD", 1, "CmdIssueTxn"))
 
-      assert(endpoints("iex_to_ooo_rob_resolve").payload == "RobResolveTxn")
-      assert(endpoints("iex_to_lsu_load_issue").payload == "LoadIssueTxn")
-      assert(endpoints("lsu_to_iex_load_reissue").payload == "LoadReissueTxn")
-      assert(endpoints("lsu_to_iex_load_repick").payload == "LoadRepickTxn")
-      assert(endpoints("lsu_to_iex_load_cancel").payload == "LoadCancelTxn")
-      assert(endpoints("ooo_to_iex_rob_noflush").payload == "RobNoflushTxn")
-      assert(endpoints("iex_to_ooo_system_issue").payload == "SystemIssueTxn")
-      assert(endpoints("external_cmd_issue").payload == "CmdIssueTxn")
+      expected.foreach { case (name, (producer, consumer, lanes, payload)) =>
+        val endpoint = endpoints(name)
+        assert(endpoint.producer == producer, name)
+        assert(endpoint.consumer == consumer, name)
+        assert(endpoint.lanes == lanes, name)
+        assert(endpoint.payload == payload, name)
+      }
 
       val orderPorts = endpoints("ooo_to_iex_alu").ports
         .filter(_.name.startsWith("memoryOrder_"))
@@ -102,10 +108,71 @@ class InterfaceManifestSpec extends AnyFunSuite {
     val w4 = InterfaceManifest.model.profiles.find(_.name == "W4").get
     val endpoints = w4.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
     assert(endpoints("ooo_to_iex_alu").lanes == 2)
+    assert(endpoints("ooo_to_iex_bru").lanes == 1)
     assert(endpoints("ooo_to_iex_agu").lanes == 2)
     assert(endpoints("ooo_to_iex_std").lanes == 2)
+    assert(endpoints("ooo_to_iex_system").lanes == 1)
+    assert(endpoints("ooo_to_iex_cmd").lanes == 1)
     assert(endpoints("iex_to_lsu_load_issue").lanes == 2)
     assert(endpoints("iex_to_lsu_store_address").lanes == 2)
     assert(endpoints("iex_to_lsu_store_data").lanes == 2)
+  }
+
+  test("internal CMD queue multiplicity is independent of the singleton external endpoint") {
+    val base = ParamProfiles.W4
+    val p = base.copy(iex = base.iex.copy(cmdIssueQueues = 2))
+    val profile = InterfaceManifest.profileFor("CUSTOM", p)
+    val endpoints = profile.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
+
+    assert(new OOOIEXIO(p).cmdDispatch.length == 2)
+    assert(endpoints("ooo_to_iex_cmd").lanes == 2)
+    assert(endpoints("external_cmd_issue").lanes == 1)
+  }
+
+  test("memory lifecycle manifest leaves preserve independent identity widths") {
+    val base = ParamProfiles.W4
+    val p = base.copy(
+      ooo = base.ooo.copy(robGroupsPerStid = 32),
+      lsu = base.lsu.copy(
+        loadPipes = 8,
+        loadQueueEntries = 16,
+        loadReturnQueueEntries = 8),
+      lsidWidth = 37,
+      ridGenerationWidth = 7,
+      residentGenerationWidth = 9,
+      memoryTransactionIdWidth = 41,
+      memoryTransactionGenerationWidth = 11,
+      memoryAttemptGenerationWidth = 13)
+    val profile = InterfaceManifest.profileFor("IDENTITY", p)
+    val endpoints = profile.endpoints.map(endpoint => endpoint.name -> endpoint).toMap
+    val expectedSuffixWidths = Map(
+      "rob_peId" -> p.peIdWidth,
+      "rob_stid" -> 1,
+      "rob_ridSlot" -> 5,
+      "rob_ridGeneration" -> 7,
+      "rob_memberIndex" -> 2,
+      "rob_residentGeneration" -> 9,
+      "rob_bid" -> p.nativeBidWidth,
+      "rob_brobGeneration" -> p.brobGenerationWidth,
+      "transaction_value" -> 41,
+      "transaction_generation" -> 11,
+      "lsid" -> 37,
+      "attemptGeneration" -> 13,
+      "pipeId" -> 3)
+
+    def assertIdentity(endpointName: String, prefix: String): Unit = {
+      val actual = endpoints(endpointName).ports.collect {
+        case port if port.name.startsWith(prefix) =>
+          port.name.stripPrefix(prefix) -> port.width
+      }.toMap
+      assert(actual == expectedSuffixWidths, s"$endpointName:$prefix")
+    }
+
+    assertIdentity("iex_to_lsu_load_issue", "identity_")
+    assertIdentity("lsu_to_iex_load_reissue", "currentIdentity_")
+    assertIdentity("lsu_to_iex_load_reissue", "nextIdentity_")
+    assertIdentity("lsu_to_iex_load_repick", "currentIdentity_")
+    assertIdentity("lsu_to_iex_load_repick", "nextIdentity_")
+    assertIdentity("lsu_to_iex_load_cancel", "currentIdentity_")
   }
 }

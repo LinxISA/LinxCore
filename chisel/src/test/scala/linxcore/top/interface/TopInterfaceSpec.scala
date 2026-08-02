@@ -1,11 +1,13 @@
 package linxcore.top.interface
 
 import chisel3._
+import chisel3.reflect.DataMirror
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import java.nio.file.{Files, Paths}
 import linxcore.params.{CoreParams, ParamProfiles}
 import org.scalatest.funsuite.AnyFunSuite
+import scala.jdk.CollectionConverters._
 
 class InterfaceHoldProbeIO(val p: CoreParams) extends Bundle {
   val in = Flipped(Decoupled(new FetchedPacket(p)))
@@ -51,6 +53,32 @@ class BoxIOElaborationProbeIO(val p: CoreParams) extends Bundle {
 class BoxIOElaborationProbe(val p: CoreParams) extends Module {
   val io = IO(new BoxIOElaborationProbeIO(p))
   io := DontCare
+}
+
+class InterfaceDirectionProbe(val p: CoreParams) extends RawModule {
+  val iex = IO(new IEXIO(p))
+  val top = IO(new TOPIO(p))
+
+  require(DataMirror.directionOf(iex.ooo.aluDispatch.head.valid) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(iex.ooo.aluDispatch.head.ready) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(iex.ooo.robResolve.head.valid) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(iex.ooo.robResolve.head.ready) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(iex.lsu.loadAddress.head.valid) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(iex.lsu.loadAddress.head.ready) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(iex.lsu.loadReissue.head.valid) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(iex.lsu.loadReissue.head.ready) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(iex.cmdIssue.valid) == ActualDirection.Output)
+  require(DataMirror.directionOf(iex.cmdIssue.ready) == ActualDirection.Input)
+  require(DataMirror.directionOf(top.cmdIssue.valid) == ActualDirection.Output)
+  require(DataMirror.directionOf(top.cmdIssue.ready) == ActualDirection.Input)
 }
 
 class TopInterfaceSpec extends AnyFunSuite {
@@ -182,8 +210,22 @@ class TopInterfaceSpec extends AnyFunSuite {
   }
 
   test("resolve load lifecycle system and CMD transactions use exact canonical identities") {
-    val p = ParamProfiles.W4
+    val base = ParamProfiles.W4
+    val p = base.copy(
+      ooo = base.ooo.copy(robGroupsPerStid = 32),
+      lsu = base.lsu.copy(
+        loadPipes = 8,
+        loadQueueEntries = 16,
+        loadReturnQueueEntries = 8),
+      lsidWidth = 37,
+      transactionIdWidth = 29,
+      ridGenerationWidth = 7,
+      residentGenerationWidth = 9,
+      memoryTransactionIdWidth = 41,
+      memoryTransactionGenerationWidth = 11,
+      memoryAttemptGenerationWidth = 13)
     val resolve = new RobResolveTxn(p)
+    val issue = new LoadIssueTxn(p)
     val reissue = new LoadReissueTxn(p)
     val repick = new LoadRepickTxn(p)
     val cancel = new LoadCancelTxn(p)
@@ -191,25 +233,44 @@ class TopInterfaceSpec extends AnyFunSuite {
     val system = new SystemIssueTxn(p)
     val cmd = new CmdIssueTxn(p)
 
-    assert(resolve.rob.getClass == new RobIdentity(p).getClass)
+    val expectedRobFields = Set(
+      "peId", "stid", "ridSlot", "ridGeneration", "memberIndex",
+      "residentGeneration", "bid", "brobGeneration")
+    val expectedMemoryFields = Set(
+      "rob", "transaction", "lsid", "attemptGeneration", "pipeId")
+
+    assert(resolve.elements.keySet == Set(
+      "transactionId", "rob", "destinationValid", "destinationIndex",
+      "value", "trap"))
+    assert(resolve.rob.elements.keySet == expectedRobFields)
     assert(resolve.destinationIndex.getWidth ==
       InterfaceWidth.index(p.maxDestinationOperands))
     assert(resolve.value.getWidth == p.dataWidth)
 
     def checkTransition(current: MemoryIdentity, next: MemoryIdentity): Unit = {
-      assert(current.getClass == new MemoryIdentity(p).getClass)
-      assert(next.getClass == new MemoryIdentity(p).getClass)
-      assert(current.rob.getClass == next.rob.getClass)
-      assert(current.transaction.getClass == next.transaction.getClass)
-      assert(current.lsid.getWidth == p.lsidWidth)
-      assert(next.attemptGeneration.getWidth ==
-        p.memoryAttemptGenerationWidth)
+      Seq(current, next).foreach { identity =>
+        assert(identity.elements.keySet == expectedMemoryFields)
+        assert(identity.rob.elements.keySet == expectedRobFields)
+        assert(identity.transaction.elements.keySet == Set("value", "generation"))
+        assert(identity.rob.ridSlot.getWidth == 5)
+        assert(identity.rob.ridGeneration.getWidth == 7)
+        assert(identity.rob.residentGeneration.getWidth == 9)
+        assert(identity.transaction.value.getWidth == 41)
+        assert(identity.transaction.generation.getWidth == 11)
+        assert(identity.lsid.getWidth == 37)
+        assert(identity.attemptGeneration.getWidth == 13)
+        assert(identity.pipeId.getWidth == 3)
+      }
     }
+    assert(issue.elements.keySet == Set(
+      "identity", "address", "sizeBytes", "signed", "destination"))
+    checkTransition(issue.identity, issue.identity)
     checkTransition(reissue.currentIdentity, reissue.nextIdentity)
     checkTransition(repick.currentIdentity, repick.nextIdentity)
     assert(reissue.address.getWidth == p.physicalAddressWidth)
     assert(cancel.elements.keySet == Set("currentIdentity"))
-    assert(cancel.currentIdentity.getClass == new MemoryIdentity(p).getClass)
+    assert(cancel.currentIdentity.elements.keySet == expectedMemoryFields)
+    checkTransition(cancel.currentIdentity, cancel.currentIdentity)
 
     Seq(noflush, system, cmd).foreach { transaction =>
       assert(transaction.elements.contains("instruction"))
@@ -346,17 +407,29 @@ class TopInterfaceSpec extends AnyFunSuite {
   test("all box IO aggregates elaborate with their declared directions") {
     profiles.foreach { case (width, p) =>
       val chirrtl = ChiselStage.emitCHIRRTL(new BoxIOElaborationProbe(p))
+      val directionChirrtl = ChiselStage.emitCHIRRTL(new InterfaceDirectionProbe(p))
       assert(chirrtl.contains("module BoxIOElaborationProbe"))
+      assert(directionChirrtl.contains("module InterfaceDirectionProbe"))
       assert(chirrtl.contains(s"UInt<${p.instructionWidth}>"))
       assert(width == p.widths.decodeWidth)
     }
   }
 
   test("canonical public transaction names displace the legacy names") {
-    val interfaceRoot = repoRoot.resolve(
-      "chisel/src/main/scala/linxcore/top/interface")
-    val sources = Seq("OOOIEX.scala", "IEXLSU.scala", "EmitInterfaceManifest.scala")
-      .map(name => Files.readString(interfaceRoot.resolve(name)))
+    val scalaRoots = Seq(
+      repoRoot.resolve("chisel/src/main"),
+      repoRoot.resolve("chisel/src/test"))
+    val sources = scalaRoots.flatMap { root =>
+      val paths = Files.walk(root)
+      try {
+        paths.iterator.asScala
+          .filter(path => Files.isRegularFile(path) && path.toString.endsWith(".scala"))
+          .map(path => Files.readString(path))
+          .toSeq
+      } finally {
+        paths.close()
+      }
+    }
       .mkString("\n")
 
     assert(!sources.contains("Completion" + "Txn"))
