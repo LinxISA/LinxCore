@@ -1,41 +1,40 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H, OHToUInt, PopCount, PriorityEncoder,
+import chisel3.util.{Decoupled, MuxLookup, PopCount, PriorityEncoder,
   PriorityEncoderOH, UIntToOH, Valid, log2Ceil}
-import linxcore.common.{DestinationKind, OperandClass}
+import linxcore.common.{BoundaryKind, DestinationKind, OperandClass}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{DispatchTxn, MemoryAddressMode, MemoryIndexMode,
+  OperandKind, PredictionKind, RecoveryPhase, RecoveryPlan,
+  RecoveryPlanContract, RecoveryTargetIO, RobIdentity, StoreDispatchTxn,
+  UopClass}
 
 object OooIexIssueSlotState extends ChiselEnum {
   val Free, BoundS2, ResidentS3 = Value
 }
 
 object OooIexRecoveryScanState extends ChiselEnum {
-  val Idle, Scan, Prepared, Rejected = Value
+  val Idle, Scan, Prepared = Value
 }
 
-class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
-  val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+class OooIexIssueIO(
+    val core: CoreParams,
+    val p: OooParams)
+    extends Bundle {
+  def this(core: CoreParams) =
+    this(core, OooIexPhysicalProfile.fromCoreParams(core).params)
+  val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = Decoupled(new OooIexIssueRow(p))
+  val operandReadyBits = Input(new OooIexOperandReadyBits(p))
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-
   val releases = Flipped(Vec(p.iexReleaseWidth,
     Decoupled(new OooIexIssueRelease(p))))
   def release = releases(0)
-  val dispatchReleases = Vec(p.iexReleaseWidth,
-    Decoupled(new OooDispatchRelease(p)))
-  def dispatchRelease = dispatchReleases(0)
-
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
-  val recoveryFire = Input(Bool())
-  val recoveryApplied = Valid(new OooResidencyRecoveryPlan(p))
-  val recoveryBusy = Output(Bool())
-  // Every PTag return must invalidate the generation-qualified ready record
-  // before the freelist can recycle that token.
-  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
+  val recovery = Flipped(new RecoveryTargetIO(core))
+  val acceptedRecoveryApply = Valid(new RecoveryPlan(core))
 
   val queries = Input(Vec(p.iexIssueDomainCount,
     new OooIexSlotQuery(p)))
@@ -44,10 +43,6 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val queryRows = Output(Vec(p.iexIssueDomainCount,
     new OooIexIssueRow(p)))
   val queryPickables = Output(Vec(p.iexIssueDomainCount, Bool()))
-
-  // Each topology-neutral picker sees the same canonical IQ owner through a
-  // class/bank/capability projection. Capability-disjoint pickers may observe
-  // the same bank. The picker count changes bandwidth, never physical rows.
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
@@ -61,8 +56,6 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(new OooIexPickClaimReject(p)))
   val pickRetryRejectedByDomain = Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickRetryReject(p)))
-  val pickRecoveryCanceledByDomain = Vec(p.iexIssueDomainCount,
-    Valid(new OooIexPickToken(p)))
   val pickRecoveryBlockedByDomain = Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickToken(p)))
   val pickPolicyBlockedByDomain = Vec(p.iexIssueDomainCount,
@@ -73,8 +66,6 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
     UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
       p.iqEntriesPerBank).W)))
 
-  // Domain-zero aliases keep focused single-domain modules and regression
-  // tests source-compatible while the physical IO is explicitly vectorized.
   def query = queries(0)
   def queryState = queryStates(0)
   def queryRow = queryRows(0)
@@ -85,14 +76,10 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   def pickMalformed = pickMalformedByDomain(0)
   def pickRejected = pickRejectedByDomain(0)
   def pickRetryRejected = pickRetryRejectedByDomain(0)
-  def pickRecoveryCanceled = pickRecoveryCanceledByDomain(0)
   def pickRecoveryBlocked = pickRecoveryBlockedByDomain(0)
   def pickPolicyBlocked = pickPolicyBlockedByDomain(0)
   def queryPolicyReason = queryPolicyReasons(0)
 
-  val s1Occupied = Output(Vec(p.stidCount, Bool()))
-  val s2Bind = Valid(new OooIexS2BindAck(p))
-  val s3Enable = Valid(new OooIexS3Enable(p))
   val boundEntries = Output(Vec(p.iqClassCount,
     Vec(p.iqBankCount, UInt(p.iqBankEntryCountWidth.W))))
   val residentEntries = Output(Vec(p.iqClassCount,
@@ -102,54 +89,39 @@ class OooIexIssueIO(val p: OooParams = OooParams()) extends Bundle {
   val storeFrontierBlocked = Output(Vec(p.stidCount,
     UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
       p.iqEntriesPerBank).W)))
-
-  val s1Rejected = Valid(new OooIexS1Reject(p))
   val releaseRejecteds = Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p)))
   def releaseRejected = releaseRejecteds(0)
-  val recoveryRejected = Valid(new OooIexRecoveryReject(p))
+  val recoveryIdle = Output(Bool())
 }
 
-/** OOO-S1 to IEX-S3 residency owner.
+/** Canonical Dispatch-to-IQ owner with retained S2/S3 residency.
   *
-  * One retained S1 slot exists per STID.  A fair shared S2 writer consumes at
-  * most one transaction per cycle, writes every exact dispatch child or none,
-  * and leaves the rows in `BoundS2` for a complete cycle.  Only the following
-  * S3 transition makes a row eligible for a future picker.  Source wakeups are
-  * registered into the row, so a wakeup observed in cycle N cannot affect an
-  * S3 eligibility decision in that same cycle.
-  *
-  * One topology-neutral oldest-ready domain now claims canonical in-flight
-  * state before P1. Read denial/rejection returns that exact claim for retry.
-  * The release seam models only a later exact, non-cancellable I2 terminal
-  * event and joins physical row removal to the existing dispatch-reservation
-  * release handshake.
+  * Classed OOO channels allocate physical IQ rows directly.  The compact
+  * schedule row and payload sidecar remain the unique issue state; the PTag
+  * Ready Bits view is sampled only on the accepted dispatch edge.  Recovery
+  * scans exact ROB identities without reconstructing global age.
   */
 class OooIexIssue(
-    val p: OooParams = OooParams(),
-    val domainCapabilities: Seq[BigInt] = Seq.empty,
+    val core: CoreParams,
     val requireStoreReservation: Boolean = false) extends Module {
-  private val effectiveDomainCapabilities =
-    if (domainCapabilities.isEmpty) Seq.fill(p.iexIssueDomainCount)(
-      OooIexDomainCapability.ValidMask) else domainCapabilities
-  require(effectiveDomainCapabilities.length == p.iexIssueDomainCount,
-    "IEX issue capability topology must define every physical domain")
-  require(effectiveDomainCapabilities.forall(mask => mask != 0 &&
-    (mask & ~OooIexDomainCapability.ValidMask) == 0),
-    "IEX issue domains need nonempty declared capability masks")
-  val io = IO(new OooIexIssueIO(p))
-  private val ttagIndexWidth = log2Ceil(p.tPhysRegs)
-  private val utagIndexWidth = log2Ceil(p.uPhysRegs)
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
+  val p = profile.params
+  OooRecoveryMembership.requireCompatible(p, core)
+  val io = IO(new OooIexIssueIO(core, p))
+
+  private val classWidth = math.max(1, log2Ceil(p.iqClassCount))
+  private val physicalRowCount =
+    p.iqClassCount * p.iqBankCount * p.iqEntriesPerBank
+  private val normalAdmissionCount = core.iex.aluPipes + core.iex.bruPipes +
+    core.iex.aguPipes + core.iex.systemMulticycleQueues +
+    core.iex.cmdIssueQueues
+  private val admissionCount = normalAdmissionCount + 2 * core.iex.stdPipes
+  private val admissionIndexWidth = math.max(1, log2Ceil(admissionCount))
 
   val slotState = RegInit(VecInit(Seq.fill(p.iqClassCount)(
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(OooIexIssueSlotState.Free)))))))
-  // S1 owns a pending physical-write claim before S2 installs the row.  Keep
-  // this separate from slotState so queryState continues to describe physical
-  // IQ residency, while a second STID still cannot claim the same target.
-  val s1Claimed = RegInit(VecInit(Seq.fill(p.iqClassCount)(
-    VecInit(Seq.fill(p.iqBankCount)(
-      VecInit(Seq.fill(p.iqEntriesPerBank)(false.B)))))))
   val scheduleRows = RegInit(VecInit(Seq.fill(p.iqClassCount)(
     VecInit(Seq.fill(p.iqBankCount)(
       VecInit(Seq.fill(p.iqEntriesPerBank)(
@@ -158,24 +130,885 @@ class OooIexIssue(
     Vec(p.iqClassCount, Vec(p.iqBankCount,
       Vec(p.iqEntriesPerBank,
         UInt(OooIexDomainCapability.Count.W))))))
-  private val physicalDomainCapabilities = VecInit(
-    effectiveDomainCapabilities.map(_.U(OooIexDomainCapability.Count.W)))
+  val reservationEpoch = RegInit(VecInit(Seq.fill(p.iqClassCount)(
+    VecInit(Seq.fill(p.iqBankCount)(
+      VecInit(Seq.fill(p.iqEntriesPerBank)(
+        0.U(p.reservationEpochWidth.W))))))))
+  // These serials advance only on canonical Dispatch-to-IQ admission. They
+  // deliberately do not rewind on recovery: a canceled memory uop must never
+  // alias a later retained uop or load attempt.
+  private val memoryTransactionSerialWidth =
+    p.memoryTransactionGenerationWidth + p.memoryTransactionIdWidth
+  private val memoryTransactionSerial =
+    RegInit(0.U(memoryTransactionSerialWidth.W))
+  private val initialLoadAttemptSerial =
+    RegInit(0.U(p.loadGenerationWidth.W))
   val payloadRows = Seq.tabulate(p.iqClassCount, p.iqBankCount) { (_, _) =>
     Mem(p.iqEntriesPerBank, new OooIexPayloadSidecar(p))
   }
-  private val storeIssueClasses = Seq(
+
+  private def sameMember(left: RobMemberKey, right: RobMemberKey): Bool =
+    left.asUInt === right.asUInt
+
+  private def privateMember(rob: RobIdentity): RobMemberKey = {
+    val member = Wire(new RobMemberKey(p))
+    member.group.valid := true.B
+    member.group.peId := rob.peId
+    member.group.stid := rob.stid
+    member.group.ridSlot := rob.ridSlot
+    member.group.ridGeneration := rob.ridGeneration
+    member.bid.valid := true.B
+    member.bid.value := rob.bid
+    member.brobGeneration := rob.brobGeneration
+    member.memberIndex := rob.memberIndex
+    member.residentGeneration := rob.residentGeneration
+    member
+  }
+
+  private def operandClass(kind: OperandKind.Type): OperandClass.Type =
+    MuxLookup(kind.asUInt, OperandClass.Invalid)(Seq(
+      OperandKind.Gpr.asUInt -> OperandClass.P,
+      OperandKind.T.asUInt -> OperandClass.T,
+      OperandKind.U.asUInt -> OperandClass.U))
+
+  private def destinationKind(kind: OperandKind.Type): DestinationKind.Type =
+    MuxLookup(kind.asUInt, DestinationKind.None)(Seq(
+      OperandKind.Gpr.asUInt -> DestinationKind.Gpr,
+      OperandKind.T.asUInt -> DestinationKind.T,
+      OperandKind.U.asUInt -> DestinationKind.U))
+
+  private def localSequence(
+      source: linxcore.top.interface.RenamedSource,
+      isT: Bool): OooLocalSeq = {
+    val sequence = Wire(new OooLocalSeq(p))
+    sequence.valid := source.valid && (source.ttagValid || source.utagValid)
+    sequence.index := Mux(isT, source.tSeqIndex, source.uSeqIndex)
+    sequence.generation := Mux(
+      isT, source.tSeqGeneration, source.uSeqGeneration)
+    sequence
+  }
+
+  private def localDestinationSequence(
+      destination: linxcore.top.interface.RenamedDestination,
+      isT: Bool): OooLocalSeq = {
+    val sequence = Wire(new OooLocalSeq(p))
+    sequence.valid := destination.valid &&
+      (destination.ttagValid || destination.utagValid)
+    sequence.index := Mux(isT,
+      destination.tSeqIndex, destination.uSeqIndex)
+    sequence.generation := Mux(isT,
+      destination.tSeqGeneration, destination.uSeqGeneration)
+    sequence
+  }
+
+  private def exactWakeup(
+      txn: DispatchTxn,
+      source: linxcore.top.interface.RenamedSource,
+      sourceClass: OperandClass.Type,
+      sequence: OooLocalSeq,
+      committed: Boolean): Bool = io.wakeup.map { wakeup =>
+    val classExact = wakeup.bits.operandClass === sourceClass
+    val tagExact = Mux(sourceClass === OperandClass.P,
+      wakeup.bits.ptag === source.ptag &&
+        wakeup.bits.ptagGeneration === source.pGeneration,
+      wakeup.bits.localTag === Mux(sourceClass === OperandClass.T,
+        source.ttag, source.utag) &&
+        wakeup.bits.localSequence.asUInt === sequence.asUInt)
+    wakeup.valid && classExact && tagExact &&
+      wakeup.bits.stid === txn.uop.decoded.rob.stid &&
+      wakeup.bits.epoch === txn.uop.decoded.instruction.parent.identity.epoch &&
+      wakeup.bits.kind === (if (committed) OooIexWakeupKind.Committed
+        else OooIexWakeupKind.SpeculativeLoad)
+  }.reduce(_ || _)
+
+  private def exactReady(
+      txn: DispatchTxn,
+      source: linxcore.top.interface.RenamedSource,
+      sourceClass: OperandClass.Type,
+      sequence: OooLocalSeq): Bool = {
+    val stid = txn.uop.decoded.rob.stid
+    val stidInRange = stid < p.stidCount.U
+    val safeStid = Mux(stidInRange, stid, 0.U)
+    val ptagInRange = source.ptag < p.pPhysRegs.U
+    val safePtag = Mux(ptagInRange, source.ptag, 0.U)
+    val ttagInRange = source.ttag < p.tPhysRegs.U
+    val safeTtag = Mux(ttagInRange, source.ttag, 0.U)
+    val utagInRange = source.utag < p.uPhysRegs.U
+    val safeUtag = Mux(utagInRange, source.utag, 0.U)
+    val epoch = txn.uop.decoded.instruction.parent.identity.epoch
+    val pEntry = io.operandReadyBits.ptag(safePtag)
+    val tEntry = if (p.stidCount == 1)
+      io.operandReadyBits.ttag(0)(safeTtag)
+    else io.operandReadyBits.ttag(safeStid)(safeTtag)
+    val uEntry = if (p.stidCount == 1)
+      io.operandReadyBits.utag(0)(safeUtag)
+    else io.operandReadyBits.utag(safeStid)(safeUtag)
+    val pExact = ptagInRange && pEntry.valid && pEntry.ready &&
+      pEntry.stid === stid && pEntry.epoch === epoch &&
+      pEntry.generation === source.pGeneration
+    val tExact = stidInRange && ttagInRange && tEntry.allocated &&
+      tEntry.ready && tEntry.epoch === epoch &&
+      tEntry.sequence.asUInt === sequence.asUInt
+    val uExact = stidInRange && utagInRange && uEntry.allocated &&
+      uEntry.ready && uEntry.epoch === epoch &&
+      uEntry.sequence.asUInt === sequence.asUInt
+    MuxLookup(sourceClass.asUInt, false.B)(Seq(
+      OperandClass.P.asUInt -> pExact,
+      OperandClass.T.asUInt -> tExact,
+      OperandClass.U.asUInt -> uExact)) ||
+      exactWakeup(txn, source, sourceClass, sequence, committed = true)
+  }
+
+  private def sourceSelected(
+      txn: DispatchTxn,
+      sourceIndex: Int,
+      uopClass: OooUopClass.Type,
+      childIndex: UInt): Bool = {
+    val source = txn.uop.sources(sourceIndex)
+    val storeAddress = uopClass === OooUopClass.Agu && childIndex === 0.U
+    val storeData = uopClass === OooUopClass.Std && childIndex === 1.U
+    source.valid && Mux(storeAddress,
+      txn.uop.decoded.memory.addressSourceMask(sourceIndex),
+      Mux(storeData,
+        txn.uop.decoded.memory.dataSourceMask(sourceIndex), true.B))
+  }
+
+  private def makeRow(
+      txn: DispatchTxn,
+      uopClass: OooUopClass.Type,
+      childIndex: UInt,
+      bank: UInt,
+      entry: UInt,
+      nextEpoch: UInt,
+      capability: UInt,
+      memoryTransaction: OooIexMemoryTransactionIdentity,
+      initialLoadAttemptGeneration: UInt): OooIexIssueRow = {
+    val row = Wire(new OooIexIssueRow(p))
+    row := 0.U.asTypeOf(row)
+    val decoded = txn.uop.decoded
+    val instruction = decoded.instruction.parent
+    val member = privateMember(decoded.rob)
+    row.valid := true.B
+    row.peId := decoded.rob.peId
+    row.stid := decoded.rob.stid
+    row.epoch := instruction.identity.epoch
+    row.transactionId := txn.transactionId
+    row.memoryTransactionValid := decoded.memory.valid
+    row.memoryTransaction := Mux(decoded.memory.valid, memoryTransaction,
+      0.U.asTypeOf(row.memoryTransaction))
+    row.initialLoadAttemptValid := decoded.memory.valid && decoded.memory.isLoad
+    row.initialLoadAttemptGeneration := Mux(
+      row.initialLoadAttemptValid, initialLoadAttemptGeneration, 0.U)
+    row.dispatchLane := 0.U
+    row.uopIndex := decoded.rob.memberIndex
+    row.childIndex := childIndex
+    row.member := member
+    row.reservation.valid := true.B
+    row.reservation.uopClass := uopClass
+    row.reservation.bank := bank
+    row.reservation.writePort := 0.U
+    row.reservation.speculativeSlot := entry
+    row.reservation.reservationEpoch := nextEpoch
+
+    row.uopKey.primaryParent.valid := true.B
+    row.uopKey.primaryParent.peId := instruction.identity.peId
+    row.uopKey.primaryParent.stid := instruction.identity.stid
+    row.uopKey.primaryParent.instructionId := instruction.identity.instructionId
+    row.uopKey.primaryParent.epoch := instruction.identity.epoch
+    row.uopKey.uopOrdinal := decoded.rob.memberIndex
+    row.uopKey.uopCount := 1.U
+    row.parentCount := 1.U
+    row.parentPcTokens(0).valid := txn.pcBufferIndexOffset.valid
+    row.parentPcTokens(0).index := txn.pcBufferIndexOffset.pcBufferIndex
+    row.parentPcTokens(0).byteOffset := txn.pcBufferIndexOffset.pcOffset
+    row.parentPcTokens(0).allocationEpoch :=
+      txn.pcBufferIndexOffset.allocationEpoch
+    row.pcParentIndexValid := txn.pcBufferIndexOffset.valid
+    row.pcParentIndex := 0.U
+    row.primaryPrediction.valid := instruction.prediction.valid
+    row.primaryPrediction.predictionTag := instruction.prediction.predictionTag
+    row.primaryPrediction.transactionId := instruction.prediction.transactionId
+    row.primaryPrediction.requestPc := instruction.prediction.requestPc
+    row.primaryPrediction.taken := instruction.prediction.taken
+    row.primaryPrediction.branchPc := instruction.pc
+    row.primaryPrediction.target := instruction.prediction.target
+    row.primaryPrediction.fallthroughPc := instruction.prediction.fallthroughPc
+    row.primaryPrediction.kind := BoundaryKind.Fall
+    when(instruction.prediction.kind === PredictionKind.Conditional) {
+      row.primaryPrediction.kind := BoundaryKind.Cond
+    }.elsewhen(instruction.prediction.kind === PredictionKind.Call) {
+      row.primaryPrediction.kind := BoundaryKind.Call
+    }.elsewhen(instruction.prediction.kind === PredictionKind.Return) {
+      row.primaryPrediction.kind := BoundaryKind.Ret
+    }.elsewhen(instruction.prediction.kind === PredictionKind.Direct) {
+      row.primaryPrediction.kind := BoundaryKind.Direct
+    }.elsewhen(instruction.prediction.kind === PredictionKind.Indirect) {
+      row.primaryPrediction.kind := BoundaryKind.Ind
+    }
+    row.primaryPrediction.provider := instruction.prediction.provider
+    row.primaryPrediction.confidence := instruction.prediction.confidence
+    row.primaryPrediction.checkpointId := instruction.prediction.checkpointId
+    row.primaryPrediction.epoch := instruction.prediction.epoch
+
+    row.boundary.start := decoded.blockStart
+    row.boundary.stop := decoded.blockStop
+    row.boundary.explicit := decoded.blockBoundary
+    row.opcode := decoded.opcode
+    row.recipe.valid := decoded.classification.valid
+    row.recipe.opcode := decoded.opcode
+    row.recipe.disposition := decoded.classification.disposition
+    row.recipe.recipeKind := decoded.classification.kind
+    row.recipe.uopCountMin := decoded.classification.uopCountMin
+    row.recipe.uopCountMax := decoded.classification.uopCountMax
+    row.recipe.complexBreak := decoded.classification.complexBreak
+    row.recipe.lateSplitKind := decoded.classification.splitKind
+    row.recipe.fusionHeadClass := decoded.classification.fusionHeadClass
+    row.recipe.fusionTailClass := decoded.classification.fusionTailClass
+    row.recipe.fastResolveClass := decoded.classification.fastResolveClass
+    row.recipe.implicitSourceMask :=
+      decoded.classification.implicitSourceMask
+    row.recipe.implicitDestination :=
+      decoded.classification.implicitDestination
+    row.recipe.sideEffectOwner := decoded.classification.sideEffectOwner
+    row.recipe.requiresTargetValidation :=
+      decoded.classification.requiresTargetValidation
+    row.recipe.mayTrap := decoded.classification.mayTrap
+    row.recipe.mayTrapLate := decoded.classification.mayTrapLate
+    row.recipe.mayRedirect := decoded.classification.mayRedirect
+    row.recipe.nonspeculative := decoded.classification.nonspeculative
+    row.recipe.pcReadRequired := decoded.classification.pcReadRequired
+    row.recipe.pcReadClass := decoded.classification.pcReadClass
+    row.recipe.dispatchClass := decoded.classification.dispatchClass
+    row.recipe.dispatchWrites := decoded.classification.dispatchWrites
+    for (classIndex <- 0 until p.iqClassCount) {
+      row.recipe.dispatchDemand(classIndex) :=
+        decoded.classification.dispatchDemand(classIndex)
+      row.recipe.dispatchCapabilities(classIndex) :=
+        decoded.classification.executionPipeCapability(classIndex)
+    }
+    row.recipe.memoryRequestCount :=
+      decoded.classification.memoryRequestCount
+    row.recipe.pSourceCount := decoded.classification.pSourceCount
+    row.recipe.pDestinationCount := decoded.classification.pDestinationCount
+    row.recipe.tAllocationCount := decoded.classification.tAllocationCount
+    row.recipe.uAllocationCount := decoded.classification.uAllocationCount
+    row.plannedChildCount := decoded.classification.uopCountMax
+    row.immediateValid := decoded.immediateValid
+    row.immediate := decoded.immediate
+    row.memory.valid := decoded.memory.valid
+    row.memory.isLoad := decoded.memory.isLoad
+    row.memory.isStore := decoded.memory.isStore
+    row.memory.addressMode := MuxLookup(decoded.memory.addressMode.asUInt,
+      OooMemoryAddressMode.None)(Seq(
+      MemoryAddressMode.BaseIndex.asUInt -> OooMemoryAddressMode.BaseIndex,
+      MemoryAddressMode.BaseOffset.asUInt -> OooMemoryAddressMode.BaseOffset,
+      MemoryAddressMode.PcOffset.asUInt -> OooMemoryAddressMode.PcOffset))
+    row.memory.accessBytes := decoded.memory.accessBytes
+    row.memory.signExtend := decoded.memory.signExtend
+    row.memory.offset := decoded.memory.offset
+    row.memory.indexMode := MuxLookup(decoded.memory.indexMode.asUInt,
+      OooMemoryIndexMode.Identity)(Seq(
+      MemoryIndexMode.SignExtend32.asUInt -> OooMemoryIndexMode.SignExtend32,
+      MemoryIndexMode.ZeroExtend32.asUInt -> OooMemoryIndexMode.ZeroExtend32,
+      MemoryIndexMode.Negate.asUInt -> OooMemoryIndexMode.Negate))
+    row.memory.indexShift := decoded.memory.indexShift
+    row.memory.addressSourceMask := decoded.memory.addressSourceMask
+    row.memory.dataSourceMask := decoded.memory.dataSourceMask
+    row.memory.writebackValid := decoded.memory.writebackValid
+    row.memory.writebackPreIndex := decoded.memory.writebackPreIndex
+
+    row.memoryOrder.valid := decoded.valid
+    row.memoryOrder.memoryValid := decoded.memory.valid
+    row.memoryOrder.isLoad := decoded.memory.isLoad
+    row.memoryOrder.isStore := decoded.memory.isStore
+    row.memoryOrder.requestCount := txn.memoryOrder.requestCount
+    row.memoryOrder.firstLsid := txn.memoryOrder.firstLsid
+    row.memoryOrder.firstTypeId := Mux(decoded.memory.isLoad,
+      txn.memoryOrder.firstLid, txn.memoryOrder.firstSid)
+    row.memoryOrder.before.lsid := txn.memoryOrder.firstLsid
+    row.memoryOrder.before.loadId := txn.memoryOrder.firstLid
+    row.memoryOrder.before.storeId := txn.memoryOrder.firstSid
+    row.memoryOrder.before.youngestStoreLsidValid := txn.memoryOrder.yostValid
+    row.memoryOrder.before.youngestStoreLsid := txn.memoryOrder.yostLsid
+    row.memoryOrder.after := row.memoryOrder.before
+    row.memoryOrder.after.lsid := txn.memoryOrder.firstLsid +
+      txn.memoryOrder.requestCount
+    row.memoryOrder.after.loadId := txn.memoryOrder.firstLid +
+      Mux(decoded.memory.isLoad, txn.memoryOrder.requestCount, 0.U)
+    row.memoryOrder.after.storeId := txn.memoryOrder.firstSid +
+      Mux(decoded.memory.isStore, txn.memoryOrder.requestCount, 0.U)
+    when(decoded.memory.isStore && txn.memoryOrder.requestCount.orR) {
+      row.memoryOrder.after.youngestStoreLsidValid := true.B
+      row.memoryOrder.after.youngestStoreLsid :=
+        txn.memoryOrder.firstLsid + txn.memoryOrder.requestCount - 1.U
+    }
+    row.isStore := decoded.memory.valid && decoded.memory.isStore
+    row.storeOrder.valid := row.isStore
+    row.storeOrder.logicalMember := member
+    row.storeOrder.firstLsid := txn.memoryOrder.firstLsid
+    row.storeOrder.firstStoreId := txn.memoryOrder.firstSid
+    row.storeOrder.requestCount := txn.memoryOrder.requestCount
+    row.preciseTrap := txn.trap.valid
+    row.trapCause := txn.trap.cause
+    row.blockLast := decoded.blockStop
+
+    for (sourceIndex <- 0 until p.maxSourceOperands) {
+      val renamed = txn.uop.sources(sourceIndex)
+      val source = row.sources(sourceIndex)
+      val cls = operandClass(renamed.kind)
+      val isT = cls === OperandClass.T
+      val sequence = localSequence(renamed, isT)
+      val selected = sourceSelected(txn, sourceIndex, uopClass, childIndex)
+      val ready = exactReady(txn, renamed, cls, sequence)
+      val speculative = exactWakeup(
+        txn, renamed, cls, sequence, committed = false)
+      source.valid := selected
+      source.ready := !selected || ready
+      source.specReady := selected && !ready && speculative
+      source.operandClass := cls
+      source.ptag := renamed.ptag
+      source.ptagGeneration := renamed.pGeneration
+      source.localTag := Mux(isT, renamed.ttag, renamed.utag)
+      source.localSequence := sequence
+      source.load := 0.U.asTypeOf(source.load)
+      for (port <- 0 until p.iexWakeupPorts) {
+        when(source.specReady && io.wakeup(port).valid &&
+            io.wakeup(port).bits.kind === OooIexWakeupKind.SpeculativeLoad &&
+            io.wakeup(port).bits.operandClass === cls) {
+          source.load := io.wakeup(port).bits.load
+        }
+      }
+    }
+    for (destinationIndex <- 0 until p.maxDestinationOperands) {
+      val renamed = txn.uop.destinations(destinationIndex)
+      val destination = row.destinations(destinationIndex)
+      val isT = renamed.kind === OperandKind.T
+      val selected = renamed.valid &&
+        !(decoded.memory.isStore && uopClass === OooUopClass.Std)
+      destination.valid := selected
+      destination.kind := destinationKind(renamed.kind)
+      destination.atag := renamed.atag
+      destination.relativeIndex := Mux(isT,
+        renamed.tSeqIndex, renamed.uSeqIndex)
+      destination.ptag := renamed.ptag
+      destination.ptagGeneration := renamed.pGeneration
+      destination.localTag := Mux(isT, renamed.ttag, renamed.utag)
+      destination.localSequence := localDestinationSequence(renamed, isT)
+      row.payload.previousPDestinations(destinationIndex).valid := selected &&
+        renamed.kind === OperandKind.Gpr && renamed.previousPtagValid
+      row.payload.previousPDestinations(destinationIndex).ptag :=
+        renamed.previousPtag
+      row.payload.previousPDestinations(destinationIndex).ptagGeneration :=
+        renamed.previousPGeneration
+    }
+    row
+  }
+
+  val admissionValid = Wire(Vec(admissionCount, Bool()))
+  val admissionTxn = Wire(Vec(admissionCount, new DispatchTxn(core)))
+  val admissionClass = Wire(Vec(admissionCount, OooUopClass()))
+  val admissionChild = Wire(Vec(admissionCount,
+    UInt(math.max(1, log2Ceil(p.maxDispatchWritesPerInstruction)).W)))
+  val admissionCapability = Wire(Vec(admissionCount,
+    UInt(OooIexDomainCapability.Count.W)))
+  val admissionBankMask = Wire(Vec(admissionCount, UInt(p.iqBankCount.W)))
+  val admissionChannelExact = Wire(Vec(admissionCount, Bool()))
+  admissionValid.foreach(_ := false.B)
+  admissionTxn.foreach(_ := 0.U.asTypeOf(new DispatchTxn(core)))
+  admissionClass.foreach(_ := OooUopClass.Alu)
+  admissionChild.foreach(_ := 0.U)
+  admissionCapability.foreach(_ := 0.U)
+  admissionBankMask.foreach(_ := 0.U)
+  admissionChannelExact.foreach(_ := false.B)
+
+  private def laneBankMask(lane: Int, laneCount: Int): BigInt =
+    (0 until p.iqBankCount).filter(_ % laneCount == lane).foldLeft(BigInt(0))(
+      (mask, bank) => mask | (BigInt(1) << bank))
+  private val allBanks = ((BigInt(1) << p.iqBankCount) - 1)
+  private def txnIdentityExact(txn: DispatchTxn): Bool =
+    txn.uop.decoded.valid &&
+      txn.uop.decoded.rob.stid < p.stidCount.U &&
+      txn.uop.decoded.rob.peId === txn.uop.decoded.instruction.parent.identity.peId &&
+      txn.uop.decoded.rob.stid === txn.uop.decoded.instruction.parent.identity.stid &&
+      (!txn.uop.decoded.instruction.parent.prediction.valid ||
+        txn.uop.decoded.instruction.parent.identity.epoch ===
+          txn.uop.decoded.instruction.parent.prediction.epoch)
+  private def classificationExact(
+      txn: DispatchTxn,
+      uopClass: UopClass.Type,
+      dispatchClass: Int,
+      issueClass: Int,
+      capabilityMask: BigInt,
+      dispatchWrites: Int): Bool = {
+    val classification = txn.uop.decoded.classification
+    txnIdentityExact(txn) && txn.uop.decoded.uopClass === uopClass &&
+      classification.valid &&
+      classification.disposition === OooOpcodeDisposition.Dispatch.U &&
+      classification.dispatchClass === dispatchClass.U &&
+      classification.dispatchWrites === dispatchWrites.U &&
+      classification.dispatchDemand(issueClass).orR &&
+      (classification.executionPipeCapability(issueClass) &
+        capabilityMask.U).orR
+  }
+  private def loadMemoryExact(txn: DispatchTxn): Bool = {
+    val decoded = txn.uop.decoded
+    decoded.memory.valid && decoded.memory.isLoad && !decoded.memory.isStore &&
+      decoded.memory.requestCount === 1.U &&
+      decoded.classification.memoryRequestCount === 1.U &&
+      txn.memoryOrder.requestCount === 1.U
+  }
+  private def storeMemoryExact(txn: DispatchTxn): Bool = {
+    val decoded = txn.uop.decoded
+    decoded.memory.valid && !decoded.memory.isLoad && decoded.memory.isStore &&
+      decoded.memory.requestCount === 1.U &&
+      decoded.classification.memoryRequestCount === 1.U &&
+      txn.memoryOrder.requestCount === 1.U
+  }
+  private val systemCapabilityMask = OooIexDomainCapability.mask(
+    OooIexDomainCapability.MultiCycleAlu,
+    OooIexDomainCapability.System,
+    OooIexDomainCapability.PointerAuth)
+  private def systemClassificationExact(txn: DispatchTxn): Bool = {
+    val decoded = txn.uop.decoded
+    val classification = decoded.classification
+    val alu = decoded.uopClass === UopClass.Alu &&
+      classification.dispatchClass === OooDispatchClass.Alu.U &&
+      classification.dispatchDemand(OooDispatchClass.Alu - 1).orR &&
+      (classification.executionPipeCapability(OooDispatchClass.Alu - 1) &
+        systemCapabilityMask.U).orR
+    val system = decoded.uopClass === UopClass.System &&
+      classification.dispatchClass === OooDispatchClass.Sys.U &&
+      classification.dispatchDemand(OooDispatchClass.Sys - 1).orR &&
+      (classification.executionPipeCapability(OooDispatchClass.Sys - 1) &
+        systemCapabilityMask.U).orR
+    txnIdentityExact(txn) && classification.valid &&
+      classification.disposition === OooOpcodeDisposition.Dispatch.U &&
+      classification.dispatchWrites === 1.U && !decoded.memory.valid &&
+      (alu || system)
+  }
+
+  var admission = 0
+  for (lane <- 0 until core.iex.aluPipes) {
+    val channel = io.dispatch.aluDispatch(lane)
+    admissionValid(admission) := channel.valid
+    admissionTxn(admission) := channel.bits
+    admissionClass(admission) := OooUopClass.Alu
+    admissionCapability(admission) := channel.bits.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Alu - 1)
+    admissionBankMask(admission) := laneBankMask(
+      lane, core.iex.aluPipes).U
+    admissionChannelExact(admission) := classificationExact(
+      channel.bits, UopClass.Alu, OooDispatchClass.Alu,
+      OooDispatchClass.Alu - 1,
+      OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu), 1) &&
+      !channel.bits.uop.decoded.memory.valid
+    admission += 1
+  }
+  for (lane <- 0 until core.iex.bruPipes) {
+    val channel = io.dispatch.bruDispatch(lane)
+    admissionValid(admission) := channel.valid
+    admissionTxn(admission) := channel.bits
+    admissionClass(admission) := OooUopClass.Bru
+    admissionCapability(admission) := channel.bits.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Bru - 1)
+    admissionBankMask(admission) := allBanks.U
+    admissionChannelExact(admission) := classificationExact(
+      channel.bits, UopClass.Bru, OooDispatchClass.Bru,
+      OooDispatchClass.Bru - 1,
+      OooIexDomainCapability.mask(OooIexDomainCapability.Branch), 1) &&
+      !channel.bits.uop.decoded.memory.valid
+    admission += 1
+  }
+  for (lane <- 0 until core.iex.aguPipes) {
+    val channel = io.dispatch.aguDispatch(lane)
+    admissionValid(admission) := channel.valid
+    admissionTxn(admission) := channel.bits
+    admissionClass(admission) := OooUopClass.Agu
+    admissionCapability(admission) := channel.bits.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Agu - 1)
+    admissionBankMask(admission) := laneBankMask(
+      lane, core.iex.aguPipes).U
+    admissionChannelExact(admission) := classificationExact(
+      channel.bits, UopClass.Agu, OooDispatchClass.Agu,
+      OooDispatchClass.Agu - 1,
+      OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress), 1) &&
+      loadMemoryExact(channel.bits)
+    admission += 1
+  }
+  val storeAdmissionBase = admission
+  for (lane <- 0 until core.iex.stdPipes) {
+    val channel = io.dispatch.storeDispatch(lane)
+    val address = admission
+    val data = admission + 1
+    admissionValid(address) := channel.valid
+    admissionTxn(address) := channel.bits.sta
+    admissionClass(address) := OooUopClass.Agu
+    admissionChild(address) := 0.U
+    admissionCapability(address) := channel.bits.sta.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Agu - 1)
+    admissionBankMask(address) := VecInit((0 until p.iqBankCount).map { bank =>
+      (bank % core.iex.aguPipes).U === channel.bits.aguPipe
+    }).asUInt
+    admissionValid(data) := channel.valid
+    admissionTxn(data) := channel.bits.std
+    admissionClass(data) := OooUopClass.Std
+    admissionChild(data) := 1.U
+    admissionCapability(data) := channel.bits.std.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Std - 1)
+    admissionBankMask(data) := VecInit((0 until p.iqBankCount).map { bank =>
+      (bank % core.iex.stdPipes).U === channel.bits.stdPipe
+    }).asUInt
+    val pairExact = classificationExact(channel.bits.sta, UopClass.Std,
+      OooDispatchClass.Std, OooDispatchClass.Agu - 1,
+      OooIexDomainCapability.mask(OooIexDomainCapability.StoreAddress), 2) &&
+      classificationExact(channel.bits.std, UopClass.Std,
+        OooDispatchClass.Std, OooDispatchClass.Std - 1,
+        OooIexDomainCapability.mask(OooIexDomainCapability.StoreData), 2) &&
+      channel.bits.sta.uop.decoded.classification.splitKind =/=
+        OooLateSplitKind.None.U &&
+      storeMemoryExact(channel.bits.sta) &&
+      storeMemoryExact(channel.bits.std) &&
+      channel.bits.sta.uop.decoded.memory.asUInt ===
+        channel.bits.std.uop.decoded.memory.asUInt &&
+      channel.bits.sta.transactionId === channel.bits.std.transactionId &&
+      channel.bits.sta.uop.decoded.rob.asUInt ===
+        channel.bits.std.uop.decoded.rob.asUInt &&
+      channel.bits.sta.memoryOrder.asUInt ===
+        channel.bits.std.memoryOrder.asUInt &&
+      channel.bits.sta.pcBufferIndexOffset.asUInt ===
+        channel.bits.std.pcBufferIndexOffset.asUInt
+    admissionChannelExact(address) := pairExact
+    admissionChannelExact(data) := pairExact
+    admission += 2
+  }
+  for (lane <- 0 until core.iex.systemMulticycleQueues) {
+    val channel = io.dispatch.systemDispatch(lane)
+    admissionValid(admission) := channel.valid
+    admissionTxn(admission) := channel.bits
+    admissionClass(admission) := OooUopClass.Sys
+    admissionCapability(admission) := Mux(
+      channel.bits.uop.decoded.classification.dispatchClass ===
+        OooDispatchClass.Alu.U,
+      channel.bits.uop.decoded.classification.executionPipeCapability(
+        OooDispatchClass.Alu - 1),
+      channel.bits.uop.decoded.classification.executionPipeCapability(
+        OooDispatchClass.Sys - 1))
+    admissionBankMask(admission) := allBanks.U
+    admissionChannelExact(admission) := systemClassificationExact(channel.bits)
+    admission += 1
+  }
+  for (lane <- 0 until core.iex.cmdIssueQueues) {
+    val channel = io.dispatch.cmdDispatch(lane)
+    admissionValid(admission) := channel.valid
+    admissionTxn(admission) := channel.bits
+    admissionClass(admission) := OooUopClass.Cmd
+    admissionCapability(admission) := channel.bits.uop.decoded.classification
+      .executionPipeCapability(OooDispatchClass.Cmd - 1)
+    admissionBankMask(admission) := allBanks.U
+    admissionChannelExact(admission) := classificationExact(
+      channel.bits, UopClass.Cmd, OooDispatchClass.Cmd,
+      OooDispatchClass.Cmd - 1,
+      OooIexDomainCapability.mask(OooIexDomainCapability.EngineCommand), 1) &&
+      !channel.bits.uop.decoded.memory.valid
+    admission += 1
+  }
+  require(admission == admissionCount)
+
+  val selectedValid = Wire(Vec(admissionCount, Bool()))
+  val selectedBank = Wire(Vec(admissionCount, UInt(p.iqBankWidth.W)))
+  val selectedEntry = Wire(Vec(admissionCount, UInt(p.iqEntryWidth.W)))
+  for (index <- 0 until admissionCount) {
+    val candidates = Wire(Vec(p.iqBankCount * p.iqEntriesPerBank, Bool()))
+    for (bank <- 0 until p.iqBankCount; entry <- 0 until p.iqEntriesPerBank) {
+      val flat = bank * p.iqEntriesPerBank + entry
+      val claimedByOlder = (0 until index).map { older =>
+        admissionValid(older) && selectedValid(older) &&
+          admissionClass(older) === admissionClass(index) &&
+          selectedBank(older) === bank.U && selectedEntry(older) === entry.U
+      }.foldLeft(false.B)(_ || _)
+      candidates(flat) := admissionBankMask(index)(bank) &&
+        slotState(admissionClass(index).asUInt)(bank)(entry) ===
+          OooIexIssueSlotState.Free && !claimedByOlder
+    }
+    val selectedOH = PriorityEncoderOH(candidates.asUInt)
+    val selectedFlat = PriorityEncoder(candidates.asUInt)
+    selectedValid(index) := candidates.asUInt.orR
+    selectedBank(index) := selectedFlat / p.iqEntriesPerBank.U
+    selectedEntry(index) := selectedFlat % p.iqEntriesPerBank.U
+    assert(PopCount(selectedOH) <= 1.U,
+      "one dispatch child may select at most one physical IQ row")
+  }
+
+  val recoveryState = RegInit(OooIexRecoveryScanState.Idle)
+  val retainedRecovery = Reg(new RecoveryPlan(core))
+  val recoveryCursor = RegInit(0.U(p.iexRecoveryScanCursorWidth.W))
+  val recoveryKillMask = RegInit(VecInit(Seq.fill(p.iqClassCount)(
+    VecInit(Seq.fill(p.iqBankCount)(
+      VecInit(Seq.fill(p.iqEntriesPerBank)(false.B)))))))
+  val prepareExact =
+    io.recovery.prepare.bits.phase === RecoveryPhase.Prepare &&
+    io.recovery.prepare.bits.trigger.stid < p.stidCount.U &&
+    RecoveryPlanContract.legalSuffixWindow(io.recovery.prepare.bits)
+  val preparing = io.recovery.prepare.valid && prepareExact
+  val recoveryTargetStid = Mux(recoveryState === OooIexRecoveryScanState.Idle,
+    io.recovery.prepare.bits.trigger.stid, retainedRecovery.trigger.stid)
+  val recoveryTargetActive = preparing ||
+    recoveryState =/= OooIexRecoveryScanState.Idle
+  io.recoveryIdle := recoveryState === OooIexRecoveryScanState.Idle &&
+    !io.recovery.prepare.valid
+  private def targetFenced(stid: UInt): Bool =
+    recoveryTargetActive && stid === recoveryTargetStid
+
+  val admissionReady = Wire(Vec(admissionCount, Bool()))
+  for (index <- 0 until admissionCount) {
+    admissionReady(index) := selectedValid(index) &&
+      admissionChannelExact(index) &&
+      !targetFenced(admissionTxn(index).uop.decoded.rob.stid)
+  }
+
+  var readyIndex = 0
+  for (lane <- 0 until core.iex.aluPipes) {
+    io.dispatch.aluDispatch(lane).ready := admissionReady(readyIndex)
+    readyIndex += 1
+  }
+  for (lane <- 0 until core.iex.bruPipes) {
+    io.dispatch.bruDispatch(lane).ready := admissionReady(readyIndex)
+    readyIndex += 1
+  }
+  for (lane <- 0 until core.iex.aguPipes) {
+    io.dispatch.aguDispatch(lane).ready := admissionReady(readyIndex)
+    readyIndex += 1
+  }
+  val storeReady = Wire(Vec(core.iex.stdPipes, Bool()))
+  for (lane <- 0 until core.iex.stdPipes) {
+    val address = readyIndex
+    val data = readyIndex + 1
+    val earlierStore = (0 until lane).map { older =>
+      io.dispatch.storeDispatch(older).valid
+    }.foldLeft(false.B)(_ || _)
+    val reservePortReady = !requireStoreReservation.B ||
+      (io.storeReserve.ready && !earlierStore)
+    storeReady(lane) := admissionReady(address) && admissionReady(data) &&
+      reservePortReady
+    io.dispatch.storeDispatch(lane).ready := storeReady(lane)
+    readyIndex += 2
+  }
+  for (lane <- 0 until core.iex.systemMulticycleQueues) {
+    io.dispatch.systemDispatch(lane).ready := admissionReady(readyIndex)
+    readyIndex += 1
+  }
+  for (lane <- 0 until core.iex.cmdIssueQueues) {
+    io.dispatch.cmdDispatch(lane).ready := admissionReady(readyIndex)
+    readyIndex += 1
+  }
+  require(readyIndex == admissionCount)
+
+  val admissionFire = Wire(Vec(admissionCount, Bool()))
+  var fireIndex = 0
+  for (lane <- 0 until core.iex.aluPipes) {
+    admissionFire(fireIndex) := io.dispatch.aluDispatch(lane).fire
+    fireIndex += 1
+  }
+
+  for (lane <- 0 until core.iex.bruPipes) {
+    admissionFire(fireIndex) := io.dispatch.bruDispatch(lane).fire
+    fireIndex += 1
+  }
+  for (lane <- 0 until core.iex.aguPipes) {
+    admissionFire(fireIndex) := io.dispatch.aguDispatch(lane).fire
+    fireIndex += 1
+  }
+  for (lane <- 0 until core.iex.stdPipes) {
+    admissionFire(fireIndex) := io.dispatch.storeDispatch(lane).fire
+    admissionFire(fireIndex + 1) := io.dispatch.storeDispatch(lane).fire
+    fireIndex += 2
+  }
+  for (lane <- 0 until core.iex.systemMulticycleQueues) {
+    admissionFire(fireIndex) := io.dispatch.systemDispatch(lane).fire
+    fireIndex += 1
+  }
+  for (lane <- 0 until core.iex.cmdIssueQueues) {
+    admissionFire(fireIndex) := io.dispatch.cmdDispatch(lane).fire
+    fireIndex += 1
+  }
+  require(fireIndex == admissionCount)
+
+  // A logical memory transaction is allocated by its only leader. Loads have
+  // one AGU child; a split store's address child is the leader and its data
+  // child receives the same candidate below.
+  val memoryLeaderFire = Wire(Vec(admissionCount, Bool()))
+  val loadLeaderFire = Wire(Vec(admissionCount, Bool()))
+  val admissionMemoryTransaction = Wire(Vec(admissionCount,
+    new OooIexMemoryTransactionIdentity(p)))
+  val admissionInitialLoadAttempt = Wire(Vec(admissionCount,
+    UInt(p.loadGenerationWidth.W)))
+  for (index <- 0 until admissionCount) {
+    val decoded = admissionTxn(index).uop.decoded
+    val leader = decoded.memory.valid &&
+      admissionClass(index) === OooUopClass.Agu &&
+      admissionChild(index) === 0.U
+    memoryLeaderFire(index) := admissionFire(index) && leader
+    loadLeaderFire(index) := memoryLeaderFire(index) && decoded.memory.isLoad
+    val precedingMemoryLeaders = if (index == 0) 0.U else
+      PopCount(memoryLeaderFire.take(index))
+    val transactionCandidate = memoryTransactionSerial +
+      precedingMemoryLeaders
+    admissionMemoryTransaction(index).value :=
+      transactionCandidate(p.memoryTransactionIdWidth - 1, 0)
+    admissionMemoryTransaction(index).generation :=
+      transactionCandidate(memoryTransactionSerialWidth - 1,
+        p.memoryTransactionIdWidth)
+    val precedingLoadLeaders = if (index == 0) 0.U else
+      PopCount(loadLeaderFire.take(index))
+    admissionInitialLoadAttempt(index) := initialLoadAttemptSerial +
+      precedingLoadLeaders + 1.U
+  }
+  for (lane <- 0 until core.iex.stdPipes) {
+    val address = storeAdmissionBase + 2 * lane
+    val data = address + 1
+    admissionMemoryTransaction(data) := admissionMemoryTransaction(address)
+  }
+
+  when(PopCount(memoryLeaderFire).orR) {
+    memoryTransactionSerial := memoryTransactionSerial +
+      PopCount(memoryLeaderFire)
+  }
+  when(PopCount(loadLeaderFire).orR) {
+    initialLoadAttemptSerial := initialLoadAttemptSerial +
+      PopCount(loadLeaderFire)
+  }
+
+  val firstStoreValid = io.dispatch.storeDispatch.map(_.valid).foldLeft(false.B)(_ || _)
+  val firstStoreOH = PriorityEncoderOH(VecInit(
+    io.dispatch.storeDispatch.map(_.valid)).asUInt)
+  val firstStoreLane = PriorityEncoder(VecInit(
+    io.dispatch.storeDispatch.map(_.valid)).asUInt)
+  val firstStoreAddress = Wire(UInt(admissionIndexWidth.W))
+  firstStoreAddress := storeAdmissionBase.U(admissionIndexWidth.W) +
+    (firstStoreLane << 1)
+  val safeFirstStoreAddress = Mux(firstStoreValid,
+    firstStoreAddress, storeAdmissionBase.U)
+  val storeReserveRow = makeRow(
+    admissionTxn(safeFirstStoreAddress), OooUopClass.Agu, 0.U,
+    selectedBank(safeFirstStoreAddress), selectedEntry(safeFirstStoreAddress),
+    reservationEpoch(OooUopClass.Agu.asUInt)(selectedBank(safeFirstStoreAddress))(
+      selectedEntry(safeFirstStoreAddress)) + 1.U,
+    admissionCapability(safeFirstStoreAddress),
+    admissionMemoryTransaction(safeFirstStoreAddress),
+    admissionInitialLoadAttempt(safeFirstStoreAddress))
+  io.storeReserve.valid := requireStoreReservation.B && firstStoreValid &&
+    firstStoreOH.orR && storeReady(firstStoreLane)
+  io.storeReserve.bits := storeReserveRow
+
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank) {
+    when(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.BoundS2 &&
+        !targetFenced(scheduleRows(uopClass)(bank)(entry).stid)) {
+      slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.ResidentS3
+    }
+  }
+
+  for (index <- 0 until admissionCount) {
+    when(admissionFire(index)) {
+      val cls = admissionClass(index).asUInt
+      val bank = selectedBank(index)
+      val entry = selectedEntry(index)
+      val nextEpoch = reservationEpoch(cls)(bank)(entry) + 1.U
+      val row = makeRow(admissionTxn(index), admissionClass(index),
+        admissionChild(index), bank, entry, nextEpoch,
+        admissionCapability(index), admissionMemoryTransaction(index),
+        admissionInitialLoadAttempt(index))
+      assert(slotState(cls)(bank)(entry) === OooIexIssueSlotState.Free,
+        "canonical dispatch may bind only a free physical IQ row")
+      scheduleRows(cls)(bank)(entry) := row.schedule
+      capabilityRows(cls)(bank)(entry) := admissionCapability(index)
+      reservationEpoch(cls)(bank)(entry) := nextEpoch
+      for (targetClass <- 0 until p.iqClassCount;
+           targetBank <- 0 until p.iqBankCount) {
+        when(cls === targetClass.U && bank === targetBank.U) {
+          payloadRows(targetClass)(targetBank).write(entry, row.payload)
+        }
+      }
+      slotState(cls)(bank)(entry) := OooIexIssueSlotState.BoundS2
+    }
+  }
+  for (left <- 0 until admissionCount; right <- left + 1 until admissionCount) {
+    when(admissionFire(left) && admissionFire(right)) {
+      assert(admissionClass(left) =/= admissionClass(right) ||
+        selectedBank(left) =/= selectedBank(right) ||
+        selectedEntry(left) =/= selectedEntry(right),
+        "simultaneously accepted dispatch children need distinct IQ rows")
+    }
+  }
+
+  def sourceLoadCanceled(
+      row: OooIexScheduleRow,
+      source: OooIexSourceState): Bool = io.loadCancel.map { cancel =>
+    cancel.valid && cancel.bits.load.valid && source.valid &&
+      source.specReady && source.load.valid &&
+      cancel.bits.stid === row.stid && cancel.bits.epoch === row.epoch &&
+      cancel.bits.load.asUInt === source.load.asUInt
+  }.reduce(_ || _)
+  def rowLoadCanceled(row: OooIexScheduleRow): Bool =
+    row.sources.map(sourceLoadCanceled(row, _)).reduce(_ || _)
+
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       entry <- 0 until p.iqEntriesPerBank;
+       sourceIndex <- 0 until p.maxSourceOperands) {
+    val row = scheduleRows(uopClass)(bank)(entry)
+    val source = row.sources(sourceIndex)
+    val committedMatch = io.wakeup.map { wakeup =>
+      val tagExact = Mux(source.operandClass === OperandClass.P,
+        wakeup.bits.ptag === source.ptag &&
+          wakeup.bits.ptagGeneration === source.ptagGeneration,
+        wakeup.bits.localTag === source.localTag &&
+          wakeup.bits.localSequence.asUInt === source.localSequence.asUInt)
+      wakeup.valid && wakeup.bits.kind === OooIexWakeupKind.Committed &&
+        wakeup.bits.stid === row.stid && wakeup.bits.epoch === row.epoch &&
+        wakeup.bits.operandClass === source.operandClass && tagExact
+    }.reduce(_ || _)
+    val speculativeMatches = VecInit(io.wakeup.map { wakeup =>
+      val tagExact = Mux(source.operandClass === OperandClass.P,
+        wakeup.bits.ptag === source.ptag &&
+          wakeup.bits.ptagGeneration === source.ptagGeneration,
+        wakeup.bits.localTag === source.localTag &&
+          wakeup.bits.localSequence.asUInt === source.localSequence.asUInt)
+      wakeup.valid && wakeup.bits.kind === OooIexWakeupKind.SpeculativeLoad &&
+        wakeup.bits.load.valid && wakeup.bits.stid === row.stid &&
+        wakeup.bits.epoch === row.epoch &&
+        wakeup.bits.operandClass === source.operandClass && tagExact
+    })
+    val canceled = sourceLoadCanceled(row, source)
+    when(row.valid && source.valid && !targetFenced(row.stid) &&
+        committedMatch) {
+      source.ready := true.B
+      source.specReady := false.B
+      source.load := 0.U.asTypeOf(source.load)
+    }.elsewhen(row.valid && source.valid && canceled) {
+      source.specReady := false.B
+      source.load := 0.U.asTypeOf(source.load)
+    }.elsewhen(row.valid && source.valid && !source.ready &&
+        !targetFenced(row.stid) && speculativeMatches.asUInt.orR) {
+      source.specReady := true.B
+      for (port <- 0 until p.iexWakeupPorts) {
+        when(speculativeMatches(port)) {
+          source.load := io.wakeup(port).bits.load
+        }
+      }
+    }
+    assert(PopCount(speculativeMatches) <= 1.U,
+      "one IQ source cannot accept multiple speculative load attempts")
+  }
+
+  private val storeClasses = Seq(
     OooUopClass.Agu.asUInt.litValue.toInt,
     OooUopClass.Std.asUInt.litValue.toInt)
-  private val storeIssuePhysicalRowCount =
-    storeIssueClasses.size * p.iqBankCount * p.iqEntriesPerBank
-  private def storePhysicalRowIndex(
-      storeClassIndex: Int,
-      bank: Int,
-      entry: Int): Int =
-    (storeClassIndex * p.iqBankCount + bank) * p.iqEntriesPerBank + entry
-
+  private val storePhysicalRows =
+    storeClasses.size * p.iqBankCount * p.iqEntriesPerBank
   val storeIssueFrontier = Module(
-    new OooIexStoreIssueFrontier(p, storeIssuePhysicalRowCount))
+    new OooIexStoreIssueFrontier(p, storePhysicalRows))
   val storeIssueAllowed = Wire(Vec(p.iqClassCount,
     Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
   for (uopClass <- 0 until p.iqClassCount;
@@ -183,12 +1016,13 @@ class OooIexIssue(
        entry <- 0 until p.iqEntriesPerBank) {
     storeIssueAllowed(uopClass)(bank)(entry) := true.B
   }
-  for ((uopClass, storeClassIndex) <- storeIssueClasses.zipWithIndex;
+  for ((uopClass, classIndex) <- storeClasses.zipWithIndex;
        bank <- 0 until p.iqBankCount;
        entry <- 0 until p.iqEntriesPerBank) {
-    val index = storePhysicalRowIndex(storeClassIndex, bank, entry)
+    val flat = (classIndex * p.iqBankCount + bank) *
+      p.iqEntriesPerBank + entry
     val row = scheduleRows(uopClass)(bank)(entry)
-    val candidate = storeIssueFrontier.io.candidates(index)
+    val candidate = storeIssueFrontier.io.candidates(flat)
     candidate.resident :=
       slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.ResidentS3 &&
         row.valid
@@ -197,111 +1031,136 @@ class OooIexIssue(
     candidate.stid := row.stid
     candidate.order := row.storeOrder
     storeIssueAllowed(uopClass)(bank)(entry) :=
-      storeIssueFrontier.io.allowed(index)
+      storeIssueFrontier.io.allowed(flat)
   }
   io.storeFrontierBlocked := storeIssueFrontier.io.blockedCount
 
-  val s1Valid = RegInit(VecInit(Seq.fill(p.stidCount)(false.B)))
-  val s1Rows = Reg(Vec(p.stidCount, new OooIexS1Transaction(p)))
-  val s1StoreReserved = RegInit(VecInit(Seq.fill(p.stidCount)(
-    0.U(p.decodedUopWidth.W))))
-  val s2RoundRobin = RegInit(0.U(p.stidWidth.W))
-  val storeReserveRoundRobin = RegInit(0.U(p.stidWidth.W))
+  for (lane <- 0 until p.iexReleaseWidth) {
+    val release = io.releases(lane).bits
+    val cls = release.dispatch.reservation.uopClass.asUInt
+    val classInRange = cls < p.iqClassCount.U
+    val bankInRange = release.dispatch.reservation.bank < p.iqBankCount.U
+    val entryInRange = release.dispatch.reservation.speculativeSlot <
+      p.iqEntriesPerBank.U
+    val safeClass = Mux(classInRange, cls, 0.U)
+    val safeBank = Mux(bankInRange,
+      release.dispatch.reservation.bank, 0.U)
+    val safeEntry = Mux(entryInRange,
+      release.dispatch.reservation.speculativeSlot, 0.U)
+    val row = scheduleRows(safeClass)(safeBank)(safeEntry)
+    val collision = (0 until lane).map { older =>
+      io.releases(older).valid &&
+        io.releases(older).bits.dispatch.reservation.asUInt ===
+          release.dispatch.reservation.asUInt
+    }.foldLeft(false.B)(_ || _)
+    val exact = classInRange && bankInRange && entryInRange &&
+      release.dispatch.reservation.valid &&
+      slotState(safeClass)(safeBank)(safeEntry) ===
+        OooIexIssueSlotState.ResidentS3 && row.valid && row.inFlight &&
+      sameMember(release.member, row.member) &&
+      release.dispatch.peId === row.peId && release.dispatch.stid === row.stid &&
+      release.dispatch.epoch === row.epoch &&
+      release.dispatch.transactionId === row.transactionId &&
+      release.dispatch.reservation.asUInt === row.reservation.asUInt &&
+      !collision && !targetFenced(row.stid)
+    io.releases(lane).ready := exact
+    io.releaseRejecteds(lane).valid := io.releases(lane).valid && !exact
+    io.releaseRejecteds(lane).bits.member := release.member
+    io.releaseRejecteds(lane).bits.peId := release.dispatch.peId
+    io.releaseRejecteds(lane).bits.stid := release.dispatch.stid
+    io.releaseRejecteds(lane).bits.epoch := release.dispatch.epoch
+    io.releaseRejecteds(lane).bits.transactionId :=
+      release.dispatch.transactionId
+    io.releaseRejecteds(lane).bits.reservation :=
+      release.dispatch.reservation
+    when(io.releases(lane).fire) {
+      slotState(safeClass)(safeBank)(safeEntry) := OooIexIssueSlotState.Free
+      scheduleRows(safeClass)(safeBank)(safeEntry) :=
+        0.U.asTypeOf(new OooIexScheduleRow(p))
+    }
+  }
 
-  val recoveryScanState = RegInit(OooIexRecoveryScanState.Idle)
-  val retainedRecoveryPlan = RegInit(
-    0.U.asTypeOf(new OooResidencyRecoveryPlan(p)))
-  val recoveryScanCursor = RegInit(0.U(p.iexRecoveryScanCursorWidth.W))
-  val recoveryRowKillMask = RegInit(VecInit(Seq.fill(p.iqClassCount)(
-    VecInit(Seq.fill(p.iqBankCount)(
-      VecInit(Seq.fill(p.iqEntriesPerBank)(false.B)))))))
-  val retainedRecoveryS1KillMask = RegInit(0.U(p.dispatchWidth.W))
-  val retainedRecoveryS1RowsExact = RegInit(false.B)
-  val retainedRecoveryBoundKilled = RegInit(0.U(
-    p.countWidth(p.iqClassCount * p.iqBankCount * p.iqEntriesPerBank).W))
-  val retainedRecoveryResidentKilled = RegInit(0.U(
-    p.countWidth(p.iqClassCount * p.iqBankCount * p.iqEntriesPerBank).W))
-  val retainedRecoveryS3SeenMask = RegInit(0.U(p.dispatchWidth.W))
-  val retainedRecoveryS3KillMask = RegInit(0.U(p.dispatchWidth.W))
-  val retainedRecoveryPReadyKillMask = RegInit(0.U(p.pPhysRegs.W))
-  val retainedRecoveryTReadyKillMask = RegInit(0.U(p.tPhysRegs.W))
-  val retainedRecoveryUReadyKillMask = RegInit(0.U(p.uPhysRegs.W))
+  val scanKill = Wire(Vec(p.iqClassCount,
+    Vec(p.iqBankCount,
+      Vec(p.iexRecoveryScanEntriesPerBankPerCycle, Bool()))))
+  for (uopClass <- 0 until p.iqClassCount;
+       bank <- 0 until p.iqBankCount;
+       lane <- 0 until p.iexRecoveryScanEntriesPerBankPerCycle) {
+    val entryWide = recoveryCursor *
+      p.iexRecoveryScanEntriesPerBankPerCycle.U + lane.U
+    val entry = entryWide(p.iqEntryWidth - 1, 0)
+    val row = scheduleRows(uopClass)(bank)(entry)
+    scanKill(uopClass)(bank)(lane) := row.valid &&
+      RecoveryPlanContract.suffixMember(
+        retainedRecovery,
+        OooRecoveryMembership.robIdentity(p, core, row.member))
+  }
+  val scanLast = recoveryCursor === (p.iexRecoveryScanCycles - 1).U
+  io.recovery.prepare.ready :=
+    recoveryState === OooIexRecoveryScanState.Idle && prepareExact
+  io.recovery.prepared.valid :=
+    recoveryState === OooIexRecoveryScanState.Prepared
+  io.recovery.prepared.bits := retainedRecovery
+  io.recovery.prepared.bits.phase := RecoveryPhase.Prepare
+  val applyExact = io.recovery.apply.valid &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, retainedRecovery)
+  val abortExact = io.recovery.abort.valid &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, retainedRecovery)
+  io.acceptedRecoveryApply.valid :=
+    recoveryState === OooIexRecoveryScanState.Prepared && applyExact
+  io.acceptedRecoveryApply.bits := retainedRecovery
+  io.acceptedRecoveryApply.bits.phase := RecoveryPhase.Apply
 
-  val recoveryPlan = Mux(
-    recoveryScanState === OooIexRecoveryScanState.Idle,
-    io.recoveryPrepare.bits,
-    retainedRecoveryPlan)
-  val recoveryStid = recoveryPlan.oldHead.stid
-  val recoveryStidInRange = recoveryStid < p.stidCount.U
-  val safeRecoveryStid = Mux(recoveryStidInRange, recoveryStid, 0.U)
-  val recoveryOfferExact = io.recoveryPrepare.valid &&
-    io.recoveryPrepare.bits.asUInt === recoveryPlan.asUInt
-  val recoveryFreeze = recoveryPlan.valid && recoveryStidInRange &&
-    (io.recoveryPrepare.valid ||
-      recoveryScanState =/= OooIexRecoveryScanState.Idle)
-  io.recoveryApplied.valid := io.recoveryFire && io.recoveryPrepareReady
-  io.recoveryApplied.bits := recoveryPlan
-  io.recoveryBusy := recoveryScanState =/= OooIexRecoveryScanState.Idle
+  when(io.recovery.prepare.fire) {
+    retainedRecovery := io.recovery.prepare.bits
+    recoveryCursor := 0.U
+    recoveryKillMask := 0.U.asTypeOf(recoveryKillMask)
+    recoveryState := OooIexRecoveryScanState.Scan
+  }.elsewhen(recoveryState === OooIexRecoveryScanState.Scan) {
+    for (uopClass <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount;
+         lane <- 0 until p.iexRecoveryScanEntriesPerBankPerCycle) {
+      val entryWide = recoveryCursor *
+        p.iexRecoveryScanEntriesPerBankPerCycle.U + lane.U
+      val entry = entryWide(p.iqEntryWidth - 1, 0)
+      recoveryKillMask(uopClass)(bank)(entry) :=
+        scanKill(uopClass)(bank)(lane)
+    }
+    when(scanLast) {
+      recoveryState := OooIexRecoveryScanState.Prepared
+    }.otherwise {
+      recoveryCursor := recoveryCursor + 1.U
+    }
+  }.elsewhen(recoveryState === OooIexRecoveryScanState.Prepared &&
+      applyExact) {
+    for (uopClass <- 0 until p.iqClassCount;
+         bank <- 0 until p.iqBankCount;
+         entry <- 0 until p.iqEntriesPerBank) {
+      when(recoveryKillMask(uopClass)(bank)(entry)) {
+        slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.Free
+        scheduleRows(uopClass)(bank)(entry) :=
+          0.U.asTypeOf(new OooIexScheduleRow(p))
+      }
+    }
+    recoveryState := OooIexRecoveryScanState.Idle
+  }.elsewhen(recoveryState === OooIexRecoveryScanState.Prepared &&
+      abortExact) {
+    recoveryState := OooIexRecoveryScanState.Idle
+  }
+  when(io.recovery.apply.valid) {
+    assert(recoveryState === OooIexRecoveryScanState.Prepared && applyExact,
+      "IQ recovery apply requires the exact prepared transaction")
+  }
+  when(io.recovery.abort.valid) {
+    assert(recoveryState === OooIexRecoveryScanState.Prepared && abortExact,
+      "IQ recovery abort requires the exact prepared transaction")
+  }
 
-  // A wakeup must remain visible to consumers dispatched after that producer
-  // completed.  These generation-qualified scoreboards complement per-row
-  // ready bits; without them, a consumer arriving after the one-cycle wakeup
-  // pulse could remain blocked forever.
-  val pReadyValid = RegInit(VecInit(Seq.fill(p.pPhysRegs)(false.B)))
-  val pReadyGeneration = Reg(Vec(p.pPhysRegs,
-    UInt(p.pTagGenerationWidth.W)))
-  val pReadyStid = Reg(Vec(p.pPhysRegs, UInt(p.stidWidth.W)))
-  val pReadyEpoch = Reg(Vec(p.pPhysRegs, UInt(p.epochWidth.W)))
-  // The global P-ready scoreboard may be recycled and rewritten by a peer
-  // while a target-STID recovery scan is retained.  Snapshot the complete
-  // owner identity at capture so the scan never follows mutable scoreboard
-  // state, then revalidate the same identity again at common apply.
-  val retainedRecoveryPReadyValid = RegInit(
-    VecInit(Seq.fill(p.pPhysRegs)(false.B)))
-  val retainedRecoveryPReadyGeneration = RegInit(VecInit(
-    Seq.fill(p.pPhysRegs)(0.U(p.pTagGenerationWidth.W))))
-  val retainedRecoveryPReadyStid = RegInit(VecInit(
-    Seq.fill(p.pPhysRegs)(0.U(p.stidWidth.W))))
-  val retainedRecoveryPReadyEpoch = RegInit(VecInit(
-    Seq.fill(p.pPhysRegs)(0.U(p.epochWidth.W))))
-  val tReadyValid = RegInit(VecInit(Seq.fill(p.stidCount)(
-    VecInit(Seq.fill(p.tPhysRegs)(false.B)))))
-  val tReadySequence = Reg(Vec(p.stidCount,
-    Vec(p.tPhysRegs, new OooLocalSeq(p))))
-  val tReadyEpoch = Reg(Vec(p.stidCount,
-    Vec(p.tPhysRegs, UInt(p.epochWidth.W))))
-  val uReadyValid = RegInit(VecInit(Seq.fill(p.stidCount)(
-    VecInit(Seq.fill(p.uPhysRegs)(false.B)))))
-  val uReadySequence = Reg(Vec(p.stidCount,
-    Vec(p.uPhysRegs, new OooLocalSeq(p))))
-  val uReadyEpoch = Reg(Vec(p.stidCount,
-    Vec(p.uPhysRegs, UInt(p.epochWidth.W))))
-
-  val recycleCountInRange = io.ptagRecycle.bits.count <= p.pTagReturnWidth.U
-  val recycleTokensExact = (0 until p.pTagReturnWidth).map { index =>
-    val active = index.U < io.ptagRecycle.bits.count
-    val token = io.ptagRecycle.bits.tokens(index)
-    token.valid === active && (!active || token.ptag < p.pPhysRegs.U)
-  }.reduce(_ && _)
-  io.ptagRecycle.ready := recycleCountInRange && recycleTokensExact
-
-  def sameMember(left: RobMemberKey, right: RobMemberKey): Bool =
-    left.asUInt === right.asUInt
-
-  def sourceLoadCanceled(
-      row: OooIexScheduleRow,
-      source: OooIexSourceState): Bool =
-    io.loadCancel.map { cancel =>
-      cancel.valid && cancel.bits.load.valid && source.valid &&
-        source.specReady && source.load.valid &&
-        cancel.bits.stid === row.stid && cancel.bits.epoch === row.epoch &&
-        cancel.bits.load.asUInt === source.load.asUInt
-    }.reduce(_ || _)
-
-  def rowLoadCanceled(row: OooIexScheduleRow): Bool =
-    row.sources.map(sourceLoadCanceled(row, _)).reduce(_ || _)
-
-  def issuePolicyReasons(
+  private def policyReasons(
       domain: Int,
       uopClass: OooUopClass.Type,
       row: OooIexScheduleRow): UInt = {
@@ -312,1309 +1171,18 @@ class OooIexIssue(
     OooIexIssueBlockMatrix.reasons(p, io.issuePolicy, domain, query)
   }
 
-  val request = io.s1.bits
-  val transaction = request.o3.request.reservation.transaction
-  val plan = transaction.plan
-  val decoded = transaction.decoded
-  val requestStid = plan.stid
-  val requestStidInRange = requestStid < p.stidCount.U
-  val safeRequestStid = Mux(requestStidInRange, requestStid, 0.U)
-
-  val identityExact = request.pRename.valid && request.tuRename.valid &&
-    request.dispatch.valid && request.pRename.peId === plan.peId &&
-    request.tuRename.peId === plan.peId && request.dispatch.peId === plan.peId &&
-    request.pRename.stid === plan.stid && request.tuRename.stid === plan.stid &&
-    request.dispatch.stid === plan.stid &&
-    request.pRename.epoch === plan.epoch && request.tuRename.epoch === plan.epoch &&
-    request.dispatch.epoch === plan.epoch &&
-    request.pRename.transactionId === plan.transactionId &&
-    request.tuRename.transactionId === plan.transactionId &&
-    request.dispatch.transactionId === plan.transactionId &&
-    decoded.peId === plan.peId && decoded.stid === plan.stid &&
-    decoded.epoch === plan.epoch &&
-    request.pRename.uopMask === decoded.uopMask &&
-    request.tuRename.uopMask === decoded.uopMask
-  val calculatedLoadIds = Wire(Vec(p.decodedUopWidth,
-    UInt(p.memoryDemandWidth.W)))
-  val calculatedStoreIds = Wire(Vec(p.decodedUopWidth,
-    UInt(p.memoryDemandWidth.W)))
-  val memoryOrderUopExact = Wire(Vec(p.decodedUopWidth, Bool()))
-  val memoryOrderDecodeShapeExact = Wire(Vec(p.decodedUopWidth, Bool()))
-  for (uopIndex <- 0 until p.decodedUopWidth) {
-    val active = decoded.uopMask(uopIndex)
-    val uop = decoded.uops(uopIndex)
-    val requestCount = uop.recipe.memoryRequestCount
-    val typedMemory = uop.memory.valid &&
-      (uop.memory.isLoad ^ uop.memory.isStore)
-    val memoryActive = active && uop.valid && uop.recipe.valid &&
-      typedMemory && requestCount.orR
-    val loadActive = memoryActive && uop.memory.isLoad
-    val storeActive = memoryActive && uop.memory.isStore
-    val allocation = request.memoryOrder.uops(uopIndex)
-    val expectedBefore = if (uopIndex == 0) request.memoryOrder.before
-    else request.memoryOrder.uops(uopIndex - 1).after
-
-    calculatedLoadIds(uopIndex) := Mux(loadActive, requestCount, 0.U)
-    calculatedStoreIds(uopIndex) := Mux(storeActive, requestCount, 0.U)
-    memoryOrderDecodeShapeExact(uopIndex) := !active || (
-      uop.valid && uop.recipe.valid &&
-        (requestCount.orR === typedMemory) &&
-        requestCount <= p.maxMemoryRequestsPerInstruction.U)
-    memoryOrderUopExact(uopIndex) :=
-      allocation.valid === active &&
-        allocation.memoryValid === memoryActive &&
-        allocation.isLoad === loadActive &&
-        allocation.isStore === storeActive &&
-        allocation.requestCount === Mux(memoryActive, requestCount, 0.U) &&
-        allocation.before.asUInt === expectedBefore.asUInt &&
-        allocation.firstLsid === allocation.before.lsid &&
-        (!memoryActive || allocation.firstTypeId === Mux(loadActive,
-          allocation.before.loadId, allocation.before.storeId)) &&
-        allocation.after.lsid === allocation.before.lsid +
-          Mux(memoryActive, requestCount, 0.U) &&
-        allocation.after.loadId === allocation.before.loadId +
-          Mux(loadActive, requestCount, 0.U) &&
-        allocation.after.storeId === allocation.before.storeId +
-          Mux(storeActive, requestCount, 0.U)
-  }
-  val calculatedLoadTotal = calculatedLoadIds.reduce(_ +& _)
-  val calculatedStoreTotal = calculatedStoreIds.reduce(_ +& _)
-  val memoryOrderDemandExact =
-    calculatedLoadTotal === plan.demand.loadIds &&
-      calculatedStoreTotal === plan.demand.storeIds &&
-      plan.demand.loadIds === decoded.demand.loadIds &&
-      plan.demand.storeIds === decoded.demand.storeIds
-  val memoryOrderRequired = calculatedLoadTotal.orR ||
-    calculatedStoreTotal.orR
-  val memoryOrderIdentityExact = request.memoryOrder.valid &&
-    request.memoryOrder.peId === plan.peId &&
-    request.memoryOrder.stid === plan.stid &&
-    request.memoryOrder.epoch === plan.epoch &&
-    request.memoryOrder.transactionId === plan.transactionId &&
-    request.memoryOrder.uopMask === decoded.uopMask
-  val memoryOrderLeaseExact = memoryOrderIdentityExact &&
-    memoryOrderUopExact.asUInt.andR &&
-    request.memoryOrder.after.asUInt ===
-      request.memoryOrder.uops(p.decodedUopWidth - 1).after.asUInt
-  val memoryOrderExact = memoryOrderDemandExact &&
-    memoryOrderDecodeShapeExact.asUInt.andR && Mux(request.memoryOrder.valid,
-      memoryOrderLeaseExact, !memoryOrderRequired)
-
-  val allocationShapeExact = (0 until p.dispatchWidth).map { lane =>
-    val allocation = request.dispatch.allocations(lane)
-    request.dispatch.allocationMask(lane) === allocation.valid &&
-      (!allocation.valid || allocation.reservation.valid)
-  }.reduce(_ && _)
-  val allocationDense = (1 until p.dispatchWidth).map { lane =>
-    !request.dispatch.allocationMask(lane) ||
-      request.dispatch.allocationMask(lane - 1)
-  }.foldLeft(true.B)(_ && _)
-
-  val laneExact = Wire(Vec(p.dispatchWidth, Bool()))
-  val laneTargetFree = Wire(Vec(p.dispatchWidth, Bool()))
-  for (lane <- 0 until p.dispatchWidth) {
-    val allocation = request.dispatch.allocations(lane)
-    val reservation = allocation.reservation
-    val uopIndexInRange = allocation.uopIndex < p.decodedUopWidth.U
-    val safeUopIndex = Mux(uopIndexInRange, allocation.uopIndex, 0.U)
-    val decodedUop = decoded.uops(safeUopIndex)
-    val pUop = request.pRename.uops(safeUopIndex)
-    val tuUop = request.tuRename.uops(safeUopIndex)
-    val activeUop = decoded.uopMask(safeUopIndex) &&
-      decodedUop.valid && pUop.valid && tuUop.valid
-    val memberEnd = pUop.member.memberIndex +&
-      allocation.childIndex
-    val classIndex = reservation.uopClass.asUInt
-    val classInRange = classIndex < p.iqClassCount.U
-    val bankInRange = reservation.bank < p.iqBankCount.U
-    val entryInRange = reservation.speculativeSlot < p.iqEntriesPerBank.U
-    val portInRange = reservation.writePort < p.iqWritePortsPerBank.U
-    val safeClass = Mux(classInRange, classIndex, 0.U)
-    val safeBank = Mux(bankInRange, reservation.bank, 0.U)
-    val safeEntry = Mux(entryInRange, reservation.speculativeSlot, 0.U)
-    val storeSplit =
-      decodedUop.recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U ||
-        decodedUop.recipe.lateSplitKind === OooLateSplitKind.PairStoreAddressData.U
-    val storeChildClassExact = !storeSplit ||
-      (allocation.childIndex === 0.U &&
-        reservation.uopClass === OooUopClass.Agu) ||
-      (allocation.childIndex === 1.U &&
-        reservation.uopClass === OooUopClass.Std)
-    val memoryStore = decodedUop.memory.valid &&
-      decodedUop.memory.isStore && !decodedUop.memory.isLoad
-    val storeClassExact = !memoryStore ||
-      reservation.uopClass === OooUopClass.Agu ||
-      reservation.uopClass === OooUopClass.Std
-    val requiredCapability = decodedUop.recipe
-      .dispatchCapabilities(safeClass)
-    val recipeCapabilityShapeExact = (0 until p.iqClassCount).map {
-      recipeClass =>
-        val demand = decodedUop.recipe.dispatchDemand(recipeClass)
-        val capability = decodedUop.recipe.dispatchCapabilities(recipeClass)
-        demand.orR === capability.orR && PopCount(capability) <= 1.U
-    }.reduce(_ && _)
-    val capabilityShapeExact =
-      decodedUop.recipe.dispatchDemand(safeClass).orR &&
-      requiredCapability.orR && PopCount(requiredCapability) === 1.U &&
-      recipeCapabilityShapeExact
-    laneExact(lane) := !allocation.valid || (uopIndexInRange && activeUop &&
-      classInRange && bankInRange && entryInRange && portInRange &&
-      pUop.decoded.asUInt === decodedUop.asUInt &&
-      sameMember(pUop.member, tuUop.member) &&
-      storeChildClassExact && storeClassExact && capabilityShapeExact &&
-      allocation.childIndex < decodedUop.plannedChildCount &&
-      memberEnd < p.maxOrdinaryUopsPerGroup.U)
-    laneTargetFree(lane) := !allocation.valid ||
-      (slotState(safeClass)(safeBank)(safeEntry) ===
-        OooIexIssueSlotState.Free &&
-        !s1Claimed(safeClass)(safeBank)(safeEntry))
-  }
-
-  val noDuplicateTargets = (0 until p.dispatchWidth).flatMap { left =>
-    (left + 1 until p.dispatchWidth).map { right =>
-      val a = request.dispatch.allocations(left)
-      val b = request.dispatch.allocations(right)
-      !a.valid || !b.valid || a.reservation.uopClass =/= b.reservation.uopClass ||
-        a.reservation.bank =/= b.reservation.bank ||
-        a.reservation.speculativeSlot =/= b.reservation.speculativeSlot
-    }
-  }.foldLeft(true.B)(_ && _)
-
-  val storeReservationShapeExact = Wire(Vec(p.decodedUopWidth, Bool()))
-  for (uopIndex <- 0 until p.decodedUopWidth) {
-    val uop = decoded.uops(uopIndex)
-    val pUop = request.pRename.uops(uopIndex)
-    val memoryOrder = request.memoryOrder.uops(uopIndex)
-    val typedStore = decoded.uopMask(uopIndex) && uop.valid &&
-      uop.memory.valid && uop.memory.isStore && !uop.memory.isLoad &&
-      uop.recipe.memoryRequestCount.orR
-    val storeRecipeExact = uop.recipe.valid &&
-      uop.recipe.disposition === OooOpcodeDisposition.Dispatch.U &&
-      uop.recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U &&
-      (uop.recipe.recipeKind === OooOpcodeRecipeKind.ScalarStore.U ||
-        uop.recipe.recipeKind === OooOpcodeRecipeKind.PairStore.U) &&
-      (uop.recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U ||
-        uop.recipe.lateSplitKind ===
-          OooLateSplitKind.PairStoreAddressData.U)
-    val requestCountLegal = memoryOrder.requestCount === 1.U ||
-      memoryOrder.requestCount === 2.U
-    val pairShapeExact =
-      (uop.recipe.recipeKind === OooOpcodeRecipeKind.PairStore.U) ===
-        (memoryOrder.requestCount === 2.U)
-    val addressChildren = VecInit((0 until p.dispatchWidth).map { lane =>
-      val allocation = request.dispatch.allocations(lane)
-      allocation.valid && allocation.uopIndex === uopIndex.U &&
-        allocation.childIndex === 0.U &&
-        allocation.reservation.valid &&
-        allocation.reservation.uopClass === OooUopClass.Agu
-    })
-    storeReservationShapeExact(uopIndex) :=
-      !typedStore || (storeRecipeExact && requestCountLegal &&
-        pairShapeExact && memoryOrder.valid && memoryOrder.memoryValid &&
-        memoryOrder.isStore && !memoryOrder.isLoad &&
-        pUop.member.group.valid && pUop.member.bid.valid &&
-        PopCount(addressChildren) === 1.U)
-  }
-
-  val s1ShapeExact = requestStidInRange && identityExact && memoryOrderExact &&
-    allocationShapeExact && allocationDense && laneExact.reduce(_ && _) &&
-    noDuplicateTargets &&
-    (!requireStoreReservation.B || storeReservationShapeExact.asUInt.andR)
-  val s1TargetsExact = laneTargetFree.reduce(_ && _)
-  io.s1.ready := !s1Valid(safeRequestStid) && s1ShapeExact && s1TargetsExact &&
-    !(recoveryFreeze && requestStid === recoveryStid)
-  io.s1Rejected.valid := io.s1.valid && (!s1ShapeExact || !s1TargetsExact)
-  io.s1Rejected.bits.peId := plan.peId
-  io.s1Rejected.bits.stid := plan.stid
-  io.s1Rejected.bits.epoch := plan.epoch
-  io.s1Rejected.bits.transactionId := plan.transactionId
-  io.s1Rejected.bits.shapeExact := s1ShapeExact
-  io.s1Rejected.bits.targetsExact := s1TargetsExact
-
-  when(io.s1.fire) {
-    s1Valid(safeRequestStid) := true.B
-    s1Rows(safeRequestStid) := request
-    s1StoreReserved(safeRequestStid) := 0.U
-    for (lane <- 0 until p.dispatchWidth) {
-      val allocation = request.dispatch.allocations(lane)
-      val reservation = allocation.reservation
-      when(allocation.valid) {
-        s1Claimed(reservation.uopClass.asUInt)(reservation.bank)(
-          reservation.speculativeSlot) := true.B
-      }
-    }
-  }
-
-  val storeReserveNeeds = Wire(Vec(p.stidCount,
-    UInt(p.decodedUopWidth.W)))
-  for (stid <- 0 until p.stidCount) {
-    val retained = s1Rows(stid)
-    val retainedDecoded = retained.o3.request.reservation.transaction.decoded
-    val needed = Wire(Vec(p.decodedUopWidth, Bool()))
-    for (uopIndex <- 0 until p.decodedUopWidth) {
-      val uop = retainedDecoded.uops(uopIndex)
-      val addressChildren = VecInit((0 until p.dispatchWidth).map { lane =>
-        val allocation = retained.dispatch.allocations(lane)
-        allocation.valid && allocation.uopIndex === uopIndex.U &&
-          allocation.childIndex === 0.U &&
-          allocation.reservation.valid &&
-          allocation.reservation.uopClass === OooUopClass.Agu
-      })
-      needed(uopIndex) := s1Valid(stid) && retainedDecoded.uopMask(uopIndex) &&
-        uop.valid && uop.memory.valid && uop.memory.isStore &&
-        !uop.memory.isLoad && PopCount(addressChildren) === 1.U &&
-        !s1StoreReserved(stid)(uopIndex)
-    }
-    storeReserveNeeds(stid) := needed.asUInt
-  }
-
-  val storeReserveStidCandidates = Wire(Vec(p.stidCount, Bool()))
-  for (offset <- 0 until p.stidCount) {
-    val candidate = (storeReserveRoundRobin + offset.U)(p.stidWidth - 1, 0)
-    storeReserveStidCandidates(offset) :=
-      requireStoreReservation.B && storeReserveNeeds(candidate).orR &&
-        !(recoveryFreeze && candidate === recoveryStid)
-  }
-  val storeReserveStidOH = PriorityEncoderOH(
-    storeReserveStidCandidates.asUInt)
-  val storeReserveValid = storeReserveStidCandidates.asUInt.orR
-  val storeReserveStid = Mux(storeReserveValid,
-    (storeReserveRoundRobin + OHToUInt(storeReserveStidOH))(
-      p.stidWidth - 1, 0), 0.U)
-  val storeReserveUop = PriorityEncoder(storeReserveNeeds(storeReserveStid))
-  val storeReserveS1 = s1Rows(storeReserveStid)
-  val storeReservePUop = storeReserveS1.pRename.uops(storeReserveUop)
-  val storeReserveTU = storeReserveS1.tuRename.uops(storeReserveUop)
-  val storeReserveAllocationHits = VecInit((0 until p.dispatchWidth).map {
-    lane =>
-      val allocation = storeReserveS1.dispatch.allocations(lane)
-      allocation.valid && allocation.uopIndex === storeReserveUop &&
-        allocation.childIndex === 0.U && allocation.reservation.valid &&
-        allocation.reservation.uopClass === OooUopClass.Agu
-  })
-  val storeReserveAllocation = Mux1H(storeReserveAllocationHits,
-    storeReserveS1.dispatch.allocations)
-  val storeReserveRow = Wire(new OooIexIssueRow(p))
-  storeReserveRow := 0.U.asTypeOf(storeReserveRow)
-  storeReserveRow.valid := storeReserveValid
-  storeReserveRow.peId := storeReserveS1.dispatch.peId
-  storeReserveRow.stid := storeReserveS1.dispatch.stid
-  storeReserveRow.epoch := storeReserveS1.dispatch.epoch
-  storeReserveRow.transactionId := storeReserveS1.dispatch.transactionId
-  storeReserveRow.uopIndex := storeReserveUop
-  storeReserveRow.childIndex := 0.U
-  storeReserveRow.member := storeReservePUop.member
-  storeReserveRow.reservation := storeReserveAllocation.reservation
-  storeReserveRow.recipe := storeReservePUop.decoded.recipe
-  storeReserveRow.memory := storeReservePUop.decoded.memory
-  storeReserveRow.memoryOrder :=
-    storeReserveS1.memoryOrder.uops(storeReserveUop)
-  storeReserveRow.blockLast := storeReserveTU.blockLast
-  storeReserveRow.closeBeforeValid := storeReserveTU.closeBeforeValid
-  storeReserveRow.closeBefore := storeReserveTU.closeBefore
-  io.storeReserve.valid := storeReserveValid
-  io.storeReserve.bits := storeReserveRow
-
-  if (!requireStoreReservation) {
-    io.storeReserve.valid := false.B
-    io.storeReserve.bits := 0.U.asTypeOf(io.storeReserve.bits)
-  } else {
-    when(io.storeReserve.fire) {
-      s1StoreReserved(storeReserveStid) :=
-        s1StoreReserved(storeReserveStid) | UIntToOH(
-          storeReserveUop, p.decodedUopWidth)
-      storeReserveRoundRobin := Mux(
-        storeReserveStid === (p.stidCount - 1).U,
-        0.U, storeReserveStid + 1.U)
-    }
-  }
-
-  val s2OffsetCandidates = Wire(Vec(p.stidCount, Bool()))
-  val s3PendingValid = RegInit(false.B)
-  val s3Pending = Reg(new OooIexS3Enable(p))
-  val s3PendingFrozen = recoveryFreeze && s3PendingValid &&
-    s3Pending.bind.stid === recoveryStid
-  for (offset <- 0 until p.stidCount) {
-    val candidate = (s2RoundRobin + offset.U)(p.stidWidth - 1, 0)
-    val storeReservationsComplete = !requireStoreReservation.B ||
-      !storeReserveNeeds(candidate).orR
-    s2OffsetCandidates(offset) := s1Valid(candidate) &&
-      storeReservationsComplete && !s3PendingFrozen &&
-      !(recoveryFreeze && candidate === recoveryStid)
-  }
-  val s2OffsetSelect = PriorityEncoderOH(s2OffsetCandidates.asUInt)
-  val s2Valid = s2OffsetCandidates.asUInt.orR
-  val s2Stid = Mux(s2Valid,
-    (s2RoundRobin + OHToUInt(s2OffsetSelect))(p.stidWidth - 1, 0), 0.U)
-  val s2Request = s1Rows(s2Stid)
-  val s2Dispatch = s2Request.dispatch
-  val safeS2OwnerStid = Mux(s2Dispatch.stid < p.stidCount.U,
-    s2Dispatch.stid, 0.U)
-
-  val s2Ack = Wire(new OooIexS2BindAck(p))
-  s2Ack.peId := s2Dispatch.peId
-  s2Ack.stid := s2Dispatch.stid
-  s2Ack.epoch := s2Dispatch.epoch
-  s2Ack.transactionId := s2Dispatch.transactionId
-  s2Ack.allocationMask := s2Dispatch.allocationMask
-  io.s2Bind.valid := s2Valid
-  io.s2Bind.bits := s2Ack
-
-  io.s3Enable.valid := s3PendingValid && !s3PendingFrozen
-  io.s3Enable.bits := s3Pending
-
-  for (port <- 0 until p.iexWakeupPorts) {
-    val wakeup = io.wakeup(port)
-    val wakeStidInRange = wakeup.bits.stid < p.stidCount.U
-    val safeWakeStid = Mux(wakeStidInRange, wakeup.bits.stid, 0.U)
-    val ptagInRange = wakeup.bits.ptag < p.pPhysRegs.U
-    val safePtag = Mux(ptagInRange, wakeup.bits.ptag, 0.U)
-    val ttagInRange = wakeup.bits.localTag < p.tPhysRegs.U
-    val safeTtag = Mux(ttagInRange, wakeup.bits.localTag, 0.U)(
-      ttagIndexWidth - 1, 0)
-    val utagInRange = wakeup.bits.localTag < p.uPhysRegs.U
-    val safeUtag = Mux(utagInRange, wakeup.bits.localTag, 0.U)(
-      utagIndexWidth - 1, 0)
-    val wakeupFrozen = recoveryFreeze && wakeup.bits.stid === recoveryStid
-    when(wakeup.valid && wakeupFrozen) {
-      assert(false.B,
-        "global recovery must quiesce target-STID wakeups before IEX prepare")
-    }
-    when(wakeup.valid && wakeup.bits.kind ===
-        OooIexWakeupKind.SpeculativeLoad) {
-      assert(wakeup.bits.load.valid && wakeup.bits.load.producer.group.valid &&
-        wakeup.bits.load.producer.bid.valid &&
-        wakeup.bits.load.producer.group.stid === wakeup.bits.stid,
-        "speculative IEX wakeup requires an exact same-STID load producer")
-    }
-    when(wakeup.valid && !wakeupFrozen &&
-        wakeup.bits.kind === OooIexWakeupKind.Committed &&
-        wakeup.bits.operandClass === OperandClass.P &&
-        ptagInRange) {
-      pReadyValid(safePtag) := true.B
-      pReadyGeneration(safePtag) := wakeup.bits.ptagGeneration
-      pReadyStid(safePtag) := wakeup.bits.stid
-      pReadyEpoch(safePtag) := wakeup.bits.epoch
-    }
-    when(wakeup.valid && !wakeupFrozen &&
-        wakeup.bits.kind === OooIexWakeupKind.Committed &&
-        wakeup.bits.operandClass === OperandClass.T &&
-        wakeStidInRange && ttagInRange &&
-        wakeup.bits.localSequence.valid) {
-      tReadyValid(safeWakeStid)(safeTtag) := true.B
-      tReadySequence(safeWakeStid)(safeTtag) :=
-        wakeup.bits.localSequence
-      tReadyEpoch(safeWakeStid)(safeTtag) := wakeup.bits.epoch
-    }
-    when(wakeup.valid && !wakeupFrozen &&
-        wakeup.bits.kind === OooIexWakeupKind.Committed &&
-        wakeup.bits.operandClass === OperandClass.U &&
-        wakeStidInRange && utagInRange &&
-        wakeup.bits.localSequence.valid) {
-      uReadyValid(safeWakeStid)(safeUtag) := true.B
-      uReadySequence(safeWakeStid)(safeUtag) :=
-        wakeup.bits.localSequence
-      uReadyEpoch(safeWakeStid)(safeUtag) := wakeup.bits.epoch
-    }
-  }
-  for (port <- 0 until p.iexLoadCancelPorts) {
-    val cancel = io.loadCancel(port)
-    when(cancel.valid) {
-      assert(cancel.bits.load.valid && cancel.bits.load.producer.group.valid &&
-        cancel.bits.load.producer.bid.valid &&
-        cancel.bits.stid < p.stidCount.U &&
-        cancel.bits.load.producer.group.stid === cancel.bits.stid,
-        "load cancel requires an exact same-STID producer generation")
-    }
-  }
-
-  // Existing S2 rows advance before a new S2 bind writes its targets.  The
-  // later assignment below keeps newly bound rows in S2 for one full cycle.
-  for (uopClass <- 0 until p.iqClassCount;
-       bank <- 0 until p.iqBankCount;
-       entry <- 0 until p.iqEntriesPerBank) {
-    when(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.BoundS2 &&
-        !(recoveryFreeze &&
-          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid)) {
-      slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.ResidentS3
-    }
-  }
-
-  when(s2Valid) {
-    s1Valid(s2Stid) := false.B
-    s1StoreReserved(s2Stid) := 0.U
-    s2RoundRobin := s2Stid + 1.U
-    s3PendingValid := true.B
-    s3Pending.bind := s2Ack
-
-    for (lane <- 0 until p.dispatchWidth) {
-      val allocation = s2Dispatch.allocations(lane)
-      val reservation = allocation.reservation
-      val uopIndex = allocation.uopIndex
-      val uopClass = reservation.uopClass.asUInt
-      val bank = reservation.bank
-      val entry = reservation.speculativeSlot
-      when(allocation.valid) {
-        assert(slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free,
-          "a retained dispatch lease must bind one free physical IQ row")
-        assert(s1Claimed(uopClass)(bank)(entry),
-          "S2 may bind only the exact physical target claimed by retained S1")
-        val pUop = s2Request.pRename.uops(uopIndex)
-        val tuUop = s2Request.tuRename.uops(uopIndex)
-        val row = Wire(new OooIexIssueRow(p))
-        row := 0.U.asTypeOf(row)
-        row.valid := true.B
-        row.peId := s2Dispatch.peId
-        row.stid := s2Dispatch.stid
-        row.epoch := s2Dispatch.epoch
-        row.transactionId := s2Dispatch.transactionId
-        row.dispatchLane := lane.U
-        row.uopIndex := allocation.uopIndex
-        row.childIndex := allocation.childIndex
-        row.member := pUop.member
-        row.member.memberIndex := pUop.member.memberIndex + allocation.childIndex
-        row.reservation := reservation
-        row.uopKey := pUop.decoded.identity.key
-        row.parentCount := pUop.decoded.identity.parentCount
-        row.parentPcTokens := s2Request.o3.parentPcTokens(uopIndex)
-        row.pcParentIndexValid := false.B
-        row.pcParentIndex := 0.U
-        row.primaryPrediction := 0.U.asTypeOf(row.primaryPrediction)
-        for (parentIndex <- 0 until p.maxArchitecturalParentRefs) {
-          val parent = pUop.decoded.identity.parents(parentIndex)
-          when(parent.key.valid && parent.key.asUInt ===
-              pUop.decoded.identity.key.primaryParent.asUInt) {
-            row.pcParentIndexValid := true.B
-            row.pcParentIndex := parentIndex.U
-            row.primaryPrediction := parent.prediction
-          }
-        }
-        row.boundary := pUop.decoded.identity.boundary
-        row.templateValid := pUop.decoded.identity.templateValid
-        row.templateGroupId := pUop.decoded.identity.templateGroupId
-        row.templateGeneration := pUop.decoded.identity.templateGeneration
-        row.opcode := pUop.decoded.opcode
-        row.recipe := pUop.decoded.recipe
-        row.plannedChildCount := pUop.decoded.plannedChildCount
-        row.immediateValid := pUop.decoded.immediateValid
-        row.immediate := pUop.decoded.immediate
-        row.memory := pUop.decoded.memory
-        row.memoryOrder := s2Request.memoryOrder.uops(uopIndex)
-        row.isStore := row.memoryOrder.valid &&
-          row.memoryOrder.memoryValid && row.memoryOrder.isStore &&
-          !row.memoryOrder.isLoad
-        row.storeOrder.valid := row.isStore
-        row.storeOrder.logicalMember := pUop.member
-        row.storeOrder.firstLsid := row.memoryOrder.firstLsid
-        row.storeOrder.firstStoreId := row.memoryOrder.firstTypeId
-        row.storeOrder.requestCount := row.memoryOrder.requestCount
-        row.boundaryTargetValid := pUop.decoded.boundaryTargetValid
-        row.boundaryTarget := pUop.decoded.boundaryTarget
-        row.preciseTrap := pUop.decoded.preciseTrap
-        row.trapCause := pUop.decoded.trapCause
-        row.blockLast := tuUop.blockLast
-        row.closeBeforeValid := tuUop.closeBeforeValid
-        row.closeBefore := tuUop.closeBefore
-        val storeSplit =
-          pUop.decoded.recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U ||
-            pUop.decoded.recipe.lateSplitKind === OooLateSplitKind.PairStoreAddressData.U
-        val storeAddressChild = storeSplit && allocation.childIndex === 0.U
-        val storeDataChild = storeSplit && allocation.childIndex === 1.U
-        for (sourceIndex <- 0 until p.maxSourceOperands) {
-          val decodedSource = pUop.decoded.sources(sourceIndex)
-          val pSource = pUop.sources(sourceIndex).pMapping
-          val localSource = tuUop.sources(sourceIndex)
-          val source = row.sources(sourceIndex)
-          val sourceSelected = decodedSource.valid && Mux(storeAddressChild,
-            pUop.decoded.memory.addressSourceMask(sourceIndex),
-            Mux(storeDataChild,
-              pUop.decoded.memory.dataSourceMask(sourceIndex), true.B))
-          val isP = decodedSource.operandClass === OperandClass.P
-          val isT = decodedSource.operandClass === OperandClass.T
-          val isU = decodedSource.operandClass === OperandClass.U
-          val ptagInRange = pSource.ptag < p.pPhysRegs.U
-          val safePtag = Mux(ptagInRange, pSource.ptag, 0.U)
-          val ttagInRange = localSource.physicalTag < p.tPhysRegs.U
-          val safeTtag = Mux(ttagInRange, localSource.physicalTag, 0.U)(
-            ttagIndexWidth - 1, 0)
-          val utagInRange = localSource.physicalTag < p.uPhysRegs.U
-          val safeUtag = Mux(utagInRange, localSource.physicalTag, 0.U)(
-            utagIndexWidth - 1, 0)
-          val pReadyRecorded = ptagInRange && pReadyValid(safePtag) &&
-            pReadyGeneration(safePtag) === pSource.ptagGeneration &&
-            pReadyStid(safePtag) === s2Dispatch.stid &&
-            pReadyEpoch(safePtag) === s2Dispatch.epoch
-          val tReadyRecorded = ttagInRange &&
-            tReadyValid(safeS2OwnerStid)(safeTtag) &&
-            tReadySequence(safeS2OwnerStid)(safeTtag).asUInt ===
-              localSource.sequence.asUInt &&
-            tReadyEpoch(safeS2OwnerStid)(safeTtag) === s2Dispatch.epoch
-          val uReadyRecorded = utagInRange &&
-            uReadyValid(safeS2OwnerStid)(safeUtag) &&
-            uReadySequence(safeS2OwnerStid)(safeUtag).asUInt ===
-              localSource.sequence.asUInt &&
-            uReadyEpoch(safeS2OwnerStid)(safeUtag) === s2Dispatch.epoch
-          // The registered scoreboards above are pre-edge state.  Include an
-          // exact current-cycle wakeup when constructing the S2 row so a
-          // consumer bound on the same edge cannot miss the one-cycle pulse.
-          // The result is still written into registered row state; neither
-          // query nor future pick logic consumes wakeup combinationally.
-          val pReadyNow = io.wakeup.map { wakeup =>
-            wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
-              wakeup.bits.epoch === s2Dispatch.epoch &&
-              wakeup.bits.kind === OooIexWakeupKind.Committed &&
-              wakeup.bits.operandClass === OperandClass.P &&
-              wakeup.bits.ptag === pSource.ptag &&
-              wakeup.bits.ptagGeneration === pSource.ptagGeneration
-          }.reduce(_ || _)
-          val tReadyNow = io.wakeup.map { wakeup =>
-            wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
-              wakeup.bits.epoch === s2Dispatch.epoch &&
-              wakeup.bits.kind === OooIexWakeupKind.Committed &&
-              wakeup.bits.operandClass === OperandClass.T &&
-              wakeup.bits.localTag === localSource.physicalTag &&
-              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
-          }.reduce(_ || _)
-          val uReadyNow = io.wakeup.map { wakeup =>
-            wakeup.valid && wakeup.bits.stid === s2Dispatch.stid &&
-              wakeup.bits.epoch === s2Dispatch.epoch &&
-              wakeup.bits.kind === OooIexWakeupKind.Committed &&
-              wakeup.bits.operandClass === OperandClass.U &&
-              wakeup.bits.localTag === localSource.physicalTag &&
-              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
-          }.reduce(_ || _)
-          val nonSpecReady = !sourceSelected ||
-            (isP && (pSource.ready || pReadyRecorded || pReadyNow)) ||
-            (isT && (tReadyRecorded || tReadyNow)) ||
-            (isU && (uReadyRecorded || uReadyNow))
-          val specWakeMatches = VecInit(io.wakeup.map { wakeup =>
-            val pMatch = isP && wakeup.bits.operandClass === OperandClass.P &&
-              wakeup.bits.ptag === pSource.ptag &&
-              wakeup.bits.ptagGeneration === pSource.ptagGeneration
-            val tMatch = isT && wakeup.bits.operandClass === OperandClass.T &&
-              wakeup.bits.localTag === localSource.physicalTag &&
-              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
-            val uMatch = isU && wakeup.bits.operandClass === OperandClass.U &&
-              wakeup.bits.localTag === localSource.physicalTag &&
-              wakeup.bits.localSequence.asUInt === localSource.sequence.asUInt
-            wakeup.valid && wakeup.bits.kind ===
-              OooIexWakeupKind.SpeculativeLoad && wakeup.bits.load.valid &&
-              wakeup.bits.stid === s2Dispatch.stid &&
-              wakeup.bits.epoch === s2Dispatch.epoch &&
-              (pMatch || tMatch || uMatch)
-          })
-          val specLoadNow = Wire(new OooIexLoadGeneration(p))
-          specLoadNow := 0.U.asTypeOf(specLoadNow)
-          for (port <- 0 until p.iexWakeupPorts) {
-            when(specWakeMatches(port)) {
-              specLoadNow := io.wakeup(port).bits.load
-            }
-          }
-          val specLoadCanceledNow = io.loadCancel.map { cancel =>
-            cancel.valid && cancel.bits.load.valid &&
-              cancel.bits.stid === s2Dispatch.stid &&
-              cancel.bits.epoch === s2Dispatch.epoch &&
-              cancel.bits.load.asUInt === specLoadNow.asUInt
-          }.reduce(_ || _)
-          assert(PopCount(specWakeMatches) <= 1.U,
-            "one source cannot accept multiple speculative load generations")
-          source.valid := sourceSelected
-          source.ready := nonSpecReady
-          source.specReady := sourceSelected && !nonSpecReady &&
-            specWakeMatches.asUInt.orR && !specLoadCanceledNow
-          source.operandClass := decodedSource.operandClass
-          source.ptag := pSource.ptag
-          source.ptagGeneration := pSource.ptagGeneration
-          source.localTag := localSource.physicalTag
-          source.localSequence := localSource.sequence
-          source.load := Mux(source.specReady, specLoadNow,
-            0.U.asTypeOf(specLoadNow))
-          when(sourceSelected && !(isP || isT || isU)) {
-            source.ready := false.B
-            source.specReady := false.B
-            source.load := 0.U.asTypeOf(source.load)
-          }
-        }
-        for (destinationIndex <- 0 until p.maxDestinationOperands) {
-          val decodedDestination =
-            pUop.decoded.destinations(destinationIndex)
-          val pDestination =
-            pUop.destinations(destinationIndex).currentPMapping
-          val previousPDestination =
-            pUop.destinations(destinationIndex).previousPMapping
-          val localDestination = tuUop.destinations(destinationIndex)
-          val destination = row.destinations(destinationIndex)
-          val destinationSelected = decodedDestination.valid &&
-            (!storeSplit || storeAddressChild)
-          destination.valid := destinationSelected
-          destination.kind := decodedDestination.kind
-          destination.atag := decodedDestination.atag
-          destination.relativeIndex := decodedDestination.relativeIndex
-          destination.ptag := pDestination.ptag
-          destination.ptagGeneration := pDestination.ptagGeneration
-          destination.localTag := localDestination.physicalTag
-          destination.localSequence := localDestination.sequence
-          row.payload.previousPDestinations(destinationIndex).valid :=
-            destinationSelected &&
-              decodedDestination.kind === DestinationKind.Gpr &&
-              previousPDestination.valid
-          row.payload.previousPDestinations(destinationIndex).ptag :=
-            previousPDestination.ptag
-          row.payload.previousPDestinations(destinationIndex).ptagGeneration :=
-            previousPDestination.ptagGeneration
-          when(destinationSelected &&
-              decodedDestination.kind === DestinationKind.Gpr &&
-              pDestination.valid) {
-            pReadyValid(pDestination.ptag) := false.B
-          }
-          when(destinationSelected &&
-              decodedDestination.kind === DestinationKind.T &&
-              localDestination.valid &&
-              localDestination.physicalTag < p.tPhysRegs.U) {
-            val destinationTtag = localDestination.physicalTag(
-              ttagIndexWidth - 1, 0)
-            tReadyValid(safeS2OwnerStid)(destinationTtag) := false.B
-          }
-          when(destinationSelected &&
-              decodedDestination.kind === DestinationKind.U &&
-              localDestination.valid &&
-              localDestination.physicalTag < p.uPhysRegs.U) {
-            val destinationUtag = localDestination.physicalTag(
-              utagIndexWidth - 1, 0)
-            uReadyValid(safeS2OwnerStid)(destinationUtag) := false.B
-          }
-        }
-        scheduleRows(uopClass)(bank)(entry) := row.schedule
-        capabilityRows(uopClass)(bank)(entry) :=
-          pUop.decoded.recipe.dispatchCapabilities(uopClass)
-        for (targetClass <- 0 until p.iqClassCount;
-             targetBank <- 0 until p.iqBankCount) {
-          when(uopClass === targetClass.U && bank === targetBank.U) {
-            payloadRows(targetClass)(targetBank).write(entry, row.payload)
-          }
-        }
-        s1Claimed(uopClass)(bank)(entry) := false.B
-        slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.BoundS2
-      }
-    }
-  }.elsewhen(!s3PendingFrozen) {
-    s3PendingValid := false.B
-  }
-
-  // Wakeups mutate only registered source-ready state.  Query/pick-enable
-  // below never consumes the combinational wakeup inputs directly.
-  for (uopClass <- 0 until p.iqClassCount;
-       bank <- 0 until p.iqBankCount;
-       entry <- 0 until p.iqEntriesPerBank;
-       sourceIndex <- 0 until p.maxSourceOperands) {
-    val source = scheduleRows(uopClass)(bank)(entry).sources(sourceIndex)
-    val wakeMatch = io.wakeup.map { wake =>
-      val pMatch = source.operandClass === OperandClass.P &&
-        wake.bits.operandClass === OperandClass.P &&
-        source.ptag === wake.bits.ptag &&
-        source.ptagGeneration === wake.bits.ptagGeneration
-      val tMatch = source.operandClass === OperandClass.T &&
-        wake.bits.operandClass === OperandClass.T &&
-        source.localTag === wake.bits.localTag &&
-        source.localSequence.asUInt === wake.bits.localSequence.asUInt
-      val uMatch = source.operandClass === OperandClass.U &&
-        wake.bits.operandClass === OperandClass.U &&
-        source.localTag === wake.bits.localTag &&
-        source.localSequence.asUInt === wake.bits.localSequence.asUInt
-      wake.valid && wake.bits.stid === scheduleRows(uopClass)(bank)(entry).stid &&
-        wake.bits.epoch === scheduleRows(uopClass)(bank)(entry).epoch &&
-        (pMatch || tMatch || uMatch)
-    }
-    val committedWakeMatch = VecInit(wakeMatch.zip(io.wakeup).map {
-      case (matches, wake) => matches &&
-        wake.bits.kind === OooIexWakeupKind.Committed
-    })
-    val speculativeWakeMatch = VecInit(wakeMatch.zip(io.wakeup).map {
-      case (matches, wake) => matches &&
-        wake.bits.kind === OooIexWakeupKind.SpeculativeLoad &&
-        wake.bits.load.valid
-    })
-    val speculativeLoad = Wire(new OooIexLoadGeneration(p))
-    speculativeLoad := 0.U.asTypeOf(speculativeLoad)
-    for (port <- 0 until p.iexWakeupPorts) {
-      when(speculativeWakeMatch(port)) {
-        speculativeLoad := io.wakeup(port).bits.load
-      }
-    }
-    assert(PopCount(speculativeWakeMatch) <= 1.U,
-      "one resident source cannot accept multiple speculative load generations")
-    assert(!(committedWakeMatch.asUInt.orR &&
-      sourceLoadCanceled(scheduleRows(uopClass)(bank)(entry), source)),
-      "one source cannot commit and cancel on the same cycle")
-    when(slotState(uopClass)(bank)(entry) =/= OooIexIssueSlotState.Free &&
-        !(recoveryFreeze &&
-          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
-        source.valid && committedWakeMatch.asUInt.orR) {
-      source.ready := true.B
-      source.specReady := false.B
-      source.load := 0.U.asTypeOf(source.load)
-    }.elsewhen(slotState(uopClass)(bank)(entry) =/=
-        OooIexIssueSlotState.Free &&
-        !(recoveryFreeze &&
-          scheduleRows(uopClass)(bank)(entry).stid === recoveryStid) &&
-        source.valid && !source.ready && speculativeWakeMatch.asUInt.orR) {
-      source.specReady := true.B
-      source.load := speculativeLoad
-    }
-  }
-
-  // Load miss/replay follows wakeup assignment so cancel wins a same-cycle
-  // race. IQ residency is retained, but any P1/I1/I2 claim is returned to S3
-  // by clearing inFlight. A later exact wakeup can make the row pickable again.
-  for (uopClass <- 0 until p.iqClassCount;
-       bank <- 0 until p.iqBankCount;
-       entry <- 0 until p.iqEntriesPerBank) {
-    val row = scheduleRows(uopClass)(bank)(entry)
-    val canceledSources = Wire(Vec(p.maxSourceOperands, Bool()))
-    for (sourceIndex <- 0 until p.maxSourceOperands) {
-      val source = row.sources(sourceIndex)
-      canceledSources(sourceIndex) := sourceLoadCanceled(row, source)
-      when(slotState(uopClass)(bank)(entry) =/=
-          OooIexIssueSlotState.Free && canceledSources(sourceIndex)) {
-        source.specReady := false.B
-        source.load := 0.U.asTypeOf(source.load)
-      }
-    }
-    when(slotState(uopClass)(bank)(entry) ===
-        OooIexIssueSlotState.ResidentS3 && canceledSources.asUInt.orR) {
-      row.inFlight := false.B
-    }
-  }
-
-  val releaseClasses = Wire(Vec(p.iexReleaseWidth,
-    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
-  val releaseClassInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
-  val releaseBankInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
-  val releaseEntryInRange = Wire(Vec(p.iexReleaseWidth, Bool()))
-  val safeReleaseClasses = Wire(Vec(p.iexReleaseWidth,
-    UInt(math.max(1, chisel3.util.log2Ceil(p.iqClassCount)).W)))
-  val safeReleaseBanks = Wire(Vec(p.iexReleaseWidth,
-    UInt(p.iqBankWidth.W)))
-  val safeReleaseEntries = Wire(Vec(p.iexReleaseWidth,
-    UInt(p.iqEntryWidth.W)))
-  val releaseAddressExact = Wire(Vec(p.iexReleaseWidth, Bool()))
-  val releaseOwnerExact = Wire(Vec(p.iexReleaseWidth, Bool()))
-  val releaseCollision = Wire(Vec(p.iexReleaseWidth, Bool()))
-
-  for (lane <- 0 until p.iexReleaseWidth) {
-    val release = io.releases(lane).bits
-    releaseClasses(lane) := release.dispatch.reservation.uopClass.asUInt
-    releaseClassInRange(lane) := releaseClasses(lane) < p.iqClassCount.U
-    releaseBankInRange(lane) :=
-      release.dispatch.reservation.bank < p.iqBankCount.U
-    releaseEntryInRange(lane) :=
-      release.dispatch.reservation.speculativeSlot < p.iqEntriesPerBank.U
-    safeReleaseClasses(lane) := Mux(
-      releaseClassInRange(lane), releaseClasses(lane), 0.U)
-    safeReleaseBanks(lane) := Mux(releaseBankInRange(lane),
-      release.dispatch.reservation.bank, 0.U)
-    safeReleaseEntries(lane) := Mux(releaseEntryInRange(lane),
-      release.dispatch.reservation.speculativeSlot, 0.U)
-    releaseAddressExact(lane) := release.dispatch.reservation.valid &&
-      releaseClassInRange(lane) && releaseBankInRange(lane) &&
-      releaseEntryInRange(lane)
-    val releaseRow = scheduleRows(safeReleaseClasses(lane))(
-      safeReleaseBanks(lane))(safeReleaseEntries(lane))
-    releaseOwnerExact(lane) := releaseAddressExact(lane) &&
-      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
-        safeReleaseEntries(lane)) === OooIexIssueSlotState.ResidentS3 &&
-      releaseRow.valid && releaseRow.inFlight &&
-      sameMember(release.member, releaseRow.member) &&
-      release.dispatch.peId === releaseRow.peId &&
-      release.dispatch.stid === releaseRow.stid &&
-      release.dispatch.epoch === releaseRow.epoch &&
-      release.dispatch.transactionId === releaseRow.transactionId &&
-      release.dispatch.reservation.asUInt === releaseRow.reservation.asUInt &&
-      sameMember(release.dispatch.member, release.member) &&
-      !rowLoadCanceled(releaseRow) &&
-      !(recoveryFreeze && release.dispatch.stid === recoveryStid)
-    releaseCollision(lane) := (0 until p.iexReleaseWidth).filter(_ != lane)
-      .map { peer =>
-        io.releases(peer).valid && releaseAddressExact(lane) &&
-          releaseAddressExact(peer) &&
-          safeReleaseClasses(lane) === safeReleaseClasses(peer) &&
-          safeReleaseBanks(lane) === safeReleaseBanks(peer) &&
-          safeReleaseEntries(lane) === safeReleaseEntries(peer)
-      }.foldLeft(false.B)(_ || _)
-    val releaseExact = releaseOwnerExact(lane) && !releaseCollision(lane)
-    io.dispatchReleases(lane).valid :=
-      io.releases(lane).valid && releaseExact
-    io.dispatchReleases(lane).bits := release.dispatch
-    io.releases(lane).ready :=
-      releaseExact && io.dispatchReleases(lane).ready
-    io.releaseRejecteds(lane).valid :=
-      io.releases(lane).valid && !releaseExact
-    io.releaseRejecteds(lane).bits.member := release.member
-    io.releaseRejecteds(lane).bits.peId := release.dispatch.peId
-    io.releaseRejecteds(lane).bits.stid := release.dispatch.stid
-    io.releaseRejecteds(lane).bits.epoch := release.dispatch.epoch
-    io.releaseRejecteds(lane).bits.transactionId :=
-      release.dispatch.transactionId
-    io.releaseRejecteds(lane).bits.reservation :=
-      release.dispatch.reservation
-
-    when(io.releases(lane).fire) {
-      slotState(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
-        safeReleaseEntries(lane)) := OooIexIssueSlotState.Free
-      scheduleRows(safeReleaseClasses(lane))(safeReleaseBanks(lane))(
-        safeReleaseEntries(lane)) :=
-        0.U.asTypeOf(new OooIexScheduleRow(p))
-    }
-  }
-
-  val recoveryS1 = s1Rows(safeRecoveryStid)
-  val recoveryS1Live = recoveryStidInRange && s1Valid(safeRecoveryStid)
-  val recoveryS1Kill = Wire(Vec(p.dispatchWidth, Bool()))
-  val recoveryS1LaneExact = Wire(Vec(p.dispatchWidth, Bool()))
-  for (lane <- 0 until p.dispatchWidth) {
-    val allocation = recoveryS1.dispatch.allocations(lane)
-    val reservation = allocation.reservation
-    val uopIndexInRange = allocation.uopIndex < p.decodedUopWidth.U
-    val safeUopIndex = Mux(uopIndexInRange, allocation.uopIndex, 0.U)
-    val pUop = recoveryS1.pRename.uops(safeUopIndex)
-    val decodedUop = recoveryS1.o3.request.reservation.transaction.decoded
-      .uops(safeUopIndex)
-    val classIndex = reservation.uopClass.asUInt
-    val classInRange = classIndex < p.iqClassCount.U
-    val bankInRange = reservation.bank < p.iqBankCount.U
-    val entryInRange = reservation.speculativeSlot < p.iqEntriesPerBank.U
-    val safeClass = Mux(classInRange, classIndex, 0.U)
-    val safeBank = Mux(bankInRange, reservation.bank, 0.U)
-    val safeEntry = Mux(entryInRange, reservation.speculativeSlot, 0.U)
-    val member = Wire(new RobMemberKey(p))
-    member := pUop.member
-    member.memberIndex := pUop.member.memberIndex + allocation.childIndex
-    recoveryS1LaneExact(lane) := !allocation.valid || (
-      recoveryS1.dispatch.allocationMask(lane) && reservation.valid &&
-        uopIndexInRange && pUop.valid && decodedUop.valid &&
-        allocation.childIndex < decodedUop.plannedChildCount &&
-        classInRange && bankInRange && entryInRange &&
-        slotState(safeClass)(safeBank)(safeEntry) ===
-          OooIexIssueSlotState.Free &&
-        s1Claimed(safeClass)(safeBank)(safeEntry) &&
-        member.group.peId === recoveryS1.dispatch.peId &&
-        member.group.stid === recoveryS1.dispatch.stid &&
-        OooRecoveryMembership.memberInOldWindow(p, recoveryPlan, member))
-    recoveryS1Kill(lane) := recoveryS1Live && allocation.valid &&
-      OooRecoveryMembership.memberKilled(p, recoveryPlan, member)
-  }
-  val recoveryS1StoreKillExact = Wire(Vec(p.decodedUopWidth, Bool()))
-  for (uopIndex <- 0 until p.decodedUopWidth) {
-    val decodedUop = recoveryS1.o3.request.reservation.transaction.decoded
-      .uops(uopIndex)
-    val splitStore = recoveryS1Live && decodedUop.valid &&
-      decodedUop.memory.valid && decodedUop.memory.isStore &&
-      !decodedUop.memory.isLoad &&
-      (decodedUop.recipe.lateSplitKind ===
-        OooLateSplitKind.StoreAddressData.U ||
-        decodedUop.recipe.lateSplitKind ===
-          OooLateSplitKind.PairStoreAddressData.U)
-    val children = VecInit((0 until p.dispatchWidth).map { lane =>
-      val allocation = recoveryS1.dispatch.allocations(lane)
-      allocation.valid && allocation.uopIndex === uopIndex.U
-    })
-    val killedChildren = VecInit((0 until p.dispatchWidth).map { lane =>
-      children(lane) && recoveryS1Kill(lane)
-    })
-    recoveryS1StoreKillExact(uopIndex) := !splitStore ||
-      !killedChildren.asUInt.orR ||
-      PopCount(killedChildren) === PopCount(children)
-  }
-  val recoveryS1IdentityExact = !recoveryS1Live || (
-    recoveryS1.dispatch.valid && recoveryS1.pRename.valid &&
-      recoveryS1.dispatch.stid === recoveryStid &&
-      recoveryS1.pRename.stid === recoveryStid &&
-      recoveryS1.dispatch.peId === recoveryPlan.oldHead.peId &&
-      recoveryS1.pRename.peId === recoveryPlan.oldHead.peId &&
-      recoveryS1.dispatch.transactionId ===
-        recoveryS1.pRename.transactionId &&
-      recoveryS1.dispatch.allocationMask === VecInit(
-        recoveryS1.dispatch.allocations.map(_.valid)).asUInt)
-  val recoveryS1RowsExact = !recoveryS1Live ||
-    (recoveryS1IdentityExact && recoveryS1LaneExact.reduce(_ && _) &&
-      recoveryS1StoreKillExact.asUInt.andR)
-
-  // Recovery scans one shallow slice from every physical class/bank per
-  // cycle.  This replaces the former one-cycle CAM over every resident row.
-  // The scan is side-effect free: it retains exact masks and counters, then
-  // the common O3 apply consumes those masks in one architectural event.
-  val recoveryScanRowExact = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle, Bool()))))
-  val recoveryScanRowKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle, Bool()))))
-  val recoveryScanBoundKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle, Bool()))))
-  val recoveryScanResidentKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle, Bool()))))
-  val recoveryScanS3Seen = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle,
-        UInt(p.dispatchWidth.W)))))
-  val recoveryScanS3Kill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle,
-        UInt(p.dispatchWidth.W)))))
-  val recoveryScanPReadyKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle,
-        UInt(p.pPhysRegs.W)))))
-  val recoveryScanTReadyKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle,
-        UInt(p.tPhysRegs.W)))))
-  val recoveryScanUReadyKill = Wire(Vec(p.iqClassCount,
-    Vec(p.iqBankCount,
-      Vec(p.iexRecoveryScanEntriesPerBankPerCycle,
-        UInt(p.uPhysRegs.W)))))
-
-  for (uopClass <- 0 until p.iqClassCount;
-       bank <- 0 until p.iqBankCount;
-       scanLane <- 0 until p.iexRecoveryScanEntriesPerBankPerCycle) {
-    val entryWide = recoveryScanCursor *
-      p.iexRecoveryScanEntriesPerBankPerCycle.U + scanLane.U
-    val entry = entryWide(p.iqEntryWidth - 1, 0)
-    val state = slotState(uopClass)(bank)(entry)
-    val row = scheduleRows(uopClass)(bank)(entry)
-    val occupied = state =/= OooIexIssueSlotState.Free
-    val selected = occupied && row.stid === recoveryStid
-    val logicalMember = Wire(new RobMemberKey(p))
-    logicalMember := row.member
-    logicalMember.memberIndex := row.member.memberIndex - row.childIndex
-    val logicalMemberNoUnderflow = row.member.memberIndex >= row.childIndex
-    val storeRecoveryExact = !row.isStore ||
-      (logicalMemberNoUnderflow &&
-        OooRecoveryMembership.memberKilled(p, recoveryPlan, row.member) ===
-          OooRecoveryMembership.memberKilled(
-            p, recoveryPlan, logicalMember))
-    val rowExact = !selected || (
-      row.valid && row.peId === recoveryPlan.oldHead.peId &&
-        row.member.group.peId === row.peId &&
-        row.member.group.stid === row.stid &&
-        row.reservation.valid &&
-        row.reservation.uopClass.asUInt === uopClass.U &&
-        row.reservation.bank === bank.U &&
-        row.reservation.speculativeSlot === entry &&
-        row.dispatchLane < p.dispatchWidth.U &&
-        storeRecoveryExact &&
-        OooRecoveryMembership.memberInOldWindow(
-          p, recoveryPlan, row.member))
-    val rowKill = selected && rowExact &&
-      OooRecoveryMembership.memberKilled(p, recoveryPlan, row.member)
-    recoveryScanRowExact(uopClass)(bank)(scanLane) := rowExact
-    recoveryScanRowKill(uopClass)(bank)(scanLane) := rowKill
-    recoveryScanBoundKill(uopClass)(bank)(scanLane) := rowKill &&
-      state === OooIexIssueSlotState.BoundS2
-    recoveryScanResidentKill(uopClass)(bank)(scanLane) := rowKill &&
-      state === OooIexIssueSlotState.ResidentS3
-
-    val s3RowExact = s3PendingValid &&
-      s3Pending.bind.stid === recoveryStid && occupied && row.valid &&
-      row.dispatchLane < p.dispatchWidth.U &&
-      row.peId === s3Pending.bind.peId &&
-      row.stid === s3Pending.bind.stid &&
-      row.epoch === s3Pending.bind.epoch &&
-      row.transactionId === s3Pending.bind.transactionId
-    recoveryScanS3Seen(uopClass)(bank)(scanLane) := Mux(s3RowExact,
-      UIntToOH(row.dispatchLane, p.dispatchWidth), 0.U(p.dispatchWidth.W))
-    recoveryScanS3Kill(uopClass)(bank)(scanLane) := Mux(
-      s3RowExact && rowKill,
-      UIntToOH(row.dispatchLane, p.dispatchWidth), 0.U(p.dispatchWidth.W))
-
-    val pReadyKill = (0 until p.maxDestinationOperands).map {
-      destinationIndex =>
-        val destination = row.destinations(destinationIndex)
-        val inRange = destination.ptag < p.pPhysRegs.U
-        val safeTag = Mux(inRange, destination.ptag, 0.U)
-        val exact = rowKill && destination.valid &&
-          destination.kind === DestinationKind.Gpr && inRange &&
-          retainedRecoveryPReadyValid(safeTag) &&
-          retainedRecoveryPReadyGeneration(safeTag) ===
-            destination.ptagGeneration &&
-          retainedRecoveryPReadyStid(safeTag) === row.stid &&
-          retainedRecoveryPReadyEpoch(safeTag) === row.epoch
-        Mux(exact, UIntToOH(destination.ptag, p.pPhysRegs),
-          0.U(p.pPhysRegs.W))
-    }.reduce(_ | _)
-    val tReadyKill = (0 until p.maxDestinationOperands).map {
-      destinationIndex =>
-        val destination = row.destinations(destinationIndex)
-        val inRange = destination.localTag < p.tPhysRegs.U
-        val safeTag = Mux(inRange, destination.localTag, 0.U)(
-          ttagIndexWidth - 1, 0)
-        val exact = rowKill && destination.valid &&
-          destination.kind === DestinationKind.T && inRange &&
-          tReadyValid(safeRecoveryStid)(safeTag) &&
-          tReadySequence(safeRecoveryStid)(safeTag).asUInt ===
-            destination.localSequence.asUInt &&
-          tReadyEpoch(safeRecoveryStid)(safeTag) === row.epoch
-        Mux(exact, UIntToOH(destination.localTag, p.tPhysRegs),
-          0.U(p.tPhysRegs.W))
-    }.reduce(_ | _)
-    val uReadyKill = (0 until p.maxDestinationOperands).map {
-      destinationIndex =>
-        val destination = row.destinations(destinationIndex)
-        val inRange = destination.localTag < p.uPhysRegs.U
-        val safeTag = Mux(inRange, destination.localTag, 0.U)(
-          utagIndexWidth - 1, 0)
-        val exact = rowKill && destination.valid &&
-          destination.kind === DestinationKind.U && inRange &&
-          uReadyValid(safeRecoveryStid)(safeTag) &&
-          uReadySequence(safeRecoveryStid)(safeTag).asUInt ===
-            destination.localSequence.asUInt &&
-          uReadyEpoch(safeRecoveryStid)(safeTag) === row.epoch
-        Mux(exact, UIntToOH(destination.localTag, p.uPhysRegs),
-          0.U(p.uPhysRegs.W))
-    }.reduce(_ | _)
-    recoveryScanPReadyKill(uopClass)(bank)(scanLane) := pReadyKill
-    recoveryScanTReadyKill(uopClass)(bank)(scanLane) := tReadyKill
-    recoveryScanUReadyKill(uopClass)(bank)(scanLane) := uReadyKill
-  }
-
-  val recoveryScanRowsExact = recoveryScanRowExact.asUInt.andR
-  val recoveryScanBoundKilled = PopCount(recoveryScanBoundKill.asUInt)
-  val recoveryScanResidentKilled = PopCount(recoveryScanResidentKill.asUInt)
-  val recoveryScanS3SeenMask = (0 until p.iqClassCount).flatMap {
-    uopClass => (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iexRecoveryScanEntriesPerBankPerCycle).map { scanLane =>
-        recoveryScanS3Seen(uopClass)(bank)(scanLane)
-      }
-    }
-  }.reduce(_ | _)
-  val recoveryScanS3KillMask = (0 until p.iqClassCount).flatMap {
-    uopClass => (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iexRecoveryScanEntriesPerBankPerCycle).map { scanLane =>
-        recoveryScanS3Kill(uopClass)(bank)(scanLane)
-      }
-    }
-  }.reduce(_ | _)
-  val recoveryScanPReadyKillMask = (0 until p.iqClassCount).flatMap {
-    uopClass => (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iexRecoveryScanEntriesPerBankPerCycle).map { scanLane =>
-        recoveryScanPReadyKill(uopClass)(bank)(scanLane)
-      }
-    }
-  }.reduce(_ | _)
-  val recoveryScanTReadyKillMask = (0 until p.iqClassCount).flatMap {
-    uopClass => (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iexRecoveryScanEntriesPerBankPerCycle).map { scanLane =>
-        recoveryScanTReadyKill(uopClass)(bank)(scanLane)
-      }
-    }
-  }.reduce(_ | _)
-  val recoveryScanUReadyKillMask = (0 until p.iqClassCount).flatMap {
-    uopClass => (0 until p.iqBankCount).flatMap { bank =>
-      (0 until p.iexRecoveryScanEntriesPerBankPerCycle).map { scanLane =>
-        recoveryScanUReadyKill(uopClass)(bank)(scanLane)
-      }
-    }
-  }.reduce(_ | _)
-  val recoveryScanLast = recoveryScanCursor ===
-    (p.iexRecoveryScanCycles - 1).U
-  val recoveryNextS3SeenMask = retainedRecoveryS3SeenMask |
-    recoveryScanS3SeenMask
-  val recoveryS3ExactAfterScan = !s3PendingValid ||
-    s3Pending.bind.stid =/= recoveryStid ||
-    (s3Pending.bind.allocationMask & ~recoveryNextS3SeenMask) === 0.U
-  val recoveryCaptureExact = recoveryPlan.valid && recoveryStidInRange &&
-    recoveryS1RowsExact
-
-  val recoveryCaptureRejected =
-    recoveryScanState === OooIexRecoveryScanState.Idle &&
-      io.recoveryPrepare.valid && !recoveryCaptureExact
-  val recoveryOfferChanged =
-    recoveryScanState =/= OooIexRecoveryScanState.Idle &&
-      recoveryScanState =/= OooIexRecoveryScanState.Rejected &&
-      io.recoveryPrepare.valid && !recoveryOfferExact
-  val recoveryScanRejected =
-    recoveryScanState === OooIexRecoveryScanState.Scan &&
-      io.recoveryPrepare.valid && recoveryOfferExact &&
-      (!recoveryScanRowsExact ||
-        (recoveryScanLast && !recoveryS3ExactAfterScan))
-
-  io.recoveryPrepareReady :=
-    recoveryScanState === OooIexRecoveryScanState.Prepared &&
-      recoveryOfferExact
-  io.recoveryPrepared := 0.U.asTypeOf(io.recoveryPrepared)
-  io.recoveryPrepared.valid := io.recoveryPrepareReady
-  io.recoveryPrepared.stid := recoveryStid
-  io.recoveryPrepared.s1Killed := PopCount(retainedRecoveryS1KillMask)
-  io.recoveryPrepared.boundKilled := retainedRecoveryBoundKilled
-  io.recoveryPrepared.residentKilled := retainedRecoveryResidentKilled
-  io.recoveryRejected.valid := recoveryCaptureRejected ||
-    recoveryOfferChanged || recoveryScanRejected ||
-    (recoveryScanState === OooIexRecoveryScanState.Rejected &&
-      io.recoveryPrepare.valid)
-  io.recoveryRejected.bits.requested := recoveryPlan
-  io.recoveryRejected.bits.stidInRange := recoveryStidInRange
-  io.recoveryRejected.bits.residentRowsExact := false.B
-  io.recoveryRejected.bits.s1RowsExact := Mux(
-    recoveryScanState === OooIexRecoveryScanState.Idle,
-    recoveryS1RowsExact, retainedRecoveryS1RowsExact)
-
-  when(recoveryScanState === OooIexRecoveryScanState.Idle &&
-      io.recoveryPrepare.valid && recoveryCaptureExact) {
-    retainedRecoveryPlan := io.recoveryPrepare.bits
-    retainedRecoveryS1KillMask := recoveryS1Kill.asUInt
-    retainedRecoveryS1RowsExact := recoveryS1RowsExact
-    retainedRecoveryBoundKilled := 0.U
-    retainedRecoveryResidentKilled := 0.U
-    retainedRecoveryS3SeenMask := 0.U
-    retainedRecoveryS3KillMask := 0.U
-    retainedRecoveryPReadyKillMask := 0.U
-    retainedRecoveryTReadyKillMask := 0.U
-    retainedRecoveryUReadyKillMask := 0.U
-    retainedRecoveryPReadyValid := pReadyValid
-    retainedRecoveryPReadyGeneration := pReadyGeneration
-    retainedRecoveryPReadyStid := pReadyStid
-    retainedRecoveryPReadyEpoch := pReadyEpoch
-    recoveryScanCursor := 0.U
-    recoveryScanState := OooIexRecoveryScanState.Scan
-  }.elsewhen(recoveryScanState =/= OooIexRecoveryScanState.Idle &&
-      !io.recoveryPrepare.valid) {
-    // Valid deassertion is the existing owner-abort indication.  Scan state is
-    // disposable metadata and has never mutated physical residency.
-    recoveryScanState := OooIexRecoveryScanState.Idle
-  }.elsewhen(recoveryOfferChanged) {
-    recoveryScanState := OooIexRecoveryScanState.Rejected
-  }.elsewhen(recoveryScanState === OooIexRecoveryScanState.Scan) {
-    when(!recoveryScanRowsExact) {
-      recoveryScanState := OooIexRecoveryScanState.Rejected
-    }.otherwise {
-      for (uopClass <- 0 until p.iqClassCount;
-           bank <- 0 until p.iqBankCount;
-           scanLane <- 0 until p.iexRecoveryScanEntriesPerBankPerCycle) {
-        val entryWide = recoveryScanCursor *
-          p.iexRecoveryScanEntriesPerBankPerCycle.U + scanLane.U
-        val entry = entryWide(p.iqEntryWidth - 1, 0)
-        recoveryRowKillMask(uopClass)(bank)(entry) :=
-          recoveryScanRowKill(uopClass)(bank)(scanLane)
-      }
-      retainedRecoveryBoundKilled := retainedRecoveryBoundKilled +
-        recoveryScanBoundKilled
-      retainedRecoveryResidentKilled := retainedRecoveryResidentKilled +
-        recoveryScanResidentKilled
-      retainedRecoveryS3SeenMask := recoveryNextS3SeenMask
-      retainedRecoveryS3KillMask := retainedRecoveryS3KillMask |
-        recoveryScanS3KillMask
-      retainedRecoveryPReadyKillMask := retainedRecoveryPReadyKillMask |
-        recoveryScanPReadyKillMask
-      retainedRecoveryTReadyKillMask := retainedRecoveryTReadyKillMask |
-        recoveryScanTReadyKillMask
-      retainedRecoveryUReadyKillMask := retainedRecoveryUReadyKillMask |
-        recoveryScanUReadyKillMask
-      when(recoveryScanLast) {
-        recoveryScanState := Mux(recoveryS3ExactAfterScan,
-          OooIexRecoveryScanState.Prepared,
-          OooIexRecoveryScanState.Rejected)
-      }.otherwise {
-        recoveryScanCursor := recoveryScanCursor + 1.U
-      }
-    }
-  }.elsewhen(io.recoveryFire) {
-    recoveryScanState := OooIexRecoveryScanState.Idle
-  }
-
-  when(io.recoveryFire) {
-    assert(io.recoveryPrepareReady,
-      "IEX recovery may apply only one exact prepared ROB suffix")
-
-    val survivingS1Mask = recoveryS1.dispatch.allocationMask &
-      ~retainedRecoveryS1KillMask
-    when(recoveryS1Live) {
-      s1Rows(safeRecoveryStid).dispatch.allocationMask := survivingS1Mask
-      for (lane <- 0 until p.dispatchWidth) {
-        val allocation = recoveryS1.dispatch.allocations(lane)
-        when(retainedRecoveryS1KillMask(lane)) {
-          s1Claimed(allocation.reservation.uopClass.asUInt)(
-            allocation.reservation.bank)(
-            allocation.reservation.speculativeSlot) := false.B
-          s1Rows(safeRecoveryStid).dispatch.allocations(lane).valid := false.B
-          s1Rows(safeRecoveryStid).dispatch.allocations(lane)
-            .reservation.valid := false.B
-        }
-      }
-      when(!survivingS1Mask.orR) {
-        s1Valid(safeRecoveryStid) := false.B
-      }
-    }
-
-    for (uopClass <- 0 until p.iqClassCount;
-         bank <- 0 until p.iqBankCount;
-         entry <- 0 until p.iqEntriesPerBank) {
-      when(recoveryRowKillMask(uopClass)(bank)(entry)) {
-        slotState(uopClass)(bank)(entry) := OooIexIssueSlotState.Free
-        scheduleRows(uopClass)(bank)(entry) :=
-          0.U.asTypeOf(new OooIexScheduleRow(p))
-      }
-    }
-
-    when(s3PendingValid && s3Pending.bind.stid === recoveryStid) {
-      val survivingS3Mask = s3Pending.bind.allocationMask &
-        ~retainedRecoveryS3KillMask
-      s3Pending.bind.allocationMask := survivingS3Mask
-      when(!survivingS3Mask.orR) {
-        s3PendingValid := false.B
-      }
-    }
-
-    for (ptag <- 0 until p.pPhysRegs) {
-      val retainedPReadyIdentityStillExact = pReadyValid(ptag) &&
-        retainedRecoveryPReadyValid(ptag) &&
-        pReadyGeneration(ptag) ===
-          retainedRecoveryPReadyGeneration(ptag) &&
-        pReadyStid(ptag) === retainedRecoveryPReadyStid(ptag) &&
-        pReadyEpoch(ptag) === retainedRecoveryPReadyEpoch(ptag)
-      when(retainedRecoveryPReadyKillMask(ptag) &&
-          retainedPReadyIdentityStillExact) {
-        pReadyValid(ptag) := false.B
-      }
-    }
-    for (ttag <- 0 until p.tPhysRegs) {
-      when(retainedRecoveryTReadyKillMask(ttag)) {
-        tReadyValid(safeRecoveryStid)(ttag) := false.B
-      }
-    }
-    for (utag <- 0 until p.uPhysRegs) {
-      when(retainedRecoveryUReadyKillMask(utag)) {
-        uReadyValid(safeRecoveryStid)(utag) := false.B
-      }
-    }
-  }
-
-  // This assignment intentionally follows wakeup and recovery processing:
-  // token recycle wins a same-cycle race so a stale completion can never make
-  // the next generation of the physical register appear ready.
-  when(io.ptagRecycle.fire) {
-    for (index <- 0 until p.pTagReturnWidth) {
-      val token = io.ptagRecycle.bits.tokens(index)
-      when(index.U < io.ptagRecycle.bits.count && token.valid &&
-          pReadyValid(token.ptag) &&
-          pReadyGeneration(token.ptag) === token.generation) {
-        pReadyValid(token.ptag) := false.B
-      }
-    }
-  }
-
+  val physicalCapabilities = VecInit(profile.pickerFunctions.map(
+    _.capabilities.U(OooIexDomainCapability.Count.W)))
   for (left <- 0 until p.iexIssueDomainCount;
        right <- left + 1 until p.iexIssueDomainCount) {
-    val projectionOverlap = VecInit((0 until p.iqClassCount).map {
-      classIndex =>
-        (io.pickBankEnables(left)(classIndex) &
-          io.pickBankEnables(right)(classIndex)).orR
+    val overlap = VecInit((0 until p.iqClassCount).map { classIndex =>
+      (io.pickBankEnables(left)(classIndex) &
+        io.pickBankEnables(right)(classIndex)).orR
     }).asUInt.orR
-    if ((effectiveDomainCapabilities(left) &
-        effectiveDomainCapabilities(right)) != 0) {
-      assert(!projectionOverlap,
-        "IEX pickers may overlap class/bank only with disjoint capabilities")
+    if ((profile.pickerFunctions(left).capabilities &
+        profile.pickerFunctions(right).capabilities) != 0) {
+      assert(!overlap,
+        "picker projections may overlap only for disjoint capabilities")
     }
   }
 
@@ -1623,38 +1191,32 @@ class OooIexIssue(
   for (domain <- 0 until p.iexIssueDomainCount) {
     val picker = pickers(domain)
     picker.io.classBankEnables := io.pickBankEnables(domain)
-    picker.io.stidBlock := Mux(recoveryFreeze,
-      UIntToOH(safeRecoveryStid, p.stidCount), 0.U)
-    picker.io.recoveryApply.valid := io.recoveryFire && recoveryPlan.valid
-    picker.io.recoveryApply.bits := recoveryPlan
+    picker.io.stidBlock := Mux(recoveryTargetActive,
+      UIntToOH(recoveryTargetStid, p.stidCount), 0.U)
 
-    val candidatePolicyBlocked = Wire(Vec(p.iqClassCount,
+    val policyBlocked = Wire(Vec(p.iqClassCount,
       Vec(p.iqBankCount, Vec(p.iqEntriesPerBank, Bool()))))
     for (classIndex <- 0 until p.iqClassCount;
          bank <- 0 until p.iqBankCount;
          entry <- 0 until p.iqEntriesPerBank) {
       val row = scheduleRows(classIndex)(bank)(entry)
-      val sourcesReady = row.sources.map(source =>
+      val ready = row.sources.map(source =>
         !source.valid || source.ready || source.specReady).reduce(_ && _)
-      val loadCanceled = rowLoadCanceled(row)
-      val policyReasons = issuePolicyReasons(
-        domain, OooUopClass.all(classIndex), row)
-      candidatePolicyBlocked(classIndex)(bank)(entry) :=
+      val reasons = policyReasons(domain, OooUopClass.all(classIndex), row)
+      policyBlocked(classIndex)(bank)(entry) :=
         io.pickBankEnables(domain)(classIndex)(bank) &&
-        slotState(classIndex)(bank)(entry) ===
-          OooIexIssueSlotState.ResidentS3 && row.valid &&
-        policyReasons.orR
+          slotState(classIndex)(bank)(entry) ===
+            OooIexIssueSlotState.ResidentS3 && row.valid && reasons.orR
       val candidate = picker.io.candidates(classIndex)(bank)(entry)
       candidate.eligible :=
         slotState(classIndex)(bank)(entry) ===
           OooIexIssueSlotState.ResidentS3 && row.valid && !row.inFlight &&
-        sourcesReady && !loadCanceled &&
-        storeIssueAllowed(classIndex)(bank)(entry) &&
-        OooIexDomainCapability.covers(
-          physicalDomainCapabilities(domain),
-          capabilityRows(classIndex)(bank)(entry)) &&
-        !policyReasons.orR &&
-        !(recoveryFreeze && row.stid === recoveryStid)
+          ready && !rowLoadCanceled(row) &&
+          storeIssueAllowed(classIndex)(bank)(entry) &&
+          OooIexDomainCapability.covers(
+            physicalCapabilities(domain),
+            capabilityRows(classIndex)(bank)(entry)) &&
+          !reasons.orR && !targetFenced(row.stid)
       candidate.peId := row.peId
       candidate.stid := row.stid
       candidate.epoch := row.epoch
@@ -1662,84 +1224,68 @@ class OooIexIssue(
       candidate.member := row.member
       candidate.reservation := row.reservation
     }
-    io.policyBlockedCount(domain) :=
-      PopCount(candidatePolicyBlocked.toSeq.flatMap(
-        _.toSeq.flatMap(_.toSeq)))
+    io.policyBlockedCount(domain) := PopCount(
+      policyBlocked.toSeq.flatMap(_.toSeq.flatMap(_.toSeq)))
 
-    val pickToken = picker.io.pick.bits
-    val pickClassIndex = pickToken.query.uopClass.asUInt
-    val pickClassInRange = pickClassIndex < p.iqClassCount.U
-    val pickBankInRange = pickToken.query.bank < p.iqBankCount.U
-    val pickEntryInRange = pickToken.query.entry < p.iqEntriesPerBank.U
-    val safePickClass = Mux(pickClassInRange, pickClassIndex, 0.U)
-    val safePickBank = Mux(pickBankInRange, pickToken.query.bank, 0.U)
-    val safePickEntry = Mux(pickEntryInRange, pickToken.query.entry, 0.U)
-    val pickRow = scheduleRows(safePickClass)(safePickBank)(safePickEntry)
-    val pickResidentExact = pickClassInRange && pickBankInRange &&
-      pickEntryInRange &&
-      slotState(safePickClass)(safePickBank)(safePickEntry) ===
-        OooIexIssueSlotState.ResidentS3 && pickRow.valid
-    val pickIdentityExact = pickToken.candidate.peId === pickRow.peId &&
-      pickToken.candidate.stid === pickRow.stid &&
-      pickToken.candidate.epoch === pickRow.epoch &&
-      pickToken.candidate.transactionId === pickRow.transactionId &&
-      sameMember(pickToken.candidate.member, pickRow.member) &&
-      pickToken.candidate.reservation.asUInt === pickRow.reservation.asUInt &&
-      pickToken.query.uopClass === pickRow.reservation.uopClass &&
-      pickToken.query.bank === pickRow.reservation.bank &&
-      pickToken.query.entry === pickRow.reservation.speculativeSlot
-    val pickNotInFlight = !pickRow.inFlight
-    val pickDomainExact = pickClassInRange && pickBankInRange &&
-      io.pickBankEnables(domain)(safePickClass)(safePickBank) &&
-      OooIexDomainCapability.covers(
-        physicalDomainCapabilities(domain),
-        capabilityRows(safePickClass)(safePickBank)(safePickEntry))
-    val pickBaseClaimExact = pickResidentExact && pickIdentityExact &&
-      pickDomainExact && pickNotInFlight && !rowLoadCanceled(pickRow) &&
-      storeIssueAllowed(safePickClass)(safePickBank)(safePickEntry) &&
-      !(recoveryFreeze && pickToken.candidate.stid === recoveryStid)
-    val pickPolicyReasons = issuePolicyReasons(
-      domain, pickToken.query.uopClass, pickRow)
-    val pickPolicyBlocked = pickBaseClaimExact && pickPolicyReasons.orR
-    val pickClaimExact = pickBaseClaimExact && !pickPolicyBlocked
-
-    io.picks(domain).valid := picker.io.pick.valid && pickClaimExact
-    io.picks(domain).bits := pickToken
-    // A stale retained token is consumed as a typed rejection so corruption
-    // or an unexpected lifecycle race cannot wedge one physical domain.
-    picker.io.pick.ready := Mux(
-      pickClaimExact, io.picks(domain).ready, true.B)
+    val token = picker.io.pick.bits
+    val cls = token.query.uopClass.asUInt
+    val classInRange = cls < p.iqClassCount.U
+    val bankInRange = token.query.bank < p.iqBankCount.U
+    val entryInRange = token.query.entry < p.iqEntriesPerBank.U
+    val safeClass = Mux(classInRange, cls, 0.U)
+    val safeBank = Mux(bankInRange, token.query.bank, 0.U)
+    val safeEntry = Mux(entryInRange, token.query.entry, 0.U)
+    val row = scheduleRows(safeClass)(safeBank)(safeEntry)
+    val residentExact = classInRange && bankInRange && entryInRange &&
+      slotState(safeClass)(safeBank)(safeEntry) ===
+        OooIexIssueSlotState.ResidentS3 && row.valid
+    val identityExact = token.candidate.peId === row.peId &&
+      token.candidate.stid === row.stid &&
+      token.candidate.epoch === row.epoch &&
+      token.candidate.transactionId === row.transactionId &&
+      sameMember(token.candidate.member, row.member) &&
+      token.candidate.reservation.asUInt === row.reservation.asUInt
+    val domainExact = classInRange && bankInRange &&
+      io.pickBankEnables(domain)(safeClass)(safeBank) &&
+      OooIexDomainCapability.covers(physicalCapabilities(domain),
+        capabilityRows(safeClass)(safeBank)(safeEntry))
+    val baseExact = residentExact && identityExact && domainExact &&
+      !row.inFlight && !rowLoadCanceled(row) &&
+      storeIssueAllowed(safeClass)(safeBank)(safeEntry) &&
+      !targetFenced(row.stid)
+    val reasons = policyReasons(domain, token.query.uopClass, row)
+    val claimExact = baseExact && !reasons.orR
+    io.picks(domain).valid := picker.io.pick.valid && claimExact
+    io.picks(domain).bits := token
+    picker.io.pick.ready := Mux(claimExact, io.picks(domain).ready, true.B)
     io.pickRejectedByDomain(domain).valid :=
-      picker.io.pick.valid && !pickBaseClaimExact
-    io.pickRejectedByDomain(domain).bits.token := pickToken
-    io.pickRejectedByDomain(domain).bits.residentExact := pickResidentExact
+      picker.io.pick.valid && !baseExact
+    io.pickRejectedByDomain(domain).bits.token := token
+    io.pickRejectedByDomain(domain).bits.residentExact := residentExact
     io.pickRejectedByDomain(domain).bits.identityExact :=
-      pickIdentityExact && pickDomainExact
-    io.pickRejectedByDomain(domain).bits.notInFlight := pickNotInFlight
+      identityExact && domainExact
+    io.pickRejectedByDomain(domain).bits.notInFlight := !row.inFlight
     io.pickMalformedByDomain(domain) := picker.io.malformed
-    io.pickRecoveryCanceledByDomain(domain) := picker.io.recoveryCanceled
     io.pickRecoveryBlockedByDomain(domain) := picker.io.blockedCanceled
     io.pickPolicyBlockedByDomain(domain).valid :=
-      picker.io.pick.valid && pickPolicyBlocked
-    io.pickPolicyBlockedByDomain(domain).bits.token := pickToken
-    io.pickPolicyBlockedByDomain(domain).bits.reasonMask :=
-      pickPolicyReasons
-
+      picker.io.pick.valid && baseExact && reasons.orR
+    io.pickPolicyBlockedByDomain(domain).bits.token := token
+    io.pickPolicyBlockedByDomain(domain).bits.reasonMask := reasons
     when(io.picks(domain).fire) {
-      scheduleRows(safePickClass)(safePickBank)(safePickEntry).inFlight :=
-        true.B
+      scheduleRows(safeClass)(safeBank)(safeEntry).inFlight := true.B
     }
 
     val retry = io.pickRetries(domain).bits
     val retryClass = retry.reservation.uopClass.asUInt
     val retryClassInRange = retryClass < p.iqClassCount.U
     val retryBankInRange = retry.reservation.bank < p.iqBankCount.U
-    val retryEntryInRange =
-      retry.reservation.speculativeSlot < p.iqEntriesPerBank.U
+    val retryEntryInRange = retry.reservation.speculativeSlot <
+      p.iqEntriesPerBank.U
     val safeRetryClass = Mux(retryClassInRange, retryClass, 0.U)
-    val safeRetryBank = Mux(retryBankInRange, retry.reservation.bank, 0.U)
-    val safeRetryEntry = Mux(
-      retryEntryInRange, retry.reservation.speculativeSlot, 0.U)
+    val safeRetryBank = Mux(retryBankInRange,
+      retry.reservation.bank, 0.U)
+    val safeRetryEntry = Mux(retryEntryInRange,
+      retry.reservation.speculativeSlot, 0.U)
     val retryRow = scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry)
     val retryResidentExact = retryClassInRange && retryBankInRange &&
       retryEntryInRange &&
@@ -1749,20 +1295,14 @@ class OooIexIssue(
       retry.reservation.asUInt === retryRow.reservation.asUInt
     val retryDomainExact = retryClassInRange &&
       io.pickBankEnables(domain)(safeRetryClass)(safeRetryBank) &&
-      OooIexDomainCapability.covers(
-        physicalDomainCapabilities(domain),
+      OooIexDomainCapability.covers(physicalCapabilities(domain),
         capabilityRows(safeRetryClass)(safeRetryBank)(safeRetryEntry))
-    val retryClaimsCurrentPick = io.picks(domain).fire &&
-      safeRetryClass === safePickClass && safeRetryBank === safePickBank &&
-      safeRetryEntry === safePickEntry &&
-      sameMember(retry.member, pickToken.candidate.member) &&
-      retry.reservation.asUInt === pickToken.candidate.reservation.asUInt
-    // A fail-closed P1/join rejection can return the exact claim on the same
-    // edge that its picker fires. The later retry assignment wins.
-    val retryWasInFlight = retryRow.inFlight || retryClaimsCurrentPick
+    val sameCyclePick = io.picks(domain).fire &&
+      safeRetryClass === safeClass && safeRetryBank === safeBank &&
+      safeRetryEntry === safeEntry
+    val wasInFlight = retryRow.inFlight || sameCyclePick
     val retryExact = retryResidentExact && retryIdentityExact &&
-      retryDomainExact && retryWasInFlight &&
-      !(recoveryFreeze && retry.member.group.stid === recoveryStid)
+      retryDomainExact && wasInFlight && !targetFenced(retryRow.stid)
     io.pickRetryRejectedByDomain(domain).valid :=
       io.pickRetries(domain).valid && !retryExact
     io.pickRetryRejectedByDomain(domain).bits.retry := retry
@@ -1770,7 +1310,7 @@ class OooIexIssue(
       retryResidentExact
     io.pickRetryRejectedByDomain(domain).bits.identityExact :=
       retryIdentityExact && retryDomainExact
-    io.pickRetryRejectedByDomain(domain).bits.wasInFlight := retryWasInFlight
+    io.pickRetryRejectedByDomain(domain).bits.wasInFlight := wasInFlight
     when(io.pickRetries(domain).valid && retryExact) {
       scheduleRows(safeRetryClass)(safeRetryBank)(safeRetryEntry).inFlight :=
         false.B
@@ -1786,39 +1326,35 @@ class OooIexIssue(
     val safeQueryEntry = Mux(queryEntryInRange, query.entry, 0.U)
     io.queryStates(domain) :=
       slotState(safeQueryClass)(safeQueryBank)(safeQueryEntry)
-    val queryPayloads = Wire(Vec(p.iqClassCount,
+    val queryPayload = Wire(Vec(p.iqClassCount,
       Vec(p.iqBankCount, new OooIexPayloadSidecar(p))))
-    for (uopClass <- 0 until p.iqClassCount;
-         bank <- 0 until p.iqBankCount) {
-      queryPayloads(uopClass)(bank) :=
-        payloadRows(uopClass)(bank).read(safeQueryEntry)
+    for (queryClassIndex <- 0 until p.iqClassCount;
+         queryBank <- 0 until p.iqBankCount) {
+      queryPayload(queryClassIndex)(queryBank) :=
+        payloadRows(queryClassIndex)(queryBank).read(safeQueryEntry)
     }
     io.queryRows(domain).schedule :=
       scheduleRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)
     io.queryRows(domain).payload :=
-      queryPayloads(safeQueryClass)(safeQueryBank)
-    val querySourcesReady = io.queryRows(domain).sources.map { source =>
-      !source.valid || source.ready || source.specReady
-    }.reduce(_ && _)
-    val queryPolicyReason = issuePolicyReasons(
+      queryPayload(safeQueryClass)(safeQueryBank)
+    val queryReady = io.queryRows(domain).sources.map(source =>
+      !source.valid || source.ready || source.specReady).reduce(_ && _)
+    val queryReasons = policyReasons(
       domain, query.uopClass, io.queryRows(domain).schedule)
-    io.queryPolicyReasons(domain) := queryPolicyReason
+    io.queryPolicyReasons(domain) := queryReasons
     io.queryPickables(domain) := queryClassInRange && queryBankInRange &&
       queryEntryInRange &&
       io.pickBankEnables(domain)(safeQueryClass)(safeQueryBank) &&
-      OooIexDomainCapability.covers(
-        physicalDomainCapabilities(domain),
+      OooIexDomainCapability.covers(physicalCapabilities(domain),
         capabilityRows(safeQueryClass)(safeQueryBank)(safeQueryEntry)) &&
       io.queryStates(domain) === OooIexIssueSlotState.ResidentS3 &&
       io.queryRows(domain).valid &&
-      !io.queryRows(domain).schedule.inFlight && querySourcesReady &&
+      !io.queryRows(domain).schedule.inFlight && queryReady &&
       !rowLoadCanceled(io.queryRows(domain).schedule) &&
       storeIssueAllowed(safeQueryClass)(safeQueryBank)(safeQueryEntry) &&
-      !queryPolicyReason.orR &&
-      !(recoveryFreeze && io.queryRows(domain).stid === recoveryStid)
+      !queryReasons.orR && !targetFenced(io.queryRows(domain).stid)
   }
 
-  io.s1Occupied := s1Valid
   for (uopClass <- 0 until p.iqClassCount; bank <- 0 until p.iqBankCount) {
     io.boundEntries(uopClass)(bank) := PopCount(VecInit(
       (0 until p.iqEntriesPerBank).map { entry =>
@@ -1836,28 +1372,10 @@ class OooIexIssue(
     for (entry <- 0 until p.iqEntriesPerBank) {
       assert((slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free) ===
         !scheduleRows(uopClass)(bank)(entry).valid,
-        "a physical IEX row must agree with its lifecycle state")
-      assert(!s1Claimed(uopClass)(bank)(entry) ||
-        slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.Free,
-        "an S1 claim may reserve only an otherwise free physical IEX row")
+        "one IQ row lifecycle must agree with its valid bit")
       assert(!scheduleRows(uopClass)(bank)(entry).inFlight ||
-        (scheduleRows(uopClass)(bank)(entry).valid &&
-          slotState(uopClass)(bank)(entry) ===
-            OooIexIssueSlotState.ResidentS3),
-        "only one resident S3 row may own speculative issue in-flight state")
-      assert(!scheduleRows(uopClass)(bank)(entry).storeOrder.valid ||
-        (scheduleRows(uopClass)(bank)(entry).valid &&
-          (scheduleRows(uopClass)(bank)(entry).reservation.uopClass ===
-            OooUopClass.Agu ||
-            scheduleRows(uopClass)(bank)(entry).reservation.uopClass ===
-              OooUopClass.Std) &&
-          scheduleRows(uopClass)(bank)(entry).storeOrder.logicalMember.group.valid &&
-          scheduleRows(uopClass)(bank)(entry).storeOrder.logicalMember.bid.valid),
-        "a store issue-order key must belong to one exact resident logical store")
-      assert(!scheduleRows(uopClass)(bank)(entry).valid ||
-        !scheduleRows(uopClass)(bank)(entry).isStore ||
-        scheduleRows(uopClass)(bank)(entry).storeOrder.valid,
-        "every resident typed store must retain its logical issue-order key")
+        slotState(uopClass)(bank)(entry) === OooIexIssueSlotState.ResidentS3,
+        "only a resident S3 row may be in flight")
     }
   }
 }

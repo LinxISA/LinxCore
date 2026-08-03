@@ -278,6 +278,19 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
   when(io.publish.valid) {
     val pub = io.publish.bits
     val pubStid = safeStid(pub.entries(0).uop.decoded.instruction.parent.identity.stid)
+    val lease = reservedLease(pubStid)
+    val prefixExact = reservedValid(pubStid) && pub.count.orR &&
+      pub.count <= lease.count && pub.groupCount.orR &&
+      pub.groupCount <= lease.groupCount
+    assert(prefixExact,
+      "P publication must consume an exact retained reservation prefix")
+    for (lane <- 0 until width) {
+      when(lane.U < pub.count) {
+        assert(pub.entries(lane).history.asUInt ===
+          lease.entries(lane).history.asUInt,
+          "P publication history must match the retained prefix lease")
+      }
+    }
     val published = Wire(Vec(pDestSlots, Bool()))
     for (flat <- 0 until pDestSlots) { published(flat) := false.B }
     for (lane <- 0 until width) {
@@ -312,7 +325,27 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
       tailGeneration(pubStid) := tailGeneration(pubStid) + 1.U
     }
     count(pubStid) := count(pubStid) + n
-    reservedValid(pubStid) := false.B
+    val suffix = Wire(new D3RenameGroup(p))
+    suffix := 0.U.asTypeOf(suffix)
+    suffix.count := lease.count - pub.count
+    suffix.groupCount := lease.groupCount - pub.groupCount
+    for (group <- 0 until width) {
+      for (source <- 0 until width) {
+        when(source.U === group.U + pub.groupCount &&
+            source.U < lease.groupCount) {
+          suffix.groups(group) := lease.groups(source)
+        }
+      }
+    }
+    for (lane <- 0 until width) {
+      for (source <- 0 until width) {
+        when(source.U === lane.U + pub.count && source.U < lease.count) {
+          suffix.entries(lane) := lease.entries(source)
+        }
+      }
+    }
+    reservedLease(pubStid) := suffix
+    reservedValid(pubStid) := suffix.count.orR
   }
 
   val releaseSlotCount = p.widths.retireWidth * p.maxDestinationOperands

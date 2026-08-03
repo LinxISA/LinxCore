@@ -13,6 +13,20 @@ QEMU proves architectural row streams, Chisel generated RTL proves DUT behavior,
 LinxCoreModel proves model convergence, and the superproject gates prove that
 the change still works across repos.
 
+Directed Chisel behavior tests that do not need the full storage window use
+the test-scope `SimulationParamProfiles` under
+`chisel/src/test/scala/linxcore/params`. These profiles keep the selected
+W2/W4/W6/W8 pipeline width and fixed identity fields but bound ROB, rename, IQ,
+and LSU queue capacity. Main `ParamProfiles` remain mandatory for interface,
+full-capacity, generated-RTL, lint, activation and workload evidence.
+
+Use `tools/chisel/run_chisel_tests.sh` for test execution. It supervises one
+SBT process, emits periodic build heartbeats, accepts repeated `--only`
+selectors, and defaults to two suite jobs. Build-stall detection requires
+simultaneous output inactivity, artifact inactivity and low descendant CPU;
+architectural deadlock remains a simulated-cycle property checked by the
+test-scope `SimulationProgress` helper.
+
 For IFU packets, the normative target is two decoupled, non-lockstep pipelines:
 I-SIDE `I-F0..I-F4` and B-SIDE `B-F0..B-F4`. Model BFU F0–F4 provides the
 B-SIDE predictor behavior/timing reference. Model BHC, ITLB, and L1I behavior
@@ -35,18 +49,15 @@ not another raw consumer port. Exact dual-view recovery may kill the compact
 policy record, but complete recovery still rejects while MDB or another
 non-LIQ transient owner is live.
 
-The preceding I0.15c-b3c3b production execution/O3 installation has
-`OooIexExecutionStorePipeline` instantiate one scalar-load attachment
-against the execution cluster's existing canonical metadata owner and the
-wrapper's existing STQ owner. `OooIexScalarLoadStorePath` owns only the live
-LIQ/L1D/MDB/LRET graph; three forwarding lanes and prospective late-STA MDB
-admission are private, and the old public load/STQ/MDB seams are removed from
-the O3 boundary. Emitted production structure proves exactly one attachment,
-one metadata owner, and one STQ. Recovery now joins execution/metadata,
-STQ/store, and scalar-load owners before one common fire. Raw launch intent is
-arbitrated independently from credit-qualified launch acceptance so replay
-rebind remains conservative without creating a terminal-backpressure ready
-loop.
+Task 13 removes the combined execution/store shell and makes the canonical IEX
+pipeline derive its topology directly from `CoreParams`. The scalar-load
+metadata, LIQ/L1D/MDB/LRET, canonical STQ, and committed-store backend remain
+separate mechanisms. Task 15 must connect them through the public IEX/LSU
+interfaces with one metadata owner, one LIQ, one STQ, and one terminal result
+owner. Recovery must join execution, load metadata, STQ/store, and scalar-load
+owners before one common Apply event. Raw launch intent remains independent
+from credit-qualified launch acceptance so replay rebind cannot create a
+terminal-backpressure ready loop.
 
 The preceding I0.15c-b3c2 packet provides live three-pipe forwarding.
 Every canonical LIQ launch atomically enters exactly one retained STQ query

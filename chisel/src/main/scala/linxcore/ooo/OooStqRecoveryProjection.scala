@@ -3,13 +3,17 @@ package linxcore.ooo
 import chisel3._
 
 import linxcore.lsu.{STQEntryBankRow, STQEntryStatus}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan,
+  RecoveryPlanContract}
 
 class OooStqRecoveryProjectionIO(
-    val p: OooParams,
+    val core: CoreParams,
     val stqEntries: Int)
     extends Bundle {
-  val recoveryValid = Input(Bool())
-  val recovery = Input(new OooResidencyRecoveryPlan(p))
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
+  val prepareValid = Input(Bool())
+  val prepare = Input(new RecoveryPlan(core))
   val rows = Input(Vec(stqEntries, new STQEntryBankRow(
     p.robGroupsPerStid,
     peIdWidth = p.peIdWidth,
@@ -29,14 +33,19 @@ class OooStqRecoveryProjectionIO(
   val rejected = Output(Bool())
 }
 
-/** Projects the ROB-authorized residency suffix onto canonical STQ rows.
-  * Compatibility rows without an exact owner remain on the legacy flush path.
-  */
+/** Projects one canonical ROB-authorized suffix onto canonical STQ rows. */
 class OooStqRecoveryProjection(
-    val p: OooParams = OooParams(),
+    val core: CoreParams,
     val stqEntries: Int = 16)
     extends Module {
-  val io = IO(new OooStqRecoveryProjectionIO(p, stqEntries))
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
+  OooRecoveryMembership.requireCompatible(p, core)
+  val io = IO(new OooStqRecoveryProjectionIO(core, stqEntries))
+
+  val planLegal = io.prepareValid &&
+    io.prepare.phase === RecoveryPhase.Prepare &&
+    io.prepare.trigger.stid < p.stidCount.U &&
+    RecoveryPlanContract.legalSuffixWindow(io.prepare)
 
   val killed = Wire(Vec(stqEntries, Bool()))
   val malformed = Wire(Vec(stqEntries, Bool()))
@@ -60,17 +69,17 @@ class OooStqRecoveryProjection(
     val ownerConsistent = owner.valid && owner.nativeBidValid &&
       owner.peId === row.peId && owner.stid === row.stid &&
       row.storeIdFullValid
-    val targetScope = io.recoveryValid && io.recovery.valid && row.valid &&
-      owner.valid && row.stid === io.recovery.oldHead.stid &&
-      row.peId === io.recovery.oldHead.peId
+    val targetScope = planLegal && row.valid &&
+      row.stid === io.prepare.trigger.stid &&
+      row.peId === io.prepare.trigger.peId
     malformed(index) := targetScope && !ownerConsistent
     killed(index) := targetScope && ownerConsistent &&
-      OooRecoveryMembership.memberKilled(p, io.recovery, member)
+      OooRecoveryMembership.memberKilled(p, core, io.prepare, member)
     blocked(index) := killed(index) &&
       (row.status =/= STQEntryStatus.Wait)
   }
 
-  val rejected = malformed.asUInt.orR
+  val rejected = (io.prepareValid && !planLegal) || malformed.asUInt.orR
   io.freeMask := Mux(rejected, 0.U,
     VecInit((0 until stqEntries).map(index =>
       killed(index) && !blocked(index))).asUInt)

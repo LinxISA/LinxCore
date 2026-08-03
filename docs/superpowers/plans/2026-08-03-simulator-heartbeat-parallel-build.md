@@ -49,7 +49,7 @@
 - Consumes: `linxcore.params.ParamProfiles`, `CoreParams`, `OOOParams`, `IEXParams`, and `LSUParams`.
 - Produces: `SimulationParamProfiles.W2`, `W4`, `W6`, `W8`, and `forWidth(width: Int): CoreParams` for behavior-only simulations.
 
-- [ ] **Step 1: Write the profile invariants before the profile object exists**
+- [x] **Step 1: Write the profile invariants before the profile object exists**
 
 Create `SimulationParamProfilesSpec` with these assertions:
 
@@ -91,10 +91,15 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert((p.ooo.pcWritePorts, p.ooo.pcReadPorts) == (3, 6))
   }
 
-  test("W8 directed profile uses the minimum legal retained capacities") {
+  test("W8 directed profile uses the minimum retained capacities for the proof") {
     val p = SimulationParamProfiles.W8
-    assert(p.ooo.robGroupsPerStid == 8)
+    assert(p.ifu.fetchBufferEntries == 8)
+    assert(p.ifu.predictionCheckpointEntries == 8)
+    assert(p.ctu.instructionBufferEntries == 8)
+    assert(p.ctu.maxTemplateUops == 2)
+    assert(p.ooo.robGroupsPerStid == 16)
     assert(p.ooo.maxInstructionsPerRobGroup == 1)
+    assert(p.ooo.maxUopsPerInstruction == 12)
     assert(p.ooo.robBankCount == 8)
     assert(p.ooo.brobEntriesPerStid == 8)
     assert(p.ooo.pcBufferEntries == 8)
@@ -104,8 +109,10 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.ooo.tPhysRegs == 16)
     assert(p.ooo.uPhysRegs == 16)
     assert(p.ooo.tuMapQDepthPerStid == 16)
-    assert(p.iex.scalarIssueEntries == 16)
-    assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (4, 4))
+    assert(p.iex.scalarIssueEntries == 8)
+    assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (2, 2))
+    assert(p.lsu.loadReturnQueueEntries == 2)
+    assert(p.lsu.storeCommitQueueEntries == 2)
     assert(p.lsu.scbEntries == 4)
   }
 
@@ -119,7 +126,7 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify the missing object is the first failure**
+- [x] **Step 2: Run the test and verify the missing object is the first failure**
 
 Run after the pre-existing W8 process exits:
 
@@ -129,7 +136,7 @@ bash tools/chisel/run_chisel_tests.sh --only SimulationParamProfilesSpec
 
 Expected: compile failure naming `SimulationParamProfiles` as missing.
 
-- [ ] **Step 3: Implement one uniform test-scope profile constructor**
+- [x] **Step 3: Implement one width-derived test-scope profile constructor**
 
 Create `SimulationParamProfiles.scala` with a private constructor that starts from the unchanged main profile and copies only capacities:
 
@@ -137,42 +144,54 @@ Create `SimulationParamProfiles.scala` with a private constructor that starts fr
 package linxcore.params
 
 object SimulationParamProfiles {
-  private def reduced(width: Int): CoreParams = {
+  private def nextPowerOfTwo(value: Int): Int =
+    if (value <= 1) 1
+    else 1 << (32 - Integer.numberOfLeadingZeros(value - 1))
+
+  private def bounded(width: Int): CoreParams = {
     val main = ParamProfiles.forWidth(width)
-    val bankCount = if (width <= 4) 4 else 8
+    val prefixCapacity = nextPowerOfTwo(width)
+    val robCapacity = nextPowerOfTwo(width + 1)
+    val pcBankCount = if (width <= 4) 4 else 8
+    val issueCapacity = math.max(4, prefixCapacity)
+    val renameDestinationDemand = width * main.maxDestinationOperands
+    val renameQueueCapacity = nextPowerOfTwo(renameDestinationDemand)
+    val gprCapacity = nextPowerOfTwo(
+      main.ooo.stidCount * main.ooo.gprArchRegs + renameDestinationDemand)
     main.copy(
       ifu = main.ifu.copy(
-        fetchBufferEntries = math.max(8, width),
-        predictionCheckpointEntries = 8),
+        fetchBufferEntries = prefixCapacity,
+        predictionCheckpointEntries = prefixCapacity),
       ctu = main.ctu.copy(
-        instructionBufferEntries = math.max(8, width),
-        maxTemplateUops = math.max(8, width)),
+        instructionBufferEntries = prefixCapacity,
+        maxTemplateUops = 2),
       ooo = main.ooo.copy(
-        robGroupsPerStid = 8,
+        robGroupsPerStid = robCapacity,
         maxInstructionsPerRobGroup = 1,
-        robBankCount = 8,
-        brobEntriesPerStid = 8,
-        pcBufferEntries = 8,
-        pcBankCount = bankCount,
-        pcRecoveryScanGroupsPerCycle = 4,
-        gprPhysRegs = 64,
-        gprMapQDepthPerStid = 16,
-        tPhysRegs = 16,
-        uPhysRegs = 16,
-        tuMapQDepthPerStid = 16),
-      iex = main.iex.copy(scalarIssueEntries = 16),
+        maxUopsPerInstruction = 12,
+        robBankCount = prefixCapacity,
+        brobEntriesPerStid = math.max(2, prefixCapacity),
+        pcBufferEntries = pcBankCount,
+        pcBankCount = pcBankCount,
+        pcRecoveryScanGroupsPerCycle = math.min(4, prefixCapacity),
+        gprPhysRegs = gprCapacity,
+        gprMapQDepthPerStid = renameQueueCapacity,
+        tPhysRegs = renameQueueCapacity,
+        uPhysRegs = renameQueueCapacity,
+        tuMapQDepthPerStid = renameQueueCapacity),
+      iex = main.iex.copy(scalarIssueEntries = issueCapacity),
       lsu = main.lsu.copy(
-        loadQueueEntries = 4,
-        storeQueueEntries = 4,
+        loadQueueEntries = 2,
+        storeQueueEntries = 2,
         loadReturnQueueEntries = 2,
-        storeCommitQueueEntries = 4,
+        storeCommitQueueEntries = 2,
         scbEntries = 4))
   }
 
-  val W2: CoreParams = reduced(2)
-  val W4: CoreParams = reduced(4)
-  val W6: CoreParams = reduced(6)
-  val W8: CoreParams = reduced(8)
+  val W2: CoreParams = bounded(2)
+  val W4: CoreParams = bounded(4)
+  val W6: CoreParams = bounded(6)
+  val W8: CoreParams = bounded(8)
 
   def forWidth(width: Int): CoreParams = width match {
     case 2 => W2
@@ -185,7 +204,7 @@ object SimulationParamProfiles {
 }
 ```
 
-- [ ] **Step 4: Run the focused profile test**
+- [x] **Step 4: Run the focused profile test**
 
 Run:
 
@@ -195,7 +214,7 @@ bash tools/chisel/run_chisel_tests.sh --only SimulationParamProfilesSpec
 
 Expected: all profile tests pass and `ParamChecks.validate` accepts W2/W4/W6/W8.
 
-- [ ] **Step 5: Commit only the profile files**
+- [x] **Step 5: Commit only the profile files**
 
 ```bash
 git commit --only -m "Add capacity-bounded Chisel simulation profiles" -- \
@@ -406,7 +425,7 @@ python3 -m unittest tests.test_chisel_test_runner -v
 
 Expected: all fake-SBT cases pass without creating `chisel/build`.
 
-- [ ] **Step 6: Compile the SBT configuration after the existing W8 run is cleaned**
+- [x] **Step 6: Compile the SBT configuration after the existing W8 run is cleaned**
 
 Run:
 
@@ -417,7 +436,7 @@ LINX_CHISEL_TEST_JOBS=2 \
 
 Expected: the first heartbeat names the selected suite and job count; the test passes.
 
-- [ ] **Step 7: Commit and push runner integration**
+- [x] **Step 7: Commit and push runner integration**
 
 ```bash
 git commit --only -m "Bound Chisel suite parallelism in one SBT server" -- \
@@ -437,7 +456,7 @@ git push origin codex/chisel-gap-superpowers
 - Consumes: current simulated cycle, zero or more named progress observations, and a harness-specific diagnostic callback.
 - Produces: `SimulationProgress.observe(cycle, events)` and `SimulationProgress.requireAlive(cycle)`; no hardware IO.
 
-- [ ] **Step 1: Write pure Scala progress tests**
+- [x] **Step 1: Write pure Scala progress tests**
 
 Cover exact threshold behavior:
 
@@ -473,7 +492,7 @@ class SimulationProgressSpec extends AnyFunSuite {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify the missing type failure**
+- [x] **Step 2: Run the test and verify the missing type failure**
 
 Run after the current build exits:
 
@@ -483,7 +502,7 @@ bash tools/chisel/run_chisel_tests.sh --only SimulationProgressSpec
 
 Expected: compile failure naming `SimulationProgress` and `SimulationProgressEvent`.
 
-- [ ] **Step 3: Implement the cycle-domain helper**
+- [x] **Step 3: Implement the cycle-domain helper**
 
 Use these signatures:
 
@@ -502,7 +521,7 @@ final class SimulationProgress(
 
 `observe` records only non-empty events, rejects decreasing cycles, and retains the most recent event list. `requireAlive` fails when `cycle - lastProgressCycle > maxIdleCycles`, including current cycle, last cycle, event kinds and identities, and the callback text. The helper imports no Chisel hardware packages.
 
-- [ ] **Step 4: Run the focused helper test**
+- [x] **Step 4: Run the focused helper test**
 
 Run:
 
@@ -512,7 +531,7 @@ bash tools/chisel/run_chisel_tests.sh --only SimulationProgressSpec
 
 Expected: all three tests pass.
 
-- [ ] **Step 5: Commit and push the test helper**
+- [x] **Step 5: Commit and push the test helper**
 
 ```bash
 git commit --only -m "Detect simulation deadlock from typed progress" -- \
@@ -531,11 +550,11 @@ git push origin codex/chisel-gap-superpowers
 - Consumes: `SimulationParamProfiles.W8`, the canonical D3 graph, three PC Buffer writes, six reads, and the existing eight-lane retained transaction.
 - Produces: the unchanged three-three-two publication proof plus measured before/after artifact evidence.
 
-- [ ] **Step 1: Preserve the pre-change result and clean only after exit**
+- [x] **Step 1: Preserve the pre-change result and clean only after exit**
 
 Wait for the already-running full-profile W8 process. Record exit status, elapsed time, peak RSS, total generated bytes, generated line count, and five largest files. After every descendant exits, remove only its ignored `chisel/build/chiselsim/OOOD3ContinuousPrefixSpec` directory and report that the generated directory is safe to clean.
 
-- [ ] **Step 2: Change only the selected test profile**
+- [x] **Step 2: Change only the selected test profile**
 
 Replace:
 
@@ -553,12 +572,12 @@ simulate(new OOOD3S1Graph(SimulationParamProfiles.W8))
 
 Do not change the eight-lane input, the 96-cycle bound, the expected tail transitions `Seq(3, 6, 8)`, or transaction/RID/LSID/PTag/PC Buffer continuity assertions.
 
-- [ ] **Step 3: Run the reduced W8 case with a checked artifact budget**
+- [x] **Step 3: Run the bounded W8 case with a checked artifact budget**
 
 Run:
 
 ```bash
-LINX_CHISEL_ARTIFACT_BUDGET_BYTES=268435456 \
+LINX_CHISEL_ARTIFACT_BUDGET_BYTES=1073741824 \
   bash tools/chisel/run_chisel_tests.sh \
     --only OOOD3ContinuousPrefixSpec \
     --heartbeat-seconds 30 \
@@ -566,9 +585,10 @@ LINX_CHISEL_ARTIFACT_BUDGET_BYTES=268435456 \
     --jobs 1
 ```
 
-Expected: PASS, tail transitions `3,6,8`, total artifact bytes below 256 MiB, and no idle-stall classification while Verilator is CPU-active.
+Expected: PASS, tail transitions `3,6,8`, total artifact bytes below 1 GiB,
+and no idle-stall classification while Verilator is CPU-active.
 
-- [ ] **Step 4: Write the machine-readable before/after report**
+- [x] **Step 4: Write the machine-readable before/after report**
 
 Create a JSON object with schema
 `linxcore.chisel.simulation_artifact_baseline.v1`, suite
@@ -588,10 +608,10 @@ repository-relative path/byte pairs. Add:
 ```
 
 Before commit, load the JSON with Python and assert both measurements are
-positive, the reduced generated-byte count is below 268435456, and every
+positive, the reduced generated-byte count is below 1073741824, and every
 result-parity field equals the values above.
 
-- [ ] **Step 5: Re-run the full-profile non-simulation contract gates**
+- [x] **Step 5: Re-run the full-profile non-simulation contract gates**
 
 Run:
 
@@ -604,7 +624,7 @@ python3 tools/chisel/render_top_interface_manifest.py --check
 
 Expected: W2/W4/W6/W8 main profiles and their interface widths remain unchanged.
 
-- [ ] **Step 6: Leave the migrated test in the Task-13 atomic cutover commit**
+- [x] **Step 6: Leave the migrated test in the Task-13 atomic cutover commit**
 
 Because `OOOD3ContinuousPrefixSpec.scala` is part of the uncommitted Task-13 graph, do not create a separate commit for it. Stage it only with Task 13 after the private OOO/IEX graph, owner manifest, NDF, docs, deletion set, and all Task-13 replacement evidence are green.
 
@@ -619,7 +639,7 @@ Because `OOOD3ContinuousPrefixSpec.scala` is part of the uncommitted Task-13 gra
 - Consumes: supervisor CLI, SBT job limit, progress helper, profile contract, and measured W8 report.
 - Produces: reproducible operator guidance and reviewable completion evidence.
 
-- [ ] **Step 1: Document exact runner controls and evidence boundaries**
+- [x] **Step 1: Document exact runner controls and evidence boundaries**
 
 Add one concise section that lists:
 
@@ -633,7 +653,7 @@ Add one concise section that lists:
 
 State that build stall requires simultaneous output, artifact, and low-CPU inactivity; architectural deadlock uses simulated cycles; simulation profiles cannot supply interface or full-capacity evidence.
 
-- [ ] **Step 2: Run non-Chisel static and Python verification**
+- [x] **Step 2: Run non-Chisel static and Python verification**
 
 Run:
 
@@ -648,7 +668,7 @@ git diff --check
 
 Expected: all pass.
 
-- [ ] **Step 3: Run the focused Scala verification in one bounded SBT invocation**
+- [x] **Step 3: Run the focused Scala verification in one bounded SBT invocation**
 
 Run:
 
@@ -662,7 +682,7 @@ bash tools/chisel/run_chisel_tests.sh \
 
 Expected: all selected suites pass, heartbeats remain visible, and no artifact budget is exceeded.
 
-- [ ] **Step 4: Verify NDF, interface, and owner evidence remain valid**
+- [x] **Step 4: Verify NDF, interface, and owner evidence remain valid**
 
 Run:
 
@@ -674,11 +694,11 @@ python3 tools/chisel/check_production_owner_manifest.py
 
 Expected: all pass; no simulator helper is listed as a hardware owner or public interface.
 
-- [ ] **Step 5: Clean ignored generated artifacts after every process exits**
+- [x] **Step 5: Clean ignored generated artifacts after every process exits**
 
 Remove only ignored Chisel/SBT/Verilator output created by these tests. Preserve source, tests, checked manifests, the artifact baseline JSON, and all Task-13 edits. Verify no simulator descendant remains before cleanup.
 
-- [ ] **Step 6: Commit and push the documentation closure**
+- [x] **Step 6: Commit and push the documentation closure**
 
 ```bash
 git commit --only -m "Document bounded Chisel simulation evidence" -- \

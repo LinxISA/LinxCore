@@ -2,6 +2,9 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryTargetIO, RecoveryPlanContract,
+  RobResolveTxn, RecoveryEvent}
 
 /** Physical terminal topology for the formal scalar/control execution profile.
   *
@@ -12,10 +15,11 @@ import chisel3.util.{Decoupled, RRArbiter, Valid}
   * can be released at most once.
   */
 class OooIexTerminalFabricIO(
-    val p: OooParams,
+    val core: CoreParams,
     val aluSourceCount: Int,
     val bruSourceCount: Int,
     val loadSourceCount: Int) extends Bundle {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
   private val publicationPorts = p.iexTerminalWidth * p.maxDestinationOperands
 
   val alu = Flipped(Vec(aluSourceCount,
@@ -37,8 +41,11 @@ class OooIexTerminalFabricIO(
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalTrace(p)))
-  val completion = Vec(p.iexTerminalWidth,
-    Decoupled(new OooRobMemberCompletion(p)))
+  val robResolve = Vec(p.iexTerminalWidth,
+    Decoupled(new RobResolveTxn(core)))
+  val recoveryEvent = Vec(p.iexTerminalWidth,
+    Decoupled(new RecoveryEvent(core)))
+  val recovery = Flipped(new RecoveryTargetIO(core))
 
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
   val rejected = Output(Vec(p.iexTerminalWidth,
@@ -46,10 +53,11 @@ class OooIexTerminalFabricIO(
 }
 
 class OooIexTerminalFabric(
-    val p: OooParams = OooParams(),
-    val aluSourceCount: Int = 6,
-    val bruSourceCount: Int = 2,
-    val loadSourceCount: Int = 3) extends Module {
+    val core: CoreParams,
+    val aluSourceCount: Int,
+    val bruSourceCount: Int,
+    val loadSourceCount: Int) extends Module {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
   private val width = p.iexTerminalWidth
   private val publicationPorts = width * p.maxDestinationOperands
 
@@ -63,12 +71,12 @@ class OooIexTerminalFabric(
     "terminal width must fit committed wakeup bandwidth")
 
   val io = IO(new OooIexTerminalFabricIO(
-    p, aluSourceCount, bruSourceCount, loadSourceCount))
+    core, aluSourceCount, bruSourceCount, loadSourceCount))
 
   private def ownedSources(sourceCount: Int, lane: Int): Seq[Int] =
     (0 until sourceCount).filter(_ % width == lane)
 
-  val publishers = Seq.fill(width)(Module(new OooIexTerminalPublish(p)))
+  val publishers = Seq.fill(width)(Module(new OooIexTerminalPublish(core)))
   val aluArbiters = Seq.tabulate(width) { lane =>
     val count = ownedSources(aluSourceCount, lane).length
     Option.when(count > 0)(Module(new RRArbiter(
@@ -154,10 +162,44 @@ class OooIexTerminalFabric(
     io.trace(lane).valid := publishers(lane).io.trace.valid
     io.trace(lane).bits := publishers(lane).io.trace.bits
     publishers(lane).io.trace.ready := io.trace(lane).ready
-    io.completion(lane).valid := publishers(lane).io.completion.valid
-    io.completion(lane).bits := publishers(lane).io.completion.bits
-    publishers(lane).io.completion.ready := io.completion(lane).ready
+    io.robResolve(lane).valid := publishers(lane).io.robResolve.valid
+    io.robResolve(lane).bits := publishers(lane).io.robResolve.bits
+    publishers(lane).io.robResolve.ready := io.robResolve(lane).ready
+    io.recoveryEvent(lane).valid := publishers(lane).io.recoveryEvent.valid
+    io.recoveryEvent(lane).bits := publishers(lane).io.recoveryEvent.bits
+    publishers(lane).io.recoveryEvent.ready := io.recoveryEvent(lane).ready
     io.rejected(lane) := publishers(lane).io.rejected
+  }
+
+  val everyPrepareReady = publishers.map(_.io.recovery.prepare.ready)
+    .reduce(_ && _)
+  io.recovery.prepare.ready := everyPrepareReady
+  publishers.foreach { publisher =>
+    publisher.io.recovery.prepare.valid := io.recovery.prepare.valid &&
+      everyPrepareReady
+    publisher.io.recovery.prepare.bits := io.recovery.prepare.bits
+    publisher.io.recovery.apply := io.recovery.apply
+    publisher.io.recovery.abort := io.recovery.abort
+  }
+
+  val everyPreparedValid = publishers.map(_.io.recovery.prepared.valid)
+    .reduce(_ && _)
+  io.recovery.prepared.valid := everyPreparedValid
+  io.recovery.prepared.bits := publishers.head.io.recovery.prepared.bits
+  publishers.zipWithIndex.foreach { case (publisher, lane) =>
+    val peersValid = publishers.zipWithIndex.filter(_._2 != lane)
+      .map(_._1.io.recovery.prepared.valid).foldLeft(true.B)(_ && _)
+    publisher.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+      peersValid
+  }
+
+  when(io.recovery.prepared.fire) {
+    publishers.tail.foreach { publisher =>
+      assert(RecoveryPlanContract.sameTransactionIgnoringPhase(
+        publisher.io.recovery.prepared.bits,
+        publishers.head.io.recovery.prepared.bits),
+        "terminal publishers must echo one exact canonical recovery plan")
+    }
   }
 
   io.terminalFireMask := VecInit(publishers.map(_.io.terminalFire)).asUInt

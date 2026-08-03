@@ -34,9 +34,6 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
     dut.io.candidates.foreach(_.foreach(_.foreach(
       _.poke(0.U.asTypeOf(dut.io.candidates.head.head.head)))))
     dut.io.pick.ready.poke(false.B)
-    dut.io.recoveryApply.valid.poke(false.B)
-    dut.io.recoveryApply.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryApply.bits))
   }
 
   private def pokeCandidate(
@@ -71,23 +68,6 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
     candidate.reservation.bank.poke(bank.U)
     candidate.reservation.speculativeSlot.poke(entry.U)
     candidate.reservation.reservationEpoch.poke(9.U)
-  }
-
-  private def pokeRecovery(
-      dut: OooIexOldestReadyPicker,
-      stid: Int,
-      newOccupied: Int): Unit = {
-    val plan = dut.io.recoveryApply.bits
-    plan.poke(0.U.asTypeOf(plan))
-    plan.valid.poke(true.B)
-    plan.oldHead.valid.poke(true.B)
-    plan.oldHead.peId.poke(3.U)
-    plan.oldHead.stid.poke(stid.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(1.U)
-    plan.oldOccupied.poke(4.U)
-    plan.newOccupied.poke(newOccupied.U)
-    dut.io.recoveryApply.valid.poke(true.B)
   }
 
   test("selects wrap-safe oldest members and rotates fairly across STIDs") {
@@ -159,29 +139,6 @@ class OooIexOldestReadyPickerSpec extends AnyFunSuite with ChiselSim {
       dut.io.malformed.bits.reservationExact.expect(false.B)
       dut.clock.step()
       dut.io.pick.valid.expect(false.B)
-    }
-  }
-
-  test("suppresses and clears a retained result killed by recovery") {
-    simulate(new OooIexOldestReadyPicker(p)) { dut =>
-      clear(dut)
-      dut.reset.poke(true.B)
-      dut.clock.step()
-      dut.reset.poke(false.B)
-
-      pokeCandidate(dut, bank = 0, entry = 1, stid = 1,
-        generation = 1, ridSlot = 2)
-      dut.clock.step()
-      dut.io.pick.valid.expect(true.B)
-
-      pokeRecovery(dut, stid = 1, newOccupied = 1)
-      dut.io.pick.valid.expect(false.B)
-      dut.io.recoveryCanceled.valid.expect(true.B)
-      dut.io.recoveryCanceled.bits.query.entry.expect(1.U)
-      dut.clock.step()
-      dut.io.recoveryApply.valid.poke(false.B)
-      dut.io.pick.valid.expect(false.B)
-      dut.io.held.expect(false.B)
     }
   }
 

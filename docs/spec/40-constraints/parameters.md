@@ -49,9 +49,22 @@ non-power-of-two identity stores, singleton BROB rings, and incompatible
 adjacent widths MUST fail with a configuration error. BROB entries per STID
 MUST be a power of two and at least two so native BID width is nonzero.
 
-## Migration adapters are value-only {#PRM-ADAPTER-001}
+## PC buffer geometry {#PRM-PC-BUFFER-001}
+<!-- ndf: kind=option level=may layer=L2 status=stable since=0.1 depends-on=PRM-WIDTH-001,PRM-VALIDATION-001 -->
+<!-- ndf: default=64-entry-3W-6R-3-replica unit=entries-and-ports -->
+
+The OOO PC buffer has independently configured entry、bank、write-port、
+read-port、replica、PC-offset、allocation-epoch and recovery-scan parameters.
+The maintained W2/W4/W6/W8 profiles use 64 entries, three PC-base write ports,
+six readyless read ports and three replicas. W2/W4 use four banks; W6/W8 use
+eight banks so one retire prefix remains bank-coverable. A wider decode prefix
+does not create extra PC-base write ports: D1/D2 admission must stop before a
+packet would require more than three new PC bases.
+
+## Parameter projections own no state {#PRM-PROJECTION-001}
 <!-- ndf: kind=arch level=must layer=L2 status=draft since=0.1 depends-on=PRM-VALIDATION-001 -->
 
-Temporary adapters between the central parameter hierarchy and legacy
-parameter records MUST convert immutable values only. They cannot own hardware
-state, and they are removed with the old chain.
+`CoreParams` is the sole public configuration source. An internal mechanism
+may project immutable geometry from it, but that projection MUST own no
+hardware state, create no alternate public boundary and change no transaction
+semantics.

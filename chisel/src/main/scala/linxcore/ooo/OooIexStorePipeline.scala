@@ -6,6 +6,8 @@ import chisel3.util.{Cat, Decoupled, Fill, Mux1H, MuxLookup, PriorityEncoderOH,
 
 import linxcore.common.DestinationKind
 import linxcore.lsu.{STQPhysicalLease, STQStoreRequest, STQStoreType}
+import linxcore.params.CoreParams
+import linxcore.top.interface.RecoveryPlan
 
 class OooStqLeaseSet(
     val p: OooParams = OooParams(),
@@ -29,9 +31,10 @@ class OooIexStoreExecute(
 }
 
 class OooIexStorePipelineIO(
-    val p: OooParams,
+    val core: CoreParams,
     val stqEntries: Int)
     extends Bundle {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
   val sta = Flipped(Decoupled(new OooIexStoreExecute(p, stqEntries)))
   val std = Flipped(Decoupled(new OooIexStoreExecute(p, stqEntries)))
   val fill = Decoupled(new STQStoreRequest(
@@ -48,7 +51,7 @@ class OooIexStorePipelineIO(
     residentGenerationWidth = p.residentGenerationWidth,
     leaseGenerationWidth = p.executeSlotGenerationWidth,
     physicalStqEntries = stqEntries))
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(core)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
   val staRejected = Output(Bool())
@@ -60,20 +63,22 @@ class OooIexStorePipelineIO(
   * each accepted half writes the generation-qualified canonical STQ row.
   */
 class OooIexStorePipeline(
-    val p: OooParams = OooParams(),
+    val core: CoreParams,
     val stqEntries: Int = 16)
     extends Module {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
+  OooRecoveryMembership.requireCompatible(p, core)
   require(p.maxMemoryRequestsPerInstruction == 2,
     "store pipeline currently supports one or two beats")
 
-  val io = IO(new OooIexStorePipelineIO(p, stqEntries))
+  val io = IO(new OooIexStorePipelineIO(core, stqEntries))
   private val beatWidth = math.max(1,
     log2Ceil(p.maxMemoryRequestsPerInstruction))
 
   private def killedByRecovery(value: OooIexStoreExecute): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
+    io.recoveryApply.valid &&
       OooRecoveryMembership.memberKilled(
-        p, io.recoveryApply.bits, value.execute.i2.row.member)
+        p, core, io.recoveryApply.bits, value.execute.i2.row.member)
 
   private def canceledByLoad(value: OooIexStoreExecute): Bool =
     io.loadCancel.map { cancel =>
@@ -88,15 +93,14 @@ class OooIexStorePipeline(
     }.reduce(_ || _)
 
   private def childMatches(
-      value: OooIexStoreExecute,
-      child: Int): Bool = {
+      value: OooIexStoreExecute): Bool = {
     val member = value.execute.i2.row.member
     val logical = value.lease.logicalMember
     member.group.asUInt === logical.group.asUInt &&
       member.bid.asUInt === logical.bid.asUInt &&
       member.brobGeneration === logical.brobGeneration &&
       member.residentGeneration === logical.residentGeneration &&
-      member.memberIndex === logical.memberIndex + child.U
+      member.memberIndex === logical.memberIndex
   }
 
   private def commonShape(value: OooIexStoreExecute): Bool = {
@@ -125,7 +129,7 @@ class OooIexStorePipeline(
   private def staShape(value: OooIexStoreExecute): Bool = {
     val execute = value.execute
     val row = execute.i2.row
-    commonShape(value) && childMatches(value, 0) &&
+    commonShape(value) && childMatches(value) &&
       execute.ownerClass === OooUopClass.Agu &&
       row.reservation.uopClass === OooUopClass.Agu &&
       row.childIndex === 0.U &&
@@ -135,7 +139,7 @@ class OooIexStorePipeline(
   private def stdShape(value: OooIexStoreExecute): Bool = {
     val execute = value.execute
     val row = execute.i2.row
-    commonShape(value) && childMatches(value, 1) &&
+    commonShape(value) && childMatches(value) &&
       execute.ownerClass === OooUopClass.Std &&
       row.reservation.uopClass === OooUopClass.Std &&
       row.childIndex === 1.U &&

@@ -2,39 +2,36 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
-import linxcore.common.CoreParams
+import linxcore.common.{CoreParams => LoadCoreParams}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{CmdIssueTxn, PcBufferReadAddress, RecoveryEvent,
+  RecoveryPhase, RecoveryPlan, RecoveryPlanContract, RecoveryTargetIO,
+  RobNoflushReadyTxn, RobNoflushTxn, RobResolveTxn, SystemIssueTxn}
 
-/** Production static composition from OOO S1 through typed execution owners.
+/** Private stage composition from canonical issue through typed execution owners.
   *
   * The wrapper keeps IQ/read/E1 ownership in `OooIexPipeline`, feeds execution
   * results back into its canonical P/T/U files and wakeup/bypass domains, and
   * exposes only execution families whose later owners are still external.
   */
 class OooIexExecutionPipelineIO(
+    val core: CoreParams,
     val profile: OooIexPhysicalProfile,
     val requireStoreReservation: Boolean,
-    val coreParams: CoreParams) extends Bundle {
+    val loadParams: LoadCoreParams) extends Bundle {
   val p = profile.params
   private def capabilityCount(capability: Int): Int =
     profile.pickerFunctions.count(_.hasCapability(capability))
-  val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
-  val dispatchReleases = Vec(p.iexReleaseWidth,
-    Decoupled(new OooDispatchRelease(p)))
-  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
-
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
-  val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
-  val recoveryFire = Input(Bool())
+  val recovery = Flipped(new RecoveryTargetIO(core))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
     Vec(2, Decoupled(new OooIexStageCancel(p)))))
 
   val pcReadRequests = Output(Vec(p.pcReadPorts,
-    Valid(new OooIexPcReadPortRequest(p))))
+    Valid(new PcBufferReadAddress(core))))
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
@@ -54,14 +51,17 @@ class OooIexExecutionPipelineIO(
   val multiCycleAlu = Vec(capabilityCount(
     OooIexDomainCapability.MultiCycleAlu),
     Decoupled(new OooIexExecuteTransaction(p)))
-  val system = Vec(capabilityCount(OooIexDomainCapability.System),
-    Decoupled(new OooIexExecuteTransaction(p)))
   val pointerAuth = Vec(capabilityCount(
     OooIexDomainCapability.PointerAuth),
     Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
-  val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
-  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
+  val robNoflushReady = Decoupled(new RobNoflushReadyTxn(core))
+  val robNoflush = Flipped(Decoupled(new RobNoflushTxn(core)))
+  val systemIssue = Vec(capabilityCount(OooIexDomainCapability.System),
+    Decoupled(new SystemIssueTxn(core)))
+  val cmdIssue = Decoupled(new CmdIssueTxn(core))
+  val systemCmdResolve = Decoupled(new RobResolveTxn(core))
+  val load = new OooIexCanonicalLoadPortIO(p, loadParams)
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -69,10 +69,13 @@ class OooIexExecutionPipelineIO(
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalTrace(p)))
-  val completion = Vec(p.iexTerminalWidth,
-    Decoupled(new OooRobMemberCompletion(p)))
+  val robResolve = Vec(p.iexTerminalWidth,
+    Decoupled(new RobResolveTxn(core)))
+  val recoveryEvent = Vec(p.iexTerminalWidth,
+    Decoupled(new RecoveryEvent(core)))
 
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
+  val systemCmdTerminalFire = Output(Bool())
   val transferFireMask = Output(UInt(p.iexReleaseWidth.W))
   val pWriteFire = Output(Vec(p.iexPWritePorts, Bool()))
   val tWriteFire = Output(Vec(p.iexTWritePorts, Bool()))
@@ -95,12 +98,13 @@ class OooIexExecutionPipelineIO(
 }
 
 class OooIexExecutionPipeline(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
+    val core: CoreParams,
     val requireStoreReservation: Boolean = false,
-    val coreParamsOverride: Option[CoreParams] = None)
+    val loadParamsOverride: Option[LoadCoreParams] = None)
     extends Module {
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
   val p = profile.params
-  val coreParams = coreParamsOverride.getOrElse(
+  val loadParams = loadParamsOverride.getOrElse(
     OooIexCanonicalLoadOwnership.defaultCoreParams(p))
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
   private val fastPWritePort = terminalPorts
@@ -109,42 +113,84 @@ class OooIexExecutionPipeline(
     _.hasCapability(OooIexDomainCapability.LoadAddress))
   private val committedAndLoadWakeupPorts = terminalPorts + loadCount
   require(p.iexPWritePorts > terminalPorts,
-    "production execution needs one dedicated fast-result P write port")
+    "IEX terminal composition needs one dedicated fast-result P write port")
   require(p.iexWakeupPorts > committedAndLoadWakeupPorts,
-    "production execution needs one dedicated fast-result wakeup port")
+    "IEX terminal composition needs one dedicated fast-result wakeup port")
   val io = IO(new OooIexExecutionPipelineIO(
-    profile, requireStoreReservation, coreParams))
+    core, profile, requireStoreReservation, loadParams))
 
-  val issue = Module(new OooIexPipeline(profile, requireStoreReservation))
-  val execute = Module(new OooIexExecutionCluster(profile, Some(coreParams)))
+  val issue = Module(new OooIexPipeline(core, requireStoreReservation))
+  val execute = Module(new OooIexExecutionCluster(core, Some(loadParams)))
 
-  issue.io.s1 <> io.s1
+  issue.io.dispatch <> io.dispatch
   if (requireStoreReservation) {
     io.storeReserve.get <> issue.io.storeReserve.get
   }
-  io.dispatchReleases <> issue.io.dispatchReleases
-  issue.io.ptagRecycle <> io.ptagRecycle
-  issue.io.recoveryPrepare := io.recoveryPrepare
-  execute.io.recoveryPrepare := io.recoveryPrepare
-  val recoveryReady = issue.io.recoveryPrepareReady &&
-    execute.io.recoveryPrepareReady
-  io.recoveryPrepareReady := io.recoveryPrepare.valid && recoveryReady
-  io.recoveryPrepared := issue.io.recoveryPrepared
-  io.recoveryPrepared.valid := issue.io.recoveryPrepared.valid &&
-    execute.io.recoveryPrepareReady
-  io.recoveryRejected := issue.io.recoveryRejected
-  when(!issue.io.recoveryRejected.valid && io.recoveryPrepare.valid &&
-      execute.io.recoveryRejected) {
-    io.recoveryRejected.valid := true.B
-    io.recoveryRejected.bits.requested := io.recoveryPrepare.bits
-    io.recoveryRejected.bits.stidInRange :=
-      io.recoveryPrepare.bits.oldHead.stid < p.stidCount.U
-    io.recoveryRejected.bits.residentRowsExact := false.B
-    io.recoveryRejected.bits.s1RowsExact := true.B
+  val recoveryPending = RegInit(false.B)
+  val childrenPreparedAccepted = RegInit(false.B)
+  val retainedRecovery = Reg(new RecoveryPlan(core))
+  val prepareReady = !recoveryPending && issue.io.recovery.prepare.ready &&
+    execute.io.recovery.prepare.ready
+  io.recovery.prepare.ready := prepareReady
+  issue.io.recovery.prepare.valid := io.recovery.prepare.valid && prepareReady
+  issue.io.recovery.prepare.bits := io.recovery.prepare.bits
+  execute.io.recovery.prepare.valid := io.recovery.prepare.valid && prepareReady
+  execute.io.recovery.prepare.bits := io.recovery.prepare.bits
+  when(io.recovery.prepare.fire) {
+    retainedRecovery := io.recovery.prepare.bits
+    recoveryPending := true.B
+    childrenPreparedAccepted := false.B
   }
-  val commonRecoveryFire = io.recoveryFire && io.recoveryPrepareReady
-  issue.io.recoveryFire := commonRecoveryFire
-  execute.io.recoveryFire := commonRecoveryFire
+
+  val bothPrepared = issue.io.recovery.prepared.valid &&
+    execute.io.recovery.prepared.valid
+  io.recovery.prepared.valid := recoveryPending && bothPrepared
+  io.recovery.prepared.bits := retainedRecovery
+  io.recovery.prepared.bits.phase := RecoveryPhase.Prepare
+  issue.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    execute.io.recovery.prepared.valid
+  execute.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    issue.io.recovery.prepared.valid
+  when(io.recovery.prepared.fire) {
+    assert(RecoveryPlanContract.sameTransactionIgnoringPhase(
+      issue.io.recovery.prepared.bits,
+      execute.io.recovery.prepared.bits),
+      "issue and execution must prepare one exact recovery transaction")
+    assert(RecoveryPlanContract.sameTransactionIgnoringPhase(
+      issue.io.recovery.prepared.bits, retainedRecovery),
+      "issue must echo the retained recovery transaction")
+    childrenPreparedAccepted := true.B
+  }
+  val applyExact = io.recovery.apply.valid && recoveryPending &&
+    childrenPreparedAccepted &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, retainedRecovery)
+  val abortExact = io.recovery.abort.valid && recoveryPending &&
+    childrenPreparedAccepted &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, retainedRecovery)
+  issue.io.recovery.apply.valid := applyExact
+  issue.io.recovery.apply.bits := io.recovery.apply.bits
+  execute.io.recovery.apply.valid := applyExact
+  execute.io.recovery.apply.bits := io.recovery.apply.bits
+  issue.io.recovery.abort.valid := abortExact
+  issue.io.recovery.abort.bits := io.recovery.abort.bits
+  execute.io.recovery.abort.valid := abortExact
+  execute.io.recovery.abort.bits := io.recovery.abort.bits
+  when(applyExact || abortExact) {
+    recoveryPending := false.B
+    childrenPreparedAccepted := false.B
+  }
+  when(io.recovery.apply.valid) {
+    assert(applyExact,
+      "IEX recovery apply requires the exact prepared transaction")
+  }
+  when(io.recovery.abort.valid) {
+    assert(abortExact,
+      "IEX recovery abort requires the exact prepared transaction")
+  }
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels
   io.pcReadRequests := issue.io.pcReadRequests
@@ -218,11 +264,6 @@ class OooIexExecutionPipeline(
     io.multiCycleAlu(index).bits := execute.io.multiCycleAlu(index).bits
     execute.io.multiCycleAlu(index).ready := io.multiCycleAlu(index).ready
   }
-  for (index <- io.system.indices) {
-    io.system(index).valid := execute.io.system(index).valid
-    io.system(index).bits := execute.io.system(index).bits
-    execute.io.system(index).ready := io.system(index).ready
-  }
   for (index <- io.pointerAuth.indices) {
     io.pointerAuth(index).valid := execute.io.pointerAuth(index).valid
     io.pointerAuth(index).bits := execute.io.pointerAuth(index).bits
@@ -231,9 +272,23 @@ class OooIexExecutionPipeline(
   io.floatingVector.valid := execute.io.floatingVector.valid
   io.floatingVector.bits := execute.io.floatingVector.bits
   execute.io.floatingVector.ready := io.floatingVector.ready
-  io.engineCommand.valid := execute.io.engineCommand.valid
-  io.engineCommand.bits := execute.io.engineCommand.bits
-  execute.io.engineCommand.ready := io.engineCommand.ready
+  io.robNoflushReady.valid := execute.io.robNoflushReady.valid
+  io.robNoflushReady.bits := execute.io.robNoflushReady.bits
+  execute.io.robNoflushReady.ready := io.robNoflushReady.ready
+  execute.io.robNoflush.valid := io.robNoflush.valid
+  execute.io.robNoflush.bits := io.robNoflush.bits
+  io.robNoflush.ready := execute.io.robNoflush.ready
+  for (index <- io.systemIssue.indices) {
+    io.systemIssue(index).valid := execute.io.systemIssue(index).valid
+    io.systemIssue(index).bits := execute.io.systemIssue(index).bits
+    execute.io.systemIssue(index).ready := io.systemIssue(index).ready
+  }
+  io.cmdIssue.valid := execute.io.cmdIssue.valid
+  io.cmdIssue.bits := execute.io.cmdIssue.bits
+  execute.io.cmdIssue.ready := io.cmdIssue.ready
+  io.systemCmdResolve.valid := execute.io.systemCmdResolve.valid
+  io.systemCmdResolve.bits := execute.io.systemCmdResolve.bits
+  execute.io.systemCmdResolve.ready := io.systemCmdResolve.ready
 
   io.load.liqAlloc <> execute.io.load.liqAlloc
   execute.io.load.liqAllocLoadId := io.load.liqAllocLoadId
@@ -250,12 +305,12 @@ class OooIexExecutionPipeline(
     io.trace(lane).valid := execute.io.trace(lane).valid
     io.trace(lane).bits := execute.io.trace(lane).bits
     execute.io.trace(lane).ready := io.trace(lane).ready
-    io.completion(lane).valid := execute.io.completion(lane).valid
-    io.completion(lane).bits := execute.io.completion(lane).bits
-    execute.io.completion(lane).ready := io.completion(lane).ready
+    io.robResolve(lane) <> execute.io.robResolve(lane)
+    io.recoveryEvent(lane) <> execute.io.recoveryEvent(lane)
   }
 
   io.terminalFireMask := execute.io.terminalFireMask
+  io.systemCmdTerminalFire := execute.io.systemCmdTerminalFire
   io.transferFireMask := issue.io.transferFireMask
   io.pWriteFire := issue.io.pWriteFire
   io.tWriteFire := issue.io.tWriteFire
@@ -267,13 +322,8 @@ class OooIexExecutionPipeline(
   io.inFlightEntries := issue.io.inFlightEntries
   io.issueEmpty := issue.io.empty
   io.executionEmpty := execute.io.empty
-  io.empty := issue.io.empty && execute.io.empty
+  io.empty := !recoveryPending && issue.io.empty && execute.io.empty
   io.pProtocolError := issue.io.pProtocolError
   io.localProtocolError := issue.io.localProtocolError
 
-  when(io.recoveryFire) {
-    assert(io.recoveryPrepare.valid && issue.io.recoveryPrepareReady &&
-      issue.io.recoveryPrepared.valid,
-      "execution-pipeline recovery needs one held prepared issue plan")
-  }
 }

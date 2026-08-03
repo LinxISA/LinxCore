@@ -63,6 +63,10 @@ object ParamChecks {
     require(
       p.iex.issueWidth == p.widths.issueWidth,
       "IEX issue width must match WidthParams")
+    require(p.iex.issueQueueClasses > 0,
+      "IEX must configure at least one Issue Queue class")
+    require(p.iex.executionPipeKinds > 0,
+      "IEX must configure at least one Execution pipe kind")
 
     require(p.ifu.instructionBits == 64, "IFU instruction container must be 64 bits")
     require(p.ctu.instructionBits == 64, "CTU instruction container must be 64 bits")
@@ -142,6 +146,9 @@ object ParamChecks {
       p.ooo.maxInstructionsPerRobGroup > 0,
       "ROB group instruction capacity must be positive")
     require(
+      p.ooo.maxUopsPerInstruction > 0,
+      "decoded instruction uop capacity must be positive")
+    require(
       p.ooo.robCapacityPerStid >= p.ooo.d3PrefixWidth,
       "ROB capacity must hold one D3 prefix")
     require(
@@ -155,6 +162,29 @@ object ParamChecks {
       isPowerOfTwo(p.ooo.brobEntriesPerStid) &&
         p.ooo.brobEntriesPerStid >= 2,
       "BROB entries per STID must be a power of two and at least 2")
+    require(
+      isPowerOfTwo(p.ooo.pcBufferEntries) &&
+        p.ooo.pcBufferEntries % p.ooo.stidCount == 0,
+      "PC buffer entries must be a power of two evenly partitioned by STID")
+    val pcEntriesPerStid = p.ooo.pcBufferEntries / p.ooo.stidCount
+    require(
+      isPowerOfTwo(p.ooo.pcBankCount) &&
+        p.ooo.pcBankCount >= p.ooo.retireWidth &&
+        p.ooo.pcBankCount <= pcEntriesPerStid &&
+        pcEntriesPerStid % p.ooo.pcBankCount == 0,
+      "PC buffer banks must cover retire width and divide each STID partition")
+    require(
+      p.ooo.pcWritePorts == 3 && p.ooo.pcWritePorts <= p.ooo.pcBankCount,
+      "PC buffer exposes exactly three D3 PC-base write ports")
+    require(
+      p.ooo.pcReadPorts == 6 && p.ooo.pcReadReplicaCount == 3 &&
+        p.ooo.pcReadPorts % p.ooo.pcReadReplicaCount == 0,
+      "PC buffer exposes six reads through three exact PC-base replicas")
+    require(
+      p.ooo.pcRecoveryScanGroupsPerCycle > 0 &&
+        p.ooo.pcOffsetWidth > 0 &&
+        p.ooo.pcAllocationEpochWidth > 0,
+      "PC buffer recovery, PC offset, and allocation epoch widths must be positive")
     require(p.ooo.gprArchRegs == 24, "Linx scalar GPR namespace contains 24 registers")
     require(
       isPowerOfTwo(p.ooo.gprPhysRegs) &&

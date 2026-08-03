@@ -12,7 +12,8 @@ object ParamProfiles {
         renameWidth = width,
         dispatchWidth = width,
         d3PrefixWidth = width,
-        retireWidth = width),
+        retireWidth = width,
+        pcBankCount = if (width <= 4) 4 else 8),
       iex = IEXParams(issueWidth = width),
       dtu = DTUParams(traceWidth = width))
   }

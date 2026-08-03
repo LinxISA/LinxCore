@@ -2,7 +2,11 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, DecoupledIO, PopCount, Valid, log2Ceil}
-import linxcore.common.CoreParams
+import linxcore.common.{CoreParams => LoadCoreParams}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{CmdIssueTxn, RecoveryEvent, RecoveryPhase,
+  RecoveryPlan, RecoveryPlanContract, RecoveryTargetIO, RobNoflushReadyTxn,
+  RobNoflushTxn, RobResolveTxn, SystemIssueTxn}
 
 class OooIexExecutionRouteReject(val p: OooParams = OooParams())
     extends Bundle {
@@ -24,8 +28,9 @@ class OooIexExecutionRouteReject(val p: OooParams = OooParams())
   * upstream E1 slot remains the owner until one of those boundaries fires.
   */
 class OooIexExecutionClusterIO(
+    val core: CoreParams,
     val profile: OooIexPhysicalProfile,
-    val coreParams: CoreParams) extends Bundle {
+    val loadParams: LoadCoreParams) extends Bundle {
   val p = profile.params
   private val terminalPorts = p.iexTerminalWidth * p.maxDestinationOperands
   private def capabilityCount(capability: Int): Int =
@@ -44,10 +49,7 @@ class OooIexExecutionClusterIO(
 
   val e1 = Flipped(Vec(profile.pickerFunctions.length,
     Decoupled(new OooIexExecuteTransaction(p))))
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryRejected = Output(Bool())
-  val recoveryFire = Input(Bool())
+  val recovery = Flipped(new RecoveryTargetIO(core))
 
   val storeAddress = Vec(storeAddressCount,
     Decoupled(new OooIexExecuteTransaction(p)))
@@ -55,13 +57,16 @@ class OooIexExecutionClusterIO(
     Decoupled(new OooIexExecuteTransaction(p)))
   val multiCycleAlu = Vec(multiCycleCount,
     Decoupled(new OooIexExecuteTransaction(p)))
-  val system = Vec(systemCount, Decoupled(new OooIexExecuteTransaction(p)))
   val pointerAuth = Vec(pointerAuthCount,
     Decoupled(new OooIexExecuteTransaction(p)))
   val floatingVector = Decoupled(new OooIexExecuteTransaction(p))
-  val engineCommand = Decoupled(new OooIexExecuteTransaction(p))
+  val robNoflushReady = Decoupled(new RobNoflushReadyTxn(core))
+  val robNoflush = Flipped(Decoupled(new RobNoflushTxn(core)))
+  val systemIssue = Vec(systemCount, Decoupled(new SystemIssueTxn(core)))
+  val cmdIssue = Decoupled(new CmdIssueTxn(core))
+  val systemCmdResolve = Decoupled(new RobResolveTxn(core))
 
-  val load = new OooIexCanonicalLoadPortIO(p, coreParams)
+  val load = new OooIexCanonicalLoadPortIO(p, loadParams)
 
   val pWrite = Vec(terminalPorts, Decoupled(new OooIexPFileWrite(p)))
   val tWrite = Vec(terminalPorts, Decoupled(new OooIexLocalFileWrite(p)))
@@ -76,8 +81,10 @@ class OooIexExecutionClusterIO(
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalTrace(p)))
-  val completion = Vec(p.iexTerminalWidth,
-    Decoupled(new OooRobMemberCompletion(p)))
+  val robResolve = Vec(p.iexTerminalWidth,
+    Decoupled(new RobResolveTxn(core)))
+  val recoveryEvent = Vec(p.iexTerminalWidth,
+    Decoupled(new RecoveryEvent(core)))
 
   val routeRejected = Output(Vec(profile.pickerFunctions.length,
     Valid(new OooIexExecutionRouteReject(p))))
@@ -87,19 +94,21 @@ class OooIexExecutionClusterIO(
   val terminalRejected = Output(Vec(p.iexTerminalWidth,
     Vec(3, Valid(new OooIexTerminalReject(p)))))
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
+  val systemCmdTerminalFire = Output(Bool())
   val loadMetadataOccupied = Output(UInt(
-    log2Ceil(coreParams.scalarLsu.liqEntries + 1).W))
+    log2Ceil(loadParams.scalarLsu.liqEntries + 1).W))
   val empty = Output(Bool())
 }
 
 class OooIexExecutionCluster(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
-    val coreParamsOverride: Option[CoreParams] = None)
+    val core: CoreParams,
+    val loadParamsOverride: Option[LoadCoreParams] = None)
     extends Module {
   import OooIexDomainCapability._
 
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
   val p = profile.params
-  val coreParams = coreParamsOverride.getOrElse(
+  val loadParams = loadParamsOverride.getOrElse(
     OooIexCanonicalLoadOwnership.defaultCoreParams(p))
   private def pickerIndices(capability: Int): Seq[Int] =
     profile.pickerFunctions.zipWithIndex.collect {
@@ -131,24 +140,101 @@ class OooIexExecutionCluster(
   require(p.iexLoadCancelPorts >= loadCount,
     "every scalar load pipe needs an independent cancel port")
 
-  val io = IO(new OooIexExecutionClusterIO(profile, coreParams))
+  val io = IO(new OooIexExecutionClusterIO(core, profile, loadParams))
 
-  val alus = Seq.fill(aluCount)(Module(new OooIexAluPipeline(p)))
-  val brus = Seq.fill(bruCount)(Module(new OooIexBruPipeline(p)))
-  val agus = Seq.fill(loadCount)(Module(new OooIexAguPipeline(p)))
+  val alus = Seq.fill(aluCount)(Module(new OooIexAluPipeline(p, core)))
+  val brus = Seq.fill(bruCount)(Module(new OooIexBruPipeline(p, core)))
+  val agus = Seq.fill(loadCount)(Module(new OooIexAguPipeline(p, core)))
   val load = Module(new OooIexCanonicalLoadOwnership(
-    p, coreParams, laneCount = loadCount))
+    p, loadParams, laneCount = loadCount, recoveryParams = core))
   val terminal = Module(new OooIexTerminalFabric(
-    p, aluCount, bruCount, loadCount))
+    core, aluCount, bruCount, loadCount))
+  val systemCmd = Module(new OooIexSystemCmdTerminal(core))
 
-  val recoveryApply = Wire(Valid(new OooResidencyRecoveryPlan(p)))
-  recoveryApply.valid := io.recoveryFire && io.recoveryPrepareReady
-  recoveryApply.bits := io.recoveryPrepare.bits
-  load.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := load.io.recoveryPrepareReady
-  io.recoveryRejected := load.io.recoveryRejected
-  load.io.recoveryFire := io.recoveryFire && io.recoveryPrepareReady
-  load.io.flush := false.B
+  val recoveryPending = RegInit(false.B)
+  val childrenPreparedAccepted = RegInit(false.B)
+  val retainedRecovery = Reg(new RecoveryPlan(core))
+  val prepareReady = !recoveryPending && terminal.io.recovery.prepare.ready &&
+    load.io.recovery.prepare.ready && systemCmd.io.recovery.prepare.ready
+  io.recovery.prepare.ready := prepareReady
+  terminal.io.recovery.prepare.valid := io.recovery.prepare.valid && prepareReady
+  terminal.io.recovery.prepare.bits := io.recovery.prepare.bits
+  load.io.recovery.prepare.valid := io.recovery.prepare.valid && prepareReady
+  load.io.recovery.prepare.bits := io.recovery.prepare.bits
+  systemCmd.io.recovery.prepare.valid :=
+    io.recovery.prepare.valid && prepareReady
+  systemCmd.io.recovery.prepare.bits := io.recovery.prepare.bits
+  when(io.recovery.prepare.fire) {
+    retainedRecovery := io.recovery.prepare.bits
+    recoveryPending := true.B
+    childrenPreparedAccepted := false.B
+  }
+
+  val childrenPrepared = terminal.io.recovery.prepared.valid &&
+    load.io.recovery.prepared.valid && systemCmd.io.recovery.prepared.valid
+  io.recovery.prepared.valid := recoveryPending && childrenPrepared
+  io.recovery.prepared.bits := retainedRecovery
+  io.recovery.prepared.bits.phase := RecoveryPhase.Prepare
+  terminal.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    load.io.recovery.prepared.valid && systemCmd.io.recovery.prepared.valid
+  load.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    terminal.io.recovery.prepared.valid && systemCmd.io.recovery.prepared.valid
+  systemCmd.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    terminal.io.recovery.prepared.valid && load.io.recovery.prepared.valid
+
+  val preparedPlansExact = childrenPrepared &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      terminal.io.recovery.prepared.bits, retainedRecovery) &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      load.io.recovery.prepared.bits, retainedRecovery) &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      systemCmd.io.recovery.prepared.bits, retainedRecovery)
+  when(io.recovery.prepared.fire) {
+    assert(preparedPlansExact,
+      "execution children must prepare one exact recovery transaction")
+    childrenPreparedAccepted := preparedPlansExact
+  }
+  val applyExact = io.recovery.apply.valid && recoveryPending &&
+    childrenPreparedAccepted &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, retainedRecovery)
+  val abortExact = io.recovery.abort.valid && recoveryPending &&
+    childrenPreparedAccepted &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, retainedRecovery)
+  val recoveryApply = Wire(Valid(new RecoveryPlan(core)))
+  recoveryApply.valid := applyExact
+  recoveryApply.bits := retainedRecovery
+  recoveryApply.bits.phase := RecoveryPhase.Apply
+  terminal.io.recovery.apply.valid := applyExact
+  terminal.io.recovery.apply.bits := recoveryApply.bits
+  load.io.recovery.apply.valid := applyExact
+  load.io.recovery.apply.bits := recoveryApply.bits
+  systemCmd.io.recovery.apply.valid := applyExact
+  systemCmd.io.recovery.apply.bits := recoveryApply.bits
+  terminal.io.recovery.abort.valid := abortExact
+  terminal.io.recovery.abort.bits := retainedRecovery
+  terminal.io.recovery.abort.bits.phase := RecoveryPhase.Abort
+  load.io.recovery.abort.valid := abortExact
+  load.io.recovery.abort.bits := retainedRecovery
+  load.io.recovery.abort.bits.phase := RecoveryPhase.Abort
+  systemCmd.io.recovery.abort.valid := abortExact
+  systemCmd.io.recovery.abort.bits := retainedRecovery
+  systemCmd.io.recovery.abort.bits.phase := RecoveryPhase.Abort
+  when(applyExact || abortExact) {
+    recoveryPending := false.B
+    childrenPreparedAccepted := false.B
+  }
+  when(io.recovery.apply.valid) {
+    assert(applyExact,
+      "execution recovery apply requires the exact prepared transaction")
+  }
+  when(io.recovery.abort.valid) {
+    assert(abortExact,
+      "execution recovery abort requires the exact prepared transaction")
+  }
 
   for (index <- 0 until aluCount) {
     alus(index).io.recoveryApply := recoveryApply
@@ -204,12 +290,20 @@ class OooIexExecutionCluster(
     io.trace(lane).valid := terminal.io.trace(lane).valid
     io.trace(lane).bits := terminal.io.trace(lane).bits
     terminal.io.trace(lane).ready := io.trace(lane).ready
-    io.completion(lane).valid := terminal.io.completion(lane).valid
-    io.completion(lane).bits := terminal.io.completion(lane).bits
-    terminal.io.completion(lane).ready := io.completion(lane).ready
+    io.robResolve(lane) <> terminal.io.robResolve(lane)
+    io.recoveryEvent(lane) <> terminal.io.recoveryEvent(lane)
   }
   io.terminalRejected := terminal.io.rejected
   io.terminalFireMask := terminal.io.terminalFireMask
+
+  io.robNoflushReady <> systemCmd.io.robNoflushReady
+  systemCmd.io.robNoflush <> io.robNoflush
+  for (lane <- io.systemIssue.indices) {
+    io.systemIssue(lane) <> systemCmd.io.systemIssue(lane)
+  }
+  io.cmdIssue <> systemCmd.io.cmdIssue
+  io.systemCmdResolve <> systemCmd.io.robResolve
+  io.systemCmdTerminalFire := systemCmd.io.terminalFire
 
   io.wakeup.foreach(_ := 0.U.asTypeOf(io.wakeup.head))
   for (port <- 0 until terminalPorts) {
@@ -308,12 +402,14 @@ class OooIexExecutionCluster(
     append(StoreAddress, storeAddressLanes, io.storeAddress.toSeq)
     append(Branch, bruLanes, brus.map(_.io.e1))
     append(MultiCycleAlu, multiCycleLanes, io.multiCycleAlu.toSeq)
-    append(System, systemLanes, io.system.toSeq)
+    append(System, systemLanes, systemCmd.io.system.toSeq)
     append(PointerAuth, pointerAuthLanes, io.pointerAuth.toSeq)
     if (floatingVectorLanes.contains(domain))
       destinations += FloatingVector -> io.floatingVector
-    if (engineCommandLanes.contains(domain))
-      destinations += EngineCommand -> io.engineCommand
+    if (engineCommandLanes.contains(domain)) {
+      val ordinal = engineCommandLanes.indexOf(domain)
+      destinations += EngineCommand -> systemCmd.io.cmd(ordinal)
+    }
     require(destinations.nonEmpty,
       s"IEX picker ${profile.pickerFunctions(domain).name} has no execution destination")
     route(domain, destinations.toSeq)
@@ -322,6 +418,7 @@ class OooIexExecutionCluster(
   val internalEmpty = alus.map(_.io.empty).reduce(_ && _) &&
     brus.map(!_.io.occupied).reduce(_ && _) &&
     agus.map(!_.io.occupied).reduce(_ && _) &&
-    load.io.metadataEmpty
-  io.empty := internalEmpty && !io.e1.map(_.valid).reduce(_ || _)
+    load.io.metadataEmpty && systemCmd.io.empty
+  io.empty := !recoveryPending && internalEmpty &&
+    !io.e1.map(_.valid).reduce(_ || _)
 }

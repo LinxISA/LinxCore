@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.Valid
+import chisel3.util.{Mux1H, Valid}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -96,9 +96,7 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
   }.reduce(_ && _)
   val publishStidRaw = io.publishPrepare.bits.entries(0).uop.decoded.rob.stid
   val publishStid = Mux(publishStidRaw < p.ooo.stidCount.U, publishStidRaw, 0.U)
-  val replacing = io.publishFire && io.publishPrepare.valid &&
-    publishStidRaw === prepareStidRaw
-  val slotAvailable = !select(provisionalValid, prepareStid) || replacing
+  val slotAvailable = !select(provisionalValid, prepareStid)
   io.prepareReady := prepareStidInRange && countExact && commonStidExact &&
     laneExact.asUInt.andR && slotAvailable
   io.prepared := 0.U.asTypeOf(io.prepared)
@@ -110,15 +108,41 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
   io.preparedLanes := metas
 
   val livePublish = select(provisionalRows, publishStid)
+  val livePublishMetas = select(provisionalMetas, publishStid)
+  val publishCount = io.publishPrepare.bits.count
+  val publishCountExact = publishCount.orR && publishCount <= livePublish.count
+  val stateAfterPrefix = Wire(new MemoryOrderState(p))
+  stateAfterPrefix := livePublish.after
+  val nextPrefixMeta = Mux1H((0 until width).map { lane =>
+    (publishCount === lane.U) -> livePublishMetas(lane)
+  })
+  when(publishCount < livePublish.count) {
+    stateAfterPrefix.lsid := nextPrefixMeta.firstLsid
+    stateAfterPrefix.lid := nextPrefixMeta.firstLid
+    stateAfterPrefix.sid := nextPrefixMeta.firstSid
+    stateAfterPrefix.yostValid := nextPrefixMeta.yostValid
+    stateAfterPrefix.yostLsid := nextPrefixMeta.yostLsid
+    stateAfterPrefix.yostSid := nextPrefixMeta.yostSid
+    stateAfterPrefix.yoldValid := nextPrefixMeta.yoldValid
+    stateAfterPrefix.yoldLsid := nextPrefixMeta.yoldLsid
+    stateAfterPrefix.yoldLid := nextPrefixMeta.yoldLid
+  }
+  val expectedPublication = Wire(new MemoryOrderReservation(p))
+  expectedPublication := 0.U.asTypeOf(expectedPublication)
+  expectedPublication.valid := livePublish.valid
+  expectedPublication.stid := livePublish.stid
+  expectedPublication.count := publishCount
+  expectedPublication.before := livePublish.before
+  expectedPublication.after := stateAfterPrefix
   val publishExact = publishStidRaw < p.ooo.stidCount.U &&
     select(provisionalValid, publishStid) && livePublish.valid &&
     livePublish.stid === publishStidRaw &&
-    livePublish.count === io.publishPrepare.bits.count &&
-    io.publishPrepare.bits.memoryOrder.asUInt === livePublish.asUInt &&
+    publishCountExact &&
+    io.publishPrepare.bits.memoryOrder.asUInt === expectedPublication.asUInt &&
     (0 until width).map { lane =>
-      lane.U >= livePublish.count ||
+      lane.U >= publishCount ||
         io.publishPrepare.bits.entries(lane).memoryOrder.asUInt ===
-          select(provisionalMetas, publishStid)(lane).asUInt
+          livePublishMetas(lane).asUInt
     }.reduce(_ && _) &&
     sameState(livePublish.after, select(nextState, publishStid))
   io.publishReady := io.publishPrepare.valid && publishExact
@@ -145,7 +169,26 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
   }
   when(io.publishFire) {
     assert(io.publishReady)
-    when(!(io.reserveFire && prepareStid === publishStid)) {
+    val remaining = livePublish.count - publishCount
+    when(remaining.orR) {
+      val suffix = Wire(new MemoryOrderReservation(p))
+      suffix := livePublish
+      suffix.count := remaining
+      suffix.before := stateAfterPrefix
+      val suffixMetas = Wire(Vec(width, new MemoryOrderMeta(p)))
+      suffixMetas := 0.U.asTypeOf(suffixMetas)
+      for (lane <- 0 until width) {
+        for (source <- 0 until width) {
+          when(source.U === lane.U + publishCount &&
+              source.U < livePublish.count) {
+            suffixMetas(lane) := livePublishMetas(source)
+          }
+        }
+      }
+      select(provisionalRows, publishStid) := suffix
+      select(provisionalMetas, publishStid) := suffixMetas
+      select(provisionalValid, publishStid) := true.B
+    }.otherwise {
       select(provisionalValid, publishStid) := false.B
       select(provisionalRows, publishStid) := 0.U.asTypeOf(livePublish)
     }

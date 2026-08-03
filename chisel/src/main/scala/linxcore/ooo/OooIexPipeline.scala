@@ -2,6 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{PcBufferReadAddress, RecoveryTargetIO}
 
 /** Public boundary of the canonical Linx P1/I1/I2/E1 issue pipeline.
   *
@@ -10,29 +12,23 @@ import chisel3.util.{Decoupled, Valid}
   * IQ release independently from E1 capture.
   */
 class OooIexPipelineIO(
+    val core: CoreParams,
     val p: OooParams,
     val requireStoreReservation: Boolean = false) extends Bundle {
-  val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
-  val dispatchReleases = Vec(p.iexReleaseWidth,
-    Decoupled(new OooDispatchRelease(p)))
-  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
-
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
-  val recoveryFire = Input(Bool())
+  val recovery = Flipped(new RecoveryTargetIO(core))
 
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
     Vec(2, Decoupled(new OooIexStageCancel(p)))))
 
   val pcReadRequests = Output(Vec(p.pcReadPorts,
-    Valid(new OooIexPcReadPortRequest(p))))
+    Valid(new PcBufferReadAddress(core))))
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
   val bypass = Input(Vec(p.iexBypassPorts,
@@ -87,10 +83,8 @@ class OooIexPipelineIO(
     Valid(new OooIexPickJoinReject(p))))
   val pickPolicyBlocked = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexIssuePolicyBlockEvent(p))))
-  val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
-  val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
   val transferRejected = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexE1TransferReject(p))))
   val transferKilled = Output(Vec(p.iexIssueDomainCount,
@@ -117,36 +111,31 @@ class OooIexPipelineIO(
   val localProtocolError = Output(Bool())
 }
 
-/** Canonical production composition from retained S1 through typed E1 lanes.
+/** Canonical stage composition from retained IQ issue through typed E1 lanes.
   *
   * One physical profile constructs both children. The I2 handoff, exact IQ
-  * release, dispatch-slot return, and E1 capture therefore share one topology
+  * release and E1 capture therefore share one topology
   * and one ownership transaction by construction.
   */
 class OooIexPipeline(
-    val profile: OooIexPhysicalProfile = OooIexLinxPhysicalProfile(),
+    val core: CoreParams,
     val requireStoreReservation: Boolean = false)
     extends Module {
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
   val p = profile.params
-  val io = IO(new OooIexPipelineIO(p, requireStoreReservation))
+  val io = IO(new OooIexPipelineIO(core, p, requireStoreReservation))
 
-  val issue = Module(new OooIexLinxIssueReadFabric(
-    profile, requireStoreReservation))
+  val issue = Module(new OooIexIssueReadFabric(
+    core, requireStoreReservation))
   val transfer = Module(new OooIexLinxE1TransferFabric(profile))
 
-  issue.io.s1 <> io.s1
+  issue.io.dispatch <> io.dispatch
   if (requireStoreReservation) {
     io.storeReserve.get <> issue.io.storeReserve.get
   }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
-  io.dispatchReleases <> issue.io.dispatchReleases
-  issue.io.ptagRecycle <> io.ptagRecycle
-  issue.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := issue.io.recoveryPrepareReady
-  io.recoveryPrepared := issue.io.recoveryPrepared
-  issue.io.recoveryFire := io.recoveryFire
-  issue.io.pickBankEnables := transfer.io.pickBankEnables
+  issue.io.recovery <> io.recovery
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels
   io.pcReadRequests := issue.io.pcReadRequests
@@ -174,14 +163,7 @@ class OooIexPipeline(
   }
   issue.io.releases <> transfer.io.issueReleases
   transfer.io.loadCancel := io.loadCancel
-  transfer.io.recoveryApply.valid := io.recoveryFire
-  transfer.io.recoveryApply.bits := io.recoveryPrepare.bits
-
-  when(io.recoveryFire) {
-    assert(io.recoveryPrepare.valid && issue.io.recoveryPrepareReady &&
-      issue.io.recoveryPrepared.valid,
-      "IEX pipeline recovery must apply one held, prepared physical plan")
-  }
+  transfer.io.recoveryApply := issue.io.acceptedRecoveryApply
 
   io.staticBankEnables := transfer.io.pickBankEnables
   io.releaseDomains := transfer.io.releaseDomains
@@ -200,9 +182,7 @@ class OooIexPipeline(
   io.p1Rejected := issue.io.p1Rejected
   io.joinRejected := issue.io.joinRejected
   io.pickPolicyBlocked := issue.io.pickPolicyBlocked
-  io.s1Rejected := issue.io.s1Rejected
   io.releaseRejecteds := issue.io.releaseRejecteds
-  io.recoveryRejected := issue.io.recoveryRejected
   io.transferRejected := transfer.io.rejected
   io.transferKilled := transfer.io.killed
 

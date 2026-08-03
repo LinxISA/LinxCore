@@ -3,6 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, Valid}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
 object OooIexBctrlUpdateKind extends ChiselEnum {
   val Condition, Target = Value
@@ -40,11 +42,14 @@ class OooIexBruReject(val p: OooParams = OooParams()) extends Bundle {
   val incomingKilled = Bool()
 }
 
-class OooIexBruPipelineIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexBruPipelineIO(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
+    extends Bundle {
   val e1 = Flipped(Decoupled(new OooIexExecuteTransaction(p)))
   val e2 = Decoupled(new OooIexBruTerminalTransaction(p))
 
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(coreParams)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -88,10 +93,16 @@ object OooIexBruPipeline {
   * until their missing architectural condition and prediction inputs have
   * explicit typed owners.
   */
-class OooIexBruPipeline(val p: OooParams = OooParams()) extends Module {
+class OooIexBruPipeline(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
+    extends Module {
+  def this(p: OooParams) =
+    this(p, OooRecoveryMembership.coreParams(p))
   import OooIexBruPipeline._
+  OooRecoveryMembership.requireCompatible(p, coreParams)
 
-  val io = IO(new OooIexBruPipelineIO(p))
+  val io = IO(new OooIexBruPipelineIO(p, coreParams))
 
   private def opcode(value: Int): UInt = value.U(p.opcodeWidth.W)
 
@@ -99,8 +110,10 @@ class OooIexBruPipeline(val p: OooParams = OooParams()) extends Module {
     values.map(value => op === opcode(value)).reduce(_ || _)
 
   private def killedByRecovery(execute: OooIexExecuteTransaction): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(p, io.recoveryApply.bits,
+    io.recoveryApply.valid &&
+      io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
+      OooRecoveryMembership.memberKilled(p, coreParams,
+        io.recoveryApply.bits,
         execute.i2.row.member)
 
   private def canceledByLoad(execute: OooIexExecuteTransaction): Bool =

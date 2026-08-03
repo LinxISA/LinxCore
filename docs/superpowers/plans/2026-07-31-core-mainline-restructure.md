@@ -1077,7 +1077,7 @@ Commit intent: `Cut production dispatch onto one canonical OOO owner graph`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIex*Pipeline.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala`
-- Create: `chisel/src/test/scala/linxcore/iex/IEXProductionMechanismSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
 - Modify: `docs/chisel/production-owner-manifest.md`
 
 **Interfaces:**
@@ -1097,7 +1097,7 @@ scoped recovery. Record which production child owns each state category.
 Run:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipeline
 ```
 
@@ -1112,7 +1112,7 @@ no `IEX` state owner and no persistent canonical-to-old payload adapter.
 Run:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexPhysicalProfileSpec
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
@@ -1155,6 +1155,7 @@ after LSU has prepared the matching LIQ replay owner.
 - Modify: `chisel/src/main/scala/linxcore/ooo/DEC.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/OooMemoryOrderAllocator.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/OOOD3S1Graph.scala`
+- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooPcBuffer.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/ROB.scala`
 - Modify: `chisel/src/main/scala/linxcore/ooo/CommitControl.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexIssue*.scala`
@@ -1163,10 +1164,12 @@ after LSU has prepared the matching LIQ replay owner.
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexTerminal*.scala`
 - Rename in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala`
   to `chisel/src/main/scala/linxcore/iex/LoadIexIssuePipeline.scala`
-- Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadTerminalMetadata.scala`
+- Rename in place: `chisel/src/main/scala/linxcore/ooo/OooIexLoadTerminalMetadata.scala`
+  to `chisel/src/main/scala/linxcore/iex/OooIexLoadTerminalMetadata.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/ooo/OooIexBruPipeline.scala`
 - Create: `chisel/src/test/scala/linxcore/ooo/OOOMemoryOrderIntegrationSpec.scala`
+- Create: `chisel/src/test/scala/linxcore/ooo/OOOPcBufferIntegrationSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala`
 - Create: `chisel/src/test/scala/linxcore/iex/IEXPrivateTerminalSpec.scala`
 - Modify: `docs/chisel/production-owner-manifest.md`
@@ -1190,8 +1193,9 @@ The recommended contract is:
 1. `D-IEX-LSU-LOAD-001`: OOO allocates the full program-order `LSID`, the
    load-only `LID`, the store-only `SID`, and the `YOST`/`YOLD` older-memory
    boundaries; IEX allocates a non-reused transaction for each retained memory
-   uop, shares it across one store's STA/STD children, and allocates the initial
-   load attempt when `LoadIssueTxn` is retained; LSU owns LIQ residency and
+   uop on the Dispatch-to-IQ acceptance edge, shares it across one store's
+   STA/STD children, and allocates the initial load attempt on that same edge;
+   LSU owns LIQ residency and
    every later reissue、repick and attempt rebind. No physical LIQ/STQ row, pipe lane
    or ROB generation may synthesize any of these identities.
 2. `D-IEX-ROB-RESOLVE-001`: one `RobResolveTxn` resolves one ROB member.
@@ -1246,11 +1250,13 @@ The load-issue decision fixes these event rules:
   Abort changes neither. Transaction and attempt serial allocators never roll
   back, and peer-STID LIQ rows survive.
 
-The unique IEX identity owner is `LoadIexIssuePipeline`, renamed in place from
-`OooIexLoadLiqAllocAdapter` and moved under the IEX package in the same commit.
-Task 13 updates every private caller and leaves no alias, wrapper or old class.
-Core reset initializes the transaction value/generation and initial-attempt
-serials; recovery Prepare/Apply/Abort never rewinds them. The
+The unique IEX identity owner is `OooIexIssue`, where a logical memory uop
+first becomes retained. `LoadIexIssuePipeline`, renamed in place from
+`OooIexLoadLiqAllocAdapter` and moved under the IEX package in the same commit,
+is a non-resident bridge that copies the retained identity into LIQ. Task 13
+updates every private caller and leaves no alias, wrapper or old class. Core
+reset initializes the transaction value/generation and initial-attempt serials;
+recovery Prepare/Apply/Abort never rewinds them. The
 owner manifest gains state key `memory_transaction_and_initial_attempt_serial`
 with private-mechanism cutover Task 13 and public-box activation Task 15.
 
@@ -1354,7 +1360,7 @@ bash tools/chisel/run_chisel_tests.sh --only OOORecoverySpec
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
 
-- [ ] **Step 4: Convert private IEX ingress and terminal owners in place**
+- [x] **Step 4: Convert private IEX ingress and terminal owners in place**
 
 Change the private IEX admission path to consume classed canonical dispatch
 directly. Preserve `OooIexIssue` as the only IQ owner and
@@ -1362,6 +1368,17 @@ directly. Preserve `OooIexIssue` as the only IQ owner and
 grouped-S1 lease, dispatch-release dependency and global P/T/U readiness
 shadow. A single accepted `StoreDispatchTxn` creates STA/STD children
 atomically with one logical memory-order identity.
+
+Preserve `OooPcBuffer` as the only PC-base residency owner and convert it in
+place to the canonical `CoreParams` and `RecoveryPlan` contracts. Its prepare
+readiness joins RENU、ROB、BROB、memory-order and dispatch readiness on the one
+D3 publication edge; its commit release joins the one commit-control edge;
+prepare is side-effect free、Apply removes only the exact suffix and Abort
+preserves it. `DispatchTxn` carries one typed base/index/offset/generation
+`PcBufferIndexOffset`. IEX retains that PC buffer index and PC offset in the IQ and uses the
+existing readyless PC-buffer read during I1→I2. Do not carry a complete PC
+through the IQ、instantiate an IEX-side PC table or add a retained compatibility
+adapter around the owner.
 
 Retain existing ALU/BRU/AGU and terminal state. Change terminal publication in
 place to canonical `RobResolveTxn` and `RecoveryEvent`; RF writes、wakeup、trace、
@@ -1379,11 +1396,12 @@ Run:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only IEXPrivateIngressSpec
 bash tools/chisel/run_chisel_tests.sh --only IEXPrivateTerminalSpec
-bash tools/chisel/run_chisel_tests.sh --only IEXProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOPcBufferIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexTerminalFabricSpec
 ```
 
-- [ ] **Step 5: Prove the prerequisite graph and commit**
+- [x] **Step 5: Prove the prerequisite graph and commit**
 
 Verify no public `IEX` module and no new IQ、RF、terminal、recovery or
 memory-order owner exists. W2/W4/W6/W8 must elaborate the private production

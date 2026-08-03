@@ -11,7 +11,7 @@ IQ scheduling row, ready scoreboard, or payload sidecar owner.
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexIssueP1FabricSpec.scala`
+- `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
 
 ## Topology contract
 
@@ -26,8 +26,7 @@ Each domain has its own retained oldest-ready token, sidecar join, retry merge,
 atomic read attempt/decision, source/PC responses, and I2 output. Recovery
 apply is shared because it is one architectural event, but each private I1/I2
 lane evaluates exact member membership independently. Dispatch publication,
-wakeup state, terminal IQ release, and PTag recycling remain single-owner
-interfaces.
+wakeup state, and terminal IQ release remain single-owner interfaces.
 
 Each domain also exposes two backpressurable resource-cancel inputs, one for
 I1 and one for I2. The private lane proves the exact stage/member/reservation
@@ -38,38 +37,31 @@ ready-to-valid combinational loop.
 
 `lanesEmpty` reports private P1/I1/I2 and retained retry residency. `empty`
 additionally
-requires no retained S1 row, no BoundS2/ResidentS3 IQ row, and no retained
+requires no BoundS2/ResidentS3 IQ row and no retained
 recovery scan. It is the fabric quiescence signal; queue-empty or lane-empty
 alone is insufficient.
 
-The default parameter remains one domain so existing focused modules and tests
-use domain-zero aliases. `OooIexIssueP1Lane` explicitly requires that default;
-multi-domain integrations instantiate this fabric.
+The domain count is derived from `CoreParams` through
+`OooIexPhysicalProfile.fromCoreParams`; the canonical W4 topology contains the
+two ALU paths, two LDA and two STA pickers, one BRU path, one
+system/multicycle path, one floating/vector path, and one CMD path.
 
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1FabricSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 ```
 
-The two-domain IT installs ALU and PC-reading BRU children together, observes
-simultaneous I1 attempts, grants ALU while denying BRU, and proves only the BRU
-row returns to pickable state. It then repicks/grants BRU, drains both I2 lanes,
-releases both canonical IQ rows, and checks aggregate `empty`. The same DUT is
-then reused with two ALU domains on disjoint banks to prove that legal
-same-class partition. A negative test configures overlapping ALU/bank
-projections and requires the topology assertion to fire.
-
-For the focused 2-bank × 4-entry geometry, generated RTL contains one
-`OooIexIssue`, two `OooIexPickP1Bridge`, and two `OooIexP1I2Lane` instances.
-The 12,129-line fabric has no schedule/payload storage reference; the single
-multi-port IQ owner is 163,798 lines. These are structure counts, not physical
-area or timing claims.
+The mechanism suite compares the main and bounded W2/W4/W6/W8 topology,
+dynamically elaborates the bounded W4 fabric, proves parallel ALU claims and
+isolation of a denied path, and exercises exact retry through the real read fabric.
+Focused child suites retain malformed-topology,
+stage-cancel, and recovery coverage.
 
 ## Remaining gaps
 
-- Instantiate the formal 14-picker specialization in the canonical top; the
-  static class/bank/capability contract is now enforced at elaboration.
+- Instantiate the parameter-derived picker topology in the canonical top; the
+  static class/bank/capability contract is enforced at elaboration.
 - Connect class-specific physical resource owners to early policy and exact
   I1/I2 stage-cancel inputs.
 - Compose the implemented operand-read fabric with `OooPcBuffer` at the

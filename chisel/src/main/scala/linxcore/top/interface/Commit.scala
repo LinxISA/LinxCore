@@ -7,6 +7,8 @@ class CommitEntry(val p: CoreParams) extends Bundle {
   val instruction = new InstructionIdentity(p)
   val rob = new RobIdentity(p)
   val pc = UInt(p.pcWidth.W)
+  val pcBufferIndexOffset = new PcBufferIndexOffset(p)
+  val robGroupLast = Bool()
   val instructionBits = UInt(p.instructionWidth.W)
   val instructionLengthBytes = UInt(4.W)
   val opcode = UInt(p.opcodeWidth.W)

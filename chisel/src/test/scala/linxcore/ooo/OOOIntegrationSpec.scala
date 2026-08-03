@@ -14,7 +14,12 @@ private object OOOIntegrationSpec {
       identity: RobIdentity,
       p: Option[PhysicalTag],
       t: Option[PhysicalTag],
-      u: Option[PhysicalTag])
+      u: Option[PhysicalTag],
+      pc: BigInt,
+      pcBufferValid: Boolean,
+      pcBufferIndex: BigInt,
+      pcOffset: BigInt,
+      pcAllocationEpoch: BigInt)
 }
 
 class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
@@ -25,9 +30,10 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       val chirrtl = ChiselStage.emitCHIRRTL(new OOO(p))
       assert(chirrtl.contains("circuit OOO"))
       Seq("RENU", "ROB", "BROB", "Dispatch", "CommitControl",
-        "RecoveryControl").foreach(owner =>
+        "RecoveryControl", "OooPcBuffer").foreach(owner =>
         assert(chirrtl.contains(s"module $owner")))
       assert(chirrtl.contains("module OooD3ReservationAllocator"))
+      assert(chirrtl.contains("inst pcBuffer of OooPcBuffer"))
       Seq("OooO3RenameCoordinator", "OooS1GroupedRob", "OooBrob",
         "OooPRename", "OooTURename").foreach(displacedModule =>
         assert(!chirrtl.contains(s"module $displacedModule")))
@@ -43,6 +49,9 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
+    dut.io.iex.pcBufferReadAddress.foreach { address =>
+      address.poke(0.U.asTypeOf(address))
+    }
     dut.io.iex.robNoflushReady.valid.poke(false.B)
     dut.io.iex.robNoflushReady.bits.poke(
       0.U.asTypeOf(dut.io.iex.robNoflushReady.bits))
@@ -103,6 +112,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       row.instruction.parent.identity.stid.poke(stid.U)
       row.instruction.parent.identity.instructionId.poke((100 + stid * 10 + lane).U)
       row.instruction.parent.identity.epoch.poke(3.U)
+      row.instruction.parent.pc.poke((0x1000 + stid * 0x100 + lane * 8).U)
       row.rob.peId.poke(1.U)
       row.rob.stid.poke(stid.U)
       row.rob.ridSlot.poke(slot.U)
@@ -173,6 +183,11 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
         if (shape.p) Some(nextTag(OperandKind.Gpr)) else None,
         if (shape.t) Some(nextTag(OperandKind.T)) else None,
         if (shape.u) Some(nextTag(OperandKind.U)) else None,
+        held.uop.decoded.instruction.parent.pc.litValue,
+        held.pcBufferIndexOffset.valid.litToBoolean,
+        held.pcBufferIndexOffset.pcBufferIndex.litValue,
+        held.pcBufferIndexOffset.pcOffset.litValue,
+        held.pcBufferIndexOffset.allocationEpoch.litValue,
       )
       dut.io.iex.aluDispatch(0).ready.poke(true.B)
       dut.clock.step()
@@ -192,6 +207,21 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     completion.ready.expect(true.B)
     dut.clock.step()
     completion.valid.poke(false.B)
+  }
+
+  private def expectPcRead(
+      dut: OOOD3S1Graph,
+      row: Published,
+      expectedValid: Boolean): Unit = {
+    val address = dut.io.iex.pcBufferReadAddress(0)
+    address.valid.poke(true.B)
+    address.stid.poke(row.identity.stid)
+    address.pcBufferIndex.poke(row.pcBufferIndex.U)
+    address.allocationEpoch.poke(row.pcAllocationEpoch.U)
+    dut.io.iex.pcBufferReadPcBase(0).valid.expect(expectedValid.B)
+    if (expectedValid) {
+      dut.io.iex.pcBufferReadPcBase(0).bits.expect((row.pc - row.pcOffset).U)
+    }
   }
 
   private def expectCommit(
@@ -304,6 +334,47 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("publishes the PC buffer binding and frees it only on common commit") {
+    val base = ParamProfiles.W2
+    val p = base.copy(ooo = base.ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      brobEntriesPerStid = 8,
+      pcBufferEntries = 8,
+      pcBankCount = 2,
+      gprPhysRegs = 64,
+      gprMapQDepthPerStid = 8,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8,
+    ))
+    simulate(new OOOD3S1Graph(p)) { dut =>
+      clear(dut)
+      dut.io.commit.ready.poke(false.B)
+      val row = publish(
+        dut,
+        stid = 0,
+        Seq(Shape(p = true, t = false, u = false)),
+      ).head
+      assert(row.pcBufferValid)
+      expectPcRead(dut, row, expectedValid = true)
+
+      complete(dut, row.identity)
+      var cycles = 0
+      while (!dut.io.commit.valid.peek().litToBoolean && cycles < 64) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64)
+      dut.clock.step(2)
+      expectPcRead(dut, row, expectedValid = true)
+
+      dut.io.commit.ready.poke(true.B)
+      dut.clock.step()
+      expectPcRead(dut, row, expectedValid = false)
+    }
+  }
+
   test("retains one authoritative commit while the ROB preview expands") {
     val base = ParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(
@@ -382,11 +453,16 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       val stid2Tail = dut.io.ridTailSlot(2).peek()
       val stid1PreRecoveryPeerU = rows(1).head.u
       assert(stid1PreRecoveryPeerU.nonEmpty)
+      expectPcRead(dut, rows(0)(1), expectedValid = true)
+      expectPcRead(dut, rows(1).head, expectedValid = true)
 
       recover(dut, RecoveryCause.Branch, rows(0).head.identity, transactionId = 0x51)
       dut.io.ridTailSlot(0).expect(1.U)
       dut.io.ridTailSlot(1).expect(stid1Tail)
       dut.io.ridTailSlot(2).expect(stid2Tail)
+      expectPcRead(dut, rows(0).head, expectedValid = true)
+      expectPcRead(dut, rows(0)(1), expectedValid = false)
+      expectPcRead(dut, rows(1).head, expectedValid = true)
 
       complete(dut, rows(1).head.identity)
       expectCommit(dut, Seq(rows(1).head.identity),

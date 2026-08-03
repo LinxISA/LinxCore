@@ -5,9 +5,12 @@ import chisel3.util.{Decoupled, DecoupledIO, Valid}
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.params.{CoreParams, SimulationParamProfiles}
+import linxcore.top.interface.RobResolveTxn
 import org.scalatest.funsuite.AnyFunSuite
 
-private class OooIexAluTerminalHarnessIO(val p: OooParams) extends Bundle {
+private class OooIexAluTerminalHarnessIO(val core: CoreParams) extends Bundle {
+  val p = OooIexPhysicalProfile.fromCoreParams(core).params
   private val publicationPorts = p.iexTerminalWidth * p.maxDestinationOperands
   val e1 = Flipped(Decoupled(new OooIexExecuteTransaction(p)))
   val pWrite = Vec(publicationPorts, Decoupled(new OooIexPFileWrite(p)))
@@ -18,20 +21,32 @@ private class OooIexAluTerminalHarnessIO(val p: OooParams) extends Bundle {
     Decoupled(new OooIexTerminalBctrl(p)))
   val trace = Vec(p.iexTerminalWidth,
     Decoupled(new OooIexTerminalTrace(p)))
-  val completion = Vec(p.iexTerminalWidth,
-    Decoupled(new OooRobMemberCompletion(p)))
+  val robResolve = Vec(p.iexTerminalWidth,
+    Decoupled(new RobResolveTxn(core)))
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
   val retainedW2 = Valid(new OooIexAluTerminalTransaction(p))
   val w1Occupied = Output(Bool())
   val w2Occupied = Output(Bool())
 }
 
-private class OooIexAluTerminalHarness(val p: OooParams) extends Module {
-  val io = IO(new OooIexAluTerminalHarnessIO(p))
+private class OooIexAluTerminalHarness(val core: CoreParams) extends Module {
+  val p = OooIexPhysicalProfile.fromCoreParams(core).params
+  val io = IO(new OooIexAluTerminalHarnessIO(core))
 
-  val alu = Module(new OooIexAluPipeline(p))
+  val alu = Module(new OooIexAluPipeline(p, core))
   val terminal = Module(new OooIexTerminalFabric(
-    p, aluSourceCount = 1, bruSourceCount = 1, loadSourceCount = 1))
+    core, aluSourceCount = 1, bruSourceCount = 1, loadSourceCount = 1))
+  terminal.io.recoveryEvent.foreach(_.ready := true.B)
+  terminal.io.recovery.prepare.valid := false.B
+  terminal.io.recovery.prepare.bits :=
+    0.U.asTypeOf(terminal.io.recovery.prepare.bits)
+  terminal.io.recovery.prepared.ready := true.B
+  terminal.io.recovery.apply.valid := false.B
+  terminal.io.recovery.apply.bits :=
+    0.U.asTypeOf(terminal.io.recovery.apply.bits)
+  terminal.io.recovery.abort.valid := false.B
+  terminal.io.recovery.abort.bits :=
+    0.U.asTypeOf(terminal.io.recovery.abort.bits)
 
   alu.io.e1.valid := io.e1.valid
   alu.io.e1.bits := io.e1.bits
@@ -56,7 +71,7 @@ private class OooIexAluTerminalHarness(val p: OooParams) extends Module {
   io.wakeup.zip(terminal.io.wakeup).foreach { case (o, i) => forward(o, i) }
   io.bctrl.zip(terminal.io.bctrl).foreach { case (o, i) => forward(o, i) }
   io.trace.zip(terminal.io.trace).foreach { case (o, i) => forward(o, i) }
-  io.completion.zip(terminal.io.completion).foreach {
+  io.robResolve.zip(terminal.io.robResolve).foreach {
     case (o, i) => forward(o, i)
   }
   io.terminalFireMask := terminal.io.terminalFireMask
@@ -67,27 +82,8 @@ private class OooIexAluTerminalHarness(val p: OooParams) extends Module {
 }
 
 class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
-  private val p = OooParams(
-    stidCount = 2,
-    instructionDecodeWidth = 2,
-    decodedUopWidth = 2,
-    renameWidth = 2,
-    dispatchWidth = 2,
-    retireGroupWidth = 2,
-    robGroupsPerStid = 8,
-    robBankCount = 2,
-    robRecoveryScanGroupsPerCycle = 2,
-    robNonFlushScanGroupsPerCycle = 2,
-    pcBufferEntries = 8,
-    pcBankCount = 2,
-    pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
-    iqBankCount = 2,
-    iqEntriesPerBank = 4,
-    iqFreeSelectLeafEntries = 2,
-    iexIssueDomainCount = 6,
-    iexReleaseWidth = 6,
-    tuRetireSourceDepthPerStid = 16)
+  private val core = SimulationParamProfiles.W4
+  private val p = OooIexPhysicalProfile.fromCoreParams(core).params
 
   private def clear(dut: OooIexTerminalFabric): Unit = {
     dut.io.alu.foreach { source =>
@@ -108,18 +104,30 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.wakeup.foreach(_.ready.poke(true.B))
     dut.io.bctrl.foreach(_.ready.poke(true.B))
     dut.io.trace.foreach(_.ready.poke(true.B))
-    dut.io.completion.foreach(_.ready.poke(true.B))
+    dut.io.robResolve.foreach(_.ready.poke(true.B))
+    dut.io.recoveryEvent.foreach(_.ready.poke(true.B))
+    dut.io.recovery.prepare.valid.poke(false.B)
+    dut.io.recovery.prepare.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.prepare.bits))
+    dut.io.recovery.prepared.ready.poke(true.B)
+    dut.io.recovery.apply.valid.poke(false.B)
+    dut.io.recovery.apply.bits.poke(0.U.asTypeOf(dut.io.recovery.apply.bits))
+    dut.io.recovery.abort.valid.poke(false.B)
+    dut.io.recovery.abort.bits.poke(0.U.asTypeOf(dut.io.recovery.abort.bits))
+    dut.reset.poke(true.B)
+    dut.clock.step()
+    dut.reset.poke(false.B)
   }
 
   private def pokeMember(target: RobMemberKey, ridSlot: Int): Unit = {
     target.poke(0.U.asTypeOf(target))
     target.group.valid.poke(true.B)
     target.group.peId.poke(3.U)
-    target.group.stid.poke(1.U)
+    target.group.stid.poke(0.U)
     target.group.ridSlot.poke(ridSlot.U)
     target.group.ridGeneration.poke(1.U)
     target.bid.valid.poke(true.B)
-    target.bid.value.poke(5.U)
+    target.bid.value.poke(2.U)
     target.brobGeneration.poke(2.U)
     target.memberIndex.poke(0.U)
     target.residentGeneration.poke(4.U)
@@ -128,11 +136,11 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
   private def expectRetainedMember(target: RobMemberKey): Unit = {
     target.group.valid.expect(true.B)
     target.group.peId.expect(3.U)
-    target.group.stid.expect(1.U)
+    target.group.stid.expect(0.U)
     target.group.ridSlot.expect(3.U)
     target.group.ridGeneration.expect(1.U)
     target.bid.valid.expect(true.B)
-    target.bid.value.expect(5.U)
+    target.bid.value.expect(2.U)
     target.brobGeneration.expect(2.U)
     target.memberIndex.expect(0.U)
     target.residentGeneration.expect(4.U)
@@ -143,7 +151,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     destination.valid.expect(true.B)
     destination.kind.expect(DestinationKind.Gpr)
     destination.atag.expect(6.U)
-    destination.ptag.expect(37.U)
+    destination.ptag.expect(27.U)
     destination.ptagGeneration.expect(3.U)
     destination.localTag.expect(0.U)
     destination.localSequence.valid.expect(false.B)
@@ -167,6 +175,8 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
   private def expectEmptyLoad(load: OooIexLoadGeneration): Unit = {
     load.valid.expect(false.B)
     expectEmptyMember(load.producer)
+    load.transaction.value.expect(0.U)
+    load.transaction.generation.expect(0.U)
     load.generation.expect(0.U)
   }
 
@@ -184,7 +194,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     val row = execute.i2.row.schedule
     row.valid.poke(true.B)
     row.peId.poke(3.U)
-    row.stid.poke(1.U)
+    row.stid.poke(0.U)
     row.epoch.poke(9.U)
     pokeMember(row.member, ridSlot)
     row.reservation.valid.poke(true.B)
@@ -198,7 +208,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     payload.recipe.sideEffectOwner.poke(OooSideEffectOwner.Iex.U)
     payload.uopKey.primaryParent.valid.poke(true.B)
     payload.uopKey.primaryParent.peId.poke(3.U)
-    payload.uopKey.primaryParent.stid.poke(1.U)
+    payload.uopKey.primaryParent.stid.poke(0.U)
     payload.uopKey.primaryParent.instructionId.poke((40 + ridSlot).U)
     payload.uopKey.uopCount.poke(1.U)
 
@@ -225,7 +235,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.wakeup.foreach(_.ready.poke(true.B))
     dut.io.bctrl.foreach(_.ready.poke(true.B))
     dut.io.trace.foreach(_.ready.poke(true.B))
-    dut.io.completion.foreach(_.ready.poke(true.B))
+    dut.io.robResolve.foreach(_.ready.poke(true.B))
   }
 
   private def pokeHarnessExecute(dut: OooIexAluTerminalHarness): Unit = {
@@ -238,7 +248,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     val row = i2.row.schedule
     row.valid.poke(true.B)
     row.peId.poke(3.U)
-    row.stid.poke(1.U)
+    row.stid.poke(0.U)
     row.epoch.poke(9.U)
     row.transactionId.poke(43.U)
     pokeMember(row.member, ridSlot = 3)
@@ -246,7 +256,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     row.reservation.uopClass.poke(OooUopClass.Alu)
     row.reservation.bank.poke(0.U)
     row.reservation.writePort.poke(0.U)
-    row.reservation.speculativeSlot.poke(3.U)
+    row.reservation.speculativeSlot.poke(1.U)
     row.reservation.reservationEpoch.poke(9.U)
     row.inFlight.poke(true.B)
     row.sources(0).valid.poke(true.B)
@@ -269,19 +279,20 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     payload.immediate.poke(1.U)
     payload.uopKey.primaryParent.valid.poke(true.B)
     payload.uopKey.primaryParent.peId.poke(3.U)
-    payload.uopKey.primaryParent.stid.poke(1.U)
+    payload.uopKey.primaryParent.stid.poke(0.U)
     payload.uopKey.primaryParent.instructionId.poke(43.U)
     payload.uopKey.uopCount.poke(1.U)
     row.destinations(0).valid.poke(true.B)
     row.destinations(0).kind.poke(DestinationKind.Gpr)
     row.destinations(0).atag.poke(6.U)
-    row.destinations(0).ptag.poke(37.U)
+    row.destinations(0).ptag.poke(27.U)
     row.destinations(0).ptagGeneration.poke(3.U)
     dut.io.e1.valid.poke(true.B)
   }
 
   test("publishes two independent terminal lanes in the same cycle") {
-    simulate(new OooIexTerminalFabric(p)) { dut =>
+    simulate(new OooIexTerminalFabric(
+      core, aluSourceCount = 3, bruSourceCount = 1, loadSourceCount = 1)) { dut =>
       clear(dut)
       pokeAlu(dut, source = 0, ridSlot = 1, ptag = 30)
       pokeAlu(dut, source = 1, ridSlot = 2, ptag = 31)
@@ -293,17 +304,18 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.pWrite(0).bits.key.ptag.expect(30.U)
       dut.io.pWrite(2).valid.expect(true.B)
       dut.io.pWrite(2).bits.key.ptag.expect(31.U)
-      dut.io.completion(0).bits.key.group.ridSlot.expect(1.U)
-      dut.io.completion(1).bits.key.group.ridSlot.expect(2.U)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(1.U)
+      dut.io.robResolve(1).bits.rob.ridSlot.expect(2.U)
     }
   }
 
   test("keeps terminal clusters independently backpressured") {
-    simulate(new OooIexTerminalFabric(p)) { dut =>
+    simulate(new OooIexTerminalFabric(
+      core, aluSourceCount = 3, bruSourceCount = 1, loadSourceCount = 1)) { dut =>
       clear(dut)
       pokeAlu(dut, source = 0, ridSlot = 1, ptag = 30)
       pokeAlu(dut, source = 1, ridSlot = 2, ptag = 31)
-      dut.io.completion(0).ready.poke(false.B)
+      dut.io.robResolve(0).ready.poke(false.B)
 
       dut.io.terminalFireMask.expect(2.U)
       dut.io.alu(0).ready.expect(false.B)
@@ -311,33 +323,36 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.pWrite(0).valid.expect(false.B)
       dut.io.pWrite(2).valid.expect(true.B)
 
-      dut.io.completion(0).ready.poke(true.B)
+      dut.io.robResolve(0).ready.poke(true.B)
       dut.io.terminalFireMask.expect(3.U)
     }
   }
 
   test("round robins same-cluster ALU owners only on terminal fire") {
-    simulate(new OooIexTerminalFabric(p)) { dut =>
+    simulate(new OooIexTerminalFabric(
+      core, aluSourceCount = 3, bruSourceCount = 1, loadSourceCount = 1)) { dut =>
       clear(dut)
       pokeAlu(dut, source = 0, ridSlot = 1, ptag = 30)
-      pokeAlu(dut, source = 2, ridSlot = 3, ptag = 32)
-      dut.io.completion(0).ready.poke(false.B)
+      pokeAlu(dut, source = 2, ridSlot = 3, ptag = 29)
+      dut.io.robResolve(0).ready.poke(false.B)
       dut.io.alu(0).ready.expect(false.B)
       dut.io.alu(2).ready.expect(false.B)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(3.U)
       dut.clock.step(2)
-      dut.io.completion(0).ready.poke(true.B)
-      dut.io.alu(0).ready.expect(true.B)
-      dut.io.alu(2).ready.expect(false.B)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(3.U)
+      dut.io.robResolve(0).ready.poke(true.B)
+      dut.io.alu(0).ready.expect(false.B)
+      dut.io.alu(2).ready.expect(true.B)
       dut.clock.step()
 
-      dut.io.alu(0).valid.poke(false.B)
-      dut.io.alu(2).ready.expect(true.B)
-      dut.io.completion(0).bits.key.group.ridSlot.expect(3.U)
+      dut.io.alu(2).valid.poke(false.B)
+      dut.io.alu(0).ready.expect(true.B)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(1.U)
     }
   }
 
   test("retains a real ALU W1 W2 transaction until one atomic terminal fire") {
-    simulate(new OooIexAluTerminalHarness(p)) { dut =>
+    simulate(new OooIexAluTerminalHarness(core)) { dut =>
       clearHarness(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -351,14 +366,14 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.w1Occupied.expect(false.B)
       dut.io.w2Occupied.expect(true.B)
-      dut.io.completion(0).ready.poke(false.B)
+      dut.io.robResolve(0).ready.poke(false.B)
 
       for (_ <- 0 until 3) {
         dut.io.terminalFireMask.expect(0.U)
-        dut.io.completion(0).valid.expect(true.B)
-        dut.io.completion(0).ready.expect(false.B)
-        expectRetainedMember(dut.io.completion(0).bits.key)
-        dut.io.completion.drop(1).foreach(_.valid.expect(false.B))
+        dut.io.robResolve(0).valid.expect(true.B)
+        dut.io.robResolve(0).ready.expect(false.B)
+        dut.io.robResolve(0).bits.rob.ridSlot.expect(3.U)
+        dut.io.robResolve.drop(1).foreach(_.valid.expect(false.B))
         dut.io.retainedW2.valid.expect(true.B)
         expectRetainedMember(dut.io.retainedW2.bits.execute.i2.row
           .schedule.member)
@@ -378,27 +393,27 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
         dut.clock.step()
       }
 
-      dut.io.completion(0).ready.poke(true.B)
+      dut.io.robResolve(0).ready.poke(true.B)
       dut.io.terminalFireMask.expect(1.U)
-      dut.io.completion(0).valid.expect(true.B)
-      expectRetainedMember(dut.io.completion(0).bits.key)
-      dut.io.completion(0).bits.faultValid.expect(false.B)
-      dut.io.completion(0).bits.faultCause.expect(0.U)
-      dut.io.completion.drop(1).foreach(_.valid.expect(false.B))
+      dut.io.robResolve(0).valid.expect(true.B)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(3.U)
+      dut.io.robResolve(0).bits.trap.valid.expect(false.B)
+      dut.io.robResolve(0).bits.trap.cause.expect(0.U)
+      dut.io.robResolve.drop(1).foreach(_.valid.expect(false.B))
       dut.io.pWrite(0).valid.expect(true.B)
       dut.io.pWrite(0).bits.commit.expect(true.B)
-      dut.io.pWrite(0).bits.key.stid.expect(1.U)
+      dut.io.pWrite(0).bits.key.stid.expect(0.U)
       dut.io.pWrite(0).bits.key.epoch.expect(9.U)
-      dut.io.pWrite(0).bits.key.ptag.expect(37.U)
+      dut.io.pWrite(0).bits.key.ptag.expect(27.U)
       dut.io.pWrite(0).bits.key.generation.expect(3.U)
       dut.io.pWrite(0).bits.data.expect(42.U)
       dut.io.pWrite.drop(1).foreach(_.valid.expect(false.B))
       dut.io.wakeup(0).valid.expect(true.B)
       dut.io.wakeup(0).bits.kind.expect(OooIexWakeupKind.Committed)
-      dut.io.wakeup(0).bits.stid.expect(1.U)
+      dut.io.wakeup(0).bits.stid.expect(0.U)
       dut.io.wakeup(0).bits.epoch.expect(9.U)
       dut.io.wakeup(0).bits.operandClass.expect(OperandClass.P)
-      dut.io.wakeup(0).bits.ptag.expect(37.U)
+      dut.io.wakeup(0).bits.ptag.expect(27.U)
       dut.io.wakeup(0).bits.ptagGeneration.expect(3.U)
       dut.io.wakeup(0).bits.localTag.expect(0.U)
       dut.io.wakeup(0).bits.localSequence.valid.expect(false.B)
@@ -412,7 +427,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
       expectRetainedMember(trace.member)
       trace.uopKey.primaryParent.valid.expect(true.B)
       trace.uopKey.primaryParent.peId.expect(3.U)
-      trace.uopKey.primaryParent.stid.expect(1.U)
+      trace.uopKey.primaryParent.stid.expect(0.U)
       trace.uopKey.primaryParent.instructionId.expect(43.U)
       trace.uopKey.primaryParent.epoch.expect(0.U)
       trace.uopKey.uopOrdinal.expect(0.U)
@@ -441,7 +456,7 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
         dut.io.w2Occupied.expect(false.B)
         dut.io.retainedW2.valid.expect(false.B)
         dut.io.terminalFireMask.expect(0.U)
-        dut.io.completion.foreach(_.valid.expect(false.B))
+        dut.io.robResolve.foreach(_.valid.expect(false.B))
         dut.io.pWrite.foreach(_.valid.expect(false.B))
         dut.io.wakeup.foreach(_.valid.expect(false.B))
         dut.io.trace.foreach(_.valid.expect(false.B))

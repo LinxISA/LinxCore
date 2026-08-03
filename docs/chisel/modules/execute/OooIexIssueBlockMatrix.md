@@ -66,9 +66,7 @@ resident row again.
 - `bash tools/chisel/run_chisel_tests.sh --only OooIexIssueBlockMatrixSpec`
 - exact integration case: `OooIexIssueSpec` test containing
   `policy blocks a resident row`
-- `bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1FabricSpec`
-- `bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabricSpec`
-- `bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1IntegrationSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec`
 - `bash tools/chisel/build_chisel.sh`
 
 The UT covers load/store qualification, accumulated shared and private
@@ -81,7 +79,7 @@ normal pick.
 - concrete LSU LDQ/STQ-window and sidedoor producers in the canonical static
   top;
 - concrete busy/latency/reflow/result-bus producers for every typed execution
-  pipe; same-cycle DIV/PAC/SYS sharing between ALU2/ALU5 is already resolved
-  before RF read, while later conflicts use exact I1/I2 stage-cancel and repick;
+  pipe; shared multicycle/PAC/system conflicts are resolved before RF read,
+  while later conflicts use exact I1/I2 stage-cancel and repick;
 - liveness counters and safe-mode peer suppression;
 - measured workload validation of the static ALU/AGU/STD/BRU mapping.

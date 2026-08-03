@@ -1,12 +1,14 @@
-package linxcore.ooo
+package linxcore.iex
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, ScalarLsuParams}
+import linxcore.ooo._
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
-class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
+class LoadIexIssuePipelineSpec extends AnyFunSuite with ChiselSim {
   private val p = OooParams(
     stidCount = 4,
     instructionDecodeWidth = 2,
@@ -20,9 +22,9 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
     robNonFlushScanGroupsPerCycle = 2,
     brobEntriesPerStid = 16,
     pcBufferEntries = 16,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -38,29 +40,79 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
       loadReturnPipeCount = 3,
       stidCount = 4))
 
-  private def clear(dut: OooIexLoadLiqAllocAdapter): Unit = {
+  test("derives the W4 two-lane issue geometry from the canonical LSU profile") {
+    val twoPipeCore = core.copy(
+      scalarLsu = core.scalarLsu.copy(loadReturnPipeCount = 2))
+
+    simulate(new LoadIexIssuePipeline(p, twoPipeCore)) { dut =>
+      assert(dut.io.agu.length == 2)
+      assert(dut.io.rejected.length == 2)
+    }
+  }
+
+  private def clear(dut: LoadIexIssuePipeline): Unit = {
     dut.io.agu.foreach { lane =>
       lane.valid.poke(false.B)
       lane.bits.poke(0.U.asTypeOf(lane.bits))
     }
     dut.io.alloc.ready.poke(false.B)
-    dut.io.recoveryApply.valid.poke(false.B)
-    dut.io.recoveryApply.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryApply.bits))
-    dut.io.recoveryFence.poke(false.B)
-    dut.io.flush.poke(false.B)
+    dut.io.recovery.prepare.valid.poke(false.B)
+    dut.io.recovery.prepare.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.prepare.bits))
+    dut.io.recovery.prepared.ready.poke(false.B)
+    dut.io.recovery.apply.valid.poke(false.B)
+    dut.io.recovery.apply.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.apply.bits))
+    dut.io.recovery.abort.valid.poke(false.B)
+    dut.io.recovery.abort.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.abort.bits))
+  }
+
+  private def pokeRecoveryPlan(
+      plan: RecoveryPlan,
+      phase: RecoveryPhase.Type,
+      transactionId: Int,
+      stid: Int,
+      firstRid: Int,
+      lastRid: Int): Unit = {
+    plan.poke(0.U.asTypeOf(plan))
+    plan.transactionId.poke(transactionId.U)
+    plan.phase.poke(phase)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(stid.U)
+    plan.trigger.ridSlot.poke(firstRid.U)
+    plan.trigger.ridGeneration.poke(5.U)
+    plan.trigger.memberIndex.poke(1.U)
+    plan.firstKilledValid.poke(true.B)
+    plan.firstKilled.peId.poke(3.U)
+    plan.firstKilled.stid.poke(stid.U)
+    plan.firstKilled.ridSlot.poke(firstRid.U)
+    plan.firstKilled.ridGeneration.poke(5.U)
+    plan.firstKilled.memberIndex.poke(1.U)
+    plan.lastKilled.peId.poke(3.U)
+    plan.lastKilled.stid.poke(stid.U)
+    plan.lastKilled.ridSlot.poke(lastRid.U)
+    plan.lastKilled.ridGeneration.poke(5.U)
+    plan.lastKilled.memberIndex.poke(1.U)
+    plan.killedGroupCount.poke((lastRid - firstRid + 1).U)
+    plan.killedMemberCount.poke((lastRid - firstRid + 1).U)
   }
 
   private def pokeRequest(
-      dut: OooIexLoadLiqAllocAdapter,
+      dut: LoadIexIssuePipeline,
       lane: Int,
       ridSlot: Int,
       nativeBid: Int,
       firstLsid: BigInt,
       firstLoadId: BigInt,
       storeTail: BigInt,
-      pcValid: Boolean = true): Unit = {
+      transactionValue: BigInt = 0,
+      transactionGeneration: BigInt = 0,
+      attemptGeneration: BigInt = 1,
+      pcValid: Boolean = true,
+      stid: Int = -1): Unit = {
     val input = dut.io.agu(lane)
+    val requestStid = if (stid >= 0) stid else lane + 1
     val youngestStoreLsid = if (storeTail != 0) firstLsid - 3 else BigInt(0)
     input.bits.poke(0.U.asTypeOf(input.bits))
     input.valid.poke(true.B)
@@ -75,11 +127,16 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
     val row = execute.i2.row
     row.schedule.valid.poke(true.B)
     row.schedule.peId.poke(3.U)
-    row.schedule.stid.poke((lane + 1).U)
+    row.schedule.stid.poke(requestStid.U)
     row.schedule.epoch.poke(7.U)
+    row.schedule.memoryTransactionValid.poke(true.B)
+    row.schedule.memoryTransaction.value.poke(transactionValue.U)
+    row.schedule.memoryTransaction.generation.poke(transactionGeneration.U)
+    row.schedule.initialLoadAttemptValid.poke(true.B)
+    row.schedule.initialLoadAttemptGeneration.poke(attemptGeneration.U)
     row.schedule.member.group.valid.poke(true.B)
     row.schedule.member.group.peId.poke(3.U)
-    row.schedule.member.group.stid.poke((lane + 1).U)
+    row.schedule.member.group.stid.poke(requestStid.U)
     row.schedule.member.group.ridSlot.poke(ridSlot.U)
     row.schedule.member.group.ridGeneration.poke(5.U)
     row.schedule.member.bid.valid.poke(true.B)
@@ -139,11 +196,13 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("maps the exact OOO producer and 40-bit memory order into one LIQ alloc") {
-    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)
       val lsid = BigInt("100000001", 16)
       pokeRequest(dut, lane = 2, ridSlot = 6, nativeBid = 13,
-        firstLsid = lsid, firstLoadId = 9, storeTail = 4)
+        firstLsid = lsid, firstLoadId = 9, storeTail = 4,
+        transactionValue = 0x1234, transactionGeneration = 7,
+        attemptGeneration = 9)
 
       dut.io.alloc.valid.expect(true.B)
       dut.io.agu(2).ready.expect(false.B)
@@ -153,7 +212,14 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
       dut.io.alloc.bits.attempt.producer.ridGeneration.expect(5.U)
       dut.io.alloc.bits.attempt.producer.memberIndex.expect(1.U)
       dut.io.alloc.bits.attempt.producer.residentGeneration.expect(11.U)
-      dut.io.alloc.bits.attempt.generation.expect(1.U)
+      dut.io.alloc.bits.attempt.generation.expect(9.U)
+      dut.io.accepted.bits.load.transaction.value.expect(0x1234.U)
+      dut.io.accepted.bits.load.transaction.generation.expect(7.U)
+      dut.clock.step(2)
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.alloc.bits.attempt.generation.expect(9.U)
+      dut.io.accepted.bits.load.transaction.value.expect(0x1234.U)
+      dut.io.accepted.bits.load.transaction.generation.expect(7.U)
       dut.io.alloc.bits.bid.valid.expect(true.B)
       dut.io.alloc.bits.bid.value.expect(5.U)
       dut.io.alloc.bits.bid.wrap.expect(true.B)
@@ -187,38 +253,70 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
       dut.io.agu(2).ready.expect(true.B)
       dut.io.accepted.valid.expect(true.B)
       dut.io.accepted.bits.lane.expect(2.U)
-      dut.io.accepted.bits.load.generation.expect(1.U)
+      dut.io.accepted.bits.load.generation.expect(9.U)
       dut.clock.step()
 
       dut.io.agu(2).valid.poke(false.B)
       pokeRequest(dut, lane = 2, ridSlot = 7, nativeBid = 14,
-        firstLsid = lsid + 1, firstLoadId = 10, storeTail = 4)
-      dut.io.alloc.bits.attempt.generation.expect(2.U)
+        firstLsid = lsid + 1, firstLoadId = 10, storeTail = 4,
+        transactionValue = 0x1235, transactionGeneration = 7,
+        attemptGeneration = 10)
+      dut.io.alloc.bits.attempt.generation.expect(10.U)
+      dut.io.accepted.bits.load.transaction.value.expect(0x1235.U)
+      dut.io.accepted.bits.load.transaction.generation.expect(7.U)
+    }
+  }
+
+  test("rejects a load without the retained IEX transaction or initial attempt") {
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
+      clear(dut)
+      pokeRequest(dut, lane = 0, ridSlot = 1, nativeBid = 2,
+        firstLsid = 1, firstLoadId = 1, storeTail = 0)
+      dut.io.alloc.ready.poke(true.B)
+
+      dut.io.agu(0).bits.execute.i2.row.schedule.memoryTransactionValid
+        .poke(false.B)
+      dut.io.alloc.valid.expect(false.B)
+      dut.io.rejected(0).valid.expect(true.B)
+      dut.io.rejected(0).bits.identityExact.expect(false.B)
+
+      dut.io.agu(0).bits.execute.i2.row.schedule.memoryTransactionValid
+        .poke(true.B)
+      dut.io.agu(0).bits.execute.i2.row.schedule.initialLoadAttemptValid
+        .poke(false.B)
+      dut.io.alloc.valid.expect(false.B)
+      dut.io.rejected(0).valid.expect(true.B)
+      dut.io.rejected(0).bits.loadShapeExact.expect(false.B)
     }
   }
 
   test("arbitrates three retained AGUs fairly without adding residency") {
-    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)
       for (lane <- 0 until 3) {
         pokeRequest(dut, lane, ridSlot = lane + 1, nativeBid = lane + 3,
-          firstLsid = 20 + lane, firstLoadId = 10 + lane, storeTail = 0)
+          firstLsid = 20 + lane, firstLoadId = 10 + lane, storeTail = 0,
+          transactionValue = lane, attemptGeneration = lane + 1)
       }
       dut.io.alloc.ready.poke(true.B)
 
-      for (expected <- 0 until 3) {
+      var accepted = Set.empty[Int]
+      for (_ <- 0 until 3) {
         dut.io.accepted.valid.expect(true.B)
-        dut.io.accepted.bits.lane.expect(expected.U)
-        dut.io.alloc.bits.returnPipeIndex.expect(expected.U)
+        val lane = dut.io.accepted.bits.lane.peek().litValue.toInt
+        assert(!accepted.contains(lane), s"lane $lane granted twice")
+        accepted += lane
+        dut.io.alloc.bits.returnPipeIndex.expect(lane.U)
         dut.clock.step()
-        dut.io.agu(expected).valid.poke(false.B)
+        dut.io.agu(lane).valid.poke(false.B)
       }
+      assert(accepted == Set(0, 1, 2))
       dut.io.alloc.valid.expect(false.B)
     }
   }
 
-  test("fails closed for missing PC and destructively drains recovery kills") {
-    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+  test("fails closed for missing PC") {
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)
       pokeRequest(dut, lane = 0, ridSlot = 1, nativeBid = 2,
         firstLsid = 1, firstLoadId = 1, storeTail = 0, pcValid = false)
@@ -228,20 +326,6 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
       dut.io.rejected(0).valid.expect(true.B)
       dut.io.rejected(0).bits.pcExact.expect(false.B)
 
-      dut.io.agu(0).bits.pcValid.poke(true.B)
-      dut.io.flush.poke(true.B)
-      dut.io.alloc.valid.expect(false.B)
-      dut.io.agu(0).ready.expect(true.B)
-      dut.io.rejected(0).bits.flushed.expect(true.B)
-      dut.clock.step()
-
-      // The producer observed ready during flush, so the old request is gone.
-      dut.io.agu(0).valid.poke(false.B)
-      dut.io.flush.poke(false.B)
-      dut.io.alloc.valid.expect(false.B)
-
-      // A fresh request receives the first generation; the dropped request did
-      // not consume allocation identity.
       pokeRequest(dut, lane = 0, ridSlot = 1, nativeBid = 2,
         firstLsid = 1, firstLoadId = 1, storeTail = 0)
       dut.io.alloc.valid.expect(true.B)
@@ -250,63 +334,95 @@ class OooIexLoadLiqAllocAdapterSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.agu(0).valid.poke(false.B)
       pokeRequest(dut, lane = 0, ridSlot = 2, nativeBid = 3,
-        firstLsid = 2, firstLoadId = 2, storeTail = 0)
+        firstLsid = 2, firstLoadId = 2, storeTail = 0,
+        transactionValue = 1, attemptGeneration = 2)
       dut.io.alloc.bits.attempt.generation.expect(2.U)
     }
   }
 
-  test("destructively drains an exact killed member without allocating it") {
-    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+  test("prepares without mutation fences only the target STID and lets peers progress") {
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)
-      pokeRequest(dut, lane = 1, ridSlot = 2, nativeBid = 4,
+      pokeRequest(dut, lane = 0, ridSlot = 2, nativeBid = 4,
         firstLsid = 9, firstLoadId = 3, storeTail = 0)
+      pokeRequest(dut, lane = 1, ridSlot = 4, nativeBid = 6,
+        firstLsid = 11, firstLoadId = 5, storeTail = 0,
+        transactionValue = 1, attemptGeneration = 2)
       dut.io.alloc.ready.poke(true.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits, RecoveryPhase.Prepare,
+        transactionId = 17, stid = 1, firstRid = 2, lastRid = 3)
+      dut.io.recovery.prepare.valid.poke(true.B)
 
-      val plan = dut.io.recoveryApply.bits
-      plan.poke(0.U.asTypeOf(plan))
-      plan.valid.poke(true.B)
-      plan.oldHead.valid.poke(true.B)
-      plan.oldHead.peId.poke(3.U)
-      plan.oldHead.stid.poke(2.U)
-      plan.oldHead.ridSlot.poke(0.U)
-      plan.oldHead.ridGeneration.poke(5.U)
-      plan.oldOccupied.poke(4.U)
-      plan.newOccupied.poke(2.U)
-      dut.io.recoveryApply.valid.poke(true.B)
-
-      dut.io.alloc.valid.expect(false.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
+      dut.io.agu(0).ready.expect(false.B)
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.accepted.bits.lane.expect(1.U)
       dut.io.agu(1).ready.expect(true.B)
-      dut.io.rejected(1).valid.expect(true.B)
-      dut.io.rejected(1).bits.killed.expect(true.B)
       dut.clock.step()
 
       dut.io.agu(1).valid.poke(false.B)
-      dut.io.recoveryApply.valid.poke(false.B)
-      dut.io.alloc.valid.expect(false.B)
+      dut.io.recovery.prepare.valid.poke(false.B)
+      dut.io.recovery.prepared.valid.expect(true.B)
+      dut.io.recovery.prepared.bits.transactionId.expect(17.U)
+      dut.io.recovery.prepared.bits.phase.expect(RecoveryPhase.Prepare)
+      dut.io.agu(0).ready.expect(false.B)
 
-      pokeRequest(dut, lane = 1, ridSlot = 3, nativeBid = 5,
-        firstLsid = 10, firstLoadId = 4, storeTail = 0)
+      pokeRecoveryPlan(dut.io.recovery.abort.bits, RecoveryPhase.Abort,
+        transactionId = 17, stid = 1, firstRid = 2, lastRid = 3)
+      dut.io.recovery.abort.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.abort.valid.poke(false.B)
+
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.agu(0).ready.expect(true.B)
+      // IEX allocated both identities before this bridge. Prepare and abort
+      // preserve the target request's original initial attempt exactly.
       dut.io.alloc.bits.attempt.generation.expect(1.U)
     }
   }
 
-  test("holds every producer without mutation while recovery is preparing") {
-    simulate(new OooIexLoadLiqAllocAdapter(p, core)) { dut =>
+  test("Apply drains only an exact suffix member without allocating or rewinding generation") {
+    simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)
-      pokeRequest(dut, lane = 0, ridSlot = 1, nativeBid = 2,
-        firstLsid = 1, firstLoadId = 1, storeTail = 0)
+      pokeRequest(dut, lane = 0, ridSlot = 2, nativeBid = 4,
+        firstLsid = 9, firstLoadId = 3, storeTail = 0, stid = 2)
+      pokeRequest(dut, lane = 1, ridSlot = 4, nativeBid = 6,
+        firstLsid = 10, firstLoadId = 4, storeTail = 0,
+        transactionValue = 1, attemptGeneration = 2, stid = 2)
       dut.io.alloc.ready.poke(true.B)
-      dut.io.recoveryFence.poke(true.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits, RecoveryPhase.Prepare,
+        transactionId = 23, stid = 2, firstRid = 2, lastRid = 3)
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepare.valid.poke(false.B)
 
       dut.io.alloc.valid.expect(false.B)
       dut.io.agu(0).ready.expect(false.B)
+      dut.io.agu(1).ready.expect(false.B)
       dut.io.accepted.valid.expect(false.B)
-      dut.clock.step(2)
+      dut.io.recovery.prepared.valid.expect(true.B)
+      dut.io.recovery.prepared.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepared.ready.poke(false.B)
 
-      dut.io.recoveryFence.poke(false.B)
-      dut.io.alloc.valid.expect(true.B)
-      dut.io.alloc.bits.attempt.generation.expect(1.U)
+      pokeRecoveryPlan(dut.io.recovery.apply.bits, RecoveryPhase.Apply,
+        transactionId = 23, stid = 2, firstRid = 2, lastRid = 3)
+      dut.io.recovery.apply.valid.poke(true.B)
+      dut.io.alloc.valid.expect(false.B)
+      dut.io.accepted.valid.expect(false.B)
       dut.io.agu(0).ready.expect(true.B)
+      dut.io.rejected(0).valid.expect(true.B)
+      dut.io.rejected(0).bits.killed.expect(true.B)
+      dut.io.agu(1).ready.expect(false.B)
+      dut.io.rejected(1).valid.expect(false.B)
+      dut.clock.step()
+
+      dut.io.agu(0).valid.poke(false.B)
+      dut.io.recovery.apply.valid.poke(false.B)
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.agu(1).ready.expect(true.B)
+      dut.io.alloc.bits.attempt.generation.expect(2.U)
     }
   }
 }

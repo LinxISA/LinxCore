@@ -2,6 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.RecoveryPlan
 
 /** Elaboration-time projection of one picker/execution lane. */
 final case class OooIexIssueDomainConfig(
@@ -60,7 +62,9 @@ object OooIexIssueDomainConfig {
   }
 }
 
-class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
+class OooIexE1TransferFabricIO(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
     extends Bundle {
   val i2 = Flipped(Vec(p.iexIssueDomainCount,
     Decoupled(new OooIexI2Transaction(p))))
@@ -70,7 +74,7 @@ class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
   val e1 = Vec(p.iexIssueDomainCount,
     Decoupled(new OooIexExecuteTransaction(p)))
 
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(coreParams)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -96,13 +100,18 @@ class OooIexE1TransferFabricIO(val p: OooParams = OooParams())
   */
 class OooIexE1TransferFabric(
     val p: OooParams,
-    val domains: Seq[OooIexIssueDomainConfig]) extends Module {
+    val domains: Seq[OooIexIssueDomainConfig],
+    val coreParams: CoreParams)
+    extends Module {
+  def this(p: OooParams, domains: Seq[OooIexIssueDomainConfig]) =
+    this(p, domains, OooRecoveryMembership.coreParams(p))
   OooIexIssueDomainConfig.validate(p, domains)
+  OooRecoveryMembership.requireCompatible(p, coreParams)
 
-  val io = IO(new OooIexE1TransferFabricIO(p))
+  val io = IO(new OooIexE1TransferFabricIO(p, coreParams))
   val slots = domains.zipWithIndex.map { case (domain, lane) =>
     Module(new OooIexE1TransferSlot(p, domain.classBankEnables, lane,
-      domain.capabilities))
+      domain.capabilities, coreParams))
   }
 
   for (((slot, domain), lane) <- slots.zip(domains).zipWithIndex) {
@@ -133,7 +142,7 @@ class OooIexE1TransferFabric(
   io.empty := !io.occupied.asUInt.orR
 }
 
-/** Production Linx specialization driven by the formal physical profile. */
+/** Linx E1 transfer specialization driven by the physical profile. */
 class OooIexLinxE1TransferFabric(
     val profile: OooIexPhysicalProfile =
       OooIexLinxPhysicalProfile())

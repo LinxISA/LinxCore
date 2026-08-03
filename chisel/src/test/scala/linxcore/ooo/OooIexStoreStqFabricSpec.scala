@@ -2,6 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import linxcore.top.interface.{RecoveryCause, RecoveryPhase, RecoveryPlan,
+  RobIdentity}
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
@@ -13,27 +15,29 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     dispatchWidth = 4,
     retireGroupWidth = 2,
     robGroupsPerStid = 8,
-    robBankCount = 2,
+    robBankCount = 4,
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
     tuRetireSourceDepthPerStid = 32,
     lsidWidth = 40)
+  private val core = OooRecoveryMembership.coreParams(p)
 
   private def pokeMember(
       member: RobMemberKey,
       memberIndex: Int,
-      ridSlot: Int): Unit = {
+      ridSlot: Int,
+      stid: Int = 1): Unit = {
     member.poke(0.U.asTypeOf(member))
     member.group.valid.poke(true.B)
     member.group.peId.poke(1.U)
-    member.group.stid.poke(1.U)
+    member.group.stid.poke(stid.U)
     member.group.ridSlot.poke(ridSlot.U)
     member.group.ridGeneration.poke(7.U)
     member.bid.valid.poke(true.B)
@@ -49,13 +53,14 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       ridSlot: Int,
       firstLsid: BigInt,
       firstStoreId: BigInt,
-      requestCount: Int = 1): Unit = {
+      requestCount: Int = 1,
+      stid: Int = 1): Unit = {
     row.poke(0.U.asTypeOf(row))
     row.schedule.valid.poke(true.B)
     row.schedule.peId.poke(1.U)
-    row.schedule.stid.poke(1.U)
+    row.schedule.stid.poke(stid.U)
     row.schedule.childIndex.poke(0.U)
-    pokeMember(row.schedule.member, memberIndex, ridSlot)
+    pokeMember(row.schedule.member, memberIndex, ridSlot, stid)
     row.schedule.reservation.valid.poke(true.B)
     row.schedule.reservation.uopClass.poke(OooUopClass.Agu)
     row.payload.recipe.valid.poke(true.B)
@@ -95,7 +100,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     execute.ownerClass.poke(
       (if (addressHalf) OooUopClass.Agu else OooUopClass.Std))
     pokeStoreRow(execute.i2.row,
-      memberIndex = memberIndex + (if (addressHalf) 0 else 1),
+      memberIndex = memberIndex,
       ridSlot = ridSlot,
       firstLsid = firstLsid,
       firstStoreId = firstStoreId,
@@ -124,10 +129,16 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeData(lane).bits.poke(
         0.U.asTypeOf(dut.io.storeData(lane).bits))
     }
-    dut.io.recoveryPrepare.valid.poke(false.B)
-    dut.io.recoveryPrepare.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
-    dut.io.recoveryFire.poke(false.B)
+    dut.io.recovery.prepare.valid.poke(false.B)
+    dut.io.recovery.prepare.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.prepare.bits))
+    dut.io.recovery.prepared.ready.poke(true.B)
+    dut.io.recovery.apply.valid.poke(false.B)
+    dut.io.recovery.apply.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.apply.bits))
+    dut.io.recovery.abort.valid.poke(false.B)
+    dut.io.recovery.abort.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.abort.bits))
     dut.io.loadCancel.foreach(_.poke(0.U.asTypeOf(
       dut.io.loadCancel.head)))
     dut.io.loadForwardQuery.foreach { query =>
@@ -143,7 +154,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retains an address fill until its late STA side effect is permitted") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 2, 2, BigInt("100000041", 16),
         BigInt("200000041", 16))
@@ -191,9 +202,10 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       ridSlot: Int,
       firstLsid: BigInt,
       firstStoreId: BigInt,
-      requestCount: Int = 1): Unit = {
+      requestCount: Int = 1,
+      stid: Int = 1): Unit = {
     pokeStoreRow(dut.io.reserve.bits, memberIndex, ridSlot,
-      firstLsid, firstStoreId, requestCount)
+      firstLsid, firstStoreId, requestCount, stid)
     dut.io.reserve.valid.poke(true.B)
     dut.io.reserve.ready.expect(true.B)
     dut.io.reserveAccepted.expect(true.B)
@@ -201,8 +213,45 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.reserve.valid.poke(false.B)
   }
 
+  private def pokeIdentity(
+      identity: RobIdentity,
+      memberIndex: Int,
+      ridSlot: Int,
+      stid: Int = 1): Unit = {
+    identity.poke(0.U.asTypeOf(identity))
+    identity.peId.poke(1.U)
+    identity.stid.poke(stid.U)
+    identity.ridSlot.poke(ridSlot.U)
+    identity.ridGeneration.poke(7.U)
+    identity.memberIndex.poke(memberIndex.U)
+    identity.residentGeneration.poke(9.U)
+    identity.bid.poke(0x93.U)
+    identity.brobGeneration.poke(8.U)
+  }
+
+  private def pokeRecoveryPlan(
+      plan: RecoveryPlan,
+      phase: RecoveryPhase.Type,
+      transactionId: Int,
+      memberIndex: Int,
+      ridSlot: Int,
+      stid: Int = 1,
+      lastMemberIndex: Int = -1): Unit = {
+    plan.poke(0.U.asTypeOf(plan))
+    plan.transactionId.poke(transactionId.U)
+    plan.phase.poke(phase)
+    plan.cause.poke(RecoveryCause.Branch)
+    pokeIdentity(plan.trigger, memberIndex, ridSlot, stid)
+    plan.firstKilledValid.poke(true.B)
+    pokeIdentity(plan.firstKilled, memberIndex, ridSlot, stid)
+    val finalMember = if (lastMemberIndex < 0) memberIndex else lastMemberIndex
+    pokeIdentity(plan.lastKilled, finalMember, ridSlot, stid)
+    plan.killedGroupCount.poke(1.U)
+    plan.killedMemberCount.poke((finalMember - memberIndex + 1).U)
+  }
+
   test("two logical stores keep independent leases across crossed STA STD lanes") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 2, 2, BigInt("100000001", 16),
         BigInt("200000001", 16))
@@ -297,7 +346,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("both STD lanes write independent physical data-bank ports in one cycle") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 2, 2, BigInt("100000011", 16),
         BigInt("200000011", 16))
@@ -326,7 +375,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("unreserved execution is retained upstream and cannot allocate by CAM") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       pokeExecute(dut.io.storeAddress(0).bits, addressHalf = true,
         6, 4, BigInt("100000003", 16), BigInt("200000003", 16))
@@ -342,7 +391,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("one recovery plan cancels retained STD and frees its exact STQ lease") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 3, 6, BigInt("100000010", 16),
         BigInt("200000010", 16), requestCount = 2)
@@ -355,29 +404,27 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeData(0).valid.poke(false.B)
       dut.io.storePipelinesOccupied.expect(1.U)
 
-      val plan = dut.io.recoveryPrepare.bits
-      plan.poke(0.U.asTypeOf(plan))
-      plan.valid.poke(true.B)
-      plan.oldHead.valid.poke(true.B)
-      plan.oldHead.peId.poke(1.U)
-      plan.oldHead.stid.poke(1.U)
-      plan.oldHead.ridSlot.poke(0.U)
-      plan.oldHead.ridGeneration.poke(7.U)
-      plan.oldOccupied.poke(8.U)
-      plan.newOccupied.poke(2.U)
-      dut.io.recoveryPrepare.valid.poke(true.B)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits,
+        RecoveryPhase.Prepare, transactionId = 91,
+        memberIndex = 3, ridSlot = 6)
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
       dut.io.lateStaProbe.valid.expect(false.B)
       dut.io.recoveryFreeMask.expect(3.U)
       dut.io.recoveryApplied.expect(false.B)
       dut.clock.step()
+      dut.io.recovery.prepare.valid.poke(false.B)
       dut.io.residentCount.expect(2.U)
       dut.io.storePipelinesOccupied.expect(1.U)
-      dut.io.recoveryFire.poke(true.B)
+      dut.io.recovery.prepared.valid.expect(true.B)
+      dut.clock.step()
+      pokeRecoveryPlan(dut.io.recovery.apply.bits,
+        RecoveryPhase.Apply, transactionId = 91,
+        memberIndex = 3, ridSlot = 6)
+      dut.io.recovery.apply.valid.poke(true.B)
       dut.io.recoveryApplied.expect(true.B)
       dut.clock.step()
-      dut.io.recoveryFire.poke(false.B)
-      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recovery.apply.valid.poke(false.B)
       dut.io.residentCount.expect(0.U)
       dut.io.storePipelinesOccupied.expect(0.U)
       dut.clock.step(2)
@@ -385,34 +432,22 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("recovery prepare fences mutation and rejects a split-store partial cut") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+  test("recovery Prepare fences its STID and matching Abort preserves rows") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 0, 5, BigInt("100000020", 16),
         BigInt("200000020", 16))
 
-      val plan = dut.io.recoveryPrepare.bits
-      plan.poke(0.U.asTypeOf(plan))
-      plan.valid.poke(true.B)
-      plan.oldHead.valid.poke(true.B)
-      plan.oldHead.peId.poke(1.U)
-      plan.oldHead.stid.poke(1.U)
-      plan.oldHead.ridSlot.poke(0.U)
-      plan.oldHead.ridGeneration.poke(7.U)
-      plan.oldOccupied.poke(8.U)
-      plan.newOccupied.poke(1.U)
-      plan.pivotOffset.poke(0.U)
-      pokeMember(plan.pivot, memberIndex = 0, ridSlot = 5)
-      plan.pivotPhysicalMemberCount.poke(2.U)
-      plan.survivingPivotValid.poke(true.B)
-      plan.survivingPivotPhysicalMemberCount.poke(1.U)
-      dut.io.recoveryPrepare.valid.poke(true.B)
-
-      dut.io.recoveryPrepareReady.expect(false.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits,
+        RecoveryPhase.Prepare, transactionId = 92,
+        memberIndex = 0, ridSlot = 5)
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
       dut.io.lateStaProbe.valid.expect(false.B)
-      dut.io.recoveryPartialStoreCut.expect(true.B)
-      dut.io.recoveryRejected.expect(true.B)
-      dut.io.recoveryFreeMask.expect(0.U)
+      dut.io.recoveryRejected.expect(false.B)
+      dut.io.recoveryFreeMask.expect(1.U)
+      dut.clock.step()
+      dut.io.recovery.prepare.valid.poke(false.B)
 
       pokeStoreRow(dut.io.reserve.bits, 2, 6,
         BigInt("100000021", 16), BigInt("200000021", 16))
@@ -424,18 +459,59 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.commitFreeMaskValid.poke(true.B)
       dut.io.commitFreeMask.poke(1.U)
       dut.io.commitFreeAcceptedMask.expect(0.U)
-      dut.clock.step(2)
+      dut.clock.step()
       dut.io.residentCount.expect(1.U)
 
       dut.io.reserve.valid.poke(false.B)
       dut.io.markCommitValid.poke(false.B)
       dut.io.commitFreeMaskValid.poke(false.B)
-      dut.io.recoveryPrepare.valid.poke(false.B)
+      pokeRecoveryPlan(dut.io.recovery.abort.bits,
+        RecoveryPhase.Abort, transactionId = 92,
+        memberIndex = 0, ridSlot = 5)
+      dut.io.recovery.abort.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.abort.valid.poke(false.B)
+      dut.io.residentCount.expect(1.U)
+      pokeStoreRow(dut.io.reserve.bits, 2, 6,
+        BigInt("100000021", 16), BigInt("200000021", 16))
+      dut.io.reserve.valid.poke(true.B)
+      dut.io.reserve.ready.expect(true.B)
     }
   }
 
-  test("cross-line stores block only overlapping production load queries") {
-    simulate(new OooIexStoreStqFabric(p, stqEntries = 4)) { dut =>
+  test("peer STID reservation survives and progresses across target Apply") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, 0, 5, BigInt("100000050", 16),
+        BigInt("200000050", 16), stid = 1)
+
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits,
+        RecoveryPhase.Prepare, transactionId = 93,
+        memberIndex = 0, ridSlot = 5, stid = 1)
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepare.valid.poke(false.B)
+
+      reserve(dut, 1, 2, BigInt("100000051", 16),
+        BigInt("200000051", 16), stid = 0)
+      dut.io.residentCount.expect(2.U)
+
+      pokeRecoveryPlan(dut.io.recovery.apply.bits,
+        RecoveryPhase.Apply, transactionId = 93,
+        memberIndex = 0, ridSlot = 5, stid = 1)
+      dut.io.recovery.apply.valid.poke(true.B)
+      dut.io.recoveryApplied.expect(true.B)
+      dut.clock.step()
+      dut.io.recovery.apply.valid.poke(false.B)
+      dut.io.residentCount.expect(1.U)
+      dut.io.rows(1).valid.expect(true.B)
+      dut.io.rows(1).stid.expect(0.U)
+    }
+  }
+
+  test("cross-line stores block only overlapping load queries") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       val storeLsid = BigInt("100000030", 16)
       reserve(dut, 2, 2, storeLsid, BigInt("200000030", 16))

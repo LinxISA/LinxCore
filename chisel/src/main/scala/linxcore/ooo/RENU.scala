@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{PriorityEncoder, log2Ceil}
+import chisel3.util.{PopCount, PriorityEncoder, log2Ceil}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -252,8 +252,52 @@ class RENU(val p: CoreParams) extends Module {
     d2LaneShape.reduce(_ && _)
   io.fromD2.ready := !incomingPending && !incomingFenced &&
     d2ShapeExact && pRename.io.prepareReady && tuRename.io.prepareReady
-  io.toD3.valid := anyEligiblePending
-  io.toD3.bits := selectedPending
+  io.candidate.valid := anyEligiblePending
+  io.candidate.bits := selectedPending
+
+  val acceptedCount = io.prefixLimit.bits.count
+  val acceptedGroupCount = io.prefixLimit.bits.groupCount
+  val acceptedLaneGroupMatch = Wire(Vec(width, Vec(width, Bool())))
+  for (lane <- 0 until width; group <- 0 until width) {
+    val row = selectedPending.entries(lane).uop.decoded.rob
+    val intent = selectedPending.groups(group)
+    acceptedLaneGroupMatch(lane)(group) :=
+      lane.U < selectedPending.count && group.U < acceptedGroupCount &&
+      intent.valid && intent.peId === row.peId && intent.stid === row.stid &&
+      intent.ridSlot === row.ridSlot &&
+      intent.ridGeneration === row.ridGeneration
+  }
+  val acceptedPrefixShape = (0 until width).map { lane =>
+    val accepted = lane.U < acceptedCount
+    val matches = PopCount(acceptedLaneGroupMatch(lane))
+    Mux(accepted, matches === 1.U, matches === 0.U)
+  }.reduce(_ && _) && (0 until width).map { group =>
+    val accepted = group.U < acceptedGroupCount
+    val seen = (0 until width).map(lane =>
+      acceptedLaneGroupMatch(lane)(group)).reduce(_ || _)
+    Mux(accepted, seen, !seen)
+  }.reduce(_ && _)
+  val prefixLimitExact = io.prefixLimit.valid && acceptedCount.orR &&
+    acceptedCount <= selectedPending.count && acceptedGroupCount.orR &&
+    acceptedGroupCount <= selectedPending.groupCount &&
+    acceptedGroupCount <= acceptedCount && acceptedPrefixShape
+
+  val selectedPrefix = Wire(new D3RenameGroup(p))
+  selectedPrefix := 0.U.asTypeOf(selectedPrefix)
+  selectedPrefix.count := acceptedCount
+  selectedPrefix.groupCount := acceptedGroupCount
+  for (group <- 0 until width) {
+    when(group.U < acceptedGroupCount) {
+      selectedPrefix.groups(group) := selectedPending.groups(group)
+    }
+  }
+  for (lane <- 0 until width) {
+    when(lane.U < acceptedCount) {
+      selectedPrefix.entries(lane) := selectedPending.entries(lane)
+    }
+  }
+  io.toD3.valid := anyEligiblePending && prefixLimitExact
+  io.toD3.bits := selectedPrefix
 
   when(heldGrantValid && !heldGrantEligible) {
     heldGrantValid := false.B
@@ -264,11 +308,34 @@ class RENU(val p: CoreParams) extends Module {
     heldGrantStid := nextPendingStid
   }
 
+  val compactedSuffix = Wire(new D3RenameGroup(p))
+  compactedSuffix := 0.U.asTypeOf(compactedSuffix)
+  compactedSuffix.count := selectedPending.count - acceptedCount
+  compactedSuffix.groupCount :=
+    selectedPending.groupCount - acceptedGroupCount
+  for (group <- 0 until width) {
+    for (source <- 0 until width) {
+      when(source.U === group.U + acceptedGroupCount &&
+          source.U < selectedPending.groupCount) {
+        compactedSuffix.groups(group) := selectedPending.groups(source)
+      }
+    }
+  }
+  for (lane <- 0 until width) {
+    for (source <- 0 until width) {
+      when(source.U === lane.U + acceptedCount &&
+          source.U < selectedPending.count) {
+        compactedSuffix.entries(lane) := selectedPending.entries(source)
+      }
+    }
+  }
   when(io.toD3.fire) {
     if (p.ooo.stidCount == 1) {
-      pendingValid(0) := false.B
+      pending(0) := compactedSuffix
+      pendingValid(0) := compactedSuffix.count.orR
     } else {
-      pendingValid(selectedPendingStid) := false.B
+      pending(selectedPendingStid) := compactedSuffix
+      pendingValid(selectedPendingStid) := compactedSuffix.count.orR
     }
   }
   when(io.fromD2.fire) {
@@ -289,12 +356,12 @@ class RENU(val p: CoreParams) extends Module {
   }
 
   val publication = Wire(new D3RenameGroup(p))
-  publication := selectedPending
+  publication := selectedPrefix
   when(io.toD3.valid && io.publicationIdentity.valid) {
-    assert(io.publicationIdentity.bits.count === selectedPending.count,
+    assert(io.publicationIdentity.bits.count === acceptedCount,
       "RENU publication identities must cover the exact retained D3 prefix")
     for (lane <- 0 until width) {
-      when(lane.U < selectedPending.count) {
+      when(lane.U < acceptedCount) {
         assert(io.publicationIdentity.bits.entries(lane).valid)
         publication.entries(lane).uop.decoded.rob :=
           io.publicationIdentity.bits.entries(lane).rob

@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, switch, is}
+import chisel3.util.{Decoupled, MuxLookup, PopCount, switch, is}
 import linxcore.common.{BoundaryKind, DestinationKind, OperandClass,
   TemplateRowKind}
 import linxcore.params.CoreParams
@@ -151,6 +151,54 @@ class DEC(val p: CoreParams) extends Module {
     output.uop.instruction := input
     output.uop.opcode := decodedUop.opcode
     mapClass(decodedUop.recipe.dispatchClass, output.uop.uopClass)
+    output.uop.classification.valid := decodedUop.recipe.valid
+    output.uop.classification.disposition := decodedUop.recipe.disposition
+    output.uop.classification.kind := decodedUop.recipe.recipeKind
+    output.uop.classification.uopCountMin := decodedUop.recipe.uopCountMin
+    output.uop.classification.uopCountMax := decodedUop.recipe.uopCountMax
+    output.uop.classification.complexBreak := decodedUop.recipe.complexBreak
+    output.uop.classification.splitKind := decodedUop.recipe.lateSplitKind
+    output.uop.classification.fusionHeadClass :=
+      decodedUop.recipe.fusionHeadClass
+    output.uop.classification.fusionTailClass :=
+      decodedUop.recipe.fusionTailClass
+    output.uop.classification.fastResolveClass :=
+      decodedUop.recipe.fastResolveClass
+    output.uop.classification.implicitSourceMask :=
+      decodedUop.recipe.implicitSourceMask
+    output.uop.classification.implicitDestination :=
+      decodedUop.recipe.implicitDestination
+    output.uop.classification.sideEffectOwner :=
+      decodedUop.recipe.sideEffectOwner
+    output.uop.classification.requiresTargetValidation :=
+      decodedUop.recipe.requiresTargetValidation
+    output.uop.classification.mayTrap := decodedUop.recipe.mayTrap
+    output.uop.classification.mayTrapLate := decodedUop.recipe.mayTrapLate
+    output.uop.classification.mayRedirect := decodedUop.recipe.mayRedirect
+    output.uop.classification.nonspeculative :=
+      decodedUop.recipe.nonspeculative
+    output.uop.classification.pcReadRequired :=
+      decodedUop.recipe.pcReadRequired
+    output.uop.classification.pcReadClass := decodedUop.recipe.pcReadClass
+    output.uop.classification.dispatchClass :=
+      decodedUop.recipe.dispatchClass
+    output.uop.classification.dispatchWrites :=
+      decodedUop.recipe.dispatchWrites
+    for (issueClass <- 0 until p.iex.issueQueueClasses) {
+      output.uop.classification.dispatchDemand(issueClass) :=
+        decodedUop.recipe.dispatchDemand(issueClass)
+      output.uop.classification.executionPipeCapability(issueClass) :=
+        decodedUop.recipe.dispatchCapabilities(issueClass)
+    }
+    output.uop.classification.memoryRequestCount :=
+      decodedUop.recipe.memoryRequestCount
+    output.uop.classification.pSourceCount := decodedUop.recipe.pSourceCount
+    output.uop.classification.pDestinationCount :=
+      decodedUop.recipe.pDestinationCount
+    output.uop.classification.tAllocationCount :=
+      decodedUop.recipe.tAllocationCount
+    output.uop.classification.uAllocationCount :=
+      decodedUop.recipe.uAllocationCount
     for (source <- 0 until p.maxSourceOperands) {
       mapSource(output.uop.sources(source), decodedUop.sources(source))
     }
@@ -230,6 +278,81 @@ class DEC(val p: CoreParams) extends Module {
     val templateStore = input.templateOpcode === TemplateRowKind.STORE.asUInt
     val templateLoad = input.templateOpcode === TemplateRowKind.LOAD.asUInt ||
       input.templateOpcode === TemplateRowKind.VLOAD.asUInt
+    val templateBranch = output.uop.uopClass === UopClass.Bru
+    val templateBoundary = output.uop.uopClass === UopClass.Boundary
+    output.uop.classification.valid := true.B
+    output.uop.classification.disposition := Mux(templateBoundary,
+      OooOpcodeDisposition.FastResolve.U, OooOpcodeDisposition.Dispatch.U)
+    output.uop.classification.kind := Mux(templateStore,
+      OooOpcodeRecipeKind.ScalarStore.U,
+      Mux(templateLoad, OooOpcodeRecipeKind.ScalarLoad.U,
+        Mux(templateBoundary, OooOpcodeRecipeKind.Boundary.U,
+          OooOpcodeRecipeKind.CtuTemplate.U)))
+    output.uop.classification.uopCountMin := 1.U
+    output.uop.classification.uopCountMax := Mux(templateStore, 2.U, 1.U)
+    output.uop.classification.splitKind := Mux(templateStore,
+      OooLateSplitKind.StoreAddressData.U, OooLateSplitKind.None.U)
+    output.uop.classification.fastResolveClass := Mux(templateBoundary,
+      OooFastResolveClass.BoundaryMetadata.U,
+      OooFastResolveClass.None.U)
+    output.uop.classification.sideEffectOwner := Mux(
+      templateStore || templateLoad, OooSideEffectOwner.Lsu.U,
+      Mux(templateBranch, OooSideEffectOwner.Bctrl.U,
+        Mux(templateBoundary, OooSideEffectOwner.Ctu.U,
+          OooSideEffectOwner.Iex.U)))
+    output.uop.classification.mayTrap := input.parent.fetchFault ||
+      templateStore || templateLoad
+    output.uop.classification.mayTrapLate := templateStore || templateLoad
+    output.uop.classification.mayRedirect := templateBranch
+    output.uop.classification.nonspeculative :=
+      templateBranch || templateBoundary
+    output.uop.classification.pcReadRequired := templateBranch
+    output.uop.classification.pcReadClass := Mux(templateBranch,
+      OooDispatchClass.Bru.U, 0.U)
+    output.uop.classification.dispatchClass := MuxLookup(
+      output.uop.uopClass.asUInt, OooDispatchClass.None.U)(Seq(
+        UopClass.Alu.asUInt -> OooDispatchClass.Alu.U,
+        UopClass.Bru.asUInt -> OooDispatchClass.Bru.U,
+        UopClass.Agu.asUInt -> OooDispatchClass.Agu.U,
+        UopClass.Std.asUInt -> OooDispatchClass.Std.U,
+        UopClass.System.asUInt -> OooDispatchClass.Sys.U,
+        UopClass.Cmd.asUInt -> OooDispatchClass.Cmd.U,
+        UopClass.Boundary.asUInt -> OooDispatchClass.None.U))
+    output.uop.classification.dispatchWrites := Mux(
+      templateBoundary, 0.U, Mux(templateStore, 2.U, 1.U))
+    for (issueClass <- 0 until p.iex.issueQueueClasses) {
+      output.uop.classification.dispatchDemand(issueClass) := 0.U
+      output.uop.classification.executionPipeCapability(issueClass) := 0.U
+    }
+    val aluClass = OooDispatchClass.Alu - 1
+    val bruClass = OooDispatchClass.Bru - 1
+    val aguClass = OooDispatchClass.Agu - 1
+    val stdClass = OooDispatchClass.Std - 1
+    when(output.uop.uopClass === UopClass.Alu) {
+      output.uop.classification.dispatchDemand(aluClass) := 1.U
+      output.uop.classification.executionPipeCapability(aluClass) :=
+        OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu).U
+    }
+    when(templateBranch) {
+      output.uop.classification.dispatchDemand(bruClass) := 1.U
+      output.uop.classification.executionPipeCapability(bruClass) :=
+        OooIexDomainCapability.mask(OooIexDomainCapability.Branch).U
+    }
+    when(templateLoad) {
+      output.uop.classification.dispatchDemand(aguClass) := 1.U
+      output.uop.classification.executionPipeCapability(aguClass) :=
+        OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress).U
+    }
+    when(templateStore) {
+      output.uop.classification.dispatchDemand(aguClass) := 1.U
+      output.uop.classification.dispatchDemand(stdClass) := 1.U
+      output.uop.classification.executionPipeCapability(aguClass) :=
+        OooIexDomainCapability.mask(OooIexDomainCapability.StoreAddress).U
+      output.uop.classification.executionPipeCapability(stdClass) :=
+        OooIexDomainCapability.mask(OooIexDomainCapability.StoreData).U
+    }
+    output.uop.classification.memoryRequestCount :=
+      Mux(templateStore || templateLoad, 1.U, 0.U)
     output.uop.memory.valid := templateStore || templateLoad
     output.uop.memory.isStore := templateStore
     output.uop.memory.isLoad := templateLoad

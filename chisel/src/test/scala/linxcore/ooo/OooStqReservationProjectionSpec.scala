@@ -201,7 +201,7 @@ class OooStqReservationProjectionSpec extends AnyFunSuite with ChiselSim {
   test("STD child and malformed pair range cannot allocate STQ rows") {
     simulate(new OooStqReservationHarness(p, stqEntries = 4)) { dut =>
       dut.io.inputValid.poke(true.B)
-      pokeStore(dut.io.input, pair = true, childIndex = 1, memberIndex = 4)
+      pokeStore(dut.io.input, pair = true, childIndex = 1, memberIndex = 3)
       dut.io.rejected.expect(true.B)
       dut.io.accepted.expect(false.B)
       dut.clock.step()

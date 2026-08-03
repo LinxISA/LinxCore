@@ -2,8 +2,8 @@
 
 ## Purpose
 
-`OooIexExecutionPipeline` is the production static composition from the OOO
-S1 publication boundary through physical IQ residency, P1/I1/I2 operand
+`OooIexExecutionPipeline` is the private canonical composition from classed
+OOO dispatch through physical IQ residency, P1/I1/I2 operand
 acquisition, retained E1 ownership, typed scalar execution, W1 bypass, and
 atomic terminal publication.
 
@@ -20,12 +20,10 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionCluster.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexTerminalFabric.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala`
-- `chisel/src/main/scala/linxcore/ooo/OooIexExecutionStorePipeline.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionClusterSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexExecutionStoreIntegrationSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexStoreStqFabricSpec.scala`
 
 ## Static execution topology
@@ -51,12 +49,10 @@ explicit retained outputs. An unimplemented family is therefore backpressured
 at its E1 owner; it is never silently consumed by an ALU fallback.
 
 When `requireStoreReservation` is enabled, every split store also emits an
-exact reservation request while retained in S1. Its S2 publication is blocked
-until canonical STQ allocation fires. `OooIexStoreStqFabric` is the production
-owner for that request and for the two STA/two STD retained outputs.
-`OooIexExecutionStorePipeline` is now the production boundary that makes all
-of those connections private; the lower-level execution pipeline retains its
-ports only for focused unit composition.
+exact reservation request before its canonical IQ publication. The surviving
+execution wrapper leaves the typed reservation and STA/STD boundaries private
+for the Task-15 public composition; it does not recreate the removed legacy
+execution/store shell.
 
 Every route requires one generated recipe capability, the expected IQ class,
 and the exact physical owner lane. Zero/multiple capabilities, wrong class,
@@ -86,16 +82,12 @@ repick without modifying non-speculative RF readiness.
 
 ## Recovery and quiescence
 
-One held `OooResidencyRecoveryPlan` is prepared by the canonical issue owner,
-the execution-cluster load metadata owner, and the canonical STQ/store owner.
-The production wrapper publishes ready only when every connected projection is
-ready. One common `recoveryFire` then applies that same plan to issue/read/E1,
-internal execution/load metadata, retained STA/STD, and exact WAIT-state STQ
-rows on one edge. Recovery prepare fences load allocation/terminal publication
-and STQ reservation,
-fill, commit-mark, and free mutation. A recovery pivot that would retain only
-one child of a split store is rejected even after the children have left IQ
-residency.
+One canonical `RecoveryPlan` is retained independently by the issue/E1 owner
+and execution cluster. The wrapper publishes prepared only after both owners
+echo the complete transaction. Apply and Abort are forwarded only after an
+exact full-transaction match; malformed Apply cannot mutate I1/I2/E1 or later
+execution residency. Recovery preparation and a prepared transaction both
+keep `empty` deasserted.
 
 `empty` is true only when both the issue/read/E1 pipeline and the execution
 cluster are empty. It does not treat an empty IQ as backend quiescence while a

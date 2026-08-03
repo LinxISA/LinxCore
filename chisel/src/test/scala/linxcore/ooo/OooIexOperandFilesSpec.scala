@@ -7,6 +7,26 @@ import linxcore.common.OperandClass
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexOperandFilesSpec extends AnyFunSuite with ChiselSim {
+  test("exports exact generation-qualified PTag Ready Bits") {
+    val p = OooParams()
+    simulate(new OooIexOperandFiles(p)) { dut =>
+      clear(dut)
+      dut.io.pInit.valid.poke(true.B)
+      dut.io.pInit.bits.key.stid.poke(1.U)
+      dut.io.pInit.bits.key.epoch.poke(7.U)
+      dut.io.pInit.bits.key.ptag.poke(31.U)
+      dut.io.pInit.bits.key.generation.poke(9.U)
+      dut.io.pInit.bits.data.poke(0x55.U)
+      dut.clock.step()
+      dut.io.pInit.valid.poke(false.B)
+
+      dut.io.readyBits.ptag(31).valid.expect(true.B)
+      dut.io.readyBits.ptag(31).ready.expect(true.B)
+      dut.io.readyBits.ptag(31).stid.expect(1.U)
+      dut.io.readyBits.ptag(31).epoch.expect(7.U)
+      dut.io.readyBits.ptag(31).generation.expect(9.U)
+    }
+  }
   private val p = OooParams(
     stidCount = 2,
     pPhysRegs = 128,

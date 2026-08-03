@@ -2,6 +2,7 @@ package linxcore.top.interface
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
+import chisel3.util.log2Ceil
 import linxcore.params.ParamProfiles
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -64,6 +65,14 @@ class InterfaceManifestSpec extends AnyFunSuite {
           ("IEX", "OOO", 1, "RobNoflushReadyTxn"),
         "iex_to_ooo_rob_resolve" -> ("IEX", "OOO", width, "RobResolveTxn"),
         "iex_to_ooo_system_issue" -> ("IEX", "OOO", 1, "SystemIssueTxn"),
+        "iex_to_ooo_pc_buffer_read_address" ->
+          ("IEX", "OOO", profile.endpoints
+            .find(_.name == "iex_to_ooo_pc_buffer_read_address").get.lanes,
+            "PcBufferReadAddress"),
+        "ooo_to_iex_pc_buffer_read_pc_base" ->
+          ("OOO", "IEX", profile.endpoints
+            .find(_.name == "ooo_to_iex_pc_buffer_read_pc_base").get.lanes,
+            "UInt"),
         "iex_to_lsu_load_issue" -> ("IEX", "LSU", 2, "LoadIssueTxn"),
         "iex_to_lsu_store_address" -> ("IEX", "LSU", 2, "StoreAddressTxn"),
         "iex_to_lsu_store_data" -> ("IEX", "LSU", 2, "StoreDataTxn"),
@@ -97,6 +106,48 @@ class InterfaceManifestSpec extends AnyFunSuite {
           name.toLowerCase.contains("pipe") ||
           name.toLowerCase.contains("slot") ||
           name.toLowerCase.contains("lane")))
+
+      val trapPorts = endpoints("ooo_to_iex_alu").ports
+        .filter(_.name.startsWith("trap_"))
+        .map(port => port.name -> port.width)
+        .toMap
+      assert(trapPorts == Map(
+        "trap_valid" -> 1,
+        "trap_cause" -> ParamProfiles.W4.trapCauseWidth))
+
+      val storeTrapPorts = endpoints("ooo_to_iex_std").ports
+        .filter(port => port.name.startsWith("sta_trap_") ||
+          port.name.startsWith("std_trap_"))
+        .map(port => port.name -> port.width)
+        .toMap
+      assert(storeTrapPorts == Map(
+        "sta_trap_valid" -> 1,
+        "sta_trap_cause" -> ParamProfiles.W4.trapCauseWidth,
+        "std_trap_valid" -> 1,
+        "std_trap_cause" -> ParamProfiles.W4.trapCauseWidth))
+
+      val pcIndexOffsetPorts = endpoints("ooo_to_iex_alu").ports
+        .filter(_.name.startsWith("pcBufferIndexOffset_"))
+        .map(port => port.name -> port.width)
+        .toMap
+      val p = ParamProfiles.forWidth(width)
+      assert(pcIndexOffsetPorts == Map(
+        "pcBufferIndexOffset_valid" -> 1,
+        "pcBufferIndexOffset_pcBufferIndex" -> log2Ceil(p.ooo.pcBufferEntries),
+        "pcBufferIndexOffset_pcOffset" -> p.ooo.pcOffsetWidth,
+        "pcBufferIndexOffset_allocationEpoch" ->
+          p.ooo.pcAllocationEpochWidth))
+
+      val readAddressPorts = endpoints("iex_to_ooo_pc_buffer_read_address").ports
+        .map(port => port.name -> port.width)
+        .toMap
+      assert(readAddressPorts == Map(
+        "valid" -> 1,
+        "stid" -> math.max(1, log2Ceil(p.ooo.stidCount)),
+        "pcBufferIndex" -> log2Ceil(p.ooo.pcBufferEntries),
+        "allocationEpoch" -> p.ooo.pcAllocationEpochWidth))
+      assert(endpoints("ooo_to_iex_pc_buffer_read_pc_base").ports ==
+        Seq(ManifestPort("", p.pcWidth)))
 
       val issueIdentityPorts = endpoints("iex_to_lsu_load_issue").ports
         .filter(_.name.startsWith("identity_"))

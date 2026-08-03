@@ -2,14 +2,17 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
-import chisel3.util.log2Ceil
+import chisel3.util.{Valid, log2Ceil}
 import linxcore.lsu.STQEntryBank
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryCause, RecoveryPhase, RecoveryPlan}
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexStoreStqHarnessIO(
-    val p: OooParams,
+    val core: CoreParams,
     val stqEntries: Int)
     extends Bundle {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
   val reserveValid = Input(Bool())
   val reserveRow = Input(new OooIexIssueRow(p))
   val reserveAccepted = Output(Bool())
@@ -22,8 +25,7 @@ class OooIexStoreStqHarnessIO(
   val stdReady = Output(Bool())
   val stdRejected = Output(Bool())
   val fillPermit = Input(Bool())
-  val recoveryValid = Input(Bool())
-  val recovery = Input(new OooResidencyRecoveryPlan(p))
+  val recoveryApply = Input(Valid(new RecoveryPlan(core)))
   val addrReady = Output(UInt(stqEntries.W))
   val dataReady = Output(UInt(stqEntries.W))
   val addresses = Output(Vec(stqEntries, UInt(p.pcWidth.W)))
@@ -37,13 +39,13 @@ class OooIexStoreStqHarnessIO(
 }
 
 class OooIexStoreStqHarness(
-    val p: OooParams,
+    val core: CoreParams,
     val stqEntries: Int = 4)
     extends Module {
-  val io = IO(new OooIexStoreStqHarnessIO(p, stqEntries))
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
+  val io = IO(new OooIexStoreStqHarnessIO(core, stqEntries))
   val projection = Module(new OooStqReservationProjection(p, stqEntries))
-  val recoveryProjection = Module(new OooStqRecoveryProjection(p, stqEntries))
-  val pipeline = Module(new OooIexStorePipeline(p, stqEntries))
+  val pipeline = Module(new OooIexStorePipeline(core, stqEntries))
   val stq = Module(new STQEntryBank(
     entries = stqEntries,
     peIdWidth = p.peIdWidth,
@@ -63,12 +65,8 @@ class OooIexStoreStqHarness(
   projection.io.inputValid := io.reserveValid
   projection.io.input := io.reserveRow
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
-  recoveryProjection.io.recoveryValid := io.recoveryValid
-  recoveryProjection.io.recovery := io.recovery
-  recoveryProjection.io.rows := stq.io.rows
-  stq.io.exactRecoveryValid :=
-    io.recoveryValid && io.recovery.valid && !recoveryProjection.io.rejected
-  stq.io.exactRecoveryFreeMask := recoveryProjection.io.freeMask
+  stq.io.exactRecoveryValid := false.B
+  stq.io.exactRecoveryFreeMask := 0.U
   stq.io.insertValid := false.B
   stq.io.insert := 0.U.asTypeOf(stq.io.insert)
   stq.io.reserveValid := false.B
@@ -93,8 +91,6 @@ class OooIexStoreStqHarness(
     leaseValid := true.B
     lease.valid := true.B
     lease.logicalMember := io.reserveRow.member
-    lease.logicalMember.memberIndex :=
-      io.reserveRow.member.memberIndex - io.reserveRow.childIndex
     lease.requestCount := io.reserveRow.memoryOrder.requestCount
     lease.firstLsid := io.reserveRow.memoryOrder.firstLsid
     lease.firstStoreId := io.reserveRow.memoryOrder.firstTypeId
@@ -107,8 +103,7 @@ class OooIexStoreStqHarness(
   pipeline.io.std.valid := io.stdValid && leaseValid
   pipeline.io.std.bits.execute := io.std
   pipeline.io.std.bits.lease := lease
-  pipeline.io.recoveryApply.valid := io.recoveryValid
-  pipeline.io.recoveryApply.bits := io.recovery
+  pipeline.io.recoveryApply := io.recoveryApply
   pipeline.io.loadCancel.foreach(cancel =>
     cancel := 0.U.asTypeOf(cancel))
 
@@ -144,14 +139,15 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
     tuRetireSourceDepthPerStid = 16,
     lsidWidth = 40)
+  private val core = OooRecoveryMembership.coreParams(p)
 
   private def pokeMember(member: RobMemberKey, memberIndex: Int): Unit = {
     member.poke(0.U.asTypeOf(member))
@@ -210,7 +206,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
     pokeCommonRow(
       execute.i2.row,
       childIndex = if (addressHalf) 0 else 1,
-      memberIndex = if (addressHalf) 3 else 4,
+      memberIndex = 3,
       uopClass = if (addressHalf) OooUopClass.Agu else OooUopClass.Std)
     execute.i2.sourceMask.poke((if (addressHalf) 1 else 12).U)
     execute.i2.sourceData(0).poke(0x1000.U)
@@ -219,7 +215,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retained STA and STD converge pair beats only through canonical STQ") {
-    simulate(new OooIexStoreStqHarness(p)) { dut =>
+    simulate(new OooIexStoreStqHarness(core)) { dut =>
       dut.io.reserveValid.poke(true.B)
       pokeCommonRow(dut.io.reserveRow, childIndex = 0, memberIndex = 3,
         uopClass = OooUopClass.Agu)
@@ -228,8 +224,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.stdValid.poke(false.B)
       dut.io.std.poke(0.U.asTypeOf(dut.io.std))
       dut.io.fillPermit.poke(true.B)
-      dut.io.recoveryValid.poke(false.B)
-      dut.io.recovery.poke(0.U.asTypeOf(dut.io.recovery))
+      dut.io.recoveryApply.poke(0.U.asTypeOf(dut.io.recoveryApply))
       dut.io.reserveAccepted.expect(true.B)
       dut.clock.step()
       dut.io.reserveValid.poke(false.B)
@@ -265,7 +260,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("STD may finish before STA and retained fill survives STQ backpressure") {
-    simulate(new OooIexStoreStqHarness(p)) { dut =>
+    simulate(new OooIexStoreStqHarness(core)) { dut =>
       dut.io.reserveValid.poke(true.B)
       pokeCommonRow(dut.io.reserveRow, childIndex = 0, memberIndex = 3,
         uopClass = OooUopClass.Agu)
@@ -274,8 +269,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.stdValid.poke(false.B)
       dut.io.std.poke(0.U.asTypeOf(dut.io.std))
       dut.io.fillPermit.poke(false.B)
-      dut.io.recoveryValid.poke(false.B)
-      dut.io.recovery.poke(0.U.asTypeOf(dut.io.recovery))
+      dut.io.recoveryApply.poke(0.U.asTypeOf(dut.io.recoveryApply))
       dut.io.reserveAccepted.expect(true.B)
       dut.clock.step()
       dut.io.reserveValid.poke(false.B)
@@ -291,8 +285,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.dataReady.expect(0.U)
 
       dut.io.fillPermit.poke(true.B)
-      dut.io.recoveryValid.poke(false.B)
-      dut.io.recovery.poke(0.U.asTypeOf(dut.io.recovery))
+      dut.io.recoveryApply.poke(0.U.asTypeOf(dut.io.recoveryApply))
       dut.clock.step(2)
       dut.io.occupied.expect(false.B)
       dut.io.addrReady.expect(0.U)
@@ -310,7 +303,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("wrong physical child member cannot mutate a reserved logical store") {
-    simulate(new OooIexStoreStqHarness(p)) { dut =>
+    simulate(new OooIexStoreStqHarness(core)) { dut =>
       dut.io.reserveValid.poke(true.B)
       pokeCommonRow(dut.io.reserveRow, childIndex = 0, memberIndex = 3,
         uopClass = OooUopClass.Agu)
@@ -319,8 +312,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.stdValid.poke(false.B)
       dut.io.std.poke(0.U.asTypeOf(dut.io.std))
       dut.io.fillPermit.poke(true.B)
-      dut.io.recoveryValid.poke(false.B)
-      dut.io.recovery.poke(0.U.asTypeOf(dut.io.recovery))
+      dut.io.recoveryApply.poke(0.U.asTypeOf(dut.io.recoveryApply))
       dut.clock.step()
       dut.io.reserveValid.poke(false.B)
 
@@ -338,8 +330,8 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("exact recovery kills retained STD before any canonical fill") {
-    simulate(new OooIexStoreStqHarness(p)) { dut =>
+  test("an accepted canonical Apply kills retained STD before any fill") {
+    simulate(new OooIexStoreStqHarness(core)) { dut =>
       dut.io.reserveValid.poke(true.B)
       pokeCommonRow(dut.io.reserveRow, childIndex = 0, memberIndex = 3,
         uopClass = OooUopClass.Agu)
@@ -348,8 +340,7 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.stdValid.poke(false.B)
       dut.io.std.poke(0.U.asTypeOf(dut.io.std))
       dut.io.fillPermit.poke(false.B)
-      dut.io.recoveryValid.poke(false.B)
-      dut.io.recovery.poke(0.U.asTypeOf(dut.io.recovery))
+      dut.io.recoveryApply.poke(0.U.asTypeOf(dut.io.recoveryApply))
       dut.clock.step()
       dut.io.reserveValid.poke(false.B)
 
@@ -359,21 +350,30 @@ class OooIexStorePipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.stdValid.poke(false.B)
       dut.io.occupied.expect(true.B)
 
-      val recovery = dut.io.recovery
+      val recovery = dut.io.recoveryApply.bits
       recovery.poke(0.U.asTypeOf(recovery))
-      recovery.valid.poke(true.B)
-      recovery.oldHead.valid.poke(true.B)
-      recovery.oldHead.peId.poke(1.U)
-      recovery.oldHead.stid.poke(1.U)
-      recovery.oldHead.ridSlot.poke(0.U)
-      recovery.oldHead.ridGeneration.poke(7.U)
-      recovery.oldOccupied.poke(8.U)
-      recovery.newOccupied.poke(2.U)
-      dut.io.recoveryValid.poke(true.B)
+      recovery.transactionId.poke(77.U)
+      recovery.phase.poke(RecoveryPhase.Apply)
+      recovery.cause.poke(RecoveryCause.Branch)
+      for (identity <- Seq(recovery.trigger, recovery.firstKilled,
+          recovery.lastKilled)) {
+        identity.peId.poke(1.U)
+        identity.stid.poke(1.U)
+        identity.ridSlot.poke(6.U)
+        identity.ridGeneration.poke(7.U)
+        identity.memberIndex.poke(3.U)
+        identity.residentGeneration.poke(9.U)
+        identity.bid.poke(0x93.U)
+        identity.brobGeneration.poke(8.U)
+      }
+      recovery.firstKilledValid.poke(true.B)
+      recovery.killedGroupCount.poke(1.U)
+      recovery.killedMemberCount.poke(1.U)
+      dut.io.recoveryApply.valid.poke(true.B)
       dut.io.occupied.expect(false.B)
       dut.clock.step()
-      dut.io.residentCount.expect(0.U)
-      dut.io.recoveryValid.poke(false.B)
+      dut.io.residentCount.expect(2.U)
+      dut.io.recoveryApply.valid.poke(false.B)
       dut.io.fillPermit.poke(true.B)
       dut.clock.step(2)
       dut.io.occupied.expect(false.B)

@@ -53,6 +53,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
   private def clearCommitControlExtensions(dut: CommitControl): Unit = {
     dut.io.residentHeads.foreach(_.poke(0.U.asTypeOf(dut.io.residentHeads.head)))
     dut.io.recoveryFence.foreach(_.poke(false.B))
+    dut.io.pcBufferCommitReady.poke(true.B)
     dut.io.robNoflushReady.valid.poke(false.B)
     dut.io.robNoflushReady.bits.poke(0.U.asTypeOf(dut.io.robNoflushReady.bits))
     dut.io.robNoflush.ready.poke(false.B)

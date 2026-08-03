@@ -3,6 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
+import linxcore.params.ParamProfiles
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexIssueBlockMatrixSpec extends AnyFunSuite with ChiselSim {
@@ -91,7 +92,7 @@ class OooIexIssueBlockMatrixSpec extends AnyFunSuite with ChiselSim {
 
   test("canonical operand-read composition exposes policy and diagnostics") {
     val sv = ChiselStage.emitSystemVerilog(new OooIexIssueReadFabric(
-      p.copy(iexIssueDomainCount = 1)))
+      ParamProfiles.W2))
 
     assert(sv.contains("module OooIexIssueReadFabric"))
     assert(sv.contains("io_issuePolicy_globalQuiesce"))

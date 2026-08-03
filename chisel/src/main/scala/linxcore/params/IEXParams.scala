@@ -8,6 +8,8 @@ final case class IEXParams(
     stdPipes: Int = 2,
     systemMulticycleQueues: Int = 1,
     cmdIssueQueues: Int = 1,
+    issueQueueClasses: Int = 8,
+    executionPipeKinds: Int = 10,
     scalarIssueEntries: Int = 64,
     scalarIssueBanks: Int = 2,
     integerReadPorts: Int = 6,

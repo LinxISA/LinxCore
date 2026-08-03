@@ -4,9 +4,12 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid, log2Ceil}
 
 import linxcore.common.{CoreParams, ScalarLsuParams}
+import linxcore.iex._
 import linxcore.lsu.{LoadAttemptRebind, LoadCanonicalRowIdentity,
   LoadInflightAlloc, ScalarLSULoadReturnEntry}
+import linxcore.params.{CoreParams => MainlineCoreParams}
 import linxcore.rob.ROBID
+import linxcore.top.interface.{RecoveryPlanContract, RecoveryTargetIO}
 
 object OooIexCanonicalLoadOwnership {
   def defaultCoreParams(p: OooParams): CoreParams = {
@@ -18,7 +21,7 @@ object OooIexCanonicalLoadOwnership {
     val scalarLsu = ScalarLsuParams(
       stidCount = p.stidCount,
       liqEntries = math.min(defaultLiqEntries, robEntries),
-      loadReturnPipeCount = 3,
+      loadReturnPipeCount = 2,
       peIdWidth = math.max(8, p.peIdWidth),
       stidWidth = math.max(8, p.stidWidth),
       tidWidth = math.max(8, p.stidWidth),
@@ -31,7 +34,7 @@ object OooIexCanonicalLoadOwnership {
   }
 }
 
-/** Canonical LSU-facing port of the production OOO execution composition. */
+/** Canonical LSU-facing port of the OOO execution composition. */
 class OooIexCanonicalLoadPortIO(
     val p: OooParams,
     val coreParams: CoreParams) extends Bundle {
@@ -61,7 +64,8 @@ class OooIexCanonicalLoadPortIO(
 class OooIexCanonicalLoadOwnershipIO(
     val p: OooParams,
     val coreParams: CoreParams,
-    val laneCount: Int) extends Bundle {
+    val laneCount: Int,
+    val recoveryParams: MainlineCoreParams) extends Bundle {
   private val lsu = coreParams.scalarLsu
 
   private def allocType = new LoadInflightAlloc(
@@ -118,17 +122,12 @@ class OooIexCanonicalLoadOwnershipIO(
   val loadBypass = Output(Vec(laneCount,
     Valid(new OooIexBypassCandidate(p))))
 
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryRejected = Output(Bool())
-  val recoveryKilledMask = Output(UInt(lsu.liqEntries.W))
-  val recoveryFire = Input(Bool())
-  val flush = Input(Bool())
+  val recovery = Flipped(new RecoveryTargetIO(recoveryParams))
 
   val allocAccepted = Output(Bool())
   val rebindAccepted = Output(Bool())
   val aguRejected = Output(Vec(laneCount,
-    Valid(new OooIexLoadLiqAllocReject(p))))
+    Valid(new LoadIexIssueReject(p))))
   val metadataAllocRejected = Output(Valid(
     new OooIexLoadTerminalMetadataReject(p, coreParams)))
   val metadataRebindRejected = Output(Valid(
@@ -142,10 +141,10 @@ class OooIexCanonicalLoadOwnershipIO(
   val metadataEmpty = Output(Bool())
 }
 
-/** Non-resident production bridge between three OOO AGUs and canonical LIQ.
+/** Non-resident ownership join between parameterized OOO AGUs and canonical LIQ.
   *
   * Address, launch, miss, refill, replay, and result residency belong only to
-  * `ScalarLSULoadPath`.  This bridge atomically joins each canonical LIQ row
+  * `ScalarLSULoadPath`. This module atomically joins each canonical LIQ row
   * lease to the minimal OOO terminal metadata needed after the LIQ row has
   * transferred into LRET/W1/W2.  It cannot accept one half of allocation or
   * rebind, and terminal backpressure releases neither half early.
@@ -154,46 +153,70 @@ class OooIexCanonicalLoadOwnership(
     val p: OooParams = OooParams(),
     val coreParams: CoreParams = CoreParams(
       scalarLsu = linxcore.common.ScalarLsuParams(
-        stidCount = 4, loadReturnPipeCount = 3)),
-    val laneCount: Int = 3) extends Module {
+        stidCount = 4, loadReturnPipeCount = 2)),
+    val laneCount: Int = 2,
+    val recoveryParams: MainlineCoreParams) extends Module {
+  def this(p: OooParams, coreParams: CoreParams) =
+    this(p, coreParams, coreParams.scalarLsu.loadReturnPipeCount,
+      OooRecoveryMembership.coreParams(p))
+
+  def this(p: OooParams, coreParams: CoreParams, laneCount: Int) =
+    this(p, coreParams, laneCount, OooRecoveryMembership.coreParams(p))
   private val lsu = coreParams.scalarLsu
 
   require(laneCount > 0,
-    "the Linx scalar production profile needs at least one AGU load lane")
+    "the Linx scalar profile needs at least one AGU load lane")
   require(lsu.loadReturnPipeCount >= laneCount,
     "canonical LSU return-pipe identities must cover every AGU load lane")
   LoadCanonicalRowIdentity.requireBridgeFits(lsu.liqEntries)
 
   val io = IO(new OooIexCanonicalLoadOwnershipIO(
-    p, coreParams, laneCount))
+    p, coreParams, laneCount, recoveryParams))
 
-  val adapter = Module(new OooIexLoadLiqAllocAdapter(
-    p, coreParams, laneCount))
+  val issuePipeline = Module(new LoadIexIssuePipeline(
+    p, coreParams, laneCount, recoveryParams))
   val metadata = Module(new OooIexLoadTerminalMetadata(
-    p, coreParams, laneCount = laneCount))
+    p, coreParams, laneCount = laneCount, recoveryParams = recoveryParams))
 
-  adapter.io.agu <> io.agu
-  adapter.io.flush := io.flush
-  adapter.io.recoveryFence := io.recoveryPrepare.valid
-  adapter.io.recoveryApply.valid := io.recoveryFire &&
-    io.recoveryPrepareReady
-  adapter.io.recoveryApply.bits := io.recoveryPrepare.bits
+  issuePipeline.io.agu <> io.agu
 
-  io.liqAlloc.bits := adapter.io.alloc.bits
-  io.liqAlloc.valid := adapter.io.alloc.valid && metadata.io.alloc.ready
-  adapter.io.alloc.ready := io.liqAlloc.ready && metadata.io.alloc.ready
+  val issuePrepareReady = issuePipeline.io.recovery.prepare.ready
+  metadata.io.recoveryPrepare.bits := io.recovery.prepare.bits
+  val metadataPrepareReady = metadata.io.recoveryPrepareReady
+  val commonPrepareReady = issuePrepareReady && metadataPrepareReady
+  val commonPrepareFire = io.recovery.prepare.valid && commonPrepareReady
+  io.recovery.prepare.ready := commonPrepareReady
+  issuePipeline.io.recovery.prepare.valid := commonPrepareFire
+  issuePipeline.io.recovery.prepare.bits := io.recovery.prepare.bits
+  metadata.io.recoveryPrepare.valid := commonPrepareFire
 
-  metadata.io.alloc.valid := adapter.io.alloc.valid && io.liqAlloc.ready
+  val bothPrepared = issuePipeline.io.recovery.prepared.valid &&
+    metadata.io.recoveryPrepared.valid
+  io.recovery.prepared.valid := bothPrepared
+  io.recovery.prepared.bits := issuePipeline.io.recovery.prepared.bits
+  issuePipeline.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    metadata.io.recoveryPrepared.valid
+
+  issuePipeline.io.recovery.apply := io.recovery.apply
+  issuePipeline.io.recovery.abort := io.recovery.abort
+  metadata.io.recoveryApply := io.recovery.apply
+  metadata.io.recoveryAbort := io.recovery.abort
+
+  io.liqAlloc.bits := issuePipeline.io.alloc.bits
+  io.liqAlloc.valid := issuePipeline.io.alloc.valid && metadata.io.alloc.ready
+  issuePipeline.io.alloc.ready := io.liqAlloc.ready && metadata.io.alloc.ready
+
+  metadata.io.alloc.valid := issuePipeline.io.alloc.valid && io.liqAlloc.ready
   metadata.io.alloc.bits := 0.U.asTypeOf(metadata.io.alloc.bits)
   metadata.io.alloc.bits.loadId :=
     LoadCanonicalRowIdentity.fromRobId(io.liqAllocLoadId)
-  metadata.io.alloc.bits.attempt := adapter.io.alloc.bits.attempt
-  metadata.io.alloc.bits.load := adapter.io.accepted.bits.load
-  metadata.io.alloc.bits.request := adapter.io.accepted.bits.request
-  metadata.io.alloc.bits.lane := adapter.io.accepted.bits.lane
+  metadata.io.alloc.bits.attempt := issuePipeline.io.alloc.bits.attempt
+  metadata.io.alloc.bits.load := issuePipeline.io.accepted.bits.load
+  metadata.io.alloc.bits.request := issuePipeline.io.accepted.bits.request
+  metadata.io.alloc.bits.lane := issuePipeline.io.accepted.bits.lane
 
   io.allocAccepted := io.liqAlloc.fire && metadata.io.alloc.fire &&
-    adapter.io.accepted.valid
+    issuePipeline.io.accepted.valid
 
   private def toRobId(target: ROBID, source: LoadCanonicalRowIdentity): Unit = {
     target.valid := source.valid
@@ -224,14 +247,7 @@ class OooIexCanonicalLoadOwnership(
   io.result <> metadata.io.result
   io.resultLane := metadata.io.resultLane
 
-  metadata.io.flush := io.flush
-  metadata.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := metadata.io.recoveryPrepareReady
-  io.recoveryRejected := metadata.io.recoveryRejected
-  io.recoveryKilledMask := metadata.io.recoveryKilledMask
-  metadata.io.recoveryFire := io.recoveryFire && io.recoveryPrepareReady
-
-  io.aguRejected := adapter.io.rejected
+  io.aguRejected := issuePipeline.io.rejected
   io.metadataAllocRejected := metadata.io.allocRejected
   io.metadataRebindRejected := metadata.io.rebindRejected
   io.completionRejected := metadata.io.completionRejected
@@ -239,17 +255,27 @@ class OooIexCanonicalLoadOwnership(
   io.metadataEmpty := metadata.io.empty
 
   when(io.liqAlloc.fire || metadata.io.alloc.fire ||
-      adapter.io.accepted.valid) {
+      issuePipeline.io.accepted.valid) {
     assert(io.liqAlloc.fire && metadata.io.alloc.fire &&
-      adapter.io.accepted.valid,
+      issuePipeline.io.accepted.valid,
       "canonical LIQ and OOO terminal metadata allocation must be atomic")
   }
   when(io.rebind.fire || io.liqRebind.fire || metadata.io.rebind.fire) {
     assert(io.rebind.fire && io.liqRebind.fire && metadata.io.rebind.fire,
       "canonical LIQ and OOO metadata rebind must be atomic")
   }
-  when(io.recoveryFire) {
-    assert(io.recoveryPrepare.valid && io.recoveryPrepareReady,
-      "canonical load recovery requires one held commonly prepared plan")
+  when(io.recovery.prepared.fire) {
+    assert(RecoveryPlanContract.sameTransactionIgnoringPhase(
+      issuePipeline.io.recovery.prepared.bits,
+      metadata.io.recoveryPrepared.bits),
+      "canonical load owners must echo one exact common prepared plan")
+  }
+  when(io.recovery.apply.valid) {
+    assert(metadata.io.recoveryApplyAccepted,
+      "canonical load apply must match the commonly prepared plan")
+  }
+  when(io.recovery.abort.valid) {
+    assert(metadata.io.recoveryAbortAccepted,
+      "canonical load abort must match the commonly prepared plan")
   }
 }

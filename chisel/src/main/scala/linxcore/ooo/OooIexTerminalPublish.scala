@@ -3,6 +3,11 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{CmdIssueTxn, InstructionIdentity, RecoveryCause,
+  RecoveryEvent, RecoveryPhase, RecoveryPlan, RecoveryPlanContract,
+  RecoveryTargetIO, RobIdentity, RobNoflushReadyTxn, RobNoflushTxn,
+  RobResolveTxn, SystemIssueTxn, TrapEvent, TrapKind}
 
 object OooIexTerminalSource extends ChiselEnum {
   val Alu, Bru, Load = Value
@@ -17,6 +22,7 @@ class OooIexTerminalWriteback(val p: OooParams = OooParams()) extends Bundle {
 /** One normalized terminal transaction before architectural publication. */
 class OooIexTerminalRequest(val p: OooParams = OooParams()) extends Bundle {
   val source = OooIexTerminalSource()
+  val transactionId = UInt(p.transactionIdWidth.W)
   val member = new RobMemberKey(p)
   val uopKey = new CanonicalUopKey(p)
   val opcode = UInt(p.opcodeWidth.W)
@@ -58,7 +64,8 @@ class OooIexTerminalReject(val p: OooParams = OooParams()) extends Bundle {
   val duplicateDestination = Bool()
 }
 
-class OooIexTerminalPublishIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexTerminalPublishIO(val core: CoreParams) extends Bundle {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
   val alu = Flipped(Decoupled(new OooIexAluTerminalTransaction(p)))
   val bru = Flipped(Decoupled(new OooIexBruTerminalTransaction(p)))
   val load = Flipped(Decoupled(new OooIexLoadResult(p)))
@@ -73,27 +80,316 @@ class OooIexTerminalPublishIO(val p: OooParams = OooParams()) extends Bundle {
     Decoupled(new OooIexWakeup(p)))
   val bctrl = Decoupled(new OooIexTerminalBctrl(p))
   val trace = Decoupled(new OooIexTerminalTrace(p))
-  val completion = Decoupled(new OooRobMemberCompletion(p))
+  val robResolve = Decoupled(new RobResolveTxn(core))
+  val recoveryEvent = Decoupled(new RecoveryEvent(core))
+  val recovery = Flipped(new RecoveryTargetIO(core))
 
   val terminalFire = Output(Bool())
   val rejected = Vec(3, Valid(new OooIexTerminalReject(p)))
 }
 
-/** Fair ALU/BRU/load terminal arbiter with one atomic publication event.
+class OooIexSystemCmdCandidate(val p: OooParams) extends Bundle {
+  val cmd = Bool()
+  val execute = new OooIexExecuteTransaction(p)
+}
+
+class OooIexSystemCmdTerminalIO(
+    val core: CoreParams,
+    val profile: OooIexPhysicalProfile) extends Bundle {
+  val p: OooParams = profile.params
+  private def capabilityCount(capability: Int): Int =
+    profile.pickerFunctions.count(_.hasCapability(capability))
+  private val systemCount = capabilityCount(OooIexDomainCapability.System)
+  private val cmdCount = capabilityCount(OooIexDomainCapability.EngineCommand)
+
+  val system = Flipped(Vec(systemCount,
+    Decoupled(new OooIexExecuteTransaction(p))))
+  val cmd = Flipped(Vec(cmdCount,
+    Decoupled(new OooIexExecuteTransaction(p))))
+  val robNoflushReady = Decoupled(new RobNoflushReadyTxn(core))
+  val robNoflush = Flipped(Decoupled(new RobNoflushTxn(core)))
+  val systemIssue = Vec(systemCount, Decoupled(new SystemIssueTxn(core)))
+  val cmdIssue = Decoupled(new CmdIssueTxn(core))
+  val robResolve = Decoupled(new RobResolveTxn(core))
+  val recovery = Flipped(new RecoveryTargetIO(core))
+  val terminalFire = Output(Bool())
+  val empty = Output(Bool())
+}
+
+/** Head-authorized no-destination System/CMD terminal rendezvous.
   *
-  * A selected owner is released only when every required physical-file write,
-  * committed wakeup, ROB completion, trace record, and optional BCTRL update
-  * fires together. No endpoint can consume a partial transaction while a peer
-  * endpoint is backpressured.
+  * The upstream E1 transfer slot remains the sole resident-uop owner. This
+  * module only arbitrates the retained candidates, publishes an exact NFRDY
+  * proof, and releases one candidate when the matching ROB authorization,
+  * side-effect sink, and no-value ROB resolve all fire together. Unsupported
+  * or destination-producing rows remain resident and fail closed.
   */
-class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooIexTerminalPublishIO(p))
+class OooIexSystemCmdTerminal(val core: CoreParams) extends Module {
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
+  val p: OooParams = profile.params
+  private val systemCount = profile.pickerFunctions.count(
+    _.hasCapability(OooIexDomainCapability.System))
+  private val cmdCount = profile.pickerFunctions.count(
+    _.hasCapability(OooIexDomainCapability.EngineCommand))
+  require(systemCount == 1 && cmdCount == 1,
+    "System/CMD terminal requires one System pipe and one CMD pipe")
+
+  val io = IO(new OooIexSystemCmdTerminalIO(core, profile))
+
+  private def toRobIdentity(execute: OooIexExecuteTransaction): RobIdentity =
+    OooRecoveryMembership.robIdentity(p, core, execute.i2.row.member)
+
+  private def toInstructionIdentity(
+      execute: OooIexExecuteTransaction): InstructionIdentity = {
+    val result = Wire(new InstructionIdentity(core))
+    result := 0.U.asTypeOf(result)
+    result.peId := execute.i2.row.uopKey.primaryParent.peId
+    result.stid := execute.i2.row.uopKey.primaryParent.stid
+    result.instructionId :=
+      execute.i2.row.uopKey.primaryParent.instructionId
+    result.epoch := execute.i2.row.epoch
+    result
+  }
 
   private def identityExact(execute: OooIexExecuteTransaction): Bool = {
     val row = execute.i2.row
     row.valid && row.stid < p.stidCount.U && row.member.group.valid &&
       row.member.bid.valid && row.member.group.peId === row.peId &&
-      row.member.group.stid === row.stid
+      row.member.group.stid === row.stid &&
+      row.member.memberIndex < core.ooo.maxInstructionsPerRobGroup.U &&
+      row.uopKey.primaryParent.valid &&
+      row.uopKey.primaryParent.peId === row.peId &&
+      row.uopKey.primaryParent.stid === row.stid
+  }
+
+  private def noDestinations(execute: OooIexExecuteTransaction): Bool =
+    !VecInit(execute.i2.row.destinations.map(_.valid)).asUInt.orR
+
+  private def sourceMaskExact(execute: OooIexExecuteTransaction): Bool =
+    execute.i2.sourceMask ===
+      VecInit(execute.i2.row.sources.map(_.valid)).asUInt
+
+  private def routeExact(
+      execute: OooIexExecuteTransaction,
+      ownerClass: OooUopClass.Type,
+      dispatchClass: Int): Bool = {
+    val row = execute.i2.row
+    execute.ownerClass === ownerClass && row.reservation.valid &&
+      row.reservation.uopClass === ownerClass && row.recipe.valid &&
+      row.recipe.opcode === row.opcode &&
+      row.recipe.disposition === OooOpcodeDisposition.Dispatch.U &&
+      row.recipe.dispatchClass === dispatchClass.U &&
+      row.recipe.sideEffectOwner === OooSideEffectOwner.Commit.U &&
+      !row.preciseTrap && noDestinations(execute) && sourceMaskExact(execute)
+  }
+
+  private def memberKilled(
+      plan: RecoveryPlan,
+      execute: OooIexExecuteTransaction): Bool =
+    RecoveryPlanContract.suffixMember(plan, toRobIdentity(execute))
+
+  val recoveryPending = RegInit(false.B)
+  val preparedValid = RegInit(false.B)
+  val retainedRecovery = Reg(new RecoveryPlan(core))
+  val matchingApply = recoveryPending && io.recovery.apply.valid &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, retainedRecovery)
+  val matchingAbort = recoveryPending && io.recovery.abort.valid &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, retainedRecovery)
+
+  io.recovery.prepare.ready := !recoveryPending
+  io.recovery.prepared.valid := preparedValid
+  io.recovery.prepared.bits := retainedRecovery
+  val prepareFire = io.recovery.prepare.fire
+  when(prepareFire) {
+    recoveryPending := true.B
+    preparedValid := true.B
+    retainedRecovery := io.recovery.prepare.bits
+  }.elsewhen(matchingApply || matchingAbort) {
+    recoveryPending := false.B
+    preparedValid := false.B
+  }.elsewhen(io.recovery.prepared.fire) {
+    preparedValid := false.B
+  }
+
+  private def recoveryBlocked(execute: OooIexExecuteTransaction): Bool =
+    (prepareFire && memberKilled(io.recovery.prepare.bits, execute)) ||
+      (recoveryPending && memberKilled(retainedRecovery, execute))
+
+  private def recoveryKilled(execute: OooIexExecuteTransaction): Bool =
+    matchingApply && memberKilled(io.recovery.apply.bits, execute)
+
+  val systemExact = identityExact(io.system.head.bits) &&
+    routeExact(io.system.head.bits, OooUopClass.Sys, OooDispatchClass.Sys) &&
+    !io.system.head.bits.i2.sourceMask.orR
+  val cmdExact = identityExact(io.cmd.head.bits) &&
+    routeExact(io.cmd.head.bits, OooUopClass.Cmd, OooDispatchClass.Cmd)
+  val systemKilled = io.system.head.valid && recoveryKilled(io.system.head.bits)
+  val cmdKilled = io.cmd.head.valid && recoveryKilled(io.cmd.head.bits)
+  val systemEligible = io.system.head.valid && systemExact &&
+    !recoveryBlocked(io.system.head.bits) && !systemKilled
+  val cmdEligible = io.cmd.head.valid && cmdExact &&
+    !recoveryBlocked(io.cmd.head.bits) && !cmdKilled
+
+  val arbiter = Module(new RRArbiter(new OooIexSystemCmdCandidate(p), 2))
+  arbiter.io.in(0).valid := systemEligible
+  arbiter.io.in(0).bits.cmd := false.B
+  arbiter.io.in(0).bits.execute := io.system.head.bits
+  arbiter.io.in(1).valid := cmdEligible
+  arbiter.io.in(1).bits.cmd := true.B
+  arbiter.io.in(1).bits.execute := io.cmd.head.bits
+  arbiter.io.out.ready := io.robNoflushReady.ready
+
+  val selected = arbiter.io.out
+  val selectedRob = toRobIdentity(selected.bits.execute)
+  val selectedInstruction = toInstructionIdentity(selected.bits.execute)
+
+  io.robNoflushReady.valid := selected.valid
+  io.robNoflushReady.bits := 0.U.asTypeOf(io.robNoflushReady.bits)
+  io.robNoflushReady.bits.transactionId :=
+    selected.bits.execute.i2.row.transactionId
+  io.robNoflushReady.bits.instruction := selectedInstruction
+  io.robNoflushReady.bits.rob := selectedRob
+
+  val permitExact = io.robNoflush.bits.transactionId ===
+    io.robNoflushReady.bits.transactionId &&
+    io.robNoflush.bits.instruction.asUInt === selectedInstruction.asUInt &&
+    io.robNoflush.bits.rob.asUInt === selectedRob.asUInt
+  val authorized = selected.valid && io.robNoflush.valid && permitExact
+
+  io.systemIssue.foreach { issue =>
+    issue.valid := false.B
+    issue.bits := 0.U.asTypeOf(issue.bits)
+    issue.bits.transactionId := selected.bits.execute.i2.row.transactionId
+    issue.bits.instruction := selectedInstruction
+    issue.bits.rob := selectedRob
+    issue.bits.opcode := selected.bits.execute.i2.row.opcode
+    issue.bits.immediate := selected.bits.execute.i2.row.immediate
+  }
+  io.systemIssue.head.valid := authorized && !selected.bits.cmd &&
+    io.robResolve.ready
+
+  io.cmdIssue.valid := authorized && selected.bits.cmd && io.robResolve.ready
+  io.cmdIssue.bits := 0.U.asTypeOf(io.cmdIssue.bits)
+  io.cmdIssue.bits.transactionId := selected.bits.execute.i2.row.transactionId
+  io.cmdIssue.bits.instruction := selectedInstruction
+  io.cmdIssue.bits.rob := selectedRob
+  io.cmdIssue.bits.opcode := selected.bits.execute.i2.row.opcode
+  io.cmdIssue.bits.sourceValid := selected.bits.execute.i2.sourceMask
+  for (source <- 0 until p.maxSourceOperands) {
+    io.cmdIssue.bits.sourceValues(source) :=
+      selected.bits.execute.i2.sourceData(source)
+  }
+
+  val sideEffectReady = Mux(selected.bits.cmd,
+    io.cmdIssue.ready, io.systemIssue.head.ready)
+  val sideEffectFire = Mux(selected.bits.cmd,
+    io.cmdIssue.fire, io.systemIssue.head.fire)
+
+  io.robResolve.valid := authorized && sideEffectReady
+  io.robResolve.bits := 0.U.asTypeOf(io.robResolve.bits)
+  io.robResolve.bits.transactionId := selected.bits.execute.i2.row.transactionId
+  io.robResolve.bits.rob := selectedRob
+  io.robResolve.bits.destinationValid := false.B
+  io.robResolve.bits.destinationIndex := 0.U
+  io.robResolve.bits.value := 0.U
+  io.robResolve.bits.trap := 0.U.asTypeOf(io.robResolve.bits.trap)
+
+  io.robNoflush.ready := selected.valid && permitExact && sideEffectReady &&
+    io.robResolve.ready
+  val atomicFire = selected.valid && io.robNoflush.fire &&
+    io.robNoflushReady.fire && sideEffectFire && io.robResolve.fire
+  io.system.head.ready := systemKilled || (!selected.bits.cmd && atomicFire)
+  io.cmd.head.ready := cmdKilled || (selected.bits.cmd && atomicFire)
+  io.terminalFire := atomicFire
+  io.empty := !recoveryPending && !io.system.head.valid && !io.cmd.head.valid
+
+  when(io.robNoflush.fire || sideEffectFire || io.robResolve.fire) {
+    assert(atomicFire,
+      "System/CMD permit, side effect, resolve, proof, and owner release must fire atomically")
+  }
+  when(atomicFire) {
+    assert(!selected.bits.execute.i2.row.destinations.map(_.valid).reduce(_ || _),
+      "destination-producing System/CMD operations must fail closed")
+  }
+}
+
+/** Fair ALU/BRU/load terminal arbiter with one atomic publication event.
+  *
+  * A selected owner is released only when every required physical-file write,
+  * committed wakeup, ROB resolve, trace record, and optional BCTRL update
+  * fires together. No endpoint can consume a partial transaction while a peer
+  * endpoint is backpressured.
+  */
+class OooIexTerminalPublish(val core: CoreParams) extends Module {
+  val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
+  val io = IO(new OooIexTerminalPublishIO(core))
+
+  private def toRobIdentity(member: RobMemberKey): RobIdentity = {
+    OooRecoveryMembership.robIdentity(p, core, member)
+  }
+
+  private def toInstructionIdentity(
+      request: OooIexTerminalRequest): InstructionIdentity = {
+    val result = Wire(new InstructionIdentity(core))
+    result := 0.U.asTypeOf(result)
+    result.peId := request.uopKey.primaryParent.peId
+    result.stid := request.uopKey.primaryParent.stid
+    result.instructionId := request.uopKey.primaryParent.instructionId
+    result.epoch := request.epoch
+    result
+  }
+
+  private def trapEvent(request: OooIexTerminalRequest): TrapEvent = {
+    val result = Wire(new TrapEvent(core))
+    result := 0.U.asTypeOf(result)
+    result.valid := request.trapValid
+    result.kind := Mux(request.trapValid, TrapKind.Exception, TrapKind.None)
+    result.instruction := toInstructionIdentity(request)
+    result.rob := toRobIdentity(request.member)
+    result.cause := request.trapCause
+    result
+  }
+
+  val recoveryPending = RegInit(false.B)
+  val retainedRecovery = Reg(new RecoveryPlan(core))
+  val preparedValid = RegInit(false.B)
+
+  io.recovery.prepare.ready := !recoveryPending
+  val directPrepared = io.recovery.prepare.valid && io.recovery.prepare.ready
+  io.recovery.prepared.valid := preparedValid || directPrepared
+  io.recovery.prepared.bits := Mux(preparedValid, retainedRecovery,
+    io.recovery.prepare.bits)
+
+  val matchingApply = recoveryPending && io.recovery.apply.valid &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, retainedRecovery)
+  val matchingAbort = recoveryPending && io.recovery.abort.valid &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, retainedRecovery)
+
+  when(io.recovery.prepare.fire) {
+    recoveryPending := true.B
+    retainedRecovery := io.recovery.prepare.bits
+    preparedValid := !io.recovery.prepared.ready
+  }.elsewhen(matchingApply || matchingAbort) {
+    recoveryPending := false.B
+    preparedValid := false.B
+  }.elsewhen(io.recovery.prepared.fire) {
+    preparedValid := false.B
+  }
+
+  private def identityExact(execute: OooIexExecuteTransaction): Bool = {
+    val row = execute.i2.row
+    row.valid && row.stid < p.stidCount.U && row.member.group.valid &&
+      row.member.bid.valid && row.member.group.peId === row.peId &&
+      row.member.group.stid === row.stid &&
+      row.member.memberIndex < core.ooo.maxInstructionsPerRobGroup.U
   }
 
   private def routeExact(
@@ -159,6 +455,7 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
     val request = Wire(new OooIexTerminalRequest(p))
     request := 0.U.asTypeOf(request)
     request.source := source
+    request.transactionId := execute.i2.row.transactionId
     request.member := execute.i2.row.member
     request.uopKey := execute.i2.row.uopKey
     request.opcode := execute.i2.row.opcode
@@ -275,18 +572,48 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
   }
   val allDestinationReady = destinationReady.reduce(_ && _)
   val bctrlReady = !selected.bits.bctrl.valid || io.bctrl.ready
-  val allReady = io.completion.ready && io.trace.ready && bctrlReady &&
-    allDestinationReady
-  selected.ready := allReady
+  val recoveryEventReady = !selected.bits.trapValid || io.recoveryEvent.ready
+  val selectedRob = toRobIdentity(selected.bits.member)
+  val recoveryKillsSelected = matchingApply && selected.valid &&
+    RecoveryPlanContract.suffixMember(io.recovery.apply.bits, selectedRob)
+  val recoveryBlocksSelected = selected.valid && (
+    (recoveryPending && !matchingApply && !matchingAbort &&
+      RecoveryPlanContract.suffixMember(retainedRecovery, selectedRob)) ||
+    (directPrepared && RecoveryPlanContract.suffixMember(
+      io.recovery.prepare.bits, selectedRob)))
+  val publicationEnabled = selected.valid && !recoveryKillsSelected &&
+    !recoveryBlocksSelected
+  val allReady = io.robResolve.ready && io.trace.ready && bctrlReady &&
+    allDestinationReady && recoveryEventReady
+  selected.ready := recoveryKillsSelected || (!recoveryBlocksSelected && allReady)
 
-  io.completion.valid := selected.valid && io.trace.ready && bctrlReady &&
-    allDestinationReady
-  io.completion.bits.key := selected.bits.member
-  io.completion.bits.faultValid := selected.bits.trapValid
-  io.completion.bits.faultCause := selected.bits.trapCause
+  io.robResolve.valid := publicationEnabled && io.trace.ready && bctrlReady &&
+    allDestinationReady && recoveryEventReady
+  io.robResolve.bits := 0.U.asTypeOf(io.robResolve.bits)
+  io.robResolve.bits.transactionId := selected.bits.transactionId
+  io.robResolve.bits.rob := selectedRob
+  io.robResolve.bits.destinationValid :=
+    selected.bits.writebacks(0).valid && !selected.bits.trapValid
+  io.robResolve.bits.destinationIndex := 0.U
+  io.robResolve.bits.value := Mux(
+    io.robResolve.bits.destinationValid,
+    selected.bits.writebacks(0).data,
+    0.U)
+  io.robResolve.bits.trap := trapEvent(selected.bits)
 
-  io.trace.valid := selected.valid && io.completion.ready && bctrlReady &&
+  io.recoveryEvent.valid := publicationEnabled && selected.bits.trapValid &&
+    io.robResolve.ready && io.trace.ready && bctrlReady &&
     allDestinationReady
+  io.recoveryEvent.bits := 0.U.asTypeOf(io.recoveryEvent.bits)
+  io.recoveryEvent.bits.transactionId := selected.bits.transactionId
+  io.recoveryEvent.bits.cause := RecoveryCause.Exception
+  io.recoveryEvent.bits.trigger := selectedRob
+  io.recoveryEvent.bits.instruction := toInstructionIdentity(selected.bits)
+  io.recoveryEvent.bits.redirectPc := 0.U
+  io.recoveryEvent.bits.trap := trapEvent(selected.bits)
+
+  io.trace.valid := publicationEnabled && io.robResolve.ready &&
+    recoveryEventReady && bctrlReady && allDestinationReady
   io.trace.bits.source := selected.bits.source
   io.trace.bits.member := selected.bits.member
   io.trace.bits.uopKey := selected.bits.uopKey
@@ -296,8 +623,9 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
   io.trace.bits.trapValid := selected.bits.trapValid
   io.trace.bits.trapCause := selected.bits.trapCause
 
-  io.bctrl.valid := selected.valid && selected.bits.bctrl.valid &&
-    io.completion.ready && io.trace.ready && allDestinationReady
+  io.bctrl.valid := publicationEnabled && selected.bits.bctrl.valid &&
+    io.robResolve.ready && io.trace.ready && recoveryEventReady &&
+    allDestinationReady
   io.bctrl.bits.member := selected.bits.member
   io.bctrl.bits.uopKey := selected.bits.uopKey
   io.bctrl.bits.opcode := selected.bits.opcode
@@ -307,11 +635,11 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
     val writeback = selected.bits.writebacks(index)
     val otherDestinationsReady = (0 until p.maxDestinationOperands)
       .filter(_ != index).map(destinationReady).foldLeft(true.B)(_ && _)
-    val commonPeerReady = io.completion.ready && io.trace.ready &&
-      bctrlReady && otherDestinationsReady
-    val writeValid = selected.valid && writeRequired(index) &&
+    val commonPeerReady = io.robResolve.ready && io.trace.ready &&
+      recoveryEventReady && bctrlReady && otherDestinationsReady
+    val writeValid = publicationEnabled && writeRequired(index) &&
       commonPeerReady && io.wakeup(index).ready
-    val wakeValid = selected.valid && writeRequired(index) &&
+    val wakeValid = publicationEnabled && writeRequired(index) &&
       commonPeerReady && writeReady(index)
 
     io.pWrite(index).valid := writeValid &&
@@ -360,10 +688,15 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
     io.wakeup(index).bits.load := selected.bits.load
   }
 
-  io.terminalFire := selected.fire
-  when(selected.fire) {
-    assert(io.completion.fire && io.trace.fire,
-      "terminal completion and trace must share the owner release")
+  val publicationFire = selected.fire && !recoveryKillsSelected
+  io.terminalFire := publicationFire
+  when(publicationFire) {
+    assert(io.robResolve.fire && io.trace.fire,
+      "terminal ROB resolve and trace must share the owner release")
+    when(selected.bits.trapValid) {
+      assert(io.recoveryEvent.fire,
+        "required recovery event must share the terminal owner release")
+    }
     when(selected.bits.bctrl.valid) {
       assert(io.bctrl.fire,
         "BCTRL mutation must share the terminal owner release")
@@ -375,5 +708,10 @@ class OooIexTerminalPublish(val p: OooParams = OooParams()) extends Module {
           "RF write and committed wakeup must share terminal release")
       }
     }
+  }
+  when(recoveryKillsSelected) {
+    assert(selected.fire && !io.robResolve.fire && !io.trace.fire &&
+      !io.recoveryEvent.fire,
+      "recovery-killed terminal ownership must release without publication")
   }
 }

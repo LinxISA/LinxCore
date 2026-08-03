@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, DecoupledIO, MuxLookup, PopCount, log2Ceil}
+import chisel3.util.{Decoupled, DecoupledIO, PopCount, log2Ceil}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -39,6 +39,50 @@ class OooDispatch(val p: CoreParams) extends Module {
   private def storeReadyAt(value: UInt): Bool =
     if (io.iex.storeDispatch.length == 1) io.iex.storeDispatch.head.ready
     else io.iex.storeDispatch(fitIndex(value, io.iex.storeDispatch.length)).ready
+  private val aluClass = OooDispatchClass.Alu - 1
+  private val aguClass = OooDispatchClass.Agu - 1
+  private val stdClass = OooDispatchClass.Std - 1
+  private def hasCapability(
+      lane: D3RenameLane,
+      issueClass: Int,
+      capability: Int): Bool =
+    lane.uop.decoded.classification
+      .executionPipeCapability(issueClass)(capability)
+  private def routesAlu(lane: D3RenameLane): Bool =
+    lane.uop.decoded.classification.valid &&
+      lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Alu.U &&
+      hasCapability(lane, aluClass, OooIexDomainCapability.SimpleAlu)
+  private def routesBru(lane: D3RenameLane): Bool =
+    lane.uop.decoded.classification.valid &&
+      lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Bru.U &&
+      hasCapability(lane, OooDispatchClass.Bru - 1,
+        OooIexDomainCapability.Branch)
+  private def routesAgu(lane: D3RenameLane): Bool =
+    lane.uop.decoded.classification.valid &&
+      lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Agu.U &&
+      hasCapability(lane, aguClass, OooIexDomainCapability.LoadAddress)
+  private def routesStore(lane: D3RenameLane): Bool =
+    lane.uop.decoded.classification.valid &&
+      lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Std.U &&
+      hasCapability(lane, aguClass, OooIexDomainCapability.StoreAddress) &&
+      hasCapability(lane, stdClass, OooIexDomainCapability.StoreData)
+  private def routesSystem(lane: D3RenameLane): Bool = {
+    val classification = lane.uop.decoded.classification
+    val systemClass = classification.dispatchClass === OooDispatchClass.Sys.U &&
+      hasCapability(lane, OooDispatchClass.Sys - 1,
+        OooIexDomainCapability.System)
+    val multicycleAlu =
+      classification.dispatchClass === OooDispatchClass.Alu.U &&
+        (hasCapability(lane, aluClass,
+          OooIexDomainCapability.MultiCycleAlu) ||
+          hasCapability(lane, aluClass, OooIexDomainCapability.PointerAuth))
+    classification.valid && (systemClass || multicycleAlu)
+  }
+  private def routesCmd(lane: D3RenameLane): Bool =
+    lane.uop.decoded.classification.valid &&
+      lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Cmd.U &&
+      hasCapability(lane, OooDispatchClass.Cmd - 1,
+        OooIexDomainCapability.EngineCommand)
 
   io.iex.aluDispatch.foreach { out =>
     out.valid := false.B; out.bits := 0.U.asTypeOf(out.bits)
@@ -77,36 +121,43 @@ class OooDispatch(val p: CoreParams) extends Module {
 
     val olderAlu = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
       laneActive(older) && laneNeedsOutput(older) &&
-        laneAt(io.cursor + older.U).uop.decoded.uopClass === UopClass.Alu
+        routesAlu(laneAt(io.cursor + older.U))
     })
     val olderBru = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
       laneActive(older) && laneNeedsOutput(older) &&
-        laneAt(io.cursor + older.U).uop.decoded.uopClass === UopClass.Bru
+        routesBru(laneAt(io.cursor + older.U))
     })
     val olderAgu = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
-      val cls = laneAt(io.cursor + older.U).uop.decoded.uopClass
       laneActive(older) && laneNeedsOutput(older) &&
-        (cls === UopClass.Agu || cls === UopClass.Std)
+        (routesAgu(laneAt(io.cursor + older.U)) ||
+          routesStore(laneAt(io.cursor + older.U)))
     })
     val olderStd = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
       laneActive(older) && laneNeedsOutput(older) &&
-        laneAt(io.cursor + older.U).uop.decoded.uopClass === UopClass.Std
+        routesStore(laneAt(io.cursor + older.U))
     })
     val olderSystem = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
       laneActive(older) && laneNeedsOutput(older) &&
-        laneAt(io.cursor + older.U).uop.decoded.uopClass === UopClass.System
+        routesSystem(laneAt(io.cursor + older.U))
     })
     val olderCmd = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
       laneActive(older) && laneNeedsOutput(older) &&
-        laneAt(io.cursor + older.U).uop.decoded.uopClass === UopClass.Cmd
+        routesCmd(laneAt(io.cursor + older.U))
     })
 
     val txn = Wire(new DispatchTxn(p))
     txn.transactionId := io.transactionBase + index
     txn.uop := lane.uop
     txn.memoryOrder := lane.memoryOrder
+    txn.trap := lane.trap
+    txn.pcBufferIndexOffset := lane.pcBufferIndexOffset
     val allowed = prefixComplete(offset) && inRange && !early
-    val cls = lane.uop.decoded.uopClass
+    val routeAlu = routesAlu(lane)
+    val routeBru = routesBru(lane)
+    val routeAgu = routesAgu(lane)
+    val routeStore = routesStore(lane)
+    val routeSystem = routesSystem(lane)
+    val routeCmd = routesCmd(lane)
     val aluComplete = olderAlu < p.iex.aluPipes.U &&
       readyAt(io.iex.aluDispatch, olderAlu)
     val bruComplete = olderBru < p.iex.bruPipes.U &&
@@ -119,26 +170,25 @@ class OooDispatch(val p: CoreParams) extends Module {
       readyAt(io.iex.systemDispatch, olderSystem)
     val cmdComplete = olderCmd < p.iex.cmdIssueQueues.U &&
       readyAt(io.iex.cmdDispatch, olderCmd)
-    laneComplete(offset) := !inRange || early || MuxLookup(cls.asUInt, false.B)(Seq(
-      UopClass.Alu.asUInt -> aluComplete,
-      UopClass.Bru.asUInt -> bruComplete,
-      UopClass.Agu.asUInt -> aguComplete,
-      UopClass.Std.asUInt -> storeComplete,
-      UopClass.System.asUInt -> sysComplete,
-      UopClass.Cmd.asUInt -> cmdComplete,
-      UopClass.Boundary.asUInt -> true.B))
+    laneComplete(offset) := !inRange || early ||
+      (routeAlu && aluComplete) ||
+      (routeBru && bruComplete) ||
+      (routeAgu && aguComplete) ||
+      (routeStore && storeComplete) ||
+      (routeSystem && sysComplete) ||
+      (routeCmd && cmdComplete)
 
-    for (pipe <- 0 until p.iex.aluPipes) when(allowed && cls === UopClass.Alu && olderAlu === pipe.U) {
+    for (pipe <- 0 until p.iex.aluPipes) when(allowed && routeAlu && olderAlu === pipe.U) {
       io.iex.aluDispatch(pipe).valid := true.B; io.iex.aluDispatch(pipe).bits := txn
     }
-    for (pipe <- 0 until p.iex.bruPipes) when(allowed && cls === UopClass.Bru && olderBru === pipe.U) {
+    for (pipe <- 0 until p.iex.bruPipes) when(allowed && routeBru && olderBru === pipe.U) {
       io.iex.bruDispatch(pipe).valid := true.B; io.iex.bruDispatch(pipe).bits := txn
     }
     for (pipe <- 0 until p.iex.aguPipes) when(allowed &&
-      cls === UopClass.Agu && olderAgu === pipe.U) {
+      routeAgu && olderAgu === pipe.U) {
       io.iex.aguDispatch(pipe).valid := true.B; io.iex.aguDispatch(pipe).bits := txn
     }
-    for (pipe <- 0 until p.iex.stdPipes) when(allowed && cls === UopClass.Std &&
+    for (pipe <- 0 until p.iex.stdPipes) when(allowed && routeStore &&
       olderAgu < p.iex.aguPipes.U && olderStd === pipe.U) {
       io.iex.storeDispatch(pipe).valid := true.B
       io.iex.storeDispatch(pipe).bits.sta := txn
@@ -147,11 +197,11 @@ class OooDispatch(val p: CoreParams) extends Module {
       io.iex.storeDispatch(pipe).bits.stdPipe := fitIndex(olderStd, p.iex.stdPipes)
     }
     for (queue <- 0 until p.iex.systemMulticycleQueues) when(allowed &&
-      cls === UopClass.System && olderSystem === queue.U) {
+      routeSystem && olderSystem === queue.U) {
       io.iex.systemDispatch(queue).valid := true.B; io.iex.systemDispatch(queue).bits := txn
     }
     for (queue <- 0 until p.iex.cmdIssueQueues) when(allowed &&
-      cls === UopClass.Cmd && olderCmd === queue.U) {
+      routeCmd && olderCmd === queue.U) {
       io.iex.cmdDispatch(queue).valid := true.B; io.iex.cmdDispatch(queue).bits := txn
     }
     prefixComplete(offset + 1) := prefixComplete(offset) && laneComplete(offset)

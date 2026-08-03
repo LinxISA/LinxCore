@@ -434,20 +434,11 @@ object OooIexLinxPhysicalProfile {
   }
 }
 
-/** Value-only bridge from the canonical core parameters to the private IEX
-  * mechanism profile used by the Task-13 cutover.  This object owns no
-  * hardware state and does not activate the public `IEX` box.
-  */
-final case class OooIexProductionPhysicalProfile(
-    physical: OooIexPhysicalProfile,
-    aluCount: Int,
-    bruCount: Int,
-    aguCount: Int,
-    stdCount: Int,
-    systemMulticycleCount: Int,
-    commandCount: Int)
-
-object OooIexProductionPhysicalProfile {
+object OooIexPhysicalProfile {
+  /** Derive the physical Issue Queue and Execution pipe topology directly
+    * from the canonical core parameters.  This is a value projection only;
+    * the returned profile owns no hardware state.
+    */
   import OooIexDomainCapability._
 
   /** Exact canonical-IEX projection into the private OOO mechanism record.
@@ -469,6 +460,10 @@ object OooIexProductionPhysicalProfile {
       "canonical IEX admission must equal the OOO dispatch prefix")
     require(iex.scalarIssueEntries % iex.scalarIssueBanks == 0,
       "canonical scalar issue capacity must divide evenly across IQ banks")
+    require(iex.issueQueueClasses == OooParams.fromCoreParams(core).iqClassCount,
+      "canonical Issue Queue class count must match the physical profile")
+    require(iex.executionPipeKinds == OooIexDomainCapability.Count,
+      "canonical Execution pipe classification must cover every capability")
 
     OooParams.fromCoreParams(core).copy(
       iqBankCount = iex.scalarIssueBanks,
@@ -481,12 +476,12 @@ object OooIexProductionPhysicalProfile {
     (0 until bankCount).filter(_ % laneCount == lane).foldLeft(BigInt(0))(
       (mask, bank) => mask | (BigInt(1) << bank))
 
-  def apply(core: CoreParams): OooIexProductionPhysicalProfile = {
+  def fromCoreParams(core: CoreParams): OooIexPhysicalProfile = {
     val iex = core.iex
     require(iex.aluPipes == 2 && iex.bruPipes == 1 && iex.aguPipes == 2 &&
       iex.stdPipes == 2 && iex.systemMulticycleQueues == 1 &&
       iex.cmdIssueQueues == 1,
-      "private production IEX currently supports the canonical 2/1/2/2/1/1 topology")
+      "IEX currently supports the canonical 2/1/2/2/1/1 Execution pipe topology")
 
     val base = canonicalIexParams(core)
     val pickerCount = iex.aluPipes + iex.bruPipes +
@@ -573,7 +568,7 @@ object OooIexProductionPhysicalProfile {
     val lanes = pickers.map(entry =>
       OooIexExecutionLane(entry.executionLane, entry.capabilities))
     val physical = OooIexPhysicalProfile(
-      name = s"linx-canonical-w${core.widths.issueWidth}-private-v1",
+      name = s"linx-w${core.widths.issueWidth}-issue-execution-v1",
       params = p,
       residencyOwners = owners,
       pickerFunctions = pickers,
@@ -582,13 +577,6 @@ object OooIexProductionPhysicalProfile {
         fsuClass, sysClass, cmdClass),
       fastResolvedClasses = Set(boundaryClass))
 
-    OooIexProductionPhysicalProfile(
-      physical = physical,
-      aluCount = iex.aluPipes,
-      bruCount = iex.bruPipes,
-      aguCount = iex.aguPipes,
-      stdCount = iex.stdPipes,
-      systemMulticycleCount = iex.systemMulticycleQueues,
-      commandCount = iex.cmdIssueQueues)
+    physical
   }
 }

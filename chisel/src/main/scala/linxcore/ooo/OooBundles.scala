@@ -880,6 +880,13 @@ object OooIexWakeupKind extends ChiselEnum {
   val Committed, SpeculativeLoad = Value
 }
 
+/** Non-reused IEX identity shared by every attempt of one memory operation. */
+class OooIexMemoryTransactionIdentity(
+    val p: OooParams = OooParams()) extends Bundle {
+  val value = UInt(p.memoryTransactionIdWidth.W)
+  val generation = UInt(p.memoryTransactionGenerationWidth.W)
+}
+
 /** Exact identity of one speculative load attempt.
   *
   * A numerical attempt generation is never authoritative by itself.  The
@@ -889,6 +896,7 @@ object OooIexWakeupKind extends ChiselEnum {
 class OooIexLoadGeneration(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
   val producer = new RobMemberKey(p)
+  val transaction = new OooIexMemoryTransactionIdentity(p)
   val generation = UInt(p.loadGenerationWidth.W)
 }
 
@@ -961,6 +969,39 @@ class OooIexSourceState(val p: OooParams = OooParams()) extends Bundle {
   val load = new OooIexLoadGeneration(p)
 }
 
+/** Read-only PTag Ready Bits entry exported by the physical register file.
+  *
+  * The register file remains the unique owner.  Dispatch may sample this
+  * generation-qualified view, but cannot mutate it or infer readiness from a
+  * numerical tag alone.
+  */
+class OooIexPTagReadyBitsEntry(val p: OooParams = OooParams())
+    extends Bundle {
+  val valid = Bool()
+  val ready = Bool()
+  val stid = UInt(p.stidWidth.W)
+  val epoch = UInt(p.epochWidth.W)
+  val generation = UInt(p.pTagGenerationWidth.W)
+}
+
+/** Read-only T/U Ready Bits entry exported by one STID-local register file. */
+class OooIexLocalReadyBitsEntry(val p: OooParams = OooParams())
+    extends Bundle {
+  val allocated = Bool()
+  val ready = Bool()
+  val epoch = UInt(p.epochWidth.W)
+  val sequence = new OooLocalSeq(p)
+}
+
+/** Exact register-file readiness view consumed only while an IQ row binds. */
+class OooIexOperandReadyBits(val p: OooParams = OooParams()) extends Bundle {
+  val ptag = Vec(p.pPhysRegs, new OooIexPTagReadyBitsEntry(p))
+  val ttag = Vec(p.stidCount,
+    Vec(p.tPhysRegs, new OooIexLocalReadyBitsEntry(p)))
+  val utag = Vec(p.stidCount,
+    Vec(p.uPhysRegs, new OooIexLocalReadyBitsEntry(p)))
+}
+
 /** Destination identity retained by IEX without copying rename-owner state. */
 class OooIexDestinationState(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
@@ -1015,6 +1056,14 @@ class OooIexScheduleRow(val p: OooParams = OooParams()) extends Bundle {
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
   val transactionId = UInt(p.transactionIdWidth.W)
+  // Allocated once when the logical memory uop first becomes IQ-resident.
+  // Store address/data children retain the same transaction identity.
+  val memoryTransactionValid = Bool()
+  val memoryTransaction = new OooIexMemoryTransactionIdentity(p)
+  // Loads retain the IEX-owned initial attempt; LSU allocates only replay
+  // generations after the first LIQ binding.
+  val initialLoadAttemptValid = Bool()
+  val initialLoadAttemptGeneration = UInt(p.loadGenerationWidth.W)
   val dispatchLane = UInt(math.max(1,
     chisel3.util.log2Ceil(p.dispatchWidth)).W)
   val uopIndex = UInt(p.decodedUopIndexWidth.W)
@@ -1080,6 +1129,10 @@ class OooIexIssueRow(val p: OooParams = OooParams()) extends Bundle {
   def stid = schedule.stid
   def epoch = schedule.epoch
   def transactionId = schedule.transactionId
+  def memoryTransactionValid = schedule.memoryTransactionValid
+  def memoryTransaction = schedule.memoryTransaction
+  def initialLoadAttemptValid = schedule.initialLoadAttemptValid
+  def initialLoadAttemptGeneration = schedule.initialLoadAttemptGeneration
   def dispatchLane = schedule.dispatchLane
   def uopIndex = schedule.uopIndex
   def childIndex = schedule.childIndex

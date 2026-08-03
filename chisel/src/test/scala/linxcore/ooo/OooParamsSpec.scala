@@ -3,15 +3,20 @@ package linxcore.ooo
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooParamsSpec extends AnyFunSuite {
-  test("central adapters preserve rename generation widths exactly") {
+  test("central adapters preserve private identity widths exactly") {
     val base = linxcore.params.ParamProfiles.W4
-    val mainline = base.copy(ooo = base.ooo.copy(
-      gprTagGenerationWidth = 13,
-      localSeqGenerationWidth = 11))
+    val mainline = base.copy(
+      ooo = base.ooo.copy(
+        gprTagGenerationWidth = 13,
+        localSeqGenerationWidth = 11),
+      memoryTransactionIdWidth = 41,
+      memoryTransactionGenerationWidth = 11)
     val adapted = OooParams.fromCoreParams(mainline)
 
     assert(adapted.pTagGenerationWidth == 13)
     assert(adapted.localSeqGenerationWidth == 11)
+    assert(adapted.memoryTransactionIdWidth == 41)
+    assert(adapted.memoryTransactionGenerationWidth == 11)
     assert(adapted.toMainline.gprTagGenerationWidth == 13)
     assert(adapted.toMainline.localSeqGenerationWidth == 11)
   }
@@ -85,6 +90,8 @@ class OooParamsSpec extends AnyFunSuite {
     assert(p.iexLoadCancelPorts == 4)
     assert(p.iexTerminalWidth == 2)
     assert(p.loadGenerationWidth == 8)
+    assert(p.memoryTransactionIdWidth == 64)
+    assert(p.memoryTransactionGenerationWidth == 16)
     assert(p.executeSlotGenerationWidth == 8)
   }
 
@@ -133,6 +140,10 @@ class OooParamsSpec extends AnyFunSuite {
     assertThrows[IllegalArgumentException](OooParams(iexLoadCancelPorts = 0))
     assertThrows[IllegalArgumentException](OooParams(iexTerminalWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(loadGenerationWidth = 0))
+    assertThrows[IllegalArgumentException](
+      OooParams(memoryTransactionIdWidth = 0))
+    assertThrows[IllegalArgumentException](
+      OooParams(memoryTransactionGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(
       executeSlotGenerationWidth = 0))
     assertThrows[IllegalArgumentException](OooParams(iexIssueDomainCount = 0))

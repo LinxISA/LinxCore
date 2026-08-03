@@ -161,12 +161,18 @@ capacity split must be implemented as an architectural parameter change, not
 hidden inside this test-only profile.
 
 They reduce only capacities that are irrelevant to a directed behavior proof.
+Each width uses its own next-power-of-two prefix and rename-demand capacity;
+W2 and W4 are not padded to W8 storage geometry. The scalar IQ retains a
+four-entry minimum so its two banks each have at least two addressable rows;
+this avoids a zero-bit reservation slot while remaining far below the main
+64-entry capacity.
 The W8 continuous D3 lane test uses this initial profile:
 
 | Capacity | Main profile | Simulation profile | Preserved behavior |
 | --- | ---: | ---: | --- |
-| ROB groups per STID | 64 | 8 | one complete W8 D3 lane set |
+| ROB groups per STID | 64 | 16 | one complete W8 D3 lane set and its nonwrapped tail |
 | instructions per ROB group | 4 | 1 | eight independent RID groups |
+| maximum recipe uops | 32 | 12 | current ordinary-group/CTU recipe invariant |
 | ROB banks | 8 | 8 | eight-lane allocation geometry |
 | BROB entries per STID | 256 | 8 | one W8 branch-order window |
 | PC Buffer entries | 64 | 8 | eight bases and 3W/6R behavior |
@@ -176,9 +182,11 @@ The W8 continuous D3 lane test uses this initial profile:
 | T physical registers | 32 | 16 | one maximum rename destination set |
 | U physical registers | 32 | 16 | one maximum rename destination set |
 | T/U MapQ entries per STID | 32 | 16 | one maximum rename destination set |
-| scalar Issue Queue entries | 64 | 16 | W8 admission with retained suffix space |
+| scalar Issue Queue entries | 64 | 8 | one complete W8 admission prefix |
 | IFU and CTU retained entries | 32 | at least the selected width | one full transfer |
-| load/store queues | 16/16 | 4/4 | two load and two store pipes |
+| maximum CTU template uops | 32 | 2 | scalar/store-split directed behavior |
+| load/store queues | 16/16 | 2/2 | two load and two store pipes |
+| load-return/store-commit queues | 16/16 | 2/2 | one event per physical pipe |
 | SCB entries | 16 | 4 | one two-pipe split-store batch |
 
 No test may use the simulation profile to claim full-capacity wrap, occupancy,

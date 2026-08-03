@@ -13,7 +13,7 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooIexPhysicalProfile.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexE1TransferFabricSpec.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexPhysicalProfileSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexIssueE1IntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
 
 ## Static topology
 
@@ -34,18 +34,16 @@ physical class/bank. The validated matrix directly drives
 `pickBankEnables`, each retained slot's accepted class/bank/capability
 projection, and release-port ownership. Canonical IQ storage is never copied.
 
-[`OooIexPhysicalProfile`](OooIexPhysicalProfile.md) freezes the first complete
-profile: six ALU, three AGU, two BRU, and one external FSU residency owner,
-expanded into fourteen picker/execution lanes. AGU0/1 each expose an LDA and
-STA picker; AGU2 exposes LDA only. STD shares ALU0/3 residency, SYS shares
-ALU2/5, and FSU/CMD share the external FSU owner. Boundary rows remain
-fast-resolved and own no IQ bank.
+[`OooIexPhysicalProfile`](OooIexPhysicalProfile.md) derives the canonical
+topology from `CoreParams`: two ALU owners, two AGU owners with independent LDA
+and STA pickers, one BRU owner, one system/multicycle owner, one CMD owner, and
+one floating/vector owner. The two ALU owners also admit the two STD paths.
+Boundary rows remain fast-resolved and own no IQ bank.
 
-`OooIexLinxE1TransferFabric` is the production specialization. It accepts one
-formal profile and derives every transfer slot, capability predicate, bank
-projection, and release owner from that profile. Paired with
-`OooIexLinxIssueReadFabric`, neither half can silently substitute an ad-hoc
-picker topology.
+`OooIexLinxE1TransferFabric` accepts one formal profile and derives every
+transfer slot, capability predicate, bank projection, and release owner from
+that profile. Paired with `OooIexIssueReadFabric`, neither half can silently
+substitute an ad-hoc picker topology.
 
 ## Transfer and release arbitration
 
@@ -54,12 +52,11 @@ round-robin arbiter is instantiated per `iexReleaseWidth` port. Pickers mapped
 to the same port serialize fairly and a loser retains its complete I2
 transaction without issuing an early release. Pickers mapped to different
 ports may transfer on the same edge. For every winner, `i2.fire`, exact issue
-release, IQ row removal, dispatch-slot return, and E1 capture remain one
-ownership transaction.
+release, IQ row removal, and E1 capture remain one ownership transaction.
 
-The IQ and dispatch owners independently reject duplicate physical targets
-across valid release lanes. Thus a bad static/dynamic composition cannot
-double-free a row even when release throughput is widened.
+The IQ owner rejects duplicate physical targets across valid release lanes.
+Thus a bad static/dynamic composition cannot double-remove a row even when
+release throughput is widened.
 
 ## Canonical in-flight authority
 
@@ -74,7 +71,7 @@ second issued-state owner.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabricSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1IntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 ```
 
 The fabric UT proves static ALU/BRU mapping, multi-class ALU/STD admission,
@@ -82,17 +79,17 @@ simultaneous capability-disjoint AGU LDA/STA transfer, wrong-bank rejection,
 unsafe overlap/release-port rejection,
 fair same-port serialization, retained loser ownership, independent E1
 backpressure, and simultaneous ALU/BRU transfer on distinct ports. The
-integration test connects the real canonical IQ/read fabric to this transfer
-fabric using the same static domain declarations and proves both rows can
-reach E1 on one edge exactly when both IQ rows and dispatch reservations are
-returned. The formal-profile UT elaborates the production specialization.
+mechanism test connects the real canonical IQ/read fabric to this transfer
+fabric using the same static domain declarations and proves parallel and
+denied paths preserve exact ownership. The formal-profile UT elaborates the
+parameter-derived specialization.
 
 ## Remaining gaps
 
 - `OooIexPipeline` now owns the canonical issue/read-to-E1 composition; direct
   fabric instantiation remains a focused-test surface.
-- connect shared DIV/PAC/SYS busy/latency state to issue policy and exact
-  stage-cancel; same-cycle ALU2/ALU5 arbitration is owned before RF read;
+- connect shared multicycle/PAC/system busy and latency state to issue policy
+  and exact stage-cancel;
 - connect picker-specific E1 outputs to typed execution units;
 - connect retained recovery apply and physical load-cancel producers in the
   canonical top;

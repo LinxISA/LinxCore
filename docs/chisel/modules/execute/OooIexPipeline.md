@@ -2,32 +2,34 @@
 
 ## Purpose
 
-`OooIexPipeline` is the canonical production composition from retained IEX S1
-publication through P1, I1 operand acquisition, retained I2, and typed E1
-execution-lane capture. It replaces the former test-only wiring between
-`OooIexIssueReadFabric` and `OooIexE1TransferFabric`.
+`OooIexPipeline` is the canonical composition from classed OOO dispatch
+through IQ residency, P1 selection, I1 operand acquisition, retained I2, and
+typed E1 execution-lane capture. It privately composes
+`OooIexIssueReadFabric` with `OooIexE1TransferFabric`.
 
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexPipeline.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexIssueE1IntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
+- `chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala`
 
 ## Ownership contract
 
-The constructor accepts one `OooIexPhysicalProfile`. The same object creates
-both `OooIexLinxIssueReadFabric` and `OooIexLinxE1TransferFabric`, so the
+The constructor accepts `CoreParams` and derives one
+`OooIexPhysicalProfile`. The same object configures both
+`OooIexIssueReadFabric` and `OooIexLinxE1TransferFabric`, so the
 following properties cannot be configured independently:
 
 - picker count and class/bank visibility;
 - recipe capabilities and shared DIV/PAC/SYS participants;
 - execution-lane identity;
-- exact IQ and dispatch release ports.
+- exact IQ release ports.
 
 The I2 channels and issue-release channels are private to the module. For each
-winning lane, I2 advancement, exact canonical IQ deletion, dispatch-slot
-return, and retained E1 capture are one handshake. The public boundary exposes
-only S1 admission and typed E1 outputs; it cannot acknowledge an E1 transfer
-without also returning the exact IQ and dispatch owners.
+winning lane, I2 advancement, exact canonical IQ deletion, and retained E1
+capture are one handshake. The public boundary exposes classed dispatch and
+typed E1 outputs; it cannot acknowledge an E1 transfer without also releasing
+the exact IQ owner.
 
 This matches the LinxCoreModel owner order in
 `model/iex/iex.cpp::{Work,Xfer,SubReleaseIQEntryI2}` and the stage contract in
@@ -39,15 +41,15 @@ ownership authority.
 
 ## Recovery and external owners
 
-The existing retained issue-recovery scan remains the preparation authority.
-`recoveryFire` is legal only while the exact plan is still valid and prepared.
-On that edge the same plan reaches the E1 transfer slots, so killed S1/IQ/P1/
-I1/I2 state and already-transferred E1 state observe one physical recovery
-event. An assertion rejects an unprepared or withdrawn recovery fire.
+The retained issue-recovery scan remains the preparation authority. The
+canonical `RecoveryTargetIO` prepare handshake is side-effect free; only an
+accepted Apply or Abort phase can mutate retained state. The accepted exact
+plan reaches the E1 transfer slots on the same event, so killed IQ/P1/I1/I2
+state and already-transferred E1 state observe one recovery decision.
 
 `OooIexPipeline` does not duplicate other canonical owners:
 
-- PC requests remain six readyless typed inputs at this Task-12 mechanism
+- PC requests remain readyless typed outputs at this Task-13 mechanism
   boundary; public `OOO` does not claim a private execution PC-buffer owner;
 - P/T/U initialization, allocation clears, and terminal writes remain public
   connections to rename/writeback owners;
@@ -62,32 +64,27 @@ transfer slots being empty. Queue-only emptiness is not pipeline quiescence.
 
 ```bash
 bash tools/chisel/build_chisel.sh
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1IntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionPipelineSpec
 ```
 
-The integration test instantiates the formal twelve-residency-owner,
-fourteen-picker, fourteen-execution-lane profile. A source-free ALU row and a
-PC-reading BRU row select ALU0 and BRU0, transfer together through their
-production release ports, return the exact dispatch reservations, disappear
-from canonical IQ residency, remain retained under E1 backpressure, and make
-aggregate quiescence true only after both typed E1 consumers fire.
-
-The IT uses the minimum two-entry-per-bank geometry while preserving all
-twelve owners, fourteen pickers, and fourteen lanes. Detailed retry, cancel,
-shared-resource, and malformed-topology scenarios remain in the smaller child
-fabric UTs because compiling the complete production topology is intentionally
-a heavyweight integration gate.
+The mechanism suite proves matching main/bounded W2/W4/W6/W8 configurations,
+dynamically elaborates bounded W4/W2 mechanisms, proves parallel ALU claims and
+denial isolation, and connects real operand files plus a real PC-buffer read path.
+The execution-pipeline suite covers typed lane routing and
+terminal behavior. Detailed retry, cancel, shared-resource, and malformed
+topology scenarios remain in focused child-fabric tests.
 
 ## Remaining gaps
 
-- Connect the six PC request tokens and responses directly to the existing O3
-  coordinator in the canonical OOO/IEX composition.
-- Promote `OooIexExecutionPipeline` as the O9 canonical top consumer. It now
-  connects every typed lane to an internal ALU/BRU/scalar-load owner or an
-  explicit retained unfinished-family boundary and returns W1/load bypass,
-  speculative/committed wakeup, and exact load-cancel traffic.
+- Connect the PC request tokens and responses directly to `OooPcBuffer` in the
+  canonical OOO/IEX composition.
+- Complete `OooIexExecutionPipeline` as the canonical typed E1 consumer. It
+  connects implemented ALU/BRU/scalar-load lanes and explicit retained
+  unfinished-family boundaries while returning bypass, wakeup, and exact
+  load-cancel traffic.
 - Close the retained store/multicycle/system/PAuth/FSU/CMD boundaries with
-  their production owners; do not replace them with permissive sinks.
+  their canonical owners; do not replace them with permissive sinks.
 - Drive early issue policy and late stage cancellation from measured
   execution-lane, reflow, latency, side-door, and result-bus reservations.
 - Run default-width synthesis/timing and natural workload activation after the

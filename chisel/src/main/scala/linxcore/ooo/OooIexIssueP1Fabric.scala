@@ -2,28 +2,25 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPlan, RecoveryTargetIO}
 
 class OooIexIssueP1FabricIO(
-    val p: OooParams = OooParams(),
+    val core: CoreParams,
+    val p: OooParams,
     val requireStoreReservation: Boolean = false) extends Bundle {
-  val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
+  val operandReadyBits = Input(new OooIexOperandReadyBits(p))
   val releases = Flipped(Vec(p.iexReleaseWidth,
     Decoupled(new OooIexIssueRelease(p))))
   def release = releases(0)
-  val dispatchReleases = Vec(p.iexReleaseWidth,
-    Decoupled(new OooDispatchRelease(p)))
-  def dispatchRelease = dispatchReleases(0)
-  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
-
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
-  val recoveryFire = Input(Bool())
+  val recovery = Flipped(new RecoveryTargetIO(core))
+  val acceptedRecoveryApply = Valid(new RecoveryPlan(core))
 
   val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
     Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
@@ -71,8 +68,6 @@ class OooIexIssueP1FabricIO(
     Valid(new OooIexPickClaimReject(p))))
   val pickRetryRejected = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickRetryReject(p))))
-  val pickRecoveryCanceled = Output(Vec(p.iexIssueDomainCount,
-    Valid(new OooIexPickToken(p))))
   val pickRecoveryBlocked = Output(Vec(p.iexIssueDomainCount,
     Valid(new OooIexPickToken(p))))
   val pickPolicyBlocked = Output(Vec(p.iexIssueDomainCount,
@@ -82,13 +77,10 @@ class OooIexIssueP1FabricIO(
   val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
     UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
       p.iqEntriesPerBank).W)))
-  val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
   def releaseRejected = releaseRejecteds(0)
-  val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
 
-  val s1Occupied = Output(Vec(p.stidCount, Bool()))
   val i1Occupied = Output(Vec(p.iexIssueDomainCount, Bool()))
   val i2Occupied = Output(Vec(p.iexIssueDomainCount, Bool()))
   val lanesEmpty = Output(Bool())
@@ -110,19 +102,20 @@ class OooIexIssueP1FabricIO(
   * picker functions and asserts that topology before parallel claims.
   */
 class OooIexIssueP1Fabric(
-    val p: OooParams = OooParams(),
-    val domainCapabilities: Seq[BigInt] = Seq.empty,
+    val core: CoreParams,
     val requireStoreReservation: Boolean = false) extends Module {
-  val io = IO(new OooIexIssueP1FabricIO(p, requireStoreReservation))
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
+  val p = profile.params
+  val io = IO(new OooIexIssueP1FabricIO(
+    core, p, requireStoreReservation))
 
-  val issue = Module(new OooIexIssue(
-    p, domainCapabilities, requireStoreReservation))
+  val issue = Module(new OooIexIssue(core, requireStoreReservation))
   val bridges = Seq.fill(p.iexIssueDomainCount)(
     Module(new OooIexPickP1Bridge(p)))
   val lanes = Seq.fill(p.iexIssueDomainCount)(
-    Module(new OooIexP1I2Lane(p)))
+    Module(new OooIexP1I2Lane(core, p)))
 
-  issue.io.s1 <> io.s1
+  issue.io.dispatch <> io.dispatch
   if (requireStoreReservation) {
     io.storeReserve.get <> issue.io.storeReserve
   } else {
@@ -130,13 +123,9 @@ class OooIexIssueP1Fabric(
   }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
+  issue.io.operandReadyBits := io.operandReadyBits
   issue.io.releases <> io.releases
-  io.dispatchReleases <> issue.io.dispatchReleases
-  issue.io.ptagRecycle <> io.ptagRecycle
-  issue.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := issue.io.recoveryPrepareReady
-  io.recoveryPrepared := issue.io.recoveryPrepared
-  issue.io.recoveryFire := io.recoveryFire
+  issue.io.recovery <> io.recovery
   issue.io.pickBankEnables := io.pickBankEnables
   issue.io.issuePolicy := io.issuePolicy
 
@@ -172,7 +161,7 @@ class OooIexIssueP1Fabric(
     lane.io.loadCancel := io.loadCancel
     lane.io.stageCancel <> io.stageCancels(domain)
     io.i2(domain) <> lane.io.i2
-    lane.io.recoveryApply := issue.io.recoveryApplied
+    lane.io.recoveryApply := issue.io.acceptedRecoveryApply
 
     io.joinRejected(domain) := bridge.io.rejected
     io.p1Rejected(domain) := lane.io.p1Rejected
@@ -185,8 +174,6 @@ class OooIexIssueP1Fabric(
     io.pickRejected(domain) := issue.io.pickRejectedByDomain(domain)
     io.pickRetryRejected(domain) :=
       issue.io.pickRetryRejectedByDomain(domain)
-    io.pickRecoveryCanceled(domain) :=
-      issue.io.pickRecoveryCanceledByDomain(domain)
     io.pickRecoveryBlocked(domain) :=
       issue.io.pickRecoveryBlockedByDomain(domain)
     io.pickPolicyBlocked(domain) :=
@@ -197,10 +184,8 @@ class OooIexIssueP1Fabric(
     io.i2Occupied(domain) := lane.io.i2Occupied
   }
 
-  io.s1Rejected := issue.io.s1Rejected
   io.releaseRejecteds := issue.io.releaseRejecteds
-  io.recoveryRejected := issue.io.recoveryRejected
-  io.s1Occupied := issue.io.s1Occupied
+  io.acceptedRecoveryApply := issue.io.acceptedRecoveryApply
   io.boundEntries := issue.io.boundEntries
   io.residentEntries := issue.io.residentEntries
   io.inFlightEntries := issue.io.inFlightEntries
@@ -209,6 +194,6 @@ class OooIexIssueP1Fabric(
   val noBoundRows = issue.io.boundEntries.flatten.map(_ === 0.U).reduce(_ && _)
   val noResidentRows =
     issue.io.residentEntries.flatten.map(_ === 0.U).reduce(_ && _)
-  io.empty := io.lanesEmpty && !issue.io.s1Occupied.asUInt.orR &&
-    noBoundRows && noResidentRows && !issue.io.recoveryBusy
+  io.empty := issue.io.recoveryIdle && io.lanesEmpty &&
+    noBoundRows && noResidentRows
 }

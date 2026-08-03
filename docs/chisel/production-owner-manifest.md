@@ -129,16 +129,6 @@ evidence.
       "deletion_target": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter"
     },
     {
-      "symbol": "linxcore.ooo.OooIexLoadLiqAllocAdapter",
-      "path": "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala",
-      "role": "legacy-state-owner",
-      "stateful": true,
-      "status": "planned-deletion",
-      "owner_domain": "load_inflight_queue",
-      "cutover_task": 15,
-      "deletion_target": "linxcore.ooo.OooIexLoadLiqAllocAdapter"
-    },
-    {
       "symbol": "linxcore.top.IfuWindowLineFillAdapter",
       "path": "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala",
       "role": "legacy-state-owner",
@@ -417,9 +407,9 @@ evidence.
       "public_box_status": "pending",
       "public_box_file": null,
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala", "chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Lane.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "chisel/src/test/scala/linxcore/iex/IEXProductionMechanismSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/iex/IEXProductionMechanismSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 13,
       "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala", "symbol": "linxcore.execute.ReducedScalarIssueQueue", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/execute/ScalarGPRIssueWakeupProbe.scala", "chisel/src/main/scala/linxcore/execute/ScalarIssueFabric.scala"]}],
       "adapters": []
@@ -449,11 +439,27 @@ evidence.
       "public_box_status": "pending",
       "public_box_file": null,
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexExecutionStorePipeline.scala"],
+      "active_callers": [],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 13,
       "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala", "symbol": "linxcore.execute.ReducedScalarAluExecute", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreFrontendAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala"]}],
+      "adapters": []
+    },
+    {
+      "subsystem": "IEX",
+      "state_key": "memory_transaction_and_initial_attempt_serial",
+      "canonical_owner": "OooIexIssue",
+      "mechanism_files": ["chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala"],
+      "public_box": "IEX",
+      "public_box_status": "pending",
+      "public_box_file": null,
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
+      "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala", "chisel/src/test/scala/linxcore/iex/LoadIexIssuePipelineSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/iex/LoadIexIssuePipelineSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "cutover_task": 13,
+      "deletion_targets": [],
       "adapters": []
     },
     {
@@ -525,8 +531,7 @@ evidence.
       "cutover_task": 15,
       "deletion_targets": [
         {"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocPath", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"]},
-        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala"]},
-        {"path": "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala", "symbol": "linxcore.ooo.OooIexLoadLiqAllocAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala"]}
+        {"path": "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala", "symbol": "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala"]}
       ],
       "adapters": []
     },

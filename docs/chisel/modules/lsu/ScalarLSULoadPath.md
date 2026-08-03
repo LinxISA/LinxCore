@@ -75,8 +75,9 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
     row, may be rebound only by an exact consecutive-generation transaction,
     and survives ResolveQ/LRET plus W1/W2 retention. `robLookupAttempt` and
     terminal `completion.payload.attempt` expose the same identity.
-13. Production `useExternalStqForwarding` mode atomically places every
-    accepted launch into exactly one of three retained query queues. Hard flush
+13. `useExternalStqForwarding` mode atomically places every accepted launch
+    into exactly one retained query queue selected from the parameterized load
+    pipes; W4 has two queues. Hard flush
     clears them; typed precise recovery fences external fire while preserving
     surviving requests and recomputing their return/miss reservations.
     The selected queue retains `valid` and the complete payload while the STQ
@@ -158,29 +159,18 @@ one little-endian extended value. The generated return-path probe covers both
 hit/hit and hit/miss/refill/hit sequences and verifies the second miss uses the
 next aligned line.
 
-I0.15c-b3c2 adds the production three-pipe STQ forwarding boundary without
-changing compatibility elaborations. Production graphs contain
-`STQLoadForwardResultPipeline`, `LoadForwardResultRetainer`, and three retained
-query lanes, but contain neither `LoadForwardPipeline` nor
-`LoadStoreForwarding`. The query's `loadBid` is presently a checked projection
-of the producer native BID plus BROB-generation parity into the existing STQ
-ordering type. A non-zero discarded native-BID bit blocks launch and raises
-`protocolError`; it cannot silently alias. This is migration evidence, not
-final proof that the closed OOO wrapper and scalar LSU share one canonical
-BID/BROB ordering authority.
-
-I0.15c-b3c3a adds `OooIexScalarLoadStorePath`, which connects these three
-query/response lanes to one live `OooIexStoreStqFabric`, exports the exact ROB
-lookup key, joins OOO and LSU recovery on one local fire, and rejects LSU
-projections whose per-LIQ-row kill mask differs from grouped-ROB membership.
-It currently requires all non-LIQ load/recovery transport to be empty before
-that local fire. Canonical STQ address mutation is also conditioned on
-prospective MDB capacity.
+The retained STQ forwarding mechanism is parameterized by
+`CoreParams.lsu.loadPipes`; W4 instantiates exactly two query/response lanes.
+`STQLoadForwardResultPipeline` and `LoadForwardResultRetainer` remain the
+single forwarding-result owners. Task 15 connects them directly to
+`LoadIexIssuePipeline`, `OooIexCanonicalLoadOwnership`, and the canonical STQ
+through the typed IEX/LSU boundary. The deleted combined scalar-load/store
+shell is not an integration layer and must not be recreated.
 
 The remaining integration gaps are explicit:
 
-- install the focused production subgraph in the full execution/O3 topology
-  without duplicating its load ownership or STQ;
+- install the retained load and store owners in the full IEX/LSU topology
+  without duplicating LIQ, forwarding, metadata, or STQ state;
 - extend recovery projection equality beyond resident LIQ rows to all LSU
   queues and the final BID/BROB recovery adapter;
 - define and connect the policy consumer for retained structural `hardBlock`
@@ -190,7 +180,7 @@ The remaining integration gaps are explicit:
 - connect the physical SCB source-return owner, DTLB/PMP/PMA, coherence, and
   lower-memory transactions;
 - close timing and workload promotion. Focused forwarding IT is not a
-  Dhrystone/CoreMark production claim.
+  Dhrystone/CoreMark closure claim.
 
 ## Verification
 

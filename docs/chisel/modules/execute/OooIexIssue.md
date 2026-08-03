@@ -20,9 +20,8 @@ The first downstream read-stage packet is documented separately in
 does not take ownership of the physical IQ entry.
 Oldest-ready selection and canonical speculative ownership are documented in
 [`OooIexOldestReadyPicker`](OooIexOldestReadyPicker.md).
-The exact selected-payload join and executable one-/multi-domain compositions are
-documented in [`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
-[`OooIexIssueP1Lane`](OooIexIssueP1Lane.md), plus
+The exact selected-payload join and multi-domain composition are documented in
+[`OooIexPickP1Bridge`](OooIexPickP1Bridge.md) and
 [`OooIexIssueP1Fabric`](OooIexIssueP1Fabric.md).
 The first class-specific terminal handoff is documented in
 [`OooIexE1TransferSlot`](OooIexE1TransferSlot.md).
@@ -64,7 +63,9 @@ retry acceptance, or query pickability. A capability-mismatched row remains
 resident and not in flight; it is never silently redirected to an incompatible
 pipe.
 
-The scheduling row contains exact PE/STID/epoch/transaction, canonical
+The scheduling row contains exact PE/STID/epoch/dispatch transaction,
+the IEX memory transaction and initial load attempt allocated on the canonical
+Dispatch-to-IQ acceptance edge, canonical
 speculative `inFlight`, and
 `RobMemberKey`, the class/bank/write-port/entry/reservation generation, and
 generation-qualified P/T/U source/destination tags. The payload sidecar keeps
@@ -77,8 +78,9 @@ adding those wide controls to the wakeup/recovery scan row. I0.9g adds the
 logical uop's full memory-order allocation beside those controls. S1 accepts a
 memory transaction only when its exact per-STID lease identity joined the O3
 publication; S2 copies the logical range into every physical child sidecar.
-STA and STD therefore share the same logical store range without treating an
-IQ slot or future STQ row as the full SID/LSID authority.
+STA and STD therefore share the same logical store range and IEX memory
+transaction without treating an IQ slot or future STQ row as the full
+SID/LSID authority. Recovery never rewinds either IEX serial.
 
 I0.15c-a also retains each GPR destination's displaced physical mapping in the
 wide sidecar. The compact scheduling row still carries only the current PTag;
@@ -145,7 +147,7 @@ oldest-ready selection, so AGU LDA and STA pickers can observe one residency
 owner without ever claiming the same row. The canonical `inFlight` update is
 still the final same-cycle collision guard. Retry is accepted only by the
 picker whose projection and capability currently cover the reservation.
-Domain-zero aliases preserve the focused one-lane interface.
+The parameter-derived profile supplies every canonical domain projection.
 
 Release is fail-closed. It requires an in-flight row, the exact member, and
 complete dispatch reservation, including class-local entry, write port, and
@@ -158,44 +160,38 @@ chooses a winner for an ambiguous double-free request.
 
 ## Recovery
 
-The owner consumes a compact `OooResidencyRecoveryPlan` projected from the
-complete grouped-ROB plan. Prepare captures the immutable request, validates
-retained S1 immediately, then scans one parameterized entry slice from every
-physical class/bank per cycle. The default
+The owner consumes the canonical `RecoveryPlan` directly; there is no private
+IEX recovery projection. Prepare accepts only a legal suffix-window plan,
+retains the exact typed transaction, and then scans one parameterized entry
+slice from every physical class/bank per cycle. The default
 `iexRecoveryScanEntriesPerBankPerCycle=1` takes
 `iqEntriesPerBank` scan cycles; larger power-of-two divisors trade read/CAM
 width for latency. Capture plus scan exposes prepared-ready after
 `iexRecoveryScanCycles + 1` cycles.
 
 The scan is side-effect free. It overwrites every stored row-kill bit during a
-complete pass and accumulates exact `BoundS2`/`ResidentS3` counts, pending-S3
-lane membership, and generation-qualified P/T/U ready-scoreboard kill masks.
-Changing the offered plan while it is retained or finding a malformed live
-row rejects the request. Deasserting prepare before `Prepared` aborts only the
-scan metadata. Neither case mutates S1/S2/S3 or readiness state.
-
-P-ready is a global scoreboard, so a numerical PTag can be recycled and
-rewritten by a peer while recovery is retained. Capture snapshots the complete
-`{valid,generation,stid,epoch}` owner identity used by the scan. Common apply
-clears a retained P-ready mask bit only when the live identity still equals
-that snapshot; a new generation/STID/epoch survives unchanged.
+complete pass by testing each resident schedule row with
+`RecoveryPlanContract.suffixMember`. Changing the transaction during a retained
+recovery cannot substitute a different plan: `Prepared` returns the retained
+plan, while Apply and Abort must match it under
+`sameTransactionIgnoringPhase`. Neither Prepare nor scanning mutates IQ
+residency. P/T/U data and readiness remain exclusively owned by
+`OooIexOperandFiles` and are not shadowed or cleared here.
 
 Prepare freezes target-STID admission, transition, release, and wakeup while
 unrelated STIDs continue. After every slice validates, the owner holds the
-prepared result and its exact masks until the global common apply. Apply
-prunes killed lanes from retained S1 and pending S3, frees exact killed
-`BoundS2` and `ResidentS3` rows, and clears matching P/T/U readiness records.
-A surviving partial pivot remains resident and pickable. Because wakeup is a
-non-backpressured `Valid` input, target-STID wakeup during prepare is an
-assertion failure rather than a silently dropped readiness event; global R0-R4
-must quiesce those producers before prepare.
+prepared result and its exact row mask until the global common decision. An
+exact Apply frees only suffix-member IQ rows; an exact Abort preserves all
+rows. Surviving prefix rows remain resident and pickable. A mismatched Apply or
+Abort is rejected by assertion rather than being interpreted as a new recovery
+transaction.
 
 ## Remaining gaps
 
-- The formal 12-owner/14-picker residency/capability profile, runtime
-  capability admission, and dual AGU LDA/STA pickers are implemented. Shared
-  DIV/PAC/SYS arbitration remains open; broad dispatch class alone remains
-  insufficient.
+- The parameter-derived residency/capability profile, runtime capability
+  admission, and dual AGU LDA/STA pickers are implemented. Busy/latency
+  feedback from multicycle/PAC/system owners remains open; broad dispatch class
+  alone remains insufficient.
 - Canonical-top wiring for the implemented P/T/U RF owners, shared read-port
   arbitration, speculative-ready, exact bypass, and load-cancel paths;
   physical result/wakeup/LSU-resolve producers remain open.
@@ -212,10 +208,8 @@ must quiesce those producers before prepare.
   unbounded dispatch slot encoder is closed by O8.2's bounded hierarchy.
 - Per-class multi-pick liveness counters and coverage closure.
 
-The legacy `ReducedScalarIssue*` modules remain compatibility evidence until a
-later IEX packet replaces their top-level consumers. `OooIexP1I2Lane` now
-replaces their read-stage semantics for the canonical path. They are not used
-as the semantic authority for this module.
+Old `ReducedScalarIssue*` evidence is not part of this canonical path and must
+be removed with the old top chain before final cutover.
 
 ## Verification
 
@@ -223,10 +217,9 @@ as the semantic authority for this module.
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooIexOldestReadyPicker
 bash tools/chisel/run_chisel_tests.sh --only OooIexPickP1Bridge
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Lane
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1Fabric
 bash tools/chisel/run_chisel_tests.sh --only OooIexE1TransferFabric
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueE1Integration
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexRecovery
 bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
 ```
@@ -281,17 +274,14 @@ The same 2-bank x 4-entry main IEX owner is now 176,457 lines, a bounded 1.6%
 increase over the 173,709-line recovery-scan baseline. The picker has no
 payload-memory reference.
 
-I0.3 adds an explicit 913-line token-to-payload join. In the focused 2-bank ×
-4-entry composition, `OooIexIssueP1Lane` is 8,244 lines and contains separate
-158,376-line IQ, 913-line bridge, and 2,992-line P1/I1/I2 lane modules. The
-bridge RTL has no `payloadRows` or `scheduleRows` storage reference; it only
-checks the readyless joined row supplied by the IQ owner.
+I0.3 adds an explicit token-to-payload join. The bridge RTL has no
+`payloadRows` or `scheduleRows` storage reference; it only checks the readyless
+joined row supplied by the IQ owner.
 In the directly comparable first IEX stage test, the main owner is now 176,764
 lines, 307 lines above I0.2 and 1.8% above the 173,709-line bounded-recovery
 baseline.
 
-I0.4's focused two-domain composition is 12,129 SystemVerilog lines around one
-163,798-line `OooIexIssue`, two 913-line bridges, and two 2,992-line lanes.
-The fabric contains exactly one `OooIexIssue` instance and no schedule/payload
-storage reference. These are structural elaboration counts, not timing or area
-claims.
+The current fabric contains exactly one `OooIexIssue` instance and no second
+schedule/payload storage owner. `IEXMechanismSpec` proves matching main/bounded
+W2/W4/W6/W8 topology and dynamically elaborates the bounded W4/W2 mechanisms;
+full-capacity generated RTL remains a dedicated closure gate.

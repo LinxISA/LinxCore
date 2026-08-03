@@ -23,6 +23,9 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     dut.io.fromD2.valid.poke(false.B)
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
     dut.io.toD3.ready.poke(true.B)
+    dut.io.prefixLimit.valid.poke(true.B)
+    dut.io.prefixLimit.bits.count.poke(1.U)
+    dut.io.prefixLimit.bits.groupCount.poke(1.U)
     dut.io.publicationIdentity.valid.poke(false.B)
     dut.io.publicationIdentity.bits.poke(
       0.U.asTypeOf(dut.io.publicationIdentity.bits))
@@ -69,6 +72,14 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     row.uop.sources(0).valid.poke(true.B)
     row.uop.sources(0).kind.poke(OperandKind.Gpr)
     row.uop.sources(0).atag.poke(2.U)
+    if (group.groupCount.peek().litValue == 1) {
+      val intent = group.groups(0)
+      intent.valid.poke(true.B)
+      intent.peId.poke(1.U)
+      intent.stid.poke(stid.U)
+      intent.ridSlot.poke(ridSlot.U)
+      intent.ridGeneration.poke(5.U)
+    }
   }
 
   private def pokeBoundary(
@@ -90,6 +101,14 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     row.uop.rob.memberIndex.poke(0.U)
     row.uop.uopClass.poke(UopClass.Boundary)
     row.uop.blockBoundary.poke(true.B)
+    if (group.groupCount.peek().litValue == 1) {
+      val intent = group.groups(0)
+      intent.valid.poke(true.B)
+      intent.peId.poke(1.U)
+      intent.stid.poke(stid.U)
+      intent.ridSlot.poke(rid.U)
+      intent.ridGeneration.poke(5.U)
+    }
   }
 
   private def pokeLocalDest(
@@ -115,6 +134,14 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
       row.uop.destinations(dest).kind.poke(kind)
       row.uop.destinations(dest).atag.poke((dest + 1).U)
     }
+    if (group.groupCount.peek().litValue == 1) {
+      val intent = group.groups(0)
+      intent.valid.poke(true.B)
+      intent.peId.poke(1.U)
+      intent.stid.poke(0.U)
+      intent.ridSlot.poke(rid.U)
+      intent.ridGeneration.poke(5.U)
+    }
   }
 
   private def driveOne(
@@ -126,6 +153,8 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
     dut.io.fromD2.bits.count.poke(1.U)
     dut.io.fromD2.bits.groupCount.poke(1.U)
+    dut.io.prefixLimit.bits.count.poke(1.U)
+    dut.io.prefixLimit.bits.groupCount.poke(1.U)
     pokeGpr(dut.io.fromD2.bits, 0, id = id, dst = dst, stid = stid, rid = rid)
     dut.io.fromD2.valid.poke(true.B)
     dut.io.fromD2.ready.expect(true.B)
@@ -300,9 +329,19 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
       dut.io.fromD2.bits.count.poke(2.U)
-      dut.io.fromD2.bits.groupCount.poke(1.U)
-      pokeGpr(dut.io.fromD2.bits, 0, id = 41, dst = 2, rid = 2)
-      pokeGpr(dut.io.fromD2.bits, 1, id = 42, dst = 3, rid = 3)
+      dut.io.fromD2.bits.groupCount.poke(2.U)
+      dut.io.prefixLimit.bits.count.poke(2.U)
+      dut.io.prefixLimit.bits.groupCount.poke(2.U)
+      pokeGpr(dut.io.fromD2.bits, 0, id = 41, dst = 2, rid = 2, member = 0)
+      pokeGpr(dut.io.fromD2.bits, 1, id = 42, dst = 3, rid = 3, member = 0)
+      for ((rid, group) <- Seq(2, 3).zipWithIndex) {
+        val intent = dut.io.fromD2.bits.groups(group)
+        intent.valid.poke(true.B)
+        intent.peId.poke(1.U)
+        intent.stid.poke(0.U)
+        intent.ridSlot.poke(rid.U)
+        intent.ridGeneration.poke(5.U)
+      }
       dut.io.fromD2.valid.poke(true.B)
       dut.io.fromD2.ready.expect(true.B)
       dut.clock.step()
@@ -458,9 +497,19 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
       dut.io.fromD2.bits.count.poke(2.U)
-      dut.io.fromD2.bits.groupCount.poke(1.U)
-      pokeGpr(dut.io.fromD2.bits, 0, id = 73, dst = 1, rid = 4)
-      pokeGpr(dut.io.fromD2.bits, 1, id = 74, dst = 2, rid = 5)
+      dut.io.fromD2.bits.groupCount.poke(2.U)
+      dut.io.prefixLimit.bits.count.poke(2.U)
+      dut.io.prefixLimit.bits.groupCount.poke(2.U)
+      pokeGpr(dut.io.fromD2.bits, 0, id = 73, dst = 1, rid = 4, member = 0)
+      pokeGpr(dut.io.fromD2.bits, 1, id = 74, dst = 2, rid = 5, member = 0)
+      for ((rid, group) <- Seq(4, 5).zipWithIndex) {
+        val intent = dut.io.fromD2.bits.groups(group)
+        intent.valid.poke(true.B)
+        intent.peId.poke(1.U)
+        intent.stid.poke(0.U)
+        intent.ridSlot.poke(rid.U)
+        intent.ridGeneration.poke(5.U)
+      }
       dut.io.fromD2.valid.poke(true.B)
       dut.io.fromD2.ready.expect(true.B)
       dut.clock.step()

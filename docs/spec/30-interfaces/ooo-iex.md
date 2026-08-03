@@ -28,6 +28,23 @@ the producer to regenerate it.
 `SystemIssueTxn` and the TOP-projected `CmdIssueTxn` remain separate
 backpressured transactions.
 
+`DispatchTxn.trap` carries the precise decode-trap intent owned by OOO from
+the canonical D3 lane into IEX. Its validity and cause are immutable parts of
+the dispatch payload and therefore remain stable under backpressure. A
+`StoreDispatchTxn` copies the same intent into both its STA and STD members;
+the atomic store beat cannot expose one member with a missing or different
+trap intent. IEX may transport and resolve this intent but does not create a
+second decode-trap owner.
+
+`DispatchTxn.pcBufferIndexOffset` carries the exact `pcBufferIndex`、
+`pcOffset` and `allocationEpoch` prepared by the OOO PC buffer on the common
+D3 publication edge. IEX retains those fields in the IQ. A uop that needs its
+PC presents `PcBufferReadAddress` during I1; OOO returns the exact PC base
+through the readyless `pcBufferReadPcBase` vector, and IEX adds the retained PC
+offset in I2. A stale PC buffer index/allocation epoch produces no valid PC
+base and must repick without execution. The complete PC is not copied through
+the IQ and IEX owns no PC buffer rows.
+
 `DispatchTxn.memoryOrder` is stable logical order metadata. `requestCount`
 states the number of memory requests represented by the uop; `firstLsid`,
 `firstLid`, and `firstSid` are respectively the first full memory-order, load,

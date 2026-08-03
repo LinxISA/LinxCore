@@ -62,6 +62,8 @@ object OooIexIssueBlockMatrix {
 
     val stidInRange = query.stid < p.stidCount.U
     val safeStid = Mux(stidInRange, query.stid, 0.U)
+    def stidBit(mask: UInt): Bool =
+      if (p.stidCount == 1) mask(0) else mask(safeStid)
     val uopClass = query.uopClass
     val isLoadAddress = uopClass === OooUopClass.Agu && !query.isStore
     val isStorePath = query.isStore &&
@@ -70,21 +72,21 @@ object OooIexIssueBlockMatrix {
     result(OooIexIssueBlockReason.GlobalQuiesce) := policy.globalQuiesce
     result(OooIexIssueBlockReason.PowerThrottle) := policy.powerThrottle
     result(OooIexIssueBlockReason.ClassPressure) := stidInRange &&
-      policy.classPressure(uopClass.asUInt)(safeStid)
+      stidBit(policy.classPressure(uopClass.asUInt))
     result(OooIexIssueBlockReason.LoadQueuePressure) := stidInRange &&
-      isLoadAddress && policy.loadQueuePressure(safeStid)
+      isLoadAddress && stidBit(policy.loadQueuePressure)
     result(OooIexIssueBlockReason.StoreWindowPressure) := stidInRange &&
-      isStorePath && policy.storeWindowPressure(safeStid)
+      isStorePath && stidBit(policy.storeWindowPressure)
     result(OooIexIssueBlockReason.DomainStructural) := stidInRange &&
-      policy.domainStructural(domain)(safeStid)
+      stidBit(policy.domainStructural(domain))
     result(OooIexIssueBlockReason.LatencyReservation) := stidInRange &&
-      policy.latencyReservation(domain)(safeStid)
+      stidBit(policy.latencyReservation(domain))
     result(OooIexIssueBlockReason.ReflowReservation) := stidInRange &&
-      policy.reflowReservation(domain)(safeStid)
+      stidBit(policy.reflowReservation(domain))
     result(OooIexIssueBlockReason.SideDoorConflict) := stidInRange &&
-      policy.sideDoorConflict(domain)(safeStid)
+      stidBit(policy.sideDoorConflict(domain))
     result(OooIexIssueBlockReason.ResultBusReservation) := stidInRange &&
-      policy.resultBusReservation(domain)(safeStid)
+      stidBit(policy.resultBusReservation(domain))
     result.asUInt
   }
 }

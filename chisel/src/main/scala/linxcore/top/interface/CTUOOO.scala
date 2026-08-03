@@ -72,12 +72,64 @@ class DecodedDestination(val p: CoreParams) extends Bundle {
   val relativeIndex = UInt(p.archRegWidth.W)
 }
 
+/** Encoding-independent uop classification produced once by D1/D2.
+  *
+  * IEX consumes this payload directly when it binds an Issue Queue row.  The
+  * classification therefore preserves Execution-pipe capability, splitting,
+  * speculation and side-effect information; later stages do not reconstruct
+  * those decisions from opcode or queue placement.
+  */
+class UopClassification(val p: CoreParams) extends Bundle {
+  private val uopCountWidth =
+    PrefixPacketContract.countWidth(p.ooo.maxUopsPerInstruction)
+  private val dispatchCountWidth =
+    PrefixPacketContract.countWidth(p.widths.dispatchWidth)
+  private val sourceCountWidth =
+    PrefixPacketContract.countWidth(p.maxSourceOperands)
+  private val destinationCountWidth =
+    PrefixPacketContract.countWidth(p.maxDestinationOperands)
+
+  val valid = Bool()
+  val disposition = UInt(2.W)
+  val kind = UInt(4.W)
+  val uopCountMin = UInt(uopCountWidth.W)
+  val uopCountMax = UInt(uopCountWidth.W)
+  val complexBreak = Bool()
+  val splitKind = UInt(2.W)
+  val fusionHeadClass = UInt(2.W)
+  val fusionTailClass = UInt(2.W)
+  val fastResolveClass = UInt(3.W)
+  val implicitSourceMask = UInt(p.maxSourceOperands.W)
+  val implicitDestination = UInt(2.W)
+  val sideEffectOwner = UInt(3.W)
+  val requiresTargetValidation = Bool()
+  val mayTrap = Bool()
+  val mayTrapLate = Bool()
+  val mayRedirect = Bool()
+  val nonspeculative = Bool()
+  val pcReadRequired = Bool()
+  val pcReadClass = UInt(4.W)
+  val dispatchClass = UInt(4.W)
+  val dispatchWrites = UInt(dispatchCountWidth.W)
+  val dispatchDemand =
+    Vec(p.iex.issueQueueClasses, UInt(dispatchCountWidth.W))
+  val executionPipeCapability =
+    Vec(p.iex.issueQueueClasses, UInt(p.iex.executionPipeKinds.W))
+  val memoryRequestCount = UInt(
+    PrefixPacketContract.countWidth(p.maxMemoryRequestsPerInstruction).W)
+  val pSourceCount = UInt(sourceCountWidth.W)
+  val pDestinationCount = UInt(destinationCountWidth.W)
+  val tAllocationCount = UInt(destinationCountWidth.W)
+  val uAllocationCount = UInt(destinationCountWidth.W)
+}
+
 class DecodedUop(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val instruction = new FrontEndOp(p)
   val rob = new RobIdentity(p)
   val opcode = UInt(p.opcodeWidth.W)
   val uopClass = UopClass()
+  val classification = new UopClassification(p)
   val sources = Vec(p.maxSourceOperands, new DecodedSource(p))
   val destinations =
     Vec(p.maxDestinationOperands, new DecodedDestination(p))

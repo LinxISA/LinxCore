@@ -139,7 +139,7 @@ class OooIexPhysicalProfileSpec extends AnyFunSuite {
   }
 
   test("canonical profile permits only capability-disjoint logical owner overlap") {
-    val profile = OooIexProductionPhysicalProfile(ParamProfiles.W4).physical
+    val profile = OooIexPhysicalProfile.fromCoreParams(ParamProfiles.W4)
     val aluClass = OooDispatchClass.Alu - 1
     val simpleOwners = profile.ownersOf(aluClass).filter(
       _.hasCapability(SimpleAlu))

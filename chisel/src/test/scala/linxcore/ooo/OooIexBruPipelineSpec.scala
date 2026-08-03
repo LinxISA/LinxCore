@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.top.interface.RecoveryPhase
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexBruPipelineSpec extends AnyFunSuite with ChiselSim {
@@ -138,17 +139,25 @@ class OooIexBruPipelineSpec extends AnyFunSuite with ChiselSim {
 
   private def pokeRecovery(
       dut: OooIexBruPipeline,
-      newOccupied: Int): Unit = {
+      firstKilledSlot: Int): Unit = {
     val plan = dut.io.recoveryApply.bits
     plan.poke(0.U.asTypeOf(plan))
-    plan.valid.poke(true.B)
-    plan.oldHead.valid.poke(true.B)
-    plan.oldHead.peId.poke(3.U)
-    plan.oldHead.stid.poke(1.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(1.U)
-    plan.oldOccupied.poke(4.U)
-    plan.newOccupied.poke(newOccupied.U)
+    plan.phase.poke(RecoveryPhase.Apply)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(1.U)
+    if (firstKilledSlot < 4) {
+      plan.firstKilledValid.poke(true.B)
+      plan.firstKilled.peId.poke(3.U)
+      plan.firstKilled.stid.poke(1.U)
+      plan.firstKilled.ridSlot.poke(firstKilledSlot.U)
+      plan.firstKilled.ridGeneration.poke(1.U)
+      plan.lastKilled.peId.poke(3.U)
+      plan.lastKilled.stid.poke(1.U)
+      plan.lastKilled.ridSlot.poke(3.U)
+      plan.lastKilled.ridGeneration.poke(1.U)
+      plan.killedGroupCount.poke((4 - firstKilledSlot).U)
+      plan.killedMemberCount.poke((4 - firstKilledSlot).U)
+    }
     dut.io.recoveryApply.valid.poke(true.B)
   }
 
@@ -218,7 +227,7 @@ class OooIexBruPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.e2.bits.bctrl.valid.expect(true.B)
       dut.io.e2.bits.bctrl.kind.expect(OooIexBctrlUpdateKind.Condition)
       dut.io.e2.bits.bctrl.condition.expect(true.B)
-      pokeRecovery(dut, newOccupied = 2)
+      pokeRecovery(dut, firstKilledSlot = 2)
       dut.io.e2.valid.expect(false.B)
       dut.io.killedE2.valid.expect(true.B)
       dut.clock.step()

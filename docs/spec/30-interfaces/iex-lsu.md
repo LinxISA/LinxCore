@@ -7,8 +7,9 @@ IEX shall provide independently backpressured load-address, store-address, and
 store-data transactions. The default topology shall expose two paths of each
 kind, and LSU responses shall match complete memory and ROB identities rather
 than address or queue slot alone. OOO shall allocate program-order memory IDs,
-IEX shall allocate each memory transaction and initial load attempt, and LSU
-shall own LIQ reissue, repick, and later attempt rebind.
+IEX shall allocate each memory transaction and initial load attempt on the
+canonical Dispatch-to-IQ acceptance edge, and LSU shall own LIQ reissue,
+repick, and later attempt rebind.
 
 ## LSU request and result Bundles {#MEC-IEX-LSU-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-IEX-LSU-001 -->

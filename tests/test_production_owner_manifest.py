@@ -114,7 +114,26 @@ class ProductionOwnerManifestTest(unittest.TestCase):
     def test_accepts_complete_manifest_through_real_cli(self) -> None:
         result = self._run()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("production-owner-manifest: 24 closed owners", result.stdout)
+        self.assertIn("production-owner-manifest: 25 closed owners", result.stdout)
+
+    def test_pending_private_owner_may_have_no_main_caller(self) -> None:
+        row = self.owner("execution_pipeline")
+        self.assertEqual(row["public_box_status"], "pending")
+        self.assertEqual(row["active_callers"], [])
+
+        result = self._run()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_installed_public_owner_still_requires_an_active_caller(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        row = self.owner("rob", manifest)
+        row["active_callers"] = []
+
+        self.assert_rejected(
+            manifest,
+            "active callers for rob must be a non-empty list",
+        )
 
     def test_rejects_declared_canonical_caller_that_does_not_construct_owner(self) -> None:
         manifest = copy.deepcopy(self.manifest)

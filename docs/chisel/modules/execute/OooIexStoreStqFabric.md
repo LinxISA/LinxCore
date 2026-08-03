@@ -2,18 +2,15 @@
 
 ## Purpose
 
-`OooIexStoreStqFabric` is the canonical static composition for retained store
-execution and Store Queue residency. It replaces the single-lease integration
-harness with a production-shaped owner that can keep multiple logical stores
+`OooIexStoreStqFabric` is the retained store-execution and Store Queue
+residency mechanism. It can keep multiple logical stores
 live at once, accept two independent STA lanes and two independent STD lanes,
 and converge both halves only in `STQEntryBank`.
 
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala`
-- `chisel/src/main/scala/linxcore/ooo/OooIexExecutionStorePipeline.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexStoreStqFabricSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexExecutionStoreIntegrationSpec.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala`
 
@@ -56,7 +53,7 @@ MDB owner to reserve record/wait/recovery capacity before STQ acceptance and
 prevents a store address from becoming visible without its conflict side
 effect.
 
-The same held `OooResidencyRecoveryPlan` is prepared by both retained store
+The same held `RecoveryPlan` is prepared by both retained store
 pipelines and the STQ. Prepare is side-effect free and fences reserve, STA/STD
 acceptance, fill, commit-mark, and free mutation. Recovery can fire only when
 every killed STQ row is an exact `WAIT` row; one common fire then cancels the
@@ -68,18 +65,16 @@ Issue recovery also rejects a pivot that would retain only one physical child
 of a logical split store. STA/STD recovery is therefore all-or-none while the
 store is retained before S2 and after its physical rows reach IQ residency.
 
-The fabric's commit-mark and mask-free ports are private connections in the
-surviving `OooIexExecutionStorePipeline`. Semantic ROB store
-tokens are matched to exact STQ leases by `STQSCBCommitBackend`; accepted SCB
-last fragments are the terminal free authority. The remaining store path gap
-is memory-system behavior, not raw physical-index commit ownership.
+`STQSCBCommitBackend` matches semantic ROB store tokens to exact STQ leases;
+accepted SCB last fragments are the terminal free authority. Task 13 removed
+the separate IEX-plus-store shell, so the public IEX/LSU connection remains a
+Task 15 integration boundary rather than a second store-ownership path.
 
 ## Verification
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexStoreStqFabric
 bash tools/chisel/run_chisel_tests.sh --only STQDataBank
-bash tools/chisel/run_chisel_tests.sh --only OooIexExecutionStoreIntegration
 bash tools/chisel/run_chisel_tests.sh --only OooIexIssue
 bash tools/chisel/run_chisel_tests.sh --only OooIexStorePipeline
 bash tools/chisel/run_chisel_tests.sh --only OooStqReservationProjection
@@ -92,9 +87,8 @@ crossed STA/STD lanes, retained late-STA capacity backpressure, two
 simultaneous independent STD data-bank writes,
 refusal of unreserved execution, side-effect-free
 recovery prepare, mutation fencing, common-fire application, and rejection of
-a split-store partial cut after the rows have transferred from IQ. The adjacent
-execution/store IT drives the formal STA and STD lanes and observes address and
-data in one pre-reserved canonical row. The issue test proves malformed
+a split-store partial cut after the rows have transferred from IQ. The issue
+test proves malformed
 reservation recipes fail before S1, S1 residency and S2 blocking until
 canonical reservation fires, and rejection of a recovery cut between STA and
 STD before reservation, after reservation, and in resident S3.
@@ -105,6 +99,8 @@ STD before reservation, after reservation, and in resident S3.
   vector/FSU widths, cross-bank ECC/parity, and explicit power-gating policy.
 - Connect translation, PMP/PMA, MMIO classification, L1D/coherence, and
   externally visible fault publication.
+- Connect canonical IEX STA/STD lanes to this mechanism and the canonical LSU
+  boundary without reintroducing the deleted combined shell.
 - Prove sustained two-STA pressure alongside the now-directed two-STD path,
   pair-store all-or-none behavior,
   default-width synthesis/timing, and O9 workload promotion.

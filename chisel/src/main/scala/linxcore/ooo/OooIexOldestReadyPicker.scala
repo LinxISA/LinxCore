@@ -12,11 +12,8 @@ class OooIexOldestReadyPickerIO(val p: OooParams = OooParams())
   val candidates = Input(Vec(p.iqClassCount,
     Vec(p.iqBankCount,
       Vec(p.iqEntriesPerBank, new OooIexPickCandidate(p)))))
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-
   val pick = Decoupled(new OooIexPickToken(p))
   val malformed = Valid(new OooIexPickReject(p))
-  val recoveryCanceled = Valid(new OooIexPickToken(p))
   val blockedCanceled = Valid(new OooIexPickToken(p))
   val held = Output(Bool())
   val roundRobin = Output(UInt(p.stidWidth.W))
@@ -96,19 +93,17 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
     }
   }
 
-  val heldKilled = heldValid && io.recoveryApply.valid &&
-    io.recoveryApply.bits.valid && OooRecoveryMembership.memberKilled(
-      p, io.recoveryApply.bits, heldToken.candidate.member)
+  private def stidBlocked(stid: UInt): Bool =
+    if (p.stidCount == 1) io.stidBlock(0) else io.stidBlock(stid)
+
   val safeHeldStid = Mux(heldValid, heldToken.candidate.stid, 0.U)
-  val heldBlocked = heldValid && io.stidBlock(safeHeldStid)
-  io.pick.valid := heldValid && !heldKilled && !heldBlocked
+  val heldBlocked = heldValid && stidBlocked(safeHeldStid)
+  io.pick.valid := heldValid && !heldBlocked
   io.pick.bits := heldToken
   val pickFire = io.pick.valid && io.pick.ready
-  io.recoveryCanceled.valid := heldKilled
-  io.recoveryCanceled.bits := heldToken
   io.blockedCanceled.valid := heldBlocked
   io.blockedCanceled.bits := heldToken
-  io.held := heldValid && !heldKilled && !heldBlocked
+  io.held := heldValid && !heldBlocked
   io.roundRobin := roundRobin
 
   val tokens = Wire(Vec(p.iqClassCount, Vec(p.iqBankCount,
@@ -141,17 +136,14 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
       candidate.reservation.bank === bank.U &&
       candidate.reservation.writePort < p.iqWritePortsPerBank.U &&
       candidate.reservation.speculativeSlot === entry.U
-    val killed = io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(
-        p, io.recoveryApply.bits, candidate.member)
     val firedAgain = pickFire && sameExact(token, heldToken)
-    val stidBlocked = candidate.stid < p.stidCount.U &&
-      io.stidBlock(candidate.stid)
+    val candidateStidBlocked = candidate.stid < p.stidCount.U &&
+      stidBlocked(candidate.stid)
     selectable(classIndex)(bank)(entry) :=
       io.classBankEnables(classIndex)(bank) && candidate.eligible &&
       identityExact(classIndex)(bank)(entry) &&
       reservationExact(classIndex)(bank)(entry) &&
-      !stidBlocked && !killed && !firedAgain
+      !candidateStidBlocked && !firedAgain
   }
 
   val flatMalformed = Wire(Vec(candidateCount, Bool()))
@@ -207,8 +199,12 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
     heldToken.candidate.stid + 1.U, roundRobin)
   val rotated = Wire(Vec(p.stidCount, Valid(new OooIexPickToken(p))))
   for (offset <- 0 until p.stidCount) {
-    val stid = (arbitrationBase + offset.U)(p.stidWidth - 1, 0)
-    rotated(offset) := perStidWinner(stid)
+    if (p.stidCount == 1) {
+      rotated(offset) := perStidWinner(0)
+    } else {
+      val stid = (arbitrationBase + offset.U)(p.stidWidth - 1, 0)
+      rotated(offset) := perStidWinner(stid)
+    }
   }
   val rotatedMask = VecInit(rotated.map(_.valid)).asUInt
   val selectedOH = PriorityEncoderOH(rotatedMask)
@@ -218,7 +214,7 @@ class OooIexOldestReadyPicker(val p: OooParams = OooParams())
     Mux1H(selectedOH, rotated.map(_.bits)),
     0.U.asTypeOf(selectedToken))
 
-  val canCapture = !heldValid || heldKilled || heldBlocked || pickFire
+  val canCapture = !heldValid || heldBlocked || pickFire
   when(canCapture) {
     heldValid := selectedValid
     when(selectedValid) {

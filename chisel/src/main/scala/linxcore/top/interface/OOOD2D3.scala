@@ -53,6 +53,7 @@ class D3RenameLane(val p: CoreParams) extends Bundle {
   val blockStop = Bool()
   val earlyRobComplete = Bool()
   val memoryOrder = new MemoryOrderMeta(p)
+  val pcBufferIndexOffset = new PcBufferIndexOffset(p)
 }
 
 /** Full per-STID serial tail. This is program-order identity, never a
@@ -86,6 +87,12 @@ class D3RenameGroup(val p: CoreParams) extends Bundle {
   val memoryOrder = new MemoryOrderReservation(p)
 }
 
+/** Side-effect-free limit for the oldest complete portion of one retained D3 row. */
+class D3PrefixLimit(val p: CoreParams) extends Bundle {
+  val count = UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)
+  val groupCount = UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)
+}
+
 class RenameCommitReleaseEntry(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val rob = new RobIdentity(p)
@@ -100,6 +107,8 @@ class RenameCommitReleaseTxn(val p: CoreParams) extends Bundle {
 
 class RENUD2D3IO(val p: CoreParams) extends Bundle {
   val fromD2 = Flipped(Decoupled(new D2AdmissionGroup(p)))
+  val candidate = Output(Valid(new D3RenameGroup(p)))
+  val prefixLimit = Input(Valid(new D3PrefixLimit(p)))
   val toD3 = Decoupled(new D3RenameGroup(p))
   val publicationIdentity = Input(Valid(new OOORobPrepared(p)))
   val release = Flipped(Valid(new RenameCommitReleaseTxn(p)))

@@ -23,6 +23,9 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     dut.io.fromD2.valid.poke(false.B)
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
     dut.io.toD3.ready.poke(true.B)
+    dut.io.prefixLimit.valid.poke(true.B)
+    dut.io.prefixLimit.bits.count.poke(1.U)
+    dut.io.prefixLimit.bits.groupCount.poke(1.U)
     dut.io.publicationIdentity.valid.poke(false.B)
     dut.io.publicationIdentity.bits.poke(
       0.U.asTypeOf(dut.io.publicationIdentity.bits))
@@ -41,6 +44,59 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       0.U.asTypeOf(dut.io.recovery.abort.bits))
   }
 
+  test("publishes an accepted prefix and retains exact P T U identities in the suffix") {
+    simulate(new RENU(base(4))) { dut =>
+      clear(dut)
+      dut.io.toD3.ready.poke(false.B)
+      dut.io.fromD2.bits.count.poke(4.U)
+      dut.io.fromD2.bits.groupCount.poke(4.U)
+      for (lane <- 0 until 4) {
+        val group = dut.io.fromD2.bits.groups(lane)
+        group.valid.poke(true.B)
+        group.peId.poke(1.U)
+        group.stid.poke(0.U)
+        group.ridSlot.poke(lane.U)
+        group.ridGeneration.poke(5.U)
+        pokeGprAdd(dut.io.fromD2.bits, lane, id = 500 + lane,
+          dst = lane + 1, src0 = 0, src1 = 0, rid = lane)
+      }
+      dut.io.fromD2.bits.entries(2).uop.destinations(1).valid.poke(true.B)
+      dut.io.fromD2.bits.entries(2).uop.destinations(1).kind.poke(OperandKind.T)
+      dut.io.fromD2.bits.entries(3).uop.destinations(1).valid.poke(true.B)
+      dut.io.fromD2.bits.entries(3).uop.destinations(1).kind.poke(OperandKind.U)
+      dut.io.fromD2.valid.poke(true.B)
+      dut.io.fromD2.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+
+      dut.io.candidate.valid.expect(true.B)
+      dut.io.candidate.bits.count.expect(4.U)
+      val suffixP2 = dut.io.candidate.bits.entries(2).history(0).ptag.peek().litValue
+      val suffixP3 = dut.io.candidate.bits.entries(3).history(0).ptag.peek().litValue
+      val suffixT = dut.io.candidate.bits.entries(2).history(1).ttag.peek().litValue
+      val suffixU = dut.io.candidate.bits.entries(3).history(1).utag.peek().litValue
+
+      dut.io.prefixLimit.bits.count.poke(2.U)
+      dut.io.prefixLimit.bits.groupCount.poke(2.U)
+      dut.io.toD3.valid.expect(true.B)
+      dut.io.toD3.bits.count.expect(2.U)
+      dut.io.toD3.bits.groupCount.expect(2.U)
+      dut.io.toD3.ready.poke(true.B)
+      dut.clock.step()
+
+      dut.io.candidate.valid.expect(true.B)
+      dut.io.candidate.bits.count.expect(2.U)
+      dut.io.candidate.bits.groupCount.expect(2.U)
+      dut.io.candidate.bits.entries(0).history(0).ptag.expect(suffixP2.U)
+      dut.io.candidate.bits.entries(1).history(0).ptag.expect(suffixP3.U)
+      dut.io.candidate.bits.entries(0).history(1).ttag.expect(suffixT.U)
+      dut.io.candidate.bits.entries(1).history(1).utag.expect(suffixU.U)
+      dut.io.toD3.bits.count.expect(2.U)
+      dut.clock.step()
+      dut.io.toD3.valid.expect(false.B)
+    }
+  }
+
   private def pokeGprAdd(
       group: D2AdmissionGroup,
       lane: Int,
@@ -50,7 +106,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       src1: Int,
       stid: Int = 0,
       rid: Int = -1): Unit = {
-    val ridSlot = if (rid >= 0) rid else lane
+    val ridSlot = if (rid >= 0) rid else 0
     val row = group.entries(lane)
     row.uop.valid.poke(true.B)
     row.uop.instruction.parent.identity.peId.poke(1.U)
@@ -58,6 +114,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     row.uop.instruction.parent.identity.instructionId.poke(id.U)
     row.uop.instruction.parent.identity.epoch.poke(3.U)
     row.uop.rob.stid.poke(stid.U)
+    row.uop.rob.peId.poke(1.U)
     row.uop.rob.ridSlot.poke(ridSlot.U)
     row.uop.rob.ridGeneration.poke(5.U)
     row.uop.rob.memberIndex.poke((lane % 4).U)
@@ -71,6 +128,14 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     row.uop.sources(1).valid.poke(true.B)
     row.uop.sources(1).kind.poke(OperandKind.Gpr)
     row.uop.sources(1).atag.poke(src1.U)
+    if (group.groupCount.peek().litValue == 1) {
+      val intent = group.groups(0)
+      intent.valid.poke(true.B)
+      intent.peId.poke(1.U)
+      intent.stid.poke(stid.U)
+      intent.ridSlot.poke(ridSlot.U)
+      intent.ridGeneration.poke(5.U)
+    }
   }
 
   private def pokeLocal(
@@ -81,7 +146,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       relSrc: Option[Int],
       stid: Int = 0,
       rid: Int = -1): Unit = {
-    val ridSlot = if (rid >= 0) rid else lane
+    val ridSlot = if (rid >= 0) rid else 0
     val row = group.entries(lane)
     row.uop.valid.poke(true.B)
     row.uop.instruction.parent.identity.peId.poke(1.U)
@@ -89,6 +154,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     row.uop.instruction.parent.identity.instructionId.poke(id.U)
     row.uop.instruction.parent.identity.epoch.poke(3.U)
     row.uop.rob.stid.poke(stid.U)
+    row.uop.rob.peId.poke(1.U)
     row.uop.rob.ridSlot.poke(ridSlot.U)
     row.uop.rob.ridGeneration.poke(5.U)
     row.uop.rob.memberIndex.poke((lane % 4).U)
@@ -100,6 +166,14 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       row.uop.sources(0).valid.poke(true.B)
       row.uop.sources(0).kind.poke(kind)
       row.uop.sources(0).relativeIndex.poke(rel.U)
+    }
+    if (group.groupCount.peek().litValue == 1) {
+      val intent = group.groups(0)
+      intent.valid.poke(true.B)
+      intent.peId.poke(1.U)
+      intent.stid.poke(stid.U)
+      intent.ridSlot.poke(ridSlot.U)
+      intent.ridGeneration.poke(5.U)
     }
   }
 
@@ -151,11 +225,13 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     dut.io.recovery.prepare.bits.phase.poke(
       linxcore.top.interface.RecoveryPhase.Prepare)
     dut.io.recovery.prepare.bits.transactionId.poke(transactionId.U)
+    dut.io.recovery.prepare.bits.trigger.peId.poke(1.U)
     dut.io.recovery.prepare.bits.trigger.stid.poke(stid.U)
     dut.io.recovery.prepare.bits.trigger.ridSlot.poke(triggerRid.U)
     dut.io.recovery.prepare.bits.trigger.ridGeneration.poke(5.U)
     surviving.foreach { rid =>
       dut.io.recovery.prepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recovery.prepare.bits.survivingTail.peId.poke(1.U)
       dut.io.recovery.prepare.bits.survivingTail.stid.poke(stid.U)
       dut.io.recovery.prepare.bits.survivingTail.ridSlot.poke(rid.U)
       dut.io.recovery.prepare.bits.survivingTail.ridGeneration.poke(5.U)
@@ -167,11 +243,13 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     dut.io.recovery.apply.bits.phase.poke(
       linxcore.top.interface.RecoveryPhase.Apply)
     dut.io.recovery.apply.bits.transactionId.poke(transactionId.U)
+    dut.io.recovery.apply.bits.trigger.peId.poke(1.U)
     dut.io.recovery.apply.bits.trigger.stid.poke(stid.U)
     dut.io.recovery.apply.bits.trigger.ridSlot.poke(triggerRid.U)
     dut.io.recovery.apply.bits.trigger.ridGeneration.poke(5.U)
     surviving.foreach { rid =>
       dut.io.recovery.apply.bits.survivingTailValid.poke(true.B)
+      dut.io.recovery.apply.bits.survivingTail.peId.poke(1.U)
       dut.io.recovery.apply.bits.survivingTail.stid.poke(stid.U)
       dut.io.recovery.apply.bits.survivingTail.ridSlot.poke(rid.U)
       dut.io.recovery.apply.bits.survivingTail.ridGeneration.poke(5.U)
@@ -185,6 +263,8 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.io.fromD2.bits.count.poke(2.U)
       dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.prefixLimit.bits.count.poke(2.U)
+      dut.io.prefixLimit.bits.groupCount.poke(1.U)
       pokeGprAdd(dut.io.fromD2.bits, 0, id = 10, dst = 1, src0 = 2, src1 = 3)
       pokeGprAdd(dut.io.fromD2.bits, 1, id = 11, dst = 4, src0 = 1, src1 = 5)
       dut.io.toD3.ready.poke(false.B)
@@ -218,6 +298,8 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.io.fromD2.bits.count.poke(3.U)
       dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.prefixLimit.bits.count.poke(3.U)
+      dut.io.prefixLimit.bits.groupCount.poke(1.U)
       pokeLocal(dut.io.fromD2.bits, 0, id = 20, OperandKind.T, None)
       pokeLocal(dut.io.fromD2.bits, 1, id = 21, OperandKind.T, Some(0))
       pokeLocal(dut.io.fromD2.bits, 2, id = 22, OperandKind.U, None)
@@ -270,12 +352,12 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
 
       val firstP =
         dut.io.toD3.bits.entries(0).uop.destinations(0).ptag.peek().litValue
+      val finalP =
+        dut.io.toD3.bits.entries(0).uop.destinations(1).ptag.peek().litValue
       dut.io.toD3.bits.entries(0).history(0).previousPtag.expect(1.U)
       dut.io.toD3.bits.entries(0).history(1).previousPtag.expect(firstP.U)
       dut.io.toD3.ready.poke(true.B)
       dut.clock.step()
-      val finalP =
-        dut.io.toD3.bits.entries(0).uop.destinations(1).ptag.peek().litValue
       dut.io.debugPMap(0)(1).expect(finalP.U)
     }
   }
@@ -285,6 +367,8 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.io.fromD2.bits.count.poke(1.U)
       dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.prefixLimit.bits.count.poke(1.U)
+      dut.io.prefixLimit.bits.groupCount.poke(1.U)
       pokeGprAdd(dut.io.fromD2.bits, 0, id = 50, dst = 1, src0 = 2, src1 = 3,
         stid = 0, rid = 1)
       publishOne(dut)
@@ -460,10 +544,20 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.io.toD3.ready.poke(false.B)
       dut.io.fromD2.bits.count.poke(2.U)
-      dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(2.U)
+      dut.io.prefixLimit.bits.count.poke(2.U)
+      dut.io.prefixLimit.bits.groupCount.poke(2.U)
       pokeGprAdd(dut.io.fromD2.bits, 0, id = 90, dst = 1, src0 = 2, src1 = 3,
         rid = 1)
       pokeLocal(dut.io.fromD2.bits, 1, id = 91, OperandKind.T, None, rid = 2)
+      for ((rid, group) <- Seq(1, 2).zipWithIndex) {
+        val intent = dut.io.fromD2.bits.groups(group)
+        intent.valid.poke(true.B)
+        intent.peId.poke(1.U)
+        intent.stid.poke(0.U)
+        intent.ridSlot.poke(rid.U)
+        intent.ridGeneration.poke(5.U)
+      }
       dut.io.fromD2.bits.entries(1).uop.destinations(1).valid.poke(true.B)
       dut.io.fromD2.bits.entries(1).uop.destinations(1).kind.poke(OperandKind.U)
       dut.io.fromD2.valid.poke(true.B)
@@ -480,6 +574,8 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
       dut.io.fromD2.bits.count.poke(1.U)
       dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.prefixLimit.bits.count.poke(1.U)
+      dut.io.prefixLimit.bits.groupCount.poke(1.U)
       pokeGprAdd(dut.io.fromD2.bits, 0, id = 92, dst = 4, src0 = 1, src1 = 3,
         rid = 3)
       dut.io.fromD2.valid.poke(true.B)
@@ -593,10 +689,17 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       row.uop.instruction.parent.identity.instructionId.poke(120.U)
       row.uop.instruction.parent.identity.epoch.poke(3.U)
       row.uop.rob.stid.poke(0.U)
+      row.uop.rob.peId.poke(1.U)
       row.uop.rob.ridSlot.poke(1.U)
       row.uop.rob.ridGeneration.poke(5.U)
       row.uop.uopClass.poke(UopClass.Boundary)
       row.uop.blockBoundary.poke(true.B)
+      val group = dut.io.fromD2.bits.groups(0)
+      group.valid.poke(true.B)
+      group.peId.poke(1.U)
+      group.stid.poke(0.U)
+      group.ridSlot.poke(1.U)
+      group.ridGeneration.poke(5.U)
       dut.io.fromD2.valid.poke(true.B)
       dut.clock.step()
       dut.io.fromD2.valid.poke(false.B)
@@ -623,9 +726,20 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       dut.io.fromD2.bits.count.poke(6.U)
       dut.io.fromD2.bits.groupCount.poke(2.U)
+      dut.io.prefixLimit.bits.count.poke(6.U)
+      dut.io.prefixLimit.bits.groupCount.poke(2.U)
       (0 until 6).foreach { lane =>
         pokeGprAdd(dut.io.fromD2.bits, lane, id = 130 + lane,
-          dst = lane % 6, src0 = 1, src1 = 2, rid = lane)
+          dst = lane % 6, src0 = 1, src1 = 2, rid = lane / 3)
+        dut.io.fromD2.bits.entries(lane).uop.rob.memberIndex.poke((lane % 3).U)
+      }
+      for (group <- 0 until 2) {
+        val intent = dut.io.fromD2.bits.groups(group)
+        intent.valid.poke(true.B)
+        intent.peId.poke(1.U)
+        intent.stid.poke(0.U)
+        intent.ridSlot.poke(group.U)
+        intent.ridGeneration.poke(5.U)
       }
       dut.io.fromD2.bits.entries(4).uop.destinations(0).kind.poke(OperandKind.T)
       dut.io.fromD2.bits.entries(5).uop.destinations(0).kind.poke(OperandKind.U)
@@ -645,10 +759,21 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       simulate(new RENU(base(width))) { dut =>
         clear(dut)
         dut.io.fromD2.bits.count.poke(width.U)
-        dut.io.fromD2.bits.groupCount.poke(1.U)
+        val groupCount = (width + 3) / 4
+        dut.io.fromD2.bits.groupCount.poke(groupCount.U)
+        dut.io.prefixLimit.bits.count.poke(width.U)
+        dut.io.prefixLimit.bits.groupCount.poke(groupCount.U)
         (0 until width).foreach { lane =>
           pokeGprAdd(dut.io.fromD2.bits, lane, id = 140 + lane,
-            dst = (lane % 6) + 1, src0 = 2, src1 = 3, rid = lane)
+            dst = (lane % 6) + 1, src0 = 2, src1 = 3, rid = lane / 4)
+        }
+        for (group <- 0 until groupCount) {
+          val intent = dut.io.fromD2.bits.groups(group)
+          intent.valid.poke(true.B)
+          intent.peId.poke(1.U)
+          intent.stid.poke(0.U)
+          intent.ridSlot.poke(group.U)
+          intent.ridGeneration.poke(5.U)
         }
         dut.io.fromD2.valid.poke(true.B)
         dut.io.fromD2.ready.expect(true.B)

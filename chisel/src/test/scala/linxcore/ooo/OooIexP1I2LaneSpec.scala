@@ -25,6 +25,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
     tuRetireSourceDepthPerStid = 16)
+  private val core = OooRecoveryMembership.coreParams(p)
 
   private def clear(dut: OooIexP1I2Lane): Unit = {
     dut.io.p1.valid.poke(false.B)
@@ -183,19 +184,27 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       newOccupied: Int): Unit = {
     val plan = dut.io.recoveryApply.bits
     plan.poke(0.U.asTypeOf(plan))
-    plan.valid.poke(true.B)
-    plan.oldHead.valid.poke(true.B)
-    plan.oldHead.peId.poke(3.U)
-    plan.oldHead.stid.poke(stid.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(1.U)
-    plan.oldOccupied.poke(4.U)
-    plan.newOccupied.poke(newOccupied.U)
+    plan.phase.poke(linxcore.top.interface.RecoveryPhase.Apply)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(stid.U)
+    plan.trigger.ridSlot.poke(0.U)
+    plan.trigger.ridGeneration.poke(1.U)
+    plan.firstKilledValid.poke(true.B)
+    plan.firstKilled.peId.poke(3.U)
+    plan.firstKilled.stid.poke(stid.U)
+    plan.firstKilled.ridSlot.poke(newOccupied.U)
+    plan.firstKilled.ridGeneration.poke(1.U)
+    plan.firstKilled.memberIndex.poke(0.U)
+    plan.lastKilled.peId.poke(3.U)
+    plan.lastKilled.stid.poke(stid.U)
+    plan.lastKilled.ridSlot.poke(3.U)
+    plan.lastKilled.ridGeneration.poke(1.U)
+    plan.lastKilled.memberIndex.poke((p.maxOrdinaryUopsPerGroup - 1).U)
     dut.io.recoveryApply.valid.poke(true.B)
   }
 
   test("stages exact P T and PC reads from P1 through retained I2") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -223,13 +232,13 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       dut.io.i2.bits.sourceData(0).expect("h1122334455667788".U)
       dut.io.i2.bits.sourceData(1).expect("h8877665544332211".U)
       dut.io.i2.bits.pcValid.expect(true.B)
-      dut.io.i2.bits.pc.expect("h80000126".U)
+      dut.io.i2.bits.pc.expect("h8000012c".U)
 
       dut.io.sourceData.foreach(_.poke("hdeadbeef".U))
       dut.io.pcData.poke("h55".U)
       dut.clock.step(2)
       dut.io.i2.bits.sourceData(0).expect("h1122334455667788".U)
-      dut.io.i2.bits.pc.expect("h80000126".U)
+      dut.io.i2.bits.pc.expect("h8000012c".U)
 
       dut.io.i2.ready.poke(true.B)
       dut.clock.step()
@@ -239,7 +248,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("turns an I1 read-port denial into an exact repick") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -262,7 +271,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("serializes simultaneous exact I2 and I1 cancels without losing retries") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -328,7 +337,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects a stale stage-cancel identity without disturbing I1") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -379,7 +388,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("uses exact load bypass data without requesting its RF source") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -481,7 +490,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("consumes a malformed P1 row as a typed reject") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -499,7 +508,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("rejects a partial readyless response without publishing I2") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -527,7 +536,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("applies recovery only to a matching retained I1 or I2 member") {
-    simulate(new OooIexP1I2Lane(p)) { dut =>
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()

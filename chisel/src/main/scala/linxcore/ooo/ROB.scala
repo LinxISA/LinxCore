@@ -286,6 +286,18 @@ class ROB(val p: CoreParams) extends Module {
     prepared.entries(lane).commit.instruction :=
       in.uop.decoded.instruction.parent.identity
     prepared.entries(lane).commit.rob := prepared.entries(lane).rob
+    prepared.entries(lane).commit.pc := in.uop.decoded.instruction.parent.pc
+    prepared.entries(lane).commit.pcBufferIndexOffset :=
+      in.pcBufferIndexOffset
+    val nextSharesGroup = if (lane == d3Width - 1) false.B else {
+      val next = io.prepare.bits.entries(lane + 1).uop.decoded.rob
+      lane.U + 1.U < io.prepare.bits.count &&
+        next.peId === in.uop.decoded.rob.peId &&
+        next.stid === in.uop.decoded.rob.stid &&
+        next.ridSlot === in.uop.decoded.rob.ridSlot &&
+        next.ridGeneration === in.uop.decoded.rob.ridGeneration
+    }
+    prepared.entries(lane).commit.robGroupLast := active && !nextSharesGroup
     prepared.entries(lane).commit.instructionBits :=
       in.uop.decoded.instruction.parent.instruction
     prepared.entries(lane).commit.instructionLengthBytes :=

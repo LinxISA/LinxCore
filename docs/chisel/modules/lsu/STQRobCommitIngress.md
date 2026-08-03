@@ -25,7 +25,6 @@ outputs. A physical slot number from ROB is never trusted.
 
 `STQRobCommitIngressSpec` covers unique acceptance, CommitQ backpressure,
 missing/duplicate rows, half-filled rows, and recovery fencing.
-`OooIexExecutionStoreIntegrationSpec` starts from a grouped ROB pair-store
-batch, drains two semantic beats without a physical-index sideband, and proves
-two committed STQ rows, atomic four-fragment SCB admission, and one logical
-completion.
+`STQSCBCommitPathSpec` starts from a grouped ROB pair-store batch, drains two
+semantic beats without a physical-index sideband, and proves two committed STQ
+rows, atomic four-fragment SCB admission, and one logical completion.

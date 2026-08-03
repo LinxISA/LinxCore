@@ -76,6 +76,8 @@ class DispatchTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val uop = new RenamedUop(p)
   val memoryOrder = new MemoryOrderMeta(p)
+  val trap = new DecodeTrapIntent(p)
+  val pcBufferIndexOffset = new PcBufferIndexOffset(p)
 }
 
 /** One atomic store issue request. IEX accepts this beat once, then performs
@@ -145,6 +147,10 @@ class OOOIEXIO(val p: CoreParams) extends Bundle {
     Vec(p.iex.systemMulticycleQueues, Decoupled(new DispatchTxn(p)))
   val cmdDispatch =
     Vec(p.iex.cmdIssueQueues, Decoupled(new DispatchTxn(p)))
+  val pcBufferReadAddress = Flipped(Vec(p.ooo.pcReadPorts,
+    new PcBufferReadAddress(p)))
+  val pcBufferReadPcBase = Vec(p.ooo.pcReadPorts,
+    Valid(UInt(p.pcWidth.W)))
   val robNoflushReady = Flipped(Decoupled(new RobNoflushReadyTxn(p)))
   val robNoflush = Decoupled(new RobNoflushTxn(p))
   val robResolve =

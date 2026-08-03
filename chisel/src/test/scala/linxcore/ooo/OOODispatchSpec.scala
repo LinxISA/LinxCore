@@ -27,7 +27,11 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
   }
 
-  private def publish(dut: Dispatch, classes: Seq[UopClass.Type], early: Set[Int] = Set.empty): Unit = {
+  private def publish(
+      dut: Dispatch,
+      classes: Seq[UopClass.Type],
+      early: Set[Int] = Set.empty,
+      trapCauses: Map[Int, BigInt] = Map.empty): Unit = {
     val count = classes.length
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
@@ -48,6 +52,15 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.in.bits.entries(lane).uop.decoded.immediateValid.poke(true.B)
       dut.io.in.bits.entries(lane).uop.decoded.immediate.poke((0x500 + lane).U)
       dut.io.in.bits.entries(lane).uop.decoded.instruction.parent.identity.instructionId.poke((0x80 + lane).U)
+      dut.io.in.bits.entries(lane).trap.valid.poke(trapCauses.contains(lane).B)
+      dut.io.in.bits.entries(lane).trap.cause.poke(trapCauses.getOrElse(lane, BigInt(0)).U)
+      dut.io.in.bits.entries(lane).pcBufferIndexOffset.valid.poke(true.B)
+      dut.io.in.bits.entries(lane).pcBufferIndexOffset.pcBufferIndex.poke(
+        (lane + 4).U)
+      dut.io.in.bits.entries(lane).pcBufferIndexOffset.pcOffset.poke(
+        (lane * 8).U)
+      dut.io.in.bits.entries(lane).pcBufferIndexOffset.allocationEpoch.poke(
+        (lane + 7).U)
       dut.io.in.bits.entries(lane).uop.sources(0).valid.poke(true.B)
       dut.io.in.bits.entries(lane).uop.sources(0).kind.poke(OperandKind.Gpr)
       dut.io.in.bits.entries(lane).uop.sources(0).atag.poke((4 + lane).U)
@@ -79,10 +92,14 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.in.valid.poke(false.B)
   }
 
-  test("maps every canonical D3 field and keeps STA plus STD and CMD classing exact") {
+  test("maps every canonical D3 field and keeps STA plus STD trap and CMD classing exact") {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
-      publish(dut, Seq(UopClass.Alu, UopClass.Std, UopClass.Cmd, UopClass.Boundary), early = Set(3))
+      publish(
+        dut,
+        Seq(UopClass.Alu, UopClass.Std, UopClass.Cmd, UopClass.Boundary),
+        early = Set(3),
+        trapCauses = Map(1 -> OooD1TrapCause.IllegalEncoding))
 
       dut.io.iex.aluDispatch(0).valid.expect(true.B)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.opcode.expect(0x120.U)
@@ -94,6 +111,9 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.bid.expect(9.U)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.brobGeneration.expect(3.U)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.rob.residentGeneration.expect(5.U)
+      dut.io.iex.aluDispatch(0).bits.pcBufferIndexOffset.pcBufferIndex.expect(4.U)
+      dut.io.iex.aluDispatch(0).bits.pcBufferIndexOffset.pcOffset.expect(0.U)
+      dut.io.iex.aluDispatch(0).bits.pcBufferIndexOffset.allocationEpoch.expect(7.U)
       dut.io.iex.storeDispatch(0).valid.expect(true.B)
       dut.io.iex.storeDispatch(0).bits.sta.transactionId.expect(
         dut.io.iex.storeDispatch(0).bits.std.transactionId.peek())
@@ -101,6 +121,19 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
         dut.io.iex.storeDispatch(0).bits.std.uop.decoded.opcode.peek())
       dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.rob.bid.expect(
         dut.io.iex.storeDispatch(0).bits.std.uop.decoded.rob.bid.peek())
+      dut.io.iex.storeDispatch(0).bits.sta.trap.valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.sta.trap.cause.expect(
+        OooD1TrapCause.IllegalEncoding.U)
+      dut.io.iex.storeDispatch(0).bits.std.trap.expect(
+        dut.io.iex.storeDispatch(0).bits.sta.trap.peek())
+      dut.io.iex.storeDispatch(0).bits.sta.pcBufferIndexOffset.expect(
+        dut.io.iex.storeDispatch(0).bits.std.pcBufferIndexOffset.peek())
+      dut.io.iex.storeDispatch(0).bits.sta.pcBufferIndexOffset.pcBufferIndex
+        .expect(5.U)
+      dut.io.iex.storeDispatch(0).bits.sta.pcBufferIndexOffset.pcOffset
+        .expect(8.U)
+      dut.io.iex.storeDispatch(0).bits.sta.pcBufferIndexOffset.allocationEpoch
+        .expect(8.U)
       dut.io.iex.cmdDispatch(0).valid.expect(true.B)
       dut.io.iex.systemDispatch(0).valid.expect(false.B)
       dut.clock.step()
@@ -129,13 +162,20 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
       dut.io.iex.aluDispatch.foreach(_.ready.poke(false.B))
-      publish(dut, Seq(UopClass.Alu))
+      publish(dut, Seq(UopClass.Alu),
+        trapCauses = Map(0 -> OooD1TrapCause.IllegalEncoding))
 
       dut.io.iex.aluDispatch(0).valid.expect(true.B)
+      dut.io.iex.aluDispatch(0).bits.trap.valid.expect(true.B)
+      dut.io.iex.aluDispatch(0).bits.trap.cause.expect(
+        OooD1TrapCause.IllegalEncoding.U)
       val held = dut.io.iex.aluDispatch(0).bits.peek()
       dut.clock.step(3)
       dut.io.iex.aluDispatch(0).valid.expect(true.B)
       dut.io.iex.aluDispatch(0).bits.expect(held)
+      dut.io.iex.aluDispatch(0).bits.trap.valid.expect(true.B)
+      dut.io.iex.aluDispatch(0).bits.trap.cause.expect(
+        OooD1TrapCause.IllegalEncoding.U)
 
       dut.io.iex.aluDispatch(0).ready.poke(true.B)
       dut.clock.step()
@@ -147,15 +187,23 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
       dut.io.iex.storeDispatch.foreach(_.ready.poke(false.B))
-      publish(dut, Seq(UopClass.Std))
+      publish(dut, Seq(UopClass.Std),
+        trapCauses = Map(0 -> OooD1TrapCause.IllegalEncoding))
       dut.io.iex.aguDispatch(0).valid.expect(false.B)
       dut.io.iex.storeDispatch(0).valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.sta.trap.cause.expect(
+        OooD1TrapCause.IllegalEncoding.U)
+      dut.io.iex.storeDispatch(0).bits.std.trap.expect(
+        dut.io.iex.storeDispatch(0).bits.sta.trap.peek())
       val held = dut.io.iex.storeDispatch(0).bits.peek()
       dut.clock.step()
       dut.io.pending.expect(true.B)
       dut.io.iex.aguDispatch(0).valid.expect(false.B)
       dut.io.iex.storeDispatch(0).valid.expect(true.B)
       dut.io.iex.storeDispatch(0).bits.expect(held)
+      dut.io.iex.storeDispatch(0).bits.sta.trap.valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.std.trap.expect(
+        dut.io.iex.storeDispatch(0).bits.sta.trap.peek())
 
       dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
       dut.io.recovery.prepare.bits.poke(0.U.asTypeOf(dut.io.recovery.prepare.bits))

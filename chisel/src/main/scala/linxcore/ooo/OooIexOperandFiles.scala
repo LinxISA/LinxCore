@@ -81,6 +81,7 @@ class OooIexOperandFilesIO(val p: OooParams = OooParams()) extends Bundle {
     UInt(p.countWidth(p.uPhysRegs).W)))
   val pProtocolError = Output(Bool())
   val localProtocolError = Output(Bool())
+  val readyBits = Output(new OooIexOperandReadyBits(p))
 }
 
 /** Canonical physical operand data owners for the formal OOO path.
@@ -206,6 +207,13 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     stalePWrite(port) := request.valid && !ownerExact
   }
   io.pReadyMask := pFile.io.readyMask
+  for (tag <- 0 until p.pPhysRegs) {
+    io.readyBits.ptag(tag).valid := pOwnerValid(tag)
+    io.readyBits.ptag(tag).ready := pFile.io.readyMask(tag)
+    io.readyBits.ptag(tag).stid := pOwnerStid(tag)
+    io.readyBits.ptag(tag).epoch := pOwnerEpoch(tag)
+    io.readyBits.ptag(tag).generation := pOwnerGeneration(tag)
+  }
   val pInitClearCollision = io.pInit.valid && (0 until 2).map { port =>
     io.pClear(port).valid &&
       io.pInit.bits.key.ptag === io.pClear(port).bits.ptag
@@ -250,6 +258,45 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
   val uData = Reg(Vec(p.stidCount,
     Vec(p.uPhysRegs, UInt(p.pcWidth.W))))
 
+  // A single-STID profile must retain the full STID range check without
+  // elaborating a dynamic index into Vec(1).  These accessors select the
+  // resident bank statically for that profile and keep the multi-STID shape
+  // unchanged.
+  private def tAllocatedAt(stid: UInt, tag: UInt): Bool =
+    if (p.stidCount == 1) tAllocated(0)(tag) else tAllocated(stid)(tag)
+  private def tReadyAt(stid: UInt, tag: UInt): Bool =
+    if (p.stidCount == 1) tReady(0)(tag) else tReady(stid)(tag)
+  private def tEpochAt(stid: UInt, tag: UInt): UInt =
+    if (p.stidCount == 1) tEpoch(0)(tag) else tEpoch(stid)(tag)
+  private def tSequenceAt(stid: UInt, tag: UInt): OooLocalSeq =
+    if (p.stidCount == 1) tSequence(0)(tag) else tSequence(stid)(tag)
+  private def tDataAt(stid: UInt, tag: UInt): UInt =
+    if (p.stidCount == 1) tData(0)(tag) else tData(stid)(tag)
+
+  private def uAllocatedAt(stid: UInt, tag: UInt): Bool =
+    if (p.stidCount == 1) uAllocated(0)(tag) else uAllocated(stid)(tag)
+  private def uReadyAt(stid: UInt, tag: UInt): Bool =
+    if (p.stidCount == 1) uReady(0)(tag) else uReady(stid)(tag)
+  private def uEpochAt(stid: UInt, tag: UInt): UInt =
+    if (p.stidCount == 1) uEpoch(0)(tag) else uEpoch(stid)(tag)
+  private def uSequenceAt(stid: UInt, tag: UInt): OooLocalSeq =
+    if (p.stidCount == 1) uSequence(0)(tag) else uSequence(stid)(tag)
+  private def uDataAt(stid: UInt, tag: UInt): UInt =
+    if (p.stidCount == 1) uData(0)(tag) else uData(stid)(tag)
+
+  for (stid <- 0 until p.stidCount; tag <- 0 until p.tPhysRegs) {
+    io.readyBits.ttag(stid)(tag).allocated := tAllocated(stid)(tag)
+    io.readyBits.ttag(stid)(tag).ready := tReady(stid)(tag)
+    io.readyBits.ttag(stid)(tag).epoch := tEpoch(stid)(tag)
+    io.readyBits.ttag(stid)(tag).sequence := tSequence(stid)(tag)
+  }
+  for (stid <- 0 until p.stidCount; tag <- 0 until p.uPhysRegs) {
+    io.readyBits.utag(stid)(tag).allocated := uAllocated(stid)(tag)
+    io.readyBits.utag(stid)(tag).ready := uReady(stid)(tag)
+    io.readyBits.utag(stid)(tag).epoch := uEpoch(stid)(tag)
+    io.readyBits.utag(stid)(tag).sequence := uSequence(stid)(tag)
+  }
+
   private def sameLocalTarget(
       left: OooIexLocalFileKey,
       right: OooIexLocalFileKey): Bool =
@@ -261,29 +308,43 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val tKey = io.tClear(port).bits
     val tStidInRange = tKey.stid < p.stidCount.U
     val tTagInRange = tKey.tag < p.tPhysRegs.U
-    val safeTStid = Mux(tStidInRange, tKey.stid, 0.U)
     val safeTTag = Mux(tTagInRange, tKey.tag, 0.U)(tTagIndexWidth - 1, 0)
     invalidTClear(port) := io.tClear(port).valid &&
       !(tStidInRange && tTagInRange && tKey.sequence.valid)
     when(io.tClear(port).valid && !invalidTClear(port)) {
-      tAllocated(safeTStid)(safeTTag) := true.B
-      tReady(safeTStid)(safeTTag) := false.B
-      tEpoch(safeTStid)(safeTTag) := tKey.epoch
-      tSequence(safeTStid)(safeTTag) := tKey.sequence
+      if (p.stidCount == 1) {
+        tAllocated(0)(safeTTag) := true.B
+        tReady(0)(safeTTag) := false.B
+        tEpoch(0)(safeTTag) := tKey.epoch
+        tSequence(0)(safeTTag) := tKey.sequence
+      } else {
+        val safeTStid = Mux(tStidInRange, tKey.stid, 0.U)
+        tAllocated(safeTStid)(safeTTag) := true.B
+        tReady(safeTStid)(safeTTag) := false.B
+        tEpoch(safeTStid)(safeTTag) := tKey.epoch
+        tSequence(safeTStid)(safeTTag) := tKey.sequence
+      }
     }
 
     val uKey = io.uClear(port).bits
     val uStidInRange = uKey.stid < p.stidCount.U
     val uTagInRange = uKey.tag < p.uPhysRegs.U
-    val safeUStid = Mux(uStidInRange, uKey.stid, 0.U)
     val safeUTag = Mux(uTagInRange, uKey.tag, 0.U)(uTagIndexWidth - 1, 0)
     invalidUClear(port) := io.uClear(port).valid &&
       !(uStidInRange && uTagInRange && uKey.sequence.valid)
     when(io.uClear(port).valid && !invalidUClear(port)) {
-      uAllocated(safeUStid)(safeUTag) := true.B
-      uReady(safeUStid)(safeUTag) := false.B
-      uEpoch(safeUStid)(safeUTag) := uKey.epoch
-      uSequence(safeUStid)(safeUTag) := uKey.sequence
+      if (p.stidCount == 1) {
+        uAllocated(0)(safeUTag) := true.B
+        uReady(0)(safeUTag) := false.B
+        uEpoch(0)(safeUTag) := uKey.epoch
+        uSequence(0)(safeUTag) := uKey.sequence
+      } else {
+        val safeUStid = Mux(uStidInRange, uKey.stid, 0.U)
+        uAllocated(safeUStid)(safeUTag) := true.B
+        uReady(safeUStid)(safeUTag) := false.B
+        uEpoch(safeUStid)(safeUTag) := uKey.epoch
+        uSequence(safeUStid)(safeUTag) := uKey.sequence
+      }
     }
   }
 
@@ -328,17 +389,22 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val safeStid = Mux(stidInRange, key.stid, 0.U)
     val safeTag = Mux(tagInRange, key.tag, 0.U)(tTagIndexWidth - 1, 0)
     val ownerExact = stidInRange && tagInRange && key.sequence.valid &&
-      tAllocated(safeStid)(safeTag) &&
-      tEpoch(safeStid)(safeTag) === key.epoch &&
-      tSequence(safeStid)(safeTag).asUInt === key.sequence.asUInt
+      tAllocatedAt(safeStid, safeTag) &&
+      tEpochAt(safeStid, safeTag) === key.epoch &&
+      tSequenceAt(safeStid, safeTag).asUInt === key.sequence.asUInt
     io.tWriteReady(port) := ownerExact
     staleTWrite(port) := request.valid && !ownerExact
     tWriteFire(port) := request.valid && request.bits.commit &&
       io.tWriteReady(port) && !duplicateTWrite
     io.tWriteFire(port) := tWriteFire(port)
     when(tWriteFire(port)) {
-      tData(safeStid)(safeTag) := request.bits.data
-      tReady(safeStid)(safeTag) := true.B
+      if (p.stidCount == 1) {
+        tData(0)(safeTag) := request.bits.data
+        tReady(0)(safeTag) := true.B
+      } else {
+        tData(safeStid)(safeTag) := request.bits.data
+        tReady(safeStid)(safeTag) := true.B
+      }
     }
   }
   for (port <- 0 until p.iexUWritePorts) {
@@ -349,17 +415,22 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val safeStid = Mux(stidInRange, key.stid, 0.U)
     val safeTag = Mux(tagInRange, key.tag, 0.U)(uTagIndexWidth - 1, 0)
     val ownerExact = stidInRange && tagInRange && key.sequence.valid &&
-      uAllocated(safeStid)(safeTag) &&
-      uEpoch(safeStid)(safeTag) === key.epoch &&
-      uSequence(safeStid)(safeTag).asUInt === key.sequence.asUInt
+      uAllocatedAt(safeStid, safeTag) &&
+      uEpochAt(safeStid, safeTag) === key.epoch &&
+      uSequenceAt(safeStid, safeTag).asUInt === key.sequence.asUInt
     io.uWriteReady(port) := ownerExact
     staleUWrite(port) := request.valid && !ownerExact
     uWriteFire(port) := request.valid && request.bits.commit &&
       io.uWriteReady(port) && !duplicateUWrite
     io.uWriteFire(port) := uWriteFire(port)
     when(uWriteFire(port)) {
-      uData(safeStid)(safeTag) := request.bits.data
-      uReady(safeStid)(safeTag) := true.B
+      if (p.stidCount == 1) {
+        uData(0)(safeTag) := request.bits.data
+        uReady(0)(safeTag) := true.B
+      } else {
+        uData(safeStid)(safeTag) := request.bits.data
+        uReady(safeStid)(safeTag) := true.B
+      }
     }
   }
 
@@ -372,12 +443,12 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val safeTag = Mux(tagInRange, key.localTag, 0.U)(tTagIndexWidth - 1, 0)
     val exact = request.valid && key.operandClass === OperandClass.T &&
       stidInRange && tagInRange && key.localSequence.valid &&
-      tAllocated(safeStid)(safeTag) && tReady(safeStid)(safeTag) &&
-      tEpoch(safeStid)(safeTag) === request.bits.epoch &&
-      tSequence(safeStid)(safeTag).asUInt === key.localSequence.asUInt
+      tAllocatedAt(safeStid, safeTag) && tReadyAt(safeStid, safeTag) &&
+      tEpochAt(safeStid, safeTag) === request.bits.epoch &&
+      tSequenceAt(safeStid, safeTag).asUInt === key.localSequence.asUInt
     io.tReadResponses(port).valid := exact
     io.tReadResponses(port).bits := Mux(exact,
-      tData(safeStid)(safeTag), 0.U)
+      tDataAt(safeStid, safeTag), 0.U)
   }
   for (port <- 0 until p.iexUReadPorts) {
     val request = io.uReadRequests(port)
@@ -388,12 +459,12 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val safeTag = Mux(tagInRange, key.localTag, 0.U)(uTagIndexWidth - 1, 0)
     val exact = request.valid && key.operandClass === OperandClass.U &&
       stidInRange && tagInRange && key.localSequence.valid &&
-      uAllocated(safeStid)(safeTag) && uReady(safeStid)(safeTag) &&
-      uEpoch(safeStid)(safeTag) === request.bits.epoch &&
-      uSequence(safeStid)(safeTag).asUInt === key.localSequence.asUInt
+      uAllocatedAt(safeStid, safeTag) && uReadyAt(safeStid, safeTag) &&
+      uEpochAt(safeStid, safeTag) === request.bits.epoch &&
+      uSequenceAt(safeStid, safeTag).asUInt === key.localSequence.asUInt
     io.uReadResponses(port).valid := exact
     io.uReadResponses(port).bits := Mux(exact,
-      uData(safeStid)(safeTag), 0.U)
+      uDataAt(safeStid, safeTag), 0.U)
   }
 
   val tClearWriteCollision = (0 until p.tuAllocationWidth).flatMap { clear =>

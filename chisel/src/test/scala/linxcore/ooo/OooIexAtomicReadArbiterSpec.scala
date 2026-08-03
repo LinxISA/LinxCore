@@ -11,6 +11,7 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
     iexPReadPorts = 3,
     iexTReadPorts = 2,
     iexUReadPorts = 2)
+  private val core = OooRecoveryMembership.coreParams(p)
 
   private def clear(dut: OooIexAtomicReadArbiter): Unit = {
     dut.io.attempts.foreach(_.poke(0.U.asTypeOf(dut.io.attempts.head)))
@@ -74,7 +75,7 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("allocates complete read groups by age and cross-STID fairness") {
-    simulate(new OooIexAtomicReadArbiter(p)) { dut =>
+    simulate(new OooIexAtomicReadArbiter(core, p)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -132,6 +133,10 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
       dut.io.tReadRequests(0).valid.expect(true.B)
       dut.io.uReadRequests(0).valid.expect(true.B)
       dut.io.pcReadRequests(0).valid.expect(true.B)
+      dut.io.pcReadRequests(0).bits.valid.expect(true.B)
+      dut.io.pcReadRequests(0).bits.stid.expect(0.U)
+      dut.io.pcReadRequests(0).bits.pcBufferIndex.expect(5.U)
+      dut.io.pcReadRequests(0).bits.allocationEpoch.expect(3.U)
       dut.io.sourceDataValid(0).expect("b0111".U)
       dut.io.sourceData(0)(0).expect(11.U)
       dut.io.sourceData(0)(1).expect(22.U)
@@ -178,7 +183,8 @@ class OooIexAtomicReadArbiterSpec extends AnyFunSuite with ChiselSim {
       iexPReadPorts = 6,
       iexTReadPorts = 4,
       iexUReadPorts = 4))
-    simulate(new OooIexAtomicReadArbiter(profileParams)) { dut =>
+    val profileCore = OooRecoveryMembership.coreParams(profileParams)
+    simulate(new OooIexAtomicReadArbiter(profileCore, profileParams)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()

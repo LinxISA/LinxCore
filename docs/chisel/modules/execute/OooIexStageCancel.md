@@ -46,12 +46,12 @@ and reason evidence; it does not change lane or IQ state.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexP1I2LaneSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 ```
 
 The lane UT holds the retry consumer off while exact requests target different
 I2 and I1 members together. It proves I2-first arbitration, two retained retry
 identities, downstream suppression, quiescence accounting, and ordered drain.
 It also proves a stale identity is rejected while the real I1 attempt remains
-live. The canonical-IQ IT proves an accepted I2 sidedoor-class cancel clears
-only the matching `inflight` row and repicks it into I1.
+live. The mechanism suite proves an accepted cancel clears only the matching
+`inflight` row and preserves exact retry ownership.

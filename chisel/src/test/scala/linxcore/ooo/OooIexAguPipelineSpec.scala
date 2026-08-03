@@ -5,6 +5,7 @@ import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import org.scalatest.funsuite.AnyFunSuite
+import linxcore.top.interface.RecoveryPhase
 
 class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
   private val p = OooParams(
@@ -149,17 +150,25 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
 
   private def pokeRecovery(
       dut: OooIexAguPipeline,
-      newOccupied: Int): Unit = {
+      firstKilledSlot: Int): Unit = {
     val plan = dut.io.recoveryApply.bits
     plan.poke(0.U.asTypeOf(plan))
-    plan.valid.poke(true.B)
-    plan.oldHead.valid.poke(true.B)
-    plan.oldHead.peId.poke(3.U)
-    plan.oldHead.stid.poke(1.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(1.U)
-    plan.oldOccupied.poke(4.U)
-    plan.newOccupied.poke(newOccupied.U)
+    plan.phase.poke(RecoveryPhase.Apply)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(1.U)
+    if (firstKilledSlot < 4) {
+      plan.firstKilledValid.poke(true.B)
+      plan.firstKilled.peId.poke(3.U)
+      plan.firstKilled.stid.poke(1.U)
+      plan.firstKilled.ridSlot.poke(firstKilledSlot.U)
+      plan.firstKilled.ridGeneration.poke(1.U)
+      plan.lastKilled.peId.poke(3.U)
+      plan.lastKilled.stid.poke(1.U)
+      plan.lastKilled.ridSlot.poke(3.U)
+      plan.lastKilled.ridGeneration.poke(1.U)
+      plan.killedGroupCount.poke((4 - firstKilledSlot).U)
+      plan.killedMemberCount.poke((4 - firstKilledSlot).U)
+    }
     dut.io.recoveryApply.valid.poke(true.B)
   }
 
@@ -247,7 +256,7 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.e1.ready.expect(true.B)
       dut.clock.step()
       dut.io.e1.valid.poke(false.B)
-      pokeRecovery(dut, newOccupied = 3)
+      pokeRecovery(dut, firstKilledSlot = 3)
       dut.io.request.valid.expect(false.B)
       dut.io.killedRequest.valid.expect(true.B)
       dut.clock.step()

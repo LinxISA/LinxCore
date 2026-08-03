@@ -1,13 +1,17 @@
-package linxcore.ooo
+package linxcore.iex
 
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid, log2Ceil}
 
 import linxcore.common.{CoreParams, DestinationKind}
 import linxcore.lsu.{LoadAttemptIdentity, LoadInflightAlloc}
+import linxcore.ooo._
+import linxcore.params.{CoreParams => MainlineCoreParams}
 import linxcore.rob.ROBID
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan,
+  RecoveryPlanContract, RecoveryTargetIO}
 
-class OooIexLoadLiqAllocReject(val p: OooParams = OooParams())
+class LoadIexIssueReject(val p: OooParams = OooParams())
     extends Bundle {
   val member = new RobMemberKey(p)
   val identityExact = Bool()
@@ -16,7 +20,6 @@ class OooIexLoadLiqAllocReject(val p: OooParams = OooParams())
   val destinationExact = Bool()
   val pcExact = Bool()
   val killed = Bool()
-  val flushed = Bool()
 }
 
 /** Exact OOO identity returned beside one accepted canonical LIQ allocation.
@@ -25,18 +28,19 @@ class OooIexLoadLiqAllocReject(val p: OooParams = OooParams())
   * allocation response.  This sideband only reports the OOO lane and attempt
   * which participated in that same ready/valid fire.
   */
-class OooIexLoadLiqAllocAccepted(
+class LoadIexIssueAccepted(
     val p: OooParams = OooParams(),
-    val laneCount: Int = 3) extends Bundle {
+    val laneCount: Int = 2) extends Bundle {
   val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
 }
 
-class OooIexLoadLiqAllocAdapterIO(
+class LoadIexIssuePipelineIO(
     val p: OooParams,
     val coreParams: CoreParams,
-    val laneCount: Int) extends Bundle {
+    val laneCount: Int,
+    val recoveryParams: MainlineCoreParams) extends Bundle {
   private val lsu = coreParams.scalarLsu
 
   val agu = Flipped(Vec(laneCount,
@@ -55,27 +59,33 @@ class OooIexLoadLiqAllocAdapterIO(
     lsu.loadReturnPipeCount,
     coreParams.lsidWidth))
 
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryFence = Input(Bool())
-  val flush = Input(Bool())
-  val accepted = Valid(new OooIexLoadLiqAllocAccepted(p, laneCount))
+  val recovery = Flipped(new RecoveryTargetIO(recoveryParams))
+  val accepted = Valid(new LoadIexIssueAccepted(p, laneCount))
   val rejected = Output(Vec(laneCount,
-    Valid(new OooIexLoadLiqAllocReject(p))))
+    Valid(new LoadIexIssueReject(p))))
 }
 
-/** Multi-AGU to one-canonical-LIQ allocation bridge.
+/** Multi-AGU load issue pipeline into the canonical LIQ allocation port.
   *
-  * The bridge is deliberately non-resident: AGU lanes retain their requests
+  * The pipeline is deliberately non-resident: AGU lanes retain their requests
   * under backpressure and the canonical LIQ becomes the sole load-lifecycle
-  * owner on `alloc.fire`.  A global accepted-allocation serial creates
-  * producer-qualified attempt generations; the counter is never reset by
-  * recovery, so a stale return cannot alias a later request after a flush.
+  * owner on `alloc.fire`. The Dispatch-to-IQ owner has already allocated and
+  * retained the memory transaction and initial producer-qualified load
+  * attempt. This bridge copies them exactly into LIQ; later replay generations
+  * are allocated only by LSU through the exact rebind contract.
   */
-class OooIexLoadLiqAllocAdapter(
+class LoadIexIssuePipeline(
     val p: OooParams = OooParams(),
     val coreParams: CoreParams = CoreParams(
-      scalarLsu = linxcore.common.ScalarLsuParams(loadReturnPipeCount = 3)),
-    val laneCount: Int = 3) extends Module {
+      scalarLsu = linxcore.common.ScalarLsuParams(loadReturnPipeCount = 2)),
+    val laneCount: Int = 2,
+    val recoveryParams: MainlineCoreParams) extends Module {
+  def this(p: OooParams, coreParams: CoreParams) =
+    this(p, coreParams, coreParams.scalarLsu.loadReturnPipeCount,
+      OooRecoveryMembership.coreParams(p))
+
+  def this(p: OooParams, coreParams: CoreParams, laneCount: Int) =
+    this(p, coreParams, laneCount, OooRecoveryMembership.coreParams(p))
   private val lsu = coreParams.scalarLsu
 
   require(laneCount > 0,
@@ -102,21 +112,59 @@ class OooIexLoadLiqAllocAdapter(
     p.robMemberIndexWidth,
     p.residentGenerationWidth,
     p.loadGenerationWidth)
+  OooRecoveryMembership.requireCompatible(p, recoveryParams)
 
-  val io = IO(new OooIexLoadLiqAllocAdapterIO(p, coreParams, laneCount))
+  val io = IO(new LoadIexIssuePipelineIO(
+    p, coreParams, laneCount, recoveryParams))
 
-  // Allocation is currently one-wide, so one global serial avoids making the
-  // attempt generation depend on which physical AGU happened to win.  Replay
-  // generations advance later through the exact LIQ rebind contract.
-  private val generation = RegInit(0.U(p.loadGenerationWidth.W))
+  private val recoveryPending = RegInit(false.B)
+  private val preparedValid = RegInit(false.B)
+  private val recoveryPlan = Reg(new RecoveryPlan(recoveryParams))
 
-  private def killed(member: RobMemberKey): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(p, io.recoveryApply.bits, member)
+  private val prepareExact =
+    io.recovery.prepare.bits.phase === RecoveryPhase.Prepare &&
+    RecoveryPlanContract.legalSuffixWindow(io.recovery.prepare.bits) &&
+    io.recovery.prepare.bits.trigger.stid < p.stidCount.U
+  io.recovery.prepare.ready := !recoveryPending && prepareExact
+  io.recovery.prepared.valid := preparedValid
+  io.recovery.prepared.bits := recoveryPlan
+
+  private val terminalConflict =
+    io.recovery.apply.valid && io.recovery.abort.valid
+  private val sameApply = recoveryPending && !terminalConflict &&
+    io.recovery.apply.valid &&
+    io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, recoveryPlan)
+  private val sameAbort = recoveryPending && !terminalConflict &&
+    io.recovery.abort.valid &&
+    io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, recoveryPlan)
+
+  when(io.recovery.prepare.fire) {
+    recoveryPending := true.B
+    preparedValid := true.B
+    recoveryPlan := io.recovery.prepare.bits
+  }.elsewhen(sameApply || sameAbort) {
+    recoveryPending := false.B
+    preparedValid := false.B
+  }.elsewhen(io.recovery.prepared.fire) {
+    preparedValid := false.B
+  }
+  when(io.recovery.apply.valid) {
+    assert(sameApply,
+      "load issue Apply must match the exact prepared recovery plan")
+  }
+  when(io.recovery.abort.valid) {
+    assert(sameAbort,
+      "load issue Abort must match the exact prepared recovery plan")
+  }
 
   private def identityExact(request: OooIexAguLoadRequest): Bool = {
     val row = request.execute.i2.row
     row.valid && row.member.group.valid && row.member.bid.valid &&
+      row.memoryTransactionValid &&
       row.stid < p.stidCount.U && row.member.group.peId === row.peId &&
       row.member.group.stid === row.stid
   }
@@ -135,6 +183,7 @@ class OooIexLoadLiqAllocAdapter(
       row.recipe.dispatchClass === OooDispatchClass.Agu.U &&
       row.recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U &&
       row.recipe.memoryRequestCount === 1.U && row.memory.valid &&
+      row.initialLoadAttemptValid &&
       row.memory.isLoad && !row.memory.isStore && bytesExact
   }
 
@@ -173,11 +222,18 @@ class OooIexLoadLiqAllocAdapter(
     val order = memoryOrderExact(request)
     val destination = destinationExact(request)
     val pc = request.pcValid
-    killedLane(lane) := killed(request.execute.i2.row.member)
+    val requestStid = request.execute.i2.row.member.group.stid
+    val preparingTarget = io.recovery.prepare.valid && prepareExact &&
+      io.recovery.prepare.bits.trigger.stid === requestStid
+    val pendingTarget = recoveryPending &&
+      recoveryPlan.trigger.stid === requestStid
+    killedLane(lane) := sameApply &&
+      OooRecoveryMembership.memberKilled(
+        p, recoveryParams, recoveryPlan, request.execute.i2.row.member)
     exact(lane) := identity && shape && order && destination && pc
 
-    val drop = killedLane(lane) || io.flush
-    val fenced = io.recoveryFence || io.recoveryApply.valid
+    val drop = killedLane(lane)
+    val fenced = preparingTarget || pendingTarget
     arbiter.io.in(lane).valid :=
       io.agu(lane).valid && exact(lane) && !drop && !fenced
     arbiter.io.in(lane).bits := request
@@ -190,7 +246,7 @@ class OooIexLoadLiqAllocAdapter(
       (!fenced && arbiter.io.in(lane).ready && exact(lane))
 
     io.rejected(lane).valid := io.agu(lane).valid &&
-      (!exact(lane) || killedLane(lane) || io.flush)
+      (!exact(lane) || killedLane(lane))
     io.rejected(lane).bits.member := request.execute.i2.row.member
     io.rejected(lane).bits.identityExact := identity
     io.rejected(lane).bits.loadShapeExact := shape
@@ -198,7 +254,6 @@ class OooIexLoadLiqAllocAdapter(
     io.rejected(lane).bits.destinationExact := destination
     io.rejected(lane).bits.pcExact := pc
     io.rejected(lane).bits.killed := killedLane(lane)
-    io.rejected(lane).bits.flushed := io.flush
   }
 
   val selectedLane = arbiter.io.chosen
@@ -206,7 +261,7 @@ class OooIexLoadLiqAllocAdapter(
   val row = request.execute.i2.row
   val member = row.member
   val order = row.memoryOrder
-  val attemptGeneration = generation + 1.U
+  val attemptGeneration = row.initialLoadAttemptGeneration
   val hasOlderStore = order.before.youngestStoreLsidValid
   val youngestStoreIdFull = order.before.storeId - 1.U
   val youngestStoreLsidFull = order.before.youngestStoreLsid
@@ -291,11 +346,11 @@ class OooIexLoadLiqAllocAdapter(
   // architecturally accepted allocation event.
   io.accepted.bits.load.valid := arbiter.io.out.valid
   io.accepted.bits.load.producer := member
+  io.accepted.bits.load.transaction := row.memoryTransaction
   io.accepted.bits.load.generation := attemptGeneration
   io.accepted.bits.request := request
 
   when(io.alloc.fire) {
-    generation := attemptGeneration
     assert(LoadAttemptIdentity.wellFormed(io.alloc.bits.attempt),
       "OOO-to-LIQ allocation must carry one well-formed exact attempt")
   }

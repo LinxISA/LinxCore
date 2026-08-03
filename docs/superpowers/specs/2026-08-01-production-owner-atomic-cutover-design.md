@@ -104,6 +104,76 @@ independently backpressured TOP external CMD transaction. Task 13 removes the
 displaced completion/request/adapter names in the same change that introduces
 these interfaces; aliases do not survive the cutover.
 
+### 2.7 Freeze the private IEX cutover mapping
+
+`OooIexIssue` consumes `OOODispatchChannels` directly. The canonical dispatch
+transaction carries program identity, renamed operands, execution class and
+logical memory order; it never carries a physical IQ bank, entry, write port
+or reservation lease. `OooIexIssue` chooses those private residency fields on
+the accepting edge and remains their sole owner until an exact internal issue
+release or recovery apply removes the row. There is no OOO-facing dispatch
+release acknowledgement.
+
+The field mapping is fixed as follows:
+
+| Canonical field | Private retained field | Rule |
+| --- | --- | --- |
+| `DispatchTxn.transactionId` | IQ row transaction | copied exactly and stable for the row lifetime |
+| `RenamedUop.decoded.instruction.parent.identity` | instruction key | copied exactly; never reconstructed from an IQ slot |
+| `RenamedUop.decoded.rob` | resident ROB member | copied with every generation-qualified field |
+| `RenamedUop.decoded.uopClass` | issue class and capability route | class selects the eligible private residency owner; the chosen bank and entry remain IEX-private |
+| `RenamedUop.sources` | row source identity | P/T/U tag, sequence and generation are copied exactly; `ready` is the initial row scheduling state |
+| `RenamedUop.destinations` | execution destination identity | current and previous mappings remain payload, not a second rename owner |
+| `DispatchTxn.memoryOrder` | logical order sidecar | LSID/LID/SID and YOST/YOLD metadata are copied exactly; no memory transaction or attempt is synthesized here |
+| `DispatchTxn.pcBufferIndexOffset` | IQ-row PC buffer index and PC offset | the OOO PC buffer prepares `pcBufferIndex`、`pcOffset` and `allocationEpoch` on the common D3 publication edge; IEX retains only those fields and reads the PC base from the owning OOO buffer in I1→I2 |
+
+One accepted `StoreDispatchTxn` reserves and installs both STA and STD rows or
+neither. Both children retain the same ROB identity, transaction identity and
+logical store-order range; only their execution class, selected private row
+and requested AGU/STD pipe differ. Backpressure on either child keeps the
+complete incoming store beat stable and causes no partial mutation.
+
+`OooIexOperandFiles` is the only global P/T/U data and readiness owner. An IQ
+row may retain its own registered `ready` and speculative-ready bits for
+scheduling, initialized from `RenamedSource.ready` and changed by exact
+generation-qualified wakeup or load cancel. `OooIexIssue` must not retain a
+global P/T/U scoreboard, consume a PTag recycle protocol, or infer late
+readiness from tag index alone.
+
+`OooPcBuffer` remains the only PC-base residency owner. It participates in the
+same D3 prepare/publication transaction as RENU, ROB, BROB, memory order and
+dispatch, retires only on the common commit-control edge, and consumes the
+canonical recovery prepare/apply/abort transaction directly. The OOO-IEX
+boundary carries a typed `PcBufferIndexOffset` plus readyless read request and
+response vectors; it never copies the complete PC into every IQ row and never
+creates an IEX-side PC table. A required read that misses the exact
+PC buffer index/allocation epoch binding repicks without executing.
+
+The same `PcBufferIndexOffset` is retained in `D3RenameLane` and `CommitEntry`;
+`CommitEntry.robGroupLast` marks the final retiring member of one ROB group.
+Those fields let the PC buffer validate its exact group lifetime on the common
+commit edge without adding PC-buffer rows to the global recovery plan.
+
+`OooIexTerminalPublish` emits `RobResolveTxn` directly. Its transaction and ROB
+identity come from the retained IQ row. Destination fields describe ordinal
+zero only; a no-destination or trap resolve sets them to zero while every
+legal P/T/U write and wakeup remains part of the same terminal rendezvous.
+Any branch or trap `RecoveryEvent` is also accepted on that edge. A blocked RF
+write, wakeup, trace, resolve, control update or required recovery event blocks
+all terminal mutation and keeps every payload stable.
+
+Every private IEX recovery consumer retains the canonical `RecoveryPlan`
+prepare request, reports that same request as prepared, and matches apply or
+abort with `RecoveryPlanContract.sameTransactionIgnoringPhase`. Apply removes
+only `RecoveryPlanContract.suffixMember` rows; abort preserves them and a peer
+STID is never fenced or pruned by another STID's plan.
+
+The Task-13 Step-4 deletion set is the grouped `OooIexS1Transaction` ingress,
+the dispatch-reservation release dependency, the global P/T/U readiness
+shadow, the PTag recycle seam, `OooResidencyRecoveryPlan` projections on IEX
+owners, and the displaced LIQ-allocation adapter name. No alias, wrapper or
+committed compatibility conversion survives the loop.
+
 ## 3. Canonical Owner Rules
 
 Maintain a checked owner manifest for architectural state, including ROB,

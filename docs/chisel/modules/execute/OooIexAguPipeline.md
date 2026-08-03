@@ -86,8 +86,8 @@ and malformed memory/class rejection.
 
 ## Remaining gaps
 
-- live connection through `OooIexLoadLiqAllocAdapter` into canonical LIQ
-  allocation/launch (the typed allocation ABI is implemented);
+- public IEX/LSU connection through `LoadIexIssuePipeline` into canonical LIQ
+  allocation/launch; W4 keeps two load-address lanes and two load pipes;
 - load hit/miss return, size extraction, sign/zero extension, bypass, and
   speculative/committed wakeup;
 - miss cancellation, replay, poison, and exact repick;

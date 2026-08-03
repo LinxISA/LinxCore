@@ -9,7 +9,7 @@ decisions and operand values.
 Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexIssueReadFabric.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexIssueReadFabricSpec.scala`
+- `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
 
 ## Composition contract
 
@@ -28,23 +28,20 @@ in-flight, and retry owner. Every picker contributes one complete retained I1
 attempt after exact W1/W2/W3 bypass selection. It also exports that row's
 one-hot recipe capability independently from the compact RF request bundle.
 
-Production callers use `OooIexLinxIssueReadFabric`. This specialization derives
-the picker count, class/bank projections, capabilities, release geometry, and
-shared-resource participants from one `OooIexPhysicalProfile`. The base module
-still accepts dynamic `pickBankEnables` for focused harnesses, but when
-`staticDomains` is present the elaborated constants are authoritative and the
-external mask cannot alter residency visibility. Elaboration rejects a
-capability list that differs from the static domains or a shared-resource
-participant that does not advertise the required capability.
+Canonical callers construct `OooIexIssueReadFabric` from `CoreParams`. It
+derives picker count, class/bank projections, capabilities, release geometry,
+and shared-resource participants from one `OooIexPhysicalProfile`.
+Elaboration rejects inconsistent static-domain capabilities or a
+shared-resource participant that does not advertise the required capability.
 
-Configured shared resources arbitrate before RF reads. The formal profile has
-three independent resources shared by ALU2 and ALU5: DIV, PAC, and SYS. Two
-requests for different resources may proceed together; two requests for the
-same resource use work-conserving round-robin. The fairness base advances only
-when the winning attempt also receives the atomic RF grant. A losing attempt
-remains in its original I1 lane, keeps its canonical IQ `inFlight` claim, and
-retries arbitration without delete/reinsert state. Invalid or non-one-hot
-capability metadata is blocked and reported separately.
+Configured shared resources arbitrate before RF reads. Multicycle, PAC, and
+system requests use independent arbitration. Requests for different resources
+may proceed together; requests for the same resource use work-conserving
+round-robin. The fairness base advances only when the winning attempt also
+receives the atomic RF grant. A losing attempt remains in its original I1 lane,
+keeps its canonical IQ `inFlight` claim, and retries arbitration without
+delete/reinsert state. Invalid or non-one-hot capability metadata is blocked
+and reported separately.
 
 The surviving attempts enter the shared atomic RF arbiter.
 Bypass hits retain complete provenance in I2 and are removed from RF demand;
@@ -73,28 +70,25 @@ physical owner uses the exact retained stage token.
 ## Verification
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueReadFabricSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 ```
 
-The shared-resource UT proves ALU2/ALU5 same-resource exclusion, accepted-grant
-round-robin rotation, independent DIV/PAC concurrency, ordinary-ALU bypass,
+The shared-resource test proves same-resource exclusion, accepted-grant
+round-robin rotation, independent multicycle/PAC concurrency, ordinary-ALU bypass,
 malformed capability rejection, and fail-closed inconsistent static metadata.
-The IT drives the compatibility bank-mask input to zero while a static ALU
-domain still selects its declared bank, then publishes one ready ALU row whose
-generation-qualified PTag has no
-physical data. I1 receives a complete port grant but no P response, rejects the
-attempt, and clears only that row's in-flight claim. After the exact P owner is
-initialized, the row is repicked and reaches retained I2 with the expected
-64-bit value. The test then drains I2, performs exact terminal IQ release, and
-requires aggregate quiescence.
+The mechanism suite publishes a ready ALU row whose generation-qualified PTag
+has no physical data. I1 receives a complete port grant but no P response,
+rejects the attempt, and clears only that row's in-flight claim. After the
+exact P owner is initialized, the row is repicked and reaches retained I2 with
+the expected 64-bit value.
 
 ## Remaining gaps
 
-- Compose the six PC ports with `OooPcBuffer` in the canonical top.
+- Compose the PC ports with `OooPcBuffer` in the canonical top.
 - Connect the execution cluster's canonical speculative wakeup, bypass, and
   replay/fault cancel outputs to these issue ports in the final static top.
 - Connect execution-unit busy/latency reservations to early policy and static
   E1/reflow/result-bus owners to the exact stage-cancel channels.
-- `OooIexPipeline` now instantiates the specialized read and E1 fabrics from
-  one formal profile and makes I2/release wiring private. Connect that
-  production boundary to O3 PC reads and typed execution owners.
+- `OooIexPipeline` instantiates read and E1 fabrics from one formal profile and
+  makes I2/release wiring private. Connect that boundary to OOO PC reads and
+  typed execution owners.

@@ -2,6 +2,8 @@ package linxcore.ooo
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
 class OooIexE1TransferReject(val p: OooParams = OooParams()) extends Bundle {
   val member = new RobMemberKey(p)
@@ -10,12 +12,15 @@ class OooIexE1TransferReject(val p: OooParams = OooParams()) extends Bundle {
   val incomingKilled = Bool()
 }
 
-class OooIexE1TransferSlotIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexE1TransferSlotIO(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
+    extends Bundle {
   val i2 = Flipped(Decoupled(new OooIexI2Transaction(p)))
   val issueRelease = Decoupled(new OooIexIssueRelease(p))
   val e1 = Decoupled(new OooIexExecuteTransaction(p))
 
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(coreParams)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -36,8 +41,21 @@ class OooIexE1TransferSlot(
     val p: OooParams = OooParams(),
     val acceptedClassBankEnables: Seq[BigInt] = Seq.empty,
     val ownerLane: Int = 0,
-    val acceptedCapabilities: BigInt = OooIexDomainCapability.ValidMask)
+    val acceptedCapabilities: BigInt = OooIexDomainCapability.ValidMask,
+    val coreParams: CoreParams)
     extends Module {
+  def this(p: OooParams) =
+    this(p, Seq.empty, 0, OooIexDomainCapability.ValidMask,
+      OooRecoveryMembership.coreParams(p))
+
+  def this(
+      p: OooParams,
+      acceptedClassBankEnables: Seq[BigInt],
+      ownerLane: Int,
+      acceptedCapabilities: BigInt) =
+    this(p, acceptedClassBankEnables, ownerLane, acceptedCapabilities,
+      OooRecoveryMembership.coreParams(p))
+  OooRecoveryMembership.requireCompatible(p, coreParams)
   private val defaultClassBankEnables = Seq.tabulate(p.iqClassCount) {
     classIndex =>
       if (classIndex == OooUopClass.Alu.asUInt.litValue.toInt)
@@ -59,15 +77,17 @@ class OooIexE1TransferSlot(
     (acceptedCapabilities & ~OooIexDomainCapability.ValidMask) == 0,
     "E1 transfer owner needs a nonempty declared capability mask")
 
-  val io = IO(new OooIexE1TransferSlotIO(p))
+  val io = IO(new OooIexE1TransferSlotIO(p, coreParams))
 
   val slotValid = RegInit(false.B)
   val slot = Reg(new OooIexExecuteTransaction(p))
   val nextGeneration = RegInit(0.U(p.executeSlotGenerationWidth.W))
 
   private def killedByRecovery(i2: OooIexI2Transaction): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(p, io.recoveryApply.bits,
+    io.recoveryApply.valid &&
+      io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
+      OooRecoveryMembership.memberKilled(p, coreParams,
+        io.recoveryApply.bits,
         i2.row.member)
 
   private def canceledByLoad(i2: OooIexI2Transaction): Bool =

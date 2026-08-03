@@ -3,8 +3,10 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, PopCount, Queue, Valid}
 import linxcore.common.OperandClass
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
-class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexP1I2LaneIO(val core: CoreParams, val p: OooParams) extends Bundle {
   val p1 = Flipped(Decoupled(new OooIexP1Request(p)))
 
   /** One whole-uop request. The shared arbiter grants every requested P/T/U
@@ -30,7 +32,7 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   val stageCancel = Flipped(Vec(2, Decoupled(new OooIexStageCancel(p))))
 
   val i2 = Decoupled(new OooIexI2Transaction(p))
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(core)))
 
   val repick = Decoupled(new OooIexReadRepick(p))
   val p1Rejected = Valid(new OooIexP1Reject(p))
@@ -64,8 +66,14 @@ class OooIexP1I2LaneIO(val p: OooParams = OooParams()) extends Bundle {
   * This lane owns only pipeline residency. The physical IQ, RFs, PC buffer,
   * picker, and execution pipe remain separate single owners.
   */
-class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooIexP1I2LaneIO(p))
+class OooIexP1I2Lane(
+    val core: CoreParams,
+    val p: OooParams)
+    extends Module {
+  def this(core: CoreParams) =
+    this(core, OooIexPhysicalProfile.fromCoreParams(core).params)
+  OooRecoveryMembership.requireCompatible(p, core)
+  val io = IO(new OooIexP1I2LaneIO(core, p))
 
   val i1Valid = RegInit(false.B)
   val i1Request = Reg(new OooIexP1Request(p))
@@ -76,8 +84,10 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
   io.repick <> retryQueue.io.deq
 
   private def killedByRecovery(row: OooIexIssueRow): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(p, io.recoveryApply.bits, row.member)
+    io.recoveryApply.valid &&
+      io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
+      OooRecoveryMembership.memberKilled(
+        p, core, io.recoveryApply.bits, row.member)
 
   private def repickFrom(row: OooIexIssueRow): OooIexReadRepick = {
     val result = Wire(new OooIexReadRepick(p))
@@ -382,7 +392,10 @@ class OooIexP1I2Lane(val p: OooParams = OooParams()) extends Module {
     }
     i2Transaction.bypassMask := i1BypassValid.asUInt
     i2Transaction.pcValid := i1Request.pcReadRequired
-    i2Transaction.pc := Mux(i1Request.pcReadRequired, io.pcData, 0.U)
+    i2Transaction.pc := Mux(
+      i1Request.pcReadRequired,
+      io.pcData + i1PcToken.byteOffset,
+      0.U)
   }
 
   when(i1WillClear) {

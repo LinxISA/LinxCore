@@ -129,6 +129,11 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
         "OooIexExecutionPipeline",
         "chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala",
     ),
+    "memory_transaction_and_initial_attempt_serial": (
+        "IEX",
+        "OooIexIssue",
+        "chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala",
+    ),
     "lsu_pipeline": (
         "LSU",
         "ScalarLSU",
@@ -218,6 +223,9 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
         ("OooIexExecutionPipeline", "chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala"),
         ("OooIexTerminalFabric", "chisel/src/main/scala/linxcore/ooo/OooIexTerminalFabric.scala"),
     ),
+    "memory_transaction_and_initial_attempt_serial": (
+        ("OooIexIssue", "chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala"),
+    ),
     "lsu_pipeline": (
         ("ScalarLSU", "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala"),
         ("ScalarLSULoadPath", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"),
@@ -255,7 +263,6 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
 
 MANAGED_BOUNDARIES: tuple[tuple[str, str, str, bool, str, int, str], ...] = (
     ("linxcore.lsu.ReducedLoadReplayLiqAllocAdapter", "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala", "compatibility", False, "load_inflight_queue", 15, "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter"),
-    ("linxcore.ooo.OooIexLoadLiqAllocAdapter", "chisel/src/main/scala/linxcore/ooo/OooIexLoadLiqAllocAdapter.scala", "legacy-state-owner", True, "load_inflight_queue", 15, "linxcore.ooo.OooIexLoadLiqAllocAdapter"),
     ("linxcore.top.IfuWindowLineFillAdapter", "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.top.IfuWindowLineFillAdapter"),
     ("linxcore.ifu.ISideMemoryAdapter", "chisel/src/main/scala/linxcore/ifu/ISide.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.ifu.ISideMemoryAdapter"),
     ("linxcore.frontend.IfuBackendFeedbackBridge", "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridge.scala", "legacy-state-owner", True, "ifu_recovery_redirect", 17, "linxcore.frontend.IfuBackendFeedbackBridge"),
@@ -1566,12 +1573,16 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
         if owner.get("public_box") != subsystem:
             errors.append(f"public box mismatch for {state_key}")
         validate_public_box(owner, root, errors)
-        declared_callers = path_list(
-            root,
-            owner.get("active_callers"),
-            f"active callers for {state_key}",
-            errors,
-        )
+        raw_callers = owner.get("active_callers")
+        if owner.get("public_box_status") == "pending" and raw_callers == []:
+            declared_callers = []
+        else:
+            declared_callers = path_list(
+                root,
+                raw_callers,
+                f"active callers for {state_key}",
+                errors,
+            )
         primary = contained_path(
             root,
             _primary_file,

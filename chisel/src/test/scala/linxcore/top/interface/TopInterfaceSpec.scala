@@ -61,12 +61,28 @@ class InterfaceDirectionProbe(val p: CoreParams) extends RawModule {
 
   require(DataMirror.directionOf(iex.ooo.aluDispatch.head.valid) ==
     ActualDirection.Input)
+  require(DataMirror.directionOf(iex.ooo.aluDispatch.head.bits.trap.valid) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(iex.ooo.aluDispatch.head.bits.trap.cause) ==
+    ActualDirection.Input)
+  require(DataMirror.directionOf(
+    iex.ooo.storeDispatch.head.bits.sta.trap.valid) == ActualDirection.Input)
+  require(DataMirror.directionOf(
+    iex.ooo.storeDispatch.head.bits.std.trap.valid) == ActualDirection.Input)
   require(DataMirror.directionOf(iex.ooo.aluDispatch.head.ready) ==
     ActualDirection.Output)
   require(DataMirror.directionOf(iex.ooo.robResolve.head.valid) ==
     ActualDirection.Output)
   require(DataMirror.directionOf(iex.ooo.robResolve.head.ready) ==
     ActualDirection.Input)
+  require(DataMirror.directionOf(iex.ooo.pcBufferReadAddress.head.valid) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(
+    iex.ooo.pcBufferReadAddress.head.stid) == ActualDirection.Output)
+  require(DataMirror.directionOf(
+    iex.ooo.pcBufferReadPcBase.head.valid) == ActualDirection.Input)
+  require(DataMirror.directionOf(
+    iex.ooo.pcBufferReadPcBase.head.bits) == ActualDirection.Input)
   require(DataMirror.directionOf(iex.lsu.loadAddress.head.valid) ==
     ActualDirection.Output)
   require(DataMirror.directionOf(iex.lsu.loadAddress.head.ready) ==
@@ -171,7 +187,13 @@ class TopInterfaceSpec extends AnyFunSuite {
     val p = ParamProfiles.W4
     val decoded = new DecodedUop(p)
     val memory = decoded.memory
-    val order = new DispatchTxn(p).memoryOrder
+    val dispatch = new DispatchTxn(p)
+    val order = dispatch.memoryOrder
+
+    assert(dispatch.elements.keySet == Set(
+      "transactionId", "uop", "memoryOrder", "pcBufferIndexOffset", "trap"))
+    assert(dispatch.trap.elements.keySet == Set("valid", "cause"))
+    assert(dispatch.trap.cause.getWidth == p.trapCauseWidth)
 
     assert(memory.elements.keySet == Set(
       "valid", "isLoad", "isStore", "addressMode", "accessBytes",
@@ -211,6 +233,41 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(new MemoryOrderMeta(wider).requestCount.getWidth == log2Ceil(7 + 1))
     assert(new DecodedMemoryControl(wider).requestCount.getWidth ==
       new MemoryOrderMeta(wider).requestCount.getWidth)
+  }
+
+  test("PC buffer index and offset metadata stays generation qualified across OOO") {
+    val p = ParamProfiles.W4
+    val indexOffset = new PcBufferIndexOffset(p)
+    val readAddress = new PcBufferReadAddress(p)
+    val prepared = new PcBufferD3Prepared(p)
+    val d3 = new D3RenameLane(p)
+    val dispatch = new DispatchTxn(p)
+    val commit = new CommitEntry(p)
+
+    assert(indexOffset.elements.keySet == Set(
+      "valid", "pcBufferIndex", "pcOffset", "allocationEpoch"))
+    assert(indexOffset.pcBufferIndex.getWidth ==
+      log2Ceil(p.ooo.pcBufferEntries))
+    assert(indexOffset.pcOffset.getWidth == p.ooo.pcOffsetWidth)
+    assert(indexOffset.allocationEpoch.getWidth ==
+      p.ooo.pcAllocationEpochWidth)
+
+    assert(readAddress.elements.keySet == Set(
+      "valid", "stid", "pcBufferIndex", "allocationEpoch"))
+    assert(readAddress.stid.getWidth == math.max(1, log2Ceil(p.ooo.stidCount)))
+    assert(readAddress.pcBufferIndex.getWidth ==
+      indexOffset.pcBufferIndex.getWidth)
+    assert(readAddress.allocationEpoch.getWidth ==
+      indexOffset.allocationEpoch.getWidth)
+
+    assert(prepared.count.getWidth ==
+      log2Ceil(p.ooo.d3PrefixWidth + 1))
+    assert(prepared.lanes.length == p.ooo.d3PrefixWidth)
+    assert(prepared.lanes.head.getClass == indexOffset.getClass)
+    assert(d3.pcBufferIndexOffset.getClass == indexOffset.getClass)
+    assert(dispatch.pcBufferIndexOffset.getClass == indexOffset.getClass)
+    assert(commit.pcBufferIndexOffset.getClass == indexOffset.getClass)
+    assert(commit.robGroupLast.getWidth == 1)
   }
 
   test("resolve load lifecycle system and CMD transactions use exact canonical identities") {
@@ -355,6 +412,11 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(oooIex.robResolve.head.bits.getClass == new RobResolveTxn(p).getClass)
     assert(oooIex.systemIssue.length == p.iex.systemMulticycleQueues)
     assert(oooIex.systemIssue.head.bits.getClass == new SystemIssueTxn(p).getClass)
+    assert(oooIex.pcBufferReadAddress.length == p.ooo.pcReadPorts)
+    assert(oooIex.pcBufferReadAddress.head.getClass ==
+      new PcBufferReadAddress(p).getClass)
+    assert(oooIex.pcBufferReadPcBase.length == p.ooo.pcReadPorts)
+    assert(oooIex.pcBufferReadPcBase.head.bits.getWidth == p.pcWidth)
 
     assert(iexLsu.loadAddress.length == 2)
     assert(iexLsu.storeAddress.length == 2)

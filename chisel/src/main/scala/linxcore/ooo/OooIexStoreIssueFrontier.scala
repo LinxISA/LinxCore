@@ -140,14 +140,18 @@ class OooIexStoreIssueFrontier(
   for (index <- 0 until candidateCount) {
     val candidate = io.candidates(index)
     val safeStid = Mux(candidate.stid < p.stidCount.U, candidate.stid, 0.U)
-    val exactFrontier = selected(safeStid).valid &&
-      sameLogical(candidate.order, selected(safeStid).bits)
+    val frontier = if (p.stidCount == 1) selected(0) else selected(safeStid)
+    val malformed = if (p.stidCount == 1)
+      stidMalformed(0)
+    else stidMalformed(safeStid)
+    val exactFrontier = frontier.valid &&
+      sameLogical(candidate.order, frontier.bits)
     val storeAllowed = activeStore(index) && candidateExact(index) &&
-      !stidMalformed(safeStid) && exactFrontier
+      !malformed && exactFrontier
     io.allowed(index) := !activeStore(index) || storeAllowed
     io.blocked(index) := activeStore(index) && !storeAllowed
     io.malformed(index) := activeStore(index) &&
-      (!candidateExact(index) || stidMalformed(safeStid))
+      (!candidateExact(index) || malformed)
   }
 
   for (stid <- 0 until p.stidCount) {

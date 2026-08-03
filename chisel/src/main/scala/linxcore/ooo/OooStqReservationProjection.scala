@@ -33,8 +33,8 @@ class OooStqReservationProjectionIO(
 }
 
 /** Converts the address child of one published store into an atomic STQ
-  * reservation batch.  Physical AGU/STD children have consecutive ROB member
-  * indices; the STQ owner is the common logical first member.
+  * reservation batch. Physical AGU/STD children share one ROB identity and
+  * use `childIndex` only to identify their execution half.
   */
 class OooStqReservationProjection(
     val p: OooParams = OooParams(),
@@ -80,8 +80,6 @@ class OooStqReservationProjection(
   val pairShapeExact =
     (io.input.recipe.recipeKind === OooOpcodeRecipeKind.PairStore.U) ===
       (io.input.memoryOrder.requestCount === 2.U)
-  val logicalMemberNoUnderflow =
-    io.input.member.memberIndex >= io.input.childIndex
   val exactShape =
     io.input.schedule.valid &&
       io.input.member.group.valid &&
@@ -91,7 +89,7 @@ class OooStqReservationProjection(
       io.input.memoryOrder.isStore && !io.input.memoryOrder.isLoad &&
       requestCountLegal && pairShapeExact && storeRecipe &&
       (io.input.reservation.uopClass === OooUopClass.Agu) &&
-      (io.input.childIndex === 0.U) && logicalMemberNoUnderflow
+      (io.input.childIndex === 0.U)
 
   io.reserveValid := io.inputValid && exactShape
   io.reserveMask := Mux(io.reserveValid,
@@ -127,8 +125,7 @@ class OooStqReservationProjection(
     req.exactOwner.brobGeneration := io.input.member.brobGeneration
     req.exactOwner.ridSlot := io.input.member.group.ridSlot
     req.exactOwner.ridGeneration := io.input.member.group.ridGeneration
-    req.exactOwner.memberIndex :=
-      io.input.member.memberIndex - io.input.childIndex
+    req.exactOwner.memberIndex := io.input.member.memberIndex
     req.exactOwner.residentGeneration :=
       io.input.member.residentGeneration
     req.tSeq.valid := false.B

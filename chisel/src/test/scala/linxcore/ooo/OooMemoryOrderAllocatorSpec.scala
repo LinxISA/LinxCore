@@ -95,6 +95,54 @@ class OooMemoryOrderAllocatorSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("publishes one provisional prefix and retains the exact serial suffix") {
+    simulate(new OooMemoryOrderAllocator(p)) { dut =>
+      clear(dut)
+      prepare(dut, 0, Seq((true, false, 1), (false, true, 2)))
+      reserve(dut)
+
+      val publication = dut.io.publishPrepare.bits
+      publication.poke(0.U.asTypeOf(publication))
+      publication.count.poke(1.U)
+      publication.groupCount.poke(1.U)
+      publication.entries(0).uop.decoded.rob.stid.poke(0.U)
+      publication.entries(0).memoryOrder.poke(
+        dut.io.provisionalLanes(0)(0).peek())
+      publication.memoryOrder.valid.poke(true.B)
+      publication.memoryOrder.stid.poke(0.U)
+      publication.memoryOrder.count.poke(1.U)
+      publication.memoryOrder.before.poke(dut.io.provisional(0).before.peek())
+      publication.memoryOrder.after.lsid.poke(1.U)
+      publication.memoryOrder.after.lid.poke(1.U)
+      publication.memoryOrder.after.sid.poke(0.U)
+      publication.memoryOrder.after.yoldValid.poke(true.B)
+      publication.memoryOrder.after.yoldLsid.poke(0.U)
+      publication.memoryOrder.after.yoldLid.poke(0.U)
+      dut.io.publishPrepare.valid.poke(true.B)
+      dut.io.publishReady.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.publishFire.poke(false.B)
+      dut.io.publishPrepare.valid.poke(false.B)
+
+      dut.io.provisional(0).valid.expect(true.B)
+      dut.io.provisional(0).count.expect(1.U)
+      dut.io.provisional(0).before.lsid.expect(1.U)
+      dut.io.provisional(0).before.lid.expect(1.U)
+      dut.io.provisional(0).after.lsid.expect(3.U)
+      dut.io.provisional(0).after.lid.expect(1.U)
+      dut.io.provisional(0).after.sid.expect(2.U)
+      dut.io.provisionalLanes(0)(0).requestCount.expect(2.U)
+      dut.io.provisionalLanes(0)(0).firstLsid.expect(1.U)
+      dut.io.provisionalLanes(0)(1).requestCount.expect(0.U)
+      dut.io.next(0).lsid.expect(3.U)
+
+      publish(dut, 0)
+      dut.io.provisional(0).valid.expect(false.B)
+      dut.io.next(0).lsid.expect(3.U)
+    }
+  }
+
   test("rejects inconsistent normalized memory shape") {
     simulate(new OooMemoryOrderAllocator(p)) { dut =>
       clear(dut)

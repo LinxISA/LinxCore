@@ -1,10 +1,12 @@
-package linxcore.ooo
+package linxcore.iex
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, ScalarLsuParams}
+import linxcore.ooo._
+import linxcore.top.interface.RecoveryPhase
 
 class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
   private val p = OooParams(
@@ -20,9 +22,9 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     robNonFlushScanGroupsPerCycle = 2,
     brobEntriesPerStid = 16,
     pcBufferEntries = 16,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -38,8 +40,18 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       loadReturnPipeCount = 3,
       stidCount = 4))
 
+  test("derives the W4 two-lane terminal geometry from the canonical LSU profile") {
+    val twoPipeCore = core.copy(
+      scalarLsu = core.scalarLsu.copy(loadReturnPipeCount = 2))
+
+    simulate(new OooIexLoadTerminalMetadata(p, twoPipeCore)) { dut =>
+      assert(dut.io.speculativeWakeup.length == 2)
+      assert(dut.io.loadCancel.length == 2)
+      assert(dut.io.loadBypass.length == 2)
+    }
+  }
+
   private def defaults(dut: OooIexLoadTerminalMetadata): Unit = {
-    dut.io.flush.poke(false.B)
     dut.io.alloc.valid.poke(false.B)
     dut.io.alloc.bits.poke(0.U.asTypeOf(dut.io.alloc.bits))
     dut.io.rebind.valid.poke(false.B)
@@ -53,7 +65,12 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     dut.io.recoveryPrepare.valid.poke(false.B)
     dut.io.recoveryPrepare.bits.poke(
       0.U.asTypeOf(dut.io.recoveryPrepare.bits))
-    dut.io.recoveryFire.poke(false.B)
+    dut.io.recoveryApply.valid.poke(false.B)
+    dut.io.recoveryApply.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryApply.bits))
+    dut.io.recoveryAbort.valid.poke(false.B)
+    dut.io.recoveryAbort.bits.poke(
+      0.U.asTypeOf(dut.io.recoveryAbort.bits))
   }
 
   private def pokeMember(
@@ -101,7 +118,9 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       rowGeneration: Int,
       ridSlot: Int,
       attemptGeneration: Int,
-      stid: Int = 1): Unit = {
+      stid: Int = 1,
+      transactionValue: BigInt = 0,
+      transactionGeneration: BigInt = 0): Unit = {
     val alloc = dut.io.alloc.bits
     alloc.poke(0.U.asTypeOf(alloc))
     alloc.loadId.valid.poke(true.B)
@@ -109,6 +128,8 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     alloc.loadId.generation.poke(rowGeneration.U)
     alloc.load.valid.poke(true.B)
     pokeMember(alloc.load.producer, ridSlot, stid = stid)
+    alloc.load.transaction.value.poke(transactionValue.U)
+    alloc.load.transaction.generation.poke(transactionGeneration.U)
     alloc.load.generation.poke(attemptGeneration.U)
 
     val row = alloc.request.execute.i2.row
@@ -116,6 +137,11 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     row.schedule.peId.poke(3.U)
     row.schedule.stid.poke(stid.U)
     row.schedule.epoch.poke(7.U)
+    row.schedule.memoryTransactionValid.poke(true.B)
+    row.schedule.memoryTransaction.value.poke(transactionValue.U)
+    row.schedule.memoryTransaction.generation.poke(transactionGeneration.U)
+    row.schedule.initialLoadAttemptValid.poke(true.B)
+    row.schedule.initialLoadAttemptGeneration.poke(attemptGeneration.U)
     pokeMember(row.schedule.member, ridSlot, stid = stid)
     row.schedule.destinations(0).valid.poke(true.B)
     row.schedule.destinations(0).kind.poke(DestinationKind.Gpr)
@@ -216,11 +242,35 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("rejects allocation that does not match the IQ-retained transaction and initial attempt") {
+    simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
+      defaults(dut)
+      pokeAlloc(dut, slot = 0, rowGeneration = 0, ridSlot = 1,
+        attemptGeneration = 7, transactionValue = 19,
+        transactionGeneration = 3)
+
+      dut.io.alloc.bits.request.execute.i2.row.schedule.memoryTransaction.value
+        .poke(20.U)
+      dut.io.alloc.ready.expect(false.B)
+      dut.io.allocRejected.valid.expect(true.B)
+      dut.io.allocRejected.bits.producerExact.expect(false.B)
+
+      dut.io.alloc.bits.request.execute.i2.row.schedule.memoryTransaction.value
+        .poke(19.U)
+      dut.io.alloc.bits.request.execute.i2.row.schedule
+        .initialLoadAttemptGeneration.poke(8.U)
+      dut.io.alloc.ready.expect(false.B)
+      dut.io.allocRejected.valid.expect(true.B)
+      dut.io.allocRejected.bits.attemptExact.expect(false.B)
+    }
+  }
+
   test("requires exact rebind generation and rejects the stale attempt after replay") {
     simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
       defaults(dut)
       pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 5)
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
       acceptAlloc(dut)
 
       val rebind = dut.io.rebind.bits
@@ -229,13 +279,21 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       rebind.loadId.slot.poke(1.U)
       rebind.currentLoad.valid.poke(true.B)
       pokeMember(rebind.currentLoad.producer, ridSlot = 2)
+      rebind.currentLoad.transaction.value.poke(19.U)
+      rebind.currentLoad.transaction.generation.poke(3.U)
       rebind.currentLoad.generation.poke(5.U)
       pokeAttemptFromLoad(rebind.currentAttempt, rebind.currentLoad)
       rebind.nextLoad.valid.poke(true.B)
       pokeMember(rebind.nextLoad.producer, ridSlot = 2)
+      rebind.nextLoad.transaction.value.poke(20.U)
+      rebind.nextLoad.transaction.generation.poke(3.U)
       rebind.nextLoad.generation.poke(6.U)
       pokeAttemptFromLoad(rebind.nextAttempt, rebind.nextLoad)
       dut.io.rebind.valid.poke(true.B)
+      dut.io.rebind.ready.expect(false.B)
+      dut.io.rebindRejected.valid.expect(true.B)
+
+      rebind.nextLoad.transaction.value.poke(19.U)
       dut.io.rebind.ready.expect(true.B)
       dut.clock.step()
       dut.io.rebind.valid.poke(false.B)
@@ -251,6 +309,8 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 6)
       dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.load.transaction.value.expect(19.U)
+      dut.io.result.bits.load.transaction.generation.expect(3.U)
       dut.io.result.bits.load.generation.expect(6.U)
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
@@ -267,20 +327,37 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 3,
         attemptGeneration = 2)
       acceptAlloc(dut)
-      dut.io.occupied.expect(2.U)
+      pokeAlloc(dut, slot = 2, rowGeneration = 0, ridSlot = 3,
+        attemptGeneration = 3, stid = 2)
+      acceptAlloc(dut)
+      dut.io.occupied.expect(3.U)
 
       val plan = dut.io.recoveryPrepare.bits
       plan.poke(0.U.asTypeOf(plan))
-      plan.valid.poke(true.B)
-      plan.oldHead.valid.poke(true.B)
-      plan.oldHead.peId.poke(3.U)
-      plan.oldHead.stid.poke(1.U)
-      plan.oldHead.ridSlot.poke(1.U)
-      plan.oldHead.ridGeneration.poke(5.U)
-      plan.oldOccupied.poke(3.U)
-      plan.newOccupied.poke(2.U)
+      plan.transactionId.poke(73.U)
+      plan.phase.poke(RecoveryPhase.Prepare)
+      plan.trigger.peId.poke(3.U)
+      plan.trigger.stid.poke(1.U)
+      plan.firstKilledValid.poke(true.B)
+      plan.firstKilled.peId.poke(3.U)
+      plan.firstKilled.stid.poke(1.U)
+      plan.firstKilled.ridSlot.poke(3.U)
+      plan.firstKilled.ridGeneration.poke(5.U)
+      plan.firstKilled.memberIndex.poke(1.U)
+      plan.lastKilled.poke(plan.firstKilled.peek())
+      plan.killedGroupCount.poke(1.U)
+      plan.killedMemberCount.poke(1.U)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepared.valid.expect(false.B)
+      dut.io.occupied.expect(3.U)
+
       dut.io.recoveryPrepare.valid.poke(true.B)
       dut.io.recoveryPrepareReady.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.recoveryPrepared.bits.transactionId.expect(73.U)
       dut.io.recoveryKilledMask.expect(2.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 3,
@@ -289,10 +366,69 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.valid.expect(false.B)
       dut.io.completion.ready.expect(false.B)
 
-      dut.io.recoveryFire.poke(true.B)
+      // A peer completion is not fenced by the target-STID recovery.
+      pokeCompletion(dut, slot = 2, rowGeneration = 0, ridSlot = 3,
+        attemptGeneration = 3, stid = 2)
+      dut.io.result.valid.expect(true.B)
+      dut.io.completion.ready.expect(true.B)
       dut.clock.step()
-      dut.io.recoveryFire.poke(false.B)
-      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.completion.valid.poke(false.B)
+      dut.io.occupied.expect(2.U)
+
+      // A target-STID allocation remains held, while the same free canonical
+      // slot can be allocated immediately by a peer STID.
+      pokeAlloc(dut, slot = 2, rowGeneration = 1, ridSlot = 4,
+        attemptGeneration = 4, stid = 1)
+      dut.io.alloc.ready.expect(false.B)
+      pokeAlloc(dut, slot = 2, rowGeneration = 1, ridSlot = 4,
+        attemptGeneration = 4, stid = 2)
+      acceptAlloc(dut)
+      dut.io.occupied.expect(3.U)
+
+      val rebind = dut.io.rebind.bits
+      rebind.poke(0.U.asTypeOf(rebind))
+      rebind.loadId.valid.poke(true.B)
+      rebind.loadId.slot.poke(1.U)
+      rebind.currentLoad.valid.poke(true.B)
+      pokeMember(rebind.currentLoad.producer, ridSlot = 3, stid = 1)
+      rebind.currentLoad.generation.poke(2.U)
+      pokeAttemptFromLoad(rebind.currentAttempt, rebind.currentLoad)
+      rebind.nextLoad.valid.poke(true.B)
+      pokeMember(rebind.nextLoad.producer, ridSlot = 3, stid = 1)
+      rebind.nextLoad.generation.poke(3.U)
+      pokeAttemptFromLoad(rebind.nextAttempt, rebind.nextLoad)
+      dut.io.rebind.valid.poke(true.B)
+      dut.io.rebind.ready.expect(false.B)
+
+      rebind.loadId.slot.poke(2.U)
+      rebind.loadId.generation.poke(1.U)
+      pokeMember(rebind.currentLoad.producer, ridSlot = 4, stid = 2)
+      rebind.currentLoad.generation.poke(4.U)
+      pokeAttemptFromLoad(rebind.currentAttempt, rebind.currentLoad)
+      pokeMember(rebind.nextLoad.producer, ridSlot = 4, stid = 2)
+      rebind.nextLoad.generation.poke(5.U)
+      pokeAttemptFromLoad(rebind.nextAttempt, rebind.nextLoad)
+      dut.io.rebind.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.rebind.valid.poke(false.B)
+
+      dut.io.recoveryApply.bits.poke(dut.io.recoveryPrepared.bits.peek())
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.io.recoveryApply.bits.transactionId.poke(74.U)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApplyAccepted.expect(false.B)
+      dut.io.recoveryApplyRejected.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(3.U)
+
+      dut.io.recoveryApply.bits.transactionId.poke(73.U)
+      pokeCompletion(dut, slot = 2, rowGeneration = 1, ridSlot = 4,
+        attemptGeneration = 5, stid = 2)
+      dut.io.recoveryApplyAccepted.expect(true.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
       dut.io.completion.valid.poke(false.B)
       dut.io.occupied.expect(1.U)
 
@@ -302,6 +438,80 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.bits.faultValid.expect(true.B)
       dut.io.result.bits.faultCause.expect(0x55.U)
       dut.io.result.bits.data.expect(0.U)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
+      dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("accepts only the matching recovery abort and retains every metadata entry") {
+    simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
+      defaults(dut)
+      pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 3,
+        attemptGeneration = 9)
+      acceptAlloc(dut)
+      pokeAlloc(dut, slot = 2, rowGeneration = 0, ridSlot = 4,
+        attemptGeneration = 10, stid = 2)
+      acceptAlloc(dut)
+
+      val prepare = dut.io.recoveryPrepare.bits
+      prepare.poke(0.U.asTypeOf(prepare))
+      prepare.transactionId.poke(91.U)
+      prepare.phase.poke(RecoveryPhase.Prepare)
+      prepare.trigger.peId.poke(3.U)
+      prepare.trigger.stid.poke(1.U)
+      prepare.firstKilledValid.poke(true.B)
+      prepare.firstKilled.peId.poke(3.U)
+      prepare.firstKilled.stid.poke(1.U)
+      prepare.firstKilled.ridSlot.poke(3.U)
+      prepare.firstKilled.ridGeneration.poke(5.U)
+      prepare.firstKilled.memberIndex.poke(1.U)
+      prepare.lastKilled.poke(prepare.firstKilled.peek())
+      prepare.killedGroupCount.poke(1.U)
+      prepare.killedMemberCount.poke(1.U)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepareReady.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.occupied.expect(2.U)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.expect(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(92.U)
+      dut.io.recoveryPrepareReady.expect(false.B)
+      dut.io.recoveryRejected.expect(true.B)
+      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.recoveryAbort.bits.poke(dut.io.recoveryPrepared.bits.peek())
+      dut.io.recoveryAbort.bits.phase.poke(RecoveryPhase.Abort)
+      dut.io.recoveryAbort.bits.transactionId.poke(92.U)
+      dut.io.recoveryAbort.valid.poke(true.B)
+      dut.io.recoveryAbortAccepted.expect(false.B)
+      dut.io.recoveryAbortRejected.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryPrepared.valid.expect(true.B)
+      dut.io.occupied.expect(2.U)
+
+      dut.io.recoveryAbort.bits.transactionId.poke(91.U)
+      pokeCompletion(dut, slot = 2, rowGeneration = 0, ridSlot = 4,
+        attemptGeneration = 10, stid = 2)
+      dut.io.result.ready.poke(true.B)
+      dut.io.recoveryAbortAccepted.expect(true.B)
+      dut.io.recoveryAbortRejected.expect(false.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recoveryAbort.valid.poke(false.B)
+      dut.io.completion.valid.poke(false.B)
+      dut.io.recoveryPrepared.valid.expect(false.B)
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 3,
+        attemptGeneration = 9)
+      dut.io.result.ready.poke(true.B)
+      dut.io.result.valid.expect(true.B)
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
       dut.io.empty.expect(true.B)

@@ -13,7 +13,7 @@ Source and test owners:
 - `chisel/src/main/scala/linxcore/ooo/OooIexStageCancel.scala`
 - `chisel/src/main/scala/linxcore/ooo/OooBundles.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexP1I2LaneSpec.scala`
-- `chisel/src/test/scala/linxcore/ooo/OooIexP1I2PcIntegrationSpec.scala`
+- `chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala`
 
 ## Stage contract
 
@@ -57,11 +57,9 @@ serialize fairly; domains on distinct ports can transfer together.
 
 ## PC timing
 
-The current `OooPcBuffer` is readyless and returns reconstructed
-`base + byteOffset` data combinationally from one fixed replica port. I1
-requests the token and I2 registers the returned full PC. This differs from
-the ARM reference notes, which describe an I1 base-array read followed by I2
-address reconstruction, but preserves the same visible I2 timing boundary.
+The current `OooPcBuffer` is readyless and returns the selected base PC. I1
+requests the generation-qualified buffer index; I2 adds the retained byte
+offset and registers the reconstructed full PC.
 
 A synchronous PC or RF macro must add an explicit retained response stage or
 split I1 into request/response phases. It must not hide latency by holding an
@@ -69,9 +67,9 @@ unregistered request token or duplicating allocation/recovery ownership.
 
 ## Recovery
 
-`OooResidencyRecoveryPlan` membership is checked independently for retained I1
-and I2 rows. A matching recovery suppresses the affected output in the apply
-cycle, clears the retained stage, and reports the exact member/reservation in
+Canonical `RecoveryPlan` membership is checked independently for retained I1
+and I2 rows. Only an accepted Apply phase suppresses the affected output,
+clears the retained stage, and reports the exact member/reservation in
 `recoveryCanceled(0)` for I1 or `(1)` for I2. An unrelated STID continues.
 
 ## Speculative load cancellation
@@ -120,8 +118,7 @@ wins a same-cycle race and does not generate a duplicate ordinary retry.
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexP1I2LaneSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexP1I2PcIntegrationSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexIssueP1LaneSpec
+bash tools/chisel/run_chisel_tests.sh --only IEXMechanismSpec
 ```
 
 The focused UT covers backpressure stability, P/T source masks, optional PC,
@@ -130,7 +127,7 @@ exact cross-STID recovery, stale load-bypass rejection, RF-mask subtraction,
 retained I2 bypass provenance, stale load-cancel rejection, simultaneous
 I1/I2 exact resource cancellation with two retained retries, stale stage-token
 rejection, and exact I2 poison.
-The issue/lane IT additionally proves canonical IQ in-flight return plus a new
-generation wakeup/bypass/reissue. The PC IT allocates and publishes a real PC-buffer token,
-reads it through the fixed readyless port, and proves that the full PC and
-source value are retained at I2.
+The mechanism test additionally proves canonical IQ in-flight return and wires
+a real PC buffer through the readyless read arbiter. It allocates and publishes
+a PC-buffer token, reads the base, and proves I2 retains the reconstructed PC
+and source value.

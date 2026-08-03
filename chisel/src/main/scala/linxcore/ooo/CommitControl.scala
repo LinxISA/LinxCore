@@ -16,6 +16,7 @@ class CommitControlIO(val p: CoreParams) extends Bundle {
   val robReleaseReady = Input(Bool())
   val renameReleaseReady = Input(Bool())
   val brobReleaseReady = Input(Bool())
+  val pcBufferCommitReady = Input(Bool())
   val out = Decoupled(new CommitControlTxn(p))
   val robNoflushReady = Flipped(Decoupled(new RobNoflushReadyTxn(p)))
   val robNoflush = Decoupled(new RobNoflushTxn(p))
@@ -77,7 +78,7 @@ class CommitControl(val p: CoreParams) extends Module {
   val candidateValid = heldValid || robTxnValid
   val hasReleaseLanes = candidate.commit.count =/= 0.U
   val releaseReady = io.robReleaseReady && io.renameReleaseReady &&
-    io.brobReleaseReady
+    io.brobReleaseReady && io.pcBufferCommitReady
   io.out.valid := candidateValid && (!hasReleaseLanes || releaseReady)
   io.out.bits := candidate
   val txnAccepted = io.out.fire

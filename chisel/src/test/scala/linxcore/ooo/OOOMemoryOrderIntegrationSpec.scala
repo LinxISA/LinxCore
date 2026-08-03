@@ -39,6 +39,9 @@ class OOOMemoryOrderIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
+    dut.io.iex.pcBufferReadAddress.foreach { address =>
+      address.poke(0.U.asTypeOf(address))
+    }
     dut.io.iex.robNoflushReady.valid.poke(false.B)
     dut.io.iex.robNoflushReady.bits.poke(
       0.U.asTypeOf(dut.io.iex.robNoflushReady.bits))

@@ -5,32 +5,12 @@ import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.params.ParamProfiles
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
-  private val base = OooParams(
-    stidCount = 2,
-    instructionDecodeWidth = 2,
-    decodedUopWidth = 2,
-    renameWidth = 2,
-    dispatchWidth = 2,
-    retireGroupWidth = 2,
-    robGroupsPerStid = 8,
-    robBankCount = 2,
-    robRecoveryScanGroupsPerCycle = 2,
-    robNonFlushScanGroupsPerCycle = 2,
-    pcBufferEntries = 8,
-    pcBankCount = 2,
-    pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
-    iqBankCount = 8,
-    iqEntriesPerBank = 2,
-    iqWritePortsPerBank = 2,
-    iqFreeSelectLeafEntries = 2,
-    pMapQDepthPerStid = 4,
-    tuMapQDepthPerStid = 4,
-    tuRetireSourceDepthPerStid = 16)
-  private val profile = OooIexLinxPhysicalProfile(base)
+  private val core = ParamProfiles.W4
+  private val profile = OooIexPhysicalProfile.fromCoreParams(core)
   private val p = profile.params
 
   private def clear(dut: OooIexExecutionCluster): Unit = {
@@ -38,17 +18,27 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       input.valid.poke(false.B)
       input.bits.poke(0.U.asTypeOf(input.bits))
     }
-    dut.io.recoveryPrepare.valid.poke(false.B)
-    dut.io.recoveryPrepare.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
-    dut.io.recoveryFire.poke(false.B)
+    dut.io.recovery.prepare.valid.poke(false.B)
+    dut.io.recovery.prepare.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.prepare.bits))
+    dut.io.recovery.prepared.ready.poke(true.B)
+    dut.io.recovery.apply.valid.poke(false.B)
+    dut.io.recovery.apply.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.apply.bits))
+    dut.io.recovery.abort.valid.poke(false.B)
+    dut.io.recovery.abort.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.abort.bits))
     dut.io.storeAddress.foreach(_.ready.poke(true.B))
     dut.io.storeData.foreach(_.ready.poke(true.B))
     dut.io.multiCycleAlu.foreach(_.ready.poke(true.B))
-    dut.io.system.foreach(_.ready.poke(true.B))
     dut.io.pointerAuth.foreach(_.ready.poke(true.B))
     dut.io.floatingVector.ready.poke(true.B)
-    dut.io.engineCommand.ready.poke(true.B)
+    dut.io.robNoflushReady.ready.poke(false.B)
+    dut.io.robNoflush.valid.poke(false.B)
+    dut.io.robNoflush.bits.poke(0.U.asTypeOf(dut.io.robNoflush.bits))
+    dut.io.systemIssue.foreach(_.ready.poke(true.B))
+    dut.io.cmdIssue.ready.poke(true.B)
+    dut.io.systemCmdResolve.ready.poke(true.B)
     dut.io.load.liqAlloc.ready.poke(true.B)
     dut.io.load.liqAllocLoadId.poke(
       0.U.asTypeOf(dut.io.load.liqAllocLoadId))
@@ -66,13 +56,14 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
     dut.io.uWrite.foreach(_.ready.poke(true.B))
     dut.io.bctrl.foreach(_.ready.poke(true.B))
     dut.io.trace.foreach(_.ready.poke(true.B))
-    dut.io.completion.foreach(_.ready.poke(true.B))
+    dut.io.robResolve.foreach(_.ready.poke(true.B))
+    dut.io.recoveryEvent.foreach(_.ready.poke(true.B))
   }
 
   private def pokeMember(target: RobMemberKey, ridSlot: Int): Unit = {
     target.group.valid.poke(true.B)
     target.group.peId.poke(3.U)
-    target.group.stid.poke(1.U)
+    target.group.stid.poke(0.U)
     target.group.ridSlot.poke(ridSlot.U)
     target.group.ridGeneration.poke(1.U)
     target.bid.valid.poke(true.B)
@@ -97,7 +88,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
     val row = execute.i2.row.schedule
     row.valid.poke(true.B)
     row.peId.poke(3.U)
-    row.stid.poke(1.U)
+    row.stid.poke(0.U)
     row.epoch.poke(7.U)
     pokeMember(row.member, ridSlot)
     row.reservation.valid.poke(true.B)
@@ -132,7 +123,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
     payload.immediate.poke(immediate.U)
     payload.uopKey.primaryParent.valid.poke(true.B)
     payload.uopKey.primaryParent.peId.poke(3.U)
-    payload.uopKey.primaryParent.stid.poke(1.U)
+    payload.uopKey.primaryParent.stid.poke(0.U)
     payload.uopKey.primaryParent.instructionId.poke((20 + ridSlot).U)
     payload.uopKey.uopCount.poke(1.U)
     row.destinations(0).valid.poke(true.B)
@@ -221,7 +212,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
     target.valid.poke(true.B)
     target.producer.valid.poke(true.B)
     target.producer.peId.poke(3.U)
-    target.producer.stid.poke(1.U)
+    target.producer.stid.poke(0.U)
     target.producer.nativeBidValid.poke(true.B)
     target.producer.nativeBid.poke(5.U)
     target.producer.brobGeneration.poke(2.U)
@@ -233,7 +224,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("routes every nonlocal execution family through an explicit boundary") {
-    simulate(new OooIexExecutionCluster(profile)) { dut =>
+    simulate(new OooIexExecutionCluster(core)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -250,15 +241,50 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       dut.io.e1(stdLane).ready.expect(true.B)
       dut.io.e1(stdLane).valid.poke(false.B)
 
-      val fsuLane = profile.pickerIndex("fsu0")
-      pokeRoute(dut, fsuLane, OooUopClass.Cmd, OooDispatchClass.Cmd,
+      val cmdLane = profile.pickerIndex("cmd0")
+      pokeRoute(dut, cmdLane, OooUopClass.Cmd, OooDispatchClass.Cmd,
         OooIexDomainCapability.mask(OooIexDomainCapability.EngineCommand), 2)
-      dut.io.engineCommand.valid.expect(true.B)
+      val cmd = dut.io.e1(cmdLane).bits
+      cmd.i2.row.transactionId.poke(202.U)
+      cmd.i2.row.payload.opcode.poke(0x77.U)
+      cmd.i2.row.payload.recipe.opcode.poke(0x77.U)
+      cmd.i2.row.payload.recipe.disposition.poke(
+        OooOpcodeDisposition.Dispatch.U)
+      cmd.i2.row.payload.recipe.sideEffectOwner.poke(
+        OooSideEffectOwner.Commit.U)
+      cmd.i2.row.payload.uopKey.primaryParent.valid.poke(true.B)
+      cmd.i2.row.payload.uopKey.primaryParent.peId.poke(3.U)
+      cmd.i2.row.payload.uopKey.primaryParent.stid.poke(0.U)
+      cmd.i2.row.payload.uopKey.primaryParent.instructionId.poke(22.U)
+      dut.io.robNoflushReady.valid.expect(true.B)
+      dut.io.robNoflushReady.bits.transactionId.expect(202.U)
+      dut.io.cmdIssue.valid.expect(false.B)
       dut.io.floatingVector.valid.expect(false.B)
-      dut.io.e1(fsuLane).ready.expect(true.B)
-      dut.io.e1(fsuLane).valid.poke(false.B)
+      dut.io.e1(cmdLane).ready.expect(false.B)
 
-      val specialLane = profile.pickerIndex("alu2")
+      val permit = dut.io.robNoflush.bits
+      permit.transactionId.poke(202.U)
+      permit.instruction.peId.poke(3.U)
+      permit.instruction.stid.poke(0.U)
+      permit.instruction.instructionId.poke(22.U)
+      permit.instruction.epoch.poke(7.U)
+      permit.rob.peId.poke(3.U)
+      permit.rob.stid.poke(0.U)
+      permit.rob.ridSlot.poke(2.U)
+      permit.rob.ridGeneration.poke(1.U)
+      permit.rob.memberIndex.poke(0.U)
+      permit.rob.residentGeneration.poke(4.U)
+      permit.rob.bid.poke(5.U)
+      permit.rob.brobGeneration.poke(2.U)
+      dut.io.robNoflush.valid.poke(true.B)
+      dut.io.robNoflushReady.ready.poke(true.B)
+      dut.io.cmdIssue.valid.expect(true.B)
+      dut.io.systemCmdResolve.valid.expect(true.B)
+      dut.io.systemCmdTerminalFire.expect(true.B)
+      dut.io.e1(cmdLane).ready.expect(true.B)
+      dut.io.e1(cmdLane).valid.poke(false.B)
+
+      val specialLane = profile.pickerIndex("sys0")
       pokeRoute(dut, specialLane, OooUopClass.Alu, OooDispatchClass.Alu,
         OooIexDomainCapability.mask(OooIexDomainCapability.MultiCycleAlu,
           OooIexDomainCapability.PointerAuth), 3)
@@ -269,7 +295,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("executes two simple ALUs through W1 and two atomic W2 terminals") {
-    simulate(new OooIexExecutionCluster(profile)) { dut =>
+    simulate(new OooIexExecutionCluster(core)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
@@ -296,21 +322,21 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       dut.io.pWrite(0).bits.key.ptag.expect(30.U)
       dut.io.pWrite(2).valid.expect(true.B)
       dut.io.pWrite(2).bits.key.ptag.expect(31.U)
-      dut.io.completion(0).bits.key.group.ridSlot.expect(1.U)
-      dut.io.completion(1).bits.key.group.ridSlot.expect(2.U)
+      dut.io.robResolve(0).bits.rob.ridSlot.expect(1.U)
+      dut.io.robResolve(1).bits.rob.ridSlot.expect(2.U)
       dut.clock.step()
       dut.io.empty.expect(true.B)
     }
   }
 
   test("owns one scalar load from E1 through canonical launch and terminal") {
-    simulate(new OooIexExecutionCluster(profile)) { dut =>
+    simulate(new OooIexExecutionCluster(core)) { dut =>
       clear(dut)
       dut.reset.poke(true.B)
       dut.clock.step()
       dut.reset.poke(false.B)
 
-      val lane = profile.pickerIndex("agu2-lda")
+      val lane = profile.pickerIndex("agu1-lda")
       val ridSlot = 3
       val loadSlot = 2
       val ptag = 31
@@ -324,7 +350,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.load.liqAlloc.valid.expect(true.B)
       dut.io.load.liqAlloc.bits.addr.expect(0x1008.U)
-      dut.io.load.liqAlloc.bits.returnPipeIndex.expect(2.U)
+      dut.io.load.liqAlloc.bits.returnPipeIndex.expect(1.U)
       val attemptGeneration =
         dut.io.load.liqAlloc.bits.attempt.generation.peek().litValue
       dut.clock.step()
@@ -338,7 +364,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       pokeAttempt(dut.io.load.attemptLaunch.bits.attempt,
         ridSlot, attemptGeneration)
       dut.io.load.attemptLaunch.valid.poke(true.B)
-      val speculativePort = p.iexTerminalWidth * p.maxDestinationOperands + 2
+      val speculativePort = p.iexTerminalWidth * p.maxDestinationOperands + 1
       dut.io.wakeup(speculativePort).valid.expect(true.B)
       dut.io.wakeup(speculativePort).bits.ptag.expect(ptag.U)
       dut.clock.step()
@@ -347,8 +373,8 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       val completion = dut.io.load.completion.bits
       completion.poke(0.U.asTypeOf(completion))
       completion.peId.poke(3.U)
-      completion.stid.poke(1.U)
-      completion.tid.poke(1.U)
+      completion.stid.poke(0.U)
+      completion.tid.poke(0.U)
       completion.payload.valid.poke(true.B)
       completion.payload.loadId.valid.poke(true.B)
       completion.payload.loadId.slot.poke(loadSlot.U)
@@ -363,15 +389,15 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
       dut.io.load.completion.valid.poke(true.B)
 
       dut.io.load.completion.ready.expect(true.B)
-      dut.io.bypass(8).valid.expect(true.B)
-      dut.io.bypass(8).bits.ptag.expect(ptag.U)
-      dut.io.pWrite(0).valid.expect(true.B)
-      dut.io.pWrite(0).bits.key.ptag.expect(ptag.U)
-      dut.io.pWrite(0).bits.data.expect(
+      dut.io.bypass(3).valid.expect(true.B)
+      dut.io.bypass(3).bits.ptag.expect(ptag.U)
+      dut.io.pWrite(2).valid.expect(true.B)
+      dut.io.pWrite(2).bits.key.ptag.expect(ptag.U)
+      dut.io.pWrite(2).bits.data.expect(
         BigInt("1122334455667788", 16).U)
-      dut.io.completion(0).valid.expect(true.B)
-      dut.io.completion(0).bits.key.group.ridSlot.expect(ridSlot.U)
-      dut.io.terminalFireMask.expect(1.U)
+      dut.io.robResolve(1).valid.expect(true.B)
+      dut.io.robResolve(1).bits.rob.ridSlot.expect(ridSlot.U)
+      dut.io.terminalFireMask.expect(2.U)
       dut.clock.step()
       dut.io.load.completion.valid.poke(false.B)
       dut.io.loadMetadataOccupied.expect(0.U)
@@ -381,7 +407,7 @@ class OooIexExecutionClusterSpec extends AnyFunSuite with ChiselSim {
 
   test("elaborates with one canonical load owner and no migration tracker") {
     val systemVerilog = ChiselStage.emitSystemVerilog(
-      new OooIexExecutionCluster(profile))
+      new OooIexExecutionCluster(core))
 
     assert(systemVerilog.contains("OooIexCanonicalLoadOwnership load"))
     assert(!systemVerilog.contains("OooIexLoadUnit"))

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-`OooIexCanonicalLoadOwnership` is the production ownership boundary between
-the three retained OOO AGU load lanes and the canonical scalar LSU. It composes
-the non-resident `OooIexLoadLiqAllocAdapter` with the metadata-only
+`OooIexCanonicalLoadOwnership` is the canonical ownership boundary between
+the parameterized OOO AGU load lanes and the canonical scalar LSU. W4 uses two
+lanes. It composes the non-resident `LoadIexIssuePipeline` with the metadata-only
 `OooIexLoadTerminalMetadata` sidecar without adding a second address, miss,
 replay, refill, or result queue.
 
@@ -12,15 +12,16 @@ Source and test owners:
 
 - `chisel/src/main/scala/linxcore/ooo/OooIexCanonicalLoadOwnership.scala`
 - `chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala`
+- `chisel/src/main/scala/linxcore/iex/OooIexLoadTerminalMetadata.scala`
+- `chisel/src/test/scala/linxcore/iex/OooIexLoadTerminalMetadataSpec.scala`
 
-`Documents/a.txt` motivates speculative-load generations and retained return
-state. Linx canonical LIQ row leases, complete `LoadAttemptIdentity`, full LSID,
-grouped-ROB member identity, and P/T/U destinations remain authoritative.
+Linx canonical LIQ row leases, complete `LoadAttemptIdentity`, full LSID,
+grouped-ROB member identity, and P/T/U destinations define the contract.
 
 ## Atomic allocation
 
-The three AGU inputs are fairly serialized by
-`OooIexLoadLiqAllocAdapter`. One accepted transaction simultaneously:
+The configured AGU inputs are fairly serialized by
+`LoadIexIssuePipeline`. One accepted transaction simultaneously:
 
 - allocates the canonical LIQ row exposed on `liqAlloc`;
 - captures the exact LIQ slot-plus-wrap lease from `liqAllocLoadId`;
@@ -60,40 +61,46 @@ merged or dropped.
 
 ## Recovery
 
-Recovery prepare and recovery apply are separate:
+Recovery Prepare, Apply, and Abort are separate phases of the common typed
+transaction:
 
-- prepare fences allocation, rebind, and terminal publication but does not
-  consume any AGU producer;
-- the metadata owner validates the retained plan and reports the exact kill
-  mask;
-- only one externally authorized common `recoveryFire` applies the kill to the
-  terminal sidecar and destructively acknowledges killed AGU producers.
+- Prepare fences only the affected STID and does not consume an AGU producer;
+- the metadata owner validates and retains the exact plan before reporting
+  `prepared`;
+- matching Apply prunes the exact terminal sidecars and drains only visible
+  killed requests;
+- matching Abort preserves both the sidecars and visible requests.
 
 Surviving AGU requests remain held and can proceed after the recovery fence is
-removed. Hard flush remains a separate destructive operation.
+removed. There is no second hard-flush protocol at this boundary.
 
 ## Verification
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only OooIexCanonicalLoadOwnershipSpec
-bash tools/chisel/run_chisel_tests.sh --only OooIexLoadLiqAllocAdapterSpec
+bash tools/chisel/run_chisel_tests.sh --only LoadIexIssuePipelineSpec
 bash tools/chisel/run_chisel_tests.sh --only OooIexLoadTerminalMetadataSpec
 ```
 
 The IT uses unequal `LIQ=4`, `ROB=8`, `STQ=4`, and `LSID=40` geometry. It
-covers three-lane allocation, LIQ/sidecar atomicity, exact slot-wrap identity,
+covers parameterized allocation including the W4 two-lane profile,
+LIQ/sidecar atomicity, exact slot-wrap identity,
 terminal backpressure, ordinary data, precise fault, atomic rebind, stale
 completion rejection, exact launch wakeup, replay/fault cancellation, same-lane
 cancel serialization, W1 bypass, common recovery fencing/kill, and generated
-SystemVerilog structure. The emitted graph contains the allocation adapter and
-terminal metadata owner and contains no migration tracker.
+SystemVerilog structure. The emitted graph contains the non-resident issue
+pipeline and terminal metadata owner and contains no migration tracker.
 
 ## Remaining integration gaps
 
-`OooIexExecutionStorePipeline` now installs `OooIexScalarLoadStorePath` against
-this existing owner and the existing canonical STQ. Small default OOO profiles
-cap default LIQ population to the available ROB identity domain rather than
-widening or truncating native BID projection. Remaining work is to:
+Task 13 removed the combined execution/store shell. Task 15 must connect the
+`OooIexIssue` identity owner, this atomic wrapper, its non-resident
+`LoadIexIssuePipeline`, the existing `ScalarLSU` children, and the
+canonical STQ directly through the public IEX/LSU interfaces without
+introducing another load-lifecycle owner or another combined private shell. Small
+default OOO profiles cap default LIQ population to the available ROB identity
+domain rather than widening or truncating native BID projection. Remaining
+work is to:
 
 - extend the local LIQ recovery kill-equivalence proof to
   MissQ/ResolveQ/LRET and the final global recovery authority;

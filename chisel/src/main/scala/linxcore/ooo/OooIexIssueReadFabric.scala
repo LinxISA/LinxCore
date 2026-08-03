@@ -3,6 +3,9 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, PopCount, PriorityEncoderOH, UIntToOH,
   Valid}
+import linxcore.params.CoreParams
+import linxcore.top.interface.{PcBufferReadAddress, RecoveryPlan,
+  RecoveryTargetIO}
 
 /** One physical resource shared by otherwise independent picker functions. */
 final case class OooIexSharedResourceConfig(
@@ -14,8 +17,6 @@ object OooIexSharedResourceConfig {
   def validate(
       p: OooParams,
       resources: Seq[OooIexSharedResourceConfig]): Unit = {
-    require(resources.nonEmpty,
-      "shared IEX arbitration needs at least one declared resource")
     require(resources.map(_.name).forall(_.nonEmpty) &&
       resources.map(_.name).distinct.length == resources.length,
       "shared IEX resources need nonempty unique names")
@@ -60,6 +61,8 @@ class OooIexSharedResourceArbiterIO(
 class OooIexSharedResourceArbiter(
     val p: OooParams,
     val resources: Seq[OooIexSharedResourceConfig]) extends Module {
+  require(resources.nonEmpty,
+    "shared-resource arbiter hardware needs at least one shared resource")
   OooIexSharedResourceConfig.validate(p, resources)
   val io = IO(new OooIexSharedResourceArbiterIO(p, resources.length))
 
@@ -126,9 +129,10 @@ class OooIexSharedResourceArbiter(
 }
 
 class OooIexIssueReadFabricIO(
-    val p: OooParams = OooParams(),
+    val core: CoreParams,
+    val p: OooParams,
     val requireStoreReservation: Boolean = false) extends Bundle {
-  val s1 = Flipped(Decoupled(new OooIexS1Transaction(p)))
+  val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
     Decoupled(new OooIexIssueRow(p))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
@@ -137,23 +141,14 @@ class OooIexIssueReadFabricIO(
   val releases = Flipped(Vec(p.iexReleaseWidth,
     Decoupled(new OooIexIssueRelease(p))))
   def release = releases(0)
-  val dispatchReleases = Vec(p.iexReleaseWidth,
-    Decoupled(new OooDispatchRelease(p)))
-  def dispatchRelease = dispatchReleases(0)
-  val ptagRecycle = Flipped(Decoupled(new OooPTagReturnBatch(p)))
-  val recoveryPrepare = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
-  val recoveryPrepareReady = Output(Bool())
-  val recoveryPrepared = Output(new OooIexRecoveryPrepared(p))
-  val recoveryFire = Input(Bool())
-
-  val pickBankEnables = Input(Vec(p.iexIssueDomainCount,
-    Vec(p.iqClassCount, UInt(p.iqBankCount.W))))
+  val recovery = Flipped(new RecoveryTargetIO(core))
+  val acceptedRecoveryApply = Valid(new RecoveryPlan(core))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
     Vec(2, Decoupled(new OooIexStageCancel(p)))))
 
   val pcReadRequests = Output(Vec(p.pcReadPorts,
-    Valid(new OooIexPcReadPortRequest(p))))
+    Valid(new PcBufferReadAddress(core))))
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
   val bypass = Input(Vec(p.iexBypassPorts,
@@ -212,11 +207,9 @@ class OooIexIssueReadFabricIO(
   val policyBlockedCount = Output(Vec(p.iexIssueDomainCount,
     UInt(p.countWidth(p.iqClassCount * p.iqBankCount *
       p.iqEntriesPerBank).W)))
-  val s1Rejected = Output(Valid(new OooIexS1Reject(p)))
   val releaseRejecteds = Output(Vec(p.iexReleaseWidth,
     Valid(new OooIexReleaseReject(p))))
   def releaseRejected = releaseRejecteds(0)
-  val recoveryRejected = Output(Valid(new OooIexRecoveryReject(p)))
 
   val empty = Output(Bool())
   val boundEntries = Output(Vec(p.iqClassCount,
@@ -246,68 +239,35 @@ class OooIexIssueReadFabricIO(
   * operand-data injection remains on this composition.
   */
 class OooIexIssueReadFabric(
-    val p: OooParams = OooParams(),
-    val domainCapabilities: Seq[BigInt] = Seq.empty,
-    val sharedResources: Seq[OooIexSharedResourceConfig] = Seq.empty,
-    val staticDomains: Seq[OooIexIssueDomainConfig] = Seq.empty,
+    val core: CoreParams,
     val requireStoreReservation: Boolean = false)
     extends Module {
-  if (staticDomains.nonEmpty) {
-    OooIexIssueDomainConfig.validate(p, staticDomains)
-  }
-  private val effectiveDomainCapabilities =
-    if (staticDomains.nonEmpty) staticDomains.map(_.capabilities)
-    else domainCapabilities
-  if (effectiveDomainCapabilities.nonEmpty) {
-    require(effectiveDomainCapabilities.length == p.iexIssueDomainCount &&
-      effectiveDomainCapabilities.forall(mask => mask != 0 &&
-        (mask & ~OooIexDomainCapability.ValidMask) == 0),
-      "IEX read fabric needs one valid capability mask per picker")
-  }
-  if (staticDomains.nonEmpty && domainCapabilities.nonEmpty) {
-    require(domainCapabilities == effectiveDomainCapabilities,
-      "static IEX domain capabilities must match the issue configuration")
-  }
-  if (sharedResources.nonEmpty) {
-    OooIexSharedResourceConfig.validate(p, sharedResources)
-    val declaredCapabilities =
-      if (effectiveDomainCapabilities.nonEmpty) effectiveDomainCapabilities
-      else Seq.fill(p.iexIssueDomainCount)(
-        OooIexDomainCapability.ValidMask)
-    sharedResources.foreach { resource =>
-      val resourceMask = OooIexDomainCapability.mask(resource.capability)
-      require(resource.pickerFunctions.forall(picker =>
-        (declaredCapabilities(picker) & resourceMask) != 0),
-        s"shared IEX resource ${resource.name} names an incapable picker")
-    }
-  }
-  val io = IO(new OooIexIssueReadFabricIO(p, requireStoreReservation))
+  val profile = OooIexPhysicalProfile.fromCoreParams(core)
+  val p = profile.params
+  val staticDomains = profile.transferConfigs
+  val sharedResources = OooIexLinxPhysicalProfile.sharedReadResources(profile)
+  OooIexIssueDomainConfig.validate(p, staticDomains)
+  OooIexSharedResourceConfig.validate(p, sharedResources)
+  val io = IO(new OooIexIssueReadFabricIO(
+    core, p, requireStoreReservation))
 
-  val issue = Module(new OooIexIssueP1Fabric(p,
-    effectiveDomainCapabilities, requireStoreReservation))
-  val arbiter = Module(new OooIexAtomicReadArbiter(p))
+  val issue = Module(new OooIexIssueP1Fabric(
+    core, requireStoreReservation))
+  val arbiter = Module(new OooIexAtomicReadArbiter(core, p))
   val operands = Module(new OooIexOperandFiles(p))
 
-  issue.io.s1 <> io.s1
+  issue.io.dispatch <> io.dispatch
   if (requireStoreReservation) {
     io.storeReserve.get <> issue.io.storeReserve.get
   }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
+  issue.io.operandReadyBits := operands.io.readyBits
   issue.io.releases <> io.releases
-  io.dispatchReleases <> issue.io.dispatchReleases
-  issue.io.ptagRecycle <> io.ptagRecycle
-  issue.io.recoveryPrepare := io.recoveryPrepare
-  io.recoveryPrepareReady := issue.io.recoveryPrepareReady
-  io.recoveryPrepared := issue.io.recoveryPrepared
-  issue.io.recoveryFire := io.recoveryFire
-  if (staticDomains.nonEmpty) {
-    for (picker <- 0 until p.iexIssueDomainCount) {
-      issue.io.pickBankEnables(picker) := VecInit(
-        staticDomains(picker).classBankEnables.map(_.U(p.iqBankCount.W)))
-    }
-  } else {
-    issue.io.pickBankEnables := io.pickBankEnables
+  issue.io.recovery <> io.recovery
+  for (picker <- 0 until p.iexIssueDomainCount) {
+    issue.io.pickBankEnables(picker) := VecInit(
+      staticDomains(picker).classBankEnables.map(_.U(p.iqBankCount.W)))
   }
   issue.io.issuePolicy := io.issuePolicy
   issue.io.stageCancels <> io.stageCancels
@@ -330,10 +290,16 @@ class OooIexIssueReadFabric(
     io.sharedConflictMask := shared.io.conflicted
     io.sharedMalformedMask := shared.io.malformed
   } else {
-    io.sharedEligibleMask := VecInit(
-      issue.io.readAttempts.map(_.valid)).asUInt
+    val requestValid = VecInit(issue.io.readAttempts.map(_.valid)).asUInt
+    val capabilityExact = VecInit(issue.io.readCapabilities.map(capability =>
+      capability.orR && PopCount(capability) === 1.U)).asUInt
+    for (picker <- 0 until p.iexIssueDomainCount) {
+      arbitratedAttempts(picker).valid :=
+        issue.io.readAttempts(picker).valid && capabilityExact(picker)
+    }
+    io.sharedEligibleMask := requestValid & capabilityExact
     io.sharedConflictMask := 0.U
-    io.sharedMalformedMask := 0.U
+    io.sharedMalformedMask := requestValid & ~capabilityExact
   }
   arbiter.io.attempts := arbitratedAttempts
   for (domain <- 0 until p.iexIssueDomainCount) {
@@ -371,6 +337,7 @@ class OooIexIssueReadFabric(
   io.uWriteFire := operands.io.uWriteFire
 
   io.readAttempts := issue.io.readAttempts
+  io.acceptedRecoveryApply := issue.io.acceptedRecoveryApply
   io.readCapabilities := issue.io.readCapabilities
   io.readSelectedMask := arbiter.io.selectedMask
   io.readDeniedMask := arbiter.io.deniedMask
@@ -385,9 +352,7 @@ class OooIexIssueReadFabric(
   io.pickPolicyBlocked := issue.io.pickPolicyBlocked
   io.queryPolicyReasons := issue.io.queryPolicyReasons
   io.policyBlockedCount := issue.io.policyBlockedCount
-  io.s1Rejected := issue.io.s1Rejected
   io.releaseRejecteds := issue.io.releaseRejecteds
-  io.recoveryRejected := issue.io.recoveryRejected
   io.empty := issue.io.empty
   io.boundEntries := issue.io.boundEntries
   io.residentEntries := issue.io.residentEntries
@@ -399,15 +364,3 @@ class OooIexIssueReadFabric(
   io.pProtocolError := operands.io.pProtocolError
   io.localProtocolError := operands.io.localProtocolError
 }
-
-/** Production Linx specialization with one authoritative physical profile. */
-class OooIexLinxIssueReadFabric(
-    val profile: OooIexPhysicalProfile =
-      OooIexLinxPhysicalProfile(),
-    override val requireStoreReservation: Boolean = false)
-    extends OooIexIssueReadFabric(
-      profile.params,
-      profile.transferConfigs.map(_.capabilities),
-      OooIexLinxPhysicalProfile.sharedReadResources(profile),
-      profile.transferConfigs,
-      requireStoreReservation)

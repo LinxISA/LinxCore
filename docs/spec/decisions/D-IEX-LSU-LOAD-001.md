@@ -12,9 +12,10 @@ would make replay, backpressure, and precise recovery ambiguous.
 the store-only `SID`, and the `YOST`/`YOLD` older-memory boundaries. IEX
 allocates a non-reused memory transaction for
 each retained memory uop; the independently issued STA and STD children of one
-store share that transaction. IEX also allocates the initial load attempt when
-it retains a new `LoadIssueTxn`. Every complete candidate remains stable until
-accepted. LSU owns LIQ residency and every later load-attempt transition.
+store share that transaction. IEX allocates both identities on the canonical
+Dispatch-to-IQ acceptance edge, when the memory uop first becomes retained
+IEX state. Every complete candidate then remains stable through issue and LIQ
+backpressure. LSU owns LIQ residency and every later load-attempt transition.
 
 LIQ reissue and LIQ repick are distinct mechanisms. `LoadReissueTxn` is used
 when address translation is still required; `LoadRepickTxn` is used when the

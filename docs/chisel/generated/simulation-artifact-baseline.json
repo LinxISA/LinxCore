@@ -1,0 +1,65 @@
+{
+  "schema": "linxcore.chisel.simulation_artifact_baseline.v1",
+  "suite": "OOOD3ContinuousPrefixSpec",
+  "case": "W8 publishes one retained D3 transaction as three three two",
+  "captured_date": "2026-08-03",
+  "main_profile": {
+    "git_sha": "356cf3c30a994bc0f5e6831c970ccce3a67886e5",
+    "profile_blob_sha": "938dae98ebe8ddf0de3f6872892b8558fb4949b3",
+    "elapsed_seconds": 30081.0,
+    "peak_rss_bytes": 13421772800,
+    "peak_rss_sampled": true,
+    "generated_bytes": 4190280746,
+    "generated_line_count": 28410225,
+    "largest_files": [
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/<case>/workdir-verilator/verilated-sources/VsvsimTestbench___024root__*.cpp",
+        "bytes": 957777535
+      },
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/<case>/primary-sources/PRename.sv",
+        "bytes": 781469347
+      }
+    ]
+  },
+  "simulation_profile": {
+    "git_sha": "356cf3c30a994bc0f5e6831c970ccce3a67886e5",
+    "profile_blob_sha": "d562144316a1d4fd6201226d18d20a1a62f181de",
+    "elapsed_seconds": 207.461,
+    "peak_rss_bytes": 9084649472,
+    "generated_bytes": 802543964,
+    "generated_line_count": 5264397,
+    "largest_files": [
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/W8-publishes-one-retained-D3-transaction-as-three-three-two/workdir-verilator/verilated-sources/VsvsimTestbench___024root__15.cpp",
+        "bytes": 128722490
+      },
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/W8-publishes-one-retained-D3-transaction-as-three-three-two/primary-sources/TURename.sv",
+        "bytes": 81569666
+      },
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/W8-publishes-one-retained-D3-transaction-as-three-three-two/primary-sources/PRename.sv",
+        "bytes": 66728978
+      },
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/W8-publishes-one-retained-D3-transaction-as-three-three-two/workdir-verilator/verilated-sources/VsvsimTestbench___024root__17.cpp",
+        "bytes": 59829883
+      },
+      {
+        "path": "chisel/build/chiselsim/OOOD3ContinuousPrefixSpec/W8-publishes-one-retained-D3-transaction-as-three-three-two/workdir-verilator/verilated-sources/VsvsimTestbench__pch.h.slow.gch",
+        "bytes": 48744744
+      }
+    ]
+  },
+  "reduction": {
+    "elapsed_percent": 99.310325,
+    "generated_bytes_percent": 80.847489,
+    "generated_line_count_percent": 81.470062
+  },
+  "result_parity": {
+    "passed": true,
+    "tail_transitions": [3, 6, 8],
+    "published_lanes": 8
+  }
+}

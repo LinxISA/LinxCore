@@ -3,6 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.OperandClass
+import linxcore.top.interface.RecoveryPhase
 import org.scalatest.funsuite.AnyFunSuite
 
 class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
@@ -118,17 +119,25 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
 
   private def pokeRecovery(
       dut: OooIexE1TransferSlot,
-      newOccupied: Int): Unit = {
+      firstKilledSlot: Int): Unit = {
     val plan = dut.io.recoveryApply.bits
     plan.poke(0.U.asTypeOf(plan))
-    plan.valid.poke(true.B)
-    plan.oldHead.valid.poke(true.B)
-    plan.oldHead.peId.poke(3.U)
-    plan.oldHead.stid.poke(1.U)
-    plan.oldHead.ridSlot.poke(0.U)
-    plan.oldHead.ridGeneration.poke(1.U)
-    plan.oldOccupied.poke(4.U)
-    plan.newOccupied.poke(newOccupied.U)
+    plan.phase.poke(RecoveryPhase.Apply)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(1.U)
+    if (firstKilledSlot < 4) {
+      plan.firstKilledValid.poke(true.B)
+      plan.firstKilled.peId.poke(3.U)
+      plan.firstKilled.stid.poke(1.U)
+      plan.firstKilled.ridSlot.poke(firstKilledSlot.U)
+      plan.firstKilled.ridGeneration.poke(1.U)
+      plan.lastKilled.peId.poke(3.U)
+      plan.lastKilled.stid.poke(1.U)
+      plan.lastKilled.ridSlot.poke(3.U)
+      plan.lastKilled.ridGeneration.poke(1.U)
+      plan.killedGroupCount.poke((4 - firstKilledSlot).U)
+      plan.killedMemberCount.poke((4 - firstKilledSlot).U)
+    }
     dut.io.recoveryApply.valid.poke(true.B)
   }
 
@@ -184,10 +193,10 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
       dut.io.e1.bits.i2.sourceData(0).expect("h8877665544332211".U)
 
       // Exact ROB recovery, not an unrelated surviving prefix, owns the kill.
-      pokeRecovery(dut, newOccupied = 4)
+      pokeRecovery(dut, firstKilledSlot = 4)
       dut.io.e1.valid.expect(true.B)
       dut.io.killed.valid.expect(false.B)
-      pokeRecovery(dut, newOccupied = 2)
+      pokeRecovery(dut, firstKilledSlot = 2)
       dut.io.e1.valid.expect(false.B)
       dut.io.killed.valid.expect(true.B)
       dut.io.killed.bits.i2.row.member.group.ridSlot.expect(3.U)
@@ -234,7 +243,8 @@ class OooIexE1TransferSlotSpec extends AnyFunSuite with ChiselSim {
   test("rejects an I2 row whose recipe exceeds the retained domain capability") {
     import OooIexDomainCapability._
     simulate(new OooIexE1TransferSlot(p,
-      acceptedCapabilities = mask(SimpleAlu))) { dut =>
+      acceptedCapabilities = mask(SimpleAlu),
+      coreParams = OooRecoveryMembership.coreParams(p))) { dut =>
       clear(dut)
       pokeI2(dut, ridSlot = 1, data = 0,
         capability = mask(MultiCycleAlu))

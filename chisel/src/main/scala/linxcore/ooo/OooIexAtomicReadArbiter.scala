@@ -3,6 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Cat, Mux1H, PopCount, Valid, log2Ceil}
 import linxcore.common.OperandClass
+import linxcore.params.CoreParams
+import linxcore.top.interface.PcBufferReadAddress
 
 class OooIexOperandReadPortRequest(val p: OooParams = OooParams())
     extends Bundle {
@@ -14,15 +16,7 @@ class OooIexOperandReadPortRequest(val p: OooParams = OooParams())
   val source = new OooIexSourceState(p)
 }
 
-class OooIexPcReadPortRequest(val p: OooParams = OooParams())
-    extends Bundle {
-  val domain = UInt(p.iexIssueDomainWidth.W)
-  val stid = UInt(p.stidWidth.W)
-  val epoch = UInt(p.epochWidth.W)
-  val token = new PcBufferToken(p)
-}
-
-class OooIexAtomicReadArbiterIO(val p: OooParams = OooParams())
+class OooIexAtomicReadArbiterIO(val core: CoreParams, val p: OooParams)
     extends Bundle {
   val attempts = Input(Vec(p.iexIssueDomainCount,
     Valid(new OooIexI1ReadAttempt(p))))
@@ -49,7 +43,7 @@ class OooIexAtomicReadArbiterIO(val p: OooParams = OooParams())
   val uReadResponses = Input(Vec(p.iexUReadPorts,
     Valid(UInt(p.pcWidth.W))))
   val pcReadRequests = Output(Vec(p.pcReadPorts,
-    Valid(new OooIexPcReadPortRequest(p))))
+    Valid(new PcBufferReadAddress(core))))
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
 
@@ -77,8 +71,14 @@ class OooIexAtomicReadArbiterIO(val p: OooParams = OooParams())
   * response retains the grant but exposes an incomplete valid mask, allowing
   * the existing I1 lane to reject and repick the exact resident row.
   */
-class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
-  val io = IO(new OooIexAtomicReadArbiterIO(p))
+class OooIexAtomicReadArbiter(
+    val core: CoreParams,
+    val p: OooParams)
+    extends Module {
+  def this(core: CoreParams) =
+    this(core, OooIexPhysicalProfile.fromCoreParams(core).params)
+  OooRecoveryMembership.requireCompatible(p, core)
+  val io = IO(new OooIexAtomicReadArbiterIO(core, p))
 
   private val domainCount = p.iexIssueDomainCount
   private val ageWidth =
@@ -231,7 +231,7 @@ class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
   io.uReadRequests := VecInit(Seq.fill(p.iexUReadPorts)(
     0.U.asTypeOf(Valid(new OooIexOperandReadPortRequest(p)))))
   io.pcReadRequests := VecInit(Seq.fill(p.pcReadPorts)(
-    0.U.asTypeOf(Valid(new OooIexPcReadPortRequest(p)))))
+    0.U.asTypeOf(Valid(new PcBufferReadAddress(core)))))
 
   val flatSources = for {
     domain <- 0 until domainCount
@@ -314,11 +314,12 @@ class OooIexAtomicReadArbiter(val p: OooParams = OooParams()) extends Module {
     for (port <- 0 until p.pcReadPorts) {
       when(pcActive && pcPort === port.U) {
         io.pcReadRequests(port).valid := true.B
-        io.pcReadRequests(port).bits.domain := domain.U
+        io.pcReadRequests(port).bits.valid := true.B
         io.pcReadRequests(port).bits.stid := io.attempts(domain).bits.stid
-        io.pcReadRequests(port).bits.epoch := io.attempts(domain).bits.epoch
-        io.pcReadRequests(port).bits.token :=
-          io.attempts(domain).bits.pcToken
+        io.pcReadRequests(port).bits.pcBufferIndex :=
+          io.attempts(domain).bits.pcToken.index
+        io.pcReadRequests(port).bits.allocationEpoch :=
+          io.attempts(domain).bits.pcToken.allocationEpoch
         io.pcDataValid(domain) := io.pcReadResponses(port).valid
         io.pcData(domain) := io.pcReadResponses(port).bits
       }

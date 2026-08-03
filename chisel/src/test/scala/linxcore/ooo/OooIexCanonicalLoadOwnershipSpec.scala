@@ -7,8 +7,21 @@ import org.scalatest.funsuite.AnyFunSuite
 
 import linxcore.common.{CoreParams, DestinationKind, ScalarLsuParams}
 import linxcore.lsu.LoadAttemptIdentity
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
 class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
+
+  test("uses two canonical load lanes in the default W4 ownership profile") {
+    val defaultP = OooParams()
+    val defaultCore = OooIexCanonicalLoadOwnership.defaultCoreParams(defaultP)
+
+    simulate(new OooIexCanonicalLoadOwnership(defaultP, defaultCore)) { dut =>
+      assert(defaultCore.scalarLsu.loadReturnPipeCount == 2)
+      assert(dut.io.agu.length == 2)
+      assert(dut.io.speculativeWakeup.length == 2)
+    }
+  }
+
   private final class ExpectedLease(
       val lane: Int,
       val slot: Int,
@@ -17,6 +30,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       val lsid: BigInt,
       val returnPipe: Int,
       val attemptGeneration: Int,
+      val transactionValue: BigInt,
+      val transactionGeneration: BigInt,
       val destinationPhysTag: Int,
       val destinationOldPhysTag: Int) {
     val peId = 3
@@ -66,6 +81,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       expected: ExpectedLease): Unit = {
     load.valid.expect(true.B)
     expectMember(load.producer, expected)
+    load.transaction.value.expect(expected.transactionValue.U)
+    load.transaction.generation.expect(expected.transactionGeneration.U)
     load.generation.expect(expected.attemptGeneration.U)
   }
 
@@ -106,9 +123,9 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     robNonFlushScanGroupsPerCycle = 2,
     brobEntriesPerStid = 16,
     pcBufferEntries = 16,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -140,18 +157,56 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     dut.io.attemptLaunch.valid.poke(false.B)
     dut.io.attemptLaunch.bits.poke(
       0.U.asTypeOf(dut.io.attemptLaunch.bits))
-    dut.io.recoveryPrepare.valid.poke(false.B)
-    dut.io.recoveryPrepare.bits.poke(
-      0.U.asTypeOf(dut.io.recoveryPrepare.bits))
-    dut.io.recoveryFire.poke(false.B)
-    dut.io.flush.poke(false.B)
+    dut.io.recovery.prepare.valid.poke(false.B)
+    dut.io.recovery.prepare.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.prepare.bits))
+    dut.io.recovery.prepared.ready.poke(false.B)
+    dut.io.recovery.apply.valid.poke(false.B)
+    dut.io.recovery.apply.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.apply.bits))
+    dut.io.recovery.abort.valid.poke(false.B)
+    dut.io.recovery.abort.bits.poke(
+      0.U.asTypeOf(dut.io.recovery.abort.bits))
   }
 
-  private def pokeMember(member: RobMemberKey, ridSlot: Int): Unit = {
+  private def pokeRecoveryPlan(
+      plan: RecoveryPlan,
+      phase: RecoveryPhase.Type,
+      transactionId: Int,
+      stid: Int,
+      firstRid: Int,
+      lastRid: Int): Unit = {
+    plan.poke(0.U.asTypeOf(plan))
+    plan.transactionId.poke(transactionId.U)
+    plan.phase.poke(phase)
+    plan.trigger.peId.poke(3.U)
+    plan.trigger.stid.poke(stid.U)
+    plan.trigger.ridSlot.poke(firstRid.U)
+    plan.trigger.ridGeneration.poke(5.U)
+    plan.trigger.memberIndex.poke(1.U)
+    plan.firstKilledValid.poke(true.B)
+    plan.firstKilled.peId.poke(3.U)
+    plan.firstKilled.stid.poke(stid.U)
+    plan.firstKilled.ridSlot.poke(firstRid.U)
+    plan.firstKilled.ridGeneration.poke(5.U)
+    plan.firstKilled.memberIndex.poke(1.U)
+    plan.lastKilled.peId.poke(3.U)
+    plan.lastKilled.stid.poke(stid.U)
+    plan.lastKilled.ridSlot.poke(lastRid.U)
+    plan.lastKilled.ridGeneration.poke(5.U)
+    plan.lastKilled.memberIndex.poke(1.U)
+    plan.killedGroupCount.poke((lastRid - firstRid + 1).U)
+    plan.killedMemberCount.poke((lastRid - firstRid + 1).U)
+  }
+
+  private def pokeMember(
+      member: RobMemberKey,
+      ridSlot: Int,
+      stid: Int = 1): Unit = {
     member.poke(0.U.asTypeOf(member))
     member.group.valid.poke(true.B)
     member.group.peId.poke(3.U)
-    member.group.stid.poke(1.U)
+    member.group.stid.poke(stid.U)
     member.group.ridSlot.poke(ridSlot.U)
     member.group.ridGeneration.poke(5.U)
     member.bid.valid.poke(true.B)
@@ -165,7 +220,11 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut: OooIexCanonicalLoadOwnership,
       lane: Int,
       ridSlot: Int,
-      lsid: BigInt): Unit = {
+      lsid: BigInt,
+      transactionValue: BigInt = 0,
+      transactionGeneration: BigInt = 0,
+      attemptGeneration: BigInt = 1,
+      stid: Int = 1): Unit = {
     val input = dut.io.agu(lane)
     input.bits.poke(0.U.asTypeOf(input.bits))
     input.valid.poke(true.B)
@@ -179,9 +238,14 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     val row = input.bits.execute.i2.row
     row.schedule.valid.poke(true.B)
     row.schedule.peId.poke(3.U)
-    row.schedule.stid.poke(1.U)
+    row.schedule.stid.poke(stid.U)
     row.schedule.epoch.poke(7.U)
-    pokeMember(row.schedule.member, ridSlot)
+    row.schedule.memoryTransactionValid.poke(true.B)
+    row.schedule.memoryTransaction.value.poke(transactionValue.U)
+    row.schedule.memoryTransaction.generation.poke(transactionGeneration.U)
+    row.schedule.initialLoadAttemptValid.poke(true.B)
+    row.schedule.initialLoadAttemptGeneration.poke(attemptGeneration.U)
+    pokeMember(row.schedule.member, ridSlot, stid)
     row.schedule.reservation.valid.poke(true.B)
     row.schedule.reservation.uopClass.poke(OooUopClass.Agu)
     row.payload.opcode.poke(101.U)
@@ -241,12 +305,13 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       attemptGeneration: BigInt,
       fault: Boolean = false,
       destinationPhysTag: Int = 33,
-      destinationOldPhysTag: Int = 23): Unit = {
+      destinationOldPhysTag: Int = 23,
+      stid: Int = 1): Unit = {
     val completion = dut.io.completion.bits
     completion.poke(0.U.asTypeOf(completion))
     completion.peId.poke(3.U)
-    completion.stid.poke(1.U)
-    completion.tid.poke(1.U)
+    completion.stid.poke(stid.U)
+    completion.tid.poke(stid.U)
     completion.payload.valid.poke(true.B)
     completion.payload.loadId.valid.poke(true.B)
     completion.payload.loadId.slot.poke(slot.U)
@@ -254,7 +319,7 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
     completion.payload.attempt.valid.poke(true.B)
     completion.payload.attempt.producer.valid.poke(true.B)
     completion.payload.attempt.producer.peId.poke(3.U)
-    completion.payload.attempt.producer.stid.poke(1.U)
+    completion.payload.attempt.producer.stid.poke(stid.U)
     completion.payload.attempt.producer.nativeBidValid.poke(true.B)
     completion.payload.attempt.producer.nativeBid.poke((ridSlot + 4).U)
     completion.payload.attempt.producer.brobGeneration.poke(9.U)
@@ -279,10 +344,14 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       load: OooIexLoadGeneration,
       attempt: linxcore.lsu.LoadAttemptIdentity,
       ridSlot: Int,
-      generation: BigInt): Unit = {
+      generation: BigInt,
+      transactionValue: BigInt = 0,
+      transactionGeneration: BigInt = 0): Unit = {
     load.poke(0.U.asTypeOf(load))
     load.valid.poke(true.B)
     pokeMember(load.producer, ridSlot)
+    load.transaction.value.poke(transactionValue.U)
+    load.transaction.generation.poke(transactionGeneration.U)
     load.generation.poke(generation.U)
     attempt.poke(0.U.asTypeOf(attempt))
     attempt.valid.poke(true.B)
@@ -352,7 +421,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
 
       // Reusing the same canonical row lease is held off by the still-live
       // terminal sidecar even when the LIQ advertises allocation readiness.
-      pokeRequest(dut, lane = 0, ridSlot = 4, lsid = 9)
+      pokeRequest(dut, lane = 0, ridSlot = 4, lsid = 9,
+        transactionValue = 1, attemptGeneration = 2)
       dut.io.liqAlloc.ready.poke(true.B)
       dut.io.liqAlloc.valid.expect(false.B)
       dut.io.agu(0).ready.expect(false.B)
@@ -385,7 +455,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.ready.poke(false.B)
       dut.io.metadataEmpty.expect(true.B)
 
-      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 8)
+      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 8,
+        transactionValue = 1, attemptGeneration = 2)
       val faultGeneration = accept(dut, lane = 2, slot = 2, wrap = false)
       pokeCompletion(dut, slot = 2, wrap = false, ridSlot = 3,
         attemptGeneration = faultGeneration, fault = true)
@@ -496,26 +567,60 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       val generation = accept(dut, lane = 2, slot = 2, wrap = true)
       pokeCompletion(dut, slot = 2, wrap = true, ridSlot = 3,
         attemptGeneration = generation)
-      dut.io.result.ready.poke(true.B)
+      dut.io.result.ready.poke(false.B)
 
-      dut.io.recoveryPrepare.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.oldHead.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.oldHead.peId.poke(3.U)
-      dut.io.recoveryPrepare.bits.oldHead.stid.poke(1.U)
-      dut.io.recoveryPrepare.bits.oldHead.ridSlot.poke(3.U)
-      dut.io.recoveryPrepare.bits.oldHead.ridGeneration.poke(5.U)
-      dut.io.recoveryPrepare.bits.oldOccupied.poke(1.U)
-      dut.io.recoveryPrepare.bits.newOccupied.poke(0.U)
-      dut.io.recoveryPrepareReady.expect(true.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits, RecoveryPhase.Prepare,
+        transactionId = 31, stid = 1, firstRid = 3, lastRid = 3)
+      dut.io.recovery.prepare.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepared.valid.expect(false.B)
+      dut.io.metadataOccupied.expect(1.U)
+
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
       dut.io.result.valid.expect(false.B)
       dut.io.completion.ready.expect(false.B)
-      dut.io.recoveryKilledMask.expect(4.U)
-
-      dut.io.recoveryFire.poke(true.B)
       dut.clock.step()
-      dut.io.recoveryFire.poke(false.B)
-      dut.io.recoveryPrepare.valid.poke(false.B)
+
+      dut.io.recovery.prepare.valid.poke(false.B)
+      dut.io.recovery.prepared.valid.expect(true.B)
+      dut.io.recovery.prepared.bits.transactionId.expect(31.U)
+      dut.io.recovery.prepared.bits.phase.expect(RecoveryPhase.Prepare)
+      dut.io.recovery.prepared.bits.firstKilled.ridSlot.expect(3.U)
+
+      pokeRequest(dut, lane = 0, ridSlot = 4, lsid = 8,
+        transactionValue = 1, attemptGeneration = 2, stid = 2)
+      dut.io.liqAllocLoadId.valid.poke(true.B)
+      dut.io.liqAllocLoadId.value.poke(3.U)
+      dut.io.liqAllocLoadId.wrap.poke(false.B)
+      dut.io.liqAlloc.ready.poke(true.B)
+      dut.io.liqAlloc.valid.expect(true.B)
+      dut.io.agu(0).ready.expect(true.B)
+      val peerGeneration =
+        dut.io.liqAlloc.bits.attempt.generation.peek().litValue
+      dut.clock.step()
+      dut.io.agu(0).valid.poke(false.B)
+      dut.io.liqAlloc.ready.poke(false.B)
+      dut.io.metadataOccupied.expect(2.U)
+
+      dut.io.recovery.prepared.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepared.ready.poke(false.B)
+
+      pokeRecoveryPlan(dut.io.recovery.apply.bits, RecoveryPhase.Apply,
+        transactionId = 31, stid = 1, firstRid = 3, lastRid = 3)
+      dut.io.recovery.apply.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.apply.valid.poke(false.B)
+      dut.io.completion.valid.poke(false.B)
+      dut.io.metadataOccupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 3, wrap = false, ridSlot = 4,
+        attemptGeneration = peerGeneration, destinationPhysTag = 31,
+        destinationOldPhysTag = 21, stid = 2)
+      dut.io.result.ready.poke(true.B)
+      dut.io.result.valid.expect(true.B)
+      dut.clock.step()
       dut.io.completion.valid.poke(false.B)
       dut.io.metadataEmpty.expect(true.B)
     }
@@ -526,7 +631,8 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       defaults(dut)
       pokeRequest(dut, lane = 2, ridSlot = 2, lsid = 6)
       val faultGeneration = accept(dut, lane = 2, slot = 1, wrap = false)
-      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 7)
+      pokeRequest(dut, lane = 2, ridSlot = 3, lsid = 7,
+        transactionValue = 1, attemptGeneration = 2)
       val replayGeneration = accept(dut, lane = 2, slot = 2, wrap = false)
 
       pokeCompletion(dut, slot = 1, wrap = false, ridSlot = 2,
@@ -538,9 +644,10 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       rebind.loadId.slot.poke(2.U)
       rebind.loadId.generation.poke(0.U)
       pokeLoadAttempt(rebind.currentLoad, rebind.currentAttempt,
-        ridSlot = 3, generation = replayGeneration)
+        ridSlot = 3, generation = replayGeneration, transactionValue = 1)
       pokeLoadAttempt(rebind.nextLoad, rebind.nextAttempt,
-        ridSlot = 3, generation = replayGeneration + 1)
+        ridSlot = 3, generation = replayGeneration + 1,
+        transactionValue = 1)
       dut.io.rebind.valid.poke(true.B)
       dut.io.liqRebind.ready.poke(true.B)
 
@@ -566,31 +673,37 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       defaults(dut)
 
       pokeRequest(dut, lane = 0, ridSlot = 2,
-        lsid = BigInt("100000002", 16))
+        lsid = BigInt("100000002", 16), transactionValue = 1,
+        attemptGeneration = 2)
       pokeRequest(dut, lane = 1, ridSlot = 3,
-        lsid = BigInt("200000003", 16))
+        lsid = BigInt("200000003", 16), transactionValue = 0,
+        attemptGeneration = 1)
+      dut.io.agu(0).valid.poke(false.B)
       val lane1 = new ExpectedLease(lane = 1, slot = 0, rowGeneration = 0,
         ridSlot = 3, lsid = BigInt("200000003", 16), returnPipe = 1,
-        attemptGeneration = 1, destinationPhysTag = 32,
+        attemptGeneration = 1, transactionValue = 0,
+        transactionGeneration = 0, destinationPhysTag = 32,
         destinationOldPhysTag = 22)
       val lane0Initial = new ExpectedLease(lane = 0, slot = 1,
         rowGeneration = 0, ridSlot = 2, lsid = BigInt("100000002", 16),
-        returnPipe = 0, attemptGeneration = 2, destinationPhysTag = 31,
+        returnPipe = 0, attemptGeneration = 2, transactionValue = 1,
+        transactionGeneration = 0, destinationPhysTag = 31,
         destinationOldPhysTag = 21)
       val lane0Rebound = new ExpectedLease(lane = 0, slot = 1,
         rowGeneration = 0, ridSlot = 2, lsid = BigInt("100000002", 16),
-        returnPipe = 0, attemptGeneration = 3, destinationPhysTag = 31,
+        returnPipe = 0, attemptGeneration = 3, transactionValue = 1,
+        transactionGeneration = 0, destinationPhysTag = 31,
         destinationOldPhysTag = 21)
       dut.io.liqAllocLoadId.valid.poke(true.B)
       dut.io.liqAllocLoadId.value.poke(0.U)
       dut.io.liqAlloc.ready.poke(true.B)
-      dut.io.agu(0).ready.expect(false.B)
       dut.io.agu(1).ready.expect(true.B)
       expectAlloc(dut, lane1)
       dut.clock.step()
       dut.io.agu(1).valid.poke(false.B)
 
       dut.io.liqAllocLoadId.value.poke(1.U)
+      dut.io.agu(0).valid.poke(true.B)
       dut.io.agu(0).ready.expect(true.B)
       expectAlloc(dut, lane0Initial)
       dut.clock.step()
@@ -603,9 +716,13 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       rebind.loadId.slot.poke(1.U)
       rebind.loadId.generation.poke(0.U)
       pokeLoadAttempt(rebind.currentLoad, rebind.currentAttempt,
-        ridSlot = 2, generation = lane0Initial.attemptGeneration)
+        ridSlot = 2, generation = lane0Initial.attemptGeneration,
+        transactionValue = lane0Initial.transactionValue,
+        transactionGeneration = lane0Initial.transactionGeneration)
       pokeLoadAttempt(rebind.nextLoad, rebind.nextAttempt,
-        ridSlot = 2, generation = lane0Rebound.attemptGeneration)
+        ridSlot = 2, generation = lane0Rebound.attemptGeneration,
+        transactionValue = lane0Rebound.transactionValue,
+        transactionGeneration = lane0Rebound.transactionGeneration)
       dut.io.rebind.valid.poke(true.B)
       dut.io.liqRebind.ready.poke(false.B)
       for (_ <- 0 until 2) {
@@ -659,31 +776,31 @@ class OooIexCanonicalLoadOwnershipSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.ready.poke(false.B)
       dut.io.metadataOccupied.expect(1.U)
 
-      dut.io.recoveryPrepare.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.oldHead.valid.poke(true.B)
-      dut.io.recoveryPrepare.bits.oldHead.peId.poke(3.U)
-      dut.io.recoveryPrepare.bits.oldHead.stid.poke(1.U)
-      dut.io.recoveryPrepare.bits.oldHead.ridSlot.poke(2.U)
-      dut.io.recoveryPrepare.bits.oldHead.ridGeneration.poke(5.U)
-      dut.io.recoveryPrepare.bits.oldOccupied.poke(1.U)
-      dut.io.recoveryPrepare.bits.newOccupied.poke(0.U)
-      dut.io.recoveryPrepareReady.expect(true.B)
-      dut.io.recoveryKilledMask.expect(2.U)
-      dut.io.recoveryFire.poke(true.B)
+      pokeRecoveryPlan(dut.io.recovery.prepare.bits, RecoveryPhase.Prepare,
+        transactionId = 37, stid = 1, firstRid = 2, lastRid = 2)
+      dut.io.recovery.prepare.valid.poke(true.B)
+      dut.io.recovery.prepare.ready.expect(true.B)
       dut.clock.step()
-      dut.io.recoveryFire.poke(false.B)
-      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recovery.prepare.valid.poke(false.B)
+      dut.io.recovery.prepared.valid.expect(true.B)
+      dut.io.recovery.prepared.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.prepared.ready.poke(false.B)
+      pokeRecoveryPlan(dut.io.recovery.apply.bits, RecoveryPhase.Apply,
+        transactionId = 37, stid = 1, firstRid = 2, lastRid = 2)
+      dut.io.recovery.apply.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.recovery.apply.valid.poke(false.B)
       dut.io.metadataEmpty.expect(true.B)
     }
   }
 
-  test("emits a production ownership graph without a duplicate load tracker") {
+  test("emits the canonical ownership graph without a duplicate load tracker") {
     val systemVerilog = ChiselStage.emitSystemVerilog(
       new OooIexCanonicalLoadOwnership(p, core))
 
     assert(systemVerilog.contains("module OooIexCanonicalLoadOwnership"))
-    assert(systemVerilog.contains("OooIexLoadLiqAllocAdapter adapter"))
+    assert(systemVerilog.contains("LoadIexIssuePipeline issuePipeline"))
     assert(systemVerilog.contains("OooIexLoadTerminalMetadata metadata"))
     assert(!systemVerilog.contains("OooIexLoadUnit"))
   }

@@ -3,6 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, PopCount, Valid}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.params.CoreParams
+import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
 class OooIexAluWriteback(val p: OooParams = OooParams()) extends Bundle {
   val valid = Bool()
@@ -28,12 +30,15 @@ class OooIexAluReject(val p: OooParams = OooParams()) extends Bundle {
   val incomingKilled = Bool()
 }
 
-class OooIexAluPipelineIO(val p: OooParams = OooParams()) extends Bundle {
+class OooIexAluPipelineIO(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
+    extends Bundle {
   val e1 = Flipped(Decoupled(new OooIexExecuteTransaction(p)))
   val w1Bypass = Valid(new OooIexAluTerminalTransaction(p))
   val w2 = Decoupled(new OooIexAluTerminalTransaction(p))
 
-  val recoveryApply = Flipped(Valid(new OooResidencyRecoveryPlan(p)))
+  val recoveryApply = Flipped(Valid(new RecoveryPlan(coreParams)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
 
@@ -82,10 +87,16 @@ object OooIexAluPipeline {
   * write, wakeup, ROB completion, redirect, or trace side effect occurs here;
   * a later atomic terminal sink must accept W2 before publishing those effects.
   */
-class OooIexAluPipeline(val p: OooParams = OooParams()) extends Module {
+class OooIexAluPipeline(
+    val p: OooParams = OooParams(),
+    val coreParams: CoreParams)
+    extends Module {
+  def this(p: OooParams) =
+    this(p, OooRecoveryMembership.coreParams(p))
   import OooIexAluPipeline._
+  OooRecoveryMembership.requireCompatible(p, coreParams)
 
-  val io = IO(new OooIexAluPipelineIO(p))
+  val io = IO(new OooIexAluPipelineIO(p, coreParams))
 
   private def opcode(value: Int): UInt = value.U(p.opcodeWidth.W)
 
@@ -93,8 +104,10 @@ class OooIexAluPipeline(val p: OooParams = OooParams()) extends Module {
     values.map(value => op === opcode(value)).reduce(_ || _)
 
   private def killedByRecovery(execute: OooIexExecuteTransaction): Bool =
-    io.recoveryApply.valid && io.recoveryApply.bits.valid &&
-      OooRecoveryMembership.memberKilled(p, io.recoveryApply.bits,
+    io.recoveryApply.valid &&
+      io.recoveryApply.bits.phase === RecoveryPhase.Apply &&
+      OooRecoveryMembership.memberKilled(p, coreParams,
+        io.recoveryApply.bits,
         execute.i2.row.member)
 
   private def canceledByLoad(execute: OooIexExecuteTransaction): Bool =
