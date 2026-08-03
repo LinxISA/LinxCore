@@ -2,6 +2,12 @@ ThisBuild / scalaVersion := "2.13.17"
 ThisBuild / organization := "org.linxisa"
 
 val chiselVersion = "7.3.0"
+val chiselTestJobs = sys.env.get("LINX_CHISEL_TEST_JOBS") match {
+  case None => 2
+  case Some(text) =>
+    text.toIntOption.filter(_ > 0).getOrElse(
+      sys.error("LINX_CHISEL_TEST_JOBS must be a positive integer"))
+}
 
 lazy val linxcore = (project in file("."))
   .settings(
@@ -18,5 +24,7 @@ lazy val linxcore = (project in file("."))
       "-feature",
       "-unchecked",
       "-Xfatal-warnings"
-    )
+    ),
+    Test / parallelExecution := true,
+    Global / concurrentRestrictions += Tags.limit(Tags.Test, chiselTestJobs)
   )

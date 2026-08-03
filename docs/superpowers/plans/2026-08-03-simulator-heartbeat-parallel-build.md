@@ -329,7 +329,7 @@ git push origin codex/chisel-gap-superpowers
 - Consumes: repeated `--only SUITE`, `--all`, `--heartbeat-seconds`, `--stall-seconds`, `--wall-seconds`, `--jobs`, `--artifact-budget-bytes`, and matching `LINX_CHISEL_*` environment values.
 - Produces: one supervisor invocation, one SBT server command, and an SBT Test concurrency ceiling equal to `LINX_CHISEL_TEST_JOBS`.
 
-- [ ] **Step 1: Write fake-SBT runner contract tests**
+- [x] **Step 1: Write fake-SBT runner contract tests**
 
 Create a temporary executable named `sbt` at the front of `PATH`. It records arguments and `LINX_CHISEL_TEST_JOBS`, then exits with a requested status. Tests assert:
 
@@ -350,7 +350,7 @@ For selectors `FooSpec` and `BarSpec`, the recorded final SBT command must be ex
 testOnly *FooSpec* *BarSpec*
 ```
 
-- [ ] **Step 2: Run the tests and observe the first unsupported option**
+- [x] **Step 2: Run the tests and observe the first unsupported option**
 
 Run:
 
@@ -360,7 +360,7 @@ python3 -m unittest tests.test_chisel_test_runner -v
 
 Expected: failure because the runner currently accepts only one `--only` and has no supervisor options.
 
-- [ ] **Step 3: Implement CLI validation and one supervised command**
+- [x] **Step 3: Implement CLI validation and one supervised command**
 
 Update `run_chisel_tests.sh` to collect selectors in a Bash array and validate public integers before invoking Python. Defaults are:
 
@@ -385,7 +385,7 @@ exec python3 "${ROOT_DIR}/tools/chisel/chisel_test_supervisor.py" \
   -- "${sbt_command[@]}"
 ```
 
-- [ ] **Step 4: Apply the SBT concurrency ceiling**
+- [x] **Step 4: Apply the SBT concurrency ceiling**
 
 In `chisel/build.sbt`, parse `LINX_CHISEL_TEST_JOBS` once, reject non-positive values with a clear message, retain `Test / parallelExecution := true`, and add:
 
@@ -395,7 +395,7 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, chiselTestJobs)
 
 The default is 2. This setting limits independent Test tasks within the one SBT server; it does not spawn another SBT client.
 
-- [ ] **Step 5: Run runner tests and shell syntax validation**
+- [x] **Step 5: Run runner tests and shell syntax validation**
 
 Run:
 
