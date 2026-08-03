@@ -449,8 +449,6 @@ class ScalarLSULoadPath(
     "liqEntries must fit the ROB identity domain used by replay diagnostics")
   require(p.lineBytes == 64, "canonical scalar load path currently requires 64-byte cache lines")
   if (useExternalStqForwarding) {
-    require(p.loadReturnPipeCount == 3,
-      "production scalar STQ forwarding has exactly three physical load pipes")
     require(stqForwardRobEntries > 1 &&
       (stqForwardRobEntries & (stqForwardRobEntries - 1)) == 0,
       "STQ forwarding ROB projection must be a power of two")

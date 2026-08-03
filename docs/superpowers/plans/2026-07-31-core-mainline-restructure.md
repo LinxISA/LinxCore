@@ -1419,50 +1419,50 @@ git diff --check
 
 Commit intent: `Close the canonical prerequisites for the joint IEX LSU cutover`
 
-### Task 14: Prepare production LSU mechanisms and resolve the two-pipe contract
+### Task 14: Prepare LSU mechanisms and resolve the two-pipe contract
 
 **Files:**
 - Modify in place: `chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala`
 - Modify in place: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala`
 - Modify in place: existing `STQ*`、`SCB*`、LIQ、ResolveQ、MDB、MissQ、
-  refill、load-return and `ScalarL1D` production files.
-- Create: `chisel/src/test/scala/linxcore/lsu/LSUProductionMechanismSpec.scala`
+  refill、load-return and `ScalarL1D` mechanism files.
+- Create: `chisel/src/test/scala/linxcore/lsu/LSUMechanismSpec.scala`
 - Modify: `docs/chisel/production-owner-manifest.md`
 - Modify: `docs/spec/40-constraints/parameters.md`
 
 **Interfaces:**
 - Consumes: existing `ScalarLSUIO` behavior and the Task-13 approved
   `IEXLSUIO` issue/reissue/repick/cancel contract plus `LSUIO` mapping.
-- Produces: production LSU internals ready for one public-boundary cutover in
+- Produces: LSU internals ready for one public-boundary cutover in
   Task 15, with independent physical queue, ROB identity and full-LSID sizes;
   no public `LSU` or `IEX` module becomes live in this task.
 
-- [ ] **Step 1: Freeze and test the production baseline**
+- [x] **Step 1: Freeze and test the mechanism baseline**
 
 Cover two STA、two STD、two load issues、typed initial attempt binding、exact
 reissue/repick rebind and load cancel、STQ/SCB commit、LIQ/MDB/replay、miss/refill、load
 return、L1D update and typed recovery. Add unequal-capacity W2/W4/W6/W8
 elaboration with 16 STQ rows、8 ROB entries and 40-bit LSID.
 
-- [ ] **Step 2: Resolve the three-load-pipe assumption before cutover**
+- [x] **Step 2: Resolve the three-load-pipe assumption before cutover**
 
-Remove any production-helper requirement that derives a three-pipe topology
+Remove any helper requirement that derives a three-pipe topology
 from the old external-forwarding shape. The W4 contract is exactly two load
 pipes; queue depth、return-pipe count and ROB identity capacity remain
 independent parameters.
 
-- [ ] **Step 3: Refactor private LSU mechanisms only**
+- [x] **Step 3: Refactor private LSU mechanisms only**
 
 Centralize value-only parameter conversion and canonical identity helpers
 without changing the live `ScalarLSU` public boundary and without adding a
 second STQ、SCB、LIQ、MDB、L1D or recovery owner.
 
-- [ ] **Step 4: Prove behavior preservation**
+- [x] **Step 4: Prove behavior preservation**
 
 Run:
 
 ```bash
-bash tools/chisel/run_chisel_tests.sh --only LSUProductionMechanismSpec
+bash tools/chisel/run_chisel_tests.sh --only LSUMechanismSpec
 bash tools/chisel/run_chisel_tests.sh --only ScalarLSU
 bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadPath
 bash tools/chisel/run_chisel_tests.sh --only ScalarL1D
@@ -1471,9 +1471,14 @@ bash tools/chisel/run_chisel_brob_store_range_state_probe.sh
 python3 tools/chisel/check_production_owner_manifest.py
 ```
 
+The two-pipe forwarding IT uses one bounded simulation with explicit reset
+between five scenarios. Its generated directory falls from 243 MiB to 47 MiB
+while retaining exact result、hard recovery、typed recovery and BID fail-closed
+coverage.
+
 - [ ] **Step 5: Commit and push**
 
-Commit intent: `Prepare the production LSU without cloning its state owners`
+Commit intent: `Prepare the LSU without cloning its state owners`
 
 ### Task 15: Atomically cut OOO-IEX-LSU onto the canonical typed boundaries
 

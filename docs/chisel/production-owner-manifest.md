@@ -472,8 +472,8 @@ evidence.
       "public_box_file": null,
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSUMechanismSpec.scala", "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUMechanismSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
       "cutover_task": 15,
       "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala", "symbol": "linxcore.lsu.ScalarLSU", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"]}],
       "adapters": []

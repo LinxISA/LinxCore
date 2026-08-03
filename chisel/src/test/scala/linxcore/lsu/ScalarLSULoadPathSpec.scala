@@ -157,7 +157,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadMissQueue"))
   }
 
-  test("production load path elaborates three canonical STQ result lanes without the compatibility CAM") {
+  test("scalar load path elaborates two canonical STQ result lanes without the compatibility CAM") {
     val lsu = ScalarLsuParams(
       stqEntries = 8,
       commitQueueEntries = 4,
@@ -167,7 +167,7 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
       loadMissQueueEntries = 2,
       resolveQueueEntries = 8,
       loadReturnQueueEntries = 2,
-      loadReturnPipeCount = 3,
+      loadReturnPipeCount = 2,
       mapQDepth = 8
     )
     val sv = ChiselStage.emitSystemVerilog(new ScalarLSULoadPath(
@@ -181,8 +181,9 @@ class ScalarLSULoadPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadSourceLineMerge"))
     assert(!sv.contains("module LoadForwardPipeline"))
     assert(!sv.contains("module LoadStoreForwarding"))
-    assert(sv.contains("stqForward_queries_2_valid"))
-    assert(sv.contains("stqForward_responses_2_valid"))
+    assert(sv.contains("stqForward_queries_1_valid"))
+    assert(sv.contains("stqForward_responses_1_valid"))
+    assert(!sv.contains("stqForward_queries_2_valid"))
     assert(sv.contains("stqForward_hardBlock_valid"))
     assert(sv.contains("stqForward_resultPending"))
     assert(sv.contains("stqForward_protocolError"))

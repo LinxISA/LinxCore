@@ -51,17 +51,7 @@ object CoreParams {
     CoreParams(
       robEntries = p.ooo.robCapacityPerStid,
       commitWidth = p.widths.retireWidth,
-      scalarLsu = ScalarLsuParams(
-        stqEntries = p.lsu.storeQueueEntries,
-        commitQueueEntries = p.lsu.storeCommitQueueEntries,
-        commitIssueWidth = p.lsu.storePipes,
-        scbEntries = p.lsu.scbEntries,
-        liqEntries = p.lsu.loadQueueEntries,
-        loadReturnQueueEntries = p.lsu.loadReturnQueueEntries,
-        loadReturnPipeCount = p.lsu.loadPipes,
-        lineBytes = p.lsu.lineBytes,
-        mapQDepth = p.ooo.tuMapQDepthPerStid,
-        stidCount = p.ooo.stidCount),
+      scalarLsu = ScalarLsuParams.fromMainline(p),
       scalarBackend = ScalarBackendParams(
         gprArchRegs = p.ooo.gprArchRegs,
         gprPhysRegs = p.ooo.gprPhysRegs,
@@ -191,4 +181,25 @@ final case class ScalarLsuParams(
     "lineBytes must be a power of two greater than one")
   require(mapQDepth > 1 && (mapQDepth & (mapQDepth - 1)) == 0,
     "mapQDepth must be a power of two greater than one")
+}
+
+object ScalarLsuParams {
+  /** Immutable projection from the centralized parameter hierarchy.
+    *
+    * This helper owns no hardware state. It keeps the private scalar LSU
+    * mechanisms on the same load/store topology and capacity values as the
+    * public parameter source until their Task-15 boundary cutover.
+    */
+  def fromMainline(p: linxcore.params.CoreParams): ScalarLsuParams =
+    ScalarLsuParams(
+      stqEntries = p.lsu.storeQueueEntries,
+      commitQueueEntries = p.lsu.storeCommitQueueEntries,
+      commitIssueWidth = p.lsu.storePipes,
+      scbEntries = p.lsu.scbEntries,
+      liqEntries = p.lsu.loadQueueEntries,
+      loadReturnQueueEntries = p.lsu.loadReturnQueueEntries,
+      loadReturnPipeCount = p.lsu.loadPipes,
+      lineBytes = p.lsu.lineBytes,
+      mapQDepth = p.ooo.tuMapQDepthPerStid,
+      stidCount = p.ooo.stidCount)
 }

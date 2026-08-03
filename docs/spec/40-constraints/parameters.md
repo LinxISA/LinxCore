@@ -68,3 +68,21 @@ packet would require more than three new PC bases.
 may project immutable geometry from it, but that projection MUST own no
 hardware state, create no alternate public boundary and change no transaction
 semantics.
+
+## LSU capacities and identities remain independent {#PRM-LSU-SIZING-001}
+<!-- ndf: kind=req level=must layer=L1 status=draft since=0.1 depends-on=PRM-RESOURCE-001,PRM-PROJECTION-001 -->
+
+Load-pipe count、load-return-pipe count、LIQ depth、STQ depth、ROB identity
+capacity and full-LSID width MUST remain independently configured. The W4
+topology uses two load pipes and two store pipes; no forwarding helper may
+infer a third load pipe. Unequal `16 STQ / 8 ROB / 40-bit LSID` geometry MUST
+elaborate without truncating an identity or changing queue ownership.
+
+## Directed simulation may bound storage only {#PRM-SIMULATION-001}
+<!-- ndf: kind=option level=may layer=L2 status=draft since=0.1 depends-on=PRM-WIDTH-001,PRM-LSU-SIZING-001 -->
+
+Directed W2/W4/W6/W8 tests MAY use `SimulationParamProfiles` to reduce local
+ROB、rename、IQ、LIQ、STQ and cache-related storage. Those profiles MUST preserve
+the selected principal widths、the two-load/two-store topology and fixed
+identity-field widths. They cannot replace main-profile interface、capacity、
+generated-RTL、timing or workload evidence.

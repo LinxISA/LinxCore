@@ -10,12 +10,12 @@
 - Refill transport: `chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala`
 - Load return: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueue.scala`
 - Return W1/W2: `chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnPipeline.scala`
-- Production STQ result transport:
+- STQ result transport:
   `chisel/src/main/scala/linxcore/lsu/STQLoadForwardResultPipeline.scala` and
   `chisel/src/main/scala/linxcore/lsu/LoadForwardResultRetainer.scala`
 - Tests: `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadPathSpec.scala`
   and `chisel/src/test/scala/linxcore/lsu/LoadAttemptBindingSpec.scala`
-- Production forwarding IT:
+- Forwarding IT:
   `chisel/src/test/scala/linxcore/lsu/ScalarLSULoadForwardIntegrationSpec.scala`
 - Generated proof: `tools/chisel/run_chisel_scalar_lsu_load_path_return_probe.sh`
 - Model: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`,
@@ -37,7 +37,7 @@ lifecycle instead of relying on reduced-top pending bits and sideband wiring.
    free slots, and the row's exact `(STID, return pipe)` lane has unreserved
    capacity, and physical miss entries exceed outstanding miss reservations.
    Launch acceptance increments both return-lane and miss reservations.
-   `launchValid/launchIndex` remain the raw arbitration intent. Production OOO
+   `launchValid/launchIndex` remain the raw arbitration intent. OOO
    may additionally enable a metadata permit before acceptance; same-row
    replay rebind is conservatively excluded from the raw intent without
    depending on the downstream credit-qualified permit.
@@ -184,6 +184,7 @@ The remaining integration gaps are explicit:
 
 ## Verification
 
+- `bash tools/chisel/run_chisel_tests.sh --only LSUMechanismSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadMissQueueSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillTransportSpec`
@@ -201,6 +202,9 @@ The remaining integration gaps are explicit:
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarL1DSpec`
 - `bash tools/chisel/run_chisel_scalar_l1d_probe.sh`
 - `bash tools/chisel/run_chisel_scalar_l1d_scb_probe.sh`
+- The forwarding IT executes five reset-separated scenarios in one bounded
+  simulation. Its generated directory is 47 MiB rather than the prior 243 MiB
+  five-elaboration shape.
 - R676 final: 269 suites and 1,630 tests; expanded LSU promotion gate;
   generated cache, SCB/L1D composition, and hit/miss/refill/cross-line proof;
   1,467-row CoreMark
