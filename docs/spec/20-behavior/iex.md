@@ -39,8 +39,9 @@ a new retained pipe. Stale, unknown, or skipped-generation events MUST NOT
 write a register, wake a dependent uop, resolve ROB, or emit memory traffic.
 
 The retained replay policy is Option A: IEX owns the unchanged memory
-transaction and advances exactly one attempt generation, while LSU atomically
-rebinds its existing allocation. One accepted rebind publishes one cancel for
+transaction and initial attempt, while LSU authors each exact consecutive
+reissue or repick attempt and atomically rebinds its existing allocation. One
+accepted rebind publishes one cancel for
 the old attempt and one new unique-attempt launch. Physical LIQ passes are
 counted separately from unique `{transaction, attempt}` launches and from
 lower-memory requests. A refill may therefore cause another physical pass for

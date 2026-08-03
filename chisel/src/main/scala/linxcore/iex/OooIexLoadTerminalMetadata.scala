@@ -210,6 +210,8 @@ class OooIexLoadTerminalMetadata(
     attempt.producer.ridGeneration := load.producer.group.ridGeneration
     attempt.producer.memberIndex := load.producer.memberIndex
     attempt.producer.residentGeneration := load.producer.residentGeneration
+    attempt.transactionValue := load.transaction.value
+    attempt.transactionGeneration := load.transaction.generation
     attempt.generation := load.generation
     attempt
   }
@@ -425,12 +427,13 @@ class OooIexLoadTerminalMetadata(
   val faultCancelPublish = io.completion.valid && completionExact &&
     io.completion.bits.payload.faultValid &&
     !completionEntry.faultCancelSent && !completionFence
-  val cancelCollision = io.rebind.valid && rebindExact &&
+  val cancelCollisionCandidate = rebindExact &&
     faultCancelPublish &&
     rebindEntry.lane === completionEntry.lane
+  val cancelCollision = io.rebind.valid && cancelCollisionCandidate
   io.cancelCollision := cancelCollision
   io.rebind.ready := !rebindFence && rebindExact && !completionTargetsRebind &&
-    !cancelCollision
+    !cancelCollisionCandidate
 
   io.loadCancel.foreach(_ := 0.U.asTypeOf(io.loadCancel.head))
   for (lane <- 0 until laneCount) {
@@ -530,7 +533,7 @@ class OooIexLoadTerminalMetadata(
   io.rebindRejected.bits.attemptExact := rebindNextExact
   io.rebindRejected.bits.destinationExact := true.B
   io.rebindRejected.bits.outcomeExact :=
-    !completionTargetsRebind && !cancelCollision
+    !completionTargetsRebind && !cancelCollisionCandidate
 
   io.attemptLaunchRejected.valid := io.attemptLaunch.valid &&
     !launchFence && !launchExact

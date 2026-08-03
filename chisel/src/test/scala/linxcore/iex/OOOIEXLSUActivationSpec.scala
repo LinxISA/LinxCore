@@ -190,8 +190,6 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
       reissue.bits.poke(0.U.asTypeOf(reissue.bits))
       reissue.bits.allocationId.poke(allocation)
       reissue.bits.currentIdentity.poke(initial)
-      reissue.bits.nextIdentity.poke(initial)
-      reissue.bits.nextIdentity.attemptGeneration.poke((initialAttempt + 1).U)
       reissue.bits.address.poke(dut.io.lastLoadAddress.peek())
       reissue.valid.poke(true.B)
       cycles = 0
@@ -199,7 +197,7 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
         dut.clock.step()
         cycles += 1
       }
-      assert(cycles < 64, "exact current-to-next attempt rebind must be accepted")
+      assert(cycles < 64, "exact current-attempt replay request must be accepted")
       dut.clock.step()
       reissue.valid.poke(false.B)
       dut.io.loadAttemptCancelCount.expect(1.U)

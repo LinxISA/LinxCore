@@ -10,10 +10,7 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       val main = ParamProfiles.forWidth(width)
       val sim = SimulationParamProfiles.forWidth(width)
       val prefixCapacity = if (width <= 2) 2 else if (width <= 4) 4 else 8
-      val robCapacity = if (width <= 2) 4 else if (width <= 4) 8 else
-        if (width <= 6) 8 else 16
       val issueCapacity = math.max(4, prefixCapacity)
-      val renameCapacity = if (width <= 2) 4 else if (width <= 4) 8 else 16
 
       ParamChecks.validate(sim)
       assert(sim.widths == WidthParams.uniform(width))
@@ -27,16 +24,20 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       assert(sim.ooo.dispatchWidth == width)
       assert(sim.ooo.retireWidth == width)
       assert(sim.iex.issueWidth == width)
-      assert(sim.ooo.robGroupsPerStid == robCapacity)
+      assert(sim.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
+      assert(sim.ooo.maxInstructionsPerRobGroup ==
+        main.ooo.maxInstructionsPerRobGroup)
+      assert(sim.ooo.maxUopsPerInstruction == main.ooo.maxUopsPerInstruction)
       assert(sim.ooo.robBankCount == prefixCapacity)
       assert(sim.ooo.pcRecoveryScanGroupsPerCycle == math.min(4,
         prefixCapacity))
       assert(sim.ooo.robGroupsPerStid %
         sim.ooo.pcRecoveryScanGroupsPerCycle == 0)
-      assert(sim.ooo.gprMapQDepthPerStid == renameCapacity)
-      assert(sim.ooo.tPhysRegs == renameCapacity)
-      assert(sim.ooo.uPhysRegs == renameCapacity)
-      assert(sim.ooo.tuMapQDepthPerStid == renameCapacity)
+      assert(sim.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
+      assert(sim.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
+      assert(sim.ooo.tPhysRegs == main.ooo.tPhysRegs)
+      assert(sim.ooo.uPhysRegs == main.ooo.uPhysRegs)
+      assert(sim.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
       assert(sim.iex.scalarIssueEntries == issueCapacity)
       assert(sim.iex.scalarIssueEntries / sim.iex.scalarIssueBanks >= 2)
       assert(sim.pcWidth == main.pcWidth)
@@ -73,19 +74,23 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.ifu.predictionCheckpointEntries == 8)
     assert(p.ctu.instructionBufferEntries == 8)
     assert(p.ctu.maxTemplateUops == 2)
-    assert(p.ooo.robGroupsPerStid == 16)
-    assert(p.ooo.maxInstructionsPerRobGroup == 1)
-    assert(p.ooo.maxUopsPerInstruction == 12)
+    assert(p.ooo.robGroupsPerStid == ParamProfiles.W8.ooo.robGroupsPerStid)
+    assert(p.ooo.maxInstructionsPerRobGroup ==
+      ParamProfiles.W8.ooo.maxInstructionsPerRobGroup)
+    assert(p.ooo.maxUopsPerInstruction ==
+      ParamProfiles.W8.ooo.maxUopsPerInstruction)
     assert(p.ooo.robBankCount == 8)
-    assert(p.ooo.brobEntriesPerStid == 8)
-    assert(p.ooo.pcBufferEntries == 8)
-    assert(p.ooo.pcBankCount == 8)
+    assert(p.ooo.brobEntriesPerStid == ParamProfiles.W8.ooo.brobEntriesPerStid)
+    assert(p.ooo.pcBufferEntries == ParamProfiles.W8.ooo.pcBufferEntries)
+    assert(p.ooo.pcBankCount == ParamProfiles.W8.ooo.pcBankCount)
     assert(p.ooo.pcRecoveryScanGroupsPerCycle == 4)
-    assert(p.ooo.gprPhysRegs == 64)
-    assert(p.ooo.gprMapQDepthPerStid == 16)
-    assert(p.ooo.tPhysRegs == 16)
-    assert(p.ooo.uPhysRegs == 16)
-    assert(p.ooo.tuMapQDepthPerStid == 16)
+    assert(p.ooo.gprPhysRegs == ParamProfiles.W8.ooo.gprPhysRegs)
+    assert(p.ooo.gprMapQDepthPerStid ==
+      ParamProfiles.W8.ooo.gprMapQDepthPerStid)
+    assert(p.ooo.tPhysRegs == ParamProfiles.W8.ooo.tPhysRegs)
+    assert(p.ooo.uPhysRegs == ParamProfiles.W8.ooo.uPhysRegs)
+    assert(p.ooo.tuMapQDepthPerStid ==
+      ParamProfiles.W8.ooo.tuMapQDepthPerStid)
     assert(p.iex.scalarIssueEntries == 8)
     assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (2, 2))
     assert(p.lsu.loadReturnQueueEntries == 2)
@@ -93,15 +98,20 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.lsu.scbEntries == 4)
   }
 
-  test("capacity-derived local widths may narrow only in simulation profiles") {
+  test("identity-derived domains never narrow in simulation profiles") {
     val main = ParamProfiles.W8
     val sim = SimulationParamProfiles.W8
 
-    assert(sim.nativeBidWidth < main.nativeBidWidth)
-    assert(sim.ooo.robGroupsPerStid < main.ooo.robGroupsPerStid)
-    assert(sim.ooo.pcBufferEntries < main.ooo.pcBufferEntries)
-    assert(sim.ooo.gprPhysRegs < main.ooo.gprPhysRegs)
-    assert(sim.ooo.gprMapQDepthPerStid < main.ooo.gprMapQDepthPerStid)
+    assert(sim.nativeBidWidth == main.nativeBidWidth)
+    assert(sim.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
+    assert(sim.ooo.maxInstructionsPerRobGroup ==
+      main.ooo.maxInstructionsPerRobGroup)
+    assert(sim.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
+    assert(sim.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
+    assert(sim.ooo.tPhysRegs == main.ooo.tPhysRegs)
+    assert(sim.ooo.uPhysRegs == main.ooo.uPhysRegs)
+    assert(sim.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
+    assert(sim.ooo.pcBufferEntries == main.ooo.pcBufferEntries)
   }
 
   test("simulation capacity changes never mutate main profiles") {

@@ -116,6 +116,24 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("production-owner-manifest: 25 closed owners", result.stdout)
 
+    def test_rejects_pending_evidence_after_declared_cutover_completion(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["completed_cutover_tasks"] = [15]
+        row = self.owner("store_queue", manifest)
+        self.assertEqual(row["cutover_task"], 15)
+        row["production_evidence"][0]["status"] = (
+            "mechanism-verified-cutover-pending"
+        )
+        self.assertEqual(
+            row["production_evidence"][0]["status"],
+            "mechanism-verified-cutover-pending",
+        )
+
+        self.assert_rejected(
+            manifest,
+            "completed cutover task 15 cannot retain pending evidence for store_queue",
+        )
+
     def test_pending_private_owner_may_have_no_main_caller(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         row = self.owner("trace_debug_performance_observation", manifest)

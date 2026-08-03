@@ -185,6 +185,22 @@ LoadIdentity current_load(const VOOOIEXLSUActivationProbe& dut) {
           dut.io_lastLoadIssueIdentity_pipeId};
 }
 
+LoadIdentity rebound_load(const VOOOIEXLSUActivationProbe& dut) {
+  return {dut.io_lastLoadRebindNext_rob_peId,
+          dut.io_lastLoadRebindNext_rob_stid,
+          dut.io_lastLoadRebindNext_rob_ridSlot,
+          dut.io_lastLoadRebindNext_rob_ridGeneration,
+          dut.io_lastLoadRebindNext_rob_memberIndex,
+          dut.io_lastLoadRebindNext_rob_residentGeneration,
+          dut.io_lastLoadRebindNext_rob_bid,
+          dut.io_lastLoadRebindNext_rob_brobGeneration,
+          dut.io_lastLoadRebindNext_transaction_value,
+          dut.io_lastLoadRebindNext_transaction_generation,
+          dut.io_lastLoadRebindNext_lsid,
+          dut.io_lastLoadRebindNext_attemptGeneration,
+          dut.io_lastLoadRebindNext_pipeId};
+}
+
 #define DRIVE_ID(DUT, PREFIX, ID)                                           \
   DUT.PREFIX##_rob_peId = ID.pe_id;                                        \
   DUT.PREFIX##_rob_stid = ID.stid;                                         \
@@ -285,13 +301,9 @@ int main(int argc, char** argv) {
   const uint64_t old_memory_id = dut.io_lastMemoryId;
   const uint16_t old_memory_generation = dut.io_lastMemoryGeneration;
   const uint64_t old_memory_address = dut.io_lastMemoryAddress;
-  LoadIdentity new_attempt = old_attempt;
-  ++new_attempt.attempt;
-
   dut.io_loadReissueRequest_bits_allocationId_value = allocation_value;
   dut.io_loadReissueRequest_bits_allocationId_generation = allocation_generation;
   DRIVE_ID(dut, io_loadReissueRequest_bits_currentIdentity, old_attempt);
-  DRIVE_ID(dut, io_loadReissueRequest_bits_nextIdentity, new_attempt);
   dut.io_loadReissueRequest_bits_address = load_address;
   dut.io_loadReissueRequest_valid = 1;
   if (!wait_until(dut, 64, [](const auto& d) {
@@ -299,6 +311,16 @@ int main(int argc, char** argv) {
       })) return 7;
   tick(dut);
   dut.io_loadReissueRequest_valid = 0;
+  const LoadIdentity new_attempt = rebound_load(dut);
+  if (new_attempt.transaction != old_attempt.transaction ||
+      new_attempt.transaction_generation != old_attempt.transaction_generation ||
+      new_attempt.attempt != old_attempt.attempt + 1) {
+    std::cerr << "LSU-authored replay identity mismatch oldAttempt="
+              << old_attempt.attempt << " nextAttempt=" << new_attempt.attempt
+              << " oldTransaction=" << old_attempt.transaction
+              << " nextTransaction=" << new_attempt.transaction << '\n';
+    ++mismatch_count;
+  }
   if (!wait_until(dut, 128, [](const auto& d) {
         return d.io_loadLaunchCount == 2 &&
                d.io_loadAttemptLaunchCount == 2 && d.io_memoryCount == 2;

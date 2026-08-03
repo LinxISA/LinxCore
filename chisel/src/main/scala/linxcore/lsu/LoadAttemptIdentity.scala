@@ -33,6 +33,8 @@ class LoadAttemptProducer extends Bundle {
 class LoadAttemptIdentity extends Bundle {
   val valid = Bool()
   val producer = new LoadAttemptProducer
+  val transactionValue = UInt(LoadAttemptIdentity.TransactionWidth.W)
+  val transactionGeneration = UInt(LoadAttemptIdentity.GenerationWidth.W)
   val generation = UInt(LoadAttemptIdentity.GenerationWidth.W)
 }
 
@@ -43,6 +45,7 @@ object LoadAttemptIdentity {
   val ScopeWidth = 16
   val IndexWidth = 16
   val GenerationWidth = 32
+  val TransactionWidth = 64
 
   /** Prove that an integration bridge can zero-extend every native identity
     * field into this protocol without truncation.
@@ -58,7 +61,9 @@ object LoadAttemptIdentity {
       ridGenerationWidth: Int,
       memberIndexWidth: Int,
       residentGenerationWidth: Int,
-      attemptGenerationWidth: Int): Unit = {
+      attemptGenerationWidth: Int,
+      transactionWidth: Int = TransactionWidth,
+      transactionGenerationWidth: Int = GenerationWidth): Unit = {
     def requireWidth(name: String, width: Int, capacity: Int): Unit =
       require(width > 0 && width <= capacity,
         s"$name width $width must fit in the positive $capacity-bit LoadAttemptIdentity field")
@@ -72,12 +77,17 @@ object LoadAttemptIdentity {
     requireWidth("memberIndex", memberIndexWidth, IndexWidth)
     requireWidth("residentGeneration", residentGenerationWidth, GenerationWidth)
     requireWidth("attemptGeneration", attemptGenerationWidth, GenerationWidth)
+    requireWidth("transaction", transactionWidth, TransactionWidth)
+    requireWidth("transactionGeneration", transactionGenerationWidth,
+      GenerationWidth)
   }
 
   def none: LoadAttemptIdentity = {
     val out = Wire(new LoadAttemptIdentity)
     out.valid := false.B
     out.producer := 0.U.asTypeOf(out.producer)
+    out.transactionValue := 0.U
+    out.transactionGeneration := 0.U
     out.generation := 0.U
     out
   }
@@ -85,6 +95,8 @@ object LoadAttemptIdentity {
   def equal(lhs: LoadAttemptIdentity, rhs: LoadAttemptIdentity): Bool =
     lhs.valid === rhs.valid &&
       lhs.producer.asUInt === rhs.producer.asUInt &&
+      lhs.transactionValue === rhs.transactionValue &&
+      lhs.transactionGeneration === rhs.transactionGeneration &&
       lhs.generation === rhs.generation
 
   def wellFormed(value: LoadAttemptIdentity): Bool =

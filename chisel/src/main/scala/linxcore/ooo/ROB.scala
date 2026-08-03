@@ -69,6 +69,9 @@ class ROB(val p: CoreParams) extends Module {
   private def robRow(slot: UInt): UInt =
     fitIndex(slot / p.ooo.robBankCount.U, robRowsPerBank)
 
+  private def memberIndex(member: UInt): UInt =
+    fitIndex(member, p.ooo.maxInstructionsPerRobGroup)
+
   private def safeStid(stid: UInt): UInt =
     if (p.ooo.stidCount == 1) 0.U(stidWidth.W) else stid
 
@@ -127,17 +130,18 @@ class ROB(val p: CoreParams) extends Module {
   }))
 
   private def stateAt(stid: UInt, slot: UInt, member: UInt) =
-    state(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    state(stidIndex(stid))(robBank(slot))(robRow(slot))(memberIndex(member))
   private def memberLiveAt(stid: UInt, slot: UInt, member: UInt) =
-    memberLive(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    memberLive(stidIndex(stid))(robBank(slot))(robRow(slot))(memberIndex(member))
   private def identityAt(stid: UInt, slot: UInt, member: UInt) =
-    identities(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    identities(stidIndex(stid))(robBank(slot))(robRow(slot))(memberIndex(member))
   private def commitAt(stid: UInt, slot: UInt, member: UInt) =
-    commits(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    commits(stidIndex(stid))(robBank(slot))(robRow(slot))(memberIndex(member))
   private def renameAt(stid: UInt, slot: UInt, member: UInt) =
-    renames(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    renames(stidIndex(stid))(robBank(slot))(robRow(slot))(memberIndex(member))
   private def residentGenerationAt(stid: UInt, slot: UInt, member: UInt) =
-    residentGeneration(stidIndex(stid))(robBank(slot))(robRow(slot))(member)
+    residentGeneration(stidIndex(stid))(robBank(slot))(robRow(slot))(
+      memberIndex(member))
   private val orderCapacity = p.ooo.robCapacityPerStid
   private val orderPtrWidth = InterfaceWidth.index(orderCapacity)
   val orderIds = Reg(Vec(p.ooo.stidCount,

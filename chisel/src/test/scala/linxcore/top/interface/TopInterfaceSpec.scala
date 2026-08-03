@@ -325,10 +325,16 @@ class TopInterfaceSpec extends AnyFunSuite {
       }
     }
     assert(issue.elements.keySet == Set(
-      "identity", "address", "sizeBytes", "signed", "destination"))
+      "identity", "pc", "address", "sizeBytes", "signed", "destination",
+      "destinationRelativeIndex", "youngestStoreValid", "youngestStoreLsid",
+      "youngestStoreId"))
     checkTransition(issue.identity, issue.identity)
     checkTransition(reissue.currentIdentity, reissue.nextIdentity)
     checkTransition(repick.currentIdentity, repick.nextIdentity)
+    assert(repick.elements.keySet == Set(
+      "allocationId", "currentIdentity", "nextIdentity"))
+    assert(repick.allocationId.value.getWidth == 41)
+    assert(repick.allocationId.generation.getWidth == 11)
     assert(reissue.address.getWidth == p.physicalAddressWidth)
     assert(cancel.elements.keySet == Set("currentIdentity"))
     assert(cancel.currentIdentity.elements.keySet == expectedMemoryFields)

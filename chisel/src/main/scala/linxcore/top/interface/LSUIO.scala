@@ -10,7 +10,7 @@ class LSUIO(val p: CoreParams) extends Bundle {
     new StoreCommitAuthorizationTxn(p)))
   val storeClassify = Flipped(Decoupled(
     new StoreMemoryClassifyTxn(p)))
-  val loadReissueRequest = Flipped(Decoupled(new LoadReissueTxn(p)))
+  val loadReissueRequest = Flipped(Decoupled(new LoadReplayRequestTxn(p)))
   val memoryRequest = Vec(p.lsu.loadPipes + p.lsu.storePipes,
     Decoupled(new MemoryRequestTxn(p)))
   val memoryResponse = Flipped(Vec(p.lsu.loadPipes + p.lsu.storePipes,

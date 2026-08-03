@@ -71,6 +71,8 @@ class STQSCBCommitBackendIO(
   val dcacheWriteHit = Input(Bool())
   val dcacheTagHit = Input(Bool())
   val l2RequestReady = Input(Bool())
+  val l2Request = Output(new SCBL2OwnershipRequest(
+    scbEntries, addrWidth, lineBytes))
   val rawRespValid = Input(Bool())
   val rawRespTxnId = Input(UInt(scbResponseTxnIdWidth.W))
   val rawRespWrite = Input(Bool())
@@ -248,6 +250,7 @@ class STQSCBCommitBackend(
   scb.io.dcacheWriteHit := io.dcacheWriteHit
   scb.io.dcacheTagHit := io.dcacheTagHit
   scb.io.l2RequestReady := io.l2RequestReady
+  io.l2Request := scb.io.l2Request
   scb.io.rawRespValid := io.rawRespValid
   scb.io.rawRespTxnId := io.rawRespTxnId
   scb.io.rawRespWrite := io.rawRespWrite

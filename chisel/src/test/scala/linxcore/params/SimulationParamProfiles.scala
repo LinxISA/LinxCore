@@ -15,13 +15,7 @@ object SimulationParamProfiles {
   private def bounded(width: Int): CoreParams = {
     val main = ParamProfiles.forWidth(width)
     val prefixCapacity = nextPowerOfTwo(width)
-    val robCapacity = nextPowerOfTwo(width + 1)
-    val pcBankCount = if (width <= 4) 4 else 8
     val issueCapacity = math.max(4, prefixCapacity)
-    val renameDestinationDemand = width * main.maxDestinationOperands
-    val renameQueueCapacity = nextPowerOfTwo(renameDestinationDemand)
-    val gprCapacity = nextPowerOfTwo(
-      main.ooo.stidCount * main.ooo.gprArchRegs + renameDestinationDemand)
 
     main.copy(
       ifu = main.ifu.copy(
@@ -31,19 +25,8 @@ object SimulationParamProfiles {
         instructionBufferEntries = prefixCapacity,
         maxTemplateUops = 2),
       ooo = main.ooo.copy(
-        robGroupsPerStid = robCapacity,
-        maxInstructionsPerRobGroup = 1,
-        maxUopsPerInstruction = 12,
         robBankCount = prefixCapacity,
-        brobEntriesPerStid = math.max(2, prefixCapacity),
-        pcBufferEntries = pcBankCount,
-        pcBankCount = pcBankCount,
-        pcRecoveryScanGroupsPerCycle = math.min(4, prefixCapacity),
-        gprPhysRegs = gprCapacity,
-        gprMapQDepthPerStid = renameQueueCapacity,
-        tPhysRegs = renameQueueCapacity,
-        uPhysRegs = renameQueueCapacity,
-        tuMapQDepthPerStid = renameQueueCapacity),
+        pcRecoveryScanGroupsPerCycle = math.min(4, prefixCapacity)),
       iex = main.iex.copy(scalarIssueEntries = issueCapacity),
       lsu = main.lsu.copy(
         loadQueueEntries = 2,

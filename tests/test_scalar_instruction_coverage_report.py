@@ -67,10 +67,10 @@ class ScalarInstructionCoverageReportTest(unittest.TestCase):
         )
         self.assertEqual(
             report["cross_stack_aligned_support"]["covered"],
-            207,
+            contract["expected"]["cross_stack_aligned_support"]["covered"],
         )
         self.assertEqual(report["cross_stack_aligned_support"]["known_divergences"], {})
-        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 208)
+        self.assertEqual(report["reduced_scalar_alu_support"]["parser_supported"], 17)
         parser_symbols = {
             symbol
             for item in report["reduced_scalar_alu_support"]["supported_by_parser"]

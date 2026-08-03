@@ -85,8 +85,18 @@ class LoadReissueTxn(val p: CoreParams) extends Bundle {
   val address = UInt(p.physicalAddressWidth.W)
 }
 
-/** LIQ attempt transition which reuses an available physical address. */
+/** External request to replay the currently owned attempt. The requester may
+  * identify only the current attempt; LSU alone authors the next generation.
+  */
+class LoadReplayRequestTxn(val p: CoreParams) extends Bundle {
+  val allocationId = new MemoryTransactionIdentity(p)
+  val currentIdentity = new MemoryIdentity(p)
+  val address = UInt(p.physicalAddressWidth.W)
+}
+
+/** LSU-authored transition for a resident row that requires a new attempt. */
 class LoadRepickTxn(val p: CoreParams) extends Bundle {
+  val allocationId = new MemoryTransactionIdentity(p)
   val currentIdentity = new MemoryIdentity(p)
   val nextIdentity = new MemoryIdentity(p)
 }

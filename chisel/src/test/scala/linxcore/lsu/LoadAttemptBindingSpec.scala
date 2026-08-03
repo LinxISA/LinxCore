@@ -58,6 +58,7 @@ class LoadAttemptBindingHarnessIO(
   val rowAttempt = Output(new LoadAttemptIdentity)
   val rowDataComplete = Output(Bool())
   val rowLineData = Output(UInt(512.W))
+  val repickMask = Output(UInt(liqEntries.W))
 }
 
 class LoadAttemptBindingHarness(
@@ -162,6 +163,7 @@ class LoadAttemptBindingHarness(
   io.rowAttempt := liq.io.rows(0).attempt
   io.rowDataComplete := liq.io.rows(0).dataComplete
   io.rowLineData := liq.io.rows(0).lineData
+  io.repickMask := liq.io.repickMask
 }
 
 class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
@@ -286,6 +288,56 @@ class LoadAttemptBindingSpec extends AnyFunSuite with ChiselSim {
       dut.io.forwardResultRetryRequired.expect(true.B)
       dut.io.forwardResultRetryByRecovery.expect(true.B)
       dut.io.forwardResultRetryByMutationConflict.expect(false.B)
+    }
+  }
+
+  test("an exact replay-wait result marks only its resident row repick-required") {
+    simulate(new LoadAttemptBindingHarness(
+      useExternalForwardResult = true)) { dut =>
+      clear(dut)
+      dut.io.allocValid.poke(true.B)
+      dut.io.alloc.size.poke(8.U)
+      pokeAttempt(dut.io.alloc.attempt,
+        nativeBid = 6, ridSlot = 17, generation = 3)
+      dut.clock.step()
+      dut.io.allocValid.poke(false.B)
+
+      dut.io.launchValid.poke(true.B)
+      dut.io.launchAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.launchValid.poke(false.B)
+
+      pokeForwardResult(dut, generation = 3)
+      dut.io.forwardResult.sourcesReturned.poke(false.B)
+      dut.io.forwardResult.wakeupValid.poke(false.B)
+      dut.io.forwardResult.missKind.poke(LoadForwardMissKind.AwaitingSources)
+      dut.io.forwardResultValid.poke(true.B)
+      dut.io.forwardResultAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.forwardResultValid.poke(false.B)
+
+      dut.io.rowStatus.expect(LoadInflightStatus.Wait)
+      dut.io.repickMask.expect(1.U,
+        "AwaitingSources must request a new LSU-authored attempt, not a same-attempt physical pass")
+
+      val current = dut.io.rowAttempt.peek()
+      dut.io.rebind.poke(0.U.asTypeOf(dut.io.rebind))
+      dut.io.rebind.loadId.poke(dut.io.rowLoadId.peek())
+      dut.io.rebind.current.poke(current)
+      dut.io.rebind.next.poke(current)
+      dut.io.rebind.next.generation.poke(4.U)
+      dut.io.rebindValid.poke(true.B)
+      dut.io.rebindReady.expect(true.B)
+      dut.io.rebindAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.rebindValid.poke(false.B)
+
+      dut.io.rowStatus.expect(LoadInflightStatus.Wait)
+      dut.io.rowAttempt.generation.expect(4.U)
+      dut.io.repickMask.expect(0.U)
+      dut.io.launchValid.poke(true.B)
+      dut.io.launchAccepted.expect(true.B,
+        "the LSU-authored next attempt must become launchable only after common rebind fire")
     }
   }
 

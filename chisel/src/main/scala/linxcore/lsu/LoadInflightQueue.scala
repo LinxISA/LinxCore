@@ -23,6 +23,7 @@ private[lsu] object LoadAttemptRebindTransition {
     result := current
     result.status := LoadInflightStatus.Wait
     result.attempt := attempt
+    result.repickRequired := false.B
     result.forwardPending := false.B
     result.lineData := 0.U
     result.validMask := 0.U
@@ -145,6 +146,7 @@ class LoadInflightRow(
   val stackValid = Bool()
   val returnPipeIndex = UInt(returnPipeIndexWidth.W)
   val forwardPending = Bool()
+  val repickRequired = Bool()
 
   val lineData = UInt((lineBytes * 8).W)
   val validMask = UInt(lineBytes.W)
@@ -714,6 +716,10 @@ class LoadInflightQueue(
   val attemptRebindNextExact =
     io.attemptRebind.next.valid &&
       (io.attemptRebind.next.producer.asUInt === io.attemptRebind.current.producer.asUInt) &&
+      (io.attemptRebind.next.transactionValue ===
+        io.attemptRebind.current.transactionValue) &&
+      (io.attemptRebind.next.transactionGeneration ===
+        io.attemptRebind.current.transactionGeneration) &&
       (io.attemptRebind.next.generation === (io.attemptRebind.current.generation +% 1.U))
   val attemptRebindLifecycleReady =
     LoadAttemptRebindTransition.lifecycleReady(attemptRebindRow.status)
@@ -1019,6 +1025,7 @@ class LoadInflightQueue(
 
       when(e4FirstSegmentResolved) {
         rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).repickRequired := false.B
         rows(forwardResultIndex).secondSegmentActive := true.B
         rows(forwardResultIndex).firstSegmentDone := true.B
         rows(forwardResultIndex).firstLineData := selectedForwardResult.lineData
@@ -1046,12 +1053,14 @@ class LoadInflightQueue(
         // Preserve the E4 hit as Repick until the return owner publishes its
         // LRET and markResolved accepts the terminal row state.
         rows(forwardResultIndex).status := LoadInflightStatus.Repick
+        rows(forwardResultIndex).repickRequired := false.B
         rows(forwardResultIndex).waitStore := false.B
         rows(forwardResultIndex).waitStoreInfo := zeroWait
         rows(forwardResultIndex).l1Hit := false.B
         rows(forwardResultIndex).l1Miss := false.B
       }.elsewhen(e4StoreWait) {
         rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).repickRequired := false.B
         rows(forwardResultIndex).waitStore := true.B
         rows(forwardResultIndex).waitStoreInfo :=
           selectedForwardResult.waitStore
@@ -1066,6 +1075,7 @@ class LoadInflightQueue(
         rows(forwardResultIndex).l1Hit := false.B
       }.elsewhen(e4DataMiss) {
         rows(forwardResultIndex).status := LoadInflightStatus.L1DcMiss
+        rows(forwardResultIndex).repickRequired := false.B
         rows(forwardResultIndex).waitStore := false.B
         rows(forwardResultIndex).waitStoreInfo := zeroWait
         rows(forwardResultIndex).validMask := 0.U
@@ -1080,6 +1090,7 @@ class LoadInflightQueue(
         rows(forwardResultIndex).l1Miss := true.B
       }.elsewhen(e4ReplayWait) {
         rows(forwardResultIndex).status := LoadInflightStatus.Wait
+        rows(forwardResultIndex).repickRequired := true.B
         rows(forwardResultIndex).waitStore := false.B
         rows(forwardResultIndex).waitStoreInfo := zeroWait
         rows(forwardResultIndex).validMask := 0.U
@@ -1132,6 +1143,7 @@ class LoadInflightQueue(
           e4SegmentResolved && (forwardResultIndex === idx.U)
         when(refillWakeup.io.wakeMask(idx) && !sameRowResolvedAtE4) {
           rows(idx).status := LoadInflightStatus.Wait
+          rows(idx).repickRequired := false.B
           rows(idx).lineData := io.refill.data
           rows(idx).validMask := refillWakeup.io.lineValidMask
           rows(idx).loadByteMask := refillWakeup.io.requestByteMasks(idx)
@@ -1149,6 +1161,7 @@ class LoadInflightQueue(
 
     when(launchAccepted) {
       rows(io.launchIndex).status := LoadInflightStatus.Repick
+      rows(io.launchIndex).repickRequired := false.B
       rows(io.launchIndex).waitStore := false.B
       rows(io.launchIndex).missKind := LoadForwardMissKind.NoMiss
       rows(io.launchIndex).forwardPending := true.B
@@ -1156,6 +1169,7 @@ class LoadInflightQueue(
 
     when(pickAccepted && !(launchAccepted && (io.launchIndex === io.pickIndex))) {
       rows(io.pickIndex).status := LoadInflightStatus.Repick
+      rows(io.pickIndex).repickRequired := false.B
       rows(io.pickIndex).waitStore := false.B
       rows(io.pickIndex).missKind := LoadForwardMissKind.NoMiss
     }
@@ -1166,6 +1180,7 @@ class LoadInflightQueue(
 
     when(markResolvedAccepted) {
       rows(io.markResolvedIndex).status := LoadInflightStatus.Resolved
+      rows(io.markResolvedIndex).repickRequired := false.B
       rows(io.markResolvedIndex).waitStore := false.B
       rows(io.markResolvedIndex).missKind := LoadForwardMissKind.NoMiss
     }
@@ -1228,6 +1243,7 @@ class LoadInflightQueue(
 
     when(structuralRetryAccepted) {
       rows(structuralRetryIndex).status := LoadInflightStatus.Wait
+      rows(structuralRetryIndex).repickRequired := false.B
       rows(structuralRetryIndex).attempt := io.structuralRetry.next
       rows(structuralRetryIndex).forwardPending := false.B
       rows(structuralRetryIndex).lineData := 0.U
@@ -1258,6 +1274,7 @@ class LoadInflightQueue(
           rows(idx) := zeroRow
         }.elsewhen(pipelineResident && rows(idx).valid && (rows(idx).status === LoadInflightStatus.Repick)) {
           rows(idx).status := LoadInflightStatus.Wait
+          rows(idx).repickRequired := false.B
           rows(idx).forwardPending := false.B
           rows(idx).dataComplete := false.B
           rows(idx).sourcesReturned := false.B
@@ -1296,8 +1313,10 @@ class LoadInflightQueue(
     assert(!rows(idx).valid || !rows(idx).firstSegmentDone || rows(idx).crossLine,
       "first-segment completion is legal only for a cross-line scalar load")
     occupiedVec(idx) := rows(idx).valid
-    waitVec(idx) := rows(idx).valid && (status === LoadInflightStatus.Wait)
-    repickVec(idx) := rows(idx).valid && (status === LoadInflightStatus.Repick)
+    waitVec(idx) := rows(idx).valid &&
+      (status === LoadInflightStatus.Wait) && !rows(idx).repickRequired
+    repickVec(idx) := rows(idx).valid &&
+      (status === LoadInflightStatus.Wait) && rows(idx).repickRequired
     missVec(idx) := rows(idx).valid && ((status === LoadInflightStatus.L1DcMiss) || (status === LoadInflightStatus.L2Wait))
     resolvedVec(idx) := rows(idx).valid && (status === LoadInflightStatus.Resolved)
     waitStoreVec(idx) := rows(idx).valid && rows(idx).waitStore

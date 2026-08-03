@@ -306,6 +306,8 @@ class LoadIexIssuePipeline(
   alloc.attempt.producer.ridGeneration := member.group.ridGeneration
   alloc.attempt.producer.memberIndex := member.memberIndex
   alloc.attempt.producer.residentGeneration := member.residentGeneration
+  alloc.attempt.transactionValue := row.memoryTransaction.value
+  alloc.attempt.transactionGeneration := row.memoryTransaction.generation
   alloc.attempt.generation := attemptGeneration
   alloc.peId := row.peId
   alloc.stid := row.stid

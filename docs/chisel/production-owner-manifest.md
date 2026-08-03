@@ -46,6 +46,7 @@ evidence.
 ```json production-owner-manifest
 {
   "schema_version": 2,
+  "completed_cutover_tasks": [13, 15],
   "ndf": {
     "L1": [
       "docs/spec/10-architecture/ownership.md",
@@ -366,7 +367,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexIssueSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/iex/IEXMechanismSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 13,
       "deletion_targets": [],
       "adapters": []
@@ -382,7 +383,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueReadFabric.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexOperandFilesSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexOperandFilesSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexOperandFilesSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 13,
       "deletion_targets": [],
       "adapters": []
@@ -398,7 +399,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/iex/IEX.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexExecutionPipelineSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexTerminalFabricSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 13,
       "deletion_targets": [],
       "adapters": []
@@ -414,7 +415,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/IEXIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/ooo/OooIexIssueP1Fabric.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala", "chisel/src/test/scala/linxcore/iex/LoadIexIssuePipelineSpec.scala", "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/iex/LoadIexIssuePipelineSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/IEXPrivateIngressSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/iex/LoadIexIssuePipelineSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/ooo/OooIexCanonicalLoadOwnershipSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 13,
       "deletion_targets": [],
       "adapters": []
@@ -445,8 +446,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala", "chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala", "chisel/src/main/scala/linxcore/ooo/OooIexStoreStqFabric.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []
@@ -461,8 +462,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/STQSCBCommitBackend.scala", "chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []
@@ -477,8 +478,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []
@@ -493,8 +494,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadResolveQueueSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LoadResolveQueueSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LoadResolveQueueSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []
@@ -509,8 +510,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []
@@ -525,8 +526,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala", "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/iex/OOOIEXLSUActivationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []

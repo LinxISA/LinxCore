@@ -2,13 +2,15 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxLookup, PopCount, PriorityEncoder,
-  UIntToOH, log2Ceil}
+  RRArbiter, UIntToOH, log2Ceil}
 import linxcore.common.{CoreParams => ScalarCoreParams, DestinationKind,
   ScalarLsuParams}
 import linxcore.ooo._
 import linxcore.params.CoreParams
+import linxcore.recovery.{ExecEngineType, FlushType}
 import linxcore.top.interface.{LSUIO, OperandKind, RecoveryPhase,
-  MemoryAccessKind, MemoryCommand, StoreMemoryClass}
+  MemoryAccessKind, MemoryCommand, RecoveryCause, RecoveryPlan,
+  RecoveryPlanContract, StoreMemoryClass}
 
 /** Public state-free composition boundary for the canonical LSU graph.
   *
@@ -16,7 +18,7 @@ import linxcore.top.interface.{LSUIO, OperandKind, RecoveryPhase,
   * attributes, CommitQ and SCB state belong to `STQSCBCommitBackend`; LIQ,
   * MDB, L1D and load-return state belong to `ScalarLSULoadPath`.
   */
-class LSU(val p: CoreParams) extends Module {
+private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val io = IO(new LSUIO(p))
   private val profile = OooIexPhysicalProfile.fromCoreParams(p)
   private val op = profile.params
@@ -182,6 +184,23 @@ class LSU(val p: CoreParams) extends Module {
   }
 
   store.io.recovery <> io.recovery
+  private val loadRecoveryPending = RegInit(false.B)
+  private val loadRecoveryPlan = Reg(new RecoveryPlan(p))
+  when(io.recovery.prepare.fire) {
+    loadRecoveryPending := true.B
+    loadRecoveryPlan := io.recovery.prepare.bits
+  }
+  private val loadRecoveryApply = loadRecoveryPending &&
+    io.recovery.apply.valid && io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.apply.bits, loadRecoveryPlan)
+  private val loadRecoveryAbort = loadRecoveryPending &&
+    io.recovery.abort.valid && io.recovery.abort.bits.phase === RecoveryPhase.Abort &&
+    RecoveryPlanContract.sameTransactionIgnoringPhase(
+      io.recovery.abort.bits, loadRecoveryPlan)
+  when(loadRecoveryApply || loadRecoveryAbort) {
+    loadRecoveryPending := false.B
+  }
   store.io.loadCancel := 0.U.asTypeOf(store.io.loadCancel)
   store.io.lateStaPermit := load.mdbStore.probeReady
   load.mdbStore.probe := store.io.lateStaCandidate.bits
@@ -261,31 +280,70 @@ class LSU(val p: CoreParams) extends Module {
       StoreMemoryClass.Fault.asUInt -> STQMemoryClass.Fault))
   io.storeClassify.ready := classifyUnique && backend.io.memoryClassify.ready
 
-  // Task 16 closes the external memory transport. Until then the backend is
-  // live and fail-closed at those typed endpoints.
+  // Canonical committed-store transport occupies the store lanes immediately
+  // after the load lanes: serialized writes first, cache ownership second.
   backend.io.issueEnable := true.B
   backend.io.evictEnable := true.B
   backend.io.dcacheReady := load.scbCache.ready
   backend.io.dcacheTagHit := load.scbCache.tagHit
   backend.io.dcacheWriteHit := load.scbCache.writeHit
-  backend.io.l2RequestReady := false.B
-  backend.io.rawRespValid := false.B
-  backend.io.rawRespTxnId := 0.U
-  backend.io.rawRespWrite := false.B
-  backend.io.rawRespUpgrade := false.B
-  backend.io.serializedRequest.ready := false.B
-  backend.io.serializedResponse.valid := false.B
-  backend.io.serializedResponse.bits := 0.U.asTypeOf(
-    backend.io.serializedResponse.bits)
+  val serializedMemory = io.memoryRequest(p.lsu.loadPipes)
+  serializedMemory.valid := backend.io.serializedRequest.valid
+  serializedMemory.bits := 0.U.asTypeOf(serializedMemory.bits)
+  serializedMemory.bits.identity.value :=
+    backend.io.serializedRequest.bits.transactionId
+  serializedMemory.bits.command := MemoryCommand.Write
+  serializedMemory.bits.accessKind := Mux(
+    backend.io.serializedRequest.bits.memoryClass === STQMemoryClass.DeviceMmio,
+    MemoryAccessKind.Device, MemoryAccessKind.Data)
+  serializedMemory.bits.address := backend.io.serializedRequest.bits.fragment.addr
+  serializedMemory.bits.data := backend.io.serializedRequest.bits.fragment.data
+  serializedMemory.bits.sizeBytes := backend.io.serializedRequest.bits.fragment.size
+  private val publicDataBytes = p.dataWidth / 8
+  private val serializedByteOffsetWidth = log2Ceil(publicDataBytes)
+  private val serializedByteCount =
+    (1.U((publicDataBytes + 1).W) <<
+      backend.io.serializedRequest.bits.fragment.size) - 1.U
+  serializedMemory.bits.byteMask :=
+    (serializedByteCount <<
+      backend.io.serializedRequest.bits.fragment.addr(
+        serializedByteOffsetWidth - 1, 0))(publicDataBytes - 1, 0)
+  backend.io.serializedRequest.ready := serializedMemory.ready
+
+  val ownershipMemory = io.memoryRequest(p.lsu.loadPipes + 1)
+  ownershipMemory.valid := backend.io.l2Request.valid
+  ownershipMemory.bits := 0.U.asTypeOf(ownershipMemory.bits)
+  ownershipMemory.bits.identity.value := backend.io.l2Request.txnTid
+  ownershipMemory.bits.identity.generation := Cat(
+    backend.io.l2Request.write, backend.io.l2Request.upgrade)
+  ownershipMemory.bits.command := MemoryCommand.AcquireWrite
+  ownershipMemory.bits.accessKind := MemoryAccessKind.Data
+  ownershipMemory.bits.address := backend.io.l2Request.lineAddr
+  ownershipMemory.bits.sizeBytes := backend.io.l2Request.size
+  backend.io.l2RequestReady := ownershipMemory.ready
+
+  val serializedResponse = io.memoryResponse(p.lsu.loadPipes)
+  backend.io.serializedResponse.valid := serializedResponse.valid
+  backend.io.serializedResponse.bits.transactionId :=
+    serializedResponse.bits.identity.value
+  backend.io.serializedResponse.bits.error := serializedResponse.bits.denied ||
+    serializedResponse.bits.corrupt
+  serializedResponse.ready := backend.io.serializedResponse.ready
+
+  val ownershipResponse = io.memoryResponse(p.lsu.loadPipes + 1)
+  backend.io.rawRespValid := ownershipResponse.valid
+  backend.io.rawRespTxnId := ownershipResponse.bits.identity.value
+  backend.io.rawRespWrite := ownershipResponse.bits.identity.generation(1)
+  backend.io.rawRespUpgrade := ownershipResponse.bits.identity.generation(0)
+  ownershipResponse.ready := backend.io.rawRespReady
   load.scbCache.lookupValid := false.B
   load.scbCache.lookupLineAddr := 0.U
   load.scbCache.update := 0.U.asTypeOf(load.scbCache.update)
   load.scbCache.grantWriteValid := false.B
   load.scbCache.grantWriteLineAddr := 0.U
 
-  // Load owner default wiring is completed by the typed lifecycle adapter
-  // below; all non-public Task-16 transports remain blocked.
-  load.io := DontCare
+  // Every load-owner input is assigned explicitly below. No unknown value may
+  // enter the canonical LIQ/MDB/cache graph through the public LSU boundary.
   load.launchPermit.get := true.B
   load.stqForward.get.queries <> store.io.loadForwardQuery
   load.stqForward.get.responses <> store.io.loadForwardResponse
@@ -313,7 +371,12 @@ class LSU(val p: CoreParams) extends Module {
     target.wrap := value.pad(width + 1)(width)
   }
 
-  val loadIssue = io.iex.loadAddress.head
+  val loadIssueArbiter = Module(new RRArbiter(
+    chiselTypeOf(io.iex.loadAddress.head.bits), p.lsu.loadPipes))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    loadIssueArbiter.io.in(lane) <> io.iex.loadAddress(lane)
+  }
+  val loadIssue = loadIssueArbiter.io.out
   load.io.allocValid := loadIssue.valid
   load.io.alloc := 0.U.asTypeOf(load.io.alloc)
   projectRobId(load.io.alloc.bid, loadIssue.bits.identity.rob.bid)
@@ -337,6 +400,10 @@ class LSU(val p: CoreParams) extends Module {
     loadIssue.bits.identity.rob.memberIndex
   load.io.alloc.attempt.producer.residentGeneration :=
     loadIssue.bits.identity.rob.residentGeneration
+  load.io.alloc.attempt.transactionValue :=
+    loadIssue.bits.identity.transaction.value
+  load.io.alloc.attempt.transactionGeneration :=
+    loadIssue.bits.identity.transaction.generation
   load.io.alloc.attempt.generation :=
     loadIssue.bits.identity.attemptGeneration
   load.io.alloc.peId := loadIssue.bits.identity.rob.peId
@@ -361,21 +428,19 @@ class LSU(val p: CoreParams) extends Module {
   load.io.alloc.youngestStoreLsIdFull := loadIssue.bits.youngestStoreLsid
   load.io.alloc.returnPipeIndex := loadIssue.bits.identity.pipeId
   loadIssue.ready := load.io.allocReady
-  io.iex.loadAddress.tail.foreach(_.ready := false.B)
 
   io.iex.loadAllocation.foreach { out =>
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
-  val allocation = io.iex.loadAllocation.head
-  // The free-row identity is a side-effect-free preview. Capacity is carried
-  // only by loadAddress.ready; qualifying this identity with ready recreates
-  // a producer-valid/consumer-ready combinational loop at the public seam.
-  allocation.valid := true.B
-  allocation.bits.identity := loadIssue.bits.identity
-  allocation.bits.allocationId.value := load.io.allocLoadId.value
-  allocation.bits.allocationId.generation :=
-    load.io.allocLoadId.wrap.asUInt
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val allocation = io.iex.loadAllocation(lane)
+    allocation.valid := loadIssue.valid && loadIssueArbiter.io.chosen === lane.U
+    allocation.bits.identity := loadIssue.bits.identity
+    allocation.bits.allocationId.value := load.io.allocLoadId.value
+    allocation.bits.allocationId.generation :=
+      load.io.allocLoadId.wrap.asUInt
+  }
 
   val launchIndex = PriorityEncoder(load.io.liqWaitMask)
   val launchRow = load.io.liqRows(launchIndex)
@@ -398,32 +463,38 @@ class LSU(val p: CoreParams) extends Module {
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
-  val launch = io.iex.loadLaunch.head
-  launch.valid := load.io.launchAccepted
-  launch.bits.identity.rob.peId := launchRow.peId
-  launch.bits.identity.rob.stid := launchRow.stid
-  launch.bits.identity.rob.ridSlot := launchRow.attempt.producer.ridSlot
-  launch.bits.identity.rob.ridGeneration :=
-    launchRow.attempt.producer.ridGeneration
-  launch.bits.identity.rob.memberIndex :=
-    launchRow.attempt.producer.memberIndex
-  launch.bits.identity.rob.residentGeneration :=
-    launchRow.attempt.producer.residentGeneration
-  launch.bits.identity.rob.bid := launchRow.attempt.producer.nativeBid
-  launch.bits.identity.rob.brobGeneration :=
-    launchRow.attempt.producer.brobGeneration
-  launch.bits.identity.lsid := launchRow.loadLsIdFull
-  launch.bits.identity.attemptGeneration := launchRow.attempt.generation
-  launch.bits.identity.pipeId := launchRow.returnPipeIndex
-  launch.bits.allocationId.value := launchRow.loadId.value
-  launch.bits.allocationId.generation := launchRow.loadId.wrap.asUInt
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val launch = io.iex.loadLaunch(lane)
+    launch.valid := load.io.launchAccepted && launchRow.returnPipeIndex === lane.U
+    launch.bits.identity.rob.peId := launchRow.peId
+    launch.bits.identity.rob.stid := launchRow.stid
+    launch.bits.identity.rob.ridSlot := launchRow.attempt.producer.ridSlot
+    launch.bits.identity.rob.ridGeneration :=
+      launchRow.attempt.producer.ridGeneration
+    launch.bits.identity.rob.memberIndex :=
+      launchRow.attempt.producer.memberIndex
+    launch.bits.identity.rob.residentGeneration :=
+      launchRow.attempt.producer.residentGeneration
+    launch.bits.identity.rob.bid := launchRow.attempt.producer.nativeBid
+    launch.bits.identity.rob.brobGeneration :=
+      launchRow.attempt.producer.brobGeneration
+    launch.bits.identity.lsid := launchRow.loadLsIdFull
+    launch.bits.identity.transaction.value :=
+      launchRow.attempt.transactionValue
+    launch.bits.identity.transaction.generation :=
+      launchRow.attempt.transactionGeneration
+    launch.bits.identity.attemptGeneration := launchRow.attempt.generation
+    launch.bits.identity.pipeId := launchRow.returnPipeIndex
+    launch.bits.allocationId.value := launchRow.loadId.value
+    launch.bits.allocationId.generation := launchRow.loadId.wrap.asUInt
+  }
 
   io.iex.loadResult.foreach { out =>
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
   val completion = load.io.loadReturn.completion
-  val completionLane = load.io.loadReturn.completionSelectedPipe
+  val completionLane = completion.payload.pipeIndex
   for (lane <- 0 until p.lsu.loadPipes) {
     val result = io.iex.loadResult(lane)
     result.valid := load.io.loadReturn.completionCandidateValid &&
@@ -442,6 +513,10 @@ class LSU(val p: CoreParams) extends Module {
     result.bits.identity.rob.brobGeneration :=
       completion.payload.attempt.producer.brobGeneration
     result.bits.identity.lsid := completion.payload.loadLsIdFull
+    result.bits.identity.transaction.value :=
+      completion.payload.attempt.transactionValue
+    result.bits.identity.transaction.generation :=
+      completion.payload.attempt.transactionGeneration
     result.bits.identity.attemptGeneration := completion.payload.attempt.generation
     result.bits.identity.pipeId := completion.payload.pipeIndex
     result.bits.allocationId.value := completion.payload.loadId.slot
@@ -469,19 +544,88 @@ class LSU(val p: CoreParams) extends Module {
 
   load.io.flush := false.B
   load.io.preciseFlush := 0.U.asTypeOf(load.io.preciseFlush)
-  val reissueRequest = io.loadReissueRequest
-  val reissueNotice = io.iex.loadReissue.head
-  reissueNotice.valid := reissueRequest.valid
-  reissueNotice.bits := reissueRequest.bits
-  reissueRequest.ready := reissueNotice.ready
-  io.iex.loadReissue.tail.foreach { out =>
-    out.valid := false.B
-    out.bits := 0.U.asTypeOf(out.bits)
+  when(loadRecoveryApply && loadRecoveryPlan.firstKilledValid) {
+    load.io.preciseFlush.req.valid := true.B
+    load.io.preciseFlush.req.typ := FlushType.NukeFlush
+    load.io.preciseFlush.req.peId := loadRecoveryPlan.firstKilled.peId
+    load.io.preciseFlush.req.stid := loadRecoveryPlan.firstKilled.stid
+    load.io.preciseFlush.req.tid := loadRecoveryPlan.firstKilled.stid
+    projectRobId(load.io.preciseFlush.req.bid,
+      loadRecoveryPlan.firstKilled.bid)
+    projectRobId(load.io.preciseFlush.req.gid,
+      loadRecoveryPlan.firstKilled.ridSlot)
+    projectRobId(load.io.preciseFlush.req.rid,
+      loadRecoveryPlan.firstKilled.ridSlot)
+    projectRobId(load.io.preciseFlush.req.lsId, 0.U)
+    load.io.preciseFlush.req.lsIdFullValid := true.B
+    load.io.preciseFlush.req.lsIdFull := 0.U
+    load.io.preciseFlush.req.execEngine := ExecEngineType.Mem
+    load.io.preciseFlush.req.fetchTpcValid := false.B
+    load.io.preciseFlush.req.fetchTpc := loadRecoveryPlan.redirectPc
+    load.io.preciseFlush.req.immediateFlush := false.B
+    load.io.preciseFlush.baseOnBid := false.B
+    load.io.preciseFlush.baseOnGroup := true.B
+    load.io.preciseFlush.baseOnPE := true.B
+    load.io.preciseFlush.baseOnThread := true.B
   }
+  val reissueRequest = io.loadReissueRequest
+  val reissueMatches = Wire(Vec(scalarLsu.liqEntries, Bool()))
+  for (index <- 0 until scalarLsu.liqEntries) {
+    val row = load.io.liqRows(index)
+    val current = reissueRequest.bits.currentIdentity
+    reissueMatches(index) := row.valid && row.loadId.valid &&
+      row.loadId.value === reissueRequest.bits.allocationId.value &&
+      row.loadId.wrap.asUInt === reissueRequest.bits.allocationId.generation &&
+      row.attempt.valid && row.attempt.producer.valid &&
+      row.attempt.producer.peId === current.rob.peId &&
+      row.attempt.producer.stid === current.rob.stid &&
+      row.attempt.producer.nativeBid === current.rob.bid &&
+      row.attempt.producer.brobGeneration === current.rob.brobGeneration &&
+      row.attempt.producer.ridSlot === current.rob.ridSlot &&
+      row.attempt.producer.ridGeneration === current.rob.ridGeneration &&
+      row.attempt.producer.memberIndex === current.rob.memberIndex &&
+      row.attempt.producer.residentGeneration === current.rob.residentGeneration &&
+      row.attempt.transactionValue === current.transaction.value &&
+      row.attempt.transactionGeneration === current.transaction.generation &&
+      row.attempt.generation === current.attemptGeneration &&
+      row.loadLsIdFull === current.lsid &&
+      row.returnPipeIndex === current.pipeId
+  }
+  val reissueUnique = PopCount(reissueMatches) === 1.U
+  val reissueRow = load.io.liqRows(PriorityEncoder(reissueMatches))
+  val nextIdentity = Wire(chiselTypeOf(reissueRequest.bits.currentIdentity))
+  nextIdentity := reissueRequest.bits.currentIdentity
+  nextIdentity.attemptGeneration :=
+    reissueRequest.bits.currentIdentity.attemptGeneration + 1.U
+  val reissueLaneReady = Wire(Vec(p.lsu.loadPipes, Bool()))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val notice = io.iex.loadReissue(lane)
+    notice.valid := reissueRequest.valid && reissueUnique &&
+      reissueRow.returnPipeIndex === lane.U
+    notice.bits := 0.U.asTypeOf(notice.bits)
+    notice.bits.allocationId := reissueRequest.bits.allocationId
+    notice.bits.currentIdentity := reissueRequest.bits.currentIdentity
+    notice.bits.nextIdentity := nextIdentity
+    notice.bits.address := reissueRequest.bits.address
+    reissueLaneReady(lane) := notice.ready &&
+      reissueRow.returnPipeIndex === lane.U
+  }
+  // A malformed, stale, or future replay request is a permanent protocol
+  // rejection, not backpressure. Consume it without publishing a transition.
+  reissueRequest.ready := Mux(
+    reissueUnique, reissueLaneReady.asUInt.orR, reissueRequest.valid)
 
-  val rebindApply = io.iex.loadRebindApply.head
-  load.io.attemptRebindValid := rebindApply.valid
-  rebindApply.ready := load.io.attemptRebindReady
+  val rebindArbiter = Module(new RRArbiter(
+    chiselTypeOf(io.iex.loadRebindApply.head.bits), p.lsu.loadPipes))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    rebindArbiter.io.in(lane) <> io.iex.loadRebindApply(lane)
+  }
+  val rebindApply = rebindArbiter.io.out
+  val selectedCancelReady = Mux1H(
+    UIntToOH(rebindArbiter.io.chosen, p.lsu.loadPipes),
+    io.iex.loadCancel.map(_.ready))
+  load.io.attemptRebindValid := rebindApply.valid && selectedCancelReady
+  rebindApply.ready := selectedCancelReady && load.io.attemptRebindReady
   load.io.attemptRebind := 0.U.asTypeOf(load.io.attemptRebind)
   projectRobId(load.io.attemptRebind.loadId,
     rebindApply.bits.allocationId.value)
@@ -501,17 +645,20 @@ class LSU(val p: CoreParams) extends Module {
     target.producer.ridGeneration := source.rob.ridGeneration
     target.producer.memberIndex := source.rob.memberIndex
     target.producer.residentGeneration := source.rob.residentGeneration
+    target.transactionValue := source.transaction.value
+    target.transactionGeneration := source.transaction.generation
     target.generation := source.attemptGeneration
   }
   projectAttempt(load.io.attemptRebind.current,
     rebindApply.bits.currentIdentity)
   projectAttempt(load.io.attemptRebind.next,
     rebindApply.bits.nextIdentity)
-  io.iex.loadRebindApply.tail.foreach(_.ready := false.B)
   load.io.structuralRetryValid := false.B
   load.io.structuralRetry := 0.U.asTypeOf(load.io.structuralRetry)
-  load.io.pickValid := load.io.liqRepickMask.orR
-  load.io.pickIndex := PriorityEncoder(load.io.liqRepickMask)
+  val repickIndex = PriorityEncoder(load.io.liqRepickMask)
+  val repickRow = load.io.liqRows(repickIndex)
+  load.io.pickValid := false.B
+  load.io.pickIndex := repickIndex
   load.io.scbReturnValid := false.B
   load.io.scbReturnIndex := 0.U
   load.io.e2Stores := 0.U.asTypeOf(load.io.e2Stores)
@@ -522,19 +669,29 @@ class LSU(val p: CoreParams) extends Module {
   load.io.replayWake := 0.U.asTypeOf(load.io.replayWake)
   load.io.refillValid := false.B
   load.io.refill := 0.U.asTypeOf(load.io.refill)
-  val publicLoadRequest = io.memoryRequest.head
-  publicLoadRequest.valid := load.io.missRequestValid
-  publicLoadRequest.bits := 0.U.asTypeOf(publicLoadRequest.bits)
-  publicLoadRequest.bits.identity.value := load.io.missRequest.missId.value
-  publicLoadRequest.bits.identity.generation :=
-    load.io.missRequest.missId.wrap.asUInt
-  publicLoadRequest.bits.command := MemoryCommand.Read
-  publicLoadRequest.bits.accessKind := MemoryAccessKind.Data
-  publicLoadRequest.bits.address := load.io.missRequest.lineAddr
-  publicLoadRequest.bits.sizeBytes := scalarLsu.lineBytes.U
-  load.io.missRequestReady := publicLoadRequest.ready
+  val missLane = if (p.lsu.loadPipes == 1) 0.U else
+    load.io.missRequest.missId.value(log2Ceil(p.lsu.loadPipes) - 1, 0)
+  val missLaneReady = Wire(Vec(p.lsu.loadPipes, Bool()))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val request = io.memoryRequest(lane)
+    request.valid := load.io.missRequestValid && missLane === lane.U
+    request.bits := 0.U.asTypeOf(request.bits)
+    request.bits.identity.value := load.io.missRequest.missId.value
+    request.bits.identity.generation := load.io.missRequest.missId.wrap.asUInt
+    request.bits.command := MemoryCommand.Read
+    request.bits.accessKind := MemoryAccessKind.Data
+    request.bits.address := load.io.missRequest.lineAddr
+    request.bits.sizeBytes := scalarLsu.lineBytes.U
+    missLaneReady(lane) := request.ready && missLane === lane.U
+  }
+  load.io.missRequestReady := missLaneReady.asUInt.orR
 
-  val publicLoadResponse = io.memoryResponse.head
+  val loadResponseArbiter = Module(new RRArbiter(
+    chiselTypeOf(io.memoryResponse.head.bits), p.lsu.loadPipes))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    loadResponseArbiter.io.in(lane) <> io.memoryResponse(lane)
+  }
+  val publicLoadResponse = loadResponseArbiter.io.out
   load.io.missResponseValid := publicLoadResponse.valid
   publicLoadResponse.ready := load.io.missResponseReady
   load.io.missResponse := 0.U.asTypeOf(load.io.missResponse)
@@ -553,23 +710,78 @@ class LSU(val p: CoreParams) extends Module {
   load.io.resolveRetireLsId := 0.U.asTypeOf(load.io.resolveRetireLsId)
   load.io.resolveRetireLsIdFullValid := false.B
   load.io.resolveRetireLsIdFull := 0.U
-  load.recovery.ready := true.B
-  io.iex.loadRepick.foreach { out =>
-    out.valid := false.B
-    out.bits := 0.U.asTypeOf(out.bits)
+  load.recovery.ready := io.iex.recoveryEvent.ready
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val repick = io.iex.loadRepick(lane)
+    repick.valid := load.io.liqRepickMask.orR &&
+      repickRow.returnPipeIndex === lane.U
+    repick.bits := 0.U.asTypeOf(repick.bits)
+    repick.bits.allocationId.value := repickRow.loadId.value
+    repick.bits.allocationId.generation := repickRow.loadId.wrap.asUInt
+    repick.bits.currentIdentity.rob.peId := repickRow.peId
+    repick.bits.currentIdentity.rob.stid := repickRow.stid
+    repick.bits.currentIdentity.rob.ridSlot :=
+      repickRow.attempt.producer.ridSlot
+    repick.bits.currentIdentity.rob.ridGeneration :=
+      repickRow.attempt.producer.ridGeneration
+    repick.bits.currentIdentity.rob.memberIndex :=
+      repickRow.attempt.producer.memberIndex
+    repick.bits.currentIdentity.rob.residentGeneration :=
+      repickRow.attempt.producer.residentGeneration
+    repick.bits.currentIdentity.rob.bid :=
+      repickRow.attempt.producer.nativeBid
+    repick.bits.currentIdentity.rob.brobGeneration :=
+      repickRow.attempt.producer.brobGeneration
+    repick.bits.currentIdentity.lsid := repickRow.loadLsIdFull
+    repick.bits.currentIdentity.transaction.value :=
+      repickRow.attempt.transactionValue
+    repick.bits.currentIdentity.transaction.generation :=
+      repickRow.attempt.transactionGeneration
+    repick.bits.currentIdentity.attemptGeneration :=
+      repickRow.attempt.generation
+    repick.bits.currentIdentity.pipeId := repickRow.returnPipeIndex
+    repick.bits.nextIdentity := repick.bits.currentIdentity
+    repick.bits.nextIdentity.attemptGeneration :=
+      repickRow.attempt.generation + 1.U
   }
-  io.iex.loadCancel.foreach { out =>
-    out.valid := false.B
-    out.bits := 0.U.asTypeOf(out.bits)
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val cancel = io.iex.loadCancel(lane)
+    cancel.valid := rebindApply.valid && load.io.attemptRebindReady &&
+      rebindArbiter.io.chosen === lane.U
+    cancel.bits := 0.U.asTypeOf(cancel.bits)
+    cancel.bits.currentIdentity := rebindApply.bits.currentIdentity
   }
-  io.iex.recoveryEvent.valid := false.B
+  val cancelFire = VecInit(io.iex.loadCancel.map(_.fire)).asUInt.orR
+  when(rebindApply.fire || load.io.attemptRebindAccepted || cancelFire) {
+    assert(rebindApply.fire && load.io.attemptRebindAccepted && cancelFire,
+      "LSU rebind, LIQ attempt mutation, and old-attempt cancel must share one fire")
+  }
+  io.iex.recoveryEvent.valid := load.recovery.valid
   io.iex.recoveryEvent.bits := 0.U.asTypeOf(io.iex.recoveryEvent.bits)
+  io.iex.recoveryEvent.bits.transactionId := load.recovery.flush.req.lsIdFull
+  io.iex.recoveryEvent.bits.cause := RecoveryCause.MemoryOrder
+  io.iex.recoveryEvent.bits.trigger.peId := load.recovery.flush.req.peId
+  io.iex.recoveryEvent.bits.trigger.stid := load.recovery.flush.req.stid
+  io.iex.recoveryEvent.bits.trigger.bid := load.recovery.flush.req.bid.value
+  io.iex.recoveryEvent.bits.trigger.ridSlot := load.recovery.flush.req.gid.value
+  io.iex.recoveryEvent.bits.instruction.peId := load.recovery.flush.req.peId
+  io.iex.recoveryEvent.bits.instruction.stid := load.recovery.flush.req.stid
+  io.iex.recoveryEvent.bits.redirectPc := load.recovery.flush.req.fetchTpc
 
-  io.memoryRequest.tail.foreach { out =>
+  io.memoryRequest.drop(p.lsu.loadPipes + 2).foreach { out =>
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
-  io.memoryResponse.tail.foreach(_.ready := false.B)
+  io.memoryResponse.drop(p.lsu.loadPipes + 2).foreach(_.ready := false.B)
   io.trace.valid := false.B
   io.trace.bits := 0.U.asTypeOf(io.trace.bits)
+}
+
+/** Stable public LSU box. All retained state and arbitration live below this
+  * wiring-only shell in the private canonical owner graph.
+  */
+class LSU(val p: CoreParams) extends Module {
+  val io = IO(new LSUIO(p))
+  private val owner = Module(new LSUCanonicalOwner(p))
+  io <> owner.io
 }

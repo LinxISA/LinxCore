@@ -5,7 +5,7 @@ import chisel3.util.{Arbiter, Decoupled, DecoupledIO, Queue}
 import linxcore.lsu.LSU
 import linxcore.ooo.OOO
 import linxcore.params.{CoreParams, ParamProfiles}
-import linxcore.top.interface.{D1Packet, LoadReissueTxn, LoadResultTxn,
+import linxcore.top.interface.{D1Packet, LoadReplayRequestTxn, LoadResultTxn,
   MemoryIdentity, MemoryTransactionIdentity, RecoveryCause, TraceKind}
 
 /** Capacity-bounded generated-RTL profile. Principal W4 pipe counts and all
@@ -68,7 +68,7 @@ class OOOIEXLSUActivationProbeIO(val p: CoreParams) extends Bundle {
   val memoryResponseAddress = Input(UInt(p.physicalAddressWidth.W))
   val memoryResponseData = Input(UInt(p.dataWidth.W))
   val memoryResponseReady = Output(Bool())
-  val loadReissueRequest = Flipped(Decoupled(new LoadReissueTxn(p)))
+  val loadReissueRequest = Flipped(Decoupled(new LoadReplayRequestTxn(p)))
   val loadResultInject = Flipped(Decoupled(new LoadResultTxn(p)))
   val bootstrapComplete = Output(Bool())
   val bootstrapInitCount = Output(UInt(32.W))

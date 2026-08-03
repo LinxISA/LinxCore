@@ -135,11 +135,14 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       classify.bits.logicalFirstStoreId.poke(13.U)
       classify.bits.requestCount.poke(1.U)
       classify.bits.beat.poke(0.U)
-      classify.bits.memoryClass.poke(StoreMemoryClass.NormalCacheable)
+      classify.bits.memoryClass.poke(StoreMemoryClass.NormalNonCacheable)
       classify.valid.poke(true.B)
       classify.ready.expect(true.B)
       dut.clock.step()
       classify.valid.poke(false.B)
+
+      val storeMemory = dut.io.memoryRequest(p.lsu.loadPipes)
+      storeMemory.ready.poke(false.B)
 
       val commit = dut.io.storeCommit
       commit.bits.poke(0.U.asTypeOf(commit.bits))
@@ -152,6 +155,28 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       commit.ready.expect(true.B)
       dut.clock.step()
       commit.valid.poke(false.B)
+
+      var requestCycles = 0
+      while (!storeMemory.valid.peek().litToBoolean && requestCycles < 32) {
+        dut.clock.step()
+        requestCycles += 1
+      }
+      assert(requestCycles < 32,
+        "a committed non-cacheable store must reach its canonical memory lane")
+      storeMemory.bits.command.expect(linxcore.top.interface.MemoryCommand.Write)
+      storeMemory.bits.address.expect(0x1000.U)
+      storeMemory.bits.data.expect("h1122334455667788".U)
+      val responseId = storeMemory.bits.identity.peek()
+      storeMemory.ready.poke(true.B)
+      dut.clock.step()
+
+      val storeResponse = dut.io.memoryResponse(p.lsu.loadPipes)
+      storeResponse.bits.poke(0.U.asTypeOf(storeResponse.bits))
+      storeResponse.bits.identity.poke(responseId)
+      storeResponse.valid.poke(true.B)
+      while (!storeResponse.ready.peek().litToBoolean) dut.clock.step()
+      dut.clock.step()
+      storeResponse.valid.poke(false.B)
     }
   }
 }

@@ -1516,6 +1516,12 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
     if not isinstance(owners, list) or not owners:
         errors.append("owners must be a non-empty list")
         owners = []
+    completed_cutovers = manifest.get("completed_cutover_tasks", [])
+    if not isinstance(completed_cutovers, list) or not all(
+        isinstance(task, int) for task in completed_cutovers
+    ):
+        errors.append("completed_cutover_tasks must be a list of integers")
+        completed_cutovers = []
     state_keys = [owner.get("state_key") for owner in owners if isinstance(owner, dict)]
     for state_key, count in Counter(state_keys).items():
         if state_key and count > 1:
@@ -1602,8 +1608,20 @@ def validate(manifest: dict[str, Any], root: Path) -> list[str]:
             errors,
         )
         validate_evidence(owner, entry_points, root, sources, graph, errors)
-        if not isinstance(owner.get("cutover_task"), int):
+        cutover_task = owner.get("cutover_task")
+        if not isinstance(cutover_task, int):
             errors.append(f"missing cutover task for {state_key}")
+        elif cutover_task in completed_cutovers:
+            evidence = owner.get("production_evidence", [])
+            if any(
+                isinstance(item, dict)
+                and item.get("status") == "mechanism-verified-cutover-pending"
+                for item in evidence
+            ):
+                errors.append(
+                    f"completed cutover task {cutover_task} cannot retain pending "
+                    f"evidence for {state_key}"
+                )
         if owner.get("adapters") not in (None, []):
             errors.append(f"owner-local adapters must be empty for {state_key}")
         validate_deletion_targets(owner, root, sources, index, errors)

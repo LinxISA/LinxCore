@@ -9,15 +9,15 @@ import linxcore.ooo.{OooIexExecuteTransaction, OooIexExecutionPipeline,
   OooIexIssuePolicy, OooIexWakeupKind, OooMemoryAddressMode,
   OooMemoryIndexMode}
 import linxcore.params.CoreParams
-import linxcore.top.interface.{IEXIO, OperandKind, RecoveryEvent, TraceKind,
-  TraceSource}
+import linxcore.top.interface.{IEXIO, LoadReissueTxn, OperandKind,
+  RecoveryEvent, TraceKind, TraceSource}
 
 /** Public state-free composition boundary for the canonical issue/execute graph.
   *
   * Architectural state remains in the retained private IQ, operand-file,
   * execution, terminal, and load-metadata owners instantiated below.
   */
-class IEX(val p: CoreParams) extends Module {
+private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   val io = IO(new IEXIO(p))
   private val implementation = Module(new OooIexExecutionPipeline(
     p, requireStoreReservation = true))
@@ -36,9 +36,14 @@ class IEX(val p: CoreParams) extends Module {
   private val initPTagExact = initStidInRange && initAtagInRange &&
     io.pInit.bits.ptag === expectedPTag && io.pInit.bits.generation === 0.U
   private val safeInitPTag = Mux(initPTagExact, expectedPTag, 0.U)
-  private val initUnseen = !bootstrapSeen(safeInitPTag)
-  private val initEpochExact = !bootstrapEpochValid(io.pInit.bits.stid) ||
-    bootstrapEpoch(io.pInit.bits.stid) === io.pInit.bits.epoch
+  private val initPTagOH = UIntToOH(safeInitPTag, committedPTagCount)
+  private val initUnseen = !(bootstrapSeen & initPTagOH).orR
+  private val initEpochExact = if (p.ooo.stidCount == 1) {
+    !bootstrapEpochValid.head || bootstrapEpoch.head === io.pInit.bits.epoch
+  } else {
+    !bootstrapEpochValid(io.pInit.bits.stid) ||
+      bootstrapEpoch(io.pInit.bits.stid) === io.pInit.bits.epoch
+  }
   io.pInit.ready := !bootstrapDone && initPTagExact && initUnseen &&
     initEpochExact
   implementation.io.pInit.valid := io.pInit.fire
@@ -49,10 +54,14 @@ class IEX(val p: CoreParams) extends Module {
   implementation.io.pInit.bits.key.generation := io.pInit.bits.generation
   implementation.io.pInit.bits.data := io.pInit.bits.value
   when(io.pInit.fire) {
-    bootstrapSeen := bootstrapSeen | UIntToOH(expectedPTag,
-      committedPTagCount)
-    bootstrapEpochValid(io.pInit.bits.stid) := true.B
-    bootstrapEpoch(io.pInit.bits.stid) := io.pInit.bits.epoch
+    bootstrapSeen := bootstrapSeen | initPTagOH
+    if (p.ooo.stidCount == 1) {
+      bootstrapEpochValid.head := true.B
+      bootstrapEpoch.head := io.pInit.bits.epoch
+    } else {
+      bootstrapEpochValid(io.pInit.bits.stid) := true.B
+      bootstrapEpoch(io.pInit.bits.stid) := io.pInit.bits.epoch
+    }
   }
   val completeMapSeen = bootstrapSeen.andR
   when(io.bootstrapComplete && completeMapSeen) { bootstrapDone := true.B }
@@ -407,82 +416,101 @@ class IEX(val p: CoreParams) extends Module {
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
-  val publicLoad = io.lsu.loadAddress.head
   val privateLoad = implementation.io.load.liqAlloc
-  publicLoad.valid := privateLoad.valid
-  privateLoad.ready := publicLoad.ready
-  publicLoad.bits := 0.U.asTypeOf(publicLoad.bits)
-  publicLoad.bits.identity.rob.peId := privateLoad.bits.attempt.producer.peId
-  publicLoad.bits.identity.rob.stid := privateLoad.bits.attempt.producer.stid
-  publicLoad.bits.identity.rob.ridSlot :=
+  val publicLoadBits = Wire(chiselTypeOf(io.lsu.loadAddress.head.bits))
+  publicLoadBits := 0.U.asTypeOf(publicLoadBits)
+  publicLoadBits.identity.rob.peId := privateLoad.bits.attempt.producer.peId
+  publicLoadBits.identity.rob.stid := privateLoad.bits.attempt.producer.stid
+  publicLoadBits.identity.rob.ridSlot :=
     privateLoad.bits.attempt.producer.ridSlot
-  publicLoad.bits.identity.rob.ridGeneration :=
+  publicLoadBits.identity.rob.ridGeneration :=
     privateLoad.bits.attempt.producer.ridGeneration
-  publicLoad.bits.identity.rob.memberIndex :=
+  publicLoadBits.identity.rob.memberIndex :=
     privateLoad.bits.attempt.producer.memberIndex
-  publicLoad.bits.identity.rob.residentGeneration :=
+  publicLoadBits.identity.rob.residentGeneration :=
     privateLoad.bits.attempt.producer.residentGeneration
-  publicLoad.bits.identity.rob.bid := privateLoad.bits.attempt.producer.nativeBid
-  publicLoad.bits.identity.rob.brobGeneration :=
+  publicLoadBits.identity.rob.bid := privateLoad.bits.attempt.producer.nativeBid
+  publicLoadBits.identity.rob.brobGeneration :=
     privateLoad.bits.attempt.producer.brobGeneration
-  publicLoad.bits.identity.lsid := privateLoad.bits.loadLsIdFull
-  publicLoad.bits.identity.attemptGeneration := privateLoad.bits.attempt.generation
-  publicLoad.bits.identity.pipeId := privateLoad.bits.returnPipeIndex
-  publicLoad.bits.pc := privateLoad.bits.pc
-  publicLoad.bits.address := privateLoad.bits.addr
-  publicLoad.bits.sizeBytes := privateLoad.bits.size
-  publicLoad.bits.signed := privateLoad.bits.returnSignExtend
-  publicLoad.bits.destination.valid := privateLoad.bits.dst.valid
-  publicLoad.bits.destination.kind := OperandKind.Gpr
-  publicLoad.bits.destination.atag := privateLoad.bits.dst.archTag
-  publicLoad.bits.destination.ptag := privateLoad.bits.dst.physTag
-  publicLoad.bits.destination.previousPtag := privateLoad.bits.dst.oldPhysTag
-  publicLoad.bits.destination.previousPtagValid := privateLoad.bits.dst.valid
-  publicLoad.bits.destination.ptagValid := privateLoad.bits.dst.valid
-  publicLoad.bits.destinationRelativeIndex := privateLoad.bits.dst.relTag
-  publicLoad.bits.youngestStoreValid :=
+  publicLoadBits.identity.lsid := privateLoad.bits.loadLsIdFull
+  publicLoadBits.identity.transaction.value := privateLoad.bits.attempt.transactionValue
+  publicLoadBits.identity.transaction.generation :=
+    privateLoad.bits.attempt.transactionGeneration
+  publicLoadBits.identity.attemptGeneration := privateLoad.bits.attempt.generation
+  publicLoadBits.identity.pipeId := privateLoad.bits.returnPipeIndex
+  publicLoadBits.pc := privateLoad.bits.pc
+  publicLoadBits.address := privateLoad.bits.addr
+  publicLoadBits.sizeBytes := privateLoad.bits.size
+  publicLoadBits.signed := privateLoad.bits.returnSignExtend
+  publicLoadBits.destination.valid := privateLoad.bits.dst.valid
+  publicLoadBits.destination.kind := OperandKind.Gpr
+  publicLoadBits.destination.atag := privateLoad.bits.dst.archTag
+  publicLoadBits.destination.ptag := privateLoad.bits.dst.physTag
+  publicLoadBits.destination.previousPtag := privateLoad.bits.dst.oldPhysTag
+  publicLoadBits.destination.previousPtagValid := privateLoad.bits.dst.valid
+  publicLoadBits.destination.ptagValid := privateLoad.bits.dst.valid
+  publicLoadBits.destinationRelativeIndex := privateLoad.bits.dst.relTag
+  publicLoadBits.youngestStoreValid :=
     privateLoad.bits.youngestStoreLsIdFullValid
-  publicLoad.bits.youngestStoreLsid := privateLoad.bits.youngestStoreLsIdFull
-  publicLoad.bits.youngestStoreId := privateLoad.bits.youngestStoreId.value
+  publicLoadBits.youngestStoreLsid := privateLoad.bits.youngestStoreLsIdFull
+  publicLoadBits.youngestStoreId := privateLoad.bits.youngestStoreId.value
+  for (lane <- io.lsu.loadAddress.indices) {
+    val publicLoad = io.lsu.loadAddress(lane)
+    publicLoad.valid := privateLoad.valid &&
+      privateLoad.bits.returnPipeIndex === lane.U
+    publicLoad.bits := publicLoadBits
+  }
+  privateLoad.ready := Mux1H(
+    UIntToOH(privateLoad.bits.returnPipeIndex, p.lsu.loadPipes),
+    io.lsu.loadAddress.map(_.ready))
 
-  implementation.io.load.liqAllocLoadId.valid :=
-    io.lsu.loadAllocation.head.valid
+  // LSU's allocation ID is a combinational preview beside alloc-ready.  It is
+  // meaningful before the request is asserted, which lets metadata validate
+  // the prospective row without making request-valid depend on the returned
+  // Valid marker and forming an IEX/LSU combinational cycle.
+  implementation.io.load.liqAllocLoadId.valid := true.B
   implementation.io.load.liqAllocLoadId.value :=
     io.lsu.loadAllocation.head.bits.allocationId.value
   implementation.io.load.liqAllocLoadId.wrap :=
     io.lsu.loadAllocation.head.bits.allocationId.generation(0)
 
-  implementation.io.load.attemptLaunch.valid :=
-    io.lsu.loadLaunch.head.valid
+  val loadLaunchValid = VecInit(io.lsu.loadLaunch.map(_.valid))
+  val selectedLoadLaunch = Mux1H(loadLaunchValid,
+    io.lsu.loadLaunch.map(_.bits))
+  implementation.io.load.attemptLaunch.valid := loadLaunchValid.asUInt.orR
   implementation.io.load.attemptLaunch.bits := 0.U.asTypeOf(
     implementation.io.load.attemptLaunch.bits)
   implementation.io.load.attemptLaunch.bits.loadId.valid :=
-    io.lsu.loadLaunch.head.valid
+    loadLaunchValid.asUInt.orR
   implementation.io.load.attemptLaunch.bits.loadId.slot :=
-    io.lsu.loadLaunch.head.bits.allocationId.value
+    selectedLoadLaunch.allocationId.value
   implementation.io.load.attemptLaunch.bits.loadId.generation :=
-    io.lsu.loadLaunch.head.bits.allocationId.generation
+    selectedLoadLaunch.allocationId.generation
   implementation.io.load.attemptLaunch.bits.attempt.valid := true.B
   implementation.io.load.attemptLaunch.bits.attempt.producer.valid := true.B
   implementation.io.load.attemptLaunch.bits.attempt.producer.peId :=
-    io.lsu.loadLaunch.head.bits.identity.rob.peId
+    selectedLoadLaunch.identity.rob.peId
   implementation.io.load.attemptLaunch.bits.attempt.producer.stid :=
-    io.lsu.loadLaunch.head.bits.identity.rob.stid
+    selectedLoadLaunch.identity.rob.stid
   implementation.io.load.attemptLaunch.bits.attempt.producer.nativeBidValid := true.B
   implementation.io.load.attemptLaunch.bits.attempt.producer.nativeBid :=
-    io.lsu.loadLaunch.head.bits.identity.rob.bid
+    selectedLoadLaunch.identity.rob.bid
   implementation.io.load.attemptLaunch.bits.attempt.producer.brobGeneration :=
-    io.lsu.loadLaunch.head.bits.identity.rob.brobGeneration
+    selectedLoadLaunch.identity.rob.brobGeneration
   implementation.io.load.attemptLaunch.bits.attempt.producer.ridSlot :=
-    io.lsu.loadLaunch.head.bits.identity.rob.ridSlot
+    selectedLoadLaunch.identity.rob.ridSlot
   implementation.io.load.attemptLaunch.bits.attempt.producer.ridGeneration :=
-    io.lsu.loadLaunch.head.bits.identity.rob.ridGeneration
+    selectedLoadLaunch.identity.rob.ridGeneration
   implementation.io.load.attemptLaunch.bits.attempt.producer.memberIndex :=
-    io.lsu.loadLaunch.head.bits.identity.rob.memberIndex
+    selectedLoadLaunch.identity.rob.memberIndex
   implementation.io.load.attemptLaunch.bits.attempt.producer.residentGeneration :=
-    io.lsu.loadLaunch.head.bits.identity.rob.residentGeneration
+    selectedLoadLaunch.identity.rob.residentGeneration
+  implementation.io.load.attemptLaunch.bits.attempt.transactionValue :=
+    selectedLoadLaunch.identity.transaction.value
+  implementation.io.load.attemptLaunch.bits.attempt.transactionGeneration :=
+    selectedLoadLaunch.identity.transaction.generation
   implementation.io.load.attemptLaunch.bits.attempt.generation :=
-    io.lsu.loadLaunch.head.bits.identity.attemptGeneration
+    selectedLoadLaunch.identity.attemptGeneration
   for (lane <- io.lsu.storeAddress.indices) {
     val privateAddress = implementation.io.storeAddress(lane)
     val publicAddress = io.lsu.storeAddress(lane)
@@ -557,6 +585,10 @@ class IEX(val p: CoreParams) extends Module {
     returned.identity.rob.memberIndex
   implementation.io.load.completion.bits.payload.attempt.producer.residentGeneration :=
     returned.identity.rob.residentGeneration
+  implementation.io.load.completion.bits.payload.attempt.transactionValue :=
+    returned.identity.transaction.value
+  implementation.io.load.completion.bits.payload.attempt.transactionGeneration :=
+    returned.identity.transaction.generation
   implementation.io.load.completion.bits.payload.attempt.generation :=
     returned.identity.attemptGeneration
   implementation.io.load.completion.bits.payload.transactionValid := true.B
@@ -594,6 +626,8 @@ class IEX(val p: CoreParams) extends Module {
     target.producer.ridGeneration := source.rob.ridGeneration
     target.producer.memberIndex := source.rob.memberIndex
     target.producer.residentGeneration := source.rob.residentGeneration
+    target.transactionValue := source.transaction.value
+    target.transactionGeneration := source.transaction.generation
     target.generation := source.attemptGeneration
   }
   private def projectLoad(target: linxcore.ooo.OooIexLoadGeneration,
@@ -609,10 +643,30 @@ class IEX(val p: CoreParams) extends Module {
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
-  val publicReissue = io.lsu.loadReissue.head
-  val publicRebind = io.lsu.loadRebindApply.head
+  val reissueArbiter = Module(new RRArbiter(
+    new LoadReissueTxn(p), p.lsu.loadPipes * 2))
+  for (lane <- 0 until p.lsu.loadPipes) {
+    reissueArbiter.io.in(lane) <> io.lsu.loadReissue(lane)
+    val repick = io.lsu.loadRepick(lane)
+    val repickTransition = reissueArbiter.io.in(p.lsu.loadPipes + lane)
+    repickTransition.valid := repick.valid
+    repickTransition.bits := 0.U.asTypeOf(repickTransition.bits)
+    repickTransition.bits.allocationId := repick.bits.allocationId
+    repickTransition.bits.currentIdentity := repick.bits.currentIdentity
+    repickTransition.bits.nextIdentity := repick.bits.nextIdentity
+    repick.ready := repickTransition.ready
+  }
+  val publicReissue = reissueArbiter.io.out
+  val selectedRebindLane = Mux(
+    reissueArbiter.io.chosen < p.lsu.loadPipes.U,
+    reissueArbiter.io.chosen,
+    reissueArbiter.io.chosen - p.lsu.loadPipes.U)
+  val selectedRebindReady = Mux1H(
+    UIntToOH(selectedRebindLane, p.lsu.loadPipes),
+    io.lsu.loadRebindApply.map(_.ready))
   implementation.io.load.rebind.valid := publicReissue.valid
-  publicReissue.ready := implementation.io.load.rebind.ready
+  publicReissue.ready := implementation.io.load.rebind.ready &&
+    selectedRebindReady
   implementation.io.load.rebind.bits := 0.U.asTypeOf(
     implementation.io.load.rebind.bits)
   implementation.io.load.rebind.bits.loadId.valid := true.B
@@ -628,16 +682,34 @@ class IEX(val p: CoreParams) extends Module {
     publicReissue.bits.currentIdentity)
   projectLoad(implementation.io.load.rebind.bits.nextLoad,
     publicReissue.bits.nextIdentity)
-  publicRebind.valid := implementation.io.load.liqRebind.valid
-  implementation.io.load.liqRebind.ready := publicRebind.ready
-  publicRebind.bits := publicReissue.bits
-  io.lsu.loadReissue.tail.foreach(_.ready := false.B)
-  io.lsu.loadRepick.foreach(_.ready := false.B)
-  io.lsu.loadCancel.foreach(_.ready := false.B)
-  io.lsu.recoveryEvent.ready := false.B
+  for (lane <- 0 until p.lsu.loadPipes) {
+    val publicRebind = io.lsu.loadRebindApply(lane)
+    publicRebind.valid := implementation.io.load.liqRebind.valid &&
+      selectedRebindLane === lane.U
+    publicRebind.bits := publicReissue.bits
+  }
+  implementation.io.load.liqRebind.ready := selectedRebindReady
+  val publicRebindFire = VecInit(io.lsu.loadRebindApply.map(_.fire)).asUInt.orR
+  when(publicReissue.fire || implementation.io.load.rebind.fire ||
+      implementation.io.load.liqRebind.fire || publicRebindFire) {
+    assert(publicReissue.fire && implementation.io.load.rebind.fire &&
+      implementation.io.load.liqRebind.fire && publicRebindFire,
+      "load lifecycle transition must atomically rebind metadata and LIQ")
+  }
+  io.lsu.loadCancel.foreach(_.ready := true.B)
+  io.lsu.recoveryEvent.ready := true.B
 
   implementation.io.multiCycleAlu.foreach(_.ready := false.B)
   implementation.io.pointerAuth.foreach(_.ready := false.B)
   implementation.io.floatingVector.ready := false.B
   implementation.io.bctrl.foreach(_.ready := false.B)
+}
+
+/** Stable public IEX box. All retained state and arbitration live below this
+  * wiring-only shell in the private canonical boundary owner.
+  */
+class IEX(val p: CoreParams) extends Module {
+  val io = IO(new IEXIO(p))
+  private val owner = Module(new OooIexBoundaryOwner(p))
+  io <> owner.io
 }
