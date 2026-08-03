@@ -1476,7 +1476,7 @@ between five scenarios. Its generated directory falls from 243 MiB to 47 MiB
 while retaining exact result、hard recovery、typed recovery and BID fail-closed
 coverage.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 Commit intent: `Prepare the LSU without cloning its state owners`
 
