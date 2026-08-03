@@ -6,7 +6,7 @@ import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.{DestinationKind, OperandClass}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.params.{CoreParams, SimulationParamProfiles}
-import linxcore.top.interface.RobResolveTxn
+import linxcore.top.interface.{RecoveryCause, RobResolveTxn}
 import org.scalatest.funsuite.AnyFunSuite
 
 private class OooIexAluTerminalHarnessIO(val core: CoreParams) extends Bundle {
@@ -226,6 +226,44 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.alu(source).valid.poke(true.B)
   }
 
+  private def pokeDirectJump(
+      dut: OooIexTerminalFabric,
+      source: Int,
+      ridSlot: Int,
+      target: BigInt): Unit = {
+    val terminal = dut.io.bru(source).bits
+    terminal.poke(0.U.asTypeOf(terminal))
+    val execute = terminal.execute
+    execute.ownerClass.poke(OooUopClass.Bru)
+    val row = execute.i2.row.schedule
+    row.valid.poke(true.B)
+    row.peId.poke(3.U)
+    row.stid.poke(0.U)
+    row.epoch.poke(9.U)
+    row.transactionId.poke(71.U)
+    pokeMember(row.member, ridSlot)
+    row.reservation.valid.poke(true.B)
+    row.reservation.uopClass.poke(OooUopClass.Bru)
+    val payload = execute.i2.row.payload
+    payload.opcode.poke(FrontendOpcodeDecodeTable.OP_J.U)
+    payload.recipe.valid.poke(true.B)
+    payload.recipe.opcode.poke(FrontendOpcodeDecodeTable.OP_J.U)
+    payload.recipe.disposition.poke(OooOpcodeDisposition.Dispatch.U)
+    payload.recipe.dispatchClass.poke(OooDispatchClass.Bru.U)
+    payload.recipe.sideEffectOwner.poke(OooSideEffectOwner.Bctrl.U)
+    payload.uopKey.primaryParent.valid.poke(true.B)
+    payload.uopKey.primaryParent.peId.poke(3.U)
+    payload.uopKey.primaryParent.stid.poke(0.U)
+    payload.uopKey.primaryParent.instructionId.poke(71.U)
+    payload.uopKey.primaryParent.epoch.poke(9.U)
+    payload.uopKey.uopCount.poke(1.U)
+    terminal.bctrl.valid.poke(true.B)
+    terminal.bctrl.kind.poke(OooIexBctrlUpdateKind.Target)
+    terminal.bctrl.targetValid.poke(true.B)
+    terminal.bctrl.target.poke(target.U)
+    dut.io.bru(source).valid.poke(true.B)
+  }
+
   private def clearHarness(dut: OooIexAluTerminalHarness): Unit = {
     dut.io.e1.valid.poke(false.B)
     dut.io.e1.bits.poke(0.U.asTypeOf(dut.io.e1.bits))
@@ -325,6 +363,53 @@ class OooIexTerminalFabricSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.robResolve(0).ready.poke(true.B)
       dut.io.terminalFireMask.expect(3.U)
+    }
+  }
+
+  test("direct J waits for recovery and publishes redirect atomically once") {
+    simulate(new OooIexTerminalFabric(
+      core, aluSourceCount = 1, bruSourceCount = 1, loadSourceCount = 1)) { dut =>
+      clear(dut)
+      pokeDirectJump(dut, source = 0, ridSlot = 3, target = 0x3008)
+      dut.io.recoveryEvent.head.ready.poke(false.B)
+
+      dut.io.bru.head.ready.expect(false.B)
+      dut.io.terminalFireMask.expect(0.U)
+      dut.io.robResolve.head.valid.expect(false.B)
+      dut.io.trace.head.valid.expect(false.B)
+      dut.io.recoveryEvent.head.valid.expect(true.B)
+      dut.io.bctrl.head.valid.expect(false.B)
+
+      dut.io.recoveryEvent.head.ready.poke(true.B)
+      dut.io.bru.head.ready.expect(true.B)
+      dut.io.terminalFireMask.expect(1.U)
+      dut.io.robResolve.head.valid.expect(true.B)
+      dut.io.trace.head.valid.expect(true.B)
+      dut.io.recoveryEvent.head.valid.expect(true.B)
+      dut.io.recoveryEvent.head.bits.cause.expect(RecoveryCause.Branch)
+      dut.io.recoveryEvent.head.bits.redirectPc.expect(0x3008.U)
+      dut.clock.step()
+      dut.io.bru.head.valid.poke(false.B)
+      dut.io.recoveryEvent.head.valid.expect(false.B)
+      dut.io.robResolve.head.valid.expect(false.B)
+      dut.io.trace.head.valid.expect(false.B)
+    }
+  }
+
+  test("backpressured direct J does not block a peer terminal lane") {
+    simulate(new OooIexTerminalFabric(
+      core, aluSourceCount = 2, bruSourceCount = 1, loadSourceCount = 1)) { dut =>
+      clear(dut)
+      pokeDirectJump(dut, source = 0, ridSlot = 3, target = 0x3008)
+      pokeAlu(dut, source = 1, ridSlot = 4, ptag = 31)
+      dut.io.recoveryEvent.head.ready.poke(false.B)
+
+      dut.io.bru.head.ready.expect(false.B)
+      dut.io.alu(1).ready.expect(true.B)
+      dut.io.terminalFireMask.expect(2.U)
+      dut.io.robResolve(0).valid.expect(false.B)
+      dut.io.robResolve(1).valid.expect(true.B)
+      dut.io.pWrite(2).valid.expect(true.B)
     }
   }
 

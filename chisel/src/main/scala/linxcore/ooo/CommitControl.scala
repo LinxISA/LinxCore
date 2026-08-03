@@ -82,7 +82,7 @@ class CommitControl(val p: CoreParams) extends Module {
   io.out.valid := candidateValid && (!hasReleaseLanes || releaseReady)
   io.out.bits := candidate
   val txnAccepted = io.out.fire
-  when(robTxnValid && !heldValid && !txnAccepted) {
+  when(io.out.valid && !io.out.ready && !heldValid) {
     held := next
     heldValid := true.B
   }.elsewhen(txnAccepted) {

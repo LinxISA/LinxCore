@@ -55,6 +55,8 @@ class OooIexLoadTerminalMetadataReject(
   val resident = Bool()
   val producerExact = Bool()
   val attemptExact = Bool()
+  val transactionExact = Bool()
+  val pipeExact = Bool()
   val destinationExact = Bool()
   val outcomeExact = Bool()
 }
@@ -66,6 +68,8 @@ class OooIexLoadTerminalMetadataEntry(
   val valid = Bool()
   val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
+  val canceledAttemptValid = Bool()
+  val canceledAttempt = new LoadAttemptIdentity
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
   val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
@@ -310,6 +314,14 @@ class OooIexLoadTerminalMetadata(
   val completionAttemptExact = completionResident &&
     LoadAttemptIdentity.equal(io.completion.bits.payload.attempt,
       completionEntry.attempt)
+  val completionTransactionExact = completionResident &&
+    io.completion.bits.payload.transactionValid &&
+    io.completion.bits.payload.transactionValue ===
+      completionEntry.load.transaction.value &&
+    io.completion.bits.payload.transactionGeneration ===
+      completionEntry.load.transaction.generation
+  val completionPipeExact = completionResident &&
+    io.completion.bits.payload.pipeIndex === completionEntry.lane
   val completionDestinationExact = completionResident &&
     projectedDestinationExact(io.completion.bits.payload.dst,
       completionEntry.request)
@@ -317,8 +329,15 @@ class OooIexLoadTerminalMetadata(
     (!io.completion.bits.payload.faultValid ||
       io.completion.bits.payload.data === 0.U)
   val completionExact = completionIdValid && completionProducerExact &&
-    completionAttemptExact && completionDestinationExact &&
-    completionOutcomeExact
+    completionAttemptExact && completionTransactionExact &&
+    completionPipeExact && completionDestinationExact && completionOutcomeExact
+  val completionCanceledAttemptExact = completionResident &&
+    completionEntry.canceledAttemptValid &&
+    LoadAttemptIdentity.equal(io.completion.bits.payload.attempt,
+      completionEntry.canceledAttempt)
+  val completionStaleAttempt = completionIdValid && completionProducerExact &&
+    completionCanceledAttemptExact && completionTransactionExact &&
+    completionPipeExact && completionDestinationExact && completionOutcomeExact
 
   val completionFence = recoveryFences(io.completion.bits.stid)
   io.result.valid := io.completion.valid && completionExact && !completionFence
@@ -328,7 +347,8 @@ class OooIexLoadTerminalMetadata(
   io.result.bits.data := io.completion.bits.payload.data
   io.result.bits.faultValid := io.completion.bits.payload.faultValid
   io.result.bits.faultCause := io.completion.bits.payload.faultCause
-  io.completion.ready := io.result.ready && completionExact && !completionFence
+  io.completion.ready := !completionFence &&
+    ((completionExact && io.result.ready) || completionStaleAttempt)
   io.resultLane := completionEntry.lane
 
   val launchId = io.attemptLaunch.bits.loadId
@@ -531,6 +551,8 @@ class OooIexLoadTerminalMetadata(
   io.completionRejected.bits.resident := completionResident
   io.completionRejected.bits.producerExact := completionProducerExact
   io.completionRejected.bits.attemptExact := completionAttemptExact
+  io.completionRejected.bits.transactionExact := completionTransactionExact
+  io.completionRejected.bits.pipeExact := completionPipeExact
   io.completionRejected.bits.destinationExact := completionDestinationExact
   io.completionRejected.bits.outcomeExact := completionOutcomeExact
 
@@ -546,9 +568,14 @@ class OooIexLoadTerminalMetadata(
     entries(completionIndex) := zeroEntry
   }
   when(io.rebind.fire) {
+    entries(rebindIndex).canceledAttemptValid := true.B
+    entries(rebindIndex).canceledAttempt := io.rebind.bits.currentAttempt
     entries(rebindIndex).attempt := io.rebind.bits.nextAttempt
     entries(rebindIndex).load := io.rebind.bits.nextLoad
     entries(rebindIndex).faultCancelSent := false.B
+  }
+  when(io.completion.fire && completionStaleAttempt) {
+    entries(completionIndex).canceledAttemptValid := false.B
   }
   when(faultCancelPublish && !io.result.fire) {
     entries(completionIndex).faultCancelSent := true.B
@@ -557,6 +584,8 @@ class OooIexLoadTerminalMetadata(
     entries(allocIndex).valid := true.B
     entries(allocIndex).loadId := io.alloc.bits.loadId
     entries(allocIndex).attempt := io.alloc.bits.attempt
+    entries(allocIndex).canceledAttemptValid := false.B
+    entries(allocIndex).canceledAttempt := LoadAttemptIdentity.none
     entries(allocIndex).load := io.alloc.bits.load
     entries(allocIndex).request := io.alloc.bits.request
     entries(allocIndex).lane := io.alloc.bits.lane

@@ -264,6 +264,7 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
     dut.io.systemIssue.foreach(_.ready.poke(true.B))
     dut.io.cmdIssue.ready.poke(true.B)
     dut.io.robResolve.ready.poke(true.B)
+    dut.io.trace.ready.poke(true.B)
     dut.io.recovery.prepare.valid.poke(false.B)
     dut.io.recovery.prepare.bits.poke(
       0.U.asTypeOf(dut.io.recovery.prepare.bits))
@@ -357,6 +358,13 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
       pokeNoDestinationBru(dut)
 
       dut.io.robResolve.valid.expect(true.B)
+      dut.io.trace.valid.expect(true.B)
+      dut.io.trace.bits.source.expect(OooIexTerminalSource.System)
+      dut.io.trace.bits.member.group.peId.expect(3.U)
+      dut.io.trace.bits.member.group.stid.expect(0.U)
+      dut.io.trace.bits.member.group.ridSlot.expect(2.U)
+      dut.io.trace.bits.member.bid.value.expect(2.U)
+      dut.io.trace.bits.member.brobGeneration.expect(7.U)
       dut.io.robResolve.bits.destinationValid.expect(false.B)
       dut.io.robResolve.bits.destinationIndex.expect(0.U)
       dut.io.robResolve.bits.value.expect(0.U)
@@ -455,6 +463,7 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
       dut.io.load.ready.expect(false.B)
       dut.io.trace.valid.expect(false.B)
       dut.io.robResolve.valid.expect(false.B)
+      dut.io.trace.valid.expect(false.B)
       dut.io.terminalFire.expect(false.B)
 
       dut.io.recoveryEvent.ready.poke(true.B)
@@ -500,6 +509,8 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.alu.ready.expect(true.B)
       dut.io.robResolve.valid.expect(true.B)
+      dut.io.trace.valid.expect(true.B)
+      dut.io.trace.bits.source.expect(OooIexTerminalSource.Cmd)
       dut.io.terminalFire.expect(true.B)
     }
   }
@@ -628,6 +639,84 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
       dut.io.cmdIssue.bits.sourceValues(1).expect(0x2222.U)
       dut.io.robResolve.valid.expect(true.B)
       dut.io.terminalFire.expect(true.B)
+    }
+  }
+
+  test("a waiting CMD publishes its proof after an older System fires") {
+    simulate(new OooIexSystemCmdTerminal(core)) { dut =>
+      resetAndClearSystemCmd(dut)
+      pokeSystem(dut)
+      pokeCmd(dut)
+      pokeMember(dut.io.cmd.head.bits.i2.row.schedule.member, ridSlot = 3)
+
+      dut.io.robNoflushReady.ready.poke(true.B)
+      dut.io.robNoflushReady.valid.expect(true.B)
+      expectRob(dut.io.robNoflushReady.bits.rob, ridSlot = 2)
+      pokePermit(dut)
+      dut.io.system.head.ready.expect(true.B)
+      dut.io.cmd.head.ready.expect(false.B)
+      dut.io.systemIssue.head.valid.expect(true.B)
+      dut.io.cmdIssue.valid.expect(false.B)
+      dut.clock.step()
+
+      dut.io.system.head.valid.poke(false.B)
+      dut.io.robNoflush.valid.poke(false.B)
+      dut.io.robNoflushReady.valid.expect(true.B)
+      expectRob(dut.io.robNoflushReady.bits.rob, ridSlot = 3)
+      dut.io.systemIssue.head.valid.expect(false.B)
+      dut.io.cmdIssue.valid.expect(false.B)
+
+      pokePermit(dut, ridSlot = 3)
+      dut.io.cmd.head.ready.expect(true.B)
+      dut.io.cmdIssue.valid.expect(true.B)
+      dut.io.robResolve.valid.expect(true.B)
+      dut.io.trace.valid.expect(true.B)
+      dut.io.trace.bits.source.expect(OooIexTerminalSource.Cmd)
+      dut.io.terminalFire.expect(true.B)
+    }
+  }
+
+  test("System permit withdrawal and trace backpressure preserve one exact resident row") {
+    simulate(new OooIexSystemCmdTerminal(core)) { dut =>
+      resetAndClearSystemCmd(dut)
+      pokeSystem(dut)
+      pokePermit(dut)
+      dut.io.trace.ready.poke(false.B)
+      dut.io.robNoflushReady.ready.poke(true.B)
+      dut.io.robNoflush.ready.expect(false.B)
+      dut.io.system.head.ready.expect(false.B)
+      dut.io.systemIssue.head.valid.expect(false.B)
+      dut.io.robResolve.valid.expect(false.B)
+      dut.io.trace.valid.expect(true.B)
+      dut.io.terminalFire.expect(false.B)
+      dut.clock.step(2)
+
+      dut.io.robNoflush.valid.poke(false.B)
+      dut.io.trace.ready.poke(true.B)
+      dut.io.robNoflushReady.valid.expect(true.B)
+      dut.io.systemIssue.head.valid.expect(false.B)
+      dut.io.robResolve.valid.expect(false.B)
+      dut.io.trace.valid.expect(false.B)
+      dut.io.system.head.ready.expect(false.B)
+      dut.clock.step()
+
+      pokePermit(dut, transactionId = 44)
+      dut.io.systemIssue.head.valid.expect(false.B)
+      dut.io.robResolve.valid.expect(false.B)
+      dut.io.trace.valid.expect(false.B)
+      dut.io.system.head.ready.expect(false.B)
+
+      pokePermit(dut)
+      dut.io.systemIssue.head.valid.expect(true.B)
+      dut.io.robResolve.valid.expect(true.B)
+      dut.io.trace.valid.expect(true.B)
+      dut.io.system.head.ready.expect(true.B)
+      dut.io.terminalFire.expect(true.B)
+      dut.clock.step()
+      dut.io.system.head.valid.poke(false.B)
+      dut.io.systemIssue.head.valid.expect(false.B)
+      dut.io.robResolve.valid.expect(false.B)
+      dut.io.trace.valid.expect(false.B)
     }
   }
 

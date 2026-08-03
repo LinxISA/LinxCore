@@ -206,9 +206,12 @@ class OooIexStoreStqFabric(
 
   val reserveFence = stidFenced(io.reserve.bits.stid)
 
-  reservation.io.inputValid := io.reserve.valid && !reserveFence
+  // Shape-check the offered payload independently of valid so Decoupled
+  // ready never feeds back through a producer that atomically joins valid to
+  // this reservation dependency.
+  reservation.io.inputValid := !reserveFence
   reservation.io.input := io.reserve.bits
-  stq.io.reserveBatchValid := reservation.io.reserveValid
+  stq.io.reserveBatchValid := io.reserve.valid && reservation.io.reserveValid
   stq.io.reserveBatchMask := reservation.io.reserveMask
   stq.io.reserveBatch := reservation.io.reserve
   io.reserve.ready := !reserveFence && reservation.io.reserveValid &&
@@ -318,6 +321,13 @@ class OooIexStoreStqFabric(
       lease.leases(beat).generation := Mux1H(matches,
         stq.io.rows.map(_.leaseGeneration))
     }
+    val childShape =
+      (execute.ownerClass === OooUopClass.Agu &&
+        row.reservation.uopClass === OooUopClass.Agu &&
+        row.childIndex === 0.U) ||
+      (execute.ownerClass === OooUopClass.Std &&
+        row.reservation.uopClass === OooUopClass.Std &&
+        row.childIndex === 1.U)
     val requestShape = row.valid && row.member.group.valid &&
       row.member.bid.valid && row.memory.valid && row.memory.isStore &&
       !row.memory.isLoad && row.memoryOrder.valid &&
@@ -325,7 +335,7 @@ class OooIexStoreStqFabric(
       !row.memoryOrder.isLoad &&
       ((row.memoryOrder.requestCount === 1.U) ||
         (row.memoryOrder.requestCount === 2.U)) &&
-      row.childIndex <= 1.U && row.member.memberIndex >= row.childIndex
+      childShape
     val exact = requestShape && beatExact.asUInt.andR
     lease.valid := exact
     (lease, exact)

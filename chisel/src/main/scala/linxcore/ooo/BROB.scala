@@ -65,6 +65,7 @@ class BROB(val p: CoreParams) extends Module {
   val scanCurrentValid = Wire(Vec(p.ooo.d3PrefixWidth + 1, Bool()))
   val scanCurrentBid = Wire(Vec(p.ooo.d3PrefixWidth + 1, UInt(p.nativeBidWidth.W)))
   val scanCurrentGen = Wire(Vec(p.ooo.d3PrefixWidth + 1, UInt(p.brobGenerationWidth.W)))
+  val scanCurrentResident = Wire(Vec(p.ooo.d3PrefixWidth + 1, Bool()))
   val allocCount = Wire(Vec(p.ooo.d3PrefixWidth + 1,
     UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)))
   scanTail(0) := tail(stid)
@@ -72,26 +73,39 @@ class BROB(val p: CoreParams) extends Module {
   scanCurrentValid(0) := currentValid(stid)
   scanCurrentBid(0) := currentBid(stid)
   scanCurrentGen(0) := currentGeneration(stid)
+  scanCurrentResident(0) := currentValid(stid) &&
+    tableValid(stid)(currentBid(stid)) &&
+    tableGeneration(stid)(currentBid(stid)) === currentGeneration(stid)
   allocCount(0) := 0.U
   for (lane <- 0 until p.ooo.d3PrefixWidth) {
     val active = lane.U < io.prepare.bits.count
     val startsBlock = active && io.prepare.bits.entries(lane).blockStart
     val stopsBlock = active && io.prepare.bits.entries(lane).blockStop
-    val bid = Mux(startsBlock, scanTail(lane), scanCurrentBid(lane))
-    val gen = Mux(startsBlock, scanGen(lane), scanCurrentGen(lane))
+    // A recovered open-current context can outlive retirement of its original
+    // BROB slot.  The first redirected continuation re-materializes that
+    // context at the current tail so its eventual stop has a live head-owned
+    // slot to close and release.
+    val reopensBlock = active && !startsBlock && scanCurrentValid(lane) &&
+      !scanCurrentResident(lane)
+    val allocatesBlock = startsBlock || reopensBlock
+    val bid = Mux(allocatesBlock, scanTail(lane), scanCurrentBid(lane))
+    val gen = Mux(allocatesBlock, scanGen(lane), scanCurrentGen(lane))
     prepared.entries(lane).valid := active
     prepared.entries(lane).stid := stid
     prepared.entries(lane).bid := bid
     prepared.entries(lane).brobGeneration := gen
-    prepared.entries(lane).allocated := startsBlock
-    val nextTailWide = scanTail(lane) +& startsBlock.asUInt
+    prepared.entries(lane).allocated := allocatesBlock
+    val nextTailWide = scanTail(lane) +& allocatesBlock.asUInt
     val wrap = nextTailWide >= p.ooo.brobEntriesPerStid.U
     scanTail(lane + 1) := nextTailWide(p.nativeBidWidth - 1, 0)
     scanGen(lane + 1) := scanGen(lane) + wrap.asUInt
     scanCurrentValid(lane + 1) := Mux(active, !stopsBlock, scanCurrentValid(lane))
-    scanCurrentBid(lane + 1) := Mux(startsBlock, bid, scanCurrentBid(lane))
-    scanCurrentGen(lane + 1) := Mux(startsBlock, gen, scanCurrentGen(lane))
-    allocCount(lane + 1) := allocCount(lane) + startsBlock.asUInt
+    scanCurrentBid(lane + 1) := Mux(allocatesBlock, bid, scanCurrentBid(lane))
+    scanCurrentGen(lane + 1) := Mux(allocatesBlock, gen, scanCurrentGen(lane))
+    scanCurrentResident(lane + 1) := Mux(
+      active, scanCurrentResident(lane) || allocatesBlock,
+      scanCurrentResident(lane))
+    allocCount(lane + 1) := allocCount(lane) + allocatesBlock.asUInt
   }
   io.prepared := prepared
   val publicationExact = io.robPrepared.count === io.prepare.bits.count &&
@@ -285,8 +299,9 @@ class BROB(val p: CoreParams) extends Module {
     val straddlingTailWide = straddlingBid +& 1.U
     val straddlingTailWrap = straddlingTailWide >= p.ooo.brobEntriesPerStid.U
     assert(prepareStraddlingCount <= 1.U)
-    partialCurrent := straddlingBlock && currentValid(recStid) &&
-      currentBid(recStid) === straddlingBid
+    // Pruning the closing suffix reopens the surviving prefix regardless of
+    // whether the original block had already published its stop marker.
+    partialCurrent := straddlingBlock
     val currentSurvives = currentValid(recStid) &&
       tableValid(recStid)(currentBid(recStid)) &&
       !prepareKilledMask(currentBid(recStid))
@@ -300,8 +315,10 @@ class BROB(val p: CoreParams) extends Module {
     recoveryCurrentValidReg := Mux(partialCurrent,
       true.B,
       currentSurvives)
-    recoveryCurrentBidReg := currentBid(recStid)
-    recoveryCurrentGenerationReg := currentGeneration(recStid)
+    recoveryCurrentBidReg := Mux(partialCurrent,
+      straddlingBid, currentBid(recStid))
+    recoveryCurrentGenerationReg := Mux(partialCurrent,
+      tableGeneration(recStid)(straddlingBid), currentGeneration(recStid))
     recoveryUsedReg := used(recStid) - killedCount
     recoveryTailReg := Mux(straddlingBlock,
       straddlingTailWide(p.nativeBidWidth - 1, 0),

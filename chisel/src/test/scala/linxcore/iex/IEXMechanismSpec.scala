@@ -30,6 +30,16 @@ private class IEXPcReadHarness(val core: CoreParams) extends Module {
   pc.io.prepare := io.prepare
   io.prepareReady := pc.io.prepareReady
   io.prepared := pc.io.prepared
+  pc.io.publicationIdentity.valid := io.publishFire
+  pc.io.publicationIdentity.bits :=
+    0.U.asTypeOf(pc.io.publicationIdentity.bits)
+  pc.io.publicationIdentity.bits.count := pc.io.prepared.count
+  for (laneIndex <- 0 until core.ooo.d3PrefixWidth) {
+    pc.io.publicationIdentity.bits.entries(laneIndex).valid :=
+      laneIndex.U < pc.io.prepared.count
+    pc.io.publicationIdentity.bits.entries(laneIndex).rob :=
+      io.prepare.bits.entries(laneIndex).uop.decoded.rob
+  }
   pc.io.publishFire := io.publishFire
   pc.io.commitPreview.valid := false.B
   pc.io.commitPreview.bits := 0.U.asTypeOf(pc.io.commitPreview.bits)

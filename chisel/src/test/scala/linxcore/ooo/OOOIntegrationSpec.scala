@@ -3,7 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
-import linxcore.params.{ParamProfiles, CoreParams}
+import linxcore.params.{CoreParams, SimulationParamProfiles}
 import linxcore.top.interface._
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -26,7 +26,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   import OOOIntegrationSpec.{PhysicalTag, Published, Shape}
   test("elaborates the canonical owner graph at W2 W4 W6 and W8") {
     Seq(2, 4, 6, 8).foreach { width =>
-      val p: CoreParams = ParamProfiles.forWidth(width)
+      val p: CoreParams = SimulationParamProfiles.forWidth(width)
       val chirrtl = ChiselStage.emitCHIRRTL(new OOO(p))
       assert(chirrtl.contains("circuit OOO"))
       Seq("RENU", "ROB", "BROB", "Dispatch", "CommitControl",
@@ -49,6 +49,8 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
+    dut.io.iex.fastWriteback.ready.poke(true.B)
+    dut.io.iex.fastWakeup.ready.poke(true.B)
     dut.io.iex.pcBufferReadAddress.foreach { address =>
       address.poke(0.U.asTypeOf(address))
     }
@@ -119,6 +121,11 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       row.rob.ridGeneration.poke(gen.U)
       row.rob.memberIndex.poke(0.U)
       row.uopClass.poke(UopClass.Alu)
+      row.classification.valid.poke(true.B)
+      row.classification.dispatchClass.poke(OooDispatchClass.Alu.U)
+      row.classification.executionPipeCapability(
+        OooDispatchClass.Alu - 1).poke(
+          (BigInt(1) << OooIexDomainCapability.SimpleAlu).U)
       row.blockStart.poke(true.B)
       row.blockStop.poke(true.B)
       var destination = 0
@@ -283,7 +290,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("commits one completed canonical OOO publication exactly once") {
-    val base = ParamProfiles.W2
+    val base = SimulationParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(
       robGroupsPerStid = 8,
       robBankCount = 2,
@@ -334,14 +341,106 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("backpressured fast result cannot commit before atomic writeback wakeup and resolve") {
+    val base = SimulationParamProfiles.W2
+    val p = base.copy(ooo = base.ooo.copy(
+      robGroupsPerStid = 8,
+      robBankCount = 2,
+      brobEntriesPerStid = 8,
+      gprPhysRegs = 64,
+      gprMapQDepthPerStid = 8,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      tuMapQDepthPerStid = 8,
+    ))
+    simulate(new OOOD3S1Graph(p)) { dut =>
+      clear(dut)
+      dut.io.commit.ready.poke(false.B)
+      dut.io.iex.fastWriteback.ready.poke(false.B)
+      dut.io.iex.fastWakeup.ready.poke(true.B)
+
+      val row = dut.io.fromD2.bits.entries(0).uop
+      dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
+      dut.io.fromD2.bits.count.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(1.U)
+      dut.io.fromD2.bits.groups(0).valid.poke(true.B)
+      dut.io.fromD2.bits.groups(0).peId.poke(1.U)
+      dut.io.fromD2.bits.groups(0).stid.poke(0.U)
+      row.valid.poke(true.B)
+      row.instruction.parent.identity.peId.poke(1.U)
+      row.instruction.parent.identity.stid.poke(0.U)
+      row.instruction.parent.identity.instructionId.poke(77.U)
+      row.instruction.parent.identity.epoch.poke(5.U)
+      row.instruction.parent.pc.poke(0x4000.U)
+      row.instruction.parent.lengthBytes.poke(4.U)
+      row.rob.peId.poke(1.U)
+      row.rob.stid.poke(0.U)
+      row.uopClass.poke(UopClass.Boundary)
+      row.classification.valid.poke(true.B)
+      row.classification.disposition.poke(OooOpcodeDisposition.FastResolve.U)
+      row.classification.fastResolveClass.poke(
+        OooFastResolveClass.ImmediateProducer.U)
+      row.classification.pDestinationCount.poke(1.U)
+      row.immediateValid.poke(true.B)
+      row.immediate.poke(0x30.U)
+      row.earlyComplete.poke(true.B)
+      row.blockStart.poke(true.B)
+      row.blockStop.poke(true.B)
+      row.destinations(0).valid.poke(true.B)
+      row.destinations(0).kind.poke(OperandKind.Gpr)
+      row.destinations(0).atag.poke(3.U)
+
+      dut.io.fromD2.valid.poke(true.B)
+      var cycles = 0
+      while (!dut.io.fromD2.ready.peek().litToBoolean && cycles < 32) {
+        dut.clock.step(); cycles += 1
+      }
+      assert(cycles < 32)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+
+      cycles = 0
+      while (!dut.io.iex.fastWriteback.valid.peek().litToBoolean &&
+          cycles < 32) {
+        dut.io.commit.valid.expect(false.B)
+        dut.clock.step(); cycles += 1
+      }
+      assert(cycles < 32)
+      val held = dut.io.iex.fastWriteback.bits.peek()
+      dut.io.iex.fastWriteback.bits.value.expect(0x4030.U)
+      dut.io.iex.fastWakeup.valid.expect(false.B)
+      (0 until 3).foreach { _ =>
+        dut.io.commit.valid.expect(false.B)
+        dut.io.iex.fastWriteback.valid.expect(true.B)
+        dut.io.iex.fastWriteback.bits.expect(held)
+        dut.clock.step()
+      }
+
+      dut.io.iex.fastWriteback.ready.poke(true.B)
+      dut.io.iex.fastWriteback.valid.expect(true.B)
+      dut.io.iex.fastWakeup.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.iex.fastWriteback.valid.expect(false.B)
+      dut.io.iex.fastWakeup.valid.expect(false.B)
+
+      cycles = 0
+      while (!dut.io.commit.valid.peek().litToBoolean && cycles < 32) {
+        dut.clock.step(); cycles += 1
+      }
+      assert(cycles < 32)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.entries(0).rob.expect(held.rob)
+    }
+  }
+
   test("publishes the PC buffer binding and frees it only on common commit") {
-    val base = ParamProfiles.W2
+    val base = SimulationParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(
       robGroupsPerStid = 8,
       robBankCount = 2,
       brobEntriesPerStid = 8,
       pcBufferEntries = 8,
-      pcBankCount = 2,
+      pcBankCount = 4,
       gprPhysRegs = 64,
       gprMapQDepthPerStid = 8,
       tPhysRegs = 8,
@@ -376,7 +475,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("retains one authoritative commit while the ROB preview expands") {
-    val base = ParamProfiles.W2
+    val base = SimulationParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(
       robGroupsPerStid = 8,
       robBankCount = 2,
@@ -432,9 +531,10 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("matches a four-STID reference across canonical publish and recovery") {
-    val base = ParamProfiles.W2
+    val base = SimulationParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(stidCount = 4,
       robGroupsPerStid = 8, brobEntriesPerStid = 8,
+      pcBufferEntries = 16,
       gprPhysRegs = 128, gprMapQDepthPerStid = 8,
       tPhysRegs = 16, uPhysRegs = 16, tuMapQDepthPerStid = 8))
     simulate(new OOOD3S1Graph(p)) { dut =>

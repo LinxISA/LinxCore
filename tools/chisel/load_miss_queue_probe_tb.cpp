@@ -44,6 +44,10 @@ void clear_inputs(VLoadMissQueueProbe &dut) {
   dut.io_missStid = 0;
   dut.io_missBid = 0;
   dut.io_missLsIdFull = 0;
+  dut.io_missAttemptGeneration = 0;
+  dut.io_cancelValid = 0;
+  dut.io_cancelIndex = 0;
+  dut.io_cancelAttemptGeneration = 0;
   dut.io_requestReady = 0;
   dut.io_responseValid = 0;
   dut.io_responseMissValid = 0;
@@ -56,13 +60,15 @@ void clear_inputs(VLoadMissQueueProbe &dut) {
 }
 
 void drive_miss(VLoadMissQueueProbe &dut, uint32_t index, uint64_t line,
-                uint32_t stid, uint32_t bid, uint64_t lsid) {
+                uint32_t stid, uint32_t bid, uint64_t lsid,
+                uint32_t attempt_generation = 0) {
   dut.io_missValid = 1;
   dut.io_missIndex = index;
   dut.io_missLineAddr = line;
   dut.io_missStid = stid;
   dut.io_missBid = bid;
   dut.io_missLsIdFull = lsid;
+  dut.io_missAttemptGeneration = attempt_generation;
   eval(dut);
   expect(dut.io_missReady, "miss must be ready");
   expect(dut.io_missAccepted, "miss must be accepted");
@@ -142,6 +148,62 @@ int main(int argc, char **argv) {
   dut.io_responseValid = 0;
   dut.io_responseMissValid = 0;
   expect(!dut.io_pending, "matching response must free entry");
+
+  drive_miss(dut, 5, 0x1400, 0, 5, 0x505, 7);
+  const uint32_t old_attempt_slot = dut.io_requestMissSlot;
+  const bool old_attempt_generation = dut.io_requestMissGeneration;
+  dut.io_requestReady = 1;
+  eval(dut);
+  expect(dut.io_requestAccepted, "old-attempt request must issue");
+  tick(dut);
+  dut.io_requestReady = 0;
+
+  dut.io_cancelValid = 1;
+  dut.io_cancelIndex = 5;
+  dut.io_cancelAttemptGeneration = 7;
+  eval(dut);
+  expect(dut.io_cancelReady && dut.io_cancelAccepted,
+         "exact old attempt must cancel atomically");
+  tick(dut);
+  dut.io_cancelValid = 0;
+  expect((dut.io_orphanMask & (1u << old_attempt_slot)) != 0,
+         "issued canceled attempt must remain as a response tombstone");
+
+  drive_miss(dut, 5, 0x1400, 0, 5, 0x505, 8);
+  expect(dut.io_requestValid,
+         "new attempt must allocate independently of the old tombstone");
+  const uint32_t new_attempt_slot = dut.io_requestMissSlot;
+  const bool new_attempt_generation = dut.io_requestMissGeneration;
+  expect(new_attempt_slot != old_attempt_slot ||
+         new_attempt_generation != old_attempt_generation,
+         "new attempt must use a distinct lower-memory identity");
+  dut.io_requestReady = 1;
+  eval(dut);
+  expect(dut.io_requestAccepted, "new-attempt request must issue before old response");
+  tick(dut);
+  dut.io_requestReady = 0;
+
+  dut.io_responseValid = 1;
+  dut.io_responseMissValid = 1;
+  dut.io_responseMissSlot = old_attempt_slot;
+  dut.io_responseMissGeneration = old_attempt_generation;
+  dut.io_responseLineAddr = 0x1400;
+  eval(dut);
+  expect(dut.io_responseMatched && !dut.io_refillValid,
+         "old-attempt response must drain without refill");
+  tick(dut);
+  expect((dut.io_issuedMask & (1u << new_attempt_slot)) != 0,
+         "old-attempt response must preserve the new request");
+
+  dut.io_responseMissSlot = new_attempt_slot;
+  dut.io_responseMissGeneration = new_attempt_generation;
+  eval(dut);
+  expect(dut.io_responseMatched && dut.io_refillValid,
+         "new-attempt response must publish the sole refill");
+  tick(dut);
+  dut.io_responseValid = 0;
+  dut.io_responseMissValid = 0;
+  expect(!dut.io_pending, "new-attempt response must release the replay miss");
 
   dut.io_responseValid = 1;
   eval(dut);

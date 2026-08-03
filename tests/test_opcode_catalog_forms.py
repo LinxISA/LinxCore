@@ -183,6 +183,26 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             for raw in raw_forms:
                 self.assertIn(f'value = BigInt("{raw:x}", 16)', scala)
 
+    def test_cmd_recipes_are_commit_owned_and_nonspeculative(self) -> None:
+        catalog = json.loads(
+            (ROOT / "src" / "common" / "opcode_catalog.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        commands = [
+            record for record in catalog["records"]
+            if record["ooo"]["dispatch_class"] == "CMD"
+        ]
+        self.assertTrue(commands)
+        for record in commands:
+            with self.subTest(symbol=record["symbol"], form=record.get("form_index")):
+                self.assertEqual(record["ooo"]["side_effect_owner"], "COMMIT")
+                self.assertTrue(record["ooo"]["nonspeculative"])
+                self.assertEqual(
+                    record["ooo"]["dispatch_capabilities"]["CMD"],
+                    "ENGINE_COMMAND",
+                )
+
     def test_v057_tma_cube_and_scalar_delta_decode(self) -> None:
         from common.decode32 import decode32_meta
         from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic

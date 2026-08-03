@@ -101,6 +101,25 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("classifies a standalone pure stop marker as early-complete boundary metadata") {
+    simulate(new DEC(ParamProfiles.W4)) { dut =>
+      clearDec(dut)
+      dut.io.in.bits.count.poke(1.U)
+      pokeEncoded(dut.io.in.bits, 0, "OP_BSTOP", 90, epoch = 2)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.count.expect(1.U)
+      val decoded = dut.io.out.bits.entries.head
+      decoded.trap.valid.expect(false.B)
+      decoded.uop.uopClass.expect(UopClass.Boundary)
+      decoded.uop.blockStart.expect(false.B)
+      decoded.uop.blockStop.expect(true.B)
+      decoded.uop.blockBoundary.expect(true.B)
+      decoded.uop.earlyComplete.expect(true.B)
+    }
+  }
+
   test("bypasses encoded decode for one CTU template child") {
     simulate(new DEC(ParamProfiles.W4)) { dut =>
       clearDec(dut)

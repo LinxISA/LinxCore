@@ -450,8 +450,11 @@ the state.
 ## Authorize exact unresolved noflush head work {#OOO-016}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=OOO-010,OOO-012,OOO-013,IFC-COMMIT-001,IFC-OOO-IEX-001 -->
 
-ROB MUST expose a noflush candidate only for a live, unresolved, unretired,
-trap-free resident head whose recipe is a no-destination system or CMD uop.
+ROB MUST expose a noflush candidate only for the oldest live, unresolved,
+unretired, trap-free resident row behind a fully completed, trap-free prefix
+whose recipe is a no-destination system or CMD uop. Completed older members of
+the same atomic BROB block MUST NOT require partial retirement before the next
+noflush row can be authorized.
 CommitControl MUST require an exact matching `RobNoflushReadyTxn` NFRDY proof
 from the execution/side-effect owners before it presents authorization. The
 proof means input and legality checks completed without a local trap and every
@@ -470,7 +473,9 @@ alone MUST NOT retire, resolve, or apply the side effect.
 owner. `linxcore.ooo.OOOD3S1Graph` joins its prepare and publication decisions
 to the existing common D3 fire. `linxcore.ooo.ROB` retains memory-order
 snapshots and publishes the exact resident-head preview;
-`linxcore.ooo.CommitControl` retains and publishes `RobNoflushTxn`. The
+`linxcore.ooo.CommitControl` retains and publishes `RobNoflushTxn`.
+`OOOD3S1Graph` forwards accepted `SystemIssueTxn` beats losslessly through the
+public `OOOIO` side-effect boundary. The
 canonical payload homes are `linxcore.top.interface.OOOD2D3`, `OOOIEX`, and
 `OOORob`.
 
@@ -482,7 +487,7 @@ multi-request uops, exact LSID/LID/SID assignment, YOST/YOLD boundaries,
 unpublished-suffix cancellation, recovery preview, and abort preservation.
 `OOOMemoryOrderIntegrationSpec` MUST cover common-fire backpressure stability,
 target-STID restore, peer-STID survival, exact graph-level NFRDY proof, and
-exactly-once authorization. `OOORobCommitSpec` MUST cover head-only ROB
+exactly-once authorization. `OOORobCommitSpec` MUST cover oldest-unresolved ROB
 eligibility, stale-proof drain, stable identity under backpressure, same-STID
 recovery withdrawal, peer-STID arbitration, resident-head exactly-once
 suppression, and loss-of-head invalidation. `OOORecoverySpec` MUST cover a

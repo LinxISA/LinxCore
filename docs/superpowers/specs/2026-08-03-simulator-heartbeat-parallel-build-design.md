@@ -118,7 +118,7 @@ selectors. SBT schedules independent suites concurrently. The runner and SBT
 share one `LINX_CHISEL_TEST_JOBS` limit so the number of concurrent simulator
 builds is explicit and reproducible.
 
-The default is two concurrent simulator suites. The user may raise it after
+The default is one simulator suite. The user may raise it explicitly after
 considering available memory. The runner records the selected job count in
 every heartbeat and final summary. It does not launch independent SBT clients
 against the same workspace.

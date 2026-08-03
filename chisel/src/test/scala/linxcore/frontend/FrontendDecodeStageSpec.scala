@@ -216,6 +216,9 @@ object FrontendDecodeStageReference {
       case FrontendOpcodeDecodeTable.ImmSIMM12_7_S5_25_7 =>
         imm = Some(sext((bitRange(word, 11, 7) << 7) | bitRange(word, 31, 25), 12))
       case FrontendOpcodeDecodeTable.ImmSIMM17 => imm = Some((sext(bitRange(word, 31, 15), 17) << 1) & Mask64)
+      case FrontendOpcodeDecodeTable.ImmSIMM22 =>
+        val raw = (bitRange(word, 11, 7) << 17) | bitRange(word, 31, 15)
+        imm = Some((sext(raw, 22) << 1) & Mask64)
       case FrontendOpcodeDecodeTable.ImmSIMM25 =>
         val raw = sext(bitRange(word, 31, 7), 25)
         if (opcodeIs(rule,

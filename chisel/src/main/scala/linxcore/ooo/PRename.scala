@@ -164,7 +164,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
     io.prepared.entries(lane).residentBound := in.entries(lane).residentBound
     io.prepared.entries(lane).brobBound := in.entries(lane).brobBound
     io.prepared.entries(lane).earlyRobComplete :=
-      in.entries(lane).uop.earlyComplete || in.entries(lane).uop.blockBoundary
+      in.entries(lane).uop.earlyComplete
     io.prepared.entries(lane).uop.decoded := in.entries(lane).uop
     for (source <- 0 until p.maxSourceOperands) {
       val src = in.entries(lane).uop.sources(source)

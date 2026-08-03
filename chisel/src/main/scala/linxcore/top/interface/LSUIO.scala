@@ -6,6 +6,11 @@ import linxcore.params.CoreParams
 
 class LSUIO(val p: CoreParams) extends Bundle {
   val iex = Flipped(new IEXLSUIO(p))
+  val storeCommit = Flipped(Decoupled(
+    new StoreCommitAuthorizationTxn(p)))
+  val storeClassify = Flipped(Decoupled(
+    new StoreMemoryClassifyTxn(p)))
+  val loadReissueRequest = Flipped(Decoupled(new LoadReissueTxn(p)))
   val memoryRequest = Vec(p.lsu.loadPipes + p.lsu.storePipes,
     Decoupled(new MemoryRequestTxn(p)))
   val memoryResponse = Flipped(Vec(p.lsu.loadPipes + p.lsu.storePipes,

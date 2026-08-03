@@ -9,8 +9,9 @@ import unittest
 
 
 class ChiselTestRunnerTest(unittest.TestCase):
+    repo_root = Path(__file__).resolve().parents[1]
     runner = (
-        Path(__file__).resolve().parents[1]
+        repo_root
         / "tools"
         / "chisel"
         / "run_chisel_tests.sh"
@@ -87,17 +88,33 @@ class ChiselTestRunnerTest(unittest.TestCase):
         self.assertIn("mutually exclusive", result.stderr)
         self.assertFalse(self.capture.exists())
 
-    def test_default_jobs_is_two(self):
+    def test_default_jobs_is_one(self):
         result = self.run_runner("--only", "FooSpec")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.read_capture()["jobs"], "2")
+        self.assertEqual(self.read_capture()["jobs"], "1")
         summary = next(
             line.removeprefix("linx-chisel-summary ")
             for line in result.stdout.splitlines()
             if line.startswith("linx-chisel-summary ")
         )
-        self.assertEqual(json.loads(summary)["jobs"], 2)
+        self.assertEqual(json.loads(summary)["jobs"], 1)
+
+    def test_ooo_integration_uses_bounded_simulation_profiles(self):
+        source = (
+            self.repo_root
+            / "chisel"
+            / "src"
+            / "test"
+            / "scala"
+            / "linxcore"
+            / "ooo"
+            / "OOOIntegrationSpec.scala"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("SimulationParamProfiles", source)
+        self.assertNotIn("{ParamProfiles,", source)
+        self.assertNotIn("val base = ParamProfiles.", source)
 
     def test_cli_jobs_overrides_environment(self):
         result = self.run_runner(

@@ -22,7 +22,8 @@ full-capacity, generated-RTL, lint, activation and workload evidence.
 
 Use `tools/chisel/run_chisel_tests.sh` for test execution. It supervises one
 SBT process, emits periodic build heartbeats, accepts repeated `--only`
-selectors, and defaults to two suite jobs. Build-stall detection requires
+selectors, and defaults to one suite job. Pass `--jobs N` explicitly only when
+the artifact and memory budget permits concurrent suites. Build-stall detection requires
 simultaneous output inactivity, artifact inactivity and low descendant CPU;
 architectural deadlock remains a simulated-cycle property checked by the
 test-scope `SimulationProgress` helper.

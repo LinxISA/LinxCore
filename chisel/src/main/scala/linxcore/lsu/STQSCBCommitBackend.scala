@@ -104,6 +104,8 @@ class STQSCBCommitBackendIO(
   val drainIssueCount = Output(UInt(issueCountWidth.W))
   val scbAcceptedMask = Output(UInt(requestCount.W))
   val scbValidMask = Output(UInt(scbEntries.W))
+  val scbRows = Output(Vec(scbEntries,
+    new SCBLineEntry(addrWidth, lineBytes)))
   val logicalCompletions = Output(Vec(issueWidth,
     new STQCommitLogicalCompletion(
       robEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
@@ -289,6 +291,7 @@ class STQSCBCommitBackend(
   io.drainIssueCount := drain.io.issueCount
   io.scbAcceptedMask := scb.io.acceptedMask
   io.scbValidMask := scb.io.validMask
+  io.scbRows := scb.io.entries
   io.logicalCompletions := drain.io.logicalCompletions
   when(serializer.io.logicalCompletion.valid) {
     io.logicalCompletions(0) := serializer.io.logicalCompletion.bits

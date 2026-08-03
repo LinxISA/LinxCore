@@ -1517,7 +1517,7 @@ Commit intent: `Prepare the LSU without cloning its state owners`
   atomic `RobResolveTxn`/RF write/wakeup、store/load resolve or fault、
   committed memory requests、reservation credits and recovery acknowledgement.
 
-- [ ] **Step 1: Write both public boundaries RED**
+- [x] **Step 1: Write both public boundaries RED**
 
 IEX RED covers stable classed-dispatch backpressure、exact identity retention、
 CMD/system independence、load-attempt rebind、two ALU、one BRU、two AGU、two
@@ -1539,7 +1539,7 @@ bash tools/chisel/run_chisel_tests.sh --only LSUStoreSpec
 bash tools/chisel/run_chisel_tests.sh --only LSULoadSpec
 ```
 
-- [ ] **Step 2: Perform one joint public-owner change**
+- [x] **Step 2: Perform one joint public-owner change**
 
 Create state-free composition shells `IEX` and `LSU`; change OOO, the prepared
 private IEX graph, the prepared private LSU graph and every live caller directly
@@ -1549,7 +1549,7 @@ cache or recovery state. Initial identity binding and every rebind/launch/cancel
 must use the approved typed lifecycle; remove every temporary conversion Bundle
 before GREEN.
 
-- [ ] **Step 3: Run pre-deletion cutover promotion**
+- [x] **Step 3: Run pre-deletion cutover promotion**
 
 Run:
 
@@ -1561,8 +1561,8 @@ bash tools/chisel/run_chisel_tests.sh --only IEXPipesSpec
 bash tools/chisel/run_chisel_tests.sh --only IEXTerminalSpec
 bash tools/chisel/run_chisel_tests.sh --only OOOIEXIntegrationSpec
 bash tools/chisel/run_chisel_tests.sh --only IEXLSUIntegrationSpec
-bash tools/chisel/run_chisel_tests.sh --only OOOIEXLSUActivationSpec
-bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec
+bash tools/chisel/run_chisel_tests.sh --only OOOIEXLSUActivationSpec --jobs 1 --artifact-budget-bytes 8589934592
+bash tools/chisel/run_chisel_tests.sh --only OOOIntegrationSpec --jobs 1 --artifact-budget-bytes 8589934592
 bash tools/chisel/run_chisel_store_non_flush_gate_probe.sh
 bash tools/chisel/run_chisel_brob_store_range_state_probe.sh
 bash tools/chisel/run_ooo_iex_lsu_activation_probe.sh
@@ -1585,7 +1585,7 @@ backpressure, performs one exact rebind, and proves one affected-STID recovery
 while a peer STID progresses. Old-chain deletion is forbidden unless this
 generated-RTL bounded-reference evidence is GREEN.
 
-- [ ] **Step 4: Delete both displaced chains and rerun closure**
+- [x] **Step 4: Delete both displaced chains and rerun closure**
 
 Only after every Step-3 gate is GREEN, delete the old reduced issue/RF/ALU/
 completion graph, old IEX public wrappers, the old `ScalarLSU` public shell and
@@ -1604,9 +1604,22 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 git diff --check
 ```
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit (push intentionally deferred for review)**
 
 Commit intent: `Switch OOO IEX and LSU once and retire both reduced chains`
+
+**Completion report (2026-08-03):** The atomic cutover is complete. The
+post-deletion public suites passed for issue, pipes, terminal, store, load,
+OOO-IEX, and IEX-LSU boundaries. `OOOIEXLSUActivationSpec` passed 8/8 cases
+under the 8 GiB artifact gate (`4,511,675,564` bytes), and the retained emitted
+RTL harness reproduced the exact bounded-reference counters with
+`mismatch_count=0`. The production-owner checker reports 25 closed owners, 24
+classified emitters, and 6 declared adapters; its 45 tests pass. Chisel compile,
+Verilator lint, shell syntax checks, module-index link closure, legacy-symbol
+source closure, and `git diff --check` are green. The displaced reduced IEX/LSU
+chains and legacy top/probe callers were deleted only after the promotion gates;
+generated artifacts were removed before commit. The commit is local only so the
+review gate can inspect the atomic change before any push.
 
 ### Task 16: Close translation, cache, lower memory and recovery inside the live LSU
 

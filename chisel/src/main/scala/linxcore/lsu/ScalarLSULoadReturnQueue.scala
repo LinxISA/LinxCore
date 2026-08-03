@@ -30,6 +30,13 @@ class LoadReplayReturnLretEntry(
   val loadLsIdFull = UInt(lsidWidth.W)
   val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
+  // Public OOO↔LSU adapters retain the asynchronous transaction identity
+  // beside the canonical row/attempt so stale returns can be drained only
+  // against the exact canceled transaction. Native LSU-only users leave the
+  // validity bit clear.
+  val transactionValid = Bool()
+  val transactionValue = UInt(64.W)
+  val transactionGeneration = UInt(16.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)

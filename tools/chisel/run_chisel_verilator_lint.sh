@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SV_DIR="${ROOT_DIR}/generated/chisel-verilog"
-TOP_SV="${SV_DIR}/LinxCoreTop.sv"
+TOP_SV="${SV_DIR}/OOOIEXLSUActivationProbe.sv"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel RTL lint" >&2
@@ -27,4 +27,4 @@ if [[ "${#SV_FILES[@]}" -eq 0 ]]; then
   exit 2
 fi
 
-verilator --lint-only --top-module LinxCoreTop "${SV_FILES[@]}"
+verilator --lint-only --top-module OOOIEXLSUActivationProbe "${SV_FILES[@]}"

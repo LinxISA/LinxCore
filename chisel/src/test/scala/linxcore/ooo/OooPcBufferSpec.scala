@@ -10,6 +10,9 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
   private def clear(dut: OooPcBuffer): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.publicationIdentity.valid.poke(false.B)
+    dut.io.publicationIdentity.bits.poke(
+      0.U.asTypeOf(dut.io.publicationIdentity.bits))
     dut.io.publishFire.poke(false.B)
     dut.io.commitPreview.valid.poke(false.B)
     dut.io.commitPreview.bits.poke(0.U.asTypeOf(dut.io.commitPreview.bits))
@@ -82,11 +85,32 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(true.B)
   }
 
-  private def publish(dut: OooPcBuffer): Unit = {
+  private def publish(
+      dut: OooPcBuffer,
+      residentGenerationDelta: Int = 0,
+      bidDelta: Int = 0,
+      brobGenerationDelta: Int = 0): Unit = {
     dut.io.prepareReady.expect(true.B)
+    val count = dut.io.prepared.count.peek().litValue.toInt
+    dut.io.publicationIdentity.bits.poke(
+      0.U.asTypeOf(dut.io.publicationIdentity.bits))
+    dut.io.publicationIdentity.bits.count.poke(count.U)
+    for (lane <- 0 until count) {
+      val source = dut.io.prepare.bits.entries(lane).uop.decoded.rob
+      val bound = dut.io.publicationIdentity.bits.entries(lane)
+      bound.valid.poke(true.B)
+      bound.rob.poke(source.peek())
+      bound.rob.residentGeneration.poke(
+        (source.residentGeneration.peek().litValue + residentGenerationDelta).U)
+      bound.rob.bid.poke((source.bid.peek().litValue + bidDelta).U)
+      bound.rob.brobGeneration.poke(
+        (source.brobGeneration.peek().litValue + brobGenerationDelta).U)
+    }
+    dut.io.publicationIdentity.valid.poke(true.B)
     dut.io.publishFire.poke(true.B)
     dut.clock.step()
     dut.io.publishFire.poke(false.B)
+    dut.io.publicationIdentity.valid.poke(false.B)
     dut.io.prepare.valid.poke(false.B)
   }
 
@@ -132,21 +156,35 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       lastRid: Int,
       survivingRid: Option[Int],
       stid: Int = 0,
-      transactionId: Int = 0x55): Unit = {
+      transactionId: Int = 0x55,
+      residentGenerationDelta: Int = 0,
+      bidDelta: Int = 0,
+      brobGenerationDelta: Int = 0): Unit = {
+    def bindIdentity(rob: RobIdentity, rid: Int): Unit = {
+      rob.residentGeneration.poke((0x20 + rid * 4 +
+        residentGenerationDelta).U)
+      rob.bid.poke((7 + rid + bidDelta).U)
+      rob.brobGeneration.poke((0x30 + rid +
+        brobGenerationDelta).U)
+    }
     val plan = dut.io.recovery.prepare.bits
     plan.poke(0.U.asTypeOf(plan))
     plan.transactionId.poke(transactionId.U)
     plan.phase.poke(RecoveryPhase.Prepare)
     plan.cause.poke(RecoveryCause.Branch)
     pokeRob(plan.trigger, dut.p, stid, firstRid)
+    bindIdentity(plan.trigger, firstRid)
     plan.firstKilledValid.poke(true.B)
     pokeRob(plan.firstKilled, dut.p, stid, firstRid)
+    bindIdentity(plan.firstKilled, firstRid)
     pokeRob(plan.lastKilled, dut.p, stid, lastRid)
+    bindIdentity(plan.lastKilled, lastRid)
     plan.killedGroupCount.poke((lastRid - firstRid + 1).U)
     plan.killedMemberCount.poke((lastRid - firstRid + 1).U)
     plan.survivingTailValid.poke(survivingRid.nonEmpty.B)
     survivingRid.foreach { rid =>
       pokeRob(plan.survivingTail, dut.p, stid, rid)
+      bindIdentity(plan.survivingTail, rid)
     }
     dut.io.recovery.prepare.valid.poke(true.B)
     dut.io.recovery.prepare.ready.expect(true.B)
@@ -306,6 +344,62 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       pokePrepare(dut, Seq((1, 0, 1000L)))
       dut.io.prepared.lanes(0).pcBufferIndex.expect(1.U)
       publish(dut)
+    }
+  }
+
+  test("redirected stop closes and frees an open-current recovery survivor") {
+    simulate(new OooPcBuffer(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      pokePrepare(dut,
+        Seq((0, 0, 0x7000L), (1, 0, 0x7004L), (2, 0, 0x7008L)),
+        blockStops = Set(2))
+      publish(dut)
+      readBase(dut, 0, 0, 0, 0, valid = true, base = 0x7000L)
+
+      pokeRecoveryPrepare(dut, firstRid = 1, lastRid = 2,
+        survivingRid = Some(0))
+      waitPrepared(dut)
+      terminateRecovery(dut, apply = true)
+
+      pokeCommit(dut, Seq((0, 0, 0, true)))
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitApply.poke(true.B)
+      dut.clock.step()
+      dut.io.commitApply.poke(false.B)
+      dut.io.commitPreview.valid.poke(false.B)
+      readBase(dut, 0, 0, 0, 0, valid = true, base = 0x7000L)
+
+      pokePrepare(dut, Seq((1, 0, 0x7008L)), blockStops = Set(0))
+      dut.io.prepared.lanes.head.pcBufferIndex.expect(0.U)
+      dut.io.prepared.lanes.head.allocationEpoch.expect(0.U)
+      publish(dut)
+
+      pokeCommit(dut, Seq((1, 0, 0, true)))
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitApply.poke(true.B)
+      dut.clock.step()
+      dut.io.commitApply.poke(false.B)
+      dut.io.commitPreview.valid.poke(false.B)
+      readBase(dut, 0, 0, 0, 0, valid = false)
+    }
+  }
+
+  test("retains ROB-bound endpoint identities across PC-buffer publication") {
+    simulate(new OooPcBuffer(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      pokePrepare(dut,
+        Seq((0, 0, 100L), (1, 0, 1000L), (2, 0, 2000L)))
+      publish(dut, residentGenerationDelta = 9, bidDelta = 1,
+        brobGenerationDelta = 7)
+
+      pokeRecoveryPrepare(dut, firstRid = 1, lastRid = 2,
+        survivingRid = Some(0), residentGenerationDelta = 9, bidDelta = 1,
+        brobGenerationDelta = 7)
+      waitPrepared(dut)
+      terminateRecovery(dut, apply = true)
+      readBase(dut, 0, 0, 0, 0, valid = true, base = 100)
+      readBase(dut, 1, 0, 1, 0, valid = false)
+      readBase(dut, 2, 0, 2, 0, valid = false)
     }
   }
 

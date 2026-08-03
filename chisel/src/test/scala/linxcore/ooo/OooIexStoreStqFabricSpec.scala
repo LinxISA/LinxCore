@@ -390,6 +390,38 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("STD child one may share ROB member zero but mismatched child or member is rejected") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
+      defaults(dut)
+      val firstLsid = BigInt("100000020", 16)
+      val firstStoreId = BigInt("200000020", 16)
+      reserve(dut, memberIndex = 0, ridSlot = 5,
+        firstLsid = firstLsid, firstStoreId = firstStoreId)
+
+      val data = dut.io.storeData(0)
+      pokeExecute(data.bits, addressHalf = false,
+        memberIndex = 0, ridSlot = 5,
+        firstLsid = firstLsid, firstStoreId = firstStoreId)
+      data.bits.i2.row.schedule.childIndex.poke(0.U)
+      data.valid.poke(true.B)
+      data.ready.expect(false.B)
+      dut.io.leaseLookupRejected(2).expect(true.B)
+
+      data.bits.i2.row.schedule.childIndex.poke(1.U)
+      data.bits.i2.row.schedule.member.memberIndex.poke(1.U)
+      data.ready.expect(false.B)
+      dut.io.leaseLookupRejected(2).expect(true.B)
+
+      data.bits.i2.row.schedule.member.memberIndex.poke(0.U)
+      data.ready.expect(true.B)
+      dut.io.leaseLookupRejected(2).expect(false.B)
+      dut.clock.step()
+      data.valid.poke(false.B)
+      dut.clock.step(4)
+      dut.io.dataReadyMask.expect(1.U)
+    }
+  }
+
   test("one recovery plan cancels retained STD and frees its exact STQ lease") {
     simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)

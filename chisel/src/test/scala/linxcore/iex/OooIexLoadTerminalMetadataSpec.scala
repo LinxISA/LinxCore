@@ -171,7 +171,10 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       ridSlot: Int,
       attemptGeneration: Int,
       fault: Boolean = false,
-      stid: Int = 1): Unit = {
+      stid: Int = 1,
+      transactionValue: BigInt = 0,
+      transactionGeneration: BigInt = 0,
+      pipeIndex: Int = 0): Unit = {
     val completion = dut.io.completion.bits
     completion.poke(0.U.asTypeOf(completion))
     completion.peId.poke(3.U)
@@ -193,6 +196,10 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     completion.payload.attempt.producer.memberIndex.poke(1.U)
     completion.payload.attempt.producer.residentGeneration.poke(11.U)
     completion.payload.attempt.generation.poke(attemptGeneration.U)
+    completion.payload.transactionValid.poke(true.B)
+    completion.payload.transactionValue.poke(transactionValue.U)
+    completion.payload.transactionGeneration.poke(transactionGeneration.U)
+    completion.payload.pipeIndex.poke(pipeIndex.U)
     completion.payload.dst.valid.poke(true.B)
     completion.payload.dst.kind.poke(DestinationKind.Gpr)
     completion.payload.dst.archTag.poke(6.U)
@@ -299,15 +306,51 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.rebind.valid.poke(false.B)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 5)
+        attemptGeneration = 7, transactionValue = 19,
+        transactionGeneration = 3)
       dut.io.result.ready.poke(true.B)
       dut.io.result.valid.expect(false.B)
       dut.io.completion.ready.expect(false.B)
-      dut.io.completionRejected.valid.expect(true.B)
-      dut.io.completionRejected.bits.attemptExact.expect(false.B)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 6)
+        attemptGeneration = 4, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.completion.ready.expect(false.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 20,
+        transactionGeneration = 3)
+      dut.io.completion.ready.expect(false.B)
+      dut.io.completionRejected.bits.transactionExact.expect(false.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3, pipeIndex = 1)
+      dut.io.completion.ready.expect(false.B)
+      dut.io.completionRejected.bits.pipeExact.expect(false.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.completion.bits.payload.valid.poke(false.B)
+      dut.io.completion.ready.expect(false.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.occupied.expect(1.U)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.io.completionRejected.valid.expect(true.B)
+      dut.io.completionRejected.bits.attemptExact.expect(false.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(false.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 6, transactionValue = 19,
+        transactionGeneration = 3)
       dut.io.result.valid.expect(true.B)
       dut.io.result.bits.load.transaction.value.expect(19.U)
       dut.io.result.bits.load.transaction.generation.expect(3.U)

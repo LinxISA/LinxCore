@@ -249,7 +249,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("ROB exposes NFRDY shape only for the exact unresolved resident head") {
+  test("ROB exposes NFRDY for the oldest unresolved row after a completed prefix") {
     simulate(new ROB(params(4))) { dut =>
       clearRob(dut)
       dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
@@ -264,21 +264,6 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.residentHeads(0).valid.expect(false.B,
         "a younger system row is not the resident head")
       complete(dut, ids.head, accepted = true)
-      dut.io.commit.ready.poke(true.B)
-      dut.io.commit.valid.expect(true.B)
-      dut.io.commitApply.poke(true.B)
-      dut.clock.step()
-      dut.io.commitApply.poke(false.B)
-      dut.io.release.valid.poke(true.B)
-      dut.io.release.bits.count.poke(1.U)
-      dut.io.release.bits.lanes(0).valid.poke(true.B)
-      dut.io.release.bits.lanes(0).rob.poke(ids.head)
-      dut.io.releaseReady.expect(true.B)
-      dut.io.releaseApply.poke(true.B)
-      dut.clock.step()
-      dut.io.release.valid.poke(false.B)
-      dut.io.releaseApply.poke(false.B)
-
       dut.io.residentHeads(0).valid.expect(true.B)
       dut.io.residentHeads(0).rob.expect(ids(1))
       dut.io.residentHeads(0).transactionId.expect(1.U)
@@ -418,6 +403,88 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.ready.poke(true.B)
       dut.clock.step()
       dut.io.out.valid.expect(false.B)
+    }
+  }
+
+  test("CommitControl tracks an expanding exact ROB prefix before owner readiness") {
+    simulate(new CommitControl(params(4))) { dut =>
+      clearCommitControlExtensions(dut)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.valid.poke(true.B)
+      dut.io.out.ready.poke(true.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(false.B)
+      dut.io.rob.bits.count.poke(1.U)
+      dut.io.rob.bits.entries(0).valid.poke(true.B)
+      dut.io.rob.bits.entries(0).commit.rob.peId.poke(1.U)
+      dut.io.rob.bits.entries(0).commit.rob.stid.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.ridSlot.poke(2.U)
+      dut.io.rob.bits.entries(0).commit.rob.ridGeneration.poke(3.U)
+      dut.io.rob.bits.entries(0).commit.rob.memberIndex.poke(0.U)
+      dut.io.rob.bits.entries(0).commit.rob.residentGeneration.poke(4.U)
+      dut.io.rob.bits.entries(0).commit.rob.bid.poke(1.U)
+      dut.io.rob.bits.entries(0).commit.rob.brobGeneration.poke(5.U)
+      dut.io.rob.bits.entries(0).commit.robGroupLast.poke(true.B)
+      dut.clock.step()
+      dut.io.out.valid.expect(false.B)
+
+      dut.io.rob.bits.count.poke(2.U)
+      dut.io.rob.bits.entries(1).valid.poke(true.B)
+      dut.io.rob.bits.entries(1).commit.rob.peId.poke(1.U)
+      dut.io.rob.bits.entries(1).commit.rob.stid.poke(0.U)
+      dut.io.rob.bits.entries(1).commit.rob.ridSlot.poke(3.U)
+      dut.io.rob.bits.entries(1).commit.rob.ridGeneration.poke(6.U)
+      dut.io.rob.bits.entries(1).commit.rob.memberIndex.poke(0.U)
+      dut.io.rob.bits.entries(1).commit.rob.residentGeneration.poke(7.U)
+      dut.io.rob.bits.entries(1).commit.rob.bid.poke(1.U)
+      dut.io.rob.bits.entries(1).commit.rob.brobGeneration.poke(5.U)
+      dut.io.rob.bits.entries(1).commit.robGroupLast.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.brobRelease.count.expect(2.U)
+      dut.io.out.bits.brobRelease.entries(0).expect(
+        dut.io.rob.bits.entries(0).commit.rob.peek())
+      dut.io.out.bits.brobRelease.entries(1).expect(
+        dut.io.rob.bits.entries(1).commit.rob.peek())
+      dut.io.out.bits.robRelease.count.expect(2.U)
+      dut.io.out.bits.rename.count.expect(2.U)
+      for (lane <- 2 until params(4).widths.retireWidth) {
+        dut.io.out.bits.robRelease.lanes(lane).valid.expect(false.B)
+        dut.io.out.bits.brobRelease.entries(lane).expect(
+          0.U.asTypeOf(dut.io.out.bits.brobRelease.entries(lane)))
+      }
+    }
+  }
+
+  test("CommitControl projects the maximum exact retire prefix") {
+    val p = params(4)
+    simulate(new CommitControl(p)) { dut =>
+      clearCommitControlExtensions(dut)
+      dut.io.rob.bits.poke(0.U.asTypeOf(dut.io.rob.bits))
+      dut.io.rob.valid.poke(true.B)
+      dut.io.out.ready.poke(false.B)
+      dut.io.robReleaseReady.poke(true.B)
+      dut.io.renameReleaseReady.poke(true.B)
+      dut.io.brobReleaseReady.poke(true.B)
+      dut.io.rob.bits.count.poke(p.widths.retireWidth.U)
+      for (lane <- 0 until p.widths.retireWidth) {
+        val rob = dut.io.rob.bits.entries(lane).commit.rob
+        dut.io.rob.bits.entries(lane).valid.poke(true.B)
+        rob.peId.poke(1.U)
+        rob.ridSlot.poke(lane.U)
+        rob.ridGeneration.poke((lane + 1).U)
+        rob.memberIndex.poke((lane % p.ooo.maxInstructionsPerRobGroup).U)
+        rob.residentGeneration.poke((lane + 2).U)
+        rob.bid.poke(1.U)
+        rob.brobGeneration.poke(9.U)
+      }
+      dut.io.out.valid.expect(true.B)
+      dut.io.out.bits.brobRelease.count.expect(p.widths.retireWidth.U)
+      for (lane <- 0 until p.widths.retireWidth) {
+        dut.io.out.bits.brobRelease.entries(lane).expect(
+          dut.io.rob.bits.entries(lane).commit.rob.peek())
+      }
     }
   }
 

@@ -3,7 +3,6 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{PopCount, Valid, log2Ceil}
 import linxcore.common.OperandClass
-import linxcore.execute.ScalarGPRFile
 
 class OooIexPFileKey(val p: OooParams = OooParams()) extends Bundle {
   val stid = UInt(p.stidWidth.W)
@@ -51,7 +50,8 @@ class OooIexOperandFilesIO(val p: OooParams = OooParams()) extends Bundle {
     Valid(UInt(p.pcWidth.W))))
 
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
-  val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
+  val pClear = Flipped(Vec(p.pTagAllocationWidth,
+    Valid(new OooIexPFileKey(p))))
   val pWrite = Flipped(Vec(p.iexPWritePorts,
     Valid(new OooIexPFileWrite(p))))
   val pWriteReady = Output(Vec(p.iexPWritePorts, Bool()))
@@ -86,8 +86,8 @@ class OooIexOperandFilesIO(val p: OooParams = OooParams()) extends Bundle {
 
 /** Canonical physical operand data owners for the formal OOO path.
   *
-  * P data and non-speculative readiness remain owned by the existing
-  * ScalarGPRFile. T and U are independent STID-local arrays whose allocation
+  * P data and non-speculative readiness are private to this canonical owner.
+  * T and U are independent STID-local arrays whose allocation
   * identity is the complete `{tag, sequence, epoch}` tuple. Allocation clear
   * installs a new identity as not-ready; only an exact committed write makes
   * its data readable. Recovery does not roll data back: a later allocation
@@ -99,12 +99,13 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
   private val tTagIndexWidth = log2Ceil(p.tPhysRegs)
   private val uTagIndexWidth = log2Ceil(p.uPhysRegs)
 
-  val pFile = Module(new ScalarGPRFile(
+  private val pFile = Module(new OooIexPDataFile(
     archRegs = p.pArchRegs,
     physRegs = p.pPhysRegs,
     dataWidth = p.pcWidth,
     readPorts = p.iexPReadPorts,
-    writePorts = p.iexPWritePorts))
+    writePorts = p.iexPWritePorts,
+    clearPorts = p.pTagAllocationWidth))
 
   val pOwnerValid = RegInit(VecInit(Seq.fill(p.pPhysRegs)(false.B)))
   val pOwnerStid = Reg(Vec(p.pPhysRegs, UInt(p.stidWidth.W)))
@@ -150,8 +151,8 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     pOwnerGeneration(safePInitTag) := io.pInit.bits.key.generation
   }
 
-  val invalidPClear = Wire(Vec(2, Bool()))
-  for (port <- 0 until 2) {
+  val invalidPClear = Wire(Vec(p.pTagAllocationWidth, Bool()))
+  for (port <- 0 until p.pTagAllocationWidth) {
     val key = io.pClear(port).bits
     val stidInRange = key.stid < p.stidCount.U
     val tagInRange = key.ptag < p.pPhysRegs.U
@@ -165,12 +166,21 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
       pOwnerGeneration(safeTag) := key.generation
     }
   }
-  val duplicatePClear = io.pClear(0).valid && io.pClear(1).valid &&
-    io.pClear(0).bits.ptag === io.pClear(1).bits.ptag
+  val duplicatePClear = (0 until p.pTagAllocationWidth).flatMap { left =>
+    (left + 1 until p.pTagAllocationWidth).map { right =>
+      io.pClear(left).valid && io.pClear(right).valid &&
+        io.pClear(left).bits.ptag === io.pClear(right).bits.ptag
+    }
+  }.foldLeft(false.B)(_ || _)
   pFile.io.clearValid := io.pClear(0).valid && !invalidPClear(0)
   pFile.io.clearTag := io.pClear(0).bits.ptag
   pFile.io.clearSecondValid := io.pClear(1).valid && !invalidPClear(1)
   pFile.io.clearSecondTag := io.pClear(1).bits.ptag
+  for (port <- 2 until p.pTagAllocationWidth) {
+    pFile.io.additionalClearValid(port - 2) :=
+      io.pClear(port).valid && !invalidPClear(port)
+    pFile.io.additionalClearTag(port - 2) := io.pClear(port).bits.ptag
+  }
 
   val stalePWrite = Wire(Vec(p.iexPWritePorts, Bool()))
   val pWriteFire = Wire(Vec(p.iexPWritePorts, Bool()))
@@ -214,11 +224,12 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     io.readyBits.ptag(tag).epoch := pOwnerEpoch(tag)
     io.readyBits.ptag(tag).generation := pOwnerGeneration(tag)
   }
-  val pInitClearCollision = io.pInit.valid && (0 until 2).map { port =>
+  val pInitClearCollision = io.pInit.valid &&
+    (0 until p.pTagAllocationWidth).map { port =>
     io.pClear(port).valid &&
       io.pInit.bits.key.ptag === io.pClear(port).bits.ptag
   }.foldLeft(false.B)(_ || _)
-  val pClearWriteCollision = (0 until 2).flatMap { clear =>
+  val pClearWriteCollision = (0 until p.pTagAllocationWidth).flatMap { clear =>
     (0 until p.iexPWritePorts).map { write =>
       io.pClear(clear).valid && pWriteFire(write) &&
         io.pClear(clear).bits.ptag === io.pWrite(write).bits.key.ptag

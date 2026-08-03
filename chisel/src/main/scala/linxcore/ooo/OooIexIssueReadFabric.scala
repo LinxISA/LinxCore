@@ -155,7 +155,8 @@ class OooIexIssueReadFabricIO(
     Valid(new OooIexBypassCandidate(p))))
 
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
-  val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
+  val pClear = Flipped(Vec(p.pTagAllocationWidth,
+    Valid(new OooIexPFileKey(p))))
   val pWrite = Flipped(Vec(p.iexPWritePorts,
     Valid(new OooIexPFileWrite(p))))
   val pWriteReady = Output(Vec(p.iexPWritePorts, Bool()))

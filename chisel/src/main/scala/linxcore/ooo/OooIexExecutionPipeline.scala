@@ -35,7 +35,8 @@ class OooIexExecutionPipelineIO(
   val pcReadResponses = Input(Vec(p.pcReadPorts,
     Valid(UInt(p.pcWidth.W))))
   val pInit = Flipped(Valid(new OooIexPFileInit(p)))
-  val pClear = Flipped(Vec(2, Valid(new OooIexPFileKey(p))))
+  val pClear = Flipped(Vec(p.pTagAllocationWidth,
+    Valid(new OooIexPFileKey(p))))
   val fastWriteback = Flipped(Decoupled(new OooFastResolveWriteback(p)))
   val fastWakeup = Flipped(Decoupled(new OooIexWakeup(p)))
   val tClear = Flipped(Vec(p.tuAllocationWidth,
@@ -61,6 +62,7 @@ class OooIexExecutionPipelineIO(
     Decoupled(new SystemIssueTxn(core)))
   val cmdIssue = Decoupled(new CmdIssueTxn(core))
   val systemCmdResolve = Decoupled(new RobResolveTxn(core))
+  val systemCmdTrace = Decoupled(new OooIexTerminalTrace(p))
   val load = new OooIexCanonicalLoadPortIO(p, loadParams)
   val loadCancel = Output(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -289,6 +291,9 @@ class OooIexExecutionPipeline(
   io.systemCmdResolve.valid := execute.io.systemCmdResolve.valid
   io.systemCmdResolve.bits := execute.io.systemCmdResolve.bits
   execute.io.systemCmdResolve.ready := io.systemCmdResolve.ready
+  io.systemCmdTrace.valid := execute.io.systemCmdTrace.valid
+  io.systemCmdTrace.bits := execute.io.systemCmdTrace.bits
+  execute.io.systemCmdTrace.ready := io.systemCmdTrace.ready
 
   io.load.liqAlloc <> execute.io.load.liqAlloc
   execute.io.load.liqAllocLoadId := io.load.liqAllocLoadId

@@ -151,6 +151,9 @@ class DEC(val p: CoreParams) extends Module {
     output.uop.instruction := input
     output.uop.opcode := decodedUop.opcode
     mapClass(decodedUop.recipe.dispatchClass, output.uop.uopClass)
+    when(decodedUop.recipe.recipeKind === OooOpcodeRecipeKind.Boundary.U) {
+      output.uop.uopClass := UopClass.Boundary
+    }
     output.uop.classification.valid := decodedUop.recipe.valid
     output.uop.classification.disposition := decodedUop.recipe.disposition
     output.uop.classification.kind := decodedUop.recipe.recipeKind
@@ -247,7 +250,7 @@ class DEC(val p: CoreParams) extends Module {
     output.uop.immediateValid := decodedUop.immediateValid
     output.uop.immediate := decodedUop.immediate
     output.uop.earlyComplete := decodedUop.preciseTrap ||
-      decodedUop.recipe.dispatchClass === OooDispatchClass.Boundary.U
+      output.uop.uopClass === UopClass.Boundary
     output.uop.blockStart := decodedUop.identity.boundary.start
     output.uop.blockStop := decodedUop.identity.boundary.stop
     output.uop.blockBoundary := decodedUop.identity.boundary.explicit

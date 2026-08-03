@@ -17,10 +17,17 @@ class LoadMissQueueProbeIO extends Bundle {
   val missStid = Input(UInt(2.W))
   val missBid = Input(UInt(3.W))
   val missLsIdFull = Input(UInt(40.W))
+  val missAttemptGeneration = Input(UInt(32.W))
   val missReady = Output(Bool())
   val missAccepted = Output(Bool())
   val missAllocated = Output(Bool())
   val missCoalesced = Output(Bool())
+
+  val cancelValid = Input(Bool())
+  val cancelIndex = Input(UInt(3.W))
+  val cancelAttemptGeneration = Input(UInt(32.W))
+  val cancelReady = Output(Bool())
+  val cancelAccepted = Output(Bool())
 
   val requestReady = Input(Bool())
   val requestValid = Output(Bool())
@@ -76,6 +83,16 @@ class LoadMissQueueProbe extends Module {
   preciseFlush.baseOnBid := true.B
   queue.io.flush := io.hardFlush
   queue.io.preciseFlush := preciseFlush
+  queue.io.cancelValid := io.cancelValid
+  queue.io.cancelLoadId := 0.U.asTypeOf(queue.io.cancelLoadId)
+  queue.io.cancelLoadId.valid := io.cancelValid
+  queue.io.cancelLoadId.value := io.cancelIndex
+  queue.io.cancelAttempt := 0.U.asTypeOf(queue.io.cancelAttempt)
+  queue.io.cancelAttempt.valid := true.B
+  queue.io.cancelAttempt.producer.valid := true.B
+  queue.io.cancelAttempt.producer.nativeBidValid := true.B
+  queue.io.cancelAttempt.generation := io.cancelAttemptGeneration
+  queue.io.cancelReturnPipeIndex := 0.U
 
   val row = Wire(chiselTypeOf(queue.io.missRow))
   row := 0.U.asTypeOf(row)
@@ -84,6 +101,10 @@ class LoadMissQueueProbe extends Module {
   row.loadId.valid := io.missValid
   row.loadId.wrap := false.B
   row.loadId.value := io.missIndex
+  row.attempt.valid := true.B
+  row.attempt.producer.valid := true.B
+  row.attempt.producer.nativeBidValid := true.B
+  row.attempt.generation := io.missAttemptGeneration
   row.peId := 0.U
   row.stid := io.missStid
   row.tid := io.missStid
@@ -120,6 +141,8 @@ class LoadMissQueueProbe extends Module {
   io.missAccepted := queue.io.missAccepted
   io.missAllocated := queue.io.missAllocated
   io.missCoalesced := queue.io.missCoalesced
+  io.cancelReady := queue.io.cancelReady
+  io.cancelAccepted := queue.io.cancelAccepted
   io.requestValid := queue.io.requestValid
   io.requestAccepted := queue.io.requestAccepted
   io.requestMissSlot := queue.io.request.missId.value

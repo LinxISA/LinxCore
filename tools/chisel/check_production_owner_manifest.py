@@ -57,6 +57,8 @@ PUBLIC_MODULES = {
     "IFU": "chisel/src/main/scala/linxcore/ifu/IFU.scala",
     "CTU": "chisel/src/main/scala/linxcore/ctu/CTU.scala",
     "OOO": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
+    "IEX": "chisel/src/main/scala/linxcore/iex/IEX.scala",
+    "LSU": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
 }
 
 # Closed inventory: the manifest may report these decisions but cannot invent,
@@ -136,8 +138,8 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
     ),
     "lsu_pipeline": (
         "LSU",
-        "ScalarLSU",
-        "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala",
+        "LSU",
+        "chisel/src/main/scala/linxcore/lsu/LSU.scala",
     ),
     "store_queue": (
         "LSU",
@@ -171,8 +173,8 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
     ),
     "lsu_recovery": (
         "LSU",
-        "ScalarLSURecoveryBoundary",
-        "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala",
+        "LSU",
+        "chisel/src/main/scala/linxcore/lsu/LSU.scala",
     ),
     "trace_debug_performance_observation": (
         "DTU",
@@ -217,7 +219,7 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "physical_register_data_readiness": (
         ("OooIexOperandFiles", "chisel/src/main/scala/linxcore/ooo/OooIexOperandFiles.scala"),
-        ("ScalarGPRFile", "chisel/src/main/scala/linxcore/execute/ScalarGPRFile.scala"),
+        ("OooIexPDataFile", "chisel/src/main/scala/linxcore/ooo/OooIexPDataFile.scala"),
     ),
     "execution_pipeline": (
         ("OooIexExecutionPipeline", "chisel/src/main/scala/linxcore/ooo/OooIexExecutionPipeline.scala"),
@@ -227,8 +229,9 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
         ("OooIexIssue", "chisel/src/main/scala/linxcore/ooo/OooIexIssue.scala"),
     ),
     "lsu_pipeline": (
-        ("ScalarLSU", "chisel/src/main/scala/linxcore/lsu/ScalarLSU.scala"),
+        ("LSU", "chisel/src/main/scala/linxcore/lsu/LSU.scala"),
         ("ScalarLSULoadPath", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"),
+        ("STQSCBCommitBackend", "chisel/src/main/scala/linxcore/lsu/STQSCBCommitBackend.scala"),
     ),
     "store_queue": (
         ("STQEntryBank", "chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala"),
@@ -252,8 +255,7 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
         ("LoadRefillTransport", "chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala"),
     ),
     "lsu_recovery": (
-        ("ScalarLSURecoveryBoundary", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoveryBoundary.scala"),
-        ("ScalarLSURecoverySource", "chisel/src/main/scala/linxcore/lsu/ScalarLSURecoverySource.scala"),
+        ("LSU", "chisel/src/main/scala/linxcore/lsu/LSU.scala"),
     ),
     "trace_debug_performance_observation": (
         ("CommitTraceMonitor", "chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala"),
@@ -262,12 +264,9 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 MANAGED_BOUNDARIES: tuple[tuple[str, str, str, bool, str, int, str], ...] = (
-    ("linxcore.lsu.ReducedLoadReplayLiqAllocAdapter", "chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala", "compatibility", False, "load_inflight_queue", 15, "linxcore.lsu.ReducedLoadReplayLiqAllocAdapter"),
     ("linxcore.top.IfuWindowLineFillAdapter", "chisel/src/main/scala/linxcore/top/IfuWindowLineFillAdapter.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.top.IfuWindowLineFillAdapter"),
     ("linxcore.ifu.ISideMemoryAdapter", "chisel/src/main/scala/linxcore/ifu/ISide.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.ifu.ISideMemoryAdapter"),
     ("linxcore.frontend.IfuBackendFeedbackBridge", "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridge.scala", "legacy-state-owner", True, "ifu_recovery_redirect", 17, "linxcore.frontend.IfuBackendFeedbackBridge"),
-    ("linxcore.lsu.ReducedStoreExecResultBridge", "chisel/src/main/scala/linxcore/lsu/ReducedStoreExecResultBridge.scala", "legacy-state-owner", True, "store_queue", 15, "linxcore.lsu.ReducedStoreExecResultBridge"),
-    ("linxcore.lsu.SCBCommitBridge", "chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala", "legacy-state-owner", True, "store_commit_buffer", 15, "linxcore.lsu.SCBCommitBridge"),
     ("linxcore.rename.ScalarDecodeRenameBridge", "chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala", "legacy-state-owner", True, "rename_p", 11, "linxcore.rename.ScalarDecodeRenameBridge"),
     ("linxcore.rename.ScalarTURenameBridge", "chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala", "legacy-state-owner", True, "rename_tu", 11, "linxcore.rename.ScalarTURenameBridge"),
     ("linxcore.top.IfuLineMemoryBridge", "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridge.scala", "legacy-state-owner", True, "instruction_cache", 17, "linxcore.top.IfuLineMemoryBridge"),
@@ -277,8 +276,6 @@ MANAGED_BOUNDARIES: tuple[tuple[str, str, str, bool, str, int, str], ...] = (
 # data, not a name heuristic: adding "Reduced" or "Probe" to a new executable
 # does not grant it a non-production exemption.
 EMITTER_INVENTORY: dict[tuple[str, str], str] = {
-    ("linxcore.top.Elaborate", "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"): "legacy-top",
-    ("linxcore.execute.ElaborateScalarIssueFabricProbe", "chisel/src/main/scala/linxcore/execute/ScalarIssueFabricProbe.scala"): "probe",
     ("linxcore.bctrl.EmitBrobOrderStateProbe", "chisel/src/main/scala/linxcore/bctrl/BrobOrderStateProbe.scala"): "probe",
     ("linxcore.bctrl.EmitBrobStoreCountPublisherProbe", "chisel/src/main/scala/linxcore/bctrl/BrobStoreCountPublisherProbe.scala"): "probe",
     ("linxcore.bctrl.EmitBrobStoreRangeStateProbe", "chisel/src/main/scala/linxcore/bctrl/BrobStoreRangeStateProbe.scala"): "probe",
@@ -288,35 +285,21 @@ EMITTER_INVENTORY: dict[tuple[str, str], str] = {
     ("linxcore.rename.EmitGPRRenameStidProbe", "chisel/src/main/scala/linxcore/rename/GPRRenameStidProbe.scala"): "probe",
     ("linxcore.frontend.EmitIfuBackendFeedbackBridgeProbe", "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala"): "probe",
     ("linxcore.top.EmitIfuLineMemoryBridgeProbe", "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridgeProbe.scala"): "probe",
-    ("linxcore.top.EmitLinxCoreBenchmarkAutonomousTop", "chisel/src/main/scala/linxcore/top/LinxCoreBenchmarkAutonomousTop.scala"): "legacy-top",
     ("linxcore.top.EmitLinxCoreCompositionProbe", "chisel/src/main/scala/linxcore/top/LinxCoreCompositionProbe.scala"): "probe",
-    ("linxcore.top.EmitLinxCoreFrontendAluTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendAluTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendFetchRfAluMarkerRowsTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluMarkerRowsTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluReducedStoreTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendFetchRfAluTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala"): "legacy-top",
     ("linxcore.top.EmitLinxCoreFrontendFetchTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendRfAluTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala"): "legacy-top",
     ("linxcore.top.EmitLinxCoreFrontendTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala"): "legacy-top",
     ("linxcore.frontend.EmitLinxCoreIfuThroughputProbe", "chisel/src/main/scala/linxcore/frontend/LinxCoreIfuThroughputProbe.scala"): "probe",
-    ("linxcore.top.EmitLinxCoreTopXcheck", "chisel/src/main/scala/linxcore/top/LinxCoreTop.scala"): "legacy-top",
     ("linxcore.lsu.EmitLoadMissQueueProbe", "chisel/src/main/scala/linxcore/lsu/LoadMissQueueProbe.scala"): "probe",
+    ("linxcore.iex.EmitOOOIEXLSUActivationProbe", "chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"): "fixture",
     ("linxcore.lsu.EmitLoadRefillTransportProbe", "chisel/src/main/scala/linxcore/lsu/LoadRefillTransportProbe.scala"): "probe",
     ("linxcore.recovery.EmitRecoveryClassMergeProbe", "chisel/src/main/scala/linxcore/recovery/RecoveryClassMergeProbe.scala"): "probe",
     ("linxcore.recovery.EmitRecoveryCleanupROBProbe", "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala"): "probe",
     ("linxcore.recovery.EmitRecoveryProducerProbe", "chisel/src/main/scala/linxcore/recovery/RecoveryProducerProbe.scala"): "probe",
     ("linxcore.rob.EmitReducedCommitROB", "chisel/src/main/scala/linxcore/rob/EmitReducedCommitROB.scala"): "reduced",
-    ("linxcore.lsu.EmitReducedStoreNonFlushGateProbe", "chisel/src/main/scala/linxcore/lsu/ReducedStoreNonFlushGateProbe.scala"): "probe",
-    ("linxcore.lsu.EmitReducedStoreWaitReplayChiselPathProbe", "chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala"): "probe",
-    ("linxcore.execute.EmitScalarGPRIssueWakeupProbe", "chisel/src/main/scala/linxcore/execute/ScalarGPRIssueWakeupProbe.scala"): "probe",
-    ("linxcore.lsu.EmitScalarL1DProbe", "chisel/src/main/scala/linxcore/lsu/ScalarL1DProbe.scala"): "probe",
     ("linxcore.lsu.EmitScalarL1DScbProbe", "chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala"): "probe",
     ("linxcore.lsu.EmitScalarLSULoadPathReturnProbe", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPathReturnProbe.scala"): "probe",
     ("linxcore.lsu.EmitScalarLSULoadReturnQueueProbe", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadReturnQueueProbe.scala"): "probe",
     ("linxcore.lsu.EmitScalarLSUMDBPathProbe", "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala"): "probe",
-    ("linxcore.top.EmitScalarLoadCompletionROBProbe", "chisel/src/main/scala/linxcore/top/ScalarLoadCompletionROBProbe.scala"): "probe",
-    ("linxcore.recovery.EmitScalarRedirectRecoverySourceProbe", "chisel/src/main/scala/linxcore/recovery/ScalarRedirectRecoverySourceProbe.scala"): "probe",
 }
 
 

@@ -218,5 +218,8 @@ class OOO(val p: CoreParams) extends Module {
   io.recoveryToIfu <> d3s1.io.recoveryToIfu
   io.recoveryToCtu <> d3s1.io.recoveryToCtu
   io.recoveryToLsu <> d3s1.io.recoveryToLsu
+  for (lane <- io.systemIssue.indices) {
+    io.systemIssue(lane) <> d3s1.io.systemIssue(lane)
+  }
   io.trace <> d3s1.io.trace
 }

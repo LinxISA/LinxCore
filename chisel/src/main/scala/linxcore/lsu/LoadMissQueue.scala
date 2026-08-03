@@ -17,6 +17,8 @@ class LoadMissDependent(
   val valid = Bool()
   val loadIndex = UInt(log2Ceil(liqEntries).W)
   val loadId = new ROBID(liqEntries)
+  val attempt = new LoadAttemptIdentity
+  val returnPipeIndex = UInt(LoadAttemptIdentity.IndexWidth.W)
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
   val tid = UInt(tidWidth.W)
@@ -89,6 +91,13 @@ class LoadMissQueueIO(
 
   val flush = Input(Bool())
   val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth, lsidWidth))
+
+  val cancelValid = Input(Bool())
+  val cancelLoadId = Input(new ROBID(liqEntries))
+  val cancelAttempt = Input(new LoadAttemptIdentity)
+  val cancelReturnPipeIndex = Input(UInt(LoadAttemptIdentity.IndexWidth.W))
+  val cancelReady = Output(Bool())
+  val cancelAccepted = Output(Bool())
 
   val missValid = Input(Bool())
   val missIndex = Input(UInt(log2Ceil(liqEntries).W))
@@ -226,6 +235,8 @@ class LoadMissQueue(
     a.valid &&
       a.loadIndex === index &&
       ROBID.equal(a.loadId, row.loadId) &&
+      LoadAttemptIdentity.equal(a.attempt, row.attempt) &&
+      a.returnPipeIndex === row.returnPipeIndex &&
       a.peId === row.peId &&
       a.stid === row.stid &&
       a.tid === row.tid &&
@@ -264,16 +275,38 @@ class LoadMissQueue(
   val responseMatchCount = PopCount(responseMatchVec)
   val responseUniqueMatch = responseMatchCount === 1.U
   val responseMatchIndex = PriorityEncoder(responseMatchMask)
-  val responseNeedsRefill = io.responseValid && responseUniqueMatch && io.response.isRead
+  val responseEntryHasDependents = responseUniqueMatch &&
+    entries(responseMatchIndex).dependents.map(_.valid).reduce(_ || _)
+  val responseNeedsRefill = io.responseValid && responseUniqueMatch &&
+    responseEntryHasDependents && io.response.isRead
   val responseAccepted = io.responseValid && io.responseReady
-  val responseReadMatch = responseAccepted && responseUniqueMatch && io.response.isRead
-  val responseFree = responseReadMatch
+  val responseReadAccepted = responseAccepted && responseUniqueMatch && io.response.isRead
+  val responseReadMatch = responseReadAccepted && responseEntryHasDependents
+  val responseFree = responseReadAccepted
+
+  val cancelMatchVec = Wire(Vec(missEntries, Bool()))
+  for (idx <- 0 until missEntries) {
+    val dependent = entries(idx).dependents(io.cancelLoadId.value)
+    cancelMatchVec(idx) := io.cancelLoadId.valid && dependent.valid &&
+      ROBID.equal(dependent.loadId, io.cancelLoadId) &&
+      LoadAttemptIdentity.equal(dependent.attempt, io.cancelAttempt) &&
+      dependent.returnPipeIndex === io.cancelReturnPipeIndex
+  }
+  val cancelMatchCount = PopCount(cancelMatchVec)
+  val cancelMatchIndex = PriorityEncoder(cancelMatchVec)
+  val cancelResponseConflict = io.responseValid && responseUniqueMatch &&
+    responseMatchIndex === cancelMatchIndex
+  val cancelReady = !flushCycle && cancelMatchCount === 1.U &&
+    !cancelResponseConflict
+  val cancelAccepted = io.cancelValid && cancelReady
 
   val existingVec = Wire(Vec(missEntries, Bool()))
   val freeVec = Wire(Vec(missEntries, Bool()))
   for (idx <- 0 until missEntries) {
+    val hasDependents = entries(idx).dependents.map(_.valid).reduce(_ || _)
     existingVec(idx) :=
       entries(idx).valid &&
+        hasDependents &&
         entries(idx).lineAddr === candidateLineAddr &&
         !(responseFree && responseMatchIndex === idx.U)
     freeVec(idx) := !entries(idx).valid
@@ -292,6 +325,8 @@ class LoadMissQueue(
   candidateDependent.valid := candidateUsable
   candidateDependent.loadIndex := io.missIndex
   candidateDependent.loadId := io.missRow.loadId
+  candidateDependent.attempt := io.missRow.attempt
+  candidateDependent.returnPipeIndex := io.missRow.returnPipeIndex
   candidateDependent.peId := io.missRow.peId
   candidateDependent.stid := io.missRow.stid
   candidateDependent.tid := io.missRow.tid
@@ -385,6 +420,10 @@ class LoadMissQueue(
       }
     }
   }.otherwise {
+    when(cancelAccepted) {
+      entries(cancelMatchIndex).dependents(io.cancelLoadId.value).valid := false.B
+    }
+
     when(requestAccepted) {
       entries(issueHeadIndex).issued := true.B
     }
@@ -446,6 +485,8 @@ class LoadMissQueue(
   io.missBlockedByCapacity := candidateUsable && !flushCycle && !indexCollision &&
     !responseSatisfiesCandidate && !canCoalesce && !canAllocate
   io.missBlockedByIndexCollision := candidateUsable && indexCollision
+  io.cancelReady := cancelReady
+  io.cancelAccepted := cancelAccepted
   io.requestAccepted := requestAccepted
   io.requestDroppedNoDependents := requestDropped && issueHead.valid && !issueHead.issued
   io.responseAccepted := responseAccepted

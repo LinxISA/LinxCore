@@ -524,6 +524,95 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("ROB reuses the recovered tail as the next commit head after survivor retirement") {
+    simulate(new ROB(params)) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 300, rid = 0, groupCount = 3, stid = 0)
+      lane(dut.io.prepare.bits, 1, id = 301, rid = 1, groupCount = 3, stid = 0)
+      lane(dut.io.prepare.bits, 2, id = 302, rid = 2, groupCount = 3, stid = 0)
+      (0 until 3).foreach { index =>
+        dut.io.prepare.bits.entries(index).earlyRobComplete.poke(true.B)
+      }
+      val ids = publish(dut, 3)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x160.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(ids.head)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.head.expect(ids.head)
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes.head.valid.poke(true.B)
+      dut.io.release.bits.lanes.head.rob.poke(ids.head)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.commit.ready.poke(true.B)
+      dut.io.commitApply.poke(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.commitApply.poke(false.B)
+      dut.io.release.valid.poke(false.B)
+      dut.io.releaseApply.poke(false.B)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 303, rid = 1, groupCount = 1, stid = 0)
+      dut.io.prepare.bits.entries.head.earlyRobComplete.poke(true.B)
+      val redirected = publish(dut, 1).head
+      dut.io.commit.valid.expect(true.B)
+      dut.io.commit.bits.count.expect(1.U)
+      dut.io.commit.bits.head.expect(redirected)
+      dut.io.commit.bits.entries.head.valid.expect(true.B)
+      dut.io.commit.bits.entries.head.commit.trap.valid.expect(false.B)
+    }
+  }
+
+  test("ROB staletrap is absent after recovery removes the last row") {
+    simulate(new ROB(params)) { dut =>
+      clearRob(dut)
+      dut.io.commit.ready.poke(true.B)
+      lane(dut.io.prepare.bits, 0, id = 310, rid = 0, groupCount = 1,
+        stid = 0)
+      dut.io.prepare.bits.entries.head.earlyRobComplete.poke(true.B)
+      dut.io.prepare.bits.entries.head.trap.valid.poke(true.B)
+      dut.io.prepare.bits.entries.head.trap.cause.poke(7.U)
+      val id = publish(dut, 1).head
+      dut.io.commit.valid.expect(true.B)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x162.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Exception)
+      dut.io.recoveryPrepare.bits.trigger.poke(id)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(id)
+      dut.io.recoveryPrepare.bits.lastKilled.poke(id)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(1.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(1.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      dut.io.commit.valid.expect(false.B)
+    }
+  }
+
   test("branch recovery from member zero kills member one in the same group") {
     simulate(new ROB(params)) { dut =>
       clearRob(dut)
@@ -838,6 +927,77 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("BROB reopens a released recovery survivor for redirected closure") {
+    simulate(new BROB(params)) { dut =>
+      clearBrob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 320, rid = 0, groupCount = 3,
+        stid = 0, member = 0, blockStart = true, blockStop = false)
+      lane(dut.io.prepare.bits, 1, id = 321, rid = 1, groupCount = 3,
+        stid = 0, member = 0, blockStart = false, blockStop = false)
+      lane(dut.io.prepare.bits, 2, id = 322, rid = 2, groupCount = 3,
+        stid = 0, member = 0, blockStart = false, blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      val initial = bindBrobPrepared(dut, 3)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x161.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(initial.head)
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.survivingTail.poke(initial.head)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(initial(1))
+      dut.io.recoveryPrepare.bits.lastKilled.poke(initial(2))
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(2.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(2.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.clock.step()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries.head.poke(initial.head)
+      dut.io.releaseReady.expect(true.B)
+      dut.io.releaseApply.poke(true.B)
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+      dut.io.releaseApply.poke(false.B)
+      dut.io.debugUsed(0).expect(0.U)
+
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 323, rid = 1, groupCount = 1,
+        stid = 0, member = 0, blockStart = false, blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      val redirected = bindBrobPrepared(dut, 1).head
+      dut.io.prepared.entries.head.allocated.expect(true.B)
+      dut.io.prepared.entries.head.bid.expect(1.U)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+      dut.io.debugUsed(0).expect(1.U)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.entries.head.poke(redirected)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
   test("BROB recovery shortens a closed block that straddles the killed suffix") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
@@ -923,6 +1083,55 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.releaseApply.poke(false.B)
       dut.io.release.bits.entries(0).poke(next)
+      dut.io.releaseReady.expect(true.B)
+    }
+  }
+
+  test("BROB shortened cross-group block releases through its surviving tail") {
+    simulate(new BROB(params)) { dut =>
+      clearBrob(dut)
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      lane(dut.io.prepare.bits, 0, id = 80, rid = 0, groupCount = 3,
+        blockStart = true)
+      lane(dut.io.prepare.bits, 1, id = 81, rid = 1, groupCount = 3)
+      lane(dut.io.prepare.bits, 2, id = 82, rid = 2, groupCount = 3,
+        blockStop = true)
+      dut.io.prepare.valid.poke(true.B)
+      val ids = bindBrobPrepared(dut, 3)
+      dut.io.prepare.ready.expect(true.B)
+      dut.io.publishFire.poke(true.B)
+      dut.clock.step()
+      dut.io.prepare.valid.poke(false.B)
+      dut.io.publishFire.poke(false.B)
+
+      val survivor = ids(1)
+      val killed = ids(2)
+      dut.io.recoveryPrepare.valid.poke(true.B)
+      dut.io.recoveryPrepare.bits.transactionId.poke(0x64.U)
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.cause.poke(RecoveryCause.Branch)
+      dut.io.recoveryPrepare.bits.trigger.poke(survivor)
+      dut.io.recoveryPrepare.bits.survivingTailValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.survivingTail.poke(survivor)
+      dut.io.recoveryPrepare.bits.firstKilledValid.poke(true.B)
+      dut.io.recoveryPrepare.bits.firstKilled.poke(killed)
+      dut.io.recoveryPrepare.bits.lastKilled.poke(killed)
+      dut.io.recoveryPrepare.bits.killedMemberCount.poke(1.U)
+      dut.io.recoveryPrepare.bits.killedGroupCount.poke(1.U)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.clock.step()
+      val prepared = dut.io.recoveryPrepared.bits.peek()
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryApply.valid.poke(true.B)
+      dut.io.recoveryApply.bits.poke(prepared)
+      dut.io.recoveryApply.bits.phase.poke(RecoveryPhase.Apply)
+      dut.clock.step()
+      dut.io.recoveryApply.valid.poke(false.B)
+
+      dut.io.release.valid.poke(true.B)
+      dut.io.release.bits.count.poke(2.U)
+      dut.io.release.bits.entries(0).poke(ids(0))
+      dut.io.release.bits.entries(1).poke(survivor)
       dut.io.releaseReady.expect(true.B)
     }
   }

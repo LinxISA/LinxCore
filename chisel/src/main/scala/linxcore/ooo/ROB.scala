@@ -253,7 +253,7 @@ class ROB(val p: CoreParams) extends Module {
       io.brobPrepared.count === io.prepare.bits.count &&
         binding.valid &&
         binding.stid === prepareStid &&
-        binding.allocated === row.blockStart &&
+        (!row.blockStart || binding.allocated) &&
         rawBindingExact && previousBindingExact,
       !binding.valid)
   }.reduce(_ && _)
@@ -473,13 +473,28 @@ class ROB(val p: CoreParams) extends Module {
   preview.headValid := stidHeadValid(selectedStid)
   preview.head := orderIds(selectedStid)(orderCommitHead(selectedStid))
   preview.headTrap := orderCommits(selectedStid)(orderCommitHead(selectedStid)).trap
+  preview.headTrap.valid := stidHeadTrap(selectedStid)
   for (stid <- 0 until p.ooo.stidCount) {
-    val idx = orderHead(stid)
-    val eligible = orderCount(stid).orR && orderValid(stid)(idx) &&
-      memberLiveAt(stid.U, orderIds(stid)(idx).ridSlot,
-        orderIds(stid)(idx).memberIndex) &&
-      !orderRetired(stid)(idx) && !orderCompleted(stid)(idx) &&
-      !orderCommits(stid)(idx).trap.valid && orderNoflushEligible(stid)(idx)
+    val completedPrefix = Wire(Vec(orderCapacity + 1, Bool()))
+    val noflushCandidates = Wire(Vec(orderCapacity, Bool()))
+    completedPrefix(0) := true.B
+    for (offset <- 0 until orderCapacity) {
+      val scanIdx = orderPlus(orderHead(stid), offset.U)
+      val active = offset.U < orderCount(stid) && orderValid(stid)(scanIdx)
+      val completed = orderCompleted(stid)(scanIdx) ||
+        orderRetired(stid)(scanIdx)
+      noflushCandidates(offset) := completedPrefix(offset) && active &&
+        !completed &&
+        memberLiveAt(stid.U, orderIds(stid)(scanIdx).ridSlot,
+          orderIds(stid)(scanIdx).memberIndex) &&
+        !orderCommits(stid)(scanIdx).trap.valid &&
+        orderNoflushEligible(stid)(scanIdx)
+      completedPrefix(offset + 1) := completedPrefix(offset) && active &&
+        completed && !orderCommits(stid)(scanIdx).trap.valid
+    }
+    val eligible = noflushCandidates.asUInt.orR
+    val eligibleOffset = PriorityEncoder(noflushCandidates)
+    val idx = orderPlus(orderHead(stid), eligibleOffset)
     io.residentHeads(stid) := 0.U.asTypeOf(io.residentHeads(stid))
     io.residentHeads(stid).valid := eligible
     io.residentHeads(stid).transactionId := orderTransactionId(stid)(idx)

@@ -1,9 +1,15 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Arbiter, Decoupled, Mux1H, Valid}
+import chisel3.util.{Arbiter, Decoupled, Mux1H, PopCount, PriorityEncoder,
+  Valid}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
+
+private[ooo] object OOOCommitApplyPolicy {
+  def releaseFire(transactionFire: Bool, commitCount: UInt): Bool =
+    transactionFire && commitCount =/= 0.U
+}
 
 /** Canonical production graph below the D2 boundary. The public OOO box and
   * the multi-STID reference test both use this exact owner composition.
@@ -22,6 +28,8 @@ class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
   val recoveryToIfu = new RecoveryTargetIO(p)
   val recoveryToCtu = new RecoveryTargetIO(p)
   val recoveryToLsu = new RecoveryTargetIO(p)
+  val systemIssue = Vec(p.iex.systemMulticycleQueues,
+    Decoupled(new SystemIssueTxn(p)))
   val trace = Decoupled(new TracePacket(p))
 }
 
@@ -36,8 +44,9 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   val brob = Module(new BROB(p))
   val pcBuffer = Module(new OooPcBuffer(p))
   val dispatch = Module(new Dispatch(p))
+  val fastResult = Module(new OooD3FastResultQueue(p))
   val commitControl = Module(new CommitControl(p))
-  private val recoveryTargetCount = 9
+  private val recoveryTargetCount = 10
   val recovery = Module(new RecoveryControl(p, recoveryTargetCount))
 
   val d2Stid = io.fromD2.bits.entries(0).uop.rob.stid
@@ -109,17 +118,70 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   rob.io.prepare.bits := d3WithPc
   brob.io.prepare.valid := renu.io.toD3.valid
   brob.io.prepare.bits := d3WithPc
+  rob.io.brobPrepared := brob.io.prepared
+  brob.io.robPrepared := rob.io.prepared
+
+  val fastResultValid = Wire(Vec(p.ooo.d3PrefixWidth, Bool()))
+  val fastResultPrefix = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)))
+  val fastResultCandidates = Wire(Vec(p.ooo.d3PrefixWidth,
+    new FastWritebackTxn(p)))
+  fastResultPrefix(0) := 0.U
+  for (lane <- 0 until p.ooo.d3PrefixWidth) {
+    val row = d3WithPc.entries(lane)
+    val destinationMask = VecInit(row.uop.destinations.map { destination =>
+      destination.valid && destination.kind === OperandKind.Gpr &&
+        destination.ptagValid
+    })
+    val destinationIndex = PriorityEncoder(destinationMask.asUInt)
+    val resultClass = row.uop.decoded.classification.fastResolveClass
+    fastResultValid(lane) := lane.U < d3WithPc.count &&
+      row.uop.decoded.classification.disposition ===
+        OooOpcodeDisposition.FastResolve.U &&
+      (resultClass === OooFastResolveClass.ImmediateProducer.U ||
+        resultClass === OooFastResolveClass.ControlValueProducer.U)
+    fastResultPrefix(lane + 1) := fastResultPrefix(lane) +
+      fastResultValid(lane).asUInt
+    fastResultCandidates(lane) := 0.U.asTypeOf(fastResultCandidates(lane))
+    fastResultCandidates(lane).rob := rob.io.prepared.entries(lane).rob
+    fastResultCandidates(lane).epoch :=
+      row.uop.decoded.instruction.parent.identity.epoch
+    fastResultCandidates(lane).destinationIndex := destinationIndex
+    fastResultCandidates(lane).destination :=
+      row.uop.destinations(destinationIndex)
+    fastResultCandidates(lane).value := Mux(
+      resultClass === OooFastResolveClass.ControlValueProducer.U,
+      row.uop.decoded.instruction.parent.pc +
+        row.uop.decoded.instruction.parent.lengthBytes,
+      row.uop.decoded.instruction.parent.pc + row.uop.decoded.immediate)
+    when(renu.io.toD3.valid && fastResultValid(lane)) {
+      assert(PopCount(destinationMask) === 1.U &&
+        rob.io.prepared.entries(lane).valid,
+        "canonical fast-result D3 rows require one exact ROB-bound P destination")
+    }
+  }
+  fastResult.io.prepare.valid := renu.io.toD3.valid
+  fastResult.io.prepare.bits := 0.U.asTypeOf(fastResult.io.prepare.bits)
+  fastResult.io.prepare.bits.count := fastResultPrefix.last
+  for (slot <- 0 until p.ooo.d3PrefixWidth) {
+    for (lane <- 0 until p.ooo.d3PrefixWidth) {
+      when(fastResultValid(lane) && fastResultPrefix(lane) === slot.U) {
+        fastResult.io.prepare.bits.entries(slot) := fastResultCandidates(lane)
+      }
+    }
+  }
   val residencyPreviewReady = rob.io.prepare.ready && brob.io.prepare.ready &&
-    pcBuffer.io.prepareReady
+    pcBuffer.io.prepareReady && fastResult.io.prepareReady
   val d3RecoveryFenced = earlyRecoveryValid && d3StidRaw === earlyRecoveryStid
   dispatch.io.in.valid := renu.io.toD3.valid && residencyPreviewReady &&
     memoryOrder.io.publishReady && !d3RecoveryFenced
   dispatch.io.in.bits := d3WithPc
-  rob.io.brobPrepared := brob.io.prepared
-  brob.io.robPrepared := rob.io.prepared
   renu.io.publicationIdentity.valid :=
     renu.io.toD3.valid && residencyPreviewReady
   renu.io.publicationIdentity.bits := rob.io.prepared
+  pcBuffer.io.publicationIdentity.valid :=
+    renu.io.toD3.valid && residencyPreviewReady
+  pcBuffer.io.publicationIdentity.bits := rob.io.prepared
   dispatch.io.robPrepared := rob.io.prepared
   dispatch.io.brobPrepared := brob.io.prepared
   val d3Ready = !d3RecoveryFenced && residencyPreviewReady &&
@@ -129,11 +191,25 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   rob.io.publishFire := d3Fire
   brob.io.publishFire := d3Fire
   pcBuffer.io.publishFire := d3Fire
+  fastResult.io.publishFire := d3Fire
   memoryOrder.io.publishFire := d3Fire
   rob.io.publicationTransactionBase := dispatch.io.publicationTransactionBase
   when(d3Fire) {
     assert(renu.io.publicationIdentity.valid,
       "canonical RENU publication requires ROB-prepared full identities")
+  }
+
+  for (lane <- 0 until p.ooo.d3PrefixWidth;
+       dest <- 0 until p.maxDestinationOperands) {
+    val clear = io.iex.allocationClear(
+      lane * p.maxDestinationOperands + dest)
+    val destination = d3WithPc.entries(lane).uop.destinations(dest)
+    clear.valid := d3Fire && lane.U < d3WithPc.count && destination.valid
+    clear.bits := 0.U.asTypeOf(clear.bits)
+    clear.bits.rob := rob.io.prepared.entries(lane).rob
+    clear.bits.epoch := d3WithPc.entries(lane).uop.decoded.instruction.parent
+      .identity.epoch
+    clear.bits.destination := destination
   }
   assert(dispatch.io.in.fire === d3Fire,
     "Dispatch reservation must share the unique D3 publication fire")
@@ -147,9 +223,29 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   pcBuffer.io.readAddress := io.iex.pcBufferReadAddress
   io.iex.pcBufferReadPcBase := pcBuffer.io.readPcBase
 
-  val completionArb = Module(new Arbiter(new RobResolveTxn(p), p.widths.issueWidth))
+  val completionArb = Module(new Arbiter(
+    new RobResolveTxn(p), p.widths.issueWidth + 1))
+  val fastCompletion = completionArb.io.in(0)
+  io.iex.fastWriteback.valid := fastResult.io.out.valid &&
+    io.iex.fastWakeup.ready && fastCompletion.ready
+  io.iex.fastWriteback.bits := fastResult.io.out.bits
+  io.iex.fastWakeup.valid := fastResult.io.out.valid &&
+    io.iex.fastWriteback.ready && fastCompletion.ready
+  io.iex.fastWakeup.bits.rob := fastResult.io.out.bits.rob
+  io.iex.fastWakeup.bits.epoch := fastResult.io.out.bits.epoch
+  io.iex.fastWakeup.bits.destination := fastResult.io.out.bits.destination
+  fastCompletion.valid := fastResult.io.out.valid &&
+    io.iex.fastWriteback.ready && io.iex.fastWakeup.ready
+  fastCompletion.bits := 0.U.asTypeOf(fastCompletion.bits)
+  fastCompletion.bits.rob := fastResult.io.out.bits.rob
+  fastCompletion.bits.destinationValid := true.B
+  fastCompletion.bits.destinationIndex :=
+    fastResult.io.out.bits.destinationIndex
+  fastCompletion.bits.value := fastResult.io.out.bits.value
+  fastResult.io.out.ready := io.iex.fastWriteback.ready &&
+    io.iex.fastWakeup.ready && fastCompletion.ready
   for (lane <- 0 until p.widths.issueWidth) {
-    completionArb.io.in(lane) <> io.iex.robResolve(lane)
+    completionArb.io.in(lane + 1) <> io.iex.robResolve(lane)
   }
   rob.io.completion <> completionArb.io.out
 
@@ -174,7 +270,9 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   }
   commitControl.io.robNoflushReady <> io.iex.robNoflushReady
   io.iex.robNoflush <> commitControl.io.robNoflush
-  io.iex.systemIssue.foreach(_.ready := false.B)
+  for (lane <- io.systemIssue.indices) {
+    io.systemIssue(lane) <> io.iex.systemIssue(lane)
+  }
 
   val releaseProbe = rob.io.commit.valid && rob.io.commit.bits.count =/= 0.U
   pcBuffer.io.commitPreview.valid := releaseProbe
@@ -199,13 +297,15 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   commitControl.io.out.ready :=
     (!io.commit.valid || io.commit.ready) && (!io.trap.valid || io.trap.ready)
   val commitFire = commitControl.io.out.fire
+  val releaseFire = OOOCommitApplyPolicy.releaseFire(
+    commitFire, commitControl.io.out.bits.commit.count)
   rob.io.commit.ready := true.B
   rob.io.commitApply := commitFire
-  rob.io.releaseApply := commitFire
-  renu.io.releaseApply := commitFire
-  brob.io.releaseApply := commitFire
-  pcBuffer.io.commitApply := commitFire
-  when(commitFire && commitControl.io.out.bits.commit.count =/= 0.U) {
+  rob.io.releaseApply := releaseFire
+  renu.io.releaseApply := releaseFire
+  brob.io.releaseApply := releaseFire
+  pcBuffer.io.commitApply := releaseFire
+  when(releaseFire) {
     assert(rob.io.releaseReady && renu.io.releaseReady && brob.io.releaseReady &&
       pcBuffer.io.commitReady,
       "canonical commit must atomically apply every owner release")
@@ -285,10 +385,11 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   brob.io.recoveryAbort := recovery.io.targets(2).abort
   connectTarget(recovery.io.targets(3), pcBuffer.io.recovery)
   connectTarget(recovery.io.targets(4), dispatch.io.recovery)
-  connectTarget(recovery.io.targets(5), io.iex.recovery)
-  connectTarget(recovery.io.targets(6), io.recoveryToIfu)
-  connectTarget(recovery.io.targets(7), io.recoveryToCtu)
-  connectTarget(recovery.io.targets(8), io.recoveryToLsu)
+  connectTarget(recovery.io.targets(5), fastResult.io.recovery)
+  connectTarget(recovery.io.targets(6), io.iex.recovery)
+  connectTarget(recovery.io.targets(7), io.recoveryToIfu)
+  connectTarget(recovery.io.targets(8), io.recoveryToCtu)
+  connectTarget(recovery.io.targets(9), io.recoveryToLsu)
 
   io.trace.valid := false.B
   io.trace.bits := 0.U.asTypeOf(io.trace.bits)

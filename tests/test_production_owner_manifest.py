@@ -117,11 +117,20 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self.assertIn("production-owner-manifest: 25 closed owners", result.stdout)
 
     def test_pending_private_owner_may_have_no_main_caller(self) -> None:
-        row = self.owner("execution_pipeline")
+        manifest = copy.deepcopy(self.manifest)
+        row = self.owner("trace_debug_performance_observation", manifest)
         self.assertEqual(row["public_box_status"], "pending")
-        self.assertEqual(row["active_callers"], [])
+        for caller in row["active_callers"]:
+            fixture = self.root / caller
+            fixture.write_text(
+                fixture.read_text(encoding="utf-8").replace(
+                    "CommitTraceMonitor", "CommitTraceObserver"
+                ),
+                encoding="utf-8",
+            )
+        row["active_callers"] = []
 
-        result = self._run()
+        result = self._run(manifest)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

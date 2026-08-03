@@ -9,6 +9,11 @@ the complete ROB member identity carried by the dispatched uop. A system or CMD
 side effect shall remain resident until its exact ROB noflush authorization and
 consumer readiness participate in the same resolve rendezvous.
 
+Every dispatch, resolve, trace, and commit packet is a continuous `[0, count)`
+prefix. A lane outside the prefix is invalid and cannot carry an independent
+side effect. Terminal queues retain each accepted prefix until all coupled
+consumers fire.
+
 ## Dispatch and resolve Bundles {#MEC-OOO-IEX-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-OOO-IEX-001 -->
 
@@ -20,13 +25,17 @@ authorizes one exact head member and is not a retained queue owner.
 its `valid` means operand and legality checks are complete without a local
 trap and the authoritative side-effect owners report every older effect
 drained. OOO accepts a matching proof only while the same unresolved member is
-the per-STID ROB resident head. A stale or mismatched proof is drained without
+the oldest unresolved row behind a fully completed, trap-free per-STID ROB
+prefix. This permits a younger System/CMD row in the same atomic BROB block to
+complete without requiring an impossible partial block retirement. A stale or
+mismatched proof is drained without
 authorization, while a matching proof and authorization remain one retained
 ready/valid rendezvous. Recovery fencing holds `ready` low for an exact,
 unaccepted proof; Abort therefore resumes the same proof instead of requiring
 the producer to regenerate it.
-`SystemIssueTxn` and the TOP-projected `CmdIssueTxn` remain separate
-backpressured transactions.
+`SystemIssueTxn` is forwarded losslessly through public `OOOIO` to its TOP
+side-effect owner. The TOP-projected `CmdIssueTxn` remains a separate public
+IEX transaction. Neither endpoint may be tied ready or silently drained.
 
 `DispatchTxn.trap` carries the precise decode-trap intent owned by OOO from
 the canonical D3 lane into IEX. Its validity and cause are immutable parts of

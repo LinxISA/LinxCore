@@ -8,4 +8,4 @@ bash "${ROOT_DIR}/tools/chisel/build_chisel.sh"
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 cd "${CHISEL_DIR}"
 sbt --server --batch --no-colors --mem "${LINX_CHISEL_SBT_MEM_MB}" \
-  "runMain linxcore.top.Elaborate"
+  "runMain linxcore.iex.EmitOOOIEXLSUActivationProbe --target-dir ${ROOT_DIR}/generated/chisel-verilog"

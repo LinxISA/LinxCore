@@ -323,7 +323,7 @@ class SCBRowBank(
   io.stalledMask := validReqMask & ~acceptedVec.asUInt
   io.commitFreeMask := commitFreeVec.asUInt
   io.commitFreeMaskValid := commitFreeVec.asUInt.orR
-  io.commitFreeCount := PopCount(commitFreeVec)(freeCountWidth - 1, 0)
+  io.commitFreeCount := PopCount(commitFreeVec).pad(freeCountWidth)
   io.wakeups := wakeups
   io.entries := entries
   io.nextEntries := state.io.nextEntries

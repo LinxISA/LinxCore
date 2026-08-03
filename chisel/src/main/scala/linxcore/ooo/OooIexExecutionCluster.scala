@@ -65,6 +65,7 @@ class OooIexExecutionClusterIO(
   val systemIssue = Vec(systemCount, Decoupled(new SystemIssueTxn(core)))
   val cmdIssue = Decoupled(new CmdIssueTxn(core))
   val systemCmdResolve = Decoupled(new RobResolveTxn(core))
+  val systemCmdTrace = Decoupled(new OooIexTerminalTrace(p))
 
   val load = new OooIexCanonicalLoadPortIO(p, loadParams)
 
@@ -303,6 +304,7 @@ class OooIexExecutionCluster(
   }
   io.cmdIssue <> systemCmd.io.cmdIssue
   io.systemCmdResolve <> systemCmd.io.robResolve
+  io.systemCmdTrace <> systemCmd.io.trace
   io.systemCmdTerminalFire := systemCmd.io.terminalFire
 
   io.wakeup.foreach(_ := 0.U.asTypeOf(io.wakeup.head))

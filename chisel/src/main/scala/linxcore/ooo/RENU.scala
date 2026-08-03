@@ -58,7 +58,6 @@ class RENU(val p: CoreParams) extends Module {
   val abortHit = recoveryPending && io.recovery.abort.valid &&
     samePlan(io.recovery.abort.bits) &&
     io.recovery.abort.bits.phase === RecoveryPhase.Abort
-
   val rawAnyPending = pendingValid.asUInt.orR
   val rawNextPendingStid = PriorityEncoder(pendingValid.asUInt)
   val rawPresentedStid = if (p.ooo.stidCount == 1) {
@@ -127,9 +126,16 @@ class RENU(val p: CoreParams) extends Module {
       io.fromD2.bits.entries(lane).uop.blockStart
     prepared.entries(lane).blockStop :=
       io.fromD2.bits.entries(lane).uop.blockStop
+    val fastResultProducer =
+      io.fromD2.bits.entries(lane).uop.classification.disposition ===
+        OooOpcodeDisposition.FastResolve.U &&
+      (io.fromD2.bits.entries(lane).uop.classification.fastResolveClass ===
+        OooFastResolveClass.ImmediateProducer.U ||
+        io.fromD2.bits.entries(lane).uop.classification.fastResolveClass ===
+          OooFastResolveClass.ControlValueProducer.U)
     prepared.entries(lane).earlyRobComplete :=
-      io.fromD2.bits.entries(lane).uop.earlyComplete ||
-        io.fromD2.bits.entries(lane).uop.blockBoundary
+      io.fromD2.bits.entries(lane).uop.earlyComplete &&
+        !fastResultProducer
     prepared.entries(lane).tSeqBefore :=
       tuRename.io.prepared.entries(lane).tSeqBefore
     prepared.entries(lane).uSeqBefore :=

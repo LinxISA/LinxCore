@@ -24,6 +24,7 @@ class MemoryRequestTxn(val p: CoreParams) extends Bundle {
 
 class MemoryResponseTxn(val p: CoreParams) extends Bundle {
   val identity = new MemoryTransactionIdentity(p)
+  val address = UInt(p.physicalAddressWidth.W)
   val data = UInt(p.dataWidth.W)
   val denied = Bool()
   val corrupt = Bool()

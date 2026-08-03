@@ -275,7 +275,7 @@ class LoadIexIssuePipeline(
   private def projectBid(target: ROBID): Unit = {
     val valueWidth = log2Ceil(target.entries)
     target.valid := member.bid.valid
-    target.value := member.bid.value(valueWidth - 1, 0)
+    target.value := member.bid.value.pad(valueWidth)(valueWidth - 1, 0)
     target.wrap := (if (p.nativeBidWidth > valueWidth)
       member.bid.value(valueWidth) else member.brobGeneration(0))
   }

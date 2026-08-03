@@ -677,7 +677,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("zero-destination boundary retains a sidecar without allocating maps") {
+  test("true early-complete boundary retains a sidecar without allocating maps") {
     simulate(new RENU(base(2))) { dut =>
       clear(dut)
       dut.io.fromD2.bits.count.poke(1.U)
@@ -694,6 +694,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       row.uop.rob.ridGeneration.poke(5.U)
       row.uop.uopClass.poke(UopClass.Boundary)
       row.uop.blockBoundary.poke(true.B)
+      row.uop.earlyComplete.poke(true.B)
       val group = dut.io.fromD2.bits.groups(0)
       group.valid.poke(true.B)
       group.peId.poke(1.U)
@@ -711,6 +712,40 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       dut.io.debugPMap(0)(1).expect(1.U)
       dut.io.debugTCount(0).expect(0.U)
       dut.io.debugUCount(0).expect(0.U)
+    }
+  }
+
+  test("fused executable block boundary remains dispatchable") {
+    simulate(new RENU(base(2))) { dut =>
+      clear(dut)
+      dut.io.fromD2.bits.count.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(1.U)
+      val row = dut.io.fromD2.bits.entries(0)
+      row.uop.valid.poke(true.B)
+      row.uop.instruction.parent.identity.peId.poke(1.U)
+      row.uop.instruction.parent.identity.stid.poke(0.U)
+      row.uop.instruction.parent.identity.instructionId.poke(121.U)
+      row.uop.instruction.parent.identity.epoch.poke(3.U)
+      row.uop.rob.stid.poke(0.U)
+      row.uop.rob.peId.poke(1.U)
+      row.uop.rob.ridSlot.poke(1.U)
+      row.uop.rob.ridGeneration.poke(5.U)
+      row.uop.uopClass.poke(UopClass.Alu)
+      row.uop.blockStart.poke(true.B)
+      row.uop.blockStop.poke(true.B)
+      row.uop.blockBoundary.poke(true.B)
+      row.uop.earlyComplete.poke(false.B)
+      val group = dut.io.fromD2.bits.groups(0)
+      group.valid.poke(true.B)
+      group.peId.poke(1.U)
+      group.stid.poke(0.U)
+      group.ridSlot.poke(1.U)
+      group.ridGeneration.poke(5.U)
+      dut.io.fromD2.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+      dut.io.toD3.valid.expect(true.B)
+      dut.io.toD3.bits.entries(0).earlyRobComplete.expect(false.B)
     }
   }
 

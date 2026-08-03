@@ -81,17 +81,20 @@ object OooIexBruPipeline {
     FrontendOpcodeDecodeTable.OP_SETC_TGT,
     FrontendOpcodeDecodeTable.OP_C_SETC_TGT)
 
+  val RedirectOpcodes: Seq[Int] = Seq(
+    FrontendOpcodeDecodeTable.OP_J)
+
   val SupportedOpcodes: Seq[Int] = PcValueOpcodes ++
-    CompareImmediateOpcodes ++ CompactConditionOpcodes ++ TargetOpcodes
+    CompareImmediateOpcodes ++ CompactConditionOpcodes ++ TargetOpcodes ++
+    RedirectOpcodes
 }
 
 /** One-cycle BRU value/condition execution with a retained E2 transaction.
   *
-  * The module owns no BCTRL state and emits no redirect directly. E2 must be
-  * accepted by a later atomic sink that applies the BCTRL/RF/ROB effects
-  * together. Conditional/unconditional redirect opcodes stay fail-closed
-  * until their missing architectural condition and prediction inputs have
-  * explicit typed owners.
+  * The module owns no BCTRL state. E2 must be accepted by a later atomic sink
+  * that applies BCTRL/RF/ROB effects together. Direct J emits its exact
+  * PC-relative target; conditional redirects remain fail-closed until their
+  * architectural condition and prediction inputs have typed owners.
   */
 class OooIexBruPipeline(
     val p: OooParams = OooParams(),
@@ -168,16 +171,17 @@ class OooIexBruPipeline(
 
     val compactCondition = isOneOf(op, CompactConditionOpcodes)
     val targetUpdate = isOneOf(op, TargetOpcodes)
-    terminal.bctrl.valid := compactCondition || targetUpdate
-    terminal.bctrl.kind := Mux(targetUpdate,
+    val redirect = isOneOf(op, RedirectOpcodes)
+    terminal.bctrl.valid := compactCondition || targetUpdate || redirect
+    terminal.bctrl.kind := Mux(targetUpdate || redirect,
       OooIexBctrlUpdateKind.Target, OooIexBctrlUpdateKind.Condition)
     terminal.bctrl.condition := Mux(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ),
       src0 === src1,
       Mux(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE),
         src0 =/= src1, src0 =/= 0.U))
-    terminal.bctrl.targetValid := targetUpdate && src0 =/= 0.U
-    terminal.bctrl.target := src0
+    terminal.bctrl.targetValid := redirect || (targetUpdate && src0 =/= 0.U)
+    terminal.bctrl.target := Mux(redirect, i2.pc + imm, src0)
     terminal
   }
 
@@ -207,8 +211,8 @@ class OooIexBruPipeline(
   val destinationMask = VecInit(
     incoming.i2.row.destinations.map(_.valid)).asUInt
   val needsImmediate = isOneOf(incomingOpcode,
-    PcValueOpcodes ++ CompareImmediateOpcodes)
-  val needsPc = isOneOf(incomingOpcode, PcValueOpcodes)
+    PcValueOpcodes ++ CompareImmediateOpcodes ++ RedirectOpcodes)
+  val needsPc = isOneOf(incomingOpcode, PcValueOpcodes ++ RedirectOpcodes)
   val operandShapeExact = incoming.i2.row.valid &&
     incoming.i2.row.member.group.valid && incoming.i2.row.member.bid.valid &&
     incoming.i2.row.reservation.valid &&

@@ -100,6 +100,41 @@ class RobResolveTxn(val p: CoreParams) extends Bundle {
   val trap = new TrapEvent(p)
 }
 
+/** Exact physical destination identity installed as not-ready by the common
+  * D3 publication fire. The destination carries the P generation or complete
+  * T/U `{tag, sequence, epoch}` allocation identity without reconstruction.
+  */
+class OperandAllocationClearTxn(val p: CoreParams) extends Bundle {
+  val rob = new RobIdentity(p)
+  val epoch = UInt(p.epochWidth.W)
+  val destination = new RenamedDestination(p)
+}
+
+/** Architectural boot initialization for one exact physical GPR row. */
+class PFileInitTxn(val p: CoreParams) extends Bundle {
+  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val atag = UInt(InterfaceWidth.index(p.ooo.gprArchRegs).W)
+  val epoch = UInt(p.epochWidth.W)
+  val ptag = UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W)
+  val generation = UInt(p.ooo.gprTagGenerationWidth.W)
+  val value = UInt(p.dataWidth.W)
+}
+
+class FastWritebackTxn(val p: CoreParams) extends Bundle {
+  val rob = new RobIdentity(p)
+  val epoch = UInt(p.epochWidth.W)
+  val destinationIndex = UInt(InterfaceWidth.index(
+    p.maxDestinationOperands).W)
+  val destination = new RenamedDestination(p)
+  val value = UInt(p.dataWidth.W)
+}
+
+class FastWakeupTxn(val p: CoreParams) extends Bundle {
+  val rob = new RobIdentity(p)
+  val epoch = UInt(p.epochWidth.W)
+  val destination = new RenamedDestination(p)
+}
+
 /** Exact ROB-head authorization for one resident system or CMD side effect. */
 class RobNoflushTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
@@ -135,6 +170,11 @@ class CmdIssueTxn(val p: CoreParams) extends Bundle {
 
 /** OOO-facing view of the OOO/IEX boundary. */
 class OOOIEXIO(val p: CoreParams) extends Bundle {
+  val allocationClear = Vec(
+    p.ooo.d3PrefixWidth * p.maxDestinationOperands,
+    Valid(new OperandAllocationClearTxn(p)))
+  val fastWriteback = Decoupled(new FastWritebackTxn(p))
+  val fastWakeup = Decoupled(new FastWakeupTxn(p))
   val aluDispatch =
     Vec(p.iex.aluPipes, Decoupled(new DispatchTxn(p)))
   val bruDispatch =

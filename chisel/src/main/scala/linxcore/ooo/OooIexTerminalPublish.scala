@@ -3,6 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Decoupled, RRArbiter, Valid}
 import linxcore.common.{DestinationKind, OperandClass}
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.params.CoreParams
 import linxcore.top.interface.{CmdIssueTxn, InstructionIdentity, RecoveryCause,
   RecoveryEvent, RecoveryPhase, RecoveryPlan, RecoveryPlanContract,
@@ -10,7 +11,7 @@ import linxcore.top.interface.{CmdIssueTxn, InstructionIdentity, RecoveryCause,
   RobResolveTxn, SystemIssueTxn, TrapEvent, TrapKind}
 
 object OooIexTerminalSource extends ChiselEnum {
-  val Alu, Bru, Load = Value
+  val Alu, Bru, Load, System, Cmd = Value
 }
 
 class OooIexTerminalWriteback(val p: OooParams = OooParams()) extends Bundle {
@@ -111,6 +112,7 @@ class OooIexSystemCmdTerminalIO(
   val systemIssue = Vec(systemCount, Decoupled(new SystemIssueTxn(core)))
   val cmdIssue = Decoupled(new CmdIssueTxn(core))
   val robResolve = Decoupled(new RobResolveTxn(core))
+  val trace = Decoupled(new OooIexTerminalTrace(p))
   val recovery = Flipped(new RecoveryTargetIO(core))
   val terminalFire = Output(Bool())
   val empty = Output(Bool())
@@ -270,9 +272,10 @@ class OooIexSystemCmdTerminal(val core: CoreParams) extends Module {
     issue.bits.immediate := selected.bits.execute.i2.row.immediate
   }
   io.systemIssue.head.valid := authorized && !selected.bits.cmd &&
-    io.robResolve.ready
+    io.robResolve.ready && io.trace.ready
 
-  io.cmdIssue.valid := authorized && selected.bits.cmd && io.robResolve.ready
+  io.cmdIssue.valid := authorized && selected.bits.cmd && io.robResolve.ready &&
+    io.trace.ready
   io.cmdIssue.bits := 0.U.asTypeOf(io.cmdIssue.bits)
   io.cmdIssue.bits.transactionId := selected.bits.execute.i2.row.transactionId
   io.cmdIssue.bits.instruction := selectedInstruction
@@ -289,7 +292,7 @@ class OooIexSystemCmdTerminal(val core: CoreParams) extends Module {
   val sideEffectFire = Mux(selected.bits.cmd,
     io.cmdIssue.fire, io.systemIssue.head.fire)
 
-  io.robResolve.valid := authorized && sideEffectReady
+  io.robResolve.valid := authorized && sideEffectReady && io.trace.ready
   io.robResolve.bits := 0.U.asTypeOf(io.robResolve.bits)
   io.robResolve.bits.transactionId := selected.bits.execute.i2.row.transactionId
   io.robResolve.bits.rob := selectedRob
@@ -298,18 +301,28 @@ class OooIexSystemCmdTerminal(val core: CoreParams) extends Module {
   io.robResolve.bits.value := 0.U
   io.robResolve.bits.trap := 0.U.asTypeOf(io.robResolve.bits.trap)
 
+  io.trace.valid := authorized && sideEffectReady && io.robResolve.ready
+  io.trace.bits := 0.U.asTypeOf(io.trace.bits)
+  io.trace.bits.source := Mux(selected.bits.cmd,
+    OooIexTerminalSource.Cmd, OooIexTerminalSource.System)
+  io.trace.bits.member := selected.bits.execute.i2.row.member
+  io.trace.bits.uopKey := selected.bits.execute.i2.row.uopKey
+  io.trace.bits.opcode := selected.bits.execute.i2.row.opcode
+
   io.robNoflush.ready := selected.valid && permitExact && sideEffectReady &&
-    io.robResolve.ready
+    io.robResolve.ready && io.trace.ready
   val atomicFire = selected.valid && io.robNoflush.fire &&
-    io.robNoflushReady.fire && sideEffectFire && io.robResolve.fire
+    io.robNoflushReady.fire && sideEffectFire && io.robResolve.fire &&
+    io.trace.fire
   io.system.head.ready := systemKilled || (!selected.bits.cmd && atomicFire)
   io.cmd.head.ready := cmdKilled || (selected.bits.cmd && atomicFire)
   io.terminalFire := atomicFire
   io.empty := !recoveryPending && !io.system.head.valid && !io.cmd.head.valid
 
-  when(io.robNoflush.fire || sideEffectFire || io.robResolve.fire) {
+  when(io.robNoflush.fire || sideEffectFire || io.robResolve.fire ||
+    io.trace.fire) {
     assert(atomicFire,
-      "System/CMD permit, side effect, resolve, proof, and owner release must fire atomically")
+      "System/CMD permit, side effect, resolve, trace, proof, and owner release must fire atomically")
   }
   when(atomicFire) {
     assert(!selected.bits.execute.i2.row.destinations.map(_.valid).reduce(_ || _),
@@ -571,8 +584,14 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
       (writeReady(index) && io.wakeup(index).ready)
   }
   val allDestinationReady = destinationReady.reduce(_ && _)
-  val bctrlReady = !selected.bits.bctrl.valid || io.bctrl.ready
-  val recoveryEventReady = !selected.bits.trapValid || io.recoveryEvent.ready
+  val branchRedirect = selected.bits.bctrl.valid &&
+    selected.bits.opcode === FrontendOpcodeDecodeTable.OP_J.U &&
+    selected.bits.bctrl.kind === OooIexBctrlUpdateKind.Target &&
+    selected.bits.bctrl.targetValid
+  val bctrlRequired = selected.bits.bctrl.valid && !branchRedirect
+  val bctrlReady = !bctrlRequired || io.bctrl.ready
+  val recoveryEventRequired = selected.bits.trapValid || branchRedirect
+  val recoveryEventReady = !recoveryEventRequired || io.recoveryEvent.ready
   val selectedRob = toRobIdentity(selected.bits.member)
   val recoveryKillsSelected = matchingApply && selected.valid &&
     RecoveryPlanContract.suffixMember(io.recovery.apply.bits, selectedRob)
@@ -601,15 +620,17 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     0.U)
   io.robResolve.bits.trap := trapEvent(selected.bits)
 
-  io.recoveryEvent.valid := publicationEnabled && selected.bits.trapValid &&
+  io.recoveryEvent.valid := publicationEnabled && recoveryEventRequired &&
     io.robResolve.ready && io.trace.ready && bctrlReady &&
     allDestinationReady
   io.recoveryEvent.bits := 0.U.asTypeOf(io.recoveryEvent.bits)
   io.recoveryEvent.bits.transactionId := selected.bits.transactionId
-  io.recoveryEvent.bits.cause := RecoveryCause.Exception
+  io.recoveryEvent.bits.cause := Mux(branchRedirect,
+    RecoveryCause.Branch, RecoveryCause.Exception)
   io.recoveryEvent.bits.trigger := selectedRob
   io.recoveryEvent.bits.instruction := toInstructionIdentity(selected.bits)
-  io.recoveryEvent.bits.redirectPc := 0.U
+  io.recoveryEvent.bits.redirectPc := Mux(branchRedirect,
+    selected.bits.bctrl.target, 0.U)
   io.recoveryEvent.bits.trap := trapEvent(selected.bits)
 
   io.trace.valid := publicationEnabled && io.robResolve.ready &&
@@ -623,7 +644,7 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
   io.trace.bits.trapValid := selected.bits.trapValid
   io.trace.bits.trapCause := selected.bits.trapCause
 
-  io.bctrl.valid := publicationEnabled && selected.bits.bctrl.valid &&
+  io.bctrl.valid := publicationEnabled && bctrlRequired &&
     io.robResolve.ready && io.trace.ready && recoveryEventReady &&
     allDestinationReady
   io.bctrl.bits.member := selected.bits.member
@@ -693,11 +714,11 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
   when(publicationFire) {
     assert(io.robResolve.fire && io.trace.fire,
       "terminal ROB resolve and trace must share the owner release")
-    when(selected.bits.trapValid) {
+    when(recoveryEventRequired) {
       assert(io.recoveryEvent.fire,
         "required recovery event must share the terminal owner release")
     }
-    when(selected.bits.bctrl.valid) {
+    when(bctrlRequired) {
       assert(io.bctrl.fire,
         "BCTRL mutation must share the terminal owner release")
     }

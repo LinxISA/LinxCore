@@ -115,7 +115,7 @@ class OooIexOperandFilesSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.reset.poke(false.B)
 
-      // P data/ready is the existing canonical ScalarGPRFile state.
+      // P data/ready belongs to the canonical OOO-IEX operand owner.
       dut.io.pInit.valid.poke(true.B)
       pokePKey(dut.io.pInit.bits.key,
         stid = 0, ptag = 40, generation = 3)

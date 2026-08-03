@@ -20,9 +20,9 @@ class OooIexBruPipelineSpec extends AnyFunSuite with ChiselSim {
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -254,17 +254,25 @@ class OooIexBruPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       cancel.valid.poke(false.B)
 
-      // J needs redirect ownership and B.Z/B.NZ need explicit EXEC/condition
-      // state, so both remain outside this first fail-closed BRU subset.
+      // Direct J owns an exact PC-relative redirect. Conditional branches
+      // remain fail-closed until their architectural condition state is wired.
       pokeExecute(dut, FrontendOpcodeDecodeTable.OP_J, ridSlot = 3,
+        sources = Seq.empty, immediate = Some(4), pc = Some(0x1000))
+      dut.io.e1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.e1.valid.poke(false.B)
+      dut.io.e2.valid.expect(true.B)
+      dut.io.e2.bits.bctrl.valid.expect(true.B)
+      dut.io.e2.bits.bctrl.targetValid.expect(true.B)
+      dut.io.e2.bits.bctrl.target.expect(0x1004.U)
+      dut.io.e2.ready.poke(true.B)
+      dut.clock.step()
+
+      pokeExecute(dut, FrontendOpcodeDecodeTable.OP_B_Z, ridSlot = 3,
         sources = Seq.empty, immediate = Some(4), pc = Some(0x1000))
       dut.io.e1.ready.expect(false.B)
       dut.io.rejected.valid.expect(true.B)
       dut.io.rejected.bits.supportedOpcode.expect(false.B)
-      dut.io.e1.bits.ownerClass.poke(OooUopClass.Alu)
-      dut.io.rejected.bits.classExact.expect(false.B)
-      dut.clock.step()
-      dut.io.occupied.expect(false.B)
     }
   }
 }

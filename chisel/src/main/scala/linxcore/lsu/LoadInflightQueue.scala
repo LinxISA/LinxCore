@@ -11,6 +11,44 @@ object LoadInflightStatus extends ChiselEnum {
   val Idle, Wait, Repick, L1DcMiss, L2Wait, Resolved = Value
 }
 
+private[lsu] object LoadAttemptRebindTransition {
+  def lifecycleReady(status: LoadInflightStatus.Type): Bool =
+    status === LoadInflightStatus.Wait ||
+      status === LoadInflightStatus.L1DcMiss ||
+      status === LoadInflightStatus.L2Wait
+
+  def next(current: LoadInflightRow,
+      attempt: LoadAttemptIdentity): LoadInflightRow = {
+    val result = Wire(chiselTypeOf(current))
+    result := current
+    result.status := LoadInflightStatus.Wait
+    result.attempt := attempt
+    result.forwardPending := false.B
+    result.lineData := 0.U
+    result.validMask := 0.U
+    result.loadByteMask := 0.U
+    result.forwardMask := 0.U
+    result.waitMask := 0.U
+    result.secondSegmentActive := false.B
+    result.firstSegmentDone := false.B
+    result.firstLineData := 0.U
+    result.firstValidMask := 0.U
+    result.firstLoadByteMask := 0.U
+    result.firstForwardMask := 0.U
+    result.waitStore := false.B
+    result.waitStoreInfo := 0.U.asTypeOf(result.waitStoreInfo)
+    result.storeBypass := false.B
+    result.dataComplete := false.B
+    result.sourcesReturned := false.B
+    result.scbReturned := false.B
+    result.stqReturned := false.B
+    result.l1Hit := false.B
+    result.l1Miss := false.B
+    result.missKind := LoadForwardMissKind.NoMiss
+    result
+  }
+}
+
 class LoadInflightAlloc(
     val liqEntries: Int,
     val idEntries: Int,
@@ -678,9 +716,7 @@ class LoadInflightQueue(
       (io.attemptRebind.next.producer.asUInt === io.attemptRebind.current.producer.asUInt) &&
       (io.attemptRebind.next.generation === (io.attemptRebind.current.generation +% 1.U))
   val attemptRebindLifecycleReady =
-    (attemptRebindRow.status === LoadInflightStatus.Wait) ||
-      (attemptRebindRow.status === LoadInflightStatus.L1DcMiss) ||
-      (attemptRebindRow.status === LoadInflightStatus.L2Wait)
+    LoadAttemptRebindTransition.lifecycleReady(attemptRebindRow.status)
   val attemptRebindLaunchConflict =
     (io.launchIntentValid &&
       (io.launchIntentIndex === io.attemptRebind.loadId.value)) ||
@@ -1185,7 +1221,9 @@ class LoadInflightQueue(
     }
 
     when(attemptRebindAccepted) {
-      rows(io.attemptRebind.loadId.value).attempt := io.attemptRebind.next
+      val index = io.attemptRebind.loadId.value
+      rows(index) := LoadAttemptRebindTransition.next(
+        rows(index), io.attemptRebind.next)
     }
 
     when(structuralRetryAccepted) {

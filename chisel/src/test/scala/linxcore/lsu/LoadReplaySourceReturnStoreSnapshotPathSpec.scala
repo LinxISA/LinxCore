@@ -1827,18 +1827,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       tidWidth = 8,
       storeEntries = 16,
       lsidWidth = 40)
-    val liqIo = new ReducedLoadReplayLiqAllocPathIO(
-      liqEntries = 4,
-      idEntries = 8,
-      storeEntries = 16)
-
     assert(pathIo.responseWaitStoreIndex.getWidth == 4)
     assert(pathIo.responseApplyWaitStoreInfo.storeIndex.getWidth == 4)
     assert(pathIo.rowStatePlanNextWaitStoreInfo.storeIndex.getWidth == 4)
     assert(pathIo.rowMutationNextWaitStoreInfo.storeIndex.getWidth == 4)
     assert(responseQueueIo.enqueue.waitStoreIndex.getWidth == 4)
     assert(responseQueueIo.headWaitStoreIndex.getWidth == 4)
-    assert(liqIo.rowMutationNextWaitStoreInfo.storeIndex.getWidth == 4)
     assert(pathIo.responseApplyWaitStoreInfo.storeId.value.getWidth == 3)
     assert(pathIo.selectedLoadLsIdFull.getWidth == 40)
     assert(pathIo.requestPayload.loadLsIdFull.getWidth == 40)

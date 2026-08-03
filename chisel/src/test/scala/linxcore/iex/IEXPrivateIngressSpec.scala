@@ -141,7 +141,8 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       (if (uopClassValue == stdValue || uopClassValue == aguValue)
          OooSideEffectOwner.Lsu
        else if (uopClassValue == bruValue) OooSideEffectOwner.Bctrl
-       else if (uopClassValue == systemValue) OooSideEffectOwner.Commit
+       else if (uopClassValue == systemValue || uopClassValue == cmdValue)
+         OooSideEffectOwner.Commit
        else OooSideEffectOwner.Iex).U)
     classification.dispatchWrites.poke(
       (if (uopClassValue == stdValue) 2 else 1).U)

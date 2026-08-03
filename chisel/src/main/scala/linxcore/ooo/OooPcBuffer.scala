@@ -44,6 +44,7 @@ class OooPcBufferIO(val p: CoreParams) extends Bundle {
   val prepare = Flipped(Valid(new D3RenameGroup(p)))
   val prepared = Output(new PcBufferD3Prepared(p))
   val prepareReady = Output(Bool())
+  val publicationIdentity = Input(Valid(new OOORobPrepared(p)))
   val publishFire = Input(Bool())
 
   val commitPreview = Flipped(Valid(new CommitTxn(p)))
@@ -314,6 +315,26 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
       }.reduce(_ || _)
   }
   private val acceptedCount = PopCount(acceptedLanes)
+  private val boundGroupFirstRob = Wire(Vec(d3Width, new RobIdentity(p)))
+  private val boundGroupLastRob = Wire(Vec(d3Width, new RobIdentity(p)))
+  for (group <- 0 until d3Width) {
+    val boundFirst = Wire(Vec(d3Width + 1, new RobIdentity(p)))
+    val boundLast = Wire(Vec(d3Width + 1, new RobIdentity(p)))
+    val boundSeen = Wire(Vec(d3Width + 1, Bool()))
+    boundFirst(0) := 0.U.asTypeOf(boundFirst(0))
+    boundLast(0) := 0.U.asTypeOf(boundLast(0))
+    boundSeen(0) := false.B
+    for (lane <- 0 until d3Width) {
+      val hit = laneGroupMatch(lane)(group) && lane.U < acceptedCount
+      val identity = io.publicationIdentity.bits.entries(lane).rob
+      boundFirst(lane + 1) := Mux(hit && !boundSeen(lane),
+        identity, boundFirst(lane))
+      boundLast(lane + 1) := Mux(hit, identity, boundLast(lane))
+      boundSeen(lane + 1) := boundSeen(lane) || hit
+    }
+    boundGroupFirstRob(group) := boundFirst.last
+    boundGroupLastRob(group) := boundLast.last
+  }
   private val acceptedLanePrefixExact = (0 until d3Width).map { lane =>
     acceptedLanes(lane) === (lane.U < acceptedCount)
   }.reduce(_ && _)
@@ -380,6 +401,21 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
   when(io.publishFire) {
     assert(io.prepare.valid && io.prepareReady,
       "PC-buffer publication requires the exact accepted D3 view")
+    assert(io.publicationIdentity.valid &&
+      io.publicationIdentity.bits.count === acceptedCount,
+      "PC-buffer publication requires ROB-bound identities for the exact accepted prefix")
+    for (lane <- 0 until d3Width) {
+      when(lane.U < acceptedCount) {
+        val preparedRob = io.prepare.bits.entries(lane).uop.decoded.rob
+        val bound = io.publicationIdentity.bits.entries(lane)
+        assert(bound.valid && bound.rob.peId === preparedRob.peId &&
+          bound.rob.stid === preparedRob.stid &&
+          bound.rob.ridSlot === preparedRob.ridSlot &&
+          bound.rob.ridGeneration === preparedRob.ridGeneration &&
+          bound.rob.memberIndex === preparedRob.memberIndex,
+          "PC-buffer ROB-bound publication identities must preserve accepted lane order")
+      }
+    }
   }
 
   // Exact ordered commit preview. Only group-last rows advance the base owner.
@@ -839,12 +875,12 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
     for (group <- 0 until d3Width) {
       when(matchingGroups(group) &&
           (groupBlockStop(group) || groupTrap(group))) {
-        closeOwner := groupLastRob(group)
+        closeOwner := boundGroupLastRob(group)
       }
       when(group.U < acceptedGroupCount && groupImplicitClose(group) &&
           localFromIndex(groupImplicitCloseIndex(group)) === local.U &&
           groupImplicitCloseEpoch(group) === row.allocationEpoch) {
-        closeOwner := groupFirstRob(group)
+        closeOwner := boundGroupFirstRob(group)
       }
     }
 
@@ -863,12 +899,12 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
         row.pcBufferIndex := groupIndex(firstGroup)
         row.allocationEpoch := groupEpoch(firstGroup)
         row.pcBase := groupBase(firstGroup)
-        row.firstRob := groupFirstRob(firstGroup)
+        row.firstRob := boundGroupFirstRob(firstGroup)
         row.nextCommitValid := true.B
-        row.nextCommitPeId := groupFirstRob(firstGroup).peId
-        row.nextCommitStid := groupFirstRob(firstGroup).stid
-        row.nextCommitRidSlot := groupFirstRob(firstGroup).ridSlot
-        row.nextCommitRidGeneration := groupFirstRob(firstGroup).ridGeneration
+        row.nextCommitPeId := boundGroupFirstRob(firstGroup).peId
+        row.nextCommitStid := boundGroupFirstRob(firstGroup).stid
+        row.nextCommitRidSlot := boundGroupFirstRob(firstGroup).ridSlot
+        row.nextCommitRidGeneration := boundGroupFirstRob(firstGroup).ridGeneration
         row.liveRobGroups := groupHits
         row.closed := explicitClose
         row.closeOwnerValid := explicitClose
@@ -884,7 +920,7 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
       }.otherwise {
         row.liveRobGroups := row.liveRobGroups + groupHits
       }
-      row.lastRob := groupLastRob(lastGroup)
+      row.lastRob := boundGroupLastRob(lastGroup)
       when(explicitClose) {
         row.closed := true.B
         row.closeOwnerValid := true.B

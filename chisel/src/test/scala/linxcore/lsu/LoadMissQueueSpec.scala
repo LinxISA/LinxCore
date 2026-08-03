@@ -46,7 +46,7 @@ object LoadMissQueueReference {
 
     def miss(lineAddr: BigInt, dependent: Dependent): String = {
       val lineMatches = rows.zipWithIndex.collect {
-        case (Some(row), idx) if row.lineAddr == lineAddr => idx
+        case (Some(row), idx) if row.lineAddr == lineAddr && row.dependents.nonEmpty => idx
       }
       require(lineMatches.size <= 1, "duplicate line owner")
       val occupiedElsewhere = rows.zipWithIndex.exists {
@@ -131,6 +131,21 @@ object LoadMissQueueReference {
 
     def hardFlush(): Int = prune(_ => true)
 
+    def cancel(dependent: Dependent): Boolean = {
+      val matches = rows.zipWithIndex.collect {
+        case (Some(row), idx)
+            if row.dependents.get(dependent.loadIndex).contains(dependent) => idx
+      }
+      if (matches.size != 1) false
+      else {
+        val idx = matches.head
+        val row = rows(idx).get
+        rows = rows.updated(idx, Some(row.copy(
+          dependents = row.dependents - dependent.loadIndex)))
+        true
+      }
+    }
+
     def response(
         missId: MissId,
         lineAddr: BigInt,
@@ -153,7 +168,7 @@ object LoadMissQueueReference {
           accepted = true,
           matched = true,
           stale = false,
-          refill = isRead,
+          refill = isRead && deps.nonEmpty,
           dependents = if (isRead) deps else Set.empty)
       }
     }
@@ -207,10 +222,29 @@ class LoadMissQueueSpec extends AnyFunSuite {
     assert(q.orphanMask == (1 << request.missId.slot))
     assert(q.pending)
 
-    assert(q.miss(0x1000, Dependent(loadIndex = 2, stid = 0)) == "coalesced")
+    assert(q.miss(0x1000, Dependent(loadIndex = 2, stid = 0)) == "allocated")
+    val replay = q.acceptRequest(ready = true).get
     val response = q.response(request.missId, request.lineAddr)
-    assert(response.refill && response.dependents == Set(2))
+    assert(!response.refill && response.dependents.isEmpty)
+    val replayResponse = q.response(replay.missId, replay.lineAddr)
+    assert(replayResponse.refill && replayResponse.dependents == Set(2))
     assert(!q.pending)
+  }
+
+  test("exact attempt cancel tombstones old traffic and isolates replay") {
+    val q = new QueueModel(entries = 4)
+    val old = Dependent(loadIndex = 3, loadGeneration = false, bid = 2)
+    val next = old.copy(loadGeneration = true)
+    assert(q.miss(0x1800, old) == "allocated")
+    val oldRequest = q.acceptRequest(ready = true).get
+    assert(!q.cancel(next))
+    assert(q.cancel(old))
+    assert(q.orphanMask == (1 << oldRequest.missId.slot))
+    assert(q.miss(0x1800, next) == "allocated")
+    val nextRequest = q.acceptRequest(ready = true).get
+    assert(nextRequest.missId != oldRequest.missId)
+    assert(!q.response(oldRequest.missId, oldRequest.lineAddr).refill)
+    assert(q.response(nextRequest.missId, nextRequest.lineAddr).refill)
   }
 
   test("unissued empty entries cancel without traffic") {

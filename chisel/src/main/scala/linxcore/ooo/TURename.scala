@@ -167,7 +167,7 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
     io.prepared.entries(lane).blockStart := in.entries(lane).uop.blockStart
     io.prepared.entries(lane).blockStop := in.entries(lane).uop.blockStop
     io.prepared.entries(lane).earlyRobComplete :=
-      in.entries(lane).uop.earlyComplete || in.entries(lane).uop.blockBoundary
+      in.entries(lane).uop.earlyComplete
     io.prepared.entries(lane).uop.decoded := in.entries(lane).uop
     val olderLaneT = PopCount(tDestActive.take(lane * p.maxDestinationOperands))
     val olderLaneU = PopCount(uDestActive.take(lane * p.maxDestinationOperands))

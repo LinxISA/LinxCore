@@ -14,9 +14,9 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | Opcode | ID | Recipe | Disposition | Uops | Dispatch | Capabilities | PC read | Owner | Reason |
 |---|---:|---|---|---:|---|---|---|---|---|
 | `OP_INVALID` | 0 | `ILLEGAL` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `ILLEGAL` | internal or invalid opcode |
-| `OP_BSTART_CUBE` | 1 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_CUBE` | 1 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_BSTART_FALL` | 2 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_BSTART_FIXP` | 3 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_FIXP` | 3 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_BSTART_FP_CALL` | 4 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_FP_COND` | 5 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_FP_DIRECT` | 6 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
@@ -26,24 +26,24 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_BSTART_FP_RET` | 10 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_ICALL` | 11 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_IND` | 12 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_BSTART_MPAR` | 13 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_BSTART_MSEQ` | 14 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_MPAR` | 13 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_MSEQ` | 14 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_BSTART_RET` | 15 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_SPLIT_COND` | 16 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_SPLIT_DIRECT` | 17 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_STD_CALL` | 18 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_STD_COND` | 19 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_BSTART_STD_DIRECT` | 20 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_BSTART_SYS` | 21 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_BSTART_TEPL` | 22 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_BSTART_TMA` | 23 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_BSTART_VPAR` | 24 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_BSTART_VSEQ` | 25 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_SYS` | 21 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_TEPL` | 22 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_TMA` | 23 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_VPAR` | 24 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_BSTART_VSEQ` | 25 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_C_BSTART_COND` | 26 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_DIRECT` | 27 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_FP` | 28 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_C_BSTART_MPAR` | 29 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_C_BSTART_MSEQ` | 30 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_C_BSTART_MPAR` | 29 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_C_BSTART_MSEQ` | 30 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_C_BSTART_STD_CALL` | 31 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_STD_COND` | 32 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_STD_DIRECT` | 33 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
@@ -51,29 +51,29 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_C_BSTART_STD_ICALL` | 35 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_STD_IND` | 36 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_C_BSTART_STD_RET` | 37 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_C_BSTART_SYS` | 38 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_C_BSTART_VPAR` | 39 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
-| `OP_C_BSTART_VSEQ` | 40 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_C_BSTART_SYS` | 38 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_C_BSTART_VPAR` | 39 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
+| `OP_C_BSTART_VSEQ` | 40 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_C_BSTOP` | 41 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_B_ARG` | 42 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_ARG_DN2NZ` | 43 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_ARG_DN2ZN` | 44 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_ARG_ND2ZN` | 45 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_ARG_NORM` | 46 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_ARG_NZ2DN` | 47 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_CATR` | 48 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_DATR` | 49 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_DIM_LB0` | 50 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_DIM_LB1` | 51 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_DIM_LB2` | 52 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_EQ` | 53 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_GE` | 54 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_GEU` | 55 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_HINT` | 56 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_HINT_TRACE` | 57 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_LT` | 58 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_LTU` | 59 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_NE` | 60 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
+| `OP_B_ARG` | 42 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_ARG_DN2NZ` | 43 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_ARG_DN2ZN` | 44 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_ARG_ND2ZN` | 45 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_ARG_NORM` | 46 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_ARG_NZ2DN` | 47 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_CATR` | 48 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_DATR` | 49 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_DIM_LB0` | 50 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_DIM_LB1` | 51 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_DIM_LB2` | 52 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_EQ` | 53 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_GE` | 54 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_GEU` | 55 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_HINT` | 56 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_HINT_TRACE` | 57 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_LT` | 58 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_LTU` | 59 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_NE` | 60 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
 | `OP_ADD` | 61 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_ADDI` | 62 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_ADDIW` | 63 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
@@ -109,7 +109,7 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_HL_BSTART_FP_COND` | 93 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_HL_BSTART_FP_DIRECT` | 94 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_HL_BSTART_FP_FALL` | 95 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_HL_BSTART_SYS` | 96 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_HL_BSTART_SYS` | 96 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_HL_CASB` | 97 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
 | `OP_HL_CASD` | 98 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
 | `OP_HL_CASH` | 99 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
@@ -437,9 +437,9 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_SW_UMAX` | 421 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
 | `OP_SW_UMIN` | 422 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
 | `OP_SW_XOR` | 423 | `ATOMIC_UNRESOLVED` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `LSU` | atomic child and terminal-result ownership must be explicit |
-| `OP_BIOR` | 424 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_BTEXT` | 425 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
-| `OP_B_IOT` | 426 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | generated dispatch recipe |
+| `OP_BIOR` | 424 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_BTEXT` | 425 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
+| `OP_B_IOT` | 426 | `SINGLE` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
 | `OP_ERCOV` | 427 | `ILLEGAL` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `ILLEGAL` | template child recipe is not yet architecturally frozen |
 | `OP_ESAVE` | 428 | `ILLEGAL` | `ILLEGAL` | 0..0 | `NONE` | `NONE` | `NONE/NONE` | `ILLEGAL` | template child recipe is not yet architecturally frozen |
 | `OP_FENTRY` | 429 | `CTU_TEMPLATE` | `CTU` | 2..23 | `NONE` | `NONE` | `NONE/NONE` | `CTU` | external CTU owns the canonical child stream |
@@ -649,7 +649,7 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_LSRGET` | 634 | `SINGLE` | `DISPATCH` | 1..1 | `SYS` | `SYS:SYSTEM` | `NONE/NONE` | `COMMIT` | generated dispatch recipe |
 | `OP_L_BSTART_FP` | 635 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
 | `OP_L_BSTART_STD` | 636 | `BOUNDARY` | `FAST_RESOLVE` | 0..1 | `NONE` | `NONE` | `NONE/NONE` | `BCTRL` | pure boundary may fuse or publish one ordered metadata member |
-| `OP_L_BSTART_SYS` | 637 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `BCTRL` | engine header requires a command child plus BROB metadata |
+| `OP_L_BSTART_SYS` | 637 | `ENGINE_CMD` | `DISPATCH` | 1..1 | `CMD` | `CMD:ENGINE_COMMAND` | `NONE/NONE` | `COMMIT` | engine header requires a command child plus BROB metadata |
 | `OP_MADD` | 638 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_MADDW` | 639 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_MAX` | 640 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |

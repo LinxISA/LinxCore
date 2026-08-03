@@ -13,5 +13,7 @@ class OOOIO(val p: CoreParams) extends Bundle {
   val recoveryToIfu = new RecoveryTargetIO(p)
   val recoveryToCtu = new RecoveryTargetIO(p)
   val recoveryToLsu = new RecoveryTargetIO(p)
+  val systemIssue = Vec(p.iex.systemMulticycleQueues,
+    Decoupled(new SystemIssueTxn(p)))
   val trace = Decoupled(new TracePacket(p))
 }

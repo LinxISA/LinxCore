@@ -573,7 +573,7 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
         return metadata
 
     if symbol in OOO_ENGINE_BOUNDARY_SYMBOLS:
-        dispatch("ENGINE_CMD", "CMD", "BCTRL")
+        dispatch("ENGINE_CMD", "CMD", "COMMIT")
         metadata.update({
             "may_trap": True,
             "may_redirect": True,
@@ -654,7 +654,8 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
         return metadata
 
     if major in {"BLOCK_ARGS_DESC", "CMD_PIPE"}:
-        dispatch("SINGLE", "CMD", "BCTRL")
+        dispatch("SINGLE", "CMD", "COMMIT")
+        metadata["nonspeculative"] = True
         return metadata
 
     if major == "MISC":

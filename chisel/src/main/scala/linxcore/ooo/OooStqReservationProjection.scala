@@ -63,7 +63,7 @@ class OooStqReservationProjection(
   private def projectBid(target: linxcore.rob.ROBID): Unit = {
     val valueWidth = log2Ceil(target.entries)
     target.valid := io.input.member.bid.valid
-    target.value := io.input.member.bid.value(valueWidth - 1, 0)
+    target.value := io.input.member.bid.value.pad(valueWidth)(valueWidth - 1, 0)
     target.wrap := io.input.member.brobGeneration(0)
   }
 

@@ -599,8 +599,18 @@ class ScalarLSULoadPath(
   val allocMdbReady = !allocNeedsMdbLookup || mdbPath.io.loadLookupReady
   liq.io.allocValid := io.allocValid && allocMdbReady
   liq.io.alloc := io.alloc
-  liq.io.attemptRebindValid := io.attemptRebindValid
   liq.io.attemptRebind := io.attemptRebind
+  val rebindRow = liq.io.rows(io.attemptRebind.loadId.value)
+  val rebindNeedsMissCancel = rebindRow.valid &&
+    (rebindRow.status === LoadInflightStatus.L1DcMiss ||
+      rebindRow.status === LoadInflightStatus.L2Wait)
+  missQueue.io.cancelLoadId := io.attemptRebind.loadId
+  missQueue.io.cancelAttempt := io.attemptRebind.current
+  missQueue.io.cancelReturnPipeIndex := rebindRow.returnPipeIndex
+  val rebindOwnersReady = !rebindNeedsMissCancel || missQueue.io.cancelReady
+  liq.io.attemptRebindValid := io.attemptRebindValid && rebindOwnersReady
+  missQueue.io.cancelValid := liq.io.attemptRebindAccepted &&
+    rebindNeedsMissCancel
   liq.io.structuralRetryValid := io.structuralRetryValid
   liq.io.structuralRetry := io.structuralRetry
   val launchRow = liq.io.rows(io.launchIndex)
@@ -1144,7 +1154,7 @@ class ScalarLSULoadPath(
   io.allocIndex := liq.io.allocIndex
   io.allocLoadId := liq.io.allocLoadId
   io.allocAttemptMalformed := liq.io.allocAttemptMalformed
-  io.attemptRebindReady := liq.io.attemptRebindReady
+  io.attemptRebindReady := liq.io.attemptRebindReady && rebindOwnersReady
   io.attemptRebindAccepted := liq.io.attemptRebindAccepted
   io.attemptRebindBlockedByFlush := liq.io.attemptRebindBlockedByFlush
   io.attemptRebindBlockedByInvalidLoadId := liq.io.attemptRebindBlockedByInvalidLoadId

@@ -114,6 +114,8 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val simm12Split = sext(Cat(insn32(11, 7), insn32(31, 25)), 12)
   val simm17Raw = sext(insn32(31, 15), 17)
   val simm17Off = fitImm(simm17Raw << 1)
+  val simm22Raw = sext(Cat(insn32(11, 7), insn32(31, 15)), 22)
+  val simm22Off = fitImm(simm22Raw << 1)
   val simm25 = sext(insn32(31, 7), 25)
   val simm25Off = fitImm(simm25 << 1)
   val simm5_11 = sext(insn16(15, 11), 5)
@@ -362,6 +364,9 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       }.otherwise {
         setImm(simm17Off)
       }
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM22.U) {
+      setImm(simm22Off)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM25.U) {
       when(opcodeIs(

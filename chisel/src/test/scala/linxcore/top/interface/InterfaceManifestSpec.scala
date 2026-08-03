@@ -74,12 +74,21 @@ class InterfaceManifestSpec extends AnyFunSuite {
             .find(_.name == "ooo_to_iex_pc_buffer_read_pc_base").get.lanes,
             "UInt"),
         "iex_to_lsu_load_issue" -> ("IEX", "LSU", 2, "LoadIssueTxn"),
+        "lsu_to_iex_load_allocation_preview" ->
+          ("LSU", "IEX", 2, "LoadAllocationPreview"),
+        "lsu_to_iex_load_launch" -> ("LSU", "IEX", 2, "LoadLaunchTxn"),
+        "iex_to_lsu_store_reservation" ->
+          ("IEX", "LSU", 2, "StoreReservationTxn"),
         "iex_to_lsu_store_address" -> ("IEX", "LSU", 2, "StoreAddressTxn"),
         "iex_to_lsu_store_data" -> ("IEX", "LSU", 2, "StoreDataTxn"),
         "lsu_to_iex_load_result" -> ("LSU", "IEX", 2, "LoadResultTxn"),
         "lsu_to_iex_load_reissue" -> ("LSU", "IEX", 2, "LoadReissueTxn"),
         "lsu_to_iex_load_repick" -> ("LSU", "IEX", 2, "LoadRepickTxn"),
         "lsu_to_iex_load_cancel" -> ("LSU", "IEX", 2, "LoadCancelTxn"),
+        "ooo_to_lsu_store_commit" ->
+          ("OOO", "LSU", 1, "StoreCommitAuthorizationTxn"),
+        "translation_to_lsu_store_classify" ->
+          ("Translation", "LSU", 1, "StoreMemoryClassifyTxn"),
         "external_cmd_issue" -> ("IEX", "External CMD", 1, "CmdIssueTxn"))
 
       expected.foreach { case (name, (producer, consumer, lanes, payload)) =>

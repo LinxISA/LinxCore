@@ -22,3 +22,10 @@ current/next attempt identities; load cancel is retained under backpressure and
 cancels speculative dependents without freeing LIQ residency. Store address
 and data remain separate transactions until the LSU-owned join accepts both
 exact identities.
+
+`LoadReissueTxn` and `LoadRebindApplyTxn` implement the Option-A ownership
+transfer. The memory transaction, allocation, destination, and pipe remain
+unchanged; only the attempt advances to its exact modulo successor. The common
+fire cancels the old exact attempt in every LSU owner and returns the LIQ row
+to replay eligibility. An issued lower-memory transaction is retained only as
+a stale-response tombstone and cannot coalesce with the new attempt.

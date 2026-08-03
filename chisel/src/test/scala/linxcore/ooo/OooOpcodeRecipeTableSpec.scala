@@ -69,6 +69,15 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_EBREAK").fastResolveClass == OooFastResolveClass.PreciseTrapRecord)
     assert(rule("OP_ACRC").dispatchClass == OooDispatchClass.Sys)
     assert(rule("OP_BSTART_TMA").recipeKind == OooOpcodeRecipeKind.EngineCmd)
+    val cmdRules = OooOpcodeRecipeTable.Rules.filter(
+      _.dispatchClass == OooDispatchClass.Cmd)
+    assert(cmdRules.nonEmpty)
+    assert(cmdRules.forall { entry =>
+      entry.sideEffectOwner == OooSideEffectOwner.Commit &&
+      entry.nonspeculative &&
+      entry.dispatchCapabilities(OooDispatchClass.Cmd - 1) ==
+        OooIexDomainCapability.mask(OooIexDomainCapability.EngineCommand)
+    })
     assert(rule("OP_ADD").pcReadRequired == false)
     assert(rule("OP_B_Z").pcReadRequired)
     assert(rule("OP_JR").pcReadRequired)
@@ -119,6 +128,8 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
         dut.io.meta.opcode.expect(entry.opcode.U)
         dut.io.meta.disposition.expect(entry.disposition.U)
         dut.io.meta.recipeKind.expect(entry.recipeKind.U)
+        dut.io.meta.sideEffectOwner.expect(entry.sideEffectOwner.U)
+        dut.io.meta.nonspeculative.expect(entry.nonspeculative.B)
         dut.io.meta.pcReadRequired.expect(entry.pcReadRequired.B)
         for (classIndex <- 0 until p.iqClassCount) {
           dut.io.meta.dispatchCapabilities(classIndex)

@@ -50,7 +50,18 @@ object SimulationParamProfiles {
         storeQueueEntries = 2,
         loadReturnQueueEntries = 2,
         storeCommitQueueEntries = 2,
-        scbEntries = 4))
+        scbEntries = 4,
+        loadMissQueueEntries = 2,
+        loadRefillQueueEntries = 2,
+        resolveQueueEntries = 4,
+        mdbSsitEntries = 4,
+        mdbCommandQueueEntries = 4,
+        mdbOutputQueueEntries = 4,
+        mdbWaitPlanQueueEntries = 4,
+        mdbRecoveryQueueEntries = 4,
+        mdbFailedWaitTimeoutCycles = 8,
+        l1dSets = 2,
+        l1dWays = 2))
   }
 
   val W2: CoreParams = bounded(2)
