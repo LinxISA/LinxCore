@@ -214,7 +214,7 @@ git push origin codex/chisel-gap-superpowers
 - Consumes: a child command, artifact root, optional log path, heartbeat/stall/wall seconds, low CPU threshold, and optional artifact budget.
 - Produces: heartbeat lines prefixed `linx-chisel-heartbeat `, one final JSON summary prefixed `linx-chisel-summary `, the child exit status, or 124 for supervisor timeout.
 
-- [ ] **Step 1: Write supervisor unit tests against stable Python interfaces**
+- [x] **Step 1: Write supervisor unit tests against stable Python interfaces**
 
 The test imports these names:
 
@@ -245,7 +245,7 @@ class ChiselTestSupervisorTest(unittest.TestCase):
 
 Unit tests use 1-second public intervals and bounded children. The CPU-active child performs a Python integer loop; the idle child sleeps. Artifact progress appends one byte every 200 ms. The interrupt test starts a child that writes its received `SIGTERM` to a temporary file.
 
-- [ ] **Step 2: Run the tests and verify the module is missing**
+- [x] **Step 2: Run the tests and verify the module is missing**
 
 Run:
 
@@ -255,7 +255,7 @@ python3 -m unittest tests.test_chisel_test_supervisor -v
 
 Expected: import failure for `tools.chisel.chisel_test_supervisor`.
 
-- [ ] **Step 3: Implement the supervisor with standard-library-only types**
+- [x] **Step 3: Implement the supervisor with standard-library-only types**
 
 Define these public records and functions:
 
@@ -298,7 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int: ...
 9. fail an artifact budget after the child exits successfully, naming total bytes and the five largest files;
 10. preserve every nonzero child status unchanged.
 
-- [ ] **Step 4: Run supervisor tests and static syntax validation**
+- [x] **Step 4: Run supervisor tests and static syntax validation**
 
 Run:
 
@@ -309,7 +309,7 @@ python3 -m unittest tests.test_chisel_test_supervisor -v
 
 Expected: both commands pass; the idle-stall test returns 124 and contains a final diagnostic summary.
 
-- [ ] **Step 5: Commit and push the supervisor**
+- [x] **Step 5: Commit and push the supervisor**
 
 ```bash
 git commit --only -m "Supervise Chisel tests with build heartbeats" -- \
