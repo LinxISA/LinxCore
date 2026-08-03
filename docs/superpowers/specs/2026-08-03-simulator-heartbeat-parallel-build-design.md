@@ -137,7 +137,8 @@ Behavior simulation uses test-only `SimulationParamProfiles` under
 manifest, generated RTL, lint, activation, natural workload, and final closure
 evidence.
 
-Simulation profiles preserve all externally meaningful geometry:
+Simulation profiles preserve the lane topology and every explicitly configured
+fixed-width transaction domain:
 
 - fetch, CTU, decode, rename, D3, dispatch, issue, and retire widths;
 - two ALU, one BRU, two AGU, two STD, one system/multicycle queue, and one CMD
@@ -145,8 +146,19 @@ Simulation profiles preserve all externally meaningful geometry:
 - two load pipes and two store pipes;
 - three PC Buffer write ports and six read ports;
 - source and destination counts;
-- PC, instruction, transaction, ROB, BROB, memory, attempt, epoch, and recovery
-  identity widths.
+- PC, instruction, PE, instruction, transaction, generation, full LSID,
+  memory-attempt, epoch, and recovery widths that are independent of a local
+  storage capacity.
+
+The current RTL derives RID slot, BID, PC Buffer index, P/T/U tag and MapQ
+index widths from their corresponding capacities. Those local widths therefore
+narrow in a capacity-reduced simulation profile. Such a profile proves
+behavior and identity continuity within that legal configuration; it cannot
+prove full-profile interface widths or full identity-space wrap. Interface
+manifests, identity-width conformance, generated RTL, activation and closure
+always use the unchanged main profiles. A future physical-capacity/identity-
+capacity split must be implemented as an architectural parameter change, not
+hidden inside this test-only profile.
 
 They reduce only capacities that are irrelevant to a directed behavior proof.
 The W8 continuous D3 lane test uses this initial profile:
@@ -228,7 +240,8 @@ Implementation follows test-first order:
 3. progress-checker unit tests for forward progress, exact threshold failure,
    and diagnostic payload;
 4. `SimulationParamProfiles` tests proving W2/W4/W6/W8 widths, W4 topology,
-   identity widths, PC Buffer 3W/6R, and minimum legal capacities;
+   fixed transaction widths, PC Buffer 3W/6R, minimum legal capacities, and
+   explicit rejection of simulation profiles as interface-manifest evidence;
 5. the W8 D3 lane test proving the same three-three-two accepted sequence with
    bounded artifact size;
 6. focused Task-13 tests, interface manifest, W2/W4/W6/W8 full-profile
