@@ -2,17 +2,26 @@
 
 Date: 2026-07-07
 
+Status: historical archive. Task 15 deleted the replay-LIQ locator, scanners,
+report builders, and specialized RF/ALU QEMU wrappers described on this page.
+No supported current equivalent exists for those workflows. Their commands,
+schemas, and results remain here only as historical evidence and are not
+runnable from the current tree. The surviving
+`tools/chisel/build_frontend_fetch_rf_seed.py` helper does not restore the
+deleted downstream replay flows.
+
 ## Purpose
 
-`tools/chisel/find_replay_liq_qemu_candidates.py` scans QEMU-shaped commit
-JSONL and reports memory-row clusters that may be useful for later natural
-replay-LIQ probes. It is intentionally a locator only: it does not prove
+`tools/chisel/find_replay_liq_qemu_candidates.py` scanned QEMU-shaped commit
+JSONL and reported memory-row clusters that could be useful for later natural
+replay-LIQ probes. It was intentionally a locator only: it did not prove
 replay-LIQ behavior, MDB learning, STQ wait-store state, or DUT equivalence.
 
-The tool exists because R607-R611 showed that early CoreMark prefixes can pass
-the generated-RTL/QEMU comparator with zero natural replay-LIQ counters. Before
-spending another Verilator build on a wider window, agents should first use
-QEMU-only capture plus this locator to identify concrete store/load PC windows.
+The tool existed because R607-R611 showed that early CoreMark prefixes could
+pass the generated-RTL/QEMU comparator with zero natural replay-LIQ counters.
+The historical workflow used QEMU-only capture plus this locator to identify
+concrete store/load PC windows before spending another Verilator build on a
+wider window.
 
 ## Model Evidence
 
@@ -33,7 +42,10 @@ QEMU commit rows do not carry the required model timing or live queue state.
 They can identify address reuse, same-cacheline reuse, and approximate PC
 windows; generated RTL sideband counters remain the acceptance surface.
 
-## Interface
+## Historical Interface
+
+The following locator invocation was valid before Task 15 deleted the script.
+It has no supported current equivalent:
 
 ```bash
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
@@ -44,15 +56,21 @@ python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --lookback-rows 1024
 ```
 
-Use `--raw-input` when scanning a reduced preview and the matching raw trace is
-available. The reduced preview can filter or skip rows relative to the raw QEMU
-stream; its candidate row numbers are therefore not safe `--qemu-skip-rows`
-arguments by themselves. With `--raw-input`, each top candidate includes a
+Historical command provenance: source commit
+`7e2931bc6550ccf344b6d367e672f978381dca58`.
+
+The historical workflow used `--raw-input` when scanning a reduced preview and
+the matching raw trace was available. The reduced preview could filter or skip
+rows relative to the raw QEMU stream; its candidate row numbers therefore were
+not safe `--qemu-skip-rows` arguments by themselves. With `--raw-input`, each
+top candidate included a
 `probe_hint.raw_dynamic_window` with absolute raw `--qemu-skip-rows` and
 `--capture-rows` arguments for QEMU-only reproduction.
 
-For later raw intervals that do not form a strict reduced-row prefix, capture
-raw QEMU rows only and run the locator directly on `qemu.live.raw.jsonl`:
+For later raw intervals that did not form a strict reduced-row prefix, the
+historical workflow captured raw QEMU rows and ran the locator directly on
+`qemu.live.raw.jsonl`. Both programs in this preserved command are absent, and
+there is no supported current procedure:
 
 <!-- task15-historical-specialized-evidence:start -->
 > Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
@@ -75,26 +93,27 @@ python3 tools/chisel/find_replay_liq_qemu_candidates.py \
 Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
-Useful filters:
+The deleted locator accepted these filters:
 
-- `--min-second-row <n>` ignores early candidates whose later memory row is
+- `--min-second-row <n>` ignored early candidates whose later memory row was
   before `n`.
-- `--max-second-row <n>` caps the later memory row.
-- `--exact-overlap-only` drops same-line-only candidates.
-- `--no-dedupe-pairs` shows repeated dynamic instances of the same PC/address
+- `--max-second-row <n>` capped the later memory row.
+- `--exact-overlap-only` dropped same-line-only candidates.
+- `--no-dedupe-pairs` showed repeated dynamic instances of the same PC/address
   pair.
-- `--self-test` runs the built-in synthetic store/load overlap check.
+- `--self-test` ran the built-in synthetic store/load overlap check.
 
-Wrapper sampling knobs:
+The deleted wrapper accepted these sampling knobs:
 
-- `--qemu-skip-rows <n>` discards filtered QEMU rows before writing the bounded
-  capture. It is allowed only with `--qemu-only`.
-- `--qemu-raw-only` exits after raw QEMU capture and skips the reduced-row
-  extractor. It is for arbitrary skipped intervals whose first row may not be a
-  strict sequential reduced prefix.
+- `--qemu-skip-rows <n>` discarded filtered QEMU rows before writing the bounded
+  capture. It was allowed only with `--qemu-only`.
+- `--qemu-raw-only` exited after raw QEMU capture and skipped the reduced-row
+  extractor. It supported arbitrary skipped intervals whose first row might
+  not be a strict sequential reduced prefix.
 
-For repeated later-window probes, use the interval scanner instead of
-hand-written shell loops:
+For repeated later-window probes, the historical workflow used the interval
+scanner instead of hand-written shell loops. The scanner is absent and has no
+supported current equivalent:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
@@ -106,49 +125,54 @@ python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
   --max-seconds 60
 ```
 
-The scanner writes one subdirectory per skip interval, preserves each wrapper
-stdout/stderr log, runs the locator on `qemu.live.raw.jsonl`, and emits
+Historical command provenance: source commit
+`462b359a5bd6620585ea14d7706e70345345bc74`.
+
+The scanner wrote one subdirectory per skip interval, preserved each wrapper
+stdout/stderr log, ran the locator on `qemu.live.raw.jsonl`, and emitted
 `report/interval_scan_summary.json` with schema
-`linxcore.replay_liq_qemu_interval_scan.v1`. Its output has the same claim
-boundary as the locator: skipped raw QEMU intervals are candidate hints only.
-If the wrapped QEMU command leaves a complete raw trace but does not return,
-the scanner records `wrapper_timed_out=true`, terminates the wrapper process
-group, and still runs the locator on the complete bounded trace.
-Use `--skip-range START:STOP:STEP` for inclusive non-adjacent sweeps; repeated
-ranges are appended to explicit `--skips` and duplicate offsets are removed
-while preserving first occurrence order. The summary includes aggregate
+`linxcore.replay_liq_qemu_interval_scan.v1`. Its output had the same claim
+boundary as the locator: skipped raw QEMU intervals were candidate hints only.
+If the wrapped QEMU command left a complete raw trace but did not return, the
+scanner recorded `wrapper_timed_out=true`, terminated the wrapper process
+group, and still ran the locator on the complete bounded trace.
+`--skip-range START:STOP:STEP` represented inclusive non-adjacent sweeps;
+repeated ranges were appended to explicit `--skips`, and duplicate offsets were
+removed while preserving first-occurrence order. The summary included aggregate
 `load_interval_count`, `candidate_interval_count`, `first_load_interval`, and
-`first_candidate_interval` fields so agents can tell whether a sweep found a
+`first_candidate_interval` fields so agents could tell whether a sweep found a
 usable phase without hand-inspecting every per-interval report.
 
-The JSON report schema is
-`linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field is
-part of the contract: candidate output is not QEMU/DUT proof. R617 adds
+The JSON report used schema
+`linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field was
+part of the contract: candidate output was not QEMU/DUT proof. R617 added
 `row_space` and per-candidate `probe_hint` fields. `probe_hint.pc_filter`
-contains a PC-range preflight fragment, but PC filtering can select an earlier
-dynamic occurrence of the same PC range. Run the QEMU-only wrapper with the
-candidate's `expected_memory_pcs.args` before spending generated-RTL time on
-that range. `probe_hint.raw_dynamic_window` is only QEMU-only dynamic-window
-reproduction; skipped raw rows are not generated-RTL replacement evidence.
+contained a PC-range preflight fragment, but PC filtering could select an
+earlier dynamic occurrence of the same PC range. The historical workflow ran
+the QEMU-only wrapper with the candidate's `expected_memory_pcs.args` before
+spending generated-RTL time on that range. `probe_hint.raw_dynamic_window` was
+only QEMU-only dynamic-window reproduction; skipped raw rows were not
+generated-RTL replacement evidence. That preflight workflow has no supported
+current equivalent.
 
 ## Logic Design
 
-The locator parses rows with `mem_valid=1` into memory events:
+The locator parsed rows with `mem_valid=1` into memory events:
 
 - row index and cycle,
 - PC and instruction bits,
 - load/store class,
 - byte address, size, cacheline, and memory data.
 
-For each later memory event, it scans prior memory events within
-`--lookback-rows` and records:
+For each later memory event, it scanned prior memory events within
+`--lookback-rows` and recorded:
 
 - `store_before_load`: possible STQ lookup/forwarding/wait-store candidate,
 - `load_before_store`: possible store-arrival MDB conflict candidate.
 
-Candidates score exact byte overlap highest, then same-cacheline reuse, then
-short row distance. Default output deduplicates repeated dynamic instances by
-kind, PC pair, and address/cacheline pair so the top list is suitable for
+Candidates scored exact byte overlap highest, then same-cacheline reuse, then
+short row distance. Default output deduplicated repeated dynamic instances by
+kind, PC pair, and address/cacheline pair so the top list was suitable for
 window selection.
 
 ## R612 Evidence
@@ -179,18 +203,19 @@ The reducer produced 16,250 expected rows. Locator results:
   rows `1585 -> 1589`, PCs `0x4000d7e6 -> 0x4000d7f2`, address `0x4ffefb68`;
 - after-row-4096 scan: 868 memory events, all stores, zero candidates.
 
-This is negative later-window evidence for the first 16K-row prefix. The next
-natural CoreMark replay-LIQ search should not simply widen the same early
-prefix by a small factor; it needs a way to skip into a later load-bearing
-phase, locate a different direct-boot interval, or return to focused replay
-fixtures for positive replacement evidence.
+This was negative later-window evidence for the first 16K-row prefix. The
+historical conclusion was that the next natural CoreMark replay-LIQ search
+should not simply widen the same early prefix by a small factor; it needed a
+way to skip into a later load-bearing phase, locate a different direct-boot
+interval, or return to focused replay fixtures. The deleted search workflow
+has no supported current equivalent.
 
 ## R613 Evidence
 
-R613 adds `--qemu-skip-rows` and `--qemu-raw-only` to
+R613 added `--qemu-skip-rows` and `--qemu-raw-only` to the now-deleted
 <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3. <!-- task15-historical-specialized-evidence:end -->.
 
-The non-QEMU-only guard rejects skipped captures:
+The non-QEMU-only guard rejected skipped captures:
 
 <!-- task15-historical-specialized-evidence:start -->
 > Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
@@ -204,7 +229,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
 Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
-The wrapper exits with:
+The wrapper exited with:
 
 ```text
 error: --qemu-skip-rows is allowed only with --qemu-only
@@ -230,14 +255,15 @@ Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
 Result: 512 raw rows were captured after 4096 skipped rows. The locator found
-37 memory events, all stores, zero loads, and zero candidates. This confirms
-the R612 post-4096 store-only shape with a smaller interval artifact and gives
-future agents a cheap loop for later interval sampling.
+37 memory events, all stores, zero loads, and zero candidates. This confirmed
+the R612 post-4096 store-only shape with a smaller interval artifact and gave
+later work a cheap loop for interval sampling while the wrapper still existed.
+There is no supported current equivalent for that loop.
 
 ## R614 Evidence
 
-R614 adds `tools/chisel/scan_replay_liq_qemu_intervals.py` and manually samples
-larger skipped CoreMark intervals before closing the packet:
+R614 added the now-deleted `tools/chisel/scan_replay_liq_qemu_intervals.py` and
+manually sampled larger skipped CoreMark intervals before closing the packet:
 
 <!-- task15-historical-specialized-evidence:start -->
 > Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
@@ -265,17 +291,18 @@ interval captured 2,048 raw rows. Locator results:
 | `generated/r614-coremark-qemu-raw-skip65536-sample` | 146 | 146 | 0 | 0 | `0x40006310` |
 | `generated/r614-coremark-qemu-raw-skip262144-sample` | 146 | 146 | 0 | 0 | `0x40006310` |
 
-This is additional negative interval-selection evidence. It does not supersede
-R611 generated-RTL/QEMU no-regression evidence and does not prove replay-LIQ
-behavior. The next agent should either run a broader QEMU-only scanner sweep
-with non-adjacent skips to find a load-bearing phase, or return to the focused
-replay fixtures that already produce positive retained physical-bundle
-sidebands.
+This was additional negative interval-selection evidence. It did not supersede
+R611 generated-RTL/QEMU no-regression evidence and did not prove replay-LIQ
+behavior. The historical follow-up proposed either a broader QEMU-only scanner
+sweep with non-adjacent skips or a return to focused replay fixtures. The
+scanner and specialized fixture wrapper are now absent, with no supported
+current equivalent.
 
 ## R615 Evidence
 
-R615 extends the scanner interface with inclusive skip ranges and aggregate
-summary fields, then runs a bounded non-adjacent sweep:
+R615 extended the now-deleted scanner interface with inclusive skip ranges and
+aggregate summary fields, then ran a bounded non-adjacent sweep. The preserved
+command is historical and is not runnable on the current tree:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
@@ -289,9 +316,12 @@ python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
   --stop-on-load
 ```
 
-The summary artifact is
+Historical command provenance: source commit
+`fd79c40af09fbc60848800e7ebd978ed0a511e36`.
+
+The summary artifact was
 `generated/r615-coremark-qemu-interval-scan/report/interval_scan_summary.json`.
-It reports schema `linxcore.replay_liq_qemu_interval_scan.v1`,
+It reported schema `linxcore.replay_liq_qemu_interval_scan.v1`,
 `scanned_interval_count=4`, `load_interval_count=0`, and
 `candidate_interval_count=0`. Each interval completed the bounded raw trace and
 timed out only at the wrapper process boundary after capture:
@@ -303,15 +333,17 @@ timed out only at the wrapper process boundary after capture:
 | 1,572,864 | 256 | 18 | 18 | 0 | 0 |
 | 2,097,152 | 256 | 18 | 18 | 0 | 0 |
 
-This is still candidate-location evidence only. The broader sampled CoreMark
-steady-state intervals do not expose natural replay-LIQ load clusters, so the
-next positive-proof packet should return to focused replay fixtures unless a
-new QEMU-only interval-selection hypothesis is being tested.
+This was still candidate-location evidence only. The broader sampled CoreMark
+steady-state intervals did not expose natural replay-LIQ load clusters. The
+historical recommendation was to return to focused replay fixtures unless a
+new QEMU-only interval-selection hypothesis was being tested; those deleted
+flows have no supported current equivalent.
 
 ## R617 Evidence
 
-R617 annotates locator candidates with raw-row probe hints. Re-running the R612
-reduced-preview candidate scan with the matching raw trace:
+R617 annotated locator candidates with raw-row probe hints. It reran the R612
+reduced-preview candidate scan with the matching raw trace using this now-
+deleted command:
 
 ```bash
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
@@ -322,13 +354,16 @@ python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --lookback-rows 1024
 ```
 
-The top R612 reduced-preview candidate remains the exact store-before-load pair
-at PCs `0x4000d7e6 -> 0x4000d7f2`, address `0x4ffefb68`, but it now carries
-`probe_hint.raw_dynamic_window.args = ["--qemu-skip-rows", "1715",
-"--capture-rows", "6"]`. This matters because the candidate's reduced rows
-`1585 -> 1589` are not raw row offsets.
+Historical command provenance: source commit
+`e6830114f23594e1883479ec9377e93e0ce0068e`.
 
-The matching QEMU-only scanner gate:
+The top R612 reduced-preview candidate remained the exact store-before-load pair
+at PCs `0x4000d7e6 -> 0x4000d7f2`, address `0x4ffefb68`, and it carried
+`probe_hint.raw_dynamic_window.args = ["--qemu-skip-rows", "1715",
+"--capture-rows", "6"]`. This mattered because the candidate's reduced rows
+`1585 -> 1589` were not raw row offsets.
+
+The matching QEMU-only scanner gate used this now-deleted command:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
@@ -345,21 +380,26 @@ python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
   --stop-on-candidate
 ```
 
-It reports one interval, one load-bearing interval, and one candidate-bearing
-interval. The per-interval candidate report repeats the absolute raw dynamic
+Historical command provenance: source commit
+`e6830114f23594e1883479ec9377e93e0ce0068e`.
+
+It reported one interval, one load-bearing interval, and one candidate-bearing
+interval. The per-interval candidate report repeated the absolute raw dynamic
 window `--qemu-skip-rows 1715 --capture-rows 6`.
 
 R617 also ran a PC-filter preflight on `0x4000d7e6..0x4000d7f3` with expected
 store PC `0x4000d7e6` and expected load PC `0x4000d7f2`. That preflight failed
-because the first dynamic occurrence of the PC range does not include the load.
-Do not convert this candidate into a generated-RTL CoreMark run by PC filter
-alone; first find a stateful unskipped capture strategy or prove a QEMU-only
-expected-memory-PC preflight for the exact generated-RTL command shape.
+because the first dynamic occurrence of the PC range did not include the load.
+The historical conclusion did not authorize converting this candidate into a
+generated-RTL CoreMark run by PC filter alone; it required a stateful unskipped
+capture strategy or a QEMU-only expected-memory-PC preflight for the exact
+generated-RTL command shape. No supported current equivalent implements that
+preflight.
 
 ## R618 Context Pack
 
-R618 adds a separate context-pack validator rather than changing the locator
-claim. Run:
+R618 added a separate context-pack validator rather than changing the locator
+claim. The following deleted-tool commands were the historical invocation:
 
 ```bash
 python3 tools/chisel/build_replay_liq_selector_context_pack.py
@@ -367,28 +407,37 @@ python3 tools/chisel/build_replay_liq_selector_context_pack.py \
   --validate-only generated/r618-replay-liq-selector-context-pack/report/replay_liq_selector_context_pack.json
 ```
 
-The manifest combines R611 zero-natural CoreMark no-regression evidence, R616
-positive focused selector-origin proof, and the R617 raw-window hint. It is
-valid only if those remain distinct: the R617 raw dynamic window is an
+Historical command provenance: source commit
+`8f7892f827cbb39a7b2938ec5e2af52b2b005747`.
+
+The manifest combined R611 zero-natural CoreMark no-regression evidence, R616
+positive focused selector-origin proof, and the R617 raw-window hint. It was
+valid only if those remained distinct: the R617 raw dynamic window was an
 address-cluster hint, not generated-RTL/DUT replay-LIQ proof.
 
 ## R619 Probe Plan
 
-R619 adds a command planner on top of the R618 context pack:
+R619 added a command planner on top of the R618 context pack. The planner is
+now absent, and this command remains historical evidence only:
 
 ```bash
 python3 tools/chisel/plan_replay_liq_selector_probe.py --print-commands
 ```
 
-The planner emits QEMU-only preflight commands for the raw window and PC-filter
-forms, each guarded by the expected store/load PCs. It also emits
-`generated_rtl.status = "blocked"`. This is the required handoff shape until a
-future packet proves that the exact generated-RTL command shape has a passing
-QEMU-only expected-memory-PC preflight.
+Historical command provenance: source commit
+`aa56ffe1089eae8bd4a148012fd5fe017b700863`.
+
+The planner emitted QEMU-only preflight commands for the raw-window and
+PC-filter forms, each guarded by the expected store/load PCs. It also emitted
+`generated_rtl.status = "blocked"`. This was the required handoff shape until a
+future packet proved that the exact generated-RTL command shape had a passing
+QEMU-only expected-memory-PC preflight. No supported current planner replaces
+it.
 
 ## R620 Preflight Evidence
 
-R620 runs the safe preflights and records the results:
+R620 ran the safe preflights and recorded the results with this now-deleted
+report builder:
 
 ```bash
 python3 tools/chisel/build_replay_liq_selector_preflight_report.py
@@ -396,16 +445,19 @@ python3 tools/chisel/build_replay_liq_selector_preflight_report.py \
   --validate-only generated/r620-replay-liq-selector-preflight-report/report/replay_liq_selector_preflight_report.json
 ```
 
-The raw skipped-window QEMU-only preflight passes with 6 raw rows, 5 reduced
+Historical command provenance: source commit
+`7db7cb38e7b965ccff1e5341a6c4440373a4b91b`.
+
+The raw skipped-window QEMU-only preflight passed with 6 raw rows, 5 reduced
 preview rows, store PC `0x4000d7e6`, load PC `0x4000d7f2`, and memory address
-`0x4ffefb68`. The PC-filter form captures zero rows in the fresh bounded run,
-so the report keeps generated RTL blocked. This reinforces the same boundary:
-the raw window is a reproducible QEMU candidate hint, not DUT replay-LIQ proof.
+`0x4ffefb68`. The PC-filter form captured zero rows in the fresh bounded run,
+so the report kept generated RTL blocked. This reinforced the same boundary:
+the raw window was a reproducible QEMU candidate hint, not DUT replay-LIQ proof.
 
 ## R621 Unskipped Prefix Evidence
 
-R621 proves that the R617 top candidate can be reached without skipped QEMU
-rows and records the generated-RTL boundary:
+R621 proved that the R617 top candidate could be reached without skipped QEMU
+rows and recorded the generated-RTL boundary with now-deleted tools:
 
 ```bash
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
@@ -419,23 +471,27 @@ python3 tools/chisel/build_replay_liq_selector_unskipped_prefix_report.py \
   --validate-only generated/r621-replay-liq-selector-unskipped-prefix-report/report/replay_liq_selector_unskipped_prefix_report.json
 ```
 
-The unskipped QEMU-only preflight captures 1721 raw rows and reduces 1590
-preview rows. The top candidate remains the exact store-before-load pair
-`0x4000d7e6 -> 0x4000d7f2` at address `0x4ffefb68`, rows `1585 -> 1589`,
-score 1186. The matching unskipped generated-RTL/QEMU CoreMark prefix passes
-with 1169 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows, and
-the generated-RTL preview contains the same target pair.
+Historical command provenance: source commit
+`9061ca3a8e8810938b25c054a94b19ef0349dcef`.
 
-This is the first safe generated-RTL command shape for the candidate, but the
-sideband counters still report zero natural replay-LIQ/MDB activity:
+The unskipped QEMU-only preflight captured 1721 raw rows and reduced 1590
+preview rows. The top candidate remained the exact store-before-load pair
+`0x4000d7e6 -> 0x4000d7f2` at address `0x4ffefb68`, rows `1585 -> 1589`,
+score 1186. The matching unskipped generated-RTL/QEMU CoreMark prefix passed
+with 1169 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows, and
+the generated-RTL preview contained the same target pair.
+
+This was the first safe generated-RTL command shape for the candidate, but the
+sideband counters still reported zero natural replay-LIQ/MDB activity:
 `liq_alloc_accepted=0`, `replay_queue_out_fire=0`, `lret_w2_slot_accepted=0`,
-`w2_promotion_live=0`, selector-from-promotion/probe counters are zero, and
-MDB fanout/record counters are zero. Treat R621 as candidate-present
+`w2_promotion_live=0`, selector-from-promotion/probe counters were zero, and
+MDB fanout/record counters were zero. R621 therefore remained candidate-present
 no-regression coverage, not replay-LIQ replacement proof.
 
 ## R622 Activation Gap Report
 
-R622 records why R621 does not activate replay-LIQ:
+R622 recorded why R621 did not activate replay-LIQ with this now-deleted report
+builder:
 
 ```bash
 python3 tools/chisel/build_replay_liq_activation_gap_report.py
@@ -443,24 +499,28 @@ python3 tools/chisel/build_replay_liq_activation_gap_report.py \
   --validate-only generated/r622-replay-liq-activation-gap-report/report/replay_liq_activation_gap_report.json
 ```
 
-The report consumes the R621 unskipped-prefix report plus the R621 generated-RTL
-sideband stats. It classifies the run as memory-path active but pre-ResolveQ:
+Historical command provenance: source commit
+`1ef0a899cbadc187292014804aea2e7df6f29524`.
+
+The report consumed the R621 unskipped-prefix report plus the R621 generated-RTL
+sideband stats. It classified the run as memory-path active but pre-ResolveQ:
 `load_lookup_valid=180`, `store_stq_resident=512`, and store dequeue counters
-are nonzero, while `resident_store_eligible=0`,
+were nonzero, while `resident_store_eligible=0`,
 `load_lookup_execute_with_eligible_store=0`,
 `load_lookup_execute_with_wait_store=0`, `resolve_queue_push_accepted=0`,
 `resolve_queue_valid=0`, `mdb_conflict_valid=0`,
 `wait_replay_capture_accepted=0`, and `liq_alloc_accepted=0`.
 
-The next generated-RTL replay-LIQ proof attempt must first find or construct a
-run where `load_lookup_execute_with_eligible_store > 0`; otherwise QEMU
-store/load address clusters remain commit-stream hints rather than live
-resident-store overlap stimuli.
+The historical conclusion required a later generated-RTL replay-LIQ proof
+attempt to find or construct a run where
+`load_lookup_execute_with_eligible_store > 0`; otherwise QEMU store/load
+address clusters remained commit-stream hints rather than live resident-store
+overlap stimuli. The deleted report flow has no supported current equivalent.
 
 ## R623 Focused Eligible-Store Proof
 
-R623 constructs the missing eligible-store stimulus on the focused replay
-fixture and records the proof boundary:
+R623 constructed the missing eligible-store stimulus on the focused replay
+fixture and recorded the proof boundary:
 
 <!-- task15-historical-specialized-evidence:start -->
 > Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
@@ -487,8 +547,8 @@ python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py \
 Provenance: source commit 7f2e4bccd85a69a2d432a02107f0c5af36c27dcd.
 <!-- task15-historical-specialized-evidence:end -->
 
-The generated-RTL/QEMU run passes with 18 compared rows, zero mismatches, and
-zero QEMU/DUT CBSTOP rows. Sideband counters prove the focused activation
+The generated-RTL/QEMU run passed with 18 compared rows, zero mismatches, and
+zero QEMU/DUT CBSTOP rows. Sideband counters proved the focused activation
 chain: `load_lookup_execute_with_eligible_store=18`,
 `load_lookup_execute_with_wait_store=12`, `resident_store_eligible=18`,
 `resolve_queue_push_accepted=8`, `resolve_queue_valid=66`,
@@ -497,14 +557,16 @@ chain: `load_lookup_execute_with_eligible_store=18`,
 `replay_queue_out_fire=6`, `lret_w2_slot_accepted=6`, and
 `w2_promotion_live=5`.
 
-Treat R623 as current-head focused-fixture replay-LIQ activation proof. It does
-not replace the R621/R622 CoreMark boundary: natural CoreMark replacement still
-requires the same nonzero activation counters in a CoreMark or natural workload
-generated-RTL run.
+R623 was focused-fixture replay-LIQ activation proof at its cited source commit.
+It did not replace the R621/R622 CoreMark boundary: natural CoreMark replacement
+still required the same nonzero activation counters in a CoreMark or natural
+workload generated-RTL run. The specialized proof command is not supported on
+the current tree.
 
 ## R624 Activation Artifact Scan
 
-R624 adds a cheap scanner for existing generated sideband artifacts:
+R624 added a cheap scanner for existing generated sideband artifacts. The
+scanner is now absent, and these commands are historical only:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_activation_artifacts.py
@@ -512,18 +574,21 @@ python3 tools/chisel/scan_replay_liq_activation_artifacts.py \
   --validate-only generated/r624-replay-liq-activation-artifact-scan/report/replay_liq_activation_artifact_scan.json
 ```
 
-The current report scans 34 local sideband artifacts. It finds 17 artifacts
-with the full activation counter chain positive, but all 17 are classified as
-focused/synthetic; `coremark_positive_count=0`. Treat this as triage, not new
-proof. After each CoreMark or natural generated-RTL run, rerun the scanner and
-promote only artifacts whose workload class is CoreMark/natural and whose
-eligible-store, ResolveQ, MDB, LIQ, replay-output, and W2-promotion counters
-are all nonzero.
+Historical command provenance: source commit
+`ce89429592645e6160530a72e3a213e1a07e7206`.
+
+The R624 report scanned 34 local sideband artifacts. It found 17 artifacts with
+the full activation counter chain positive, but all 17 were classified as
+focused/synthetic; `coremark_positive_count=0`. This was triage, not new proof.
+The historical procedure reran the scanner after each CoreMark or natural
+generated-RTL run and promoted only artifacts with the required nonzero
+counters. No supported current scanner performs that triage.
 
 ## R625 Natural Activation Probe Plan
 
-R625 expands the unskipped CoreMark candidate handoff and records why the
-current PC-filter surfaces should stay out of Verilator:
+R625 expanded the unskipped CoreMark candidate handoff and recorded why its
+PC-filter surfaces were excluded from Verilator. The following locator and
+planner commands are no longer runnable:
 
 ```bash
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
@@ -537,24 +602,28 @@ python3 tools/chisel/build_replay_liq_natural_activation_probe_plan.py \
   --validate-only generated/r625-replay-liq-natural-activation-probe-plan/report/replay_liq_natural_activation_probe_plan.json
 ```
 
-The expanded report has 91 candidates and 12 narrow exact store-before-load
-candidates. The known top candidate PC filter remains blocked by R620
-(`pc_filter_status=empty`). R625 samples three more narrow PC filters:
-`0x400055f2..0x40005645` is empty, while `0x40005682..0x40005701` and
-`0x400055b6..0x40005601` each capture 32 QEMU rows but fail reduced-row
-extraction before a legal expected preview is produced. Treat those PC filters
-as blocked launch shapes.
+Historical command provenance: source commit
+`fc4bd24bab84273139a4be417f025aef2febbc7b`.
 
-The next natural-workload proof path must not rerun Verilator on blocked PC
-filters. It needs one of: checkpoint/state replay for skipped raw windows, a
-legal natural workload shard whose unskipped prefix reaches eligible-store
-overlap from reset, or a QEMU-only PC-filter preflight that first passes both
-reduced-row extraction and exact memory-PC guards.
+The expanded report had 91 candidates and 12 narrow exact store-before-load
+candidates. The known top candidate PC filter remained blocked by R620
+(`pc_filter_status=empty`). R625 sampled three more narrow PC filters:
+`0x400055f2..0x40005645` was empty, while `0x40005682..0x40005701` and
+`0x400055b6..0x40005601` each captured 32 QEMU rows but failed reduced-row
+extraction before a legal expected preview was produced. Those PC filters were
+blocked launch shapes.
+
+The historical conclusion prohibited rerunning Verilator on the blocked PC
+filters. It required checkpoint/state replay for skipped raw windows, a legal
+natural workload shard whose unskipped prefix reached eligible-store overlap
+from reset, or a QEMU-only PC-filter preflight that passed both reduced-row
+extraction and exact memory-PC guards. No supported current tool supplies that
+workflow.
 
 ## R626 PC-Filter Preflight Search and Failed RTL Attempt
 
-R626 adds an automated QEMU-only search over narrow exact store-before-load
-CoreMark candidates:
+R626 added an automated QEMU-only search over narrow exact store-before-load
+CoreMark candidates. Its search and report-builder scripts are now absent:
 
 ```bash
 python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
@@ -569,33 +638,36 @@ python3 tools/chisel/build_replay_liq_pc_filter_activation_report.py \
   --validate-only generated/r626-replay-liq-pc-filter-activation-report/report/replay_liq_pc_filter_activation_report.json
 ```
 
-The first scanned candidate passes the QEMU-only guard:
-`0x4000d7e6..0x4000d7f3` captures 6 raw rows, reduces 5 preview rows, and
-contains the expected store/load PCs `0x4000d7e6 -> 0x4000d7f2`. This only
-authorizes spending Verilator time on the same shape; it is not replay-LIQ
+Historical command provenance: source commit
+`c4f05d865e8185cbaed47fe3c981b674da2be883`.
+
+The first scanned candidate passed the QEMU-only guard:
+`0x4000d7e6..0x4000d7f3` captured 6 raw rows, reduced 5 preview rows, and
+contained the expected store/load PCs `0x4000d7e6 -> 0x4000d7f2`. This only
+authorized spending Verilator time on the same shape; it was not replay-LIQ
 proof.
 
-The matching generated-RTL attempt reaches the guarded row and fails before
-`crosscheck_manifest.json` or sideband stats are emitted. The saved stderr at
+The matching generated-RTL attempt reached the guarded row and failed before
+`crosscheck_manifest.json` or sideband stats were emitted. The saved stderr at
 `generated/r626-coremark-pc-filter-4000d7e6-4000d7f2-rtl-xcheck-abs/report/generated-rtl-attempt.stderr.txt`
-records a first-row dst/wb mismatch: PC and instruction match
-(`0x4000d7e6`, `0x02a50041`), QEMU expects `(rd=1, value=1342110568)`, and the
-DUT reports `(rd=1, value=18446744073709551608)`. Treat this as a
-generated-RTL failure classification packet, not natural CoreMark replay-LIQ
-activation proof.
+recorded a first-row dst/wb mismatch: PC and instruction matched
+(`0x4000d7e6`, `0x02a50041`), QEMU expected `(rd=1, value=1342110568)`, and the
+DUT reported `(rd=1, value=18446744073709551608)`. This was a generated-RTL
+failure classification packet, not natural CoreMark replay-LIQ activation
+proof.
 
 ## R627 PC-Filter State-Seed Audit
 
-R627 turns the R626 failure into a pre-Verilator audit in
+R627 turned the R626 failure into a pre-Verilator audit in the now-deleted
 `tools/chisel/search_replay_liq_pc_filter_preflights.py` schema v2. The scanner
-now keeps two decisions separate:
+kept two decisions separate:
 
 - QEMU-only trial status: did the PC filter produce a legal reduced preview
   with the expected memory PCs?
 - generated-RTL readiness: does the first non-skipped reduced row expose enough
   source state for the Verilator harness to preload architectural RF state?
 
-Running the same top candidate:
+The same top candidate was run with this historical command:
 
 ```bash
 python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
@@ -607,18 +679,21 @@ python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
   --stop-on-pass
 ```
 
-produces `status=pass` for the QEMU-only trial but
-`generated_rtl.status="blocked"`. The first reduced row is
+Historical command provenance: source commit
+`fbf25256828963960e14744a04214f53dbc44a43`.
+
+That run produced `status=pass` for the QEMU-only trial but
+`generated_rtl.status="blocked"`. The first reduced row was
 `pc=0x4000d7e6`, `insn=0x02a50041`, `mem_valid=1`, `dst_valid=1`,
-`src0_valid=0`, and `src1_valid=0`, so the harness cannot reconstruct the
-hidden register state needed to start the reduced top at that PC. Future
-agents must require `state_seed_audit.status="ready"` before promoting any
-PC-filter preflight to generated RTL.
+`src0_valid=0`, and `src1_valid=0`, so the harness could not reconstruct the
+hidden register state needed to start the reduced top at that PC. The
+historical promotion rule required `state_seed_audit.status="ready"` before a
+PC-filter preflight could advance to generated RTL.
 
 ## R628 Full Narrow PC-Filter State-Seed Scan
 
-R628 runs the v2 scanner over all 12 narrow exact store-before-load candidates
-from the R625 expanded CoreMark report:
+R628 ran the v2 scanner over all 12 narrow exact store-before-load candidates
+from the R625 expanded CoreMark report. The scanner is absent today:
 
 ```bash
 python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
@@ -629,23 +704,26 @@ python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
   --max-seconds 20
 ```
 
-The report records `trial_count=12`, `pass_count=1`,
+Historical command provenance: source commit
+`c5537a72e2f0a1ba2d10b21a4c6558f3ea0bcfb6`.
+
+The report recorded `trial_count=12`, `pass_count=1`,
 `state_seed_ready_count=0`, and `generated_rtl.status="blocked"`. The top
-candidate is QEMU-pass but RF-state insufficient; the other 11 candidates
-capture QEMU rows but produce `preview_rows=0`, so reduced-row extraction fails
-before memory-PC or RF-state readiness can be proven. This closes the current
+candidate was QEMU-pass but RF-state insufficient; the other 11 candidates
+captured QEMU rows but produced `preview_rows=0`, so reduced-row extraction
+failed before memory-PC or RF-state readiness could be proven. This closed the
 12-candidate narrow PC-filter path for generated RTL.
 
-The scanner now supports `--stop-on-generated-ready`, which stops only when a
-passing QEMU-only trial also has `state_seed_audit.status="ready"`. Use that
-mode for future broader PC-filter searches; do not use a plain QEMU pass as a
-generated-RTL launch authorization.
+The scanner supported `--stop-on-generated-ready`, which stopped only when a
+passing QEMU-only trial also had `state_seed_audit.status="ready"`. That was the
+historical mode for broader PC-filter searches; a plain QEMU pass did not
+authorize a generated-RTL launch. There is no supported current equivalent.
 
 ## R629 RF-Seeded PC-Filter Replay
 
-R629 adds an explicit RF seed artifact path for PC-filter launches that pass
-QEMU memory-PC guards but start after hidden predecessor state. Build the seed
-for the top R617/R621 candidate from the unfiltered R621 raw prefix:
+R629 added an explicit RF seed artifact path for PC-filter launches that passed
+QEMU memory-PC guards but started after hidden predecessor state. It built the
+seed for the top R617/R621 candidate from the unfiltered R621 raw prefix:
 
 ```bash
 python3 tools/chisel/build_frontend_fetch_rf_seed.py \
@@ -656,13 +734,18 @@ python3 tools/chisel/build_frontend_fetch_rf_seed.py \
   --validate-only generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl
 ```
 
-The seed contains 17 reduced GPR rows and records
-`source_corrections=1`; the launch-critical row is `x1=0x4ffefb70`, which lets
+Historical command provenance: source commit
+`dc38d2b8dd6e07338517543d306c2da5aae14feb`.
+
+The seed contained 17 reduced GPR rows and recorded
+`source_corrections=1`; the launch-critical row was `x1=0x4ffefb70`, which let
 the first PC-filtered store produce QEMU's expected `rd1/mem_addr=0x4ffefb68`.
 
-The direct live-QEMU wrapper was flaky for this narrow PC-filter during R629
-and sometimes timed out with zero captured rows. Use the scanner-owned passing
-raw trace as the replay source for generated RTL:
+The direct live-QEMU wrapper was flaky for this narrow PC filter during R629
+and sometimes timed out with zero captured rows. The historical workflow used
+the scanner-owned passing raw trace as the replay source for generated RTL.
+Both the scanner and downstream replay wrapper are absent today, and there is
+no supported current equivalent:
 
 <!-- task15-historical-specialized-evidence:start -->
 > Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
@@ -691,19 +774,21 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 Provenance: source commit dc38d2b8dd6e07338517543d306c2da5aae14feb.
 <!-- task15-historical-specialized-evidence:end -->
 
-The generated-RTL replay passes the neutral comparator:
+The generated-RTL replay passed the neutral comparator:
 `generated/r629-coremark-pc-filter-seeded-trace-replay/report/crosscheck_manifest.json`
-reports `compared_rows=3`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows.
-This proves the R626 first-row RF launch-state mismatch is fixed for the top
-PC filter. It is not replay-LIQ activation proof: sideband stats in the same
-report still have zero eligible-store, ResolveQ, MDB, LIQ allocation,
+reported `compared_rows=3`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows.
+This proved that the R626 first-row RF launch-state mismatch was fixed for the
+top PC filter at the cited source commit. It was not replay-LIQ activation
+proof: sideband stats in the same report still had zero eligible-store,
+ResolveQ, MDB, LIQ allocation,
 replay-output, and row-mutation counters. The next natural CoreMark packet
-must use RF seeding only as launch infrastructure and still require positive
-replay-LIQ sideband counters.
+was required to use RF seeding only as launch infrastructure and still require
+positive replay-LIQ sideband counters.
 
 ## R630 Seeded Raw-Window Scanner
 
-R630 adds an end-to-end seeded generated-RTL scanner for candidate windows:
+R630 added an end-to-end seeded generated-RTL scanner for candidate windows.
+The scanner is now absent, and the following invocation is historical only:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
@@ -715,29 +800,33 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
   --validate-only generated/r630-replay-liq-qemu-seeded-window-scan/report/seeded_window_scan.json
 ```
 
-The scanner consumes the R625 candidate report and the R621 unfiltered raw
-trace by default. For each raw dynamic-window hint, it builds an RF seed before
-`qemu_skip_rows`, slices the raw window, runs
+Historical command provenance: source commit
+`1a6f9f893de0ecece52fe3fa54eb29dccd47ab66`.
+
+The scanner consumed the R625 candidate report and the R621 unfiltered raw
+trace by default. For each raw dynamic-window hint, it built an RF seed before
+`qemu_skip_rows`, sliced the raw window, ran
 <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` Provenance: source commit 1a6f9f893de0ecece52fe3fa54eb29dccd47ab66. <!-- task15-historical-specialized-evidence:end --> with
 `FETCH_REDUCED_STORE_REPLAY_LIQ=1`, `FETCH_DISABLE_STORE_MEMORY_MUTATION=1`,
-and `FETCH_RF_SEED=<seed>`, then records both
+and `FETCH_RF_SEED=<seed>`, then recorded both
 `crosscheck_manifest.json` and `frontend_fetch_rf_alu_sideband_stats.json`.
 
-The first R630 trial replays the top R617/R621 candidate
-(`skip=1715`, `rows=6`). It produces a 17-register RF seed with one source
-correction and passes the generated-RTL comparator with `compared_rows=3`,
-`mismatch_count=0`, and zero CBSTOP rows. The report still classifies the trial
+The first R630 trial replayed the top R617/R621 candidate
+(`skip=1715`, `rows=6`). It produced a 17-register RF seed with one source
+correction and passed the generated-RTL comparator with `compared_rows=3`,
+`mismatch_count=0`, and zero CBSTOP rows. The report classified the trial
 as `compare_pass_no_activation` because every required replay-LIQ activation
-counter remains zero, including eligible-store overlap, ResolveQ, MDB fanout,
-LIQ allocation, replay output, and W2 promotion. Use this scanner for broader
-seeded-window searches; do not treat a seeded comparator pass as replay-LIQ
-replacement evidence unless `activation_positive_count > 0`.
+counter remained zero, including eligible-store overlap, ResolveQ, MDB fanout,
+LIQ allocation, replay output, and W2 promotion. The historical workflow used
+this scanner for broader seeded-window searches and did not treat a seeded
+comparator pass as replay-LIQ replacement evidence unless
+`activation_positive_count > 0`. No supported current scanner replaces it.
 
 ## R631 Resumed Seeded-Window Sweep
 
-R631 adds `--skip-windows <n>` to
-`tools/chisel/scan_replay_liq_qemu_seeded_windows.py` so an agent can resume
-after already-classified eligible windows:
+R631 added `--skip-windows <n>` to the now-deleted
+`tools/chisel/scan_replay_liq_qemu_seeded_windows.py` so a scan could resume
+after already-classified eligible windows. This command is historical only:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
@@ -748,12 +837,15 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
   --wrapper-timeout-seconds 420
 ```
 
-The resumed sweep covers the next three small R625 windows after the R630 top
+Historical command provenance: source commit
+`f0b1369128ea386fce8bf9d6c79addcb6b5381f0`.
+
+The resumed sweep covered the next three small R625 windows after the R630 top
 case. `generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`
-records `activation_positive_count=0` and `compare_pass_count=2`. Window 1
-(`skip=1591`, `rows=29`) fails before manifest generation because the expected
-rows require conflicting initial RF data for `reg=1`. A focused rerun with the
-updated classifier:
+recorded `activation_positive_count=0` and `compare_pass_count=2`. Window 1
+(`skip=1591`, `rows=29`) failed before manifest generation because the expected
+rows required conflicting initial RF data for `reg=1`. A focused rerun used
+the updated classifier through this historical command:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
@@ -764,18 +856,22 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
   --wrapper-timeout-seconds 420
 ```
 
-reports `status="rf_source_conflict"` for that window. Windows 2 and 3
-(`skip=1659`, `rows=14`; `skip=1660`, `rows=19`) pass the generated-RTL
+Historical command provenance: source commit
+`f0b1369128ea386fce8bf9d6c79addcb6b5381f0`.
+
+The rerun reported `status="rf_source_conflict"` for that window. Windows 2
+and 3
+(`skip=1659`, `rows=14`; `skip=1660`, `rows=19`) passed the generated-RTL
 comparator with 12 and 15 compared rows, zero mismatches, and zero CBSTOP rows,
-but all required replay-LIQ activation counters remain zero. The next seeded
-search should start at `--skip-windows 4` or deliberately include larger
-capture windows; the first four eligible R625 windows are not replay-LIQ
-activation proof.
+but all required replay-LIQ activation counters remained zero. The historical
+follow-up was to start at `--skip-windows 4` or deliberately include larger
+capture windows; the first four eligible R625 windows were not replay-LIQ
+activation proof. That follow-up is unsupported on the current tree.
 
 ## R632 Larger Seeded-Window Sweep
 
-R632 resumes from the next two larger R625 windows after the first four
-classified windows:
+R632 resumed from the next two larger R625 windows after the first four
+classified windows. The preserved scanner commands are not currently runnable:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
@@ -788,12 +884,15 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
   --validate-only generated/r632-replay-liq-qemu-seeded-window-scan-next2-large/report/seeded_window_scan.json
 ```
 
-The report records zero compare-passing or activation-positive trials. Window 4
-(`skip=1525`, `rows=109`) is classified as `rf_source_conflict`: the reduced
-expected rows require conflicting initial RF data for `reg=1`, so one scalar RF
-seed cannot describe the skipped launch state. Window 5 (`skip=1286`,
+Historical command provenance: source commit
+`4f5461cea238ee5d47a482c6d39431add7463f50`.
+
+The report recorded zero compare-passing or activation-positive trials. Window
+4 (`skip=1525`, `rows=109`) was classified as `rf_source_conflict`: the reduced
+expected rows required conflicting initial RF data for `reg=1`, so one scalar
+RF seed could not describe the skipped launch state. Window 5 (`skip=1286`,
 `rows=124`) initially failed before manifest generation because `C.SDI` read an
-empty U0 local source. A focused classifier rerun:
+empty U0 local source. A focused classifier rerun used this historical command:
 
 ```bash
 python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
@@ -804,10 +903,14 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
   --wrapper-timeout-seconds 900
 ```
 
-records `status="local_source_missing"` in
+Historical command provenance: source commit
+`4f5461cea238ee5d47a482c6d39431add7463f50`.
+
+The rerun recorded `status="local_source_missing"` in
 `generated/r632-replay-liq-qemu-seeded-window-local-source-missing/report/seeded_window_scan.json`.
-This proves the current scalar RF seed path is still insufficient for skipped
-windows that consume hidden T/U local source state. The first six eligible R625
-windows now provide no replay-LIQ activation proof. The next seeded scan can
-resume at `--skip-windows 6`, but larger windows with local-source dependencies
-should wait for an explicit local T/U checkpoint or seed boundary.
+This proved that the scalar RF seed path at the time was insufficient for
+skipped windows that consumed hidden T/U local source state. The first six
+eligible R625 windows provided no replay-LIQ activation proof. The historical
+next step was to resume at `--skip-windows 6`, while larger windows with local-
+source dependencies awaited an explicit local T/U checkpoint or seed boundary.
+No supported current seeded scanner or local-state replay equivalent exists.
