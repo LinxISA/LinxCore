@@ -37,10 +37,12 @@ class SCBRowBankIO(
   val rawRespTransactionValue = Input(UInt(memoryTransactionIdWidth.W))
   val rawRespTransactionGeneration =
     Input(UInt(memoryTransactionGenerationWidth.W))
+  val rawRespError = Input(Bool())
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
   val rawRespAccepted = Output(Bool())
+  val rawRespSucceeded = Output(Bool())
   val rawRespLineAddr = Output(UInt(addrWidth.W))
 
   val modelBatchReady = Output(Bool())
@@ -309,11 +311,13 @@ class SCBRowBank(
       io.rawRespTransactionGeneration
   val staleRawResponse = io.rawRespValid && !rawResponseExact
   io.rawRespAccepted := io.rawRespValid && io.rawRespReady && rawResponseExact
+  io.rawRespSucceeded := io.rawRespAccepted && !io.rawRespError
   io.rawRespLineAddr := Mux(rawResponseExact,
     ingressEntries(rawResponseIndex).lineAddr, 0.U)
 
   val responseBuffer = Module(new SCBResponseBuffer(scbEntries, responseBufferDepth))
-  responseBuffer.io.rawValid := io.rawRespValid && rawResponseExact
+  responseBuffer.io.rawValid := io.rawRespValid && rawResponseExact &&
+    !io.rawRespError
   responseBuffer.io.rawTxnId := io.rawRespTxnId
   responseBuffer.io.rawWriteResp := Mux(rawResponseExact,
     outstandingWrite(rawResponseIndex), io.rawRespWrite)
@@ -371,7 +375,8 @@ class SCBRowBank(
 
   io.modelBatchReady := modelBatchReady
   io.modelFull := !modelBatchReady
-  io.rawRespReady := Mux(rawResponseExact, responseBuffer.io.rawReady, true.B)
+  io.rawRespReady := Mux(rawResponseExact && !io.rawRespError,
+    responseBuffer.io.rawReady, true.B)
   io.acceptedMask := acceptedVec.asUInt
   io.acceptedReqs := acceptedReqs
   io.structuralBlockedMask := blockedVec.asUInt
@@ -444,7 +449,8 @@ class SCBRowBank(
   io.respBufferFull := responseBuffer.io.full
   io.respBufferEmpty := responseBuffer.io.empty
   io.respBufferCount := responseBuffer.io.count
-  io.protocolError := staleRawResponse
+  io.protocolError := staleRawResponse ||
+    (io.rawRespAccepted && io.rawRespError)
   io.quiescent := !currentValidVec.asUInt.orR &&
     !outstandingValid.asUInt.orR && responseBuffer.io.empty &&
     responseRetryQueue.io.empty && !responseDecode.io.memRespValid &&

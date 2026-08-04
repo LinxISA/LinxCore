@@ -53,6 +53,7 @@ class SCBTemplateOwnershipBehaviorProbe extends Module {
   bank.io.l2RequestReady := false.B
   bank.io.rawRespValid := false.B
   bank.io.rawRespTxnId := 0.U
+  bank.io.rawRespError := false.B
   bank.io.rawRespWrite := false.B
   bank.io.rawRespUpgrade := false.B
 

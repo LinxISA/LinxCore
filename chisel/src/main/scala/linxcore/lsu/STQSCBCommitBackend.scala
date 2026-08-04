@@ -85,10 +85,12 @@ class STQSCBCommitBackendIO(
   val rawRespTransactionValue = Input(UInt(memoryTransactionIdWidth.W))
   val rawRespTransactionGeneration =
     Input(UInt(memoryTransactionGenerationWidth.W))
+  val rawRespError = Input(Bool())
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
   val rawRespAccepted = Output(Bool())
+  val rawRespSucceeded = Output(Bool())
   val rawRespLineAddr = Output(UInt(addrWidth.W))
 
   val serializedRequest = Decoupled(new STQSerializedStoreRequest(
@@ -276,10 +278,12 @@ class STQSCBCommitBackend(
   scb.io.rawRespTxnId := io.rawRespTxnId
   scb.io.rawRespTransactionValue := io.rawRespTransactionValue
   scb.io.rawRespTransactionGeneration := io.rawRespTransactionGeneration
+  scb.io.rawRespError := io.rawRespError
   scb.io.rawRespWrite := io.rawRespWrite
   scb.io.rawRespUpgrade := io.rawRespUpgrade
   io.rawRespReady := scb.io.rawRespReady
   io.rawRespAccepted := scb.io.rawRespAccepted
+  io.rawRespSucceeded := scb.io.rawRespSucceeded
   io.rawRespLineAddr := scb.io.rawRespLineAddr
 
   io.serializedRequest <> serializer.io.request

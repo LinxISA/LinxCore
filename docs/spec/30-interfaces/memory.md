@@ -17,6 +17,12 @@ overloading the coherence command. `TOPIO` exposes separate instruction and
 data channels so cache, device, and recovery ownership cannot be inferred from
 an untyped shared payload.
 
+Responses carry both scalar `data` and a complete cacheline `lineData`.
+Acquire responses use `lineData` as the refill image before the requesting
+cache owner merges its exact store bytes. A denied or corrupt ownership
+response must not grant permission, refill a line, or complete the requesting
+store transaction successfully.
+
 The live LSU translates load and store virtual addresses before allocating or
 mutating their private rows. Translation requests use an identity namespace
 distinct from cache-miss traffic, and only an exact value-plus-generation

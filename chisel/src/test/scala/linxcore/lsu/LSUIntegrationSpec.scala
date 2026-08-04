@@ -314,9 +314,10 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
 
 }
 
-class LSURound2PublicSpec extends AnyFunSuite with LSUMemoryTestSupport {
+trait CacheableStorePublicTestSupport extends LSUMemoryTestSupport {
+  this: org.scalatest.TestSuite =>
 
-  private def pokeStoreRob(
+  protected def pokeStoreRob(
       rob: linxcore.top.interface.RobIdentity): Unit = {
     rob.peId.poke(1.U); rob.stid.poke(0.U); rob.ridSlot.poke(2.U)
     rob.ridGeneration.poke(1.U); rob.memberIndex.poke(0.U)
@@ -324,7 +325,7 @@ class LSURound2PublicSpec extends AnyFunSuite with LSUMemoryTestSupport {
     rob.brobGeneration.poke(1.U)
   }
 
-  private def publishCacheableStore(dut: LSU, address: BigInt):
+  protected def publishCacheableStore(dut: LSU, address: BigInt):
       (BigInt, BigInt) = {
     val reserve = dut.io.iex.storeReservation(0)
     reserve.bits.poke(0.U.asTypeOf(reserve.bits))
@@ -421,6 +422,10 @@ class LSURound2PublicSpec extends AnyFunSuite with LSUMemoryTestSupport {
     dut.clock.step()
     (value, generation)
   }
+}
+
+class LSURound2PublicSpec extends AnyFunSuite
+    with CacheableStorePublicTestSupport {
 
   test("presented maintenance immediately fences concurrent load and store admission") {
     val p = SimulationParamProfiles.W4

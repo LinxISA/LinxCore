@@ -247,6 +247,7 @@ class SCBRowBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.rawRespTxnId.poke(0.U)
     dut.io.rawRespTransactionValue.poke(0.U)
     dut.io.rawRespTransactionGeneration.poke(0.U)
+    dut.io.rawRespError.poke(false.B)
     dut.io.rawRespWrite.poke(false.B)
     dut.io.rawRespUpgrade.poke(false.B)
   }

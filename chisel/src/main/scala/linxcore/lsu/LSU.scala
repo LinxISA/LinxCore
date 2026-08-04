@@ -490,16 +490,17 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     ownershipResponse.bits.identity.value
   backend.io.rawRespTransactionGeneration :=
     ownershipResponse.bits.identity.generation
+  backend.io.rawRespError := ownershipResponse.bits.denied ||
+    ownershipResponse.bits.corrupt
   backend.io.rawRespWrite := true.B
   backend.io.rawRespUpgrade := false.B
   ownershipResponse.ready := backend.io.rawRespReady
   load.scbCache.lookupValid := backend.io.dcacheLookupValid
   load.scbCache.lookupLineAddr := backend.io.dcacheLookupLineAddr
   load.scbCache.update := backend.io.dcacheUpdate
-  load.scbCache.grantWriteValid := backend.io.rawRespAccepted
+  load.scbCache.grantWriteValid := backend.io.rawRespSucceeded
   load.scbCache.grantWriteLineAddr := backend.io.rawRespLineAddr
-  load.scbCache.grantWriteData := Fill(
-    scalarLsu.lineBytes / (p.dataWidth / 8), ownershipResponse.bits.data)
+  load.scbCache.grantWriteData := ownershipResponse.bits.lineData
 
   // Every load-owner input is assigned explicitly below. No unknown value may
   // enter the canonical LIQ/MDB/cache graph through the public LSU boundary.

@@ -450,6 +450,7 @@ class STQSCBCommitPath(
   scb.io.l2RequestReady := io.l2RequestReady
   scb.io.rawRespValid := io.rawRespValid
   scb.io.rawRespTxnId := io.rawRespTxnId
+  scb.io.rawRespError := false.B
   scb.io.rawRespWrite := io.rawRespWrite
   scb.io.rawRespUpgrade := io.rawRespUpgrade
 

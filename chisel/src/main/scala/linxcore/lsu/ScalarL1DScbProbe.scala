@@ -66,6 +66,7 @@ class ScalarL1DScbProbe extends Module {
   scb.io.l2RequestReady := io.l2Ready
   scb.io.rawRespValid := io.rawRespValid
   scb.io.rawRespTxnId := io.rawRespTxnId
+  scb.io.rawRespError := false.B
   scb.io.rawRespWrite := false.B
   scb.io.rawRespUpgrade := io.rawRespUpgrade
 
