@@ -164,7 +164,7 @@ suppressed without importing the ARM-specific model bypass.
 - `bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`

@@ -600,9 +600,9 @@ comparator. The Verilator harness now derives initial RF preloads from the
 first expected source reads instead of hardcoding the synthetic fixture's
 `r4=10, r5=32`; this lets QEMU's zero-valued initial sources and the older
 synthetic rows share one expected-row contract. Evidence:
-`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `compared_rows: 3` and `mismatch_count: 0`. This is still a
 reduced scalar prefix gate; block headers, dense packets, memory/trap rows,
 LSU, recovery, and CoreMark live-DUT equivalence remain future packets.
@@ -621,9 +621,9 @@ block-marker consume path for the live fetch RF/ALU gate: legal `C.BSTART` and
 `C.BSTOP` rows from QEMU are preserved as `skip` entries, fetched and decoded
 by the DUT, and asserted not to allocate ROB rows or enter issue. The
 architectural comparator still receives only the three scalar rows. Evidence:
-`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 captured five raw QEMU rows, preserved skip markers at `0x10000` and
 `0x1000c`, and passed with `compared_rows: 3` and `mismatch_count: 0`. This is
 not full block execution: dense mixed marker/scalar packets, scalar_done/BROB
@@ -643,10 +643,10 @@ serialized `DecodeRenameROBPath`: it captures every valid slot from one
 cycle. This aligns the reduced live fetch RF/ALU gate with the model IFU
 `DecodeBundle` path (`mask`, `entry[]`, `isize[]`, and `tpcArr[]`) while
 deferring width-wide ROB allocation. Evidence:
-`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r102-live-qemu-fixture`,
-`BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`,
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`,
+`BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`,
 and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `compared_rows: 3` and `mismatch_count: 0`. The R102 marker
 contract is marker-owned: a marker slot must not select a scalar row, push
 dec/ren, or allocate ROB, but it may drain in the same cycle that an older
@@ -665,9 +665,9 @@ and commit sideband, and consumed `BSTOP` rows pulse scalar done for the active
 BID before the normal one-cycle-later BROB retire pulse. This remains reduced
 marker-consume timing, not full marker ROB retirement or recovery-exact block
 control. Evidence:
-`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `compared_rows: 3` and `mismatch_count: 0`.
 R105 started from `linx-isa` commit
 `39d975bdf589923354ddbb300b49a40cb5e36313`, `rtl/LinxCore` commit
@@ -678,9 +678,9 @@ R105 started from `linx-isa` commit
 `--long-body` mode to the live-QEMU legal-entry fixture so the current reduced
 scalar ALU subset runs seven scalar commits under one marker-owned active
 block instead of only the three-row smoke. Evidence:
-`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `compared_rows: 7` and `mismatch_count: 0`.
 R106 started from `linx-isa` commit
 `a5f99f55dd76542de6178dcb144e4ae35da68c2c`, `rtl/LinxCore` commit
@@ -695,7 +695,7 @@ RF/ALU live-QEMU envelope with `ADDTPC`, the first unsupported CoreMark
 The QEMU probe before the patch failed at `pc=0x400054f8 insn=0x9187`, and the
 R106 gate compares the first four CoreMark rows before the next unsupported
 HL call marker. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 R107 started from `linx-isa` commit
@@ -711,7 +711,7 @@ to the active `BSTART` target instead of executing filler markers. The
 model/QEMU contract is `PC::CalcInstSetret` for PC-relative return setup,
 `BCtrl`/IFU target-bearing `BSTART` semantics, and QEMU's duplicate
 zero-advance HL marker artifact followed by the advancing marker row. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 4`, and
 `summary.mismatch_count: 0`.
 R108 started from `linx-isa` commit
@@ -725,7 +725,7 @@ decoder reads the saved GPR and SP internally, writes the decremented SP, and
 emits the QEMU-shaped 8-byte store sideband while suppressing internal source
 fields in the commit row. This is only the current CoreMark single-save
 prologue shape, not full stack-template or LSU execution. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 6`, and
 `summary.mismatch_count: 0`. A 12-row probe stops at the next unsupported row:
 `ADDI` writing architectural tag `30`.
@@ -741,7 +741,7 @@ owns the T/U destination overlay from the model `OPD_ULINK` path; the reduced
 issue and execute owners now gate scalar RF clear/write side effects to
 `DestinationKind.Gpr`, while the commit row still carries the QEMU-shaped
 `dst_reg=30` and `wb_rd=30` architectural fields. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 7`, and
 `summary.mismatch_count: 0`. A 13-row probe stops at the next unsupported row:
 `OP_HL_LUI` at `pc=0x4000551a`, `insn=0x1f97000e`, `len=6`.
@@ -756,7 +756,7 @@ extracts `IMM32=1` from `Cat(pfx16[15:4], main32[31:12])`, classifies
 destination architectural tag `31` as `DestinationKind.T`, and the reduced ALU
 emits the immediate as the QEMU-shaped destination/writeback data while
 keeping scalar RF writeback gated to `DestinationKind.Gpr`. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 8`, and
 `summary.mismatch_count: 0`. A 14-row probe stops at the next unsupported row:
 `OP_SLL` at `pc=0x40005520`, `insn=0x01cc7f05`, `len=4`; that row uses T/U
@@ -777,7 +777,7 @@ same packet fixes the first reduced ROB wrap case: the `SLL` row is the ninth
 scalar allocation in an 8-entry generated top, so `DecodeRenameROBPath` must
 stamp queued `rid.wrap` from `DispatchROBAllocator.allocRobWrap` instead of
 using a false-wrap RID. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 9`, and
 `summary.mismatch_count: 0`.
 R112 started from `linx-isa` commit
@@ -793,7 +793,7 @@ live RF/ALU path compare the next CoreMark local shift pair. `SLL` at
 `pc=0x4000552e` reads local T/U sources and writes T tag `31`; both rows keep
 scalar source fields suppressed and avoid scalar RF writeback side effects.
 Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 12`, and
 `summary.mismatch_count: 0`. An 18-row probe stops at `OP_OR`
 (`pc=0x40005532`, `insn=0x078e3f05`, `len=4`), which reads local U0/T0 and
@@ -811,7 +811,7 @@ live RF/ALU path compare `OP_OR` at `pc=0x40005532` and the following
 and writes U0; the narrow `C.LDI` row reads scalar x4, emits an 8-byte load
 sideband with zero data, writes T0, and remains a prefix bridge rather than a
 general data-memory implementation. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 14`, and
 `summary.mismatch_count: 0`. A 21-row extraction probe identifies the next
 unsupported row as `OP_C_ADD` (`pc=0x4000553c`, `insn=0xe608`, `len=2`) after a
@@ -831,7 +831,7 @@ and implicit `dst0=31`; for `insn=0xe608` those fields read T0/U0 and write
 T0. Current QEMU commit JSONL omits the C.ADD local destination/writeback
 fields, so the expected-row reducer synthesizes only that implicit T writeback
 from QEMU PC/instruction order plus the local-value queue. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r114-coremark-c-add-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 21 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 16`, and
 `summary.mismatch_count: 0`. A 22-row extraction probe identifies the next
 unsupported row as `OP_SRA` (`pc=0x4000553e`, `insn=0x01ec6f85`, `len=4`);
@@ -851,7 +851,7 @@ RF/ALU path compare `OP_SRA` at `pc=0x4000553e` and the paired `OP_SLLI` at
 `SrcR & 0x3f`, while `SLLI` uses `shamt_20_25`. Because the live frontend
 emits `SRA` and `SLLI` in the same dense packet, the reduced top now stalls
 younger rename output while a local T/U producer is pending. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r115-coremark-sra-slli-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 23 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 18`, and
 `summary.mismatch_count: 0`. A 24-row extraction probe identifies the next
 frontier as mixed local/scalar `C.ADD` (`pc=0x40005546`, `insn=0x2608`,
@@ -880,7 +880,7 @@ encoded source fields by checking whether each encoded register is a local T/U
 alias or scalar GPR, instead of hard-coding opcode-wide source-valid patterns.
 A 24-row gate is intentionally too short because it cuts through the three-slot
 dense packet; use the 26-row gate for this packet. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r116-coremark-c-add-mixed-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 26 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 21`, and
 `summary.mismatch_count: 0`. A 27-row probe still passes and shows the next raw
 row as a zero-advance `C.BSTART` artifact at `pc=0x4000554e`, `insn=0x0004`;
@@ -917,7 +917,7 @@ T/U retire serializer now drains terminal rename responses
 `accepted`; this prevents a stale relation command from holding the retire path
 forever while preserving the miss/mismatch diagnostics that exposed the issue.
 Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r117-coremark-c-movr-c-ldi-setc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 34 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `expected rows: 31`,
 `summary.compared_rows: 25`, and `summary.mismatch_count: 0`. The next
 frontier is the dense packet beginning at `pc=0x4000555c`,
@@ -944,7 +944,7 @@ data and suppressed local T0 as the address base. A 41-row capture cuts inside
 the two-slot dense packet containing `SDI`, and a 43-row capture cuts inside
 the following three-slot packet, so the promoted gate uses `--capture-rows 42`.
 Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 31`, and
 `summary.mismatch_count: 0`. The next frontier is the dense packet beginning at
 `pc=0x40005572`, including the `0x3a36` no-writeback compare and the
@@ -969,7 +969,7 @@ allocates the fallthrough marker block or redirects to the active conditional
 target without allocating a new marker block. A 48-row raw capture cuts inside
 the post-redirect dense F4 window, so the promoted gate uses
 `--capture-rows 50`. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 36`, and
 `summary.mismatch_count: 0`.
 
@@ -992,7 +992,7 @@ block-last sideband closes it; second, this reduced top compares stores from
 the ALU-produced sideband but does not drive STA/STD execution or STQ
 commit/free feedback, so it must bypass store-dispatch residency instead of
 letting the reduced STQ shell fill on repeated `SDI` rows. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r120-coremark-scalar-block-store-bypass-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 88`, and
 `summary.mismatch_count: 0`. The 256-row probe stops before RTL comparison at
 the next unsupported reduced selector row: `pc=0x40005576`,
@@ -1017,7 +1017,7 @@ capture ended at `pc=0x400055ba` inside an 8-byte F4 window, while the DUT
 decoded the remaining slots from the real fetch bytes. The harness now treats
 only the final captured expected row as a verified prefix and still requires
 exact row comparison for every committed row in the captured prefix. Evidence:
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r121-coremark-ldi-setceq-tail-256-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 256 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `status: "pass"`, `summary.compared_rows: 173`, and
 `summary.mismatch_count: 0`.
 
@@ -1040,7 +1040,7 @@ admits the next QEMU row shapes discovered by the larger probe:
 `frontend_fetch_rf_alu_qemu_rows.py --self-test`,
 `run_chisel_tests.sh --only ReducedScalarAluExecute`,
 `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r122-coremark-prefix-before-redirect-marker-470-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 470 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `frontend-fetch-rf-alu-qemu-elf-status=pass`, `compared=315`, and
 `mismatches=0`. A 512-row probe advances to `OP_SD` at `pc=0x400055f2`, and a
 486-row pre-store probe first exposes a redirecting `C.BSTART` marker
@@ -1067,7 +1067,7 @@ directly. It also updates the live RF/ALU Verilator harness to collect legal
 two-slot commit windows in slot order. Evidence:
 `run_chisel_tests.sh --only DecodeRenameROBPath`,
 `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r123-coremark-redirect-marker-486-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 486 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `frontend-fetch-rf-alu-qemu-elf-status=pass`, `compared=323`, and
 `mismatches=0`. The next frontier remains the following indexed `OP_SD` at
 `pc=0x400055f2`, which needs explicit store memory mutation or real LSU/STQ
@@ -1095,7 +1095,7 @@ Evidence: `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test`,
 `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`,
 `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`,
 and
-`bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r124-coremark-op-sd-544-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 544 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed with `frontend-fetch-rf-alu-qemu-elf-status=pass`, `compared=357`, and
 `mismatches=0`.
 
@@ -1120,9 +1120,9 @@ plus signed bits `[15:11] << 3`, fixed T0 store payload, no writeback, and one
 `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test`,
 `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`,
 `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`,
-`bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-subi-cand-add-csdi-768-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 768 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`,
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`,
 and
-`bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed. The promoted 1024-row probe extracted 953 expected rows and compared
 665 normalized QEMU/DUT rows with zero mismatches.
 
@@ -1151,7 +1151,7 @@ side-effect-free macro rows in the compare stream. Evidence:
 `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`,
 `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`,
 and
-`bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+`bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 passed. The promoted gate extracted 1303 expected rows and compared 927
 normalized QEMU/DUT rows with zero mismatches.
 
@@ -1262,7 +1262,7 @@ The ROB/cross-check substrate remains the required base:
 |---|---|---|---|
 | 1 | R76 implemented baseline: enqueue-time ROB reservation plus post-rename sidecar update | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, module docs | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | 2 | R77 gate broadening and top trace prep | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py`, wrapper docs | top xcheck, Verilator lint, `build_chisel.sh`, trace self-test, QEMU dry-run |
-| 3 | R78 trace replay xcheck harness | `tools/chisel/reduced_rob_trace_tb.cpp`, `tools/chisel/run_chisel_trace_replay_xcheck.sh`, wrapper docs | `run_chisel_trace_replay_xcheck.sh`, top xcheck, trace self-test, QEMU dry-run |
+| 3 | R78 trace replay xcheck harness | `tools/chisel/reduced_rob_trace_tb.cpp`, `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, wrapper docs | `run_chisel_frontend_trace_top_xcheck.sh`, top xcheck, trace self-test, QEMU dry-run |
 | 4 | R79 frontend-window trace top | `top/LinxCoreFrontendTraceTop.scala`, `F4DecodeWindow.scala`, `DecodeRenameROBPath.scala`, top docs | `LinxCoreFrontendTraceTop`, frontend trace top Verilator lint, `DecodeRenameROBPath`, trace self-test, QEMU dry-run |
 | 5 | R80 frontend-window Verilator xcheck | `tools/chisel/frontend_trace_top_tb.cpp`, `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, top/cross-check docs | `run_chisel_frontend_trace_top_xcheck.sh`, frontend trace top lint, trace self-test, QEMU dry-run |
 | 6 | R81 scalar ALU completion row xcheck | `execute/ReducedScalarAluExecute.scala`, `top/LinxCoreFrontendAluTraceTop.scala`, frontend ALU xcheck driver/script, module docs | `ReducedScalarAluExecute`, `LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, old frontend trace-top regression |
@@ -1275,22 +1275,22 @@ The ROB/cross-check substrate remains the required base:
 | 13 | R88 reduced P1/I1/I2 issue timing | `execute/ReducedScalarIssuePick.scala`, `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, issue/top module docs | `ReducedScalarIssuePick`, `ReducedScalarIssueQueue`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
 | 14 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
 | 15 | R89 QEMU cross-check manifest evidence | `tools/chisel/run_chisel_qemu_crosscheck.sh`, cross-check docs | dry-run, RF/ALU xcheck, ALU xcheck, trace self-test, diff check |
-| 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
-| 17 | R91 bounded CoreMark ELF replay prefix | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | default-memory fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, manifest inspection |
+| 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
+| 17 | R91 bounded CoreMark ELF replay prefix | `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, trace replay wrapper docs | default-memory fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, manifest inspection |
 | 18 | R92 shared commit JSONL writer | `tools/chisel/commit_trace_jsonl.h`, generated-RTL Verilator harnesses, cross-check docs | reduced/top/replay/frontend generated-RTL xchecks, trace self-test, QEMU dry-run, diff check |
 | 19 | R93 frontend fetch packet source | `frontend/FrontendFetchPacketSource.scala`, module docs/tests | `FrontendFetchPacketSource`, `F4DecodeWindow`, `FrontendDecodeIngress`, trace self-test, QEMU dry-run |
 | 20 | R94 live frontend fetch trace top | `top/LinxCoreFrontendFetchTraceTop.scala`, `frontend/FrontendFetchPacketSource.scala`, live Chisel trace writer | `LinxCoreFrontendFetchTraceTop`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, manifest inspection |
-| 21 | R95 live frontend fetch RF-backed ALU trace top | `top/LinxCoreFrontendFetchRfAluTraceTop.scala`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, top/cross-check docs | `FrontendFetchPacketSource`, `LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, manifest inspection |
+| 21 | R95 live frontend fetch RF-backed ALU trace top | `top/LinxCoreFrontendFetchRfAluTraceTop.scala`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, top/cross-check docs | `FrontendFetchPacketSource`, `LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_trace_top_xcheck.sh`, manifest inspection |
 | 22 | R96 file-backed frontend fetch memory feeder | `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`, top/cross-check docs | live fetch RF/ALU xcheck, manifest inspection, trace self-test, QEMU dry-run |
-| 23 | R97 sparse ELF fetch-memory extractor | `tools/chisel/frontend_fetch_elf_memory.py`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, top/cross-check docs | ELF extractor self-test, live fetch RF/ALU xcheck through sparse memory, manifest inspection |
+| 23 | R97 sparse ELF fetch-memory extractor | `tools/chisel/frontend_fetch_elf_memory.py`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, top/cross-check docs | ELF extractor self-test, live fetch RF/ALU xcheck through sparse memory, manifest inspection |
 | 24 | R98 external expected-row source binding | `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/frontend_fetch_rf_alu_fixture_rows.py`, live fetch RF/ALU wrapper/docs | fixture row self-test, live fetch RF/ALU xcheck through `FETCH_EXPECTED_ROWS`, manifest inspection |
 | 25 | R99 strict QEMU trace expected-row extraction | `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`, live fetch RF/ALU wrapper/docs | QEMU-row helper self-test, live fetch RF/ALU xcheck through `FETCH_QEMU_TRACE`, default fixture regression, manifest inspection |
-| 26 | R100 live QEMU capture plus reduced-row selection | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, live fetch RF/ALU harness/docs | bounded QEMU trace capture, `FETCH_QEMU_TRACE` plus `FETCH_ELF`, row-derived RF preload regression, manifest inspection, explicit unsupported-row report |
+| 26 | R100 live QEMU capture plus reduced-row selection | `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, live fetch RF/ALU harness/docs | bounded QEMU trace capture, `FETCH_QEMU_TRACE` plus `FETCH_ELF`, row-derived RF preload regression, manifest inspection, explicit unsupported-row report |
 | 27 | R101 reduced block-marker skip path | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, QEMU-row extractor, live harness/docs | live fetch xchecks with BSTART/BSTOP skip rows, no PC filter, manifest inspection |
 | 28 | R102 reduced dense multi-slot frontend packet path | `F4DenseSlotQueue.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live fetch RF/ALU harness/docs | `F4DenseSlotQueue`, adjacent frontend/path tests, default live fetch RF/ALU xcheck, live QEMU fixture with mixed BSTART/scalar/BSTOP 8-byte windows, manifest inspection |
 | 29 | R103 ROB block-last to BROB lifecycle sideband | `BROB.scala`, `ROBEntryBank.scala`, `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, module docs | BROB stale-BID reference, full block-BID block-last deallocation sideband, reduced scalar-done and next-cycle retire diagnostics, focused ROB/BROB/top gates, manifest inspection |
 | 30 | R104 marker-owned active block lifecycle | `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live harness/docs | marker-only BROB allocation, scalar active-BID reuse, marker-driven scalar-done/retire, default RF/ALU xcheck, live QEMU fixture with `BSTART`/scalar/`BSTOP`, manifest inspection |
-| 31 | R105 longer live-QEMU reduced scalar body | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, `LinxCoreFrontendFetchRfAluTraceTop.md`, runbook docs | `--long-body` fixture build, live QEMU marker gate with `--capture-rows 9`, seven scalar commits compared, manifest inspection |
+| 31 | R105 longer live-QEMU reduced scalar body | `run_chisel_frontend_trace_top_xcheck.sh`, `LinxCoreFrontendFetchRfAluTraceTop.md`, runbook docs | `--long-body` fixture build, live QEMU marker gate with `--capture-rows 9`, seven scalar commits compared, manifest inspection |
 | 32 | R106 CoreMark ADDTPC reduced scalar prefix | `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, execute/top docs | reduced ALU unit, extractor self-test, CoreMark live-QEMU gate with `--capture-rows 4`, first three scalar commits compared, manifest inspection |
 | 33 | R107 CoreMark HL call marker and compact SETRET prefix | `FrontendDecodeStage.scala`, `FrontendOperandDecode.scala`, `F4DecodeWindow.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module docs | extractor self-test, focused Chisel gates, CoreMark live-QEMU gate with `--capture-rows 8`, first four scalar commits compared, manifest inspection |
 | 34 | R108 CoreMark single-save FENTRY reduced macro row | `FrontendOperandDecode.scala`, `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module docs | extractor self-test, focused Chisel gates, CoreMark live-QEMU gate with `--capture-rows 11`, first six scalar/macro commits compared, manifest inspection |

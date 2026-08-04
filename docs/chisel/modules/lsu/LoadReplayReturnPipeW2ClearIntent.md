@@ -121,7 +121,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCom
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r351-replay-pipe-w2-clear-intent-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r351-replay-pipe-w2-clear-intent-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover dormant clear intent, live-clear gating, no-slot stray

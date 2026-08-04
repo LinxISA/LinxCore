@@ -118,7 +118,7 @@ source.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
-- `bash tools/chisel/run_chisel_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 
 Focused reference tests cover FIFO order, simultaneous legal-head pop plus

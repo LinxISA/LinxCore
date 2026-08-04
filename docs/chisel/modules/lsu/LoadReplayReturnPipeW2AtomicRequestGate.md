@@ -178,9 +178,9 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestGate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestEnablePolicy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
-BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-BUILD_DIR=generated/r535-replay-w2-sideband-counters-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r535-replay-w2-sideband-counters-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 git diff --check
 ```
 

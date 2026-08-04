@@ -199,10 +199,10 @@ view feeds `MDBConflictDetect` before that retire watermark drains the row.
 Older focused fixtures remain:
 
 ```bash
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r287-replay-liq-resolve-retire-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r289-replay-liq-resolve-precise-flush-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r287-replay-liq-resolve-retire-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r289-replay-liq-resolve-precise-flush-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover push/backpressure, inclusive retire pruning, flush clearing,

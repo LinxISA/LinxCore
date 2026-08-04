@@ -125,7 +125,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r403x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r403x bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover the dormant reduced-top shape, live-ready request,

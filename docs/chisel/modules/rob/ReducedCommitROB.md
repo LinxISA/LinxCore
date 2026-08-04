@@ -132,7 +132,7 @@ writes one invalid fixed-width output slot; the adapter must filter it before
 comparison.
 
 The same C++ harness also has an `--input-trace` mode used by
-`run_chisel_trace_replay_xcheck.sh`. In that mode it loads bounded normalized
+`run_chisel_frontend_trace_top_xcheck.sh`. In that mode it loads bounded normalized
 commit rows, allocates and completes one row at a time through the top shell,
 writes DUT JSONL from the Chisel commit port, and writes a matching
 QEMU-shaped reference stream for the comparator. This is cross-check
@@ -143,7 +143,7 @@ infrastructure; it does not replace the future live ROB/CMT execution path.
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
-- `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 

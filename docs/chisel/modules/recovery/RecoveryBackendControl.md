@@ -85,7 +85,7 @@ owner can provide the authoritative full BID for the incremented cleanup BID.
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryBackendControlSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
 - `bash tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh`
-- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 
 The focused test proves composition and handshake-qualified ROB publication.
 The generated real-ROB probe proves exact lookup, blocked-intent stability, and

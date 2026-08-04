@@ -125,8 +125,8 @@ on a single-instruction response window.
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
-- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+- `BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 
 R102 evidence records both generated-RTL cross-check manifests as
 `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.

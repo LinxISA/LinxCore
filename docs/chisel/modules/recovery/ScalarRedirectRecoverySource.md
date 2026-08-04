@@ -58,7 +58,7 @@ transport does not derive memory-order width from ring identity.
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarRedirectRecoverySourceSpec`
 - `bash tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTopSpec`
-- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 
 The generated-RTL probe proves cycle-level publish-once retention,
 missing-identity and invalid-RID blocking, backpressure, consume-and-replace,

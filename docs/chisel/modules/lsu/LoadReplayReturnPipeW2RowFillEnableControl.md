@@ -141,7 +141,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RowFillEnableControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CommitRowCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r367-replay-w2-row-fill-enable-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r367-replay-w2-row-fill-enable-control-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover the fully armed row-fill case, request-disabled dormancy,

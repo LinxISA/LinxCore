@@ -381,11 +381,12 @@ final case class OooParams(
   def robGroupIndexWidth: Int = math.max(1, log2Ceil(instructionDecodeWidth))
   def robGroupParentDemandWidth: Int =
     countWidth(robIdentityMembersPerGroup + maxArchitecturalParentRefs)
-  private def maxLogicalUopsPerParent: Int =
-    math.max(maxOrdinaryUopsPerGroup, uopIdentityEntriesPerInstruction)
-  def robMemberIndexWidth: Int = math.max(1, log2Ceil(maxLogicalUopsPerParent))
-  def robMemberCountWidth: Int = countWidth(maxLogicalUopsPerParent)
+  def robMemberIndexWidth: Int = math.max(1,
+    log2Ceil(robIdentityMembersPerGroup))
+  def robMemberCountWidth: Int = countWidth(maxOrdinaryUopsPerGroup)
   def decodedUopIndexWidth: Int = math.max(1, log2Ceil(decodedUopWidth))
+  def recipeUopIndexWidth: Int = math.max(1,
+    log2Ceil(uopIdentityEntriesPerInstruction))
   def recipeUopCountWidth: Int = countWidth(uopIdentityEntriesPerInstruction)
   def architecturalParentCountWidth: Int = countWidth(maxArchitecturalParentRefs)
   def sourceCountWidth: Int = countWidth(maxSourceOperands)

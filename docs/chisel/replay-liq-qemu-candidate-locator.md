@@ -55,15 +55,7 @@ For later raw intervals that do not form a strict reduced-row prefix, capture
 raw QEMU rows only and run the locator directly on `qemu.live.raw.jsonl`:
 
 ```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/<run> \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --expected-rows 0 --capture-rows 512 \
-  --qemu-skip-rows 4096 \
-  --qemu-raw-only \
-  --max-seconds 45 -- \
-  -nographic -monitor none -machine virt -m 1280M \
-  -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 
 python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --input generated/<run>/traces/qemu.live.raw.jsonl \
@@ -151,14 +143,7 @@ window selection.
 R612 ran a QEMU-only CoreMark capture:
 
 ```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/r612-coremark-qemu-memory-candidates-16384 \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --expected-rows 0 --capture-rows 16384 \
-  --allow-block-markers --allow-block-loop-reentry \
-  --qemu-only --max-seconds 45 -- \
-  -nographic -monitor none -machine virt -m 1280M \
-  -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 The reducer produced 16,250 expected rows. Locator results:
@@ -178,15 +163,12 @@ fixtures for positive replacement evidence.
 ## R613 Evidence
 
 R613 adds `--qemu-skip-rows` and `--qemu-raw-only` to
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`.
+`run_chisel_frontend_trace_top_xcheck.sh`.
 
 The non-QEMU-only guard rejects skipped captures:
 
 ```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --expected-rows 0 --capture-rows 8 \
-  --qemu-skip-rows 1
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 The wrapper exits with:
@@ -198,15 +180,7 @@ error: --qemu-skip-rows is allowed only with --qemu-only
 A raw skipped sample after the R611 boundary:
 
 ```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/r613-coremark-qemu-raw-skip4096-sample \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --expected-rows 0 --capture-rows 512 \
-  --qemu-skip-rows 4096 \
-  --allow-block-markers --allow-block-loop-reentry \
-  --qemu-raw-only --max-seconds 45 -- \
-  -nographic -monitor none -machine virt -m 1280M \
-  -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Result: 512 raw rows were captured after 4096 skipped rows. The locator found
@@ -220,15 +194,7 @@ R614 adds `tools/chisel/scan_replay_liq_qemu_intervals.py` and manually samples
 larger skipped CoreMark intervals before closing the packet:
 
 ```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/r614-coremark-qemu-raw-skip16384-sample \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --expected-rows 0 --capture-rows 2048 \
-  --qemu-skip-rows 16384 \
-  --allow-block-markers --allow-block-loop-reentry \
-  --qemu-raw-only --max-seconds 60 -- \
-  -nographic -monitor none -machine virt -m 1280M \
-  -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 The same command shape was repeated for skip offsets 65,536 and 262,144. Each
@@ -438,20 +404,7 @@ R623 constructs the missing eligible-store stimulus on the focused replay
 fixture and records the proof boundary:
 
 ```bash
-LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
-LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
-LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROMOTE=1 \
-LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_LIVE_MASK=1 \
-FETCH_REPLAY_LIQ_REQUIRE_PRESET=replay-physical-suppress-selector-origin \
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
-  --build-dir generated/r623-replay-eligible-store-focused-xcheck \
-  --expected-rows 18 \
-  --capture-rows 32 \
-  --max-seconds 10 \
-  --reduced-store-replay-liq \
-  --disable-store-memory-mutation \
-  --allow-residual-replay-liq-wait
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py
 python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py \
   --validate-only generated/r623-replay-liq-eligible-store-proof-report/report/replay_liq_eligible_store_proof_report.json
@@ -643,17 +596,7 @@ python3 tools/chisel/search_replay_liq_pc_filter_preflights.py \
   --max-seconds 60 \
   --stop-on-generated-ready
 
-LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
-BUILD_DIR=generated/r629-coremark-pc-filter-seeded-trace-replay \
-FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
-FETCH_QEMU_TRACE=generated/r629-replay-liq-pc-filter-seed-preflight-repeat/candidate00-pc4000d7e6-4000d7f3/traces/qemu.live.raw.jsonl \
-FETCH_QEMU_MAX_ROWS=0 \
-FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 \
-FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 \
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 \
-FETCH_DISABLE_STORE_MEMORY_MUTATION=1 \
-FETCH_RF_SEED=generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl \
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r629-coremark-pc-filter-seeded-trace-replay bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 The generated-RTL replay passes the neutral comparator:
@@ -683,7 +626,7 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
 The scanner consumes the R625 candidate report and the R621 unfiltered raw
 trace by default. For each raw dynamic-window hint, it builds an RF seed before
 `qemu_skip_rows`, slices the raw window, runs
-`run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` with
+`run_chisel_frontend_trace_top_xcheck.sh` with
 `FETCH_REDUCED_STORE_REPLAY_LIQ=1`, `FETCH_DISABLE_STORE_MEMORY_MUTATION=1`,
 and `FETCH_RF_SEED=<seed>`, then records both
 `crosscheck_manifest.json` and `frontend_fetch_rf_alu_sideband_stats.json`.

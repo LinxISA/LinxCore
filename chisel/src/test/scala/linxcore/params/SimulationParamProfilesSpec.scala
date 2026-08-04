@@ -189,6 +189,23 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(mechanism.ridSlotWidth == 6)
   }
 
+  test("public and private ROB member widths ignore the larger recipe uop domain") {
+    val core = ParamProfiles.W4.copy(
+      ooo = ParamProfiles.W4.ooo.copy(
+        robIdentityMembersPerGroup = 4,
+        maxInstructionsPerRobGroup = 4,
+        maxUopsPerInstruction = 32,
+        uopIdentityEntriesPerInstruction = 32))
+    val mechanism = MechanismOooParams.fromCoreParams(core)
+
+    assert(core.ooo.robMemberIndexWidth == 2)
+    assert(core.ooo.recipeUopIndexWidth == 5)
+    assert(core.ooo.recipeUopCountWidth == 6)
+    assert(mechanism.robMemberIndexWidth == 2)
+    assert(mechanism.recipeUopIndexWidth == 5)
+    assert(mechanism.recipeUopCountWidth == 6)
+  }
+
   test("simulation capacity changes never mutate main profiles") {
     assert(ParamProfiles.W8.ooo.robGroupsPerStid == 64)
     assert(ParamProfiles.W8.ooo.maxInstructionsPerRobGroup == 4)

@@ -105,7 +105,7 @@ production backend-top wiring remain open.
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh`
-- `bash tools/chisel/run_chisel_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 
 R639 passes 251 suites and 1,482 tests. The generated probe passes exact lookup,
 same-STID oldest selection, consume-and-replace, invalid-STID rejection, and

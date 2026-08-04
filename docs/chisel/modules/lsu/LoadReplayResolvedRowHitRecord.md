@@ -95,15 +95,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 Live QEMU/Verilator fixture gate:
 
 ```bash
-FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,wait_replay_relaunch_valid,replay_queue_enqueue_accepted,replay_queue_out_fire,liq_alloc_accepted,liq_base_lookup_granted,source_return_query_issued,source_return_response_apply_valid,source_row_mutation_request_valid,liq_row_mutation_write_enable,resolve_queue_push_accepted,resolve_queue_valid,mdb_conflict_store_valid \
-FETCH_REPLAY_LIQ_REQUIRE_ZERO=mdb_lookup_wait_plan_lookup_hit,mdb_lookup_wait_plan_wait_intent_valid,mdb_lookup_wait_plan_request_valid \
-LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/r495-replay-liq-rowmutation-resolveq-gate \
-  --fixture replay-ldi-sdi-ldi \
-  --reduced-store-replay-liq \
-  --disable-store-memory-mutation \
-  --max-seconds 8
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 The R495 run compares 3 normalized QEMU/DUT rows with zero mismatches. The

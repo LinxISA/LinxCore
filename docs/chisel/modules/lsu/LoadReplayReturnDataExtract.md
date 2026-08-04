@@ -141,8 +141,8 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnDataExtract
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover little-endian byte extraction, byte/halfword/word

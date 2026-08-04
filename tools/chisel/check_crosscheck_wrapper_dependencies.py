@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,25 +28,57 @@ DEPENDENCIES = (
     TOOLS / "frontend_trace_top_tb.cpp",
     TOOLS / "trace_schema_adapter.py",
 )
-ACTIVE_DOCS = (
-    ROOT / "docs/chisel/README.md",
-    ROOT / "docs/chisel/integrated-development-flow.md",
-    ROOT / "docs/chisel/verification/chisel-flow.md",
-    ROOT / "docs/chisel/verification/qemu-crosscheck.md",
-    ROOT / "docs/chisel/modules/top/LinxCoreFrontendTraceTop.md",
-)
-ACTIVE_DOC_SECTIONS = (
-    (
-        ROOT / "docs/chisel/development-loop.md",
-        "LinxCore adaptation:",
-        "## Agent Loop",
-    ),
-    (
-        ROOT / "docs/chisel/development-loop.md",
-        "## Cross-Check Ladder",
-        "## Project Maintenance",
-    ),
-)
+DOCS_ROOT = ROOT / "docs/chisel"
+HISTORICAL_DOC_ARCHIVES = {
+    DOCS_ROOT / "agent-loop.md",
+    DOCS_ROOT / "verification/phase1-evidence.md",
+    DOCS_ROOT / "verification/phase2-evidence.md",
+    DOCS_ROOT / "verification/phase5-prep-evidence.md",
+}
+SUPPORTED_CANONICAL_ARGS = {"--dry-run", "--check-dependencies"}
+
+
+def canonical_invocation_errors(path: Path, source: str) -> list[str]:
+    """Return active-doc canonical commands outside the supported CLI surface."""
+    errors: list[str] = []
+    lines = source.splitlines()
+    canonical_name = CANONICAL.name
+    for index, line in enumerate(lines):
+        if canonical_name not in line:
+            continue
+        before, after = line.split(canonical_name, 1)
+        inside_code_span = before.count("`") % 2 == 1
+        if inside_code_span:
+            before = before.rsplit("`", 1)[1]
+            after = after.split("`", 1)[0]
+        command_like = (
+            "bash " in before or
+            "tools/chisel/" in before or
+            not before.strip() or
+            after.lstrip().startswith("--")
+        )
+        if not command_like:
+            continue
+
+        options = re.findall(r"(?:^|\s)(--[a-z0-9-]+)", after)
+        if (len(options) > 1 or
+                any(option not in SUPPORTED_CANONICAL_ARGS for option in options)):
+            errors.append(f"{path.relative_to(ROOT)}:{index + 1}:unsupported arguments")
+        if after.rstrip().endswith("\\"):
+            errors.append(f"{path.relative_to(ROOT)}:{index + 1}:continued arguments")
+
+        command_prefix = before
+        prior = index - 1
+        while prior >= 0 and lines[prior].rstrip().endswith("\\"):
+            command_prefix += " " + lines[prior]
+            prior -= 1
+        assignments = re.findall(r"(?:^|\s)([A-Z][A-Z0-9_]*)=", command_prefix)
+        unsupported_env = sorted(set(assignments) - {"BUILD_DIR"})
+        if unsupported_env:
+            errors.append(
+                f"{path.relative_to(ROOT)}:{index + 1}:unsupported environment " +
+                ",".join(unsupported_env))
+    return errors
 
 
 def fail(message: str) -> None:
@@ -82,20 +115,23 @@ def main() -> int:
         if token not in runner:
             fail(f"canonical frontend trace runner does not name {token}")
 
+    active_docs = [
+        path for path in sorted(DOCS_ROOT.rglob("*.md"))
+        if path not in HISTORICAL_DOC_ARCHIVES
+    ]
     forbidden_docs: list[str] = []
-    for path in ACTIVE_DOCS:
+    unsupported_canonical_docs: list[str] = []
+    for path in active_docs:
         source = path.read_text(encoding="utf-8")
         for name in DELETED_WRAPPERS:
             if name in source:
                 forbidden_docs.append(f"{path.relative_to(ROOT)}:{name}")
-    for path, start_marker, end_marker in ACTIVE_DOC_SECTIONS:
-        source = path.read_text(encoding="utf-8")
-        active = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
-        for name in DELETED_WRAPPERS:
-            if name in active:
-                forbidden_docs.append(f"{path.relative_to(ROOT)}:{name}")
+        unsupported_canonical_docs.extend(canonical_invocation_errors(path, source))
     if forbidden_docs:
         fail("active documentation names deleted wrappers: " + ", ".join(forbidden_docs))
+    if unsupported_canonical_docs:
+        fail("active documentation uses unsupported canonical commands: " +
+             ", ".join(unsupported_canonical_docs))
 
     dry_run = subprocess.run(
         ["bash", str(CANONICAL), "--dry-run"], cwd=ROOT, text=True,
@@ -110,6 +146,8 @@ def main() -> int:
     print("canonical-emitter=linxcore.top.EmitLinxCoreFrontendTraceTop")
     print("canonical-top=LinxCoreFrontendTraceTop")
     print("canonical-dry-run=pass")
+    print(f"active-docs-checked={len(active_docs)}")
+    print(f"historical-doc-archives-excluded={len(HISTORICAL_DOC_ARCHIVES)}")
     return 0
 
 

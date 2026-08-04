@@ -194,7 +194,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionCont
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r353-replay-pipe-w2-slot-replace-plan-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r353-replay-pipe-w2-slot-replace-plan-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover empty-slot write matching, occupied-slot blocking,

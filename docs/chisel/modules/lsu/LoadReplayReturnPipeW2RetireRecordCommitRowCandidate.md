@@ -146,15 +146,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
-LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
-FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
-  --build-dir generated/r583-replay-retire-record-commit-row-candidate-xcheck \
-  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
-  --reduced-store-replay-liq --disable-store-memory-mutation \
-  --allow-residual-replay-liq-wait
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --expect-reduced-store-replay-liq \
   --require-nonzero replay_liq.w2_retire_record_commit_row_candidate_valid \

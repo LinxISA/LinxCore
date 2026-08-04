@@ -141,7 +141,7 @@ bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
-bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_verilator_lint.sh

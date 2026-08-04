@@ -43,6 +43,8 @@ final case class OOOParams(
   def stidWidth: Int = math.max(1, log2Ceil(stidIdentityEntries))
   def ridSlotWidth: Int = math.max(1, log2Ceil(robIdentityGroupsPerStid))
   def robMemberIndexWidth: Int = math.max(1,
+    log2Ceil(robIdentityMembersPerGroup))
+  def recipeUopIndexWidth: Int = math.max(1,
     log2Ceil(uopIdentityEntriesPerInstruction))
   def recipeUopCountWidth: Int = math.max(1,
     log2Ceil(uopIdentityEntriesPerInstruction + 1))

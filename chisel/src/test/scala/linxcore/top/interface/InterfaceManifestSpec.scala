@@ -212,7 +212,7 @@ class InterfaceManifestSpec extends AnyFunSuite {
     val expectedSuffixWidths = Map(
       "rob_peId" -> p.peIdWidth,
       "rob_stid" -> 1,
-      "rob_ridSlot" -> 5,
+      "rob_ridSlot" -> 6,
       "rob_ridGeneration" -> 7,
       "rob_memberIndex" -> 2,
       "rob_residentGeneration" -> 9,

@@ -72,5 +72,5 @@ FETCH_QEMU_MAX_ROWS=0
 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 compares 3280 normalized QEMU/DUT rows with zero mismatches.

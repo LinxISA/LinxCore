@@ -134,7 +134,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIss
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectPayloadPlan
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCompletionPermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r346-replay-pipe-w2-side-effect-fire-vector-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r346-replay-pipe-w2-side-effect-fire-vector-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover full-mask fire, resolve-only fire, no-accept dormancy,

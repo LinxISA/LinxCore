@@ -281,7 +281,7 @@ This closes the elaboration-only gap for marker-row admission; it still leaves
 marker-aware QEMU/DUT comparison and the default live-top switch to later
 packets.
 R180 extends the generated-RTL QEMU comparator with an explicit marker-row
-mode. `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --marker-rows`
+mode. `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 emits the marker-row wrapper, asks the shared driver to admit legal marker
 rows, validates their ROB commits as marker-shaped rows, and filters those
 validated marker commits before scalar QEMU comparison. The first CoreMark
@@ -951,11 +951,11 @@ bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r173-marker-retire-source-flush-prune-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Affected gates:
@@ -971,7 +971,7 @@ bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendTraceTop
 bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
-bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 

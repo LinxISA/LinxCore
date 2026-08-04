@@ -159,8 +159,11 @@ class TURenameSequenceSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("physical tag generation is independent from MapQ sequence generation") {
+  test("physical T tags wrap at eight entries inside a 32-entry identity namespace") {
     val p = params(4)
+    assert(p.ooo.tPhysRegs == 8)
+    assert(p.ooo.tTagIdentityEntries == 32)
+    assert(p.ooo.tTagWidth == 5)
     simulate(new TURename(p)) { dut =>
       clear(dut)
       val published = scala.collection.mutable.ArrayBuffer.empty[D3RenameGroup]

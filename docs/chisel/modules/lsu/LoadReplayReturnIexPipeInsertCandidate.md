@@ -175,7 +175,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandi
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r322-replay-iex-pipe-insert-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r322-replay-iex-pipe-insert-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover successful insert-candidate formation, wakeup-required

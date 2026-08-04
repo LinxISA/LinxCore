@@ -96,7 +96,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackArbiterInput
 bash tools/chisel/run_chisel_tests.sh --only ReducedScalarWritebackArbiter
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r362-replay-pipe-w2-writeback-rf-arbiter-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r362-replay-pipe-w2-writeback-rf-arbiter-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover live-disabled candidate hold, live-enabled payload copy,

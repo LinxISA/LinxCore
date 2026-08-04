@@ -96,7 +96,7 @@ selection and invalid-scope rejection therefore have one implementation.
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarLSU`
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupROBProbeSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
-- `bash tools/chisel/run_chisel_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 
 R640 passes 251 suites and 1,483 tests. The generated real-ROB path and canonical
 MDB probe pass. The canonical top cross-check passes 3 rows with zero

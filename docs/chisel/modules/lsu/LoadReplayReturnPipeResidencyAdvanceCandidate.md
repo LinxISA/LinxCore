@@ -99,7 +99,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanc
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r385x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r385x bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover enabled LDA advance, live-disabled AGU blocking,

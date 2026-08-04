@@ -117,7 +117,7 @@ bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r321-replay-rob-row-status-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r321-replay-rob-row-status-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 Reference tests cover matching non-free rows, `NeedFlush` rows, invalid RID

@@ -164,7 +164,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
-bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 

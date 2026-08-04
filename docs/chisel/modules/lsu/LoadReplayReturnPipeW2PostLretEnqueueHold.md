@@ -111,16 +111,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PostLretEnqueueHold
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
-LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
-LINXCORE_REPLAY_LIQ_W2_POST_LRET_ENQUEUE_HOLD_CYCLES=1 \
-FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
-  --build-dir generated/r575-replay-lret-post-enqueue-w2-hold-xcheck \
-  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
-  --reduced-store-replay-liq --disable-store-memory-mutation \
-  --allow-residual-replay-liq-wait
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 ```
 
 R575 generated-RTL/QEMU evidence:

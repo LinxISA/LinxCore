@@ -138,7 +138,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 Cross-check smoke:
 
 ```bash
-bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_verilator_lint.sh
 ```
 

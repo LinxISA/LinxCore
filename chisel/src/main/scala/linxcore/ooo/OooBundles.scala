@@ -193,8 +193,8 @@ class OooD1DecodedPacket(val p: OooParams = OooParams()) extends Bundle {
 
 class CanonicalUopKey(val p: OooParams = OooParams()) extends Bundle {
   val primaryParent = new CanonicalParentKey(p)
-  val uopOrdinal = UInt(p.robMemberIndexWidth.W)
-  val uopCount = UInt(p.robMemberCountWidth.W)
+  val uopOrdinal = UInt(p.recipeUopIndexWidth.W)
+  val uopCount = UInt(p.recipeUopCountWidth.W)
 }
 
 class BoundarySidecar(val p: OooParams = OooParams()) extends Bundle {

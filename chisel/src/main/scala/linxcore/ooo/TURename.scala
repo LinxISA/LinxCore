@@ -57,8 +57,11 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
       amount: UInt,
       entries: Int,
       ptrWidth: Int): (UInt, UInt) = {
-    val sum = ptr +& amount
-    (trunc(sum, ptrWidth), gen + (sum >= entries.U).asUInt)
+    val physicalWidth = math.max(1, log2Ceil(entries))
+    val sum = trunc(ptr, physicalWidth) +& amount
+    val crossesEnd = sum >= entries.U
+    val wrapped = Mux(crossesEnd, sum - entries.U, sum)
+    (trunc(wrapped, ptrWidth), gen + crossesEnd.asUInt)
   }
 
   private def sameRob(a: RobIdentity, b: RobIdentity): Bool =
