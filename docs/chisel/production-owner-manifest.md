@@ -590,8 +590,8 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/dtu/DTU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/DTUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "case": "trace observation never backpressures a stalled exporter", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala", "case": "OOO accepts halt only at a commit boundary and resume releases it", "level": "L3", "status": "public-box-verified"}],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "chisel/src/test/scala/linxcore/iex/DTUActivationTraceSpec.scala", "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "case": "trace observation never backpressures a stalled exporter", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/iex/DTUActivationTraceSpec.scala", "case": "stalled external trace export cannot suppress terminal or commit progress", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala", "case": "OOO accepts halt only at a commit boundary and resume releases it", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
       "deletion_targets": [],
       "adapters": []

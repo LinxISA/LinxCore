@@ -239,9 +239,41 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   private val traceTransport = Seq.fill(terminalTraceSources.length)(
     Module(new Queue(chiselTypeOf(implementation.io.trace.head.bits), 1,
       pipe = false, flow = false)))
+  private val pwritePending = RegInit(VecInit(
+    Seq.fill(terminalTraceSources.length)(false.B)))
+  private val pwriteRows = Reg(Vec(terminalTraceSources.length,
+    chiselTypeOf(io.terminalPWrite.bits)))
   for (lane <- terminalTraceSources.indices) {
-    traceTransport(lane).io.enq <> terminalTraceSources(lane)
+    val source = terminalTraceSources(lane)
+    val incomingGprMask = VecInit(source.bits.writebacks.map(writeback =>
+      writeback.valid && writeback.destination.kind === DestinationKind.Gpr))
+    val incomingGprWrite = incomingGprMask.asUInt.orR
+    val pwriteCapacity = !incomingGprWrite || !pwritePending(lane)
+    traceTransport(lane).io.enq.valid := source.valid && pwriteCapacity
+    traceTransport(lane).io.enq.bits := source.bits
+    source.ready := traceTransport(lane).io.enq.ready && pwriteCapacity
     traceArbiter.io.in(lane) <> traceTransport(lane).io.deq
+    when(source.fire && incomingGprWrite) {
+      pwritePending(lane) := true.B
+      pwriteRows(lane) := 0.U.asTypeOf(pwriteRows(lane))
+      pwriteRows(lane).rob.peId := source.bits.member.group.peId
+      pwriteRows(lane).rob.stid := source.bits.member.group.stid
+      pwriteRows(lane).rob.ridSlot := source.bits.member.group.ridSlot
+      pwriteRows(lane).rob.ridGeneration :=
+        source.bits.member.group.ridGeneration
+      pwriteRows(lane).rob.memberIndex := source.bits.member.memberIndex
+      pwriteRows(lane).rob.residentGeneration :=
+        source.bits.member.residentGeneration
+      pwriteRows(lane).rob.bid := source.bits.member.bid.value
+      pwriteRows(lane).rob.brobGeneration :=
+        source.bits.member.brobGeneration
+      pwriteRows(lane).ptag := Mux1H(incomingGprMask,
+        source.bits.writebacks.map(_.destination.ptag))
+      pwriteRows(lane).generation := Mux1H(incomingGprMask,
+        source.bits.writebacks.map(_.destination.ptagGeneration))
+      pwriteRows(lane).value := Mux1H(incomingGprMask,
+        source.bits.writebacks.map(_.data))
+    }
   }
   io.trace.valid := traceArbiter.io.out.valid
   traceArbiter.io.out.ready := io.trace.ready
@@ -279,16 +311,14 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   terminalTraceEntry.opcode := terminalTrace.opcode
   terminalTraceEntry.payload := Mux(gprWriteMask.asUInt.orR,
     Mux1H(gprWriteMask, terminalTrace.writebacks.map(_.data)), 0.U)
-  io.terminalPWrite.valid := traceArbiter.io.out.fire &&
-    gprWriteMask.asUInt.orR
-  io.terminalPWrite.bits := 0.U.asTypeOf(io.terminalPWrite.bits)
-  io.terminalPWrite.bits.rob := terminalTraceEntry.rob
-  io.terminalPWrite.bits.ptag := Mux1H(gprWriteMask,
-    terminalTrace.writebacks.map(_.destination.ptag))
-  io.terminalPWrite.bits.generation := Mux1H(gprWriteMask,
-    terminalTrace.writebacks.map(_.destination.ptagGeneration))
-  io.terminalPWrite.bits.value := Mux1H(gprWriteMask,
-    terminalTrace.writebacks.map(_.data))
+  private val pwriteGrant = PriorityEncoderOH(pwritePending.asUInt)
+  io.terminalPWrite.valid := pwritePending.asUInt.orR
+  io.terminalPWrite.bits := Mux1H(pwriteGrant, pwriteRows)
+  when(io.terminalPWrite.valid) {
+    for (lane <- terminalTraceSources.indices) {
+      when(pwriteGrant(lane)) { pwritePending(lane) := false.B }
+    }
+  }
 
   // Reservation is the same acceptance dependency used by the retained IQ
   // owner; it cannot fire separately from the logical STA/STD pair.

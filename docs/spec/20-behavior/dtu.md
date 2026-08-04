@@ -38,4 +38,7 @@ debug requests.
 
 `DTUSpec` MUST cover stalled trace export, drop accounting, commit observation,
 retained halt/resume request transport, and structural absence of recovery and
-commit-control ownership inside DTU.
+commit-control ownership inside DTU. `DTUActivationTraceSpec` MUST stall the
+external trace consumer while proving live IEX terminal publication and commit
+progress, accepted and dropped DTU observations, and stability of the retained
+export packet.

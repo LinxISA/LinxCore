@@ -2,12 +2,13 @@ package linxcore.iex
 
 import chisel3._
 import chisel3.util.{Arbiter, Decoupled, DecoupledIO, Queue}
-import linxcore.dtu.DTU
+import linxcore.dtu.{DTU, PerformanceCounterIndex}
 import linxcore.lsu.LSU
 import linxcore.ooo.OOO
 import linxcore.params.{CoreParams, ParamProfiles}
 import linxcore.top.interface.{D1Packet, LoadReplayRequestTxn, LoadResultTxn,
-  MemoryIdentity, MemoryTransactionIdentity, RecoveryCause, TraceKind}
+  MemoryIdentity, MemoryTransactionIdentity, RecoveryCause, TraceKind,
+  TracePacket}
 
 /** Capacity-bounded generated-RTL profile. Principal W4 pipe counts and all
   * public identity widths remain main-profile-identical; only retained local
@@ -126,6 +127,10 @@ class OOOIEXLSUActivationProbeIO(val p: CoreParams) extends Bundle {
   val memoryCount = Output(UInt(32.W))
   val commitCount = Output(UInt(32.W))
   val traceCount = Output(UInt(32.W))
+  val dtuTraceValid = Output(Bool())
+  val dtuTrace = Output(new TracePacket(p))
+  val dtuTraceAcceptedCount = Output(UInt(64.W))
+  val dtuTraceDroppedCount = Output(UInt(64.W))
   val stid0Progress = Output(UInt(32.W))
   val stid1Progress = Output(UInt(32.W))
   val stid0CommitProgress = Output(UInt(32.W))
@@ -254,10 +259,15 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   dtu.io.debugResponse.ready := true.B
   dtu.io.commitIn.valid := ooo.io.commit.fire
   dtu.io.commitIn.bits := ooo.io.commit.bits
-  dtu.io.traceIn.valid := ooo.io.trace.fire
-  dtu.io.traceIn.bits := ooo.io.trace.bits
-  dtu.io.traceOut.ready := true.B
-  ooo.io.trace.ready := io.oooTraceReady
+  dtu.io.traceIn <> iex.io.trace
+  dtu.io.traceOut.ready := io.iexTraceReady
+  io.dtuTraceValid := dtu.io.traceOut.valid
+  io.dtuTrace := dtu.io.traceOut.bits
+  io.dtuTraceAcceptedCount :=
+    dtu.io.performanceCounters(PerformanceCounterIndex.TraceAccepted)
+  io.dtuTraceDroppedCount :=
+    dtu.io.performanceCounters(PerformanceCounterIndex.TraceDropped)
+  ooo.io.trace.ready := true.B
   ooo.io.systemIssue.foreach(_.ready := io.systemReady)
   for (target <- Seq(ooo.io.recoveryToIfu, ooo.io.recoveryToCtu)) {
     val pending = RegInit(false.B)
@@ -274,11 +284,14 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   }
 
   iex.io.cmdIssue.ready := io.cmdReady
-  iex.io.trace.ready := io.iexTraceReady
   lsu.io.storeCommit.valid := false.B
   lsu.io.storeCommit.bits := 0.U.asTypeOf(lsu.io.storeCommit.bits)
   lsu.io.storeClassify.valid := false.B
   lsu.io.storeClassify.bits := 0.U.asTypeOf(lsu.io.storeClassify.bits)
+  lsu.io.memoryFault.ready := true.B
+  lsu.io.maintenance.valid := false.B
+  lsu.io.maintenance.bits := 0.U.asTypeOf(lsu.io.maintenance.bits)
+  lsu.io.maintenanceResult.ready := true.B
   lsu.io.loadReissueRequest <> io.loadReissueRequest
   for (lane <- lsu.io.memoryRequest.indices) {
     lsu.io.memoryRequest(lane).ready := io.memoryReady(lane)
@@ -294,7 +307,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   lsu.io.memoryResponse.head.bits.address := io.memoryResponseAddress
   lsu.io.memoryResponse.head.bits.data := io.memoryResponseData
   io.memoryResponseReady := lsu.io.memoryResponse.head.ready
-  lsu.io.trace.ready := io.lsuTraceReady
+  lsu.io.trace.ready := true.B
 
   private def countWhen(event: Bool): UInt = {
     val count = RegInit(0.U(32.W))
@@ -342,7 +355,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   val storeAddressFire = anyFire(lsu.io.iex.storeAddress.toSeq)
   val storeDataFire = anyFire(lsu.io.iex.storeData.toSeq)
   val memoryFire = anyFire(lsu.io.memoryRequest.toSeq)
-  val traceFire = ooo.io.trace.fire || iex.io.trace.fire || lsu.io.trace.fire
+  val traceFire = dtu.io.traceIn.fire
 
   io.ingressCount := countWhen(io.program.fire)
   io.bootstrapInitCount := countWhen(iex.io.pInit.fire)
@@ -361,7 +374,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
     iex.io.ooo.recoveryEvent.bits.cause === RecoveryCause.Branch)
   io.recoveryEventCount := countWhen(iex.io.ooo.recoveryEvent.fire)
   io.recoveryApplyCount := countWhen(iex.io.ooo.recovery.apply.valid)
-  io.iexTerminalTraceCount := countWhen(iex.io.trace.fire)
+  io.iexTerminalTraceCount := countWhen(dtu.io.traceIn.fire)
   io.loadCount := countWhen(loadFire)
   io.loadLaunchCount := countWhen(loadLaunchFire)
   io.loadAttemptLaunchCount := countWhen(loadAttemptLaunchFire)
