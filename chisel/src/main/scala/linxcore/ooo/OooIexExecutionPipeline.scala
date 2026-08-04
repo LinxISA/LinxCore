@@ -75,6 +75,8 @@ class OooIexExecutionPipelineIO(
     Decoupled(new RobResolveTxn(core)))
   val recoveryEvent = Vec(p.iexTerminalWidth,
     Decoupled(new RecoveryEvent(core)))
+  val architecturalAccepted = Output(Vec(p.iexTerminalWidth,
+    Valid(new OooIexTerminalRequest(p))))
 
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
   val systemCmdTerminalFire = Output(Bool())
@@ -315,6 +317,7 @@ class OooIexExecutionPipeline(
   }
 
   io.terminalFireMask := execute.io.terminalFireMask
+  io.architecturalAccepted := execute.io.architecturalAccepted
   io.systemCmdTerminalFire := execute.io.systemCmdTerminalFire
   io.transferFireMask := issue.io.transferFireMask
   io.pWriteFire := issue.io.pWriteFire

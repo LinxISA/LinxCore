@@ -114,10 +114,10 @@ class DTUActivationTraceSpec extends AnyFunSuite with ChiselSim {
           s"dropped=${dut.io.dtuTraceDroppedCount.peek().litValue}"
       info(finalCounts)
       assert(dut.io.rfWriteCount.peek().litValue == 2, finalCounts)
-      assert(dut.io.resolveCount.peek().litValue >= 2, finalCounts)
-      assert(dut.io.commitCount.peek().litValue >= 1, finalCounts)
-      assert(dut.io.dtuTraceAcceptedCount.peek().litValue >= 2, finalCounts)
-      assert(dut.io.dtuTraceDroppedCount.peek().litValue >= 1, finalCounts)
+      assert(dut.io.resolveCount.peek().litValue == 2, finalCounts)
+      assert(dut.io.commitCount.peek().litValue == 1, finalCounts)
+      assert(dut.io.dtuTraceAcceptedCount.peek().litValue == 2, finalCounts)
+      assert(dut.io.dtuTraceDroppedCount.peek().litValue == 1, finalCounts)
       dut.io.dtuTraceValid.expect(true.B)
       dut.io.dtuTrace.expect(retained)
     }

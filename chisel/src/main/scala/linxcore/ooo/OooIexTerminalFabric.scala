@@ -48,6 +48,8 @@ class OooIexTerminalFabricIO(
   val recovery = Flipped(new RecoveryTargetIO(core))
 
   val terminalFireMask = Output(UInt(p.iexTerminalWidth.W))
+  val architecturalAccepted = Output(Vec(p.iexTerminalWidth,
+    Valid(new OooIexTerminalRequest(p))))
   val rejected = Output(Vec(p.iexTerminalWidth,
     Vec(3, Valid(new OooIexTerminalReject(p)))))
 }
@@ -168,6 +170,8 @@ class OooIexTerminalFabric(
     io.recoveryEvent(lane).valid := publishers(lane).io.recoveryEvent.valid
     io.recoveryEvent(lane).bits := publishers(lane).io.recoveryEvent.bits
     publishers(lane).io.recoveryEvent.ready := io.recoveryEvent(lane).ready
+    io.architecturalAccepted(lane) :=
+      publishers(lane).io.architecturalAccepted
     io.rejected(lane) := publishers(lane).io.rejected
   }
 

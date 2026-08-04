@@ -86,6 +86,7 @@ class OooIexTerminalPublishIO(val core: CoreParams) extends Bundle {
   val recovery = Flipped(new RecoveryTargetIO(core))
 
   val terminalFire = Output(Bool())
+  val architecturalAccepted = Valid(new OooIexTerminalRequest(p))
   val rejected = Vec(3, Valid(new OooIexTerminalReject(p)))
 }
 
@@ -330,12 +331,12 @@ class OooIexSystemCmdTerminal(val core: CoreParams) extends Module {
   }
 }
 
-/** Fair ALU/BRU/load terminal arbiter with one atomic publication event.
+/** Fair ALU/BRU/load terminal arbiter with one atomic architectural event.
   *
   * A selected owner is released only when every required physical-file write,
-  * committed wakeup, ROB resolve, trace record, and optional BCTRL update
-  * fires together. No endpoint can consume a partial transaction while a peer
-  * endpoint is backpressured.
+  * committed wakeup, ROB resolve, and optional BCTRL update fires together.
+  * Trace is a best-effort observation of that event and cannot participate in
+  * owner release or architectural backpressure.
   */
 class OooIexTerminalPublish(val core: CoreParams) extends Module {
   val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
@@ -602,11 +603,12 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
       io.recovery.prepare.bits, selectedRob)))
   val publicationEnabled = selected.valid && !recoveryKillsSelected &&
     !recoveryBlocksSelected
-  val allReady = io.robResolve.ready && io.trace.ready && bctrlReady &&
+  val architecturalReady = io.robResolve.ready && bctrlReady &&
     allDestinationReady && recoveryEventReady
-  selected.ready := recoveryKillsSelected || (!recoveryBlocksSelected && allReady)
+  selected.ready := recoveryKillsSelected ||
+    (!recoveryBlocksSelected && architecturalReady)
 
-  io.robResolve.valid := publicationEnabled && io.trace.ready && bctrlReady &&
+  io.robResolve.valid := publicationEnabled && bctrlReady &&
     allDestinationReady && recoveryEventReady
   io.robResolve.bits := 0.U.asTypeOf(io.robResolve.bits)
   io.robResolve.bits.transactionId := selected.bits.transactionId
@@ -621,8 +623,7 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
   io.robResolve.bits.trap := trapEvent(selected.bits)
 
   io.recoveryEvent.valid := publicationEnabled && recoveryEventRequired &&
-    io.robResolve.ready && io.trace.ready && bctrlReady &&
-    allDestinationReady
+    io.robResolve.ready && bctrlReady && allDestinationReady
   io.recoveryEvent.bits := 0.U.asTypeOf(io.recoveryEvent.bits)
   io.recoveryEvent.bits.transactionId := selected.bits.transactionId
   io.recoveryEvent.bits.cause := Mux(branchRedirect,
@@ -633,8 +634,10 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     selected.bits.bctrl.target, 0.U)
   io.recoveryEvent.bits.trap := trapEvent(selected.bits)
 
-  io.trace.valid := publicationEnabled && io.robResolve.ready &&
-    recoveryEventReady && bctrlReady && allDestinationReady
+  val architecturalFire = selected.fire && !recoveryKillsSelected
+  io.architecturalAccepted.valid := architecturalFire
+  io.architecturalAccepted.bits := selected.bits
+  io.trace.valid := architecturalFire
   io.trace.bits.source := selected.bits.source
   io.trace.bits.member := selected.bits.member
   io.trace.bits.uopKey := selected.bits.uopKey
@@ -645,8 +648,7 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
   io.trace.bits.trapCause := selected.bits.trapCause
 
   io.bctrl.valid := publicationEnabled && bctrlRequired &&
-    io.robResolve.ready && io.trace.ready && recoveryEventReady &&
-    allDestinationReady
+    io.robResolve.ready && recoveryEventReady && allDestinationReady
   io.bctrl.bits.member := selected.bits.member
   io.bctrl.bits.uopKey := selected.bits.uopKey
   io.bctrl.bits.opcode := selected.bits.opcode
@@ -656,8 +658,8 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     val writeback = selected.bits.writebacks(index)
     val otherDestinationsReady = (0 until p.maxDestinationOperands)
       .filter(_ != index).map(destinationReady).foldLeft(true.B)(_ && _)
-    val commonPeerReady = io.robResolve.ready && io.trace.ready &&
-      recoveryEventReady && bctrlReady && otherDestinationsReady
+    val commonPeerReady = io.robResolve.ready && recoveryEventReady &&
+      bctrlReady && otherDestinationsReady
     val writeValid = publicationEnabled && writeRequired(index) &&
       commonPeerReady && io.wakeup(index).ready
     val wakeValid = publicationEnabled && writeRequired(index) &&
@@ -709,11 +711,12 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     io.wakeup(index).bits.load := selected.bits.load
   }
 
-  val publicationFire = selected.fire && !recoveryKillsSelected
-  io.terminalFire := publicationFire
-  when(publicationFire) {
-    assert(io.robResolve.fire && io.trace.fire,
-      "terminal ROB resolve and trace must share the owner release")
+  io.terminalFire := architecturalFire
+  when(architecturalFire) {
+    assert(io.robResolve.fire,
+      "terminal ROB resolve must share the architectural owner release")
+    assert(io.trace.valid,
+      "terminal trace observation must be generated from architectural fire")
     when(recoveryEventRequired) {
       assert(io.recoveryEvent.fire,
         "required recovery event must share the terminal owner release")
@@ -731,7 +734,7 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     }
   }
   when(recoveryKillsSelected) {
-    assert(selected.fire && !io.robResolve.fire && !io.trace.fire &&
+    assert(selected.fire && !io.robResolve.fire && !io.trace.valid &&
       !io.recoveryEvent.fire,
       "recovery-killed terminal ownership must release without publication")
   }

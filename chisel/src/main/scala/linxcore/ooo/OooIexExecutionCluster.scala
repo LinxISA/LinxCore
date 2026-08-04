@@ -86,6 +86,8 @@ class OooIexExecutionClusterIO(
     Decoupled(new RobResolveTxn(core)))
   val recoveryEvent = Vec(p.iexTerminalWidth,
     Decoupled(new RecoveryEvent(core)))
+  val architecturalAccepted = Output(Vec(p.iexTerminalWidth,
+    Valid(new OooIexTerminalRequest(p))))
 
   val routeRejected = Output(Vec(profile.pickerFunctions.length,
     Valid(new OooIexExecutionRouteReject(p))))
@@ -296,6 +298,7 @@ class OooIexExecutionCluster(
   }
   io.terminalRejected := terminal.io.rejected
   io.terminalFireMask := terminal.io.terminalFireMask
+  io.architecturalAccepted := terminal.io.architecturalAccepted
 
   io.robNoflushReady <> systemCmd.io.robNoflushReady
   systemCmd.io.robNoflush <> io.robNoflush
