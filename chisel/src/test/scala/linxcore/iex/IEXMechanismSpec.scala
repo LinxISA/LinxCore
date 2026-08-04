@@ -28,6 +28,7 @@ private class IEXPcReadHarness(val core: CoreParams) extends Module {
   val lane = Module(new OooIexP1I2Lane(core, p))
 
   pc.io.prepare := io.prepare
+  pc.io.selectedLimit := pc.io.prefixOffer
   io.prepareReady := pc.io.prepareReady
   io.prepared := pc.io.prepared
   pc.io.publicationIdentity.valid := io.publishFire

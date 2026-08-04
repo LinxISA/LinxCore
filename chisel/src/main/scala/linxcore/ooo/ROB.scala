@@ -10,6 +10,8 @@ object ROBState extends ChiselEnum {
 }
 
 class ROBIO(val p: CoreParams) extends Bundle {
+  val candidate = Flipped(Valid(new D3RenameGroup(p)))
+  val prefixOffer = Output(Valid(new D3PrefixLimit(p)))
   val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
   val brobPrepared = Input(new BROBPrepared(p))
   val prepared = Output(new OOORobPrepared(p))
@@ -185,6 +187,81 @@ class ROB(val p: CoreParams) extends Module {
   io.ridTailSlot := tailSlot
   io.ridTailGeneration := tailGeneration
   io.ridHeadSlot := headSlot
+
+  // Side-effect-free capacity offer for the oldest complete candidate groups.
+  // BROB bindings are deliberately absent here; final binding remains on the
+  // selected `prepare` transaction below.
+  val candidate = io.candidate.bits
+  val candidateStidRaw = candidate.entries(0).uop.decoded.rob.stid
+  val candidateStidInRange = candidateStidRaw < p.ooo.stidCount.U
+  val candidateStid = safeStid(candidateStidRaw)
+  val candidateLaneGroupMatch = Wire(Vec(d3Width, Vec(d3Width, Bool())))
+  for (lane <- 0 until d3Width; group <- 0 until d3Width) {
+    val row = candidate.entries(lane).uop.decoded.rob
+    val intent = candidate.groups(group)
+    candidateLaneGroupMatch(lane)(group) := lane.U < candidate.count &&
+      group.U < candidate.groupCount && intent.valid &&
+      intent.peId === row.peId && intent.stid === row.stid &&
+      intent.ridSlot === row.ridSlot &&
+      intent.ridGeneration === row.ridGeneration
+  }
+  val candidateLaneExact = Wire(Vec(d3Width, Bool()))
+  for (lane <- 0 until d3Width) {
+    val active = lane.U < candidate.count
+    val row = candidate.entries(lane).uop.decoded
+    val selectedGroup = PriorityEncoder(candidateLaneGroupMatch(lane).asUInt)
+    val (expectedSlot, expectedWrap) = slotPlus(
+      tailSlot(candidateStid), selectedGroup)
+    val priorMembers = PopCount((0 until lane).map { prior =>
+      candidateLaneGroupMatch(prior)(selectedGroup)
+    })
+    candidateLaneExact(lane) := Mux(active,
+      row.valid && PopCount(candidateLaneGroupMatch(lane)) === 1.U &&
+        row.rob.stid === candidateStidRaw &&
+        row.rob.ridSlot === expectedSlot &&
+        row.rob.ridGeneration ===
+          tailGeneration(candidateStid) + expectedWrap.asUInt &&
+        row.rob.memberIndex === priorMembers &&
+        row.rob.memberIndex < p.ooo.maxInstructionsPerRobGroup.U &&
+        !memberLiveAt(candidateStid, expectedSlot, row.rob.memberIndex),
+      !row.valid && !candidateLaneGroupMatch(lane).asUInt.orR)
+  }
+  val candidateGroupExact = Wire(Vec(d3Width, Bool()))
+  val candidateOfferChain = Wire(Vec(d3Width + 1, Bool()))
+  val candidateAcceptedGroup = Wire(Vec(d3Width, Bool()))
+  candidateOfferChain(0) := true.B
+  val candidateFreeGroups = p.ooo.robGroupsPerStid.U -
+    groupCount(candidateStid)
+  for (group <- 0 until d3Width) {
+    val active = group.U < candidate.groupCount
+    val groupSeen = (0 until d3Width).map { lane =>
+      candidateLaneGroupMatch(lane)(group)
+    }.reduce(_ || _)
+    val groupLanesExact = (0 until d3Width).map { lane =>
+      !candidateLaneGroupMatch(lane)(group) || candidateLaneExact(lane)
+    }.reduce(_ && _)
+    candidateGroupExact(group) := active && candidate.groups(group).valid &&
+      groupSeen && groupLanesExact
+    candidateAcceptedGroup(group) := candidateOfferChain(group) &&
+      candidateGroupExact(group) && group.U < candidateFreeGroups
+    candidateOfferChain(group + 1) := candidateAcceptedGroup(group)
+  }
+  val candidateOfferedGroups = PopCount(candidateAcceptedGroup)
+  val candidateOfferedLanes = PopCount((0 until d3Width).map { lane =>
+    lane.U < candidate.count && (0 until d3Width).map { group =>
+      group.U < candidateOfferedGroups &&
+        candidateLaneGroupMatch(lane)(group)
+    }.reduce(_ || _)
+  })
+  val candidateShapeExact = candidate.count.orR &&
+    candidate.count <= d3Width.U && candidate.groupCount.orR &&
+    candidate.groupCount <= candidate.count &&
+    candidate.groupCount <= d3Width.U
+  io.prefixOffer.valid := io.candidate.valid && candidateStidInRange &&
+    candidateShapeExact && candidateOfferedGroups.orR &&
+    candidateOfferedLanes.orR
+  io.prefixOffer.bits.count := candidateOfferedLanes
+  io.prefixOffer.bits.groupCount := candidateOfferedGroups
 
   val prepareStid = safeStid(io.prepare.bits.entries(0).uop.decoded.rob.stid)
   val prepareCountLegal =

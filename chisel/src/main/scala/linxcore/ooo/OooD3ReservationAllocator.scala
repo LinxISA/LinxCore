@@ -82,10 +82,21 @@ class OooD3ReservationAllocator(val p: CoreParams) extends Module {
   val inputStid = io.in.bits.entries(0).uop.decoded.rob.stid
   val recoveryBlocksInput = recoveryPending &&
     recoveryPlan.trigger.stid === inputStid
-  io.in.ready := !heldValid && !recoveryBlocksInput &&
+  val remaining = held.count - cursor
+  val drainsHeld = heldValid && io.advance.orR && io.advance === remaining
+  io.in.ready := (!heldValid || drainsHeld) && !recoveryBlocksInput &&
     inputCountExact && preparedExact
 
   val published = io.in.fire
+  when(heldValid && io.advance =/= 0.U) {
+    assert(io.advance <= remaining)
+    when(io.advance === remaining) {
+      heldValid := false.B
+      cursor := 0.U
+    }.otherwise {
+      cursor := cursor + io.advance
+    }
+  }
   when(published) {
     held := io.in.bits
     for (lane <- 0 until p.ooo.d3PrefixWidth) {
@@ -97,17 +108,6 @@ class OooD3ReservationAllocator(val p: CoreParams) extends Module {
     cursor := 0.U
     heldTransactionBase := nextTransaction
     nextTransaction := nextTransaction + io.in.bits.count
-  }
-
-  val remaining = held.count - cursor
-  when(heldValid && io.advance =/= 0.U) {
-    assert(io.advance <= remaining)
-    when(io.advance === remaining) {
-      heldValid := false.B
-      cursor := 0.U
-    }.otherwise {
-      cursor := cursor + io.advance
-    }
   }
   when(sameApply && heldValid &&
     held.entries(0).uop.decoded.rob.stid === recoveryPlan.trigger.stid) {

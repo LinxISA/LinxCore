@@ -10,6 +10,9 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
   private def clear(dut: OooPcBuffer): Unit = {
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+    dut.io.selectedLimit.valid.poke(false.B)
+    dut.io.selectedLimit.bits.poke(
+      0.U.asTypeOf(dut.io.selectedLimit.bits))
     dut.io.publicationIdentity.valid.poke(false.B)
     dut.io.publicationIdentity.bits.poke(
       0.U.asTypeOf(dut.io.publicationIdentity.bits))
@@ -55,6 +58,9 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       traps: Set[Int] = Set.empty): Unit = {
     val p = dut.p
     val groups = lanes.map(_._1).distinct
+    dut.io.selectedLimit.valid.poke(false.B)
+    dut.io.selectedLimit.bits.poke(
+      0.U.asTypeOf(dut.io.selectedLimit.bits))
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.prepare.bits.count.poke(lanes.size.U)
     dut.io.prepare.bits.groupCount.poke(groups.size.U)
@@ -85,6 +91,20 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.prepare.valid.poke(true.B)
   }
 
+  private def selectPrefix(
+      dut: OooPcBuffer,
+      expectedCount: Int,
+      expectedGroupCount: Int): Unit = {
+    dut.io.prefixOffer.valid.expect(true.B)
+    dut.io.prefixOffer.bits.count.expect(expectedCount.U)
+    dut.io.prefixOffer.bits.groupCount.expect(expectedGroupCount.U)
+    dut.io.selectedLimit.bits.poke(
+      0.U.asTypeOf(dut.io.selectedLimit.bits))
+    dut.io.selectedLimit.bits.count.poke(expectedCount.U)
+    dut.io.selectedLimit.bits.groupCount.poke(expectedGroupCount.U)
+    dut.io.selectedLimit.valid.poke(true.B)
+  }
+
   private def publish(
       dut: OooPcBuffer,
       residentGenerationDelta: Int = 0,
@@ -112,6 +132,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     dut.io.publishFire.poke(false.B)
     dut.io.publicationIdentity.valid.poke(false.B)
     dut.io.prepare.valid.poke(false.B)
+    dut.io.selectedLimit.valid.poke(false.B)
   }
 
   private def readBase(
@@ -218,6 +239,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut, Seq((0, 0, 100L), (0, 1, 102L), (1, 0, 106L),
         (2, 0, 112L)), blockStops = Set(3))
+      selectPrefix(dut, expectedCount = 4, expectedGroupCount = 3)
       dut.io.prepared.count.expect(4.U)
       Seq(0, 2, 6, 12).zipWithIndex.foreach { case (offset, lane) =>
         dut.io.prepared.lanes(lane).valid.expect(true.B)
@@ -239,6 +261,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut,
         Seq((0, 0, 0L), (1, 0, 1000L), (2, 0, 2000L), (3, 0, 3000L)))
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       dut.io.prepareReady.expect(true.B)
       dut.io.prepared.count.expect(3.U)
       dut.io.prepared.groupCount.expect(3.U)
@@ -252,6 +275,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       readBase(dut, 2, 0, 2, 0, valid = true, base = 2000)
 
       pokePrepare(dut, Seq((3, 0, 3000L)))
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
       dut.io.prepared.count.expect(1.U)
       dut.io.prepared.lanes(0).pcBufferIndex.expect(3.U)
       publish(dut)
@@ -260,6 +284,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       pokePrepare(dut,
         Seq((4, 0, 4000L), (5, 0, 5000L), (6, 0, 6000L)),
         traps = Set(2))
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       dut.io.prepared.lanes(0).pcBufferIndex.expect(4.U)
       dut.io.prepared.lanes(1).pcBufferIndex.expect(5.U)
       dut.io.prepared.lanes(2).pcBufferIndex.expect(6.U)
@@ -282,6 +307,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
         (3, 3, 3006L),
       ))
 
+      selectPrefix(dut, expectedCount = 4, expectedGroupCount = 3)
       dut.io.prepareReady.expect(true.B)
       dut.io.prepared.count.expect(4.U)
       dut.io.prepared.groupCount.expect(3.U)
@@ -303,6 +329,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut, Seq((0, 0, 100L), (1, 0, 102L)),
         blockStops = Set(1))
+      selectPrefix(dut, expectedCount = 2, expectedGroupCount = 2)
       publish(dut)
 
       pokeCommit(dut, Seq((0, 0, 1, true), (1, 0, 0, true)))
@@ -324,6 +351,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut,
         Seq((0, 0, 100L), (1, 0, 1000L), (2, 0, 2000L)))
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       publish(dut)
 
       pokeRecoveryPrepare(dut, firstRid = 1, lastRid = 2,
@@ -342,6 +370,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       readBase(dut, 2, 0, 2, 0, valid = false)
 
       pokePrepare(dut, Seq((1, 0, 1000L)))
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
       dut.io.prepared.lanes(0).pcBufferIndex.expect(1.U)
       publish(dut)
     }
@@ -353,6 +382,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       pokePrepare(dut,
         Seq((0, 0, 0x7000L), (1, 0, 0x7004L), (2, 0, 0x7008L)),
         blockStops = Set(2))
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       publish(dut)
       readBase(dut, 0, 0, 0, 0, valid = true, base = 0x7000L)
 
@@ -370,6 +400,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       readBase(dut, 0, 0, 0, 0, valid = true, base = 0x7000L)
 
       pokePrepare(dut, Seq((1, 0, 0x7008L)), blockStops = Set(0))
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
       dut.io.prepared.lanes.head.pcBufferIndex.expect(0.U)
       dut.io.prepared.lanes.head.allocationEpoch.expect(0.U)
       publish(dut)
@@ -389,6 +420,7 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut,
         Seq((0, 0, 100L), (1, 0, 1000L), (2, 0, 2000L)))
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       publish(dut, residentGenerationDelta = 9, bidDelta = 1,
         brobGenerationDelta = 7)
 
@@ -410,16 +442,19 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
       clear(dut)
       pokePrepare(dut,
         Seq((0, 0, 100L), (1, 0, 1000L), (2, 0, 2000L)), stid = 0)
+      selectPrefix(dut, expectedCount = 3, expectedGroupCount = 3)
       publish(dut)
       pokeRecoveryPrepare(dut, firstRid = 1, lastRid = 2,
         survivingRid = Some(0), stid = 0)
 
       pokePrepare(dut, Seq((0, 0, 500L)), stid = 1)
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
       dut.io.prepareReady.expect(true.B)
       publish(dut)
       readBase(dut, 0, 1, 32, 0, valid = true, base = 500)
 
       pokePrepare(dut, Seq((3, 0, 3000L)), stid = 0)
+      dut.io.prefixOffer.valid.expect(false.B)
       dut.io.prepareReady.expect(false.B)
       dut.io.prepare.valid.poke(false.B)
       waitPrepared(dut)

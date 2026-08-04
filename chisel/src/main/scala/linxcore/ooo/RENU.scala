@@ -256,8 +256,6 @@ class RENU(val p: CoreParams) extends Module {
     io.fromD2.bits.groupCount.orR &&
     io.fromD2.bits.groupCount <= io.fromD2.bits.count &&
     d2LaneShape.reduce(_ && _)
-  io.fromD2.ready := !incomingPending && !incomingFenced &&
-    d2ShapeExact && pRename.io.prepareReady && tuRename.io.prepareReady
   io.candidate.valid := anyEligiblePending
   io.candidate.bits := selectedPending
 
@@ -304,6 +302,14 @@ class RENU(val p: CoreParams) extends Module {
   }
   io.toD3.valid := anyEligiblePending && prefixLimitExact
   io.toD3.bits := selectedPrefix
+  val drainsSelectedRow = io.toD3.fire &&
+    acceptedCount === selectedPending.count &&
+    acceptedGroupCount === selectedPending.groupCount
+  val replacesSelectedStid = incomingPending && drainsSelectedRow &&
+    selectedPendingStid === incomingStid
+  io.fromD2.ready := !incomingFenced &&
+    (!incomingPending || replacesSelectedStid) && d2ShapeExact &&
+    pRename.io.prepareReady && tuRename.io.prepareReady
 
   when(heldGrantValid && !heldGrantEligible) {
     heldGrantValid := false.B
@@ -384,6 +390,10 @@ class RENU(val p: CoreParams) extends Module {
   tuRename.io.publish.bits := publication
 
   when(io.fromD2.fire) {
+    when(incomingPending) {
+      assert(replacesSelectedStid,
+        "same-STID D2 replacement requires the final common D3 publication")
+    }
     assert(io.fromD2.bits.count.orR)
     assert(io.fromD2.bits.count <= width.U)
   }

@@ -70,9 +70,55 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
 
   pcBuffer.io.prepare.valid := renu.io.candidate.valid
   pcBuffer.io.prepare.bits := renu.io.candidate.bits
-  renu.io.prefixLimit.valid := pcBuffer.io.prepareReady
-  renu.io.prefixLimit.bits.count := pcBuffer.io.prepared.count
-  renu.io.prefixLimit.bits.groupCount := pcBuffer.io.prepared.groupCount
+  rob.io.candidate := renu.io.candidate
+  brob.io.candidate := renu.io.candidate
+  val allPrefixOffersValid = rob.io.prefixOffer.valid &&
+    brob.io.prefixOffer.valid && pcBuffer.io.prefixOffer.valid
+  val robBrobGroups = Mux(
+    rob.io.prefixOffer.bits.groupCount <= brob.io.prefixOffer.bits.groupCount,
+    rob.io.prefixOffer.bits.groupCount,
+    brob.io.prefixOffer.bits.groupCount)
+  val commonGroupCount = Mux(
+    robBrobGroups <= pcBuffer.io.prefixOffer.bits.groupCount,
+    robBrobGroups,
+    pcBuffer.io.prefixOffer.bits.groupCount)
+  val candidateLaneGroupMatch = Wire(Vec(p.ooo.d3PrefixWidth,
+    Vec(p.ooo.d3PrefixWidth, Bool())))
+  for (lane <- 0 until p.ooo.d3PrefixWidth;
+       group <- 0 until p.ooo.d3PrefixWidth) {
+    val row = renu.io.candidate.bits.entries(lane).uop.decoded.rob
+    val intent = renu.io.candidate.bits.groups(group)
+    candidateLaneGroupMatch(lane)(group) :=
+      lane.U < renu.io.candidate.bits.count &&
+        group.U < commonGroupCount && intent.valid &&
+        intent.peId === row.peId && intent.stid === row.stid &&
+        intent.ridSlot === row.ridSlot &&
+        intent.ridGeneration === row.ridGeneration
+  }
+  val commonLaneMask = VecInit((0 until p.ooo.d3PrefixWidth).map { lane =>
+    candidateLaneGroupMatch(lane).asUInt.orR
+  })
+  val commonLaneCount = PopCount(commonLaneMask)
+  val commonLanePrefixExact = (0 until p.ooo.d3PrefixWidth).map { lane =>
+    commonLaneMask(lane) === (lane.U < commonLaneCount)
+  }.reduce(_ && _)
+  val commonLimitValid = renu.io.candidate.valid && allPrefixOffersValid &&
+    commonGroupCount.orR && commonLaneCount.orR && commonLanePrefixExact
+  renu.io.prefixLimit.valid := commonLimitValid
+  renu.io.prefixLimit.bits.count := commonLaneCount
+  renu.io.prefixLimit.bits.groupCount := commonGroupCount
+  pcBuffer.io.selectedLimit.valid := commonLimitValid
+  pcBuffer.io.selectedLimit.bits := renu.io.prefixLimit.bits
+  when(commonLimitValid) {
+    assert(rob.io.prefixOffer.bits.groupCount >= commonGroupCount &&
+      brob.io.prefixOffer.bits.groupCount >= commonGroupCount &&
+      pcBuffer.io.prefixOffer.bits.groupCount >= commonGroupCount,
+      "all D3 owners must cover the selected complete-group prefix")
+    assert(rob.io.prefixOffer.bits.count >= commonLaneCount &&
+      brob.io.prefixOffer.bits.count >= commonLaneCount &&
+      pcBuffer.io.prefixOffer.bits.count >= commonLaneCount,
+      "all D3 owners must cover every lane in the selected prefix")
+  }
 
   val d3StidRaw = renu.io.toD3.bits.entries(0).uop.decoded.rob.stid
   val d3Stid = Mux(d3StidRaw < p.ooo.stidCount.U, d3StidRaw, 0.U)
@@ -197,6 +243,9 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   when(d3Fire) {
     assert(renu.io.publicationIdentity.valid,
       "canonical RENU publication requires ROB-prepared full identities")
+    assert(pcBuffer.io.prepared.count === renu.io.toD3.bits.count &&
+      pcBuffer.io.prepared.groupCount === renu.io.toD3.bits.groupCount,
+      "PC, ROB, BROB, and RENU must publish the exact same D3 prefix")
   }
 
   for (lane <- 0 until p.ooo.d3PrefixWidth;

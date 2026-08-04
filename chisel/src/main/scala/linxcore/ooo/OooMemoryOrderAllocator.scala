@@ -44,10 +44,21 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
   val prepareStidRaw = io.prepare.bits.entries(0).uop.rob.stid
   val prepareStidInRange = prepareStidRaw < p.ooo.stidCount.U
   val prepareStid = Mux(prepareStidInRange, prepareStidRaw, 0.U)
+  val publishStidRaw = io.publishPrepare.bits.entries(0).uop.decoded.rob.stid
+  val publishStid = Mux(publishStidRaw < p.ooo.stidCount.U, publishStidRaw, 0.U)
+  val livePublish = select(provisionalRows, publishStid)
+  val livePublishMetas = select(provisionalMetas, publishStid)
+  val publishCount = io.publishPrepare.bits.count
+  val publishReady = Wire(Bool())
+  val finalPublish = io.publishFire && publishReady &&
+    publishCount === livePublish.count
+  val sameStidFinalPublish = finalPublish &&
+    publishStidRaw === prepareStidRaw
   val states = Wire(Vec(width + 1, new MemoryOrderState(p)))
   val metas = Wire(Vec(width, new MemoryOrderMeta(p)))
   val laneExact = Wire(Vec(width, Bool()))
-  states(0) := select(nextState, prepareStid)
+  states(0) := Mux(sameStidFinalPublish, livePublish.after,
+    select(nextState, prepareStid))
   for (lane <- 0 until width) {
     val active = lane.U < io.prepare.bits.count
     val uop = io.prepare.bits.entries(lane).uop
@@ -94,9 +105,8 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
     lane.U >= io.prepare.bits.count ||
       io.prepare.bits.entries(lane).uop.rob.stid === prepareStidRaw
   }.reduce(_ && _)
-  val publishStidRaw = io.publishPrepare.bits.entries(0).uop.decoded.rob.stid
-  val publishStid = Mux(publishStidRaw < p.ooo.stidCount.U, publishStidRaw, 0.U)
-  val slotAvailable = !select(provisionalValid, prepareStid)
+  val slotAvailable = !select(provisionalValid, prepareStid) ||
+    sameStidFinalPublish
   io.prepareReady := prepareStidInRange && countExact && commonStidExact &&
     laneExact.asUInt.andR && slotAvailable
   io.prepared := 0.U.asTypeOf(io.prepared)
@@ -107,9 +117,6 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
   io.prepared.after := states(width)
   io.preparedLanes := metas
 
-  val livePublish = select(provisionalRows, publishStid)
-  val livePublishMetas = select(provisionalMetas, publishStid)
-  val publishCount = io.publishPrepare.bits.count
   val publishCountExact = publishCount.orR && publishCount <= livePublish.count
   val stateAfterPrefix = Wire(new MemoryOrderState(p))
   stateAfterPrefix := livePublish.after
@@ -145,7 +152,8 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
           livePublishMetas(lane).asUInt
     }.reduce(_ && _) &&
     sameState(livePublish.after, select(nextState, publishStid))
-  io.publishReady := io.publishPrepare.valid && publishExact
+  publishReady := io.publishPrepare.valid && publishExact
+  io.publishReady := publishReady
 
   val recoveryStidRaw = io.recoveryPrepare.bits.stid
   val recoveryStid = Mux(recoveryStidRaw < p.ooo.stidCount.U,
@@ -162,6 +170,10 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
 
   when(io.reserveFire) {
     assert(io.prepare.valid && io.prepareReady)
+    when(select(provisionalValid, prepareStid)) {
+      assert(sameStidFinalPublish,
+        "memory-order replacement requires final publication of the old reservation")
+    }
     select(provisionalValid, prepareStid) := true.B
     select(provisionalRows, prepareStid) := io.prepared
     select(provisionalMetas, prepareStid) := io.preparedLanes
@@ -191,6 +203,14 @@ class OooMemoryOrderAllocator(val p: CoreParams) extends Module {
     }.otherwise {
       select(provisionalValid, publishStid) := false.B
       select(provisionalRows, publishStid) := 0.U.asTypeOf(livePublish)
+    }
+    when(io.reserveFire && prepareStid === publishStid) {
+      assert(finalPublish,
+        "memory-order reservation capture may replace only a fully published row")
+      select(provisionalValid, publishStid) := true.B
+      select(provisionalRows, publishStid) := io.prepared
+      select(provisionalMetas, publishStid) := io.preparedLanes
+      select(nextState, publishStid) := io.prepared.after
     }
   }
   for (stid <- 0 until p.ooo.stidCount) {

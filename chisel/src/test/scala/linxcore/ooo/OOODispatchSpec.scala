@@ -42,12 +42,88 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     dut.io.brobPrepared.count.poke(count.U)
     classes.zipWithIndex.foreach { case (cls, lane) =>
       val raw = dut.io.in.bits.entries(lane).uop.decoded.rob
+      val classification =
+        dut.io.in.bits.entries(lane).uop.decoded.classification
+      val classValue = cls.asUInt.litValue.toInt
+      val aluValue = UopClass.Alu.asUInt.litValue.toInt
+      val bruValue = UopClass.Bru.asUInt.litValue.toInt
+      val aguValue = UopClass.Agu.asUInt.litValue.toInt
+      val stdValue = UopClass.Std.asUInt.litValue.toInt
+      val systemValue = UopClass.System.asUInt.litValue.toInt
+      val cmdValue = UopClass.Cmd.asUInt.litValue.toInt
+      val boundaryValue = UopClass.Boundary.asUInt.litValue.toInt
       dut.io.in.bits.groups(lane).valid.poke(true.B)
       dut.io.in.bits.groups(lane).peId.poke(1.U)
       dut.io.in.bits.groups(lane).stid.poke(0.U)
       dut.io.in.bits.groups(lane).ridSlot.poke(lane.U)
       dut.io.in.bits.entries(lane).uop.decoded.valid.poke(true.B)
       dut.io.in.bits.entries(lane).uop.decoded.uopClass.poke(cls)
+      classification.valid.poke(true.B)
+      classification.disposition.poke(
+        (if (classValue == boundaryValue) OooOpcodeDisposition.FastResolve
+         else OooOpcodeDisposition.Dispatch).U)
+      classification.kind.poke(
+        (if (classValue == stdValue) OooOpcodeRecipeKind.ScalarStore
+         else if (classValue == aguValue) OooOpcodeRecipeKind.ScalarLoad
+         else if (classValue == boundaryValue) OooOpcodeRecipeKind.Boundary
+         else OooOpcodeRecipeKind.Single).U)
+      classification.uopCountMin.poke(
+        (if (classValue == boundaryValue) 0 else 1).U)
+      classification.uopCountMax.poke(
+        (if (classValue == stdValue) 2 else 1).U)
+      classification.sideEffectOwner.poke(
+        (if (classValue == stdValue || classValue == aguValue)
+           OooSideEffectOwner.Lsu
+         else if (classValue == bruValue || classValue == boundaryValue)
+           OooSideEffectOwner.Bctrl
+         else if (classValue == systemValue || classValue == cmdValue)
+           OooSideEffectOwner.Commit
+         else OooSideEffectOwner.Iex).U)
+      classification.dispatchWrites.poke(
+        (if (classValue == boundaryValue) 0
+         else if (classValue == stdValue) 2
+         else 1).U)
+      if (classValue == aluValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Alu.U)
+        classification.dispatchDemand(OooDispatchClass.Alu - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Alu - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.SimpleAlu).U)
+      } else if (classValue == bruValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Bru.U)
+        classification.dispatchDemand(OooDispatchClass.Bru - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Bru - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.Branch).U)
+      } else if (classValue == aguValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Agu.U)
+        classification.dispatchDemand(OooDispatchClass.Agu - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Agu - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.LoadAddress).U)
+      } else if (classValue == stdValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Std.U)
+        classification.splitKind.poke(OooLateSplitKind.StoreAddressData.U)
+        classification.dispatchDemand(OooDispatchClass.Agu - 1).poke(1.U)
+        classification.dispatchDemand(OooDispatchClass.Std - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Agu - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.StoreAddress).U)
+        classification.executionPipeCapability(OooDispatchClass.Std - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.StoreData).U)
+      } else if (classValue == systemValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Sys.U)
+        classification.dispatchDemand(OooDispatchClass.Sys - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Sys - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.System).U)
+      } else if (classValue == cmdValue) {
+        classification.dispatchClass.poke(OooDispatchClass.Cmd.U)
+        classification.dispatchDemand(OooDispatchClass.Cmd - 1).poke(1.U)
+        classification.executionPipeCapability(OooDispatchClass.Cmd - 1).poke(
+          OooIexDomainCapability.mask(OooIexDomainCapability.EngineCommand).U)
+      } else {
+        assert(classValue == boundaryValue)
+        classification.fastResolveClass.poke(
+          OooFastResolveClass.BoundaryMetadata.U)
+        classification.nonspeculative.poke(true.B)
+        classification.dispatchClass.poke(OooDispatchClass.None.U)
+      }
       dut.io.in.bits.entries(lane).uop.decoded.opcode.poke((0x120 + lane).U)
       dut.io.in.bits.entries(lane).uop.decoded.immediateValid.poke(true.B)
       dut.io.in.bits.entries(lane).uop.decoded.immediate.poke((0x500 + lane).U)
@@ -145,11 +221,14 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
       publish(dut, Seq(UopClass.Alu, UopClass.Alu, UopClass.Alu, UopClass.Cmd))
+      dut.io.iex.aluDispatch(0).valid.expect(true.B)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.opcode.expect(0x120.U)
+      dut.io.iex.aluDispatch(1).valid.expect(true.B)
       dut.io.iex.aluDispatch(1).bits.uop.decoded.opcode.expect(0x121.U)
       dut.io.iex.cmdDispatch(0).valid.expect(false.B)
       dut.clock.step()
       dut.io.pending.expect(true.B)
+      dut.io.iex.aluDispatch(0).valid.expect(true.B)
       dut.io.iex.aluDispatch(0).bits.uop.decoded.opcode.expect(0x122.U)
       dut.io.iex.cmdDispatch(0).valid.expect(true.B)
       dut.io.iex.cmdDispatch(0).bits.uop.decoded.opcode.expect(0x123.U)

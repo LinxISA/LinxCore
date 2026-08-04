@@ -41,6 +41,8 @@ private[ooo] object PcBufferRecoveryState extends ChiselEnum {
 
 class OooPcBufferIO(val p: CoreParams) extends Bundle {
   val prepare = Flipped(Valid(new D3RenameGroup(p)))
+  val prefixOffer = Output(Valid(new D3PrefixLimit(p)))
+  val selectedLimit = Input(Valid(new D3PrefixLimit(p)))
   val prepared = Output(new PcBufferD3Prepared(p))
   val prepareReady = Output(Bool())
   val publicationIdentity = Input(Valid(new OOORobPrepared(p)))
@@ -85,6 +87,10 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
     ((BigInt(1) << p.ooo.pcOffsetWidth) - 1).U(p.pcWidth.W)
 
   private def partitionBase(stid: UInt): UInt = stid * entriesPerStid.U
+  private def inPartition(index: UInt, stid: UInt): Bool =
+    if (p.ooo.stidCount == 1) true.B
+    else index >= partitionBase(stid) &&
+      index < partitionBase(stid) + entriesPerStid.U
   private def localFromIndex(index: UInt): UInt = index(localWidth - 1, 0)
   private def sizedLocal(local: UInt): UInt = local.pad(localWidth)
   private def bank(local: UInt): UInt =
@@ -305,7 +311,17 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
       groupResourceExact(group)
     acceptedGroupChain(group + 1) := acceptedGroups(group)
   }
-  private val acceptedGroupCount = PopCount(acceptedGroups)
+  private val localOfferedGroupCount = PopCount(acceptedGroups)
+  private val localOfferedLanes = Wire(Vec(d3Width, Bool()))
+  for (lane <- 0 until d3Width) {
+    localOfferedLanes(lane) := lane.U < prepareCount &&
+      (0 until d3Width).map { group =>
+        group.U < localOfferedGroupCount && laneGroupMatch(lane)(group)
+      }.reduce(_ || _)
+  }
+  private val localOfferedCount = PopCount(localOfferedLanes)
+  private val acceptedGroupCount = io.selectedLimit.bits.groupCount
+  private val acceptedCount = io.selectedLimit.bits.count
   private val acceptedLanes = Wire(Vec(d3Width, Bool()))
   for (lane <- 0 until d3Width) {
     acceptedLanes(lane) := lane.U < prepareCount &&
@@ -313,7 +329,6 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
         group.U < acceptedGroupCount && laneGroupMatch(lane)(group)
       }.reduce(_ || _)
   }
-  private val acceptedCount = PopCount(acceptedLanes)
   private val boundGroupFirstRob = Wire(Vec(d3Width, new RobIdentity(p)))
   private val boundGroupLastRob = Wire(Vec(d3Width, new RobIdentity(p)))
   for (group <- 0 until d3Width) {
@@ -336,7 +351,9 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
   }
   private val acceptedLanePrefixExact = (0 until d3Width).map { lane =>
     acceptedLanes(lane) === (lane.U < acceptedCount)
-  }.reduce(_ && _)
+  }.reduce(_ && _) && acceptedGroupCount.orR && acceptedCount.orR &&
+    acceptedGroupCount <= localOfferedGroupCount &&
+    acceptedCount <= localOfferedCount
   private val allocatedBases = scanAllocCount(acceptedGroupCount)
   private val acceptedScanValid = scanValid(acceptedGroupCount)
   private val acceptedScanIndex = scanIndex(acceptedGroupCount)
@@ -375,11 +392,17 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
   private val sameStidCommitPreview = io.commitPreview.valid &&
     commitStidInRange && prepareStidInRange && commitStid === prepareStid
 
+  io.prefixOffer.valid := io.prepare.valid && prepareCountExact &&
+    prepareStidInRange && groupCountExact && laneShapeExact &&
+    groupShapeExact && localOfferedGroupCount.orR &&
+    localOfferedCount.orR && currentRowExact && !prepareRecoveryFence &&
+    !sameStidCommitPreview
+  io.prefixOffer.bits.count := localOfferedCount
+  io.prefixOffer.bits.groupCount := localOfferedGroupCount
   io.prepareReady := io.prepare.valid && prepareCountExact &&
     prepareStidInRange && groupCountExact && laneShapeExact &&
-    groupShapeExact && acceptedGroupCount.orR && acceptedCount.orR &&
-    acceptedLanePrefixExact && currentRowExact && !prepareRecoveryFence &&
-    !sameStidCommitPreview
+    groupShapeExact && io.selectedLimit.valid && acceptedLanePrefixExact &&
+    currentRowExact && !prepareRecoveryFence && !sameStidCommitPreview
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.count := acceptedCount
   io.prepared.groupCount := acceptedGroupCount
@@ -425,8 +448,7 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
     val reference = entry.pcBufferIndexOffset
     val local = localFromIndex(reference.pcBufferIndex)
     val row = rowAt(commitStid, local)
-    val partitionExact = reference.pcBufferIndex >= partitionBase(commitStid) &&
-      reference.pcBufferIndex < partitionBase(commitStid) + entriesPerStid.U
+    val partitionExact = inPartition(reference.pcBufferIndex, commitStid)
     val rowExact = reference.valid && partitionExact && row.valid &&
       row.stid === commitStid &&
       row.pcBufferIndex === reference.pcBufferIndex &&
@@ -501,8 +523,13 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
   private val commitShapeExact = commitCountExact && commitStidInRange &&
     commitLaneExact.asUInt.andR && commitCountsExact
   io.commitReady := io.commitPreview.valid && commitShapeExact &&
-    !commitRecoveryFence &&
-    !(io.prepare.valid && prepareStidInRange && prepareStid === commitStid)
+    !commitRecoveryFence
+
+  when(io.commitApply && publishFire) {
+    assert(!prepareStidInRange || !commitStidInRange ||
+      prepareStid =/= commitStid,
+      "PC-buffer cannot publish and commit the same STID on one edge")
+  }
 
   private val freeChain = Wire(Vec(retireWidth + 1, Bool()))
   private val freedLocal = Wire(Vec(retireWidth, UInt(localWidth.W)))
@@ -982,8 +1009,7 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
     val safeStid = Mux(stidInRange, address.stid, 0.U)
     val local = localFromIndex(address.pcBufferIndex)
     val row = readRowAt(port / readsPerReplica, safeStid, local)
-    val partitionExact = address.pcBufferIndex >= partitionBase(safeStid) &&
-      address.pcBufferIndex < partitionBase(safeStid) + entriesPerStid.U
+    val partitionExact = inPartition(address.pcBufferIndex, safeStid)
     io.readPcBase(port).valid := address.valid && stidInRange &&
       partitionExact && row.valid && row.stid === address.stid &&
       row.pcBufferIndex === address.pcBufferIndex &&

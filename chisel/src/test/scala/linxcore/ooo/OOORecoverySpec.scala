@@ -37,9 +37,13 @@ class RobBrobPublicationCoordinator(val p: CoreParams) extends Module {
   private val rob = Module(new ROB(p))
   private val brob = Module(new BROB(p))
 
+  rob.io.candidate.valid := io.prepare.valid
+  rob.io.candidate.bits := io.prepare.bits
   rob.io.prepare.valid := io.prepare.valid
   rob.io.prepare.bits := io.prepare.bits
   rob.io.publicationTransactionBase := 0.U
+  brob.io.candidate.valid := io.prepare.valid
+  brob.io.candidate.bits := io.prepare.bits
   brob.io.prepare.valid := io.prepare.valid
   brob.io.prepare.bits := io.prepare.bits
   rob.io.brobPrepared := brob.io.prepared
@@ -110,6 +114,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def clearRob(dut: ROB): Unit = {
+    dut.io.candidate.valid.poke(false.B)
+    dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.publishFire.poke(false.B)
@@ -229,6 +235,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   }
 
   private def clearBrob(dut: BROB): Unit = {
+    dut.io.candidate.valid.poke(false.B)
+    dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
     dut.io.prepare.valid.poke(false.B)
     dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
     dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
@@ -737,6 +745,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery preserves older surviving blocks and unrelated STID") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -805,6 +815,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB blocks release between retained recovery prepare and apply") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -857,6 +869,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery preserves a partially killed open current block") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -1001,6 +1015,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery shortens a closed block that straddles the killed suffix") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -1139,6 +1155,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery reuses wholly killed younger slots after a closed straddler") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -1239,6 +1257,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery computes wrapped straddler successor generation") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -1346,6 +1366,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     def expectRejected(corrupt: BROB => Unit): Unit = {
       simulate(new BROB(params)) { dut =>
         def clearBrob(): Unit = {
+          dut.io.candidate.valid.poke(false.B)
+          dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
           dut.io.prepare.valid.poke(false.B)
           dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
           dut.io.publishFire.poke(false.B)
@@ -1428,6 +1450,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB recovery rejects stale reused-BID generation after wrap") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -1740,6 +1764,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB abort preserves a closed block that straddles recovery") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -2377,6 +2403,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB abort clears matching retained recovery and leaves state releasable") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)
@@ -2781,6 +2809,8 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
   test("BROB simultaneous matching apply and abort is non-mutating") {
     simulate(new BROB(params)) { dut =>
       def clearBrob(): Unit = {
+        dut.io.candidate.valid.poke(false.B)
+        dut.io.candidate.bits.poke(0.U.asTypeOf(dut.io.candidate.bits))
         dut.io.prepare.valid.poke(false.B)
         dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
         dut.io.publishFire.poke(false.B)

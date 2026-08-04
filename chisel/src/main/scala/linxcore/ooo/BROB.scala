@@ -6,6 +6,8 @@ import linxcore.params.CoreParams
 import linxcore.top.interface._
 
 class BROBIO(val p: CoreParams) extends Bundle {
+  val candidate = Flipped(Valid(new D3RenameGroup(p)))
+  val prefixOffer = Output(Valid(new D3PrefixLimit(p)))
   val prepare = Flipped(Decoupled(new D3RenameGroup(p)))
   val robPrepared = Input(new OOORobPrepared(p))
   val prepared = Output(new BROBPrepared(p))
@@ -64,6 +66,116 @@ class BROB(val p: CoreParams) extends Module {
   val head = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(0.U(p.nativeBidWidth.W))))
   val headGeneration = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(p.brobGenerationWidth.W))))
+
+  // Side-effect-free offer computed from the full RENU candidate. ROB
+  // bindings are intentionally excluded; they are checked only after the
+  // graph selects one common complete-group prefix.
+  val candidate = io.candidate.bits
+  val candidateStidRaw = candidate.entries(0).uop.decoded.rob.stid
+  val candidateStidInRange = candidateStidRaw < p.ooo.stidCount.U
+  val candidateStid = safeStid(candidateStidRaw)
+  val candidateLaneGroupMatch = Wire(Vec(p.ooo.d3PrefixWidth,
+    Vec(p.ooo.d3PrefixWidth, Bool())))
+  for (lane <- 0 until p.ooo.d3PrefixWidth;
+       group <- 0 until p.ooo.d3PrefixWidth) {
+    val row = candidate.entries(lane).uop.decoded.rob
+    val intent = candidate.groups(group)
+    candidateLaneGroupMatch(lane)(group) := lane.U < candidate.count &&
+      group.U < candidate.groupCount && intent.valid &&
+      intent.peId === row.peId && intent.stid === row.stid &&
+      intent.ridSlot === row.ridSlot &&
+      intent.ridGeneration === row.ridGeneration
+  }
+  val candidateScanTail = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(p.nativeBidWidth.W)))
+  val candidateScanGen = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(p.brobGenerationWidth.W)))
+  val candidateScanCurrentValid = Wire(Vec(p.ooo.d3PrefixWidth + 1, Bool()))
+  val candidateScanCurrentBid = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(p.nativeBidWidth.W)))
+  val candidateScanCurrentGen = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(p.brobGenerationWidth.W)))
+  val candidateScanCurrentResident = Wire(Vec(p.ooo.d3PrefixWidth + 1, Bool()))
+  val candidateAllocates = Wire(Vec(p.ooo.d3PrefixWidth, Bool()))
+  candidateScanTail(0) := tail(candidateStid)
+  candidateScanGen(0) := generation(candidateStid)
+  candidateScanCurrentValid(0) := currentValid(candidateStid)
+  candidateScanCurrentBid(0) := currentBid(candidateStid)
+  candidateScanCurrentGen(0) := currentGeneration(candidateStid)
+  candidateScanCurrentResident(0) := currentValid(candidateStid) &&
+    tableValid(candidateStid)(physicalBid(currentBid(candidateStid))) &&
+    tableGeneration(candidateStid)(physicalBid(currentBid(candidateStid))) ===
+      currentGeneration(candidateStid)
+  for (lane <- 0 until p.ooo.d3PrefixWidth) {
+    val active = lane.U < candidate.count
+    val startsBlock = active && candidate.entries(lane).blockStart
+    val stopsBlock = active && candidate.entries(lane).blockStop
+    val reopensBlock = active && !startsBlock &&
+      candidateScanCurrentValid(lane) && !candidateScanCurrentResident(lane)
+    val allocates = startsBlock || reopensBlock
+    candidateAllocates(lane) := allocates
+    val nextTailWide = candidateScanTail(lane) +& allocates.asUInt
+    val wraps = nextTailWide >= p.ooo.brobEntriesPerStid.U
+    candidateScanTail(lane + 1) := Mux(wraps, 0.U(p.nativeBidWidth.W),
+      physicalBid(nextTailWide))
+    candidateScanGen(lane + 1) := candidateScanGen(lane) + wraps.asUInt
+    candidateScanCurrentValid(lane + 1) :=
+      Mux(active, !stopsBlock, candidateScanCurrentValid(lane))
+    candidateScanCurrentBid(lane + 1) := Mux(allocates,
+      candidateScanTail(lane), candidateScanCurrentBid(lane))
+    candidateScanCurrentGen(lane + 1) := Mux(allocates,
+      candidateScanGen(lane), candidateScanCurrentGen(lane))
+    candidateScanCurrentResident(lane + 1) := Mux(active,
+      candidateScanCurrentResident(lane) || allocates,
+      candidateScanCurrentResident(lane))
+  }
+  val candidateGroupExact = Wire(Vec(p.ooo.d3PrefixWidth, Bool()))
+  val candidateAcceptedGroup = Wire(Vec(p.ooo.d3PrefixWidth, Bool()))
+  val candidateOfferChain = Wire(Vec(p.ooo.d3PrefixWidth + 1, Bool()))
+  val candidateAllocThrough = Wire(Vec(p.ooo.d3PrefixWidth + 1,
+    UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)))
+  candidateOfferChain(0) := true.B
+  candidateAllocThrough(0) := 0.U
+  for (group <- 0 until p.ooo.d3PrefixWidth) {
+    val active = group.U < candidate.groupCount
+    val groupSeen = (0 until p.ooo.d3PrefixWidth).map { lane =>
+      candidateLaneGroupMatch(lane)(group)
+    }.reduce(_ || _)
+    val laneShape = (0 until p.ooo.d3PrefixWidth).map { lane =>
+      val laneActive = lane.U < candidate.count
+      !candidateLaneGroupMatch(lane)(group) ||
+        (laneActive && candidate.entries(lane).uop.decoded.valid &&
+          PopCount(candidateLaneGroupMatch(lane)) === 1.U)
+    }.reduce(_ && _)
+    val groupAllocations = PopCount((0 until p.ooo.d3PrefixWidth).map { lane =>
+      candidateLaneGroupMatch(lane)(group) && candidateAllocates(lane)
+    })
+    candidateAllocThrough(group + 1) :=
+      candidateAllocThrough(group) + groupAllocations
+    candidateGroupExact(group) := active && candidate.groups(group).valid &&
+      groupSeen && laneShape
+    candidateAcceptedGroup(group) := candidateOfferChain(group) &&
+      candidateGroupExact(group) &&
+      used(candidateStid) + candidateAllocThrough(group + 1) <=
+        p.ooo.brobEntriesPerStid.U
+    candidateOfferChain(group + 1) := candidateAcceptedGroup(group)
+  }
+  val candidateOfferedGroups = PopCount(candidateAcceptedGroup)
+  val candidateOfferedLanes = PopCount((0 until p.ooo.d3PrefixWidth).map { lane =>
+    lane.U < candidate.count && (0 until p.ooo.d3PrefixWidth).map { group =>
+      group.U < candidateOfferedGroups &&
+        candidateLaneGroupMatch(lane)(group)
+    }.reduce(_ || _)
+  })
+  val candidateShapeExact = candidate.count.orR &&
+    candidate.count <= p.ooo.d3PrefixWidth.U && candidate.groupCount.orR &&
+    candidate.groupCount <= candidate.count &&
+    candidate.groupCount <= p.ooo.d3PrefixWidth.U
+  io.prefixOffer.valid := io.candidate.valid && candidateStidInRange &&
+    candidateShapeExact && candidateOfferedGroups.orR &&
+    candidateOfferedLanes.orR
+  io.prefixOffer.bits.count := candidateOfferedLanes
+  io.prefixOffer.bits.groupCount := candidateOfferedGroups
 
   val prepareStidRaw = io.prepare.bits.entries(0).uop.decoded.rob.stid
   val prepareStidInRange = prepareStidRaw < p.ooo.stidCount.U

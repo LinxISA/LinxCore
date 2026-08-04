@@ -124,6 +124,37 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
   val stidRaw = in.entries(0).uop.instruction.parent.identity.stid
   val stid = safeStid(stidRaw)
   val stidInRange = stidRaw < p.ooo.stidCount.U
+  val prospectivePublish = io.publish.bits
+  val prospectivePublishStidRaw =
+    prospectivePublish.entries(0).uop.decoded.instruction.parent.identity.stid
+  val prospectivePublishStid = safeStid(prospectivePublishStidRaw)
+  val prospectivePublishSameStid = io.publish.valid &&
+    prospectivePublishStidRaw < p.ooo.stidCount.U &&
+    prospectivePublishStid === stid
+  val prospectivePublishedT = Wire(Vec(destSlots, Bool()))
+  val prospectivePublishedU = Wire(Vec(destSlots, Bool()))
+  for (lane <- 0 until width; dest <- 0 until p.maxDestinationOperands) {
+    val flat = lane * p.maxDestinationOperands + dest
+    val hist = prospectivePublish.entries(lane).history(dest)
+    prospectivePublishedT(flat) := prospectivePublishSameStid &&
+      lane.U < prospectivePublish.count && hist.valid &&
+      hist.kind === OperandKind.T
+    prospectivePublishedU(flat) := prospectivePublishSameStid &&
+      lane.U < prospectivePublish.count && hist.valid &&
+      hist.kind === OperandKind.U
+  }
+  val prospectivePublishedTCount = PopCount(prospectivePublishedT)
+  val prospectivePublishedUCount = PopCount(prospectivePublishedU)
+  val prospectiveTSeq = addWrap(tTailQ(stid), tTailQGeneration(stid),
+    prospectivePublishedTCount, p.ooo.tuMapQDepthPerStid, tuIndexWidth)
+  val prospectiveUSeq = addWrap(uTailQ(stid), uTailQGeneration(stid),
+    prospectivePublishedUCount, p.ooo.tuMapQDepthPerStid, tuIndexWidth)
+  val prospectiveTTag = addWrap(tTail(stid), tTagGeneration(stid),
+    prospectivePublishedTCount, p.ooo.tPhysRegs, tTagWidth)
+  val prospectiveUTag = addWrap(uTail(stid), uTagGeneration(stid),
+    prospectivePublishedUCount, p.ooo.uPhysRegs, uTagWidth)
+  val prospectiveTCount = tCount(stid) +& prospectivePublishedTCount
+  val prospectiveUCount = uCount(stid) +& prospectivePublishedUCount
   val active = Wire(Vec(width, Bool()))
   for (lane <- 0 until width) {
     active(lane) := lane.U < in.count && in.entries(lane).uop.valid
@@ -146,16 +177,16 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
     val olderU = PopCount(uDestActive.take(lane * p.maxDestinationOperands))
     val offset = src.relativeIndex +& 1.U
     underflow(flat) := active(lane) && src.valid && (
-      (src.kind === OperandKind.T && offset > (tCount(stid) +& olderT)) ||
-      (src.kind === OperandKind.U && offset > (uCount(stid) +& olderU)))
+      (src.kind === OperandKind.T && offset > (prospectiveTCount +& olderT)) ||
+      (src.kind === OperandKind.U && offset > (prospectiveUCount +& olderU)))
   }
   val tDemand = PopCount(tDestActive)
   val uDemand = PopCount(uDestActive)
   io.prepareReady := stidInRange && !underflow.asUInt.orR &&
-    tCount(stid) +& tDemand <= p.ooo.tuMapQDepthPerStid.U &&
-    uCount(stid) +& uDemand <= p.ooo.tuMapQDepthPerStid.U &&
-    tCount(stid) +& tDemand <= p.ooo.tPhysRegs.U &&
-    uCount(stid) +& uDemand <= p.ooo.uPhysRegs.U
+    prospectiveTCount +& tDemand <= p.ooo.tuMapQDepthPerStid.U &&
+    prospectiveUCount +& uDemand <= p.ooo.tuMapQDepthPerStid.U &&
+    prospectiveTCount +& tDemand <= p.ooo.tPhysRegs.U &&
+    prospectiveUCount +& uDemand <= p.ooo.uPhysRegs.U
 
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.count := in.count
@@ -174,9 +205,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
     io.prepared.entries(lane).uop.decoded := in.entries(lane).uop
     val olderLaneT = PopCount(tDestActive.take(lane * p.maxDestinationOperands))
     val olderLaneU = PopCount(uDestActive.take(lane * p.maxDestinationOperands))
-    val laneTSeq = addWrap(tTailQ(stid), tTailQGeneration(stid), olderLaneT,
+    val laneTSeq = addWrap(prospectiveTSeq._1, prospectiveTSeq._2, olderLaneT,
       p.ooo.tuMapQDepthPerStid, tuIndexWidth)
-    val laneUSeq = addWrap(uTailQ(stid), uTailQGeneration(stid), olderLaneU,
+    val laneUSeq = addWrap(prospectiveUSeq._1, prospectiveUSeq._2, olderLaneU,
       p.ooo.tuMapQDepthPerStid, tuIndexWidth)
     io.prepared.entries(lane).tSeqBefore.valid := active(lane)
     io.prepared.entries(lane).tSeqBefore.tag := laneTSeq._1
@@ -195,21 +226,35 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         val olderT = PopCount(tDestActive.take(lane * p.maxDestinationOperands))
         val offset = src.relativeIndex +& 1.U
         val retainedNeed = offset - olderT
-        val retainedIndex = trunc(tTailQ(stid) - retainedNeed, tuIndexWidth)
+        val retainedIndex = trunc(prospectiveTSeq._1 - retainedNeed, tuIndexWidth)
         out.ttag := tMapQ(stid)(retainedIndex).history(0).ttag
         out.tGeneration := tMapQ(stid)(retainedIndex).history(0).tGeneration
         out.tSeqIndex := tMapQ(stid)(retainedIndex).history(0).tMapQIndex
         out.tSeqGeneration :=
           tMapQ(stid)(retainedIndex).history(0).tMapQGeneration
+        for (flat <- 0 until destSlots) {
+          val ordinal = PopCount(prospectivePublishedT.take(flat))
+          val history = prospectivePublish.entries(
+            flat / p.maxDestinationOperands).history(
+              flat % p.maxDestinationOperands)
+          when(prospectivePublishedT(flat) &&
+            retainedNeed <= prospectivePublishedTCount &&
+            ordinal === prospectivePublishedTCount - retainedNeed) {
+            out.ttag := history.ttag
+            out.tGeneration := history.tGeneration
+            out.tSeqIndex := history.tMapQIndex
+            out.tSeqGeneration := history.tMapQGeneration
+          }
+        }
         out.ttagValid := true.B
         out.ready := offset > olderT
         for (flat <- 0 until lane * p.maxDestinationOperands) {
           val ordinal = PopCount(tDestActive.take(flat))
           val wanted = olderT - offset
           when(tDestActive(flat) && offset <= olderT && ordinal === wanted) {
-            val physical = addWrap(tTail(stid), tTagGeneration(stid), ordinal,
+            val physical = addWrap(prospectiveTTag._1, prospectiveTTag._2, ordinal,
               p.ooo.tPhysRegs, tTagWidth)
-            val seq = addWrap(tTailQ(stid), tTailQGeneration(stid), ordinal,
+            val seq = addWrap(prospectiveTSeq._1, prospectiveTSeq._2, ordinal,
               p.ooo.tuMapQDepthPerStid, tuIndexWidth)
             out.ttag := physical._1
             out.tGeneration := physical._2
@@ -221,21 +266,35 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         val olderU = PopCount(uDestActive.take(lane * p.maxDestinationOperands))
         val offset = src.relativeIndex +& 1.U
         val retainedNeed = offset - olderU
-        val retainedIndex = trunc(uTailQ(stid) - retainedNeed, tuIndexWidth)
+        val retainedIndex = trunc(prospectiveUSeq._1 - retainedNeed, tuIndexWidth)
         out.utag := uMapQ(stid)(retainedIndex).history(0).utag
         out.uGeneration := uMapQ(stid)(retainedIndex).history(0).uGeneration
         out.uSeqIndex := uMapQ(stid)(retainedIndex).history(0).uMapQIndex
         out.uSeqGeneration :=
           uMapQ(stid)(retainedIndex).history(0).uMapQGeneration
+        for (flat <- 0 until destSlots) {
+          val ordinal = PopCount(prospectivePublishedU.take(flat))
+          val history = prospectivePublish.entries(
+            flat / p.maxDestinationOperands).history(
+              flat % p.maxDestinationOperands)
+          when(prospectivePublishedU(flat) &&
+            retainedNeed <= prospectivePublishedUCount &&
+            ordinal === prospectivePublishedUCount - retainedNeed) {
+            out.utag := history.utag
+            out.uGeneration := history.uGeneration
+            out.uSeqIndex := history.uMapQIndex
+            out.uSeqGeneration := history.uMapQGeneration
+          }
+        }
         out.utagValid := true.B
         out.ready := offset > olderU
         for (flat <- 0 until lane * p.maxDestinationOperands) {
           val ordinal = PopCount(uDestActive.take(flat))
           val wanted = olderU - offset
           when(uDestActive(flat) && offset <= olderU && ordinal === wanted) {
-            val physical = addWrap(uTail(stid), uTagGeneration(stid), ordinal,
+            val physical = addWrap(prospectiveUTag._1, prospectiveUTag._2, ordinal,
               p.ooo.uPhysRegs, uTagWidth)
-            val seq = addWrap(uTailQ(stid), uTailQGeneration(stid), ordinal,
+            val seq = addWrap(prospectiveUSeq._1, prospectiveUSeq._2, ordinal,
               p.ooo.tuMapQDepthPerStid, tuIndexWidth)
             out.utag := physical._1
             out.uGeneration := physical._2
@@ -258,9 +317,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
       hist.atag := din.atag
       when(tDestActive(flat)) {
         val ordinal = PopCount(tDestActive.take(flat))
-        val physical = addWrap(tTail(stid), tTagGeneration(stid), ordinal,
+        val physical = addWrap(prospectiveTTag._1, prospectiveTTag._2, ordinal,
           p.ooo.tPhysRegs, tTagWidth)
-        val seq = addWrap(tTailQ(stid), tTailQGeneration(stid), ordinal,
+        val seq = addWrap(prospectiveTSeq._1, prospectiveTSeq._2, ordinal,
           p.ooo.tuMapQDepthPerStid, tuIndexWidth)
         dout.ttag := physical._1
         dout.tGeneration := physical._2
@@ -273,9 +332,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         hist.tMapQGeneration := seq._2
       }.elsewhen(uDestActive(flat)) {
         val ordinal = PopCount(uDestActive.take(flat))
-        val physical = addWrap(uTail(stid), uTagGeneration(stid), ordinal,
+        val physical = addWrap(prospectiveUTag._1, prospectiveUTag._2, ordinal,
           p.ooo.uPhysRegs, uTagWidth)
-        val seq = addWrap(uTailQ(stid), uTailQGeneration(stid), ordinal,
+        val seq = addWrap(prospectiveUSeq._1, prospectiveUSeq._2, ordinal,
           p.ooo.tuMapQDepthPerStid, tuIndexWidth)
         dout.utag := physical._1
         dout.uGeneration := physical._2
@@ -286,6 +345,27 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         hist.uGeneration := dout.uGeneration
         hist.uMapQIndex := seq._1
         hist.uMapQGeneration := seq._2
+      }
+    }
+  }
+
+  when(io.prepare.valid && io.prepareReady && prospectivePublishSameStid) {
+    for (oldLane <- 0 until width; oldDest <- 0 until p.maxDestinationOperands) {
+      val oldHist = prospectivePublish.entries(oldLane).history(oldDest)
+      val oldLive = oldLane.U < prospectivePublish.count && oldHist.valid
+      for (newLane <- 0 until width; newDest <- 0 until p.maxDestinationOperands) {
+        val newHist = io.prepared.entries(newLane).history(newDest)
+        val newLive = newLane.U < io.prepared.count && newHist.valid
+        when(oldLive && newLive && oldHist.kind === OperandKind.T &&
+          newHist.kind === OperandKind.T) {
+          assert(oldHist.ttag =/= newHist.ttag,
+            "replacement T reservations must not reuse a live physical tag")
+        }
+        when(oldLive && newLive && oldHist.kind === OperandKind.U &&
+          newHist.kind === OperandKind.U) {
+          assert(oldHist.utag =/= newHist.utag,
+            "replacement U reservations must not reuse a live physical tag")
+        }
       }
     }
   }

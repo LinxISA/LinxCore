@@ -115,6 +115,39 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
   val stidRaw = in.entries(0).uop.instruction.parent.identity.stid
   val stidInRange = stidRaw < p.ooo.stidCount.U
   val stid = safeStid(stidRaw)
+  val prospectivePublish = io.publish.bits
+  val prospectivePublishStid = safeStid(
+    prospectivePublish.entries(0).uop.decoded.instruction.parent.identity.stid)
+  val prospectivePublishSameStid = io.publish.valid &&
+    prospectivePublish.entries(0).uop.decoded.instruction.parent.identity.stid <
+      p.ooo.stidCount.U && prospectivePublishStid === stid
+  val prospectivePublishFinal = prospectivePublishSameStid &&
+    reservedValid(stid) &&
+    prospectivePublish.count === reservedLease(stid).count &&
+    prospectivePublish.groupCount === reservedLease(stid).groupCount
+  val prospectivePublishedP = Wire(Vec(pDestSlots, Bool()))
+  for (lane <- 0 until width; dest <- 0 until p.maxDestinationOperands) {
+    val flat = lane * p.maxDestinationOperands + dest
+    val hist = prospectivePublish.entries(lane).history(dest)
+    prospectivePublishedP(flat) := prospectivePublishSameStid &&
+      lane.U < prospectivePublish.count && hist.valid &&
+      hist.kind === OperandKind.Gpr
+  }
+  val prospectivePublishedPCount = PopCount(prospectivePublishedP)
+  val prospectiveSmap = Wire(Vec(p.ooo.gprArchRegs, UInt(pTagWidth.W)))
+  prospectiveSmap := smap(stid)
+  for (lane <- 0 until width; dest <- 0 until p.maxDestinationOperands) {
+    val flat = lane * p.maxDestinationOperands + dest
+    val hist = prospectivePublish.entries(lane).history(dest)
+    when(prospectivePublishedP(flat) && hist.atag < p.ooo.gprArchRegs.U) {
+      prospectiveSmap(safeAtag(hist.atag)) := hist.ptag
+    }
+  }
+  val prospectiveTailSum = tail(stid) +& prospectivePublishedPCount
+  val prospectiveTail = trunc(prospectiveTailSum, mapQIndexWidth)
+  val prospectiveTailGeneration = tailGeneration(stid) +
+    (prospectiveTailSum >= p.ooo.gprMapQDepthPerStid.U).asUInt
+  val prospectiveCount = count(stid) +& prospectivePublishedPCount
   val active = Wire(Vec(width, Bool()))
   for (lane <- 0 until width) {
     active(lane) := lane.U < in.count && in.entries(lane).uop.valid
@@ -135,9 +168,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
     freeForPrepare(tag) := free(tag) && !reserved(tag)
   }
   io.prepareReady := stidInRange &&
-    !reservedValid(stid) &&
+    (!reservedValid(stid) || prospectivePublishFinal) &&
     destCount <= PopCount(freeForPrepare) &&
-    count(stid) +& destCount <= p.ooo.gprMapQDepthPerStid.U
+    prospectiveCount +& destCount <= p.ooo.gprMapQDepthPerStid.U
 
   val allocatedTag = Wire(Vec(pDestSlots, UInt(pTagWidth.W)))
   val allocatedGen = Wire(Vec(pDestSlots,
@@ -187,7 +220,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         val tag = Wire(UInt(pTagWidth.W))
         val gen = Wire(UInt(p.ooo.gprTagGenerationWidth.W))
         val forwarded = Wire(Bool())
-        tag := smap(stid)(atag)
+        tag := prospectiveSmap(atag)
         gen := generationFor(tag)
         forwarded := false.B
         for (flat <- 0 until lane * p.maxDestinationOperands) {
@@ -218,7 +251,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
       hist.atag := din.atag
       when(destActive(flat)) {
         val previous = Wire(UInt(pTagWidth.W))
-        previous := smap(stid)(destAtag(flat))
+        previous := prospectiveSmap(destAtag(flat))
         for (older <- 0 until flat) {
           val olderDest = in.entries(older / p.maxDestinationOperands)
             .uop.destinations(older % p.maxDestinationOperands)
@@ -237,9 +270,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         hist.pGeneration := allocatedGen(flat)
         hist.previousPGeneration := generationFor(previous)
         val ordinal = PopCount(destActive.take(flat))
-        val indexSum = tail(stid) +& ordinal
+        val indexSum = prospectiveTail +& ordinal
         hist.pMapQIndex := trunc(indexSum, mapQIndexWidth)
-        hist.pMapQGeneration := tailGeneration(stid) +
+        hist.pMapQGeneration := prospectiveTailGeneration +
           (indexSum >= p.ooo.gprMapQDepthPerStid.U).asUInt
       }
     }
@@ -354,6 +387,30 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
     }
     reservedLease(pubStid) := suffix
     reservedValid(pubStid) := suffix.count.orR
+
+    val reserveStid = safeStid(
+      io.reserve.bits.entries(0).uop.decoded.instruction.parent.identity.stid)
+    val sameStidReplacement = io.reserve.valid && reserveStid === pubStid
+    when(sameStidReplacement) {
+      assert(!suffix.count.orR && !suffix.groupCount.orR,
+        "P reservation replacement requires final publication of the old lease")
+      for (oldLane <- 0 until width; oldDest <- 0 until p.maxDestinationOperands) {
+        val oldHist = pub.entries(oldLane).history(oldDest)
+        val oldLive = oldLane.U < pub.count && oldHist.valid &&
+          oldHist.kind === OperandKind.Gpr
+        for (newLane <- 0 until width; newDest <- 0 until p.maxDestinationOperands) {
+          val newHist = io.reserve.bits.entries(newLane).history(newDest)
+          val newLive = newLane.U < io.reserve.bits.count && newHist.valid &&
+            newHist.kind === OperandKind.Gpr
+          when(oldLive && newLive) {
+            assert(oldHist.ptag =/= newHist.ptag,
+              "replacement P reservations must not reuse a published physical tag")
+          }
+        }
+      }
+      reservedLease(pubStid) := io.reserve.bits
+      reservedValid(pubStid) := true.B
+    }
   }
 
   val releaseSlotCount = p.widths.retireWidth * p.maxDestinationOperands
