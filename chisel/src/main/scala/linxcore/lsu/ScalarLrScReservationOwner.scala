@@ -154,6 +154,8 @@ class ScalarLrScReservationOwner(val coreParams: CoreParams = CoreParams()) exte
   val scStidIdx = if (p.stidCount == 1) 0.U(stidIndexWidth.W) else stidIndex(scStid)
   val storeInvalidateIdx =
     if (p.stidCount == 1) 0.U(stidIndexWidth.W) else stidIndex(io.committedStoreInvalidateStid)
+  val flushStidIdx =
+    if (p.stidCount == 1) 0.U(stidIndexWidth.W) else stidIndex(io.flushStid)
   val lrStidIdx = if (p.stidCount == 1) 0.U(stidIndexWidth.W) else stidIndex(io.lrStid)
   val scInvalidatedThisCycle =
     io.committedStoreInvalidateValid &&
@@ -163,6 +165,9 @@ class ScalarLrScReservationOwner(val coreParams: CoreParams = CoreParams()) exte
       io.committedStoreInvalidateLineAddr === scLineAddr
   val scReservationHit =
     scResident && scStidOk && reservationValid(scStidIdx) && reservationLine(scStidIdx) === scLineAddr
+  val flushMatchesReservation = io.flushValid && io.flushIdentityValid &&
+    stidInRange(io.flushStid) && reservationValid(flushStidIdx) &&
+    identityMatches(reservationIdentity(flushStidIdx), io.flushIdentity)
   val scSuccessNow = scReservationHit && !scInvalidatedThisCycle
   val scCompleteFire = io.enable && scResident && scSupported && io.scCommitReady && !flushMatchesSc && !io.contextInvalidate
   io.scCompleteFire := scCompleteFire
@@ -184,6 +189,8 @@ class ScalarLrScReservationOwner(val coreParams: CoreParams = CoreParams()) exte
     for (idx <- 0 until p.stidCount) {
       reservationValid(idx) := false.B
     }
+  }.elsewhen(flushMatchesReservation) {
+    reservationValid(flushStidIdx) := false.B
   }
 
   when(io.committedStoreInvalidateValid && stidInRange(io.committedStoreInvalidateStid)) {

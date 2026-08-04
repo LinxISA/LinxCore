@@ -171,6 +171,16 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
         "ScalarL1D",
         "chisel/src/main/scala/linxcore/lsu/ScalarL1D.scala",
     ),
+    "data_translation": (
+        "LSU",
+        "DSideTranslation",
+        "chisel/src/main/scala/linxcore/lsu/Translation.scala",
+    ),
+    "lower_memory_transactions": (
+        "LSU",
+        "LSULowerTransactionRecovery",
+        "chisel/src/main/scala/linxcore/lsu/LSURecovery.scala",
+    ),
     "lsu_recovery": (
         "LSU",
         "LSU",
@@ -253,6 +263,12 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
         ("ScalarL1D", "chisel/src/main/scala/linxcore/lsu/ScalarL1D.scala"),
         ("LoadMissQueue", "chisel/src/main/scala/linxcore/lsu/LoadMissQueue.scala"),
         ("LoadRefillTransport", "chisel/src/main/scala/linxcore/lsu/LoadRefillTransport.scala"),
+    ),
+    "data_translation": (
+        ("DSideTranslation", "chisel/src/main/scala/linxcore/lsu/Translation.scala"),
+    ),
+    "lower_memory_transactions": (
+        ("LSULowerTransactionRecovery", "chisel/src/main/scala/linxcore/lsu/LSURecovery.scala"),
     ),
     "lsu_recovery": (
         ("LSU", "chisel/src/main/scala/linxcore/lsu/LSU.scala"),

@@ -16,3 +16,9 @@ line, instruction translation, ordinary data, and device traffic without
 overloading the coherence command. `TOPIO` exposes separate instruction and
 data channels so cache, device, and recovery ownership cannot be inferred from
 an untyped shared payload.
+
+The live LSU translates load and store virtual addresses before allocating or
+mutating their private rows. Translation requests use an identity namespace
+distinct from cache-miss traffic, and only an exact value-plus-generation
+response may refill either owner. The LSU publishes quiescence only after all
+translation and data transactions accepted on its public memory lanes drain.

@@ -17,4 +17,5 @@ class LSUIO(val p: CoreParams) extends Bundle {
     Decoupled(new MemoryResponseTxn(p))))
   val recovery = Flipped(new RecoveryTargetIO(p))
   val trace = Decoupled(new TracePacket(p))
+  val quiescent = Output(Bool())
 }

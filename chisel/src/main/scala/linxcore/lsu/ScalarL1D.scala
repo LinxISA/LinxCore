@@ -55,6 +55,10 @@ class ScalarL1DIO(
   val eviction = Output(new ScalarL1DEviction(addrWidth, lineBytes))
   val evictionReady = Input(Bool())
 
+  val invalidateAll = Input(Bool())
+  val invalidateLineValid = Input(Bool())
+  val invalidateLineAddr = Input(UInt(addrWidth.W))
+
   val arrayReady = Output(Bool())
   val residentCount = Output(UInt(residentWidth.W))
   val dirtyCount = Output(UInt(residentWidth.W))
@@ -124,6 +128,15 @@ class ScalarL1D(
     valid(refillSet)(way) && tags(refillSet)(way) === aligned(io.refill.lineAddr)))
   val refillDuplicate = refillHits.asUInt.orR
   val refillHitWay = PriorityEncoder(refillHits)
+  val invalidateLineSet = setIndex(io.invalidateLineAddr)
+  val invalidateLineHits = VecInit((0 until ways).map(way =>
+    valid(invalidateLineSet)(way) &&
+      tags(invalidateLineSet)(way) === aligned(io.invalidateLineAddr)))
+  val invalidateLineDirty = VecInit((0 until ways).map(way =>
+    invalidateLineHits(way) && dirty(invalidateLineSet)(way))).asUInt.orR
+  val anyDirty = VecInit((0 until sets).flatMap(set =>
+    (0 until ways).map(way => valid(set)(way) && dirty(set)(way)))).asUInt.orR
+  val maintenanceActive = io.invalidateAll || io.invalidateLineValid
   val invalidWays = VecInit((0 until ways).map(way => !valid(refillSet)(way)))
   val hasInvalid = invalidWays.asUInt.orR
   val invalidWay = PriorityEncoder(invalidWays)
@@ -131,10 +144,11 @@ class ScalarL1D(
   val oldestWay = PriorityEncoder(oldestWays)
   val victimWay = Mux(hasInvalid, invalidWay, oldestWay)
   val replacementNeedsEviction = !refillDuplicate && !hasInvalid && valid(refillSet)(victimWay)
-  val refillReady = refillDuplicate || !replacementNeedsEviction || io.evictionReady
+  val refillReady = !maintenanceActive &&
+    (refillDuplicate || !replacementNeedsEviction || io.evictionReady)
   val refillAccepted = io.refill.valid && refillReady
 
-  io.eviction.valid := io.refill.valid && replacementNeedsEviction
+  io.eviction.valid := io.refill.valid && replacementNeedsEviction && !maintenanceActive
   io.eviction.lineAddr := tags(refillSet)(victimWay)
   io.eviction.data := data(refillSet)(victimWay)
   io.eviction.dirty := dirty(refillSet)(victimWay)
@@ -142,25 +156,41 @@ class ScalarL1D(
   io.refillAccepted := refillAccepted
   io.refillDuplicate := io.refill.valid && refillDuplicate
   io.refillData := Mux(refillDuplicate, data(refillSet)(refillHitWay), io.refill.data)
-  io.arrayReady := !io.refill.valid
+  io.arrayReady := !io.refill.valid && !maintenanceActive
 
   val storeUpdateSet = setIndex(io.storeUpdate.lineAddr)
   val storeUpdateHits = VecInit((0 until ways).map(way =>
     valid(storeUpdateSet)(way) && tags(storeUpdateSet)(way) === aligned(io.storeUpdate.lineAddr)))
   val storeUpdateWay = PriorityEncoder(storeUpdateHits)
   val storeUpdateLegal = io.storeUpdate.valid && storeUpdateHits.asUInt.orR &&
-    writable(storeUpdateSet)(storeUpdateWay) && io.storeUpdate.byteMask.orR && !io.refill.valid
+    writable(storeUpdateSet)(storeUpdateWay) && io.storeUpdate.byteMask.orR &&
+      !io.refill.valid && !maintenanceActive
   val grantWriteSet = setIndex(io.grantWriteLineAddr)
   val grantWriteHits = VecInit((0 until ways).map(way =>
     valid(grantWriteSet)(way) && tags(grantWriteSet)(way) === aligned(io.grantWriteLineAddr)))
   val grantWriteWay = PriorityEncoder(grantWriteHits)
-  val grantWriteLegal = io.grantWriteValid && grantWriteHits.asUInt.orR && !io.refill.valid
+  val grantWriteLegal = io.grantWriteValid && grantWriteHits.asUInt.orR &&
+    !io.refill.valid && !maintenanceActive
 
   val touchValid = WireDefault(false.B)
   val touchNewLine = WireDefault(false.B)
   val touchSet = WireDefault(0.U(setWidth.W))
   val touchWay = WireDefault(0.U(wayWidth.W))
-  when(refillAccepted) {
+  when(io.invalidateAll && !anyDirty) {
+    for (set <- 0 until sets; way <- 0 until ways) {
+      valid(set)(way) := false.B
+      writable(set)(way) := false.B
+      dirty(set)(way) := false.B
+    }
+  }.elsewhen(io.invalidateLineValid && !invalidateLineDirty) {
+    for (way <- 0 until ways) {
+      when(invalidateLineHits(way)) {
+        valid(invalidateLineSet)(way) := false.B
+        writable(invalidateLineSet)(way) := false.B
+        dirty(invalidateLineSet)(way) := false.B
+      }
+    }
+  }.elsewhen(refillAccepted) {
     touchValid := true.B
     touchNewLine := !refillDuplicate
     touchSet := refillSet
@@ -233,7 +263,10 @@ class ScalarL1D(
   io.protocolError :=
     (io.storeUpdate.valid && !storeUpdateLegal) ||
       (io.grantWriteValid && !grantWriteLegal) ||
+      (io.invalidateAll && anyDirty) ||
+      (io.invalidateLineValid && invalidateLineDirty) ||
       PopCount(refillHits) > 1.U ||
+      PopCount(invalidateLineHits) > 1.U ||
       PopCount(grantWriteHits) > 1.U ||
       PopCount(storeUpdateHits) > 1.U ||
       (io.loadLookupValid && PopCount(VecInit((0 until ways).map(way =>

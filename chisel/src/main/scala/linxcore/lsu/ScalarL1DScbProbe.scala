@@ -81,6 +81,9 @@ class ScalarL1DScbProbe extends Module {
   cache.io.refill.data := Fill(8, io.refillData)
   cache.io.refill.writable := io.refillWritable
   cache.io.evictionReady := io.evictionReady
+  cache.io.invalidateAll := false.B
+  cache.io.invalidateLineValid := false.B
+  cache.io.invalidateLineAddr := 0.U
 
   io.requestAccepted := scb.io.acceptedMask(0)
   io.l2Valid := scb.io.l2Request.valid

@@ -392,6 +392,7 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
   val mdbReplayWakeCollision = Output(Bool())
   val mdbTransientEmpty = Output(Bool())
   val mdbProtocolError = Output(Bool())
+  val transientEmpty = Output(Bool())
   val empty = Output(Bool())
 }
 
@@ -895,6 +896,9 @@ class ScalarLSULoadPath(
   l1d.io.refill.data := refillTransport.io.out.data
   l1d.io.refill.writable := false.B
   l1d.io.evictionReady := io.l1dEvictionReady
+  l1d.io.invalidateAll := false.B
+  l1d.io.invalidateLineValid := false.B
+  l1d.io.invalidateLineAddr := 0.U
   refillTransport.io.outReady :=
     !flushCycle && (!refillTransport.io.out.isRead || l1d.io.refillReady)
   val canonicalRefill = Wire(chiselTypeOf(refillTransport.io.out))
@@ -1327,9 +1331,10 @@ class ScalarLSULoadPath(
   io.mdbReplayWakeCollision := mdbPath.io.storeWakeup.valid && io.replayWakeValid
   io.mdbTransientEmpty := mdbPath.io.transientEmpty
   io.mdbProtocolError := mdbPath.io.protocolError || io.mdbReplayWakeCollision
-  io.empty :=
-    liq.io.empty && resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
+  io.transientEmpty :=
+    resolveQueue.io.empty && !transferPending && mdbPath.io.transientEmpty &&
       returnQueue.io.empty && returnPipeline.io.empty && (reservedCount === 0.U) &&
       missQueue.io.empty && (missReservations === 0.U) && refillTransport.io.empty &&
       forwardTransportEmpty
+  io.empty := liq.io.empty && io.transientEmpty
 }

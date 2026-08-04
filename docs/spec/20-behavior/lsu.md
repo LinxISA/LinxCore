@@ -49,28 +49,35 @@ SCB match returns no forwarding authority and mutates neither SCB nor LIQ.
 ## Apply one scoped recovery transaction {#LSU-004}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=LSU-001,IFC-RECOVERY-001 -->
 
-Recovery Prepare MUST fence the affected STID and compute the exact STQ, LIQ,
-MDB, miss, refill, and return rows that Apply would remove. Prepare and Abort
-MUST NOT mutate those owners. Apply MUST prune the same killed set from every
-owner while preserving unrelated STIDs and non-killed older rows.
+Recovery Prepare MUST fence new lower-memory publication and compute the exact
+STQ, LIQ, MDB, miss, refill, and return rows that Apply would remove. Prepared
+MUST remain withheld until translation, cache-miss, load-return, store-drain,
+and every public lower-memory transaction are quiescent. Prepare and Abort MUST
+NOT mutate those owners. Apply MUST prune the same killed set from every owner
+while preserving unrelated STIDs and non-killed older rows.
 
 ## Canonical public composition {#MEC-LSU-001}
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=LSU-001,LSU-002,LSU-003,LSU-004 -->
 
-`linxcore.lsu.LSU` is a state-free public shell. `OooIexStoreStqFabric` owns
-store reservation and STQ/data rows, `STQSCBCommitBackend` owns classification,
-CommitQ, and SCB state, and `ScalarLSULoadPath` owns LIQ, MDB, L1D, miss/refill,
-and load-return state. The shell may adapt canonical semantic transactions to
-retained private mechanism types, but an adapter MUST NOT retain architectural
-state or become an alternative join owner.
+`linxcore.lsu.LSU` is the one public composition owner.
+`OooIexStoreStqFabric` owns store reservation and STQ/data rows,
+`STQSCBCommitBackend` owns classification, CommitQ, and SCB state,
+`ScalarLSULoadPath` owns LIQ, MDB, L1D, miss/refill, and load-return state,
+`DSideTranslation` owns retained D-side translation, and
+`LSULowerTransactionRecovery` owns exact outstanding lower-memory identities.
+Translation replay and data-miss replay remain separate. Scalar L1D line and
+global invalidation MUST fail closed while any affected line is dirty; neither
+operation may silently discard dirty data.
 
 ## LSU verification {#VER-LSU-001}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=LSU-001,LSU-002,LSU-003,LSU-004 -->
 
-`LSUStoreSpec`, `LSULoadSpec`, and `IEXLSUIntegrationSpec` MUST cover crossed
+`LSUStoreSpec`, `LSULoadSpec`, `LSUMemorySpec`, `LSUIntegrationSpec`, and
+`IEXLSUIntegrationSpec` MUST cover crossed
 STA/STD arrival, pair stores, exact classification and commit, forwarding,
 unresolved older stores, independent load pipes, MDB replay, miss/refill,
-stale-response rejection, lane-local backpressure, and scoped recovery.
+stale-response rejection, translation, memory attributes, dirty maintenance,
+lane-local backpressure, exact lower-transaction drain, and scoped recovery.
 Generated-RTL activation MUST observe nonzero load and store traffic before a
 displaced LSU public shell or alternate memory owner is deleted. It MUST also
 prove exact MissQ tombstone drain, distinct replay request identity, and one

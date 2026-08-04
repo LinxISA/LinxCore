@@ -46,7 +46,7 @@ evidence.
 ```json production-owner-manifest
 {
   "schema_version": 2,
-  "completed_cutover_tasks": [13, 15],
+  "completed_cutover_tasks": [13, 15, 16],
   "ndf": {
     "L1": [
       "docs/spec/10-architecture/ownership.md",
@@ -526,9 +526,41 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarL1DScbProbe.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "level": "L3", "status": "public-box-verified"}],
-      "cutover_task": 15,
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarL1DSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "cutover_task": 16,
+      "deletion_targets": [],
+      "adapters": []
+    },
+    {
+      "subsystem": "LSU",
+      "state_key": "data_translation",
+      "canonical_owner": "DSideTranslation",
+      "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/Translation.scala"],
+      "public_box": "LSU",
+      "public_box_status": "module",
+      "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "active_callers": ["chisel/src/main/scala/linxcore/lsu/LSU.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "cutover_task": 16,
+      "deletion_targets": [],
+      "adapters": []
+    },
+    {
+      "subsystem": "LSU",
+      "state_key": "lower_memory_transactions",
+      "canonical_owner": "LSULowerTransactionRecovery",
+      "mechanism_files": ["chisel/src/main/scala/linxcore/lsu/LSURecovery.scala"],
+      "public_box": "LSU",
+      "public_box_status": "module",
+      "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
+      "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
+      "active_callers": ["chisel/src/main/scala/linxcore/lsu/LSU.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "cutover_task": 16,
       "deletion_targets": [],
       "adapters": []
     },
@@ -542,9 +574,9 @@ evidence.
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "level": "L3", "status": "public-box-verified"}],
-      "cutover_task": 15,
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "cutover_task": 16,
       "deletion_targets": [],
       "adapters": []
     },
@@ -560,7 +592,7 @@ evidence.
       "active_callers": ["chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala", "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
-      "cutover_task": 16,
+      "cutover_task": 17,
       "deletion_targets": [],
       "adapters": []
     }

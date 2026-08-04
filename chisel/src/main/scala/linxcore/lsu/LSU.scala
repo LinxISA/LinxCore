@@ -61,6 +61,25 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     stqForwardRobEntries = op.robIdentityGroupsPerStid,
     stqForwardTokenWidth = op.transactionIdWidth,
     useExternalLaunchPermit = true))
+  private val translation = Module(new DSideTranslation(
+    p = p,
+    entries = math.max(4, scalarLsu.l1dWays),
+    pageBytes = 4096))
+  private val lowerRecovery = Module(new LSULowerTransactionRecovery(
+    p = p,
+    lanes = p.lsu.loadPipes + p.lsu.storePipes,
+    entries = 4 * (p.lsu.loadPipes + p.lsu.storePipes)))
+  lowerRecovery.io.requestFire := 0.U.asTypeOf(lowerRecovery.io.requestFire)
+  lowerRecovery.io.requestIdentity :=
+    0.U.asTypeOf(lowerRecovery.io.requestIdentity)
+  lowerRecovery.io.responseFire :=
+    0.U.asTypeOf(lowerRecovery.io.responseFire)
+  lowerRecovery.io.responseIdentity :=
+    0.U.asTypeOf(lowerRecovery.io.responseIdentity)
+  lowerRecovery.io.prepareFire := false.B
+  lowerRecovery.io.applyFire := false.B
+  lowerRecovery.io.abortFire := false.B
+  translation.io.invalidate := false.B
 
   private def projectMember(target: RobMemberKey,
       source: linxcore.top.interface.RobIdentity): Unit = {
@@ -164,17 +183,24 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   reservation.ready := store.io.reserve.ready
   io.iex.storeReservation.tail.foreach(_.ready := false.B)
 
+  val storeTranslationSelected = Wire(Vec(p.lsu.storePipes, Bool()))
+  val storeTranslationReady = Wire(Bool())
+  val storeTranslatedAddress = Wire(UInt(p.physicalAddressWidth.W))
   for (lane <- 0 until p.lsu.storePipes) {
     val address = io.iex.storeAddress(lane)
     val zeroData = Wire(Vec(p.maxMemoryRequestsPerInstruction,
       UInt(p.dataWidth.W)))
     zeroData := 0.U.asTypeOf(zeroData)
-    store.io.storeAddress(lane).valid := address.valid
+    store.io.storeAddress(lane).valid := address.valid &&
+      !lowerRecovery.io.fenced &&
+      storeTranslationSelected(lane) && storeTranslationReady
     store.io.storeAddress(lane).bits := makeExecute(
       address.bits.identity, address.bits.memoryOrder,
       address.bits.requestCount, address.bits.pair,
-      address.bits.address, address.bits.sizeBytes, zeroData, 0, lane)
-    address.ready := store.io.storeAddress(lane).ready
+      storeTranslatedAddress, address.bits.sizeBytes, zeroData, 0, lane)
+    address.ready := !lowerRecovery.io.fenced &&
+      storeTranslationSelected(lane) &&
+      storeTranslationReady && store.io.storeAddress(lane).ready
 
     val data = io.iex.storeData(lane)
     store.io.storeData(lane).valid := data.valid
@@ -213,9 +239,14 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   store.io.recovery.prepare.bits := io.recovery.prepare.bits
   io.recovery.prepare.ready :=
     store.io.recovery.prepare.ready && loadRecoveryBoundaryExact
-  io.recovery.prepared.valid := store.io.recovery.prepared.valid
+  private val lowerDrainQuiescent = lowerRecovery.io.quiescent &&
+    translation.io.quiescent && load.io.transientEmpty &&
+    !backend.io.serializedRequest.valid && !backend.io.l2Request.valid
+  io.recovery.prepared.valid := store.io.recovery.prepared.valid &&
+    lowerDrainQuiescent
   io.recovery.prepared.bits := store.io.recovery.prepared.bits
-  store.io.recovery.prepared.ready := io.recovery.prepared.ready
+  store.io.recovery.prepared.ready := io.recovery.prepared.ready &&
+    lowerDrainQuiescent
   store.io.recovery.apply := io.recovery.apply
   store.io.recovery.abort := io.recovery.abort
   private val loadRecoveryPending = RegInit(false.B)
@@ -237,6 +268,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   when(loadRecoveryApply || loadRecoveryAbort) {
     loadRecoveryPending := false.B
   }
+  lowerRecovery.io.prepareFire := io.recovery.prepare.fire
+  lowerRecovery.io.applyFire := loadRecoveryApply
+  lowerRecovery.io.abortFire := loadRecoveryAbort
   store.io.loadCancel := 0.U.asTypeOf(store.io.loadCancel)
   store.io.lateStaPermit := load.mdbStore.probeReady
   load.mdbStore.probe := store.io.lateStaCandidate.bits
@@ -380,7 +414,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
 
   // Every load-owner input is assigned explicitly below. No unknown value may
   // enter the canonical LIQ/MDB/cache graph through the public LSU boundary.
-  load.launchPermit.get := true.B
+  load.launchPermit.get := !lowerRecovery.io.fenced
   load.stqForward.get.queries <> store.io.loadForwardQuery
   load.stqForward.get.responses <> store.io.loadForwardResponse
   load.stqForward.get.hardBlock.ready := true.B
@@ -413,7 +447,27 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     loadIssueArbiter.io.in(lane) <> io.iex.loadAddress(lane)
   }
   val loadIssue = loadIssueArbiter.io.out
-  load.io.allocValid := loadIssue.valid
+  val storeTranslationCandidates = VecInit(
+    io.iex.storeAddress.map(_.valid))
+  val storeTranslationIndex = PriorityEncoder(storeTranslationCandidates)
+  val storeTranslationRequest = storeTranslationCandidates.asUInt.orR
+  val loadTranslationSelected = loadIssue.valid
+  for (lane <- 0 until p.lsu.storePipes) {
+    storeTranslationSelected(lane) := !loadTranslationSelected &&
+      storeTranslationRequest && storeTranslationIndex === lane.U
+  }
+  val selectedStoreAddress = io.iex.storeAddress(storeTranslationIndex)
+  translation.io.lookupValid := !lowerRecovery.io.fenced &&
+    (loadIssue.valid || storeTranslationRequest)
+  translation.io.virtualAddress := Mux(loadTranslationSelected,
+    loadIssue.bits.address, selectedStoreAddress.bits.address)
+  translation.io.sizeBytes := Mux(loadTranslationSelected,
+    loadIssue.bits.sizeBytes, selectedStoreAddress.bits.sizeBytes)
+  translation.io.write := !loadTranslationSelected
+  storeTranslationReady := translation.io.lookupReady
+  storeTranslatedAddress := translation.io.physicalAddress
+  load.io.allocValid := loadIssue.valid && !lowerRecovery.io.fenced &&
+    translation.io.lookupReady
   load.io.alloc := 0.U.asTypeOf(load.io.alloc)
   projectRobId(load.io.alloc.bid, loadIssue.bits.identity.rob.bid)
   projectRobId(load.io.alloc.gid, loadIssue.bits.identity.rob.ridSlot)
@@ -446,7 +500,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.io.alloc.stid := loadIssue.bits.identity.rob.stid
   load.io.alloc.tid := loadIssue.bits.identity.rob.stid
   load.io.alloc.pc := loadIssue.bits.pc
-  load.io.alloc.addr := loadIssue.bits.address
+  load.io.alloc.addr := translation.io.physicalAddress
   load.io.alloc.size := loadIssue.bits.sizeBytes
   load.io.alloc.returnSignExtend := loadIssue.bits.signed
   load.io.alloc.dst.valid := loadIssue.bits.destination.valid
@@ -463,7 +517,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     loadIssue.bits.youngestStoreValid
   load.io.alloc.youngestStoreLsIdFull := loadIssue.bits.youngestStoreLsid
   load.io.alloc.returnPipeIndex := loadIssue.bits.identity.pipeId
-  loadIssue.ready := load.io.allocReady
+  loadIssue.ready := !lowerRecovery.io.fenced &&
+    translation.io.lookupReady && load.io.allocReady
 
   io.iex.loadAllocation.foreach { out =>
     out.valid := false.B
@@ -471,7 +526,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   }
   for (lane <- 0 until p.lsu.loadPipes) {
     val allocation = io.iex.loadAllocation(lane)
-    allocation.valid := loadIssue.valid && loadIssueArbiter.io.chosen === lane.U
+    allocation.valid := loadIssue.valid && !lowerRecovery.io.fenced &&
+      translation.io.lookupReady &&
+      loadIssueArbiter.io.chosen === lane.U
     allocation.bits.identity := loadIssue.bits.identity
     allocation.bits.allocationId.value := load.io.allocLoadId.value
     allocation.bits.allocationId.generation :=
@@ -708,17 +765,32 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val missLane = if (p.lsu.loadPipes == 1) 0.U else
     load.io.missRequest.missId.value(log2Ceil(p.lsu.loadPipes) - 1, 0)
   val missLaneReady = Wire(Vec(p.lsu.loadPipes, Bool()))
+  translation.io.memoryRequest.ready := false.B
   for (lane <- 0 until p.lsu.loadPipes) {
     val request = io.memoryRequest(lane)
-    request.valid := load.io.missRequestValid && missLane === lane.U
-    request.bits := 0.U.asTypeOf(request.bits)
-    request.bits.identity.value := load.io.missRequest.missId.value
-    request.bits.identity.generation := load.io.missRequest.missId.wrap.asUInt
-    request.bits.command := MemoryCommand.Read
-    request.bits.accessKind := MemoryAccessKind.Data
-    request.bits.address := load.io.missRequest.lineAddr
-    request.bits.sizeBytes := scalarLsu.lineBytes.U
-    missLaneReady(lane) := request.ready && missLane === lane.U
+    val translationSelected = lane == 0
+    val dataRequest = Wire(chiselTypeOf(request.bits))
+    dataRequest := 0.U.asTypeOf(dataRequest)
+    dataRequest.identity.value := load.io.missRequest.missId.value
+    dataRequest.identity.generation := load.io.missRequest.missId.wrap.asUInt
+    dataRequest.command := MemoryCommand.Read
+    dataRequest.accessKind := Mux(
+      load.io.missRequest.lineAddr(p.physicalAddressWidth - 1,
+        p.physicalAddressWidth - 8).andR,
+      MemoryAccessKind.Device, MemoryAccessKind.Data)
+    dataRequest.address := load.io.missRequest.lineAddr
+    dataRequest.sizeBytes := scalarLsu.lineBytes.U
+    val translationValid = if (translationSelected)
+      translation.io.memoryRequest.valid else false.B
+    val dataValid = load.io.missRequestValid && missLane === lane.U
+    request.valid := translationValid || dataValid
+    request.bits := Mux(translationValid,
+      translation.io.memoryRequest.bits, dataRequest)
+    if (translationSelected) {
+      translation.io.memoryRequest.ready := request.ready
+    }
+    missLaneReady(lane) := request.ready && !translationValid &&
+      missLane === lane.U
   }
   load.io.missRequestReady := missLaneReady.asUInt.orR
 
@@ -728,8 +800,14 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     loadResponseArbiter.io.in(lane) <> io.memoryResponse(lane)
   }
   val publicLoadResponse = loadResponseArbiter.io.out
-  load.io.missResponseValid := publicLoadResponse.valid
-  publicLoadResponse.ready := load.io.missResponseReady
+  translation.io.memoryResponse.bits := publicLoadResponse.bits
+  val translationResponse = translation.io.responseOwned
+  translation.io.memoryResponse.valid := publicLoadResponse.valid &&
+    translationResponse
+  load.io.missResponseValid := publicLoadResponse.valid &&
+    !translationResponse
+  publicLoadResponse.ready := Mux(translationResponse,
+    translation.io.memoryResponse.ready, load.io.missResponseReady)
   load.io.missResponse := 0.U.asTypeOf(load.io.missResponse)
   load.io.missResponse.missId.valid := publicLoadResponse.valid
   load.io.missResponse.missId.value := publicLoadResponse.bits.identity.value
@@ -809,6 +887,17 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     out.bits := 0.U.asTypeOf(out.bits)
   }
   io.memoryResponse.drop(p.lsu.loadPipes + 2).foreach(_.ready := false.B)
+  for (lane <- io.memoryRequest.indices) {
+    lowerRecovery.io.requestFire(lane) := io.memoryRequest(lane).fire
+    lowerRecovery.io.requestIdentity(lane) :=
+      io.memoryRequest(lane).bits.identity
+    lowerRecovery.io.responseFire(lane) := io.memoryResponse(lane).fire
+    lowerRecovery.io.responseIdentity(lane) :=
+      io.memoryResponse(lane).bits.identity
+  }
+  io.quiescent := store.io.empty && backend.io.empty && load.io.empty &&
+    translation.io.quiescent && lowerRecovery.io.quiescent &&
+    !loadRecoveryPending
   io.trace.valid := false.B
   io.trace.bits := 0.U.asTypeOf(io.trace.bits)
 }
