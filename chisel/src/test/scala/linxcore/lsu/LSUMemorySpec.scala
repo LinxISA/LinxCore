@@ -47,6 +47,10 @@ trait LSUMemoryTestSupport extends ChiselSim {
     dut.io.recovery.apply.bits.poke(0.U.asTypeOf(dut.io.recovery.apply.bits))
     dut.io.recovery.abort.valid.poke(false.B)
     dut.io.recovery.abort.bits.poke(0.U.asTypeOf(dut.io.recovery.abort.bits))
+    dut.io.memoryFault.ready.poke(true.B)
+    dut.io.maintenance.valid.poke(false.B)
+    dut.io.maintenance.bits.poke(0.U.asTypeOf(dut.io.maintenance.bits))
+    dut.io.maintenanceResult.ready.poke(true.B)
     dut.io.trace.ready.poke(true.B)
     dut.reset.poke(true.B)
     dut.clock.step(2)
@@ -120,6 +124,10 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       response.bits.identity.value.poke(requestId.U)
       response.bits.identity.generation.poke(requestGeneration.U)
       response.bits.data.poke(0x42.U)
+      response.bits.attributesValid.poke(true.B)
+      response.bits.readable.poke(true.B)
+      response.bits.writable.poke(true.B)
+      response.bits.cacheable.poke(true.B)
       response.valid.poke(true.B)
       response.ready.expect(true.B)
       dut.clock.step()
@@ -147,12 +155,14 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.io.memoryResponse.valid.poke(false.B)
       dut.io.memoryResponse.bits.poke(
         0.U.asTypeOf(dut.io.memoryResponse.bits))
+      dut.io.lookupFire.poke(false.B)
       dut.reset.poke(true.B)
       dut.clock.step(2)
       dut.reset.poke(false.B)
 
       dut.io.lookupValid.poke(true.B)
       dut.io.virtualAddress.poke(0x1003.U)
+      dut.io.lookupFire.poke(true.B)
       dut.io.alignmentFault.expect(true.B)
       dut.io.lookupReady.expect(false.B)
 
@@ -190,6 +200,11 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
         0.U.asTypeOf(dut.io.memoryResponse.bits))
       dut.io.memoryResponse.bits.identity.poke(deviceIdentity)
       dut.io.memoryResponse.bits.data.poke(devicePpn.U)
+      dut.io.memoryResponse.bits.attributesValid.poke(true.B)
+      dut.io.memoryResponse.bits.readable.poke(true.B)
+      dut.io.memoryResponse.bits.writable.poke(false.B)
+      dut.io.memoryResponse.bits.cacheable.poke(false.B)
+      dut.io.memoryResponse.bits.device.poke(true.B)
       dut.io.memoryResponse.valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse.valid.poke(false.B)
@@ -271,6 +286,10 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       response.bits.poke(0.U.asTypeOf(response.bits))
       response.bits.identity.poke(translationIdentity)
       response.bits.data.poke(devicePpn.U)
+      response.bits.attributesValid.poke(true.B)
+      response.bits.readable.poke(true.B)
+      response.bits.writable.poke(true.B)
+      response.bits.device.poke(true.B)
       response.valid.poke(true.B)
       dut.clock.step()
       response.valid.poke(false.B)
@@ -334,6 +353,152 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.clock.step()
       dut.io.responseFire(0).poke(false.B)
       dut.io.outstandingCount.expect(0.U)
+      dut.io.quiescent.expect(true.B)
+    }
+  }
+
+  test("translation captures a miss only on lookup fire and keeps its namespace across wrap") {
+    val base = SimulationParamProfiles.W4
+    val p = base.copy(lsu = base.lsu.copy(dTranslationCounterBits = 2))
+    simulate(new DSideTranslation(p, entries = 2, pageBytes = 4096)) { dut =>
+      dut.io.lookupValid.poke(true.B)
+      dut.io.lookupFire.poke(false.B)
+      dut.io.virtualAddress.poke(BigInt("8000000000001000", 16).U)
+      dut.io.sizeBytes.poke(8.U)
+      dut.io.write.poke(false.B)
+      dut.io.invalidate.poke(false.B)
+      dut.io.memoryRequest.ready.poke(true.B)
+      dut.io.memoryResponse.valid.poke(false.B)
+      dut.io.memoryResponse.bits.poke(0.U.asTypeOf(dut.io.memoryResponse.bits))
+      dut.reset.poke(true.B)
+      dut.clock.step(2)
+      dut.reset.poke(false.B)
+
+      dut.clock.step(2)
+      dut.io.memoryRequest.valid.expect(false.B)
+
+      for (page <- 1 to 5) {
+        dut.io.virtualAddress.poke(
+          (BigInt("8000000000000000", 16) + page * 4096).U)
+        dut.io.lookupFire.poke(true.B)
+        dut.clock.step()
+        dut.io.lookupFire.poke(false.B)
+        while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
+        val value = dut.io.memoryRequest.bits.identity.value.peek().litValue
+        val generation =
+          dut.io.memoryRequest.bits.identity.generation.peek().litValue
+        assert((value >> (p.memoryTransactionIdWidth - 1)) == 1)
+        assert((generation >>
+          (p.memoryTransactionGenerationWidth - 1)) == 1)
+        val identity = dut.io.memoryRequest.bits.identity.peek()
+        dut.clock.step()
+        dut.io.memoryResponse.bits.poke(0.U.asTypeOf(dut.io.memoryResponse.bits))
+        dut.io.memoryResponse.bits.identity.poke(identity)
+        dut.io.memoryResponse.bits.data.poke((0x40 + page).U)
+        dut.io.memoryResponse.bits.attributesValid.poke(true.B)
+        dut.io.memoryResponse.bits.readable.poke(true.B)
+        dut.io.memoryResponse.bits.writable.poke(true.B)
+        dut.io.memoryResponse.bits.cacheable.poke(true.B)
+        dut.io.memoryResponse.valid.poke(true.B)
+        dut.clock.step()
+        dut.io.memoryResponse.valid.poke(false.B)
+        dut.io.invalidate.poke(true.B)
+        dut.clock.step()
+        dut.io.invalidate.poke(false.B)
+      }
+    }
+  }
+
+  test("translation enforces independent low mapping and refill read write permissions") {
+    val p = SimulationParamProfiles.W4
+    simulate(new DSideTranslation(p, entries = 4, pageBytes = 4096)) { dut =>
+      dut.io.lookupValid.poke(true.B)
+      dut.io.lookupFire.poke(true.B)
+      dut.io.sizeBytes.poke(8.U)
+      dut.io.invalidate.poke(false.B)
+      dut.io.memoryRequest.ready.poke(true.B)
+      dut.io.memoryResponse.valid.poke(false.B)
+      dut.io.memoryResponse.bits.poke(0.U.asTypeOf(dut.io.memoryResponse.bits))
+      dut.reset.poke(true.B)
+      dut.clock.step(2)
+      dut.reset.poke(false.B)
+
+      dut.io.virtualAddress.poke(BigInt("7ffe000000001000", 16).U)
+      dut.io.write.poke(false.B)
+      dut.io.lookupReady.expect(true.B)
+      dut.io.write.poke(true.B)
+      dut.io.accessFault.expect(true.B)
+
+      dut.io.virtualAddress.poke(BigInt("7ffd000000001000", 16).U)
+      dut.io.write.poke(false.B)
+      dut.io.accessFault.expect(true.B)
+      dut.io.write.poke(true.B)
+      dut.io.lookupReady.expect(true.B)
+
+      dut.io.virtualAddress.poke(BigInt("8000000000009000", 16).U)
+      dut.io.write.poke(false.B)
+      dut.clock.step()
+      while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
+      val identity = dut.io.memoryRequest.bits.identity.peek()
+      dut.clock.step()
+      dut.io.memoryResponse.bits.poke(0.U.asTypeOf(dut.io.memoryResponse.bits))
+      dut.io.memoryResponse.bits.identity.poke(identity)
+      dut.io.memoryResponse.bits.data.poke(0x91.U)
+      dut.io.memoryResponse.bits.attributesValid.poke(true.B)
+      dut.io.memoryResponse.bits.readable.poke(true.B)
+      dut.io.memoryResponse.bits.writable.poke(false.B)
+      dut.io.memoryResponse.bits.cacheable.poke(true.B)
+      dut.io.memoryResponse.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.memoryResponse.valid.poke(false.B)
+      dut.io.lookupReady.expect(true.B)
+      dut.io.write.poke(true.B)
+      dut.io.accessFault.expect(true.B)
+    }
+  }
+
+  test("a full lower ledger turns over a response slot and matches an exact response globally") {
+    val p = SimulationParamProfiles.W4
+    simulate(new LSULowerTransactionRecovery(p, lanes = 2, entries = 4)) { dut =>
+      dut.io.prepareFire.poke(false.B)
+      dut.io.applyFire.poke(false.B)
+      dut.io.abortFire.poke(false.B)
+      dut.io.requestFire.foreach(_.poke(false.B))
+      dut.io.requestIdentity.foreach(_.poke(0.U.asTypeOf(dut.io.requestIdentity.head)))
+      dut.io.responseFire.foreach(_.poke(false.B))
+      dut.io.responseIdentity.foreach(_.poke(0.U.asTypeOf(dut.io.responseIdentity.head)))
+      dut.reset.poke(true.B)
+      dut.clock.step(2)
+      dut.reset.poke(false.B)
+
+      for (id <- 1 to 2) {
+        dut.io.requestIdentity(0).value.poke(id.U)
+        dut.io.requestIdentity(0).generation.poke(1.U)
+        dut.io.requestFire(0).poke(true.B)
+        dut.clock.step()
+      }
+      dut.io.requestFire(0).poke(false.B)
+      dut.io.outstandingCount.expect(2.U)
+
+      dut.io.responseIdentity(1).value.poke(1.U)
+      dut.io.responseIdentity(1).generation.poke(1.U)
+      dut.io.responseFire(1).poke(true.B)
+      dut.io.requestIdentity(0).value.poke(3.U)
+      dut.io.requestIdentity(0).generation.poke(1.U)
+      dut.io.requestFire(0).poke(true.B)
+      dut.clock.step()
+      dut.io.responseFire(1).poke(false.B)
+      dut.io.requestFire(0).poke(false.B)
+      dut.io.outstandingCount.expect(2.U)
+      dut.io.protocolError.expect(false.B)
+
+      for (id <- Seq(2, 3)) {
+        dut.io.responseIdentity(0).value.poke(id.U)
+        dut.io.responseIdentity(0).generation.poke(1.U)
+        dut.io.responseFire(0).poke(true.B)
+        dut.clock.step()
+      }
+      dut.io.responseFire(0).poke(false.B)
       dut.io.quiescent.expect(true.B)
     }
   }

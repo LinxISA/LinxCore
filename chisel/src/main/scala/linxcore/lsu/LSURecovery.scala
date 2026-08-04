@@ -50,6 +50,7 @@ class LSULowerTransactionRecovery(
   val valid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val identity = Reg(Vec(entries, new MemoryTransactionIdentity(p)))
   val fenced = RegInit(false.B)
+  val failed = RegInit(false.B)
 
   when(io.prepareFire) { fenced := true.B }
   when(io.applyFire || io.abortFire) { fenced := false.B }
@@ -63,39 +64,48 @@ class LSULowerTransactionRecovery(
   allocationFailure := VecInit(Seq.fill(lanes)(false.B))
   staleResponse := VecInit(Seq.fill(lanes)(false.B))
 
+  val responseMatches = Wire(Vec(lanes, Vec(entries, Bool())))
+  for (lane <- 0 until lanes; index <- 0 until entries) {
+    responseMatches(lane)(index) := valid(index) &&
+      identity(index).value === io.responseIdentity(lane).value &&
+      identity(index).generation === io.responseIdentity(lane).generation
+  }
+  val responseClear = Wire(Vec(entries, Bool()))
+  val duplicateResponse = Wire(Vec(entries, Bool()))
+  for (index <- 0 until entries) {
+    val clearingLanes = VecInit((0 until lanes).map(lane =>
+      io.responseFire(lane) && responseMatches(lane)(index)))
+    responseClear(index) := clearingLanes.asUInt.orR
+    duplicateResponse(index) := PopCount(clearingLanes) > 1.U
+  }
+  val postResponseValid = Wire(Vec(entries, Bool()))
+  for (index <- 0 until entries) {
+    postResponseValid(index) := valid(index) && !responseClear(index)
+    when(responseClear(index)) { valid(index) := false.B }
+  }
+
   for (lane <- 0 until lanes) {
     val base = lane * entriesPerLane
-    val responseMatches = VecInit((0 until entriesPerLane).map { offset =>
-      val index = base + offset
-      valid(index) &&
-        identity(index).value === io.responseIdentity(lane).value &&
-        identity(index).generation ===
-          io.responseIdentity(lane).generation
-    })
-    val responseMatchCount = PopCount(responseMatches)
+    val responseMatchCount = PopCount(responseMatches(lane))
     val sameCycleCompletion = io.requestFire(lane) &&
       io.responseFire(lane) && responseMatchCount === 0.U &&
       io.requestIdentity(lane).value === io.responseIdentity(lane).value &&
       io.requestIdentity(lane).generation ===
         io.responseIdentity(lane).generation
     when(io.responseFire(lane)) {
-      when(responseMatchCount === 1.U) {
-        val index = base.U(entryIndexWidth.W) +
-          PriorityEncoder(responseMatches).pad(entryIndexWidth)
-        valid(index) := false.B
-      }.elsewhen(!sameCycleCompletion) {
+      when(responseMatchCount =/= 1.U && !sameCycleCompletion) {
         staleResponse(lane) := true.B
       }
     }
 
     val requestMatches = VecInit((0 until entriesPerLane).map { offset =>
       val index = base + offset
-      valid(index) &&
+      postResponseValid(index) &&
         identity(index).value === io.requestIdentity(lane).value &&
         identity(index).generation === io.requestIdentity(lane).generation
     })
     val free = VecInit((0 until entriesPerLane).map(offset =>
-      !valid(base + offset)))
+      !postResponseValid(base + offset)))
     when(io.requestFire(lane) && !sameCycleCompletion) {
       when(requestMatches.asUInt.orR) {
         duplicateRequest(lane) := true.B
@@ -110,10 +120,17 @@ class LSULowerTransactionRecovery(
     }
   }
 
-  io.fenced := fenced
-  io.quiescent := !valid.asUInt.orR
+
+  when(duplicateRequest.asUInt.orR || allocationFailure.asUInt.orR ||
+      duplicateResponse.asUInt.orR) {
+    failed := true.B
+    fenced := true.B
+  }
+
+  io.fenced := fenced || failed
+  io.quiescent := !valid.asUInt.orR && !failed
   io.outstandingCount := PopCount(valid)
   io.staleResponse := staleResponse.asUInt.orR
-  io.protocolError := duplicateRequest.asUInt.orR ||
-    allocationFailure.asUInt.orR
+  io.protocolError := failed || duplicateRequest.asUInt.orR ||
+    allocationFailure.asUInt.orR || duplicateResponse.asUInt.orR
 }

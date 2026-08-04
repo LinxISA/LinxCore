@@ -226,6 +226,10 @@ class ScalarLSULoadPathIO(val coreParams: CoreParams, val lsuParams: ScalarLsuPa
 
   val l1dEviction = Output(new ScalarL1DEviction(lsuParams.addrWidth, lsuParams.lineBytes))
   val l1dEvictionReady = Input(Bool())
+  val l1dInvalidateAll = Input(Bool())
+  val l1dInvalidateLineValid = Input(Bool())
+  val l1dInvalidateLineAddress = Input(UInt(lsuParams.addrWidth.W))
+  val l1dMaintenanceError = Output(Bool())
   val l1dLoadLookupHit = Output(Bool())
   val l1dRefillAccepted = Output(Bool())
   val l1dRefillDuplicate = Output(Bool())
@@ -896,9 +900,9 @@ class ScalarLSULoadPath(
   l1d.io.refill.data := refillTransport.io.out.data
   l1d.io.refill.writable := false.B
   l1d.io.evictionReady := io.l1dEvictionReady
-  l1d.io.invalidateAll := false.B
-  l1d.io.invalidateLineValid := false.B
-  l1d.io.invalidateLineAddr := 0.U
+  l1d.io.invalidateAll := io.l1dInvalidateAll
+  l1d.io.invalidateLineValid := io.l1dInvalidateLineValid
+  l1d.io.invalidateLineAddr := io.l1dInvalidateLineAddress
   refillTransport.io.outReady :=
     !flushCycle && (!refillTransport.io.out.isRead || l1d.io.refillReady)
   val canonicalRefill = Wire(chiselTypeOf(refillTransport.io.out))
@@ -922,6 +926,8 @@ class ScalarLSULoadPath(
   io.l1dResidentCount := l1d.io.residentCount
   io.l1dDirtyCount := l1d.io.dirtyCount
   io.l1dProtocolError := l1d.io.protocolError
+  io.l1dMaintenanceError := l1d.io.protocolError &&
+    (io.l1dInvalidateAll || io.l1dInvalidateLineValid)
   liq.io.clearResolvedValid := transferPending
   liq.io.clearResolvedIndex := transferIndex
 

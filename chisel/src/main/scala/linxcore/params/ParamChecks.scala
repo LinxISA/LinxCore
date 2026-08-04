@@ -96,6 +96,24 @@ object ParamChecks {
     require(
       p.physicalAddressWidth == 64 && p.dataWidth == 64,
       "mainline scalar memory boundary is 64-bit")
+    require(
+      p.lsu.dTranslationEntries > 1 &&
+        isPowerOfTwo(p.lsu.dTranslationEntries),
+      "D-side translation entries must be a power of two greater than one")
+    require(
+      p.lsu.dTranslationPageBytes > p.lsu.lineBytes &&
+        isPowerOfTwo(p.lsu.dTranslationPageBytes),
+      "D-side translation page size must be a power of two above line size")
+    require(
+      p.lsu.dTranslationCounterBits > 0 &&
+        p.lsu.dTranslationCounterBits < p.memoryTransactionIdWidth &&
+        p.lsu.dTranslationCounterBits < p.memoryTransactionGenerationWidth,
+      "D-side translation counter bits must fit below each public owner bit")
+    require(
+      p.lsu.lowerMemoryTransactionsPerLane >= p.lsu.loadMissQueueEntries,
+      "lower-memory ledger per lane must cover the load miss queue")
+    require(p.lsu.scbResponseBufferDepth > 0,
+      "SCB response buffer depth must be positive")
     require(p.maxSourceOperands > 0, "source operand count must be positive")
     require(p.maxDestinationOperands > 0, "destination operand count must be positive")
 

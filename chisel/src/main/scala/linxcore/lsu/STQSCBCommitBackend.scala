@@ -33,7 +33,9 @@ class STQSCBCommitBackendIO(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val queueCountWidth = log2Ceil(queueEntries + 1)
@@ -72,9 +74,13 @@ class STQSCBCommitBackendIO(
   val dcacheTagHit = Input(Bool())
   val l2RequestReady = Input(Bool())
   val l2Request = Output(new SCBL2OwnershipRequest(
-    scbEntries, addrWidth, lineBytes))
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
   val rawRespValid = Input(Bool())
   val rawRespTxnId = Input(UInt(scbResponseTxnIdWidth.W))
+  val rawRespTransactionValue = Input(UInt(memoryTransactionIdWidth.W))
+  val rawRespTransactionGeneration =
+    Input(UInt(memoryTransactionGenerationWidth.W))
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
@@ -85,7 +91,8 @@ class STQSCBCommitBackendIO(
     brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
     leaseGenerationWidth))
   val serializedResponse = Flipped(Decoupled(
-    new STQSerializedStoreResponse()))
+    new STQSerializedStoreResponse(
+      memoryTransactionIdWidth, memoryTransactionGenerationWidth)))
 
   val robStoreCommitAccepted = Output(Bool())
   val robStoreCommitMissing = Output(Bool())
@@ -141,7 +148,9 @@ class STQSCBCommitBackend(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Module {
   require(entries > 1 && (entries & (entries - 1)) == 0,
     "commit backend requires a power-of-two STQ")
@@ -158,7 +167,8 @@ class STQSCBCommitBackend(
     addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, lineBytes, mapQDepth, robEntries, lsidWidth,
     nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
-    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth))
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth,
+    memoryTransactionIdWidth, memoryTransactionGenerationWidth))
 
   val memoryAttributes = Module(new STQMemoryAttributeOwner(
     entries, robEntries, addrWidth, dataWidth, peIdWidth, stidWidth,
@@ -200,10 +210,12 @@ class STQSCBCommitBackend(
     entries, robEntries, issueWidth, addrWidth, dataWidth, sizeWidth,
     lsidWidth, peIdWidth, stidWidth, nativeBidWidth, ridGenerationWidth,
     brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
-    leaseGenerationWidth))
+    leaseGenerationWidth, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
   val scb = Module(new SCBRowBank(
     entries, scbEntries, requestCount, scbResponseBufferDepth, addrWidth,
-    dataWidth, sizeWidth, lineBytes, robEntries, lsidWidth))
+    dataWidth, sizeWidth, lineBytes, robEntries, lsidWidth,
+    memoryTransactionIdWidth, memoryTransactionGenerationWidth))
 
   val terminalFreeValid = scb.io.commitFreeMaskValid ||
     serializer.io.freeMask.valid
@@ -253,6 +265,8 @@ class STQSCBCommitBackend(
   io.l2Request := scb.io.l2Request
   scb.io.rawRespValid := io.rawRespValid
   scb.io.rawRespTxnId := io.rawRespTxnId
+  scb.io.rawRespTransactionValue := io.rawRespTransactionValue
+  scb.io.rawRespTransactionGeneration := io.rawRespTransactionGeneration
   scb.io.rawRespWrite := io.rawRespWrite
   scb.io.rawRespUpgrade := io.rawRespUpgrade
   io.rawRespReady := scb.io.rawRespReady
@@ -305,8 +319,9 @@ class STQSCBCommitBackend(
   io.protocolError := drain.io.orderError || drain.io.queuedIdentityError ||
     drain.io.retainedIdentityError || serializer.io.batchMalformed ||
     serializer.io.staleResponse || serializer.io.terminalError ||
-    scb.io.stateError || scb.io.respDecodeError
-  io.empty := drain.io.empty && !serializer.io.busy && !pendingFreeValid
+    scb.io.stateError || scb.io.respDecodeError || scb.io.protocolError
+  io.empty := drain.io.empty && !serializer.io.busy && !pendingFreeValid &&
+    scb.io.quiescent
 
   when(io.robStoreCommit.fire) {
     assert(io.markCommitAccepted && drain.io.enqueueAccepted,

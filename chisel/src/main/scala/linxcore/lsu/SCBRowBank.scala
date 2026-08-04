@@ -13,7 +13,9 @@ class SCBRowBankIO(
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   private val scbCountWidth = log2Ceil(scbEntries + 1)
@@ -32,6 +34,9 @@ class SCBRowBankIO(
   val l2RequestReady = Input(Bool())
   val rawRespValid = Input(Bool())
   val rawRespTxnId = Input(UInt(responseTxnIdWidth.W))
+  val rawRespTransactionValue = Input(UInt(memoryTransactionIdWidth.W))
+  val rawRespTransactionGeneration =
+    Input(UInt(memoryTransactionGenerationWidth.W))
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
@@ -83,7 +88,11 @@ class SCBRowBankIO(
   val lookupFire = Output(Bool())
   val lookupStall = Output(Bool())
   val dcacheUpdate = Output(new SCBDCacheUpdate(scbEntries, addrWidth, lineBytes))
-  val l2Request = Output(new SCBL2OwnershipRequest(scbEntries, addrWidth, lineBytes))
+  val l2Request = Output(new SCBL2OwnershipRequest(
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
+  val quiescent = Output(Bool())
+  val protocolError = Output(Bool())
 
   val stateAcceptedToLookupMask = Output(UInt(scbEntries.W))
   val stateMissMask = Output(UInt(scbEntries.W))
@@ -120,7 +129,9 @@ class SCBRowBank(
     val sizeWidth: Int = 4,
     val lineBytes: Int = 64,
     val robEntries: Int = 0,
-    val lsidWidth: Int = 32)
+    val lsidWidth: Int = 32,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else stqEntries
   require(stqEntries > 1, "STQ entries must be greater than one")
@@ -137,6 +148,7 @@ class SCBRowBank(
 
   private val scbCountWidth = log2Ceil(scbEntries + 1)
   private val freeCountWidth = log2Ceil(requestCount + 1)
+  private val responseTxnIdWidth = math.max(1, log2Ceil(scbEntries)) + 2
 
   val io = IO(new SCBRowBankIO(
     stqEntries,
@@ -148,7 +160,9 @@ class SCBRowBank(
     sizeWidth,
     lineBytes,
     identityEntries,
-    lsidWidth))
+    lsidWidth,
+    memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
 
   private def zeroEntry: SCBLineEntry = {
     val entry = Wire(new SCBLineEntry(addrWidth, lineBytes))
@@ -266,18 +280,54 @@ class SCBRowBank(
   retrySelect.io.retryHeadValid := responseRetryQueue.io.headValid
   retrySelect.io.retryHeadEntryIndex := responseRetryQueue.io.headEntryIndex
 
-  val lookup = Module(new SCBLookupControl(scbEntries, addrWidth, lineBytes))
+  val lookup = Module(new SCBLookupControl(
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
   lookup.io.lookupRequest := retrySelect.io.lookupRequest
   lookup.io.dcacheReady := io.dcacheReady
   lookup.io.dcacheWriteHit := io.dcacheWriteHit
   lookup.io.dcacheTagHit := io.dcacheTagHit
   lookup.io.l2RequestReady := io.l2RequestReady
 
+  val outstandingValid = RegInit(VecInit(Seq.fill(scbEntries)(false.B)))
+  val outstandingValue = Reg(Vec(scbEntries,
+    UInt(memoryTransactionIdWidth.W)))
+  val outstandingGeneration = Reg(Vec(scbEntries,
+    UInt(memoryTransactionGenerationWidth.W)))
+  val outstandingWrite = Reg(Vec(scbEntries, Bool()))
+  val outstandingUpgrade = Reg(Vec(scbEntries, Bool()))
+  val nextTransactionGeneration =
+    RegInit(0.U(memoryTransactionGenerationWidth.W))
+  val rawResponseIndex = io.rawRespTxnId(responseTxnIdWidth - 1, 2)
+  val rawResponseIndexInRange = rawResponseIndex < scbEntries.U
+  val rawResponseExact = rawResponseIndexInRange &&
+    outstandingValid(rawResponseIndex) &&
+    outstandingValue(rawResponseIndex) === io.rawRespTransactionValue &&
+    outstandingGeneration(rawResponseIndex) ===
+      io.rawRespTransactionGeneration
+  val staleRawResponse = io.rawRespValid && !rawResponseExact
+
   val responseBuffer = Module(new SCBResponseBuffer(scbEntries, responseBufferDepth))
-  responseBuffer.io.rawValid := io.rawRespValid
+  responseBuffer.io.rawValid := io.rawRespValid && rawResponseExact
   responseBuffer.io.rawTxnId := io.rawRespTxnId
-  responseBuffer.io.rawWriteResp := io.rawRespWrite
-  responseBuffer.io.rawUpgradeResp := io.rawRespUpgrade
+  responseBuffer.io.rawWriteResp := Mux(rawResponseExact,
+    outstandingWrite(rawResponseIndex), io.rawRespWrite)
+  responseBuffer.io.rawUpgradeResp := Mux(rawResponseExact,
+    outstandingUpgrade(rawResponseIndex), io.rawRespUpgrade)
+
+  val l2RequestFire = lookup.io.l2Request.valid && io.l2RequestReady
+  when(l2RequestFire) {
+    val entry = lookup.io.l2Request.entryIndex
+    outstandingValid(entry) := true.B
+    outstandingValue(entry) := lookup.io.l2Request.txnTid
+    outstandingGeneration(entry) := nextTransactionGeneration
+    outstandingWrite(entry) := lookup.io.l2Request.write
+    outstandingUpgrade(entry) := lookup.io.l2Request.upgrade
+    nextTransactionGeneration := nextTransactionGeneration + 1.U
+  }
+  when(io.rawRespValid && io.rawRespReady && rawResponseExact) {
+    outstandingValid(rawResponseIndex) := false.B
+  }
 
   val responseDecode = Module(new SCBResponseDecode(scbEntries, addrWidth, lineBytes))
   responseDecode.io.entries := ingressEntries
@@ -316,7 +366,7 @@ class SCBRowBank(
 
   io.modelBatchReady := modelBatchReady
   io.modelFull := !modelBatchReady
-  io.rawRespReady := responseBuffer.io.rawReady
+  io.rawRespReady := Mux(rawResponseExact, responseBuffer.io.rawReady, true.B)
   io.acceptedMask := acceptedVec.asUInt
   io.acceptedReqs := acceptedReqs
   io.structuralBlockedMask := blockedVec.asUInt
@@ -360,6 +410,8 @@ class SCBRowBank(
   io.lookupStall := lookup.io.lookupStall
   io.dcacheUpdate := lookup.io.dcacheUpdate
   io.l2Request := lookup.io.l2Request
+  io.l2Request.transactionValue := lookup.io.l2Request.txnTid
+  io.l2Request.transactionGeneration := nextTransactionGeneration
 
   io.stateAcceptedToLookupMask := state.io.acceptedToLookupMask
   io.stateMissMask := state.io.missStateMask
@@ -387,4 +439,10 @@ class SCBRowBank(
   io.respBufferFull := responseBuffer.io.full
   io.respBufferEmpty := responseBuffer.io.empty
   io.respBufferCount := responseBuffer.io.count
+  io.protocolError := staleRawResponse
+  io.quiescent := !currentValidVec.asUInt.orR &&
+    !outstandingValid.asUInt.orR && responseBuffer.io.empty &&
+    responseRetryQueue.io.empty && !responseDecode.io.memRespValid &&
+    !retrySelect.io.lookupRequest.valid && !lookup.io.dcacheUpdate.valid &&
+    !lookup.io.l2Request.valid
 }

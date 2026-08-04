@@ -29,4 +29,9 @@ class MemoryResponseTxn(val p: CoreParams) extends Bundle {
   val denied = Bool()
   val corrupt = Bool()
   val errorCause = UInt(p.trapCauseWidth.W)
+  val attributesValid = Bool()
+  val readable = Bool()
+  val writable = Bool()
+  val cacheable = Bool()
+  val device = Bool()
 }

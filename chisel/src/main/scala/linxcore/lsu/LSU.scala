@@ -2,7 +2,7 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxLookup, PopCount, PriorityEncoder,
-  RRArbiter, UIntToOH, log2Ceil}
+  Queue, RRArbiter, UIntToOH, log2Ceil}
 import linxcore.common.{CoreParams => ScalarCoreParams, DestinationKind,
   ScalarLsuParams}
 import linxcore.ooo._
@@ -10,7 +10,8 @@ import linxcore.params.CoreParams
 import linxcore.recovery.{ExecEngineType, FlushType}
 import linxcore.top.interface.{LSUIO, OperandKind, RecoveryPhase,
   MemoryAccessKind, MemoryCommand, RecoveryCause, RecoveryPlan,
-  RecoveryPlanContract, StoreMemoryClass}
+  RecoveryPlanContract, StoreMemoryClass, LSUMemoryFaultCause,
+  LSUMaintenanceCommand}
 
 /** Public state-free composition boundary for the canonical LSU graph.
   *
@@ -55,7 +56,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     brobGenerationWidth = op.brobGenerationWidth,
     memberIndexWidth = op.robMemberIndexWidth,
     residentGenerationWidth = op.residentGenerationWidth,
-    leaseGenerationWidth = op.executeSlotGenerationWidth))
+    leaseGenerationWidth = op.executeSlotGenerationWidth,
+    memoryTransactionIdWidth = p.memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth = p.memoryTransactionGenerationWidth))
   private val load = Module(new ScalarLSULoadPath(
     scalar, useExternalStqForwarding = true,
     stqForwardRobEntries = op.robIdentityGroupsPerStid,
@@ -63,12 +66,13 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     useExternalLaunchPermit = true))
   private val translation = Module(new DSideTranslation(
     p = p,
-    entries = math.max(4, scalarLsu.l1dWays),
-    pageBytes = 4096))
+    entries = p.lsu.dTranslationEntries,
+    pageBytes = p.lsu.dTranslationPageBytes))
   private val lowerRecovery = Module(new LSULowerTransactionRecovery(
     p = p,
     lanes = p.lsu.loadPipes + p.lsu.storePipes,
-    entries = 4 * (p.lsu.loadPipes + p.lsu.storePipes)))
+    entries = p.lsu.lowerMemoryTransactionsPerLane *
+      (p.lsu.loadPipes + p.lsu.storePipes)))
   lowerRecovery.io.requestFire := 0.U.asTypeOf(lowerRecovery.io.requestFire)
   lowerRecovery.io.requestIdentity :=
     0.U.asTypeOf(lowerRecovery.io.requestIdentity)
@@ -80,6 +84,35 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   lowerRecovery.io.applyFire := false.B
   lowerRecovery.io.abortFire := false.B
   translation.io.invalidate := false.B
+
+  val faultValid = RegInit(false.B)
+  val faultBits = Reg(chiselTypeOf(io.memoryFault.bits))
+  io.memoryFault.valid := faultValid
+  io.memoryFault.bits := faultBits
+  when(io.memoryFault.fire) { faultValid := false.B }
+
+  val maintenancePending = RegInit(false.B)
+  val maintenanceCommand = Reg(LSUMaintenanceCommand())
+  val maintenanceAddress = Reg(UInt(p.physicalAddressWidth.W))
+  val maintenanceResultValid = RegInit(false.B)
+  val maintenanceResultSuccess = RegInit(false.B)
+  val protocolErrorSticky = RegInit(false.B)
+  io.maintenance.ready := !maintenancePending && !maintenanceResultValid &&
+    !protocolErrorSticky
+  when(io.maintenance.fire) {
+    maintenancePending := true.B
+    maintenanceCommand := io.maintenance.bits.command
+    maintenanceAddress := io.maintenance.bits.address
+  }
+  io.maintenanceResult.valid := maintenanceResultValid
+  io.maintenanceResult.bits.command := maintenanceCommand
+  io.maintenanceResult.bits.address := maintenanceAddress
+  io.maintenanceResult.bits.success := maintenanceResultSuccess
+  when(io.maintenanceResult.fire) { maintenanceResultValid := false.B }
+  io.protocolError := protocolErrorSticky
+  val derivedStoreClassEmpty = Wire(Bool())
+  val operationFenced = lowerRecovery.io.fenced || maintenancePending ||
+    maintenanceResultValid || protocolErrorSticky
 
   private def projectMember(target: RobMemberKey,
       source: linxcore.top.interface.RobIdentity): Unit = {
@@ -178,29 +211,31 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     reservation.bits.pair, 0)
   reserveRow.schedule.transactionId := reservation.bits.transactionId
   reserveRow.payload.memory.accessBytes := reservation.bits.sizeBytes
-  store.io.reserve.valid := reservation.valid
+  store.io.reserve.valid := reservation.valid && !operationFenced
   store.io.reserve.bits := reserveRow
-  reservation.ready := store.io.reserve.ready
+  reservation.ready := !operationFenced && store.io.reserve.ready
   io.iex.storeReservation.tail.foreach(_.ready := false.B)
 
   val storeTranslationSelected = Wire(Vec(p.lsu.storePipes, Bool()))
   val storeTranslationReady = Wire(Bool())
+  val storeTranslationFault = Wire(Bool())
+  val faultSlotReady = !faultValid || io.memoryFault.ready
   val storeTranslatedAddress = Wire(UInt(p.physicalAddressWidth.W))
   for (lane <- 0 until p.lsu.storePipes) {
     val address = io.iex.storeAddress(lane)
     val zeroData = Wire(Vec(p.maxMemoryRequestsPerInstruction,
       UInt(p.dataWidth.W)))
     zeroData := 0.U.asTypeOf(zeroData)
-    store.io.storeAddress(lane).valid := address.valid &&
-      !lowerRecovery.io.fenced &&
-      storeTranslationSelected(lane) && storeTranslationReady
+    store.io.storeAddress(lane).valid := address.valid && !operationFenced &&
+      storeTranslationSelected(lane) && storeTranslationReady &&
+      !storeTranslationFault
     store.io.storeAddress(lane).bits := makeExecute(
       address.bits.identity, address.bits.memoryOrder,
       address.bits.requestCount, address.bits.pair,
       storeTranslatedAddress, address.bits.sizeBytes, zeroData, 0, lane)
-    address.ready := !lowerRecovery.io.fenced &&
-      storeTranslationSelected(lane) &&
-      storeTranslationReady && store.io.storeAddress(lane).ready
+    address.ready := !operationFenced && storeTranslationSelected(lane) &&
+      Mux(storeTranslationFault, faultSlotReady,
+        storeTranslationReady && store.io.storeAddress(lane).ready)
 
     val data = io.iex.storeData(lane)
     store.io.storeData(lane).valid := data.valid
@@ -241,7 +276,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     store.io.recovery.prepare.ready && loadRecoveryBoundaryExact
   private val lowerDrainQuiescent = lowerRecovery.io.quiescent &&
     translation.io.quiescent && load.io.transientEmpty &&
-    !backend.io.serializedRequest.valid && !backend.io.l2Request.valid
+    !backend.io.serializedRequest.valid && !backend.io.l2Request.valid &&
+    derivedStoreClassEmpty
   io.recovery.prepared.valid := store.io.recovery.prepared.valid &&
     lowerDrainQuiescent
   io.recovery.prepared.bits := store.io.recovery.prepared.bits
@@ -314,6 +350,33 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   io.storeCommit.ready := backend.io.robStoreCommit.ready
 
   val classifyMatches = Wire(Vec(stqEntries, Bool()))
+  val derivedStoreClass = Module(new Queue(
+    chiselTypeOf(io.storeClassify.bits), stqEntries, flow = false,
+    pipe = false))
+  derivedStoreClassEmpty := derivedStoreClass.io.count === 0.U
+  val derivedStoreAddress = Mux1H(storeTranslationSelected,
+    io.iex.storeAddress.map(_.bits))
+  derivedStoreClass.io.enq.valid := !storeTranslationFault &&
+    VecInit(io.iex.storeAddress.map(_.fire)).asUInt.orR
+  derivedStoreClass.io.enq.bits := 0.U.asTypeOf(
+    derivedStoreClass.io.enq.bits)
+  derivedStoreClass.io.enq.bits.rob := derivedStoreAddress.identity.rob
+  derivedStoreClass.io.enq.bits.transaction :=
+    derivedStoreAddress.identity.transaction
+  derivedStoreClass.io.enq.bits.logicalFirstLsid :=
+    derivedStoreAddress.memoryOrder.firstLsid
+  derivedStoreClass.io.enq.bits.logicalFirstStoreId :=
+    derivedStoreAddress.memoryOrder.firstSid
+  derivedStoreClass.io.enq.bits.requestCount :=
+    derivedStoreAddress.requestCount
+  derivedStoreClass.io.enq.bits.memoryClass := Mux(translation.io.device,
+    StoreMemoryClass.Device, Mux(translation.io.cacheable,
+      StoreMemoryClass.NormalCacheable,
+      StoreMemoryClass.NormalNonCacheable))
+  when(derivedStoreClass.io.enq.valid) {
+    assert(derivedStoreClass.io.enq.ready,
+      "accepted store translations must retain their derived memory class")
+  }
   for (index <- 0 until stqEntries) {
     val row = store.io.rows(index)
     val source = io.storeClassify.bits
@@ -333,7 +396,18 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   }
   val classifyUnique = PopCount(classifyMatches) === 1.U
   val classifyIndex = PriorityEncoder(classifyMatches)
-  backend.io.memoryClassify.valid := io.storeClassify.valid && classifyUnique
+  val derivedClassMatchesPublic =
+    derivedStoreClass.io.deq.bits.rob.asUInt ===
+      io.storeClassify.bits.rob.asUInt &&
+    derivedStoreClass.io.deq.bits.logicalFirstLsid ===
+      io.storeClassify.bits.logicalFirstLsid &&
+    derivedStoreClass.io.deq.bits.logicalFirstStoreId ===
+      io.storeClassify.bits.logicalFirstStoreId &&
+    derivedStoreClass.io.deq.bits.requestCount ===
+      io.storeClassify.bits.requestCount &&
+    derivedStoreClass.io.deq.bits.beat === io.storeClassify.bits.beat
+  backend.io.memoryClassify.valid := io.storeClassify.valid && classifyUnique &&
+    derivedStoreClass.io.deq.valid && derivedClassMatchesPublic
   backend.io.memoryClassify.bits := 0.U.asTypeOf(backend.io.memoryClassify.bits)
   backend.io.memoryClassify.bits.lease.valid := classifyUnique
   backend.io.memoryClassify.bits.lease.index := classifyIndex
@@ -343,12 +417,16 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     io.storeClassify.bits.rob)
   backend.io.memoryClassify.bits.logicalBeat := io.storeClassify.bits.beat
   backend.io.memoryClassify.bits.memoryClass := MuxLookup(
-    io.storeClassify.bits.memoryClass.asUInt, STQMemoryClass.Fault)(Seq(
+    derivedStoreClass.io.deq.bits.memoryClass.asUInt,
+    STQMemoryClass.Fault)(Seq(
       StoreMemoryClass.NormalCacheable.asUInt -> STQMemoryClass.NormalCacheable,
       StoreMemoryClass.NormalNonCacheable.asUInt -> STQMemoryClass.NormalNonCacheable,
       StoreMemoryClass.Device.asUInt -> STQMemoryClass.DeviceMmio,
       StoreMemoryClass.Fault.asUInt -> STQMemoryClass.Fault))
-  io.storeClassify.ready := classifyUnique && backend.io.memoryClassify.ready
+  io.storeClassify.ready := classifyUnique &&
+    derivedStoreClass.io.deq.valid && derivedClassMatchesPublic &&
+    backend.io.memoryClassify.ready
+  derivedStoreClass.io.deq.ready := io.storeClassify.fire
 
   // Canonical committed-store transport occupies the store lanes immediately
   // after the load lanes: serialized writes first, cache ownership second.
@@ -362,6 +440,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   serializedMemory.bits := 0.U.asTypeOf(serializedMemory.bits)
   serializedMemory.bits.identity.value :=
     backend.io.serializedRequest.bits.transactionId
+  serializedMemory.bits.identity.generation :=
+    backend.io.serializedRequest.bits.transactionGeneration
   serializedMemory.bits.command := MemoryCommand.Write
   serializedMemory.bits.accessKind := Mux(
     backend.io.serializedRequest.bits.memoryClass === STQMemoryClass.DeviceMmio,
@@ -383,9 +463,10 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val ownershipMemory = io.memoryRequest(p.lsu.loadPipes + 1)
   ownershipMemory.valid := backend.io.l2Request.valid
   ownershipMemory.bits := 0.U.asTypeOf(ownershipMemory.bits)
-  ownershipMemory.bits.identity.value := backend.io.l2Request.txnTid
-  ownershipMemory.bits.identity.generation := Cat(
-    backend.io.l2Request.write, backend.io.l2Request.upgrade)
+  ownershipMemory.bits.identity.value :=
+    backend.io.l2Request.transactionValue
+  ownershipMemory.bits.identity.generation :=
+    backend.io.l2Request.transactionGeneration
   ownershipMemory.bits.command := MemoryCommand.AcquireWrite
   ownershipMemory.bits.accessKind := MemoryAccessKind.Data
   ownershipMemory.bits.address := backend.io.l2Request.lineAddr
@@ -396,6 +477,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   backend.io.serializedResponse.valid := serializedResponse.valid
   backend.io.serializedResponse.bits.transactionId :=
     serializedResponse.bits.identity.value
+  backend.io.serializedResponse.bits.transactionGeneration :=
+    serializedResponse.bits.identity.generation
   backend.io.serializedResponse.bits.error := serializedResponse.bits.denied ||
     serializedResponse.bits.corrupt
   serializedResponse.ready := backend.io.serializedResponse.ready
@@ -403,8 +486,12 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val ownershipResponse = io.memoryResponse(p.lsu.loadPipes + 1)
   backend.io.rawRespValid := ownershipResponse.valid
   backend.io.rawRespTxnId := ownershipResponse.bits.identity.value
-  backend.io.rawRespWrite := ownershipResponse.bits.identity.generation(1)
-  backend.io.rawRespUpgrade := ownershipResponse.bits.identity.generation(0)
+  backend.io.rawRespTransactionValue :=
+    ownershipResponse.bits.identity.value
+  backend.io.rawRespTransactionGeneration :=
+    ownershipResponse.bits.identity.generation
+  backend.io.rawRespWrite := true.B
+  backend.io.rawRespUpgrade := false.B
   ownershipResponse.ready := backend.io.rawRespReady
   load.scbCache.lookupValid := false.B
   load.scbCache.lookupLineAddr := 0.U
@@ -414,7 +501,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
 
   // Every load-owner input is assigned explicitly below. No unknown value may
   // enter the canonical LIQ/MDB/cache graph through the public LSU boundary.
-  load.launchPermit.get := !lowerRecovery.io.fenced
+  load.launchPermit.get := !operationFenced
   load.stqForward.get.queries <> store.io.loadForwardQuery
   load.stqForward.get.responses <> store.io.loadForwardResponse
   load.stqForward.get.hardBlock.ready := true.B
@@ -457,17 +544,21 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
       storeTranslationRequest && storeTranslationIndex === lane.U
   }
   val selectedStoreAddress = io.iex.storeAddress(storeTranslationIndex)
-  translation.io.lookupValid := !lowerRecovery.io.fenced &&
+  translation.io.lookupValid := !operationFenced &&
     (loadIssue.valid || storeTranslationRequest)
   translation.io.virtualAddress := Mux(loadTranslationSelected,
     loadIssue.bits.address, selectedStoreAddress.bits.address)
   translation.io.sizeBytes := Mux(loadTranslationSelected,
     loadIssue.bits.sizeBytes, selectedStoreAddress.bits.sizeBytes)
   translation.io.write := !loadTranslationSelected
+  translation.io.lookupFire := translation.io.lookupValid &&
+    translation.io.miss && translation.io.quiescent
   storeTranslationReady := translation.io.lookupReady
+  storeTranslationFault := translation.io.alignmentFault ||
+    translation.io.accessFault
   storeTranslatedAddress := translation.io.physicalAddress
-  load.io.allocValid := loadIssue.valid && !lowerRecovery.io.fenced &&
-    translation.io.lookupReady
+  load.io.allocValid := loadIssue.valid && !operationFenced &&
+    translation.io.lookupReady && !storeTranslationFault
   load.io.alloc := 0.U.asTypeOf(load.io.alloc)
   projectRobId(load.io.alloc.bid, loadIssue.bits.identity.rob.bid)
   projectRobId(load.io.alloc.gid, loadIssue.bits.identity.rob.ridSlot)
@@ -517,8 +608,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     loadIssue.bits.youngestStoreValid
   load.io.alloc.youngestStoreLsIdFull := loadIssue.bits.youngestStoreLsid
   load.io.alloc.returnPipeIndex := loadIssue.bits.identity.pipeId
-  loadIssue.ready := !lowerRecovery.io.fenced &&
-    translation.io.lookupReady && load.io.allocReady
+  loadIssue.ready := !operationFenced && Mux(storeTranslationFault,
+    faultSlotReady, translation.io.lookupReady && load.io.allocReady)
 
   io.iex.loadAllocation.foreach { out =>
     out.valid := false.B
@@ -526,13 +617,31 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   }
   for (lane <- 0 until p.lsu.loadPipes) {
     val allocation = io.iex.loadAllocation(lane)
-    allocation.valid := loadIssue.valid && !lowerRecovery.io.fenced &&
-      translation.io.lookupReady &&
+    allocation.valid := loadIssue.valid && !operationFenced &&
+      translation.io.lookupReady && !storeTranslationFault &&
       loadIssueArbiter.io.chosen === lane.U
     allocation.bits.identity := loadIssue.bits.identity
     allocation.bits.allocationId.value := load.io.allocLoadId.value
     allocation.bits.allocationId.generation :=
       load.io.allocLoadId.wrap.asUInt
+  }
+
+  val loadFaultFire = loadTranslationSelected && loadIssue.fire &&
+    storeTranslationFault
+  val storeFaultFire = VecInit((0 until p.lsu.storePipes).map { lane =>
+    storeTranslationSelected(lane) && io.iex.storeAddress(lane).fire &&
+      storeTranslationFault
+  }).asUInt.orR
+  when(loadFaultFire || storeFaultFire) {
+    faultValid := true.B
+    faultBits := 0.U.asTypeOf(faultBits)
+    faultBits.identity := Mux(loadFaultFire, loadIssue.bits.identity,
+      selectedStoreAddress.bits.identity)
+    faultBits.address := Mux(loadFaultFire, loadIssue.bits.address,
+      selectedStoreAddress.bits.address)
+    faultBits.write := storeFaultFire
+    faultBits.cause := Mux(translation.io.alignmentFault,
+      LSUMemoryFaultCause.Alignment, LSUMemoryFaultCause.Access)
   }
 
   val launchIndex = PriorityEncoder(load.io.liqWaitMask)
@@ -758,6 +867,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.io.e2ScbReturned := false.B
   load.io.e2StqReturned := false.B
   load.io.l1dEvictionReady := false.B
+  load.io.l1dInvalidateAll := false.B
+  load.io.l1dInvalidateLineValid := false.B
+  load.io.l1dInvalidateLineAddress := 0.U
   load.io.replayWakeValid := false.B
   load.io.replayWake := 0.U.asTypeOf(load.io.replayWake)
   load.io.refillValid := false.B
@@ -819,11 +931,13 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     scalarLsu.lineBytes / (p.dataWidth / 8), publicLoadResponse.bits.data)
   load.io.missResponse.l2Miss := publicLoadResponse.bits.denied ||
     publicLoadResponse.bits.corrupt
-  load.io.resolveRetireValid := false.B
-  load.io.resolveRetireBid := 0.U.asTypeOf(load.io.resolveRetireBid)
-  load.io.resolveRetireLsId := 0.U.asTypeOf(load.io.resolveRetireLsId)
-  load.io.resolveRetireLsIdFullValid := false.B
-  load.io.resolveRetireLsIdFull := 0.U
+  load.io.resolveRetireValid := load.io.loadReturn.completionCandidateValid &&
+    completionReady
+  load.io.resolveRetireBid := completion.payload.bid
+  load.io.resolveRetireLsId := completion.payload.loadLsId
+  load.io.resolveRetireLsIdFullValid :=
+    completion.payload.loadLsIdFullValid
+  load.io.resolveRetireLsIdFull := completion.payload.loadLsIdFull
   load.recovery.ready := io.iex.recoveryEvent.ready
   for (lane <- 0 until p.lsu.loadPipes) {
     val repick = io.iex.loadRepick(lane)
@@ -895,9 +1009,39 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     lowerRecovery.io.responseIdentity(lane) :=
       io.memoryResponse(lane).bits.identity
   }
+  val maintenanceDrainReadyNow = store.io.empty && backend.io.empty &&
+    load.io.empty && translation.io.quiescent && lowerRecovery.io.quiescent &&
+    !loadRecoveryPending && !faultValid && derivedStoreClassEmpty
+  val maintenanceDrainReady = RegNext(maintenanceDrainReadyNow, true.B)
+  val maintenanceExecute = (maintenancePending || io.maintenance.fire) &&
+    maintenanceDrainReady
+  val executingMaintenanceCommand = Mux(io.maintenance.fire,
+    io.maintenance.bits.command, maintenanceCommand)
+  val executingMaintenanceAddress = Mux(io.maintenance.fire,
+    io.maintenance.bits.address, maintenanceAddress)
+  load.io.l1dInvalidateAll := maintenanceExecute &&
+    executingMaintenanceCommand === LSUMaintenanceCommand.InvalidateAll
+  load.io.l1dInvalidateLineValid := maintenanceExecute &&
+    executingMaintenanceCommand === LSUMaintenanceCommand.InvalidateLine
+  load.io.l1dInvalidateLineAddress := executingMaintenanceAddress
+  when(maintenanceExecute) {
+    when(executingMaintenanceCommand ===
+        LSUMaintenanceCommand.InvalidateTranslation ||
+        executingMaintenanceCommand === LSUMaintenanceCommand.InvalidateAll) {
+      translation.io.invalidate := true.B
+    }
+    maintenancePending := false.B
+    maintenanceResultValid := true.B
+    maintenanceResultSuccess := !load.io.l1dMaintenanceError
+  }
+  when(backend.io.protocolError || lowerRecovery.io.protocolError ||
+      load.io.l1dMaintenanceError) {
+    protocolErrorSticky := true.B
+  }
   io.quiescent := store.io.empty && backend.io.empty && load.io.empty &&
     translation.io.quiescent && lowerRecovery.io.quiescent &&
-    !loadRecoveryPending
+    !loadRecoveryPending && !faultValid && !maintenancePending &&
+    !maintenanceResultValid && !protocolErrorSticky && derivedStoreClassEmpty
   io.trace.valid := false.B
   io.trace.bits := 0.U.asTypeOf(io.trace.bits)
 }

@@ -60,7 +60,11 @@ object SimulationParamProfiles {
         mdbRecoveryQueueEntries = 4,
         mdbFailedWaitTimeoutCycles = 8,
         l1dSets = 2,
-        l1dWays = 2))
+        l1dWays = 2,
+        scbResponseBufferDepth = 2,
+        dTranslationEntries = 2,
+        dTranslationCounterBits = 2,
+        lowerMemoryTransactionsPerLane = 4))
   }
 
   val W2: CoreParams = bounded(2)

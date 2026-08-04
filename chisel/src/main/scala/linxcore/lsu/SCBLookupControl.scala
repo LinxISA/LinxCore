@@ -21,7 +21,9 @@ class SCBDCacheUpdate(
 class SCBL2OwnershipRequest(
     val scbEntries: Int,
     val addrWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
 
@@ -30,6 +32,8 @@ class SCBL2OwnershipRequest(
   val lineAddr = UInt(addrWidth.W)
   val size = UInt(7.W)
   val txnTid = UInt((entryIndexWidth + 2).W)
+  val transactionValue = UInt(memoryTransactionIdWidth.W)
+  val transactionGeneration = UInt(memoryTransactionGenerationWidth.W)
   val write = Bool()
   val upgrade = Bool()
 }
@@ -37,7 +41,9 @@ class SCBL2OwnershipRequest(
 class SCBLookupControlIO(
     val scbEntries: Int,
     val addrWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   val lookupRequest = Input(new SCBEgressLookupRequest(scbEntries, addrWidth, lineBytes))
   val dcacheReady = Input(Bool())
@@ -52,13 +58,17 @@ class SCBLookupControlIO(
   val missMask = Output(UInt(scbEntries.W))
   val freeMask = Output(UInt(scbEntries.W))
   val dcacheUpdate = Output(new SCBDCacheUpdate(scbEntries, addrWidth, lineBytes))
-  val l2Request = Output(new SCBL2OwnershipRequest(scbEntries, addrWidth, lineBytes))
+  val l2Request = Output(new SCBL2OwnershipRequest(
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
 }
 
 class SCBLookupControl(
     val scbEntries: Int = 16,
     val addrWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Module {
   require(scbEntries > 0, "SCB lookup control requires at least one entry")
   require(addrWidth >= 7, "SCB lookup control needs at least 7 address bits for 64-byte lines")
@@ -66,7 +76,9 @@ class SCBLookupControl(
 
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
 
-  val io = IO(new SCBLookupControlIO(scbEntries, addrWidth, lineBytes))
+  val io = IO(new SCBLookupControlIO(
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
 
   val needsL2 = !io.dcacheWriteHit
   val lookupReady = io.dcacheReady && (!needsL2 || io.l2RequestReady)
@@ -85,7 +97,9 @@ class SCBLookupControl(
   dcacheUpdate.data := io.lookupRequest.data
   dcacheUpdate.broadcastUpgrade := dcacheUpdate.valid
 
-  val l2Request = Wire(new SCBL2OwnershipRequest(scbEntries, addrWidth, lineBytes))
+  val l2Request = Wire(new SCBL2OwnershipRequest(
+    scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
   l2Request := 0.U.asTypeOf(l2Request)
   l2Request.valid := missPath
   l2Request.entryIndex := io.lookupRequest.entryIndex

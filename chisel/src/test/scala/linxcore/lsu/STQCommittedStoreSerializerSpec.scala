@@ -179,4 +179,46 @@ class STQCommittedStoreSerializerSpec extends AnyFunSuite with ChiselSim {
       dut.io.batch.ready.expect(false.B)
     }
   }
+
+  test("serialized store response reuse requires the exact public generation") {
+    simulate(new STQCommittedStoreSerializer(
+      stqEntries = 8, robEntries = 8, issueWidth = 2,
+      transactionIdWidth = 2, transactionGenerationWidth = 2)) { dut =>
+      clear(dut)
+      var firstValue = BigInt(0)
+      var firstGeneration = BigInt(0)
+      for (request <- 0 until 5) {
+        pokeBatch(dut, beats = 1, fragmentsPerBeat = 1)
+        dut.clock.step()
+        dut.io.batch.valid.poke(false.B)
+        val value = dut.io.request.bits.transactionId.peek().litValue
+        val generation = dut.io.request.bits.transactionGeneration.peek().litValue
+        if (request == 0) {
+          firstValue = value
+          firstGeneration = generation
+        }
+        if (request == 4) {
+          assert(value == firstValue, "test must exercise value reuse")
+          assert(generation != firstGeneration, "reused value needs a new generation")
+        }
+        dut.io.request.ready.poke(true.B)
+        dut.clock.step()
+        dut.io.request.ready.poke(false.B)
+
+        dut.io.response.valid.poke(true.B)
+        dut.io.response.bits.transactionId.poke(value.U)
+        dut.io.response.bits.transactionGeneration.poke(
+          (if (request == 4) firstGeneration else generation).U)
+        if (request == 4) {
+          dut.io.staleResponse.expect(true.B)
+          dut.io.response.ready.expect(false.B)
+          dut.clock.step()
+          dut.io.response.bits.transactionGeneration.poke(generation.U)
+        }
+        dut.io.response.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.response.valid.poke(false.B)
+      }
+    }
+  }
 }

@@ -196,6 +196,7 @@ object ScalarLsuParams {
       commitQueueEntries = p.lsu.storeCommitQueueEntries,
       commitIssueWidth = p.lsu.storePipes,
       scbEntries = p.lsu.scbEntries,
+      scbResponseBufferDepth = p.lsu.scbResponseBufferDepth,
       liqEntries = p.lsu.loadQueueEntries,
       loadMissQueueEntries = p.lsu.loadMissQueueEntries,
       loadRefillQueueEntries = p.lsu.loadRefillQueueEntries,

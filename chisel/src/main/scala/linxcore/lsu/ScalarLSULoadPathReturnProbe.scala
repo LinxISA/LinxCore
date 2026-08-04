@@ -89,6 +89,9 @@ class ScalarLSULoadPathReturnProbe extends Module {
   preciseFlush.baseOnBid := true.B
   path.io.flush := io.hardFlush
   path.io.preciseFlush := preciseFlush
+  path.io.l1dInvalidateAll := false.B
+  path.io.l1dInvalidateLineValid := false.B
+  path.io.l1dInvalidateLineAddress := 0.U
 
   val alloc = Wire(chiselTypeOf(path.io.alloc))
   alloc := 0.U.asTypeOf(alloc)

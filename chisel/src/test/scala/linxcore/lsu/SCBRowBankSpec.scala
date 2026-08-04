@@ -245,6 +245,8 @@ class SCBRowBankSpec extends AnyFunSuite with ChiselSim {
     dut.io.l2RequestReady.poke(true.B)
     dut.io.rawRespValid.poke(false.B)
     dut.io.rawRespTxnId.poke(0.U)
+    dut.io.rawRespTransactionValue.poke(0.U)
+    dut.io.rawRespTransactionGeneration.poke(0.U)
     dut.io.rawRespWrite.poke(false.B)
     dut.io.rawRespUpgrade.poke(false.B)
   }
@@ -496,6 +498,56 @@ class SCBRowBankSpec extends AnyFunSuite with ChiselSim {
     assert(sv.contains("io_respBufferHeadTxnId"))
     assert(sv.contains("io_respDecodeError"))
     assert(sv.contains("io_stateError"))
+  }
+
+  test("SCB quiescence covers resident rows ownership response buffering and retry") {
+    simulate(new SCBRowBank(
+        stqEntries = 8, scbEntries = 2, requestCount = 1,
+        responseBufferDepth = 2, robEntries = 8,
+        memoryTransactionIdWidth = 8,
+        memoryTransactionGenerationWidth = 4)) { dut =>
+      idleRowBank(dut)
+      dut.io.quiescent.expect(true.B)
+
+      pokeReq(dut.io.reqs(0), addr = 0x8000, stqIndex = 1,
+        segment = 0, last = true, bid = 1, gid = 1, rid = 1, lsId = 1)
+      dut.clock.step()
+      idleRowBank(dut)
+      dut.io.quiescent.expect(false.B)
+
+      dut.io.evictEnable.poke(true.B)
+      dut.io.dcacheTagHit.poke(true.B)
+      dut.io.dcacheWriteHit.poke(false.B)
+      while (!dut.io.l2Request.valid.peek().litToBoolean) dut.clock.step()
+      val shortId = dut.io.l2Request.txnTid.peek()
+      val value = dut.io.l2Request.transactionValue.peek()
+      val generation = dut.io.l2Request.transactionGeneration.peek()
+      dut.clock.step()
+      idleRowBank(dut)
+
+      dut.io.dcacheReady.poke(false.B)
+      dut.io.rawRespTxnId.poke(shortId)
+      dut.io.rawRespTransactionValue.poke(value)
+      dut.io.rawRespTransactionGeneration.poke(generation)
+      dut.io.rawRespUpgrade.poke(true.B)
+      dut.io.rawRespValid.poke(true.B)
+      dut.clock.step()
+      dut.io.rawRespValid.poke(false.B)
+      dut.io.quiescent.expect(false.B)
+      assert(dut.io.respBufferHeadValid.peek().litToBoolean ||
+        dut.io.responseRetryHeadValid.peek().litToBoolean,
+        "accepted ownership response must remain represented until retry")
+
+      dut.io.dcacheReady.poke(true.B)
+      dut.io.dcacheTagHit.poke(true.B)
+      dut.io.dcacheWriteHit.poke(true.B)
+      var drainCycles = 0
+      while (!dut.io.quiescent.peek().litToBoolean && drainCycles < 16) {
+        dut.clock.step()
+        drainCycles += 1
+      }
+      assert(drainCycles < 16, "SCB row/response/retry state did not drain")
+    }
   }
 
   test("physical STQ indices remain wider than ROB identity in a 16 by 8 configuration") {

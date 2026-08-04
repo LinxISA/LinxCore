@@ -50,9 +50,11 @@ class STQSerializedStoreRequest(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val transactionIdWidth: Int = 8)
+    val transactionIdWidth: Int = 8,
+    val transactionGenerationWidth: Int = 8)
     extends Bundle {
   val transactionId = UInt(transactionIdWidth.W)
+  val transactionGeneration = UInt(transactionGenerationWidth.W)
   val memoryClass = STQMemoryClass()
   val issue = new STQCommitIssue(
     robEntries, stqEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
@@ -63,9 +65,12 @@ class STQSerializedStoreRequest(
     stidWidth)
 }
 
-class STQSerializedStoreResponse(val transactionIdWidth: Int = 8)
+class STQSerializedStoreResponse(
+    val transactionIdWidth: Int = 8,
+    val transactionGenerationWidth: Int = 8)
     extends Bundle {
   val transactionId = UInt(transactionIdWidth.W)
+  val transactionGeneration = UInt(transactionGenerationWidth.W)
   val error = Bool()
 }
 
@@ -85,7 +90,8 @@ class STQCommittedStoreSerializerIO(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val transactionIdWidth: Int = 8)
+    val transactionIdWidth: Int = 8,
+    val transactionGenerationWidth: Int = 8)
     extends Bundle {
   val batch = Flipped(Decoupled(new STQSerializedStoreBatch(
     stqEntries, robEntries, issueWidth, addrWidth, dataWidth, sizeWidth,
@@ -96,9 +102,10 @@ class STQCommittedStoreSerializerIO(
     stqEntries, robEntries, addrWidth, dataWidth, sizeWidth, lsidWidth,
     peIdWidth, stidWidth, nativeBidWidth, ridGenerationWidth,
     brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
-    leaseGenerationWidth, transactionIdWidth))
+    leaseGenerationWidth, transactionIdWidth, transactionGenerationWidth))
   val response = Flipped(Decoupled(
-    new STQSerializedStoreResponse(transactionIdWidth)))
+    new STQSerializedStoreResponse(
+      transactionIdWidth, transactionGenerationWidth)))
   /** Ordinary recovery fences only new committed work.  An accepted batch is
     * already architectural and must run to its exact response.
     */
@@ -141,7 +148,8 @@ class STQCommittedStoreSerializer(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val transactionIdWidth: Int = 8)
+    val transactionIdWidth: Int = 8,
+    val transactionGenerationWidth: Int = 8)
     extends Module {
   require(stqEntries > 1 && (stqEntries & (stqEntries - 1)) == 0,
     "serialized stores require a power-of-two physical STQ")
@@ -150,6 +158,8 @@ class STQCommittedStoreSerializer(
   require(issueWidth > 0, "serialized store issue width must be nonzero")
   require(transactionIdWidth > 1,
     "serialized response identity needs a generation-capable transaction ID")
+  require(transactionGenerationWidth > 0,
+    "serialized response identity needs a transaction generation")
 
   private val requestCount = issueWidth * 2
   private val requestCountWidth = log2Ceil(requestCount + 1)
@@ -158,7 +168,7 @@ class STQCommittedStoreSerializer(
     stqEntries, robEntries, issueWidth, addrWidth, dataWidth, sizeWidth,
     lsidWidth, peIdWidth, stidWidth, nativeBidWidth, ridGenerationWidth,
     brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
-    leaseGenerationWidth, transactionIdWidth))
+    leaseGenerationWidth, transactionIdWidth, transactionGenerationWidth))
 
   val busy = RegInit(false.B)
   val waitingResponse = RegInit(false.B)
@@ -172,7 +182,11 @@ class STQCommittedStoreSerializer(
     stqEntries, addrWidth, dataWidth, sizeWidth, robEntries, lsidWidth,
     stidWidth)))
   val nextTransactionId = RegInit(0.U(transactionIdWidth.W))
+  val nextTransactionGeneration =
+    RegInit(0.U(transactionGenerationWidth.W))
   val outstandingTransactionId = Reg(UInt(transactionIdWidth.W))
+  val outstandingTransactionGeneration =
+    Reg(UInt(transactionGenerationWidth.W))
   val accumulatedError = RegInit(false.B)
   val acceptedRequestCount = RegInit(0.U(requestCountWidth.W))
 
@@ -219,12 +233,14 @@ class STQCommittedStoreSerializer(
   val currentIssue = retainedIssues(currentIndex >> 1)
   io.request.valid := busy && !waitingResponse && pendingMask.orR
   io.request.bits.transactionId := nextTransactionId
+  io.request.bits.transactionGeneration := nextTransactionGeneration
   io.request.bits.memoryClass := retainedClass
   io.request.bits.issue := currentIssue
   io.request.bits.fragment := currentRequest
 
   val responseExact = waitingResponse &&
-    io.response.bits.transactionId === outstandingTransactionId
+    io.response.bits.transactionId === outstandingTransactionId &&
+    io.response.bits.transactionGeneration === outstandingTransactionGeneration
   io.response.ready := responseExact
   io.staleResponse := io.response.valid && !responseExact
 
@@ -270,6 +286,10 @@ class STQCommittedStoreSerializer(
   when(requestFire) {
     waitingResponse := true.B
     outstandingTransactionId := nextTransactionId
+    outstandingTransactionGeneration := nextTransactionGeneration
+    when(nextTransactionId.andR) {
+      nextTransactionGeneration := nextTransactionGeneration + 1.U
+    }
     nextTransactionId := nextTransactionId + 1.U
     acceptedRequestCount := acceptedRequestCount + 1.U
   }
@@ -288,9 +308,14 @@ class STQCommittedStoreSerializer(
   when(io.request.valid && !io.request.ready) {
     assert(io.request.bits.transactionId === nextTransactionId,
       "serialized store transaction identity must remain stable")
+    assert(io.request.bits.transactionGeneration === nextTransactionGeneration,
+      "serialized store transaction generation must remain stable")
   }
   when(responseFire) {
     assert(io.response.bits.transactionId === outstandingTransactionId,
       "only the exact serialized-store response may advance state")
+    assert(io.response.bits.transactionGeneration ===
+      outstandingTransactionGeneration,
+      "serialized-store response generation must match exactly")
   }
 }

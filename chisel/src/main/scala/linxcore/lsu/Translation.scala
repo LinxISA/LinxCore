@@ -27,6 +27,7 @@ class DSideTranslationIO(
     val pageBytes: Int)
     extends Bundle {
   val lookupValid = Input(Bool())
+  val lookupFire = Input(Bool())
   val virtualAddress = Input(UInt(p.physicalAddressWidth.W))
   val sizeBytes = Input(UInt(4.W))
   val write = Input(Bool())
@@ -98,31 +99,58 @@ class DSideTranslation(
     io.sizeBytes - 1.U)
   val alignmentFault = io.lookupValid &&
     (!supportedSize || (io.virtualAddress & alignmentMask) =/= 0.U)
-  val permissionFault = explicitTranslation && entryHit &&
-    Mux(io.write, !writable(lookupIndex), !readable(lookupIndex))
+  val protectionRegion = io.virtualAddress &
+    p.lsu.protectionRegionMask.U(addrWidth.W)
+  val lowNoAccess = protectionRegion ===
+    p.lsu.protectionNoAccessBase.U(addrWidth.W)
+  val lowReadOnly = protectionRegion ===
+    p.lsu.protectionReadOnlyBase.U(addrWidth.W)
+  val lowWriteOnly = protectionRegion ===
+    p.lsu.protectionWriteOnlyBase.U(addrWidth.W)
+  val lowDevice = protectionRegion ===
+    p.lsu.protectionDeviceBase.U(addrWidth.W)
+  val selectedReadable = Mux(explicitTranslation,
+    entryHit && readable(lookupIndex), !lowNoAccess && !lowWriteOnly)
+  val selectedWritable = Mux(explicitTranslation,
+    entryHit && writable(lookupIndex), !lowNoAccess && !lowReadOnly)
+  val permissionFault = hit &&
+    Mux(io.write, !selectedWritable, !selectedReadable)
 
   val active = RegInit(false.B)
   val activeVpn = Reg(UInt(pageNumberWidth.W))
+  val activeVirtualAddress = Reg(UInt(addrWidth.W))
+  val activeSizeBytes = Reg(UInt(4.W))
+  val activeWrite = Reg(Bool())
   val requestOutstanding = RegInit(false.B)
   val requestIdentity = RegInit(
     0.U.asTypeOf(io.memoryRequest.bits.identity))
-  val nextValue = RegInit(
-    (BigInt(1) << (p.memoryTransactionIdWidth - 1)).U(
-      p.memoryTransactionIdWidth.W))
-  val nextGeneration = RegInit(
-    (BigInt(1) << (p.memoryTransactionGenerationWidth - 1)).U(
-      p.memoryTransactionGenerationWidth.W))
+  require(p.memoryTransactionIdWidth > 1 &&
+    p.memoryTransactionGenerationWidth > 1,
+    "translation namespace needs owner and counter bits")
+  private val counterBits = p.lsu.dTranslationCounterBits
+  require(counterBits > 0 && counterBits < p.memoryTransactionIdWidth &&
+    counterBits < p.memoryTransactionGenerationWidth)
+  val nextValueCounter = RegInit(0.U(counterBits.W))
+  val nextGenerationCounter =
+    RegInit(0.U(counterBits.W))
 
   val miss = io.lookupValid && explicitTranslation && !entryHit
-  when(miss && !active) {
+  when(io.lookupFire && miss && !active) {
     active := true.B
     activeVpn := lookupVpn
+    activeVirtualAddress := io.virtualAddress
+    activeSizeBytes := io.sizeBytes
+    activeWrite := io.write
   }
 
   io.memoryRequest.valid := active && !requestOutstanding
   io.memoryRequest.bits := 0.U.asTypeOf(io.memoryRequest.bits)
-  io.memoryRequest.bits.identity.value := nextValue
-  io.memoryRequest.bits.identity.generation := nextGeneration
+  io.memoryRequest.bits.identity.value := Cat(1.U(1.W),
+    0.U((p.memoryTransactionIdWidth - counterBits - 1).W), nextValueCounter)
+  io.memoryRequest.bits.identity.generation :=
+    Cat(1.U(1.W),
+      0.U((p.memoryTransactionGenerationWidth - counterBits - 1).W),
+      nextGenerationCounter)
   io.memoryRequest.bits.command := MemoryCommand.Read
   io.memoryRequest.bits.accessKind := MemoryAccessKind.Data
   io.memoryRequest.bits.address := activeVpn << pageOffsetWidth
@@ -132,10 +160,10 @@ class DSideTranslation(
   when(io.memoryRequest.fire) {
     requestOutstanding := true.B
     requestIdentity := io.memoryRequest.bits.identity
-    val valueWrap = nextValue.andR
-    nextValue := nextValue + 1.U
+    val valueWrap = nextValueCounter.andR
+    nextValueCounter := nextValueCounter + 1.U
     when(valueWrap) {
-      nextGeneration := nextGeneration + 1.U
+      nextGenerationCounter := nextGenerationCounter + 1.U
     }
   }
 
@@ -157,15 +185,21 @@ class DSideTranslation(
       !io.memoryResponse.bits.corrupt
     val refillPpn =
       io.memoryResponse.bits.data(pageNumberWidth - 1, 0)
-    val refillDevice = refillPpn(pageNumberWidth - 1,
-      pageNumberWidth - 8).andR
     valid(refillIndex) := true.B
     vpn(refillIndex) := activeVpn
     ppn(refillIndex) := refillPpn
-    readable(refillIndex) := refillAllowed
-    writable(refillIndex) := refillAllowed
-    cacheable(refillIndex) := refillAllowed && !refillDevice
-    device(refillIndex) := refillAllowed && refillDevice
+    readable(refillIndex) := refillAllowed &&
+      io.memoryResponse.bits.attributesValid &&
+      io.memoryResponse.bits.readable
+    writable(refillIndex) := refillAllowed &&
+      io.memoryResponse.bits.attributesValid &&
+      io.memoryResponse.bits.writable
+    cacheable(refillIndex) := refillAllowed &&
+      io.memoryResponse.bits.attributesValid &&
+      io.memoryResponse.bits.cacheable && !io.memoryResponse.bits.device
+    device(refillIndex) := refillAllowed &&
+      io.memoryResponse.bits.attributesValid &&
+      io.memoryResponse.bits.device
     requestOutstanding := false.B
     active := false.B
   }
@@ -181,11 +215,16 @@ class DSideTranslation(
   io.physicalAddress := physicalAddress
   io.alignmentFault := alignmentFault
   io.accessFault := io.lookupValid && permissionFault
-  io.cacheable := !explicitTranslation ||
-    (entryHit && cacheable(lookupIndex))
-  io.device := explicitTranslation && entryHit && device(lookupIndex)
+  io.cacheable := Mux(explicitTranslation,
+    entryHit && cacheable(lookupIndex), !lowDevice)
+  io.device := Mux(explicitTranslation,
+    entryHit && device(lookupIndex), lowDevice)
   io.outstanding := active || requestOutstanding
   io.quiescent := !active && !requestOutstanding
 
   assert(PopCount(valid) <= entries.U)
+  when(active) {
+    assert(activeSizeBytes =/= 0.U)
+    assert(activeVirtualAddress(addrWidth - 1))
+  }
 }

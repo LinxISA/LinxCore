@@ -64,6 +64,9 @@ class ScalarLSULoadForwardIntegrationHarness extends Module {
 
   path.io.flush := io.flush
   path.io.preciseFlush := 0.U.asTypeOf(path.io.preciseFlush)
+  path.io.l1dInvalidateAll := false.B
+  path.io.l1dInvalidateLineValid := false.B
+  path.io.l1dInvalidateLineAddress := 0.U
   path.io.preciseFlush.req.valid := io.preciseFlush
   path.io.preciseFlush.req.stid := 1.U
   path.io.allocValid := io.allocValid

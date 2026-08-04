@@ -45,6 +45,10 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       }
       dut.io.iex.loadResult.foreach(_.ready.poke(true.B))
       dut.io.iex.loadReissue.foreach(_.ready.poke(true.B))
+      dut.io.iex.loadRebindApply.foreach { port =>
+        port.valid.poke(false.B)
+        port.bits.poke(0.U.asTypeOf(port.bits))
+      }
       dut.io.iex.loadRepick.foreach(_.ready.poke(true.B))
       dut.io.iex.loadCancel.foreach(_.ready.poke(true.B))
       dut.io.iex.recoveryEvent.ready.poke(true.B)
@@ -52,6 +56,9 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.storeCommit.bits.poke(0.U.asTypeOf(dut.io.storeCommit.bits))
       dut.io.storeClassify.valid.poke(false.B)
       dut.io.storeClassify.bits.poke(0.U.asTypeOf(dut.io.storeClassify.bits))
+      dut.io.loadReissueRequest.valid.poke(false.B)
+      dut.io.loadReissueRequest.bits.poke(
+        0.U.asTypeOf(dut.io.loadReissueRequest.bits))
       dut.io.memoryRequest.foreach(_.ready.poke(true.B))
       dut.io.memoryResponse.foreach { port =>
         port.valid.poke(false.B)
@@ -64,6 +71,10 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.recovery.apply.bits.poke(0.U.asTypeOf(dut.io.recovery.apply.bits))
       dut.io.recovery.abort.valid.poke(false.B)
       dut.io.recovery.abort.bits.poke(0.U.asTypeOf(dut.io.recovery.abort.bits))
+      dut.io.memoryFault.ready.poke(true.B)
+      dut.io.maintenance.valid.poke(false.B)
+      dut.io.maintenance.bits.poke(0.U.asTypeOf(dut.io.maintenance.bits))
+      dut.io.maintenanceResult.ready.poke(true.B)
       dut.io.trace.ready.poke(true.B)
 
       def pokeRob(rob: linxcore.top.interface.RobIdentity): Unit = {
@@ -105,7 +116,8 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       sta.bits.memoryOrder.firstLsid.poke(11.U)
       sta.bits.memoryOrder.firstSid.poke(13.U)
       sta.bits.requestCount.poke(1.U)
-      sta.bits.address.poke(0x1000.U)
+      val storeAddress = p.lsu.protectionDeviceBase
+      sta.bits.address.poke(storeAddress.U)
       sta.bits.sizeBytes.poke(8.U)
       sta.valid.poke(true.B)
       sta.ready.expect(true.B)
@@ -164,7 +176,7 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       assert(requestCycles < 32,
         "a committed non-cacheable store must reach its canonical memory lane")
       storeMemory.bits.command.expect(linxcore.top.interface.MemoryCommand.Write)
-      storeMemory.bits.address.expect(0x1000.U)
+      storeMemory.bits.address.expect(storeAddress.U)
       storeMemory.bits.data.expect("h1122334455667788".U)
       val responseId = storeMemory.bits.identity.peek()
       storeMemory.ready.poke(true.B)
