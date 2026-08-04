@@ -84,6 +84,28 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(storeError.getMessage.contains("store pipe count must be positive"))
   }
 
+  test("lower-memory ledgers cover retained store and SCB capacities") {
+    val base = ParamProfiles.W4
+
+    val storeError = intercept[IllegalArgumentException] {
+      ParamChecks.validate(base.copy(lsu = base.lsu.copy(
+        lowerMemoryTransactionsPerLane = 4,
+        storeCommitQueueEntries = 5,
+        scbEntries = 4,
+        loadMissQueueEntries = 4)))
+    }
+    assert(storeError.getMessage.contains("store commit queue"))
+
+    val scbError = intercept[IllegalArgumentException] {
+      ParamChecks.validate(base.copy(lsu = base.lsu.copy(
+        lowerMemoryTransactionsPerLane = 4,
+        storeCommitQueueEntries = 4,
+        scbEntries = 5,
+        loadMissQueueEntries = 4)))
+    }
+    assert(scbError.getMessage.contains("SCB"))
+  }
+
   test("BROB entries per STID must preserve a nonzero BID width") {
     val base = ParamProfiles.W4
 

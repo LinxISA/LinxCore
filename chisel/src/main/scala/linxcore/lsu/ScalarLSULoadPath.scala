@@ -95,6 +95,7 @@ class ScalarL1DStorePortIO(val p: ScalarLsuParams) extends Bundle {
   val lookupLineAddr = Input(UInt(p.addrWidth.W))
   val grantWriteValid = Input(Bool())
   val grantWriteLineAddr = Input(UInt(p.addrWidth.W))
+  val grantWriteData = Input(UInt((p.lineBytes * 8).W))
   val ready = Output(Bool())
   val tagHit = Output(Bool())
   val writeHit = Output(Bool())
@@ -915,6 +916,7 @@ class ScalarLSULoadPath(
   l1d.io.storeLookupLineAddr := scbCache.lookupLineAddr
   l1d.io.grantWriteValid := scbCache.grantWriteValid
   l1d.io.grantWriteLineAddr := scbCache.grantWriteLineAddr
+  l1d.io.grantWriteData := scbCache.grantWriteData
   l1d.io.storeUpdate := scbCache.update
   scbCache.ready := l1d.io.arrayReady
   scbCache.tagHit := l1d.io.storeLookup.tagHit

@@ -143,6 +143,7 @@ class ScalarLSULoadPathReturnProbe extends Module {
   path.scbCache.lookupLineAddr := 0.U
   path.scbCache.grantWriteValid := false.B
   path.scbCache.grantWriteLineAddr := 0.U
+  path.scbCache.grantWriteData := 0.U
   path.io.l1dEvictionReady := true.B
   path.io.replayWakeValid := false.B
   path.io.replayWake := 0.U.asTypeOf(path.io.replayWake)

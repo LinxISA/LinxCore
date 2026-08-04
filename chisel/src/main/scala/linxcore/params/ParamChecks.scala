@@ -112,6 +112,12 @@ object ParamChecks {
     require(
       p.lsu.lowerMemoryTransactionsPerLane >= p.lsu.loadMissQueueEntries,
       "lower-memory ledger per lane must cover the load miss queue")
+    require(
+      p.lsu.lowerMemoryTransactionsPerLane >= p.lsu.storeCommitQueueEntries,
+      "lower-memory ledger per lane must cover the store commit queue")
+    require(
+      p.lsu.lowerMemoryTransactionsPerLane >= p.lsu.scbEntries,
+      "lower-memory ledger per lane must cover the SCB")
     require(p.lsu.scbResponseBufferDepth > 0,
       "SCB response buffer depth must be positive")
     require(p.maxSourceOperands > 0, "source operand count must be positive")

@@ -132,6 +132,7 @@ class ScalarLSULoadForwardIntegrationHarness extends Module {
   path.scbCache.lookupLineAddr := 0.U
   path.scbCache.grantWriteValid := false.B
   path.scbCache.grantWriteLineAddr := 0.U
+  path.scbCache.grantWriteData := 0.U
   path.mdbStore.probe := 0.U.asTypeOf(path.mdbStore.probe)
   path.mdbStore.probeCommit := false.B
   path.mdbStore.rows := 0.U.asTypeOf(path.mdbStore.rows)

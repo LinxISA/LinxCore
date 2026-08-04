@@ -40,6 +40,8 @@ class SCBRowBankIO(
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
+  val rawRespAccepted = Output(Bool())
+  val rawRespLineAddr = Output(UInt(addrWidth.W))
 
   val modelBatchReady = Output(Bool())
   val modelFull = Output(Bool())
@@ -306,6 +308,9 @@ class SCBRowBank(
     outstandingGeneration(rawResponseIndex) ===
       io.rawRespTransactionGeneration
   val staleRawResponse = io.rawRespValid && !rawResponseExact
+  io.rawRespAccepted := io.rawRespValid && io.rawRespReady && rawResponseExact
+  io.rawRespLineAddr := Mux(rawResponseExact,
+    ingressEntries(rawResponseIndex).lineAddr, 0.U)
 
   val responseBuffer = Module(new SCBResponseBuffer(scbEntries, responseBufferDepth))
   responseBuffer.io.rawValid := io.rawRespValid && rawResponseExact

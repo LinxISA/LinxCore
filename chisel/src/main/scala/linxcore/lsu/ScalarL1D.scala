@@ -45,6 +45,7 @@ class ScalarL1DIO(
   val storeLookup = Output(new ScalarL1DLookupResult(addrWidth, lineBytes, ways))
   val grantWriteValid = Input(Bool())
   val grantWriteLineAddr = Input(UInt(addrWidth.W))
+  val grantWriteData = Input(UInt((lineBytes * 8).W))
   val storeUpdate = Input(new SCBDCacheUpdate(scbEntries, addrWidth, lineBytes))
 
   val refill = Input(new ScalarL1DRefill(addrWidth, lineBytes))
@@ -168,8 +169,21 @@ class ScalarL1D(
   val grantWriteSet = setIndex(io.grantWriteLineAddr)
   val grantWriteHits = VecInit((0 until ways).map(way =>
     valid(grantWriteSet)(way) && tags(grantWriteSet)(way) === aligned(io.grantWriteLineAddr)))
-  val grantWriteWay = PriorityEncoder(grantWriteHits)
-  val grantWriteLegal = io.grantWriteValid && grantWriteHits.asUInt.orR &&
+  val grantWriteHit = grantWriteHits.asUInt.orR
+  val grantWriteHitWay = PriorityEncoder(grantWriteHits)
+  val grantInvalidWays = VecInit((0 until ways).map(way =>
+    !valid(grantWriteSet)(way)))
+  val grantHasInvalid = grantInvalidWays.asUInt.orR
+  val grantInvalidWay = PriorityEncoder(grantInvalidWays)
+  val grantOldestWays = VecInit((0 until ways).map(way =>
+    age(grantWriteSet)(way) === (ways - 1).U))
+  val grantOldestWay = PriorityEncoder(grantOldestWays)
+  val grantAllocateWay = Mux(grantHasInvalid, grantInvalidWay, grantOldestWay)
+  val grantCanAllocate = grantHasInvalid ||
+    !dirty(grantWriteSet)(grantOldestWay)
+  val grantWriteWay = Mux(grantWriteHit, grantWriteHitWay, grantAllocateWay)
+  val grantWriteLegal = io.grantWriteValid &&
+    (grantWriteHit || grantCanAllocate) &&
     !io.refill.valid && !maintenanceActive
 
   val touchValid = WireDefault(false.B)
@@ -201,6 +215,7 @@ class ScalarL1D(
     touchWay := storeUpdateWay
   }.elsewhen(grantWriteLegal) {
     touchValid := true.B
+    touchNewLine := !grantWriteHit
     touchSet := grantWriteSet
     touchWay := grantWriteWay
   }.elsewhen(io.storeLookupValid && storeResult.tagHit) {
@@ -239,6 +254,12 @@ class ScalarL1D(
   }
 
   when(grantWriteLegal) {
+    when(!grantWriteHit) {
+      valid(grantWriteSet)(grantWriteWay) := true.B
+      dirty(grantWriteSet)(grantWriteWay) := false.B
+      tags(grantWriteSet)(grantWriteWay) := aligned(io.grantWriteLineAddr)
+      data(grantWriteSet)(grantWriteWay) := io.grantWriteData
+    }
     writable(grantWriteSet)(grantWriteWay) := true.B
   }
 

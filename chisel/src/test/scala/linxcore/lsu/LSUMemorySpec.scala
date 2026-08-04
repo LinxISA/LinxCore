@@ -2,7 +2,8 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
-import linxcore.params.SimulationParamProfiles
+import linxcore.params.{MemoryAccessAttributes, PhysicalMemoryRegion,
+  SimulationParamProfiles}
 import linxcore.top.interface.MemoryAccessKind
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -94,8 +95,10 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       initialize(dut)
       pokeLoad(dut, virtualAddress)
 
-      dut.io.iex.loadAddress(0).ready.expect(false.B)
+      dut.io.iex.loadAddress(0).ready.expect(true.B)
       dut.io.iex.loadAllocation(0).valid.expect(false.B)
+      dut.clock.step()
+      dut.io.iex.loadAddress(0).valid.poke(false.B)
 
       val request = dut.io.memoryRequest(0)
       var cycles = 0
@@ -119,7 +122,7 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       response.ready.expect(true.B)
       dut.clock.step()
       response.valid.poke(false.B)
-      dut.io.iex.loadAddress(0).ready.expect(false.B)
+      dut.io.iex.loadAllocation(0).valid.expect(false.B)
 
       response.bits.identity.value.poke(requestId.U)
       response.bits.identity.generation.poke(requestGeneration.U)
@@ -133,12 +136,8 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.clock.step()
       response.valid.poke(false.B)
 
-      var accepted = false
-      for (_ <- 0 until 8) {
-        if (dut.io.iex.loadAddress(0).ready.peek().litToBoolean) accepted = true
-        dut.clock.step()
-      }
-      assert(accepted, "exact DTLB refill did not release the retained virtual load")
+      dut.io.iex.loadAllocation(0).valid.expect(true.B)
+      dut.io.iex.loadAllocation(0).bits.identity.transaction.value.expect(5.U)
     }
   }
 
@@ -146,30 +145,34 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
     val p = SimulationParamProfiles.W4
     val virtualAddress = BigInt("8000000000002000", 16)
     simulate(new DSideTranslation(p, entries = 4, pageBytes = 4096)) { dut =>
-      dut.io.lookupValid.poke(false.B)
-      dut.io.virtualAddress.poke(0.U)
-      dut.io.sizeBytes.poke(8.U)
-      dut.io.write.poke(false.B)
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.lookup.bits.poke(0.U.asTypeOf(dut.io.lookup.bits))
+      dut.io.result.ready.poke(false.B)
       dut.io.invalidate.poke(false.B)
       dut.io.memoryRequest.ready.poke(true.B)
       dut.io.memoryResponse.valid.poke(false.B)
       dut.io.memoryResponse.bits.poke(
         0.U.asTypeOf(dut.io.memoryResponse.bits))
-      dut.io.lookupFire.poke(false.B)
       dut.reset.poke(true.B)
       dut.clock.step(2)
       dut.reset.poke(false.B)
 
-      dut.io.lookupValid.poke(true.B)
-      dut.io.virtualAddress.poke(0x1003.U)
-      dut.io.lookupFire.poke(true.B)
-      dut.io.alignmentFault.expect(true.B)
-      dut.io.lookupReady.expect(false.B)
-
-      dut.io.virtualAddress.poke(virtualAddress.U)
-      dut.io.alignmentFault.expect(false.B)
-      dut.io.miss.expect(true.B)
+      dut.io.lookup.bits.load.address.poke(0x1003.U)
+      dut.io.lookup.bits.load.sizeBytes.poke(8.U)
+      dut.io.lookup.valid.poke(true.B)
+      dut.io.lookup.ready.expect(true.B)
       dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.alignmentFault.expect(true.B)
+      dut.io.result.ready.poke(true.B)
+      dut.clock.step()
+
+      dut.io.result.ready.poke(false.B)
+      dut.io.lookup.bits.load.address.poke(virtualAddress.U)
+      dut.io.lookup.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
       while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
       val deniedIdentity = dut.io.memoryRequest.bits.identity.peek()
       dut.clock.step()
@@ -180,17 +183,18 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.io.memoryResponse.valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse.valid.poke(false.B)
-      dut.io.hit.expect(true.B)
-      dut.io.accessFault.expect(true.B)
-      dut.io.lookupReady.expect(false.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.accessFault.expect(true.B)
+      dut.io.result.ready.poke(true.B)
+      dut.clock.step()
 
-      dut.io.lookupValid.poke(false.B)
       dut.io.invalidate.poke(true.B)
       dut.clock.step()
       dut.io.invalidate.poke(false.B)
-      dut.io.lookupValid.poke(true.B)
-      dut.io.virtualAddress.poke(virtualAddress.U)
+      dut.io.result.ready.poke(false.B)
+      dut.io.lookup.valid.poke(true.B)
       dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
       while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
       val deviceIdentity = dut.io.memoryRequest.bits.identity.peek()
       dut.clock.step()
@@ -208,9 +212,9 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.io.memoryResponse.valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse.valid.poke(false.B)
-      dut.io.lookupReady.expect(true.B)
-      dut.io.device.expect(true.B)
-      dut.io.cacheable.expect(false.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.device.expect(true.B)
+      dut.io.result.bits.cacheable.expect(false.B)
     }
   }
 
@@ -361,11 +365,10 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
     val base = SimulationParamProfiles.W4
     val p = base.copy(lsu = base.lsu.copy(dTranslationCounterBits = 2))
     simulate(new DSideTranslation(p, entries = 2, pageBytes = 4096)) { dut =>
-      dut.io.lookupValid.poke(true.B)
-      dut.io.lookupFire.poke(false.B)
-      dut.io.virtualAddress.poke(BigInt("8000000000001000", 16).U)
-      dut.io.sizeBytes.poke(8.U)
-      dut.io.write.poke(false.B)
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.lookup.bits.poke(0.U.asTypeOf(dut.io.lookup.bits))
+      dut.io.lookup.bits.load.sizeBytes.poke(8.U)
+      dut.io.result.ready.poke(true.B)
       dut.io.invalidate.poke(false.B)
       dut.io.memoryRequest.ready.poke(true.B)
       dut.io.memoryResponse.valid.poke(false.B)
@@ -378,11 +381,12 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.io.memoryRequest.valid.expect(false.B)
 
       for (page <- 1 to 5) {
-        dut.io.virtualAddress.poke(
+        dut.io.lookup.bits.load.address.poke(
           (BigInt("8000000000000000", 16) + page * 4096).U)
-        dut.io.lookupFire.poke(true.B)
+        dut.io.lookup.bits.load.identity.transaction.value.poke((20 + page).U)
+        dut.io.lookup.valid.poke(true.B)
         dut.clock.step()
-        dut.io.lookupFire.poke(false.B)
+        dut.io.lookup.valid.poke(false.B)
         while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
         val value = dut.io.memoryRequest.bits.identity.value.peek().litValue
         val generation =
@@ -402,6 +406,10 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
         dut.io.memoryResponse.valid.poke(true.B)
         dut.clock.step()
         dut.io.memoryResponse.valid.poke(false.B)
+        dut.io.result.valid.expect(true.B)
+        dut.io.result.bits.request.load.identity.transaction.value.expect(
+          (20 + page).U)
+        dut.clock.step()
         dut.io.invalidate.poke(true.B)
         dut.clock.step()
         dut.io.invalidate.poke(false.B)
@@ -410,11 +418,17 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
   }
 
   test("translation enforces independent low mapping and refill read write permissions") {
-    val p = SimulationParamProfiles.W4
+    val base = SimulationParamProfiles.W4
+    val mask = BigInt("fffffffffffff000", 16)
+    val p = base.copy(lsu = base.lsu.copy(physicalMemoryRegions = Seq(
+      PhysicalMemoryRegion(0x1000, mask,
+        MemoryAccessAttributes(writable = false)),
+      PhysicalMemoryRegion(0x2000, mask,
+        MemoryAccessAttributes(readable = false)))))
     simulate(new DSideTranslation(p, entries = 4, pageBytes = 4096)) { dut =>
-      dut.io.lookupValid.poke(true.B)
-      dut.io.lookupFire.poke(true.B)
-      dut.io.sizeBytes.poke(8.U)
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.lookup.bits.poke(0.U.asTypeOf(dut.io.lookup.bits))
+      dut.io.result.ready.poke(false.B)
       dut.io.invalidate.poke(false.B)
       dut.io.memoryRequest.ready.poke(true.B)
       dut.io.memoryResponse.valid.poke(false.B)
@@ -423,37 +437,50 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.clock.step(2)
       dut.reset.poke(false.B)
 
-      dut.io.virtualAddress.poke(BigInt("7ffe000000001000", 16).U)
-      dut.io.write.poke(false.B)
-      dut.io.lookupReady.expect(true.B)
-      dut.io.write.poke(true.B)
-      dut.io.accessFault.expect(true.B)
-
-      dut.io.virtualAddress.poke(BigInt("7ffd000000001000", 16).U)
-      dut.io.write.poke(false.B)
-      dut.io.accessFault.expect(true.B)
-      dut.io.write.poke(true.B)
-      dut.io.lookupReady.expect(true.B)
-
-      dut.io.virtualAddress.poke(BigInt("8000000000009000", 16).U)
-      dut.io.write.poke(false.B)
+      dut.io.lookup.bits.isStore.poke(true.B)
+      dut.io.lookup.bits.store.address.poke(0x1000.U)
+      dut.io.lookup.bits.store.sizeBytes.poke(8.U)
+      dut.io.lookup.valid.poke(true.B)
       dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.result.bits.accessFault.expect(true.B)
+      dut.io.result.ready.poke(true.B)
+      dut.clock.step()
+
+      dut.io.result.ready.poke(false.B)
+      dut.io.lookup.bits.isStore.poke(false.B)
+      dut.io.lookup.bits.load.address.poke(BigInt("8000000000009000", 16).U)
+      dut.io.lookup.bits.load.sizeBytes.poke(8.U)
+      dut.io.lookup.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
       while (!dut.io.memoryRequest.valid.peek().litToBoolean) dut.clock.step()
       val identity = dut.io.memoryRequest.bits.identity.peek()
       dut.clock.step()
       dut.io.memoryResponse.bits.poke(0.U.asTypeOf(dut.io.memoryResponse.bits))
       dut.io.memoryResponse.bits.identity.poke(identity)
-      dut.io.memoryResponse.bits.data.poke(0x91.U)
+      dut.io.memoryResponse.bits.data.poke(1.U)
       dut.io.memoryResponse.bits.attributesValid.poke(true.B)
       dut.io.memoryResponse.bits.readable.poke(true.B)
-      dut.io.memoryResponse.bits.writable.poke(false.B)
+      dut.io.memoryResponse.bits.writable.poke(true.B)
       dut.io.memoryResponse.bits.cacheable.poke(true.B)
       dut.io.memoryResponse.valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse.valid.poke(false.B)
-      dut.io.lookupReady.expect(true.B)
-      dut.io.write.poke(true.B)
-      dut.io.accessFault.expect(true.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.accessFault.expect(false.B)
+      dut.io.result.ready.poke(true.B)
+      dut.clock.step()
+
+      dut.io.result.ready.poke(false.B)
+      dut.io.lookup.bits.isStore.poke(true.B)
+      dut.io.lookup.bits.store.address.poke(BigInt("8000000000009000", 16).U)
+      dut.io.lookup.bits.store.sizeBytes.poke(8.U)
+      dut.io.lookup.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.lookup.valid.poke(false.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.accessFault.expect(true.B)
     }
   }
 
@@ -574,6 +601,7 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.io.storeLookupLineAddr.poke(0.U)
       dut.io.grantWriteValid.poke(false.B)
       dut.io.grantWriteLineAddr.poke(0.U)
+      dut.io.grantWriteData.poke(0.U)
       dut.io.storeUpdate.poke(0.U.asTypeOf(dut.io.storeUpdate))
       dut.io.refill.poke(0.U.asTypeOf(dut.io.refill))
       dut.io.evictionReady.poke(true.B)

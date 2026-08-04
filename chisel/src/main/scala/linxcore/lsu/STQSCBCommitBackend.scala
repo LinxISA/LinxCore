@@ -72,6 +72,10 @@ class STQSCBCommitBackendIO(
   val dcacheReady = Input(Bool())
   val dcacheWriteHit = Input(Bool())
   val dcacheTagHit = Input(Bool())
+  val dcacheLookupValid = Output(Bool())
+  val dcacheLookupLineAddr = Output(UInt(addrWidth.W))
+  val dcacheUpdate = Output(new SCBDCacheUpdate(
+    scbEntries, addrWidth, lineBytes))
   val l2RequestReady = Input(Bool())
   val l2Request = Output(new SCBL2OwnershipRequest(
     scbEntries, addrWidth, lineBytes, memoryTransactionIdWidth,
@@ -84,6 +88,8 @@ class STQSCBCommitBackendIO(
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
   val rawRespReady = Output(Bool())
+  val rawRespAccepted = Output(Bool())
+  val rawRespLineAddr = Output(UInt(addrWidth.W))
 
   val serializedRequest = Decoupled(new STQSerializedStoreRequest(
     entries, robEntries, addrWidth, dataWidth, sizeWidth, lsidWidth,
@@ -263,6 +269,9 @@ class STQSCBCommitBackend(
   scb.io.dcacheTagHit := io.dcacheTagHit
   scb.io.l2RequestReady := io.l2RequestReady
   io.l2Request := scb.io.l2Request
+  io.dcacheLookupValid := scb.io.lookupRequest.valid
+  io.dcacheLookupLineAddr := scb.io.lookupRequest.lineAddr
+  io.dcacheUpdate := scb.io.dcacheUpdate
   scb.io.rawRespValid := io.rawRespValid
   scb.io.rawRespTxnId := io.rawRespTxnId
   scb.io.rawRespTransactionValue := io.rawRespTransactionValue
@@ -270,6 +279,8 @@ class STQSCBCommitBackend(
   scb.io.rawRespWrite := io.rawRespWrite
   scb.io.rawRespUpgrade := io.rawRespUpgrade
   io.rawRespReady := scb.io.rawRespReady
+  io.rawRespAccepted := scb.io.rawRespAccepted
+  io.rawRespLineAddr := scb.io.rawRespLineAddr
 
   io.serializedRequest <> serializer.io.request
   serializer.io.response <> io.serializedResponse

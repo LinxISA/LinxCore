@@ -2,7 +2,8 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
-import linxcore.params.SimulationParamProfiles
+import linxcore.params.{MemoryAccessAttributes, PhysicalMemoryRegion,
+  SimulationParamProfiles}
 import linxcore.top.interface.{IEXLSUIO, LSUIO, StoreCommitAuthorizationTxn,
   StoreMemoryClass, StoreMemoryClassifyTxn, StoreReservationTxn}
 import org.scalatest.funsuite.AnyFunSuite
@@ -25,7 +26,12 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("public LSU joins reservation STA STD classification and commit by exact identity") {
-    val p = SimulationParamProfiles.W4
+    val storeAddress = BigInt("7000000000000000", 16)
+    val base = SimulationParamProfiles.W4
+    val p = base.copy(lsu = base.lsu.copy(physicalMemoryRegions = Seq(
+      PhysicalMemoryRegion(storeAddress,
+        BigInt("ffff000000000000", 16),
+        MemoryAccessAttributes(cacheable = false, device = true)))))
     simulate(new LSU(p)) { dut =>
       dut.io.iex.storeReservation.foreach { port =>
         port.valid.poke(false.B)
@@ -116,7 +122,6 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       sta.bits.memoryOrder.firstLsid.poke(11.U)
       sta.bits.memoryOrder.firstSid.poke(13.U)
       sta.bits.requestCount.poke(1.U)
-      val storeAddress = p.lsu.protectionDeviceBase
       sta.bits.address.poke(storeAddress.U)
       sta.bits.sizeBytes.poke(8.U)
       sta.valid.poke(true.B)

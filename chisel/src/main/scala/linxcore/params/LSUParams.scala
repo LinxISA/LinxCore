@@ -1,5 +1,20 @@
 package linxcore.params
 
+final case class MemoryAccessAttributes(
+    readable: Boolean = true,
+    writable: Boolean = true,
+    cacheable: Boolean = true,
+    device: Boolean = false)
+
+/** Canonical physical protection and memory-attribute region. Earlier
+  * entries have priority, and the same classifier is applied after both
+  * identity and translated mappings.
+  */
+final case class PhysicalMemoryRegion(
+    base: BigInt,
+    mask: BigInt,
+    attributes: MemoryAccessAttributes)
+
 final case class LSUParams(
     loadPipes: Int = 2,
     storePipes: Int = 2,
@@ -24,9 +39,7 @@ final case class LSUParams(
     dTranslationPageBytes: Int = 4096,
     dTranslationCounterBits: Int = 7,
     lowerMemoryTransactionsPerLane: Int = 16,
-    protectionNoAccessBase: BigInt = BigInt("7fff000000000000", 16),
-    protectionReadOnlyBase: BigInt = BigInt("7ffe000000000000", 16),
-    protectionWriteOnlyBase: BigInt = BigInt("7ffd000000000000", 16),
-    protectionDeviceBase: BigInt = BigInt("7ffc000000000000", 16),
-    protectionRegionMask: BigInt = BigInt("ffff000000000000", 16),
+    defaultMemoryAttributes: MemoryAccessAttributes =
+      MemoryAccessAttributes(),
+    physicalMemoryRegions: Seq[PhysicalMemoryRegion] = Seq.empty,
     lineBytes: Int = 64)

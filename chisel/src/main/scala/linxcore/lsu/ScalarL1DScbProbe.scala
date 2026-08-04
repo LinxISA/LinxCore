@@ -76,6 +76,7 @@ class ScalarL1DScbProbe extends Module {
   cache.io.storeUpdate := scb.io.dcacheUpdate
   cache.io.grantWriteValid := scb.io.respDecodedUpgrade
   cache.io.grantWriteLineAddr := scb.io.entries(scb.io.respDecodedEntryIndex).lineAddr
+  cache.io.grantWriteData := 0.U
   cache.io.refill.valid := io.refillValid
   cache.io.refill.lineAddr := io.refillLineAddr
   cache.io.refill.data := Fill(8, io.refillData)

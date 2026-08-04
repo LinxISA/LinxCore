@@ -53,7 +53,9 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
       sta.bits.address.poke(virtualAddress.U)
       sta.bits.sizeBytes.poke(8.U)
       sta.valid.poke(true.B)
-      sta.ready.expect(false.B)
+      sta.ready.expect(true.B)
+      dut.clock.step()
+      sta.valid.poke(false.B)
 
       val request = dut.io.memoryRequest(0)
       var cycles = 0
@@ -82,15 +84,7 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.clock.step()
       response.valid.poke(false.B)
 
-      var staReadyCycles = 0
-      while (!sta.ready.peek().litToBoolean && staReadyCycles < 8) {
-        dut.clock.step()
-        staReadyCycles += 1
-      }
-      assert(staReadyCycles < 8,
-        "exact store translation refill did not release STA")
       dut.clock.step()
-      sta.valid.poke(false.B)
 
       val std = dut.io.iex.storeData(1)
       std.bits.poke(0.U.asTypeOf(std.bits))
@@ -320,6 +314,219 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
 
 }
 
+class LSURound2PublicSpec extends AnyFunSuite with LSUMemoryTestSupport {
+
+  private def pokeStoreRob(
+      rob: linxcore.top.interface.RobIdentity): Unit = {
+    rob.peId.poke(1.U); rob.stid.poke(0.U); rob.ridSlot.poke(2.U)
+    rob.ridGeneration.poke(1.U); rob.memberIndex.poke(0.U)
+    rob.residentGeneration.poke(1.U); rob.bid.poke(1.U)
+    rob.brobGeneration.poke(1.U)
+  }
+
+  private def publishCacheableStore(dut: LSU, address: BigInt):
+      (BigInt, BigInt) = {
+    val reserve = dut.io.iex.storeReservation(0)
+    reserve.bits.poke(0.U.asTypeOf(reserve.bits))
+    reserve.bits.transactionId.poke(61.U)
+    pokeStoreRob(reserve.bits.rob)
+    reserve.bits.memoryOrder.requestCount.poke(1.U)
+    reserve.bits.memoryOrder.firstLsid.poke(21.U)
+    reserve.bits.memoryOrder.firstSid.poke(31.U)
+    reserve.bits.requestCount.poke(1.U)
+    reserve.bits.sizeBytes.poke(8.U)
+    reserve.valid.poke(true.B)
+    while (!reserve.ready.peek().litToBoolean) dut.clock.step()
+    dut.clock.step()
+    reserve.valid.poke(false.B)
+
+    val sta = dut.io.iex.storeAddress(0)
+    sta.bits.poke(0.U.asTypeOf(sta.bits))
+    pokeStoreRob(sta.bits.identity.rob)
+    sta.bits.identity.transaction.value.poke(61.U)
+    sta.bits.identity.transaction.generation.poke(1.U)
+    sta.bits.identity.lsid.poke(21.U)
+    sta.bits.identity.pipeId.poke(0.U)
+    sta.bits.memoryOrder.requestCount.poke(1.U)
+    sta.bits.memoryOrder.firstLsid.poke(21.U)
+    sta.bits.memoryOrder.firstSid.poke(31.U)
+    sta.bits.requestCount.poke(1.U)
+    sta.bits.address.poke(address.U)
+    sta.bits.sizeBytes.poke(8.U)
+    sta.valid.poke(true.B)
+    while (!sta.ready.peek().litToBoolean) dut.clock.step()
+    dut.clock.step()
+    sta.valid.poke(false.B)
+
+    val std = dut.io.iex.storeData(0)
+    std.bits.poke(0.U.asTypeOf(std.bits))
+    pokeStoreRob(std.bits.identity.rob)
+    std.bits.identity.transaction.value.poke(61.U)
+    std.bits.identity.transaction.generation.poke(1.U)
+    std.bits.identity.lsid.poke(21.U)
+    std.bits.memoryOrder.requestCount.poke(1.U)
+    std.bits.memoryOrder.firstLsid.poke(21.U)
+    std.bits.memoryOrder.firstSid.poke(31.U)
+    std.bits.requestCount.poke(1.U)
+    std.bits.sizeBytes.poke(8.U)
+    std.bits.data(0).poke("h1122334455667788".U)
+    std.bits.byteMask(0).poke("hff".U)
+    std.valid.poke(true.B)
+    while (!std.ready.peek().litToBoolean) dut.clock.step()
+    dut.clock.step()
+    std.valid.poke(false.B)
+
+    val classify = dut.io.storeClassify
+    classify.bits.poke(0.U.asTypeOf(classify.bits))
+    pokeStoreRob(classify.bits.rob)
+    classify.bits.transaction.value.poke(61.U)
+    classify.bits.transaction.generation.poke(1.U)
+    classify.bits.logicalFirstLsid.poke(21.U)
+    classify.bits.logicalFirstStoreId.poke(31.U)
+    classify.bits.requestCount.poke(1.U)
+    classify.bits.beat.poke(0.U)
+    classify.bits.memoryClass.poke(StoreMemoryClass.NormalCacheable)
+    classify.valid.poke(true.B)
+    var classifyCycles = 0
+    while (!classify.ready.peek().litToBoolean && classifyCycles < 32) {
+      dut.clock.step(); classifyCycles += 1
+    }
+    assert(classifyCycles < 32, "cacheable store classification did not resolve")
+    dut.clock.step()
+    classify.valid.poke(false.B)
+
+    val commit = dut.io.storeCommit
+    commit.bits.poke(0.U.asTypeOf(commit.bits))
+    pokeStoreRob(commit.bits.rob)
+    commit.bits.logicalFirstLsid.poke(21.U)
+    commit.bits.logicalFirstStoreId.poke(31.U)
+    commit.bits.requestCount.poke(1.U)
+    commit.valid.poke(true.B)
+    var commitCycles = 0
+    while (!commit.ready.peek().litToBoolean && commitCycles < 32) {
+      dut.clock.step(); commitCycles += 1
+    }
+    assert(commitCycles < 32, "cacheable store commit did not become ready")
+    dut.clock.step()
+    commit.valid.poke(false.B)
+
+    val ownership = dut.io.memoryRequest(dut.p.lsu.loadPipes + 1)
+    var cycles = 0
+    while (!ownership.valid.peek().litToBoolean && cycles < 64) {
+      dut.clock.step(); cycles += 1
+    }
+    assert(cycles < 64, "cacheable store did not request ownership")
+    val value = ownership.bits.identity.value.peek().litValue
+    val generation = ownership.bits.identity.generation.peek().litValue
+    dut.clock.step()
+    (value, generation)
+  }
+
+  test("presented maintenance immediately fences concurrent load and store admission") {
+    val p = SimulationParamProfiles.W4
+    simulate(new LSU(p)) { dut =>
+      initialize(dut)
+      pokeLoad(dut, 0x1800, transaction = 40)
+      val reservation = dut.io.iex.storeReservation(0)
+      reservation.bits.poke(0.U.asTypeOf(reservation.bits))
+      reservation.valid.poke(true.B)
+      dut.io.maintenance.bits.command.poke(LSUMaintenanceCommand.Fence)
+      dut.io.maintenance.bits.address.poke(0.U)
+      dut.io.maintenance.valid.poke(true.B)
+
+      dut.io.maintenance.ready.expect(true.B)
+      dut.io.iex.loadAddress(0).ready.expect(false.B)
+      reservation.ready.expect(false.B)
+      dut.clock.step()
+      dut.io.maintenance.valid.poke(false.B)
+      dut.io.iex.loadAddress(0).valid.poke(false.B)
+      reservation.valid.poke(false.B)
+
+      dut.io.maintenanceResult.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.maintenanceResult.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.maintenanceResult.valid.expect(true.B)
+      dut.io.protocolError.expect(false.B)
+    }
+  }
+
+  test("recovery prepared waits through retained public SCB response and retry states") {
+    val p = SimulationParamProfiles.W4
+    simulate(new LSU(p)) { dut =>
+      initialize(dut)
+      val (value, generation) = publishCacheableStore(dut, 0x4800)
+
+      val prepare = dut.io.recovery.prepare
+      prepare.bits.poke(0.U.asTypeOf(prepare.bits))
+      prepare.bits.transactionId.poke(94.U)
+      prepare.bits.phase.poke(RecoveryPhase.Prepare)
+      prepare.bits.cause.poke(RecoveryCause.Branch)
+      prepare.valid.poke(true.B)
+      val response = dut.io.memoryResponse(p.lsu.loadPipes + 1)
+      response.bits.poke(0.U.asTypeOf(response.bits))
+      response.bits.identity.value.poke(value.U)
+      response.bits.identity.generation.poke(generation.U)
+      response.valid.poke(true.B)
+      dut.clock.step()
+      prepare.valid.poke(false.B)
+      response.valid.poke(false.B)
+
+      dut.io.recovery.prepared.valid.expect(false.B)
+      dut.clock.step()
+      dut.io.recovery.prepared.valid.expect(false.B)
+      var cycles = 0
+      while (!dut.io.recovery.prepared.valid.peek().litToBoolean && cycles < 64) {
+        dut.clock.step(); cycles += 1
+      }
+      assert(cycles < 64, "SCB retry completion did not release recovery")
+    }
+  }
+
+  test("public dirty line invalidation fails closed") {
+    val p = SimulationParamProfiles.W4
+    simulate(new LSU(p)) { dut =>
+      initialize(dut)
+      val (value, generation) = publishCacheableStore(dut, 0x5800)
+      val response = dut.io.memoryResponse(p.lsu.loadPipes + 1)
+      response.bits.poke(0.U.asTypeOf(response.bits))
+      response.bits.identity.value.poke(value.U)
+      response.bits.identity.generation.poke(generation.U)
+      response.valid.poke(true.B)
+      dut.clock.step()
+      response.valid.poke(false.B)
+      var drain = 0
+      while (!dut.io.quiescent.peek().litToBoolean && drain < 64) {
+        dut.clock.step(); drain += 1
+      }
+      assert(drain < 64, "cacheable store did not become a dirty L1D line")
+
+      pokeLoad(dut, 0x5800, transaction = 62)
+      dut.io.iex.loadAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.iex.loadAddress(0).valid.poke(false.B)
+      var loadCycles = 0
+      while (!dut.io.iex.loadResult(0).valid.peek().litToBoolean &&
+          loadCycles < 32) {
+        dut.clock.step(); loadCycles += 1
+      }
+      assert(loadCycles < 32, "dirty store line was not publicly readable")
+      dut.io.iex.loadResult(0).bits.data.expect("h1122334455667788".U)
+      dut.clock.step()
+
+      dut.io.maintenance.bits.command.poke(LSUMaintenanceCommand.InvalidateLine)
+      dut.io.maintenance.bits.address.poke(0x5800.U)
+      dut.io.maintenance.valid.poke(true.B)
+      dut.io.maintenance.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.maintenance.valid.poke(false.B)
+      while (!dut.io.maintenanceResult.valid.peek().litToBoolean) dut.clock.step()
+      dut.io.maintenanceResult.bits.success.expect(false.B)
+      dut.io.protocolError.expect(true.B)
+    }
+  }
+}
+
 class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport {
 
   test("misaligned and denied requests complete once through the precise LSU fault boundary") {
@@ -331,6 +538,7 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
       dut.io.iex.loadAddress(0).ready.expect(true.B)
       dut.clock.step()
       dut.io.iex.loadAddress(0).valid.poke(false.B)
+      dut.clock.step()
       dut.io.memoryFault.valid.expect(true.B)
       dut.io.memoryFault.bits.identity.transaction.value.expect(41.U)
       dut.io.memoryFault.bits.cause.expect(LSUMemoryFaultCause.Alignment)
@@ -342,6 +550,9 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
 
       val virtualAddress = BigInt("800000000000a000", 16)
       pokeLoad(dut, virtualAddress, transaction = 42)
+      dut.io.iex.loadAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.iex.loadAddress(0).valid.poke(false.B)
       val request = dut.io.memoryRequest(0)
       while (!request.valid.peek().litToBoolean) dut.clock.step()
       val identity = request.bits.identity.peek()
@@ -356,9 +567,7 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
       dut.io.memoryResponse(0).valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse(0).valid.poke(false.B)
-      dut.io.iex.loadAddress(0).ready.expect(true.B)
       dut.clock.step()
-      dut.io.iex.loadAddress(0).valid.poke(false.B)
       dut.io.memoryFault.valid.expect(true.B)
       dut.io.memoryFault.bits.identity.transaction.value.expect(42.U)
       dut.io.memoryFault.bits.cause.expect(LSUMemoryFaultCause.Access)
@@ -373,6 +582,9 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
     simulate(new LSU(p)) { dut =>
       initialize(dut)
       pokeLoad(dut, virtualAddress, transaction = 43)
+      dut.io.iex.loadAddress(0).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.iex.loadAddress(0).valid.poke(false.B)
       while (!dut.io.memoryRequest(0).valid.peek().litToBoolean) dut.clock.step()
       val translationIdentity = dut.io.memoryRequest(0).bits.identity.peek()
       dut.clock.step()
@@ -386,9 +598,7 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
       dut.io.memoryResponse(1).valid.poke(true.B)
       dut.clock.step()
       dut.io.memoryResponse(1).valid.poke(false.B)
-      while (!dut.io.iex.loadAddress(0).ready.peek().litToBoolean) dut.clock.step()
       dut.clock.step()
-      dut.io.iex.loadAddress(0).valid.poke(false.B)
 
       var dataLaneOption = (0 until p.lsu.loadPipes).find(
         lane => dut.io.memoryRequest(lane).valid.peek().litToBoolean)
@@ -436,7 +646,7 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
       dut.io.maintenance.ready.expect(true.B)
       dut.clock.step()
       dut.io.maintenance.valid.poke(false.B)
-      dut.io.maintenanceResult.valid.expect(true.B)
+      while (!dut.io.maintenanceResult.valid.peek().litToBoolean) dut.clock.step()
       dut.io.quiescent.expect(false.B)
       dut.clock.step(2)
       dut.io.maintenanceResult.valid.expect(true.B)
@@ -454,7 +664,7 @@ class LSUIntegrationReviewFixSpec extends AnyFunSuite with LSUMemoryTestSupport 
         while (!dut.io.maintenance.ready.peek().litToBoolean) dut.clock.step()
         dut.clock.step()
         dut.io.maintenance.valid.poke(false.B)
-        dut.io.maintenanceResult.valid.expect(true.B)
+        while (!dut.io.maintenanceResult.valid.peek().litToBoolean) dut.clock.step()
         dut.io.maintenanceResult.bits.command.expect(command)
         dut.io.maintenanceResult.bits.success.expect(true.B)
         dut.clock.step()

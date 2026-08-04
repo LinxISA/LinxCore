@@ -2,7 +2,7 @@ package linxcore.lsu
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxLookup, PopCount, PriorityEncoder,
-  Queue, RRArbiter, UIntToOH, log2Ceil}
+  Queue, RRArbiter, UIntToOH, Valid, log2Ceil}
 import linxcore.common.{CoreParams => ScalarCoreParams, DestinationKind,
   ScalarLsuParams}
 import linxcore.ooo._
@@ -111,8 +111,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   when(io.maintenanceResult.fire) { maintenanceResultValid := false.B }
   io.protocolError := protocolErrorSticky
   val derivedStoreClassEmpty = Wire(Bool())
-  val operationFenced = lowerRecovery.io.fenced || maintenancePending ||
-    maintenanceResultValid || protocolErrorSticky
+  val operationFenced = lowerRecovery.io.fenced || io.maintenance.valid ||
+    maintenancePending || maintenanceResultValid || protocolErrorSticky
 
   private def projectMember(target: RobMemberKey,
       source: linxcore.top.interface.RobIdentity): Unit = {
@@ -219,6 +219,10 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val storeTranslationSelected = Wire(Vec(p.lsu.storePipes, Bool()))
   val storeTranslationReady = Wire(Bool())
   val storeTranslationFault = Wire(Bool())
+  val storeTranslationTxn = Wire(chiselTypeOf(io.iex.storeAddress.head.bits))
+  val storeTranslationCacheable = Wire(Bool())
+  val storeTranslationDevice = Wire(Bool())
+  val storeAddressInputReady = Wire(Vec(p.lsu.storePipes, Bool()))
   val faultSlotReady = !faultValid || io.memoryFault.ready
   val storeTranslatedAddress = Wire(UInt(p.physicalAddressWidth.W))
   for (lane <- 0 until p.lsu.storePipes) {
@@ -226,16 +230,14 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     val zeroData = Wire(Vec(p.maxMemoryRequestsPerInstruction,
       UInt(p.dataWidth.W)))
     zeroData := 0.U.asTypeOf(zeroData)
-    store.io.storeAddress(lane).valid := address.valid && !operationFenced &&
+    store.io.storeAddress(lane).valid :=
       storeTranslationSelected(lane) && storeTranslationReady &&
       !storeTranslationFault
     store.io.storeAddress(lane).bits := makeExecute(
-      address.bits.identity, address.bits.memoryOrder,
-      address.bits.requestCount, address.bits.pair,
-      storeTranslatedAddress, address.bits.sizeBytes, zeroData, 0, lane)
-    address.ready := !operationFenced && storeTranslationSelected(lane) &&
-      Mux(storeTranslationFault, faultSlotReady,
-        storeTranslationReady && store.io.storeAddress(lane).ready)
+      storeTranslationTxn.identity, storeTranslationTxn.memoryOrder,
+      storeTranslationTxn.requestCount, storeTranslationTxn.pair,
+      storeTranslatedAddress, storeTranslationTxn.sizeBytes, zeroData, 0, lane)
+    address.ready := storeAddressInputReady(lane)
 
     val data = io.iex.storeData(lane)
     store.io.storeData(lane).valid := data.valid
@@ -275,8 +277,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   io.recovery.prepare.ready :=
     store.io.recovery.prepare.ready && loadRecoveryBoundaryExact
   private val lowerDrainQuiescent = lowerRecovery.io.quiescent &&
-    translation.io.quiescent && load.io.transientEmpty &&
-    !backend.io.serializedRequest.valid && !backend.io.l2Request.valid &&
+    translation.io.quiescent && load.io.transientEmpty && backend.io.empty &&
     derivedStoreClassEmpty
   io.recovery.prepared.valid := store.io.recovery.prepared.valid &&
     lowerDrainQuiescent
@@ -354,10 +355,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     chiselTypeOf(io.storeClassify.bits), stqEntries, flow = false,
     pipe = false))
   derivedStoreClassEmpty := derivedStoreClass.io.count === 0.U
-  val derivedStoreAddress = Mux1H(storeTranslationSelected,
-    io.iex.storeAddress.map(_.bits))
+  val derivedStoreAddress = storeTranslationTxn
   derivedStoreClass.io.enq.valid := !storeTranslationFault &&
-    VecInit(io.iex.storeAddress.map(_.fire)).asUInt.orR
+    VecInit(store.io.storeAddress.map(_.fire)).asUInt.orR
   derivedStoreClass.io.enq.bits := 0.U.asTypeOf(
     derivedStoreClass.io.enq.bits)
   derivedStoreClass.io.enq.bits.rob := derivedStoreAddress.identity.rob
@@ -369,8 +369,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     derivedStoreAddress.memoryOrder.firstSid
   derivedStoreClass.io.enq.bits.requestCount :=
     derivedStoreAddress.requestCount
-  derivedStoreClass.io.enq.bits.memoryClass := Mux(translation.io.device,
-    StoreMemoryClass.Device, Mux(translation.io.cacheable,
+  derivedStoreClass.io.enq.bits.memoryClass := Mux(storeTranslationDevice,
+    StoreMemoryClass.Device, Mux(storeTranslationCacheable,
       StoreMemoryClass.NormalCacheable,
       StoreMemoryClass.NormalNonCacheable))
   when(derivedStoreClass.io.enq.valid) {
@@ -493,11 +493,13 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   backend.io.rawRespWrite := true.B
   backend.io.rawRespUpgrade := false.B
   ownershipResponse.ready := backend.io.rawRespReady
-  load.scbCache.lookupValid := false.B
-  load.scbCache.lookupLineAddr := 0.U
-  load.scbCache.update := 0.U.asTypeOf(load.scbCache.update)
-  load.scbCache.grantWriteValid := false.B
-  load.scbCache.grantWriteLineAddr := 0.U
+  load.scbCache.lookupValid := backend.io.dcacheLookupValid
+  load.scbCache.lookupLineAddr := backend.io.dcacheLookupLineAddr
+  load.scbCache.update := backend.io.dcacheUpdate
+  load.scbCache.grantWriteValid := backend.io.rawRespAccepted
+  load.scbCache.grantWriteLineAddr := backend.io.rawRespLineAddr
+  load.scbCache.grantWriteData := Fill(
+    scalarLsu.lineBytes / (p.dataWidth / 8), ownershipResponse.bits.data)
 
   // Every load-owner input is assigned explicitly below. No unknown value may
   // enter the canonical LIQ/MDB/cache graph through the public LSU boundary.
@@ -531,34 +533,58 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val loadIssueArbiter = Module(new RRArbiter(
     chiselTypeOf(io.iex.loadAddress.head.bits), p.lsu.loadPipes))
   for (lane <- 0 until p.lsu.loadPipes) {
-    loadIssueArbiter.io.in(lane) <> io.iex.loadAddress(lane)
+    loadIssueArbiter.io.in(lane).valid := io.iex.loadAddress(lane).valid
+    loadIssueArbiter.io.in(lane).bits := io.iex.loadAddress(lane).bits
+    io.iex.loadAddress(lane).ready := loadIssueArbiter.io.in(lane).ready
   }
-  val loadIssue = loadIssueArbiter.io.out
+  val incomingLoad = loadIssueArbiter.io.out
   val storeTranslationCandidates = VecInit(
     io.iex.storeAddress.map(_.valid))
   val storeTranslationIndex = PriorityEncoder(storeTranslationCandidates)
   val storeTranslationRequest = storeTranslationCandidates.asUInt.orR
-  val loadTranslationSelected = loadIssue.valid
+  val loadTranslationSelected = incomingLoad.valid
   for (lane <- 0 until p.lsu.storePipes) {
-    storeTranslationSelected(lane) := !loadTranslationSelected &&
-      storeTranslationRequest && storeTranslationIndex === lane.U
+    storeAddressInputReady(lane) := !operationFenced &&
+      !loadTranslationSelected && storeTranslationIndex === lane.U &&
+      translation.io.lookup.ready
   }
   val selectedStoreAddress = io.iex.storeAddress(storeTranslationIndex)
-  translation.io.lookupValid := !operationFenced &&
-    (loadIssue.valid || storeTranslationRequest)
-  translation.io.virtualAddress := Mux(loadTranslationSelected,
-    loadIssue.bits.address, selectedStoreAddress.bits.address)
-  translation.io.sizeBytes := Mux(loadTranslationSelected,
-    loadIssue.bits.sizeBytes, selectedStoreAddress.bits.sizeBytes)
-  translation.io.write := !loadTranslationSelected
-  translation.io.lookupFire := translation.io.lookupValid &&
-    translation.io.miss && translation.io.quiescent
-  storeTranslationReady := translation.io.lookupReady
-  storeTranslationFault := translation.io.alignmentFault ||
-    translation.io.accessFault
-  storeTranslatedAddress := translation.io.physicalAddress
-  load.io.allocValid := loadIssue.valid && !operationFenced &&
-    translation.io.lookupReady && !storeTranslationFault
+  translation.io.lookup.valid := !operationFenced &&
+    (incomingLoad.valid || storeTranslationRequest)
+  translation.io.lookup.bits := 0.U.asTypeOf(translation.io.lookup.bits)
+  translation.io.lookup.bits.isStore := !loadTranslationSelected
+  translation.io.lookup.bits.load := incomingLoad.bits
+  translation.io.lookup.bits.store := selectedStoreAddress.bits
+  incomingLoad.ready := !operationFenced && loadTranslationSelected &&
+    translation.io.lookup.ready
+
+  val translated = translation.io.result
+  val translatedLoad = translated.valid && !translated.bits.request.isStore
+  val translatedStore = translated.valid && translated.bits.request.isStore
+  val loadIssue = Wire(Valid(chiselTypeOf(io.iex.loadAddress.head.bits)))
+  loadIssue.valid := translatedLoad
+  loadIssue.bits := translated.bits.request.load
+  val translatedStoreLane = translated.bits.request.store.identity.pipeId
+  for (lane <- 0 until p.lsu.storePipes) {
+    storeTranslationSelected(lane) := translated.valid &&
+      translated.bits.request.isStore && translatedStoreLane === lane.U
+  }
+  storeTranslationTxn := translated.bits.request.store
+  storeTranslationReady := translated.valid
+  storeTranslationFault := translated.bits.alignmentFault ||
+    translated.bits.accessFault
+  storeTranslatedAddress := translated.bits.physicalAddress
+  storeTranslationCacheable := translated.bits.cacheable
+  storeTranslationDevice := translated.bits.device
+  val translatedLoadFault = translatedLoad && storeTranslationFault
+  val translatedStoreFault = translatedStore && storeTranslationFault
+  val translatedStoreReady = Mux1H(storeTranslationSelected,
+    store.io.storeAddress.map(_.ready))
+  translated.ready := Mux(storeTranslationFault, faultSlotReady,
+    Mux(translated.bits.request.isStore, translatedStoreReady,
+      load.io.allocReady))
+
+  load.io.allocValid := translatedLoad && !storeTranslationFault
   load.io.alloc := 0.U.asTypeOf(load.io.alloc)
   projectRobId(load.io.alloc.bid, loadIssue.bits.identity.rob.bid)
   projectRobId(load.io.alloc.gid, loadIssue.bits.identity.rob.ridSlot)
@@ -591,7 +617,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.io.alloc.stid := loadIssue.bits.identity.rob.stid
   load.io.alloc.tid := loadIssue.bits.identity.rob.stid
   load.io.alloc.pc := loadIssue.bits.pc
-  load.io.alloc.addr := translation.io.physicalAddress
+  load.io.alloc.addr := translated.bits.physicalAddress
   load.io.alloc.size := loadIssue.bits.sizeBytes
   load.io.alloc.returnSignExtend := loadIssue.bits.signed
   load.io.alloc.dst.valid := loadIssue.bits.destination.valid
@@ -608,39 +634,31 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     loadIssue.bits.youngestStoreValid
   load.io.alloc.youngestStoreLsIdFull := loadIssue.bits.youngestStoreLsid
   load.io.alloc.returnPipeIndex := loadIssue.bits.identity.pipeId
-  loadIssue.ready := !operationFenced && Mux(storeTranslationFault,
-    faultSlotReady, translation.io.lookupReady && load.io.allocReady)
-
   io.iex.loadAllocation.foreach { out =>
     out.valid := false.B
     out.bits := 0.U.asTypeOf(out.bits)
   }
   for (lane <- 0 until p.lsu.loadPipes) {
     val allocation = io.iex.loadAllocation(lane)
-    allocation.valid := loadIssue.valid && !operationFenced &&
-      translation.io.lookupReady && !storeTranslationFault &&
-      loadIssueArbiter.io.chosen === lane.U
+    allocation.valid := translatedLoad && !storeTranslationFault &&
+      translated.ready && loadIssue.bits.identity.pipeId === lane.U
     allocation.bits.identity := loadIssue.bits.identity
     allocation.bits.allocationId.value := load.io.allocLoadId.value
     allocation.bits.allocationId.generation :=
       load.io.allocLoadId.wrap.asUInt
   }
 
-  val loadFaultFire = loadTranslationSelected && loadIssue.fire &&
-    storeTranslationFault
-  val storeFaultFire = VecInit((0 until p.lsu.storePipes).map { lane =>
-    storeTranslationSelected(lane) && io.iex.storeAddress(lane).fire &&
-      storeTranslationFault
-  }).asUInt.orR
+  val loadFaultFire = translated.fire && translatedLoadFault
+  val storeFaultFire = translated.fire && translatedStoreFault
   when(loadFaultFire || storeFaultFire) {
     faultValid := true.B
     faultBits := 0.U.asTypeOf(faultBits)
     faultBits.identity := Mux(loadFaultFire, loadIssue.bits.identity,
-      selectedStoreAddress.bits.identity)
+      translated.bits.request.store.identity)
     faultBits.address := Mux(loadFaultFire, loadIssue.bits.address,
-      selectedStoreAddress.bits.address)
+      translated.bits.request.store.address)
     faultBits.write := storeFaultFire
-    faultBits.cause := Mux(translation.io.alignmentFault,
+    faultBits.cause := Mux(translated.bits.alignmentFault,
       LSUMemoryFaultCause.Alignment, LSUMemoryFaultCause.Access)
   }
 
@@ -1012,13 +1030,20 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val maintenanceDrainReadyNow = store.io.empty && backend.io.empty &&
     load.io.empty && translation.io.quiescent && lowerRecovery.io.quiescent &&
     !loadRecoveryPending && !faultValid && derivedStoreClassEmpty
-  val maintenanceDrainReady = RegNext(maintenanceDrainReadyNow, true.B)
-  val maintenanceExecute = (maintenancePending || io.maintenance.fire) &&
-    maintenanceDrainReady
-  val executingMaintenanceCommand = Mux(io.maintenance.fire,
-    io.maintenance.bits.command, maintenanceCommand)
-  val executingMaintenanceAddress = Mux(io.maintenance.fire,
-    io.maintenance.bits.address, maintenanceAddress)
+  val maintenanceDrainObserved = RegInit(false.B)
+  when(io.maintenance.fire) {
+    maintenanceDrainObserved := false.B
+  }.elsewhen(maintenancePending) {
+    maintenanceDrainObserved := maintenanceDrainReadyNow
+  }.otherwise {
+    maintenanceDrainObserved := false.B
+  }
+  // The sample is taken only after the acceptance edge, while incoming valid
+  // and retained pending state fence normal admission. Registering it also
+  // breaks the L1D maintenance-to-empty feedback path.
+  val maintenanceExecute = maintenancePending && maintenanceDrainObserved
+  val executingMaintenanceCommand = maintenanceCommand
+  val executingMaintenanceAddress = maintenanceAddress
   load.io.l1dInvalidateAll := maintenanceExecute &&
     executingMaintenanceCommand === LSUMaintenanceCommand.InvalidateAll
   load.io.l1dInvalidateLineValid := maintenanceExecute &&
